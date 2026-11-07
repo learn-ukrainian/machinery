@@ -1,0 +1,13 @@
+[Unit]
+Description=Learn Ukrainian merge queue keeper
+After=network.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=@REPO_ROOT@
+Environment=PYTHONUNBUFFERED=1
+ExecStart=@REPO_ROOT@/.venv/bin/python -m scripts.orchestration.merge_queue_keeper --apply
+ExecStartPost=-@REPO_ROOT@/.venv/bin/python -m scripts.orchestration.stalled_work stalled --tick
+
+[Install]
+WantedBy=default.target

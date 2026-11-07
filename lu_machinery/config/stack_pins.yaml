@@ -1,0 +1,134 @@
+---
+# Components Dependabot does not update. review_by is the next review, not an expiry.
+# Agent CLIs: 2026-10-30. Every other row: 2026-11-16.
+# pinned: unknown and source: host means the repository does not pin a version.
+pins:
+  - name: claude-code
+    pinned: unknown
+    source: host
+    owner: Infra
+    review_by: "2026-10-30"
+    note: No exact install pin. Minimums only, in scripts/review/isolation.py (2.1.116) and acpx.py (2.1.280 for Opus).
+  - name: codex
+    pinned: unknown
+    source: host
+    owner: Infra
+    review_by: "2026-10-30"
+    note: Resolved by shutil.which in scripts/ai_agent_bridge/_config.py. The repo does not pin a version.
+  - name: grok
+    pinned: unknown
+    source: host
+    owner: Infra
+    review_by: "2026-10-30"
+    note: No CLI version pin. Admitted model grok-4.7 is in scripts/agent_runtime/adapters/grok_build.py.
+  - name: cursor-agent
+    pinned: unknown
+    source: host
+    owner: Infra
+    review_by: "2026-10-30"
+    note: Executable name only, in scripts/orchestration/worker_leftovers.py. The install version is not pinned.
+  - name: agy
+    pinned: unknown
+    source: host
+    owner: Infra
+    review_by: "2026-10-30"
+    note: No install pin. Background-wait floor is 1.2.9 in scripts/agent_runtime/adapters/agy.py.
+  - name: gh
+    pinned: unknown
+    source: host
+    owner: DevOps
+    review_by: "2026-11-16"
+    note: The GitHub CLI is installed on the host. The repo does not pin a version.
+  - name: uv
+    pinned: "0.12.9"
+    source: .github/actions/python-ci-env/action.yml
+    owner: DevOps
+    review_by: "2026-11-16"
+    note: version input of astral-sh/setup-uv. The action SHA is Dependabot's.
+  - name: python
+    pinned: "3.12.15"
+    source: .python-version
+    owner: DevOps
+    review_by: "2026-11-16"
+    note: CI reads this via python-version-file. pyproject.toml requires-python is >=3.12.
+  - name: node
+    pinned: "22.23.4"
+    source: .nvmrc
+    owner: DevOps
+    review_by: "2026-11-16"
+    note: package.json engines is 22.23.4. Workflows read .nvmrc via node-version-file. validate-yaml.yml schema-check passes 20.
+  - name: sqlite
+    pinned: unknown
+    source: host
+    owner: DevOps
+    review_by: "2026-11-16"
+    note: No install pin. scripts/lexicon/enrich_manifest.py requires sqlite 3.34.0 or newer for one FTS path.
+  - name: postgresql
+    pinned: "16"
+    source: scripts/ci/start_postgres.sh
+    owner: DevOps
+    review_by: "2026-11-16"
+    note: CI installs the postgresql-16 packages and starts cluster 16/main.
+  - name: prometheus
+    pinned: unknown
+    source: host
+    owner: DevOps
+    review_by: "2026-11-16"
+    note: No Prometheus version pin in the repo. Monitoring packages are host-installed.
+  - name: grafana
+    pinned: unknown
+    source: host
+    owner: DevOps
+    review_by: "2026-11-16"
+    note: No Grafana version pin in the repo. Monitoring packages are host-installed.
+  - name: alertmanager
+    pinned: unknown
+    source: host
+    owner: DevOps
+    review_by: "2026-11-16"
+    note: No Alertmanager version pin in the repo. Monitoring packages are host-installed.
+  - name: exporters
+    pinned: unknown
+    source: host
+    owner: DevOps
+    review_by: "2026-11-16"
+    note: No exporter version pin in the repo. Monitoring packages are host-installed.
+  - name: mcp-servers
+    pinned: unknown
+    source: host
+    owner: Infra
+    review_by: "2026-11-16"
+    note: .mcp.json declares the sources server and does not pin a version.
+  - name: pinned-model-ids
+    pinned: >-
+      gpt-6.1-sol, gpt-6-luna, claude-opus-5-5,
+      claude-haiku-5-5, claude-sonnet-5-5, gemini-3.8-flash-high,
+      grok-4.7, deepseek-v4.1-flash
+    source: scripts/config/model_catalog.yaml
+    owner: Infra
+    review_by: "2026-11-16"
+    note: schema_version model-catalog.v1, reviewed_on 2026-10-23. Current default pins omit parked Fable 5.1 (explicit pin only) and retired Kimi ids (OO-58, #11327). Only active models with admitted transports may route. Unsubscribed models are retired (operator 2026-10-23).
+  - name: ci-literals
+    pinned: ubuntu-latest
+    source: .github/workflows/ci.yml
+    owner: DevOps
+    review_by: "2026-11-16"
+    note: Runner image tag. The TruffleHog scanner image tag in the same file is 3.99.0; action SHAs are Dependabot's.
+  - name: browser-and-test-runtimes
+    pinned: unknown
+    source: host
+    owner: DevOps
+    review_by: "2026-11-16"
+    note: Playwright drives the host's installed Google Chrome (apt, auto-updated), sandbox on, never bundled browsers (#12689). The npm and pip Playwright packages are 1.64.1; the pip pin is Dependabot's.
+  - name: deployment-tooling
+    pinned: unknown
+    source: host
+    owner: DevOps
+    review_by: "2026-11-16"
+    note: Pages workflow deploy-pages.yml uses the Node and Python pins. No separate deploy CLI version.
+  - name: backup-restore
+    pinned: unknown
+    source: host
+    owner: DevOps
+    review_by: "2026-11-16"
+    note: Host restic and rclone via scripts/backup-data.sh. No version pin; restore must match that snapshot format.

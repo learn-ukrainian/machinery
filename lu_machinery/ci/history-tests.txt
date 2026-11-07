@@ -1,0 +1,17 @@
+# Test files that need git history or the network. scripts/ci/split_tests.py
+# pins them to pytest shard 1, the only shard ci.yml checks out with full
+# history (fetch-depth: 0). Every other shard is a shallow checkout
+# (fetch-depth: 1) and runs pytest with GIT_ALLOW_PROTOCOL=file. There, a test
+# that reads history fails with git exit 128, and a test that fetches from
+# GitHub fails on the blocked https transport. Neither can pass silently; add
+# its file here. See docs/runbooks/ci-gate.md "History shard".
+
+# Read old commits.
+tests/atlas/test_a1_vocabulary_inventory.py  # git ls-tree/show at frozen A1-v1 commit
+tests/build/test_reviewer_scoring_parity.py  # git show <old sha>:<path>
+tests/orchestration/test_curriculum_lifecycle_pilot.py  # verifies a recorded historical commit
+tests/review/test_model_catalog.py  # recaptures routing source contracts at the frozen base commit
+tests/backup_data_script/test_full_restore.py  # git show <pre-batching base sha>:scripts/backup-data.sh
+tests/test_gemma_hardware_probe.py  # git cat-file blob <pre-migration sha>:<path>
+tests/test_open_model_phase3_source_universe_freeze_validator.py  # origin/main and merge-base ancestry
+tests/test_storage_classification_table.py  # classification table at a frozen base commit

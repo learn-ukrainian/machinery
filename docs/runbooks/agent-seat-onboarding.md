@@ -1,0 +1,894 @@
+# Agent seat onboarding — fleet cooperation and ACPX
+
+For an authorized CLI seat move, follow [Move a driver seat to another CLI](driver-seat-cli-move.md); the launcher owns lease release.
+
+**Audience:** every supported fleet seat on cold-start (interactive TUI, driver
+launcher, headless dispatch).
+**Product epic:** #6027 · **Stream:** #4707 (`infra-harness`).
+**Status:** documentation contract for the structured-ACP + KimiCC rollout.
+**Live routing data:** always re-read `GET /api/rules`,
+`scripts/config/model_catalog.yaml`, and
+`.venv/bin/python -m scripts.fleet_comms plane-status` — never hard-code live
+plane mode, model pins, or formal-review eligibility from memory.
+
+This runbook is the **canonical task-oriented entry point** for seat onboarding.
+Other docs point here for ownership and ACPX scope; they do not restate mutable
+caps or live modes.
+
+---
+
+## Read first (cold-start order)
+
+0. **Epic drivers:** run `.venv/bin/python -m scripts.fleet_comms cold-start-board` first —
+   it probes fleet/plane/stream state so this list starts from live data, not memory.
+1. Operator contract + model assignment via `GET /api/rules` (offline fallbacks
+   under `agents_extensions/shared/rules/`).
+2. This runbook — ownership matrix, experimental ACPX boundary, Kimi routes.
+3. Fleet-comms durable-authority rule:
+   [`agents_extensions/shared/rules/fleet-comms-coordination.md`](../../agents_extensions/shared/rules/fleet-comms-coordination.md).
+4. Epic seat routing (operator launch reminder only):
+   [`epic-orchestrator-roster.md`](epic-orchestrator-roster.md).
+5. Runtime entrypoints:
+   [`docs/agent-runtime-guide.md`](../agent-runtime-guide.md) and
+   [`docs/SCRIPTS.md`](../SCRIPTS.md).
+6. Cooperation detail (deliberation, Green Team, V2):
+   [`docs/best-practices/agent-cooperation.md`](../best-practices/agent-cooperation.md).
+
+---
+
+## Infra, Atlas, and supervisor cold-start
+
+Use the assigned stream and launcher contract for every seat. Fleet-comms is
+the durable coordination authority; this runbook teaches entry and ownership,
+and `drive-epic` teaches the driver loop. Neither a Work projection nor a local
+handoff creates a competing authority.
+
+- **Entry and execution:** an epic driver uses the supported
+  `start-<provider>-driver.sh --epic <epic>` entrypoint. An interactive seat is
+  not a driver. Keep implementation and tests in the assigned dispatch worktree;
+  use the shared primary interpreter described below. For a remote seat, use
+  its configured Monitor endpoint and assigned execution checkout; do not
+  assume the UI machine is the execution host or fall back to local authority
+  when the remote endpoint is unavailable.
+- **Lease and identity:** the driver launcher has already claimed the stream
+  lease and supplied `SESSION_STREAM_*`, `SESSION_EPIC`, and
+  `SESSION_HANDOFF_AGENT`. Do not open/resume it yourself. An occupied lease
+  fails closed: no second supervisor, no alternate identity, and no local
+  lease fallback. Remote leases remain live until `expires_at`, regardless of
+  local PID observations; wait for expiry or an attributed operator release.
+  Local Git checkout HEAD (`git status` / `git rev-parse`) and the tunneled
+  Monitor service's reported HEAD are independent facts from independent
+  sources; a mismatch between them alone is not a defect requiring
+  reconciliation, and it is never grounds for an automatic primary-checkout
+  update or for borrowing another session's identity.
+- **Orient:** read rules, `plane-status`, and the assigned stream's continuity.
+  Query the public Work surfaces through the configured Monitor endpoint:
+  `GET /api/work/v1/projection?stream=<your-stream>` (normalized attention list, denominator,
+  `cache_age_s`), `GET /api/work/v1/next?stream=<your-stream>` (stream-scoped
+  pick list), `GET /api/work/v1/capabilities` (schema digest, budgets,
+  private-source seam), and `GET /api/work/v1/health` (cheap liveness only —
+  not a substitute for the projection's own health/attention fields). GitHub
+  Issues and PRs remain the source of truth; Work is a queue input alongside
+  canonical stream and GitHub state, never a replacement for either. Inspect
+  `health`, `attention_rank`, and `safe_next_action`; `UNKNOWN` means
+  missing/stale authority, with `INSPECT_UNKNOWN`, not permission to execute.
+  A cold next-queue cache returns `503 building` with `retry_after_s`; a
+  cache older than `max_stale_s` returns `503 stale`; an unknown stream
+  returns `400` with `valid_streams`. Do not invent an empty queue or another
+  stream to bypass these responses. The projection's denominator (capped-1000
+  open issues/PRs, the streams response, and class-4 summaries) sets
+  `truncated=true` when a cap is hit; treat a truncated, stale, or `UNKNOWN`
+  Work signal as reduced coverage, not as proof no work exists — consult
+  GitHub Issues/PRs directly for anything Work reports that way. A sibling
+  private Work adapter exists for the browser-local dual-source projection
+  (`docs/monitor-api/work.md`): it answers its own loopback-only
+  `GET /v1/health` and `GET /v1/projection` for that browser client, the
+  public server never fetches or proxies it, and it is not reachable or
+  configurable from an agent seat. The public capability seam reporting
+  `available: false` / `reason_if_unavailable: not_configured` is that
+  privacy seam holding by design, not evidence the private adapter is down —
+  do not read `not_configured` as an outage, and do not try to reach, guess,
+  or configure a private endpoint from this seat.
+- **Live delivery:** the live driver reads and applies its own inbox, then runs
+  the project bridge `ack --consumed-by-live-driver <message-id>`. Plain `ack`,
+  detached worker processing, and a wake signal are not live-consumption proof.
+  Continue the required inbox drain in `drive-epic`; do not launch another
+  supervisor to wake the current one.
+- **Privacy:** public guidance and PR evidence remain environment-neutral.
+  Keep host topology, concrete execution paths, endpoint configuration,
+  credentials, and operational transcripts in private operational evidence.
+  This covers the private Work adapter: its role and read-only contract are
+  documented in `docs/monitor-api/work.md`, but its concrete host, port, and
+  deployment location are operational topology and stay private.
+
+## Cleanup ownership
+
+The dispatcher removes each task's own worktree when the task settles and records
+`worktree_disposition` in the task record; a retained tree names its reason. After GitHub
+reports an exact-head PR as `MERGED`, run
+`.venv/bin/python -m scripts.orchestration.merge_closeout <PR> --apply` from the primary
+checkout. Remove a leftover worktree only with
+`.venv/bin/python -m scripts.orchestration.worktree_claims remove <path> --owner-task-id <id> --reason '<why>'`,
+following [the worktree-cleanup runbook](worktree-cleanup.md); never use raw `git worktree remove`.
+
+---
+
+## Ownership matrix (do not conflate)
+
+| Surface | Owns | Never owns |
+| --- | --- | --- |
+| **`discuss`** (bridge) | An observable exception for agent communication that ACP cannot serve; bounded multi-agent deliberation and design input | Implementation, merge authority, or the formal cross-family review gate |
+| **`scripts/dispatch.py dispatch`** | Isolated implementation execution in a worktree | Durable fleet authority or formal CF |
+| **Fleet-comms + legacy file handoffs** | Durable coordination authority in `authority` mode; legacy file stores remain read-only migration/projection inputs | Competing message buses; new legacy writes; silent plane/retention/eligibility flips |
+| **ACPX** | Routine first-choice structured transport for eligible 2-to-4-seat read-only communication; fleet launchers make `discuss` select it automatically for Codex, Grok, Claude, Cursor, Pool, AGY/Gemini, GLM, and DeepSeek (Kimi is retired, OO-58); not a coordination plane | Persistent sessions, backlog, auto-retries, unrestricted chat, plane flips, review eligibility |
+| **Buzz** | **Explicitly deferred** | Anything in this rollout — relay-as-authority conflicts with the current authority model |
+
+### Caveman output-style skill
+
+Shared skill `agents_extensions/shared/skills/caveman/` — default intensity **lite**
+(drop filler/hedging; keep articles and full sentences). `npm run agents:deploy`
+(`scripts/deploy_prompts.sh`) rsyncs it to `.claude/skills/caveman`, the `.agent`
+overlay, `.agents/skills/caveman`, and `.gemini/skills/caveman`. Codex discovers
+shared skills only through `.agents/skills`; Git `agents_extensions` remains
+canonical. Verified legacy `.codex/skills` trees move atomically to unique
+`.codex/retired-skills/<capture>/skills` backups, retained across later deploys.
+Migration never deletes backup contents, including concurrent writes; modified
+or unverified content and recreated active paths require reconciliation. Never
+hand-edit active deploy copies. Caveman is **style only** — never persisted artifacts (commits, PR/issue
+bodies, curriculum, runbooks, review-of-record text on GitHub) and never a substitute for
+fleet-comms durable state. Cursor, Kimi, GLM, and OpenCode consume it through the **host
+harness** skill tree of the CLI that actually launches them, not
+a model-named extra copy.
+
+### Human overview pages
+
+| Page | Canonical observer role | Browser boundary |
+| --- | --- | --- |
+| **ACP Conversations** (`/acp.html`) | Readable Codex↔Grok ACP transcripts plus the operational event rail | Read-only; cannot start, steer, retry, or cancel ACP |
+| **Channels** (`/channels.html`) | Shared channel, thread, context, and delivery visibility | Read-only; send from an agent TUI or the project bridge CLI |
+| **Broker Ops** (`/comms.html`) | Legacy broker messages, zombies, batch progress, and health during migration | Read-only; no browser message composition |
+| **Build Events** (`/build-events.html`) | Active and recent build activity | Replaces the retired duplicate Comms activity feed |
+| **Runtime** (`/runtime.html`) | Runtime health plus the loaded/recent **Routing overview** for initiator, request, selected route/model, outcome, and lifecycle evidence | Read-only; filters, search, details, and load-more never select, retry, cancel, reclaim, or reroute work |
+
+The legacy send, post, and acknowledgement APIs remain available to their
+current project CLI callers. Do not remove those routes or the Broker Ops page
+until caller telemetry proves the old paths are unused and every unique
+operations panel has a canonical replacement.
+
+### Read the routing overview correctly
+
+Use `/runtime.html` → **Routing overview** for the human view, or query
+`GET /api/runtime/routing-assignments?limit=100` for the same body-free
+authority projection. The four summary cards, lifecycle groups, filters, and
+route distribution describe only the assignments returned in that loaded
+recent window. They are not all-time fleet totals, configured routing weights,
+provider quotas, or evidence of caching.
+
+Read each decision path from left to right:
+
+1. **Initiator** identifies the orchestrator/caller responsible for the
+   request; author model/family describes the work being reviewed or routed.
+2. **Request** records the requested role, profile, risk, and whether selection
+   was `AUTOMATIC` or `EXPLICIT`. An explicit assignment may be intentionally
+   concentrated because the orchestrator pinned a reviewer.
+3. **Selected route/model** is the durable scheduler result, not proof that the
+   provider completed successfully.
+4. **Outcome** and **Failure record** show the terminal classification. Expand
+   **Decision evidence & operational details** for selection reasoning, quota
+   freshness, capacity facts, retry/failover/replay state, and chronological
+   authority events.
+
+An active row with “No ledger update” is stale activity evidence only. It is
+not provider-liveness proof: it establishes neither that a provider process is
+alive nor dead and does not authorize early lease reclamation. Before
+diagnosing unfair routing or a bad orchestrator,
+filter by mode, initiator, route, and lifecycle; inspect the durable event and
+selection trace; then corroborate current headroom with CodexBar and authority
+job/reservation state. Never infer provider health from route counts alone.
+
+### Discuss is not formal review
+
+`.venv/bin/python scripts/ai_agent_bridge/__main__.py discuss` produces design
+input and transcripts. It does **not** satisfy independent cross-family review.
+
+Formal CF uses one direct `ask-<lane> --type review` request to a qualified
+reviewer outside the author's model family, followed by a verdict and findings
+posted as a PR comment (`.venv/bin/python -m scripts.publish pr-comment --number <N>` or `.venv/bin/python -m scripts.publish pr-review --number <N>`) bound to the exact
+head SHA. Review requests route to a native toolful worktree seat; ordinary
+ACP/ACPX transport is toolless and cannot ground a tree review. Follow the canonical
+[fleet-comms review method](../../agents_extensions/shared/rules/fleet-comms-coordination.md#required-primitives-tool-backed)
+and [local-code-review workflow](../../agents_extensions/shared/skills/local-code-review/SKILL.md).
+
+Sealed `review-pr`, `publish-review-verdict`, and `lu-review-*` trees are
+**retired — do not use** (removed in #8520). Do not enable a test-only bypass. Resolve current
+model/family/harness identity from the live catalog; unknown identity cannot
+establish cross-family independence. Same-family helpers, design panels, and
+channel chat do not satisfy the review gate. Required CI and the exact-head
+cross-family verdict must pass before the accountable owner merges.
+
+### Delegate is execution, not coordination
+
+#### Shared Python environment
+
+The primary checkout's `.venv` is shared project tooling; a dispatch worktree
+must never create, copy, symlink, activate, or use its own `.venv`. Derive the
+primary root from the linked worktree and invoke its interpreter by absolute
+path. Never fall back to `python`, `.venv/bin/python`, or `python -m venv .venv`.
+
+```bash
+PRIMARY_REPO="$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")"
+"$PRIMARY_REPO/.venv/bin/python" scripts/dispatch.py dispatch --model <catalog-model> \
+  --agent <lane> --task-id <id> --prompt-file <path> --worktree
+```
+
+The delegate worker preamble repeats this constraint. If preparation finds a
+local worktree `.venv`, it records a warning rather than removing a potentially
+active environment; the merged-PR worktree reaper disposes of it safely.
+
+Workers implement inside `.worktrees/dispatch/<agent>/<task>/`. They do not
+become a second coordination plane.
+
+#### Sibling-repo dispatch
+
+`--worktree` and `--branch` default to the Learn Ukrainian primary checkout
+that owns `scripts/dispatch.py` (`_REPO_ROOT`). They do **not** follow the
+shell cwd. Invoking `dispatch --worktree` from a sibling repository (for
+example a private checkout next to this one) without `--repo` is refused: the
+worktree would otherwise be created under the primary while the brief still
+described the sibling (#6900).
+
+**Preferred (#672 P2.1):** pass an allowlisted `--repo` key from
+`scripts/config/fleet_repos.yaml` so delegate creates the layout-A worktree
+under that sibling checkout:
+
+```bash
+LU_PRIMARY="$(dirname "$(git -C /path/to/learn-ukrainian rev-parse --path-format=absolute --git-common-dir)")"
+"$LU_PRIMARY/.venv/bin/python" "$LU_PRIMARY/scripts/dispatch.py" dispatch \
+  --agent <lane> --task-id <id> --prompt-file <path> \
+  --mode workspace-write --repo hramatka --worktree
+```
+
+Allowlisted keys today: `public` (default), `infra-private`, `hramatka`.
+Missing sibling checkouts fail closed with a clone hint. Task JSON and
+Monitor/fleet-comms stay on the public primary control plane; `--repo` only
+retargets git worktree creation (and, for landing helpers, the GitHub slug).
+
+**Legacy manual flow** (still valid):
+
+```bash
+# In the sibling repository — not via delegate --worktree:
+git -C /path/to/sibling worktree add .worktrees/dispatch/<agent>/<task> <base-or-branch>
+
+# Invoke this repo's delegate against that worktree (no --worktree).
+LU_PRIMARY="$(dirname "$(git -C /path/to/learn-ukrainian rev-parse --path-format=absolute --git-common-dir)")"
+"$LU_PRIMARY/.venv/bin/python" "$LU_PRIMARY/scripts/dispatch.py" dispatch \
+  --agent <lane> --task-id <id> --prompt-file <path> \
+  --mode workspace-write --cwd /path/to/sibling/.worktrees/dispatch/<agent>/<task>
+```
+
+`--branch` attach on sibling `--repo` is out of scope for P2.1 (fresh
+`--worktree` only). Reaper three-repo sweeps and history migration are later
+P2 slices — not this v1.
+
+### GPT-6 Codex role routing
+
+For bounded implementation or investigation, read the machine-readable
+`execution_routing.sol_advised_bounded` route in
+[`scripts/config/model_catalog.yaml`](../../scripts/config/model_catalog.yaml)
+before dispatching:
+
+1. Use `gpt-6.1-sol` at `high` for Codex coding and code review.
+2. Use `gpt-6-luna` at `high` for routine bounded implementation, scouting, and
+   recon, always under a complete Sol advisory envelope (operator decision 2026-09-30, #9275). There is no direct bounded dispatch
+   for Luna. `gemini-3.8-flash-high` on AGY is a general read-only and workspace-write worker and does not take an advisory task (#12291).
+3. `gpt-6.1-sol` at `high` issues that envelope in a read-only dispatch. Put the
+   worker's `--print-advisory-binding` digest and envelope request in the brief,
+   and dispatch with `--advisory-role bounded_advisory_envelope --advisory-binding
+   <digest>` (a catalog `advisory_roles` decision). The envelope
+   holds the task contract, exact owned paths, maximum changed-file and
+   non-test-LOC ceilings, constraints, risk boundaries, acceptance evidence, and
+   escalation triggers. In this role Sol advises; it is not the bounded task's
+   implementer or reviewer.
+4. The worker is dispatched with `--advisory-task <advisor task id>` and an
+   `--owned-path` set equal to the envelope's. `dispatch.py` refuses a bounded
+   dispatch without a complete bound envelope and fails the worker at finalize when
+   its diff exceeds the ceilings. Luna escalates any ceiling overrun,
+   consequential architecture, security, release, high-risk go/no-go, unresolved
+   consequential ambiguity, broader integration, and final disposition. A
+   Sol advisory envelope is same-family context and never replaces required independent
+   cross-family review.
+
+Record the envelope and Luna's acceptance evidence with the task handoff. If an
+escalation trigger fires, stop bounded execution and return the unresolved point
+to Sol at `high` or the accountable orchestrator before making a consequential decision.
+
+### Fleet-comms authority and legacy projections
+
+```bash
+.venv/bin/python -m scripts.fleet_comms plane-status
+```
+
+- Implemented modes are `off` | `shadow` | `dual_write` | `authority`.
+- In `authority` mode Fleet Comms is the durable source of truth; legacy file
+  stores are read-only migration/projection inputs and receive no new writes.
+- `dual_write` is a compatibility soak/rollback mode, not normal authority.
+- Do not hard-code a live mode in docs or prompts — always query `plane-status`.
+- Plane / retention-apply / `formal_review_eligible` flips belong to the
+  infra/harness lane after parity + present-tense operator/advisor GO.
+
+### Grok dispatch through Cursor
+
+Native Grok dispatch is retired. Dispatch v2 rejects `--agent grok` (`unknown agent`).
+Use the explicit Cursor seat at `grok-4.7-high`:
+
+```bash
+.venv/bin/python scripts/dispatch.py dispatch --agent cursor --model grok-4.7-high \
+  --mode read-only --task-id <task-id> --prompt-file <brief>
+```
+
+The Cursor model pin supplies high effort. The former native Grok CLI effort
+vocabulary is not a dispatch v2 contract. Native Grok CLI callers outside detached
+dispatch retain their own interfaces.
+
+### ACPX — structured transport boundary
+
+ACPX is **not** a coordination product and **not** a second fleet bus.
+Direct-only participant seats are **not a new coordination plane**:
+Fleet Comms remains the durable authority in `authority` mode, while legacy
+message-plane files remain read-only migration/projection inputs. The
+Codex/Grok shadow comparison remains available, while the active bounded
+controller may use any enabled participant from the fixed registry.
+
+**Historical Grok pilot evidence (#6043):** the 2026-07-30 snapshot from
+`/api/comms/live-activity?limit=500&minutes=120` contained 95 broker
+dispatches: Codex 26, grok-atlas 25, Claude 22, and the remaining **22** from
+Gemini 11, OpenCode 6, GLM 4, and AGY 1. The same-day direct-runtime sample
+had Grok 1. This dated evidence justified the second pilot. These are
+not permanent routing weights and do not override current CodexBar headroom.
+
+**Exact contract (#6027, #6043, #6078, #6130, #6158, #6249):**
+
+- Feature flag `LU_ACPX_TRANSPORT=off|shadow|active`, **default `off`**.
+  `shadow` is the unchanged comparison pilot. `active` is accepted only by the
+  explicit `acp-discuss` controller described below.
+- Direct-only seat names include `acpx-codex-shadow`, `acpx-grok-shadow`,
+  `acpx-claude-shadow`, `acpx-cursor-shadow`, `acpx-pool-shadow`, `acpx-agy-shadow`,
+  `acpx-glm-shadow`, `acpx-gemma-shadow`, and `acpx-deepseek-shadow`; never
+  registered for dispatch, routing, review, or failover.
+- ACPX, Grok, AGY, and OpenCode use rolling compatibility contracts.
+  Immediately before spawn, each adapter checks the exact command and flags
+  it will invoke; versions are recorded for telemetry but are not allowlists.
+  An observed version is diagnostic evidence, not an allowlist or runtime pin.
+  The contracts are `json-one-shot-v1` (ACPX), `agent-stdio-v1` (Grok),
+  `text-plan-sandbox-v1` (AGY), and `native-acp-pure-v1` (OpenCode).
+  The historical `text-oneshot-isolated-v1` Hermes contract is retired;
+  it is not a live DeepSeek route. This does not forbid the separately authorized
+  Grok/Codex launcher `--harness hermes` path (authorized under public #6943).
+  ACPX built-ins are checked through their `<seat> exec --file` surface rather
+  than by duplicating pins for the hidden provider executables. The project
+  text ACP server remains digest-checked before use.
+- Claude is the one built-in with an additional installed-package invariant:
+  `@agentclientprotocol/claude-agent-acp` must resolve from the same
+  project-local `node_modules` tree as ACPX and satisfy
+  `installed>=0.64.2<1`. The manifest keeps that rolling range while the
+  lockfile records the exact installed release. Missing, incompatible, or
+  unsafe package/bin metadata fails before prompt delivery; ACPX must not
+  fall back to per-call package execution.
+- The Claude adapter never runs its bundled Claude Code: each launch pins the
+  host `claude` real path, runs it through the repo-owned launcher that
+  `CLAUDE_CODE_EXECUTABLE` names (it adds the headless background denies;
+  see `docs/agent-runtime-guide.md`), and refuses before
+  prompt delivery when it is missing, unsafe, unparseable or below the
+  per-model floor in `CLAUDE_ACP_MIN_CLAUDE_CODE_VERSIONS` (#10500). The
+  executable and every ancestor must not be symlinks, foreign-owned or
+  world-writable; by operator decision, a group-writable ancestor is accepted
+  only when its group is the caller's primary group with no other member,
+  checked live on every launch (the Debian OpenSSH user-private-group
+  `StrictModes` precedent). Trade-off:
+  a version floor replaces the lockfile integrity hash, and the host binary's
+  code changes without repo review; this adds no trust boundary, because the
+  native delegate route already runs the same host binary.
+- The launcher is read only from the canonical primary checkout and must
+  match the SHA-256 the adapter pins; each launch runs a private copy of the
+  verified bytes. One-time window after the change that
+  adds or edits it merges: until host maintenance pulls `main` into the
+  primary checkout, keeping that tree non-group-writable, the Claude ACP seat
+  refuses as `missing` (or `digest_mismatch` for an edit). Dispatch worktree
+  copies are never used, so their group-writable checkout mode does not matter.
+  The launcher compares nanosecond timestamps with GNU `stat`. On hosts whose
+  system `stat` is the uutils build (Ubuntu 26.04), GNU `stat` must stay
+  installed as `gnustat` beside it, or every launch refuses.
+- Threat model: the pin catches drift, accidents and honest misconfiguration.
+  It is not tamper resistance. Deliberate replacement or forgery by a writer
+  running as the same Unix user is out of scope, because that writer already
+  controls the host binary, the user configuration and the checkout. The
+  residuals (path-bound execution after hashing, an in-place host edit that
+  also resets ctime, a fabricated complete git layout) are owned by infra and
+  wait for an isolated-authority phase; see `docs/agent-runtime-guide.md`.
+- Every invocation requires a non-empty, bounded, local `task_id`,
+  `correlation_id`, and `idempotency_key`, a fixed target from the participant
+  registry, and a read-only, non-primary worktree.
+
+**In scope (approved):**
+
+- Feature-flagged adapters (default off / shadow comparison / bounded active
+  controller).
+- Exactly one read-only/stateless participant per enabled route: Codex, Grok,
+  Claude, Cursor, Pool, AGY/Gemini, GLM, Gemma, and DeepSeek. Kimi and KimiCC
+  seats are named in the registry but refused by `kimi_admission`.
+- Grok fixed effective model/effort: `grok-4.7` / `high` (caller may pass
+  only `None` or those exact values; metadata never fabricates otherwise).
+  Rotated from `grok-4.5` by operator order 2026-08-16 (#6865).
+- Grok ACP server command (single custom agent argument; never built-in
+  `grok-build`, which cannot force `--no-leader`): absolute resolved Grok
+  binary plus exact argv order
+  `agent --model grok-4.7 --reasoning-effort high --agent-profile
+  <hash-pinned-project-no-tool-profile> --no-leader stdio`.
+- The project-owned Grok profile is digest-checked before every spawn. Its
+  empty tool allowlist plus explicit denylist removes write, shell, subagent,
+  memory, web, MCP, and LSP tools inside the Grok ACP server. This is required
+  in addition to ACPX `--deny-all --no-fs --no-terminal --allowed-tools ""`:
+  ACPX client flags alone do not remove native Grok tools.
+- AGY uses the project-owned text ACP server. It accepts one text
+  prompt, runs source-blind in a fresh temporary directory, and removes that
+  directory after the turn. AGY runs `plan` + sandbox without permission
+  bypasses. DeepSeek's standing route is first-party via
+  `opencode acp --pure`, with deny-all tool confinement; see
+  [the DeepSeek route contract](#deepseek-acp--historical-hermes-route-retired).
+- GLM uses native `opencode acp --pure`, pinned to
+  `zai-coding-plan/glm-5.3`, with both `permission.*=deny` and `tools.*=false`.
+  GLM and first-party DeepSeek retain their local-only/never-CI egress guards.
+- Gemma (#6805) uses the same confined `opencode acp --pure` shape pinned to
+  `google-ais/gemma-4-31b-it` (the $0 AIS-direct catalog id doubles as the
+  invocation id). The google-ais provider is Western-hosted, so no egress
+  guard applies; the deny-all config keeps the chat-only model toolless.
+- Correlation / idempotency fields recorded as **evidence** (local runtime
+  metadata only — never ACP protocol flags, argv, or stdin; never published
+  to fleet-comms, dispatch authority, or review evidence), not as a new
+  authority source.
+- Rollback = turn the feature flag off and use the existing native transport.
+
+**Out of scope (forbidden in this rollout):**
+
+- Persistent or named ACP sessions
+- Queued prompt backlog
+- Automatic prompt retries
+- Unrestricted ACP agent-to-agent chat or any chat surface outside the bounded controller DAG
+- Plane-mode or retention changes via ACPX
+- Review-eligibility changes via ACPX
+- Primary-checkout writes or write-mode ACP work
+- Treating ACPX as a coordination plane, review bus, or
+  fleet-comms replacement
+
+**Do not invent CLI flags, endpoints, or review eligibility here.** The
+adapter's argv is fully confined and callers only ever set the `tool_config`
+keys it allowlists (`acpx_shadow`/`acpx_discussion`, `target_agent`,
+`correlation_id`, `idempotency_key`); this runbook describes ownership and safety, not a
+floating CLI surface.
+
+#### Active controller-backed ACP conversation
+
+The active path is a **bounded fleet-comms-backed conversation**, not a new
+bus. It is accepted only by `.venv/bin/python -m scripts.fleet_comms
+acp-discuss`, which scopes `LU_ACPX_TRANSPORT=active` to the controller call
+and restores the prior environment on exit; generic runtime callers cannot
+turn it on. Pass the task on stdin and never place task or model-response data
+in argv:
+
+```bash
+printf '%s\n' 'Compare the two bounded options and name risks.' |
+  ACPX_AUTH_CHAT_GPT=1 \
+  .venv/bin/python -m scripts.fleet_comms acp-discuss --cwd . \
+  --task-id acp-6078 --correlation-id acp-6078-v1 \
+  --idempotency-key acp-6078-v1 --rounds 2 --json
+```
+
+### Selecting the ACP panel
+
+Every fleet launcher exports ACP as the routine transport. The project
+`discuss` command automatically selects the durable ACP controller when the request names
+2 to 4 distinct enabled participants: Codex, Grok, Claude,
+Cursor, Pool, AGY/Gemini, GLM, or DeepSeek. Never Kimi. The direct `acp-discuss` command remains available for
+operators and tests. Selection starts no process at cold start and does not
+change `dispatch.py`. Any other count or invalid seat list is rejected loudly
+before it creates a conversation; there is no bridge/provider-execution
+fallback. Use the default two rounds; three is the hard maximum. Admission is
+one conversation repository-wide. If it is occupied, return `busy`
+immediately: there is no queue, wait, automatic retry, or hidden failover. A
+typed partial ACP outcome is valid evidence to inspect, but not a successful
+discussion, formal review, or coordination authority.
+
+The legacy `discuss` CLI is now a compatibility surface, not a second
+execution engine, for supported 2-to-4-seat panels: it delegates to ACP and
+records the durable ACP conversation. Ordinary `ask-*` calls also use the
+2-to-4-seat ACP controller; queued ordinary `process-*` calls drain through that
+same transport. Do not add one-shot provider launch logic. Toolful tasks use
+`dispatch.py`; explicit review asks retain headless toolful dispatch.
+The retirement order is compatibility shim → deprecation event → measured zero
+use → operator GO → code removal. Keep telemetry, Broker Ops, and legacy HTTP
+routes until that gate passes; #6106 remains open during caller migration. Fleet-comms persistence, leases, inbox delivery, formal verdicts,
+and crash recovery are durable-plane responsibilities and are not retired by
+this transport migration.
+
+Fleet-wide means caller-access parity plus the enabled participant set above.
+The live caller classes below may request any supported 2-to-4-seat panel when
+acting as the accountable orchestrator; ordinary workers and review-only seats
+receive the contract for awareness but do not start conversations independently.
+
+| Caller class | ACP access | Boundary |
+| --- | --- | --- |
+| Claude orchestrators | Eligible caller | Explicit routine ACP selection only when the requested participants are enabled |
+| Codex orchestrators | Eligible caller | Explicit routine ACP selection only when the requested participants are enabled |
+| AGY/Gemini sessions (not a driver seat, #9584) | Eligible caller | Explicit routine ACP selection only when the requested participants are enabled |
+| Grok orchestrators | Eligible caller | Explicit routine ACP selection only when the requested participants are enabled |
+| Kimi and KimiCC seats | Not an ACP caller or participant | Retired (OO-58, #11327). Refused by `kimi_admission`; do not dispatch |
+| Cursor orchestrators with an explicit model | Eligible caller | Explicit routine ACP selection only; never use an automatic/opaque model route |
+| Dispatch-only, worker, and review-only seats | Awareness only | The accountable orchestrator owns invocation |
+
+Caller identity never changes route eligibility. Do not rotate or silently
+substitute a participant when one is unavailable. Supporting a new participant
+requires a separately approved provider adapter with the same no-tool,
+read-only confinement. ACP
+must stay idle during startup, stream claim, dispatch, CI, PR events, formal
+review, and plane-status checks.
+
+### Shared ACPX install and E2E/replay verification
+
+ACPX is installed once at the shared primary checkout as a project-local
+dependency; a dispatch worktree resolves that primary install and must not
+create its own global ACPX installation. The manifest accepts versions from
+`0.13.0` onward, the lockfile preserves reproducibility, and the runtime probe
+rejects incompatible command-surface drift before prompt delivery. The same
+install owns the rolling Claude ACP adapter dependency; run `npm install` in
+the primary checkout after pulling a lockfile change so worktrees do not fall
+back to dynamic package execution. For an E2E/replay check, run the real
+stdin-only `acp-discuss` command from a registered worktree with one bounded
+read-only task, then repeat the **identical** task, correlation, and idempotency
+values. The first terminal result is evidence; the second must be durable
+replay suppression, never another model run. Then run:
+
+```bash
+.venv/bin/python -m scripts.fleet_comms acp-verify \
+  --conversation-id conversation_<id> --require-replay --json
+```
+
+The verifier is read-only and body-free. `verified: true` requires the fixed
+participants to succeed in every requested round, successful native synthesis,
+terminal `COMPLETE`, and an observed replay. It never authorizes a retry.
+
+Participants are 2 to 4 distinct enabled seats from the supported set in
+[Selecting the ACP panel](#selecting-the-acp-panel). `codex,grok` is an example
+pair, not the only pair. Two rounds are the default and three is the hard
+maximum: parallel initial participant calls, a bounded peer
+cross-response, then authoritative native-Codex synthesis. Each round calls
+every participant once. The default two-seat, two-round panel is five model
+calls including synthesis; four seats at three rounds is the maximum. It starts no persistent session, tool-enabled run,
+unrestricted loop, hidden failover, or retry. Each model call is capped at 300
+seconds, the whole conversation at 1,200 seconds, and content at 160k reliable
+tokens or 512 KiB.
+
+Captured ACP JSON-RPC traffic and parsed answer content have separate hard
+bounds. Parser-ignored `progress` notifications retain at most 256 KiB of
+diagnostic content, then continue to drain without consuming the protocol
+envelope; this reserves room for the answer, tool trace, and terminal receipt.
+All retained protocol events remain capped at 16 MiB, while the strict parser
+admits at most 512 KiB of answer text to the caller or fleet-authority receipt.
+Exceeding either retained-envelope or parsed-answer bound fails terminally
+without a provider retry or bridge fallback.
+
+Calls initiated from the protected primary checkout keep the same containment
+guard. The compatibility entrypoints create a short-lived detached,
+`--no-checkout` worktree below `.worktrees/dispatch/acp/`, execute there, and
+remove it on exit. Git locks the worktree for the call lifetime so scheduled
+hygiene cannot prune it between participant completion and synthesis. They do
+not weaken or bypass primary-checkout protection.
+
+Route pins are strict admission inputs. An omitted pin or the exact configured
+model/effort is accepted; a conflicting model or effort fails visibly before a
+provider call. No ACP entrypoint silently normalizes a caller's conflicting
+route.
+
+Authority jobs record failures with only a closed phase, code, and retryable
+flag. Raw prompts, responses, exception text, stderr, paths, and credentials
+remain outside the observer projection. A discussion enqueue atomically creates
+the authority job, its one ACP conversation reservation, and the initial
+`CREATED` event; the controller must adopt that exact reservation rather than
+creating a second conversation.
+
+Replay suppression is durable and occurs before scheduling. An orphaned
+reservation is terminal: never retry it. The single-host repository admission
+file lock covers the conversation, including model I/O; no SQLite transaction
+may cover model I/O. Typed partial results, idempotency disposition, and append-only
+state/timeline events are durably recorded through Fleet Comms. Legacy
+message-plane files remain read-only migration/projection inputs in authority
+mode. This conversation neither changes plane/retention state nor gains
+dispatch, routing, failover, or review authority.
+
+The privacy boundary is strict: task bodies, model responses, credentials,
+paths, session data, and tool data do not appear in Runtime metadata. The
+fleet-facing observability routes remain
+`GET /api/runtime/acp/conversations` and
+`GET /api/runtime/acp/conversations/{conversation_id}`; both are body-free.
+The local Conversations page may also read
+`GET /api/runtime/acp/conversations/{conversation_id}/transcript`. This
+separate route requires both a direct loopback peer and a loopback URL host,
+ignores forwarding headers, returns only bounded inline request/reply/synthesis
+text plus display metadata, and sets `Cache-Control: no-store`. The page uses
+inert text rendering and no browser storage. All three routes are read-only:
+no dashboard control can start, steer, retry, or cancel a conversation.
+Standard ACP token `size` means context-window capacity, never consumed-token
+accounting.
+
+This is deliberation transport, not formal cross-family review. It cannot
+replace direct toolful review + an exact-head PR verdict or establish reviewer
+independence. Sealed review commands remain retired.
+
+#### Explicit comparison pilot
+
+Run the dedicated pilot only from a dispatch/registered worktree. The prompt
+arrives on stdin rather than argv. Codex additionally requires its non-secret
+ChatGPT auth-method selector:
+
+```bash
+printf '%s\n' 'Reply with exactly READY.' |
+  ACPX_AUTH_CHAT_GPT=1 LU_ACPX_TRANSPORT=shadow \
+  .venv/bin/python -m scripts.agent_runtime.acpx_pilot \
+  --target codex --cwd . --task-id pilot-6063 \
+  --correlation-id pilot-6063-codex-v1 \
+  --idempotency-key pilot-6063-codex-v1
+```
+
+For Grok, use the same command with `--target grok` and omit
+`ACPX_AUTH_CHAT_GPT=1`; the adapter selects the existing cached Grok login.
+
+This surface calls the native seat first and exactly one ACPX shadow second.
+The native outcome and exit disposition remain authoritative even when the
+shadow fails or disagrees. One global non-blocking lock admits at most one
+comparison; contention returns immediately with no queue. A previously
+executed idempotency-key digest suppresses both calls, and there are no
+automatic retries or sessions. Runner failover is disabled for both pilot
+calls, so the command cannot silently add a second native or shadow attempt.
+
+The local terminal result may show both responses for operator inspection.
+Persisted comparison evidence contains only target, outcome classes, parity,
+durations, token counts when exposed, and digests of correlation/idempotency
+values—never prompts, responses, raw identifiers, paths, sessions, commands,
+stderr, auth material, or tool data. The read-only Runtime dashboard aggregates
+that evidence; it cannot send or control ACPX traffic. The supporting native
+and shadow pilot-leg usage rows also suppress task/run/session identifiers,
+paths, telemetry labels, and stderr while retaining structured operational
+counts and outcomes.
+
+#### Safety and budgets (adapter contract)
+
+| Guardrail | Rule |
+| --- | --- |
+| In-flight | **One** in-flight prompt maximum |
+| Backlog | **Zero** queued prompts |
+| Retries | **Zero** automatic prompt retries |
+| Timeout / cancel | Bounded wall-clock timeout; cancellation must tear down cleanly |
+| Correlation | Required correlation/idempotency fields on every attempt |
+| Authority | Existing participant result remains authoritative under shadow compare |
+| Writes | Refuse primary-checkout and write-permission paths |
+| Evidence | Record correlation, classification parity, duplicates, timeout/recovery, and token data when the ACP stream exposes them — **without** promoting that log to authority |
+
+#### Failure handling and troubleshooting
+
+| Symptom | What to do |
+| --- | --- |
+| Feature flag off | Expected default — use native `runner.invoke` / bridge / discuss paths |
+| `AUTH_REQUIRED` with an existing ChatGPT Codex login | Verify `codex login status`, then set the non-secret per-process selector `ACPX_AUTH_CHAT_GPT=1`; `--auth-policy fail` deliberately refuses implicit method selection |
+| `AUTH_REQUIRED` on the Grok shadow seat | Establish the native Grok CLI's cached login outside this adapter; the Grok adapter automatically sets the non-secret per-process selector `ACPX_AUTH_CACHED_TOKEN=1` and scrubs ambient XAI API-key auth selectors so cached native login is the only accepted path |
+| Other auth failure | Fail closed; do not retry in-adapter; fix credentials outside the adapter and never store or log API keys in the repository |
+| `acp_adapter_missing` / `acp_adapter_incompatible` | Run `npm install` in the canonical primary checkout and verify the locked `@agentclientprotocol/claude-agent-acp` package; do not use a global install or permit dynamic package execution |
+| `acp_agent_startup` / `acp_agent_disconnected` | Inspect the provider and adapter installation outside the privacy-limited runtime record; the persisted code deliberately contains no stderr or transcript body |
+| `acp_session_create_timeout` | Treat as a terminal Claude adapter session-creation failure for that call; do not retry or bridge-fallback automatically |
+| `acp_turn_limit` | Ordinary no-tool calls remain capped at one turn. Prompt retries stay at zero; tree review uses the direct toolful route |
+| `acp_review_evidence_invalid` / `acp_review_evidence_too_large` | Legacy sealed-review diagnostic; do not repair or restart the retired flow. Use the direct toolful review method above |
+| `acp_permission_denied` / `acp_permission_unavailable` | Fix the bounded permission configuration; do not broaden the no-tool allowlist or enable retired sealed review |
+| Timeout / cancel | Treat as terminal for that prompt; no auto-replay |
+| Crash / malformed NDJSON | Classify and record; do not promote partial output to authority |
+| Duplicate correlation id | Treat as replay protection; do not double-apply side effects (there should be none) |
+| Shadow mismatch | Keep the existing native/participant result authoritative; record the discrepancy as infra evidence without creating a new legacy message-plane write |
+| Implausibly large token usage matching a model context limit | Treat as a telemetry defect: standard ACP `used` is the live context count and `size` is capacity; never record `size` as consumed tokens |
+
+#### Rollback
+
+1. Disable the ACPX feature flag (default-off posture).
+2. Continue on native agent runtime transport
+   (`scripts/agent_runtime/` via `runner.invoke`, bridge, `dispatch.py`) —
+   native Codex remains available. Grok detached dispatch uses Cursor at
+   `grok-4.7-high`; native Grok dispatch is retired.
+3. Leave fleet-comms plane mode and formal-review eligibility unchanged.
+4. Preserve the read-only legacy projections; resume legacy writes only as part
+   of an explicitly approved rollback to `dual_write`.
+5. Direct-only ACPX seats are transport adapters only; turning any or all off
+   is not a plane cutover.
+
+### Buzz — deferred
+
+Buzz is **not** part of this rollout. Its relay-as-authority model conflicts
+with Fleet Comms authority. Do not prototype Buzz as a coordination plane,
+review bus, or ACPX peer until a separate operator/advisor GO reopens that
+design.
+
+---
+
+## Kimi routes
+
+Kimi models are retired (OO-58, #11327). Do not dispatch a Kimi id and do not
+select KimiCC. Short names still resolve so the catalog refusal can name them.
+Historical effort splits are not a current route.
+
+See also: [`docs/SCRIPTS.md`](../SCRIPTS.md) (launcher flags).
+
+---
+
+## Command surfaces (no bare `ab`)
+
+On some machines `ab` is ApacheBench. Always use the explicit project entrypoints:
+
+```bash
+# Direct operator surface for the default Codex/Grok panel.
+printf '%s\n' 'Bounded read-only task.' | ACPX_AUTH_CHAT_GPT=1 \
+  .venv/bin/python -m scripts.fleet_comms acp-discuss --cwd . \
+  --task-id acp-task --correlation-id acp-task-v1 --idempotency-key acp-task-v1
+
+# Normal fleet-TUI surface: automatically ACP-backed for an enabled pair.
+.venv/bin/python scripts/ai_agent_bridge/__main__.py discuss <channel> "..." \
+  --with claude,grok
+
+# More or fewer than two participants reject loudly before provider or
+# authority work; there is no bridge/provider-execution fallback.
+.venv/bin/python scripts/ai_agent_bridge/__main__.py discuss <channel> "..." \
+  --with agy,codex,cursor
+
+# Direct toolful CF: choose a qualified lane outside the author family.
+# Request verdict + findings at the exact PR head, then post them on the PR.
+printf '%s\n' 'Review PR #<N> at head <SHA>: verdict + findings.' | \
+  .venv/bin/python scripts/ai_agent_bridge/__main__.py ask-<lane> - \
+  --task-id review-<N> --type review
+
+# Execution
+.venv/bin/python scripts/dispatch.py dispatch --model <catalog-model> --agent <lane> --worktree ...
+
+# Topology (never hard-code the answer)
+.venv/bin/python -m scripts.fleet_comms plane-status
+```
+
+---
+
+## Fresh-agent smoke (no-auth / read-only / no GitHub / no hidden session)
+
+Use this checklist when validating that a **new** seat session understands
+routes and authority. It must not require credentials beyond local repo tools,
+must not mutate the tree, must not call GitHub, and must not depend on a hidden
+prior session.
+
+```bash
+# 1) Confirm worktree / branch identity (read-only)
+git status --short --branch
+git rev-parse --show-toplevel
+
+# 2) Load rules surface (method, not mutable caps)
+test -f agents_extensions/shared/rules/fleet-comms-coordination.md
+test -f docs/runbooks/agent-seat-onboarding.md
+# When Monitor is available, read `GET /api/rules` through its configured host.
+
+# 3) Query plane mode — do not assert a hard-coded mode
+.venv/bin/python -m scripts.fleet_comms plane-status
+
+# 4) Prove ownership vocabulary is present in the onboarding contract
+rg -n "discuss|delegate\.py|fleet-comms|ACPX|Buzz" docs/runbooks/agent-seat-onboarding.md
+
+# 5) Prove formal CF is separate from discuss
+rg -n "review-pr|publish-review-verdict|not formal review|discussion is not" \
+  docs/runbooks/agent-seat-onboarding.md \
+  agents_extensions/shared/rules/fleet-comms-coordination.md
+
+# 6) No writes: do not create files, do not git commit, do not gh, do not
+#    open ACPX write paths. Exit with a clean tree identical to entry.
+git status --short
+```
+
+**Pass criteria:** the seat selects discuss vs delegate vs plane-status vs
+direct toolful CF + exact-head PR comment correctly in prose, quotes live
+`plane-status` rather than a memorized mode, and leaves a clean worktree.
+Without starting a session, the seat must explain why an occupied remote lease,
+an unavailable authority endpoint, unknown reviewer identity, a plain `ack`,
+and a Work item with `UNKNOWN` health cannot authorize a second supervisor,
+local fallback, review approval, live-consumption claim, or execution. It must
+identify its assigned execution location and reject discuss and retired sealed
+review as CF. Keep the resulting operational evidence private.
+
+---
+
+## Reviewer-seat transport recovery
+
+Direct read-only code reviews can target a registered sibling repository with
+`dispatch.py dispatch --repo <key> --pr <number>` or
+`--repo <key> --branch <branch> --pinned-head <full-sha>`, together with the
+required review profile, author model and risk flags. Dispatch resolves the
+repository through the fleet registry and creates a detached snapshot inside
+the reviewer's dispatch subtree. The fetched branch and live canonical head
+must match the admitted SHA. The author checkout stays untouched; a moved head,
+foreign repository or unsafe worktree path refuses launch. This attach path is
+for direct read-only reviews; it does not change write continuation or formal
+attempt worktree custody.
+
+Dead reviewer seats must fail with an actionable error — never mid-review
+with a bare "not found on PATH" (#6805). The `ask-*` compatibility shim runs
+a PATH-only preflight
+(`scripts/agent_runtime/adapters/acpx.py::probe_participant_reachability`)
+only when a real provider invocation is about to occur — terminal-replay
+paths never reach it, so a missing provider CLI cannot fail the replay of an
+already-durable result. The adapter re-checks the full compatibility contract
+immediately before spawn. Both paths emit the same remediation text.
+
+### Symptom → meaning
+
+| Error excerpt | Meaning |
+| --- | --- |
+| `hermes binary not found on PATH` | The DeepSeek ACP seat / `ask-hermes` alias no longer uses a Hermes binary; this does not restrict the separately authorized Grok/Codex launcher opt-in |
+| `opencode binary not found on PATH` | The GLM, Gemma, DeepSeek, and Pool ACP seats are down |
+| `agy binary not found on PATH` | The AGY ACP seat is down |
+| `legacy ask target '<x>' has no enabled ACP route` | The seat is not wired under authority mode; do not assume a fallback — check this runbook and #6805 |
+| `non-evidentiary review reply` | The seat answered a `--type review` ask without a VERDICT grounded in evidence; the ask terminalized `failed:non_evidentiary` — re-ask with a fresh task-id or reroute, never count it as a review |
+
+### DeepSeek ACP — historical Hermes route retired
+
+The historical Hermes transport for the DeepSeek ACP seat / `ask-hermes` alias
+is retired: that seat is **not** awaiting a Hermes reinstall, and no Hermes
+provisioning recipe applies to that alias. This is not a blanket ban on
+operator-authorized Grok/Codex `--harness hermes`.
+The DeepSeek seat's **standing route** is first-party via opencode:
+
+- Bridge asks use `ask-deepseek` (or the `ask-hermes` alias) — both ride the
+  `acpx-deepseek-shadow` ACP participant on native `opencode acp --pure`
+  pinned to `deepseek/deepseek-flash` at high effort (#6805, #8514).
+  The catalog identity is `deepseek-v4.1-flash`; this provider id is a moving
+  alias. Before consequential dispatch, check the cached models.dev name with
+  `jq -r '.deepseek.models["deepseek-flash"].name' ~/.cache/opencode/models.json`
+  and require the catalog's `provider_alias_expected_name`, `DeepSeek V4.1 Flash`,
+  optionally followed by a space and a numeric release tag such as `1017`.
+  Stop on a different model line, version, or tier.
+  DeepSeek ASKs are toolless and self-contained: the seat has no repo or
+  tool access, so paste everything the answer needs into the prompt —
+  reviews that require repo access go to `dispatch.py dispatch --model <catalog-model> --agent
+  deepseek` instead (#6886: the seat otherwise tries to emit tool calls and
+  the reply terminalizes `failed:non_evidentiary`).
+- Direct one-shot review/research outside the bridge runs
+  `opencode run --model deepseek/deepseek-flash --variant high`.
+- Tool-heavy work goes to `dispatch.py dispatch --model <catalog-model> --agent deepseek` from a
+  dispatch worktree.
+
+Any legacy DeepSeek ACP route that still names a `hermes` binary keeps the admission-time
+refusal; its message points at the opencode route above, not at a reinstall.
+
+### Documented fallbacks while a seat is down
+
+Per `agents_extensions/shared/rules/model-assignment.md` (the error text
+quotes the same substitutions):
+
+- **ask-deepseek / ask-hermes (DeepSeek seat):** The DeepSeek ACP standing path
+  is first-party opencode, not a temporary fallback. `ask-hermes` remains that
+  alias, not the launcher harness. Record the substitution in the artifact all
+  the same.
+- **ask-glm / ask-gemma / ask-deepseek / ask-pool down (opencode missing):**
+  reinstall opencode first — four seats share the binary. There is no second
+  host for the opencode ACP transport.
+- Record every substitution in the artifact; silent rerouting hides
+  review-independence, cost, and egress changes.
+
+---
+
+## Related surfaces
+
+| Doc | Role |
+| --- | --- |
+| [`fleet-comms-coordination.md`](../../agents_extensions/shared/rules/fleet-comms-coordination.md) | Binding durable-authority musts on `/api/rules` |
+| [`epic-orchestrator-roster.md`](epic-orchestrator-roster.md) | Which seat drives which epic (operator) |
+| [`agent-cooperation.md`](../best-practices/agent-cooperation.md) | Deliberation, V2, review discipline |
+| [`agent-runtime-guide.md`](../agent-runtime-guide.md) | `runner.invoke`, KimiCC headless, session policy |
+| [`SCRIPTS.md`](../SCRIPTS.md) | Launcher and bridge command index |
+| [`agent-activity-matrix.md`](../best-practices/agent-activity-matrix.md) | Fleet roster and capacity routing |

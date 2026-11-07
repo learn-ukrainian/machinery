@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+source "$(dirname "$0")/_lib.sh"
+check_owned_paths staged
+run_pre_commit pre-commit "$@"

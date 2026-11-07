@@ -1,0 +1,18 @@
+[Unit]
+Description=Learn Ukrainian per-host project-state reporter (oneshot)
+After=network.target
+
+[Service]
+Type=oneshot
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+# Machinery roots (scripts/common/repo_root.py): LEARN_UKRAINIAN_PRIMARY_REPO_ROOT,
+# LEARN_UKRAINIAN_GITHUB_SLUG, LEARN_UKRAINIAN_STATE_ROOT, LEARN_UKRAINIAN_RULES_DIR and
+# LEARN_UKRAINIAN_PYTHON. The wrapper and the reporter read them from this optional file;
+# without it they keep their defaults.
+EnvironmentFile=-%h/.config/learn-ukrainian/machinery.env
+# The wrapper path is relative to WorkingDirectory.
+ExecStart=/usr/bin/env bash --noprofile --norc scripts/orchestration/run_project_state_reporter.sh
+WorkingDirectory=%h/projects/learn-ukrainian
+
+[Install]
+WantedBy=multi-user.target
