@@ -31,11 +31,11 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
-from scripts.ci.stack_currency_report import (
+from lu_machinery.ci.stack_currency_report import (
     PinFileError,
     load_pin_rows,
 )
-from scripts.common.github_client import run as github_run
+from lu_machinery.common.github_client import run as github_run
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 # The machinery package's directory name, which is also its import name and the first component

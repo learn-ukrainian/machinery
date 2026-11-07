@@ -14,9 +14,9 @@ from dataclasses import dataclass
 from hashlib import sha256
 from typing import Any
 
-from scripts.fleet import credit_lane
-from scripts.fleet.claude_account_lane import CLAUDE_LANE, is_claude_lane_key, require_bound
-from scripts.review.model_catalog import load_model_catalog, usage_pool_for_seat
+from lu_machinery.fleet import credit_lane
+from lu_machinery.fleet.claude_account_lane import CLAUDE_LANE, is_claude_lane_key, require_bound
+from lu_machinery.review.model_catalog import load_model_catalog, usage_pool_for_seat
 
 
 @dataclass(frozen=True)
@@ -58,7 +58,7 @@ def codex_account_key(candidate: Any) -> str | None:
     """The usage bucket named by the dispatch invocation; omitted means account a."""
     if candidate.route != "codex":
         return None
-    from scripts.review.role_resolution import invocation_codex_account
+    from lu_machinery.review.role_resolution import invocation_codex_account
 
     label = invocation_codex_account(getattr(candidate, "invocation", ""))
     if label not in {"sub", "b-sub"}:

@@ -72,7 +72,7 @@ Assign by **role × task family × harness × route/egress**, not marketing rank
 
 - **Cursor (operator 2026-09-22; Auto scope operator decision 2026-09-30):** prefer **`--agent cursor --model grok-4.7-high`** for mechanical **and** ordinary infra/code implement when fit allows — not LANGUAGE-LANES, not advisor/authority. Cursor Auto runs only a well-defined coding task (`--research-role implementation` write dispatch, owned paths, PASS DoR card); the driver seat, design, consults, discussions and recon pin `grok-4.7` or `composer-2.5`, and a review runs the approved concrete model the reviewer resolver selects. `cursor:auto` never CF-of-record.
 - **Utilize, do not trim (operator 2026-08-08 / #6468):** free/behind seats (Cursor, AGY, Pool, **Z.AI/GLM**, Claude routine, Grok workers) with open in-scope work must be pulled before feeding Codex near_cap mechanical jobs. **Keep Z.AI/GLM**. Kimi is retired (OO-58, #11327). Cutting subscriptions is a last resort after sustained measured zero use, not a response to multi-driver complexity. Concurrent drivers (~2 Grok + 1 Claude + 1–4 Codex) share free pools; coordinate via `/api/delegate/active`.
-- **DeepSeek:** latest V4.1 Flash coding through opencode is allowed on the direct DeepSeek API or OpenRouter with a named US provider allow-list. Never send private-repository content or secrets. Review-of-record and Ukrainian work need measured evidence first; Pro and older ids stay retired. `ask-deepseek` is consult-only for non-language work. Budget substitution never selects DeepSeek. `scripts/ai_agent_bridge/routing_guard.py` still refuses `openrouter/deepseek` until that allow-list exists.
+- **DeepSeek:** latest V4.1 Flash coding through opencode is allowed on the direct DeepSeek API or OpenRouter with a named US provider allow-list. Never send private-repository content or secrets. Review-of-record and Ukrainian work need measured evidence first; Pro and older ids stay retired. `ask-deepseek` is consult-only for non-language work. Budget substitution never selects DeepSeek. `lu_machinery/ai_agent_bridge/routing_guard.py` still refuses `openrouter/deepseek` until that allow-list exists.
 - **OpenRouter:** mainly Pool + Gemma; not a general multi-model bus.
 - **Timed pauses:** near_cap/paused lanes carry **return-at** — auto-return, never permanent neglect.
 - **Cursor gate:** #6469 plan-only adapter **fixed** — cursor-first mechanical tier is active.
@@ -147,7 +147,7 @@ At `low` or `medium`, Sonnet 5.5 can check in before finishing. Make completion 
 | Activity | Entry |
 |---|---|
 | Thin orchestration | One accountable lead selected from the current catalog for the stream |
-| Implementation | `scripts/dispatch.py dispatch --worktree` |
+| Implementation | `lu_machinery/dispatch.py dispatch --worktree` |
 | Formal code CF review | Qualified native toolful lane resolved through the canonical `local-code-review` workflow |
 | Advisory design | Qualified advisor from the current catalog with an **explicit decision question** |
 | Multi-agent debate | `discuss` — **not** the merge gate |
@@ -212,7 +212,7 @@ See scorecard for provisional/validated/deprecated states and re-probe protocol.
 
 When a preferred lane is at quota/outage:
 
-1. Use `scripts/config/agent_fallback_substitutions.yaml` + model-assignment harness table.
+1. Use `lu_machinery/config/agent_fallback_substitutions.yaml` + model-assignment harness table.
 2. **Never** silently lower quality floor for consequential work.
 3. **Always** record substitution (model/family/harness + reason) in the PR or orchestration note.
 

@@ -1,6 +1,6 @@
 # Registered sibling Git maintenance
 
-Use `scripts.fleet.sibling_git` from the repository root owning the deployed
+Use `lu_machinery.fleet.sibling_git` from the repository root owning the deployed
 primary-checkout hook. From a dispatch root, use the shared project's absolute
 interpreter and that worktree's own deployed hook copy; a hook copy in another
 root does not satisfy its cwd rule. The shipped Claude settings provide
@@ -18,18 +18,18 @@ hook process and command receive the variable in the seat being used.
 
 | Other harness seat | Verified source check | Runtime inheritance |
 | --- | --- | --- |
-| Codex | No explicit setting in `scripts/launchers/codex.sh`, `scripts/lib/`, `agents_extensions/codex/config.toml` or `agents_extensions/codex-home/config.toml`. | Unverified |
-| Grok | No explicit setting in `scripts/launchers/grok.sh` or `scripts/lib/`. | Unverified |
-| Gemini/AGY | No explicit setting in `scripts/launchers/gemini.sh`, `scripts/lib/`, `scripts/agent_runtime/` or `gemini_extensions/settings.json`. | Unverified |
-| Kimi | No explicit setting in `scripts/launchers/kimi.sh` or `scripts/lib/`. | Unverified |
+| Codex | No explicit setting in `lu_machinery/launchers/codex.sh`, `lu_machinery/lib/`, `agents_extensions/codex/config.toml` or `agents_extensions/codex-home/config.toml`. | Unverified |
+| Grok | No explicit setting in `lu_machinery/launchers/grok.sh` or `lu_machinery/lib/`. | Unverified |
+| Gemini/AGY | No explicit setting in `lu_machinery/launchers/gemini.sh`, `lu_machinery/lib/`, `lu_machinery/agent_runtime/` or `gemini_extensions/settings.json`. | Unverified |
+| Kimi | No explicit setting in `lu_machinery/launchers/kimi.sh` or `lu_machinery/lib/`. | Unverified |
 
 The examples below use the project interpreter; replace its spelling with the
 absolute project interpreter path when sending a command through the hook.
 
 ```bash
-.venv/bin/python -m scripts.fleet.sibling_git status --repo infra-private
-.venv/bin/python -m scripts.fleet.sibling_git sync-main --repo infra-private
-.venv/bin/python -m scripts.fleet.sibling_git worktree-remove --repo infra-private '/absolute/sibling/.worktrees/dispatch/codex/finished task'
+.venv/bin/python -m lu_machinery.fleet.sibling_git status --repo infra-private
+.venv/bin/python -m lu_machinery.fleet.sibling_git sync-main --repo infra-private
+.venv/bin/python -m lu_machinery.fleet.sibling_git worktree-remove --repo infra-private '/absolute/sibling/.worktrees/dispatch/codex/finished task'
 ```
 
 `status` emits JSON with branch, head, cleanliness and registered worktrees
@@ -46,7 +46,7 @@ Before fast-forwarding, the helper compares added paths against ignored local
 files and refuses any collision. Git's `--no-overwrite-ignore` also protects
 ignored files, including directory/file collisions and changes after the probe.
 
-Repository identities come only from `scripts/config/fleet_repos.yaml`.
+Repository identities come only from `lu_machinery/config/fleet_repos.yaml`.
 The public/default repository and unknown names are refused.
 Each entry's `transport` is `ssh` (the default) or `https`. SSH accepts
 `git@github.com:<org>/<repo>.git` and
@@ -123,7 +123,7 @@ fall back to force, a shell-parsing exemption or an emergency override.
 The module and its primary-root checks enforce the effect boundary. The hook's
 literal-command and module-location checks are a usability rail, not a security
 boundary: alternate interpreter invocations follow the existing hook policy.
-Only a shlex word pair `-m scripts.fleet.sibling_git` triggers this rail;
+Only a shlex word pair `-m lu_machinery.fleet.sibling_git` triggers this rail;
 read-only searches and pytest selections mentioning the name follow normal policy.
 Installed host tooling and the repository's own code are trusted. This interface is not a sandbox for a compromised host or
 concurrent malicious replacement of trusted code or repository metadata.

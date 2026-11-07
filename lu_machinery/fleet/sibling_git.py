@@ -25,13 +25,13 @@ import yaml
 if __package__ in (None, ""):  # run as a file: put the repository root on sys.path
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from scripts.agent_runtime.agent_github_identity import resolve_agent_github_identity, revoke_installation_token
-from scripts.common.repo_root import machinery_path
-from scripts.orchestration import worktree_claims
-from scripts.orchestration.execution_safe_git import LOCAL_COMMANDS, SafeGitRunner
-from scripts.orchestration.execution_safe_git import run_git as safe_git
-from scripts.orchestration.fleet_repos import load_fleet_repos, resolve_fleet_repo
-from scripts.orchestration.task_record_store import parse_task_record
+from lu_machinery.agent_runtime.agent_github_identity import resolve_agent_github_identity, revoke_installation_token
+from lu_machinery.common.repo_root import machinery_path
+from lu_machinery.orchestration import worktree_claims
+from lu_machinery.orchestration.execution_safe_git import LOCAL_COMMANDS, SafeGitRunner
+from lu_machinery.orchestration.execution_safe_git import run_git as safe_git
+from lu_machinery.orchestration.fleet_repos import load_fleet_repos, resolve_fleet_repo
+from lu_machinery.orchestration.task_record_store import parse_task_record
 
 _GIT = "/usr/bin/git"
 _FETCH_REMOTE = "sibling-git-canonical"

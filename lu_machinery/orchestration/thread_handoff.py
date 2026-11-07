@@ -48,13 +48,13 @@ if _LOCAL_REPO_ROOT not in sys.path:
     sys.path.insert(0, _LOCAL_REPO_ROOT)
 
 try:
-    from scripts import context_canary
-    from scripts.common.repo_root import project_interpreter
-    from scripts.orchestration import task_identity, thread_handoff_canary
-    from scripts.orchestration.task_family import codex_state as task_family_codex_state
-    from scripts.orchestration.task_family import rollover as task_family_rollover
-    from scripts.orchestration.task_family import rollover_registry as task_family_rollover_registry
-    from scripts.orchestration.task_family.storage import advisory_lock as task_family_advisory_lock
+    from lu_machinery import context_canary
+    from lu_machinery.common.repo_root import project_interpreter
+    from lu_machinery.orchestration import task_identity, thread_handoff_canary
+    from lu_machinery.orchestration.task_family import codex_state as task_family_codex_state
+    from lu_machinery.orchestration.task_family import rollover as task_family_rollover
+    from lu_machinery.orchestration.task_family import rollover_registry as task_family_rollover_registry
+    from lu_machinery.orchestration.task_family.storage import advisory_lock as task_family_advisory_lock
 except ImportError as exc:
     # Two fallback-worthy shapes when running script-by-path (issue #6411):
     #   1. ModuleNotFoundError naming this package (its directory name, from
@@ -134,7 +134,7 @@ THREAD_LEASE_SCHEMA_VERSION = 2
 # transient hook-launcher subshell is never mistaken for the long-lived owner.
 from learn_ukrainian_v4_runtime.identity import KNOWN_HARNESS_EXECUTABLES as KNOWN_HARNESS_EXECUTABLES
 
-from scripts.common import github_client
+from lu_machinery.common import github_client
 
 # This package's import name, from the unresolved file location: never from __package__, which a
 # short import spelling (orchestration.x with scripts/ on sys.path) shortens. Its dotted parts
@@ -1672,7 +1672,7 @@ def _bundle_client(base_url: str, *, timeout_s: float = 3.0) -> Any:
     module — a circular import.
     """
     try:
-        from scripts.ai_agent_bridge.monitor_client import MonitorClient
+        from lu_machinery.ai_agent_bridge.monitor_client import MonitorClient
     except ImportError:
         from ai_agent_bridge.monitor_client import MonitorClient
     return MonitorClient(base_url=_bundle_monitor_url(base_url), timeout_s=timeout_s)
@@ -3956,8 +3956,8 @@ def resolve_handoff_policy(context_threshold: float) -> tuple[float, int, str, s
     if str(project_root) not in sys.path:
         sys.path.insert(0, str(project_root))
 
-    from scripts.lib.context_profiles import resolve_profile
-    from scripts.lib.session_record import read_record
+    from lu_machinery.lib.context_profiles import resolve_profile
+    from lu_machinery.lib.session_record import read_record
 
     session_id = (
         os.environ.get("LEARN_UKRAINIAN_SESSION_ID")
@@ -8080,7 +8080,7 @@ def codex_account_audits(environ: Mapping[str, str] | None = None) -> dict[str, 
     Account a (``sub``) is always present. ``b-sub`` is present only when its
     binding resolves. Ambient ``CODEX_HOME`` is not an account.
     """
-    from scripts.agent_runtime.codex_accounts import (
+    from lu_machinery.agent_runtime.codex_accounts import (
         CODEX_SUBSCRIPTION_ACCOUNTS,
         CodexAccountRefused,
         codex_account_home,
@@ -8099,7 +8099,7 @@ def codex_account_audits(environ: Mapping[str, str] | None = None) -> dict[str, 
 
 def _begin_codex_audit(args: argparse.Namespace) -> dict[str, Any]:
     """Account a, plus account b when the loader binds it. One explicit home stays one."""
-    from scripts.agent_runtime.codex_accounts import codex_account_home
+    from lu_machinery.agent_runtime.codex_accounts import codex_account_home
 
     if args.codex_home:
         audit = inspect_codex_home(Path(args.codex_home).expanduser().resolve())

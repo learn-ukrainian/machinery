@@ -8,9 +8,9 @@ import os
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-from scripts.common.task_store_paths import tasks_dir
-from scripts.fleet_comms.agent_success_metrics import collect_agent_success
-from scripts.fleet_comms.efficiency_metrics import _parse_timestamp
+from lu_machinery.common.task_store_paths import tasks_dir
+from lu_machinery.fleet_comms.agent_success_metrics import collect_agent_success
+from lu_machinery.fleet_comms.efficiency_metrics import _parse_timestamp
 
 # The machinery package's import name, which is also the directory its files have in checkout
 # paths: from this module's package, or from its unresolved location when run as a file.

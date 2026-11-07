@@ -24,12 +24,12 @@ from collections.abc import Callable, Mapping, Sequence
 from functools import lru_cache
 from pathlib import Path, PurePosixPath
 
-from scripts.ci import deploy_paths, frontend_change_scope
-from scripts.ci._location import checkout_relative, module_name, package_dir_name
-from scripts.ci.junit_results import parse_junit
-from scripts.common.jsonl import jsonl_lines
-from scripts.common.repo_root import project_interpreter
-from scripts.storage.test_baseline import nodeid_to_junit_id
+from lu_machinery.ci import deploy_paths, frontend_change_scope
+from lu_machinery.ci._location import checkout_relative, module_name, package_dir_name
+from lu_machinery.ci.junit_results import parse_junit
+from lu_machinery.common.jsonl import jsonl_lines
+from lu_machinery.common.repo_root import project_interpreter
+from lu_machinery.storage.test_baseline import nodeid_to_junit_id
 
 ROOT = Path(__file__).resolve().parents[2]
 MANIFEST = ROOT / checkout_relative("ci", "components.json")

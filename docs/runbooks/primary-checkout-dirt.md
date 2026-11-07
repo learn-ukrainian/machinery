@@ -36,9 +36,9 @@ Wiring:
 - Claude: `agents_extensions/shared/settings.json`, `Bash` matcher on
   PreToolUse, PostToolUse and PostToolUseFailure. These hooks are fail-open
   (no `onFailure`).
-- Codex: `scripts/agent_runtime/codex_hook_policy.py` takes the snapshot
+- Codex: `lu_machinery/agent_runtime/codex_hook_policy.py` takes the snapshot
   only after every PreToolUse guard has allowed the call.
-  `scripts/agent_runtime/codex_hook_entry.sh post-tool-use` runs the
+  `lu_machinery/agent_runtime/codex_hook_entry.sh post-tool-use` runs the
   comparison for `Bash`. Codex runs PostToolUse after non-zero exits too, and
   its exit 2 replaces the tool result with the report.
 - Dispatched Claude workers are not wired: their settings carry PreToolUse
@@ -61,8 +61,8 @@ are fingerprinted: at most 200 per call, and files are hashed only up to
 The report prints the command. Run the dry run first, then apply:
 
 ```bash
-.venv/bin/python -m scripts.hygiene.primary_dirt_cleanup --session '<session>' --record '<record>'
-.venv/bin/python -m scripts.hygiene.primary_dirt_cleanup --session '<session>' --record '<record>' --apply
+.venv/bin/python -m lu_machinery.hygiene.primary_dirt_cleanup --session '<session>' --record '<record>'
+.venv/bin/python -m lu_machinery.hygiene.primary_dirt_cleanup --session '<session>' --record '<record>' --apply
 ```
 
 The command removes a file only when all of these hold:

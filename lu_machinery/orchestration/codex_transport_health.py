@@ -23,15 +23,15 @@ from typing import Any
 if __package__ in (None, ""):  # run as a file: put the repository root on sys.path
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from scripts.agent_runtime.errors import (
+from lu_machinery.agent_runtime.errors import (
     AgentRuntimeError,
     AgentStalledError,
     AgentTimeoutError,
     AgentUnavailableError,
     RateLimitedError,
 )
-from scripts.agent_runtime.result import Result
-from scripts.common.repo_root import ProductRootError, main_checkout_root, product_root
+from lu_machinery.agent_runtime.result import Result
+from lu_machinery.common.repo_root import ProductRootError, main_checkout_root, product_root
 
 SCHEMA_VERSION = "codex-transport-health.v2"
 HEALTHY = "healthy"
@@ -61,7 +61,7 @@ def _invoke_native(*args: Any, **kwargs: Any) -> Result:
     scripts_dir = str(Path(__file__).resolve().parents[1])
     if scripts_dir not in sys.path:
         sys.path.insert(0, scripts_dir)
-    from scripts.agent_runtime.runner import invoke
+    from lu_machinery.agent_runtime.runner import invoke
 
     return invoke(*args, **kwargs)
 

@@ -40,7 +40,7 @@ improvised or malformed findings block is refused even beside a valid verdict li
 A capability-only `BLOCKED` uses `uncertain`, no findings, and `missing_capabilities`.
 The recorder's extension and the permitted capabilities are defined by
 [the capability-failure policy](policy.md#a-blocked-that-only-lacked-a-capability) and
-`scripts/review/verdict_parser.py`. `missing_capabilities` is allowed only where the schema
+`lu_machinery/review/verdict_parser.py`. `missing_capabilities` is allowed only where the schema
 already allows it.
 
 Ids are stable: a later round reuses `F1` rather than renaming it. Paths are

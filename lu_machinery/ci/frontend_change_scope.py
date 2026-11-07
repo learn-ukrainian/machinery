@@ -28,7 +28,7 @@ from pathlib import Path, PurePosixPath
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from scripts.ci._location import checkout_relative
+from lu_machinery.ci._location import checkout_relative
 
 DENOMINATOR_REL = checkout_relative("ci", "frontend_change_denominator.json").as_posix()
 PACKAGE_JSON_REL = "site/package.json"

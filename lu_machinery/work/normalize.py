@@ -10,9 +10,9 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from scripts.work import SOURCE_PUBLIC
-from scripts.work.attention import _pr_check_state, apply_health_and_actions, attach_merge_evidence
-from scripts.work.relations import (
+from lu_machinery.work import SOURCE_PUBLIC
+from lu_machinery.work.attention import _pr_check_state, apply_health_and_actions, attach_merge_evidence
+from lu_machinery.work.relations import (
     annotate_cycles,
     collect_missing_blocked_by_issue_numbers,
     detect_dependency_cycles,
@@ -25,8 +25,8 @@ from scripts.work.relations import (
     review_work_id,
     task_work_id,
 )
-from scripts.work.schema import admit_projection_filters
-from scripts.work.sources_public import (
+from lu_machinery.work.schema import admit_projection_filters
+from lu_machinery.work.sources_public import (
     GH_ENUM_LIMIT,
     PR_SNAPSHOT_FRESHNESS_S,
     SectionResult,
@@ -98,7 +98,7 @@ def _membership_observation(
             return True, "membership_certified", True
         return False, "membership_uncertified", False
     if any(key in streams for key in _AUDIT_MEMBERSHIP_KEYS):
-        from scripts.orchestration.issue_stream_audit import membership_report_is_complete
+        from lu_machinery.orchestration.issue_stream_audit import membership_report_is_complete
 
         if membership_report_is_complete(streams):
             return True, "membership_certified", True
@@ -1064,7 +1064,7 @@ def load_persisted_lifecycle_ledgers(repository_id: str) -> list[dict[str, Any]]
     merge advice then stays unknown.
     """
     try:
-        from scripts.orchestration.task_lifecycle import canonical_state_root
+        from lu_machinery.orchestration.task_lifecycle import canonical_state_root
 
         root = canonical_state_root(Path(__file__).resolve().parents[2])
         digest = hashlib.sha256(repository_id.encode("utf-8")).hexdigest()[:16]

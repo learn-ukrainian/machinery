@@ -31,7 +31,7 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
-from scripts.common import task_scratch as lifecycle
+from lu_machinery.common import task_scratch as lifecycle
 
 _TASK_SCRATCH = (
     f"{Path(__file__).parents[1].name}/{Path(__file__).parent.name}/{Path(__file__).name}"

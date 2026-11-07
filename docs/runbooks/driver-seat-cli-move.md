@@ -190,7 +190,7 @@ Replace every placeholder and use the project interpreter prescribed for the
 seat. In a dispatch worktree, use the primary interpreter, not a worktree `.venv`.
 
 ```bash
-"$PROJECT_PYTHON" -m scripts.fleet_comms channel publish cto - \
+"$PROJECT_PYTHON" -m lu_machinery.fleet_comms channel publish cto - \
   --sender "<authorized-sender>" --recipient "<new-registered-slot>" \
   --kind "<original-non-supervisory-kind>" \
   --conversation-id "<original-conversation-id>" \
@@ -234,7 +234,7 @@ The successor claims ordinary messages only from its own new slot with its own
 worker identity:
 
 ```bash
-"$PROJECT_PYTHON" -m scripts.fleet_comms deliveries claim \
+"$PROJECT_PYTHON" -m lu_machinery.fleet_comms deliveries claim \
   --recipient "<new-registered-slot>" --worker-id "<successor-worker-id>"
 ```
 
@@ -246,7 +246,7 @@ remaining authorized work, record its verified outcome, and acknowledge the
 exact claimed delivery with that worker identity and its returned fence token:
 
 ```bash
-"$PROJECT_PYTHON" -m scripts.fleet_comms deliveries ack "<delivery-id>" \
+"$PROJECT_PYTHON" -m lu_machinery.fleet_comms deliveries ack "<delivery-id>" \
   --worker-id "<successor-worker-id>" --fence-token "<returned-fence-token>"
 ```
 
@@ -258,7 +258,7 @@ command shape is shown below for reference. The launcher/watcher owns this
 sequence; do not execute supervisory consumption from the agent seat.
 
 ```bash
-"$PROJECT_PYTHON" -m scripts.fleet_comms deliveries consume "<supervisor-delivery-id>" \
+"$PROJECT_PYTHON" -m lu_machinery.fleet_comms deliveries consume "<supervisor-delivery-id>" \
   --worker-id "<supervisor-worker-id>" --fence-token "<current-delivery-fence>" \
   --driver-generation "<launcher-driver-generation>"
 ```

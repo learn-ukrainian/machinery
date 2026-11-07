@@ -23,7 +23,7 @@ PY="$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")/.venv/
 A dispatched worker runs under `--permission-mode dontAsk`, which denies any command its allowlist
 cannot match (https://code.claude.com/docs/en/permissions, "Compound commands"). Write the command
 word literally: the absolute interpreter path, no `PY=...; $PY` prefix and no `eval`. Use the
-`scripts.publish` verbs for GitHub writes. Substitute the resolved path for `"$PY"` when you
+`lu_machinery.publish` verbs for GitHub writes. Substitute the resolved path for `"$PY"` when you
 dispatch. After one denial, retry once in a literal form before you stop; a second denial is
 `BLOCKED`.
 
@@ -42,7 +42,7 @@ dispatch. After one denial, retry once in a literal form before you stop; a seco
 - **A stream driver lands only its own stream** (`workflow.md` § Merge policy, stream-scoped
   sweeps). The PR's linked issue must resolve to exactly one stream epic, and it must be yours:
   `curl -s http://127.0.0.1:8765/api/issues/streams` (built by
-  `scripts.orchestration.issue_stream_audit`). No link, several links, or not yet indexed means
+  `lu_machinery.orchestration.issue_stream_audit`). No link, several links, or not yet indexed means
   out of stream: stop. Branch prefixes are author lanes, never streams. A worker's stream is
   its brief's stream; its brief may name an ordered brief id instead of an issue.
 - **The integration owner and the CTO are not limited to one stream.** The integration owner
@@ -72,7 +72,7 @@ dispatch. After one denial, retry once in a literal form before you stop; a seco
    nightly and manual runs, so a failure in the merge group can still eject the PR. An open PR is not approval.
 
    ```bash
-   "$PY" -m scripts.publish pr-create --title "$TITLE" --body-file "$BODY" \
+   "$PY" -m lu_machinery.publish pr-create --title "$TITLE" --body-file "$BODY" \
      --base main --head "$BRANCH"
    ```
 
@@ -102,12 +102,12 @@ dispatch. After one denial, retry once in a literal form before you stop; a seco
 
    `headRefOid` must equal the head of the recorded APPROVE and of the green PR CI Gate.
    Send follow-ups to the CTO through Fleet Comms
-   (`"$PY" -m scripts.fleet_comms channel publish … --recipient claude-cto`; the CTO's one durable recipient, never a `claude-cto-<id>` name).
+   (`"$PY" -m lu_machinery.fleet_comms channel publish … --recipient claude-cto`; the CTO's one durable recipient, never a `claude-cto-<id>` name).
 8. **Drain the inbox, then enqueue** at the approved head. The merge-queue keeper may already
-   have queued it: check `"$PY" -m scripts.gh_merge_queue_status "$PR" --json` first.
+   have queued it: check `"$PY" -m lu_machinery.gh_merge_queue_status "$PR" --json` first.
 
    ```bash
-   "$PY" -m scripts.publish pr-merge --number "$PR" --match-head "$HEAD_SHA"
+   "$PY" -m lu_machinery.publish pr-merge --number "$PR" --match-head "$HEAD_SHA"
    ```
 
    Never `--auto`, `--delete-branch` or `--admin`. Queued is not merged. A PR the CTO
@@ -122,7 +122,7 @@ dispatch. After one denial, retry once in a literal form before you stop; a seco
     exited:
 
     ```bash
-    "$PY" -m scripts.orchestration.merge_closeout "$PR" --apply
+    "$PY" -m lu_machinery.orchestration.merge_closeout "$PR" --apply
     ```
 
     `merge_closeout` proves no worktree still holds the PR and that its branches are gone; it
@@ -157,7 +157,7 @@ first review of record, at most **one per PR lineage**.
 - **Execution:** run with a hard timeout of 900 seconds:
 
   ```bash
-  "$PY" scripts/dispatch.py dispatch \
+  "$PY" lu_machinery/dispatch.py dispatch \
     --agent opencode --model deepseek-v4.1-flash --mode read-only \
     --hard-timeout 900 --worktree --task-id "$PRECHECK_TASK" \
     --prompt-file "$PRECHECK_PROMPT" --pinned-head "$HEAD_SHA"
@@ -189,7 +189,7 @@ paths, task id, run nonce, reason and approval reference to `claude-cto` through
 The coordinator records the grant, then replies to the task-ID recipient with the JSON receipt:
 
 ```bash
-/abs/path/.venv/bin/python scripts/dispatch.py grant-paths TASK --run-nonce NONCE \
+/abs/path/.venv/bin/python lu_machinery/dispatch.py grant-paths TASK --run-nonce NONCE \
   --owned-path tests/fixture.py --reason 'Approved fixture change' --approval-ref message-id
 ```
 
@@ -207,7 +207,7 @@ coordinator publishes the reply there, and claiming needs no registered seat. Us
 
 ```bash
 printf '%s\n' "question: <one decision, the options, your recommendation>; reply to: $LEARN_UKRAINIAN_DISPATCH_TASK_ID" |
-  /abs/path/.venv/bin/python -m scripts.fleet_comms channel publish cto - \
+  /abs/path/.venv/bin/python -m lu_machinery.fleet_comms channel publish cto - \
     --sender "$LEARN_UKRAINIAN_DISPATCH_TASK_ID" --source cto --recipient claude-cto \
     --idempotency-key "ask-$LEARN_UKRAINIAN_DISPATCH_TASK_ID-<n>"
 ```
@@ -220,7 +220,7 @@ hide errors with `|| true`. Exit 1 alone means no reply yet. Exit 3 is a typed e
 not an empty inbox: report it to `claude-cto` and stop dependent work.
 
 ```bash
-/abs/path/.venv/bin/python -m scripts.fleet_comms deliveries receive \
+/abs/path/.venv/bin/python -m lu_machinery.fleet_comms deliveries receive \
   --recipient "$LEARN_UKRAINIAN_DISPATCH_TASK_ID" --worker-id "$LEARN_UKRAINIAN_DISPATCH_TASK_ID"
 ```
 
@@ -230,7 +230,7 @@ Read and apply `delivery.body`, then acknowledge
 with **`delivery.delivery_id` and `delivery.fence_token` from that same output**:
 
 ```bash
-/abs/path/.venv/bin/python -m scripts.fleet_comms deliveries ack "<delivery.delivery_id>" \
+/abs/path/.venv/bin/python -m lu_machinery.fleet_comms deliveries ack "<delivery.delivery_id>" \
   --worker-id "$LEARN_UKRAINIAN_DISPATCH_TASK_ID" --fence-token "<delivery.fence_token>"
 ```
 

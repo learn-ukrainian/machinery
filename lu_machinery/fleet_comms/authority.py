@@ -24,7 +24,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 try:
-    from scripts.lib.readonly_sqlite import SQLiteConnection, open_readonly
+    from lu_machinery.lib.readonly_sqlite import SQLiteConnection, open_readonly
 except ModuleNotFoundError as exc:
     # Only this package's own absence selects the short spelling; its name comes from this
     # file's unresolved location (design-v1 amendment 1), never __package__.
@@ -32,34 +32,34 @@ except ModuleNotFoundError as exc:
         raise
     from lib.readonly_sqlite import SQLiteConnection, open_readonly  # type: ignore[no-redef]
 
-from scripts.agent_runtime.kimi_admission import ACP_MODE, BRIDGE_MODE, KimiAdmissionRefused
-from scripts.agent_runtime.target_admission import (
+from lu_machinery.agent_runtime.kimi_admission import ACP_MODE, BRIDGE_MODE, KimiAdmissionRefused
+from lu_machinery.agent_runtime.target_admission import (
     AdmittedTarget,
     require_admitted,
     resolve_and_admit,
     stored_kimi_request,
     stored_kimi_row,
 )
-from scripts.control_plane.storage import (
+from lu_machinery.control_plane.storage import (
     Authority,
     ControlPlaneUnsupportedComponentError,
     StoreId,
     assert_component_supported,
 )
-from scripts.fleet_comms.artifacts import (
+from lu_machinery.fleet_comms.artifacts import (
     RETENTION_EXPIRED_PREFIX,
     ArtifactRecord,
     ArtifactStore,
     ArtifactStoreError,
 )
-from scripts.fleet_comms.contracts import new_id
-from scripts.fleet_comms.formal_review_jobs import (
+from lu_machinery.fleet_comms.contracts import new_id
+from lu_machinery.fleet_comms.formal_review_jobs import (
     FormalReviewJob,
     FormalReviewJobsError,
     FormalReviewJobService,
 )
-from scripts.fleet_comms.migrations import MIGRATIONS, apply_migrations
-from scripts.fleet_comms.review_publication import SealedVerdict, parse_sealed_verdict_payload
+from lu_machinery.fleet_comms.migrations import MIGRATIONS, apply_migrations
+from lu_machinery.fleet_comms.review_publication import SealedVerdict, parse_sealed_verdict_payload
 
 AuthorityJobKind = Literal["request", "discussion", "formal_review"]
 AuthorityJobState = Literal[
@@ -1649,7 +1649,7 @@ class AuthorityService:
         now: str | None = None,
     ) -> Any:
         """Atomically requeue one failed formal review and reserve its substitute."""
-        from scripts.fleet_comms.routing_reservations import RoutingReservationLedger
+        from lu_machinery.fleet_comms.routing_reservations import RoutingReservationLedger
 
         jid = _nonempty(authority_job_id, field="authority_job_id")
         rid = _nonempty(review_id, field="review_id")

@@ -14,7 +14,7 @@
 **English**: all technical work. **Ukrainian**: curriculum content only.
 
 ### 4. External LLM Access
-Gemini-family work goes through the AGY lane (`ab ask-agy`, `.venv/bin/python scripts/dispatch.py dispatch --agent agy --model <model> --prompt-file <brief>`) per `model-assignment.md`; never Gemini CLI or Gemini Code Assist. No direct provider API keys — every model call goes through a fleet lane.
+Gemini-family work goes through the AGY lane (`ab ask-agy`, `.venv/bin/python lu_machinery/dispatch.py dispatch --agent agy --model <model> --prompt-file <brief>`) per `model-assignment.md`; never Gemini CLI or Gemini Code Assist. No direct provider API keys — every model call goes through a fleet lane.
 Code review eligibility follows the `model-assignment.md` Code review row.
 
 ### 5. Coverage and teaching adequacy
@@ -86,7 +86,7 @@ own mode plus whether its worktree is dirty — not a judgement about intent.
 **Dispatch v2 terminal statuses; do not collapse them into `done`:**
 - **`done`** — the worker completed successfully. Write tasks also passed Git delivery verification;
   independently verify the pushed branch, open PR and CI, or the merged PR required above.
-- **`no_deliverable`** — a write task failed delivery verification. In `scripts/dispatcher/worker.py`,
+- **`no_deliverable`** — a write task failed delivery verification. In `lu_machinery/dispatcher/worker.py`,
   dirty or unknown worktree state gives `worktree_dirty_or_unknown`, zero or unknown commits gives
   `no_commits_or_unknown`, and unpushed or unknown push state gives `work_not_pushed_or_unknown`.
   Owned-path violations or unverifiable ownership also fail delivery. Inspect the task record and
@@ -115,7 +115,7 @@ Runbook: `docs/runbooks/secret-scanning.md`.
 **8.4 — Before merge, both must hold: (A) required CI green on the merge candidate, and (B) a review
 artifact from a model family different from the author's.** It must be **independent** (never review
 your own work) and an actual review — *discussion does not satisfy it*. Resolve the seat with
-`.venv/bin/python -m scripts.review.closeout_cli … resolve-reviewer` rather than hand-picking one.
+`.venv/bin/python -m lu_machinery.review.closeout_cli … resolve-reviewer` rather than hand-picking one.
 A `FAIL` that is blocked purely by missing evidence (no network, sandboxed filesystem) is **not** a
 pass — get the missing evidence from a lane that can obtain it, then finalise.
 

@@ -26,8 +26,8 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from scripts.ai_agent_bridge import _channels
-from scripts.lib import kimi_coding_oauth
+from lu_machinery.ai_agent_bridge import _channels
+from lu_machinery.lib import kimi_coding_oauth
 
 # The machinery package's directory name, which is also its import name and the first component
 # of its files' checkout paths. Taken from this file's unresolved location, so neither a short

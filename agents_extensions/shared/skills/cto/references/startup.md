@@ -45,11 +45,11 @@ and the authority service refuses any publication to `claude-cto-<anything>`. Yo
 identity `claude-cto-<session id>` is only the consumer identity: pass it as `--worker-id`
 when you claim and acknowledge, never as a recipient and never to workers as an address.
 The default drain covers `cto`, `epics` and `claude-cto`.
-`claude-epics` (`scripts/config/area_assignments.yaml` `epics.slots`) carries the launcher's
-supervisory deliveries. `scripts.fleet_comms deliveries claim` has no kind filter, so a drain
+`claude-epics` (`lu_machinery/config/area_assignments.yaml` `epics.slots`) carries the launcher's
+supervisory deliveries. `lu_machinery.fleet_comms deliveries claim` has no kind filter, so a drain
 of that slot claims a supervisory delivery before it can be recognised, and repeated claims
 exhaust its attempts. Read `claude-epics` first, read-only, with
-`.venv/bin/python -m scripts.fleet_comms backlog`, and claim only a named non-supervisory delivery.
+`.venv/bin/python -m lu_machinery.fleet_comms backlog`, and claim only a named non-supervisory delivery.
 The Fleet authority service admits every exact recipient, even where a convenience CLI
 lists fewer. For each message run the authority-delivery procedure in
 `docs/runbooks/driver-seat-cli-move.md` § 5: claim, read the body, reconcile prior effects,
@@ -58,7 +58,7 @@ a supervisory request: it belongs to the launcher and its watcher
 (`docs/runbooks/session-supervisor.md`).
 
 Deliveries queued before this rule sit at old `claude-cto-<id>` names and stay claimable.
-Once per session, list them with `.venv/bin/python -m scripts.fleet_comms backlog` and drain
+Once per session, list them with `.venv/bin/python -m lu_machinery.fleet_comms backlog` and drain
 each such name the same way (claim with `--recipient <old name>`, your own `--worker-id`).
 Do not publish to an old name and do not tell a worker to.
 

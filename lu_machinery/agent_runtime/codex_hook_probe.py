@@ -24,8 +24,8 @@ from typing import Any
 REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
-from scripts.agent_runtime.jsonl import jsonl_lines
-from scripts.common.repo_root import project_interpreter
+from lu_machinery.agent_runtime.jsonl import jsonl_lines
+from lu_machinery.common.repo_root import project_interpreter
 
 DEFAULT_TIMEOUT_SECONDS = 180
 TEMP_PARENT = Path("/private/tmp") if Path("/private/tmp").is_dir() else Path(tempfile.gettempdir())

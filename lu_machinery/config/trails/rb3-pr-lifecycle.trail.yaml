@@ -36,7 +36,7 @@ steps:
         - sh
         - -c
         - |-
-          OUT=$(.venv/bin/python scripts/ai_agent_bridge/__main__.py inbox --for "$HANDOFF_AGENT" show "$HANDOFF_AGENT" 2>&1); case "$OUT" in *"pending: 0"*) echo inbox-empty;; *"pending:"*) echo inbox-pending;; *) echo inbox-unreadable;; esac
+          OUT=$(.venv/bin/python lu_machinery/ai_agent_bridge/__main__.py inbox --for "$HANDOFF_AGENT" show "$HANDOFF_AGENT" 2>&1); case "$OUT" in *"pending: 0"*) echo inbox-empty;; *"pending:"*) echo inbox-pending;; *) echo inbox-unreadable;; esac
       environment:
         TRAIL_INVOCATION_ID: "{invocation_id}"
         HANDOFF_AGENT: "{handoff_agent}"
@@ -93,7 +93,7 @@ steps:
         - sh
         - -c
         - |-
-          printf "%s\n" "Cross-family review of PR $PR_NUMBER: VERDICT APPROVE or REQUEST CHANGES with findings." | .venv/bin/python scripts/ai_agent_bridge/__main__.py "ask-$REVIEWER_SEAT" - --task-id "review-$PR_NUMBER" --type review >/dev/null 2>&1 && echo review-request-command-succeeded || echo review-request-command-failed
+          printf "%s\n" "Cross-family review of PR $PR_NUMBER: VERDICT APPROVE or REQUEST CHANGES with findings." | .venv/bin/python lu_machinery/ai_agent_bridge/__main__.py "ask-$REVIEWER_SEAT" - --task-id "review-$PR_NUMBER" --type review >/dev/null 2>&1 && echo review-request-command-succeeded || echo review-request-command-failed
       environment:
         TRAIL_INVOCATION_ID: "{invocation_id}"
         PR_NUMBER: "{pr_number}"
@@ -122,7 +122,7 @@ steps:
         - sh
         - -c
         - |-
-          ROW=$(.venv/bin/python scripts/ai_agent_bridge/__main__.py asks --task-id "review-$PR_NUMBER" 2>/dev/null | tail -1); case "$ROW" in *replied*) echo review-replied;; *processing*|*sent*) echo review-in-flight;; *timed-out*|*failed*) echo review-unresolved;; *) echo review-ledger-unreadable;; esac
+          ROW=$(.venv/bin/python lu_machinery/ai_agent_bridge/__main__.py asks --task-id "review-$PR_NUMBER" 2>/dev/null | tail -1); case "$ROW" in *replied*) echo review-replied;; *processing*|*sent*) echo review-in-flight;; *timed-out*|*failed*) echo review-unresolved;; *) echo review-ledger-unreadable;; esac
       environment:
         TRAIL_INVOCATION_ID: "{invocation_id}"
         PR_NUMBER: "{pr_number}"
@@ -280,7 +280,7 @@ steps:
           import os
           from pathlib import Path
 
-          import scripts.orchestration.trail_predicates as tp
+          import lu_machinery.orchestration.trail_predicates as tp
 
           facts = json.load(open(os.environ["GATE_FACTS_RECEIPT"], encoding="utf-8"))
           tables = tp.load_decision_tables(Path(os.environ["TABLES_PATH"]))
@@ -288,7 +288,7 @@ steps:
       environment:
         TRAIL_INVOCATION_ID: "{invocation_id}"
         GATE_FACTS_RECEIPT: "{gate_facts_receipt}"
-        TABLES_PATH: scripts/config/trails/decision-tables.v1.yaml
+        TABLES_PATH: lu_machinery/config/trails/decision-tables.v1.yaml
         TABLE_ID: review-gate-arm
       timeout_seconds: 30
       mutation_class: observe

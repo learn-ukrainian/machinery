@@ -16,7 +16,7 @@ from typing import Any
 import yaml
 
 try:
-    from scripts.common.repo_root import machinery_path
+    from lu_machinery.common.repo_root import machinery_path
 except ImportError:  # agent_runtime loaded with scripts/ on path
     from common.repo_root import machinery_path  # type: ignore[no-redef]
 

@@ -50,7 +50,7 @@ standalone launcher; it never claims a driver lease.
 Standalone `start-gemini.sh` and `dispatch.py --agent agy` remain available
 for their permitted non-driver roles. The rules core is included in the
 standalone session. Gemini driver slots are listed in
-`scripts/config/area_assignments.yaml` wherever Codex has one, and
+`lu_machinery/config/area_assignments.yaml` wherever Codex has one, and
 `handoff_identity_for_gemini_epic` names the `gemini-<lane>` slot.
 
 ## Fleet Management & Rate Limits
@@ -58,10 +58,10 @@ standalone session. Gemini driver slots are listed in
 The driver of record (Opus 5.5 or Sol 6.1) monitors usage across the fleet using the native fleet probes:
 
 ```bash
-.venv/bin/python -m scripts.fleet.usage show --fresh
+.venv/bin/python -m lu_machinery.fleet.usage show --fresh
 ```
 
-Use `scripts.fleet.usage show` to verify credits, quota windows, and availability before dispatching. `--fresh` bypasses the cached Monitor snapshot. CodexBar v0.69.0 remains a manual cross-check (`codexbar usage --provider <provider> --format json --no-color`); JSON enables its optional Codex reset inventory. Reset credits are informational and spending one requires an operator decision.
+Use `lu_machinery.fleet.usage show` to verify credits, quota windows, and availability before dispatching. `--fresh` bypasses the cached Monitor snapshot. CodexBar v0.69.0 remains a manual cross-check (`codexbar usage --provider <provider> --format json --no-color`); JSON enables its optional Codex reset inventory. Reset credits are informational and spending one requires an operator decision.
 
 ## Advisor Approval Gate
 

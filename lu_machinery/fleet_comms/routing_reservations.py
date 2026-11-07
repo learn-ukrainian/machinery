@@ -19,12 +19,12 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, Literal
 
-from scripts.control_plane.storage import StoreId, assert_component_supported
-from scripts.control_plane.storage import connect as cp_connect
-from scripts.fleet_comms.artifacts import ArtifactStore
-from scripts.fleet_comms.contracts import new_id
-from scripts.fleet_comms.migrations import apply_migrations
-from scripts.fleet_comms.paths import default_plane_root
+from lu_machinery.control_plane.storage import StoreId, assert_component_supported
+from lu_machinery.control_plane.storage import connect as cp_connect
+from lu_machinery.fleet_comms.artifacts import ArtifactStore
+from lu_machinery.fleet_comms.contracts import new_id
+from lu_machinery.fleet_comms.migrations import apply_migrations
+from lu_machinery.fleet_comms.paths import default_plane_root
 
 ReservationStatus = Literal["reserved", "running", "complete", "failed", "expired", "cancelled"]
 RouteMode = Literal["auto", "explicit"]
@@ -284,10 +284,10 @@ class RoutingReservationLedger:
         # #7482 interlock: ledger SQL is sqlite-only (BEGIN IMMEDIATE,
         # SAVEPOINT, ? placeholders); assert runs for INJECTED stores too
         # (CF r1 finding, PR #7498).
-        from scripts.control_plane.storage import (
+        from lu_machinery.control_plane.storage import (
             Authority as _Authority,
         )
-        from scripts.control_plane.storage import (
+        from lu_machinery.control_plane.storage import (
             ControlPlaneUnsupportedComponentError as _Unsupported,
         )
 

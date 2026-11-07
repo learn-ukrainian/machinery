@@ -21,7 +21,7 @@ semantics, scope freezing, non-mutating checks, cross-family reviewer
 resolution, finding adjudication, and separate behavior proof. A clean
 working tree never substitutes for reviewing a requested commit or PR.
 
-For the review of record, use `"$PY" "$PRIMARY_REPO/scripts/review/record_cf_verdict.py"` after the
+For the review of record, use `"$PY" "$PRIMARY_REPO/lu_machinery/review/record_cf_verdict.py"` after the
 toolful review settles. It posts a PR comment bound to the exact head, with
 model/family/harness provenance. GitHub rejects an API approval review when the
 shared bot identity also authored the PR (`gh pr review --approve` uses that API).
@@ -61,7 +61,7 @@ outside-family reviewer is available.
 ## Execute
 
 Read and follow [`local-code-review-checklist.md`](local-code-review-checklist.md)
-in full. It drives `.venv/bin/python -m scripts.review.closeout_cli` for every
+in full. It drives `.venv/bin/python -m lu_machinery.review.closeout_cli` for every
 step that has a deterministic answer (target resolution, scope-baseline
 freeze and breakers, reviewer resolution, findings adjudication) and tells
 you exactly what to reason about yourself. Do not re-run test suites that the

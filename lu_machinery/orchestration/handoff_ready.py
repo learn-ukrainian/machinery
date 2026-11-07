@@ -31,9 +31,9 @@ import subprocess
 import urllib.request
 from pathlib import Path
 
-from scripts.ci.advisory_checks import is_advisory, load_advisory_checks
-from scripts.common import github_client
-from scripts.github_check_rollup import collapse_status_rollup
+from lu_machinery.ci.advisory_checks import is_advisory, load_advisory_checks
+from lu_machinery.common import github_client
+from lu_machinery.github_check_rollup import collapse_status_rollup
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DELEGATE_ACTIVE_URL = "http://127.0.0.1:8765/api/delegate/active"

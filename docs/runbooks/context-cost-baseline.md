@@ -13,13 +13,13 @@ Set a restrictive output mask before redirecting the baseline JSON.
 
 ```bash
 umask 077
-.venv/bin/python scripts/ops/context_cost_report.py freeze \
+.venv/bin/python lu_machinery/ops/context_cost_report.py freeze \
   --manifest batch_state/monitor-blocker-dedupe/sample-manifest.json
-.venv/bin/python scripts/ops/context_cost_report.py report \
+.venv/bin/python lu_machinery/ops/context_cost_report.py report \
   --manifest batch_state/monitor-blocker-dedupe/sample-manifest.json \
   --tool-sha "$(git rev-parse HEAD)" \
   > batch_state/monitor-blocker-dedupe/sample-baseline.json
-.venv/bin/python scripts/ops/context_cost_report.py report \
+.venv/bin/python lu_machinery/ops/context_cost_report.py report \
   --manifest batch_state/monitor-blocker-dedupe/sample-manifest.json --text
 ```
 

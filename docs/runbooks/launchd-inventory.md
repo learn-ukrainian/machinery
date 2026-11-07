@@ -105,7 +105,7 @@ dispatch worktree.
 - Program: `/bin/bash --noprofile --norc
   scripts/orchestration/run_mac_observer_heartbeat.sh --repo-root <primary
   checkout>`. The wrapper execs the primary `.venv/bin/python` with
-  `scripts/orchestration/observer_heartbeat.py --mac-gui`. `Program` must stay
+  `lu_machinery/orchestration/observer_heartbeat.py --mac-gui`. `Program` must stay
   `/bin/bash` so a venv rebuild cannot invalidate launchd LWCR (exit 78; #6937, #6941).
 - Schedule: at load and every 5 minutes (`StartInterval=300`), well within
   the 15-minute presence TTL.

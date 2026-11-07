@@ -6,7 +6,7 @@ applicable, semantic title, family, role, terminal goal, and actual harness.
 Legacy epic/goal/phase flags remain migration inputs, not the canonical title.
 
 ```bash
-.venv/bin/python scripts/orchestration/thread_handoff.py prepare \
+.venv/bin/python lu_machinery/orchestration/thread_handoff.py prepare \
   --agent <agent> --harness <harness> \
   --active-thread-id "<exact-active-task-id>" \
   --stream-epic <epic-number> \
@@ -31,7 +31,7 @@ In an app-capable task:
 1. Ask the receipt whether native creation is authorized:
 
    ```bash
-   .venv/bin/python scripts/orchestration/thread_handoff.py native-action \
+   .venv/bin/python lu_machinery/orchestration/thread_handoff.py native-action \
      --agent codex --lineage-id <lineage-id> --rollover-id <rollover-id> \
      --action create
    ```
@@ -43,7 +43,7 @@ In an app-capable task:
    successful result before binding, so a crash cannot authorize a duplicate:
 
    ```bash
-   .venv/bin/python scripts/orchestration/thread_handoff.py record-native-result \
+   .venv/bin/python lu_machinery/orchestration/thread_handoff.py record-native-result \
      --agent codex --lineage-id <lineage-id> --rollover-id <rollover-id> \
      --action create --succeeded \
      --evidence "create_thread returned threadId <exact-thread-id>"
@@ -53,7 +53,7 @@ In an app-capable task:
    relations:
 
    ```bash
-   .venv/bin/python scripts/orchestration/thread_handoff.py register-created \
+   .venv/bin/python lu_machinery/orchestration/thread_handoff.py register-created \
      --agent codex --lineage-id <lineage-id> --rollover-id <rollover-id> \
      --replacement-thread-id <exact-thread-id> \
      --evidence "native create_thread result <exact-thread-id>"
@@ -62,7 +62,7 @@ In an app-capable task:
 4. Ask the receipt for the exact title mutation:
 
    ```bash
-   .venv/bin/python scripts/orchestration/thread_handoff.py native-action \
+   .venv/bin/python lu_machinery/orchestration/thread_handoff.py native-action \
      --agent codex --lineage-id <lineage-id> --rollover-id <rollover-id> \
      --action title
    ```
@@ -72,10 +72,10 @@ In an app-capable task:
    before read-back, then reconcile it:
 
    ```bash
-   .venv/bin/python scripts/orchestration/thread_handoff.py record-native-result \
+   .venv/bin/python lu_machinery/orchestration/thread_handoff.py record-native-result \
      --agent codex --lineage-id <lineage-id> --rollover-id <rollover-id> \
      --action title --succeeded --evidence "set_thread_title acknowledged"
-   .venv/bin/python scripts/orchestration/thread_handoff.py reconcile-native \
+   .venv/bin/python lu_machinery/orchestration/thread_handoff.py reconcile-native \
      --agent codex --lineage-id <lineage-id> --rollover-id <rollover-id> \
      --action title
    ```
@@ -94,7 +94,7 @@ or bind its exact replacement through that harness, then record the honest
 fallback before resume:
 
 ```bash
-.venv/bin/python scripts/orchestration/thread_handoff.py bind-replacement \
+.venv/bin/python lu_machinery/orchestration/thread_handoff.py bind-replacement \
   --agent <agent> --lineage-id <lineage-id> --rollover-id <rollover-id> \
   --replacement-task-id <exact-task-id> \
   --evidence "<exact dispatch/harness binding receipt>"
@@ -120,7 +120,7 @@ receipt collision with app/operator evidence that `create_thread` was never
 called:
 
 ```bash
-.venv/bin/python scripts/orchestration/thread_handoff.py repair-native-intent \
+.venv/bin/python lu_machinery/orchestration/thread_handoff.py repair-native-intent \
   --agent codex --lineage-id <lineage-id> --rollover-id <current-rollover-id> \
   --evidence "App stopped before create_thread; exact receipt and binding are pristine."
 ```

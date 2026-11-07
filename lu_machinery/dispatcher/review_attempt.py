@@ -29,22 +29,22 @@ from typing import Any
 
 import yaml
 
-from scripts.dispatcher import store
+from lu_machinery.dispatcher import store
 
 
 def admit(args: Any, prompt: bytes, binding: dict, repo: Path, sha: str) -> dict:
     """Refuse a bound launch whose prompt, tools or pinned inputs do not match; return its review contract."""
-    from scripts.agent_runtime.review_mcp import check_review_contract, check_review_tool_requirements
-    from scripts.orchestration.worktree_claims import required_review_input_root
-    from scripts.review.product_hooks import attempt_hooks
-    from scripts.review.render_contract import ReviewContractError
+    from lu_machinery.agent_runtime.review_mcp import check_review_contract, check_review_tool_requirements
+    from lu_machinery.orchestration.worktree_claims import required_review_input_root
+    from lu_machinery.review.product_hooks import attempt_hooks
+    from lu_machinery.review.render_contract import ReviewContractError
 
     access = args.review_access or "isolated"
     if access == "full" and not args.full_checkout:
         raise ValueError("review_attempt_full_checkout_required: full review access needs --full-checkout")
     if args.output_schema is not None:
         raise ValueError("attempt_output_schema_unsupported: a bound attempt returns its review document")
-    from scripts.agent_runtime.codex_accounts import CODEX_SUBSCRIPTION_ACCOUNTS
+    from lu_machinery.agent_runtime.codex_accounts import CODEX_SUBSCRIPTION_ACCOUNTS
 
     if args.codex_account not in (None, *CODEX_SUBSCRIPTION_ACCOUNTS):
         # The runtime boundary stages the named subscription account's own login (_route); an API-billed route
@@ -85,7 +85,7 @@ def admit(args: Any, prompt: bytes, binding: dict, repo: Path, sha: str) -> dict
 
 def _check_pins_at_commit(repo: Path, sha: str, manifest_path: Path) -> None:
     """Every manifest pin must hold the dispatch commit's bytes, before a worktree or record exists."""
-    from scripts.review.product_hooks import attempt_hooks
+    from lu_machinery.review.product_hooks import attempt_hooks
 
     for _, entry in attempt_hooks().pinned_entries(yaml.safe_load(manifest_path.read_bytes())):
         shown = subprocess.run(
@@ -113,24 +113,24 @@ def run(spec: Any, record: dict, prompt: str, deadlines: tuple[float, int, int])
     scripts_dir = str(Path(__file__).resolve().parents[1])
     if scripts_dir not in sys.path:
         sys.path.insert(0, scripts_dir)
-    from scripts.agent_runtime import runner
-    from scripts.agent_runtime.attempt_boundary import verify_full_review_tree
-    from scripts.agent_runtime.errors import (
+    from lu_machinery.agent_runtime import runner
+    from lu_machinery.agent_runtime.attempt_boundary import verify_full_review_tree
+    from lu_machinery.agent_runtime.errors import (
         AgentRuntimeError,
         AgentStalledError,
         AgentTimeoutError,
         RateLimitedError,
     )
-    from scripts.agent_runtime.review_mcp import prepare_review_attempt, review_attempt_tool_config
-    from scripts.review.isolation import ReviewIsolationError
-    from scripts.review.product_hooks import attempt_hooks
+    from lu_machinery.agent_runtime.review_mcp import prepare_review_attempt, review_attempt_tool_config
+    from lu_machinery.review.isolation import ReviewIsolationError
+    from lu_machinery.review.product_hooks import attempt_hooks
 
     ledger = attempt_hooks().ledger()
     binding, access = record["review_attempt"], record.get("review_access") or "isolated"
     manifest = Path(record["options"]["review_attempt"])
     workspace = Path(record["worktree_path"])
     unknown = dict(resolved_model="unknown", resolved_model_known=False, resolved_model_source="unobserved")
-    from scripts.review.language_lane import is_ukrainian_review
+    from lu_machinery.review.language_lane import is_ukrainian_review
 
     ukrainian = is_ukrainian_review(record)
     if ukrainian:
@@ -139,7 +139,7 @@ def run(spec: Any, record: dict, prompt: str, deadlines: tuple[float, int, int])
         record.setdefault("unknown_items", 0)
         record.setdefault("dropped_claims", [])
     try:
-        from scripts.review.render_contract import check_rules_dependency
+        from lu_machinery.review.render_contract import check_rules_dependency
 
         contract = record.get("review_contract") or {}
         check_rules_dependency((contract.get("machinery_dependencies") or {}).get("rules_core"), prompt)
@@ -190,7 +190,7 @@ def run(spec: Any, record: dict, prompt: str, deadlines: tuple[float, int, int])
     error = None if ok else (result.failure_code or result.stderr_excerpt or "provider returned no successful response")
     response_text = result.response if ok else None
     if ukrainian and ok and response_text:
-        from scripts.review.review_contract import ContractError, validate_ukrainian_reply_claims
+        from lu_machinery.review.review_contract import ContractError, validate_ukrainian_reply_claims
 
         try:
             response_text, validation = validate_ukrainian_reply_claims(
@@ -236,7 +236,7 @@ def _bind_codex_account(spec: Any) -> None:
     """
     if spec.agent != "codex":
         return
-    from scripts.agent_runtime.codex_accounts import (
+    from lu_machinery.agent_runtime.codex_accounts import (
         DEFAULT_CODEX_ACCOUNT,
         codex_account_env,
         resolve_codex_account_label,
@@ -249,13 +249,13 @@ def _bind_codex_account(spec: Any) -> None:
 
 def _route(spec: Any, record: dict) -> dict:
     """The admitted credential route, carried into the runtime exactly as dispatch recorded it."""
-    from scripts.agent_runtime.attempt_boundary import CLAUDE_ACCOUNT_KEY, resolve_claude_account_label
-    from scripts.dispatcher import admission
+    from lu_machinery.agent_runtime.attempt_boundary import CLAUDE_ACCOUNT_KEY, resolve_claude_account_label
+    from lu_machinery.dispatcher import admission
 
     route: dict = {"run_nonce": record["run_nonce"]}
     if spec.agent == "codex":
-        from scripts.agent_runtime.attempt_boundary import CODEX_ACCOUNT_KEY
-        from scripts.agent_runtime.codex_accounts import resolve_codex_account_label
+        from lu_machinery.agent_runtime.attempt_boundary import CODEX_ACCOUNT_KEY
+        from lu_machinery.agent_runtime.codex_accounts import resolve_codex_account_label
 
         # The boundary stages this account's own login and no other (stage_codex_account_auth).
         route[CODEX_ACCOUNT_KEY] = resolve_codex_account_label(spec.codex_account)
@@ -270,7 +270,7 @@ def _route(spec: Any, record: dict) -> dict:
 
 def _redacted(value: Any) -> Any:
     """A JSON value with every string redacted, mapping keys included, so that it stays valid JSON."""
-    from scripts.secret_redactor import redact_text, redact_value
+    from lu_machinery.secret_redactor import redact_text, redact_value
 
     if isinstance(value, dict):
         value = redact_value(value)  # also blanks the values of secret-named keys

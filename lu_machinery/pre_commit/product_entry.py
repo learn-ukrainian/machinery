@@ -38,8 +38,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from scripts.common.repo_root import ProductRootError, product_root
-from scripts.ops.product_entry import load_configured_module
+from lu_machinery.common.repo_root import ProductRootError, product_root
+from lu_machinery.ops.product_entry import load_configured_module
 
 SCHEMA = "learn-ukrainian.pre-commit-entry-points"
 SCHEMA_VERSION = 1

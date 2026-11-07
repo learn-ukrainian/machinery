@@ -45,7 +45,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from scripts.common.jsonl import jsonl_lines
+from lu_machinery.common.jsonl import jsonl_lines
 
 
 def _machinery_top() -> str:

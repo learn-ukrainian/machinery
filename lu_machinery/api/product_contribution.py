@@ -36,7 +36,7 @@ from typing import TYPE_CHECKING, Any, Protocol
 
 from fastapi import APIRouter
 
-from scripts.ops.product_entry import ConfiguredModuleError, load_configured_module
+from lu_machinery.ops.product_entry import ConfiguredModuleError, load_configured_module
 
 from . import config
 

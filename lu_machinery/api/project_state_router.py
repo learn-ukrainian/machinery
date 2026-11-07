@@ -12,15 +12,15 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict
 
-from scripts.api.monitor_context import MonitorContext, get_ctx
-from scripts.api.observer_presence import _direct_loopback_peer
-from scripts.api.occupancy import DEFAULT_HOST_IDS, QUERYABLE_DEFAULT_HOST_IDS, parse_host_id_map
-from scripts.api.occupancy_local import resolve_launcher_host_id, self_host_opaque_ids
-from scripts.api.occupancy_sanitize import RETIRED_HOST_IDS
-from scripts.api.occupancy_sanitize import opaque_host_id as _opaque_host_id
-from scripts.api.project_state_collect import collect_local_document
-from scripts.api.project_state_sanitize import ProjectStateValidationError, validate_report_document
-from scripts.api.project_state_store import (
+from lu_machinery.api.monitor_context import MonitorContext, get_ctx
+from lu_machinery.api.observer_presence import _direct_loopback_peer
+from lu_machinery.api.occupancy import DEFAULT_HOST_IDS, QUERYABLE_DEFAULT_HOST_IDS, parse_host_id_map
+from lu_machinery.api.occupancy_local import resolve_launcher_host_id, self_host_opaque_ids
+from lu_machinery.api.occupancy_sanitize import RETIRED_HOST_IDS
+from lu_machinery.api.occupancy_sanitize import opaque_host_id as _opaque_host_id
+from lu_machinery.api.project_state_collect import collect_local_document
+from lu_machinery.api.project_state_sanitize import ProjectStateValidationError, validate_report_document
+from lu_machinery.api.project_state_store import (
     PROJECT_STATE_SCHEMA,
     PROJECT_STATE_SCHEMA_V2,
     REPORT_TTL_SECONDS,

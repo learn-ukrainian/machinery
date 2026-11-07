@@ -747,7 +747,7 @@ def _dispatch_inbox_command(args) -> int:
 
 def _legacy_writes_retired() -> bool:
     """Return whether only Fleet Comms may mutate communication state."""
-    from scripts.fleet_comms.message_plane import resolve_plane_mode
+    from lu_machinery.fleet_comms.message_plane import resolve_plane_mode
 
     return resolve_plane_mode(None) == "authority"
 
@@ -755,13 +755,13 @@ def _legacy_writes_retired() -> bool:
 def queued_authority_delivery_count(recipient: str) -> int | None:
     """Queued authority deliveries for *recipient*; ``None`` when they cannot be read."""
     try:
-        from scripts.fleet_comms.efficiency_metrics import (
+        from lu_machinery.fleet_comms.efficiency_metrics import (
             _authority_file_missing,
             _connect_ro,
             _placeholder,
             _table_exists,
         )
-        from scripts.fleet_comms.paths import default_plane_root, validate_plane_root
+        from lu_machinery.fleet_comms.paths import default_plane_root, validate_plane_root
 
         plane_db = validate_plane_root(default_plane_root()) / "comms.sqlite3"
         if _authority_file_missing(plane_db):
@@ -784,7 +784,7 @@ def authority_inbox_notice(recipient: str | None, *, file: Any = None) -> bool:
 
     Returns whether the line was printed; outside authority mode nothing is printed.
     """
-    from scripts.fleet_comms.message_plane import resolve_plane_mode
+    from lu_machinery.fleet_comms.message_plane import resolve_plane_mode
 
     try:
         if resolve_plane_mode(None) != "authority":
@@ -1688,7 +1688,7 @@ def _handle_discuss(args) -> int:
     # Every discussion leg starts with it: refuse before the channel is
     # created, the root is published or the discussion is enqueued (the
     # discussion controller re-checks).
-    from scripts.lib import rules_core
+    from lu_machinery.lib import rules_core
 
     try:
         rules_core.require_core()
@@ -1841,7 +1841,7 @@ def _handle_discuss(args) -> int:
     # NOTE: do NOT pass to_agents here — discuss handles fanout itself
     # via runtime_invoke. Passing to_agents would create pending delivery
     # rows that the inbox worker would process redundantly.
-    from scripts.fleet_comms.authority import AuthorityService
+    from lu_machinery.fleet_comms.authority import AuthorityService
 
     authority = AuthorityService()
     try:

@@ -13,8 +13,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import get_args
 
-from scripts.common.git_context import validate_plain_branch_name
-from scripts.dispatcher import (
+from lu_machinery.common.git_context import validate_plain_branch_name
+from lu_machinery.dispatcher import (
     admission,
     checks,
     git,
@@ -29,9 +29,9 @@ from scripts.dispatcher import (
     store,
     worker,
 )
-from scripts.dispatcher.environment import child_env
-from scripts.dispatcher.types import ReviewAccess, TaskSpec
-from scripts.dispatcher.watchdog import DEFAULT_INITIAL_RESPONSE_TIMEOUT_S, DEFAULT_SILENCE_TIMEOUT_S, deadlines
+from lu_machinery.dispatcher.environment import child_env
+from lu_machinery.dispatcher.types import ReviewAccess, TaskSpec
+from lu_machinery.dispatcher.watchdog import DEFAULT_INITIAL_RESPONSE_TIMEOUT_S, DEFAULT_SILENCE_TIMEOUT_S, deadlines
 
 # Grok runs through Cursor's TUI: --agent cursor --model grok-4.7-high (grok-build is the separate Grok TUI).
 ALIASES = dict(sol="codex", gemini="agy", deepseek="opencode")
@@ -288,7 +288,7 @@ def _tree_size(tree: str) -> int | None:
 
 def _worktrees(repo_key: str | None, include_archive: bool) -> list[dict]:
     """Join the repository's registered linked worktrees with the task records that name them."""
-    from scripts.orchestration.worktree_claims import repository_registration
+    from lu_machinery.orchestration.worktree_claims import repository_registration
 
     main_root, registered = repository_registration(git.resolve_repo(repo_key)[0])
     named: dict[str, list[dict]] = {}
@@ -346,7 +346,7 @@ def _dispatch(args) -> int:
     prompt.decode("utf-8")
     # Every worker and review seat needs the rules core: without it nothing is dispatched, and this
     # runs before any check, worktree or task record.
-    from scripts.lib import rules_core
+    from lu_machinery.lib import rules_core
 
     try:
         rules_core.require_core()
@@ -355,7 +355,7 @@ def _dispatch(args) -> int:
     agent = ALIASES.get(args.agent, args.agent)
     if agent == "agy":
         # The requested Claude id is the catalog's AGY wire id, not the bare catalog id.
-        from scripts.dispatcher.providers.agy import transport_model
+        from lu_machinery.dispatcher.providers.agy import transport_model
 
         args.model = transport_model(args.model)
     # An unknown Claude account label reaches admission, which refuses it typed (claude_account_unknown).
@@ -376,7 +376,7 @@ def _dispatch(args) -> int:
     if args.input:
         if agent != "agy" or args.mode != "read-only":
             raise ValueError("agy_input_refused: --input requires --agent agy and --mode read-only")
-        from scripts.dispatcher.agy_sandbox import bind_inputs
+        from lu_machinery.dispatcher.agy_sandbox import bind_inputs
 
         bound_inputs = bind_inputs(args.input, repo_root=git.resolve_repo(args.repo)[0])
     if args.mode == "read-only" and (refusal := providers.read_only_refusal(agent)):
@@ -465,26 +465,26 @@ def _dispatch(args) -> int:
         options["inputs"] = json.dumps(bound_inputs, separators=(",", ":"), sort_keys=True)
     output_schema = args.output_schema
     if agent in {"codex", "agy", "claude"} and args.require_review_verdict and output_schema is None:
-        from scripts.review.review_contract import schema_path
+        from lu_machinery.review.review_contract import schema_path
 
         selected = schema_path(profile=args.review_profile, task=vars(args))
         if selected is not None:
             output_schema = str(selected)
     if output_schema is not None:
-        from scripts.dispatcher.output_schema import bind
+        from lu_machinery.dispatcher.output_schema import bind
 
         options.update(bind(output_schema, repo))
         if agent == "agy":
-            from scripts.dispatcher.providers.agy import schema_argument
+            from lu_machinery.dispatcher.providers.agy import schema_argument
 
             schema_argument(options)
         elif agent == "claude":
-            from scripts.dispatcher.providers.claude import schema_argument
+            from lu_machinery.dispatcher.providers.claude import schema_argument
 
             schema_argument(options)
     fields = {name: getattr(args, name) for name in ("model", "effort", "mode", "claude_account", "provider", "codex_account")}
     if agent == "opencode":
-        from scripts.dispatcher.providers import opencode
+        from lu_machinery.dispatcher.providers import opencode
 
         # The endpoint is explicit on the task record, the default included (#12376).
         fields["provider"] = opencode.endpoint(fields["provider"])
@@ -771,7 +771,7 @@ def main(argv=None) -> int:
 
 
 if __name__ == "__main__":
-    from scripts.dispatcher.primary import exec_primary
+    from lu_machinery.dispatcher.primary import exec_primary
 
     exec_primary(sys.argv[1:])
     raise SystemExit(main())

@@ -34,9 +34,9 @@ from typing import Any
 if __package__ in (None, ""):  # run as a file: put the repository root on sys.path
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from scripts.common.jsonl import jsonl_lines
-from scripts.common.repo_root import main_checkout_root
-from scripts.fleet import credit_lane
+from lu_machinery.common.jsonl import jsonl_lines
+from lu_machinery.common.repo_root import main_checkout_root
+from lu_machinery.fleet import credit_lane
 
 # The machinery package's import name, which is also the directory its files have in checkout
 # paths: from this module's package, or from its unresolved location when run as a file.

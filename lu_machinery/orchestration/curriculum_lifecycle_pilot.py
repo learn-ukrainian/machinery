@@ -22,7 +22,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from scripts.orchestration import curriculum_readiness, prompt_contracts
+from lu_machinery.orchestration import curriculum_readiness, prompt_contracts
 
 # The product API the pilot uses. A configured module without any of it is refused.
 _GATE_EXPORTS = ("post_build_review", "base_level", "resolve_content_track", "resolve_manifest_module_track")

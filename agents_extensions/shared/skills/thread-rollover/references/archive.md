@@ -6,7 +6,7 @@ is idle and unpinned. Never infer pin state from its absence: use `unknown` and
 preserve the predecessor when the app does not expose it.
 
 ```bash
-.venv/bin/python scripts/orchestration/thread_handoff.py native-action \
+.venv/bin/python lu_machinery/orchestration/thread_handoff.py native-action \
   --agent codex --lineage-id <lineage-id> --rollover-id <rollover-id> \
   --action archive --source-status idle --pin-state unpinned \
   --evidence "native read_thread/app state for exact predecessor UUID"
@@ -17,10 +17,10 @@ Only a response with `needs_native_action: true` authorizes native
 native call, persist its result before readback, then reconcile the same action:
 
 ```bash
-.venv/bin/python scripts/orchestration/thread_handoff.py record-native-result \
+.venv/bin/python lu_machinery/orchestration/thread_handoff.py record-native-result \
   --agent codex --lineage-id <lineage-id> --rollover-id <rollover-id> \
   --action archive --succeeded --evidence "set_thread_archived acknowledged"
-.venv/bin/python scripts/orchestration/thread_handoff.py reconcile-native \
+.venv/bin/python lu_machinery/orchestration/thread_handoff.py reconcile-native \
   --agent codex --lineage-id <lineage-id> --rollover-id <rollover-id> \
   --action archive
 ```
@@ -28,7 +28,7 @@ native call, persist its result before readback, then reconcile the same action:
 If the native action fails, record the failure and stop:
 
 ```bash
-.venv/bin/python scripts/orchestration/thread_handoff.py record-native-result \
+.venv/bin/python lu_machinery/orchestration/thread_handoff.py record-native-result \
   --agent codex --lineage-id <lineage-id> --rollover-id <rollover-id> \
   --action archive --failed --error "<actual native failure>" \
   --evidence "<tool-backed evidence of the attempted archive and its failure>"

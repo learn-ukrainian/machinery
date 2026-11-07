@@ -6,13 +6,13 @@ import re
 from dataclasses import replace
 from pathlib import Path
 
-from scripts.common.jsonl import jsonl_lines
-from scripts.dispatcher import agy_sandbox
-from scripts.dispatcher.providers import read_only_refusal
-from scripts.dispatcher.providers.stream_json import SOURCES_SERVER, one_model
-from scripts.dispatcher.providers.stream_json import model_observer as _observe
-from scripts.dispatcher.types import Invocation, ParsedResult, TaskSpec
-from scripts.dispatcher.watchdog import deadlines
+from lu_machinery.common.jsonl import jsonl_lines
+from lu_machinery.dispatcher import agy_sandbox
+from lu_machinery.dispatcher.providers import read_only_refusal
+from lu_machinery.dispatcher.providers.stream_json import SOURCES_SERVER, one_model
+from lu_machinery.dispatcher.providers.stream_json import model_observer as _observe
+from lu_machinery.dispatcher.types import Invocation, ParsedResult, TaskSpec
+from lu_machinery.dispatcher.watchdog import deadlines
 
 MODEL_SOURCE = "agy-stream-json"
 
@@ -92,7 +92,7 @@ def _usage(value: object) -> dict | None:
 
 def _agy_model_ids() -> frozenset[str]:
     """Every catalog identifier of a model that has an AGY wire id."""
-    from scripts.review.model_catalog import load_model_catalog
+    from lu_machinery.review.model_catalog import load_model_catalog
 
     ids = set()
     for model_id, spec in load_model_catalog()["models"].items():
@@ -110,7 +110,7 @@ def transport_model(model: str) -> str:
     ``agy --model`` lists. They are not the same model. A request that is already the
     wire id stays that id.
     """
-    from scripts.review.model_catalog import load_model_catalog
+    from lu_machinery.review.model_catalog import load_model_catalog
 
     text = model.strip()
     if not text:
@@ -162,7 +162,7 @@ def identity_failure(requested: str, attested: str | None) -> str | None:
     requested name. The same known family, Claude or Gemini, is success and the record keeps
     both ids.
     """
-    from scripts.dispatcher.checks import _model_families
+    from lu_machinery.dispatcher.checks import _model_families
 
     families = _model_families()
     requested_family = families.get(requested)
@@ -229,7 +229,7 @@ def _print_timeout(spec: TaskSpec) -> str:
 
 def schema_argument(options: dict) -> str | None:
     """Check the digest-bound schema before putting its JSON in one argv entry."""
-    from scripts.dispatcher.output_schema import load
+    from lu_machinery.dispatcher.output_schema import load
 
     schema = load(options)
     if schema is None:
@@ -318,8 +318,8 @@ def _completed_sources_call(event: dict) -> tuple[object, int] | None:
 
 def conversation_id(log_file: Path) -> str | None:
     """The conversation the AGY log bound, using the adapter's own reader."""
-    from scripts.agent_runtime.adapters.agy import _conversation_id_from_log
-    from scripts.agent_runtime.attempt_safe_read import AttemptReadError
+    from lu_machinery.agent_runtime.adapters.agy import _conversation_id_from_log
+    from lu_machinery.agent_runtime.attempt_safe_read import AttemptReadError
 
     try:
         return _conversation_id_from_log(log_file)
@@ -460,7 +460,7 @@ def parse(
         detail = terminal_failed and error != _BARE_UNSUCCESSFUL
         error = f"agy: exited with status {returncode}" + (f"; {error.removeprefix('agy: ')}" if detail else "")
     if output_schema is not None:
-        from scripts.agent_runtime.adapters._output_schema import structured_result
+        from lu_machinery.agent_runtime.adapters._output_schema import structured_result
 
         structured = structured_result(
             result.get("structured_output"), output_schema, returncode=returncode,

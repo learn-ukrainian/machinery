@@ -22,7 +22,7 @@ that skill). Do not reintroduce claims Sol rejected (see §Plane modes).
 | **Seat onboarding contract** | Task-oriented ownership matrix (discuss / delegate / fleet-comms / ACPX / Buzz deferred), Kimi routes, smoke | `docs/runbooks/agent-seat-onboarding.md` |
 | **`drive-epic` skill** | Method playbook (orient → topology → route → dispatch → settle → CF → merge → handoff) | `agents_extensions/shared/skills/drive-epic/SKILL.md` |
 | **Epic roster runbook** | Operator seat routing (which model drives which epic) | `docs/runbooks/epic-orchestrator-roster.md` |
-| **Live routing data** | Caps, ladders, reviewer seats, **live plane mode** | `/api/rules?scope=task:routing` (or `scope=full`) model-assignment + `scripts/config/model_catalog.yaml` + `scripts/config/fleet_communications.yaml` + `.venv/bin/python -m scripts.fleet_comms plane-status` |
+| **Live routing data** | Caps, ladders, reviewer seats, **live plane mode** | `/api/rules?scope=task:routing` (or `scope=full`) model-assignment + `lu_machinery/config/model_catalog.yaml` + `lu_machinery/config/fleet_communications.yaml` + `.venv/bin/python -m lu_machinery.fleet_comms plane-status` |
 | **Launchers** | Lease claim + dual-aware pointer (not a second design) | interactive `start-*.sh`, provider `start-*-driver.sh` |
 
 **Golden rule (from drive-epic):** rules + skill teach **method**; roster/caps/modes are
@@ -49,7 +49,7 @@ at the **onboarding contract** for ownership and experimental ACPX scope; this r
 | Half | Status | Surfaces |
 | --- | --- | --- |
 | **Session stream / lease** | Live | `claim_session_supervisor_env`, `SESSION_STREAM_*`, stream tail/digest, canary mint (hook-less seats) |
-| **Message plane + CF-comms** | Authority | `scripts.fleet_comms`; PR CF via toolful review + `record_cf_verdict.py` (sealed `review-pr` RETIRED) |
+| **Message plane + CF-comms** | Authority | `lu_machinery.fleet_comms`; PR CF via toolful review + `record_cf_verdict.py` (sealed `review-pr` RETIRED) |
 
 Driver launchers already claim stream leases. Drivers must **also** speak the
 message-plane + CF half. An occupied lease fails closed: do not start a second
@@ -67,7 +67,7 @@ identity or infer it from the provider/model name.
 ## Plane modes
 
 ```bash
-.venv/bin/python -m scripts.fleet_comms plane-status
+.venv/bin/python -m lu_machinery.fleet_comms plane-status
 ```
 
 Implemented modes are `off` | `shadow` | `dual_write` | `authority`. Production
@@ -94,10 +94,10 @@ cold-prompts; silent plane flips; “for now” cutovers.
 
 ```bash
 # Topology / health / parity
-.venv/bin/python -m scripts.fleet_comms plane-status
-.venv/bin/python -m scripts.fleet_comms metrics
-.venv/bin/python -m scripts.fleet_comms backlog
-.venv/bin/python -m scripts.fleet_comms dead-letters
+.venv/bin/python -m lu_machinery.fleet_comms plane-status
+.venv/bin/python -m lu_machinery.fleet_comms metrics
+.venv/bin/python -m lu_machinery.fleet_comms backlog
+.venv/bin/python -m lu_machinery.fleet_comms dead-letters
 
 # Continuity (lease already claimed by launcher — do not re-open)
 .venv/bin/python -m agents_extensions.shared.session_streams tail --stream epic:<N> --limit 20
@@ -123,8 +123,8 @@ Inspect the chronological event and selection trace before attributing
 concentration to an orchestrator or scheduler. A “No ledger update” cue is
 stale activity evidence, not provider-liveness proof and not authority to
 reclaim a lease early. Corroborate headroom with
-`.venv/bin/python -m scripts.fleet.capacity_pick` and
-`.venv/bin/python -m scripts.fleet.usage show` (2026-10-16) and durable authority
+`.venv/bin/python -m lu_machinery.fleet.capacity_pick` and
+`.venv/bin/python -m lu_machinery.fleet.usage show` (2026-10-16) and durable authority
 job/reservation state. The dashboard is read-only: its filters, search,
 details, and load-more controls never select, retry, cancel, reclaim, or reroute
 work.
@@ -139,7 +139,7 @@ Every epic driver session (any harness) MUST:
 
 1. Obey this rule (via `/api/rules?scope=task:fleet-comms`, `scope=task:driver`,
    `scope=full`, or offline fallback of this file).
-2. Run `.venv/bin/python -m scripts.fleet_comms plane-status` before assuming message-plane availability.
+2. Run `.venv/bin/python -m lu_machinery.fleet_comms plane-status` before assuming message-plane availability.
 3. Use fleet-comms for durable coordination, queues, messages, conversations, artifacts,
    retries, dead letters, receipts, formal jobs, and session continuity. In authority
    mode, never create a new legacy bridge/channel/broker/file coordination write.
@@ -152,9 +152,9 @@ Every epic driver session (any harness) MUST:
 5. Treat launcher-claimed stream leases as held — do not open/resume the lease yourself.
 6. **Session health by seat:**
    - **grok / gemini / kimi:** canary mint/score with the seat lane
-     (`.venv/bin/python -m scripts.session_canary.grok_lane …`,
-     `.venv/bin/python -m scripts.session_canary.gemini_lane …` or
-     `.venv/bin/python -m scripts.session_canary.kimi_lane …`); end on
+     (`.venv/bin/python -m lu_machinery.session_canary.grok_lane …`,
+     `.venv/bin/python -m lu_machinery.session_canary.gemini_lane …` or
+     `.venv/bin/python -m lu_machinery.session_canary.kimi_lane …`); end on
      FAIL-HANDOFF (&lt;8/10), not compact count.
    - **Claude / Sonnet:** SessionStart / PostCompact + thread-handoff — **no** canary lane
      (do not invent `<model>_lane`).
@@ -255,7 +255,7 @@ are in the onboarding contract.
 
 `agents_extensions/shared/rules/fleet-comms-coordination.md` (this file).
 Served in `GET /api/rules?scope=task:fleet-comms` or `scope=task:driver`, and in
-`GET /api/rules?scope=full` (`scripts/api/rules_router.py` `RULE_SOURCES`).
+`GET /api/rules?scope=full` (`lu_machinery/api/rules_router.py` `RULE_SOURCES`).
 Onboarding contract (not served as a rules blob; linked from this rule):
 `docs/runbooks/agent-seat-onboarding.md`.
 

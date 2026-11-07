@@ -13,10 +13,10 @@
     "packages/*/package.json",
     "site/package.json",
     "site/package-lock.json",
-    "scripts/config/pip-audit-ignore.yaml",
-    "scripts/config/npm-audit-ignore.yaml",
-    "scripts/ci/audit_dependencies.py",
-    "scripts/ci/dependency_change_denominator.json",
-    "scripts/ci/dependency_change_scope.py"
+    "lu_machinery/config/pip-audit-ignore.yaml",
+    "lu_machinery/config/npm-audit-ignore.yaml",
+    "lu_machinery/ci/audit_dependencies.py",
+    "lu_machinery/ci/dependency_change_denominator.json",
+    "lu_machinery/ci/dependency_change_scope.py"
   ]
 }

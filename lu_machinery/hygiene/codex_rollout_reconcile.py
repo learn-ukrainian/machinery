@@ -23,7 +23,7 @@ from pathlib import Path
 from typing import Any
 
 try:
-    from scripts.path_safety import assert_delete_target
+    from lu_machinery.path_safety import assert_delete_target
 except ImportError:  # pragma: no cover - direct file invocation
     _SCRIPTS_DIR = Path(__file__).resolve().parents[1]
     if str(_SCRIPTS_DIR) not in sys.path:

@@ -23,12 +23,12 @@ from urllib.parse import quote
 
 import yaml
 
-from scripts.common import github_client
-from scripts.common.scratch import ensure_scratch_root
-from scripts.guardrails.worktree_containment import NotAGitRepositoryError, resolve_main_root_without_git
-from scripts.opsec import prepublish as gate
-from scripts.opsec.gh_snapshot import repository
-from scripts.publish import recovery
+from lu_machinery.common import github_client
+from lu_machinery.common.scratch import ensure_scratch_root
+from lu_machinery.guardrails.worktree_containment import NotAGitRepositoryError, resolve_main_root_without_git
+from lu_machinery.opsec import prepublish as gate
+from lu_machinery.opsec.gh_snapshot import repository
+from lu_machinery.publish import recovery
 
 # The repository registry and the verdict recorder, by their checkout-relative paths. Those
 # start with the machinery package's directory name, taken from this module's unresolved
@@ -250,8 +250,8 @@ def _workflow_input_schema(workflow: str, *, product_root: Path | None = None) -
         return None
     if product_root is not None and not (isinstance(product_root, Path) and product_root.is_absolute()):
         return None
-    from scripts.common.repo_root import ProductRootError
-    from scripts.common.repo_root import product_root as resolve_product_root
+    from lu_machinery.common.repo_root import ProductRootError
+    from lu_machinery.common.repo_root import product_root as resolve_product_root
 
     try:
         root = resolve_product_root() if product_root is None else product_root
@@ -518,8 +518,8 @@ def _refuse_incomplete_seats(dest, number, head, runner, cwd, environment):
     review output contract is refused until its canary evidence covers every reviewer route
     (``scripts.review.contract_canary``, #12399).
     """
-    from scripts.fleet_comms.review_publication import DEFAULT_STATUS_CONTEXT
-    from scripts.orchestration.integration_sweep import (
+    from lu_machinery.fleet_comms.review_publication import DEFAULT_STATUS_CONTEXT
+    from lu_machinery.orchestration.integration_sweep import (
         NEEDS_SEAT,
         changes_learner_content,
         lookup_verdict,
@@ -566,13 +566,13 @@ def _refuse_incomplete_seats(dest, number, head, runner, cwd, environment):
         raise gate.PublishBlocked(
             f"OPSEC: merge refused: no cross-family APPROVE from {_RECORDER} is recorded at {head}."
         )
-    from scripts.review import contract_canary
+    from lu_machinery.review import contract_canary
 
     # A review-contract change also needs live canary evidence on every reviewer route (#12399).
     if (canary := contract_canary.refusal(paths, head)) is not None:
         raise gate.PublishBlocked(f"OPSEC: merge refused: {contract_canary.REASON}: {canary}.")
     if state == "needs-CF":
-        from scripts.publish.merge_guard import _rollup_name
+        from lu_machinery.publish.merge_guard import _rollup_name
 
         argv = ["gh", "pr", "view", str(number), "--json", "headRefOid,statusCheckRollup", "--repo", dest.split("/", 1)[1]]
         # As in the readiness read: forced colour would wrap the JSON in escape codes.
@@ -597,8 +597,8 @@ def _refuse_incomplete_seats(dest, number, head, runner, cwd, environment):
 
 def _prepare_recovery(verb, fields, dest, cwd, environment, runner):
     """Resolve live PR/run identities and posted evidence before any recovery write."""
-    from scripts.gh_merge_queue_status import extract_pr_number
-    from scripts.orchestration.integration_sweep import changes_learner_content, lookup_verdict, pr_file_paths
+    from lu_machinery.gh_merge_queue_status import extract_pr_number
+    from lu_machinery.orchestration.integration_sweep import changes_learner_content, lookup_verdict, pr_file_paths
 
     def fetch(name, **selectors):
         unknown = "RECOVERY_LOOKUP_UNKNOWN: live evidence unavailable"
@@ -733,7 +733,7 @@ def _refuse_unreadable_criteria(body):
     The lifecycle's own parser decides, so a body that publishes here also initializes
     there. A body with no criteria is not a task card and passes.
     """
-    from scripts.orchestration import task_lifecycle
+    from lu_machinery.orchestration import task_lifecycle
 
     try:
         task_lifecycle.parse_issue_acceptance_criteria(body)
@@ -819,7 +819,7 @@ def _cli_keeps_stream_parent_refusal(explicit):
 
 def _parent_epic_node(read_runner, gh_repo, parent, cwd, environment):
     """Resolve --parent to a registered open stream epic's node id before anything is created."""
-    from scripts.orchestration import issue_stream_audit
+    from lu_machinery.orchestration import issue_stream_audit
 
     epics = {number for numbers in issue_stream_audit.load_registry(audit_only=True).values() for number in numbers}
     node = _issue_node(read_runner, gh_repo, parent, cwd, environment) if parent in epics else None
@@ -1459,7 +1459,7 @@ def publish(
 
         def queue_jump(pull):
             """Whether this enqueue jumps the queue; unreadable evidence never jumps."""
-            from scripts.orchestration.integration_sweep import PRIORITY_LABEL, priority_jump
+            from lu_machinery.orchestration.integration_sweep import PRIORITY_LABEL, priority_jump
 
             labels = pull.get("labels")
             if not isinstance(labels, list) or PRIORITY_LABEL not in {
@@ -1495,7 +1495,7 @@ def publish(
         already_queued = False
         jump = False
         if verb == "pr-merge":
-            from scripts.publish.merge_guard import ensure_merge_ready
+            from lu_machinery.publish.merge_guard import ensure_merge_ready
 
             fields["match_head"] = ensure_merge_ready(
                 gh_repo,

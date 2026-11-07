@@ -58,7 +58,7 @@ packages:
     reason: Utilities already shared by build, audit, and tooling.
     role: shared
   config:
-    reason: YAML tables for fleet and tooling. scripts/config.py is a separate module.
+    reason: YAML tables for fleet and tooling. lu_machinery/config.py is a separate module.
     role: shared
   content:
     reason: operator classification
@@ -314,7 +314,7 @@ modules:
     reason: Shim for scripts/audit, which is product.
     role: product
   config.py:
-    reason: Unsure versus the shared YAML directory scripts/config. Python binds scripts.config to this module; it mixes dispatch floors with pedagogy, so its product imports stay on the ratchet.
+    reason: Unsure versus the shared YAML directory scripts/config. Python binds lu_machinery.config to this module; it mixes dispatch floors with pedagogy, so its product imports stay on the ratchet.
     role: machinery
   consultation_cli.py:
     reason: Shim for scripts/tools, which is shared.

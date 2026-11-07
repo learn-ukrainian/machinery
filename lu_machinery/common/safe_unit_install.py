@@ -31,7 +31,7 @@ import secrets
 import stat
 from pathlib import Path
 
-from scripts.common.nofollow_walk import ComponentOpenError, open_directory_component
+from lu_machinery.common.nofollow_walk import ComponentOpenError, open_directory_component
 
 _NOFOLLOW = getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0)
 

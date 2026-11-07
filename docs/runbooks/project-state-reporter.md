@@ -15,7 +15,7 @@ loopback POST may use the production opaque id:
 
 ```bash
 LU_MONITOR_HOST_ID=host-teacher \
-  .venv/bin/python scripts/api/project_state_local.py report
+  .venv/bin/python lu_machinery/api/project_state_local.py report
 ```
 
 Or omit `LU_MONITOR_HOST_ID` when `MONITOR_OCCUPANCY_HOST_IDS` is unset — the
@@ -24,7 +24,7 @@ launcher resolves to `host-teacher` on Linux / `mac-operator` on Darwin.
 Dry-run collection only:
 
 ```bash
-.venv/bin/python scripts/api/project_state_local.py collect --dry-run
+.venv/bin/python lu_machinery/api/project_state_local.py collect --dry-run
 ```
 
 The reporter identity is the opaque host id from `LU_MONITOR_HOST_ID`,
@@ -53,12 +53,12 @@ template `%h/projects/learn-ukrainian` placeholder differs. Prefer leaving
 `LU_MONITOR_HOST_ID` unset on the API host (in-process fill), or set
 `LU_MONITOR_HOST_ID=host-teacher` — never `host-job`.
 
-The wrapper script is `scripts/orchestration/run_project_state_reporter.sh`.
+The wrapper script is `lu_machinery/orchestration/run_project_state_reporter.sh`.
 
 ## macOS (LaunchAgent)
 
 ```bash
-.venv/bin/python scripts/orchestration/install_mac_project_state_launchd.py
+.venv/bin/python lu_machinery/orchestration/install_mac_project_state_launchd.py
 ```
 
 Uses the same bash wrapper as systemd. Default interval is 5 minutes. Logs land

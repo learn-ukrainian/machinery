@@ -1,6 +1,6 @@
 # Catalog routing tables
 
-Generated from `scripts/config/model_catalog.yaml`; do not edit the tables.
+Generated from `lu_machinery/config/model_catalog.yaml`; do not edit the tables.
 Regenerate with the task-prescribed interpreter:
 
 ```bash

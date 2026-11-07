@@ -207,7 +207,7 @@ def recovery_message(unit: str, now: str, since: str, project_root: Path | None 
 
 def fleet_comms_publisher(project_root: Path) -> Publisher:
     def run_json(arguments: list[str], message: str | None = None) -> dict:
-        command = [".venv/bin/python", "-m", "scripts.fleet_comms", *arguments]
+        command = [".venv/bin/python", "-m", "lu_machinery.fleet_comms", *arguments]
         try:
             result = subprocess.run(
                 command,

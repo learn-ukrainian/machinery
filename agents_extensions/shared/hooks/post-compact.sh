@@ -49,7 +49,7 @@ if [ ! -x "$SHARED_VENV_ROOT/.venv/bin/python" ] && [ -n "$PRIMARY_ROOT" ]; then
 fi
 SHARED_PYTHON="$SHARED_VENV_ROOT/.venv/bin/python"
 BOUNDED_PYTHON="${THREAD_ROLLOVER_PYTHON:-$SHARED_PYTHON}"
-BOUNDED_RUNNER_DEFAULT="$PROJECT_DIR/scripts/agent_runtime/bounded_command.py"
+BOUNDED_RUNNER_DEFAULT="$PROJECT_DIR/lu_machinery/agent_runtime/bounded_command.py"
 BOUNDED_RUNNER="${SESSION_BOUNDED_RUNNER:-$BOUNDED_RUNNER_DEFAULT}"
 run_bounded() {
   local timeout_seconds="$1"
@@ -110,7 +110,7 @@ case "$POST_COMPACT_AGENT" in
       # A first Codex launch may continue
       # from the shared driver handoff; a fixed filename can select stale state.
       DIARY_REL=""
-      HANDOFF_SELECT_MODULE=scripts.session_canary.handoff_select
+      HANDOFF_SELECT_MODULE=lu_machinery.session_canary.handoff_select
       DIARY_REL=$(run_bounded 2 env "PYTHONPATH=$PROJECT_DIR" "$BOUNDED_PYTHON" -c '
 import importlib
 import sys
@@ -129,7 +129,7 @@ if selected is not None:
         # shellcheck disable=SC2016
         HYDRATION_STREAM=$(run_bounded 2 bash -c '
 source "$1" && launcher_selector_stream "$2"
-' post-compact-stream "$PROJECT_DIR/scripts/lib/handoff_identity.sh" "$SESSION_EPIC" 2>/dev/null) \
+' post-compact-stream "$PROJECT_DIR/lu_machinery/lib/handoff_identity.sh" "$SESSION_EPIC" 2>/dev/null) \
           || HYDRATION_STREAM=""
       fi
       if [ -z "$HYDRATION_STREAM" ]; then
@@ -143,7 +143,7 @@ source "$1" && launcher_selector_stream "$2"
         # Hydrate retries timeout-class failures up to 3 times (500 ms each plus
         # interpreter start-up), so it needs more than the 2 s used elsewhere here.
         HYDRATION=$(run_bounded 6 "$BOUNDED_PYTHON" \
-          -m scripts.session_canary.codex_lane hydrate --epic "$SESSION_EPIC" --stream "$HYDRATION_STREAM" 2>&1) \
+          -m lu_machinery.session_canary.codex_lane hydrate --epic "$SESSION_EPIC" --stream "$HYDRATION_STREAM" 2>&1) \
           || HYDRATION_RC=$?
       fi
       if [ "$HYDRATION_RC" -eq 0 ]; then
@@ -200,7 +200,7 @@ if [ -z "$HANDOFF_AGENT" ]; then
   fi
 fi
 ROLLOVER_PYTHON="${THREAD_ROLLOVER_PYTHON:-$SHARED_PYTHON}"  # worktrees carry no venv
-ROLLOVER_SCRIPT_DEFAULT="$PROJECT_DIR/scripts/orchestration/thread_handoff.py"
+ROLLOVER_SCRIPT_DEFAULT="$PROJECT_DIR/lu_machinery/orchestration/thread_handoff.py"
 ROLLOVER_SCRIPT="${THREAD_ROLLOVER_SCRIPT:-$ROLLOVER_SCRIPT_DEFAULT}"
 ROLLOVER_HEALTH=$(run_bounded 2 "$ROLLOVER_PYTHON" "$ROLLOVER_SCRIPT" \
   --repo-root "$CANONICAL_ROOT" detect --agent "$HANDOFF_AGENT" 2>&1) || true

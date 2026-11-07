@@ -19,7 +19,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
 
-from scripts.orchestration import issue_stream_audit
+from lu_machinery.orchestration import issue_stream_audit
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 PUBLIC_REPOSITORY = "learn-ukrainian/learn-ukrainian.github.io"
@@ -114,7 +114,7 @@ class GateDecision:
         return payload
 
 
-from scripts.publish.github import read
+from lu_machinery.publish.github import read
 
 # The machinery package's import name, which is also the directory its files have in checkout
 # paths: from this module's package, or from its unresolved location when run as a file.

@@ -9,17 +9,17 @@ import subprocess
 import sys
 import uuid
 
-from scripts.common.task_store_paths import tasks_dir
-from scripts.dispatcher import store
-from scripts.orchestration import dispatch_admission as legacy
-from scripts.orchestration import worktree_prep
-from scripts.orchestration.dead_worker_state import (
+from lu_machinery.common.task_store_paths import tasks_dir
+from lu_machinery.dispatcher import store
+from lu_machinery.orchestration import dispatch_admission as legacy
+from lu_machinery.orchestration import worktree_prep
+from lu_machinery.orchestration.dead_worker_state import (
     mark_dead_worker_terminal,
     mark_orphaned_admission_hold_crashed,
     mark_orphaned_worktree_prep_crashed,
     worker_liveness,
 )
-from scripts.orchestration.task_record_store import task_state_lock
+from lu_machinery.orchestration.task_record_store import task_state_lock
 
 
 class Refused(ValueError):
@@ -33,7 +33,7 @@ def _write(path, record):
     if record.get("schema_version") == 2:
         store.replace(record, path)
     else:
-        from scripts.orchestration.task_record_store import write_record_unlocked
+        from lu_machinery.orchestration.task_record_store import write_record_unlocked
 
         write_record_unlocked(path, record)
 
@@ -60,7 +60,7 @@ def heal_dead(path, state):
 
 
 def _head(root):
-    from scripts.dispatcher.git import _git
+    from lu_machinery.dispatcher.git import _git
 
     try:
         return _git(root, "rev-parse", "HEAD")
@@ -123,11 +123,11 @@ def check(mode, *, dry_run, disk_guard, force_reason=None):
 
 def credit_period_refusal(agent, model):
     """Import errors propagate; only the reader owns unknown-state policy."""
-    from scripts.fleet import credit_lane
+    from lu_machinery.fleet import credit_lane
 
     if not model:
-        from scripts.agent_runtime.telemetry import _default_model_for
-        from scripts.review.model_catalog import substitution_default_model
+        from lu_machinery.agent_runtime.telemetry import _default_model_for
+        from lu_machinery.review.model_catalog import substitution_default_model
 
         model = substitution_default_model(agent) or _default_model_for(agent)
     return credit_lane.dispatch_refusal(agent, model)

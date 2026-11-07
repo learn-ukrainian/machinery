@@ -64,9 +64,9 @@ no provider call, refreshes no quota and starts no service.
 ## Commands
 
 ```bash
-.venv/bin/python -m scripts.fleet.quota_history collect        # append one run (what the timer does)
-.venv/bin/python -m scripts.fleet.quota_history resets          # text report
-.venv/bin/python -m scripts.fleet.quota_history resets --json   # same report as JSON
+.venv/bin/python -m lu_machinery.fleet.quota_history collect        # append one run (what the timer does)
+.venv/bin/python -m lu_machinery.fleet.quota_history resets          # text report
+.venv/bin/python -m lu_machinery.fleet.quota_history resets --json   # same report as JSON
 ```
 
 Both commands accept `--file PATH`. `collect` prints only counts and fixed reason codes.
@@ -100,8 +100,8 @@ primary checkout first, then `--apply` from the primary checkout (it refuses dis
 start units:
 
 ```bash
-.venv/bin/python scripts/storage/install_data_volume_dropins.py          # preview; no writes
-.venv/bin/python scripts/storage/install_data_volume_dropins.py --apply  # primary checkout only; writes drop-ins
+.venv/bin/python lu_machinery/storage/install_data_volume_dropins.py          # preview; no writes
+.venv/bin/python lu_machinery/storage/install_data_volume_dropins.py --apply  # primary checkout only; writes drop-ins
 ```
 
 ```bash

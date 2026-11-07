@@ -32,11 +32,11 @@ driver.
 On an existing PR, before the first edit:
 
 ```bash
-"$PY" -m scripts.publish pr-edit --number "$PR" --add-labels hold
-"$PY" -m scripts.publish pr-disarm --number "$PR"
+"$PY" -m lu_machinery.publish pr-edit --number "$PR" --add-labels hold
+"$PY" -m lu_machinery.publish pr-disarm --number "$PR"
 gh pr view "$PR" --json id,labels,autoMergeRequest
-"$PY" -m scripts.gh_merge_queue_status "$PR" --json
-"$PY" -m scripts.publish pr-dequeue --node-id "$PR_NODE_ID"   # only if queued
+"$PY" -m lu_machinery.gh_merge_queue_status "$PR" --json
+"$PY" -m lu_machinery.publish pr-dequeue --node-id "$PR_NODE_ID"   # only if queued
 ```
 
 `pr-dequeue` takes the PR's node id (`id` above), not its number. Verify each result: the
@@ -48,9 +48,9 @@ A new PR has no labels at creation (`pr-create` takes none), so open it with a `
 then add the `hold` label and verify it before any approval is recorded:
 
 ```bash
-"$PY" -m scripts.publish pr-create --title "[hold] $TITLE" --body-file "$BODY" \
+"$PY" -m lu_machinery.publish pr-create --title "[hold] $TITLE" --body-file "$BODY" \
   --base main --head "$BRANCH"
-"$PY" -m scripts.publish pr-edit --number "$PR" --add-labels hold
+"$PY" -m lu_machinery.publish pr-edit --number "$PR" --add-labels hold
 ```
 
 ## Stop at the gate

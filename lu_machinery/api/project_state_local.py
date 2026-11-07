@@ -15,9 +15,9 @@ _PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
-from scripts.api.occupancy_local import resolve_launcher_host_id
-from scripts.api.project_state_collect import collect_local_document
-from scripts.api.project_state_sanitize import ProjectStateValidationError, validate_report_document
+from lu_machinery.api.occupancy_local import resolve_launcher_host_id
+from lu_machinery.api.project_state_collect import collect_local_document
+from lu_machinery.api.project_state_sanitize import ProjectStateValidationError, validate_report_document
 
 DEFAULT_POST_URL = "http://127.0.0.1:8765/api/fleet/projects/v1/report"
 DEFAULT_TIMEOUT_S = 10.0

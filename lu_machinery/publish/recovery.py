@@ -11,7 +11,7 @@ from contextlib import closing
 from datetime import UTC, datetime
 from pathlib import Path
 
-from scripts.opsec.prepublish import PublishBlocked
+from lu_machinery.opsec.prepublish import PublishBlocked
 
 MARKER = re.compile(r"<!-- ci-recovery-evidence\s+(\{.*?\})\s*-->", re.S)
 SHA = re.compile(r"[0-9a-f]{40}\Z")
@@ -109,7 +109,7 @@ def evidence_from_comments(
     comments: list, number: int, head: str, *, authenticated_login: str, run_id: int | None = None
 ) -> dict:
     """Require the written evidence to already exist on this PR and exact head."""
-    from scripts.orchestration.integration_sweep import TRUSTED_ASSOCIATIONS, _author_login, _field
+    from lu_machinery.orchestration.integration_sweep import TRUSTED_ASSOCIATIONS, _author_login, _field
 
     for comment in reversed(comments):
         if not isinstance(comment, dict) or type(comment.get("id")) is not int or comment["id"] <= 0:

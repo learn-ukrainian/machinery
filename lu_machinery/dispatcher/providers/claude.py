@@ -6,11 +6,11 @@ import subprocess
 from collections.abc import Mapping
 from pathlib import Path
 
-from scripts.agent_runtime.sources_read_only import sources_tool_sets
-from scripts.common.jsonl import jsonl_lines
-from scripts.dispatcher.providers.stream_json import SOURCES_SERVER
-from scripts.dispatcher.types import Invocation, ParsedResult, TaskSpec
-from scripts.lib import rules_core
+from lu_machinery.agent_runtime.sources_read_only import sources_tool_sets
+from lu_machinery.common.jsonl import jsonl_lines
+from lu_machinery.dispatcher.providers.stream_json import SOURCES_SERVER
+from lu_machinery.dispatcher.types import Invocation, ParsedResult, TaskSpec
+from lu_machinery.lib import rules_core
 
 # Static permission profile from adapters/claude.py; account env belongs to core.
 # Read-only has a shell only inside an OS boundary (decision REVIEW-BOUNDARY-1101, #12378): every Bash
@@ -83,8 +83,8 @@ def managed_policy(env: Mapping[str, str]) -> str | None:
     Presence decides, not what a policy holds; a source whose state cannot be read counts as present,
     and an empty server-managed cache (``{}``) delivers no policy key.
     """
-    from scripts.agent_runtime.attempt_boundary import _claude_host_is_wsl
-    from scripts.agent_runtime.env_sanitize import claude_machine_policy_state
+    from lu_machinery.agent_runtime.attempt_boundary import _claude_host_is_wsl
+    from lu_machinery.agent_runtime.env_sanitize import claude_machine_policy_state
 
     if platform.system() != "Linux" or _claude_host_is_wsl(env):
         return "managed policy sources are checked on Linux only, not on this host"
@@ -115,8 +115,8 @@ def managed_policy(env: Mapping[str, str]) -> str | None:
 
 def review_shell_env(spec: TaskSpec) -> dict[str, str]:
     """The variables that send every read-only Bash command into the boundary (agy_sandbox.shell_main)."""
-    from scripts.common.repo_root import project_interpreter
-    from scripts.dispatcher import agy_sandbox
+    from lu_machinery.common.repo_root import project_interpreter
+    from lu_machinery.dispatcher import agy_sandbox
 
     return {
         "CLAUDE_CODE_SHELL_PREFIX": str(agy_sandbox.SHELL_PREFIX),
@@ -134,8 +134,8 @@ def _sources_mcp_config() -> str:
 
 def model_id(model: str) -> str | None:
     """The catalog id a ``--model`` value runs: a native alias (``sonnet``, ``haiku[1m]``) is its family's newest model."""
-    from scripts.agent_runtime.model_pause import _newest_claude
-    from scripts.review.model_catalog import canonical_model_id
+    from lu_machinery.agent_runtime.model_pause import _newest_claude
+    from lu_machinery.review.model_catalog import canonical_model_id
 
     alias = model.strip().casefold().split("[", 1)[0]
     if alias in {"haiku", "opus", "sonnet", "fable"}:
@@ -200,7 +200,7 @@ def schema_argument(options: dict) -> str | None:
     Claude Code refuses a top-level draft 2020-12 ``$schema`` meta-schema reference, so the
     argument is a copy without it. The canonical document, its digest and validation are unchanged.
     """
-    from scripts.dispatcher.output_schema import load
+    from lu_machinery.dispatcher.output_schema import load
 
     schema = load(options)
     if schema is None:
@@ -217,7 +217,7 @@ def schema_argument(options: dict) -> str | None:
 
 
 def build(spec: TaskSpec, env: dict[str, str]) -> Invocation:
-    from scripts.agent_runtime.attempt_boundary import resolve_claude_budget_usd
+    from lu_machinery.agent_runtime.attempt_boundary import resolve_claude_budget_usd
 
     argv = ["claude", "-p", "--model", spec.model]
     if spec.effort is not None:

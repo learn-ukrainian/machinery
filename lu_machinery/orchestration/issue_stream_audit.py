@@ -50,10 +50,10 @@ import yaml
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from scripts.api.config import LIVE_REPO_ROOT
-from scripts.common.repo_root import machinery_path, main_checkout_root
-from scripts.opsec.prepublish import publication_cli
-from scripts.publish.github import Request, request_run
+from lu_machinery.api.config import LIVE_REPO_ROOT
+from lu_machinery.common.repo_root import machinery_path, main_checkout_root
+from lu_machinery.opsec.prepublish import publication_cli
+from lu_machinery.publish.github import Request, request_run
 
 # This package's import name, from the unresolved file location: never from __package__, which a
 # short import spelling (orchestration.x with scripts/ on sys.path) shortens. Its dotted parts
@@ -454,7 +454,7 @@ def _spawn_worker(run_id: str) -> bool:
             [
                 _venv_python(),
                 "-m",
-                "scripts.orchestration.issue_stream_audit",
+                "lu_machinery.orchestration.issue_stream_audit",
                 "--refresh-worker",
                 run_id,
             ],

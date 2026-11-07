@@ -8,19 +8,19 @@ Cursor is a first-class worker and orchestrator seat in the fleet roster. Promot
 
 ## Driver vs GUI Supervision
 
-- **Canonical Driver = TUI Launcher:** The canonical Cursor driver runs as a launched TUI driver session (`start-cursor-driver.sh`, child #6956) sharing `scripts/lib/launcher_core.sh` with other driver seats. It claims the stream lease, respects lease lifecycles, and executes the standard `drive-epic` loop. On claim it heartbeats `POST /api/observer/presence` (`agent=cursor`) over the Monitor loopback tunnel and renews that row while the provider child is alive so occupancy can show the seat under `cloud-observer` without a RAM lease (#7075). A GUI Cursor driver session that is actually driving uses the same helper:
+- **Canonical Driver = TUI Launcher:** The canonical Cursor driver runs as a launched TUI driver session (`start-cursor-driver.sh`, child #6956) sharing `lu_machinery/lib/launcher_core.sh` with other driver seats. It claims the stream lease, respects lease lifecycles, and executes the standard `drive-epic` loop. On claim it heartbeats `POST /api/observer/presence` (`agent=cursor`) over the Monitor loopback tunnel and renews that row while the provider child is alive so occupancy can show the seat under `cloud-observer` without a RAM lease (#7075). A GUI Cursor driver session that is actually driving uses the same helper:
 
 ```bash
-.venv/bin/python -m scripts.orchestration.observer_heartbeat \
+.venv/bin/python -m lu_machinery.orchestration.observer_heartbeat \
   --agent cursor --task-id <issue-or-task> --epic <epic> --status working
 ```
-- **GUI Cursor IDE = Human Supervision Only:** GUI Cursor chat is interactive human supervision and inspection. It is **not** a second driver protocol, does not claim autonomous stream leases, and does not run an unmonitored alternate orchestration loop. Idle GUI supervision heartbeats automatically via the Mac observer LaunchAgent with `instance_id: "gui"`; process existence alone never claims `working` (`scripts/orchestration/install_mac_observer_launchd.py`, #7104).
+- **GUI Cursor IDE = Human Supervision Only:** GUI Cursor chat is interactive human supervision and inspection. It is **not** a second driver protocol, does not claim autonomous stream leases, and does not run an unmonitored alternate orchestration loop. Idle GUI supervision heartbeats automatically via the Mac observer LaunchAgent with `instance_id: "gui"`; process existence alone never claims `working` (`lu_machinery/orchestration/install_mac_observer_launchd.py`, #7104).
 
 ## Identity Contract & Attestation
 
-`cursor:auto` is a dynamic harness selector, never a concrete model identity. The driver seat and every interactive Cursor session launched through `scripts/lib/launcher_core.sh` run the concrete pin `grok-4.7-high` (or `composer-2.5`) and never Auto (operator decision 2026-09-30, #9274). An interactive session is not a typed implementation dispatch, so it has no Auto exception. The launcher defaults to the pin in both modes and refuses Auto, a Fast variant, a previous generation, an empty model and a `--model` forwarded after `--` before anything executes. The identity contract enforces:
+`cursor:auto` is a dynamic harness selector, never a concrete model identity. The driver seat and every interactive Cursor session launched through `lu_machinery/lib/launcher_core.sh` run the concrete pin `grok-4.7-high` (or `composer-2.5`) and never Auto (operator decision 2026-09-30, #9274). An interactive session is not a typed implementation dispatch, so it has no Auto exception. The launcher defaults to the pin in both modes and refuses Auto, a Fast variant, a previous generation, an empty model and a `--model` forwarded after `--` before anything executes. The identity contract enforces:
 
-1. **Attested `resolved_model` Required for Driver-of-Record:** Driver-of-record requires an attested concrete `resolved_model` extracted from the run (via headless telemetry extraction in `scripts/dispatch.py` and `scripts/agent_runtime/adapters/cursor.py`). An unattested run or unknown-Auto can **never** be driver-of-record.
+1. **Attested `resolved_model` Required for Driver-of-Record:** Driver-of-record requires an attested concrete `resolved_model` extracted from the run (via headless telemetry extraction in `lu_machinery/dispatch.py` and `lu_machinery/agent_runtime/adapters/cursor.py`). An unattested run or unknown-Auto can **never** be driver-of-record.
 2. **Unknown-Auto Resolves to Allowlist-Union Family {xAI, Moonshot}:** When `cursor:auto` reports `resolved_model=unknown`, resolve its identity to the **allowlist-union family {xAI, Moonshot}** (`grok-4.7` [xAI] | `composer-2.5` [Moonshot]) instead of unattested-harness-with-quorum:
    - **Cursor-Authored PR:** Single cross-family reviewer from outside {xAI, Moonshot} (e.g. Claude, Codex/GPT, Gemini/AGY, or GLM under local-only egress). This supersedes the #6489 dual-family quorum as the default for unknown-Auto PRs (dual-family quorum text remains as fallback history).
    - **Cursor-as-Reviewer:** Eligible only against author models outside {xAI, Moonshot}.
@@ -32,7 +32,7 @@ Cursor is a first-class worker and orchestrator seat in the fleet roster. Promot
 - **Explicit Allowlist:** Within that scope, Auto is permitted only when it resolves within the catalog allowlist:
   - `grok-4.7`
   - `composer-2.5`
-- **Catalog Refresh Contract:** The allowlist is refreshed under the catalog's ~30-day freshness contract (`scripts/config/model_catalog.yaml`, enforced by `scripts/lint/lint_model_catalog.py`). The operator does not freeze a single SKU; when Cursor's pair changes, the allowlist rotates in the catalog.
+- **Catalog Refresh Contract:** The allowlist is refreshed under the catalog's ~30-day freshness contract (`lu_machinery/config/model_catalog.yaml`, enforced by `lu_machinery/lint/lint_model_catalog.py`). The operator does not freeze a single SKU; when Cursor's pair changes, the allowlist rotates in the catalog.
 
 ## Family Attribution for Cross-Family (CF) Checks
 
@@ -53,11 +53,11 @@ Cross-family independence checks evaluate either the **attested concrete model f
   - Dispatch v2 does not implement the retired Cursor self-dispatch guard.
     The driver checks lane ownership before launching another worker.
 
-  - `scripts/config/fleet_communications.yaml` `cursor.concurrency_limit: 1` is
+  - `lu_machinery/config/fleet_communications.yaml` `cursor.concurrency_limit: 1` is
     endpoint metadata (surfaced by the fleet API), not a general dispatch worker
     cap; the session-stream lease is the Cursor driver admission signal.
 - **Layout A Worktrees:** Implementation runs only from isolated dispatch worktrees under `.worktrees/dispatch/{agent}/{task}/`.
-- **Driver merges own-lane PRs:** After exact-head cross-family CF APPROVE + CI Gate green, the Cursor driver (like every epic driver) enqueues/merges its own lane's PRs via `.venv/bin/python -m scripts.publish pr-merge --number <N>` per `drive-epic` §7 and `critical-rules` §8.5. A briefed worker enqueues its own PR at the same gate (rules core P1). Do **not** ask the operator to merge — that is the defect this fleet was built to remove. GUI supervision chats are not the merge seat; the leased TUI/driver session is.
+- **Driver merges own-lane PRs:** After exact-head cross-family CF APPROVE + CI Gate green, the Cursor driver (like every epic driver) enqueues/merges its own lane's PRs via `.venv/bin/python -m lu_machinery.publish pr-merge --number <N>` per `drive-epic` §7 and `critical-rules` §8.5. A briefed worker enqueues its own PR at the same gate (rules core P1). Do **not** ask the operator to merge — that is the defect this fleet was built to remove. GUI supervision chats are not the merge seat; the leased TUI/driver session is.
 - **Single Playbook:** No second router or alternate state machine; drivers run the standard `drive-epic` skill.
 
 ## Tool Integration Constraints
@@ -78,14 +78,14 @@ second discuss API):
 
 ```bash
 .venv/bin/python \
-  scripts/ai_agent_bridge/__main__.py discuss <channel> "<topic>" \
+  lu_machinery/ai_agent_bridge/__main__.py discuss <channel> "<topic>" \
   --with <a>,<b> [--max-rounds N]
 ```
 
 | Verb | How |
 | --- | --- |
 | **inbox** | `… __main__.py inbox show\|ack …` (fleet-comms dual-write) |
-| **dispatch** | `scripts/dispatch.py dispatch --model <catalog-model> --agent <non-cursor> …` (Cursor driver holds concurrency 1 — do not self-dispatch) |
+| **dispatch** | `lu_machinery/dispatch.py dispatch --model <catalog-model> --agent <non-cursor> …` (Cursor driver holds concurrency 1 — do not self-dispatch) |
 | **discuss** | `ab discuss` via the venv bridge above → ACPX controller (`LU_ACPX_TRANSPORT=active`) on the same plane |
 | **receipts** | `batch_state/tasks/<task-id>.json` + channel/thread ids; Cursor receipts must carry `resolved_model` / `resolved_model_known` / `resolved_model_source` |
 

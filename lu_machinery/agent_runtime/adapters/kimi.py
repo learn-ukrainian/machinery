@@ -20,7 +20,7 @@ import shutil
 from pathlib import Path
 from typing import Any
 
-from scripts.review.model_catalog import kimi_model_aliases, retired_model_refusal
+from lu_machinery.review.model_catalog import kimi_model_aliases, retired_model_refusal
 
 from ..failover import GH_AUTH_FAILURE_RE
 from ..failure_codes import provider_failure_code, provider_stderr_error

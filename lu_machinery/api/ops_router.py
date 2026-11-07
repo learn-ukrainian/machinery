@@ -9,7 +9,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, Query
 
-from scripts.common import test_slots
+from lu_machinery.common import test_slots
 
 from . import load_samples
 from .monitor_context import MonitorContext, get_ctx

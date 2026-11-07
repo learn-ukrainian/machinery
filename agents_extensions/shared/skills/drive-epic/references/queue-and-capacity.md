@@ -122,11 +122,11 @@ raw idle-time threshold. Guardrail-authorized idle is not a failure.
 NOTE-waived) and MISSING/DISHONEST idle dispositions — never opportunity-seconds.
 
 ```bash
-.venv/bin/python -m scripts.orchestration.dispatch_settle task --task-id <id> \
+.venv/bin/python -m lu_machinery.orchestration.dispatch_settle task --task-id <id> \
   --idle-snapshot-json <snap.json> [--dispatched | --disposition <code>]
-.venv/bin/python -m scripts.fleet.idle_settle evaluate \
+.venv/bin/python -m lu_machinery.fleet.idle_settle evaluate \
   --snapshot-json <snap.json> --kind dispatch --task-id <id> \
   [--dispatched | --disposition <code>]
-.venv/bin/python -m scripts.fleet.idle_settle report
-.venv/bin/python -m scripts.fleet.idle_settle admission --snapshot-json <snap.json>
+.venv/bin/python -m lu_machinery.fleet.idle_settle report
+.venv/bin/python -m lu_machinery.fleet.idle_settle admission --snapshot-json <snap.json>
 ```

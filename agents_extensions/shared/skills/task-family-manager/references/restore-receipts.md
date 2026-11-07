@@ -3,7 +3,7 @@
 To restore, call `set_thread_archived` with `archived: false`, then reconcile the same selected task:
 
 ```bash
-.venv/bin/python -m scripts.orchestration.task_family reconcile-restore \
+.venv/bin/python -m lu_machinery.orchestration.task_family reconcile-restore \
   --repo-root /absolute/project \
   --family-id issue-5140-family \
   --operation-id 00000000-0000-4000-8000-000000000020 \
@@ -16,7 +16,7 @@ To restore, call `set_thread_archived` with `archived: false`, then reconcile th
 Render the durable receipt at any point:
 
 ```bash
-.venv/bin/python -m scripts.orchestration.task_family receipt \
+.venv/bin/python -m lu_machinery.orchestration.task_family receipt \
   --repo-root /absolute/project \
   --family-id issue-5140-family \
   --operation-id 00000000-0000-4000-8000-000000000020 --json

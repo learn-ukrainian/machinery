@@ -19,14 +19,14 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, StrictInt, field_validator
 
-from scripts.api.monitor_context import MonitorContext, get_ctx
-from scripts.api.occupancy_sanitize import (
+from lu_machinery.api.monitor_context import MonitorContext, get_ctx
+from lu_machinery.api.occupancy_sanitize import (
     CLOUD_OBSERVER_HOST_ID,
 )
-from scripts.api.occupancy_sanitize import (
+from lu_machinery.api.occupancy_sanitize import (
     safe_field as _safe_field,
 )
-from scripts.api.occupancy_sanitize import (
+from lu_machinery.api.occupancy_sanitize import (
     safe_summary as _safe_summary,
 )
 
@@ -136,7 +136,7 @@ def list_live(
 def _allowed_host_ids() -> set[str]:
     allowed = {CLOUD_OBSERVER_HOST_ID, MAC_OPERATOR_HOST_ID}
     try:
-        from scripts.api.occupancy import parse_host_id_map  # noqa: PLC0415 — # lazy-ok: occupancy cycle breaker
+        from lu_machinery.api.occupancy import parse_host_id_map  # noqa: PLC0415 — # lazy-ok: occupancy cycle breaker
 
         allowed.update(parse_host_id_map().values())
     except Exception:

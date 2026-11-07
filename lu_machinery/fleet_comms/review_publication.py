@@ -174,7 +174,7 @@ def _validate_reviewer_model(model: str) -> str:
     """Require an exact catalog model id or declared alias for gate provenance."""
     normalized = _require_nonempty_str(model, field="model")
     try:
-        from scripts.review.model_catalog import ModelCatalogError, load_model_catalog
+        from lu_machinery.review.model_catalog import ModelCatalogError, load_model_catalog
 
         catalog = load_model_catalog()
     except ModelCatalogError as exc:
@@ -348,7 +348,7 @@ def parse_review_evidence(payload: Mapping[str, Any]) -> ReviewEvidence | None:
         return None
 
     try:
-        from scripts.review.review_contract import ContractError, validate_reviewer_payload
+        from lu_machinery.review.review_contract import ContractError, validate_reviewer_payload
 
         validated = validate_reviewer_payload(canonical)
     except ContractError as exc:

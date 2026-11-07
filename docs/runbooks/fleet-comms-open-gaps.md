@@ -7,7 +7,7 @@ Status board for the three residual fleet-comms problems after Sol phases 0–5.
 **Problem:** Big review/diff replies could land as a short SQLite body with no
 marker that transport clipped them.
 
-**Fix (code):** `scripts/ai_agent_bridge/_reply_sidecar.py` + `send_message`.
+**Fix (code):** `lu_machinery/ai_agent_bridge/_reply_sidecar.py` + `send_message`.
 
 - Responses over `AB_REPLY_INLINE_MAX_BYTES` (default **12 KiB**), or that match
   mid-deliverable tail heuristics, write the **full** body to
@@ -44,7 +44,7 @@ just because the inline body looks short.
   --stream epic:4387
 ```
 
-Registry: manifest inventory from `scripts/config/issue_streams.yaml` via
+Registry: manifest inventory from `lu_machinery/config/issue_streams.yaml` via
 `agents_extensions/shared/session_streams/inventory.py` (Sol PR-H; not a hard-coded
 epic subset). Projection receipts land in `legacy_projection_receipts` after
 inventory; unrecorded file mutation is flagged as `drift` without flipping modes.
@@ -60,15 +60,15 @@ Comms is already authoritative for message-plane coordination.
 | --- | --- |
 | **#5113** dead `gemini` inbox nags | Backlog warnings skip `dead_lane_agents()`; expire via `ab cleanup --expire` (already bulk-expires dead lanes). |
 | **#4915** empty body on background process | `assert_ask_content_present` on process paths — empty DB body fails as **transport**, not model stall. |
-| **#4956** disk retention | Read-only scanner: `.venv/bin/python scripts/hygiene/lane_disk_retention.py [--include-home] [--json]` |
+| **#4956** disk retention | Read-only scanner: `.venv/bin/python lu_machinery/hygiene/lane_disk_retention.py [--include-home] [--json]` |
 
 ## Orchestrator seats (fleet-comms stream)
 
 Any of these may own a cold-start / drive-board loop. Pins live in
-`scripts/config/model_catalog.yaml` → `orchestrator_seats`. **Codex was re-added as a driver**
+`lu_machinery/config/model_catalog.yaml` → `orchestrator_seats`. **Codex was re-added as a driver**
 (user 2026-07-23), reversing the 2026-07-22 removal because HydrationCapsuleV1 reduces rollover
 overhead; it is the named harness / infra / devops alternate, never a concurrent co-owner. Drift
-lint: #5642 / `scripts/lint/lint_fleet_roster.py`.
+lint: #5642 / `lu_machinery/lint/lint_fleet_roster.py`.
 
 | Seat | Default (loop) | Escalate (deep) | Cross-family CF as *reviewer* |
 | --- | --- | --- | --- |
@@ -92,16 +92,16 @@ Escalate when: architecture, hard multi-file judgment, high-stakes synthesis —
 
 ```bash
 # AGY default / escalate
-.venv/bin/python scripts/dispatch.py dispatch --agent agy --model gemini-3.8-flash-high ...
+.venv/bin/python lu_machinery/dispatch.py dispatch --agent agy --model gemini-3.8-flash-high ...
 # Claude escalate
-.venv/bin/python scripts/dispatch.py dispatch --agent claude --model claude-opus-5-5 ...
+.venv/bin/python lu_machinery/dispatch.py dispatch --agent claude --model claude-opus-5-5 ...
 # Codex named advisor escalate
-.venv/bin/python scripts/dispatch.py dispatch --agent codex --model gpt-6.1-sol ...
+.venv/bin/python lu_machinery/dispatch.py dispatch --agent codex --model gpt-6.1-sol ...
 ```
 
 ## Formal CF defaults (orchestrator-ready)
 
-Machine eligibility and routing SSOT: `scripts/config/model_catalog.yaml` →
+Machine eligibility and routing SSOT: `lu_machinery/config/model_catalog.yaml` →
 `review_scheduler.endpoints`. It binds the exact model, family, sealed ACP
 participant, formal eligibility, and quota/credential bucket. The booleans in
 `fleet_communications.yaml` are a tested legacy status projection, not a
@@ -139,22 +139,22 @@ Practical seats @ **high** — not Sol on routine PRs:
 
 ```bash
 # Direct ask-* cross-family review (replaces removed review-pr):
-.venv/bin/python scripts/ai_agent_bridge/__main__.py ask-codex - \
+.venv/bin/python lu_machinery/ai_agent_bridge/__main__.py ask-codex - \
   --type review --pr <N> --task-id review-<N> < prompt.md
 
 # Headless dispatch equivalent:
-.venv/bin/python scripts/dispatch.py dispatch --model <catalog-model> \
+.venv/bin/python lu_machinery/dispatch.py dispatch --model <catalog-model> \
   --agent codex --mode read-only --worktree --branch <branch> \
   --task-id review-<N> --prompt-file prompt.md
 
 # Exceptional pin: still passes every hard gate and uses the same reservation ledger.
-.venv/bin/python scripts/dispatch.py dispatch \
+.venv/bin/python lu_machinery/dispatch.py dispatch \
   --agent claude --mode read-only --worktree --branch <branch> \
   --task-id review-<N> --model claude-opus-5-5 --effort high \
   --prompt-file prompt.md
 
-.venv/bin/python scripts/ai_agent_bridge/__main__.py ask-pool ...  # default Laguna S 2.1
-.venv/bin/python scripts/ai_agent_bridge/__main__.py ask-pool ... --model poolside/poolside/laguna-xs-2.1  # XS 2.1 light
+.venv/bin/python lu_machinery/ai_agent_bridge/__main__.py ask-pool ...  # default Laguna S 2.1
+.venv/bin/python lu_machinery/ai_agent_bridge/__main__.py ask-pool ... --model poolside/poolside/laguna-xs-2.1  # XS 2.1 light
 ```
 
 Automatic selection and admission occur in one `BEGIN IMMEDIATE` transaction
@@ -213,7 +213,7 @@ not erase routing evidence.
 
 Do **not** write `laguna-s2`, `laguna.s2`, or `laguna.m1` as IDs — hyphens and the `m.1` minor are load-bearing.
 
-- Resolve-reviewer: use the live `scripts/config/model_catalog.yaml` ladders. **Critical** keeps Sol and Opus 5.5 authority first and excludes Sonnet 5.5; Fable holds no review role at any risk (#9583); **high** holds only Sol and Opus 5.5 (#9538), and returns no reviewer when neither is eligible; **medium/low** walk Sol → Opus 5.5 → Sonnet 5.5 before later practical and volume rungs.
+- Resolve-reviewer: use the live `lu_machinery/config/model_catalog.yaml` ladders. **Critical** keeps Sol and Opus 5.5 authority first and excludes Sonnet 5.5; Fable holds no review role at any risk (#9583); **high** holds only Sol and Opus 5.5 (#9538), and returns no reviewer when neither is eligible; **medium/low** walk Sol → Opus 5.5 → Sonnet 5.5 before later practical and volume rungs.
 - Grok uses the proven exact-head source-blind ACP path. Kimi is not a review or ACP seat (web, UI and backend coding only); its adapter is refused by `kimi_admission`. AGY's text-only ACP wrapper cannot consume the parent-owned sealed MCP; legacy native-isolation helpers stay unsupported.
 - Isolation runbooks: `docs/runbooks/agy-formal-cf-isolation.md` · `kimi-formal-cf-isolation.md` · `grok-formal-cf-isolation.md`
 
@@ -259,7 +259,7 @@ accepts `--stdout-only`, which the audit callers retain for that family.
 | `scripts/batch/batch_research.py`, `scripts/batch/batch_fix_review.py` | `ask-gemini` compatibility alias; explicit output file or stdout |
 | `scripts/projects/open_model_data/phase3_source_production_transport.py`, `phase3_rule_author_runner.py`, `phase3_heldout_label_transport.py` | Existing packet-bound stdout/output-file contracts; owning track controls execution |
 | `scripts/batch/batch_otaman.py`, `scripts/run_otaman_serial_12_15.sh` | Historical write-workflow callers; `--allow-write` does not make an ACP conversation a toolful implementation run |
-| `scripts/ops/smoketest_bridge_stdout_only.sh` | Provider smoke entry point; source inventory does not authorize execution |
+| `lu_machinery/ops/smoketest_bridge_stdout_only.sh` | Provider smoke entry point; source inventory does not authorize execution |
 
 An alias name is not proof of a remaining legacy provider transport. Keep healthy
 callers on their existing contracts. Historical write-workflow callers require
@@ -267,7 +267,7 @@ the owning track's implementation dispatch before execution; do not reinterpret
 a successful conversation as completed file edits.
 
 Legacy Python provider functions, bare bridge `send`/`ack`/processing commands,
-the old MCP broker server, and `scripts/tools/agent_watcher.py` still contain
+the old MCP broker server, and `lu_machinery/tools/agent_watcher.py` still contain
 legacy mutation paths. The channel CLI's authority-mode refusal does not prove
 those other entry points are read-only. They are not a Fleet fallback. Their
 runtime use and migration disposition remain part of the accountable driver's
@@ -278,7 +278,7 @@ queue cleanup.
 
 The canonical read-only home for zombie, batch-progress, and broker-health
 diagnostics is `GET /api/fleet/operations`, rendered by `dashboards/fleet.html`.
-`scripts/api/route_contracts.py` documents both contracts. These diagnostics are
+`lu_machinery/api/route_contracts.py` documents both contracts. These diagnostics are
 historical projections, not authority or proof that Fleet is healthy.
 `dashboards/comms.html` and `dashboards/channels.html` retain their compatibility
 redirects; channel/thread/delivery GET projections remain available. A source
@@ -289,19 +289,19 @@ audit or a local API test does not establish deployed browser behavior.
 Use the seat-facing facade from any repository checkout:
 
 ```bash
-.venv/bin/python -m scripts.fleet_comms fleet help
-.venv/bin/python -m scripts.fleet_comms fleet status
-.venv/bin/python -m scripts.fleet_comms fleet board
-.venv/bin/python -m scripts.fleet_comms fleet backlog
-.venv/bin/python -m scripts.fleet_comms fleet dead
-.venv/bin/python -m scripts.fleet_comms fleet metrics
+.venv/bin/python -m lu_machinery.fleet_comms fleet help
+.venv/bin/python -m lu_machinery.fleet_comms fleet status
+.venv/bin/python -m lu_machinery.fleet_comms fleet board
+.venv/bin/python -m lu_machinery.fleet_comms fleet backlog
+.venv/bin/python -m lu_machinery.fleet_comms fleet dead
+.venv/bin/python -m lu_machinery.fleet_comms fleet metrics
 ```
 
 Before proposing deletion of a Broker Ops page or a legacy route, choose a
 window between 1 and 90 days and run:
 
 ```bash
-.venv/bin/python -m scripts.fleet_comms fleet broker-report --days 7
+.venv/bin/python -m lu_machinery.fleet_comms fleet broker-report --days 7
 ```
 
 The report reads `data/telemetry/legacy_comms_routes.db` without creating or

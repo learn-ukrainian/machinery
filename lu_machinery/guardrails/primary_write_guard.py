@@ -15,7 +15,7 @@ from pathlib import Path
 
 # Dual-flavor import support
 try:
-    from scripts.guardrails import worktree_containment as wc
+    from lu_machinery.guardrails import worktree_containment as wc
 except ImportError:
     try:
         import worktree_containment as wc  # type: ignore[import-not-found]
@@ -23,11 +23,11 @@ except ImportError:
         _root = Path(__file__).resolve().parent.parent.parent
         if str(_root) not in sys.path:
             sys.path.insert(0, str(_root))
-        from scripts.guardrails import worktree_containment as wc
+        from lu_machinery.guardrails import worktree_containment as wc
 
 # Dual-flavor git environment sanitizer import
 try:
-    from scripts.common.git_context import sanitized_git_env
+    from lu_machinery.common.git_context import sanitized_git_env
 except ImportError:
     try:
         from common.git_context import sanitized_git_env  # type: ignore[import-not-found]

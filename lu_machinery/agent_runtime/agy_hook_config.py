@@ -13,8 +13,8 @@ from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
 
-from scripts.common.repo_root import main_checkout_root, product_root, project_interpreter
-from scripts.common.safe_open import safe_open_below
+from lu_machinery.common.repo_root import main_checkout_root, product_root, project_interpreter
+from lu_machinery.common.safe_open import safe_open_below
 
 ROOT = Path(__file__).resolve().parents[2]
 GUARD_NAME = "shell-secret-print-guard"

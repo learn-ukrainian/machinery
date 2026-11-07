@@ -45,7 +45,7 @@ from pathlib import Path
 
 import yaml
 
-from scripts.ci.components import (
+from lu_machinery.ci.components import (
     CONFIGURED_LOADER,
     CONFIGURED_LOADER_PATH,
     call_name,
@@ -55,7 +55,7 @@ from scripts.ci.components import (
     scan_imports,
     scan_runtime_edges,
 )
-from scripts.common.repo_root import machinery_path
+from lu_machinery.common.repo_root import machinery_path
 
 
 def _machinery_top() -> str:

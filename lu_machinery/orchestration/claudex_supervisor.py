@@ -20,12 +20,12 @@ from typing import Any
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if __package__:
-    from scripts.lib.session_record import canonical_state_root, validate_session_id
-    from scripts.orchestration import thread_handoff
+    from lu_machinery.lib.session_record import canonical_state_root, validate_session_id
+    from lu_machinery.orchestration import thread_handoff
 else:
     sys.path.insert(0, os.fspath(PROJECT_ROOT))
-    from scripts.lib.session_record import canonical_state_root, validate_session_id
-    from scripts.orchestration import thread_handoff
+    from lu_machinery.lib.session_record import canonical_state_root, validate_session_id
+    from lu_machinery.orchestration import thread_handoff
 
 
 def resolve_relaunch_python(project_root: Path = PROJECT_ROOT) -> Path:

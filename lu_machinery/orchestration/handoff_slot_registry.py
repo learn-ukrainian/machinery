@@ -31,7 +31,7 @@ from pathlib import Path
 if __package__ in (None, ""):  # run as a file: put the repository root on sys.path
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from scripts.ai_agent_bridge import _channels
+from lu_machinery.ai_agent_bridge import _channels
 
 # This package's import name, from the unresolved file location: never from __package__, which a
 # short import spelling (orchestration.x with scripts/ on sys.path) shortens. Its dotted parts

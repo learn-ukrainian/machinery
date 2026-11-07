@@ -15,8 +15,8 @@ from typing import Any
 
 import yaml
 
-from scripts.common.repo_root import machinery_path
-from scripts.orchestration.red_ci_known_failures import VALID_STOP_CODES
+from lu_machinery.common.repo_root import machinery_path
+from lu_machinery.orchestration.red_ci_known_failures import VALID_STOP_CODES
 
 STOP_UNKNOWN = "STOP-unknown"
 PROJECT_ROOT = Path(__file__).resolve().parents[2]

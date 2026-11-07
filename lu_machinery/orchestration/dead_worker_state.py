@@ -9,11 +9,11 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from scripts.guardrails.delegate_ownership import TERMINAL_TASK_STATUSES, OwnershipLedger
-from scripts.orchestration.task_record_store import task_state_lock as task_state_lock
-from scripts.orchestration.task_record_store import write_record_unlocked
-from scripts.orchestration.task_record_store import write_state_unlocked as write_state_unlocked
-from scripts.orchestration.worktree_prep import ORPHANED_PREP_REASON
+from lu_machinery.guardrails.delegate_ownership import TERMINAL_TASK_STATUSES, OwnershipLedger
+from lu_machinery.orchestration.task_record_store import task_state_lock as task_state_lock
+from lu_machinery.orchestration.task_record_store import write_record_unlocked
+from lu_machinery.orchestration.task_record_store import write_state_unlocked as write_state_unlocked
+from lu_machinery.orchestration.worktree_prep import ORPHANED_PREP_REASON
 
 PROC_ROOT = Path("/proc")
 INITIAL_PID_NAMESPACE = f"pid:[{0xEFFFFFFC}]"
@@ -114,7 +114,7 @@ def worker_liveness(
     namespace = _pid_namespace()
     view = _proc_pid_namespace()
     if record.get("schema_version") == 2:
-        from scripts.dispatcher.worker import _identity
+        from lu_machinery.dispatcher.worker import _identity
 
         if namespace != INITIAL_PID_NAMESPACE or view != namespace:
             return None

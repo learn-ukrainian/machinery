@@ -98,11 +98,11 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Any
 
-from scripts.agent_runtime.sources_read_only import sources_tool_sets
-from scripts.common.repo_root import project_interpreter, resolve_repo_root
-from scripts.common.safe_open import UnsafeEntryError, safe_open_below
-from scripts.review.product_hooks import attempt_hooks
-from scripts.review.render_contract import check_launch_contract, check_render_contract
+from lu_machinery.agent_runtime.sources_read_only import sources_tool_sets
+from lu_machinery.common.repo_root import project_interpreter, resolve_repo_root
+from lu_machinery.common.safe_open import UnsafeEntryError, safe_open_below
+from lu_machinery.review.product_hooks import attempt_hooks
+from lu_machinery.review.render_contract import check_launch_contract, check_render_contract
 
 
 # The product receipt ledger's Sources tool sets, read through the review attempt hooks
@@ -716,7 +716,7 @@ def _populate_agy_review_home(
         os.mkdir(parts[1], 0o700, dir_fd=gemini_fd)
         app_data_fd = _open_owned_dir(parts[1], dir_fd=gemini_fd)
         _create_file(config_parts[2], config_fd, config_bytes)
-        from scripts.agent_runtime.agy_hook_config import GUARD_NAME, guard_registration
+        from lu_machinery.agent_runtime.agy_hook_config import GUARD_NAME, guard_registration
 
         _create_file("hooks.json", config_fd, json.dumps({GUARD_NAME: guard_registration()}).encode())
         access = json.loads(config_bytes)["mcpServers"]["sources"].get("env", {}).get("LU_REVIEW_ACCESS")
@@ -1280,7 +1280,7 @@ def verify_codex_review_launch(
     tool_config: dict[str, Any],
 ) -> None:
     """Run the effective-config gate with the exact flags the Codex adapter will launch with."""
-    from scripts.agent_runtime.adapters.codex import CodexAdapter
+    from lu_machinery.agent_runtime.adapters.codex import CodexAdapter
 
     plan = CodexAdapter().build_invocation(
         prompt="",
@@ -1511,8 +1511,8 @@ def verify_agy_review_launch(
     tool_config: dict[str, Any],
 ) -> None:
     """Run the effective-config gate under the exact environment the AGY launch will get."""
-    from scripts.agent_runtime.adapters.agy import AgyAdapter
-    from scripts.agent_runtime.env_sanitize import build_agent_env
+    from lu_machinery.agent_runtime.adapters.agy import AgyAdapter
+    from lu_machinery.agent_runtime.env_sanitize import build_agent_env
 
     agy_home = agy_review_home_path(config_path)
     link_state = _agy_oauth_link_state(agy_review_app_data_dir(agy_home) / _AGY_TOKEN_NAME, _real_agy_token())

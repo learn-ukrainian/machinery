@@ -43,8 +43,8 @@ from pathlib import Path
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from scripts.common import github_client
-from scripts.common.http_status import has_http_status
+from lu_machinery.common import github_client
+from lu_machinery.common.http_status import has_http_status
 
 MAIN_REF = "refs/heads/main"
 PER_PAGE = 100

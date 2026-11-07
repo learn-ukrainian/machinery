@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from agent_runtime.target_admission import COMPAT_TARGETS as _TARGETS  # noqa: F401  (legacy ask names, read-only)
-from scripts.common.repo_root import machinery_path
+from lu_machinery.common.repo_root import machinery_path
 
 from ._config import DISPATCH_ENTRY, REPO_ROOT
 
@@ -639,7 +639,7 @@ def run_compat_ask(
     # Every ACP ask starts with the rules core: refuse before telemetry, the
     # job-host forward or any authority enqueue/claim (the runner re-checks).
     from agent_runtime.runner import InterAgentTransportError
-    from scripts.lib import rules_core
+    from lu_machinery.lib import rules_core
 
     try:
         rules_core.require_core()
@@ -648,7 +648,7 @@ def run_compat_ask(
             f"ask-{command_target} refused: {exc}; the rules core is required"
         ) from exc
 
-    from scripts.telemetry.legacy_bridge import (
+    from lu_machinery.telemetry.legacy_bridge import (
         finish_bridge_invocation_safely,
         start_bridge_invocation_safely,
     )
@@ -829,7 +829,7 @@ def _run_single_acp_job(
     """
     from agent_runtime.runner import invoke_inter_agent
     from agent_runtime.target_admission import require_admitted
-    from scripts.fleet_comms.authority import AuthorityService, AuthorityServiceError
+    from lu_machinery.fleet_comms.authority import AuthorityService, AuthorityServiceError
 
     # The target comes from resolve_and_admit (a quota substitute too): no seat is resolved here.
     target = require_admitted(target)
@@ -889,7 +889,7 @@ def _run_single_acp_job(
                 # result. A refusal here is terminalized as a durable failure
                 # by the except below. The adapter's own compatibility probe
                 # still enforces the full contract immediately before spawn.
-                from scripts.agent_runtime.adapters.acpx import (
+                from lu_machinery.agent_runtime.adapters.acpx import (
                     probe_participant_reachability,
                 )
 

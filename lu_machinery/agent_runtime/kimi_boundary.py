@@ -35,7 +35,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from scripts.agent_runtime.kimi_admission import FileChange
+    from lu_machinery.agent_runtime.kimi_admission import FileChange
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 HOOKS_SOURCE = Path(__file__).resolve().parent / "kimi_hooks"
@@ -152,7 +152,7 @@ def changes(
     which the content check refuses; a working-tree file that cannot be read
     raises ``ChangeUnreadable``.
     """
-    from scripts.agent_runtime.kimi_admission import FileChange
+    from lu_machinery.agent_runtime.kimi_admission import FileChange
 
     result = []
     for status, path in pairs:
@@ -183,8 +183,8 @@ def commit_changes(repo: Path, base_ref: str, commit: str, *, env: Mapping[str, 
 
 def ownership_reasons(paths: Sequence[str], owned: Sequence[str]) -> list[str]:
     """Why changed ``paths`` are refused: outside the task's owned paths or off the Kimi allowlist."""
-    from scripts.agent_runtime.kimi_admission import owned_path_reason
-    from scripts.guardrails.delegate_ownership import path_is_owned
+    from lu_machinery.agent_runtime.kimi_admission import owned_path_reason
+    from lu_machinery.guardrails.delegate_ownership import path_is_owned
 
     if not owned:
         return ["the task declared no owned paths, so it may change none"]
@@ -203,7 +203,7 @@ def ownership_reasons(paths: Sequence[str], owned: Sequence[str]) -> list[str]:
 
 def hook_reasons(repo: Path, hook: str, refs: str = "") -> list[str]:
     """Why the ``pre-commit`` or ``pre-push`` hook refuses; empty when it admits."""
-    from scripts.agent_runtime.kimi_admission import change_reasons
+    from lu_machinery.agent_runtime.kimi_admission import change_reasons
 
     owned = _worktree_config(repo, f"{_SECTION}.ownedpath")
     if hook == "pre-commit":
@@ -230,7 +230,7 @@ def hook_reasons(repo: Path, hook: str, refs: str = "") -> list[str]:
 
 def main(argv: Sequence[str] | None = None) -> int:
     """Hook entry point: ``kimi_boundary.py pre-commit`` or ``kimi_boundary.py pre-push`` (refs on stdin)."""
-    from scripts.agent_runtime.kimi_admission import format_refusal
+    from lu_machinery.agent_runtime.kimi_admission import format_refusal
 
     args = list(sys.argv[1:] if argv is None else argv)
     hook = args[0] if args else ""

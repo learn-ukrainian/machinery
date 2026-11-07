@@ -71,7 +71,7 @@ or selects a packet by title, age, or filesystem order.
 ```bash
 # Remote claim (the API host owns the lease; set the opaque host identity first)
 LU_MONITOR_HOST_ID="<opaque id>" \
-  .venv/bin/python -m scripts.session_supervisor claim \
+  .venv/bin/python -m lu_machinery.session_supervisor claim \
   --role driver --stream epic:4542 \
   --agent claude --harness claude-code \
   --instance-id example-driver --process-id 1234 \
@@ -100,13 +100,13 @@ The Python caller receives `--stream` from `launcher_selector_stream
 
 ```bash
 # Explicit export to a local file (the source root is the current checkout).
-.venv/bin/python scripts/orchestration/thread_handoff.py \
+.venv/bin/python lu_machinery/orchestration/thread_handoff.py \
   export-bundle --agent claude-infra --stream epic:6943 --file /tmp/rollover.tgz
 
 # Import from the API authority, or use the file after scp/rsync.
-SESSION_HANDOFF_AGENT=claude-infra .venv/bin/python scripts/orchestration/thread_handoff.py \
+SESSION_HANDOFF_AGENT=claude-infra .venv/bin/python lu_machinery/orchestration/thread_handoff.py \
   import-bundle --from-api epic:6943
-.venv/bin/python scripts/orchestration/thread_handoff.py \
+.venv/bin/python lu_machinery/orchestration/thread_handoff.py \
   import-bundle --agent claude-infra --stream epic:6943 --file /tmp/rollover.tgz
 ```
 
@@ -148,7 +148,7 @@ not available, export to a file and copy only that file:
 
 ```bash
 scp /path/to/rollover.tgz target-host:/tmp/rollover.tgz
-ssh target-host -- .venv/bin/python scripts/orchestration/thread_handoff.py \
+ssh target-host -- .venv/bin/python lu_machinery/orchestration/thread_handoff.py \
   import-bundle --agent claude-infra --stream epic:6943 --file /tmp/rollover.tgz
 ```
 
@@ -173,7 +173,7 @@ for operator review and are never swept automatically.
    ```bash
    ./start-grok-driver.sh --epic infra --force
    # equivalent supervisor CLI:
-   .venv/bin/python -m scripts.session_supervisor release --role driver --force \
+   .venv/bin/python -m lu_machinery.session_supervisor release --role driver --force \
      --stream epic:6943 --actor-agent operator --actor-host-id "$LU_MONITOR_HOST_ID" \
      --reason "operator force takeover"
    ```

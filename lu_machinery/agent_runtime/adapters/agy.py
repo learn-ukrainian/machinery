@@ -98,10 +98,14 @@ from collections.abc import Iterable, Iterator, Mapping
 from pathlib import Path
 from typing import Any, NamedTuple
 
-from scripts.agent_runtime.agy_hook_config import require_hook_config
-from scripts.agent_runtime.attempt_safe_read import AttemptReadError, safe_attempt_file_size, safe_read_attempt_file
-from scripts.review.model_catalog import load_model_catalog, retired_model_refusal
-from scripts.secret_redactor import redact_text
+from lu_machinery.agent_runtime.agy_hook_config import require_hook_config
+from lu_machinery.agent_runtime.attempt_safe_read import (
+    AttemptReadError,
+    safe_attempt_file_size,
+    safe_read_attempt_file,
+)
+from lu_machinery.review.model_catalog import load_model_catalog, retired_model_refusal
+from lu_machinery.secret_redactor import redact_text
 
 from ..failure_codes import provider_failure_code, provider_stderr_error
 from ..jsonl import jsonl_lines
@@ -885,7 +889,7 @@ def agy_model_state(
         requested = None
     if requested not in AgyAdapter.claude_model_slugs:
         return {}
-    from scripts.review.model_catalog import load_model_catalog
+    from lu_machinery.review.model_catalog import load_model_catalog
 
     trusted = False
     observed_slug = family = None
@@ -1014,7 +1018,7 @@ class AgyAdapter:
         tc = tool_config or {}
         review_route = _agy_review_route(tc)
         if resolved_model in self.claude_model_slugs and not review_route:
-            from scripts.review.security_paths import is_security_sensitive_change
+            from lu_machinery.review.security_paths import is_security_sensitive_change
 
             model_spec = next((
                 spec for spec in load_model_catalog()["models"].values()

@@ -21,10 +21,10 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
 
-from scripts.common.repo_root import machinery_path
+from lu_machinery.common.repo_root import machinery_path
 
 try:
-    from scripts.lib.readonly_sqlite import SQLiteConnection, import_named_module, open_readonly
+    from lu_machinery.lib.readonly_sqlite import SQLiteConnection, import_named_module, open_readonly
 except ModuleNotFoundError as exc:
     if exc.name != Path(os.path.abspath(__file__)).parents[1].name:
         raise
@@ -55,11 +55,11 @@ from agent_runtime.agent_identity import RETIRED_AGENT_ALIASES
 from agent_runtime.failure_codes import RUNTIME_FAILURE_CODES
 from agent_runtime.usage import _iter_usage_records as _iter_usage_file_records
 from agent_runtime.usage import has_headroom
-from scripts.agent_runtime.accounting import recorded_model_accounting_fields
-from scripts.control_plane import storage
-from scripts.fleet_comms import message_plane
-from scripts.fleet_comms.message_plane import read_plane_status
-from scripts.orchestration import codex_transport_health
+from lu_machinery.agent_runtime.accounting import recorded_model_accounting_fields
+from lu_machinery.control_plane import storage
+from lu_machinery.fleet_comms import message_plane
+from lu_machinery.fleet_comms.message_plane import read_plane_status
+from lu_machinery.orchestration import codex_transport_health
 
 router = APIRouter(tags=["runtime"])
 
@@ -1041,7 +1041,7 @@ def list_routing_assignments(*, limit: int = 100, ctx: MonitorContext | None = N
     resolved_ctx = resolve_context(ctx)
     plane = _routing_plane_status(resolved_ctx)
     try:
-        ledger = importlib.import_module("scripts.fleet_comms.routing_reservations")
+        ledger = importlib.import_module("lu_machinery.fleet_comms.routing_reservations")
         reader = ledger.list_routing_decisions
         # The authority projection returns one record per decision event.  Read
         # a bounded event window wide enough to return up to ``limit`` distinct

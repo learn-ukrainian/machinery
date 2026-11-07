@@ -47,13 +47,13 @@ from typing import Any
 if __package__ in (None, ""):  # run as a file: put the repository root on sys.path
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from scripts.common.scratch import DEFAULT_SCRATCH_ROOT, fallback_scratch_root, resolve_scratch_root
-from scripts.common.task_scratch import TaskScratchError, mount_points
-from scripts.common.task_store_paths import tasks_dir
-from scripts.hygiene import batch_state_retention
-from scripts.hygiene.batch_state_retention import EXCLUDED, default_batch_root, load_holds, scratch_expiry
-from scripts.hygiene.retention_engine import plan_digest, reap_attributed_temp
-from scripts.hygiene.tmp_sweep_ledger import (
+from lu_machinery.common.scratch import DEFAULT_SCRATCH_ROOT, fallback_scratch_root, resolve_scratch_root
+from lu_machinery.common.task_scratch import TaskScratchError, mount_points
+from lu_machinery.common.task_store_paths import tasks_dir
+from lu_machinery.hygiene import batch_state_retention
+from lu_machinery.hygiene.batch_state_retention import EXCLUDED, default_batch_root, load_holds, scratch_expiry
+from lu_machinery.hygiene.retention_engine import plan_digest, reap_attributed_temp
+from lu_machinery.hygiene.tmp_sweep_ledger import (
     DEFAULT_DIGEST_LIMIT,
     DEFAULT_QUARANTINE_S,
     HELD_STATES,
@@ -73,13 +73,13 @@ from scripts.hygiene.tmp_sweep_ledger import (
     utc_iso,
     validate_state_dir,
 )
-from scripts.orchestration.tmp_leak_sweep import (
+from lu_machinery.orchestration.tmp_leak_sweep import (
     _process_state,
     _process_vanished,
     listening_socket_paths,
     socket_node_listening,
 )
-from scripts.orchestration.worktree_claims import _SUPERSEDED_RECORD_RE
+from lu_machinery.orchestration.worktree_claims import _SUPERSEDED_RECORD_RE
 
 
 def _machinery_top() -> str:
@@ -1315,7 +1315,7 @@ def sweep(
             batch_state=batch_state,
         )
         if not batch_state:
-            from scripts.hygiene.pytest_retention import sweep_pytest_runs
+            from lu_machinery.hygiene.pytest_retention import sweep_pytest_runs
 
             report["pytest_retention"] = sweep_pytest_runs(
                 apply=apply, ledger=ledger, run_id=run_id, task_root=tasks, quarantine_s=quarantine_s, repo_root=repo_root,

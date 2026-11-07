@@ -25,8 +25,8 @@ from pathlib import Path
 from typing import Any
 from xml.parsers.expat import ExpatError
 
-from scripts.api.release_snapshot import build_release, prune_releases
-from scripts.common.safe_unit_install import (
+from lu_machinery.api.release_snapshot import build_release, prune_releases
+from lu_machinery.common.safe_unit_install import (
     InstallError,
     check_state_paths,
     ensure_state_dirs,

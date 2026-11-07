@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from scripts.api.codexbar_usage import lane_is_under_weekly_pace
+from lu_machinery.api.codexbar_usage import lane_is_under_weekly_pace
 
 REPORT_TTL_SECONDS = 15 * 60
 STALE_UPSTREAM_THRESHOLD_S = 3600

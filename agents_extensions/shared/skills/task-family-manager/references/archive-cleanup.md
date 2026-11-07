@@ -11,9 +11,9 @@ the exact `task-lifecycle.v1` ledger from its `task-identity.v1` repository/issu
 before previewing cleanup:
 
 ```bash
-.venv/bin/python -m scripts.orchestration.task_closeout locate \
+.venv/bin/python -m lu_machinery.orchestration.task_closeout locate \
   --identity-file /absolute/task-identity.json
-.venv/bin/python -m scripts.orchestration.task_closeout reconcile \
+.venv/bin/python -m lu_machinery.orchestration.task_closeout reconcile \
   --state-file /absolute/.agent/task-lifecycle/.../issue-N.json \
   --branch codex/N-topic --worktree /absolute/.worktrees/dispatch/codex/N-topic
 ```
@@ -25,7 +25,7 @@ cleanup. A `BLOCKED_WITH_RECEIPT` disposition stops `preview-cleanup` until its
 owner, reason, evidence, and next action are resolved.
 
 ```bash
-.venv/bin/python -m scripts.orchestration.task_family preview-archive \
+.venv/bin/python -m lu_machinery.orchestration.task_family preview-archive \
   --repo-root /absolute/project \
   --manifest /absolute/manifest.json \
   --operation-id 00000000-0000-4000-8000-000000000020 \
@@ -43,7 +43,7 @@ For cleanup, replace `preview-archive` with `preview-cleanup`. Display its exact
 Call `set_thread_archived` with `archived: true` once per selected task, then reconcile immediately with its current exact title:
 
 ```bash
-.venv/bin/python -m scripts.orchestration.task_family reconcile-archive \
+.venv/bin/python -m lu_machinery.orchestration.task_family reconcile-archive \
   --repo-root /absolute/project \
   --family-id issue-5140-family \
   --operation-id 00000000-0000-4000-8000-000000000020 \
@@ -56,7 +56,7 @@ Call `set_thread_archived` with `archived: true` once per selected task, then re
 Only after every selected task verifies, execute the persisted plan:
 
 ```bash
-.venv/bin/python -m scripts.orchestration.task_family apply-cleanup \
+.venv/bin/python -m lu_machinery.orchestration.task_family apply-cleanup \
   --repo-root /absolute/project \
   --family-id issue-5140-family \
   --operation-id 00000000-0000-4000-8000-000000000020 \

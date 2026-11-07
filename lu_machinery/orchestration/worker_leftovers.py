@@ -87,8 +87,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Protocol
 
-from scripts.agent_runtime.binary_resolve import resolve_agent_binary
-from scripts.orchestration import dispatch_isolation
+from lu_machinery.agent_runtime.binary_resolve import resolve_agent_binary
+from lu_machinery.orchestration import dispatch_isolation
 
 BACKGROUND_JOBS_REASON = "background_jobs_alive_at_exit"
 SCAN_UNKNOWN_REASON = "leftovers_scan_unknown"

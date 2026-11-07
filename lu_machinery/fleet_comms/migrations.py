@@ -9,7 +9,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 try:
-    from scripts.lib.readonly_sqlite import SQLiteConnection, is_sqlite_connection
+    from lu_machinery.lib.readonly_sqlite import SQLiteConnection, is_sqlite_connection
 except ModuleNotFoundError as exc:
     # Only this package's own absence selects the short spelling; its name comes from this
     # file's unresolved location (design-v1 amendment 1), never __package__.
@@ -756,7 +756,7 @@ def apply_migrations(conn: SQLiteConnection) -> int:
         # #7482 interlock, defense in depth: the ledger is sqlite-only in this
         # slice; a psycopg connection reaching this point would fail later
         # with an opaque driver error (``BEGIN IMMEDIATE`` is not pg syntax).
-        from scripts.control_plane.storage import ControlPlaneUnsupportedComponentError
+        from lu_machinery.control_plane.storage import ControlPlaneUnsupportedComponentError
 
         raise ControlPlaneUnsupportedComponentError(
             "control-plane store 'fleet_comms': component 'migrations' only "

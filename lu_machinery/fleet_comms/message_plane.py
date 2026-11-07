@@ -35,9 +35,9 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal
 
-from scripts.common.jsonl import jsonl_lines as split_jsonl_lines
-from scripts.common.repo_root import machinery_path
-from scripts.control_plane.storage import (
+from lu_machinery.common.jsonl import jsonl_lines as split_jsonl_lines
+from lu_machinery.common.repo_root import machinery_path
+from lu_machinery.control_plane.storage import (
     Authority,
     ControlPlaneError,
     ControlPlaneUnsupportedComponentError,
@@ -45,16 +45,16 @@ from scripts.control_plane.storage import (
     assert_component_supported,
     resolve_authority,
 )
-from scripts.control_plane.storage import connect as cp_connect
-from scripts.fleet_comms.artifacts import validate_plane_root
-from scripts.fleet_comms.contracts import CompletionState
-from scripts.fleet_comms.opsec_store import COMMS_RESPONSE_SCHEMA_VERSION, store_descriptor
-from scripts.fleet_comms.paths import (
+from lu_machinery.control_plane.storage import connect as cp_connect
+from lu_machinery.fleet_comms.artifacts import validate_plane_root
+from lu_machinery.fleet_comms.contracts import CompletionState
+from lu_machinery.fleet_comms.opsec_store import COMMS_RESPONSE_SCHEMA_VERSION, store_descriptor
+from lu_machinery.fleet_comms.paths import (
     DEFAULT_ROOT_REL,  # noqa: F401  # re-exported for compatibility
     ENV_ROOT,  # noqa: F401  # re-exported for compatibility
     default_plane_root,
 )
-from scripts.fleet_comms.request_executor import RequestExecutor, RequestRecord
+from lu_machinery.fleet_comms.request_executor import RequestExecutor, RequestRecord
 
 logger = logging.getLogger(__name__)
 
@@ -588,7 +588,7 @@ def verify_authority_cutover(*, root: Path | None = None) -> None:
     if not db_path.is_file():
         raise AuthorityCutoverRefusedError(_CUTOVER_SCHEMA_VERSION_MISMATCH)
 
-    from scripts.fleet_comms.migrations import CommsMigrationError, verify_applied_migrations
+    from lu_machinery.fleet_comms.migrations import CommsMigrationError, verify_applied_migrations
 
     try:
         # URI mode=ro both proves the target exists and prevents this gate from
@@ -618,8 +618,8 @@ def _read_applied_schema_version(db_path: Path) -> dict[str, Any]:
     """
     import psycopg
 
-    from scripts.control_plane.health import read_failure_code
-    from scripts.fleet_comms import migrations, pg_schema
+    from lu_machinery.control_plane.health import read_failure_code
+    from lu_machinery.fleet_comms import migrations, pg_schema
 
     authority = resolve_authority(StoreId.FLEET_COMMS)
     ledger = pg_schema if authority is Authority.PG else migrations

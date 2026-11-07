@@ -17,7 +17,7 @@ from pathlib import Path
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from scripts.ci._location import checkout_relative
+from lu_machinery.ci._location import checkout_relative
 
 THRESHOLD_BYTES = 5 * 1024 * 1024  # 5,242,880 bytes (5 MB)
 DEFAULT_ALLOWLIST = checkout_relative("ci", "large_files_allowlist.txt").as_posix()

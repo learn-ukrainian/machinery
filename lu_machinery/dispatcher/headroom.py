@@ -7,9 +7,9 @@ mirrors runner.invoke's pre-call has_headroom check. Neither selects a route.
 
 import logging
 
-from scripts.agent_runtime import model_pause, usage
-from scripts.agent_runtime.errors import RateLimitedError
-from scripts.fleet import claude_account_lane
+from lu_machinery.agent_runtime import model_pause, usage
+from lu_machinery.agent_runtime.errors import RateLimitedError
+from lu_machinery.fleet import claude_account_lane
 
 
 def check_plan(agent: str, model: str, record: dict, *, review: bool = False) -> None:
@@ -26,7 +26,7 @@ def check_plan(agent: str, model: str, record: dict, *, review: bool = False) ->
         raise ValueError(f"CLAUDE_ACCOUNT_REFUSED: {account.refusal}")
     api_key = agent == "claude" and account.api_key
     if api_key:
-        from scripts.agent_runtime.attempt_boundary import ClaudeAccountRefused, resolve_claude_budget_usd
+        from lu_machinery.agent_runtime.attempt_boundary import ClaudeAccountRefused, resolve_claude_budget_usd
 
         try:
             resolve_claude_budget_usd(account.label, record.get("max_budget_usd"))
@@ -37,7 +37,7 @@ def check_plan(agent: str, model: str, record: dict, *, review: bool = False) ->
             agent, review=review, plan_metered=not api_key, codex_account=record.get("codex_account")),
         used_pct=model_pause.account_used_pct(account),
     )
-    from scripts.dispatcher import checks
+    from lu_machinery.dispatcher import checks
 
     trial = checks.check_trial_shadow(agent, model, record)
     roles = model_pause.dispatch_roles(record, review=review)

@@ -41,7 +41,7 @@ import re
 from typing import Any
 
 try:  # package-path tolerant, mirrors emit.py's own import guard
-    from scripts.telemetry.emit import emit_event
+    from lu_machinery.telemetry.emit import emit_event
 except ImportError:  # pragma: no cover - alternate import path
     from telemetry.emit import emit_event
 
@@ -99,7 +99,7 @@ def validate_active_task(task_id: str | None) -> str | None:
     try:
         # Lazy import: only the API record endpoint validates tasks; surface-only
         # emitters (delegate) never pull the API package in.
-        from scripts.api.delegate_router import (
+        from lu_machinery.api.delegate_router import (
             _derived_task_status,
             _read_task_state,
             _task_state_path,
@@ -152,7 +152,7 @@ def _persist_200_evidence(task_id: str, research_id: str, etag: str) -> None:
     for this record isn't attributable, which is the safe (fail-closed) direction.
     """
     try:
-        from scripts.api.delegate_router import _read_task_state, _task_state_path, _tasks_root
+        from lu_machinery.api.delegate_router import _read_task_state, _task_state_path, _tasks_root
 
         root = _tasks_root()
         path = os.path.realpath(_task_state_path(task_id))
@@ -180,7 +180,7 @@ def _persist_200_evidence(task_id: str, research_id: str, etag: str) -> None:
 def _has_prior_200_evidence(task_id: str, research_id: str, etag: str) -> bool:
     """True iff this task's state already records a matching prior `200` fetch."""
     try:
-        from scripts.api.delegate_router import _read_task_state, _task_state_path
+        from lu_machinery.api.delegate_router import _read_task_state, _task_state_path
 
         state = _read_task_state(_task_state_path(task_id))
         if not isinstance(state, dict):

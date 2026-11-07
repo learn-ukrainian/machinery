@@ -55,10 +55,10 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from scripts.orchestration.integration_sweep import SHA
-from scripts.review import record_cf_verdict as recorder
-from scripts.review.review_lineage import LineageRefused, check_lineage, lineage_runs, superseded_runs
-from scripts.review.verdict_parser import _structured_explanation
+from lu_machinery.orchestration.integration_sweep import SHA
+from lu_machinery.review import record_cf_verdict as recorder
+from lu_machinery.review.review_lineage import LineageRefused, check_lineage, lineage_runs, superseded_runs
+from lu_machinery.review.verdict_parser import _structured_explanation
 
 RECEIPT_DIR = "review-repair-rounds"
 RECEIPT_SCHEMA = "review-repair-round.v1"

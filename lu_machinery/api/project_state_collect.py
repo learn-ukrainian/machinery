@@ -12,11 +12,11 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from scripts.api.codexbar_usage import SUBSCRIPTION_PROVIDERS, fetch_codexbar_usage
-from scripts.api.fleet_workers_collect import collect_local_workers_for_reporter
-from scripts.api.project_state_sanitize import sanitize_lane_usage_entry
-from scripts.common.git_context import sanitized_git_env
-from scripts.common.release_layout import is_release_root
+from lu_machinery.api.codexbar_usage import SUBSCRIPTION_PROVIDERS, fetch_codexbar_usage
+from lu_machinery.api.fleet_workers_collect import collect_local_workers_for_reporter
+from lu_machinery.api.project_state_sanitize import sanitize_lane_usage_entry
+from lu_machinery.common.git_context import sanitized_git_env
+from lu_machinery.common.release_layout import is_release_root
 
 _FULL_SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 _GIT_TIMEOUT_S = 4.0

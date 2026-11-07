@@ -40,7 +40,7 @@ from pathlib import Path
 from typing import Any
 
 try:
-    from scripts.lib.readonly_sqlite import open_readonly
+    from lu_machinery.lib.readonly_sqlite import open_readonly
 except ModuleNotFoundError as exc:
     # Only this package's own absence selects the short spelling; its name comes from this
     # file's unresolved location (design-v1 amendment 1), never __package__.
@@ -48,8 +48,8 @@ except ModuleNotFoundError as exc:
         raise
     from lib.readonly_sqlite import open_readonly  # type: ignore[no-redef]
 
-from scripts.common.repo_root import machinery_path
-from scripts.orchestration.fleet_taxonomy import (
+from lu_machinery.common.repo_root import machinery_path
+from lu_machinery.orchestration.fleet_taxonomy import (
     UnknownAreaError,
     resolve_area,
 )

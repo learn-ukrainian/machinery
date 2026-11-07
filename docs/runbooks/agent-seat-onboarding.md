@@ -7,8 +7,8 @@ launcher, headless dispatch).
 **Product epic:** #6027 · **Stream:** #4707 (`infra-harness`).
 **Status:** documentation contract for the structured-ACP + KimiCC rollout.
 **Live routing data:** always re-read `GET /api/rules`,
-`scripts/config/model_catalog.yaml`, and
-`.venv/bin/python -m scripts.fleet_comms plane-status` — never hard-code live
+`lu_machinery/config/model_catalog.yaml`, and
+`.venv/bin/python -m lu_machinery.fleet_comms plane-status` — never hard-code live
 plane mode, model pins, or formal-review eligibility from memory.
 
 This runbook is the **canonical task-oriented entry point** for seat onboarding.
@@ -19,7 +19,7 @@ caps or live modes.
 
 ## Read first (cold-start order)
 
-0. **Epic drivers:** run `.venv/bin/python -m scripts.fleet_comms cold-start-board` first —
+0. **Epic drivers:** run `.venv/bin/python -m lu_machinery.fleet_comms cold-start-board` first —
    it probes fleet/plane/stream state so this list starts from live data, not memory.
 1. Operator contract + model assignment via `GET /api/rules` (offline fallbacks
    under `agents_extensions/shared/rules/`).
@@ -106,9 +106,9 @@ handoff creates a competing authority.
 The dispatcher removes each task's own worktree when the task settles and records
 `worktree_disposition` in the task record; a retained tree names its reason. After GitHub
 reports an exact-head PR as `MERGED`, run
-`.venv/bin/python -m scripts.orchestration.merge_closeout <PR> --apply` from the primary
+`.venv/bin/python -m lu_machinery.orchestration.merge_closeout <PR> --apply` from the primary
 checkout. Remove a leftover worktree only with
-`.venv/bin/python -m scripts.orchestration.worktree_claims remove <path> --owner-task-id <id> --reason '<why>'`,
+`.venv/bin/python -m lu_machinery.orchestration.worktree_claims remove <path> --owner-task-id <id> --reason '<why>'`,
 following [the worktree-cleanup runbook](worktree-cleanup.md); never use raw `git worktree remove`.
 
 ---
@@ -118,7 +118,7 @@ following [the worktree-cleanup runbook](worktree-cleanup.md); never use raw `gi
 | Surface | Owns | Never owns |
 | --- | --- | --- |
 | **`discuss`** (bridge) | An observable exception for agent communication that ACP cannot serve; bounded multi-agent deliberation and design input | Implementation, merge authority, or the formal cross-family review gate |
-| **`scripts/dispatch.py dispatch`** | Isolated implementation execution in a worktree | Durable fleet authority or formal CF |
+| **`lu_machinery/dispatch.py dispatch`** | Isolated implementation execution in a worktree | Durable fleet authority or formal CF |
 | **Fleet-comms + legacy file handoffs** | Durable coordination authority in `authority` mode; legacy file stores remain read-only migration/projection inputs | Competing message buses; new legacy writes; silent plane/retention/eligibility flips |
 | **ACPX** | Routine first-choice structured transport for eligible 2-to-4-seat read-only communication; fleet launchers make `discuss` select it automatically for Codex, Grok, Claude, Cursor, Pool, AGY/Gemini, GLM, and DeepSeek (Kimi is retired, OO-58); not a coordination plane | Persistent sessions, backlog, auto-retries, unrestricted chat, plane flips, review eligibility |
 | **Buzz** | **Explicitly deferred** | Anything in this rollout — relay-as-authority conflicts with the current authority model |
@@ -127,7 +127,7 @@ following [the worktree-cleanup runbook](worktree-cleanup.md); never use raw `gi
 
 Shared skill `agents_extensions/shared/skills/caveman/` — default intensity **lite**
 (drop filler/hedging; keep articles and full sentences). `npm run agents:deploy`
-(`scripts/deploy_prompts.sh`) rsyncs it to `.claude/skills/caveman`, the `.agent`
+(`lu_machinery/deploy_prompts.sh`) rsyncs it to `.claude/skills/caveman`, the `.agent`
 overlay, `.agents/skills/caveman`, and `.gemini/skills/caveman`. Codex discovers
 shared skills only through `.agents/skills`; Git `agents_extensions` remains
 canonical. Verified legacy `.codex/skills` trees move atomically to unique
@@ -188,12 +188,12 @@ job/reservation state. Never infer provider health from route counts alone.
 
 ### Discuss is not formal review
 
-`.venv/bin/python scripts/ai_agent_bridge/__main__.py discuss` produces design
+`.venv/bin/python lu_machinery/ai_agent_bridge/__main__.py discuss` produces design
 input and transcripts. It does **not** satisfy independent cross-family review.
 
 Formal CF uses one direct `ask-<lane> --type review` request to a qualified
 reviewer outside the author's model family, followed by a verdict and findings
-posted as a PR comment (`.venv/bin/python -m scripts.publish pr-comment --number <N>` or `.venv/bin/python -m scripts.publish pr-review --number <N>`) bound to the exact
+posted as a PR comment (`.venv/bin/python -m lu_machinery.publish pr-comment --number <N>` or `.venv/bin/python -m lu_machinery.publish pr-review --number <N>`) bound to the exact
 head SHA. Review requests route to a native toolful worktree seat; ordinary
 ACP/ACPX transport is toolless and cannot ground a tree review. Follow the canonical
 [fleet-comms review method](../../agents_extensions/shared/rules/fleet-comms-coordination.md#required-primitives-tool-backed)
@@ -217,7 +217,7 @@ path. Never fall back to `python`, `.venv/bin/python`, or `python -m venv .venv`
 
 ```bash
 PRIMARY_REPO="$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")"
-"$PRIMARY_REPO/.venv/bin/python" scripts/dispatch.py dispatch --model <catalog-model> \
+"$PRIMARY_REPO/.venv/bin/python" lu_machinery/dispatch.py dispatch --model <catalog-model> \
   --agent <lane> --task-id <id> --prompt-file <path> --worktree
 ```
 
@@ -231,19 +231,19 @@ become a second coordination plane.
 #### Sibling-repo dispatch
 
 `--worktree` and `--branch` default to the Learn Ukrainian primary checkout
-that owns `scripts/dispatch.py` (`_REPO_ROOT`). They do **not** follow the
+that owns `lu_machinery/dispatch.py` (`_REPO_ROOT`). They do **not** follow the
 shell cwd. Invoking `dispatch --worktree` from a sibling repository (for
 example a private checkout next to this one) without `--repo` is refused: the
 worktree would otherwise be created under the primary while the brief still
 described the sibling (#6900).
 
 **Preferred (#672 P2.1):** pass an allowlisted `--repo` key from
-`scripts/config/fleet_repos.yaml` so delegate creates the layout-A worktree
+`lu_machinery/config/fleet_repos.yaml` so delegate creates the layout-A worktree
 under that sibling checkout:
 
 ```bash
 LU_PRIMARY="$(dirname "$(git -C /path/to/learn-ukrainian rev-parse --path-format=absolute --git-common-dir)")"
-"$LU_PRIMARY/.venv/bin/python" "$LU_PRIMARY/scripts/dispatch.py" dispatch \
+"$LU_PRIMARY/.venv/bin/python" "$LU_PRIMARY/lu_machinery/dispatch.py" dispatch \
   --agent <lane> --task-id <id> --prompt-file <path> \
   --mode workspace-write --repo hramatka --worktree
 ```
@@ -261,7 +261,7 @@ git -C /path/to/sibling worktree add .worktrees/dispatch/<agent>/<task> <base-or
 
 # Invoke this repo's delegate against that worktree (no --worktree).
 LU_PRIMARY="$(dirname "$(git -C /path/to/learn-ukrainian rev-parse --path-format=absolute --git-common-dir)")"
-"$LU_PRIMARY/.venv/bin/python" "$LU_PRIMARY/scripts/dispatch.py" dispatch \
+"$LU_PRIMARY/.venv/bin/python" "$LU_PRIMARY/lu_machinery/dispatch.py" dispatch \
   --agent <lane> --task-id <id> --prompt-file <path> \
   --mode workspace-write --cwd /path/to/sibling/.worktrees/dispatch/<agent>/<task>
 ```
@@ -274,7 +274,7 @@ P2 slices — not this v1.
 
 For bounded implementation or investigation, read the machine-readable
 `execution_routing.sol_advised_bounded` route in
-[`scripts/config/model_catalog.yaml`](../../scripts/config/model_catalog.yaml)
+[`lu_machinery/config/model_catalog.yaml`](../../scripts/config/model_catalog.yaml)
 before dispatching:
 
 1. Use `gpt-6.1-sol` at `high` for Codex coding and code review.
@@ -305,7 +305,7 @@ to Sol at `high` or the accountable orchestrator before making a consequential d
 ### Fleet-comms authority and legacy projections
 
 ```bash
-.venv/bin/python -m scripts.fleet_comms plane-status
+.venv/bin/python -m lu_machinery.fleet_comms plane-status
 ```
 
 - Implemented modes are `off` | `shadow` | `dual_write` | `authority`.
@@ -322,7 +322,7 @@ Native Grok dispatch is retired. Dispatch v2 rejects `--agent grok` (`unknown ag
 Use the explicit Cursor seat at `grok-4.7-high`:
 
 ```bash
-.venv/bin/python scripts/dispatch.py dispatch --agent cursor --model grok-4.7-high \
+.venv/bin/python lu_machinery/dispatch.py dispatch --agent cursor --model grok-4.7-high \
   --mode read-only --task-id <task-id> --prompt-file <brief>
 ```
 
@@ -478,7 +478,7 @@ in argv:
 ```bash
 printf '%s\n' 'Compare the two bounded options and name risks.' |
   ACPX_AUTH_CHAT_GPT=1 \
-  .venv/bin/python -m scripts.fleet_comms acp-discuss --cwd . \
+  .venv/bin/python -m lu_machinery.fleet_comms acp-discuss --cwd . \
   --task-id acp-6078 --correlation-id acp-6078-v1 \
   --idempotency-key acp-6078-v1 --rounds 2 --json
 ```
@@ -548,7 +548,7 @@ values. The first terminal result is evidence; the second must be durable
 replay suppression, never another model run. Then run:
 
 ```bash
-.venv/bin/python -m scripts.fleet_comms acp-verify \
+.venv/bin/python -m lu_machinery.fleet_comms acp-verify \
   --conversation-id conversation_<id> --require-replay --json
 ```
 
@@ -632,7 +632,7 @@ ChatGPT auth-method selector:
 ```bash
 printf '%s\n' 'Reply with exactly READY.' |
   ACPX_AUTH_CHAT_GPT=1 LU_ACPX_TRANSPORT=shadow \
-  .venv/bin/python -m scripts.agent_runtime.acpx_pilot \
+  .venv/bin/python -m lu_machinery.agent_runtime.acpx_pilot \
   --target codex --cwd . --task-id pilot-6063 \
   --correlation-id pilot-6063-codex-v1 \
   --idempotency-key pilot-6063-codex-v1
@@ -696,7 +696,7 @@ counts and outcomes.
 
 1. Disable the ACPX feature flag (default-off posture).
 2. Continue on native agent runtime transport
-   (`scripts/agent_runtime/` via `runner.invoke`, bridge, `dispatch.py`) —
+   (`lu_machinery/agent_runtime/` via `runner.invoke`, bridge, `dispatch.py`) —
    native Codex remains available. Grok detached dispatch uses Cursor at
    `grok-4.7-high`; native Grok dispatch is retired.
 3. Leave fleet-comms plane mode and formal-review eligibility unchanged.
@@ -731,29 +731,29 @@ On some machines `ab` is ApacheBench. Always use the explicit project entrypoint
 ```bash
 # Direct operator surface for the default Codex/Grok panel.
 printf '%s\n' 'Bounded read-only task.' | ACPX_AUTH_CHAT_GPT=1 \
-  .venv/bin/python -m scripts.fleet_comms acp-discuss --cwd . \
+  .venv/bin/python -m lu_machinery.fleet_comms acp-discuss --cwd . \
   --task-id acp-task --correlation-id acp-task-v1 --idempotency-key acp-task-v1
 
 # Normal fleet-TUI surface: automatically ACP-backed for an enabled pair.
-.venv/bin/python scripts/ai_agent_bridge/__main__.py discuss <channel> "..." \
+.venv/bin/python lu_machinery/ai_agent_bridge/__main__.py discuss <channel> "..." \
   --with claude,grok
 
 # More or fewer than two participants reject loudly before provider or
 # authority work; there is no bridge/provider-execution fallback.
-.venv/bin/python scripts/ai_agent_bridge/__main__.py discuss <channel> "..." \
+.venv/bin/python lu_machinery/ai_agent_bridge/__main__.py discuss <channel> "..." \
   --with agy,codex,cursor
 
 # Direct toolful CF: choose a qualified lane outside the author family.
 # Request verdict + findings at the exact PR head, then post them on the PR.
 printf '%s\n' 'Review PR #<N> at head <SHA>: verdict + findings.' | \
-  .venv/bin/python scripts/ai_agent_bridge/__main__.py ask-<lane> - \
+  .venv/bin/python lu_machinery/ai_agent_bridge/__main__.py ask-<lane> - \
   --task-id review-<N> --type review
 
 # Execution
-.venv/bin/python scripts/dispatch.py dispatch --model <catalog-model> --agent <lane> --worktree ...
+.venv/bin/python lu_machinery/dispatch.py dispatch --model <catalog-model> --agent <lane> --worktree ...
 
 # Topology (never hard-code the answer)
-.venv/bin/python -m scripts.fleet_comms plane-status
+.venv/bin/python -m lu_machinery.fleet_comms plane-status
 ```
 
 ---
@@ -776,7 +776,7 @@ test -f docs/runbooks/agent-seat-onboarding.md
 # When Monitor is available, read `GET /api/rules` through its configured host.
 
 # 3) Query plane mode — do not assert a hard-coded mode
-.venv/bin/python -m scripts.fleet_comms plane-status
+.venv/bin/python -m lu_machinery.fleet_comms plane-status
 
 # 4) Prove ownership vocabulary is present in the onboarding contract
 rg -n "discuss|delegate\.py|fleet-comms|ACPX|Buzz" docs/runbooks/agent-seat-onboarding.md

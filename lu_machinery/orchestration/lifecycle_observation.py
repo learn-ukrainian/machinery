@@ -16,9 +16,9 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from scripts.fleet import ignored_task_output
-from scripts.orchestration import task_lifecycle as tl
-from scripts.orchestration.worktree_claims import RELEASED_TASK_STATUSES
+from lu_machinery.fleet import ignored_task_output
+from lu_machinery.orchestration import task_lifecycle as tl
+from lu_machinery.orchestration.worktree_claims import RELEASED_TASK_STATUSES
 
 
 class ObservationRefusal(tl.LifecycleError):
@@ -521,7 +521,7 @@ def recover(
         if closeout_file is not None:
             # The append boundary acquires authority itself; a caller's PR
             # mapping cannot turn an arbitrary closeout object into proof.
-            from scripts.orchestration.task_closeout import GhGitHubAdapter
+            from lu_machinery.orchestration.task_closeout import GhGitHubAdapter
 
             try:
                 current_pr = GhGitHubAdapter(repo_root)._read_pr(ledger["identity"]["repository"], ledger["pr"]["number"])

@@ -52,7 +52,7 @@
 | **Gemini 3.8 Flash High** | Multilingual / designated UA language seat; semantic review | Not bulk CRUD default; language outputs need sources | Google / AGY | Language lane (3.1 Pro is retired, not subscribed, operator 2026-10-23) |
 | **K3** | Retired (OO-58, #11327) | No executable route and no substitution | Moonshot | Not a lane |
 | **GLM-5.3** | Deep bug/security; large-context code coherence | Weak UA pedagogy; **LOCAL-ONLY** China-egress | Zhipu / opencode local | Local CF code only; never CI |
-| **DeepSeek V4.1 Flash** | Latest Flash coding through opencode; `ask-deepseek` is consult-only for non-language work | Never private-repository content or secrets; review-of-record and Ukrainian work need measured evidence first; Pro and older ids retired | Direct DeepSeek API or OpenRouter with a named US provider allow-list; `scripts/ai_agent_bridge/routing_guard.py` still refuses `openrouter/deepseek` until that allow-list exists | Coding execution only; no review or budget substitution |
+| **DeepSeek V4.1 Flash** | Latest Flash coding through opencode; `ask-deepseek` is consult-only for non-language work | Never private-repository content or secrets; review-of-record and Ukrainian work need measured evidence first; Pro and older ids retired | Direct DeepSeek API or OpenRouter with a named US provider allow-list; `lu_machinery/ai_agent_bridge/routing_guard.py` still refuses `openrouter/deepseek` until that allow-list exists | Coding execution only; no review or budget substitution |
 | **Cursor** (`grok-4.7` / `composer-2.5`; Auto) | Mechanical code/infra when free; first-class worker (#6468) | Auto only for a well-defined coding dispatch (owned paths, PASS DoR card; operator decision 2026-09-30); driver seat, review, design, consults and recon pin a concrete model; Auto never formal CF identity; adapter gate #6469 | Cursor harness multi-model | Worker (impl) |
 
 ---
@@ -144,7 +144,7 @@ Re-verify capacity and routing when the subscription plan or API routing changes
 
 ## 7. Fallback / substitution
 
-1. Prefer `scripts/config/agent_fallback_substitutions.yaml` + harness table in model-assignment.
+1. Prefer `lu_machinery/config/agent_fallback_substitutions.yaml` + harness table in model-assignment.
 2. Never silently lower quality floor on consequential work.
 3. Always **NOTE** substitution (model, family, harness, reason) on PR or orchestration artifact.
 

@@ -49,10 +49,10 @@ from pathlib import Path
 from typing import Any
 
 try:
-    from scripts.common.safe_unit_install import InstallError, install_unit, open_state_log
+    from lu_machinery.common.safe_unit_install import InstallError, install_unit, open_state_log
 except ModuleNotFoundError:  # direct file-path invocation
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-    from scripts.common.safe_unit_install import InstallError, install_unit, open_state_log
+    from lu_machinery.common.safe_unit_install import InstallError, install_unit, open_state_log
 
 
 def _machinery_top() -> str:
@@ -69,7 +69,7 @@ def _mod(*parts: str) -> str:
     return ".".join((_machinery_top(), *parts))
 
 # Git commit hooks inject GIT_DIR / GIT_INDEX_FILE / etc. into the environment.
-from scripts.orchestration.task_record_store import read_task_record
+from lu_machinery.orchestration.task_record_store import read_task_record
 
 # Integrity checks must not inherit those or they inspect the outer repo, not
 # the fixture / --repo path under test. Same scrub list as check_core_bare.
@@ -117,7 +117,7 @@ def _git(root: Path, *args: str) -> subprocess.CompletedProcess[str]:
 def _resolve_main_root(repo: Path) -> Path:
     """Resolve the primary checkout root that owns the shared .git store."""
     try:
-        from scripts.guardrails.worktree_containment import resolve_main_root
+        from lu_machinery.guardrails.worktree_containment import resolve_main_root
     except ImportError:  # path-flavoured import for test/script contexts
         # Invoked as a file path (python scripts/hygiene/...py): sys.path[0] is
         # the script's own directory, so neither `scripts.` nor `guardrails.`
@@ -126,7 +126,7 @@ def _resolve_main_root(repo: Path) -> Path:
         if str(_repo_candidate) not in sys.path:
             sys.path.insert(0, str(_repo_candidate))
         try:
-            from scripts.guardrails.worktree_containment import resolve_main_root
+            from lu_machinery.guardrails.worktree_containment import resolve_main_root
         except ImportError:
             try:
                 from guardrails.worktree_containment import (

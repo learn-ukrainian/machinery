@@ -21,13 +21,13 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
 try:
-    from scripts.lib.readonly_sqlite import SQLiteConnection
+    from lu_machinery.lib.readonly_sqlite import SQLiteConnection
 except ModuleNotFoundError as exc:
     if exc.name != Path(os.path.abspath(__file__)).parents[1].name:
         raise
     from lib.readonly_sqlite import SQLiteConnection  # type: ignore[no-redef]
 
-from scripts.telemetry.legacy_bridge import bridge_usage_summary
+from lu_machinery.telemetry.legacy_bridge import bridge_usage_summary
 
 from .monitor_context import MonitorContext, get_ctx, resolve_context
 from .telemetry.legacy_comms import db_path_for_root as legacy_comms_db_path_for_root

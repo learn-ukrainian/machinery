@@ -259,7 +259,7 @@ fi
 
 # 9. Plan pytest shards (fixed 4-shard plane)
 PLAN_DIR="${ARTIFACT_ROOT}/plans"
-PLAN_ARGS=("${PYTHON}" scripts/ci/pytest_shards.py plan --output-dir "${PLAN_DIR}" --shard-count 4)
+PLAN_ARGS=("${PYTHON}" lu_machinery/ci/pytest_shards.py plan --output-dir "${PLAN_DIR}" --shard-count 4)
 if [[ -n "${DURATIONS_PATH}" && -f "${DURATIONS_PATH}" ]]; then
   PLAN_ARGS+=(--durations "${DURATIONS_PATH}")
 elif [[ -f "ci-artifacts/pytest-durations.json" ]]; then
@@ -346,7 +346,7 @@ for shard in 1 2 3 4; do
 
   # Run shard
   set +e
-  "${PYTHON}" scripts/ci/pytest_shards.py run --nodeids "${shard_dir}/test-nodeids.txt" -- \
+  "${PYTHON}" lu_machinery/ci/pytest_shards.py run --nodeids "${shard_dir}/test-nodeids.txt" -- \
     -n auto --dist=loadfile --strict-markers --timeout=120 --timeout-method=thread \
     -m 'not atlas_release and not slow' \
     --junitxml="${shard_dir}/main-junit.xml" --durations=0 \

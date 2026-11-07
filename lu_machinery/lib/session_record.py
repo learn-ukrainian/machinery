@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Any
 
 if __package__:
-    from scripts.lib.context_profiles import resolve_profile
+    from lu_machinery.lib.context_profiles import resolve_profile
 else:
     from context_profiles import resolve_profile
 

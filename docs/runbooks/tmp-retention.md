@@ -19,8 +19,8 @@ pytest scratch is deleted directly, without quarantine.
 with up to 10 minutes of random delay. Missed runs catch up. It starts
 `learn-ukrainian-tmp-sweep.service`, which runs two steps in order:
 
-1. `scripts.hygiene.batch_state_retention`: the read-only staleness report.
-2. `scripts.hygiene.tmp_sweep --unattributed-scratch --apply --summary`: the
+1. `lu_machinery.hygiene.batch_state_retention`: the read-only staleness report.
+2. `lu_machinery.hygiene.tmp_sweep --unattributed-scratch --apply --summary`: the
    sweep. It purges expired quarantine entries, quarantines newly proven
    ones and deletes inactive, unheld pytest run folders. It logs counts and
    byte totals only, never entry names; the ledger holds the quarantined
@@ -34,8 +34,8 @@ well, but a user manager does not enforce it either.
 Install the units after merge, from the primary checkout:
 
 ```bash
-.venv/bin/python -m scripts.orchestration.install_tmp_sweep_timer --check
-.venv/bin/python -m scripts.orchestration.install_tmp_sweep_timer --apply --enable
+.venv/bin/python -m lu_machinery.orchestration.install_tmp_sweep_timer --check
+.venv/bin/python -m lu_machinery.orchestration.install_tmp_sweep_timer --apply --enable
 journalctl --user -u learn-ukrainian-tmp-sweep.service -n 50
 ```
 
@@ -135,7 +135,7 @@ applied. It never falls back to host roots.
 
 Ordinary repository pytest sessions still allocate an invocation with
 `lease.json` and a lifetime-held `lease.lock` using
-`scripts.common.task_scratch`. The session points `TMPDIR` and Python's cached
+`lu_machinery.common.task_scratch`. The session points `TMPDIR` and Python's cached
 temp directory at the invocation's payload, so ordinary temporary files and
 pytest fixtures share one containment root; teardown restores both. A running
 session is therefore held by its lock descriptor and, in its xdist workers
@@ -244,7 +244,7 @@ A socket bound without listening (datagram) is not in the listener set; in
 
 ### Process coverage
 
-The legacy `scripts.orchestration.tmp_leak_sweep` entry point uses the same
+The legacy `lu_machinery.orchestration.tmp_leak_sweep` entry point uses the same
 `reap_attributed_temp` deletion engine as this sweep. It records each
 candidate's device/inode during discovery and passes that identity to the
 engine after its liveness recheck. Live or unknown candidates remain in
@@ -362,8 +362,8 @@ scan. Both are outside what the boundary observes, and stay residuals.
 
 ### Deletion ledger and quarantine
 
-Code: `scripts/hygiene/tmp_sweep_ledger.py` (ledger, manifest) and
-`scripts/hygiene/tmp_sweep.py` (passes and CLI).
+Code: `lu_machinery/hygiene/tmp_sweep_ledger.py` (ledger, manifest) and
+`lu_machinery/hygiene/tmp_sweep.py` (passes and CLI).
 
 **Where.** `$XDG_STATE_HOME/learn-ukrainian/tmp-sweep/ledger.jsonl`, or
 `~/.local/state/learn-ukrainian/tmp-sweep/ledger.jsonl` when
@@ -516,16 +516,16 @@ The ledger is never compacted.
 
 ```bash
 # Dry run: counts, bytes, ledger location, quarantine and purge counts
-.venv/bin/python -m scripts.hygiene.tmp_sweep --unattributed-scratch --summary
+.venv/bin/python -m lu_machinery.hygiene.tmp_sweep --unattributed-scratch --summary
 # Full local inventory (contains entry names; keep it out of public issues)
-.venv/bin/python -m scripts.hygiene.tmp_sweep --unattributed-scratch --json
+.venv/bin/python -m lu_machinery.hygiene.tmp_sweep --unattributed-scratch --json
 # What was removed: by path substring, date or run
-.venv/bin/python -m scripts.hygiene.tmp_sweep ledger --path my-scratch --since 2026-10-01
-.venv/bin/python -m scripts.hygiene.tmp_sweep ledger --run-id <run-id> --json
+.venv/bin/python -m lu_machinery.hygiene.tmp_sweep ledger --path my-scratch --since 2026-10-01
+.venv/bin/python -m lu_machinery.hygiene.tmp_sweep ledger --run-id <run-id> --json
 # What is held now, with age, size and purge date
-.venv/bin/python -m scripts.hygiene.tmp_sweep quarantine
+.venv/bin/python -m lu_machinery.hygiene.tmp_sweep quarantine
 # Put one entry back
-.venv/bin/python -m scripts.hygiene.tmp_sweep restore <ledger-id>
+.venv/bin/python -m lu_machinery.hygiene.tmp_sweep restore <ledger-id>
 ```
 
 ### Hold a temp path
@@ -542,7 +542,7 @@ belong in the system temp area. To keep a path, do one of the following:
 
 ## The batch_state staleness report
 
-`scripts.hygiene.batch_state_retention` lists every top-level `batch_state/`
+`lu_machinery.hygiene.batch_state_retention` lists every top-level `batch_state/`
 directory with no write for 7 days (`--stale-days`). For each one it shows the
 allocated size and the date of the newest write. It skips `tasks/`,
 `preserved/`, `reports/` and `branch-archive/`. It never deletes anything.
@@ -553,12 +553,12 @@ are excluded from this staleness report; the sweep ledger owns them.
 ### Explicit batch_state scratch expiry (#11365)
 
 The scheduled tmp-sweep service runs a final
-`scripts.hygiene.tmp_sweep --batch-state --apply --summary` pass, including
+`lu_machinery.hygiene.tmp_sweep --batch-state --apply --summary` pass, including
 through the data-volume guard dropin. A failed earlier service command stops
 the later commands and retains scratch. Inspect without changing anything:
 
 ```bash
-.venv/bin/python -m scripts.hygiene.tmp_sweep --batch-state --summary
+.venv/bin/python -m lu_machinery.hygiene.tmp_sweep --batch-state --summary
 ```
 
 This mode accepts only the repository's shared `batch_state` root. It cannot
@@ -598,7 +598,7 @@ branch-archive retention rule remains in force.
 
 ### Hold evidence in batch_state
 
-Add an entry to `scripts/hygiene/batch_state_retention.json`. Land it with a PR
+Add an entry to `lu_machinery/hygiene/batch_state_retention.json`. Land it with a PR
 that cites the issue the evidence serves:
 
 ```json
@@ -632,22 +632,22 @@ for the uv history. Do not embed history in `state.json` or change its schema.
 
 Set `KEEPER_STATE_DIR` to that configured directory and `PROJECT_PYTHON` to the
 project interpreter. Run these commands from the repository root, or use the
-absolute path to `scripts/hygiene/uv_cache_status.py` with the same arguments.
+absolute path to `lu_machinery/hygiene/uv_cache_status.py` with the same arguments.
 These variable names are integration placeholders, not additional tool settings.
 
 Exactly one owner, the keeper, records history on its own cadence, at most once
 per tick and preferably every 10 minutes. It runs:
 
 ```bash
-"$PROJECT_PYTHON" -m scripts.hygiene.uv_cache_status --record-history --state-dir "$KEEPER_STATE_DIR"
+"$PROJECT_PYTHON" -m lu_machinery.hygiene.uv_cache_status --record-history --state-dir "$KEEPER_STATE_DIR"
 ```
 
 The status script captures and prints the output of the read-only command:
 
 ```bash
-"$PROJECT_PYTHON" -m scripts.hygiene.uv_cache_status --state-dir "$KEEPER_STATE_DIR"
+"$PROJECT_PYTHON" -m lu_machinery.hygiene.uv_cache_status --state-dir "$KEEPER_STATE_DIR"
 # For a structured consumer:
-"$PROJECT_PYTHON" -m scripts.hygiene.uv_cache_status --state-dir "$KEEPER_STATE_DIR" --json
+"$PROJECT_PYTHON" -m lu_machinery.hygiene.uv_cache_status --state-dir "$KEEPER_STATE_DIR" --json
 ```
 
 Both invocations must use the same cache configuration. `UV_CACHE_DIR` selects

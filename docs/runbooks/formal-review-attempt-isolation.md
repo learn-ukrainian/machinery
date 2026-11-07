@@ -281,7 +281,7 @@ formal task binding retain their validator path; failure recording is unchanged.
 ## Parent read boundary and site inventory
 
 Seat-writable names remain untrusted after exit. `safe_read_attempt_file` in
-`scripts/agent_runtime/attempt_boundary.py` anchors its walk at the parent-owned,
+`lu_machinery/agent_runtime/attempt_boundary.py` anchors its walk at the parent-owned,
 already-resolved attempt `write_root` or known adapter root, then walks every
 component below it with `openat` directory descriptors and `O_NOFOLLOW | O_DIRECTORY`,
 then opens the leaf with `O_NOFOLLOW | O_NONBLOCK | O_NOCTTY`. It checks the opened
@@ -350,7 +350,7 @@ eligible cross-family review: changing that adapter excludes Claude reviewers
 because it governs their own boundary. A Claude Opus worker owns the follow-up
 PR, reviewed by `gpt-6.1-sol`.
 
-At high and critical risk the automatic bench (`scripts.review.bench_health`,
+At high and critical risk the automatic bench (`lu_machinery.review.bench_health`,
 #9394) accepts a single automatic cross-family reviewer for Anthropic-authored
 code (`openai_frontier`) and OpenAI-authored code (`claude-opus-5-5`) under
 #9423 AC-02. High is limited to Sol/Opus by #9538; critical by the catalog's
@@ -371,7 +371,7 @@ matrix, and establish its own exact-head provider compatibility proof.
 
 ## Provider egress boundary
 
-`scripts/config/attempt_provider_egress.yaml` contains the exact per-harness
+`lu_machinery/config/attempt_provider_egress.yaml` contains the exact per-harness
 hostname allowlist. It includes the native provider startup/eligibility services
 as well as the inference endpoints; AGY's profile-image dependency is an exact
 hostname, with no domain suffix or wildcard grant. No runtime override admits
@@ -493,8 +493,8 @@ it does not certify a plan's semantic review or replace the post-landing proof.
 
 ## Running a bound attempt
 
-`scripts/dispatch.py dispatch` admits a bound attempt before it creates anything
-(`scripts/dispatcher/review_attempt.py`, `admit`):
+`lu_machinery/dispatch.py dispatch` admits a bound attempt before it creates anything
+(`lu_machinery/dispatcher/review_attempt.py`, `admit`):
 
 - `--mode read-only`, a fresh worktree (no `--cwd`), all three binding flags, and an
   unspent review and attempt pair;
@@ -520,10 +520,10 @@ the task's private stdout log, as evidence of its repository and Git context rea
 ```bash
 "$PROJECT_PYTHON" -m scripts.review.prompts.render <manifest> --review-id R --attempt-id A \
   --review-access full --repo-root <checkout> --output <prompt>   # <checkout>: detached, at the reviewed commit
-"$PROJECT_PYTHON" scripts/dispatch.py dispatch --agent sol --model gpt-6.1-sol --effort high \
+"$PROJECT_PYTHON" lu_machinery/dispatch.py dispatch --agent sol --model gpt-6.1-sol --effort high \
   --mode read-only --full-checkout --pinned-head <commit> --review-access full \
   --review-id R --attempt-id A --review-attempt <manifest> --prompt-file <prompt> --task-id T
-"$PROJECT_PYTHON" scripts/dispatch.py wait T
+"$PROJECT_PYTHON" lu_machinery/dispatch.py wait T
 "$PROJECT_PYTHON" -m scripts.review.record <tasks>/T.result --manifest <manifest> \
   --ledger <tasks>/../review-receipts/R/A.jsonl --task-id T
 ```

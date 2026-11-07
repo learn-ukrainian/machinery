@@ -10,7 +10,7 @@ file only points there and adds what the CTO seat learned on top.
 - The merge-queue keeper usually enqueues on its own; check its log before enqueueing by
   hand.
 - When the CTO rules that a PR must not land yet (for example until a review covers every item), it applies a hold the merge-queue keeper reads,
-  the `hold` label (`HOLD_LABELS`) or the `[hold]` title marker (`HOLD_TITLE`) in `scripts/orchestration/merge_queue_keeper.py`, in the same action
+  the `hold` label (`HOLD_LABELS`) or the `[hold]` title marker (`HOLD_TITLE`) in `lu_machinery/orchestration/merge_queue_keeper.py`, in the same action
   as the ruling, and names the condition for removing it. An instruction to a lane alone does not stop the keeper.
 
 ## Publish orders
@@ -26,7 +26,7 @@ publish_order() {
   local body="$1" recipient="$2" idempotency_key="$3"
   shift 3
   sed "s/@UTC@/$(date -u +%Y-%m-%dT%H:%M:%SZ)/g" "$body" |
-    "$PROJECT_PYTHON" -m scripts.fleet_comms channel publish cto - \
+    "$PROJECT_PYTHON" -m lu_machinery.fleet_comms channel publish cto - \
       --sender "$LU_INBOX_WORKER" --source cto --recipient "$recipient" \
       --idempotency-key "$idempotency_key" "$@"
 }
@@ -38,7 +38,7 @@ recipient is `claude-cto`.
 
 Preserve required message references per `docs/runbooks/driver-seat-cli-move.md` § 5.
 
-Clear system temp only through `scripts.hygiene.tmp_sweep` (or a reviewed change to it), never
+Clear system temp only through `lu_machinery.hygiene.tmp_sweep` (or a reviewed change to it), never
 with an ad-hoc deleter: a one-off script that removed `/tmp/tmux-1000` left the context guard
 unable to see or restart the seat for 13 hours.
 
@@ -96,12 +96,12 @@ scripts/dispatch.py dispatch ... --claude-account <label>`: the launcher exports
 while that ambient value is set (`claude_account_ambient_conflict`).
 Dispatch every takeover successor with `--branch <the PR's head branch>` together with
 `--base origin/main`, never the PR branch as base; the `takeover` skill checks out the PR branch.
-A successor dispatched without `--branch` is refused by `scripts.orchestration.pr_ownership accept`
+A successor dispatched without `--branch` is refused by `lu_machinery.orchestration.pr_ownership accept`
 with `publish_branch_required` and stops.
 The successor's owned paths must cover the original PR's full diff against `origin/main`,
 not only its own fixes, because `delivered_paths` counts the PR's inherited commits as the
 successor's changes.
-`delivered_paths` in `scripts/dispatcher/ownership.py` excludes commits reachable from the
+`delivered_paths` in `lu_machinery/dispatcher/ownership.py` excludes commits reachable from the
 base and task start, so using the PR branch as base can make the ownership check count newer
 main commits as the worker's changes and refuse the push when the worker brings main into its branch.
 A brief never tells a worker to bring current main into its branch before review: the merge
@@ -110,7 +110,7 @@ reports a conflict or a required check fails because of a change on main, since 
 restarts exact-head CI.
 A dispatch whose task includes review rounds, the merge queue or long authoring
 passes sets `--hard-timeout 14400`, because the dispatcher default is 7200 seconds
-(`scripts/dispatcher/cli.py`) and a running task's deadline cannot be extended.
+(`lu_machinery/dispatcher/cli.py`) and a running task's deadline cannot be extended.
 `--silence-timeout` (default 3600 seconds) applies separately, so a quiet wait can still end after 3600 seconds of silence.
 Use exact owned file paths; never claim a shared subtree for an optional edit.
 Before dispatch, check every owned path in the brief and the `--owned-path` flags with `git ls-files --error-unmatch <path>`, or mark it in the brief as a new file the worker creates.
@@ -122,7 +122,7 @@ A brief whose change adds or renames tracked files under `registry/` or `docs/` 
 `docs/knowledge/catalogue.yaml` and `docs/README.md`, because the docs catalogue check
 requires every tracked file under those roots to be covered by a family glob and, when that
 catalogue changes, the generated family table in `docs/README.md` regenerated
-(`python -m scripts.docs.catalogue readme`).
+(`python -m lu_machinery.docs.catalogue readme`).
 Retained evidence, evaluation material and anything a later session needs goes under
 `<durable-state-root>/<topic>/` (mode 0700 when private), never a session scratchpad, and the
 brief names that path.

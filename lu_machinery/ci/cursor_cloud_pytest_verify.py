@@ -37,7 +37,7 @@ if __package__ in (None, ""):
     if repo_root not in sys.path:
         sys.path.insert(0, repo_root)
 
-from scripts.ci.pytest_shards import SHARD_COUNT, verify_artifacts
+from lu_machinery.ci.pytest_shards import SHARD_COUNT, verify_artifacts
 
 REQUIRED_SHARD_COUNT = 4
 _HEX_40_RE = re.compile(r"^[0-9a-fA-F]{40}$")

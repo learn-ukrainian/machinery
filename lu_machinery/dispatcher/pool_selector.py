@@ -28,7 +28,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal
 
-from scripts.common.jsonl import jsonl_lines
+from lu_machinery.common.jsonl import jsonl_lines
 
 
 @dataclass(frozen=True)
@@ -331,7 +331,7 @@ def _provider_exhausted(record: dict) -> bool:
         return True
     # Existing parsers can retain only a generic failure. Inspect provider error
     # events, never assistant/tool text or a whole transcript substring search.
-    from scripts.dispatcher.store import record_path
+    from lu_machinery.dispatcher.store import record_path
 
     try:
         path = record_path(record["task_id"]).parent / "logs" / f"{record['task_id']}.stdout.log"
@@ -389,14 +389,14 @@ def apply_exhaustion(meters: dict[str, Meter], policy: Policy, records: list[dic
 
 def shadow_decision(record: dict) -> dict:
     """Read and decide under the existing admission lock; never mutate the record."""
-    from scripts.common.task_store_paths import tasks_dir
-    from scripts.orchestration.dispatch_admission import admission_lock
+    from lu_machinery.common.task_store_paths import tasks_dir
+    from lu_machinery.orchestration.dispatch_admission import admission_lock
 
     now = datetime.now(UTC)
     result = {"schema": "pool-shadow.v1", "observed_at": now.isoformat(), "shadow_only": True,
               "policy_version": None, "meter_sha256": None, "meters": {}}
     try:
-        from scripts.dispatcher.store import list_tasks
+        from lu_machinery.dispatcher.store import list_tasks
 
         policy = read_policy()
         sources = budget_sources(read_budget(), now)

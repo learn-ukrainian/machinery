@@ -4,7 +4,7 @@ Description=Learn Ukrainian nightly host data-tier tests
 [Service]
 Type=oneshot
 WorkingDirectory=@REPO_ROOT@
-ExecStart=@REPO_ROOT@/.venv/bin/python -m scripts.ci.data_tier run
+ExecStart=@REPO_ROOT@/.venv/bin/python -m lu_machinery.ci.data_tier run
 TimeoutStartSec=28800
 TimeoutStopSec=900
 Nice=10

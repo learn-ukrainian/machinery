@@ -11,7 +11,7 @@ context_hook_state() {
   interpreter="${THREAD_ROLLOVER_PYTHON:-}"
   if [ -z "$interpreter" ]; then
     # shellcheck source=scripts/lib/project_interpreter.sh
-    source "$project_dir/scripts/lib/project_interpreter.sh" 2>/dev/null || return 0
+    source "$project_dir/lu_machinery/lib/project_interpreter.sh" 2>/dev/null || return 0
     interpreter=$(project_interpreter_resolve "$project_dir" 2>/dev/null) || return 0
   fi
   [ -x "$interpreter" ] || return 0
@@ -100,7 +100,7 @@ context_effective_rollover_mode() {
 # Anything missing or failing means "not guard-managed": the operator text stays.
 context_driver_lane_name() {
   local project_dir="$1" interpreter session name
-  local registry_module=scripts.ops.driver_lanes
+  local registry_module=lu_machinery.ops.driver_lanes
   [ -n "${SESSION_EPIC:-}" ] && [ -n "${TMUX:-}" ] && [ -n "${TMUX_PANE:-}" ] || return 0
   command -v tmux >/dev/null 2>&1 || return 0
   session=$(tmux display-message -p -t "$TMUX_PANE" '#{session_name}' 2>/dev/null) || return 0
@@ -108,7 +108,7 @@ context_driver_lane_name() {
   interpreter="${THREAD_ROLLOVER_PYTHON:-}"
   if [ -z "$interpreter" ]; then
     # shellcheck source=scripts/lib/project_interpreter.sh
-    source "$project_dir/scripts/lib/project_interpreter.sh" 2>/dev/null || return 0
+    source "$project_dir/lu_machinery/lib/project_interpreter.sh" 2>/dev/null || return 0
     interpreter=$(project_interpreter_resolve "$project_dir" 2>/dev/null) || return 0
   fi
   [ -x "$interpreter" ] || return 0

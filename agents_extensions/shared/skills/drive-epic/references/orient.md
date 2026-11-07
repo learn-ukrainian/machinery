@@ -16,11 +16,11 @@ actions. The database is the lane's handoff; the markdown file is only a pointer
 ([handoff](handoff.md)).
 
 ```bash
-.venv/bin/python -m scripts.fleet_comms cold-start-board   # cold-start first action
+.venv/bin/python -m lu_machinery.fleet_comms cold-start-board   # cold-start first action
 curl -sS --max-time 2 "http://127.0.0.1:8765/api/orient?lean=true" || true
 curl -sS --max-time 2 "http://127.0.0.1:8765/api/work/v1/projection?stream=<your-stream>" || true  # best-effort: local server, degraded/absent sources are normal
 curl -sS --max-time 2 "http://127.0.0.1:8765/api/work/v1/next?stream=<your-stream>" || true  # stream-scoped pick list (#6880)
-.venv/bin/python -m scripts.fleet_comms plane-status        # message-plane mode/parity
+.venv/bin/python -m lu_machinery.fleet_comms plane-status        # message-plane mode/parity
 .venv/bin/python -m agents_extensions.shared.session_streams dual-write-status
 ```
 
@@ -31,9 +31,9 @@ hard-code a mode in prose; always query it fresh.
 Know your `SESSION_EPIC`, your stream, and your handoff slot (the launcher already
 claimed the stream lease — do **not** open or resume it yourself). Establish your
 session-health signal **by seat**: **grok / gemini / kimi** have a canary lane —
-`.venv/bin/python -m scripts.session_canary.grok_lane mint --epic <epic>`,
-`.venv/bin/python -m scripts.session_canary.gemini_lane mint --epic <epic>` or
-`.venv/bin/python -m scripts.session_canary.kimi_lane mint --epic <epic>`;
+`.venv/bin/python -m lu_machinery.session_canary.grok_lane mint --epic <epic>`,
+`.venv/bin/python -m lu_machinery.session_canary.gemini_lane mint --epic <epic>` or
+`.venv/bin/python -m lu_machinery.session_canary.kimi_lane mint --epic <epic>`;
 **Claude / Sonnet** have **no** canary lane and use the native SessionStart / PostCompact
 hook chain + thread-handoff instead (do not call a non-existent `<model>_lane`).
 
@@ -41,7 +41,7 @@ hook chain + thread-handoff instead (do not call a non-existent `<model>_lane`).
 returns that lane's work board — issues, PRs, dispatch tasks, and reviews — with each item
 carrying a rule-derived `health` (`ON_TRACK` / `AT_RISK` / `OFF_TRACK` / `UNKNOWN` — authority
 missing/stale, pairs with the `INSPECT_UNKNOWN` safe action; see `HEALTH_RANK` in
-`scripts/work/attention.py`), an `attention_rank`, and a `safe_next_action`. Query it at orient
+`lu_machinery/work/attention.py`), an `attention_rank`, and a `safe_next_action`. Query it at orient
 and again when picking the next unblocked action (§2); it is a queue INPUT alongside your
 stream/GH/issue sources, never a replacement for them.
 
@@ -57,7 +57,7 @@ At cold-start, **if your harness has a Monitor-equivalent**, invoke it once with
 harness's `persistent`/timeout option, pointed at this one shell command:
 
 ```bash
-scripts/ai_agent_bridge/inbox_watch.sh "$SESSION_HANDOFF_AGENT"
+lu_machinery/ai_agent_bridge/inbox_watch.sh "$SESSION_HANDOFF_AGENT"
 ```
 
 This is a **wakeup signal only**: each stdout line says that an unconsumed legacy
@@ -70,16 +70,16 @@ universal fallback for every seat, watcher or not.
 Direct confirmation exists only for **Claude Code, Gemini/AGY, and Grok CLI**. For any
 other harness, ask the running agent directly whether it has an equivalent before using
 one; do not infer it from documentation or `--help`. Stop a running watcher cleanly
-with `scripts/ai_agent_bridge/inbox_watch.sh --stop "$SESSION_HANDOFF_AGENT"`; if a
+with `lu_machinery/ai_agent_bridge/inbox_watch.sh --stop "$SESSION_HANDOFF_AGENT"`; if a
 crashed process leaves a stale pidfile, the operating system releases its advisory lock
 and the next watcher replaces the recorded pid safely.
 
 ## §1. Read topology + metrics (don't hold state — query it)
 
 ```bash
-.venv/bin/python -m scripts.fleet_comms metrics        # efficiency metrics (no content)
-.venv/bin/python -m scripts.fleet_comms backlog        # pending/dispatched delivery
-.venv/bin/python -m scripts.fleet_comms dead-letters   # stuck deliveries
+.venv/bin/python -m lu_machinery.fleet_comms metrics        # efficiency metrics (no content)
+.venv/bin/python -m lu_machinery.fleet_comms backlog        # pending/dispatched delivery
+.venv/bin/python -m lu_machinery.fleet_comms dead-letters   # stuck deliveries
 ```
 
 Fleet-comms externalizes topology + usage so you decide against fresh state, not a

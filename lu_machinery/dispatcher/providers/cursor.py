@@ -2,10 +2,10 @@
 
 import json
 
-from scripts.common.jsonl import jsonl_lines
-from scripts.dispatcher.providers.stream_json import model_observer as _observe
-from scripts.dispatcher.providers.stream_json import one_model
-from scripts.dispatcher.types import Invocation, ParsedResult, TaskSpec
+from lu_machinery.common.jsonl import jsonl_lines
+from lu_machinery.dispatcher.providers.stream_json import model_observer as _observe
+from lu_machinery.dispatcher.providers.stream_json import one_model
+from lu_machinery.dispatcher.types import Invocation, ParsedResult, TaskSpec
 
 MODEL_SOURCE = "cursor-stream-json"
 

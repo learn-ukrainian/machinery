@@ -91,8 +91,8 @@ if str(_REPO_ROOT) not in sys.path:
 from markdown_it import MarkdownIt
 from markdown_it.token import Token
 
-from scripts.common import github_client
-from scripts.review.app_bot_authorship import verified_app_bot_login
+from lu_machinery.common import github_client
+from lu_machinery.review.app_bot_authorship import verified_app_bot_login
 
 ENFORCE_ENV = "ATTRIBUTION_ENFORCE"
 GIT_TIMEOUT_SECONDS = 120

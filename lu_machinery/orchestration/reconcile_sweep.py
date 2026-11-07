@@ -28,16 +28,16 @@ for path in (PROJECT_ROOT, SCRIPTS_DIR):
     if str(path) not in sys.path:
         sys.path.insert(0, str(path))
 
-from scripts.common.task_store_paths import tasks_dir
-from scripts.dispatcher import worker
-from scripts.guardrails.delegate_ownership import (
+from lu_machinery.common.task_store_paths import tasks_dir
+from lu_machinery.dispatcher import worker
+from lu_machinery.guardrails.delegate_ownership import (
     OwnershipLedger,
     _task_still_active,
     default_ledger_path,
 )
-from scripts.orchestration import dispatch_admission, dispatch_settle
-from scripts.orchestration.dead_worker_state import mark_dead_worker_terminal, worker_liveness
-from scripts.orchestration.task_record_store import read_task_record
+from lu_machinery.orchestration import dispatch_admission, dispatch_settle
+from lu_machinery.orchestration.dead_worker_state import mark_dead_worker_terminal, worker_liveness
+from lu_machinery.orchestration.task_record_store import read_task_record
 
 # This package's import name, from the unresolved file location: never from __package__, which a
 # short import spelling (orchestration.x with scripts/ on sys.path) shortens. Its dotted parts

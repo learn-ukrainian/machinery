@@ -229,8 +229,8 @@ def _findings_json_verdicts(response: str, *, stated: str | None = None) -> list
     """
     from markdown_it import MarkdownIt
 
-    from scripts.fleet_comms.review_publication import ReviewPublicationError, resolve_verdict_and_evidence
-    from scripts.review.review_contract import ContractError, validate_reviewer_payload
+    from lu_machinery.fleet_comms.review_publication import ReviewPublicationError, resolve_verdict_and_evidence
+    from lu_machinery.review.review_contract import ContractError, validate_reviewer_payload
 
     candidates = [_without_code_fences(response, keep_unclosed=False)]
     candidates.extend(
@@ -357,8 +357,8 @@ def invalid_findings_block(response: str, *, stated: str | None = None) -> str |
     Fails closed: when the scan cannot decide the top-level blocks (the decoder's depth limit), the reply
     is treated as carrying an invalid block. ``stated`` is as in ``_findings_json_verdicts``.
     """
-    from scripts.fleet_comms.review_publication import ReviewPublicationError
-    from scripts.review.review_contract import ContractError
+    from lu_machinery.fleet_comms.review_publication import ReviewPublicationError
+    from lu_machinery.review.review_contract import ContractError
 
     try:
         for payload in _top_level_json_values(response):
@@ -480,8 +480,8 @@ def checked_findings_payload(payload: dict[str, Any], *, stated: str | None = No
     refuses it by name. Raises ``ContractError`` or ``ReviewPublicationError``. ``stated`` is as in
     ``_findings_json_verdicts``.
     """
-    from scripts.fleet_comms.review_publication import ReviewPublicationError, resolve_verdict_and_evidence
-    from scripts.review.review_contract import validate_reviewer_payload
+    from lu_machinery.fleet_comms.review_publication import ReviewPublicationError, resolve_verdict_and_evidence
+    from lu_machinery.review.review_contract import validate_reviewer_payload
 
     try:
         verdict, evidence = resolve_verdict_and_evidence(payload, stated=stated)
@@ -520,7 +520,7 @@ _STRUCTURED_SCORE_RE = re.compile(r"SCORE\s*:\s*(\d{1,2})\s*/\s*10(?![\w/]|\.\w)
 
 def _structured_explanation(response: str) -> str | None:
     """A whole ``code-review-findings.v1`` reply's explanation, or None for any other reply."""
-    from scripts.fleet_comms.review_publication import REVIEW_SCHEMA_VERSION
+    from lu_machinery.fleet_comms.review_publication import REVIEW_SCHEMA_VERSION
 
     try:
         payload = json.loads(response)
@@ -628,8 +628,8 @@ def structured_finding_entries(reply: str, finding_id: str) -> list[tuple[str, s
     reply is not exactly one valid object (bare or one whole fence): unreadable JSON, a
     non-JSON constant, a duplicate key, a schema failure or any text beside the object.
     """
-    from scripts.fleet_comms.review_publication import ReviewPublicationError
-    from scripts.review.review_contract import ContractError, _whole_reply_fence
+    from lu_machinery.fleet_comms.review_publication import ReviewPublicationError
+    from lu_machinery.review.review_contract import ContractError, _whole_reply_fence
 
     try:
         payload = json.loads(

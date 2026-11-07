@@ -33,7 +33,7 @@ the native harness's actual current thread ID as `NATIVE_TASK_ID`; the issue,
 stream epic, role, and task family must match the driver's assignment:
 
 ```bash
-.venv/bin/python -m scripts.orchestration.task_closeout init \
+.venv/bin/python -m lu_machinery.orchestration.task_closeout init \
   --fresh-task-id "$NATIVE_TASK_ID" \
   --repository org/repo --stream-epic 10 --issue 42 \
   --semantic-title "Enforce task closeout" \
@@ -56,8 +56,8 @@ Dispatch v2 does not propagate a lifecycle file. Include the returned ledger
 locator in the brief. Read the carrier or reconcile observations with:
 
 ```bash
-.venv/bin/python -m scripts.orchestration.task_closeout carrier --state-file "$LEDGER"
-.venv/bin/python -m scripts.orchestration.task_closeout reconcile --state-file "$LEDGER"
+.venv/bin/python -m lu_machinery.orchestration.task_closeout carrier --state-file "$LEDGER"
+.venv/bin/python -m lu_machinery.orchestration.task_closeout reconcile --state-file "$LEDGER"
 ```
 
 Carriers retain the exact fresh `task_id`. Reconciliation reads GitHub/Git

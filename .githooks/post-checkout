@@ -12,7 +12,7 @@ else
 fi
 
 heal_status=0
-bash "$source_root/scripts/guardrails/primary_post_checkout_heal.sh" "$@" || heal_status=$?
+bash "$source_root/lu_machinery/guardrails/primary_post_checkout_heal.sh" "$@" || heal_status=$?
 if [[ "$heal_status" -ne 0 ]]; then
   exit "$heal_status"
 fi

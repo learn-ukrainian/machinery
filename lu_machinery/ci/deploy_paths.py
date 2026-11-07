@@ -48,8 +48,8 @@ from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
 
-from scripts.common.repo_root import ProductRootError
-from scripts.common.repo_root import product_root as resolve_product_root
+from lu_machinery.common.repo_root import ProductRootError
+from lu_machinery.common.repo_root import product_root as resolve_product_root
 
 SCHEMA = "learn-ukrainian.deploy-paths"
 SCHEMA_VERSION = 1

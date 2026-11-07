@@ -69,8 +69,8 @@ import uuid
 from datetime import UTC, datetime
 from pathlib import Path
 
-from scripts.common.repo_root import machinery_path, main_checkout_root, project_interpreter
-from scripts.common.scratch import ensure_scratch_root
+from lu_machinery.common.repo_root import machinery_path, main_checkout_root, project_interpreter
+from lu_machinery.common.scratch import ensure_scratch_root
 
 ROOT = Path(__file__).resolve().parents[2]
 # The machinery package's canonical import name: the unresolved name of its directory.
@@ -148,7 +148,7 @@ def unavailable() -> str | None:
     """Why this host cannot start the boundary, or None. Admission checks this; the launch proves it."""
     if platform.system() != "Linux":
         return "its bubblewrap read-only boundary runs on Linux only"
-    from scripts.review.isolation import ReviewIsolationError, _resolve_fixed_system_executable
+    from lu_machinery.review.isolation import ReviewIsolationError, _resolve_fixed_system_executable
 
     try:
         _resolve_fixed_system_executable("bwrap", reject_roots=())
@@ -375,7 +375,7 @@ def apply_tool_results(stdout_path: Path, final_file: Path, task_id: str) -> tup
     If the launcher could not export before deleting the scratch, read the files
     that are still there. The read is the adapter's inliner either way.
     """
-    from scripts.agent_runtime.adapters.agy import export_saved_step_outputs, merge_saved_step_outputs
+    from lu_machinery.agent_runtime.adapters.agy import export_saved_step_outputs, merge_saved_step_outputs
 
     export = tool_results_file(final_file)
     saved: list[dict] = []
@@ -562,7 +562,7 @@ class SourcesRelay:
     """
 
     def __init__(self, endpoint: Path, readers: frozenset[str], env: dict[str, str]):
-        from scripts.agent_runtime.sources_read_only import SERVER_PATH
+        from lu_machinery.agent_runtime.sources_read_only import SERVER_PATH
 
         self.server = [str(project_interpreter()), str(SERVER_PATH)]
         self.readers, self.env = readers, env
@@ -777,7 +777,7 @@ def _empty_store_slot(worktree: Path, relative: str) -> None:
 
 def _trusted_database(worktree: Path, repository: Path, relative: str) -> Path:
     """Select only from the agreed primary, independently of worktree content."""
-    from scripts.storage.topology import STORE_FILES, inspect_selector
+    from lu_machinery.storage.topology import STORE_FILES, inspect_selector
 
     if relative not in {f"data/{STORE_FILES[name][0]}" for name in ("sources", "vesum")}:
         raise Refused("unsupported_read_store")
@@ -1033,13 +1033,13 @@ class _Boundary:
             item["copy"] = str(dest)
 
     def run(self) -> int:
-        from scripts.agent_runtime.attempt_boundary import full_review_reads, runtime_files
-        from scripts.agent_runtime.attempt_network import AttemptEgress, load_allowlist
-        from scripts.agent_runtime.review_mcp import _real_agy_token
-        from scripts.agent_runtime.sources_read_only import sources_tool_sets
-        from scripts.dispatcher import runtime_context
-        from scripts.dispatcher.git import DATABASE_LINKS
-        from scripts.review.isolation import prepare_host_sandbox, wrap_argv_with_sandbox
+        from lu_machinery.agent_runtime.attempt_boundary import full_review_reads, runtime_files
+        from lu_machinery.agent_runtime.attempt_network import AttemptEgress, load_allowlist
+        from lu_machinery.agent_runtime.review_mcp import _real_agy_token
+        from lu_machinery.agent_runtime.sources_read_only import sources_tool_sets
+        from lu_machinery.dispatcher import runtime_context
+        from lu_machinery.dispatcher.git import DATABASE_LINKS
+        from lu_machinery.review.isolation import prepare_host_sandbox, wrap_argv_with_sandbox
 
         requested = self._requested_inputs()
         if requested:
@@ -1322,7 +1322,7 @@ class _Boundary:
             expect("chmod", target, "EROFS")
             if target.parent.name == "sources-generations":
                 expect("stat", target.with_name(target.name + ".receipt.json"), "ENOENT")
-                from scripts.storage.topology import is_generation_name
+                from lu_machinery.storage.topology import is_generation_name
 
                 absent_generation = next((path for path in sorted(target.parent.iterdir())
                                           if path != target and is_generation_name(path.name)),
@@ -1402,7 +1402,7 @@ class _Boundary:
 
     def _export_tool_results(self) -> None:
         """Copy saved step bodies out with the existing inliner, before ``_remove`` deletes them."""
-        from scripts.agent_runtime.adapters.agy import export_saved_step_outputs
+        from lu_machinery.agent_runtime.adapters.agy import export_saved_step_outputs
 
         app = self.base / "runtime" / "home" / ".gemini" / "antigravity-cli"
         payload = {"schema": "agy-tool-results.v1", "calls": export_saved_step_outputs(app)}
@@ -1414,7 +1414,7 @@ class _Boundary:
 
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(
-        prog="scripts.dispatcher.agy_sandbox",
+        prog="lu_machinery.dispatcher.agy_sandbox",
         description="Run AGY inside the dispatcher's read-only bubblewrap boundary (C-3027).\n"
                     "Internal launcher returned by providers/agy.py for --mode read-only; not run by hand.",
         epilog="Outputs: AGY's stdout and stderr; the boundary receipt at --receipt.\n"

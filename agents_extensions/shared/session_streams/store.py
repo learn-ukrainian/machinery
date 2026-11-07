@@ -17,7 +17,7 @@ from functools import lru_cache
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-from scripts.common.repo_root import machinery_path
+from lu_machinery.common.repo_root import machinery_path
 
 from .app_lifecycle import VerifiedAppLifecycleProof
 from .db import SessionStreamDatabase
@@ -486,8 +486,8 @@ def rollover_bundle_handoff_slots(provider: str, stream_id: str) -> frozenset[st
         raise ValueError("rollover bundle lease holder has no handoff slot helper")
     stream_id = validate_stream_id(stream_id)
     try:
-        from scripts.orchestration.handoff_slot_registry import is_registered_slot, registry_readable
-        from scripts.orchestration.launcher_aliases import load_launcher_aliases
+        from lu_machinery.orchestration.handoff_slot_registry import is_registered_slot, registry_readable
+        from lu_machinery.orchestration.launcher_aliases import load_launcher_aliases
 
         alias_selectors = sorted(load_launcher_aliases())
         result = subprocess.run(
@@ -1977,7 +1977,7 @@ class SessionStreamStore:
         by other immutable mutations.
         """
         try:
-            from scripts.orchestration.thread_handoff import (
+            from lu_machinery.orchestration.thread_handoff import (
                 _bundle_conversion,
                 _bundle_require_json_value,
                 _bundle_secret_hits,

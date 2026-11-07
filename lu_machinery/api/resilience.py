@@ -17,7 +17,7 @@ from typing import Any
 from fastapi import Request
 from fastapi.responses import JSONResponse
 
-from scripts.lib.readonly_sqlite import refuse_writable_corpus_database
+from lu_machinery.lib.readonly_sqlite import refuse_writable_corpus_database
 
 logger = logging.getLogger(__name__)
 

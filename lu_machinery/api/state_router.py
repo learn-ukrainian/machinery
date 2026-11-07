@@ -28,17 +28,17 @@ import yaml
 from fastapi import APIRouter, Depends, Query, Request
 from learn_ukrainian_v4_runtime.agent_identity import normalize_seat, seat_read_aliases
 
-from scripts.agent_runtime.acp_health import probe_acp_health
-from scripts.common.repo_root import machinery_path, main_checkout_root
-from scripts.fleet import capacity_pick, credit_lane
-from scripts.fleet.reset_reserve import (
+from lu_machinery.agent_runtime.acp_health import probe_acp_health
+from lu_machinery.common.repo_root import machinery_path, main_checkout_root
+from lu_machinery.fleet import capacity_pick, credit_lane
+from lu_machinery.fleet.reset_reserve import (
     codex_is_threatened,
     codex_reset_reserve_eligible,
     load_reset_reserve,
 )
-from scripts.github_graphql_budget import probe_graphql_budget
-from scripts.research.registry import research_manifest_component
-from scripts.telemetry.cost_report import CostRecord, load_cost_records
+from lu_machinery.github_graphql_budget import probe_graphql_budget
+from lu_machinery.research.registry import research_manifest_component
+from lu_machinery.telemetry.cost_report import CostRecord, load_cost_records
 
 from . import delegate_router as delegate_api
 from . import state_helpers
@@ -65,7 +65,7 @@ from .subscription_usage import (
 try:
     from agent_runtime.usage import summarize_fleet_burn, summarize_lane_runtime
 except ImportError:
-    from scripts.agent_runtime.usage import summarize_fleet_burn, summarize_lane_runtime
+    from lu_machinery.agent_runtime.usage import summarize_fleet_burn, summarize_lane_runtime
 from .monitor_context import MonitorContext, get_ctx
 from .rules_router import rules_hash
 from .session_router import session_hash

@@ -11,7 +11,7 @@ import subprocess
 from datetime import datetime
 from typing import Any
 
-from scripts.common import github_client
+from lu_machinery.common import github_client
 
 _GH_TIMEOUT_SECONDS = 30
 

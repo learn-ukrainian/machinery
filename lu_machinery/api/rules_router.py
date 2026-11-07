@@ -45,7 +45,7 @@ from typing import Literal
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from fastapi.responses import JSONResponse, PlainTextResponse
 
-from scripts.lib import rules_core
+from lu_machinery.lib import rules_core
 
 from .monitor_context import MonitorContext, get_ctx
 from .telemetry.response import (

@@ -18,7 +18,7 @@ launcher_adapter_preflight() {
     return 0
   fi
   # shellcheck source=scripts/lib/glmcc_route.sh
-  source "$LC_ROOT/scripts/lib/glmcc_route.sh"
+  source "$LC_ROOT/lu_machinery/lib/glmcc_route.sh"
   ENDPOINT="$LC_ENDPOINT" MODEL_ALIAS="$LC_MODEL" ISOLATE_CONFIG="$LC_ISOLATE_CONFIG"
   export ENDPOINT MODEL_ALIAS ISOLATE_CONFIG
   glmcc_configure_route "$LC_SESSION_ROOT" || exit $?

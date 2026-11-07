@@ -29,7 +29,7 @@ SERVICE_LOG="$SERVICE_ROOT/local-teacher.log"
 SERVICE_PID="$SERVICE_ROOT/local-teacher.pid"
 
 .venv/bin/python \
-  scripts/tools/detach_session_task.py \
+  lu_machinery/tools/detach_session_task.py \
   --workdir "$SERVICE_ROOT" \
   --log-file "$SERVICE_LOG" \
   --pid-file "$SERVICE_PID" \

@@ -12,8 +12,8 @@ from pathlib import Path, PurePosixPath
 if __package__ in (None, ""):  # run as a file: put the repository root on sys.path
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from scripts.ci._location import checkout_relative, package_dir_name
-from scripts.lib.readonly_sqlite import open_readonly
+from lu_machinery.ci._location import checkout_relative, package_dir_name
+from lu_machinery.lib.readonly_sqlite import open_readonly
 
 # The machinery package directory and the product scripts tree are one
 # directory in this checkout; a renamed machinery package reports under its own.

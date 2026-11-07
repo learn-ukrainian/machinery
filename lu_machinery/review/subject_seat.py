@@ -236,7 +236,7 @@ def adapter_subject_index() -> Mapping[str, frozenset[str]]:
     without a second hand-written ladder. Single-seat companion modules the
     registry does not name come from ``_ADAPTER_COMPANION_SEATS``.
     """
-    from scripts.agent_runtime.registry import AGENTS
+    from lu_machinery.agent_runtime.registry import AGENTS
 
     by_file: dict[str, set[str]] = {}
     for name, entry in AGENTS.items():
@@ -246,7 +246,7 @@ def adapter_subject_index() -> Mapping[str, frozenset[str]]:
         by_file.setdefault(rel, set()).add(canonical_subject_seat(name))
     for filename, seat in _ADAPTER_COMPANION_SEATS.items():
         by_file.setdefault(f"{_ADAPTER_PREFIX}{filename}", set()).add(seat)
-    from scripts.dispatcher.providers import PROVIDERS
+    from lu_machinery.dispatcher.providers import PROVIDERS
 
     for provider in PROVIDERS:
         by_file[f"{_PROVIDER_PREFIX}{provider}.py"] = {canonical_subject_seat(provider)}

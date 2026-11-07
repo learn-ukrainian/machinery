@@ -27,10 +27,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from scripts.dispatcher.admission import review_typed
-from scripts.guardrails.delegate_ownership import TERMINAL_TASK_STATUSES
-from scripts.opsec.prepublish import normalize_repository
-from scripts.orchestration.integration_sweep import (
+from lu_machinery.dispatcher.admission import review_typed
+from lu_machinery.guardrails.delegate_ownership import TERMINAL_TASK_STATUSES
+from lu_machinery.opsec.prepublish import normalize_repository
+from lu_machinery.orchestration.integration_sweep import (
     MARKER_PREFIX,
     REJECTED,
     SHA,
@@ -38,18 +38,18 @@ from scripts.orchestration.integration_sweep import (
     lookup_verdict,
     parse_marker,
 )
-from scripts.orchestration.task_record_store import ARCHIVE_DIR_NAME, read_task_record
-from scripts.review import capability_failure
-from scripts.review import record_cf_verdict as recorder
-from scripts.review.capability_failure import run_started as _started
-from scripts.review.language_lane import is_ukrainian_review
-from scripts.review.reviewer_resolver import resolve_family
-from scripts.review.ukrainian_seats import (
+from lu_machinery.orchestration.task_record_store import ARCHIVE_DIR_NAME, read_task_record
+from lu_machinery.review import capability_failure
+from lu_machinery.review import record_cf_verdict as recorder
+from lu_machinery.review.capability_failure import run_started as _started
+from lu_machinery.review.language_lane import is_ukrainian_review
+from lu_machinery.review.reviewer_resolver import resolve_family
+from lu_machinery.review.ukrainian_seats import (
     UKRAINIAN_SEAT_FAMILIES,
     attested_author_families,
     required_ukrainian_seats,
 )
-from scripts.review.verdict_parser import recognized_verdicts
+from lu_machinery.review.verdict_parser import recognized_verdicts
 
 UNATTESTED_FAMILIES = frozenset({"unknown", "unattested", "ambiguous", "conflicting"})
 

@@ -4,9 +4,9 @@ import os
 import sys
 from pathlib import Path
 
-from scripts.agent_runtime.read_only_tmp import dispatch_lease
-from scripts.common.task_store_paths import tasks_dir
-from scripts.dispatcher.types import TaskSpec
+from lu_machinery.agent_runtime.read_only_tmp import dispatch_lease
+from lu_machinery.common.task_store_paths import tasks_dir
+from lu_machinery.dispatcher.types import TaskSpec
 
 # LU_SENSE_PROOF_DIR is a host path with no secret in the name; pack-verify reads the proofs inside it.
 _CONTEXT = ("PATH", "HOME", "LANG", "TERM", "TMPDIR", "LU_SENSE_PROOF_DIR")
@@ -43,7 +43,7 @@ def claude_config_dir(account: str, home: str | None = None) -> str | None:
     An API-key label's directory exists only in its private binding (C-2643), so the read-only policy
     check before launch examines that directory; an unbound one is ``None``, and admission refuses it.
     """
-    from scripts.agent_runtime.attempt_boundary import (
+    from lu_machinery.agent_runtime.attempt_boundary import (
         CLAUDE_API_KEY_ACCOUNT_LABELS,
         ClaudeAccountRefused,
         load_claude_account_binding,
@@ -61,7 +61,7 @@ def claude_config_dir(account: str, home: str | None = None) -> str | None:
 def child_env(spec: TaskSpec) -> dict[str, str]:
     source = os.environ
     if spec.agent == "codex":
-        from scripts.agent_runtime.codex_accounts import codex_account_env
+        from lu_machinery.agent_runtime.codex_accounts import codex_account_env
 
         source = codex_account_env(spec.codex_account, source)
     names = _CONTEXT + _AUTH[spec.agent]
@@ -69,7 +69,7 @@ def child_env(spec: TaskSpec) -> dict[str, str]:
         names = (*_CONTEXT, "OPENROUTER_API_KEY")
     env = {name: source[name] for name in names if name in source}
     if spec.agent == "cursor" and not env.get("CURSOR_API_KEY", "").strip():
-        from scripts.agent_runtime.adapters.cursor import _load_cursor_api_key_from_env_file
+        from lu_machinery.agent_runtime.adapters.cursor import _load_cursor_api_key_from_env_file
 
         env.pop("CURSOR_API_KEY", None)
         file_key = _load_cursor_api_key_from_env_file()

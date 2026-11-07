@@ -35,7 +35,7 @@ RECORDER_PATH = f"{_MACHINERY}/review/record_cf_verdict.py"
 if __name__ == "__main__":
     # Re-exec before importing recorder dependencies, as scripts/dispatch.py does.
     try:
-        from scripts.dispatcher.primary import exec_primary
+        from lu_machinery.dispatcher.primary import exec_primary
 
         exec_primary(sys.argv[1:], entry=Path(RECORDER_PATH), refuse=sys.exit)
     except (ImportError, OSError, RuntimeError, SystemExit) as exc:
@@ -47,16 +47,16 @@ from learn_ukrainian_v4_runtime.agent_identity import normalize_seat
 from learn_ukrainian_v4_runtime.identity import _VALID_CONCRETE_FAMILIES
 from learn_ukrainian_v4_runtime.model_families import canonical_cursor_model, is_cursor_auto_selector
 
-from scripts.common.jsonl import jsonl_lines
-from scripts.common.repo_root import machinery_path
-from scripts.fleet.claude_account_lane import ClaudeAccount, account_from_record
-from scripts.fleet_comms.review_publication import (
+from lu_machinery.common.jsonl import jsonl_lines
+from lu_machinery.common.repo_root import machinery_path
+from lu_machinery.fleet.claude_account_lane import ClaudeAccount, account_from_record
+from lu_machinery.fleet_comms.review_publication import (
     DEFAULT_STATUS_CONTEXT,
     REVIEW_SCHEMA_VERSION,
     ReviewPublicationError,
 )
-from scripts.fleet_comms.review_publisher import post_commit_status
-from scripts.opsec.prepublish import (
+from lu_machinery.fleet_comms.review_publisher import post_commit_status
+from lu_machinery.opsec.prepublish import (
     PublishBlocked,
     absolute_path_spans,
     check_texts,
@@ -65,8 +65,8 @@ from scripts.opsec.prepublish import (
     publication_boundary,
     publication_cli,
 )
-from scripts.orchestration.fleet_repos import FleetRepoError, load_fleet_repos
-from scripts.orchestration.integration_sweep import (
+from lu_machinery.orchestration.fleet_repos import FleetRepoError, load_fleet_repos
+from lu_machinery.orchestration.integration_sweep import (
     CHUNK_VOIDS,
     ITEM_ID_RE,
     MARKER_PREFIX,
@@ -80,17 +80,17 @@ from scripts.orchestration.integration_sweep import (
     parse_marker,
     recorded_p3_residuals,
 )
-from scripts.orchestration.task_record_store import ARCHIVE_DIR_NAME, read_task_record
-from scripts.publish.github import CfVerdictRecord, Request, request_run
-from scripts.review.app_bot_authorship import VERIFIED_APP_BOT, listing_app_bot_login, verified_app_bot_login
-from scripts.review.language_lane import is_ukrainian_review
-from scripts.review.model_catalog import (
+from lu_machinery.orchestration.task_record_store import ARCHIVE_DIR_NAME, read_task_record
+from lu_machinery.publish.github import CfVerdictRecord, Request, request_run
+from lu_machinery.review.app_bot_authorship import VERIFIED_APP_BOT, listing_app_bot_login, verified_app_bot_login
+from lu_machinery.review.language_lane import is_ukrainian_review
+from lu_machinery.review.model_catalog import (
     REVIEW_ACTIVITY,
     activity_role_refusal,
     load_model_catalog,
     resolve_catalog_model_id,
 )
-from scripts.review.review_contract import (
+from lu_machinery.review.review_contract import (
     ContractError,
     ItemChunk,
     captured_sources_events,
@@ -100,7 +100,7 @@ from scripts.review.review_contract import (
     reply_has_item_judgments,
     validate_ukrainian_reply_claims,
 )
-from scripts.review.reviewer_resolver import (
+from lu_machinery.review.reviewer_resolver import (
     FORMAL_CURSOR_REVIEW_MODELS,
     MIXED_REVIEW_FAMILIES,
     REVIEW_CANDIDATES,
@@ -118,16 +118,16 @@ from scripts.review.reviewer_resolver import (
     resolve_reviewer,
     review_task_id_comparison_keys,
 )
-from scripts.review.role_resolution import resolve_routing_reference
-from scripts.review.security_paths import git_changed_paths, is_security_sensitive_change
-from scripts.review.subject_seat import prepare_subject_exclusion
-from scripts.review.target_resolution import TargetResolutionError, resolve_review_repository
-from scripts.review.ukrainian_seats import (
+from lu_machinery.review.role_resolution import resolve_routing_reference
+from lu_machinery.review.security_paths import git_changed_paths, is_security_sensitive_change
+from lu_machinery.review.subject_seat import prepare_subject_exclusion
+from lu_machinery.review.target_resolution import TargetResolutionError, resolve_review_repository
+from lu_machinery.review.ukrainian_seats import (
     UKRAINIAN_SEAT_ROUTES,
     attested_author_families,
     required_ukrainian_seats,
 )
-from scripts.review.verdict_parser import (
+from lu_machinery.review.verdict_parser import (
     _REVIEW_VERDICT_LINE_RE,
     MISSING_CAPABILITIES_FIELD,
     _commonmark_lines,
@@ -1322,7 +1322,7 @@ def default_branch_review_base(repo_root: Path, head_sha: str, *, fetch: bool = 
     ``fetch=False`` reads the existing ``origin/<default>`` without writing any ref
     or object, for read-only callers such as ``budget-check``.
     """
-    from scripts.common.git_context import UnsafeBranchNameError, validate_plain_branch_name
+    from lu_machinery.common.git_context import UnsafeBranchNameError, validate_plain_branch_name
 
     deadline = time.monotonic() + BRANCH_FACTS_TIMEOUT_S
     advertised = _facts_git(
@@ -1934,8 +1934,8 @@ def repository_relative_reply(reply: str, *, task: dict[str, Any], primary_root:
 
 def _review_branch(task: dict[str, Any]) -> str:
     """Resolve reviewed identity without making it a checkout or cleanup branch."""
-    from scripts.common.git_context import UnsafeBranchNameError, validate_plain_branch_name
-    from scripts.guardrails.worktree_containment import PROTECTED_BRANCHES
+    from lu_machinery.common.git_context import UnsafeBranchNameError, validate_plain_branch_name
+    from lu_machinery.guardrails.worktree_containment import PROTECTED_BRANCHES
 
     if any(task.get(key) for key in ("trial_label", "trial_role", "trial_qualified_task")):
         raise RecordError("MODEL_ROLE_TRIAL_REFUSED: a trial never supplies review of record")
@@ -2401,7 +2401,7 @@ def _round_decision(
 
 def _repair_round(**kwargs: Any) -> dict[str, Any] | None:
     # The repair round builds on this module, so it is imported only when the budget is spent.
-    from scripts.review.repair_round import admit_repair_round
+    from lu_machinery.review.repair_round import admit_repair_round
 
     return admit_repair_round(**kwargs)
 
@@ -2431,8 +2431,8 @@ def _charging(
     reply refuses: those heads cannot be counted.
     """
     # The lineage reader builds on this module, so it is imported only when a new head is counted.
-    from scripts.review.capability_failure import run_started
-    from scripts.review.review_lineage import capability_exemption, dispatched_rounds, lineage_runs
+    from lu_machinery.review.capability_failure import run_started
+    from lu_machinery.review.review_lineage import capability_exemption, dispatched_rounds, lineage_runs
 
     runs = lineage_runs(task_root, repository=repository, number=number, branch=branch)
     key = capability_exemption(runs=runs, comments=comments, login=login)
@@ -2454,7 +2454,7 @@ def _charging(
 
 def _repair_receipts(task_root: Path) -> Path:
     """Where the repair rounds' durable receipts live: beside the task ledger, never removed."""
-    from scripts.review.repair_round import RECEIPT_DIR
+    from lu_machinery.review.repair_round import RECEIPT_DIR
 
     return task_root.parent / RECEIPT_DIR
 
@@ -2491,7 +2491,7 @@ def budget_admission(
         login=login,
         sha=sha,
     ))
-    from scripts.review.repair_round import repair_heads
+    from lu_machinery.review.repair_round import repair_heads
 
     receipts = _repair_receipts(task_root)
     return require_review_round_within_budget(
@@ -2801,7 +2801,7 @@ def _require_ukrainian_claim_support(
     task: Mapping[str, Any], reply: str, task_id: str, task_root: Path,
 ) -> None:
     """Recheck the sealed reply against its own captured outputs before any publication."""
-    from scripts.dispatcher import store
+    from lu_machinery.dispatcher import store
 
     binding = task.get("review_attempt")
     ledger_path = None
@@ -3013,7 +3013,7 @@ def record(
         except SweepError as exc:
             raise RecordError(f"comment lookup failed: {exc}") from exc
         # The capability failure module builds on this one, so it is imported only here.
-        from scripts.review.capability_failure import require_unclassified
+        from lu_machinery.review.capability_failure import require_unclassified
 
         require_unclassified(comments, login, task=task_id, started=started)
         if review_mode == "red_team":
@@ -3042,7 +3042,7 @@ def record(
             recording_run=(task_id, task["run_nonce"]) if isinstance(task.get("run_nonce"), str) else None,
             recording_seat=(family, "ukrainian" if ukrainian else "code"),
         )
-        from scripts.review.repair_round import receipt_at, record_admission, require_repair_verified
+        from lu_machinery.review.repair_round import receipt_at, record_admission, require_repair_verified
 
         repair = budget_receipt.get("repair_round")
         repaired = repair or receipt_at(
@@ -3114,7 +3114,7 @@ def record(
             posted = True
             comments = [*comments, posted_comment]
         if repair is not None:
-            from scripts.review.repair_round import record_consumption
+            from lu_machinery.review.repair_round import record_consumption
 
             record_consumption(
                 _repair_receipts(task_root), repair, comment=str(posted_comment["id"] if posted else existing.get("id"))
@@ -3316,7 +3316,7 @@ def dispatch_budget_check(
     budget, a clean base merge or the lineage's repair round may still admit it.
     A branch with no open PR gets the repository's budget.
     """
-    from scripts.review.review_lineage import (
+    from lu_machinery.review.review_lineage import (
         capability_candidates_only,
         dispatched_rounds,
         lineage_runs,
@@ -3509,7 +3509,7 @@ def main(argv: list[str] | None = None) -> int:
         return republish_withheld_main(argv[1:])
     if argv[:1] == ["capability-failure"]:
         # The capability failure verb builds on this module, so it is imported only when chosen.
-        from scripts.review.capability_failure import main as capability_failure_main
+        from lu_machinery.review.capability_failure import main as capability_failure_main
 
         return capability_failure_main(argv[1:])
     parser = argparse.ArgumentParser(
@@ -3556,6 +3556,6 @@ def main(argv: list[str] | None = None) -> int:
 if __name__ == "__main__":
     # Run as a file or with ``-m``, this module is ``__main__`` and defines its own ``RecordError``; the
     # refusals other modules raise subclass the package module's, so ``main`` must come from that one.
-    from scripts.review.record_cf_verdict import main as package_main
+    from lu_machinery.review.record_cf_verdict import main as package_main
 
     raise SystemExit(package_main())

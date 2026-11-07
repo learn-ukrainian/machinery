@@ -24,7 +24,7 @@ reference for full policy audits or cross-cutting work; it supports
 
 Offline: use the same task selector. When the complete reference is needed,
 read this full fallback list — same paths, same order as
-`scripts/api/rules_router.py` `RULE_SOURCES`:
+`lu_machinery/api/rules_router.py` `RULE_SOURCES`:
 
     agents_extensions/shared/rules/operator-expectations.md
     agents_extensions/shared/rules/critical-rules.md
@@ -39,7 +39,7 @@ read this full fallback list — same paths, same order as
     docs/best-practices/fleet-role-scorecard.md
 
 Scoped selections — `GET /api/rules?scope=<scope>&format=markdown`, each with
-its own hash. Offline, `scripts/lib/rules_core.py` reads the same files in the
+its own hash. Offline, `lu_machinery/lib/rules_core.py` reads the same files in the
 same order. Launchers and ACP asks inject the core; dispatch v2 requires it
 to exist but does not inject it into prompts, except that a read-only Claude
 run receives the core as an appended system prompt:

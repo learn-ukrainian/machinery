@@ -30,8 +30,8 @@ import stat
 import sys
 from pathlib import Path
 
-from scripts.guardrails import primary_dirt_audit as audit
-from scripts.guardrails import worktree_containment as wc
+from lu_machinery.guardrails import primary_dirt_audit as audit
+from lu_machinery.guardrails import worktree_containment as wc
 
 
 def _machinery_top() -> str:
@@ -191,7 +191,7 @@ def run(state: Path, session_id: str, record_ids: list[str], *, apply: bool) -> 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="scripts.hygiene.primary_dirt_cleanup",
+        prog="lu_machinery.hygiene.primary_dirt_cleanup",
         description=(
             "Remove untracked files in the protected primary checkout that an audit record proves your session "
             "created (#11253).\nUse it when audit-primary-checkout-dirt reported dirt from your own shell call; "

@@ -1,6 +1,6 @@
 [
   {
-    "path": "scripts/agent_runtime/failover.py",
+    "path": "lu_machinery/agent_runtime/failover.py",
     "reference_count": 2,
     "kind": "writer",
     "target_db": "failover state DB",
@@ -10,7 +10,7 @@
     ]
   },
   {
-    "path": "scripts/ai_agent_bridge/_broker.py",
+    "path": "lu_machinery/ai_agent_bridge/_broker.py",
     "reference_count": 4,
     "kind": "writer",
     "target_db": "legacy broker DB",
@@ -21,7 +21,7 @@
     ]
   },
   {
-    "path": "scripts/ai_agent_bridge/_db.py",
+    "path": "lu_machinery/ai_agent_bridge/_db.py",
     "reference_count": 9,
     "kind": "writer",
     "target_db": "legacy broker DB",
@@ -33,7 +33,7 @@
     ]
   },
   {
-    "path": "scripts/api/agent_monitor_router.py",
+    "path": "lu_machinery/api/agent_monitor_router.py",
     "reference_count": 2,
     "kind": "writer",
     "target_db": "agent monitor DB",
@@ -53,7 +53,7 @@
     ]
   },
   {
-    "path": "scripts/api/resilience.py",
+    "path": "lu_machinery/api/resilience.py",
     "reference_count": 3,
     "kind": "writer",
     "target_db": "API databases selected by connect_sqlite callers",
@@ -176,7 +176,7 @@
     ]
   },
   {
-    "path": "scripts/common/github_client.py",
+    "path": "lu_machinery/common/github_client.py",
     "reference_count": 1,
     "kind": "writer",
     "target_db": "GitHub client cache",
@@ -186,7 +186,7 @@
     ]
   },
   {
-    "path": "scripts/ci/data_tier.py",
+    "path": "lu_machinery/ci/data_tier.py",
     "reference_count": 1,
     "kind": "writer",
     "target_db": "disposable CI source DB copy",
@@ -196,7 +196,7 @@
     ]
   },
   {
-    "path": "scripts/control_plane/storage.py",
+    "path": "lu_machinery/control_plane/storage.py",
     "reference_count": 3,
     "kind": "writer",
     "target_db": "registered control-plane store DBs",
@@ -227,7 +227,7 @@
     ]
   },
   {
-    "path": "scripts/fleet_comms/message_plane.py",
+    "path": "lu_machinery/fleet_comms/message_plane.py",
     "reference_count": 1,
     "kind": "writer",
     "target_db": "Fleet Comms plane DB",
@@ -237,7 +237,7 @@
     ]
   },
   {
-    "path": "scripts/hygiene/codex_rollout_reconcile.py",
+    "path": "lu_machinery/hygiene/codex_rollout_reconcile.py",
     "reference_count": 10,
     "kind": "writer",
     "target_db": "Codex rollout state/output DB",
@@ -734,7 +734,7 @@
     ]
   },
   {
-    "path": "scripts/maintenance/github_cache.py",
+    "path": "lu_machinery/maintenance/github_cache.py",
     "reference_count": 3,
     "kind": "writer",
     "target_db": "GitHub client cache",
@@ -744,7 +744,7 @@
     ]
   },
   {
-    "path": "scripts/ai_agent_bridge/broker_indexes.py",
+    "path": "lu_machinery/ai_agent_bridge/broker_indexes.py",
     "reference_count": 4,
     "kind": "writer",
     "target_db": "legacy broker DB",
@@ -786,14 +786,14 @@
     ]
   },
   {
-    "path": "scripts/ops/product_entry.py",
+    "path": "lu_machinery/ops/product_entry.py",
     "reference_count": 1,
     "kind": "configured_entry_point",
     "target_db": null,
     "reason": "The one configured entry point (#12504, LOADER-1104). load_configured_module imports the scripts.* module that product data names; it refuses SQLite module names first. This is not a SQLite constructor. The kind pins this one call site."
   },
   {
-    "path": "scripts/orchestration/thread_handoff.py",
+    "path": "lu_machinery/orchestration/thread_handoff.py",
     "reference_count": 1,
     "kind": "writer",
     "target_db": "legacy broker DB",
@@ -803,7 +803,7 @@
     ]
   },
   {
-    "path": "scripts/orchestration/trails/store.py",
+    "path": "lu_machinery/orchestration/trails/store.py",
     "reference_count": 5,
     "kind": "writer",
     "target_db": "trails projection DB",
@@ -897,7 +897,7 @@
     ]
   },
   {
-    "path": "scripts/publish/recovery.py",
+    "path": "lu_machinery/publish/recovery.py",
     "reference_count": 2,
     "kind": "writer",
     "target_db": "recovery allowance DB",
@@ -958,7 +958,7 @@
     ]
   },
   {
-    "path": "scripts/review/findings_db.py",
+    "path": "lu_machinery/review/findings_db.py",
     "reference_count": 42,
     "kind": "writer",
     "target_db": "review findings DB",
@@ -968,7 +968,7 @@
     ]
   },
   {
-    "path": "scripts/storage/generations.py",
+    "path": "lu_machinery/storage/generations.py",
     "reference_count": 2,
     "kind": "writer",
     "target_db": "unpublished Sources generation candidate; the pre-bootstrap Sources store file (bootstrap WAL checkpoint, under the store writer lock)",
@@ -979,7 +979,7 @@
     ]
   },
   {
-    "path": "scripts/telemetry/legacy_bridge.py",
+    "path": "lu_machinery/telemetry/legacy_bridge.py",
     "reference_count": 7,
     "kind": "writer",
     "target_db": "legacy broker DB",
@@ -989,7 +989,7 @@
     ]
   },
   {
-    "path": "scripts/tools/agent_watcher.py",
+    "path": "lu_machinery/tools/agent_watcher.py",
     "reference_count": 1,
     "kind": "writer",
     "target_db": "legacy broker DB",
@@ -1200,7 +1200,7 @@
     ]
   },
   {
-    "path": "scripts/storage/topology.py",
+    "path": "lu_machinery/storage/topology.py",
     "reference_count": 0,
     "kind": "store_resolver",
     "target_db": null,

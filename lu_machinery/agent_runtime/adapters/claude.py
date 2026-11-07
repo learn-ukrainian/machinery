@@ -263,7 +263,7 @@ from ._output_schema import json_value, load_output_schema, plan_output_schema, 
 from .base import InvocationPlan
 
 if TYPE_CHECKING:
-    from scripts.agent_runtime.attempt_boundary import ClaudeAccountBinding
+    from lu_machinery.agent_runtime.attempt_boundary import ClaudeAccountBinding
 
 _logger = logging.getLogger(__name__)
 
@@ -587,7 +587,7 @@ def _reviewer_mcp_config() -> str:
     reviewed checkout, and passed inline with ``--strict-mcp-config``. The
     server starts with a pinned environment and isolated Python startup.
     """
-    from scripts.agent_runtime.review_mcp import isolated_sources_mcp_config, sources_server_launch
+    from lu_machinery.agent_runtime.review_mcp import isolated_sources_mcp_config, sources_server_launch
 
     return json.dumps(isolated_sources_mcp_config(*sources_server_launch()), separators=(",", ":"))
 
@@ -631,7 +631,7 @@ def _worker_guard_invocation(command: str, source_root: Path) -> str | None:
         tracked = hooks_dir / argv[2]
         if not tracked.is_file():
             raise RuntimeError(f"Claude worker guard unavailable: {tracked}")
-        from scripts.common.repo_root import project_interpreter
+        from lu_machinery.common.repo_root import project_interpreter
 
         return shlex.join([str(project_interpreter(source_root)), str(tracked)])
     plain = len(argv) == 1 and argv[0].startswith(_DEPLOYED_HOOKS_PREFIX)
@@ -652,7 +652,7 @@ def _worker_guard_settings(*, publish_guard: bool = False) -> str:
     them are machinery: they always come from the checkout this code runs from
     (``source_root``), never from product configuration.
     """
-    from scripts.common.repo_root import product_root
+    from lu_machinery.common.repo_root import product_root
 
     source_root = Path(__file__).resolve().parents[3]
     source = json.loads((product_root() / "agents_extensions/shared/settings.json").read_text(encoding="utf-8"))
@@ -690,7 +690,7 @@ def _headless_worker_settings(*, publish_guard: bool) -> str:
 
 def _isolated_review_response_schema(tool_config: dict[str, Any]) -> str:
     """Return the canonical structured-output schema for isolated reviews."""
-    from scripts.review.isolation import (
+    from lu_machinery.review.isolation import (
         ReviewIsolationError,
         transport_isolated_review_schema,
     )
@@ -733,7 +733,7 @@ def _probe_claude_cli_version(cmd_prefix: tuple[str, ...]) -> tuple[int, int, in
 
 def _ensure_supported_claude_cli_version(cmd_prefix: tuple[str, ...]) -> tuple[int, int, int] | None:
     """Reject Claude CLI versions with the 2026-04-23 postmortem regressions."""
-    from scripts.review.isolation import CLAUDE_MIN_SUPPORTED_CLI_VERSION
+    from lu_machinery.review.isolation import CLAUDE_MIN_SUPPORTED_CLI_VERSION
 
     version = _probe_claude_cli_version(cmd_prefix)
     if version is not None and version < CLAUDE_MIN_SUPPORTED_CLI_VERSION:
@@ -814,7 +814,7 @@ class ClaudeAdapter:
         tc: dict[str, Any] = tool_config or {}
         account = _claude_account_binding(tc)
         account_login_dir = None if account is None else str(account.config_dir)
-        from scripts.agent_runtime.mechanical_admission import refuse_mechanical_execution
+        from lu_machinery.agent_runtime.mechanical_admission import refuse_mechanical_execution
 
         refuse_mechanical_execution(model or self.default_model, mode=mode, cwd=cwd, tool_config=tc, prompt=prompt)
         discussion_readonly = _discussion_readonly_requested(tool_config)
@@ -827,7 +827,7 @@ class ClaudeAdapter:
         ordinary_reviewer = reviewer_guard and not discussion_readonly and not review_isolation
         review_write_root: Path | None = None
         if review_isolation:
-            from scripts.review.isolation import validated_review_write_root
+            from lu_machinery.review.isolation import validated_review_write_root
 
             review_write_root = validated_review_write_root(tc)
         if discussion_readonly and mode != "read-only":
@@ -1025,7 +1025,7 @@ class ClaudeAdapter:
             granted = [*profile["allow"]]
             denied = [*profile["deny"], *_sources_writer_denies(sources_writers)]
             if tc.get("mcp_config_path") and tc.get("review_access") == "full":
-                from scripts.agent_runtime.review_mcp import review_tools_allowed_csv
+                from lu_machinery.agent_runtime.review_mcp import review_tools_allowed_csv
 
                 granted.extend(review_tools_allowed_csv("claude", "full").split(","))
             elif tc.get("mcp_config_path"):
@@ -1222,7 +1222,7 @@ def _claude_account_binding(tc: dict[str, Any]) -> ClaudeAccountBinding | None:
     the binding checks refuse any conflicting credential source. Routes that
     cannot honour the label refuse it. Refusals carry a value-free code.
     """
-    from scripts.agent_runtime.attempt_boundary import (
+    from lu_machinery.agent_runtime.attempt_boundary import (
         CLAUDE_ACCOUNT_KEY,
         CLAUDE_API_KEY_ACCOUNT_LABELS,
         DEFAULT_CLAUDE_ACCOUNT,
@@ -1267,13 +1267,13 @@ def _verified_labelled_launch(
     every check is noted as the run's value-free receipt
     (``attempt_boundary.claude_account_auth_receipt``).
     """
-    from scripts.agent_runtime.attempt_boundary import (
+    from lu_machinery.agent_runtime.attempt_boundary import (
         CLAUDE_AUTH_SUBSCRIPTION_LOGIN,
         ClaudeAccountRefused,
         note_claude_account_verified,
         refuse_claude_machine_policy,
     )
-    from scripts.common.repo_root import project_interpreter
+    from lu_machinery.common.repo_root import project_interpreter
 
     login_dir = str(account.config_dir)
     env = build_agent_env(provider="claude", model=model, overrides=env_overrides)
@@ -1326,7 +1326,7 @@ def _verify_labelled_auth_method(
     which is what attests the endpoint. Output is parsed, never logged or
     kept.
     """
-    from scripts.agent_runtime.attempt_boundary import CLAUDE_CONSUMER_PLANS, ClaudeAccountRefused
+    from lu_machinery.agent_runtime.attempt_boundary import CLAUDE_CONSUMER_PLANS, ClaudeAccountRefused
 
     def status(output: str) -> str:
         argv = [

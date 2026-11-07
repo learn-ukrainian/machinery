@@ -6,7 +6,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from scripts.control_plane.storage import (
+from lu_machinery.control_plane.storage import (
     Authority,
     ControlPlanePgDsnMissingError,
     ControlPlaneStoreUnavailableError,
@@ -84,8 +84,8 @@ def authority_collector_payload(
     **kwargs: Any,
 ) -> dict[str, Any]:
     """Project a PG-capable collector's actual result, never local-file PG health."""
-    from scripts.fleet_comms.efficiency_metrics import EfficiencyMetricsReadError
-    from scripts.fleet_comms.opsec_store import COMMS_RESPONSE_SCHEMA_VERSION
+    from lu_machinery.fleet_comms.efficiency_metrics import EfficiencyMetricsReadError
+    from lu_machinery.fleet_comms.opsec_store import COMMS_RESPONSE_SCHEMA_VERSION
 
     authority = resolve_authority(StoreId.FLEET_COMMS)
     payload: dict[str, Any] = dict(empty_fields or {})

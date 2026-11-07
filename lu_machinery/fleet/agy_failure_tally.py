@@ -34,9 +34,9 @@ from typing import Any
 if __package__ in (None, ""):  # run as a file: put the repository root on sys.path
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from scripts.agent_runtime.adapters.agy import parse_agy_provider_fault
-from scripts.common.task_store_paths import tasks_dir as default_tasks_dir
-from scripts.orchestration.task_record_store import read_task_record
+from lu_machinery.agent_runtime.adapters.agy import parse_agy_provider_fault
+from lu_machinery.common.task_store_paths import tasks_dir as default_tasks_dir
+from lu_machinery.orchestration.task_record_store import read_task_record
 
 # The machinery package's import name, which is also the directory its files have in checkout
 # paths: from this module's package, or from its unresolved location when run as a file.

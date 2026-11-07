@@ -16,8 +16,8 @@ import subprocess
 from dataclasses import dataclass, replace
 from pathlib import Path
 
-from scripts.common.git_context import sanitized_git_env
-from scripts.review.target_resolution import ReviewTarget
+from lu_machinery.common.git_context import sanitized_git_env
+from lu_machinery.review.target_resolution import ReviewTarget
 
 # Outcomes preserved as distinct classes (issue #5284).
 OUTCOME_VERIFIED = "verified"

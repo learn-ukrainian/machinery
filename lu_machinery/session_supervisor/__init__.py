@@ -24,7 +24,7 @@ from typing import Any
 
 if __package__ in (None, ""):  # run as a file: put the repository root on sys.path
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-    __package__ = "scripts.session_supervisor"
+    __package__ = "lu_machinery.session_supervisor"
 
 from agents_extensions.shared.session_streams.db import SessionStreamDatabase
 from agents_extensions.shared.session_streams.dual_write import resolve_handoff_path
@@ -213,7 +213,7 @@ def worker_environment(environment: Mapping[str, str], *, include_all: bool = Fa
     metadata. ``include_all`` is reserved for the explicit ``--all`` or
     ``LEARN_UK_SECRETS_OK=1`` path and still uses the shared egress redactor.
     """
-    from scripts.secret_redactor import REDACTION, redact_value
+    from lu_machinery.secret_redactor import REDACTION, redact_value
 
     selected = {
         key: value
@@ -641,7 +641,7 @@ def _add_driver_identity(parser: argparse.ArgumentParser) -> None:
 def _resolve_default_host_id() -> str:
     """Return this process's resolved opaque host id, never the raw env string."""
     try:
-        from scripts.api.occupancy_local import resolve_launcher_host_id
+        from lu_machinery.api.occupancy_local import resolve_launcher_host_id
     except ImportError:
         from api.occupancy_local import resolve_launcher_host_id
     return resolve_launcher_host_id()

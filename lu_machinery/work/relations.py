@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from scripts.work import SOURCE_PUBLIC, WORK_ID_PREFIX
+from lu_machinery.work import SOURCE_PUBLIC, WORK_ID_PREFIX
 
 _SUPERSEDED_BY_RE = re.compile(
     r"(?:superseded[- ]?by|replaced[- ]?by|obsoleted[- ]?by)\s*:?\s*#(\d+)",

@@ -53,7 +53,7 @@ fleet_comms_resolve_plane_mode() {
   local mode="off"
   local root="${PROJECT_DIR:-${LC_ROOT:-.}}"
   local py=""
-  if [ -f "$root/scripts/fleet_comms/message_plane.py" ] \
+  if [ -f "$root/lu_machinery/fleet_comms/message_plane.py" ] \
       && py="$(fleet_comms_resolve_python "$root")"; then
     mode="$(
       (
@@ -134,6 +134,6 @@ fleet_comms_warn_if_plane_unreachable() {
   fi
   (
     cd "$root" || exit 0
-    "$py" -m scripts.orchestration.plane_tunnel_gate
+    "$py" -m lu_machinery.orchestration.plane_tunnel_gate
   ) || true
 }

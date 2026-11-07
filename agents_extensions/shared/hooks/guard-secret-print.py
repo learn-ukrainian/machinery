@@ -254,7 +254,7 @@ KNOWN_SECRET_VARS = {
     "GITHUB_TOKEN",
     "OPENAI_API_KEY",
 }
-WORKER_ENV_MODULE = "scripts.session_supervisor"
+WORKER_ENV_MODULE = "lu_machinery.session_supervisor"
 WORKER_ENV_COMMAND = "worker-env"
 
 _ASSIGNMENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=.*\Z")

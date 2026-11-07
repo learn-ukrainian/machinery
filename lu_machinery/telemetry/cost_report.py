@@ -23,8 +23,8 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from scripts.agent_runtime.usage import _iter_usage_records
-from scripts.common.repo_root import machinery_path
+from lu_machinery.agent_runtime.usage import _iter_usage_records
+from lu_machinery.common.repo_root import machinery_path
 
 CURRICULUM_ROOT = PROJECT_ROOT / "curriculum" / "l2-uk-en"
 API_USAGE_DIR = PROJECT_ROOT / "batch_state" / "api_usage"

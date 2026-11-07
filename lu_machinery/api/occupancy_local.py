@@ -24,13 +24,13 @@ if __package__ in (None, ""):  # run as a file: put the repository root on sys.p
 
 from agents_extensions.shared.session_streams.db import SessionStreamDatabase
 from agents_extensions.shared.session_streams.model import parse_timestamp
-from scripts.api import config
-from scripts.api.occupancy_sanitize import occupant as _occupant
-from scripts.api.occupancy_sanitize import opaque_host_id as _opaque_host_id
-from scripts.api.occupancy_sanitize import producer_identity
-from scripts.api.occupancy_sanitize import safe_field as _safe_field
-from scripts.api.product_contribution import atlas_provider
-from scripts.api.repository_authority import preparation_data_root
+from lu_machinery.api import config
+from lu_machinery.api.occupancy_sanitize import occupant as _occupant
+from lu_machinery.api.occupancy_sanitize import opaque_host_id as _opaque_host_id
+from lu_machinery.api.occupancy_sanitize import producer_identity
+from lu_machinery.api.occupancy_sanitize import safe_field as _safe_field
+from lu_machinery.api.product_contribution import atlas_provider
+from lu_machinery.api.repository_authority import preparation_data_root
 
 ENV_DRIVER_HOST_ID = "MONITOR_OCCUPANCY_DRIVER_HOST_ID"
 ENV_MARKERS = "MONITOR_OCCUPANCY_MARKERS"
@@ -464,7 +464,7 @@ def resolve_launcher_host_id() -> str:
         return driver_host_id
 
     try:
-        from scripts.api.occupancy import parse_host_id_map  # noqa: PLC0415 — # lazy-ok: occupancy cycle breaker
+        from lu_machinery.api.occupancy import parse_host_id_map  # noqa: PLC0415 — # lazy-ok: occupancy cycle breaker
 
         mapping = parse_host_id_map()
         claimed = self_host_opaque_ids(mapping)

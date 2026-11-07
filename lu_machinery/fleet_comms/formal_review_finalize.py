@@ -21,16 +21,16 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from scripts.fleet_comms.formal_review_jobs import (
+from lu_machinery.fleet_comms.formal_review_jobs import (
     FormalReviewJobsError,
     FormalReviewJobService,
 )
-from scripts.fleet_comms.review_ground_truth import (
+from lu_machinery.fleet_comms.review_ground_truth import (
     ReviewGroundTruthError,
     fetch_pr_change_inventory,
     validate_findings_against_inventory,
 )
-from scripts.fleet_comms.review_publication import (
+from lu_machinery.fleet_comms.review_publication import (
     DEFAULT_GATE_KIND,
     ReviewEvidence,
     ReviewPublicationError,
@@ -41,7 +41,7 @@ from scripts.fleet_comms.review_publication import (
     resolve_verdict_and_evidence,
     validate_review_gate_input,
 )
-from scripts.fleet_comms.review_publisher import (
+from lu_machinery.fleet_comms.review_publisher import (
     ReviewPublisherError,
     fetch_pr_head_sha,
     publish_sealed_verdict,

@@ -67,13 +67,13 @@ hard-code or invent a server host.
    capacity, or permission to widen.
 6. Fall back deterministically without abandoning API-first behavior:
    - orient: `git status --short --branch`, lane-scoped `gh pr list`, and
-     `.venv/bin/python -m scripts.fleet_comms plane-status`;
+     `.venv/bin/python -m lu_machinery.fleet_comms plane-status`;
    - rules/session: the exact source files named by the manifest;
-   - issue membership: `scripts/config/fleet_taxonomy.yaml`,
-     `scripts/config/issue_streams.yaml`, and
-     `.venv/bin/python -m scripts.orchestration.issue_stream_audit`;
+   - issue membership: `lu_machinery/config/fleet_taxonomy.yaml`,
+     `lu_machinery/config/issue_streams.yaml`, and
+     `.venv/bin/python -m lu_machinery.orchestration.issue_stream_audit`;
    - worktrees: `git worktree list --porcelain`;
-   - runtime inventory: `scripts/config/model_catalog.yaml`;
+   - runtime inventory: `lu_machinery/config/model_catalog.yaml`;
    - fresh Codex transport:
      `.venv/bin/python -m scripts.orchestration.codex_transport_health status
      --json`; only the bounded launcher/probe command may refresh it;
@@ -86,7 +86,7 @@ hard-code or invent a server host.
 
 ## Resolve exactly one area and focus epic
 
-- Resolve `TARGET` through `scripts/config/fleet_taxonomy.yaml`. An area is the
+- Resolve `TARGET` through `lu_machinery/config/fleet_taxonomy.yaml`. An area is the
   projection of its registered epics, not another backlog or independently
   edited plan.
 - Prefer an exact operator target, `SESSION_EPIC`, valid launcher lease, or
@@ -134,8 +134,8 @@ first. Then query the fleet capacity commands as the local quota and health
 probe (`codexbar usage` is retired, 2026-10-16):
 
 ```bash
-.venv/bin/python -m scripts.fleet.capacity_pick --json
-.venv/bin/python -m scripts.fleet.usage show
+.venv/bin/python -m lu_machinery.fleet.capacity_pick --json
+.venv/bin/python -m lu_machinery.fleet.usage show
 ```
 
 - If direct Gemini is unauthenticated, use the Antigravity Google AI Ultra
@@ -227,7 +227,7 @@ cross-family review.
 - Native children are OpenAI-family helpers and never satisfy the independent
   cross-family review gate.
 
-External work uses `.venv/bin/python scripts/dispatch.py dispatch` with a
+External work uses `.venv/bin/python lu_machinery/dispatch.py dispatch` with a
 stable task ID, exact agent/model/harness, explicit mode, lifecycle ledger,
 worktree for writes, and deliberate research classification:
 
@@ -243,7 +243,7 @@ owned paths, lifecycle, state, evidence, PR, reviewer, and disposition.
 
 ## Fleet-comms, trails, review, and closeout
 
-- Run `.venv/bin/python -m scripts.fleet_comms plane-status` before assuming
+- Run `.venv/bin/python -m lu_machinery.fleet_comms plane-status` before assuming
   message-plane behavior. Use its metrics, bottleneck, backlog, and
   dead-letter surfaces when the cycle needs them.
 - Drain and acknowledge the exact live-driver inbox at the boundaries required
@@ -251,8 +251,8 @@ owned paths, lifecycle, state, evidence, PR, reviewer, and disposition.
 - File handoffs remain authoritative in `off`, `shadow`, and `dual_write`.
   Keep the exact lane diary and session stream current; never flip plane mode,
   retention, eligibility, or authority.
-- Validate the relevant `*.trail.yaml` files in `scripts/config/trails/` with
-  `.venv/bin/python -m scripts.orchestration.validate_trailspec` and the
+- Validate the relevant `*.trail.yaml` files in `lu_machinery/config/trails/` with
+  `.venv/bin/python -m lu_machinery.orchestration.validate_trailspec` and the
   decision tables. Follow RB-1 through RB-6 as procedure specifications:
   orientation, dispatch, PR lifecycle, red-CI triage, session close, and estate
   probes.

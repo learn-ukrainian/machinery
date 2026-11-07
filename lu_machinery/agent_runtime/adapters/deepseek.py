@@ -19,7 +19,7 @@ import re
 import shutil
 from pathlib import Path
 
-from scripts.review.model_catalog import retired_model_refusal
+from lu_machinery.review.model_catalog import retired_model_refusal
 
 from ..failure_codes import opencode_provider_error, provider_failure_code, provider_stderr_error
 from ..result import ParseResult
@@ -189,7 +189,7 @@ class DeepSeekAdapter:
         _ = (output_file, call_start_time)
 
         try:
-            from scripts.ai_agent_bridge._opencode import _parse_opencode_stream, read_opencode_turn_status
+            from lu_machinery.ai_agent_bridge._opencode import _parse_opencode_stream, read_opencode_turn_status
         except ModuleNotFoundError:  # pragma: no cover - direct-script runs with only scripts/ on sys.path
             from ai_agent_bridge._opencode import _parse_opencode_stream, read_opencode_turn_status
 

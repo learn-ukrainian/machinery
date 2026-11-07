@@ -22,7 +22,7 @@ DISPATCH_LEASE_PREFIX = "codex-read-only-"
 
 
 def _base() -> Path:
-    from scripts.common.scratch import resolve_scratch_root
+    from lu_machinery.common.scratch import resolve_scratch_root
 
     return Path(os.environ.get("LU_RUNTIME_TMP_BASE_ROOT") or resolve_scratch_root())
 

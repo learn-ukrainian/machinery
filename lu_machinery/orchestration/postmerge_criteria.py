@@ -15,10 +15,10 @@ from pathlib import Path
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from scripts.common import github_client
-from scripts.fleet_comms.authority import AuthorityService
-from scripts.orchestration import task_lifecycle
-from scripts.publish.github import publish, read
+from lu_machinery.common import github_client
+from lu_machinery.fleet_comms.authority import AuthorityService
+from lu_machinery.orchestration import task_lifecycle
+from lu_machinery.publish.github import publish, read
 
 # This package's import name, from the unresolved file location: never from __package__, which a
 # short import spelling (orchestration.x with scripts/ on sys.path) shortens. Its dotted parts

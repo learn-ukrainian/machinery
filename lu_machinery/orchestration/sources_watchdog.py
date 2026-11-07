@@ -63,9 +63,9 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from scripts.common.repo_root import ProductRootError
-from scripts.common.repo_root import product_root as resolve_product_root
-from scripts.ops.product_entry import ConfiguredModuleError, load_configured_module
+from lu_machinery.common.repo_root import ProductRootError
+from lu_machinery.common.repo_root import product_root as resolve_product_root
+from lu_machinery.ops.product_entry import ConfiguredModuleError, load_configured_module
 
 # The product data file that names the hang-diagnostics module, relative to the product root.
 HANG_DIAGNOSTICS_FILE = Path("scripts/rag/hang_diagnostics.v1.json")
@@ -704,7 +704,7 @@ def run_once(config: Config, host: Host) -> str:
 
 
 def default_publisher() -> Callable[[str, str], None]:
-    from scripts.orchestration.backup_failure_alert import fleet_comms_publisher
+    from lu_machinery.orchestration.backup_failure_alert import fleet_comms_publisher
 
     return fleet_comms_publisher(PROJECT_ROOT)
 

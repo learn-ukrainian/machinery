@@ -7,8 +7,8 @@ from pathlib import Path
 
 # Executed by the shim as a file, so imports do not depend on caller cwd.
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-from scripts.opsec.gh_snapshot import admit
-from scripts.opsec.prepublish import PublishBlocked, internal_environment, real_gh
+from lu_machinery.opsec.gh_snapshot import admit
+from lu_machinery.opsec.prepublish import PublishBlocked, internal_environment, real_gh
 
 
 def main() -> int:
@@ -20,7 +20,7 @@ def main() -> int:
         real = real_gh(environment)
         environment["AGENT_REAL_GH"] = real
         frozen = admit(argv, cwd=Path.cwd(), environment=environment)
-        from scripts.common import github_client
+        from lu_machinery.common import github_client
 
         return github_client.run(["gh", *frozen.argv], env=environment, native=True, timeout=None).returncode
     except PublishBlocked as exc:

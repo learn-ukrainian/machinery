@@ -20,14 +20,14 @@ from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode, urlsplit
 
-from scripts.common import github_client
-from scripts.control_plane.storage import StoreId
-from scripts.control_plane.storage import connect as cp_connect
-from scripts.orchestration import reaper_lifecycle, worktree_artifacts, worktree_claims
-from scripts.orchestration.dead_worker_state import worker_liveness
-from scripts.orchestration.execution_safe_git import COMMIT_COMMANDS, REMOTE_COMMANDS
-from scripts.orchestration.execution_safe_git import run_git as safe_git
-from scripts.orchestration.fleet_repos import canonical_repository, pull_request_repository
+from lu_machinery.common import github_client
+from lu_machinery.control_plane.storage import StoreId
+from lu_machinery.control_plane.storage import connect as cp_connect
+from lu_machinery.orchestration import reaper_lifecycle, worktree_artifacts, worktree_claims
+from lu_machinery.orchestration.dead_worker_state import worker_liveness
+from lu_machinery.orchestration.execution_safe_git import COMMIT_COMMANDS, REMOTE_COMMANDS
+from lu_machinery.orchestration.execution_safe_git import run_git as safe_git
+from lu_machinery.orchestration.fleet_repos import canonical_repository, pull_request_repository
 
 _GIT_ENV_DENYLIST = {
     "GIT_DIR",
@@ -1282,7 +1282,7 @@ def _switched_branch_structural_cohort(
     checkout that is still on the creator's branch, retention intent, or a
     successor that is not reused and terminal stays ambiguous.
     """
-    from scripts.fleet import ignored_task_output
+    from lu_machinery.fleet import ignored_task_output
 
     cohort = ignored_task_output._current_reuse_records(matches, tasks_dir)
     creators = [item for item in cohort if ignored_task_output.record_created_worktree(item[1])]
@@ -1349,7 +1349,7 @@ def _resolve_merged_reuse_creator(
     An exact MERGED source head may bind a cohort without one creator. Its
     first record holds the preservation receipt, without becoming a creator.
     """
-    from scripts.fleet import ignored_task_output
+    from lu_machinery.fleet import ignored_task_output
 
     try:
         path, creator = ignored_task_output.reused_worktree_creator(
@@ -1567,7 +1567,7 @@ def _switched_branch_merge_proven(
     still names the dispatch-time branch. Unknown git objects, a dirty tree,
     a live or unknown process, and any commit that is not an ancestor retain.
     """
-    from scripts.fleet import ignored_task_output
+    from lu_machinery.fleet import ignored_task_output
 
     # Prove Git identity before querying a pull request or authorizing deletion.
     pr_repo = _checkout_pr_repository(worktree)
@@ -1619,7 +1619,7 @@ def _preservation_merged_creator(
     matches: list[tuple[Path, dict[str, Any]]], worktree: Path, *, repo_root: Path, tasks_dir: Path
 ) -> tuple[Path, dict[str, Any]]:
     """Consume the reaper's proof using current identities and local Git under its lock."""
-    from scripts.fleet import ignored_task_output as output
+    from lu_machinery.fleet import ignored_task_output as output
 
     cohort = output._current_reuse_records(matches, tasks_dir)
     creators = [item for item in cohort if output.record_created_worktree(item[1])]

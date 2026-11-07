@@ -86,8 +86,8 @@ is_current_delegator() {
 # (default_install_hook_types, default_stages, and every hook's stages).
 declared_stages() {
     local config="$1"
-    (cd "$repo_root" && bash scripts/pre_commit/project_python.sh \
-        scripts/pre_commit/declared_hook_stages.py "$config")
+    (cd "$repo_root" && bash lu_machinery/pre_commit/project_python.sh \
+        lu_machinery/pre_commit/declared_hook_stages.py "$config")
 }
 
 run_check() {

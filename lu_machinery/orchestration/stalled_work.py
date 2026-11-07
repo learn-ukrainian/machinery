@@ -20,14 +20,14 @@ from typing import Any
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from scripts.common.task_store_paths import tasks_dir as default_tasks_dir
-from scripts.fleet.ignored_task_output import succession_streams
-from scripts.fleet_comms.authority import AuthorityService
-from scripts.orchestration import stale_task_records as stale
-from scripts.orchestration.integration_sweep import GitHubAdapter, SweepError, lookup_verdict
-from scripts.orchestration.task_record_store import iter_task_records, read_task_record
-from scripts.orchestration.validate_fleet_taxonomy import ASSIGNMENTS_PATH, TAXONOMY_PATH, _load_yaml
-from scripts.orchestration.worktree_claims import RELEASED_TASK_STATUSES
+from lu_machinery.common.task_store_paths import tasks_dir as default_tasks_dir
+from lu_machinery.fleet.ignored_task_output import succession_streams
+from lu_machinery.fleet_comms.authority import AuthorityService
+from lu_machinery.orchestration import stale_task_records as stale
+from lu_machinery.orchestration.integration_sweep import GitHubAdapter, SweepError, lookup_verdict
+from lu_machinery.orchestration.task_record_store import iter_task_records, read_task_record
+from lu_machinery.orchestration.validate_fleet_taxonomy import ASSIGNMENTS_PATH, TAXONOMY_PATH, _load_yaml
+from lu_machinery.orchestration.worktree_claims import RELEASED_TASK_STATUSES
 
 # This package's import name, from the unresolved file location: never from __package__, which a
 # short import spelling (orchestration.x with scripts/ on sys.path) shortens. Its dotted parts

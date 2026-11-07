@@ -22,8 +22,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from scripts.common.repo_root import resolve_repo_root
-from scripts.secret_redactor import redact_text
+from lu_machinery.common.repo_root import resolve_repo_root
+from lu_machinery.secret_redactor import redact_text
 
 _REPO_ROOT = resolve_repo_root(Path(__file__), 2)
 
@@ -250,11 +250,11 @@ def public_causes() -> frozenset[str]:
     incomplete-run reasons, the bounded-advisory refusal and gate codes, the
     exit-scan reasons, and the completion-gate and delivery causes.
     """
-    from scripts.agent_runtime import bounded_advisory
-    from scripts.agent_runtime.adapters.agy import AGY_INCOMPLETE_RUN_REASONS
-    from scripts.agent_runtime.attempt_boundary import CLAUDE_ACCOUNT_REFUSAL_CODES
-    from scripts.agent_runtime.failure_codes import RUNTIME_FAILURE_CODES
-    from scripts.orchestration import worker_leftovers
+    from lu_machinery.agent_runtime import bounded_advisory
+    from lu_machinery.agent_runtime.adapters.agy import AGY_INCOMPLETE_RUN_REASONS
+    from lu_machinery.agent_runtime.attempt_boundary import CLAUDE_ACCOUNT_REFUSAL_CODES
+    from lu_machinery.agent_runtime.failure_codes import RUNTIME_FAILURE_CODES
+    from lu_machinery.orchestration import worker_leftovers
 
     advisory = {
         getattr(bounded_advisory, name)

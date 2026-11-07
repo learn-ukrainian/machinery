@@ -407,7 +407,7 @@ def writable_store_refusal(database: str | os.PathLike[str]) -> str | None:
     store needs this process to hold its writer lock (or to have inherited it),
     and the path must resolve to the generation the selector selects now.
     """
-    from scripts.storage.topology import inspect_selector, store_kind
+    from lu_machinery.storage.topology import inspect_selector, store_kind
 
     ref = store_kind(database)
     if ref.kind == "other":

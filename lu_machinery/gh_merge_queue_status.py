@@ -25,13 +25,13 @@ _REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
-from scripts.ci.ci_timings import (
+from lu_machinery.ci.ci_timings import (
     _gh_env,
     extract_pr_number,
     resolve_repository,
 )
-from scripts.common import github_client
-from scripts.publish.github import read
+from lu_machinery.common import github_client
+from lu_machinery.publish.github import read
 
 
 def parse_pr_identifier(value: str | int) -> int:

@@ -20,7 +20,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-from scripts.orchestration.fleet_repos import FleetRepo, load_fleet_repos
+from lu_machinery.orchestration.fleet_repos import FleetRepo, load_fleet_repos
 
 # This package's import name, from the unresolved file location: never from __package__, which a
 # short import spelling (orchestration.x with scripts/ on sys.path) shortens. Its dotted parts

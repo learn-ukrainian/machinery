@@ -17,16 +17,16 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from scripts.common import github_client
-from scripts.common.git_context import sanitized_git_env
-from scripts.guardrails.worktree_containment import (
+from lu_machinery.common import github_client
+from lu_machinery.common.git_context import sanitized_git_env
+from lu_machinery.guardrails.worktree_containment import (
     PROTECTED_BRANCHES,
     resolve_main_root,
 )
-from scripts.orchestration import worktree_claims
-from scripts.orchestration.execution_safe_git import REMOTE_COMMANDS
-from scripts.orchestration.execution_safe_git import run_git as safe_git
-from scripts.orchestration.fleet_repos import pull_request_repository
+from lu_machinery.orchestration import worktree_claims
+from lu_machinery.orchestration.execution_safe_git import REMOTE_COMMANDS
+from lu_machinery.orchestration.execution_safe_git import run_git as safe_git
+from lu_machinery.orchestration.fleet_repos import pull_request_repository
 
 
 class GitSafetyError(RuntimeError):
@@ -518,7 +518,7 @@ def query_pr_by_head(
     pr_number: int | None = None,
     timeout: float = 30.0,
 ) -> dict[str, Any]:
-    from scripts.orchestration.worktree_git import _pr_repository, _scope_pr_rows
+    from lu_machinery.orchestration.worktree_git import _pr_repository, _scope_pr_rows
 
     repository = _pr_repository(repo_root)
     repo_args = ["--repo", repository] if repository else []

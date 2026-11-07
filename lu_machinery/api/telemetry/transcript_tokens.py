@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from scripts.lib.session_record import canonical_state_root, read_record
+from lu_machinery.lib.session_record import canonical_state_root, read_record
 
 
 @dataclass(frozen=True, slots=True)

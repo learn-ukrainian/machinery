@@ -55,7 +55,7 @@ Admission summaries and task records include the shadow diagnostic.
 After collecting a UTC calendar day, run the comparison from the project environment:
 
 ```bash
-.venv/bin/python -m scripts.orchestration.admission_shadow \
+.venv/bin/python -m lu_machinery.orchestration.admission_shadow \
   --directory batch_state/admission-shadow --day YYYY-MM-DD
 ```
 

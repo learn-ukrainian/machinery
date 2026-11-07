@@ -34,7 +34,7 @@ import re
 import subprocess
 from pathlib import Path
 
-from scripts.common import github_client
+from lu_machinery.common import github_client
 
 DEFAULT_PROBE_TIMEOUT_SECONDS = 30.0
 _REPO_SLUG_TIMEOUT_SECONDS = 15.0

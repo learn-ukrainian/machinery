@@ -26,8 +26,8 @@ import subprocess
 import sys
 from pathlib import Path
 
-from scripts.ci._location import checkout_relative, module_name
-from scripts.ci.audit_dependencies import (
+from lu_machinery.ci._location import checkout_relative, module_name
+from lu_machinery.ci.audit_dependencies import (
     filter_npm_audit_vulnerabilities,
     load_npm_audit_ignores,
     load_pip_audit_ignores,

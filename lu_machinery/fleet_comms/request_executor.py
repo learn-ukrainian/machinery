@@ -18,20 +18,20 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-from scripts.agent_runtime.kimi_admission import ACP_MODE
-from scripts.agent_runtime.target_admission import resolve_and_admit, stored_kimi_request
-from scripts.control_plane.storage import (
+from lu_machinery.agent_runtime.kimi_admission import ACP_MODE
+from lu_machinery.agent_runtime.target_admission import resolve_and_admit, stored_kimi_request
+from lu_machinery.control_plane.storage import (
     Authority,
     ControlPlaneUnsupportedComponentError,
     StoreId,
     assert_component_supported,
 )
-from scripts.fleet_comms.adapter_conformance import CaptureInput, conform, parse_capture_events
-from scripts.fleet_comms.artifacts import ArtifactStore
-from scripts.fleet_comms.contracts import CompletionState, ResponseEnvelope, new_id
-from scripts.fleet_comms.endpoints import EndpointRegistry, load_endpoint_registry
-from scripts.fleet_comms.migrations import apply_migrations
-from scripts.fleet_comms.pg_schema import apply_pg_schema
+from lu_machinery.fleet_comms.adapter_conformance import CaptureInput, conform, parse_capture_events
+from lu_machinery.fleet_comms.artifacts import ArtifactStore
+from lu_machinery.fleet_comms.contracts import CompletionState, ResponseEnvelope, new_id
+from lu_machinery.fleet_comms.endpoints import EndpointRegistry, load_endpoint_registry
+from lu_machinery.fleet_comms.migrations import apply_migrations
+from lu_machinery.fleet_comms.pg_schema import apply_pg_schema
 
 REQUEST_STATES = frozenset(
     {"queued", "running", "complete", "incomplete", "failed", "expired", "dead_lettered"}
@@ -672,8 +672,8 @@ class RequestExecutor:
         """Resolve frozen slot + A3 packet, build the source-blind author
         prompt internally, and bind the still-queued request. Does not
         accept a row/packet/content hash from the caller."""
-        from scripts.fleet_comms import v4_canonical_authority_store as v4_store
-        from scripts.fleet_comms import v4_execution_origin as origin
+        from lu_machinery.fleet_comms import v4_canonical_authority_store as v4_store
+        from lu_machinery.fleet_comms import v4_execution_origin as origin
 
         packet_sha256 = origin.load_a3_packet_commitment()
         origin.load_frozen_slot(slot_id)
@@ -710,8 +710,8 @@ class RequestExecutor:
         """Resolve the author receipt + fixed rubric internally, build the
         exact review prompt, and bind the still-queued request. Does not
         accept packet/rubric/content hashes from the caller."""
-        from scripts.fleet_comms import v4_canonical_authority_store as v4_store
-        from scripts.fleet_comms import v4_execution_origin as origin
+        from lu_machinery.fleet_comms import v4_canonical_authority_store as v4_store
+        from lu_machinery.fleet_comms import v4_execution_origin as origin
 
         packet_sha256 = origin.load_a3_packet_commitment()
         rubric_sha256 = origin.load_review_rubric_sha256()
@@ -750,7 +750,7 @@ class RequestExecutor:
         return {**binding, "authorized_prompt": prompt}
 
     def resolve_v4_execution_dispatch_binding(self, *, request_id: str) -> dict[str, Any] | None:
-        from scripts.fleet_comms import v4_canonical_authority_store as v4_store
+        from lu_machinery.fleet_comms import v4_canonical_authority_store as v4_store
 
         return v4_store.resolve_execution_dispatch_binding(request_id=request_id, conn=self._conn, is_pg=self._is_pg)
 
@@ -759,7 +759,7 @@ class RequestExecutor:
 
     def resolve_authorized_prompt(self, *, request_id: str) -> str:
         """Reconstruct the exact authorized prompt from the frozen binding."""
-        from scripts.fleet_comms import v4_execution_origin as origin
+        from lu_machinery.fleet_comms import v4_execution_origin as origin
 
         binding = self.resolve_v4_execution_dispatch_binding(request_id=request_id)
         if binding is None:
@@ -787,8 +787,8 @@ class RequestExecutor:
         runner immediately before Popen."""
         if self._is_pg:
             raise RequestExecutorError("legacy V4 runner claim is retired; use the protected packaged V4 service runtime")
-        from scripts.fleet_comms import v4_canonical_authority_store as v4_store
-        from scripts.fleet_comms import v4_execution_origin as origin
+        from lu_machinery.fleet_comms import v4_canonical_authority_store as v4_store
+        from lu_machinery.fleet_comms import v4_execution_origin as origin
 
         now_s = _iso(_utc_now())
         ph = "%s" if self._is_pg else "?"
@@ -872,7 +872,7 @@ class RequestExecutor:
         raise RequestExecutorError("caller-shaped V4 observations are retired; protected parent capture is required")
 
     def persist_v4_authorship_receipt(self, receipt: dict[str, Any], *, task_id: str, run_id: str) -> None:
-        from scripts.fleet_comms import v4_canonical_authority_store as v4_store
+        from lu_machinery.fleet_comms import v4_canonical_authority_store as v4_store
 
         with self.store._transaction() as conn:
             v4_store.persist_authorship_receipt(receipt, task_id=task_id, run_id=run_id, conn=conn, is_pg=self._is_pg, commit=False)

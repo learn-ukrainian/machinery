@@ -49,7 +49,7 @@ from typing import Literal
 # broke every write-capable dispatch spawn (fail-closed refusal) after the
 # #4931 relocation. Keep both flavors resolvable.
 try:
-    from scripts.common.git_context import GIT_REDIRECT_ENV_KEYS, sanitized_git_env
+    from lu_machinery.common.git_context import GIT_REDIRECT_ENV_KEYS, sanitized_git_env
 except ImportError:  # scripts/ on sys.path (stripped flavor)
     from common.git_context import GIT_REDIRECT_ENV_KEYS, sanitized_git_env  # type: ignore[no-redef]
 

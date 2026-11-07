@@ -42,15 +42,15 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from scripts.common.git_context import GIT_REDIRECT_ENV_KEYS
-from scripts.common.jsonl import jsonl_lines
-from scripts.common.scratch import ScratchScanRootError, ensure_scratch_root, scratch_scan_roots
-from scripts.orchestration.thread_handoff import (
+from lu_machinery.common.git_context import GIT_REDIRECT_ENV_KEYS
+from lu_machinery.common.jsonl import jsonl_lines
+from lu_machinery.common.scratch import ScratchScanRootError, ensure_scratch_root, scratch_scan_roots
+from lu_machinery.orchestration.thread_handoff import (
     _default_machine_id,
     _default_process_snapshot,
     _process_is_alive,
 )
-from scripts.utils.claude_version import _parse_claude_semver
+from lu_machinery.utils.claude_version import _parse_claude_semver
 
 ISOLATION_POLICY_VERSION = "review-isolation-v2"
 CLAUDE_MIN_SUPPORTED_CLI_VERSION = (2, 1, 116)
@@ -321,7 +321,7 @@ def _remove_review_temp_tree(root: Path) -> None:
     # before scanning so legitimate scratch trees remain removable.
     restore_review_temp_tree_permissions(root)
     # Legacy review scratch names must never authorize worktree removal.
-    from scripts.orchestration.tmp_leak_sweep import refuse_git_checkout_removal
+    from lu_machinery.orchestration.tmp_leak_sweep import refuse_git_checkout_removal
 
     try:
         refuse_git_checkout_removal(root)
@@ -2520,7 +2520,7 @@ def build_claude_review_argv(
     Pure: it carries the background-tool denies (#9750) but spawns nothing;
     ``run_claude_review`` runs it with the environment controls.
     """
-    from scripts.agent_runtime.adapters.claude import headless_claude_argv
+    from lu_machinery.agent_runtime.adapters.claude import headless_claude_argv
 
     if capabilities is not None:
         require_engine_isolation(capabilities)
@@ -2560,7 +2560,7 @@ def run_claude_review(
     the child gets it plus the background controls only, never the ambient
     environment, because the run ends with its final turn (#9750).
     """
-    from scripts.agent_runtime.adapters.claude import run_headless_claude
+    from lu_machinery.agent_runtime.adapters.claude import run_headless_claude
 
     argv = build_claude_review_argv(
         binary, prompt=prompt, json_schema=json_schema, model=model, capabilities=capabilities
@@ -2697,7 +2697,7 @@ def canonical_isolated_review_schema(changed_paths: Sequence[str]) -> dict[str, 
     Target identity remains parent-owned isolation evidence; reviewer output
     uses the repository-wide ``code-review-findings.v1`` contract unchanged.
     """
-    from scripts.review.review_contract import load_schema
+    from lu_machinery.review.review_contract import load_schema
 
     paths = list(dict.fromkeys(changed_paths))
     if not all(isinstance(path, str) and path for path in paths):
@@ -2726,7 +2726,7 @@ def transport_isolated_review_schema() -> dict[str, Any]:
     :func:`canonical_isolated_review_schema`. Embedding every changed path in
     one ``--json-schema`` argument can exceed the kernel's per-argument limit.
     """
-    from scripts.review.review_contract import load_schema
+    from lu_machinery.review.review_contract import load_schema
 
     schema = copy.deepcopy(load_schema())
     schema.pop("$schema", None)
@@ -4087,7 +4087,7 @@ def prepare_isolated_review_launch(
     if not (is_within(work_cwd, snap) or is_within(work_cwd, write)):
         raise ReviewIsolationError(f"review_cwd_outside_isolation_roots:{work_cwd}")
     if engine_key == "codex":
-        from scripts.agent_runtime.adapters.codex import _codex_config_layers, _validate_review_mcp_layers
+        from lu_machinery.agent_runtime.adapters.codex import _codex_config_layers, _validate_review_mcp_layers
 
         # Signed-in cloud config is invisible before auth staging. Use the
         # pinned binary, cwd, environment, sandbox and home that will launch;

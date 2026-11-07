@@ -17,9 +17,9 @@ import subprocess
 import sys
 from pathlib import Path
 
-from scripts.storage import generations
-from scripts.storage.topology import resolve_topology
-from scripts.storage.wal_permissions import hold_database, lift_database
+from lu_machinery.storage import generations
+from lu_machinery.storage.topology import resolve_topology
+from lu_machinery.storage.wal_permissions import hold_database, lift_database
 
 
 def _machinery_top() -> str:

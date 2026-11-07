@@ -27,8 +27,8 @@ There is no default model and no substitution.
 
 ```bash
 # Direct ask-* cross-family review (replaces removed review-pr):
-.venv/bin/python scripts/ai_agent_bridge/__main__.py ask-claude - --type review --pr <N> --task-id review-<N> < prompt.md
-.venv/bin/python scripts/ai_agent_bridge/__main__.py ask-codex - --type review --pr <N> --task-id review-<N> < prompt.md
+.venv/bin/python lu_machinery/ai_agent_bridge/__main__.py ask-claude - --type review --pr <N> --task-id review-<N> < prompt.md
+.venv/bin/python lu_machinery/ai_agent_bridge/__main__.py ask-codex - --type review --pr <N> --task-id review-<N> < prompt.md
 ```
 
 ## Retired flip criteria (historical; Kimi takes no review role)

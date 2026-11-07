@@ -117,9 +117,9 @@ from typing import Any
 if __package__ in (None, ""):  # run as a file: put the repository root on sys.path
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from scripts.common import test_slots
-from scripts.orchestration import admission_shadow, pool_headroom, product_policy, task_record_store, worktree_prep
-from scripts.orchestration.dispatch_isolation import slice_usage_clause
+from lu_machinery.common import test_slots
+from lu_machinery.orchestration import admission_shadow, pool_headroom, product_policy, task_record_store, worktree_prep
+from lu_machinery.orchestration.dispatch_isolation import slice_usage_clause
 
 # This package's import name, from the unresolved file location: never from __package__, which a
 # short import spelling (orchestration.x with scripts/ on sys.path) shortens. Its dotted parts
@@ -466,7 +466,7 @@ def required_review_receipts(author_families: Iterable[str]) -> frozenset[str]:
 
 def config_defaults() -> Thresholds:
     try:
-        from scripts import config
+        from lu_machinery import config
     except ImportError:  # pragma: no cover - flat script path
         import config  # type: ignore[no-redef]
 
@@ -707,7 +707,7 @@ def probe_test_slots() -> SlotQueueProbe:
 
 def primary_checkout() -> Path:
     """The primary checkout that owns ``.worktrees/``, also from a linked worktree."""
-    from scripts.common.repo_root import main_checkout_root
+    from lu_machinery.common.repo_root import main_checkout_root
 
     return main_checkout_root(Path(__file__).resolve().parents[2])
 
@@ -800,7 +800,7 @@ def post_disk_alert(body: str, idempotency_key: str) -> None:
     """
     if os.environ.get("PYTEST_CURRENT_TEST") and os.environ.get("LU_TEST_DISPATCH_HEALTHY_HOST") == "1":
         raise RuntimeError("test host: alerts are not published")
-    from scripts.common.repo_root import project_interpreter
+    from lu_machinery.common.repo_root import project_interpreter
 
     root = primary_checkout()
     try:
@@ -810,7 +810,7 @@ def post_disk_alert(body: str, idempotency_key: str) -> None:
     command = [
         str(interpreter),
         "-m",
-        "scripts.fleet_comms",
+        "lu_machinery.fleet_comms",
         "channel",
         "publish",
         DISK_ALERT_CHANNEL,
@@ -1001,7 +1001,7 @@ def _age_s(started_at: Any, now: datetime) -> float | None:
 
 def new_admission_hold(run_nonce: str) -> dict[str, Any]:
     """This dispatcher's claim on an admitted slot: run, pid and ``/proc`` start time."""
-    from scripts.orchestration.dead_worker_state import capture_worker_identity
+    from lu_machinery.orchestration.dead_worker_state import capture_worker_identity
 
     owner = capture_worker_identity(os.getpid(), self_process=True)
     return {
@@ -1119,7 +1119,7 @@ def scan_task_records(
                 # add runs. A missing pid is proof it is gone even on a host
                 # without /proc, where only the pid can be checked.
                 if "owner_identity" in owner:
-                    from scripts.orchestration.dead_worker_state import worker_liveness
+                    from lu_machinery.orchestration.dead_worker_state import worker_liveness
 
                     owner_live = worker_liveness({"pid": owner_pid, "worker_identity": owner["owner_identity"]}) is not False
                 else:

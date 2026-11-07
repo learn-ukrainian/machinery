@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Any
 
 try:
-    from scripts.lib.readonly_sqlite import SQLiteConnection
+    from lu_machinery.lib.readonly_sqlite import SQLiteConnection
 except ModuleNotFoundError as exc:
     # Only this package's own absence selects the short spelling; its name comes from this
     # file's unresolved location (design-v1 amendment 1), never __package__.
@@ -30,11 +30,11 @@ except ModuleNotFoundError as exc:
 
 from agents_extensions.shared.session_streams.db import SessionStreamDatabase, default_database_path
 from agents_extensions.shared.session_streams.model import parse_timestamp
-from scripts.ai_agent_bridge import _channels
-from scripts.ai_agent_bridge._db import get_db
-from scripts.fleet_comms.efficiency_metrics import collect_stream_bottleneck_metrics
-from scripts.fleet_comms.message_plane import default_plane_root
-from scripts.orchestration.task_record_store import read_task_record
+from lu_machinery.ai_agent_bridge import _channels
+from lu_machinery.ai_agent_bridge._db import get_db
+from lu_machinery.fleet_comms.efficiency_metrics import collect_stream_bottleneck_metrics
+from lu_machinery.fleet_comms.message_plane import default_plane_root
+from lu_machinery.orchestration.task_record_store import read_task_record
 
 logger = logging.getLogger(__name__)
 
@@ -345,7 +345,7 @@ def is_public_cause(value: object) -> bool:
 
 def _scan_finalization_attention(*, task_root: Path, now: datetime) -> tuple[int, tuple[dict[str, str], ...]]:
     """Post once per aged task/run through the checkpoint's durable broker."""
-    from scripts.driver_blockers import finalization_age
+    from lu_machinery.driver_blockers import finalization_age
 
     if not task_root.is_dir():
         return 0, ({"source": "needs_finalize", "error": "task_store_unavailable"},)

@@ -103,7 +103,7 @@ esac
 if [ "$WINDOW_VALID" -eq 0 ]; then
   # Project root is selected at runtime.
   # shellcheck disable=SC1091
-  source "$PROJECT_DIR/scripts/lib/profile_resolver.sh" 2>/dev/null || exit 0
+  source "$PROJECT_DIR/lu_machinery/lib/profile_resolver.sh" 2>/dev/null || exit 0
   if ! resolve_context_profile \
     "${LEARN_UKRAINIAN_REQUESTED_PROFILE_ID:-${LEARN_UKRAINIAN_PROFILE_ID:-}}" \
     "${LEARN_UKRAINIAN_OBSERVED_MODEL_ID:-${LEARN_UKRAINIAN_MAIN_MODEL_ID:-}}" \
@@ -136,7 +136,7 @@ else
   HANDOFF_AGENT="claude"
 fi
 
-HANDOFF_IDENTITY_DEFAULT="$PROJECT_DIR/scripts/lib/handoff_identity.sh"
+HANDOFF_IDENTITY_DEFAULT="$PROJECT_DIR/lu_machinery/lib/handoff_identity.sh"
 HANDOFF_IDENTITY_SH="${CLAUDE_HANDOFF_IDENTITY_SH:-$HANDOFF_IDENTITY_DEFAULT}"
 if [ -f "$HANDOFF_IDENTITY_SH" ]; then
   # shellcheck disable=SC1090
@@ -157,9 +157,9 @@ fi
 # context-rollover-guard.sh can match the prepared lease to this session.
 # Task-identity values only the agent knows stay as <placeholders>.
 PREPARE_PY="<project interpreter>"
-if [ -f "$PROJECT_DIR/scripts/lib/project_interpreter.sh" ]; then
+if [ -f "$PROJECT_DIR/lu_machinery/lib/project_interpreter.sh" ]; then
   # shellcheck source=scripts/lib/project_interpreter.sh
-  source "$PROJECT_DIR/scripts/lib/project_interpreter.sh"
+  source "$PROJECT_DIR/lu_machinery/lib/project_interpreter.sh"
   if PREPARE_PY_RESOLVED=$(project_interpreter_resolve "$PROJECT_DIR" 2>/dev/null); then
     PREPARE_PY=$(printf '%q' "$PREPARE_PY_RESOLVED")
   fi
@@ -170,7 +170,7 @@ if [[ "${0:-}" == *"/.gemini/"* ]]; then
 else
   PREPARE_HARNESS="claude-code"
 fi
-PREPARE_SCRIPT=scripts/orchestration/thread_handoff.py
+PREPARE_SCRIPT=lu_machinery/orchestration/thread_handoff.py
 PREPARE_CMD="${PREPARE_PY} ${PREPARE_SCRIPT} prepare --agent ${HANDOFF_AGENT} --harness ${PREPARE_HARNESS} --active-thread-id $(printf '%q' "$SESSION_ID")"
 if [ -n "$ROLLOVER_STREAM" ]; then
   PREPARE_CMD="$PREPARE_CMD --stream $ROLLOVER_STREAM --stream-epic $ROLLOVER_STREAM_EPIC"

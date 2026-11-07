@@ -19,9 +19,9 @@ from agent_runtime.errors import (
     AgentUnavailableError,
     RateLimitedError,
 )
-from scripts.agent_runtime.agy_hook_config import provision_workspace_guard
-from scripts.common import github_client
-from scripts.common.scratch import ensure_scratch_root
+from lu_machinery.agent_runtime.agy_hook_config import provision_workspace_guard
+from lu_machinery.common import github_client
+from lu_machinery.common.scratch import ensure_scratch_root
 
 from ._ask_contract import (
     requested_effort,
@@ -273,7 +273,11 @@ def resolve_same_repo_pr_head(pr_number: int, *, repo_root: str) -> tuple[str, s
     number = int(pr_number)
     if number < 1:
         raise GeminiChangedPathListError(f"refusing to list files for PR {pr_number!r}")
-    from scripts.review.target_resolution import TargetResolutionError, _origin_github_repo, live_canonical_branch_head
+    from lu_machinery.review.target_resolution import (
+        TargetResolutionError,
+        _origin_github_repo,
+        live_canonical_branch_head,
+    )
 
     slug = _origin_github_repo(Path(repo_root))
     if slug is None:
@@ -305,7 +309,7 @@ def resolve_same_repo_pr_head(pr_number: int, *, repo_root: str) -> tuple[str, s
     sha = _full_git_sha(str(payload.get("headRefOid") or ""))
     if not isinstance(branch, str) or not branch.strip() or sha is None:
         raise GeminiChangedPathListError("PR payload has no head branch and full head SHA")
-    from scripts.common.git_context import UnsafeBranchNameError, validate_plain_branch_name
+    from lu_machinery.common.git_context import UnsafeBranchNameError, validate_plain_branch_name
 
     try:
         branch = validate_plain_branch_name(branch, repo_root=repo_root)
@@ -328,7 +332,7 @@ def list_commit_changed_paths(sha: str, *, repo_root: str) -> list[str]:
     pinned = _full_git_sha(sha)
     if pinned is None:
         raise GeminiChangedPathListError(f"refusing to diff non-SHA {sha!r}")
-    from scripts.common.git_context import sanitized_git_env
+    from lu_machinery.common.git_context import sanitized_git_env
 
     git_env = sanitized_git_env()
     _run_changed_path_command(
@@ -364,7 +368,7 @@ def list_branch_changed_paths(
     ``refs/remotes/origin/<name>`` instead of only FETCH_HEAD, then diff the
     SHA that fetch resolved. A stale tracking ref is never the diff base.
     """
-    from scripts.common.git_context import (
+    from lu_machinery.common.git_context import (
         UnsafeBranchNameError,
         origin_tracking_refspec,
         sanitized_git_env,
@@ -689,7 +693,7 @@ def process_for_agy(
 
     if not stdout_only:
         print(f"\n✅ Agy finished ({len(response)} chars)")
-    from scripts.agent_runtime.adapters.agy import agy_model_state
+    from lu_machinery.agent_runtime.adapters.agy import agy_model_state
 
     identity_state = agy_model_state(
         agent="agy", model=model, identity=result.model_identity,
@@ -790,7 +794,7 @@ def _handle_agy_error(msg: dict, message_id: int, reason: str) -> None:
     from ._ask_contract import failed_response_provenance
 
     data, from_model = failed_response_provenance(msg, bridge_model="agy-bridge-error", harness="agy")
-    from scripts.agent_runtime.adapters.agy import agy_model_state
+    from lu_machinery.agent_runtime.adapters.agy import agy_model_state
 
     identity_state = agy_model_state(
         agent="agy", model=_extract_target_model(msg) or _default_agy_model(),

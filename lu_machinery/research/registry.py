@@ -45,8 +45,8 @@ from typing import Any
 
 import yaml
 
-from scripts.common import repo_root
-from scripts.ops.product_entry import load_configured_module
+from lu_machinery.common import repo_root
+from lu_machinery.ops.product_entry import load_configured_module
 
 logger = logging.getLogger("research.registry")
 
@@ -184,7 +184,7 @@ def _live_repo_root() -> Path:
     """
     if _ROOT_OVERRIDE is not None:
         return _ROOT_OVERRIDE
-    from scripts.api.config import LIVE_REPO_ROOT  # lazy-ok: decouple matcher from API config
+    from lu_machinery.api.config import LIVE_REPO_ROOT  # lazy-ok: decouple matcher from API config
 
     return LIVE_REPO_ROOT
 

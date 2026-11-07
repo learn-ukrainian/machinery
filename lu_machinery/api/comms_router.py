@@ -43,16 +43,16 @@ from pathlib import Path
 from pydantic import BaseModel
 
 try:
-    from scripts.lib.readonly_sqlite import SQLiteConnection
+    from lu_machinery.lib.readonly_sqlite import SQLiteConnection
 except ModuleNotFoundError as exc:
     if exc.name != Path(os.path.abspath(__file__)).parents[1].name:
         raise
     from lib.readonly_sqlite import SQLiteConnection  # type: ignore[no-redef]
 
-from scripts.ai_agent_bridge.broker_indexes import apply as apply_broker_indexes
-from scripts.control_plane.storage import ControlPlaneError
-from scripts.fleet_comms.agent_success_metrics import collect_agent_success
-from scripts.fleet_comms.efficiency_metrics import (
+from lu_machinery.ai_agent_bridge.broker_indexes import apply as apply_broker_indexes
+from lu_machinery.control_plane.storage import ControlPlaneError
+from lu_machinery.fleet_comms.agent_success_metrics import collect_agent_success
+from lu_machinery.fleet_comms.efficiency_metrics import (
     collect_dead_letters,
     collect_dead_letters_authority,
     collect_delivery_backlog,
@@ -61,14 +61,14 @@ from scripts.fleet_comms.efficiency_metrics import (
     collect_efficiency_metrics_authority,
     resolve_metrics_source,
 )
-from scripts.fleet_comms.message_plane import read_plane_status, resolve_plane_mode
-from scripts.fleet_comms.migrations import apply_migrations
-from scripts.fleet_comms.opsec_store import (
+from lu_machinery.fleet_comms.message_plane import read_plane_status, resolve_plane_mode
+from lu_machinery.fleet_comms.migrations import apply_migrations
+from lu_machinery.fleet_comms.opsec_store import (
     COMMS_RESPONSE_SCHEMA_VERSION,
     comms_plane_store,
     legacy_broker_store,
 )
-from scripts.fleet_comms.paths import default_plane_root
+from lu_machinery.fleet_comms.paths import default_plane_root
 
 from .monitor_context import MonitorContext, get_ctx, resolve_context
 from .state_helpers import cache_get, cache_set
@@ -214,8 +214,8 @@ def _run_delivery_expiry_sweep(message_db: "os.PathLike[str]") -> None:
         # wherever this sweep runs. A bare `ai_agent_bridge` import here loads
         # a second sys.modules identity — and on the sweep's background thread
         # it did so at racy, xdist-order-dependent times.
-        from scripts.ai_agent_bridge import _channels as _ch  # noqa: PLC0415 — optional broker bridge
-        from scripts.ai_agent_bridge import _db as _ch_db  # noqa: PLC0415 — optional broker bridge
+        from lu_machinery.ai_agent_bridge import _channels as _ch  # noqa: PLC0415 — optional broker bridge
+        from lu_machinery.ai_agent_bridge import _db as _ch_db  # noqa: PLC0415 — optional broker bridge
     except Exception:
         logger.exception(
             "bridge delivery-expiry sweep: %s.ai_agent_bridge not importable",
@@ -1179,7 +1179,7 @@ async def list_channels_endpoint(ctx: MonitorContext = Depends(get_ctx)):
 @router.get("/channels/{name}")
 async def get_channel_endpoint(name: str, ctx: MonitorContext = Depends(get_ctx)):
     """Channel metadata + context preview + pending delivery count."""
-    from scripts.ai_agent_bridge import _channels as _ch  # noqa: PLC0415 — canonical identity (#6812)
+    from lu_machinery.ai_agent_bridge import _channels as _ch  # noqa: PLC0415 — canonical identity (#6812)
 
     try:
         safe_name = _ch.require_safe_channel_name(name)
@@ -1628,8 +1628,10 @@ def comms_inbox(
     ``ai_agent_bridge`` to actually drain messages.
     """
     try:
-        from scripts.ai_agent_bridge import _db as _bridge_db  # noqa: PLC0415 — optional broker bridge
-        from scripts.ai_agent_bridge._channels import pending_deliveries_for  # noqa: PLC0415 — optional broker bridge
+        from lu_machinery.ai_agent_bridge import _db as _bridge_db  # noqa: PLC0415 — optional broker bridge
+        from lu_machinery.ai_agent_bridge._channels import (  # noqa: PLC0415 — optional broker bridge
+            pending_deliveries_for,
+        )
     except ImportError:
         return JSONResponse(
             status_code=500,

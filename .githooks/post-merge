@@ -12,7 +12,7 @@ else
 fi
 
 guard_status=0
-run_project_python "$source_root/scripts/guardrails/primary_write_guard.py" apply --hook || guard_status=$?
+run_project_python "$source_root/lu_machinery/guardrails/primary_write_guard.py" apply --hook || guard_status=$?
 if [[ "$guard_status" -ne 0 ]]; then
   exit "$guard_status"
 fi

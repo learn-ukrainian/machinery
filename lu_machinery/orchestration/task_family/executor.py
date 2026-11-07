@@ -11,10 +11,10 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal
 
-from scripts.orchestration.task_family import codex_state
-from scripts.orchestration.task_family import git_safety as safety
-from scripts.orchestration.task_family.model import LifecycleState, OperationReceipt, ReceiptAction
-from scripts.orchestration.task_family.storage import TaskFamilyStorage, atomic_write_text
+from lu_machinery.orchestration.task_family import codex_state
+from lu_machinery.orchestration.task_family import git_safety as safety
+from lu_machinery.orchestration.task_family.model import LifecycleState, OperationReceipt, ReceiptAction
+from lu_machinery.orchestration.task_family.storage import TaskFamilyStorage, atomic_write_text
 
 CLEANUP_STAGES = (
     "planned",

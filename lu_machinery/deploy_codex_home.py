@@ -18,7 +18,7 @@ from pathlib import Path
 if __package__ in {None, ""}:
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from scripts.common.repo_root import ProductRootError, product_root
+from lu_machinery.common.repo_root import ProductRootError, product_root
 
 
 class DeployError(Exception):

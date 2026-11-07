@@ -78,7 +78,7 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Any
 
-from scripts.common.repo_root import ProductRootError, product_root
+from lu_machinery.common.repo_root import ProductRootError, product_root
 
 SCHEMA = "learn-ukrainian.product-admission-policy"
 SCHEMA_VERSION = 1

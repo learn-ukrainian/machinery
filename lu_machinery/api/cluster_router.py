@@ -24,8 +24,8 @@ from typing import Any
 
 from fastapi import APIRouter, Depends
 
-from scripts.control_plane import storage
-from scripts.control_plane.storage import StoreId
+from lu_machinery.control_plane import storage
+from lu_machinery.control_plane.storage import StoreId
 
 from .monitor_context import MonitorContext, get_ctx, resolve_context
 

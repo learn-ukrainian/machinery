@@ -74,11 +74,11 @@ from markdown_it import MarkdownIt
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from scripts.common.epic_selector import validate_epic
-from scripts.common.jsonl import jsonl_lines
-from scripts.common.safe_unit_install import InstallError, open_unit_dir, read_unit, write_unit
-from scripts.common.task_store_paths import tasks_dir
-from scripts.orchestration.task_record_store import read_task_record
+from lu_machinery.common.epic_selector import validate_epic
+from lu_machinery.common.jsonl import jsonl_lines
+from lu_machinery.common.safe_unit_install import InstallError, open_unit_dir, read_unit, write_unit
+from lu_machinery.common.task_store_paths import tasks_dir
+from lu_machinery.orchestration.task_record_store import read_task_record
 
 # The machinery package's import name, which is also the directory its files have in checkout
 # paths: from this module's package, or from its unresolved location when run as a file.
@@ -410,7 +410,7 @@ def minimum_workers() -> int | None:
 
 def _fetch_monitor_task(task_id: str, *, run_nonce: str) -> dict | None:
     """Probe a legacy run through the shared Monitor client without changing it."""
-    from scripts.ai_agent_bridge.monitor_client import MonitorClient
+    from lu_machinery.ai_agent_bridge.monitor_client import MonitorClient
 
     client = MonitorClient(os.environ.get("DELEGATE_MONITOR_API"), timeout_s=2)
     path = f"/api/delegate/tasks/{quote(task_id, safe='')}?run_nonce={quote(run_nonce, safe='')}"
@@ -421,8 +421,8 @@ def _fetch_monitor_task(task_id: str, *, run_nonce: str) -> dict | None:
 def running_workers(initiator: str) -> int | None:
     """Count own live runs, reading both task schemas without settling records."""
     try:
-        from scripts.dispatcher.worker import _identity
-        from scripts.guardrails.delegate_ownership import TERMINAL_TASK_STATUSES
+        from lu_machinery.dispatcher.worker import _identity
+        from lu_machinery.guardrails.delegate_ownership import TERMINAL_TASK_STATUSES
     except Exception:
         return None
 
@@ -827,7 +827,7 @@ Related: {_MACHINERY}/agy_hooks/driver_state_inject.sh; #10201, #10297.
         print(path)
         return 0
     if args.cmd == "packet":
-        from scripts.orientation_packet import render_packet
+        from lu_machinery.orientation_packet import render_packet
 
         sys.stdout.write(render_packet(args.epic, recipient=getattr(args, "recipient", None)))
         return 0

@@ -927,7 +927,7 @@ def run_inbox(
     # #5646: a bounded, durable diagnostic checkpoint, not a daemon and never
     # a dispatch/merge gate.  The scanner self-rate-limits across all workers.
     try:
-        from scripts.fleet_comms.bottleneck_alerts import scan_bottlenecks_at_inbox_checkpoint
+        from lu_machinery.fleet_comms.bottleneck_alerts import scan_bottlenecks_at_inbox_checkpoint
 
         scan_bottlenecks_at_inbox_checkpoint(repo_root=REPO_ROOT)
     except Exception:
@@ -1207,7 +1207,7 @@ def run_inbox(
 
         recovery = _maybe_recover_orphan_commit(agent, claimed)
 
-        from scripts.agent_runtime.adapters.agy import agy_model_state
+        from lu_machinery.agent_runtime.adapters.agy import agy_model_state
 
         identity_state = agy_model_state(
             agent=agent, model=_resolve_model(claimed), identity=getattr(result, "model_identity", None),

@@ -19,8 +19,8 @@ from urllib.parse import quote
 
 from packaging.requirements import Requirement
 
-from scripts.common.nofollow_walk import ComponentOpenError
-from scripts.orchestration.worktree_artifacts import REGENERABLE_CACHE_DIRECTORIES
+from lu_machinery.common.nofollow_walk import ComponentOpenError
+from lu_machinery.orchestration.worktree_artifacts import REGENERABLE_CACHE_DIRECTORIES
 
 DEPENDENCY_DIRECTORY = "node_modules"  # npm ci recreates dependencies from the tracked sibling package-lock.json.
 
@@ -66,8 +66,8 @@ def _release_is_recoverable(worktree: Path, stem: str, pointer: dict[str, Any]) 
     preservation gate must retain it (or refuse removal at its unchanged cap).
     A gzip in this checkout therefore cannot prove its own deletion safe.
     """
-    from scripts.common import github_client
-    from scripts.orchestration import worktree_artifacts as artifacts
+    from lu_machinery.common import github_client
+    from lu_machinery.orchestration import worktree_artifacts as artifacts
 
     size, digest = pointer.get("gz_bytes"), pointer.get("gz_sha256")
     if type(size) is not int or size <= 0 or not isinstance(digest, str) or not re.fullmatch(r"[0-9a-f]{64}", digest):
@@ -107,7 +107,7 @@ def _release_is_recoverable(worktree: Path, stem: str, pointer: dict[str, Any]) 
 
 def committed_release_pins(worktree: Path, tracked: set[str]) -> dict[str, tuple[int, str]]:
     """Read clean HEAD pointers with recoverability proof once per inventory."""
-    from scripts.orchestration import worktree_artifacts as artifacts
+    from lu_machinery.orchestration import worktree_artifacts as artifacts
 
     pins = {}
     for stem, command in (
@@ -211,7 +211,7 @@ def committed_release_pins(worktree: Path, tracked: set[str]) -> dict[str, tuple
 
 def _matches_release_pin(worktree: Path, relative: Path, pin: tuple[int, str]) -> bool:
     """Stream bytes through the existing descriptor walk; never follow a link."""
-    from scripts.orchestration import worktree_artifacts as artifacts
+    from lu_machinery.orchestration import worktree_artifacts as artifacts
 
     root_fd = artifacts._open_trusted_root(worktree)
     try:
@@ -301,7 +301,7 @@ class CopyProofRun:
 
     def retain_receipts(self) -> None:
         """Publish earlier retrieval locators before the checkout can be removed."""
-        from scripts.orchestration import worktree_artifacts as artifacts
+        from lu_machinery.orchestration import worktree_artifacts as artifacts
 
         for path, (original, receipts) in self.used_archives.items():
             with artifacts.task_state_lock(path):
@@ -348,7 +348,7 @@ def copy_proof_run(*, primary: Path, tasks: Path, publish_receipts: bool = False
 
 @contextlib.contextmanager
 def _copy_leaf(root: Path, relative: Path):
-    from scripts.orchestration import worktree_artifacts as artifacts
+    from lu_machinery.orchestration import worktree_artifacts as artifacts
 
     root_fd = artifacts._open_trusted_root(root)
     try:
@@ -368,7 +368,7 @@ def _copy_leaf(root: Path, relative: Path):
 
 def _external_copy_matches(worktree: Path, relative: Path) -> bool:
     """Compare only a regular primary copy outside every repository worktree."""
-    from scripts.fleet import ignored_task_output
+    from lu_machinery.fleet import ignored_task_output
 
     run = _COPY_PROOF_RUN.get()
     if run is None:
@@ -414,7 +414,7 @@ def _external_copy_matches(worktree: Path, relative: Path) -> bool:
 
 
 def _compare_external_copy(run: CopyProofRun, worktree: Path, relative: Path, candidate_relative: Path) -> bool:
-    from scripts.orchestration import worktree_artifacts as artifacts
+    from lu_machinery.orchestration import worktree_artifacts as artifacts
 
     primary = run.primary
     try:
@@ -509,7 +509,7 @@ def _venv_is_rebuildable(worktree: Path, prefix: Path, tracked: set[str]) -> boo
     links, nested repositories and links out of the environment cannot borrow
     this proof. An arbitrary cache does not acquire the environment exemption.
     """
-    from scripts.orchestration import worktree_artifacts as artifacts
+    from lu_machinery.orchestration import worktree_artifacts as artifacts
 
     try:
         cfg = artifacts._read_preserved_bytes(worktree / prefix / "pyvenv.cfg", root=worktree)
@@ -559,7 +559,7 @@ def is_regenerable_ignored_path(
     if relative.as_posix() in tracked:
         return False
     if ignored is None:
-        from scripts.orchestration import worktree_artifacts as artifacts
+        from lu_machinery.orchestration import worktree_artifacts as artifacts
 
         ignored = set(artifacts._git_paths(worktree, "--others", "--ignored", "--exclude-standard"))
     if relative.as_posix() not in ignored:
@@ -573,7 +573,7 @@ def is_regenerable_ignored_path(
 
 def _dependency_lock_is_valid(worktree: Path, lock: Path, tracked: set[str]) -> bool:
     """Prove a dependency directory's lock: tracked, a local regular file and valid format."""
-    from scripts.orchestration import worktree_artifacts as artifacts
+    from lu_machinery.orchestration import worktree_artifacts as artifacts
 
     try:
         if lock.as_posix() not in tracked:
@@ -599,7 +599,7 @@ def _matches_regenerable_pattern(
         return False
     venv_index = relative.parts.index(".venv") if ".venv" in relative.parts else None
     if venv_index is not None:
-        from scripts.orchestration import worktree_artifacts as artifacts
+        from lu_machinery.orchestration import worktree_artifacts as artifacts
 
         prefix = Path(*relative.parts[:venv_index + 1])
         try:

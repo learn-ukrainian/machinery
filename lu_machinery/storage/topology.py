@@ -23,7 +23,7 @@ from pathlib import Path, PurePosixPath
 from types import MappingProxyType
 from typing import Any, Literal
 
-from scripts.common.repo_root import main_checkout_root
+from lu_machinery.common.repo_root import main_checkout_root
 
 # Required top-level directories that identify a learn-ukrainian bulk root.
 # Both rebuild consumers and the Windows mirror use these as presence markers.
@@ -943,7 +943,7 @@ def resolve_store_for_write(
         path = Path(prepared.location)
         primary = main_checkout_root(default_repository_root(repository_root).resolve()).resolve()
         if store == "sources":
-            from scripts.lib.readonly_sqlite import (
+            from lu_machinery.lib.readonly_sqlite import (
                 _store_writers,
                 _store_writers_lock,
                 inherited_store_writer,

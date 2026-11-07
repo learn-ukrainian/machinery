@@ -77,7 +77,7 @@ PY="$PRIMARY_REPO/.venv/bin/python"
 
 # If requires_silence_timeout is true, set SILENCE_TIMEOUT_SECONDS from current
 # seat/runtime guidance and add --silence-timeout "$SILENCE_TIMEOUT_SECONDS".
-dispatch_result="$("$PY" scripts/dispatch.py dispatch \
+dispatch_result="$("$PY" lu_machinery/dispatch.py dispatch \
   --agent "$REVIEW_AGENT" --model "$REVIEW_MODEL" --effort high \
   --mode read-only --worktree --task-id "$REVIEW_TASK" \
   --prompt-file "$REVIEW_BRIEF" --branch "$AUTHOR_BRANCH" \
@@ -90,14 +90,14 @@ REVIEW_NONCE="${dispatch_lines[1]}"
 # Arm in a yielding tool session. Re-arm ONLY wait on client expiry.
 while true; do
   wait_rc=0
-  wait_result="$("$PY" scripts/dispatch.py wait "$REVIEW_TASK" \
+  wait_result="$("$PY" lu_machinery/dispatch.py wait "$REVIEW_TASK" \
     --run-nonce "$REVIEW_NONCE" --timeout 1800)" || wait_rc=$?
   if (( wait_rc == 0 )); then printf '%s\n' "$wait_result"; break; fi
   if (( wait_rc == 124 )); then
-    state="$("$PY" scripts/dispatch.py status "$REVIEW_TASK" --run-nonce "$REVIEW_NONCE")"
+    state="$("$PY" lu_machinery/dispatch.py status "$REVIEW_TASK" --run-nonce "$REVIEW_NONCE")"
     if "$PY" -c 'import json,sys; sys.exit(json.load(sys.stdin).get("status") not in ("running", "spawning", "done"))' < <(printf '%s\n' "$state"); then continue; fi
     # A terminal state raced expiry: read its same-nonce settlement/exit code.
-    "$PY" scripts/dispatch.py wait "$REVIEW_TASK" --run-nonce "$REVIEW_NONCE" --timeout 1
+    "$PY" lu_machinery/dispatch.py wait "$REVIEW_TASK" --run-nonce "$REVIEW_NONCE" --timeout 1
     exit $?
   fi
   printf '%s\n' "$wait_result"
@@ -116,7 +116,7 @@ and `PRIMARY_REPO`/`PY` as above; query the live task record via `dispatch.py st
 
 ```bash
 set -euo pipefail
-state="$("$PY" scripts/dispatch.py status "$REVIEW_TASK")"
+state="$("$PY" lu_machinery/dispatch.py status "$REVIEW_TASK")"
 REVIEW_NONCE="$("$PY" -c 'import json,sys; s=json.load(sys.stdin); n=s.get("run_nonce"); (s.get("task_id")==sys.argv[1] and isinstance(n,str) and n.strip()) or sys.exit("invalid task identity/nonce"); print(n)' "$REVIEW_TASK" <<<"$state")"
 ```
 
@@ -137,7 +137,7 @@ shared bot identity when it also authored the PR; `gh pr review --approve`
 cannot publish this review of record. Bind the completed independent review:
 
 ```bash
-"$PY" "$PRIMARY_REPO/scripts/review/record_cf_verdict.py" --task-id "$REVIEW_TASK" --pr "$PR_NUMBER"
+"$PY" "$PRIMARY_REPO/lu_machinery/review/record_cf_verdict.py" --task-id "$REVIEW_TASK" --pr "$PR_NUMBER"
 ```
 
 Require same-SHA CI before merge; the publisher checks task, reviewer, branch,
@@ -234,10 +234,10 @@ those skills point to.
 Immediately before enqueue, run the [core inbox drain](../SKILL.md#the-loop--run-it-every-cycle)
 and reconcile its messages with the approved head and landing decision.
 
-**Merge-queue visibility after enqueue (#7814 item 13).** After `.venv/bin/python -m scripts.publish pr-merge --number <N>`, GitHub
+**Merge-queue visibility after enqueue (#7814 item 13).** After `.venv/bin/python -m lu_machinery.publish pr-merge --number <N>`, GitHub
 prints `! The merge strategy for main is set by the merge queue` while the PR stays
 `OPEN` / `CLEAN`. Do not stall or query raw GraphQL by hand — run
-`.venv/bin/python -m scripts.gh_merge_queue_status <pr>` (or `--line` / `--json`) to
+`.venv/bin/python -m lu_machinery.gh_merge_queue_status <pr>` (or `--line` / `--json`) to
 inspect queue membership (`queued=yes/no`), position in line, ETA, and the active
 `merge_group` CI run URL if building (or clear `in queue, position unknown`).
 
@@ -290,7 +290,7 @@ gh run download <run> --pattern 'pytest-junit-*' -D "$(mktemp -d)"
 
 **Main red: fix main first.** Find the breaking commit (`git log` of the failing test's
 inputs) and fix main before re-enqueueing anything. Refresh blocked PRs with
-`.venv/bin/python -m scripts.publish pr-update-branch --number <pr>` (always pass the number; bare, it targets the current
+`.venv/bin/python -m lu_machinery.publish pr-update-branch --number <pr>` (always pass the number; bare, it targets the current
 branch's PR) — never close/reopen, which reuses stale merge refs and fails again. Verify
 parent1 == the approved head and the PR patch-id is unchanged, then get
 one batched exact-head re-CF per reviewer family.

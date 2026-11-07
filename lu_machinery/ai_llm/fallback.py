@@ -11,7 +11,7 @@ from typing import Literal
 try:
     from common.http_status import has_http_status
 except ModuleNotFoundError:
-    from scripts.common.http_status import has_http_status
+    from lu_machinery.common.http_status import has_http_status
 
 PRIMARY_GEMINI_MODEL = "gemini-3.8-flash-high"
 AGY_GEMINI_MODEL = "gemini-3.8-flash-high"
@@ -128,7 +128,7 @@ def build_gemini_ladder(
     result are renumbered to the filtered total so log lines like
     ``Rung 1/3`` stay accurate.
     """
-    from scripts.review.model_catalog import retired_model_refusal
+    from lu_machinery.review.model_catalog import retired_model_refusal
 
     if refusal := retired_model_refusal(preferred_model):
         raise ValueError(refusal)
@@ -543,7 +543,7 @@ def call_gemini_with_fallback(
     Keep the result shape for historical callers. The AGY writer uses its
     own explicit runtime route; this compatibility entrypoint never reroutes.
     """
-    from scripts.review.model_catalog import ModelCatalogError, require_execution_model
+    from lu_machinery.review.model_catalog import ModelCatalogError, require_execution_model
 
     try:
         require_execution_model(preferred_model, transport="native_gemini")

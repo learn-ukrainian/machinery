@@ -3,7 +3,7 @@
 Use a fresh UUID for each operation. The preview persists an immutable exact rename map and digest. Generated titles keep role/generation suffixes and respect the local planner's 60-character title limit.
 
 ```bash
-.venv/bin/python -m scripts.orchestration.task_family preview-rename \
+.venv/bin/python -m lu_machinery.orchestration.task_family preview-rename \
   --repo-root /absolute/project \
   --manifest /absolute/manifest.json \
   --operation-id 00000000-0000-4000-8000-000000000010 \
@@ -18,7 +18,7 @@ Use a fresh UUID for each operation. The preview persists an immutable exact ren
 Family rename requires every included task. Repeat both selection arguments for every included UUID. After the user has seen the preview, call `set_thread_title` once per selected task using that task's exact `new_title`. Immediately reconcile each result:
 
 ```bash
-.venv/bin/python -m scripts.orchestration.task_family reconcile-title \
+.venv/bin/python -m lu_machinery.orchestration.task_family reconcile-title \
   --repo-root /absolute/project \
   --family-id issue-5140-family \
   --operation-id 00000000-0000-4000-8000-000000000010 \

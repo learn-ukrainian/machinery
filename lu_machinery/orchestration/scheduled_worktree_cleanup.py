@@ -41,18 +41,18 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from scripts.common import github_client
-from scripts.common.task_scratch import recover_orphans as recover_task_scratch
-from scripts.dispatcher.store import retention_hold_disposition
-from scripts.hygiene import fetch_refspecs, home_session_retention_check
-from scripts.maintenance.claude_session_scratch import sweep_sessions
-from scripts.orchestration import backup_failure_alert, disk_watermark_alert, worktree_git
-from scripts.orchestration.execution_safe_git import GIT
-from scripts.orchestration.execution_safe_git import run_git as safe_git
-from scripts.orchestration.pool_headroom import _read_limit
-from scripts.orchestration.task_record_store import iter_task_records, read_task_record
-from scripts.orchestration.tmp_leak_sweep import sweep_tmp_leaks
-from scripts.review.isolation import sweep_review_temp_orphans
+from lu_machinery.common import github_client
+from lu_machinery.common.task_scratch import recover_orphans as recover_task_scratch
+from lu_machinery.dispatcher.store import retention_hold_disposition
+from lu_machinery.hygiene import fetch_refspecs, home_session_retention_check
+from lu_machinery.maintenance.claude_session_scratch import sweep_sessions
+from lu_machinery.orchestration import backup_failure_alert, disk_watermark_alert, worktree_git
+from lu_machinery.orchestration.execution_safe_git import GIT
+from lu_machinery.orchestration.execution_safe_git import run_git as safe_git
+from lu_machinery.orchestration.pool_headroom import _read_limit
+from lu_machinery.orchestration.task_record_store import iter_task_records, read_task_record
+from lu_machinery.orchestration.tmp_leak_sweep import sweep_tmp_leaks
+from lu_machinery.review.isolation import sweep_review_temp_orphans
 
 # This package's import name, from the unresolved file location: never from __package__, which a
 # short import spelling (orchestration.x with scripts/ on sys.path) shortens. Its dotted parts
@@ -643,9 +643,9 @@ def settle_terminal_worktrees(repo_root: Path, *, apply: bool, github: GitHubRea
     a task record (or the record directory) could not be read, so a consumer must not read
     the list as exhaustive; ``unreadable`` names those records.
     """
-    from scripts.common.task_store_paths import tasks_dir
-    from scripts.dispatcher import git as dispatcher_git
-    from scripts.dispatcher import store, worker
+    from lu_machinery.common.task_store_paths import tasks_dir
+    from lu_machinery.dispatcher import git as dispatcher_git
+    from lu_machinery.dispatcher import store, worker
 
     try:
         root = tasks_dir()
@@ -715,7 +715,7 @@ def settle_unrecorded_worktrees(repo_root: Path, *, apply: bool) -> list[dict[st
     """
     if not apply or not (repo_root / ".worktrees" / "data-tier").is_dir():
         return []
-    from scripts.ci import data_tier
+    from lu_machinery.ci import data_tier
 
     removals: list[Any] = []
     stopped = None
@@ -1733,7 +1733,7 @@ def batch_state_retention_reports(repo_roots: list[Path], *, apply: bool) -> lis
     Large files are reported for owner disposition. The run also performs a
     separate once-per-host ended-session sweep in main().
     """
-    from scripts.maintenance.batch_state_retention import plan_retention
+    from lu_machinery.maintenance.batch_state_retention import plan_retention
 
     reports: list[dict[str, Any]] = []
     for repo_root in repo_roots:

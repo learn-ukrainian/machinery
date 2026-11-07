@@ -41,8 +41,8 @@ def _is_git_command(command: str) -> bool:
 
 # The machinery modules this hook loads and runs, by import name; under a checkout their files are
 # at the same dotted path (this hook is outside the machinery package).
-_ROOTS_READER_MODULE = "scripts.common.repo_root"
-_CORE_BARE_CHECK_MODULE = "scripts.hygiene.check_core_bare"
+_ROOTS_READER_MODULE = "lu_machinery.common.repo_root"
+_CORE_BARE_CHECK_MODULE = "lu_machinery.hygiene.check_core_bare"
 
 
 def _module_file(module: str) -> Path:
@@ -146,7 +146,7 @@ def main() -> int:
     try:
         if str(project_dir) not in sys.path:
             sys.path.insert(0, str(project_dir))
-        from scripts.common.repo_root import project_interpreter
+        from lu_machinery.common.repo_root import project_interpreter
 
         python_bin = project_interpreter()
     except Exception:

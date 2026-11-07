@@ -88,7 +88,7 @@ fi
 # CI can't catch it; only a local canary can. Detect the exact absolute
 # self-link here and leave repair to the explicit doctor command. See
 # docs/bug-autopsies/node-modules-eloop-symlink.md.
-_LU_SYMLINK_DOCTOR=scripts/hygiene/check_self_symlinks.py
+_LU_SYMLINK_DOCTOR=lu_machinery/hygiene/check_self_symlinks.py
 for _nm in "$_LU_REPO/node_modules" "$_LU_REPO/site/node_modules"; do
   if [ -L "$_nm" ] && [ "$(readlink "$_nm" 2>/dev/null)" = "$_nm" ]; then
     echo "WARNING: self-referential symlink detected at $_nm (npm spawn ELOOP). Inspect it, then run: .venv/bin/python $_LU_SYMLINK_DOCTOR --fix" >&2
@@ -165,7 +165,7 @@ if [ ! -x "$SHARED_VENV_ROOT/.venv/bin/python" ]; then
 fi
 SHARED_PYTHON="$SHARED_VENV_ROOT/.venv/bin/python"
 BOUNDED_PYTHON="${CLAUDE_SESSION_RECORD_PYTHON:-$SHARED_PYTHON}"
-BOUNDED_RUNNER_DEFAULT="$PROJECT_DIR/scripts/agent_runtime/bounded_command.py"
+BOUNDED_RUNNER_DEFAULT="$PROJECT_DIR/lu_machinery/agent_runtime/bounded_command.py"
 BOUNDED_RUNNER="${SESSION_BOUNDED_RUNNER:-$BOUNDED_RUNNER_DEFAULT}"
 SESSION_START_BUDGET_SECONDS="${SESSION_START_BUDGET_SECONDS:-12}"
 if ! [[ "$SESSION_START_BUDGET_SECONDS" =~ ^[1-9][0-9]*$ ]]; then
@@ -242,7 +242,7 @@ REQUESTED_PROFILE_ID="${LEARN_UKRAINIAN_REQUESTED_PROFILE_ID:-}"
 if [ "$IS_CODEX_SESSION" = "1" ] && [ -z "$REQUESTED_PROFILE_ID" ]; then
   REQUESTED_PROFILE_ID="native_codex"
 fi
-PROFILE_RESOLVER_DEFAULT="$PROJECT_DIR/scripts/lib/profile_resolver.sh"
+PROFILE_RESOLVER_DEFAULT="$PROJECT_DIR/lu_machinery/lib/profile_resolver.sh"
 PROFILE_RESOLVER_SH="${CLAUDE_PROFILE_RESOLVER_SH:-$PROFILE_RESOLVER_DEFAULT}"
 if [ ! -f "$PROFILE_RESOLVER_SH" ]; then
   echo "Error: context-profile resolver not found." >&2
@@ -271,7 +271,7 @@ fi
 # A supervised Claudex child inherits a random run id and generation. Bind those
 # to Claude Code's official SessionStart id before any rollover can be requested.
 if [ -n "${LEARN_UKRAINIAN_CLAUDEX_RUN_ID:-}" ]; then
-  CLAUDEX_SUPERVISOR_DEFAULT="$PROJECT_DIR/scripts/orchestration/claudex_supervisor.py"
+  CLAUDEX_SUPERVISOR_DEFAULT="$PROJECT_DIR/lu_machinery/orchestration/claudex_supervisor.py"
   CLAUDEX_SUPERVISOR_SCRIPT="${CLAUDEX_SUPERVISOR_SCRIPT:-$CLAUDEX_SUPERVISOR_DEFAULT}"
   CLAUDEX_SUPERVISOR_PYTHON="${CLAUDEX_SUPERVISOR_PYTHON:-$SHARED_PYTHON}"
   if [ -z "$SESSION_ID" ] || [ ! -f "$CLAUDEX_SUPERVISOR_SCRIPT" ] || [ ! -x "$CLAUDEX_SUPERVISOR_PYTHON" ]; then
@@ -313,7 +313,7 @@ fi
 # a broken local binary or package shim without sending a model request. Keep
 # it bounded and advisory: a failed probe must surface the unavailable lane,
 # never prevent a SessionStart response from reaching the operator.
-LANE_PROBE_SCRIPT="$PROJECT_DIR/scripts/agent_runtime/lane_probe.py"
+LANE_PROBE_SCRIPT="$PROJECT_DIR/lu_machinery/agent_runtime/lane_probe.py"
 if [ -f "$LANE_PROBE_SCRIPT" ]; then
   # Resolve provider/lane identities through the runtime registry, preserving
   # HANDOFF_AGENT for identity, inbox, and rollover operations below (#9580).
@@ -324,7 +324,7 @@ if [ -f "$LANE_PROBE_SCRIPT" ]; then
   # which used to leave the SessionStart reason blank (#12725).
   LANE_PROBE_BOUND=3
   LANE_PROBE_JSON=$(run_bounded "$LANE_PROBE_BOUND" env "PYTHONPATH=$PROJECT_DIR" "$BOUNDED_PYTHON" \
-    -m scripts.agent_runtime.lane_probe --handoff-agent "$HANDOFF_AGENT" --cwd "$PROJECT_DIR" --timeout 2 2>/dev/null) || LANE_PROBE_RC=$?
+    -m lu_machinery.agent_runtime.lane_probe --handoff-agent "$HANDOFF_AGENT" --cwd "$PROJECT_DIR" --timeout 2 2>/dev/null) || LANE_PROBE_RC=$?
   if [ "$LANE_PROBE_RC" -ne 0 ]; then
     LANE_PROBE_AGENT=$(printf '%s' "$LANE_PROBE_JSON" | _hook_deadline 2 jq -r '.probes[0].agent // empty' 2>/dev/null || true)
     LANE_PROBE_AGENT="${LANE_PROBE_AGENT:-$HANDOFF_AGENT}"
@@ -354,7 +354,7 @@ unset LANE_PROBE_SCRIPT
 # here and NEVER deletes (garbage root entries are forensic evidence).
 ROOT_GUARD_RC=0
 ROOT_GUARD_JSON=$(run_bounded 3 env "PYTHONPATH=$PROJECT_DIR" "$BOUNDED_PYTHON" \
-  -m scripts.hygiene.root_entry_guard --repo-root "$CANONICAL_ROOT" --json 2>/dev/null) || ROOT_GUARD_RC=$?
+  -m lu_machinery.hygiene.root_entry_guard --repo-root "$CANONICAL_ROOT" --json 2>/dev/null) || ROOT_GUARD_RC=$?
 if [ "$ROOT_GUARD_RC" -eq 0 ] && [ -n "$ROOT_GUARD_JSON" ]; then
   ROOT_GUARD_COUNT=$(printf '%s' "$ROOT_GUARD_JSON" | _hook_deadline 2 jq -r '.unexpected_count // 0' 2>/dev/null || echo 0)
   if [[ "$ROOT_GUARD_COUNT" =~ ^[0-9]+$ ]] && [ "$ROOT_GUARD_COUNT" -gt 0 ]; then
@@ -387,7 +387,7 @@ else:
         ROOT_GUARD_NAMES=""
       fi
     fi
-    ROOT_GUARD_MODULE=scripts.hygiene.root_entry_guard
+    ROOT_GUARD_MODULE=lu_machinery.hygiene.root_entry_guard
     ROOT_GUARD_DETAIL="Detail: .venv/bin/python -m $ROOT_GUARD_MODULE"
     if [ "${CODEX_NORMAL_TASK:-0}" = "1" ]; then
       # Ordinary Codex context is contracted under 500 bytes (#10952): the
@@ -441,7 +441,7 @@ if [ "$IS_CODEX_SESSION" = "0" ] \
   && [ -d "$PROJECT_DIR/agents_extensions/shared" ] \
   && [ -d "$PROJECT_DIR/.claude" ]; then
   DIFF_EXCLUDES=(".DS_Store")
-  ORPHAN_PATHS_SH="$PROJECT_DIR/scripts/deploy_orphan_paths.sh"
+  ORPHAN_PATHS_SH="$PROJECT_DIR/lu_machinery/deploy_orphan_paths.sh"
   if [ -f "$ORPHAN_PATHS_SH" ]; then
     # shellcheck disable=SC1090
     source "$ORPHAN_PATHS_SH"
@@ -488,7 +488,7 @@ fi
 # retains its documented environment fallback for non-Claude fixtures.
 CURRENT_THREAD_ID="${SESSION_ID:-${CODEX_THREAD_ID:-${CODEX_SESSION_ID:-}}}"
 ROLLOVER_PYTHON="${THREAD_ROLLOVER_PYTHON:-$SHARED_PYTHON}"  # canonical: worktrees carry no venv (F001 r5)
-ROLLOVER_SCRIPT_DEFAULT="$PROJECT_DIR/scripts/orchestration/thread_handoff.py"
+ROLLOVER_SCRIPT_DEFAULT="$PROJECT_DIR/lu_machinery/orchestration/thread_handoff.py"
 ROLLOVER_SCRIPT="${THREAD_ROLLOVER_SCRIPT:-$ROLLOVER_SCRIPT_DEFAULT}"
 HANDOFF_CONTEXT=""
 HANDOFF_WARNINGS=""
@@ -500,7 +500,7 @@ HANDOFF_WARNINGS=""
 # replacement drift that appeared while Codex was starting.
 if [ "${CODEX_SESSION:-0}" = "1" ] \
   && [ -n "${CODEX_LAUNCHER_ROLLOVER_AGENT:-}${CODEX_LAUNCHER_ROLLOVER_LINEAGE_ID:-}${CODEX_LAUNCHER_ROLLOVER_ID:-}" ]; then
-  ROLLOVER_LINK_HELPER="$PROJECT_DIR/scripts/lib/thread_rollover_link.sh"
+  ROLLOVER_LINK_HELPER="$PROJECT_DIR/lu_machinery/lib/thread_rollover_link.sh"
   if [ -z "${CODEX_LAUNCHER_ROLLOVER_AGENT:-}" ] \
     || [ -z "${CODEX_LAUNCHER_ROLLOVER_LINEAGE_ID:-}" ] \
     || [ -z "${CODEX_LAUNCHER_ROLLOVER_ID:-}" ]; then
@@ -604,7 +604,7 @@ EOF
 build_handoff_fallback() {
   local warning_text="$1"
   local prefix=""
-  local prepare_script=scripts/orchestration/thread_handoff.py
+  local prepare_script=lu_machinery/orchestration/thread_handoff.py
 
   if [ -n "$warning_text" ]; then
     prefix="$warning_text
@@ -623,7 +623,7 @@ EOF
 }
 
 # Validate SESSION_EPIC if set against fleet taxonomy selectors.
-HANDOFF_IDENTITY_DEFAULT="$PROJECT_DIR/scripts/lib/handoff_identity.sh"
+HANDOFF_IDENTITY_DEFAULT="$PROJECT_DIR/lu_machinery/lib/handoff_identity.sh"
 HANDOFF_IDENTITY_SH="${CLAUDE_HANDOFF_IDENTITY_SH:-$HANDOFF_IDENTITY_DEFAULT}"
 if [ -f "$HANDOFF_IDENTITY_SH" ]; then
   # shellcheck disable=SC1090
@@ -775,7 +775,7 @@ fi
 
 GATE_RC=0
 GATE_JSON=$(run_bounded 9 env "PYTHONPATH=$PROJECT_DIR" "$BOUNDED_PYTHON" \
-  -m scripts.hooks.session_start_gate "${GATE_ARGS[@]}" 2>/dev/null) || GATE_RC=$?
+  -m lu_machinery.hooks.session_start_gate "${GATE_ARGS[@]}" 2>/dev/null) || GATE_RC=$?
 unset GATE_ARGS
 
 GATE_FIELDS=()
@@ -882,7 +882,7 @@ if [ "$GATE_RC" -eq 0 ] && [ -n "$SESSION_MARKER_AGENT" ] && [ -n "$SESSION_ID" 
   [ -n "${SESSION_TASK_ID:-${SESSION_STREAM_TASK_ID:-}}" ] \
     && SESSION_MARKER_ARGS+=(--task-id "${SESSION_TASK_ID:-${SESSION_STREAM_TASK_ID:-}}")
   run_bounded 2 env "PYTHONPATH=$PROJECT_DIR" "$BOUNDED_PYTHON" \
-    -m scripts.orchestration.session_markers "${SESSION_MARKER_ARGS[@]}" \
+    -m lu_machinery.orchestration.session_markers "${SESSION_MARKER_ARGS[@]}" \
     >/dev/null 2>&1 || true
   unset SESSION_MARKER_ARGS
 fi

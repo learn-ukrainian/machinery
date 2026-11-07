@@ -16,11 +16,11 @@ from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any, NamedTuple
 
-from scripts.common.nofollow_walk import ComponentOpenError, open_directory_component, open_leaf_descriptor
-from scripts.orchestration import reaper_lifecycle as reaper_lifecycle
-from scripts.orchestration.dead_worker_state import task_state_lock as task_state_lock
-from scripts.orchestration.execution_safe_git import run_git as safe_git
-from scripts.orchestration.execution_safe_git import safe_git_env
+from lu_machinery.common.nofollow_walk import ComponentOpenError, open_directory_component, open_leaf_descriptor
+from lu_machinery.orchestration import reaper_lifecycle as reaper_lifecycle
+from lu_machinery.orchestration.dead_worker_state import task_state_lock as task_state_lock
+from lu_machinery.orchestration.execution_safe_git import run_git as safe_git
+from lu_machinery.orchestration.execution_safe_git import safe_git_env
 
 REGENERABLE_CACHE_DIRECTORIES = frozenset(
     {

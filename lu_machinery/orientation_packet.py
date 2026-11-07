@@ -87,7 +87,7 @@ def _collect_state(text: str) -> dict[str, list[dict[str, str]]]:
 
 
 def _worker_target() -> int | str:
-    from scripts.driver_state import minimum_workers
+    from lu_machinery.driver_state import minimum_workers
 
     value = minimum_workers()
     return value if isinstance(value, int) and value > 0 else "UNKNOWN"
@@ -95,7 +95,7 @@ def _worker_target() -> int | str:
 
 def _plane_source(observed_at: str) -> dict[str, Any]:
     try:
-        from scripts.fleet_comms.message_plane import resolve_plane_mode
+        from lu_machinery.fleet_comms.message_plane import resolve_plane_mode
 
         mode = str(resolve_plane_mode(None))
         return {
@@ -115,7 +115,7 @@ def _plane_source(observed_at: str) -> dict[str, Any]:
 
 
 def _default_orders(recipient: str) -> dict[str, Any]:
-    from scripts.inbox_pending import probe
+    from lu_machinery.inbox_pending import probe
 
     result = probe(recipient, limit=_ORDER_LIMIT)
     return result if isinstance(result, dict) else {"probe": "unknown", "count": 0, "ids": [], "truncated": False}
@@ -124,7 +124,7 @@ def _default_orders(recipient: str) -> dict[str, Any]:
 def _default_session(root: Path, observed_at: str) -> dict[str, Any]:
     locator = "docs/session-state/current.md"
     try:
-        from scripts.api.session_router import _assemble_session
+        from lu_machinery.api.session_router import _assemble_session
 
         markdown, sections, digest = _assemble_session("orchestrator", root)
         safe_sections = {
@@ -304,8 +304,8 @@ def build_packet(
     now: datetime | None = None,
 ) -> dict[str, Any]:
     """Assemble one lane packet and enforce PACKET_MAX_BYTES."""
-    from scripts.common.epic_selector import validate_epic
-    from scripts.driver_state import state_path
+    from lu_machinery.common.epic_selector import validate_epic
+    from lu_machinery.driver_state import state_path
 
     validate_epic(epic)
     generated_at = _stamp(now)

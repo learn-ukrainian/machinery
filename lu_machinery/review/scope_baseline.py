@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from itertools import pairwise
 from typing import Literal
 
-from scripts.review.target_resolution import ReviewTarget
+from lu_machinery.review.target_resolution import ReviewTarget
 
 Disposition = Literal["in_scope_blocker", "follow_up", "stop_and_escalate"]
 

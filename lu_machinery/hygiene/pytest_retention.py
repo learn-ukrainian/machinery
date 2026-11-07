@@ -48,13 +48,13 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from scripts.common import task_scratch as ownership
-from scripts.common.pytest_scratch import NAMESPACE, RUNS_DIRNAME
-from scripts.common.scratch import ScratchScanRootError, scratch_scan_roots
-from scripts.common.session_daemons import allowed_session_daemon
-from scripts.hygiene import tmp_sweep as sweep
-from scripts.hygiene.tmp_sweep_ledger import Ledger
-from scripts.orchestration.tmp_leak_sweep import _process_state, _process_vanished
+from lu_machinery.common import task_scratch as ownership
+from lu_machinery.common.pytest_scratch import NAMESPACE, RUNS_DIRNAME
+from lu_machinery.common.scratch import ScratchScanRootError, scratch_scan_roots
+from lu_machinery.common.session_daemons import allowed_session_daemon
+from lu_machinery.hygiene import tmp_sweep as sweep
+from lu_machinery.hygiene.tmp_sweep_ledger import Ledger
+from lu_machinery.orchestration.tmp_leak_sweep import _process_state, _process_vanished
 
 INACTIVE_S = 2 * 3600
 LARGEST_PRESERVED_RUNS = 10

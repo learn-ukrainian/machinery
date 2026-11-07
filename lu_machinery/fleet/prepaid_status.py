@@ -12,7 +12,7 @@ import os
 from pathlib import Path
 from typing import Any
 
-from scripts.common.repo_root import machinery_path
+from lu_machinery.common.repo_root import machinery_path
 
 DEFAULT_NEAR_CAP_USD = 5.0
 DEFAULT_WARM_USD = 20.0

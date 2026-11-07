@@ -35,15 +35,15 @@ from typing import Literal, overload
 if __package__ in (None, ""):  # run as a file: put the repository root on sys.path
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from scripts.common import github_client
-from scripts.common.git_context import UnsafeBranchNameError, sanitized_git_env, validate_plain_branch_name
-from scripts.common.jsonl import jsonl_lines, physical_lines
-from scripts.common.scratch import ensure_scratch_root
-from scripts.orchestration import worktree_git as reaper
-from scripts.orchestration.task_family.git_safety import remote_protected_branches
-from scripts.orchestration.task_record_store import read_task_record
-from scripts.orchestration.worktree_claims import RELEASED_TASK_STATUSES
-from scripts.storage import topology as storage_topology
+from lu_machinery.common import github_client
+from lu_machinery.common.git_context import UnsafeBranchNameError, sanitized_git_env, validate_plain_branch_name
+from lu_machinery.common.jsonl import jsonl_lines, physical_lines
+from lu_machinery.common.scratch import ensure_scratch_root
+from lu_machinery.orchestration import worktree_git as reaper
+from lu_machinery.orchestration.task_family.git_safety import remote_protected_branches
+from lu_machinery.orchestration.task_record_store import read_task_record
+from lu_machinery.orchestration.worktree_claims import RELEASED_TASK_STATUSES
+from lu_machinery.storage import topology as storage_topology
 
 
 def _machinery_top() -> str:

@@ -88,7 +88,7 @@ def format_m(value: int | None) -> str:
 
 def _parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        prog="scripts.goal_driver.size_cap",
+        prog="lu_machinery.goal_driver.size_cap",
         description="Compute the M cap for a /goal run from queue depth + async waits.",
     )
     parser.add_argument(

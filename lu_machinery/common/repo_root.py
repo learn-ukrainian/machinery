@@ -75,7 +75,7 @@ def _install_redacted_environ() -> None:
     A partial checkout that copied this module without ``scripts/lib`` still
     imports: the formatter is optional there.
     """
-    name = "scripts.lib.redacted_environ"
+    name = "lu_machinery.lib.redacted_environ"
     module = sys.modules.get(name)
     if module is None:
         path = Path(__file__).resolve().parents[1] / "lib" / "redacted_environ.py"

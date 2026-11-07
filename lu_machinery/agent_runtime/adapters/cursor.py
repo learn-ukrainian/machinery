@@ -36,7 +36,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from scripts.review.model_catalog import (
+from lu_machinery.review.model_catalog import (
     CURSOR_AUTO_OUTSIDE_CODING_TASK_CODE,
     ModelCatalogError,
     apply_cursor_model_pins,

@@ -17,13 +17,13 @@ source "$(dirname "${BASH_SOURCE[0]}")/context-rollover-lib.sh" 2>/dev/null || e
 PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$(cd "$(dirname "$0")/../.." && pwd)}"
 CANONICAL_ROOT=$(context_canonical_root "$PROJECT_DIR") || exit 0
 BOUNDED_PYTHON="${THREAD_ROLLOVER_PYTHON:-$CANONICAL_ROOT/.venv/bin/python}"
-BOUNDED_RUNNER_DEFAULT="$PROJECT_DIR/scripts/agent_runtime/bounded_command.py"
+BOUNDED_RUNNER_DEFAULT="$PROJECT_DIR/lu_machinery/agent_runtime/bounded_command.py"
 BOUNDED_RUNNER="${SESSION_BOUNDED_RUNNER:-$BOUNDED_RUNNER_DEFAULT}"
 [ -x "$BOUNDED_PYTHON" ] && [ -f "$BOUNDED_RUNNER" ] || exit 0
 cd "$PROJECT_DIR" 2>/dev/null || exit 0
 
 RESULT=$("$BOUNDED_PYTHON" "$BOUNDED_RUNNER" --timeout 2 -- \
-  "$BOUNDED_PYTHON" -m scripts.orchestration.precompact_handoff_check \
+  "$BOUNDED_PYTHON" -m lu_machinery.orchestration.precompact_handoff_check \
   --state-root "$CANONICAL_ROOT" --agent "${SESSION_HANDOFF_AGENT:-claude}" 2>/dev/null) || exit 0
 [ "$RESULT" = "prepared" ] || exit 0
 printf '%s\n' 'Automatic compaction paused: this session has prepared its rollover handoff. Restart the session to continue.' >&2

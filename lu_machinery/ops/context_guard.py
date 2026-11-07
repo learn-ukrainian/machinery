@@ -104,8 +104,8 @@ _MACHINERY = Path(os.path.abspath(__file__)).parents[1].name
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from scripts.lib.readonly_sqlite import open_readonly
-from scripts.ops.driver_lanes import (
+from lu_machinery.lib.readonly_sqlite import open_readonly
+from lu_machinery.ops.driver_lanes import (
     EXIT_MARKER,
     RELAUNCH_ID_ENV,
     START_MARKER,
@@ -117,7 +117,7 @@ from scripts.ops.driver_lanes import (
     load_local_config,
     load_registry,
 )
-from scripts.secret_redactor import redact_text
+from lu_machinery.secret_redactor import redact_text
 
 STATE_ENV = "LU_CONTEXT_GUARD_STATE_DIR"
 CAPTURE_LINES = 80
@@ -609,7 +609,7 @@ class Guard:
         ambient ``SESSION_STREAM_ID`` from the guard's own shell must never be
         applied to another lane's handoff.
         """
-        from scripts.session_canary import grok_lane, handoff_select
+        from lu_machinery.session_canary import grok_lane, handoff_select
 
         candidates = handoff_select.load_codex_mint_candidates(self.repo_root, lane.epic, slot=lane.sender)
         stream_id = grok_lane.launcher_stream_id(lane.epic)
@@ -1353,7 +1353,7 @@ def fleet_sender(identity: str, log: Callable[[str], None]) -> Callable[[str, st
 
     def send(recipient: str, body: str, key: str, kind: str) -> None:
         try:
-            from scripts.fleet_comms.authority import AuthorityService
+            from lu_machinery.fleet_comms.authority import AuthorityService
 
             service = AuthorityService(root=None)
             if kind == HANDOFF_REQUEST:
@@ -1381,7 +1381,7 @@ def fleet_sender(identity: str, log: Callable[[str], None]) -> Callable[[str, st
 def comms_db(log: Callable[[str], None]) -> Path | None:
     """The Fleet Comms store of this checkout's plane (anchored at the primary checkout)."""
     try:
-        from scripts.fleet_comms.paths import default_plane_root
+        from lu_machinery.fleet_comms.paths import default_plane_root
 
         return default_plane_root(repo_root=REPO_ROOT) / "comms.sqlite3"
     except Exception as exc:  # the pane-side HANDOFF-DONE check still works without Fleet

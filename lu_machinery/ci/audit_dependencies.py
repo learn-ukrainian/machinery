@@ -22,7 +22,7 @@ if __package__ in (None, ""):
 
 import yaml
 
-from scripts.ci._location import checkout_relative
+from lu_machinery.ci._location import checkout_relative
 
 
 def load_pip_audit_ignores(ignore_file: Path) -> list[str]:

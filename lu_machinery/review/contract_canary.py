@@ -72,8 +72,8 @@ def touches_contract(paths: Iterable[str]) -> bool:
 
 def _formal_candidates() -> dict[str, list[Any]]:
     """Formal-review candidates by route, from the authoritative catalog."""
-    from scripts.review.model_catalog import load_model_catalog
-    from scripts.review.reviewer_resolver import REVIEW_CANDIDATES
+    from lu_machinery.review.model_catalog import load_model_catalog
+    from lu_machinery.review.reviewer_resolver import REVIEW_CANDIDATES
 
     models = load_model_catalog()["models"]
     routes: dict[str, list[Any]] = {}
@@ -96,8 +96,8 @@ def required_routes() -> tuple[str, ...]:
 
 def _route_models(candidates: Sequence[Any]) -> set[str]:
     """The ``--model`` spellings a dispatch to these candidates records."""
-    from scripts.dispatcher.providers.agy import transport_model
-    from scripts.review.reviewer_resolver import candidate_dispatch_model
+    from lu_machinery.dispatcher.providers.agy import transport_model
+    from lu_machinery.review.reviewer_resolver import candidate_dispatch_model
 
     names: set[str] = set()
     for candidate in candidates:
@@ -109,7 +109,7 @@ def _route_models(candidates: Sequence[Any]) -> set[str]:
 
 def _receipt_gated(record: Mapping[str, Any]) -> bool:
     """Whether the dispatcher's canonical receipt gate decided this task's settlement."""
-    from scripts.review.review_contract import schema_path
+    from lu_machinery.review.review_contract import schema_path
 
     return (
         record.get("require_review_verdict") is True
@@ -126,7 +126,7 @@ def _attested_model(record: Mapping[str, Any]) -> object:
     A provider that reports its model from its own stream must have named a permitted one;
     Cursor's display names map to catalog ids as the recorder maps them.
     """
-    from scripts.review.record_cf_verdict import reviewer_identity
+    from lu_machinery.review.record_cf_verdict import reviewer_identity
 
     if record.get("agent") in {"cursor", "grok", "grok-build"}:
         try:
@@ -139,7 +139,7 @@ def _attested_model(record: Mapping[str, Any]) -> object:
 
 
 def _root() -> Path:
-    from scripts.common.repo_root import main_checkout_root
+    from lu_machinery.common.repo_root import main_checkout_root
 
     return main_checkout_root(Path(__file__).resolve().parents[2])
 
@@ -217,7 +217,7 @@ def build_receipt(record: Mapping[str, Any], result: str, *, head: str) -> dict:
     Recording also checks the reply is a canonical receipt with the recorder's copy of the
     contract, which is the candidate's when ``record`` runs from the candidate worktree.
     """
-    from scripts.review.review_contract import ContractError, canonical_receipt_payload
+    from lu_machinery.review.review_contract import ContractError, canonical_receipt_payload
 
     receipt = _settled_receipt(record, result, head=head)
     try:
@@ -267,7 +267,7 @@ def refusal(paths: Iterable[str], head: str, root: Path | None = None) -> str | 
 
 def _load_task(task_id: str) -> tuple[dict, str]:
     """A dispatcher task record and its reply, decoded without newline translation."""
-    from scripts.dispatcher import store
+    from lu_machinery.dispatcher import store
 
     task = store.read(task_id)
     result_file = task.get("result_file")

@@ -50,8 +50,8 @@ def _product_hooks() -> Any:
     The configuration and the module it names come from the one product checkout
     ``product_root`` selects (C-4746).
     """
-    from scripts.common.repo_root import product_root
-    from scripts.ops.product_entry import load_configured_module
+    from lu_machinery.common.repo_root import product_root
+    from lu_machinery.ops.product_entry import load_configured_module
 
     root = product_root()
     payload = json.loads((root / "scripts/build/bakeoff_hooks.v1.json").read_text(encoding="utf-8"))
@@ -167,7 +167,7 @@ def main() -> int:
     prompt_chars = len(prompt)
 
     # 6. Pick cwd (matches v7_build.py:748 — gemini-tools runs in the product checkout)
-    from scripts.common.repo_root import product_root
+    from lu_machinery.common.repo_root import product_root
 
     writer_cwd = product_root() if writer == "gemini-tools" else out_dir
 

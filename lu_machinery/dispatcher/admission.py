@@ -9,9 +9,9 @@ import subprocess
 import sys
 from pathlib import Path
 
-from scripts.common import test_slots
-from scripts.orchestration import dispatch_isolation
-from scripts.orchestration.task_record_store import REVIEW_TASK_FLAG_FIELDS
+from lu_machinery.common import test_slots
+from lu_machinery.orchestration import dispatch_isolation
+from lu_machinery.orchestration.task_record_store import REVIEW_TASK_FLAG_FIELDS
 
 # Slots a Codex read-only review holds for its reviewer: the review bound of two test workers (cto-10744).
 REVIEW_TEST_SLOTS = 2
@@ -33,7 +33,7 @@ def codex_account(agent: str, explicit: str | None) -> dict:
     """Resolve the label and refuse ambient conflicts before creating any task or worktree."""
     import os
 
-    from scripts.agent_runtime.codex_accounts import (
+    from lu_machinery.agent_runtime.codex_accounts import (
         CodexAccountRefused,
         codex_account_env,
         resolve_codex_account_label,
@@ -59,7 +59,7 @@ def claude_account(agent: str, explicit: str | None) -> dict:
     loads none of its login directory's user settings (:func:`claude_launch`), recorded as
     ``claude_account_user_scope_omitted`` (#10619).
     """
-    from scripts.agent_runtime.attempt_boundary import (
+    from lu_machinery.agent_runtime.attempt_boundary import (
         CLAUDE_ACCOUNT_KEY,
         CLAUDE_ACCOUNT_SOURCE_KEY,
         DEFAULT_CLAUDE_ACCOUNT,
@@ -93,7 +93,7 @@ def claude_budget(label: str | None, requested: str | None) -> float | None:
     An API-key label always has one (configured amount, or the lower ``--max-budget-usd``); a dispatch
     without a resolvable cap raises ``ValueError`` naming the account, before any worktree exists.
     """
-    from scripts.agent_runtime.attempt_boundary import ClaudeAccountRefused, resolve_claude_budget_usd
+    from lu_machinery.agent_runtime.attempt_boundary import ClaudeAccountRefused, resolve_claude_budget_usd
 
     try:
         return resolve_claude_budget_usd(label, requested)
@@ -119,8 +119,8 @@ def claude_launch(spec, invocation):
     the run's only credential; the background denies it replaces are also in ``--disallowedTools``.
     ``auth status`` must report that helper and nothing else, and the file is bound by the digest.
     """
-    from scripts.agent_runtime.adapters import claude as adapter
-    from scripts.agent_runtime.attempt_boundary import (
+    from lu_machinery.agent_runtime.adapters import claude as adapter
+    from lu_machinery.agent_runtime.attempt_boundary import (
         CLAUDE_AUTH_API_KEY_HELPER,
         CLAUDE_AUTH_SUBSCRIPTION_LOGIN,
         DEFAULT_CLAUDE_ACCOUNT,
@@ -130,13 +130,13 @@ def claude_launch(spec, invocation):
         resolve_claude_account_label,
         verify_claude_account,
     )
-    from scripts.agent_runtime.env_sanitize import (
+    from lu_machinery.agent_runtime.env_sanitize import (
         claude_fingerprints_match,
         claude_labelled_inputs_digest,
         claude_login_credential_fingerprint,
     )
-    from scripts.common.repo_root import project_interpreter
-    from scripts.dispatcher.types import Invocation
+    from lu_machinery.common.repo_root import project_interpreter
+    from lu_machinery.dispatcher.types import Invocation
 
     if spec.agent != "claude":
         return invocation

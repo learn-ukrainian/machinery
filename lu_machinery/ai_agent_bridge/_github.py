@@ -1,8 +1,8 @@
 """GitHub integration: posting reviews to issues."""
 
 try:
-    from scripts.opsec.prepublish import PublishBlocked
-    from scripts.publish.github import Request, request_run
+    from lu_machinery.opsec.prepublish import PublishBlocked
+    from lu_machinery.publish.github import Request, request_run
 except ModuleNotFoundError:
     from opsec.prepublish import PublishBlocked
     from publish.github import Request, request_run

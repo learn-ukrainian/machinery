@@ -26,20 +26,20 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import JSONResponse
 
-from scripts.api import config
-from scripts.api.monitor_context import MonitorContext, get_ctx
-from scripts.api.observer_presence import (
+from lu_machinery.api import config
+from lu_machinery.api.monitor_context import MonitorContext, get_ctx
+from lu_machinery.api.observer_presence import (
     PRESENCE_FRESHNESS_SECONDS,
     ObserverPresence,
     PresenceStore,
     list_live,
 )
-from scripts.api.occupancy_local import OccupancyRead, read_markers, read_session_streams
-from scripts.api.occupancy_sanitize import CLOUD_OBSERVER_HOST_ID, RETIRED_HOST_IDS
-from scripts.api.occupancy_sanitize import occupant as _occupant
-from scripts.api.occupancy_sanitize import opaque_host_id as _opaque_host_id
-from scripts.api.product_contribution import atlas_provider
-from scripts.api.project_state_store import (
+from lu_machinery.api.occupancy_local import OccupancyRead, read_markers, read_session_streams
+from lu_machinery.api.occupancy_sanitize import CLOUD_OBSERVER_HOST_ID, RETIRED_HOST_IDS
+from lu_machinery.api.occupancy_sanitize import occupant as _occupant
+from lu_machinery.api.occupancy_sanitize import opaque_host_id as _opaque_host_id
+from lu_machinery.api.product_contribution import atlas_provider
+from lu_machinery.api.project_state_store import (
     REPORT_TTL_SECONDS,
     ReportStore,
     all_weekly_lanes_at_or_over_pace,

@@ -35,8 +35,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from scripts.common.repo_root import project_interpreter
-from scripts.lib import rules_core
+from lu_machinery.common.repo_root import project_interpreter
+from lu_machinery.lib import rules_core
 
 #: The sources server a review seat calls, relative to a checkout.
 SERVER_ENTRY = ".mcp/servers/sources/server.py"

@@ -6,9 +6,9 @@ from pathlib import Path
 
 from jsonschema.exceptions import SchemaError
 
-from scripts.agent_runtime.adapters._output_schema import load_output_schema
-from scripts.agent_runtime.attempt_safe_read import AttemptReadError, safe_read_attempt_file
-from scripts.dispatcher.store import digest
+from lu_machinery.agent_runtime.adapters._output_schema import load_output_schema
+from lu_machinery.agent_runtime.attempt_safe_read import AttemptReadError, safe_read_attempt_file
+from lu_machinery.dispatcher.store import digest
 
 
 def load(options):

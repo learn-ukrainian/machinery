@@ -14,10 +14,10 @@ from pathlib import Path
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from scripts.ci._location import checkout_relative
-from scripts.ci.junit_results import parse_junit
-from scripts.common import github_client
-from scripts.common.flake_quarantine import REGISTRY, load_registry
+from lu_machinery.ci._location import checkout_relative
+from lu_machinery.ci.junit_results import parse_junit
+from lu_machinery.common import github_client
+from lu_machinery.common.flake_quarantine import REGISTRY, load_registry
 
 
 def _gh(*args: str) -> str:

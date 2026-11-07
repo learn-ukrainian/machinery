@@ -205,7 +205,7 @@ def utc_datetime(value: Any) -> datetime | None:
     Imported lazily so the shared test conftest can load this module without
     the provider-probe stack ``reset_reserve`` pulls in.
     """
-    from scripts.fleet.reset_reserve import utc_datetime as parse
+    from lu_machinery.fleet.reset_reserve import utc_datetime as parse
 
     return parse(value)
 
@@ -287,7 +287,7 @@ def shared_usage_agents(
     stale reading fresh. Missing observations stay unknown. Never mutate the
     supplied snapshot or copy route health, login, concurrency or credits.
     """
-    from scripts.review.model_catalog import load_model_catalog
+    from lu_machinery.review.model_catalog import load_model_catalog
 
     source_catalog = catalog if catalog is not None else load_model_catalog()
     result = dict(agents)
@@ -488,7 +488,7 @@ def read_recent_rate_limits(
     ``summarize_lane_runtime``); a count of 0 with ``unreadable["total"] > 0``
     is not "no rate limits". Codex lanes read only that account's records.
     """
-    from scripts.agent_runtime.usage import summarize_lane_runtime
+    from lu_machinery.agent_runtime.usage import summarize_lane_runtime
 
     agent, account = _rate_limit_subject(lane)
     summary = summarize_lane_runtime(
@@ -709,7 +709,7 @@ def pace_deficit_state(
     cool. Only hot labels identified by the producer as weekly pace may be relaxed.
     Missing lane identity or run-out projection leaves reset coverage unverified.
     """
-    from scripts.api.subscription_usage import pace_expected_pct, pace_is_deficit, pace_is_visible
+    from lu_machinery.api.subscription_usage import pace_expected_pct, pace_is_deficit, pace_is_visible
 
     record = info if isinstance(info, dict) else {}
     if pace is None:
@@ -816,7 +816,7 @@ def _natural_reset(info: dict[str, Any]) -> datetime | None:
 
 def _projected_runout(info: dict[str, Any], pace: dict[str, Any] | None, now: datetime) -> datetime | None:
     """Recompute linear run-out from the current clock, using the existing pace window math."""
-    from scripts.api.subscription_usage import _expected_pct_from_reset
+    from lu_machinery.api.subscription_usage import _expected_pct_from_reset
 
     if not isinstance(pace, dict):
         return None
@@ -1049,7 +1049,7 @@ def published_credit_relief(
 def _allowed(allowed: tuple[str, ...], model: str | None) -> bool:
     if not model:
         return False
-    from scripts.review.model_catalog import canonical_model_id
+    from lu_machinery.review.model_catalog import canonical_model_id
 
     return (canonical_model_id(model) or model.strip().lower()) in allowed
 
@@ -1226,7 +1226,7 @@ def routing_facts(
     fresh probe: a missing probe age or an unknown probe freshness keeps the
     label hot. A hot label from any other source stays hot.
     """
-    from scripts.api.subscription_usage import pace_expected_pct, pace_is_visible
+    from lu_machinery.api.subscription_usage import pace_expected_pct, pace_is_visible
 
     lane_key = lane.strip().lower()
     data: dict[str, Any] = dict(record) if isinstance(record, Mapping) else {}
@@ -1392,7 +1392,7 @@ def dispatch_refusal(lane: str, model: str | None, *, policy: CreditPolicy | Non
     raw = read_routing_budget()
     if raw is None:
         return None
-    from scripts.fleet.claude_account_lane import bind_snapshot, no_claude_account, other_lane_record
+    from lu_machinery.fleet.claude_account_lane import bind_snapshot, no_claude_account, other_lane_record
 
     # A credit lane is one no Claude account owns: the snapshot is bound to no account where it
     # enters, and the claude lane is never read without its account (#10630, #10770).

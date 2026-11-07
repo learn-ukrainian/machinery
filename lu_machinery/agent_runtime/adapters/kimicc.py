@@ -21,7 +21,7 @@ import shutil
 from pathlib import Path
 from typing import Any
 
-from scripts.review.model_catalog import (
+from lu_machinery.review.model_catalog import (
     ModelCatalogError,
     load_model_catalog,
     resolve_kimi_model,

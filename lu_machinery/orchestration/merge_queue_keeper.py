@@ -22,18 +22,18 @@ from typing import Any
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from scripts.common.github_client import GitHubRateLimited
-from scripts.gh_merge_queue_status import extract_pr_number
-from scripts.github_check_rollup import bind_workflow_runs, group_collapsed_by_name, project_check_runs
-from scripts.opsec.prepublish import (
+from lu_machinery.common.github_client import GitHubRateLimited
+from lu_machinery.gh_merge_queue_status import extract_pr_number
+from lu_machinery.github_check_rollup import bind_workflow_runs, group_collapsed_by_name, project_check_runs
+from lu_machinery.opsec.prepublish import (
     PublishBlocked,
     check_texts,
     normalize_repository,
     publication_boundary,
     publication_cli,
 )
-from scripts.orchestration import pr_ownership
-from scripts.orchestration.integration_sweep import (
+from lu_machinery.orchestration import pr_ownership
+from lu_machinery.orchestration.integration_sweep import (
     COMMENTS_UNAVAILABLE,
     NEEDS_COVERAGE,
     NEEDS_SEAT,
@@ -45,8 +45,8 @@ from scripts.orchestration.integration_sweep import (
     pr_file_paths,
     verdict_detail,
 )
-from scripts.publish.github import Request, request_run
-from scripts.review import contract_canary
+from lu_machinery.publish.github import Request, request_run
+from lu_machinery.review import contract_canary
 
 # This package's import name, from the unresolved file location: never from __package__, which a
 # short import spelling (orchestration.x with scripts/ on sys.path) shortens. Its dotted parts
@@ -721,7 +721,7 @@ def _queue_cto_alert(previous: dict[str, Any], number: int, head: str, runs: Seq
 
 
 def _alert_service() -> Any:
-    from scripts.fleet_comms.authority import AuthorityService
+    from lu_machinery.fleet_comms.authority import AuthorityService
 
     return AuthorityService(root=None)
 

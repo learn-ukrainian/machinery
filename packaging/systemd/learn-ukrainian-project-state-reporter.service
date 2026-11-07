@@ -11,7 +11,7 @@ Environment=PATH=/usr/local/bin:/usr/bin:/bin
 # without it they keep their defaults.
 EnvironmentFile=-%h/.config/learn-ukrainian/machinery.env
 # The wrapper path is relative to WorkingDirectory.
-ExecStart=/usr/bin/env bash --noprofile --norc scripts/orchestration/run_project_state_reporter.sh
+ExecStart=/usr/bin/env bash --noprofile --norc lu_machinery/orchestration/run_project_state_reporter.sh
 WorkingDirectory=%h/projects/learn-ukrainian
 
 [Install]

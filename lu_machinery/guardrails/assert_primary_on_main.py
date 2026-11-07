@@ -23,7 +23,7 @@ _REPO_CANDIDATE = Path(__file__).resolve().parents[2]
 if str(_REPO_CANDIDATE) not in sys.path:
     sys.path.insert(0, str(_REPO_CANDIDATE))
 
-from scripts.guardrails.worktree_containment import (
+from lu_machinery.guardrails.worktree_containment import (
     is_primary_checkout,
     resolve_main_root,
 )

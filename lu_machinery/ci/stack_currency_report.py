@@ -28,7 +28,7 @@ if __package__ in (None, ""):
 
 import yaml
 
-from scripts.ci._location import checkout_relative, module_name
+from lu_machinery.ci._location import checkout_relative, module_name
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 PINS_PATH = REPO_ROOT / checkout_relative("config", "stack_pins.yaml")

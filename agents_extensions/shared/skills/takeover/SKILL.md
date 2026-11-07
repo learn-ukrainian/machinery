@@ -34,7 +34,7 @@ PY="$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")/.venv/
 
    ```bash
    gh pr view "$PR" --json number,state,author,title,body,baseRefName,headRefName,headRefOid,commits,reviews,closingIssuesReferences,statusCheckRollup
-   "$PY" scripts/dispatch.py status "$TASK" --run-nonce "$NONCE"
+   "$PY" lu_machinery/dispatch.py status "$TASK" --run-nonce "$NONCE"
    ```
 
    Read the record's `worktree_disposition`: when the dispatcher has already removed the
@@ -64,7 +64,7 @@ PY="$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")/.venv/
    `init`; never move or edit a ledger by hand:
 
    ```bash
-   "$PY" -m scripts.orchestration.task_closeout bind-successor --identity-file identity.json \
+   "$PY" -m lu_machinery.orchestration.task_closeout bind-successor --identity-file identity.json \
      --ac-policy ac-policy.json --author-family "$FAMILY" --required-check 'CI Gate'
    ```
 

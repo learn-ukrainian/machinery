@@ -13,11 +13,11 @@ remains the factual SSOT for open/closed; the private board is the priority queu
 status feed. If the private board and any other queue view disagree, **the private board wins** — correct the other
 view the same session. Full contract: `docs/runbooks/hramatka-driver-queue.md`.
 
-Before a new dispatch, scope, or PR, run `scripts.fleet.hramatka_scope_gate`
+Before a new dispatch, scope, or PR, run `lu_machinery.fleet.hramatka_scope_gate`
 as specified in that runbook; only `ALLOW` permits the new action.
 
 Before declaring a Hramatka handoff verified-clean, run
-`.venv/bin/python -m scripts.fleet.hramatka_hygiene_check` — only exit 0 is a pass;
+`.venv/bin/python -m lu_machinery.fleet.hramatka_hygiene_check` — only exit 0 is a pass;
 exit 2 (`unknown`, GitHub unreachable) is never a clean handoff either.
 
 **Host actions on the Hramatka host** follow operator-expectations item 10 and the

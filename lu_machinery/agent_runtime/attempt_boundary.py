@@ -32,7 +32,7 @@ from typing import Any
 
 import yaml
 
-from scripts.common.repo_root import project_interpreter
+from lu_machinery.common.repo_root import project_interpreter
 
 from .attempt_safe_read import (
     MAX_ATTEMPT_READ_BYTES as MAX_ATTEMPT_READ_BYTES,
@@ -430,7 +430,7 @@ def _claude_auth_receipts() -> tuple[dict[str, str], threading.Lock]:
     The delegate worker imports ``scripts.agent_runtime``; the runner it calls
     loads the same files as ``agent_runtime``, a second module object.
     """
-    from scripts.agent_runtime import attempt_boundary as canonical
+    from lu_machinery.agent_runtime import attempt_boundary as canonical
 
     return canonical._verified_claude_auth, canonical._verified_claude_auth_lock
 
@@ -814,7 +814,7 @@ def _validated_claude_selection(
     label: str, *, environ: Mapping[str, str] | None = None
 ) -> tuple[ClaudeAccountBinding, str]:
     """Validate and select once, reading both files through the same checked directory."""
-    from scripts.review.isolation import ReviewIsolationError
+    from lu_machinery.review.isolation import ReviewIsolationError
 
     env = os.environ if environ is None else environ
     if any(env.get(key) for key in _CLAUDE_AMBIENT_AUTH_ENV):
@@ -886,7 +886,7 @@ def _claude_oauth_record(path: Path, *, dir_fd: int | None = None) -> tuple[str,
     A renewable record is still expired here: its access token is refused, so
     only ``renew_claude_login`` acts on it, never a provider or a sandbox.
     """
-    from scripts.review.isolation import ReviewIsolationError
+    from lu_machinery.review.isolation import ReviewIsolationError
 
     selected = _claude_oauth_state(path, dir_fd=dir_fd)
     if selected is None:
@@ -904,7 +904,7 @@ def _claude_oauth_state(path: Path, *, dir_fd: int | None = None) -> tuple[str, 
     refresh credential, which Claude Code can use to renew the login. Expired
     without one, invalid, oversized or not private raises; ``None`` when absent.
     """
-    from scripts.review.isolation import ReviewIsolationError
+    from lu_machinery.review.isolation import ReviewIsolationError
 
     try:
         fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=dir_fd)
@@ -954,7 +954,7 @@ def renew_claude_login(config_dir: Path, directory: int, account_uuid: str) -> N
     Callers then read and prove the credentials as usual, so a refused,
     skipped, failed or unfinished renewal still refuses them as expired.
     """
-    from scripts.review.isolation import ReviewIsolationError
+    from lu_machinery.review.isolation import ReviewIsolationError
 
     try:
         selected = _claude_oauth_state(Path(".credentials.json"), dir_fd=directory)
@@ -983,8 +983,8 @@ def _run_claude_renewal(config_dir: Path) -> None:
     process group is killed on every path. Like a labelled run, it loads no
     user-scope settings, so no key helper or settings env from ``config_dir``.
     """
-    from scripts.agent_runtime.adapters.claude import LABELLED_ACCOUNT_SETTING_SOURCES, _default_claude_bin
-    from scripts.common.scratch import ensure_scratch_root
+    from lu_machinery.agent_runtime.adapters.claude import LABELLED_ACCOUNT_SETTING_SOURCES, _default_claude_bin
+    from lu_machinery.common.scratch import ensure_scratch_root
 
     claude = _default_claude_bin()
     if claude is None:
@@ -1034,7 +1034,7 @@ def stage_codex_account_auth(label: object, write_home: Path) -> dict[str, str]:
     without a login. A bound home that staging would read under another name, or whose login is not a
     file, refuses rather than copying another directory's login or launching unauthenticated.
     """
-    from scripts.review.isolation import ReviewIsolationError, stage_engine_auth
+    from lu_machinery.review.isolation import ReviewIsolationError, stage_engine_auth
 
     from .codex_accounts import (
         DEFAULT_CODEX_ACCOUNT,
@@ -1073,7 +1073,7 @@ def linux_claude_auth(account: str | None = None) -> dict[str, str]:
     file and refuses every conflicting source before anything is returned.
     An API-key label refuses: a sealed attempt would need the key itself.
     """
-    from scripts.review.isolation import ReviewIsolationError
+    from lu_machinery.review.isolation import ReviewIsolationError
 
     try:
         label = resolve_claude_account_label(account)
@@ -1101,8 +1101,8 @@ def authorized_closure(manifest: dict[str, Any], root: Path) -> dict[str, bytes]
     schema. A re-review additionally admits exactly previous review, previous
     ledger and diff. No file referred to by an input's contents is opened.
     """
-    from scripts.review.isolation import ReviewIsolationError
-    from scripts.review.product_hooks import attempt_hooks
+    from lu_machinery.review.isolation import ReviewIsolationError
+    from lu_machinery.review.product_hooks import attempt_hooks
 
     hooks = attempt_hooks()
     if manifest.get("kind") not in {"plan", "lesson", "lexical"}:
@@ -1222,7 +1222,7 @@ def runtime_files(binary: Path) -> list[Path]:
     Never grant a native executable's parent (which may be the user's bin).
     Python's dedicated installation is needed by the byte-only MCP proxy.
     """
-    from scripts.review.isolation import ReviewIsolationError
+    from lu_machinery.review.isolation import ReviewIsolationError
 
     executable = binary.resolve(strict=True)
     roots = [executable]
@@ -1249,7 +1249,7 @@ def runtime_files(binary: Path) -> list[Path]:
 
 class AttemptBoundary:
     def __init__(self, *, agent: str, tool_config: dict[str, Any]):
-        from scripts.review.isolation import ReviewIsolationError, stage_engine_auth
+        from lu_machinery.review.isolation import ReviewIsolationError, stage_engine_auth
 
         from .attempt_network import AttemptEgress, load_allowlist
         from .review_mcp import SUPPORTED_HARNESSES, verify_review_attempt_paths
@@ -1390,7 +1390,7 @@ class AttemptBoundary:
             raise
 
     def wrap(self, cmd: list[str], env_overrides: dict[str, str]) -> tuple[list[str], dict[str, str]]:
-        from scripts.review.isolation import ReviewIsolationError, prepare_host_sandbox, wrap_argv_with_sandbox
+        from lu_machinery.review.isolation import ReviewIsolationError, prepare_host_sandbox, wrap_argv_with_sandbox
 
         binary = Path(shutil.which(cmd[0]) or cmd[0]).resolve(strict=True)
         runtime = runtime_files(binary)
@@ -1448,7 +1448,7 @@ class AttemptBoundary:
         """Probe CLI compatibility and effective MCP inside the full OS boundary."""
         if not self.full:
             return
-        from scripts.review.isolation import CLAUDE_MIN_SUPPORTED_CLI_VERSION, ReviewIsolationError
+        from lu_machinery.review.isolation import CLAUDE_MIN_SUPPORTED_CLI_VERSION, ReviewIsolationError
 
         from .review_mcp import _config_flags, verify_agy_review_effective_mcp, verify_codex_review_effective_mcp
 
@@ -1464,7 +1464,7 @@ class AttemptBoundary:
         version_cmd, env = self.wrap([cmd[0], "--version"], env_overrides)
         version = subprocess.run(version_cmd, env=env, capture_output=True, text=True, timeout=5, check=False)
         if self.agent == "claude":
-            from scripts.utils.claude_version import _parse_claude_semver
+            from lu_machinery.utils.claude_version import _parse_claude_semver
 
             parsed = _parse_claude_semver(version.stdout + version.stderr)
             if version.returncode != 0 or parsed is None or parsed < CLAUDE_MIN_SUPPORTED_CLI_VERSION:
@@ -1502,8 +1502,8 @@ def verify_full_review_tree(manifest_path: Path, cwd: Path) -> None:
     A separate review tree is allowed only when its pinned bytes match. Other
     repository files are context, never evidence without a sources receipt.
     """
-    from scripts.review.isolation import ReviewIsolationError
-    from scripts.review.product_hooks import attempt_hooks
+    from lu_machinery.review.isolation import ReviewIsolationError
+    from lu_machinery.review.product_hooks import attempt_hooks
 
     hooks = attempt_hooks()
     try:
@@ -1541,7 +1541,7 @@ def full_review_reads(workspace: Path) -> tuple[list[Path], list[Path]]:
     checkout. Host task/receipt stores and nested checkouts are masked even
     when present in the reviewed tree. External object alternates are refused.
     """
-    from scripts.review.isolation import ReviewIsolationError
+    from lu_machinery.review.isolation import ReviewIsolationError
 
     try:
         result = subprocess.run(
@@ -1592,7 +1592,7 @@ def prepare_attempt_boundary(agent: str, mode: str, session_id: str | None, tool
     tc = tool_config or {}
     if not (tc.get("review_id") or tc.get("attempt_id")):
         return None
-    from scripts.review.isolation import ReviewIsolationError
+    from lu_machinery.review.isolation import ReviewIsolationError
 
     required = ("review_id", "attempt_id", "review_manifest", "review_input_root", "mcp_config_path")
     if mode != "read-only" or session_id is not None or not tc.get("strict_mcp_config"):

@@ -28,25 +28,25 @@ from typing import Any
 if __package__ in (None, ""):  # run as a file: put the repository root on sys.path
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from scripts.common.git_context import sanitized_git_env
-from scripts.fleet import claude_account_lane, credit_lane
-from scripts.review.evidence import compute_target_input_fingerprint
-from scripts.review.findings import FindingEvent, FindingsLedger, FindingsLedgerError
-from scripts.review.model_catalog import VALID_REVIEW_PROFILES, VALID_RISKS
-from scripts.review.record_cf_verdict import (
+from lu_machinery.common.git_context import sanitized_git_env
+from lu_machinery.fleet import claude_account_lane, credit_lane
+from lu_machinery.review.evidence import compute_target_input_fingerprint
+from lu_machinery.review.findings import FindingEvent, FindingsLedger, FindingsLedgerError
+from lu_machinery.review.model_catalog import VALID_REVIEW_PROFILES, VALID_RISKS
+from lu_machinery.review.record_cf_verdict import (
     BranchFactsError,
     authorship_exclude_sha,
     collect_branch_review_facts,
     refuse_excluded_only_range,
 )
-from scripts.review.reviewer_resolver import RedTeamResolution, ResolverInputs, resolve_reviewer
-from scripts.review.scope_baseline import (
+from lu_machinery.review.reviewer_resolver import RedTeamResolution, ResolverInputs, resolve_reviewer
+from lu_machinery.review.scope_baseline import (
     ScopeBaseline,
     check_cycle_convergence_breaker,
     check_expansion_breaker,
 )
-from scripts.review.security_paths import git_changed_paths
-from scripts.review.target_resolution import (
+from lu_machinery.review.security_paths import git_changed_paths
+from lu_machinery.review.target_resolution import (
     ReviewTarget,
     TargetResolutionError,
     diff_against_base,
@@ -528,7 +528,7 @@ def _cmd_resolve_reviewer(args: argparse.Namespace) -> int:
                 _save_state(args.state_file, state)
                 print(json.dumps(failed, indent=2))
                 return 1
-    from scripts.agent_runtime.attempt_boundary import DEFAULT_CLAUDE_ACCOUNT
+    from lu_machinery.agent_runtime.attempt_boundary import DEFAULT_CLAUDE_ACCOUNT
 
     # A claude reviewer runs as the account a review dispatch resolves and
     # binds before admission: the default-account file, else the built-in
@@ -737,7 +737,7 @@ def load_pull_request_comments(
     repo_root: Path, repository: str, pr_number: int
 ) -> tuple[list[dict[str, Any]], str]:
     """Live issue comments and the authenticated login. Callers cannot supply either."""
-    from scripts.publish.github import Request, request_run
+    from lu_machinery.publish.github import Request, request_run
 
     def run(request: Any) -> Any:
         completed = request_run(
@@ -780,7 +780,7 @@ def _proof_author_attributions(
     untrailered commit. A first-parent walk is the wrong cut: the base can be
     the merge's first parent, as when the branch is merged onto an updated base.
     """
-    from scripts.review.record_cf_verdict import RecordError, _attribute_trailer
+    from lu_machinery.review.record_cf_verdict import RecordError, _attribute_trailer
 
     head = target.get("head_sha")
     base = target.get("base_sha")
@@ -828,7 +828,7 @@ def _proof_author_attributions(
 
 def _cmd_behavior_proof_receipt(args: argparse.Namespace) -> int:
     """Write the Ukrainian receipt from the frozen proof and the live PR comments."""
-    from scripts.review.review_contract import ContractError, build_ukrainian_behavior_receipt
+    from lu_machinery.review.review_contract import ContractError, build_ukrainian_behavior_receipt
 
     state = _load_state(args.state_file)
     if state.get("baseline") is None:

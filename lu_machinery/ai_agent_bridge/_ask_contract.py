@@ -30,7 +30,7 @@ def resolve_model_selection(
             f"{lane}: --to-model ({to_model}) conflicts with deprecated --model ({model}); "
             "provide one model value or make them identical"
         )
-    from scripts.review.model_catalog import retired_model_refusal
+    from lu_machinery.review.model_catalog import retired_model_refusal
 
     selected = to_model or model or default
     if refusal := retired_model_refusal(selected):

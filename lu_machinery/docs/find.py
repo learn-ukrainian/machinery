@@ -68,7 +68,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 
-from scripts.docs import catalogue as cat
+from lu_machinery.docs import catalogue as cat
 
 MAX_QUERY_CHARS = 200
 DEFAULT_LIMIT = 20

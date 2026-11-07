@@ -27,7 +27,7 @@ from agent_runtime.errors import (
     AgentUnavailableError,
     RateLimitedError,
 )
-from scripts.common.jsonl import jsonl_lines as split_jsonl_lines
+from lu_machinery.common.jsonl import jsonl_lines as split_jsonl_lines
 
 from ._ask_contract import (
     MAX_TOTAL_ASK_RETRIES,

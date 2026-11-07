@@ -15,12 +15,12 @@ from pathlib import Path
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from scripts.ci import check_issue_task_quality as checker
-from scripts.common import github_client
-from scripts.common.repo_root import machinery_path, project_interpreter
-from scripts.orchestration import fleet_repos
-from scripts.orchestration import issue_stream_audit as audit
-from scripts.publish.github import read
+from lu_machinery.ci import check_issue_task_quality as checker
+from lu_machinery.common import github_client
+from lu_machinery.common.repo_root import machinery_path, project_interpreter
+from lu_machinery.orchestration import fleet_repos
+from lu_machinery.orchestration import issue_stream_audit as audit
+from lu_machinery.publish.github import read
 
 # This package's import name, from the unresolved file location: never from __package__, which a
 # short import spelling (orchestration.x with scripts/ on sys.path) shortens. Its dotted parts
@@ -254,7 +254,7 @@ def publish_payload(payload: bytes, day: str, sender: str) -> int:
         [
             str(project_interpreter(ROOT)),
             "-m",
-            "scripts.fleet_comms",
+            "lu_machinery.fleet_comms",
             "channel",
             "publish",
             "epics",

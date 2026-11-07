@@ -23,18 +23,18 @@ from pathlib import Path
 from types import FrameType
 from typing import Any
 
-from scripts.common.acp_runtime_lock import (
+from lu_machinery.common.acp_runtime_lock import (
     build_lock_reason,
     holds_only_git_pointer,
     owner_alive,
     parse_lock_owner,
 )
-from scripts.common.git_context import sanitized_git_env
-from scripts.guardrails.worktree_containment import (
+from lu_machinery.common.git_context import sanitized_git_env
+from lu_machinery.guardrails.worktree_containment import (
     classify_repo_path,
     resolve_main_root,
 )
-from scripts.orchestration.worktree_claims import WorktreeRemoval, remove_unclaimed_worktree
+from lu_machinery.orchestration.worktree_claims import WorktreeRemoval, remove_unclaimed_worktree
 
 logger = logging.getLogger(__name__)
 

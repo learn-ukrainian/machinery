@@ -63,14 +63,14 @@ interpreter does not select the primary checkout's Python modules.
    A change to learner-facing Ukrainian is `ukrainian`: seat it from
    [ukrainian](references/ukrainian.md), not the resolver.
    `infra` walks a different ladder and excludes code-only seats (Gemini Flash and Muse are
-   `review_profiles: [code]` in `scripts/config/model_catalog.yaml`), so the same value goes to
+   `review_profiles: [code]` in `lu_machinery/config/model_catalog.yaml`), so the same value goes to
    the resolver (`--review-profile` and `--domain`) and to the dispatch below.
 
    ```bash
    REVIEW_PROFILE=infra   # or code, as derived above
-   "$PY" -m scripts.review.closeout_cli --state-file "$STATE" \
+   "$PY" -m lu_machinery.review.closeout_cli --state-file "$STATE" \
      target --mode branch --branch "$BRANCH" --base "origin/$BASE"
-   "$PY" -m scripts.review.closeout_cli --state-file "$STATE" \
+   "$PY" -m lu_machinery.review.closeout_cli --state-file "$STATE" \
      resolve-reviewer --author-model "$AUTHOR_MODEL" --review-profile "$REVIEW_PROFILE" \
      --domain "$REVIEW_PROFILE" --risk "$RISK"
    ```
@@ -88,7 +88,7 @@ interpreter does not select the primary checkout's Python modules.
    exactly. Do not add `--require-review-verdict` to these bound attempts.
 
    ```bash
-   "$PY" scripts/dispatch.py dispatch \
+   "$PY" lu_machinery/dispatch.py dispatch \
      --agent "$REVIEW_AGENT" --model "$REVIEW_MODEL" --effort high \
      --mode read-only --worktree --task-id "$REVIEW_TASK" \
      --prompt-file "$REVIEW_BRIEF" --branch "$BRANCH" --pinned-head "$HEAD_SHA" --pr "$PR" \
@@ -107,7 +107,7 @@ interpreter does not select the primary checkout's Python modules.
 4. **Wait on that task and nonce.** Never re-dispatch.
 
    ```bash
-   "$PY" scripts/dispatch.py wait "$REVIEW_TASK" --run-nonce "$REVIEW_NONCE" --timeout 1800
+   "$PY" lu_machinery/dispatch.py wait "$REVIEW_TASK" --run-nonce "$REVIEW_NONCE" --timeout 1800
    ```
 
    Exit 0: `done`. Exit 124: client expiry while the task still runs; run the same wait again.
@@ -125,7 +125,7 @@ interpreter does not select the primary checkout's Python modules.
    applies the clean-merge exemption and the lineage's one repair-verification round:
 
    ```bash
-   "$PY" "$PRIMARY_REPO/scripts/review/record_cf_verdict.py" budget-check --repository "$REPOSITORY" --pr "$PR"
+   "$PY" "$PRIMARY_REPO/lu_machinery/review/record_cf_verdict.py" budget-check --repository "$REPOSITORY" --pr "$PR"
    ```
 
    Exit 0 admits the round; carry any `repair_round` receipt (its approved and candidate heads,
@@ -143,12 +143,12 @@ interpreter does not select the primary checkout's Python modules.
 7. **Record the verdict on the open PR** (it is open and CI-green at the reviewed head, `full-send` step 4):
 
    ```bash
-   "$PY" "$PRIMARY_REPO/scripts/review/record_cf_verdict.py" --task-id "$REVIEW_TASK" --pr "$PR"
+   "$PY" "$PRIMARY_REPO/lu_machinery/review/record_cf_verdict.py" --task-id "$REVIEW_TASK" --pr "$PR"
    ```
 
    Exit 0 means recorded with a JSON receipt; exit 1 means refused, so nothing is recorded.
    If an accepted P0 or P1 finding lands on a PR that already has a recorded APPROVE, add the
-   `hold` label at once: `"$PY" -m scripts.publish pr-edit --number "$PR" --add-labels hold`.
+   `hold` label at once: `"$PY" -m lu_machinery.publish pr-edit --number "$PR" --add-labels hold`.
 
 ## Always true, whatever the round
 

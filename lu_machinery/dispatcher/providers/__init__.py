@@ -26,11 +26,11 @@ def read_only_refusal(name: str, env: Mapping[str, str] | None = None) -> str | 
     """
     reason = READ_ONLY_REFUSALS.get(name)
     if reason is None and name == "agy":
-        from scripts.dispatcher import agy_sandbox
+        from lu_machinery.dispatcher import agy_sandbox
 
         reason = agy_sandbox.unavailable()
     if reason is None and name == "claude" and env is not None:
-        from scripts.dispatcher.providers import claude
+        from lu_machinery.dispatcher.providers import claude
 
         reason = claude.managed_policy(env)
     if reason is None:
@@ -41,17 +41,17 @@ def read_only_refusal(name: str, env: Mapping[str, str] | None = None) -> str | 
 
 def load(name: str) -> ModuleType:
     if name == "codex":
-        from scripts.dispatcher.providers import codex as module
+        from lu_machinery.dispatcher.providers import codex as module
     elif name == "claude":
-        from scripts.dispatcher.providers import claude as module
+        from lu_machinery.dispatcher.providers import claude as module
     elif name == "cursor":
-        from scripts.dispatcher.providers import cursor as module
+        from lu_machinery.dispatcher.providers import cursor as module
     elif name == "agy":
-        from scripts.dispatcher.providers import agy as module
+        from lu_machinery.dispatcher.providers import agy as module
     elif name == "muse":
-        from scripts.dispatcher.providers import muse as module
+        from lu_machinery.dispatcher.providers import muse as module
     elif name == "opencode":
-        from scripts.dispatcher.providers import opencode as module
+        from lu_machinery.dispatcher.providers import opencode as module
     else:
         raise ValueError(f"unknown agent {name!r}; known: {', '.join(PROVIDERS)}")
     return module

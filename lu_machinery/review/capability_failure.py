@@ -50,10 +50,10 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from scripts.opsec.prepublish import check_texts, normalize_repository, publication_boundary, publication_cli
-from scripts.review import record_cf_verdict as recorder
-from scripts.review.language_lane import is_ukrainian_review
-from scripts.review.verdict_parser import MISSING_CAPABILITIES_FIELD, REVIEW_CAPABILITIES, recognized_verdicts
+from lu_machinery.opsec.prepublish import check_texts, normalize_repository, publication_boundary, publication_cli
+from lu_machinery.review import record_cf_verdict as recorder
+from lu_machinery.review.language_lane import is_ukrainian_review
+from lu_machinery.review.verdict_parser import MISSING_CAPABILITIES_FIELD, REVIEW_CAPABILITIES, recognized_verdicts
 
 EVENT_PREFIX = "<!-- review-capability-failure"
 SOURCES_MCP = "sources-mcp"

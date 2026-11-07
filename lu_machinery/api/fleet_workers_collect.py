@@ -15,26 +15,26 @@ from pathlib import Path
 from typing import Any
 
 try:
-    from scripts.lib.readonly_sqlite import open_readonly
+    from lu_machinery.lib.readonly_sqlite import open_readonly
 except ModuleNotFoundError as exc:
     if exc.name != Path(os.path.abspath(__file__)).parents[1].name:
         raise
     from lib.readonly_sqlite import open_readonly  # type: ignore[no-redef]
 
 from agents_extensions.shared.session_streams.model import parse_timestamp
-from scripts.api import delegate_router
-from scripts.api.delegate_router import _derived_task_status
-from scripts.api.fleet_workers_models import (
+from lu_machinery.api import delegate_router
+from lu_machinery.api.delegate_router import _derived_task_status
+from lu_machinery.api.fleet_workers_models import (
     _AGENT_RE,
     _EPIC_RE,
     _ID_RE,
     WorkerRow,
     worker_row_dict,
 )
-from scripts.api.fleet_workers_sanitize import validate_worker_row_dict
-from scripts.api.observer_presence import list_live
-from scripts.api.occupancy import DEFAULT_HOST_IDS, QUERYABLE_DEFAULT_HOST_IDS, parse_host_id_map
-from scripts.api.occupancy_local import (
+from lu_machinery.api.fleet_workers_sanitize import validate_worker_row_dict
+from lu_machinery.api.observer_presence import list_live
+from lu_machinery.api.occupancy import DEFAULT_HOST_IDS, QUERYABLE_DEFAULT_HOST_IDS, parse_host_id_map
+from lu_machinery.api.occupancy_local import (
     DEFAULT_MARKER_TTL_S,
     OccupancyRead,
     _iter_marker_payloads,
@@ -45,18 +45,18 @@ from scripts.api.occupancy_local import (
     self_host_opaque_ids,
     session_streams_db_path,
 )
-from scripts.api.occupancy_sanitize import CLOUD_OBSERVER_HOST_ID, opaque_host_id, safe_field
-from scripts.api.product_contribution import atlas_provider
-from scripts.api.project_state_store import (
+from lu_machinery.api.occupancy_sanitize import CLOUD_OBSERVER_HOST_ID, opaque_host_id, safe_field
+from lu_machinery.api.product_contribution import atlas_provider
+from lu_machinery.api.project_state_store import (
     freshness_from_age,
     get_live_report,
     workers_status_from_document,
 )
-from scripts.orchestration.dispatch_admission import _ACTIVE_STATUS_MARKERS
-from scripts.orchestration.dispatch_admission import (
+from lu_machinery.orchestration.dispatch_admission import _ACTIVE_STATUS_MARKERS
+from lu_machinery.orchestration.dispatch_admission import (
     ACTIVE_STATUSES as _DELEGATE_ACTIVE_STATUSES,
 )
-from scripts.orchestration.task_record_store import iter_task_records
+from lu_machinery.orchestration.task_record_store import iter_task_records
 
 WORKERS_SCHEMA = "monitor-fleet-workers.v1"
 UNATTRIBUTED_HOST_ID = "unattributed"

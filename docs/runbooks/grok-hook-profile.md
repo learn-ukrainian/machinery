@@ -16,8 +16,8 @@ PreToolUse/PostToolUse graph optimized for Claude epic driving — not for Grok 
 
 ```bash
 # from repo root
-.venv/bin/python -m scripts.hooks.apply_grok_hook_profile           # dry-run
-.venv/bin/python -m scripts.hooks.apply_grok_hook_profile --apply    # write ~/.grok/config.toml
+.venv/bin/python -m lu_machinery.hooks.apply_grok_hook_profile           # dry-run
+.venv/bin/python -m lu_machinery.hooks.apply_grok_hook_profile --apply    # write ~/.grok/config.toml
 ```
 
 Manual equivalent — append to `~/.grok/config.toml`:
@@ -44,7 +44,7 @@ These are **safe for Claude** and help Grok if compat hooks remain on:
 ## Measure
 
 ```bash
-.venv/bin/python -m scripts.hooks.measure_hook_stack --repeats 3
+.venv/bin/python -m lu_machinery.hooks.measure_hook_stack --repeats 3
 # compare post-compact vs post-compact+GROK_SESSION medians in the JSON report
 ```
 

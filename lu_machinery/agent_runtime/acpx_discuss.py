@@ -34,7 +34,7 @@ if str(_SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_DIR))
 
 try:
-    from scripts.lib.readonly_sqlite import open_readonly
+    from lu_machinery.lib.readonly_sqlite import open_readonly
 except ModuleNotFoundError as exc:
     if exc.name != Path(os.path.abspath(__file__)).parents[1].name:
         raise
@@ -42,24 +42,24 @@ except ModuleNotFoundError as exc:
 
 from learn_ukrainian_v4_runtime.contracts import new_id
 
-from scripts.agent_runtime.adapters.acpx import (
+from lu_machinery.agent_runtime.adapters.acpx import (
     ACPX_SUPPORTED_PARTICIPANTS,
     TRANSPORT_ENV,
     _require_local_metadata_field,
     active_discussion_scope,
 )
-from scripts.agent_runtime.errors import AgentStalledError, AgentTimeoutError, RateLimitedError
-from scripts.agent_runtime.kimi_admission import ACP_MODE, KimiAdmissionRefused
-from scripts.agent_runtime.result import Result
-from scripts.agent_runtime.runner import (
+from lu_machinery.agent_runtime.errors import AgentStalledError, AgentTimeoutError, RateLimitedError
+from lu_machinery.agent_runtime.kimi_admission import ACP_MODE, KimiAdmissionRefused
+from lu_machinery.agent_runtime.result import Result
+from lu_machinery.agent_runtime.runner import (
     _invoke_native_once,
     invoke_inter_agent,
     resolve_inter_agent_route,
 )
-from scripts.fleet_comms.artifacts import ArtifactStore
-from scripts.fleet_comms.message_plane import default_plane_root
-from scripts.guardrails.worktree_containment import classify_repo_path
-from scripts.lib import rules_core
+from lu_machinery.fleet_comms.artifacts import ArtifactStore
+from lu_machinery.fleet_comms.message_plane import default_plane_root
+from lu_machinery.guardrails.worktree_containment import classify_repo_path
+from lu_machinery.lib import rules_core
 
 logger = logging.getLogger(__name__)
 
@@ -1260,7 +1260,7 @@ def refuse_kimi_discussion(participants: Sequence[str], models: Mapping[str, str
     admitted in one step (``resolve_and_admit``). Kimi seats never join
     discussions, so this runs before any plane, store or channel is opened.
     """
-    from scripts.agent_runtime.target_admission import resolve_and_admit
+    from lu_machinery.agent_runtime.target_admission import resolve_and_admit
 
     if models is not None and not isinstance(models, Mapping):
         raise AcpxDiscussionError("models must be a participant-keyed mapping")

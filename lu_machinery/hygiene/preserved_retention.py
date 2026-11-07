@@ -17,11 +17,11 @@ from pathlib import Path
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from scripts.common.nofollow_walk import ComponentOpenError, open_directory_component
-from scripts.common.task_scratch import ContainmentError, _remove_invocation_dir, fd_mount_id
-from scripts.fleet import ignored_task_output, pr_identity
-from scripts.hygiene.batch_state_retention import default_batch_root
-from scripts.orchestration.worktree_git import _TERMINAL_DISPATCH_STATUSES
+from lu_machinery.common.nofollow_walk import ComponentOpenError, open_directory_component
+from lu_machinery.common.task_scratch import ContainmentError, _remove_invocation_dir, fd_mount_id
+from lu_machinery.fleet import ignored_task_output, pr_identity
+from lu_machinery.hygiene.batch_state_retention import default_batch_root
+from lu_machinery.orchestration.worktree_git import _TERMINAL_DISPATCH_STATUSES
 
 
 def _machinery_top() -> str:

@@ -21,9 +21,9 @@ from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
-from scripts.common import github_client
-from scripts.fleet_comms.review_publication import ReviewEvidence, ReviewPublicationError
-from scripts.fleet_comms.review_publisher import ReviewPublisherError, split_repository
+from lu_machinery.common import github_client
+from lu_machinery.fleet_comms.review_publication import ReviewEvidence, ReviewPublicationError
+from lu_machinery.fleet_comms.review_publisher import ReviewPublisherError, split_repository
 
 Runner = Callable[..., subprocess.CompletedProcess[str]]
 

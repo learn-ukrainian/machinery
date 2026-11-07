@@ -43,8 +43,8 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
-from scripts.common.repo_root import resolve_repo_root
-from scripts.lib.readonly_sqlite import refuse_writable_corpus_database
+from lu_machinery.common.repo_root import resolve_repo_root
+from lu_machinery.lib.readonly_sqlite import refuse_writable_corpus_database
 
 _MODULE_ROOT = resolve_repo_root(Path(__file__), 2)
 
@@ -175,7 +175,7 @@ def sqlite_path(store: StoreId, *, repo_root: Path | None = None) -> Path:
     """Resolve the canonical sqlite file for ``store`` without opening it."""
     root = _repo_root(repo_root)
     if store is StoreId.FLEET_COMMS:
-        from scripts.fleet_comms.paths import default_plane_root
+        from lu_machinery.fleet_comms.paths import default_plane_root
 
         plane_root = default_plane_root(
             repo_root=root,

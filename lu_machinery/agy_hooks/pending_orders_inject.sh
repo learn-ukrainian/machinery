@@ -1,6 +1,6 @@
 #!/bin/sh
 # Read-only AGY PreInvocation announcement. Never persist stdin or probe output.
-fleet_module=scripts.fleet_comms
+fleet_module=lu_machinery.fleet_comms
 fallback='{"injectSteps":[{"ephemeralMessage":"PENDING ORDERS: unknown; legacy: ai_agent_bridge inbox for the registered handoff slot; authority: .venv/bin/python -m '"$fleet_module"' deliveries --help"}]}'
 root=$(cd "$(dirname "$0")/../.." 2>/dev/null && pwd) || { cat >/dev/null; printf '%s\n' "$fallback"; exit 0; }
 # Resolve the shared interpreter for linked worktrees without a worktree venv.
@@ -16,7 +16,7 @@ if [ ! -x "$py" ]; then
     exit 0
 fi
 # The child drains stdin; on early import/exec failure the parent drains the rest.
-if output=$(cd "$root" && "$py" -m scripts.inbox_pending --agy-hook 2>/dev/null); then
+if output=$(cd "$root" && "$py" -m lu_machinery.inbox_pending --agy-hook 2>/dev/null); then
     child_ok=1
 else
     child_ok=0

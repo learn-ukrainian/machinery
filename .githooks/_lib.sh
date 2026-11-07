@@ -12,11 +12,11 @@ fi
 main_root="$(cd "$git_common_dir/.." && pwd -P)"
 
 source_root="$worktree_root"
-if [[ ! -x "$source_root/scripts/pre_commit/project_python.sh" || ! -f "$source_root/.pre-commit-config.yaml" ]]; then
+if [[ ! -x "$source_root/lu_machinery/pre_commit/project_python.sh" || ! -f "$source_root/.pre-commit-config.yaml" ]]; then
   source_root="$main_root"
 fi
 
-project_python="$source_root/scripts/pre_commit/project_python.sh"
+project_python="$source_root/lu_machinery/pre_commit/project_python.sh"
 if [[ ! -x "$project_python" ]]; then
   echo "Git hook error: project Python launcher not found at $project_python" >&2
   exit 127
@@ -40,10 +40,10 @@ run_pre_commit() {
 # A dispatched write task learns at commit or push time that it changed a path outside its
 # owned paths; settlement still refuses such a delivery (#12113). Work outside a task skips it.
 check_owned_paths() {
-  if [[ -z "${LEARN_UKRAINIAN_DISPATCH_TASK_ID:-}" || ! -f "$source_root/scripts/dispatcher/ownership.py" ]]; then
+  if [[ -z "${LEARN_UKRAINIAN_DISPATCH_TASK_ID:-}" || ! -f "$source_root/lu_machinery/dispatcher/ownership.py" ]]; then
     return 0
   fi
-  (cd "$source_root" && run_project_python -m scripts.dispatcher.ownership --worktree "$worktree_root" "$@")
+  (cd "$source_root" && run_project_python -m lu_machinery.dispatcher.ownership --worktree "$worktree_root" "$@")
 }
 
 require_git_lfs() {

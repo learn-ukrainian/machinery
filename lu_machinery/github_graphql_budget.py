@@ -17,7 +17,7 @@ from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
 from typing import Any
 
-from scripts.publish.github import read
+from lu_machinery.publish.github import read
 
 TIMEOUT_SECONDS = 10.0
 

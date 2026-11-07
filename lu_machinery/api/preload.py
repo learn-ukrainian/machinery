@@ -16,7 +16,7 @@ from collections.abc import Sequence
 from pathlib import Path
 
 try:
-    from scripts.lib.readonly_sqlite import import_named_module
+    from lu_machinery.lib.readonly_sqlite import import_named_module
 except ModuleNotFoundError as exc:
     if exc.name != Path(os.path.abspath(__file__)).parents[1].name:
         raise
@@ -39,33 +39,33 @@ PRELOAD_MODULES = [
     "pathlib",
     "fastapi.responses",
     # Internal required modules
-    "scripts.api.state_helpers",
-    "scripts.api.rules_router",
-    "scripts.api.session_router",
-    "scripts.api.telemetry.response",
-    "scripts.api.fleet_workers_models",
-    "scripts.api.fleet_workers_sanitize",
-    "scripts.api.fleet_workers_collect",
-    "scripts.api.fleet_workers_router",
+    "lu_machinery.api.state_helpers",
+    "lu_machinery.api.rules_router",
+    "lu_machinery.api.session_router",
+    "lu_machinery.api.telemetry.response",
+    "lu_machinery.api.fleet_workers_models",
+    "lu_machinery.api.fleet_workers_sanitize",
+    "lu_machinery.api.fleet_workers_collect",
+    "lu_machinery.api.fleet_workers_router",
     "sqlite3",
-    "scripts.orchestration",
-    "scripts.guardrails",
-    "scripts.hygiene.check_core_bare",
+    "lu_machinery.orchestration",
+    "lu_machinery.guardrails",
+    "lu_machinery.hygiene.check_core_bare",
     "hygiene.check_core_bare",
-    "scripts.hygiene.check_self_symlinks",
+    "lu_machinery.hygiene.check_self_symlinks",
     "hygiene.check_self_symlinks",
-    "scripts.hygiene.check_primary_integrity",
+    "lu_machinery.hygiene.check_primary_integrity",
     "hygiene.check_primary_integrity",
-    "scripts.hygiene.check_node_modules_integrity",
+    "lu_machinery.hygiene.check_node_modules_integrity",
     "hygiene.check_node_modules_integrity",
-    "scripts.hygiene.check_venv_integrity",
+    "lu_machinery.hygiene.check_venv_integrity",
     "hygiene.check_venv_integrity",
-    "scripts.hygiene.check_worktree_cleanup_integrity",
+    "lu_machinery.hygiene.check_worktree_cleanup_integrity",
     "hygiene.check_worktree_cleanup_integrity",
-    "scripts.hygiene.check_tmp_usability",
+    "lu_machinery.hygiene.check_tmp_usability",
     "hygiene.check_tmp_usability",
     "agent_runtime.adapters.gemini",
-    "scripts.research.registry",
+    "lu_machinery.research.registry",
     "scripts.audit.check_research_registry",
 ]
 
@@ -74,14 +74,14 @@ OPTIONAL_MODULES = [
     # Bridge modules use the canonical `scripts.` identity only (#6812):
     # preloading the bare `ai_agent_bridge` name would create a second,
     # divergent sys.modules identity in the long-lived API process.
-    "scripts.ai_agent_bridge",
-    "scripts.ai_agent_bridge._channels",
-    "scripts.ai_agent_bridge._db",
-    "scripts.ai_agent_bridge.broker_indexes",
+    "lu_machinery.ai_agent_bridge",
+    "lu_machinery.ai_agent_bridge._channels",
+    "lu_machinery.ai_agent_bridge._db",
+    "lu_machinery.ai_agent_bridge.broker_indexes",
 ]
 
 DYNAMIC_LOADERS = {
-    "scripts.api.runtime_router": {
+    "lu_machinery.api.runtime_router": {
         "description": "Loads agent runtime adapters and registry snapshots dynamically.",
         "strategy": "walk_adapters",
         "calls": [

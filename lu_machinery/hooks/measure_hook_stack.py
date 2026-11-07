@@ -23,7 +23,7 @@ _HOOK_TIMEOUT_SECONDS = 60
 _TIMEOUT_RETURN_CODE = 124
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
-from scripts.common.repo_root import machinery_path, project_interpreter
+from lu_machinery.common.repo_root import machinery_path, project_interpreter
 
 
 def _python_bin() -> str:

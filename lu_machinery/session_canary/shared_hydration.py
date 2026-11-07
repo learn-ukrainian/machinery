@@ -29,7 +29,7 @@ from jsonschema import Draft202012Validator, FormatChecker
 
 from agents_extensions.shared.session_streams.hooks import lease_from_environment
 from agents_extensions.shared.session_streams.model import parse_timestamp, validate_stream_id
-from scripts.session_supervisor.remote import RemoteEpicClient, monitor_url
+from lu_machinery.session_supervisor.remote import RemoteEpicClient, monitor_url
 
 ROOT = Path(__file__).resolve().parents[2]
 # Per-attempt monotonic budget. 0.5 s was too tight for a real Monitor read

@@ -20,8 +20,8 @@ import os
 from pathlib import Path
 from uuid import uuid4
 
-from scripts.orchestration import backup_failure_alert as alerts
-from scripts.orchestration import dispatch_admission as admission
+from lu_machinery.orchestration import backup_failure_alert as alerts
+from lu_machinery.orchestration import dispatch_admission as admission
 
 # This package's import name, from the unresolved file location: never from __package__, which a
 # short import spelling (orchestration.x with scripts/ on sys.path) shortens. Its dotted parts

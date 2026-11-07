@@ -554,13 +554,13 @@
     "scripts/build/generate_lesson_schema.py": [
       "shared-core"
     ],
-    "scripts/ci/components.json": [
+    "lu_machinery/ci/components.json": [
       "shared-core"
     ],
-    "scripts/ci/components.py": [
+    "lu_machinery/ci/components.py": [
       "shared-core"
     ],
-    "scripts/config.py": [
+    "lu_machinery/config.py": [
       "shared-core"
     ],
     "scripts/generate_curriculum_stats.py": [
@@ -947,13 +947,13 @@
       ]
     },
     {
-      "path": "scripts/agent_runtime/",
+      "path": "lu_machinery/agent_runtime/",
       "components": [
         "harness"
       ]
     },
     {
-      "path": "scripts/api/",
+      "path": "lu_machinery/api/",
       "components": [
         "harness"
       ]
@@ -983,13 +983,13 @@
       ]
     },
     {
-      "path": "scripts/fleet/",
+      "path": "lu_machinery/fleet/",
       "components": [
         "harness"
       ]
     },
     {
-      "path": "scripts/fleet_comms/",
+      "path": "lu_machinery/fleet_comms/",
       "components": [
         "harness"
       ]
@@ -1013,7 +1013,7 @@
       ]
     },
     {
-      "path": "scripts/orchestration/",
+      "path": "lu_machinery/orchestration/",
       "components": [
         "harness"
       ]
@@ -1593,7 +1593,7 @@
     }
   ],
   "selector_contracts": {
-    "frontend_denominator": "scripts/ci/frontend_change_denominator.json",
+    "frontend_denominator": "lu_machinery/ci/frontend_change_denominator.json",
     "pages_eligibility": "scripts/deploy/auto_deploy_eligibility.py",
     "frontend_components": [
       "atlas-frontend",

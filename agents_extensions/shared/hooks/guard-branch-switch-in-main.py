@@ -49,7 +49,7 @@ from pathlib import Path
 # The roots reader, by import name. This hook is outside the machinery package: under its source
 # tree the reader's file is at the same dotted path, and the name's first component is the machinery
 # package's directory.
-_ROOTS_READER_MODULE = "scripts.common.repo_root"
+_ROOTS_READER_MODULE = "lu_machinery.common.repo_root"
 _MACHINERY = _ROOTS_READER_MODULE.partition(".")[0]
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))

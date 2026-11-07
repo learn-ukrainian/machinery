@@ -14,7 +14,7 @@ from pathlib import Path
 
 import psutil
 
-from scripts.common import test_slots
+from lu_machinery.common import test_slots
 
 THRESHOLD_ENV = "LU_LOAD_SAMPLE_THRESHOLD"
 DEFAULT_THRESHOLD = 20.0

@@ -6,7 +6,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import NoReturn
 
-from scripts.common.repo_root import configured_interpreter, main_checkout_root
+from lu_machinery.common.repo_root import configured_interpreter, main_checkout_root
 
 # The dispatcher entry point, relative to a checkout: the unresolved name of the machinery
 # package directory this file is in (whatever it is called), then the entry.

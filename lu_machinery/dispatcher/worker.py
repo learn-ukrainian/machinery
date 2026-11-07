@@ -18,23 +18,23 @@ from pathlib import Path
 
 import psutil
 
-from scripts.agent_runtime import bounded_advisory
-from scripts.agent_runtime.read_only_tmp import create_dispatch_lease, discard_dispatch_lease
-from scripts.common.repo_root import project_interpreter
-from scripts.common.scratch import ensure_scratch_root
-from scripts.common.task_scratch import TaskScratchError
-from scripts.dispatcher import admission, agy_sandbox, git, headroom, ownership, providers, runtime_context, store
-from scripts.dispatcher.environment import child_env
-from scripts.dispatcher.types import ParsedResult, TaskSpec
-from scripts.dispatcher.watchdog import (
+from lu_machinery.agent_runtime import bounded_advisory
+from lu_machinery.agent_runtime.read_only_tmp import create_dispatch_lease, discard_dispatch_lease
+from lu_machinery.common.repo_root import project_interpreter
+from lu_machinery.common.scratch import ensure_scratch_root
+from lu_machinery.common.task_scratch import TaskScratchError
+from lu_machinery.dispatcher import admission, agy_sandbox, git, headroom, ownership, providers, runtime_context, store
+from lu_machinery.dispatcher.environment import child_env
+from lu_machinery.dispatcher.types import ParsedResult, TaskSpec
+from lu_machinery.dispatcher.watchdog import (
     TERMINAL_EXIT_GRACE_S,
     DeadlineExpired,
     communicate,
     deadlines,
     liveness_paths,
 )
-from scripts.review.model_catalog import advisory_role_policy
-from scripts.review.product_hooks import attempt_hooks
+from lu_machinery.review.model_catalog import advisory_role_policy
+from lu_machinery.review.product_hooks import attempt_hooks
 
 
 def _seal_advisory_result(record: dict, result: Path) -> None:
@@ -77,7 +77,7 @@ def _observe(record: dict) -> dict:
             record = current
     if (record.get("schema_version") == 2 and record.get("status") in store.ACTIVE
             and record.get("pid") is None and record.get("admission_hold")):
-        from scripts.dispatcher.host_admission import heal_dead
+        from lu_machinery.dispatcher.host_admission import heal_dead
 
         heal_dead(store.record_path(record["task_id"]), record)
         return store.read(record["task_id"], record["run_nonce"])
@@ -107,7 +107,7 @@ def _dispatcher_code() -> dict:
     needs both to be the same clean checkout at the head it reviewed (#12399). An unreadable
     checkout records ``head`` None, which no canary accepts.
     """
-    from scripts.common.git_context import sanitized_git_env
+    from lu_machinery.common.git_context import sanitized_git_env
 
     root = Path(__file__).resolve().parents[2]
 
@@ -134,7 +134,7 @@ def _discard_read_only_scratch(record: dict) -> None:
 
 def _spawn_expired(record: dict) -> bool:
     """Recover old pid-less launches, preserving a live or unprovable setup owner."""
-    from scripts.orchestration import dispatch_admission
+    from lu_machinery.orchestration import dispatch_admission
 
     if (record.get("schema_version") != 2 or record.get("status") != "spawning"
             or record.get("pid") is not None or record.get("admission_hold") or record.get("worktree_prep")
@@ -179,7 +179,7 @@ def _submitted_prompt_already_published(record: dict, prompt: bytes, failed: str
 
 
 def start(spec: TaskSpec, record: dict, prompt: bytes, hard_timeout: float) -> None:
-    from scripts.orchestration.dispatch_admission import new_admission_hold
+    from lu_machinery.orchestration.dispatch_admission import new_admission_hold
 
     source = getattr(providers.load(spec.agent), "MODEL_SOURCE", None)
     if source:
@@ -199,7 +199,7 @@ def start(spec: TaskSpec, record: dict, prompt: bytes, hard_timeout: float) -> N
             mask = signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGTERM, signal.SIGINT})
             try:
                 process, launch = admission.spawn_supervisor(
-                    [str(project_interpreter()), "-m", "scripts.dispatcher.worker", str(path)],
+                    [str(project_interpreter()), "-m", "lu_machinery.dispatcher.worker", str(path)],
                     task_id=spec.task_id, run_nonce=record["run_nonce"], cwd=Path(__file__).resolve().parents[2],
                     stderr=err, stderr_log=logs / f"{spec.task_id}.stderr.log",
                     env={**os.environ,
@@ -257,8 +257,8 @@ def _spec(record: dict, options: dict) -> TaskSpec:
 
 
 def _outside_cause(paths, owned) -> str | None:
-    from scripts.guardrails.delegate_ownership import sanitize_for_display
-    from scripts.secret_redactor import redact_text
+    from lu_machinery.guardrails.delegate_ownership import sanitize_for_display
+    from lu_machinery.secret_redactor import redact_text
 
     outside = ownership.outside_owned(paths, owned)
     if not outside:
@@ -447,7 +447,7 @@ def _agy_follow_up(spec: TaskSpec, record: dict, parsed: ParsedResult, started: 
     typed failure naming that child. The resume flag is the adapter's
     ``--conversation``.
     """
-    from scripts.dispatcher.providers.agy import CONTINUATION_LIMIT, conversation_id
+    from lu_machinery.dispatcher.providers.agy import CONTINUATION_LIMIT, conversation_id
 
     if spec.agent != "agy" or spec.mode != "workspace-write":
         return None, parsed
@@ -512,7 +512,7 @@ def _load_bound_review_code() -> None:
         with contextlib.suppress(Exception):
             attempt_hooks().bind_bound_review_modules()
         with contextlib.suppress(Exception):
-            from scripts.agent_runtime import runner  # noqa: F401
+            from lu_machinery.agent_runtime import runner  # noqa: F401
     finally:
         if added:
             sys.path.remove(scripts_dir)
@@ -526,7 +526,15 @@ def _load_provider_modules() -> None:
     literal, and each module still lands in ``sys.modules``.
     """
     with contextlib.suppress(Exception):
-        from scripts.dispatcher.providers import agy, claude, codex, cursor, muse, opencode, stream_json  # noqa: F401
+        from lu_machinery.dispatcher.providers import (  # noqa: F401
+            agy,
+            claude,
+            codex,
+            cursor,
+            muse,
+            opencode,
+            stream_json,
+        )
 
 
 def load_post_start_code(bound_review: bool = False) -> None:
@@ -543,7 +551,7 @@ def load_post_start_code(bound_review: bool = False) -> None:
     ``git.CODE_UNAVAILABLE`` and the scheduled cleanup completes it from a fresh process.
     """
     with contextlib.suppress(Exception):
-        from scripts.agent_runtime import (  # noqa: F401
+        from lu_machinery.agent_runtime import (  # noqa: F401
             agy_hook_config,
             attempt_boundary,
             attempt_network,
@@ -557,7 +565,7 @@ def load_post_start_code(bound_review: bool = False) -> None:
             telemetry,
             tool_calls,
         )
-        from scripts.agent_runtime.adapters import (  # noqa: F401
+        from lu_machinery.agent_runtime.adapters import (  # noqa: F401
             _output_schema,
             agy,
             base,
@@ -570,16 +578,16 @@ def load_post_start_code(bound_review: bool = False) -> None:
     if bound_review:
         _load_bound_review_code()
     with contextlib.suppress(Exception):
-        from scripts.common import fallback_substitutions, nofollow_walk, release_layout, safe_open  # noqa: F401
+        from lu_machinery.common import fallback_substitutions, nofollow_walk, release_layout, safe_open  # noqa: F401
 
         attempt_hooks().bind_evidence_modules()
-        from scripts.guardrails import delegate_ownership  # noqa: F401
-        from scripts.lib import git_identity  # noqa: F401
-        from scripts.opsec import git_push  # noqa: F401
-        from scripts.session_supervisor import remote  # noqa: F401
-        from scripts.utils import claude_version  # noqa: F401
+        from lu_machinery.guardrails import delegate_ownership  # noqa: F401
+        from lu_machinery.lib import git_identity  # noqa: F401
+        from lu_machinery.opsec import git_push  # noqa: F401
+        from lu_machinery.session_supervisor import remote  # noqa: F401
+        from lu_machinery.utils import claude_version  # noqa: F401
     with contextlib.suppress(Exception):
-        from scripts.review import (  # noqa: F401
+        from lu_machinery.review import (  # noqa: F401
             capacity,
             isolation,
             record_cf_verdict,
@@ -594,10 +602,10 @@ def load_post_start_code(bound_review: bool = False) -> None:
 
         attempt_hooks().bind_receipt_modules()
     with contextlib.suppress(Exception):
-        from scripts.dispatcher import checks, host_admission, output_schema, review_attempt, scope  # noqa: F401
+        from lu_machinery.dispatcher import checks, host_admission, output_schema, review_attempt, scope  # noqa: F401
     _load_provider_modules()
     with contextlib.suppress(Exception):
-        from scripts.fleet import (  # noqa: F401
+        from lu_machinery.fleet import (  # noqa: F401
             credit_lane,
             ignored_task_output,
             pr_owner_check,
@@ -606,7 +614,7 @@ def load_post_start_code(bound_review: bool = False) -> None:
             terminal_abandon,
         )
     with contextlib.suppress(Exception):
-        from scripts.orchestration import (  # noqa: F401
+        from lu_machinery.orchestration import (  # noqa: F401
             admission_shadow,
             dead_worker_state,
             dispatch_admission,
@@ -643,7 +651,7 @@ def _cgroup_holds_other_active_task(record: dict, cgroup: str) -> bool:
     stop is skipped and the liveness check keeps the tree. A child that has
     its own scope is not a member here and does not block the stop.
     """
-    from scripts.orchestration import worker_leftovers
+    from lu_machinery.orchestration import worker_leftovers
 
     try:
         members = worker_leftovers.ProcFsReader().cgroup_procs(cgroup)
@@ -685,7 +693,7 @@ def _is_own_descendant(pid: int) -> bool:
     reparented the candidate to the supervisor, so the walk starts again; ancestry that stays unresolved or
     unreadable raises ``ScanUnknown`` (the stop is then not ok) and is never read as "not a descendant".
     """
-    from scripts.orchestration import worker_leftovers
+    from lu_machinery.orchestration import worker_leftovers
 
     me = os.getpid()
     for _ in range(ANCESTRY_ATTEMPTS):
@@ -712,7 +720,7 @@ def _is_own_descendant(pid: int) -> bool:
 
 def _stop_fallback_tree(task_id: str, nonce: str):
     """Stop the processes a Popen-fallback supervisor started, once; a scan that cannot be read is not ok."""
-    from scripts.orchestration import worker_leftovers
+    from lu_machinery.orchestration import worker_leftovers
 
     reader = worker_leftovers.ProcFsReader()
     try:
@@ -767,7 +775,7 @@ def _end_own_scope(record: dict):
         return None
     if not all(isinstance(value, str) and value for value in (task_id, unit, nonce)):
         return None
-    from scripts.orchestration import dispatch_isolation, worker_leftovers
+    from lu_machinery.orchestration import dispatch_isolation, worker_leftovers
 
     if not dispatch_isolation.scope_unit_matches(unit, task_id=task_id, run_nonce=nonce):
         return None
@@ -878,7 +886,7 @@ def _verdict_failure(record: dict, text: str | None) -> str | None:
     if record.get("schema_version") != 2 or record.get("require_review_verdict") is not True:
         return None
     try:
-        from scripts.review.verdict_parser import recognized_verdicts
+        from lu_machinery.review.verdict_parser import recognized_verdicts
 
         verdicts = set(recognized_verdicts(text))
     except Exception:
@@ -897,7 +905,7 @@ def _item_judgments_verdict(record: dict, text: str | None) -> str | None:
     """
     if record.get("review_profile") != "ukrainian" or not text:
         return None
-    from scripts.review.review_contract import ContractError, item_judgments_verdict, load_frozen_item_packet
+    from lu_machinery.review.review_contract import ContractError, item_judgments_verdict, load_frozen_item_packet
 
     try:
         packet = load_frozen_item_packet(record)
@@ -928,7 +936,7 @@ def _format_correction(record: dict, schema: dict | None, text: str | None, laun
         return None
     if not text or not text.strip():
         return None
-    from scripts.review.review_contract import (
+    from lu_machinery.review.review_contract import (
         ContractError,
         canonical_receipt_payload,
         decision_lock,
@@ -959,7 +967,7 @@ def _receipt_failure(record: dict, text: str | None) -> str | None:
     """
     if record.get("schema_version") != 2 or record.get("require_review_verdict") is not True:
         return None
-    from scripts.review.review_contract import ContractError, canonical_receipt_payload, schema_path
+    from lu_machinery.review.review_contract import ContractError, canonical_receipt_payload, schema_path
 
     if schema_path(profile=record.get("review_profile"), task=record) is None:
         return None
@@ -972,7 +980,7 @@ def _receipt_failure(record: dict, text: str | None) -> str | None:
 
 def _corrected_reply_refusal(lock: dict, text: str | None) -> str | None:
     """Refuse a correction that is still not a receipt, or that changes the locked decision."""
-    from scripts.review.review_contract import ContractError, canonical_receipt_payload, same_decision
+    from lu_machinery.review.review_contract import ContractError, canonical_receipt_payload, same_decision
 
     try:
         payload = canonical_receipt_payload(text or "")
@@ -1060,7 +1068,7 @@ def supervise(path: Path, options: dict | None = None, hard_timeout: float | Non
         if record.get("review_attempt"):
             # A bound formal attempt runs only inside the agent runtime's attempt boundary, with the rendered
             # prompt's exact bytes: no dispatch context, no task-store grant, no ordinary launch (#12114).
-            from scripts.dispatcher import review_attempt
+            from lu_machinery.dispatcher import review_attempt
 
             prompt = spec.prompt_file.read_bytes()
             record.update(status="running", runtime_input_sha256=hashlib.sha256(prompt).hexdigest())
@@ -1084,7 +1092,7 @@ def supervise(path: Path, options: dict | None = None, hard_timeout: float | Non
             return
         schema = None
         if options.get("output_schema_path") is not None:
-            from scripts.dispatcher.output_schema import load
+            from lu_machinery.dispatcher.output_schema import load
 
             try:
                 schema = load(options)
@@ -1103,7 +1111,7 @@ def supervise(path: Path, options: dict | None = None, hard_timeout: float | Non
         try:
             invocation = admission.claude_launch(spec, invocation)
             if spec.agent == "claude" and spec.claude_account not in (None, "a"):
-                from scripts.agent_runtime.attempt_boundary import claude_account_auth_receipt
+                from lu_machinery.agent_runtime.attempt_boundary import claude_account_auth_receipt
 
                 # Value-free: label, source and the verified method (``api_key_helper`` bills that key).
                 record["claude_account_auth"] = claude_account_auth_receipt(
@@ -1232,7 +1240,7 @@ def supervise(path: Path, options: dict | None = None, hard_timeout: float | Non
             status, error = "rate_limited", parsed.error
             return
         if schema is not None and spec.agent != "agy" and exit_code == 0 and not parsed.error:
-            from scripts.agent_runtime.adapters._output_schema import json_value, structured_result
+            from lu_machinery.agent_runtime.adapters._output_schema import json_value, structured_result
 
             result = structured_result(json_value(text), schema, returncode=exit_code, terminal_ok=True)
             if not result.ok:
@@ -1248,13 +1256,13 @@ def supervise(path: Path, options: dict | None = None, hard_timeout: float | Non
                 "provider exited unsuccessfully" if exit_code else "provider returned no successful final response"
             )
         if status == "done" and source == "agy-stream-json":
-            from scripts.dispatcher.providers.agy import identity_failure
+            from lu_machinery.dispatcher.providers.agy import identity_failure
 
             if refusal := identity_failure(spec.model, resolved_model):
                 status, error = "failed", refusal
         if status == "done" and spec.agent == "claude":
             # An advised run attests its executor from its own result; another model never settles done (#12094).
-            from scripts.dispatcher.providers.claude import MODEL_USAGE_SOURCE, executor_failure
+            from lu_machinery.dispatcher.providers.claude import MODEL_USAGE_SOURCE, executor_failure
 
             if (attested := executor_failure(spec, stdout)) is not None:
                 record.update(_stream_attestation(MODEL_USAGE_SOURCE, attested[0]))
@@ -1411,6 +1419,6 @@ def cancel(task_id: str, nonce: str | None = None) -> dict:
 if __name__ == "__main__":
     # Run as -m, this module is __main__; a later `import scripts.dispatcher.worker` (the removal chokepoint's
     # liveness proof) must get this running copy, not a second one loaded from a checkout that has moved since.
-    sys.modules.setdefault("scripts.dispatcher.worker", sys.modules[__name__])
+    sys.modules.setdefault("lu_machinery.dispatcher.worker", sys.modules[__name__])
     settings = json.load(sys.stdin)
     supervise(Path(sys.argv[1]), **settings)

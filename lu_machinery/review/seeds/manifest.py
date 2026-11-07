@@ -40,7 +40,7 @@ from typing import Any
 
 import yaml
 
-from scripts.review import findings_db, second_seat
+from lu_machinery.review import findings_db, second_seat
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 TAXONOMY_PATH = REPO_ROOT / "schemas" / "review-taxonomy-v1.yaml"

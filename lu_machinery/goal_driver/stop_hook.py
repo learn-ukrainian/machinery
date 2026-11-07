@@ -35,8 +35,8 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
-from scripts.common.jsonl import jsonl_lines as split_jsonl_lines
-from scripts.goal_driver.status_lines import (
+from lu_machinery.common.jsonl import jsonl_lines as split_jsonl_lines
+from lu_machinery.goal_driver.status_lines import (
     ABORT_KIND,
     DONE_KIND,
     STATUS_KIND,

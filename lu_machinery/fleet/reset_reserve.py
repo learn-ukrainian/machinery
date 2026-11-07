@@ -9,17 +9,17 @@ from pathlib import Path
 from typing import Any
 
 try:
-    from scripts.api.subscription_usage import get_provider_usage_data, pace_is_deficit
+    from lu_machinery.api.subscription_usage import get_provider_usage_data, pace_is_deficit
 except ImportError:  # pragma: no cover - script path fallback
     from api.subscription_usage import get_provider_usage_data, pace_is_deficit  # type: ignore
 
 try:
-    from scripts.common.repo_root import main_checkout_root
+    from lu_machinery.common.repo_root import main_checkout_root
 except ImportError:  # pragma: no cover - script path fallback
     from common.repo_root import main_checkout_root  # type: ignore
 
 try:
-    from scripts.fleet.credit_lane import CAPACITY_VERIFIED
+    from lu_machinery.fleet.credit_lane import CAPACITY_VERIFIED
 except ImportError:  # pragma: no cover - script path fallback
     from credit_lane import CAPACITY_VERIFIED  # type: ignore
 

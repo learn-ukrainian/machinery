@@ -18,7 +18,7 @@ if str(_ROOT) not in sys.path:
 
 import yaml
 
-from scripts.common.repo_root import machinery_path
+from lu_machinery.common.repo_root import machinery_path
 
 _DEFAULTS = machinery_path("config/routing_defaults.yaml")
 

@@ -34,10 +34,10 @@ from typing import Any
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from scripts.github_check_rollup import collapse_status_rollup
-from scripts.opsec.prepublish import publication_boundary, publication_cli
-from scripts.orchestration import lifecycle_observation, task_identity, task_lifecycle
-from scripts.publish.github import Request, request_run
+from lu_machinery.github_check_rollup import collapse_status_rollup
+from lu_machinery.opsec.prepublish import publication_boundary, publication_cli
+from lu_machinery.orchestration import lifecycle_observation, task_identity, task_lifecycle
+from lu_machinery.publish.github import Request, request_run
 
 # This package's import name, from the unresolved file location: never from __package__, which a
 # short import spelling (orchestration.x with scripts/ on sys.path) shortens. Its dotted parts
@@ -227,7 +227,7 @@ class GhGitHubAdapter:
             if failure is not None:
                 raise task_lifecycle.LifecycleError(failure)
         try:
-            from scripts.orchestration import issue_stream_audit
+            from lu_machinery.orchestration import issue_stream_audit
 
             # Closed epics stay in the file for launcher and Work API consumers.
             # Membership roots are the audit registry only (#12176).
@@ -255,7 +255,7 @@ class GhGitHubAdapter:
         checkout/worktree audits and caches against the SAME repository it is
         validating membership for.
         """
-        from scripts.orchestration import issue_stream_audit
+        from lu_machinery.orchestration import issue_stream_audit
 
         try:
             return issue_stream_audit.run_audit(self.repo_root)
@@ -368,7 +368,7 @@ class GhGitHubAdapter:
         return login
 
     def _changed_paths(self, repository: str, pr_number: int) -> list[str]:
-        from scripts.orchestration.integration_sweep import pr_file_paths
+        from lu_machinery.orchestration.integration_sweep import pr_file_paths
 
         payload = self._json(Request("read-pr-files", repo=repository, number=pr_number, paginate=True))
         rows = _flatten_github_pages(payload)
@@ -552,7 +552,7 @@ class GhGitHubAdapter:
         if str(pr.get("state") or "").upper() == "MERGED":
             # The default worktree is this checkout, which is always registered,
             # so a merged task's cleanup comes from what merge_closeout verifies.
-            from scripts.orchestration import merge_closeout
+            from lu_machinery.orchestration import merge_closeout
 
             # Only the PR's own head branch is verified; a different caller
             # branch can never establish that the PR's branches are gone.
@@ -580,7 +580,7 @@ class GhGitHubAdapter:
     def merged_run_evidence(
         self, ledger: dict[str, Any], observation: dict[str, Any], *, now: str,
     ) -> tuple[dict[str, Any], dict[str, Any]]:
-        from scripts.orchestration.merge_closeout import collect_merged_run_evidence
+        from lu_machinery.orchestration.merge_closeout import collect_merged_run_evidence
 
         try:
             return collect_merged_run_evidence(self.repo_root, ledger, observation, now=now)
@@ -1278,7 +1278,7 @@ def cmd_carrier(args: argparse.Namespace) -> int:
 
 
 def cmd_recover_local(args: argparse.Namespace) -> int:
-    from scripts.orchestration.lifecycle_observation import recover
+    from lu_machinery.orchestration.lifecycle_observation import recover
 
     child_pr = None
     merged_pr = None
@@ -1289,7 +1289,7 @@ def cmd_recover_local(args: argparse.Namespace) -> int:
                 ledger["identity"]["repository"], ledger["pr"]["number"]
             )
         except task_lifecycle.LifecycleError as exc:
-            from scripts.orchestration.lifecycle_observation import ObservationRefusal
+            from lu_machinery.orchestration.lifecycle_observation import ObservationRefusal
 
             raise ObservationRefusal("RECOVERY_CHILD_PR_UNAVAILABLE") from exc
         child_pr = merged_pr
@@ -1456,7 +1456,7 @@ Related: task-lifecycle-closeout.md; takeover skill; #12844.
 
 @publication_cli(task_lifecycle.LifecycleError)
 def main(argv: list[str] | None = None) -> int:
-    from scripts.orchestration.lifecycle_observation import repository_context
+    from lu_machinery.orchestration.lifecycle_observation import repository_context
 
     args = build_parser().parse_args(argv)
     try:

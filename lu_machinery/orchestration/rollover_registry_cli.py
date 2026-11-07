@@ -14,9 +14,9 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from scripts.orchestration import thread_handoff
-from scripts.orchestration.task_family import rollover_registry as registry
-from scripts.orchestration.task_family.storage import advisory_lock
+from lu_machinery.orchestration import thread_handoff
+from lu_machinery.orchestration.task_family import rollover_registry as registry
+from lu_machinery.orchestration.task_family.storage import advisory_lock
 
 # This package's import name, from the unresolved file location: never from __package__, which a
 # short import spelling (orchestration.x with scripts/ on sys.path) shortens. Its dotted parts

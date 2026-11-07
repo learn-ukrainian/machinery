@@ -42,8 +42,8 @@ import yaml
 # Canonical module identity (#6812): repo root on sys.path, never the bare
 # ``ai_agent_bridge`` identity (a second sys.modules entry with divergent state).
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
-from scripts.ai_agent_bridge._env import build_agent_env
-from scripts.common.repo_root import project_interpreter
+from lu_machinery.ai_agent_bridge._env import build_agent_env
+from lu_machinery.common.repo_root import project_interpreter
 
 
 # ---------------------------------------------------------------------------

@@ -4,11 +4,11 @@
 contract for non-trivial coding work. It wraps the canonical
 `task-identity.v1` envelope; it never replaces or weakens that identity.
 
-The implementation is `scripts/orchestration/task_lifecycle.py`. The operator
+The implementation is `lu_machinery/orchestration/task_lifecycle.py`. The operator
 entry point is:
 
 ```bash
-.venv/bin/python -m scripts.orchestration.task_closeout --help
+.venv/bin/python -m lu_machinery.orchestration.task_closeout --help
 ```
 
 ## Authority and storage
@@ -160,7 +160,7 @@ and initialization timestamps are excluded from that comparison.
 To correct wrongly frozen required evidence types, use:
 
 ```bash
-.venv/bin/python -m scripts.orchestration.task_closeout correct-evidence-types \
+.venv/bin/python -m lu_machinery.orchestration.task_closeout correct-evidence-types \
   --state-file ledger.json --ac-id AC-02 \
   --required-evidence document --required-evidence review \
   --actor codex/task-id --reason 'This criterion verifies documentation'
@@ -202,7 +202,7 @@ A successor thread that takes over an issue whose ledger another identity create
 binds itself explicitly, with the same identity and policy arguments as `init`:
 
 ```bash
-.venv/bin/python -m scripts.orchestration.task_closeout bind-successor \
+.venv/bin/python -m lu_machinery.orchestration.task_closeout bind-successor \
   --identity-file identity.json --ac-policy ac-policy.json \
   --author-family codex --required-check 'CI Gate'
 ```
@@ -270,8 +270,8 @@ is `BLOCKED_WITH_RECEIPT` with an owner, reason, evidence, and next action.
 `merge_closeout` appends local observations through the lifecycle API while
 the task's dispatch worktree is still present, and removes none. The
 dispatcher settles its own worktree (`_reap_settled` in
-`scripts/dispatcher/worker.py`); a worktree it retained is removed with
-`python -m scripts.orchestration.worktree_claims remove PATH --owner-task-id ID`,
+`lu_machinery/dispatcher/worker.py`); a worktree it retained is removed with
+`python -m lu_machinery.orchestration.worktree_claims remove PATH --owner-task-id ID`,
 which never forces. A valid earlier observation makes capture a no-op. Capture
 failure retains the worktree; an explicit `--no-lifecycle-observation REASON`
 is logged in the cleanup report. Tasks without a lifecycle ledger retain their

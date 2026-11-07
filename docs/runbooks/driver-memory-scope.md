@@ -6,7 +6,7 @@ import or lease acquisition (#9624). That covers every driver route (normal,
 untrusted and governor), every interactive and compatibility wrapper
 (`start-claude.sh`, `start-codex.sh`, `start-gemini.sh`, `start-grok.sh`,
 `start-kimi.sh`, `start-kimicc.sh`, `start-glm.sh`, `start-glmcc.sh`) and
-`scripts/start-bio-driver.sh`. Kimi wrappers refuse retired catalog ids and are
+`lu_machinery/start-bio-driver.sh`. Kimi wrappers refuse retired catalog ids and are
 not a usable lane (OO-58, #11327). Driver units are
 `lu-driver-<provider>-<lane>-<uuid>.scope`. Interactive units are
 `lu-interactive-<provider>-<label>-<uuid>.scope`, where the label names the
@@ -18,7 +18,7 @@ prelease, provider canary and supervisory start-failure publication stay
 driver-only, whatever an interactive session inherits. Help and dry-run do not
 contact the manager.
 
-`scripts/lib/driver_scope.sh` is the single per-session configuration point. It
+`lu_machinery/lib/driver_scope.sh` is the single per-session configuration point. It
 sets `MemoryHigh=`, `MemoryMax=` and `MemorySwapMax=` from the deployment's
 configuration (see [Limits are set per deployment](#limits-are-set-per-deployment)),
 with explicit `OOMPolicy=continue`. Limits are read back from the actual cgroup; unit ID,
@@ -203,9 +203,9 @@ installing a unit file without values, so the live limits never lapse. Install,
 check and undo `lu.slice` only through the helper, from the reviewed checkout:
 
 ```bash
-scripts/ops/lu_slice_apply.sh check     # needs the limits drop-in; refuses (exit 4) if memory.current is above its MemoryMax, warns at or above MemoryHigh
-scripts/ops/lu_slice_apply.sh apply     # check, install the unit, daemon-reload, verify the cgroup files equal the drop-in values
-scripts/ops/lu_slice_apply.sh rollback  # lift the cap at once, remove the unit and control drop-ins, verify max
+lu_machinery/ops/lu_slice_apply.sh check     # needs the limits drop-in; refuses (exit 4) if memory.current is above its MemoryMax, warns at or above MemoryHigh
+lu_machinery/ops/lu_slice_apply.sh apply     # check, install the unit, daemon-reload, verify the cgroup files equal the drop-in values
+lu_machinery/ops/lu_slice_apply.sh rollback  # lift the cap at once, remove the unit and control drop-ins, verify max
 systemctl --user show lu.slice -p LoadState -p FragmentPath -p MemoryHigh -p MemoryMax -p MemorySwapMax
 ```
 
@@ -228,7 +228,7 @@ drop-ins, a runtime override would keep the cap in force until reboot. The
 deployment tooling reinstalls the limits drop-in on its next run, so disable
 that first if the rollback must stick.
 
-Inside a driver or interactive scope, `scripts/lib/driver_scope.sh` exports
+Inside a driver or interactive scope, `lu_machinery/lib/driver_scope.sh` exports
 `PYTEST_XDIST_AUTO_NUM_WORKERS` capped at `LU_DRIVER_PYTEST_MAX_WORKERS` (set per
 deployment, conservative generic fallback; an inherited value from zero up to the
 cap is kept), so `pytest -n auto` and `-n logical` stay within the cap. An explicit
@@ -424,7 +424,7 @@ residual.
 
 The detached lexicon enrich, reduce and class-B re-enrich launchers and the
 retrieval bake-off enter `lu.slice` with their existing memory maxima and
-`MemorySwapMax=0`. `scripts/lib/job_memory_scope.sh` checks the actual kernel
+`MemorySwapMax=0`. `lu_machinery/lib/job_memory_scope.sh` checks the actual kernel
 placement, job limits and finite parent-pool limits before executing the
 workload. Missing containment refuses the launch; the plain detached and RSS
 watchdog fallbacks have been removed. The optional pre-push validation scope

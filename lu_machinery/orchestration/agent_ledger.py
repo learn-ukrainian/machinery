@@ -214,7 +214,7 @@ def task_event(
 
 def lifecycle_carrier(path: str | Path) -> dict[str, Any]:
     """Load the shared closeout projection exposed by coordination endpoints."""
-    from scripts.orchestration import task_lifecycle
+    from lu_machinery.orchestration import task_lifecycle
 
     resolved = Path(path).expanduser().resolve()
     try:

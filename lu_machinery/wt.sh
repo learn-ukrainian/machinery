@@ -176,7 +176,7 @@ cmd_clean() {
         # task claims the checkout, and waits for any dispatch attaching it (#8610).
         local interpreter rc=0
         interpreter=$(project_python)
-        "$interpreter" -m scripts.orchestration.worktree_claims remove "$wt_dir" --reason "wt.sh clean $issue" || rc=$?
+        "$interpreter" -m lu_machinery.orchestration.worktree_claims remove "$wt_dir" --reason "wt.sh clean $issue" || rc=$?
         if [ $rc -ne 0 ]; then
             red "Worktree not removed: $wt_dir"
             exit $rc

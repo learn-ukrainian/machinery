@@ -107,7 +107,7 @@ class ClaudeAccount:
     refusal: str | None = None
 
     def __post_init__(self) -> None:
-        from scripts.agent_runtime.attempt_boundary import (
+        from lu_machinery.agent_runtime.attempt_boundary import (
             CLAUDE_ACCOUNT_LABELS,
             CLAUDE_ACCOUNT_REFUSAL_CODES,
             CLAUDE_ACCOUNT_SOURCES,
@@ -128,7 +128,7 @@ class ClaudeAccount:
     @property
     def api_key(self) -> bool:
         """An Anthropic API-key account: billed per token under its spend cap, with no plan meter."""
-        from scripts.agent_runtime.attempt_boundary import CLAUDE_API_KEY_ACCOUNT_LABELS
+        from lu_machinery.agent_runtime.attempt_boundary import CLAUDE_API_KEY_ACCOUNT_LABELS
 
         return self.label in CLAUDE_API_KEY_ACCOUNT_LABELS
 
@@ -494,7 +494,7 @@ def resolve_route_account(
     (a claude request) raises ``ClaudeAccountRefused``; otherwise a refusal
     returns the unresolved account with its code.
     """
-    from scripts.agent_runtime.attempt_boundary import (
+    from lu_machinery.agent_runtime.attempt_boundary import (
         ClaudeAccountRefused,
         resolve_claude_account_label,
         resolve_dispatch_claude_account,
@@ -533,7 +533,7 @@ def account_from_record(record: Mapping[str, Any], *, agent: str) -> ClaudeAccou
     Claude account, so the result is unresolved and no claude reading is
     judged on it.
     """
-    from scripts.agent_runtime.attempt_boundary import (
+    from lu_machinery.agent_runtime.attempt_boundary import (
         CLAUDE_ACCOUNT_KEY,
         ClaudeAccountRefused,
         resolve_claude_account_label,
@@ -584,8 +584,8 @@ def lane_view(row: Any, lane_row: Any) -> tuple[dict[str, Any], str | None]:
     Both carry :func:`route_facts` of the lane row and nothing of the default
     account's own meter, credit or login state.
     """
-    from scripts.api.state_router import _status_from_weekly_used
-    from scripts.api.subscription_usage import _normalize_provider_data, _window_from_used_pct
+    from lu_machinery.api.state_router import _status_from_weekly_used
+    from lu_machinery.api.subscription_usage import _normalize_provider_data, _window_from_used_pct
 
     route = route_facts(lane_row)
     meter: Mapping[str, Any] = row if isinstance(row, Mapping) else {}
@@ -676,7 +676,7 @@ def select_account(payload: Mapping[str, Any], *, account: ClaudeAccount) -> tup
     refused as another account's, and as any account's once altered; the
     host account's view is its payload's and is not stamped.
     """
-    from scripts.agent_runtime.attempt_boundary import DEFAULT_CLAUDE_ACCOUNT
+    from lu_machinery.agent_runtime.attempt_boundary import DEFAULT_CLAUDE_ACCOUNT
 
     account = require_account(account)
     if isinstance(payload, AccountSnapshot):
@@ -833,7 +833,7 @@ def account_weekly_used_pct(payload: Any, *, account: ClaudeAccount) -> float | 
     account use its fresh lane probe. A stale, unknown or missing reading,
     and an unresolved account, give None.
     """
-    from scripts.agent_runtime.attempt_boundary import DEFAULT_CLAUDE_ACCOUNT
+    from lu_machinery.agent_runtime.attempt_boundary import DEFAULT_CLAUDE_ACCOUNT
 
     account = require_account(account)
     if not isinstance(payload, Mapping) or account.label is None:
@@ -878,7 +878,7 @@ def capacity_verdict(payload: Mapping[str, Any] | None, *, account: ClaudeAccoun
     freshness. An unresolved account is unknown whatever the lane row says.
     Every decision consumer reaches the same verdict.
     """
-    from scripts.fleet import credit_lane
+    from lu_machinery.fleet import credit_lane
 
     if not require_account(account).resolved:
         return UNKNOWN

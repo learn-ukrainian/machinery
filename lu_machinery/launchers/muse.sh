@@ -61,7 +61,7 @@ launcher_adapter_validate() {
       launcher_error 'MUSE_UKRAINIAN_CONTENT_FORBIDDEN'; exit 4 ;;
   esac
   py="$(launcher_project_python)" || exit 3
-  classification="$("$py" "$LC_ROOT/scripts/orchestration/driver_agent_type.py" --lane "$lane" --provider muse)" || {
+  classification="$("$py" "$LC_ROOT/lu_machinery/orchestration/driver_agent_type.py" --lane "$lane" --provider muse)" || {
     launcher_error 'MUSE_LANE_CLASSIFICATION_UNKNOWN'; exit 4;
   }
   if [ "$classification" = curriculum-orchestrator ] || [ "${LU_RULES_SEAT:-core}" = content ]; then
@@ -107,7 +107,7 @@ launcher_adapter_canary() {
   # Recall requires answers from a rollover session. No startup model probe.
   # shellcheck disable=SC2034 # Read by launcher_bind_drive_epic in the shared core.
   LC_PROVIDER_CANARY_RAN=0
-  local canary_module=scripts.session_canary.muse_lane
+  local canary_module=lu_machinery.session_canary.muse_lane
   echo "muse adapter: provider canary: not run; rollover uses ${canary_module} mint and score"
 }
 

@@ -25,15 +25,15 @@ from typing import Any
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from scripts.fleet import idle_settle as idle_settle
-from scripts.guardrails.delegate_ownership import (
+from lu_machinery.fleet import idle_settle as idle_settle
+from lu_machinery.guardrails.delegate_ownership import (
     TERMINAL_TASK_STATUSES,
     OwnershipLedger,
     default_ledger_path,
 )
-from scripts.opsec.prepublish import publication_boundary, publication_cli
-from scripts.orchestration.dead_worker_state import mark_dead_worker_terminal, mark_missing_worktree_failed
-from scripts.publish.github import Request, request_run
+from lu_machinery.opsec.prepublish import publication_boundary, publication_cli
+from lu_machinery.orchestration.dead_worker_state import mark_dead_worker_terminal, mark_missing_worktree_failed
+from lu_machinery.publish.github import Request, request_run
 
 # This package's import name, from the unresolved file location: never from __package__, which a
 # short import spelling (orchestration.x with scripts/ on sys.path) shortens. Its dotted parts

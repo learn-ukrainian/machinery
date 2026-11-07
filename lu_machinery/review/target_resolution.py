@@ -21,10 +21,10 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
-from scripts.common import github_client
-from scripts.common.git_context import sanitized_git_env
-from scripts.common.repo_root import main_checkout_root
-from scripts.orchestration.fleet_repos import (
+from lu_machinery.common import github_client
+from lu_machinery.common.git_context import sanitized_git_env
+from lu_machinery.common.repo_root import main_checkout_root
+from lu_machinery.orchestration.fleet_repos import (
     FleetRepoError,
     MissingFleetCheckout,
     canonical_repo_key,
@@ -410,7 +410,7 @@ def live_canonical_branch_head(repo_root: Path, branch: str, *, repository: str)
     The returned SHA is a pin, never a suggestion to replace an existing pin.
     Remote diagnostics are deliberately omitted because they may contain secrets.
     """
-    from scripts.common.git_context import UnsafeBranchNameError, validate_plain_branch_name
+    from lu_machinery.common.git_context import UnsafeBranchNameError, validate_plain_branch_name
 
     try:
         branch = validate_plain_branch_name(branch, repo_root=repo_root)

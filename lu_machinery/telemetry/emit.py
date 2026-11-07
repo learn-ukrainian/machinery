@@ -17,7 +17,7 @@ from typing import Any
 try:
     from secret_redactor import redact_text, redact_value
 except ImportError:  # pragma: no cover - package import path
-    from scripts.secret_redactor import redact_text, redact_value
+    from lu_machinery.secret_redactor import redact_text, redact_value
 
 SCHEMA_VERSION = 1
 _DISABLED_ENV = "LU_TELEMETRY_DISABLED"

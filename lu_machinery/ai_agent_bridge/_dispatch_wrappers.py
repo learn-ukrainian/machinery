@@ -20,10 +20,10 @@ _local_repo_root = Path(__file__).resolve().parents[2]
 if str(_local_repo_root) not in sys.path:
     sys.path.insert(0, str(_local_repo_root))
 
-from scripts.common import github_client
-from scripts.common.repo_root import resolve_repo_root, runtime_primary_root
-from scripts.review.verdict_parser import ACCEPTED_VERDICT_TOKENS, recognized_verdicts, unsupported_verdict_tokens
-from scripts.secret_redactor import redact_text
+from lu_machinery.common import github_client
+from lu_machinery.common.repo_root import resolve_repo_root, runtime_primary_root
+from lu_machinery.review.verdict_parser import ACCEPTED_VERDICT_TOKENS, recognized_verdicts, unsupported_verdict_tokens
+from lu_machinery.secret_redactor import redact_text
 
 from ._config import DISPATCH_ENTRY, MACHINERY_PACKAGE
 
@@ -121,7 +121,7 @@ def _prompt_directory() -> Iterator[Path]:
         yield lease_root
         return
 
-    from scripts.common.scratch import ensure_scratch_root
+    from lu_machinery.common.scratch import ensure_scratch_root
 
     with tempfile.TemporaryDirectory(prefix="learn-ukrainian-bridge-", dir=ensure_scratch_root()) as directory:
         yield Path(directory)
@@ -192,7 +192,7 @@ def _review_task_id(target: str) -> str:
 def build_review_deep_command(target: str, prompt_file: Path, effort: str, *, pr: dict | None = None) -> list[str]:
     if not _is_pr_number(target):
         raise ValueError("review-deep requires a PR number; local-path review is retired")
-    from scripts.common.git_context import validate_plain_branch_name
+    from lu_machinery.common.git_context import validate_plain_branch_name
 
     if pr is None:
         pr = _run_json_command(["gh", "pr", "view", target.lstrip("#"), "--json", "headRefName,headRefOid"])

@@ -60,9 +60,9 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from scripts.common.epic_selector import validate_epic
-from scripts.common.repo_root import machinery_path
-from scripts.session_canary import handoff_select
+from lu_machinery.common.epic_selector import validate_epic
+from lu_machinery.common.repo_root import machinery_path
+from lu_machinery.session_canary import handoff_select
 
 # The machinery package's import name, which is also the directory its files have in checkout paths:
 # from this module's unresolved location (design-v1 amendment 1), never __package__.
@@ -870,7 +870,7 @@ def cmd_score(args: argparse.Namespace) -> int:
 
     # Diary dual-write: always stamp canary line; on FAIL write STATE AT HANDBACK template.
     try:
-        from scripts.session_canary import diary as diary_mod
+        from lu_machinery.session_canary import diary as diary_mod
 
         preferred = getattr(args, "preferred", None)
         explicit_raw = getattr(args, "handoff", None)
@@ -1034,7 +1034,7 @@ def emit_hydrate_capsule(
     Returns ``(rc, meta)``. ``rc`` is 0 on success, 1 on missing diary, 2 on
     visible identity/next-drive gap. Fail-open callers may ignore rc.
     """
-    from scripts.session_canary import diary as diary_mod
+    from lu_machinery.session_canary import diary as diary_mod
 
     epic = epic.strip().lower()
     stream_id = resolve_stream_id(epic, stream_id)
@@ -1271,7 +1271,7 @@ Strict 10/10 identity rollover still uses:
 
 def cmd_stamp(args: argparse.Namespace) -> int:
     """Append a diary stamp + optional Next Drive refresh."""
-    from scripts.session_canary import diary as diary_mod
+    from lu_machinery.session_canary import diary as diary_mod
 
     repo = Path(args.repo).resolve()
     epic = args.epic.strip().lower()
@@ -1314,7 +1314,7 @@ def cmd_stamp(args: argparse.Namespace) -> int:
 
 def cmd_handback(args: argparse.Namespace) -> int:
     """Write STATE AT HANDBACK (clean close or manual FAIL close)."""
-    from scripts.session_canary import diary as diary_mod
+    from lu_machinery.session_canary import diary as diary_mod
 
     repo = Path(args.repo).resolve()
     epic = args.epic.strip().lower()

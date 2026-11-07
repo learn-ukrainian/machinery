@@ -69,7 +69,7 @@ Durable handoff sinks (not private deploy trees):
 
 ```bash
 # Fleet receipt: issue/PR numbers only (no residual tables, no secrets)
-.venv/bin/python -m scripts.fleet_comms channel publish <stream-channel> \
+.venv/bin/python -m lu_machinery.fleet_comms channel publish <stream-channel> \
   "handoff: tracker=SSOT. Next issues #… Merged PRs #…" \
   --sender "$SESSION_HANDOFF_AGENT" --source <harness> --kind state \
   --idempotency-key "handoff-<epic>-<date>"

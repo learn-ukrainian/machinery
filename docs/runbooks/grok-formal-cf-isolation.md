@@ -9,7 +9,7 @@ The catalog and reviewer resolver determine eligibility at every risk, including
 Use the resolver-selected invocation. The explicit Grok dispatch route is:
 
 ```bash
-.venv/bin/python scripts/dispatch.py dispatch --agent cursor --model grok-4.7-high \
+.venv/bin/python lu_machinery/dispatch.py dispatch --agent cursor --model grok-4.7-high \
   --mode read-only --task-id <task-id> --prompt-file <brief>
 ```
 

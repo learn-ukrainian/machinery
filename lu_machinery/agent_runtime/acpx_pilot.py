@@ -31,9 +31,9 @@ if str(_SCRIPTS_DIR) not in sys.path:
 
 if __package__ in (None, ""):  # run as a file: put the repository root on sys.path
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-    __package__ = "scripts.agent_runtime"
+    __package__ = "lu_machinery.agent_runtime"
 
-from scripts.guardrails.worktree_containment import classify_repo_path
+from lu_machinery.guardrails.worktree_containment import classify_repo_path
 
 from .adapters.acpx import (
     GROK_SHADOW_EFFORT,

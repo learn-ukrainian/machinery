@@ -20,7 +20,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Literal
 
-from scripts.common.repo_root import main_checkout_root
+from lu_machinery.common.repo_root import main_checkout_root
 
 logger = logging.getLogger(__name__)
 

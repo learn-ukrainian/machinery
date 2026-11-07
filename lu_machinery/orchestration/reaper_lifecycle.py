@@ -16,8 +16,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from scripts.orchestration.execution_safe_git import primary_repository
-from scripts.orchestration.execution_safe_git import run_git as safe_git
+from lu_machinery.orchestration.execution_safe_git import primary_repository
+from lu_machinery.orchestration.execution_safe_git import run_git as safe_git
 
 _STATE_RELATIVE = Path("batch_state") / "worktree-reaper"
 _JOURNAL_NAME = "journal.jsonl"

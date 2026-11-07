@@ -74,7 +74,7 @@ resolve_codex_pending_rollover() {
   local handoff_agent="$2"
   local stream_id="${3-${SESSION_STREAM_ID:-}}"
   local python_bin="$project_dir/.venv/bin/python"
-  local handoff_script="$project_dir/scripts/orchestration/thread_handoff.py"
+  local handoff_script="$project_dir/lu_machinery/orchestration/thread_handoff.py"
   local detect_output=""
   local detect_rc=0
   local parsed=""

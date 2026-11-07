@@ -19,7 +19,7 @@ spine). Scope gate ships with PR-2; settle reaper with PR-3; closeout
 
 Dispatch into a sibling product/infra checkout with first-class
 `--repo hramatka` or `--repo infra-private` (see
-`scripts/config/fleet_repos.yaml` and agent-seat-onboarding § Sibling-repo
+`lu_machinery/config/fleet_repos.yaml` and agent-seat-onboarding § Sibling-repo
 dispatch). Do not invent a fourth coordination plane.
 
 ## Queue roles
@@ -45,7 +45,7 @@ Before a Hramatka driver starts a **new dispatch**, **new scope**, or **new PR**
 run the mechanical gate with a repo-qualified issue target:
 
 ```bash
-.venv/bin/python -m scripts.fleet.hramatka_scope_gate \
+.venv/bin/python -m lu_machinery.fleet.hramatka_scope_gate \
   --action new_dispatch \
   --issue-repo learn-ukrainian/learn-ukrainian.github.io \
   --issue 4542
@@ -91,7 +91,7 @@ Before declaring a Hramatka drive **verified-clean** at handoff, run the
 read-only closeout gate:
 
 ```bash
-.venv/bin/python -m scripts.fleet.hramatka_hygiene_check
+.venv/bin/python -m lu_machinery.fleet.hramatka_hygiene_check
 # exit 0 verified | exit 1 stale | exit 2 unknown
 ```
 

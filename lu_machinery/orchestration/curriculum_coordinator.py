@@ -23,10 +23,10 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from scripts.common.repo_root import ProductRootError, main_checkout_root
-from scripts.common.repo_root import product_root as resolve_product_root
-from scripts.fleet import claude_account_lane, credit_lane
-from scripts.orchestration.curriculum_readiness import (
+from lu_machinery.common.repo_root import ProductRootError, main_checkout_root
+from lu_machinery.common.repo_root import product_root as resolve_product_root
+from lu_machinery.fleet import claude_account_lane, credit_lane
+from lu_machinery.orchestration.curriculum_readiness import (
     ReadinessError,
     evaluate_preparation,
     load_manifest_track,
@@ -660,7 +660,7 @@ def default_health_probe() -> Mapping[str, Any]:
     default-account resolution a dispatch without ``--claude-account`` binds
     (#10630); one that cannot be resolved or bound reads as unknown.
     """
-    from scripts.api.state_router import compute_routing_budget
+    from lu_machinery.api.state_router import compute_routing_budget
 
     snapshot = compute_routing_budget(fresh_codexbar=True)
     account = claude_account_lane.resolve_route_account(None, strict=False)

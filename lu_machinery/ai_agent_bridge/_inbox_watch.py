@@ -29,17 +29,17 @@ if __package__ in (None, ""):  # run as a file: put the repository root on sys.p
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
     # Bare `agent_runtime` lives under scripts/, which a file launch does not add.
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-    __package__ = "scripts.ai_agent_bridge"
+    __package__ = "lu_machinery.ai_agent_bridge"
 
 try:
-    from scripts.lib.readonly_sqlite import SQLiteConnection, open_readonly
+    from lu_machinery.lib.readonly_sqlite import SQLiteConnection, open_readonly
 except ModuleNotFoundError as exc:
     if exc.name != Path(os.path.abspath(__file__)).parents[1].name:
         raise
     from lib.readonly_sqlite import SQLiteConnection, open_readonly  # type: ignore[no-redef]
 
 try:
-    from scripts.common.repo_root import machinery_path
+    from lu_machinery.common.repo_root import machinery_path
 except ModuleNotFoundError as exc:
     if exc.name != Path(os.path.abspath(__file__)).parents[1].name:
         raise
@@ -54,9 +54,9 @@ from ._config import MACHINERY_PACKAGE, PRIMARY_REPO_ROOT
 
 if TYPE_CHECKING:
     from agents_extensions.shared.session_streams.model import Lease
-    from scripts.fleet_comms.authority import AuthorityDelivery, AuthorityService
-    from scripts.session_supervisor import SessionSupervisor
-    from scripts.session_supervisor.remote import RemoteEpicClient
+    from lu_machinery.fleet_comms.authority import AuthorityDelivery, AuthorityService
+    from lu_machinery.session_supervisor import SessionSupervisor
+    from lu_machinery.session_supervisor.remote import RemoteEpicClient
 
 # The watcher's own launcher wrapper, as the checkout names it (whatever the package is called).
 WATCH_ENTRY = f"{MACHINERY_PACKAGE}/ai_agent_bridge/inbox_watch.sh"
@@ -446,9 +446,9 @@ def preflight_supervisory_successor() -> bool:
 def run_live_supervisory_watcher(*, interval_seconds: float = DEFAULT_POLL_INTERVAL_SECONDS) -> int:
     """Watch in the launcher-owned generation; return 75 only after preparation."""
     from agents_extensions.shared.session_streams.hooks import lease_from_environment
-    from scripts.fleet_comms.authority import AuthorityService
-    from scripts.session_supervisor import SessionSupervisor
-    from scripts.session_supervisor.remote import RemoteEpicClient, RemoteUnavailableError
+    from lu_machinery.fleet_comms.authority import AuthorityService
+    from lu_machinery.session_supervisor import SessionSupervisor
+    from lu_machinery.session_supervisor.remote import RemoteEpicClient, RemoteUnavailableError
 
     lease = lease_from_environment()
     supervisor = SessionSupervisor(None, repo_root=Path.cwd(), remote=RemoteEpicClient())
@@ -489,8 +489,8 @@ def run_live_supervisory_watcher(*, interval_seconds: float = DEFAULT_POLL_INTER
 
 def run_supervisory_wake_watcher(agent: str, provider: str, epic: str, *, interval_seconds: float, once: bool) -> int:
     """Resume unread Codex inbox turns and bridge offline supervisory events."""
-    from scripts.fleet_comms.authority import AuthorityService
-    from scripts.session_supervisor.remote import RemoteEpicClient
+    from lu_machinery.fleet_comms.authority import AuthorityService
+    from lu_machinery.session_supervisor.remote import RemoteEpicClient
 
     repo_root = Path(__file__).resolve().parents[2]
     resolved = subprocess.run(
@@ -981,7 +981,7 @@ Related: docs/runbooks/session-supervisor.md; {MACHINERY_PACKAGE}.session_superv
 
 def main(argv: list[str] | None = None) -> int:
     """Run the watcher CLI while keeping normal polling stdout event-only."""
-    from scripts.session_supervisor.remote import RemoteUnavailableError
+    from lu_machinery.session_supervisor.remote import RemoteUnavailableError
 
     args = build_parser().parse_args(argv)
     notify_parent = None
@@ -989,8 +989,8 @@ def main(argv: list[str] | None = None) -> int:
         if args.interval <= 0:
             raise ValueError("poll interval must be greater than zero")
         if args.launch_plan:
-            from scripts.fleet_comms.authority import AuthorityService
-            from scripts.session_supervisor.remote import RemoteEpicClient
+            from lu_machinery.fleet_comms.authority import AuthorityService
+            from lu_machinery.session_supervisor.remote import RemoteEpicClient
 
             if not args.stream:
                 raise ValueError("--launch-plan requires --stream")

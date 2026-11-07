@@ -18,7 +18,7 @@ from mcp.server.mcpserver import MCPServer
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
-from scripts.common.repo_root import machinery_path, project_interpreter
+from lu_machinery.common.repo_root import machinery_path, project_interpreter
 
 TRAIL_RUNNER = machinery_path("orchestration/trail_runner.py")
 _RUNNER_TIMEOUT_SECONDS = 90

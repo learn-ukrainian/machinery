@@ -28,15 +28,15 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from scripts.agent_runtime.adapters.glm import (
+from lu_machinery.agent_runtime.adapters.glm import (
     _OPENCODE_MODEL_ROUTES,
     GlmAdapter,
     GlmEgressForbiddenError,
     assert_glm_egress_allowed,
 )
-from scripts.common.epic_selector import validate_epic
-from scripts.session_canary import grok_lane as _gl
-from scripts.session_canary import handoff_select, shared_hydration
+from lu_machinery.common.epic_selector import validate_epic
+from lu_machinery.session_canary import grok_lane as _gl
+from lu_machinery.session_canary import handoff_select, shared_hydration
 
 # This package's import name, as ``python -m`` names its modules (derived once, in grok_lane).
 _PACKAGE = _gl._PACKAGE
@@ -295,7 +295,7 @@ def cmd_hydrate(args: argparse.Namespace) -> int:
     lane = os.environ.get("SESSION_STREAM_AGENT", _HOLDER_AGENT)
     if lane != _HOLDER_AGENT:
         # The registry imports the bridge; bare-provider hooks do not need it.
-        from scripts.orchestration.handoff_slot_registry import registered_slots
+        from lu_machinery.orchestration.handoff_slot_registry import registered_slots
 
         if lane not in registered_slots(_HOLDER_AGENT):
             print("ACTION: hydration blocked — unregistered lane identity for this provider.", file=sys.stderr)

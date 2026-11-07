@@ -41,7 +41,7 @@ if __package__ in (None, ""):  # run as a file: put the repository root on sys.p
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 try:
-    from scripts.lib.readonly_sqlite import SQLiteConnection
+    from lu_machinery.lib.readonly_sqlite import SQLiteConnection
 except ModuleNotFoundError as exc:
     # Only this package's own absence selects the short spelling; its name comes from this
     # file's unresolved location (design-v1 amendment 1), never __package__.
@@ -49,11 +49,11 @@ except ModuleNotFoundError as exc:
         raise
     from lib.readonly_sqlite import SQLiteConnection  # type: ignore[no-redef]
 
-from scripts.control_plane.health import authority_collector_payload
-from scripts.control_plane.storage import StoreId, assert_component_supported
-from scripts.control_plane.storage import connect as cp_connect
-from scripts.fleet_comms.artifacts import validate_plane_root
-from scripts.fleet_comms.efficiency_metrics import (
+from lu_machinery.control_plane.health import authority_collector_payload
+from lu_machinery.control_plane.storage import StoreId, assert_component_supported
+from lu_machinery.control_plane.storage import connect as cp_connect
+from lu_machinery.fleet_comms.artifacts import validate_plane_root
+from lu_machinery.fleet_comms.efficiency_metrics import (
     collect_dead_letters,
     collect_dead_letters_authority,
     collect_delivery_backlog,
@@ -63,17 +63,17 @@ from scripts.fleet_comms.efficiency_metrics import (
     collect_stream_bottleneck_metrics,
     resolve_metrics_source,
 )
-from scripts.fleet_comms.github_pr_metrics import collect_github_pr_metrics
-from scripts.fleet_comms.legacy_broker_report import build_legacy_broker_report
-from scripts.fleet_comms.message_plane import default_plane_root, read_plane_status
-from scripts.fleet_comms.opsec_store import (
+from lu_machinery.fleet_comms.github_pr_metrics import collect_github_pr_metrics
+from lu_machinery.fleet_comms.legacy_broker_report import build_legacy_broker_report
+from lu_machinery.fleet_comms.message_plane import default_plane_root, read_plane_status
+from lu_machinery.fleet_comms.opsec_store import (
     COMMS_RESPONSE_SCHEMA_VERSION,
     batch_tasks_store,
     comms_plane_store,
     legacy_broker_store,
 )
-from scripts.fleet_comms.paths import PlaneRootAnchorError
-from scripts.fleet_comms.review_publication import DEFAULT_GATE_KIND
+from lu_machinery.fleet_comms.paths import PlaneRootAnchorError
+from lu_machinery.fleet_comms.review_publication import DEFAULT_GATE_KIND
 
 # This package's import name, as ``python -m`` runs it: from this module's unresolved location
 # (design-v1 amendment 1), never __package__.
@@ -123,8 +123,8 @@ def cmd_plane_status(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
-from scripts.common.jsonl import jsonl_lines as split_jsonl_lines
-from scripts.fleet_comms.fleet_overview import OMITTED
+from lu_machinery.common.jsonl import jsonl_lines as split_jsonl_lines
+from lu_machinery.fleet_comms.fleet_overview import OMITTED
 
 
 def fleet_status_payload(
@@ -135,7 +135,7 @@ def fleet_status_payload(
     monitor_url: str | None = None,
 ) -> dict[str, Any]:
     """Return the shared facade status payload for CLI and Monitor callers."""
-    from scripts.fleet_comms.fleet_overview import build_fleet_overview
+    from lu_machinery.fleet_comms.fleet_overview import build_fleet_overview
 
     if overview is None:
         overview = build_fleet_overview(
@@ -253,7 +253,7 @@ def fleet_progress_payload(
     """
     import urllib.parse
 
-    from scripts.fleet import idle_settle
+    from lu_machinery.fleet import idle_settle
 
     root = repo_root or Path.cwd()
     store_path = idle_store if idle_store is not None else idle_settle.default_store_path(root)
@@ -705,7 +705,7 @@ def cmd_formal_job_get(args: argparse.Namespace) -> int:
 
 def cmd_formal_job_accept(args: argparse.Namespace) -> int:
     """Create/reuse formal job, accept sealed verdict, optionally publish."""
-    from scripts.fleet_comms.formal_review_finalize import (
+    from lu_machinery.fleet_comms.formal_review_finalize import (
         FormalReviewFinalizeError,
         finalize_formal_review_verdict,
     )
@@ -753,7 +753,7 @@ def cmd_authority_import(args: argparse.Namespace) -> int:
     callers must name the legacy SQLite file or a JSONL record file explicitly.
     JSON output deliberately contains metadata/counts, never imported bodies.
     """
-    from scripts.fleet_comms.authority import AuthorityService, AuthorityServiceError
+    from lu_machinery.fleet_comms.authority import AuthorityService, AuthorityServiceError
 
     root = Path(args.root).expanduser() if args.root else None
     try:
@@ -791,8 +791,8 @@ def _authority_root(args: argparse.Namespace) -> Path | None:
 
 def _refuse_kimi_recipients(recipients: list[str] | tuple[str, ...]) -> None:
     """Kimi is not a bridge recipient: refuse from the arguments alone, before the authority DB is opened."""
-    from scripts.agent_runtime.kimi_admission import BRIDGE_MODE, KimiAdmissionRefused
-    from scripts.agent_runtime.target_admission import resolve_and_admit
+    from lu_machinery.agent_runtime.kimi_admission import BRIDGE_MODE, KimiAdmissionRefused
+    from lu_machinery.agent_runtime.target_admission import resolve_and_admit
 
     try:
         resolve_and_admit(tuple(recipients), mode=BRIDGE_MODE)
@@ -802,9 +802,9 @@ def _refuse_kimi_recipients(recipients: list[str] | tuple[str, ...]) -> None:
 
 def cmd_deliveries(args: argparse.Namespace) -> int:
     """Expose fenced delivery operations; read and receive return bodies to the lease holder."""
-    from scripts.control_plane.storage import ControlPlaneError
-    from scripts.fleet_comms.artifacts import ArtifactStoreError
-    from scripts.fleet_comms.authority import AuthorityService, AuthorityServiceError
+    from lu_machinery.control_plane.storage import ControlPlaneError
+    from lu_machinery.fleet_comms.artifacts import ArtifactStoreError
+    from lu_machinery.fleet_comms.authority import AuthorityService, AuthorityServiceError
 
     if args.deliveries_command in {"claim", "receive"}:
         _refuse_kimi_recipients((args.recipient,))
@@ -961,7 +961,7 @@ def _json_object(value: str | None) -> dict[str, Any]:
 
 def cmd_channel_create(args: argparse.Namespace) -> int:
     """Create or exactly replay one authority-owned asynchronous channel."""
-    from scripts.fleet_comms.authority import AuthorityService, AuthorityServiceError
+    from lu_machinery.fleet_comms.authority import AuthorityService, AuthorityServiceError
 
     _refuse_kimi_recipients(args.subscriber)
     try:
@@ -979,7 +979,7 @@ def cmd_channel_create(args: argparse.Namespace) -> int:
 
 def cmd_channel_subscribe(args: argparse.Namespace) -> int:
     """Add durable future fan-out recipients to an authority channel."""
-    from scripts.fleet_comms.authority import AuthorityService, AuthorityServiceError
+    from lu_machinery.fleet_comms.authority import AuthorityService, AuthorityServiceError
 
     _refuse_kimi_recipients(args.recipient)
     try:
@@ -997,7 +997,7 @@ def cmd_channel_subscribe(args: argparse.Namespace) -> int:
 
 def cmd_channel_context(args: argparse.Namespace) -> int:
     """Seal a context revision and atomically make it current for the channel."""
-    from scripts.fleet_comms.authority import AuthorityService, AuthorityServiceError
+    from lu_machinery.fleet_comms.authority import AuthorityService, AuthorityServiceError
 
     try:
         with AuthorityService(root=_authority_root(args)) as service:
@@ -1014,7 +1014,7 @@ def cmd_channel_context(args: argparse.Namespace) -> int:
 
 def cmd_channel_publish(args: argparse.Namespace) -> int:
     """Append one immutable message and atomically create its fan-out deliveries."""
-    from scripts.fleet_comms.authority import AuthorityService, AuthorityServiceError
+    from lu_machinery.fleet_comms.authority import AuthorityService, AuthorityServiceError
 
     _refuse_kimi_recipients(args.recipient)
     try:
@@ -1054,7 +1054,7 @@ def cmd_github_metrics(args: argparse.Namespace) -> int:
 
 def cmd_acp_discuss(args: argparse.Namespace) -> int:
     """Run the explicitly authorized bounded ACPX discussion (stdin-only prompt)."""
-    from scripts.agent_runtime.acpx_discuss import (
+    from lu_machinery.agent_runtime.acpx_discuss import (
         AcpxDiscussionBusyError,
         AcpxDiscussionError,
         run_discussion,
@@ -1094,7 +1094,7 @@ def cmd_acp_discuss(args: argparse.Namespace) -> int:
 
 def cmd_acp_verify(args: argparse.Namespace) -> int:
     """Verify one body-free durable ACP conversation receipt."""
-    from scripts.agent_runtime.acpx_discuss import (
+    from lu_machinery.agent_runtime.acpx_discuss import (
         AcpxDiscussionError,
         AcpxDiscussionNotFoundError,
         verify_discussion_receipt,
@@ -1123,7 +1123,7 @@ def cmd_acp_verify(args: argparse.Namespace) -> int:
 
 def cmd_requests_requeue_stale(args: argparse.Namespace) -> int:
     """Reconcile crashed executors: requeue stale running requests (#7485)."""
-    from scripts.fleet_comms.request_executor import RequestExecutor
+    from lu_machinery.fleet_comms.request_executor import RequestExecutor
 
     root = Path(args.root).expanduser() if args.root else None
     with RequestExecutor(root=root) as executor:
@@ -1145,7 +1145,7 @@ def cmd_requests_requeue_stale(args: argparse.Namespace) -> int:
 
 def cmd_retention(args: argparse.Namespace) -> int:
     """Blob retention (#12530, #12574): dry run unless ``--apply``."""
-    from scripts.fleet_comms.artifacts import (
+    from lu_machinery.fleet_comms.artifacts import (
         UNREFERENCED_DEFAULT_DAYS,
         UNREFERENCED_MIN_DAYS,
         ArtifactStore,
@@ -1835,7 +1835,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 def cmd_cold_start_board(args: argparse.Namespace) -> int:
     """Emit fail-open driver cold start board as JSON or Markdown (PR-2)."""
-    from scripts.fleet_comms.cold_start_board import (
+    from lu_machinery.fleet_comms.cold_start_board import (
         build_cold_start_board,
         render_markdown_board,
     )

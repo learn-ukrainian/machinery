@@ -99,7 +99,7 @@ fi
 # Ask the live CLI for the recipient's inbox. Keep its existing output as the
 # source of both the count and the bounded preview; the fast path above only
 # ever short-circuits a proven-empty inbox, never replaces this listing.
-INBOX_OUTPUT=$("$PROJECT_DIR/.venv/bin/python" -m scripts.ai_agent_bridge inbox --for "$RECIPIENT" 2>/dev/null) || exit 0
+INBOX_OUTPUT=$("$PROJECT_DIR/.venv/bin/python" -m lu_machinery.ai_agent_bridge inbox --for "$RECIPIENT" 2>/dev/null) || exit 0
 
 # The legacy human listing emits `N unread`; the live channel listing emits a
 # `pending: N` line. Accept both existing CLI shapes without creating a new
@@ -193,7 +193,7 @@ if [ -n "$PREVIEWS" ]; then
 ${PREVIEWS}"
 fi
 
-INBOX_MODULE=scripts.ai_agent_bridge
+INBOX_MODULE=lu_machinery.ai_agent_bridge
 CONTEXT="${CONTEXT}
 ---
 .venv/bin/python -m ${INBOX_MODULE} inbox --for ${RECIPIENT}"

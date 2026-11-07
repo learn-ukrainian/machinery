@@ -41,8 +41,8 @@ from tool_names import is_shell_tool
 MAX_LISTED = 20
 # The machinery modules this hook loads and names, by import name; under a checkout their files
 # are at the same dotted path (this hook is outside the package).
-_AUDIT_MODULE = "scripts.guardrails.primary_dirt_audit"
-_CLEANUP_MODULE = "scripts.hygiene.primary_dirt_cleanup"
+_AUDIT_MODULE = "lu_machinery.guardrails.primary_dirt_audit"
+_CLEANUP_MODULE = "lu_machinery.hygiene.primary_dirt_cleanup"
 # The phase comes from the payload, so the wired command stays a plain hook path.
 PHASES = {"PreToolUse": "pre", "PostToolUse": "post", "PostToolUseFailure": "post"}
 
@@ -59,7 +59,7 @@ def _repo_root() -> Path | None:
 def _load_audit(root: Path):
     # The owning checkout comes first, even when PYTHONPATH already lists it later.
     sys.path[:] = [str(root), *(entry for entry in sys.path if entry != str(root))]
-    from scripts.guardrails import primary_dirt_audit
+    from lu_machinery.guardrails import primary_dirt_audit
 
     return primary_dirt_audit
 

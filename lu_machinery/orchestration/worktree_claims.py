@@ -38,14 +38,14 @@ from typing import Any, TypeGuard
 if __package__ in (None, ""):  # run as a file: put the repository root on sys.path
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from scripts.common.repo_root import main_checkout_root, state_root
-from scripts.guardrails import worktree_containment
-from scripts.orchestration.dead_worker_state import worker_liveness
-from scripts.orchestration.execution_safe_git import SafeGitRunner
-from scripts.orchestration.execution_safe_git import run_git as safe_git
-from scripts.orchestration.fleet_repos import FleetRepoError, load_fleet_repos
-from scripts.orchestration.task_record_store import parse_task_record, task_record_path
-from scripts.path_safety import assert_delete_target
+from lu_machinery.common.repo_root import main_checkout_root, state_root
+from lu_machinery.guardrails import worktree_containment
+from lu_machinery.orchestration.dead_worker_state import worker_liveness
+from lu_machinery.orchestration.execution_safe_git import SafeGitRunner
+from lu_machinery.orchestration.execution_safe_git import run_git as safe_git
+from lu_machinery.orchestration.fleet_repos import FleetRepoError, load_fleet_repos
+from lu_machinery.orchestration.task_record_store import parse_task_record, task_record_path
+from lu_machinery.path_safety import assert_delete_target
 
 # This package's import name, from the unresolved file location: never from __package__, which a
 # short import spelling (orchestration.x with scripts/ on sys.path) shortens. Its dotted parts
@@ -718,7 +718,7 @@ def git_worktree_remove(
             return f"delete guard refused worktree target: {exc}"
     # Both locked removal pipelines meet here. Preserve exactly once, after
     # their ownership/claim checks and immediately before destructive Git.
-    from scripts.fleet.ignored_task_output import preserve_worktree_artifacts
+    from lu_machinery.fleet.ignored_task_output import preserve_worktree_artifacts
 
     try:
         primary = control_root if control_root is not None else control_plane_root(repo_root)
@@ -827,7 +827,7 @@ def remove_unclaimed_worktree(
     @contextlib.contextmanager
     def preserved_stage(target: Path) -> Iterator[Path]:
         if preservation_receipt.get("creator_id"):
-            from scripts.fleet.ignored_task_output import release_helper_untracked
+            from lu_machinery.fleet.ignored_task_output import release_helper_untracked
 
             try:
                 assert tasks_dir is not None
@@ -857,7 +857,7 @@ def remove_unclaimed_worktree(
             # Match the helper/--cwd attachment lock before taking the path lock.
             # Settlement may already hold it; the dispatch lock is reentrant.
             if (worktree / ".git").is_file() and read_helper_creator(worktree, repo_root=repo_root) is not None:
-                from scripts.dispatcher.git import worktree_lock as attachment_lock
+                from lu_machinery.dispatcher.git import worktree_lock as attachment_lock
 
                 locks.enter_context(attachment_lock(repo_root, timeout=DEFAULT_LOCK_TIMEOUT_S))
                 helper_locked = True
@@ -993,7 +993,7 @@ def owner_release_refusal(
 def _provider_alive(record: Mapping[str, Any]) -> bool | None:
     """The dispatcher's own proof that the provider's process tree ended; ``None`` when unknown."""
     # Deferred: the dispatcher imports this module's neighbours, so import it only on this path.
-    from scripts.dispatcher.worker import _provider_alive as provider_alive
+    from lu_machinery.dispatcher.worker import _provider_alive as provider_alive
 
     return provider_alive(dict(record))
 
@@ -1084,7 +1084,7 @@ def new_helper_creator(worktree: Path, *, repo_root: Path, actor: str, source: s
 
 def publish_helper_creator(path: Path, record: dict[str, Any]) -> None:
     """Publish under the attachment/removal locks, retaining a durable audit after removal."""
-    from scripts.orchestration.reaper_lifecycle import _atomic_write
+    from lu_machinery.orchestration.reaper_lifecycle import _atomic_write
 
     path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     if path.parent.is_symlink() or path.is_symlink():
@@ -1094,8 +1094,8 @@ def publish_helper_creator(path: Path, record: dict[str, Any]) -> None:
 
 def helper_borrowers(worktree: Path, *, repo_root: Path, tasks_dir: Path) -> list[tuple[Path, dict[str, Any]]]:
     """Every hot or archived reference must be a settled borrower, never a creator."""
-    from scripts.dispatcher.store import retention_hold_disposition
-    from scripts.fleet.ignored_task_output import matching_worktree_records
+    from lu_machinery.dispatcher.store import retention_hold_disposition
+    from lu_machinery.fleet.ignored_task_output import matching_worktree_records
 
     refusal = active_worktree_claim_refusal(worktree, tasks_dir=tasks_dir, repo_root=repo_root)
     if refusal:
@@ -1258,8 +1258,8 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def _cli_attribution(args: argparse.Namespace, worktree: Path, *, repo_root: Path, control_root: Path) -> WorktreeRemoval:
-    from scripts.dispatcher.git import worktree_lock as attachment_lock
-    from scripts.fleet.ignored_task_output import preserve_helper_output
+    from lu_machinery.dispatcher.git import worktree_lock as attachment_lock
+    from lu_machinery.fleet.ignored_task_output import preserve_helper_output
 
     try:
         with attachment_lock(repo_root, timeout=DEFAULT_LOCK_TIMEOUT_S), worktree_lock(worktree, lock_dir=repository_lock_dir(control_root)):
@@ -1290,7 +1290,7 @@ def _cli_attribution(args: argparse.Namespace, worktree: Path, *, repo_root: Pat
 
 def _cli_removal(args: argparse.Namespace, worktree: Path, *, repo_root: Path, control_root: Path) -> WorktreeRemoval:
     # Deferred: containment's git plumbing is only needed by the CLI.
-    from scripts.guardrails import worktree_containment
+    from lu_machinery.guardrails import worktree_containment
 
     tasks_dir = control_root / "batch_state" / "tasks"
 
@@ -1303,7 +1303,7 @@ def _cli_removal(args: argparse.Namespace, worktree: Path, *, repo_root: Path, c
         if worktree not in registered[1:]:
             return False, "not a registered linked worktree; refusing worktree removal"
         if args.owner_task_id is None:
-            from scripts.fleet.ignored_task_output import matching_worktree_records
+            from lu_machinery.fleet.ignored_task_output import matching_worktree_records
 
             helper = read_helper_creator(worktree, repo_root=repo_root)
             if helper is not None:
@@ -1331,7 +1331,7 @@ def _cli_removal(args: argparse.Namespace, worktree: Path, *, repo_root: Path, c
 
 
 def _cli_remove(args: argparse.Namespace) -> int:
-    from scripts.guardrails import worktree_containment
+    from lu_machinery.guardrails import worktree_containment
 
     raw = Path(args.path).expanduser()
     worktree = (raw if raw.is_absolute() else Path.cwd() / raw).resolve()

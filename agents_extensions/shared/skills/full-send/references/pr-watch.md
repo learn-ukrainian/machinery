@@ -9,14 +9,14 @@ the accountable driver's cycle.
 
 - Do not write a watcher, polling loop or `sleep` loop, and do not run a second watcher on the
   same PR: every watcher shares one GitHub rate limit.
-- Arm waits on the original tasks (`scripts/dispatch.py wait <task> --run-nonce <nonce>`, see
+- Arm waits on the original tasks (`lu_machinery/dispatch.py wait <task> --run-nonce <nonce>`, see
   `review-loop`). Check CI and the queue on each driver cycle:
 
   ```bash
   gh pr view "$PR" --json state,isDraft,headRefOid,mergeable,mergeStateStatus,autoMergeRequest
   gh pr checks "$PR"
-  "$PY" -m scripts.publish read checks --sha "$HEAD_SHA"   # REST, when GraphQL is spent
-  "$PY" -m scripts.gh_merge_queue_status "$PR" --json
+  "$PY" -m lu_machinery.publish read checks --sha "$HEAD_SHA"   # REST, when GraphQL is spent
+  "$PY" -m lu_machinery.gh_merge_queue_status "$PR" --json
   ```
 
 - Do not start a review round while the PR's `CI Gate` is pending or red on the head under
@@ -48,7 +48,7 @@ the accountable driver's cycle.
   shut down, a checkout or network failure before the change's code ran, or a provider
   capacity or outage error. A cancelled job alone is not evidence. Treat an evidenced
   infrastructure failure as a service problem. Write the evidence on the PR first (rules
-  core P4), then use the head's one evidenced rerun, `"$PY" -m scripts.publish run-rerun`,
+  core P4), then use the head's one evidenced rerun, `"$PY" -m lu_machinery.publish run-rerun`,
   or one re-enqueue after an infrastructure ejection.
 - The allowance is one rerun per unchanged approved head. It is a shared record, so it
   carries across owner changes: a successor never gets a fresh rerun on the same head
@@ -57,7 +57,7 @@ the accountable driver's cycle.
   an unknown cause still means stop and report. Required checks must pass; nothing waives
   them.
 - After a base-branch fix, refresh with
-  `"$PY" -m scripts.publish pr-update-branch --number "$PR"`, never `run-rerun`.
+  `"$PY" -m lu_machinery.publish pr-update-branch --number "$PR"`, never `run-rerun`.
 
 ## Owner changes
 
@@ -67,7 +67,7 @@ alert stays outstanding until a named successor accepts. The successor runs this
 its own dispatch task:
 
 ```bash
-"$PY" -m scripts.orchestration.pr_ownership accept --pr "$PR"
+"$PY" -m lu_machinery.orchestration.pr_ownership accept --pr "$PR"
 ```
 
 Acceptance is refused while another task may still own the PR (one owner at a time). The
@@ -96,13 +96,13 @@ timeout ends it. The custodian, from its own live dispatch task, accepts custody
 stale approval, merge confirmation and closeout, including disposing of the linked issues:
 
 ```bash
-"$PY" -m scripts.orchestration.pr_ownership accept --pr "$PR" --custody --from "$OWNER_TASK"
+"$PY" -m lu_machinery.orchestration.pr_ownership accept --pr "$PR" --custody --from "$OWNER_TASK"
 ```
 
 The waiting owner then checks:
 
 ```bash
-"$PY" -m scripts.orchestration.pr_ownership queue-exit --pr "$PR"
+"$PY" -m lu_machinery.orchestration.pr_ownership queue-exit --pr "$PR"
 ```
 
 Exit 0 means the owner may end its run cleanly. It reports `QUEUED_UNDER_CUSTODY` with the

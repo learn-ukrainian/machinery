@@ -30,8 +30,8 @@ PY="$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")/.venv/
 4. **Post through the publisher**, never raw `gh` writes:
 
    ```bash
-   "$PY" -m scripts.publish pr-comment --number "$PR" --body-file "$BODY"
-   "$PY" -m scripts.publish issue-comment --number "$ISSUE" --body-file "$BODY"
+   "$PY" -m lu_machinery.publish pr-comment --number "$PR" --body-file "$BODY"
+   "$PY" -m lu_machinery.publish issue-comment --number "$ISSUE" --body-file "$BODY"
    ```
 
 5. **Verify the result**: the command exited 0, and the comment is visible

@@ -15,12 +15,12 @@ import xml.etree.ElementTree as ET
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-from scripts.ci import components, pytest_report
-from scripts.ci import dependency_change_scope as dependency
-from scripts.ci._location import checkout_relative, module_name
-from scripts.ci.deploy_paths import POLICY_REL
-from scripts.ci.junit_results import parse_junit
-from scripts.common import github_client
+from lu_machinery.ci import components, pytest_report
+from lu_machinery.ci import dependency_change_scope as dependency
+from lu_machinery.ci._location import checkout_relative, module_name
+from lu_machinery.ci.deploy_paths import POLICY_REL
+from lu_machinery.ci.junit_results import parse_junit
+from lu_machinery.common import github_client
 
 SCHEMA = "component-shadow.v1"
 BASELINE = "2026-10-03T00:00:00Z..2026-10-06T11:14:28Z"

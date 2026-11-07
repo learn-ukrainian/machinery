@@ -15,9 +15,9 @@ from pathlib import Path
 if __package__ in (None, ""):  # run as a file: put the repository root on sys.path
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from scripts.common.safe_open import safe_open_below
-from scripts.lib.session_record import _validate_record, validate_session_id
-from scripts.orchestration.thread_handoff import (
+from lu_machinery.common.safe_open import safe_open_below
+from lu_machinery.lib.session_record import _validate_record, validate_session_id
+from lu_machinery.orchestration.thread_handoff import (
     _BundleReconcileTree,
     default_state_path,
     lineage_id_for,

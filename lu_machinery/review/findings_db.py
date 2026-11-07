@@ -48,7 +48,7 @@ from typing import Any
 
 import yaml
 
-from scripts.common.repo_root import machinery_path, main_checkout_root
+from lu_machinery.common.repo_root import machinery_path, main_checkout_root
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 PARAMETERS_PATH = machinery_path("config/review_parameters.yaml")

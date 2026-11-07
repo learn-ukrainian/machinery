@@ -40,13 +40,13 @@ from fnmatch import fnmatchcase
 from pathlib import Path
 from typing import Literal
 
-from scripts.agent_runtime.adapters.acpx import ACPX_PARTICIPANT_CATALOG_TRANSPORTS, ACPX_SUPPORTED_PARTICIPANTS
-from scripts.agent_runtime.agent_identity import resolve_retired_agent_alias
-from scripts.fleet import credit_lane
-from scripts.fleet.claude_account_lane import ClaudeAccount, bind_snapshot, require_account
-from scripts.review.app_bot_authorship import VERIFIED_APP_BOT
-from scripts.review.capacity import ReviewCapacity, review_capacity, review_capacity_action
-from scripts.review.model_catalog import (
+from lu_machinery.agent_runtime.adapters.acpx import ACPX_PARTICIPANT_CATALOG_TRANSPORTS, ACPX_SUPPORTED_PARTICIPANTS
+from lu_machinery.agent_runtime.agent_identity import resolve_retired_agent_alias
+from lu_machinery.fleet import credit_lane
+from lu_machinery.fleet.claude_account_lane import ClaudeAccount, bind_snapshot, require_account
+from lu_machinery.review.app_bot_authorship import VERIFIED_APP_BOT
+from lu_machinery.review.capacity import ReviewCapacity, review_capacity, review_capacity_action
+from lu_machinery.review.model_catalog import (
     VALID_REVIEW_PROFILES,
     VALID_RISKS,
     invocation_model,
@@ -55,9 +55,14 @@ from scripts.review.model_catalog import (
     retired_model_refusal,
     risk_reviewer_refusal,
 )
-from scripts.review.reviewer_scheduler import _route_record, circuit_exclusion_reason, codex_account_key, selection_key
-from scripts.review.security_paths import effective_review_risk, is_security_sensitive_change
-from scripts.review.subject_seat import prepare_subject_exclusion, subject_exclusion_reason
+from lu_machinery.review.reviewer_scheduler import (
+    _route_record,
+    circuit_exclusion_reason,
+    codex_account_key,
+    selection_key,
+)
+from lu_machinery.review.security_paths import effective_review_risk, is_security_sensitive_change
+from lu_machinery.review.subject_seat import prepare_subject_exclusion, subject_exclusion_reason
 
 CandidateStatus = Literal["eligible", "selected", "advisory_only", "excluded"]
 _SEALED_REVIEW_EXECUTABLE = "agent_runtime.runner:invoke_inter_agent"
@@ -84,8 +89,8 @@ def normalize_review_task_id(task_id: str, *, agent: str = "") -> str:
 
 def review_task_id_comparison_keys(task_id: str, *, agent: str = "") -> frozenset[str]:
     """Retain raw and harness-stripped identities across reviewer seats."""
-    from scripts.agent_runtime.agent_identity import SEAT_ALIASES
-    from scripts.agent_runtime.registry import AGENTS
+    from lu_machinery.agent_runtime.agent_identity import SEAT_ALIASES
+    from lu_machinery.agent_runtime.registry import AGENTS
 
     value = task_id.strip().casefold()
     spellings = {value}
@@ -256,7 +261,7 @@ _SCHEDULER_POLICY_VERSION = _SCHEDULER_POLICY["policy_version"]
 
 
 def _catalog_candidate(name: str) -> ReviewerCandidate:
-    from scripts.review.role_resolution import resolve_routing_reference
+    from lu_machinery.review.role_resolution import resolve_routing_reference
 
     seat_priority = 100
     if "roles" in _MODEL_CATALOG:
@@ -765,7 +770,12 @@ def _hard_exclusion_reason(candidate: ReviewerCandidate, inputs: ResolverInputs)
     account = inputs.claude_account
     if candidate.route == "claude" and not account.resolved:
         return f"claude account unresolved: {account.refusal}"
-    from scripts.agent_runtime.model_pause import account_used_pct, policy_for_seat, refusal_reason, role_refusal_reason
+    from lu_machinery.agent_runtime.model_pause import (
+        account_used_pct,
+        policy_for_seat,
+        refusal_reason,
+        role_refusal_reason,
+    )
 
     if restricted := role_refusal_reason(
         candidate_dispatch_model(candidate), {"review", inputs.requested_role or "review"},
@@ -932,7 +942,7 @@ def _author_family_exclusion(candidate: ReviewerCandidate, family: str, health: 
             health=health,
         )
 
-    from scripts.review.family_exclusions import family_exclusion
+    from lu_machinery.review.family_exclusions import family_exclusion
 
     exclusion = family_exclusion(
         family=candidate.family,

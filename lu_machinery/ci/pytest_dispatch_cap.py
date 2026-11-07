@@ -52,8 +52,8 @@ from types import ModuleType
 import pytest
 
 try:
-    from scripts.common.test_thread_caps import THREAD_CAPS
-    from scripts.common.test_thread_caps import apply as apply_thread_caps
+    from lu_machinery.common.test_thread_caps import THREAD_CAPS
+    from lu_machinery.common.test_thread_caps import apply as apply_thread_caps
 except ImportError:
     from common.test_thread_caps import THREAD_CAPS
     from common.test_thread_caps import apply as apply_thread_caps
@@ -317,7 +317,7 @@ def _reject_oversized_tx(early_config: pytest.Config) -> None:
 def _test_slots():
     """The host test-slot governor, from the repository root or, like this plugin, from ``scripts/``."""
     try:
-        from scripts.common import test_slots
+        from lu_machinery.common import test_slots
     except ImportError:
         from common import test_slots  # type: ignore[no-redef]
     return test_slots

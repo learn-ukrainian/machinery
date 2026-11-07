@@ -23,7 +23,7 @@ _REPO_ROOT = str(Path(__file__).resolve().parents[2])
 if _REPO_ROOT not in sys.path:
     sys.path.insert(0, _REPO_ROOT)
 
-from scripts.review.reviewer_resolver import REVIEW_CANDIDATES, REVIEW_LADDERS, ResolverInputs, evaluate_candidate
+from lu_machinery.review.reviewer_resolver import REVIEW_CANDIDATES, REVIEW_LADDERS, ResolverInputs, evaluate_candidate
 
 # The machinery package's directory name, which its files' checkout paths start with, from this module's
 # unresolved location: a symlinked package keeps its checkout name, and a short import spelling
@@ -89,12 +89,12 @@ def _bench_inventory(
     """
     if routing_snapshot is None:
         try:
-            from scripts.api.state_router import compute_routing_budget
+            from lu_machinery.api.state_router import compute_routing_budget
 
             routing_snapshot = compute_routing_budget()
         except Exception:
             routing_snapshot = {}
-    from scripts.fleet import claude_account_lane
+    from lu_machinery.fleet import claude_account_lane
 
     # Claude seats count on the account a claude review dispatch would run as (#10630);
     # one that cannot be resolved or bound counts no claude seat.

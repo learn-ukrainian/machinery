@@ -16,20 +16,20 @@ from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from scripts.agent_runtime.accounting import recorded_model_accounting_fields
-from scripts.orchestration.task_record_store import parse_task_record
+from lu_machinery.agent_runtime.accounting import recorded_model_accounting_fields
+from lu_machinery.orchestration.task_record_store import parse_task_record
 
 try:
-    from scripts.lib.readonly_sqlite import SQLiteConnection
+    from lu_machinery.lib.readonly_sqlite import SQLiteConnection
 except ModuleNotFoundError as exc:
     if exc.name != Path(os.path.abspath(__file__)).parents[1].name:
         raise
     from lib.readonly_sqlite import SQLiteConnection  # type: ignore[no-redef]
 
-from scripts.orchestration.task_record_store import ARCHIVE_DIR_NAME as TASK_ARCHIVE_DIR_NAME
-from scripts.orchestration.task_record_store import iter_task_records
-from scripts.orchestration.worktree_claims import RELEASED_TASK_STATUSES
-from scripts.work.sources_public import public_repository_id
+from lu_machinery.orchestration.task_record_store import ARCHIVE_DIR_NAME as TASK_ARCHIVE_DIR_NAME
+from lu_machinery.orchestration.task_record_store import iter_task_records
+from lu_machinery.orchestration.worktree_claims import RELEASED_TASK_STATUSES
+from lu_machinery.work.sources_public import public_repository_id
 
 from .lane_health import sanitize_error_excerpt
 from .monitor_context import MonitorContext, get_ctx, resolve_context
@@ -72,7 +72,7 @@ def _tasks_dir(ctx: MonitorContext | None = None) -> Path:
     # historically read BATCH_STATE_DIR / "tasks". Keep that cheap fallback
     # so they do not construct a production MonitorContext (and its git
     # session-streams probe) just to resolve a directory.
-    from scripts.api import config  # noqa: PLC0415, I001  # lazy-ok: cheap BATCH_STATE_DIR fallback without production_context
+    from lu_machinery.api import config  # noqa: PLC0415, I001  # lazy-ok: cheap BATCH_STATE_DIR fallback without production_context
 
     return Path(config.BATCH_STATE_DIR) / "tasks"
 

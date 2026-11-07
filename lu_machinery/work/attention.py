@@ -12,7 +12,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Any
 
-from scripts.github_check_rollup import collapse_status_rollup
+from lu_machinery.github_check_rollup import collapse_status_rollup
 
 HEALTH_RANK = {
     "OFF_TRACK": 0,
@@ -444,7 +444,7 @@ def qualify_merge_advice(
         return _unknown("receipt_stale")
 
     try:
-        from scripts.orchestration.task_lifecycle import LifecycleError, evaluate
+        from lu_machinery.orchestration.task_lifecycle import LifecycleError, evaluate
 
         result = evaluate(ledger, observation)
     except LifecycleError:

@@ -342,7 +342,7 @@ def record(db, *, endpoint, status, now=None):
 
 def top(directory, *, hours=1.0, limit=20, now=None):
     """The heaviest callers and endpoints of the last ``hours``, most charged first."""
-    from scripts.lib.readonly_sqlite import open_readonly
+    from lu_machinery.lib.readonly_sqlite import open_readonly
 
     path = Path(directory) / "cache.sqlite3"
     if not path.is_file():
@@ -374,7 +374,7 @@ def main(argv=None):
     args = parser.parse_args(argv)
     directory = args.dir
     if directory is None:
-        from scripts.common.github_client import _cache_directory
+        from lu_machinery.common.github_client import _cache_directory
 
         directory = _cache_directory()
     rows = top(directory, hours=args.hours, limit=args.limit) if directory is not None else []

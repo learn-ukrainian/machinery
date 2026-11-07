@@ -7,7 +7,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from scripts.orchestration import agent_ledger
+from lu_machinery.orchestration import agent_ledger
 
 from .monitor_context import MonitorContext, get_ctx, resolve_context
 

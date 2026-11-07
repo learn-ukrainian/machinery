@@ -18,7 +18,7 @@ import xml.etree.ElementTree as ET
 from functools import lru_cache
 from pathlib import Path, PurePosixPath
 
-from scripts.ci.gate import event_tier
+from lu_machinery.ci.gate import event_tier
 
 # This file is copied alone into a fixture checkout, so its paths come from
 # this file's own directory, with symlinks left unresolved.
@@ -174,7 +174,7 @@ def string_literals(source: bytes) -> frozenset[str]:
     """
     found = _LITERALS.get(source)
     if found is None:
-        from scripts.ci import components
+        from lu_machinery.ci import components
 
         strings: set[str] = set()
         tree: ast.Module | None
@@ -197,7 +197,7 @@ def _remember_literals(source: bytes, strings: frozenset[str]) -> frozenset[str]
 
 def text_reading_tests(targets: set[str], entries: dict[str, str]) -> list[str]:
     """Tracked regular test files in the candidate that name a changed file (`text_references`)."""
-    from scripts.ci import components
+    from lu_machinery.ci import components
 
     regular = {name for name, mode in entries.items() if TEST.fullmatch(name) and mode in {"100644", "100755"}}
     sources = components.python_sources()
@@ -223,7 +223,7 @@ def candidate_scan(sources: tuple[tuple[str, bytes], ...], known_paths: tuple[st
     and `text_reading_tests` on one candidate tree parse each file once: the same
     parse records each test file's string literals.
     """
-    from scripts.ci import components
+    from lu_machinery.ci import components
 
     files = dict(sources)
 
@@ -259,7 +259,7 @@ def importing_tests(
     merge group already runs. A deleted file has no edges in the candidate, so its
     surviving dependents come from a scan of the base tree.
     """
-    from scripts.ci import components
+    from lu_machinery.ci import components
 
     scan = candidate_scan(tuple(components.python_sources().items()), tuple(components.tracked_paths()))
     edges, directories = scan["file_edges"], scan["directory_edges"]

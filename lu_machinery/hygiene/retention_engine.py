@@ -36,12 +36,12 @@ GATE5_TARGET_DAYS = 7
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from scripts.hygiene.lane_disk_retention import (
+from lu_machinery.hygiene.lane_disk_retention import (
     scan_dispatch_worktrees,
     scan_home_session_hints,
 )
-from scripts.orchestration.worktree_git import primary_checkout_root, resolve_repo_root
-from scripts.path_safety import assert_delete_target
+from lu_machinery.orchestration.worktree_git import primary_checkout_root, resolve_repo_root
+from lu_machinery.path_safety import assert_delete_target
 
 
 def _machinery_top() -> str:
@@ -77,7 +77,7 @@ def _unlink_temp_file(
     can replace the entry between this check and ``unlinkat``, and the owner
     is the sweeping user.
     """
-    from scripts.common.task_scratch import ContainmentError, mount_points
+    from lu_machinery.common.task_scratch import ContainmentError, mount_points
 
     mounts = mount_points()
     if mounts is None:
@@ -114,7 +114,7 @@ def reap_attributed_temp(
     task-scratch tree remover; a regular file (unattributed scratch, #9737)
     is unlinked by descriptor after the same identity checks.
     """
-    from scripts.common.task_scratch import _DIR_OPEN_FLAGS, _remove_invocation_dir
+    from lu_machinery.common.task_scratch import _DIR_OPEN_FLAGS, _remove_invocation_dir
 
     if temp_root.is_symlink() or not temp_root.is_dir():
         raise ValueError("temporary root is not a plain directory")

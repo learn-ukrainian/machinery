@@ -60,7 +60,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from scripts.common.repo_root import machinery_path
+from lu_machinery.common.repo_root import machinery_path
 from secret_redactor import redact_text, redact_value
 
 from ._config import REPO_ROOT

@@ -1098,7 +1098,7 @@ def _looks_like_timeout(detail: str) -> bool:
 def _import_message_plane() -> Any | None:
     """Load message_plane fail-open (missing package/import must not break bridge)."""
     try:
-        from scripts.fleet_comms import message_plane as plane_mod
+        from lu_machinery.fleet_comms import message_plane as plane_mod
 
         return plane_mod
     except Exception:

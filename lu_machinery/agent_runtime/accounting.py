@@ -18,7 +18,7 @@ def model_accounting_fields(
     selector records caller intent across failover. Reuse the existing validator
     without changing matching, admission, or eligibility decisions.
     """
-    from scripts.agent_runtime.adapters.agy import AgyRuntimeIdentity, agy_model_state
+    from lu_machinery.agent_runtime.adapters.agy import AgyRuntimeIdentity, agy_model_state
 
     observed = None
     observed_provenance = None

@@ -36,8 +36,8 @@ from functools import lru_cache
 from pathlib import Path
 from typing import NamedTuple
 
-from scripts.ci._location import checkout_relative, module_name
-from scripts.ci.test_source_cache import parse_test_source, read_test_source
+from lu_machinery.ci._location import checkout_relative, module_name
+from lu_machinery.ci.test_source_cache import parse_test_source, read_test_source
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 _ALLOWLIST_REL = checkout_relative("ci", "subprocess_timeout_allowlist.txt")

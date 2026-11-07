@@ -12,12 +12,12 @@ from urllib.parse import unquote_plus
 try:
     from secret_redactor import REDACTION, iter_url_matches, redact_url_authority, redact_value
 except ImportError:
-    from scripts.secret_redactor import REDACTION, iter_url_matches, redact_url_authority, redact_value
+    from lu_machinery.secret_redactor import REDACTION, iter_url_matches, redact_url_authority, redact_value
 
 try:
     from api.opsec_scan import scan_text
 except ImportError:
-    from scripts.api.opsec_scan import scan_text
+    from lu_machinery.api.opsec_scan import scan_text
 
 OPSEC_PLACEHOLDERS = {
     "filesystem-root": "[redacted-path]",

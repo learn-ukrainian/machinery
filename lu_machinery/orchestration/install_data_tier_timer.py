@@ -16,7 +16,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-from scripts.common.safe_unit_install import InstallError, open_unit_dir, read_unit, write_unit
+from lu_machinery.common.safe_unit_install import InstallError, open_unit_dir, read_unit, write_unit
 
 # This package's import name, from the unresolved file location: never from __package__, which a
 # short import spelling (orchestration.x with scripts/ on sys.path) shortens. Its dotted parts

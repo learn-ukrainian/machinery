@@ -1,8 +1,8 @@
 """Fleet Communications System v1 contracts, storage, and request plane."""
 
-from scripts.fleet_comms.adapter_conformance import CaptureInput, conform
-from scripts.fleet_comms.artifacts import ArtifactRecord, ArtifactStore
-from scripts.fleet_comms.authority import (
+from lu_machinery.fleet_comms.adapter_conformance import CaptureInput, conform
+from lu_machinery.fleet_comms.artifacts import ArtifactRecord, ArtifactStore
+from lu_machinery.fleet_comms.authority import (
     AuthorityChannel,
     AuthorityDelivery,
     AuthorityDeliveryLease,
@@ -16,21 +16,21 @@ from scripts.fleet_comms.authority import (
     HistoricalImportResult,
     open_authority_service,
 )
-from scripts.fleet_comms.contracts import AssistantSegment, CompletionState, ResponseEnvelope, new_id
-from scripts.fleet_comms.formal_review_jobs import (
+from lu_machinery.fleet_comms.contracts import AssistantSegment, CompletionState, ResponseEnvelope, new_id
+from lu_machinery.fleet_comms.formal_review_jobs import (
     FormalReviewAttempt,
     FormalReviewJob,
     FormalReviewJobsError,
     FormalReviewJobService,
     open_formal_review_jobs,
 )
-from scripts.fleet_comms.message_plane import (
+from lu_machinery.fleet_comms.message_plane import (
     MessagePlane,
     open_message_plane,
     read_plane_status,
     resolve_plane_mode,
 )
-from scripts.fleet_comms.request_executor import RequestExecutor, RequestRecord
+from lu_machinery.fleet_comms.request_executor import RequestExecutor, RequestRecord
 
 __all__ = [
     "ArtifactRecord",

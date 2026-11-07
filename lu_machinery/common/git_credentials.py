@@ -12,7 +12,7 @@ from pathlib import Path
 
 import yaml
 
-from scripts.opsec.prepublish import PublishBlocked, real_gh
+from lu_machinery.opsec.prepublish import PublishBlocked, real_gh
 
 CONFIG = Path(__file__).resolve().parents[1] / "config" / "fleet_repos.yaml"
 

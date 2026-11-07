@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-from scripts.api.occupancy_sanitize import safe_field
+from lu_machinery.api.occupancy_sanitize import safe_field
 
 MARKER_SCHEMA = "monitor-notebook-session.v1"
 MARKER_MAX_AGE_SECONDS = 24 * 60 * 60

@@ -24,8 +24,8 @@ import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from scripts.common.repo_root import machinery_path
-from scripts.review.role_resolution import resolve_routing_reference
+from lu_machinery.common.repo_root import machinery_path
+from lu_machinery.review.role_resolution import resolve_routing_reference
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 CATALOG_PATH = machinery_path("config/model_catalog.yaml")

@@ -19,7 +19,7 @@ from urllib.error import URLError
 from urllib.parse import parse_qs, quote, urlsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
-from scripts.common import github_client
+from lu_machinery.common import github_client
 
 
 def _machinery_top() -> str:

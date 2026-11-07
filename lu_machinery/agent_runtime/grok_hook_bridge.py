@@ -51,7 +51,7 @@ class GuardInvocationError(ValueError):
 def _project_interpreter(source_root: Path) -> Path:
     if str(source_root) not in sys.path:
         sys.path.insert(0, str(source_root))
-    from scripts.common.repo_root import project_interpreter
+    from lu_machinery.common.repo_root import project_interpreter
 
     return project_interpreter(source_root)
 

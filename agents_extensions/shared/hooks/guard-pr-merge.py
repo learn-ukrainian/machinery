@@ -65,7 +65,7 @@ def _command(payload: dict) -> str:
 def _merge_candidate(command: str) -> bool:
     """Conservative bootstrap/failure probe, never a merge decision."""
     probe = command.replace("\\\n", "").replace("\\", "").replace("'", "").replace('"', "")
-    return ("gh" in probe or "scripts.publish" in probe) and "pr" in probe and "merge" in probe
+    return ("gh" in probe or "lu_machinery.publish" in probe) and "pr" in probe and "merge" in probe
 
 
 def _plain_pr_read(command: str) -> bool:
@@ -100,7 +100,7 @@ if __name__ == "__main__":
 
 # The merge rules' module, by import name; under a checkout its package is the directory of the
 # same dotted path (this hook is outside the machinery package). The publisher is that package.
-_MERGE_GUARD_MODULE = "scripts.publish.merge_guard"
+_MERGE_GUARD_MODULE = "lu_machinery.publish.merge_guard"
 _PUBLISHER = _MERGE_GUARD_MODULE.rpartition(".")[0]
 
 # The checkout that owns this hook; the machinery imports below come only from it.
@@ -138,9 +138,9 @@ if _MACHINERY_ROOT is None:
     raise SystemExit(2)
 
 try:
-    from scripts.ci.advisory_checks import is_advisory as is_advisory
-    from scripts.common.github_client import _gh_api_call
-    from scripts.publish.merge_guard import (
+    from lu_machinery.ci.advisory_checks import is_advisory as is_advisory
+    from lu_machinery.common.github_client import _gh_api_call
+    from lu_machinery.publish.merge_guard import (
         _checks_json_unsupported,
         _parse_status_rollup_rows,
         bound_rollup_states,
@@ -148,16 +148,16 @@ try:
         parse_checks,
         readiness_reason,
     )
-    from scripts.publish.merge_guard import (
+    from lu_machinery.publish.merge_guard import (
         _latest_rollup_rows as _latest_rollup_rows,
     )
-    from scripts.publish.merge_guard import (
+    from lu_machinery.publish.merge_guard import (
         _rollup_name as _rollup_name,
     )
-    from scripts.publish.merge_guard import (
+    from lu_machinery.publish.merge_guard import (
         _rollup_timestamp as _rollup_timestamp,
     )
-    from scripts.publish.merge_guard import (
+    from lu_machinery.publish.merge_guard import (
         _rollup_value as _rollup_value,
     )
 except ImportError:
@@ -918,7 +918,7 @@ def _merge_args(seg: list[str]) -> list[str] | None:
     if (
         i + 3 < len(seg)
         and re.fullmatch(r"python(?:3(?:\.\d+)?)?", Path(seg[i]).name)
-        and seg[i + 1 : i + 4] == ["-m", "scripts.publish", "pr-merge"]
+        and seg[i + 1 : i + 4] == ["-m", "lu_machinery.publish", "pr-merge"]
     ):
         if "--help" in seg[i + 4 :]:
             return None

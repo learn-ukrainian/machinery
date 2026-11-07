@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
-from scripts.agent_runtime.attempt_boundary import (
+from lu_machinery.agent_runtime.attempt_boundary import (
     ClaudeAccountRefused,
     _read_private_json,
     _user_config_file,

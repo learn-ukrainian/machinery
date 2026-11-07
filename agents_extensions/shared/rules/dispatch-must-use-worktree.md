@@ -3,7 +3,7 @@
 <critical>
 
 When you dispatch work to Codex, Gemini, or any other agent via
-`scripts/dispatch.py dispatch` (or any equivalent), the agent MUST work
+`lu_machinery/dispatch.py dispatch` (or any equivalent), the agent MUST work
 in a git worktree — **not** a feature branch in the main checkout.
 
 ## Why this matters
@@ -31,7 +31,7 @@ and pass the planner's repository and symlink checks. New dispatches do not use
 the deprecated flat layout.
 
 Sparse exclusions are defined by `SPARSE_EXCLUDE_DEFAULT` in
-`scripts/dispatcher/git.py`. Use `--sparse-include DIR` or `--full-checkout` for
+`lu_machinery/dispatcher/git.py`. Use `--sparse-include DIR` or `--full-checkout` for
 required inputs. Owned paths do not re-include sparse files, and there are no
 automatic sparse anchors.
 
@@ -55,7 +55,7 @@ Work in a git worktree under `.worktrees/dispatch/<agent>/<task>/`
 (auto-created by the runtime when you pass bare `--worktree`). Do NOT
 create a feature branch in the main checkout. Concrete dispatch:
 
-    .venv/bin/python scripts/dispatch.py dispatch \
+    .venv/bin/python lu_machinery/dispatch.py dispatch \
         --agent codex --model gpt-6.1-sol \
         --task-id <task-id> \
         --mode workspace-write \
@@ -64,7 +64,7 @@ create a feature branch in the main checkout. Concrete dispatch:
         --prompt-file brief.md
 
     # For dispatches that warrant peak Opus 5.5 reasoning:
-    .venv/bin/python scripts/dispatch.py dispatch \
+    .venv/bin/python lu_machinery/dispatch.py dispatch \
         --agent claude --model claude-opus-5-5 --effort xhigh \
         --task-id <task-id> --mode workspace-write --worktree \
         --base origin/main --prompt-file brief.md
@@ -97,7 +97,7 @@ The dispatcher removes a settled task's own worktree. Resolve a retained one by 
 
 ## When YOU (not a delegated agent) need isolation
 
-Same rule — use a worktree. Don't branch in the main checkout. You may start at the repository root and run `git status --short --branch` as a read-only preflight/orientation step, but do not implement there. Any implementation edit, branch work, commit, or PR must happen from a worktree unless the user explicitly authorizes an exception. This prose rule is a reminder/backstop; mechanical enforcement is in `scripts/dispatch.py` and the dispatcher's settlement.
+Same rule — use a worktree. Don't branch in the main checkout. You may start at the repository root and run `git status --short --branch` as a read-only preflight/orientation step, but do not implement there. Any implementation edit, branch work, commit, or PR must happen from a worktree unless the user explicitly authorizes an exception. This prose rule is a reminder/backstop; mechanical enforcement is in `lu_machinery/dispatch.py` and the dispatcher's settlement.
 
 Use the subtree layout:
 

@@ -25,10 +25,10 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from scripts.fleet_comms.artifacts import ArtifactStore
-from scripts.fleet_comms.contracts import CompletionState, new_id
-from scripts.fleet_comms.migrations import apply_migrations
-from scripts.fleet_comms.review_publication import (
+from lu_machinery.fleet_comms.artifacts import ArtifactStore
+from lu_machinery.fleet_comms.contracts import CompletionState, new_id
+from lu_machinery.fleet_comms.migrations import apply_migrations
+from lu_machinery.fleet_comms.review_publication import (
     ReviewPublicationError,
     SealedVerdict,
     parse_sealed_verdict_payload,

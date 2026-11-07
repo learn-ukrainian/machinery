@@ -6,10 +6,10 @@ subprocesses are retired; native HTTP/credential probes own the fetch path.
 
 from __future__ import annotations
 
-from scripts.api import subscription_usage as _subscription_usage
+from lu_machinery.api import subscription_usage as _subscription_usage
 
 # Re-export the full public surface (star import skips leading-underscore names).
-from scripts.api.subscription_usage import (  # noqa: F401
+from lu_machinery.api.subscription_usage import (  # noqa: F401
     API_ACCOUNT_PROVIDERS,
     CODEX_ACCOUNT_USAGE_KEYS,
     CURSOR_CACHE_KEY,

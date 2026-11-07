@@ -36,7 +36,7 @@ if [ ! -x "$py" ]; then
 fi
 # Validate output without storing its bytes in a shell variable.
 output_file=$(mktemp --tmpdir="$TMPDIR" agy-out.XXXXXX) || { echo "$fallback"; exit 0; }
-if (cd "$root" && "$py" -m scripts.driver_state "$mode" <"$input_file" >"$output_file" 2>/dev/null); then
+if (cd "$root" && "$py" -m lu_machinery.driver_state "$mode" <"$input_file" >"$output_file" 2>/dev/null); then
   # A successful child must produce exactly one strict JSON object. Keep the
   # validator's output private too: a broken interpreter is not validation.
   if validation=$("$py" -c '

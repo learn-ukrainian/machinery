@@ -28,7 +28,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from scripts.common.jsonl import jsonl_lines
+from lu_machinery.common.jsonl import jsonl_lines
 
 SCHEMA = "tmp-sweep-ledger.v1"
 STATE_NAMESPACE = ("learn-ukrainian", "tmp-sweep")

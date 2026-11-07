@@ -105,7 +105,7 @@ def phase_session_record(args: argparse.Namespace) -> dict[str, Any]:
     if not record_session_id:
         return {"status": "skipped", "reason": "no session id"}
     try:
-        from scripts.lib import session_record
+        from lu_machinery.lib import session_record
     except Exception as exc:
         return _crash(exc)
     argv = [
@@ -173,7 +173,7 @@ def phase_python_version(args: argparse.Namespace) -> dict[str, Any]:
 
 def phase_primary_main(args: argparse.Namespace) -> dict[str, Any]:
     try:
-        from scripts.guardrails import assert_primary_on_main
+        from lu_machinery.guardrails import assert_primary_on_main
     except Exception as exc:
         return _crash(exc)
     try:
@@ -193,7 +193,7 @@ def phase_primary_main(args: argparse.Namespace) -> dict[str, Any]:
 
 
 def _import_thread_handoff() -> Any:
-    from scripts.orchestration import thread_handoff
+    from lu_machinery.orchestration import thread_handoff
 
     return thread_handoff
 
@@ -562,7 +562,7 @@ def phase_stack_drift(args: argparse.Namespace) -> dict[str, Any]:
     A probe failure does not stop the session and does not explain itself here.
     """
     try:
-        from scripts.ops.host_stack_drift import write_report
+        from lu_machinery.ops.host_stack_drift import write_report
 
         sink = io.StringIO()
         with contextlib.redirect_stdout(sink), contextlib.redirect_stderr(sink):

@@ -60,8 +60,8 @@ never fine.
    owning tracker item and removal condition; clear it when that condition is met.
    Measure stage time across dispatch, review, PR admission CI, queue CI, merge and closeout
    in both repositories. Act on the slowest stage this cycle, with an owner and next check.
-   Run `.venv/bin/python -m scripts.orchestration.pr_ownership check` (exit 1 lists ownerless
-   PRs, 2 is unknown). It is the replacement-owner check `scripts.fleet.pr_owner_check` with
+   Run `.venv/bin/python -m lu_machinery.orchestration.pr_ownership check` (exit 1 lists ownerless
+   PRs, 2 is unknown). It is the replacement-owner check `lu_machinery.fleet.pr_owner_check` with
    accepted handoffs counted, and an owner whose supervisor cannot be observed is unknown, not
    ownerless. Dispatch an owner for every ownerless PR, replacing any owner that ended failed,
    timed out or was cancelled. Ownership is the live task on the PR branch, the running task
@@ -70,7 +70,7 @@ never fine.
    alerts the CTO inbox when a PR has had no live owning task for 15 minutes, and repeats the
    alert hourly. Re-seat each alerted PR this cycle with one successor (the integration owner
    for queue work in CTO-only mode). Start the successor's brief with
-   `scripts.orchestration.pr_ownership accept --pr <N>`. A PR waiting on a named decision,
+   `lu_machinery.orchestration.pr_ownership accept --pr <N>`. A PR waiting on a named decision,
    with no live task, is recorded from this seat with no dispatch task:
    `accept --pr <N> --reason "<why>" --decision-owner "<who>"`. The alert clears on that
    acceptance or custody, or when the PR closes; `--release` ends recorded custody, and
@@ -79,7 +79,7 @@ never fine.
    A queue custodian also covers ejection, stale approval, merge confirmation and closeout for
    the owners it releases ([pr-watch](../../full-send/references/pr-watch.md#queue-custody)).
 5. **Live workers.** Active dispatches from the Monitor API, then
-   `.venv/bin/python scripts/dispatch.py status <task-id> --run-nonce <nonce>` for each task
+   `.venv/bin/python lu_machinery/dispatch.py status <task-id> --run-nonce <nonce>` for each task
    the handoff or the view names; task files outrank a partial view. Every running worker
    has an armed background `dispatch.py wait`. Any terminal status but `done` is an
    attention item; before calling a dispatch dead check open PRs and its worktree for

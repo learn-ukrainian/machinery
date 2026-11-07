@@ -21,7 +21,7 @@ import json
 import subprocess
 from pathlib import Path
 
-from scripts.agent_runtime.adapters.cursor import resolve_cursor_agent_binary
+from lu_machinery.agent_runtime.adapters.cursor import resolve_cursor_agent_binary
 
 from ._ask_contract import (
     requested_effort,
@@ -46,14 +46,14 @@ CURSOR_DEFAULT_TIMEOUT_S = 900
 
 def cursor_default_model() -> str:
     """The catalog's concrete Cursor seat pin, used when an ask names no model."""
-    from scripts.review.model_catalog import routing_model
+    from lu_machinery.review.model_catalog import routing_model
 
     return routing_model("orchestrator_seats", "cursor")
 
 
 def _require_approved_cursor_model(model: str | None) -> str:
     """Return the wire model when it is a concrete approved Cursor pin; otherwise exit with the typed refusal."""
-    from scripts.review.model_catalog import (
+    from lu_machinery.review.model_catalog import (
         ModelCatalogError,
         apply_cursor_model_pins,
         cursor_non_dispatch_model_refusal,

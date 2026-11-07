@@ -29,8 +29,8 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-from scripts.ci.check_large_files import prefetch_missing_blobs
-from scripts.common import github_client
+from lu_machinery.ci.check_large_files import prefetch_missing_blobs
+from lu_machinery.common import github_client
 
 _SHA_RE = re.compile(r"[0-9a-fA-F]{40}\Z")
 _ZERO_SHA = "0" * 40

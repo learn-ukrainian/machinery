@@ -43,7 +43,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal
 
-from scripts.lib.readonly_sqlite import (
+from lu_machinery.lib.readonly_sqlite import (
     ENV_STORE_WRITER_FD,
     ENV_STORE_WRITER_SELECTOR,
     STORE_WRITER_LOCK_NAME,
@@ -53,7 +53,7 @@ from scripts.lib.readonly_sqlite import (
     unregister_store_writer,
     writable_store_refusal,
 )
-from scripts.storage.topology import (
+from lu_machinery.storage.topology import (
     GENERATIONS_DIRNAME,
     SELECTOR_NAME,
     Layout,
@@ -65,7 +65,7 @@ from scripts.storage.topology import (
     live_store_path,
     store_kind,
 )
-from scripts.storage.wal_permissions import get_companion_paths, hold_database, lift_database
+from lu_machinery.storage.wal_permissions import get_companion_paths, hold_database, lift_database
 
 __all__ = [
     "GENERATIONS_DIRNAME",

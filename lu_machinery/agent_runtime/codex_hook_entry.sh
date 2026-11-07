@@ -44,7 +44,7 @@ case "$MODE" in
     fi
 
     printf '%s' "$PAYLOAD" \
-      | "$PYTHON_BIN" "$SCRIPT_ROOT/scripts/agent_runtime/codex_hook_policy.py" \
+      | "$PYTHON_BIN" "$SCRIPT_ROOT/lu_machinery/agent_runtime/codex_hook_policy.py" \
         --python-bin "$PYTHON_BIN" \
         --hooks-dir "$HOOKS_DIR" \
         --canonical-root "$CANONICAL_ROOT"

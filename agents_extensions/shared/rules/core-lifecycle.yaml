@@ -213,7 +213,7 @@ p4-deliver:
   tier: tool_enforced
   enforcement:
     kind: tool
-    name: scripts/dispatch.py
+    name: lu_machinery/dispatch.py
   review_by: '2026-11-22'
 
 p4-order:
@@ -353,7 +353,7 @@ p8-public:
   tier: PROTECTED
   enforcement:
     kind: tool
-    name: scripts/opsec/prepublish.py
+    name: lu_machinery/opsec/prepublish.py
   review_by: '2026-11-22'
 
 p8-egress:

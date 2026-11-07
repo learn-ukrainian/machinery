@@ -18,8 +18,8 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
-from scripts.common.safe_open import UnsafeEntryError, safe_open_below
-from scripts.common.safe_unit_install import InstallError, open_unit_dir
+from lu_machinery.common.safe_open import UnsafeEntryError, safe_open_below
+from lu_machinery.common.safe_unit_install import InstallError, open_unit_dir
 
 WINDOW = "weekly"
 SLOTS = ("codex", "codex:a", "codex:b", "claude:a", "claude:b", "grok", "antigravity")

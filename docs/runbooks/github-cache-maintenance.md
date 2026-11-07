@@ -8,7 +8,7 @@ filesystem allocation or host-wide free space.
 Use the supported command to inspect the existing owning-client cache:
 
 ```bash
-.venv/bin/python -m scripts.maintenance.github_cache
+.venv/bin/python -m lu_machinery.maintenance.github_cache
 ```
 
 Reporting is the default. It opens the existing database read-only without
@@ -21,7 +21,7 @@ is a refusal, never an empty database or an in-memory success.
 An authorized operator can explicitly reclaim unused pages:
 
 ```bash
-.venv/bin/python -m scripts.maintenance.github_cache --apply --timeout-seconds 60
+.venv/bin/python -m lu_machinery.maintenance.github_cache --apply --timeout-seconds 60
 ```
 
 This command invokes SQLite `VACUUM` on the existing database. It does not unlink,
@@ -138,8 +138,8 @@ operator authorization and verifies the physical receipt before closing #11362.
 
 ## Source and focused checks
 
-The owning contracts live in `scripts/common/github_client.py`; the command is
-`scripts/maintenance/github_cache.py`. Synthetic controls cover reclamation,
+The owning contracts live in `lu_machinery/common/github_client.py`; the command is
+`lu_machinery/maintenance/github_cache.py`. Synthetic controls cover reclamation,
 compact no-op, missing and wrong-schema targets, unsafe paths, busy transactions,
 failure/interruption and privacy. They never open the real cache.
 

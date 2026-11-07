@@ -796,7 +796,7 @@ def build_agent_env(
 
     # Inherited GIT_* values are scrubbed above. Recreate both identities from
     # this lane after isolation so a driver's identity cannot leak to workers.
-    from scripts.lib.git_identity import git_identity_env
+    from lu_machinery.lib.git_identity import git_identity_env
 
     env.update(git_identity_env(provider, model))
 

@@ -35,8 +35,8 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
-from scripts.common.acp_runtime_lock import owner_alive, process_start_time
-from scripts.common.git_context import sanitized_git_env
+from lu_machinery.common.acp_runtime_lock import owner_alive, process_start_time
+from lu_machinery.common.git_context import sanitized_git_env
 
 # The lock reason git writes while ``git worktree add`` is still checking out
 # and removes once the add finishes. Dispatch runs the add in the C locale, so
@@ -67,7 +67,7 @@ def process_gone(pid: object, start: object, identity: object = None) -> bool:
     if not isinstance(start, int) or isinstance(start, bool):
         return False
     if identity is not None:
-        from scripts.orchestration.dead_worker_state import worker_liveness
+        from lu_machinery.orchestration.dead_worker_state import worker_liveness
 
         return worker_liveness({"pid": pid, "worker_identity": identity}) is False
     return owner_alive(pid, start) is False

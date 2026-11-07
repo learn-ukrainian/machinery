@@ -65,7 +65,7 @@ types, use the supported append-only correction before the criterion is checked
 or the issue is closed as completed:
 
 ```bash
-"$PY" -m scripts.orchestration.task_closeout correct-evidence-types \
+"$PY" -m lu_machinery.orchestration.task_closeout correct-evidence-types \
   --state-file ledger.json --ac-id AC-02 \
   --required-evidence document --required-evidence review \
   --actor codex/task-id --reason 'This criterion verifies documentation'

@@ -50,9 +50,9 @@ from typing import Any
 
 import yaml
 
-from scripts.common.git_credentials import verification_credentials
-from scripts.common.task_scratch import TaskScratchError, allocate
-from scripts.orchestration.safe_git_context import SafeGitContext, SnapshotRefusal
+from lu_machinery.common.git_credentials import verification_credentials
+from lu_machinery.common.task_scratch import TaskScratchError, allocate
+from lu_machinery.orchestration.safe_git_context import SafeGitContext, SnapshotRefusal
 
 GIT = shutil.which("git", path=os.defpath) or "/usr/bin/git"
 LOCAL_COMMANDS = frozenset(

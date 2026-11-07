@@ -5,14 +5,14 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from scripts.api.fleet_workers_models import _EPIC_RE, MAX_WORKERS_PER_REPORT, WorkerRow
-from scripts.api.occupancy_sanitize import (
+from lu_machinery.api.fleet_workers_models import _EPIC_RE, MAX_WORKERS_PER_REPORT, WorkerRow
+from lu_machinery.api.occupancy_sanitize import (
     _ALIAS_TOKEN,
     _FQDN,
     _IPV4,
     _looks_like_host,
 )
-from scripts.api.project_state_sanitize import ProjectStateValidationError
+from lu_machinery.api.project_state_sanitize import ProjectStateValidationError
 
 _BRANCH_HINT = re.compile(r"(?i)(?:^|[^A-Za-z0-9])(?:branch|refs/heads/)")
 _PID_HINT = re.compile(r"(?i)(?:^|[^A-Za-z0-9])(?:pid[:\s=]|[\s(]pid[\s)=]|\bpid\b)")

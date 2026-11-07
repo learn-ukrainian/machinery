@@ -484,7 +484,7 @@ echo ""
 # Step 1: Lint prompts (blocks deploy on failure)
 echo "=== Lint prompts ==="
 # Lint the project being deployed, never the product checkout the resolver selects.
-"$PROJECT_PYTHON" scripts/lint_prompts.py --project-root "$PROJECT_ROOT"
+"$PROJECT_PYTHON" lu_machinery/lint_prompts.py --project-root "$PROJECT_ROOT"
 echo ""
 
 # Verify that all hooks in source directories are executable on disk
@@ -509,7 +509,7 @@ echo "  ✅ All hook files are executable."
 echo ""
 
 echo "=== Lint agent skills ==="
-"$PROJECT_PYTHON" scripts/lint/lint_agent_skills.py
+"$PROJECT_PYTHON" lu_machinery/lint/lint_agent_skills.py
 echo ""
 
 if [[ "$DRY_RUN" == false ]]; then

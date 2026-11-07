@@ -12,8 +12,8 @@ _local_repo_root = Path(__file__).resolve().parents[2]
 if str(_local_repo_root) not in sys.path:
     sys.path.insert(0, str(_local_repo_root))
 
-from scripts.common.bridge_paths import configured_bridge_db_path
-from scripts.common.repo_root import resolve_repo_root
+from lu_machinery.common.bridge_paths import configured_bridge_db_path
+from lu_machinery.common.repo_root import resolve_repo_root
 
 # The machinery package as the checkout names it (the unresolved name of the package
 # directory this file is in, whatever it is called), and its checkout-relative entry

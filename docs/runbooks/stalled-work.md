@@ -6,8 +6,8 @@ than 14 days and open PRs in the public repository. It imports the existing
 stale-record classifiers without settling, archiving or editing any record.
 
 ```bash
-.venv/bin/python -m scripts.orchestration.stalled_work stalled
-.venv/bin/python -m scripts.orchestration.stalled_work stalled --route
+.venv/bin/python -m lu_machinery.orchestration.stalled_work stalled
+.venv/bin/python -m lu_machinery.orchestration.stalled_work stalled --route
 ```
 
 The JSON rows name the task, dispatch `initiator` lane, commit or PR, stall
@@ -37,7 +37,7 @@ are excluded. This observer does not authorize abandonment or cleanup.
 The packaged keeper service calls this command after its queue pass:
 
 ```bash
-.venv/bin/python -m scripts.orchestration.stalled_work stalled --tick
+.venv/bin/python -m lu_machinery.orchestration.stalled_work stalled --tick
 ```
 
 The same command can be called by an existing five-minute lane-wake tick.

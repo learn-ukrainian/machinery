@@ -192,8 +192,8 @@ except Exception as exc:
 
 # Machinery modules by import name. This hook is outside the machinery package; under the checkout
 # that owns it, a module's file is at the same dotted path.
-_CONTAINMENT_MODULE = "scripts.guardrails.worktree_containment"
-_SIBLING_GIT_MODULE = "scripts.fleet.sibling_git"
+_CONTAINMENT_MODULE = "lu_machinery.guardrails.worktree_containment"
+_SIBLING_GIT_MODULE = "lu_machinery.fleet.sibling_git"
 _MACHINERY = _CONTAINMENT_MODULE.partition(".")[0]
 
 
@@ -226,7 +226,7 @@ def _load_containment():
     # The owning checkout comes first, even when PYTHONPATH already lists it later.
     sys.path[:] = [str(root), *(entry for entry in sys.path if entry != str(root))]
     try:
-        from scripts.guardrails import worktree_containment as wc
+        from lu_machinery.guardrails import worktree_containment as wc
     except Exception:  # pragma: no cover - defensive import failure
         return None
     return wc

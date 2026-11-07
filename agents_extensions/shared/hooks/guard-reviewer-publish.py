@@ -32,7 +32,7 @@ def _shell_parser():
 
 # The typed GitHub publisher's entry module, by import name. This hook is outside the machinery
 # package; under a checkout the module's file is at the same dotted path.
-_PUBLISHER_ENTRY_MODULE = "scripts.publish.github"
+_PUBLISHER_ENTRY_MODULE = "lu_machinery.publish.github"
 _PUBLISHER = _PUBLISHER_ENTRY_MODULE.rpartition(".")[0]
 _PUBLISHER_ENTRY_FILE = Path(*_PUBLISHER_ENTRY_MODULE.split(".")).with_suffix(".py").as_posix()
 

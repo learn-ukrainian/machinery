@@ -44,7 +44,7 @@ from .kimi_admission import (
 )
 
 if TYPE_CHECKING:
-    from scripts.fleet.claude_account_lane import ClaudeAccount
+    from lu_machinery.fleet.claude_account_lane import ClaudeAccount
 
 # Legacy ``ask-<name>`` command names and the ACP participant each one selects.
 COMPAT_TARGETS: dict[str, str] = {
@@ -87,7 +87,7 @@ def mechanical_worker_scope(
     prompt: str,
 ) -> dict[str, Any]:
     """Recheck mechanical-only scope against the stdin prompt, never the source file."""
-    from scripts.review.model_catalog import canonical_model_id, load_model_catalog
+    from lu_machinery.review.model_catalog import canonical_model_id, load_model_catalog
 
     from .mechanical_admission import MechanicalAdmissionRefused
 
@@ -304,7 +304,7 @@ def resolve_and_admit(
     is admitted (#10733). Other admissions make no claude reading and may omit it.
     """
     if claude_account is not None:
-        from scripts.fleet.claude_account_lane import require_account
+        from lu_machinery.fleet.claude_account_lane import require_account
 
         require_account(claude_account)
     elif new_dispatch or review_dispatch:
@@ -342,7 +342,7 @@ def resolve_and_admit(
     if review_mode == "red_team" and not review_dispatch:
         raise ReviewAdmissionRefused("RED_TEAM_REFUSED: red_team requires a review dispatch")
     if review_mode == "red_team":
-        from scripts.review.language_lane import is_ukrainian_review
+        from lu_machinery.review.language_lane import is_ukrainian_review
 
         if is_ukrainian_review({**gate, "review_profile": review_profile, "task_family": task_family}) or str(
             gate.get("research_track") or ""
@@ -362,7 +362,7 @@ def resolve_and_admit(
     else:
         initial_snapshot = review_initial_snapshot
     if review_mode == "red_team":
-        from scripts.review.reviewer_resolver import normalize_routing_snapshot
+        from lu_machinery.review.reviewer_resolver import normalize_routing_snapshot
 
         try:
             normalize_routing_snapshot(initial_snapshot)
@@ -371,7 +371,7 @@ def resolve_and_admit(
 
     fallbacks: Mapping[str, str] = {}
     if route is not None and fallbacks_path is not None:
-        from scripts.common.fallback_substitutions import load_dispatch_fallbacks
+        from lu_machinery.common.fallback_substitutions import load_dispatch_fallbacks
 
         fallbacks = load_dispatch_fallbacks(fallbacks_path)
     resolved: list[tuple[str, str | None, str]] = []
@@ -584,7 +584,7 @@ def _refuse_paused(
 
 def _refuse_non_review_models(models: Iterable[str | None]) -> None:
     """Raise ``ReviewAdmissionRefused`` for a model the catalog gives no review role (#9583)."""
-    from scripts.review.model_catalog import REVIEW_ACTIVITY, activity_role_refusal
+    from lu_machinery.review.model_catalog import REVIEW_ACTIVITY, activity_role_refusal
 
     for model in models:
         if refusal := activity_role_refusal(model, REVIEW_ACTIVITY):
@@ -635,10 +635,10 @@ def _resolve_review_target(
     claude lane on it, and the resolver excludes claude seats on an
     unresolved one (``ResolverInputs.claude_account``).
     """
-    from scripts.fleet.claude_account_lane import lane_record, select_account
-    from scripts.review.capacity import review_capacity_action
-    from scripts.review.model_catalog import load_model_catalog, risk_reviewer_refusal
-    from scripts.review.reviewer_resolver import (
+    from lu_machinery.fleet.claude_account_lane import lane_record, select_account
+    from lu_machinery.review.capacity import review_capacity_action
+    from lu_machinery.review.model_catalog import load_model_catalog, risk_reviewer_refusal
+    from lu_machinery.review.reviewer_resolver import (
         REVIEW_CANDIDATES,
         REVIEW_LADDERS,
         UNKNOWN_AUTHOR_FAMILY,
@@ -652,8 +652,8 @@ def _resolve_review_target(
         resolve_reviewer,
         review_task_id_comparison_keys,
     )
-    from scripts.review.security_paths import effective_review_risk
-    from scripts.review.subject_seat import prepare_subject_exclusion, subject_exclusion_reason
+    from lu_machinery.review.security_paths import effective_review_risk
+    from lu_machinery.review.subject_seat import prepare_subject_exclusion, subject_exclusion_reason
 
     from .telemetry import _default_model_for
 
@@ -686,7 +686,7 @@ def _resolve_review_target(
     concrete = requested_model.split("[", 1)[0]
     family = resolve_family(concrete or "")
     if review_mode == "cross_family" and profile in {"code", "infra"} and facts is not None and facts.mixed_family:
-        from scripts.review.record_cf_verdict import RecordError
+        from lu_machinery.review.record_cf_verdict import RecordError
 
         try:
             scope = facts.reviewer_scope(family)
@@ -934,7 +934,7 @@ def resolve_sender(agent: str, *, static_agents: Collection[str], warnings: list
 
 def describe_slot_holder(slot: str) -> Any:
     """The read-only lease facts for ``slot`` (``SlotHolderResult``), for display; never a delivery target."""
-    from scripts.orchestration import slot_routing
+    from lu_machinery.orchestration import slot_routing
 
     return slot_routing.resolve_slot_holder(slot)
 
@@ -994,7 +994,7 @@ def _slot_holder(
     if "-" not in agent or agent in static_agents:
         return agent
     try:
-        from scripts.orchestration import slot_routing
+        from lu_machinery.orchestration import slot_routing
 
         res = slot_routing.resolve_slot_holder(agent)
     except Exception as exc:
@@ -1036,7 +1036,7 @@ def _warn(warnings: list[str] | None, message: str) -> None:
 
 def _substitute_seat(seat: str, reason: str, fallbacks_path: Path | None) -> str:
     """The enabled ACP seat ``dispatch_fallbacks`` maps an over-quota ``seat`` to (#8499)."""
-    from scripts.common.fallback_substitutions import load_dispatch_fallbacks
+    from lu_machinery.common.fallback_substitutions import load_dispatch_fallbacks
 
     if fallbacks_path is None:
         raise SubstituteUnavailable(f"ACP seat '{seat}' substitution needs the dispatch_fallbacks path")

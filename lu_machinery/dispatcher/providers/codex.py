@@ -9,14 +9,14 @@ import time
 import unicodedata
 from collections.abc import Mapping
 
-from scripts.agent_runtime.adapters.codex import _read_only_tmp_flags
-from scripts.agent_runtime.adapters.codex_events import classify_provider_message
-from scripts.agent_runtime.attempt_safe_read import safe_read_attempt_file
-from scripts.agent_runtime.read_only_tmp import dispatch_lease
-from scripts.common.jsonl import jsonl_lines
-from scripts.dispatcher.providers.stream_json import SOURCES_SERVER
-from scripts.dispatcher.types import Invocation, ParsedResult, TaskSpec
-from scripts.review.product_hooks import attempt_hooks
+from lu_machinery.agent_runtime.adapters.codex import _read_only_tmp_flags
+from lu_machinery.agent_runtime.adapters.codex_events import classify_provider_message
+from lu_machinery.agent_runtime.attempt_safe_read import safe_read_attempt_file
+from lu_machinery.agent_runtime.read_only_tmp import dispatch_lease
+from lu_machinery.common.jsonl import jsonl_lines
+from lu_machinery.dispatcher.providers.stream_json import SOURCES_SERVER
+from lu_machinery.dispatcher.types import Invocation, ParsedResult, TaskSpec
+from lu_machinery.review.product_hooks import attempt_hooks
 
 
 @functools.cache
@@ -173,12 +173,12 @@ def _strict_schema_path(spec: TaskSpec, document: dict) -> str:
 
 
 def build(spec: TaskSpec, env: dict[str, str]) -> Invocation:
-    from scripts.dispatcher.checks import check_model_admission
+    from lu_machinery.dispatcher.checks import check_model_admission
 
     check_model_admission(spec.agent, spec.model, spec.mode, spec.options, spec.prompt_file.read_bytes())
     argv = ["codex", "exec", "--json", "-C", str(spec.worktree), "-m", spec.model, "-o", str(spec.final_file)]
     if spec.options.get("output_schema_path") is not None:
-        from scripts.dispatcher.output_schema import load
+        from lu_machinery.dispatcher.output_schema import load
 
         document = load(spec.options)
         schema_path = spec.options["output_schema_path"]
@@ -258,8 +258,8 @@ def parse(stdout: str, stderr: str, returncode: int, final_text: str | None) -> 
         return ParsedResult(text, usage, f"codex: {capacity}", rate_limited=True)
     if returncode:
         error = f"codex: exited with status {returncode}"
-        from scripts.orchestration.dispatch_admission import redact_paths
-        from scripts.secret_redactor import redact_text
+        from lu_machinery.orchestration.dispatch_admission import redact_paths
+        from lu_machinery.secret_redactor import redact_text
 
         sanitized = stderr.strip()
         if any(unicodedata.category(char) in {"Cc", "Cf"} for char in sanitized):

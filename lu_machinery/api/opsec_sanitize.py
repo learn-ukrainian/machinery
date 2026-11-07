@@ -19,7 +19,7 @@ from typing import Any
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
-from scripts.api.opsec_scan import scan_text
+from lu_machinery.api.opsec_scan import scan_text
 
 REDACTED_ABSOLUTE_PATH = "[redacted-path]"
 _UNCHANGED = object()

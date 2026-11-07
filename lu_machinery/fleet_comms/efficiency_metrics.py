@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 try:
-    from scripts.lib.readonly_sqlite import SQLiteConnection, is_sqlite_connection, open_readonly
+    from lu_machinery.lib.readonly_sqlite import SQLiteConnection, is_sqlite_connection, open_readonly
 except ModuleNotFoundError as exc:
     # Only this package's own absence selects the short spelling; its name comes from this
     # file's unresolved location (design-v1 amendment 1), never __package__.
@@ -28,17 +28,17 @@ except ModuleNotFoundError as exc:
         raise
     from lib.readonly_sqlite import SQLiteConnection, is_sqlite_connection, open_readonly  # type: ignore[no-redef]
 
-from scripts.control_plane.storage import (
+from lu_machinery.control_plane.storage import (
     Authority,
     ControlPlaneError,
     StoreId,
     assert_component_supported,
     resolve_authority,
 )
-from scripts.control_plane.storage import connect as cp_connect
-from scripts.fleet_comms.message_plane import resolve_plane_mode
-from scripts.fleet_comms.opsec_store import batch_tasks_store, comms_plane_store
-from scripts.orchestration.task_record_store import ARCHIVE_DIR_NAME, parse_task_record
+from lu_machinery.control_plane.storage import connect as cp_connect
+from lu_machinery.fleet_comms.message_plane import resolve_plane_mode
+from lu_machinery.fleet_comms.opsec_store import batch_tasks_store, comms_plane_store
+from lu_machinery.orchestration.task_record_store import ARCHIVE_DIR_NAME, parse_task_record
 
 # Alert thresholds are intentionally reported, not enforced here. #5646 owns
 # consuming them. Dispatch uses the delegate default floor of 7,200 seconds.
@@ -655,7 +655,7 @@ def _default_merge_cache_path() -> Path | None:
     if override:
         return Path(override).expanduser()
     try:
-        from scripts.guardrails.worktree_containment import (
+        from lu_machinery.guardrails.worktree_containment import (
             NotAGitRepositoryError,
             resolve_main_root,
         )
@@ -799,7 +799,7 @@ def _fetch_merge_facts(
     for start in range(0, len(valid), _GRAPHQL_BATCH_SIZE):
         batch = valid[start : start + _GRAPHQL_BATCH_SIZE]
         try:
-            from scripts.publish.github import read
+            from lu_machinery.publish.github import read
 
             proc = read(
                 "merge-facts",

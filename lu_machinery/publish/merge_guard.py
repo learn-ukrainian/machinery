@@ -8,21 +8,21 @@ import subprocess
 from collections.abc import Callable
 from urllib.parse import parse_qs, quote
 
-from scripts.ci.advisory_checks import (
+from lu_machinery.ci.advisory_checks import (
     external_advisory_check,
     is_advisory,
     is_external_advisory_run,
     load_advisory_checks,
 )
-from scripts.common.github_client import GitHubRateLimited
-from scripts.github_check_rollup import (
+from lu_machinery.common.github_client import GitHubRateLimited
+from lu_machinery.github_check_rollup import (
     bind_workflow_runs,
     collapse_status_rollup,
     project_check_runs,
     rollup_identity,
     rollup_timestamp,
 )
-from scripts.opsec.prepublish import PublishBlocked
+from lu_machinery.opsec.prepublish import PublishBlocked
 
 _FAIL_BUCKETS = {"fail", "failure", "error", "cancel", "canceled", "cancelled", "timed_out", "action_required"}
 _PENDING_BUCKETS = {"pending", "queued", "in_progress", "waiting", "expected"}

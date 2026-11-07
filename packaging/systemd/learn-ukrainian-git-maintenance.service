@@ -5,7 +5,7 @@ Description=Bounded foreground Git maintenance
 Type=oneshot
 WorkingDirectory=@REPO_ROOT@
 Environment=PYTHONUNBUFFERED=1
-ExecStart=/usr/bin/env bash @REPO_ROOT@/scripts/orchestration/run_scheduled_worktree_cleanup.sh --repo-root @REPO_ROOT@ --repo-root @PRIVATE_ROOT@ --git-maintenance --apply
+ExecStart=/usr/bin/env bash @REPO_ROOT@/lu_machinery/orchestration/run_scheduled_worktree_cleanup.sh --repo-root @REPO_ROOT@ --repo-root @PRIVATE_ROOT@ --git-maintenance --apply
 MemoryHigh=1536M
 MemoryMax=2G
 MemorySwapMax=0

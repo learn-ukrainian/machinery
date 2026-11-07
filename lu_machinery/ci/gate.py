@@ -63,7 +63,7 @@ def event_tier(event: str, payload: dict, sha: str, ref: str, actual: str) -> st
 def main() -> int:
     if __package__ in (None, ""):
         sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-    from scripts.ci._location import module_name
+    from lu_machinery.ci._location import module_name
 
     parser = argparse.ArgumentParser(
         description="Validate CI event identity and require every result in its tier.\n"

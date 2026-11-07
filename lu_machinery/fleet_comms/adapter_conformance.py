@@ -18,8 +18,8 @@ from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
-from scripts.common.jsonl import jsonl_lines as split_jsonl_lines
-from scripts.fleet_comms.contracts import AssistantSegment, CompletionState, ResponseEnvelope
+from lu_machinery.common.jsonl import jsonl_lines as split_jsonl_lines
+from lu_machinery.fleet_comms.contracts import AssistantSegment, CompletionState, ResponseEnvelope
 
 PRIMARY_ADAPTERS = frozenset({"codex", "claude", "agy"})
 REMAINING_ADAPTERS = frozenset(

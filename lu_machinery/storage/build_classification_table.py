@@ -18,7 +18,7 @@ from pathlib import Path
 if __package__ in (None, ""):  # run as a file: make `scripts.*` importable
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from scripts.common.scratch import ensure_scratch_root
+from lu_machinery.common.scratch import ensure_scratch_root
 
 
 def _machinery_top() -> str:

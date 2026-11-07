@@ -26,7 +26,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from scripts.fleet_comms.paths import (
+from lu_machinery.fleet_comms.paths import (
     RETIRED_LOCAL_PLANE_MESSAGE,
     local_plane_is_retired,
 )
@@ -281,7 +281,7 @@ def _result_from_forward(
     duration_s: float,
 ) -> Any:
     """Build a runner-shaped Result without importing the heavy runner module early."""
-    from scripts.agent_runtime.result import Result
+    from lu_machinery.agent_runtime.result import Result
 
     ok = returncode == 0
     return Result(

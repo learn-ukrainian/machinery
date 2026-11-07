@@ -28,7 +28,7 @@ if __package__ in (None, ""):  # run as a file: put the repository root on sys.p
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 try:
-    from scripts.lib.readonly_sqlite import SQLiteConnection
+    from lu_machinery.lib.readonly_sqlite import SQLiteConnection
 except ModuleNotFoundError as exc:
     # Only this package's own absence selects the short spelling; its name comes from this
     # file's unresolved location (design-v1 amendment 1), never __package__.
@@ -38,8 +38,8 @@ except ModuleNotFoundError as exc:
 
 import yaml
 
-from scripts.review import findings_db
-from scripts.review.reviewer_resolver import UNRESOLVED_AUTHOR_FAMILIES, resolve_author_family
+from lu_machinery.review import findings_db
+from lu_machinery.review.reviewer_resolver import UNRESOLVED_AUTHOR_FAMILIES, resolve_author_family
 
 BLOCKING = frozenset({"BLOCKER", "MAJOR"})
 LIVE_STATUSES = frozenset({"active", "persisting"})

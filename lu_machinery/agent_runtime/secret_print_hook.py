@@ -65,8 +65,8 @@ def run_guard(command: str, *, timeout: float = DEFAULT_TIMEOUT, harness: str = 
         # guard runner and linked-worktree interpreter resolver.
         if str(ROOT) not in sys.path:
             sys.path.insert(0, str(ROOT))
-        from scripts.agent_runtime.codex_hook_policy import run_guard as run_guard_process
-        from scripts.common.repo_root import project_interpreter
+        from lu_machinery.agent_runtime.codex_hook_policy import run_guard as run_guard_process
+        from lu_machinery.common.repo_root import project_interpreter
 
         if not GUARD_PATH.is_file():
             return False, BLOCK_PREFIX + "shared guard unavailable.\n"

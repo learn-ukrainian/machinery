@@ -19,8 +19,8 @@ from pathlib import Path
 from typing import Literal
 from uuid import UUID, uuid4
 
-from scripts.common.jsonl import jsonl_lines
-from scripts.guardrails.worktree_containment import _require_real_directories, is_dispatch_worktree
+from lu_machinery.common.jsonl import jsonl_lines
+from lu_machinery.guardrails.worktree_containment import _require_real_directories, is_dispatch_worktree
 
 from ..env_sanitize import _is_provider_safe_name, build_probe_env
 from ..read_only_tmp import validate_read_only_tmp_root
@@ -62,7 +62,7 @@ def resolve_muse_model(model: str | None) -> str:
 
 def require_muse_execution_model(model: str | None) -> str:
     """Apply the existing catalog lifecycle and transport gate before any probe."""
-    from scripts.review.model_catalog import require_execution_model
+    from lu_machinery.review.model_catalog import require_execution_model
 
     return require_execution_model(resolve_muse_model(model), transport="native_muse")
 

@@ -39,7 +39,7 @@ steps:
         - sh
         - -c
         - |-
-          .venv/bin/python scripts/ai_agent_bridge/__main__.py inbox --for "$HANDOFF_AGENT" show "$HANDOFF_AGENT" > "batch_state/rb5-inbox-$HANDOFF_AGENT.txt" 2>&1 && echo inbox-receipt-written || echo inbox-refresh-failed
+          .venv/bin/python lu_machinery/ai_agent_bridge/__main__.py inbox --for "$HANDOFF_AGENT" show "$HANDOFF_AGENT" > "batch_state/rb5-inbox-$HANDOFF_AGENT.txt" 2>&1 && echo inbox-receipt-written || echo inbox-refresh-failed
       environment: {TRAIL_INVOCATION_ID: "{invocation_id}", HANDOFF_AGENT: "{handoff_agent}"}
       timeout_seconds: 30
       mutation_class: local-write
@@ -88,7 +88,7 @@ steps:
         - sh
         - -c
         - |-
-          .venv/bin/python -m scripts.orchestration.handoff_ready --json > "batch_state/rb5-ready-$HANDOFF_AGENT.json" 2>/dev/null && echo readiness-recorded || echo readiness-failed
+          .venv/bin/python -m lu_machinery.orchestration.handoff_ready --json > "batch_state/rb5-ready-$HANDOFF_AGENT.json" 2>/dev/null && echo readiness-recorded || echo readiness-failed
       environment: {TRAIL_INVOCATION_ID: "{invocation_id}", HANDOFF_AGENT: "{handoff_agent}"}
       timeout_seconds: 30
       mutation_class: local-write
@@ -230,7 +230,7 @@ steps:
         - sh
         - -c
         - |-
-          .venv/bin/python scripts/ai_agent_bridge/__main__.py inbox --for "$HANDOFF_AGENT" show "$HANDOFF_AGENT" > "batch_state/rb5-inbox-final-$HANDOFF_AGENT.txt" 2>&1 && echo final-inbox-receipt-written || echo final-inbox-refresh-failed
+          .venv/bin/python lu_machinery/ai_agent_bridge/__main__.py inbox --for "$HANDOFF_AGENT" show "$HANDOFF_AGENT" > "batch_state/rb5-inbox-final-$HANDOFF_AGENT.txt" 2>&1 && echo final-inbox-receipt-written || echo final-inbox-refresh-failed
       environment: {TRAIL_INVOCATION_ID: "{invocation_id}", HANDOFF_AGENT: "{handoff_agent}"}
       timeout_seconds: 30
       mutation_class: local-write

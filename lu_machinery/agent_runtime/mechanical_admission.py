@@ -8,17 +8,17 @@ from collections.abc import Callable, Iterable, Mapping, Sequence
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-from scripts.agent_runtime.kimi_admission import CYRILLIC, ContentTree, content_problem, worktree_trees
-from scripts.review.model_catalog import (
+from lu_machinery.agent_runtime.kimi_admission import CYRILLIC, ContentTree, content_problem, worktree_trees
+from lu_machinery.review.model_catalog import (
     MECHANICAL_FAMILIES,
     bounded_execution_policy,
     canonical_model_id,
     load_model_catalog,
 )
-from scripts.review.model_catalog import (
+from lu_machinery.review.model_catalog import (
     MECHANICAL_ROLES as MECHANICAL_ROLES,
 )
-from scripts.review.security_paths import is_security_sensitive_change
+from lu_machinery.review.security_paths import is_security_sensitive_change
 
 
 class MechanicalAdmissionRefused(ValueError):
@@ -119,7 +119,7 @@ def refuse_mechanical_task(
     stage = "task prompt"
     try:
         if typed_role and task_prompt:
-            from scripts.lib.rules_core import core_block
+            from lu_machinery.lib.rules_core import core_block
 
             # The canonical core contains Ukrainian normative examples and is
             # carried by every seat. Exempt only its exact canonical bytes.

@@ -40,9 +40,9 @@ from typing import Any
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from scripts.common import github_client
-from scripts.common.github_client import GitHubRateLimited
-from scripts.common.task_store_paths import tasks_dir
+from lu_machinery.common import github_client
+from lu_machinery.common.github_client import GitHubRateLimited
+from lu_machinery.common.task_store_paths import tasks_dir
 
 # This package's import name, from the unresolved file location: never from __package__, which a
 # short import spelling (orchestration.x with scripts/ on sys.path) shortens. Its dotted parts
@@ -363,7 +363,7 @@ def deliver(outbox: list[dict[str, str]], service: Any) -> list[str]:
     keys, from the notice's identity: a "key reused" refusal proves this notice was
     already published, so the entry is reconciled as delivered.
     """
-    from scripts.fleet_comms.authority import AuthorityServiceError
+    from lu_machinery.fleet_comms.authority import AuthorityServiceError
 
     errors = []
     for entry in list(outbox):
@@ -474,7 +474,7 @@ def _with_head_commits(
     The head trailer can only matter for a PR the branch check would report, so every other
     PR costs no extra read. A failed read raises ``OwnershipError``: never a false alert.
     """
-    from scripts.fleet import pr_owner_check as check
+    from lu_machinery.fleet import pr_owner_check as check
 
     pending = {
         (row.repo.casefold(), row.number)
@@ -519,7 +519,7 @@ def findings(
     task named by the head commit's ``X-Agent`` trailer. A PR is ownerless only when no
     candidate owner is live or unobservable; with an unobservable one it is unknown.
     """
-    from scripts.fleet import pr_owner_check as check
+    from lu_machinery.fleet import pr_owner_check as check
 
     by_id = {record.get("task_id"): record for record in records if record.get("task_id")}
     successors = {}
@@ -563,9 +563,9 @@ def findings(
 
 def _observe(handoffs: Mapping[tuple[str, int], str]) -> tuple[set[str], dict[str, Finding]]:
     """Every open PR key and its finding, across the owner check's default fleet repositories."""
-    from scripts.dispatcher import store
-    from scripts.fleet import pr_owner_check as check
-    from scripts.orchestration.fleet_repos import load_fleet_repos
+    from lu_machinery.dispatcher import store
+    from lu_machinery.fleet import pr_owner_check as check
+    from lu_machinery.orchestration.fleet_repos import load_fleet_repos
 
     repos = load_fleet_repos()
     records = store.list_tasks(strict=True)
@@ -577,7 +577,7 @@ def _observe(handoffs: Mapping[tuple[str, int], str]) -> tuple[set[str], dict[st
 
 
 def _default_service() -> Any:
-    from scripts.fleet_comms.authority import AuthorityService
+    from lu_machinery.fleet_comms.authority import AuthorityService
 
     return AuthorityService(root=None)
 
@@ -671,7 +671,7 @@ def _queued_at(repo: str, number: int, head: str, base: str) -> bool | None:
 
     None when the head differs in that observation or the read fails: never queued.
     """
-    from scripts.orchestration.integration_sweep import GitHubAdapter, SweepError
+    from lu_machinery.orchestration.integration_sweep import GitHubAdapter, SweepError
 
     try:
         return GitHubAdapter(Path.cwd()).queue_membership(
@@ -683,8 +683,8 @@ def _queued_at(repo: str, number: int, head: str, base: str) -> bool | None:
 
 def _rerun_allowance(repo: str, number: int, head: str) -> str:
     """The head's one evidenced CI rerun, from the shared ledger every owner uses."""
-    from scripts.opsec.prepublish import PublishBlocked
-    from scripts.publish import recovery
+    from lu_machinery.opsec.prepublish import PublishBlocked
+    from lu_machinery.publish import recovery
 
     try:
         first = recovery.first_attempt(recovery.ledger_path(Path.cwd()), repo, number, head)
@@ -943,8 +943,8 @@ def _coordinator_accept(args: argparse.Namespace, path: Path) -> int:
             "reason": "recorded custody needs --reason and --decision-owner, and not --custody",
         }))
         return 1
-    from scripts.dispatcher import store
-    from scripts.orchestration.fleet_repos import load_fleet_repos
+    from lu_machinery.dispatcher import store
+    from lu_machinery.orchestration.fleet_repos import load_fleet_repos
 
     repos = load_fleet_repos()
     repo = args.repo or next(item.github for item in repos.values() if item.default)
@@ -993,8 +993,8 @@ def main(argv: list[str] | None = None) -> int:
         me = os.environ.get(TASK_ENV)
         if not me:
             raise OwnershipError(f"{TASK_ENV} is unset: only a dispatch task can accept or exit")
-        from scripts.dispatcher import store
-        from scripts.orchestration.fleet_repos import load_fleet_repos
+        from lu_machinery.dispatcher import store
+        from lu_machinery.orchestration.fleet_repos import load_fleet_repos
 
         repo = args.repo or next(r.github for r in load_fleet_repos().values() if r.default)
         records = store.list_tasks(strict=True)

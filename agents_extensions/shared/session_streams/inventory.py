@@ -16,7 +16,7 @@ from typing import Any
 
 import yaml
 
-from scripts.common import repo_root as _machinery_roots
+from lu_machinery.common import repo_root as _machinery_roots
 
 from .model import validate_stream_id
 
@@ -163,7 +163,7 @@ def _handoff_candidates_for(stream_name: str, epic_number: int) -> tuple[str, ..
     # exist. A module-level import crashed the session supervisor there (#5857 r3);
     # resolver absence must degrade to the legacy map, never break the module.
     try:
-        from scripts.orchestration.fleet_taxonomy import UnknownAreaError, resolve_area
+        from lu_machinery.orchestration.fleet_taxonomy import UnknownAreaError, resolve_area
     except ImportError:
         slug = _STREAM_NAME_TO_CLAUDE_DIR.get(stream_name, stream_name.replace("_", "-"))
     else:

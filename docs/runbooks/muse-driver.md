@@ -93,7 +93,7 @@ An occupied lease refuses and cannot be forced by this seat. Stub tests exercise
 this lifecycle with admission isolated in the fixture; they are not native Muse
 guard or runtime certification.
 
-At rollover, `scripts.session_canary.muse_lane mint` and `score` reuse the shared
+At rollover, `lu_machinery.session_canary.muse_lane mint` and `score` reuse the shared
 ten-anchor recall implementation and its fixed 8/10 threshold. The default
 handoff preference is `MUSE-DRIVER-HANDOFF.md`, then the interim handoff. A failed
 score writes the shared handback and requires driver exit; only the launcher

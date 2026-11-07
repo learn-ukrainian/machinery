@@ -63,8 +63,8 @@ from xml.etree import ElementTree
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from scripts.ci._location import checkout_relative, module_name
-from scripts.common import github_client
+from lu_machinery.ci._location import checkout_relative, module_name
+from lu_machinery.common import github_client
 
 # Duration refresh checks this file out without scripts/common/repo_root.py.
 # _location derives the package name from its own unresolved path and imports

@@ -23,7 +23,7 @@ not implementation: seat no-solo rules still bind.
 This skill teaches the method, never the roster. Who sits in which lane, which model fits
 which task, and the current width are live data. Read them fresh, never from memory:
 `GET http://127.0.0.1:8765/api/rules` (routing, review seats, cross-family pairing),
-`scripts/config/model_catalog.yaml` (quality floors, peer tiers), and
+`lu_machinery/config/model_catalog.yaml` (quality floors, peer tiers), and
 `docs/best-practices/agent-activity-matrix.md` §2/§2b. Every claim you make (a lane, a cap,
 a Ukrainian word, stress or morphology fact, a gate status, a count, a worker's state)
 comes from tool output in this turn; if it does not, stop and run the tool.
@@ -56,8 +56,8 @@ Per turn and at session end:
 - [ ] No worktree of a settled dispatch remains: the dispatcher removes each task's own
       worktree at settlement, so check each settled task's `worktree_disposition`. Remove a
       `retained` or `error` worktree only after confirming its content is published, with
-      `.venv/bin/python -m scripts.orchestration.worktree_claims remove <path> --owner-task-id <task> --reason <why>`.
-- [ ] `.venv/bin/python -m scripts.hygiene.branch_sweep --json` reviewed and its
+      `.venv/bin/python -m lu_machinery.orchestration.worktree_claims remove <path> --owner-task-id <task> --reason <why>`.
+- [ ] `.venv/bin/python -m lu_machinery.hygiene.branch_sweep --json` reviewed and its
       proven-safe deletions applied (`--apply`), then `git fetch --prune`.
 - [ ] Every residual from `merge_closeout` and SKIPPED row from `branch_sweep` gets a decision: remove it
       safely or record a verified reason to keep it (a live process, a running task,
@@ -83,8 +83,8 @@ detached `process-*` or `ask-*` worker — reads and applies every message marke
 or `read-but-not-live-consumed`, then records that consumption:
 
 ```bash
-.venv/bin/python -m scripts.ai_agent_bridge inbox --for "$SESSION_HANDOFF_AGENT"
-.venv/bin/python -m scripts.ai_agent_bridge ack --consumed-by-live-driver <message-id> [<message-id> ...]
+.venv/bin/python -m lu_machinery.ai_agent_bridge inbox --for "$SESSION_HANDOFF_AGENT"
+.venv/bin/python -m lu_machinery.ai_agent_bridge ack --consumed-by-live-driver <message-id> [<message-id> ...]
 ```
 
 Never use a plain `ack` for these: it also records one-shot or headless processing and is
@@ -97,7 +97,7 @@ requires an operator reference. The item lifecycle is in
 [handoff](references/handoff.md#record-work-throughout-the-cycle).
 
 1. **§0 Orient.** Run the cold-start board, lean orient, the Work API projection and your
-   stream's `next` list, and `.venv/bin/python -m scripts.fleet_comms plane-status`. The launcher already holds your lease; never
+   stream's `next` list, and `.venv/bin/python -m lu_machinery.fleet_comms plane-status`. The launcher already holds your lease; never
    claim it. Read open lane work with `lu-driver-state render --lane <lane>` and
    `lu-driver-state check --lane <lane>`. The database is the lane's handoff;
    `DRIVER-STATE.md` is only a pointer. Detail and the optional §0b inbox watcher:

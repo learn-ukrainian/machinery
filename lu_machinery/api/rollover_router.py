@@ -7,8 +7,8 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from scripts.orchestration import thread_handoff
-from scripts.orchestration.task_family import rollover_registry as registry
+from lu_machinery.orchestration import thread_handoff
+from lu_machinery.orchestration.task_family import rollover_registry as registry
 
 from . import config
 from .monitor_context import MonitorContext, get_ctx

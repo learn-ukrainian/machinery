@@ -2,7 +2,7 @@
 
 For an authorized CLI seat move, follow [Move a driver seat to another CLI](driver-seat-cli-move.md); the launcher owns lease release.
 
-`scripts.session_supervisor` is the PR-I launcher boundary for a session-stream
+`lu_machinery.session_supervisor` is the PR-I launcher boundary for a session-stream
 driver. It opens the fenced lease before a harness starts, then emits the
 read-only bootstrap capsule. A harness or model must never open, renew, close,
 or recover its own lease.
@@ -48,7 +48,7 @@ returns a JSON capsule in the required order: identity, pending rollover slot,
 digest watermark, dual-write handoff status, then diagnostics.
 
 ```bash
-.venv/bin/python -m scripts.session_supervisor \
+.venv/bin/python -m lu_machinery.session_supervisor \
   --repo-root "$PWD" open \
   --role driver --stream epic:4707 --agent grok \
   --harness grok-tui --instance-id grok-4707-1 --process-id $$ \
@@ -64,7 +64,7 @@ harness.
 On clean exit the launcher (or a wrapper) calls the matching lifecycle action:
 
 ```bash
-.venv/bin/python -m scripts.session_supervisor close --role driver
+.venv/bin/python -m lu_machinery.session_supervisor close --role driver
 ```
 
 `resume` and `heartbeat` also consume that exact supervisor-owned
@@ -75,7 +75,7 @@ Drivers can render a fresh capsule from their launcher-provided environment
 without renewing the lease:
 
 ```bash
-.venv/bin/python -m scripts.session_supervisor capsule --role driver --stream <stream-id>
+.venv/bin/python -m lu_machinery.session_supervisor capsule --role driver --stream <stream-id>
 ```
 
 This command reads the exact `SESSION_STREAM_*` lease and reconciles it with
@@ -86,7 +86,7 @@ receive no lease in `capsule --role worker`.
 The supported Codex hydration command is also read-only:
 
 ```bash
-.venv/bin/python -m scripts.session_canary.codex_lane hydrate --epic <epic> --stream <stream-id>
+.venv/bin/python -m lu_machinery.session_canary.codex_lane hydrate --epic <epic> --stream <stream-id>
 ```
 
 It preserves the launcher's Codex identity (including `codex-core`) when
@@ -102,7 +102,7 @@ whose critical evidence permits execution is returned without retrying.
 
 ### Close-failure observability
 
-`scripts/lib/launcher_core.sh`'s `launcher_close_driver_lease` retries the
+`lu_machinery/lib/launcher_core.sh`'s `launcher_close_driver_lease` retries the
 close command once, then reports failure without echoing raw stderr (which
 may carry host paths or other operational detail). `launcher_classify_close_failure`
 maps known-safe marker substrings to one of a fixed set of stable, privacy-safe
@@ -148,11 +148,11 @@ The hook CLI consumes the same envelope:
 
 ## Launcher helper
 
-`scripts/lib/session_supervisor.sh` is the shared bash helper for non-Claude
+`lu_machinery/lib/session_supervisor.sh` is the shared bash helper for non-Claude
 launchers.
 
 ```bash
-source "${PROJECT_DIR}/scripts/lib/session_supervisor.sh"
+source "${PROJECT_DIR}/lu_machinery/lib/session_supervisor.sh"
 claim_session_supervisor_env \
   "epic:4707" "grok" "grok-tui" "5512-pr-j1-launchers" "grok-$$" \
   "$PROJECT_DIR" "start-grok.sh" "harness"
@@ -160,7 +160,7 @@ claim_session_supervisor_env \
 
 The helper:
 
-1. Calls `scripts.session_supervisor open --role driver`.
+1. Calls `lu_machinery.session_supervisor open --role driver`.
 2. Parses the JSON capsule and exports `SESSION_STREAM_*` from the lease plus the
    launcher-supplied holder fields.
 3. Writes a JSON capsule under
@@ -202,7 +202,7 @@ Other configuration and verification refusals exit 6 without publishing.
 The captured generation is cleared on verified launcher re-entry.
 
 Publication uses the already-resolved project interpreter and
-`scripts.fleet_comms channel publish cto -`, with the driver's sender identity,
+`lu_machinery.fleet_comms channel publish cto -`, with the driver's sender identity,
 kind `status`, and idempotency key `<stream>-<generation>-<reason>`. The JSON
 body contains exactly `stream`, numeric `generation`, and `reason`. It contains
 no diagnostic details. The launcher never creates the channel, retries the
@@ -238,7 +238,7 @@ already exists, and their child environment must be built by removing every
 operation for launcher integration tests.
 
 ```bash
-.venv/bin/python -m scripts.session_supervisor \
+.venv/bin/python -m lu_machinery.session_supervisor \
   --repo-root "$PWD" capsule --role worker --stream epic:4707
 ```
 
@@ -319,8 +319,8 @@ launcher, model, command, approval setting, or filesystem path.
 The intended host-resident invocation uses the existing watcher process:
 
 ```bash
-scripts/ai_agent_bridge/inbox_watch.sh grok-infra --wake-driver grok --epic infra
-scripts/ai_agent_bridge/inbox_watch.sh grok-atlas --wake-driver grok --epic atlas
+lu_machinery/ai_agent_bridge/inbox_watch.sh grok-infra --wake-driver grok --epic infra
+lu_machinery/ai_agent_bridge/inbox_watch.sh grok-atlas --wake-driver grok --epic atlas
 ```
 
 Run it in an existing persistent host terminal or service allocation. The
@@ -459,7 +459,7 @@ reads its unchanged inbox attachment, reconciles the logged attempt, and then
 consumes the row with the existing command:
 
 ```bash
-.venv/bin/python -m scripts.ai_agent_bridge ack --consumed-by-live-driver <id>
+.venv/bin/python -m lu_machinery.ai_agent_bridge ack --consumed-by-live-driver <id>
 ```
 
 The next poll ignores and garbage-collects watcher receipts for acked or deleted
@@ -511,7 +511,7 @@ it does not certify a production lease or atomic admission. Do not run a receipt
 against a live production driver.
 
 ```bash
-.venv/bin/python - scripts.ai_agent_bridge._ui_codex <<'PY'
+.venv/bin/python - lu_machinery.ai_agent_bridge._ui_codex <<'PY'
 import importlib
 import json
 import os
@@ -562,9 +562,9 @@ PY
 
 ## Related
 
-- `scripts/session_supervisor/__init__.py`
-- `scripts/session_supervisor/__main__.py`
+- `lu_machinery/session_supervisor/__init__.py`
+- `lu_machinery/session_supervisor/__main__.py`
 - `agents_extensions/shared/session_streams/hooks.py`
-- `scripts/lib/session_supervisor.sh`
+- `lu_machinery/lib/session_supervisor.sh`
 - `docs/runbooks/grok-session-canary.md`
 - `docs/runbooks/kimi-orchestrator.md`

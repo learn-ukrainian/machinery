@@ -57,9 +57,9 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-from scripts.orchestration.task_record_store import ARCHIVE_DIR_NAME
-from scripts.orchestration.worktree_paths import automatic_worktree_path
-from scripts.review.model_catalog import (
+from lu_machinery.orchestration.task_record_store import ARCHIVE_DIR_NAME
+from lu_machinery.orchestration.worktree_paths import automatic_worktree_path
+from lu_machinery.review.model_catalog import (
     BoundedExecutionPolicy,
     bounded_execution_policy,
     canonical_model_id,
@@ -325,9 +325,9 @@ def validate_driver_brief(
     args: Mapping[str, Any], *, repo_root: Path, brief_sha256: str | None, model_id: str | None,
 ) -> list[str]:
     """Validate the narrow driver-supplied recon, classification or implementation contract, without authenticating its caller."""
-    from scripts.agent_runtime.kimi_admission import worktree_trees
-    from scripts.agent_runtime.mechanical_admission import MechanicalAdmissionRefused, refuse_mechanical_task
-    from scripts.lib import rules_core
+    from lu_machinery.agent_runtime.kimi_admission import worktree_trees
+    from lu_machinery.agent_runtime.mechanical_admission import MechanicalAdmissionRefused, refuse_mechanical_task
+    from lu_machinery.lib import rules_core
 
     def refuse(detail: str) -> None:
         raise AdvisoryRefused(DRIVER_BRIEF_REFUSED, detail)

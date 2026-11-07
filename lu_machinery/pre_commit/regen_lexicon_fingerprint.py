@@ -33,7 +33,7 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from scripts.pre_commit.product_entry import run_entry_point
+from lu_machinery.pre_commit.product_entry import run_entry_point
 
 HOOK_ID = "atlas-lexicon-fingerprint-drift"
 

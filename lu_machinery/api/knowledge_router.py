@@ -37,9 +37,9 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 
-from scripts.docs import find as docs_find
-from scripts.research import consumption, observability
-from scripts.research import registry as reg
+from lu_machinery.docs import find as docs_find
+from lu_machinery.research import consumption, observability
+from lu_machinery.research import registry as reg
 
 from .monitor_context import MonitorContext, get_ctx
 from .rules_router import _matches_etag

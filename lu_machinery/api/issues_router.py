@@ -27,8 +27,8 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, Query
 
-from scripts.common import github_client
-from scripts.orchestration import issue_stream_audit as audit
+from lu_machinery.common import github_client
+from lu_machinery.orchestration import issue_stream_audit as audit
 
 from .monitor_context import MonitorContext, get_ctx, resolve_context
 

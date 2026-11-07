@@ -21,12 +21,12 @@ from typing import Any, Protocol
 
 import yaml
 
-from scripts.orchestration.trail_predicates import (
+from lu_machinery.orchestration.trail_predicates import (
     STOP_UNKNOWN,
     evaluate_named_table,
     load_decision_tables,
 )
-from scripts.orchestration.validate_trailspec import (
+from lu_machinery.orchestration.validate_trailspec import (
     TrailSpecValidationError,
     compute_command_receipt_digest,
     compute_trail_hash,

@@ -12,7 +12,13 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
-from scripts.opsec.prepublish import PublishBlocked, check_texts, internal_environment, is_private, normalize_repository
+from lu_machinery.opsec.prepublish import (
+    PublishBlocked,
+    check_texts,
+    internal_environment,
+    is_private,
+    normalize_repository,
+)
 
 # The publisher's import name, as ``python -m`` runs it: the machinery package's own publish
 # package, named from this file's unresolved location (a short ``opsec.gh_snapshot`` import
@@ -303,7 +309,7 @@ def admit(argv, *, cwd, environment, reader=subprocess.run):
     if len(argv) < 2:
         raise PublishBlocked(f"OPSEC: use python -m {_PUBLISHER} <verb>; raw gh command refused.")
     if argv[0] == "api":
-        from scripts.common import github_client
+        from lu_machinery.common import github_client
 
         _validate_read_environment(environment)
         call = github_client._gh_api_call(argv[1:], stdin=None, cwd=cwd)

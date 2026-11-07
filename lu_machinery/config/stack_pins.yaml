@@ -8,7 +8,7 @@ pins:
     source: host
     owner: Infra
     review_by: "2026-10-30"
-    note: No exact install pin. Minimums only, in scripts/review/isolation.py (2.1.116) and acpx.py (2.1.280 for Opus).
+    note: No exact install pin. Minimums only, in lu_machinery/review/isolation.py (2.1.116) and acpx.py (2.1.280 for Opus).
   - name: codex
     pinned: unknown
     source: host

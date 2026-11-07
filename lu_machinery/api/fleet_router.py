@@ -26,29 +26,29 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import JSONResponse
 
 try:
-    from scripts.lib.readonly_sqlite import SQLiteConnection, is_sqlite_connection, open_readonly
+    from lu_machinery.lib.readonly_sqlite import SQLiteConnection, is_sqlite_connection, open_readonly
 except ModuleNotFoundError as exc:
     if exc.name != Path(os.path.abspath(__file__)).parents[1].name:
         raise
     from lib.readonly_sqlite import SQLiteConnection, is_sqlite_connection, open_readonly  # type: ignore[no-redef]
 
-from scripts.agent_runtime.accounting import recorded_model_accounting_fields
-from scripts.control_plane import storage
-from scripts.control_plane.health import authority_collector_payload, read_failure_code
-from scripts.fleet_comms import message_plane
-from scripts.fleet_comms.agent_success_metrics import collect_agent_success
-from scripts.fleet_comms.cli import fleet_help_payload, fleet_status_payload
-from scripts.fleet_comms.cold_start_board import build_cold_start_board
-from scripts.fleet_comms.efficiency_metrics import (
+from lu_machinery.agent_runtime.accounting import recorded_model_accounting_fields
+from lu_machinery.control_plane import storage
+from lu_machinery.control_plane.health import authority_collector_payload, read_failure_code
+from lu_machinery.fleet_comms import message_plane
+from lu_machinery.fleet_comms.agent_success_metrics import collect_agent_success
+from lu_machinery.fleet_comms.cli import fleet_help_payload, fleet_status_payload
+from lu_machinery.fleet_comms.cold_start_board import build_cold_start_board
+from lu_machinery.fleet_comms.efficiency_metrics import (
     collect_dead_letters_authority,
     collect_delivery_backlog_authority,
     collect_efficiency_metrics_authority,
 )
-from scripts.fleet_comms.endpoints import load_endpoint_registry
-from scripts.fleet_comms.legacy_broker_report import build_legacy_broker_report
-from scripts.fleet_comms.message_plane import read_plane_status
-from scripts.fleet_comms.migrations import MIGRATIONS
-from scripts.fleet_comms.opsec_store import COMMS_RESPONSE_SCHEMA_VERSION
+from lu_machinery.fleet_comms.endpoints import load_endpoint_registry
+from lu_machinery.fleet_comms.legacy_broker_report import build_legacy_broker_report
+from lu_machinery.fleet_comms.message_plane import read_plane_status
+from lu_machinery.fleet_comms.migrations import MIGRATIONS
+from lu_machinery.fleet_comms.opsec_store import COMMS_RESPONSE_SCHEMA_VERSION
 
 from . import comms_router as legacy_comms
 from .monitor_context import MonitorContext, get_ctx, resolve_context

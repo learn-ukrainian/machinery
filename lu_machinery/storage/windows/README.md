@@ -40,6 +40,6 @@ Success tokens:
 
 ## Related
 
-- Mac/agent status CLI: `python -m scripts.storage status`
+- Mac/agent status CLI: `python -m lu_machinery.storage status`
 - Runbook: `docs/runbooks/storage-topology.md`
 - Shared rule: `agents_extensions/shared/rules/storage-topology.md`

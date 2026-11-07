@@ -13,14 +13,14 @@ See ``docs/runbooks/storage-topology.md`` and the shared rule
 
 from __future__ import annotations
 
-from scripts.storage.topology import (
+from lu_machinery.storage.topology import (
     BulkRootResolution,
     TopologyStatus,
     resolve_active_sources_db,
     resolve_bulk_root,
     resolve_topology,
 )
-from scripts.storage.wal_permissions import (
+from lu_machinery.storage.wal_permissions import (
     get_companion_paths,
     hold_database,
     inspect_database_permissions,

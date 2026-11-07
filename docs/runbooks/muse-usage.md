@@ -39,7 +39,7 @@ seconds), which is at most 15 minutes. There is no Muse-only poller.
 `muse` is not a routing-budget lane. `GET /api/state/routing-budget` does
 not grow an `agents.muse` entry from this change.
 
-`python -m scripts.fleet.usage show` and `json` add `agents.muse` from
+`python -m lu_machinery.fleet.usage show` and `json` add `agents.muse` from
 `get_provider_usage_data("muse")` in that process, and `agents.agy` from the
 AGY `/usage` groups that same refresh already parsed. `--fresh` blocks on the
 existing provider refresh, then reads that cache. A cold process with no
@@ -47,7 +47,7 @@ cache renders unknown rather than guessing.
 
 ## Fields Infra should consume
 
-Read `agents.muse` from `python -m scripts.fleet.usage json` after a refresh
+Read `agents.muse` from `python -m lu_machinery.fleet.usage json` after a refresh
 in the same process (or the provider record from `get_provider_usage_data("muse")`).
 Render null as the word `unknown`. Publish a number only when `freshness` is
 `fresh` and no error or rate-limit is set.

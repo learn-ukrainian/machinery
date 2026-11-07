@@ -3,7 +3,7 @@
 Lives alongside the rule at ``agents_extensions/shared/rules/goal-driven-runs.md``.
 """
 
-from scripts.goal_driver.status_lines import (
+from lu_machinery.goal_driver.status_lines import (
     StatusLine,
     find_last_status_line,
     parse_status_line,

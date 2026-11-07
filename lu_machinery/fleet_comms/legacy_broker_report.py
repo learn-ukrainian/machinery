@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Any
 
 try:
-    from scripts.lib.readonly_sqlite import SQLiteConnection, open_readonly
+    from lu_machinery.lib.readonly_sqlite import SQLiteConnection, open_readonly
 except ModuleNotFoundError as exc:
     # Only this package's own absence selects the short spelling; its name comes from this
     # file's unresolved location (design-v1 amendment 1), never __package__.
@@ -24,8 +24,8 @@ except ModuleNotFoundError as exc:
         raise
     from lib.readonly_sqlite import SQLiteConnection, open_readonly  # type: ignore[no-redef]
 
-from scripts.common.repo_root import main_checkout_root
-from scripts.fleet_comms.opsec_store import store_descriptor
+from lu_machinery.common.repo_root import main_checkout_root
+from lu_machinery.fleet_comms.opsec_store import store_descriptor
 
 _SOURCE_REPO_ROOT = Path(__file__).resolve().parents[2]
 _ROUTES_TABLE = "legacy_comms_route_usage"

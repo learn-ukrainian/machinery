@@ -90,7 +90,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
-from scripts.agent_runtime.codex_accounts import CodexAccountRefused, codex_account_home
+from lu_machinery.agent_runtime.codex_accounts import CodexAccountRefused, codex_account_home
 
 # The machinery package's directory name, which is also its import name and the first component
 # of its files' checkout paths. Taken from this file's unresolved location, so neither a short

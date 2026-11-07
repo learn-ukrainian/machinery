@@ -1,7 +1,7 @@
 # Agent attribution on main (#10736)
 
 Every commit that lands on `main` carries the `X-Agent` attribution of its
-author(s). `scripts/ci/check_agent_attribution.py` fails a merge-group commit (and a
+author(s). `lu_machinery/ci/check_agent_attribution.py` fails a merge-group commit (and a
 pull request) that does not. Parent program: #9737 (A1).
 
 ## Contract: a declaration paragraph, not a trailer block
@@ -27,7 +27,7 @@ that walk.
 - Exactly one space after the colon, no trailing whitespace, ASCII only.
 
 The check applies this grammar (the module docstring of
-`scripts/ci/check_agent_attribution.py` is the normative copy):
+`lu_machinery/ci/check_agent_attribution.py` is the normative copy):
 
 1. **Whole-message refusal**, before any exemption (bot commits included), with the
    reason in `REFUSED_MESSAGE`:
@@ -82,8 +82,8 @@ carries those lines into the landed message.
 
 With `BLANK` the body is only GitHub's `Co-authored-by` block and every attribution is
 lost; this is the state that began on 2026-10-08. The merge queue ignores any message
-supplied at enqueue time (`scripts/publish/github.py`,
-`scripts/orchestration/merge_queue_keeper.py`), so the setting is the only transport.
+supplied at enqueue time (`lu_machinery/publish/github.py`,
+`lu_machinery/orchestration/merge_queue_keeper.py`), so the setting is the only transport.
 A PR-body footer was rejected: it is a second source of truth that goes stale after
 review-fix pushes and puts review prose on `main`.
 
@@ -206,7 +206,7 @@ closure is the standard library and `scripts/` itself.
   anonymously; with `GITHUB_TOKEN` set the script also sends it to a
   `https://github.com/` remote through `GIT_CONFIG_*` environment variables (never argv,
   never written to config). The bot-exemption read goes through
-  `scripts/common/github_client.py` (`gh api`, credential from `GITHUB_TOKEN`).
+  `lu_machinery/common/github_client.py` (`gh api`, credential from `GITHUB_TOKEN`).
 - On `pull_request` the PR head is reachable as the merge ref's second parent. If GitHub's
   merge ref lags a just-pushed head, the run reports `GIT_ERROR`; the next synchronize
   run checks the new head.

@@ -5,12 +5,12 @@ from __future__ import annotations
 import os
 from typing import Any
 
-from scripts.api.config import PROJECT_ROOT
-from scripts.api.observer_presence import (
+from lu_machinery.api.config import PROJECT_ROOT
+from lu_machinery.api.observer_presence import (
     MAC_OPERATOR_HOST_ID,
     fresh_notebook_presence_for_session,
 )
-from scripts.lib.session_record import SessionRecordError, validate_session_id
+from lu_machinery.lib.session_record import SessionRecordError, validate_session_id
 
 from .footer import PREMIUM_THRESHOLD_TOKENS, render_footer
 from .transcript_tokens import (

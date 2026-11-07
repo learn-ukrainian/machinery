@@ -12,8 +12,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
-from scripts.control_plane.storage import StoreId, assert_component_supported
-from scripts.control_plane.storage import connect as cp_connect
+from lu_machinery.control_plane.storage import StoreId, assert_component_supported
+from lu_machinery.control_plane.storage import connect as cp_connect
 
 from .model import isoformat_z, utc_now
 

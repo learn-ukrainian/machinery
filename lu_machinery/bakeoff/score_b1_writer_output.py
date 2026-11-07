@@ -31,8 +31,8 @@ def _product_hooks() -> Any:
     The configuration and the module it names come from the one product checkout
     ``product_root`` selects (C-4746).
     """
-    from scripts.common.repo_root import product_root
-    from scripts.ops.product_entry import load_configured_module
+    from lu_machinery.common.repo_root import product_root
+    from lu_machinery.ops.product_entry import load_configured_module
 
     root = product_root()
     payload = json.loads((root / "scripts/build/bakeoff_hooks.v1.json").read_text(encoding="utf-8"))

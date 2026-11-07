@@ -5,7 +5,7 @@ import subprocess
 import time
 from pathlib import Path
 
-from scripts.agent_runtime.watchdog import (
+from lu_machinery.agent_runtime.watchdog import (
     _MAX_LIVENESS_PATHS,
     _PROCESS_ACTIVITY_POLL_INTERVAL_S,
     WatchdogState,
@@ -52,9 +52,9 @@ def deadlines(options):
 
 def liveness_paths(spec, invocation):
     if spec.agent in {"claude", "codex"}:
-        from scripts.agent_runtime.adapters.base import InvocationPlan
-        from scripts.agent_runtime.adapters.claude import ClaudeAdapter
-        from scripts.agent_runtime.adapters.codex import CodexAdapter
+        from lu_machinery.agent_runtime.adapters.base import InvocationPlan
+        from lu_machinery.agent_runtime.adapters.claude import ClaudeAdapter
+        from lu_machinery.agent_runtime.adapters.codex import CodexAdapter
 
         adapter = ClaudeAdapter() if spec.agent == "claude" else CodexAdapter()
         plan = InvocationPlan(cmd=invocation.argv, cwd=spec.worktree,

@@ -28,7 +28,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from scripts.agent_runtime.codex_accounts import (
+from lu_machinery.agent_runtime.codex_accounts import (
     CODEX_SUBSCRIPTION_ACCOUNTS,
     CodexAccountRefused,
     codex_account_home,

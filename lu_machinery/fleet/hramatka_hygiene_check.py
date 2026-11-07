@@ -40,11 +40,11 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
-from scripts.common import github_client
-from scripts.common.repo_root import main_checkout_root
-from scripts.common.task_store_paths import tasks_dir as default_tasks_dir
-from scripts.fleet import pr_identity
-from scripts.orchestration.task_record_store import read_task_record
+from lu_machinery.common import github_client
+from lu_machinery.common.repo_root import main_checkout_root
+from lu_machinery.common.task_store_paths import tasks_dir as default_tasks_dir
+from lu_machinery.fleet import pr_identity
+from lu_machinery.orchestration.task_record_store import read_task_record
 
 REPO_ROOT = main_checkout_root(Path(__file__).resolve().parents[2])
 

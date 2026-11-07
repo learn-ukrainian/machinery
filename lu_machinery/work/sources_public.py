@@ -25,9 +25,9 @@ from datetime import UTC, datetime, timedelta
 from functools import lru_cache
 from typing import Any
 
-import scripts.github_rest_cache as github_rest
-from scripts.common import github_client
-from scripts.work import SOURCE_PRIVATE, SOURCE_PUBLIC
+import lu_machinery.github_rest_cache as github_rest
+from lu_machinery.common import github_client
+from lu_machinery.work import SOURCE_PRIVATE, SOURCE_PUBLIC
 
 GH_ENUM_LIMIT = 1000
 DELEGATE_TASK_LIMIT = 500
@@ -473,7 +473,7 @@ def _fetch_issue_states_rest(
     timeout_s: float,
 ) -> dict[str, str]:
     """Conditional REST issue reads. Timeouts and errors omit numbers; nothing is cached as success."""
-    from scripts.work.relations import issue_work_id
+    from lu_machinery.work.relations import issue_work_id
 
     try:
         found = github_rest.issue_states(repo, numbers, timeout=timeout_s)
@@ -687,7 +687,7 @@ def fetch_issue_states_batched(
     if runner is None:
         return _fetch_issue_states_rest(repo, unique_numbers, timeout_s)
 
-    from scripts.work.relations import issue_work_id
+    from lu_machinery.work.relations import issue_work_id
 
     now = time.monotonic()
     states: dict[str, str] = {}
@@ -711,7 +711,7 @@ def fetch_issue_states_batched(
     if not needed:
         return states
 
-    from scripts.publish.github import read
+    from lu_machinery.publish.github import read
 
     def transport(args, **kwargs):
         code, stdout, stderr = runner(args, kwargs["timeout"])
@@ -792,7 +792,7 @@ def _audit_payload_untrusted(payload: dict[str, Any]) -> bool:
     """True when this payload is an audit report that did not certify completeness."""
     if not any(key in payload for key in ("membership_complete", "incomplete_nodes", "effective_membership")):
         return False
-    from scripts.orchestration.issue_stream_audit import membership_report_is_complete
+    from lu_machinery.orchestration.issue_stream_audit import membership_report_is_complete
 
     return not membership_report_is_complete(payload)
 
@@ -809,7 +809,7 @@ def public_open_stream_membership(report: dict[str, Any]) -> dict[str, list[str]
     An incomplete or unflagged audit publishes no map (#8661). ``ok: false``
     on the hygiene report is not a substitute for dropping the membership.
     """
-    from scripts.orchestration.issue_stream_audit import membership_report_is_complete
+    from lu_machinery.orchestration.issue_stream_audit import membership_report_is_complete
 
     if not membership_report_is_complete(report):
         return {}
@@ -860,8 +860,8 @@ def fetch_streams_projection(
     """Consume the complete public streams projection (private keys stripped)."""
 
     def _default_loader() -> dict[str, Any]:
-        from scripts.api.issues_router import _strip_private_index, _with_refresh
-        from scripts.orchestration import issue_stream_audit as audit
+        from lu_machinery.api.issues_router import _strip_private_index, _with_refresh
+        from lu_machinery.orchestration import issue_stream_audit as audit
 
         report = audit.read_cache(max_age_s=3600)
         stale = None if report is not None else audit.read_cache(max_age_s=7 * 24 * 3600)
@@ -898,7 +898,7 @@ def fetch_streams_projection(
     # (residual #2) — never leave an unallowlisted map in the public payload.
     membership = _admit_open_stream_membership(payload)
     # Privacy hard gate: never forward private index keys even if a loader errs.
-    from scripts.orchestration.issue_stream_audit import PRIVATE_CACHE_KEYS, membership_report_is_complete
+    from lu_machinery.orchestration.issue_stream_audit import PRIVATE_CACHE_KEYS, membership_report_is_complete
 
     audit_keys = ("membership_complete", "incomplete_nodes", "effective_membership")
     if any(key in payload for key in audit_keys) or "membership_certified" in payload:
@@ -963,7 +963,7 @@ def fetch_delegate_active(
     trusted_scoped = loader is None
 
     def _default_active(repository: str) -> dict[str, Any]:
-        from scripts.api.delegate_router import active_delegate_tasks
+        from lu_machinery.api.delegate_router import active_delegate_tasks
 
         return active_delegate_tasks(repository=repository)
 
@@ -1033,7 +1033,7 @@ def fetch_delegate_tasks(
     trusted_scoped = loader is None
 
     def _default_tasks(repository: str) -> dict[str, Any]:
-        from scripts.api.delegate_router import list_delegate_tasks
+        from lu_machinery.api.delegate_router import list_delegate_tasks
 
         return list_delegate_tasks(status="all", limit=DELEGATE_TASK_LIMIT, repository=repository)
 
@@ -1091,7 +1091,7 @@ def fetch_fleet_reviews(
     allowed = admit_public_repository_id(repository_id)
 
     def _default_page(limit: int, offset: int, repository: str) -> dict[str, Any]:
-        from scripts.api.fleet_router import fleet_reviews
+        from lu_machinery.api.fleet_router import fleet_reviews
 
         # SQL WHERE + count + limit all see the exact public singleton.
         return fleet_reviews(limit=limit, offset=offset, repository=repository)

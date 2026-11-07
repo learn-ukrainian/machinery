@@ -1,7 +1,7 @@
 # Driver Cold Start Board & Handoff Runbook
 
 **Status:** Sol PR-2 / WP-A operational\
-**Authority:** `scripts/fleet_comms/cold_start_board.py` · `scripts/fleet_comms/cli.py`\
+**Authority:** `lu_machinery/fleet_comms/cold_start_board.py` · `lu_machinery/fleet_comms/cli.py`\
 **Binding doctrine:** `agents_extensions/shared/rules/fleet-comms-coordination.md`
 
 ## Purpose
@@ -20,13 +20,13 @@ Run the cold start board using the `fleet_comms` CLI module:
 
 ```bash
 # First command for drivers: Markdown Summary + probes
-.venv/bin/python -m scripts.fleet_comms cold-start-board --format markdown
+.venv/bin/python -m lu_machinery.fleet_comms cold-start-board --format markdown
 
 # Default JSON briefing to stdout
-.venv/bin/python -m scripts.fleet_comms cold-start-board
+.venv/bin/python -m lu_machinery.fleet_comms cold-start-board
 
 # Scoped to specific stream, agent, and single-token search needle
-.venv/bin/python -m scripts.fleet_comms cold-start-board \
+.venv/bin/python -m lu_machinery.fleet_comms cold-start-board \
     --format json \
     --stream-id epic:4707 \
     --agent agy/cold-start-pr2-board \
@@ -90,7 +90,7 @@ The board executes 10 diagnostic probes. Each probe measures execution timing (`
 
 ## Injected drive-epic clause (launchers)
 
-`scripts/lib/fleet_comms_cold_start.sh` / `launcher_bind_drive_epic`:
+`lu_machinery/lib/fleet_comms_cold_start.sh` / `launcher_bind_drive_epic`:
 
 - Export `FLEET_COMMS_PLANE_MODE="${FLEET_COMMS_PLANE_MODE:-$(fleet_comms_resolve_plane_mode)}"` before building the clause.
 - `fleet_comms_cold_clause` resolves live mode when the env var is unset/empty (same as the banner). Never default the injected sentence to `off` when live mode is `authority`.

@@ -11,7 +11,7 @@ from typing import Any
 
 from jsonschema import Draft202012Validator, FormatChecker
 
-from scripts.common.repo_root import github_slug
+from lu_machinery.common.repo_root import github_slug
 
 IDENTITY_SCHEMA_VERSION = "task-identity.v1"
 TITLE_TRANSITION_SCHEMA_VERSION = "rollover-title-transition.v1"

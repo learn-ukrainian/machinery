@@ -18,7 +18,7 @@ from collections.abc import Callable
 from contextlib import ExitStack, closing
 from pathlib import Path
 
-from scripts.common import github_client as owner
+from lu_machinery.common import github_client as owner
 
 
 def _machinery_top() -> str:

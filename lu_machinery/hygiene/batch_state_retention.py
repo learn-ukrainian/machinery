@@ -21,8 +21,8 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-from scripts.common.repo_root import resolve_repo_root
-from scripts.common.task_scratch import mount_points
+from lu_machinery.common.repo_root import resolve_repo_root
+from lu_machinery.common.task_scratch import mount_points
 
 
 def _machinery_top() -> str:

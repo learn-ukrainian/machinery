@@ -19,7 +19,7 @@ import sys
 from collections import Counter
 from pathlib import Path
 
-from scripts.ci.junit_results import TestResult, parse_junit
+from lu_machinery.ci.junit_results import TestResult, parse_junit
 
 DSN_ENV = "LEARN_UKRAINIAN_CP_PG_DSN"
 # `{_PG_DSN_ENV}` is the literal f-string form the test files use in their DSN

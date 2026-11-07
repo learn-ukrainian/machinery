@@ -47,7 +47,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import quote, quote_plus, urlencode, urlsplit
 
-from scripts.common import github_usage
+from lu_machinery.common import github_usage
 
 CACHE_TTL_SECONDS = 7 * 24 * 60 * 60
 CACHE_MAX_BYTES = 64 * 1024 * 1024
@@ -808,7 +808,7 @@ def _spool():
     """
     import tempfile
 
-    from scripts.common.scratch import ensure_scratch_root
+    from lu_machinery.common.scratch import ensure_scratch_root
 
     return tempfile.SpooledTemporaryFile(max_size=SPILL_BYTES, mode="w+b", dir=ensure_scratch_root())
 
@@ -1435,7 +1435,7 @@ class GitHubClient:
             return self._bounded_response(response)
         executable = self.env.get("AGENT_REAL_GH", "gh")
         if self.runner is None:
-            from scripts.opsec.prepublish import PublishBlocked, real_gh
+            from lu_machinery.opsec.prepublish import PublishBlocked, real_gh
 
             try:
                 executable = real_gh({**self.env, "AGENT_ORIGINAL_PATH": self.env.get("PATH", os.defpath)})
@@ -1805,7 +1805,7 @@ def _repo(options, client):
     repo = _opt(options, "--repo", "-R") or client.env.get("GH_REPO") or client.env.get("GITHUB_REPOSITORY")
     if repo:
         return repo.removeprefix("github.com/")
-    from scripts.opsec.gh_snapshot import repository
+    from lu_machinery.opsec.gh_snapshot import repository
 
     value = repository(Path(client.cwd or Path.cwd()), client.env)
     if value == "unknown":
@@ -2059,7 +2059,7 @@ def _read_command(client, kind, action, options, positional, *, timeout, fresh):
             # Actions row to its exact-head run so two same-name runs of one
             # workflow collapse to the latest. Unproven rows stay partial.
             # Imported here: sparse CI jobs check out this module without it.
-            from scripts.github_check_rollup import bind_workflow_runs, project_check_runs
+            from lu_machinery.github_check_rollup import bind_workflow_runs, project_check_runs
 
             runs = []
 
@@ -3380,7 +3380,7 @@ def _native_command(args, client, runner, kwargs, *, preserve_argv=False):
     executable = client.env.get("AGENT_REAL_GH", "gh")
     executor = runner or client.runner
     if executor is None:
-        from scripts.opsec.prepublish import PublishBlocked, real_gh
+        from lu_machinery.opsec.prepublish import PublishBlocked, real_gh
 
         try:
             executable = real_gh({**client.env, "AGENT_ORIGINAL_PATH": client.env.get("PATH", os.defpath)})
@@ -3500,7 +3500,7 @@ def _run_command(args, *, runner=None, client=None, fresh=False, allow_stale=Fal
         environment = colour_safe_environment(kwargs.get("env"))
         kwargs["env"] = environment
         if runner is None:
-            from scripts.opsec.prepublish import PublishBlocked, real_gh
+            from lu_machinery.opsec.prepublish import PublishBlocked, real_gh
 
             try:
                 executable = real_gh({**environment, "AGENT_ORIGINAL_PATH": environment.get("PATH", os.defpath)})
@@ -4043,7 +4043,7 @@ def _response_result(response, headers, *, graphql, raw_response, reset_at, now)
 
 def _graphql_error_detail(value):
     """Redact object errors, keeping at most ten and 7 KiB of JSON, plus a truncation marker."""
-    from scripts.opsec.prepublish import CREDENTIAL_TOKEN_PATTERN
+    from lu_machinery.opsec.prepublish import CREDENTIAL_TOKEN_PATTERN
 
     def text(field):
         return CREDENTIAL_TOKEN_PATTERN.sub("[REDACTED]", field)[:500] if isinstance(field, str) else None

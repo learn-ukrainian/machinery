@@ -44,11 +44,11 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from scripts.agent_runtime.mechanical_admission import MechanicalAdmissionRefused
-from scripts.orchestration.task_record_store import REVIEW_TASK_FLAG_FIELDS
+from lu_machinery.agent_runtime.mechanical_admission import MechanicalAdmissionRefused
+from lu_machinery.orchestration.task_record_store import REVIEW_TASK_FLAG_FIELDS
 
 if TYPE_CHECKING:
-    from scripts.fleet.claude_account_lane import ClaudeAccount
+    from lu_machinery.fleet.claude_account_lane import ClaudeAccount
 
 DEFAULT_POLICY = Path("~/.config/learn-ukrainian/model-pause.json")
 
@@ -116,7 +116,7 @@ def _validate_role_policy(data: Any) -> dict[str, Any]:
 
 
 def _validate_role_entry(entry: Any) -> None:
-    from scripts.review.model_catalog import canonical_model_id
+    from lu_machinery.review.model_catalog import canonical_model_id
 
     if not isinstance(entry, dict):
         raise ValueError("invalid role entry")
@@ -167,7 +167,7 @@ def _validate_role_entry(entry: Any) -> None:
         recorded = role_dispatch_evidence(run["task_id"])
         if any(run.get(key) != recorded[key] for key in recorded):
             raise ValueError("dispatch evidence differs from its record")
-        from scripts.dispatcher import store
+        from lu_machinery.dispatcher import store
 
         task = store.read(run["task_id"])
         started = _utc(task.get("started_at"))
@@ -178,7 +178,7 @@ def _validate_role_entry(entry: Any) -> None:
 
 def role_dispatch_evidence(task_id: str) -> dict[str, Any]:
     """Build evidence from the canonical dispatch record, including archived runs."""
-    from scripts.dispatcher import store
+    from lu_machinery.dispatcher import store
 
     task = store.read(task_id)
     source = "none"
@@ -252,7 +252,7 @@ _NATIVE_CLAUDE_ALIASES = ("opus", "sonnet", "haiku", "fable")
 def _newest_claude(family: str) -> str | None:
     """The concrete model a native Claude alias runs: the newest catalog id of that family."""
     try:
-        from scripts.review.model_catalog import load_model_catalog
+        from lu_machinery.review.model_catalog import load_model_catalog
 
         models = load_model_catalog().get("models") or {}
     except Exception:  # no catalog: the alias is matched by family name only
@@ -284,7 +284,7 @@ def _names(model: str) -> set[str]:
         if concrete:
             names.add(concrete)
     try:
-        from scripts.review.model_catalog import canonical_model_id
+        from lu_machinery.review.model_catalog import canonical_model_id
 
         canonical = canonical_model_id(model)
         if canonical:
@@ -322,7 +322,7 @@ def active_pause(model: str | None, policy: Mapping[str, Any], now: datetime) ->
 
 def _monitor_base() -> str:
     """The Monitor base URL: DELEGATE_MONITOR_API, else the bridge client's default."""
-    from scripts.ai_agent_bridge.monitor_client import DEFAULT_BASE_URL
+    from lu_machinery.ai_agent_bridge.monitor_client import DEFAULT_BASE_URL
 
     return (os.environ.get("DELEGATE_MONITOR_API") or DEFAULT_BASE_URL).rstrip("/")
 
@@ -402,7 +402,7 @@ def _agy_claude_windows_used_pct(view: Mapping[str, Any]) -> float | None:
     Both the five-hour window and the weekly window must be fresh numbers.
     The headroom stop then compares that used percent with its cap.
     """
-    from scripts.fleet import claude_account_lane
+    from lu_machinery.fleet import claude_account_lane
 
     info = claude_account_lane.other_lane_record(view, _AGY_CLAUDE_PROBE_LANE)
     if _fresh_probe_record(info) is None:
@@ -455,7 +455,7 @@ def _window_reset_passed(block: object, now: datetime) -> bool:
 
 def _reading_window_passed(view: Mapping[str, Any], lane: str, account: ClaudeAccount | None, now: datetime) -> bool:
     """True when a window that ``routing_budget_used_pct`` would read has reset before ``now``."""
-    from scripts.fleet import claude_account_lane
+    from lu_machinery.fleet import claude_account_lane
 
     if lane == AGY_CLAUDE_WINDOW_LANE:
         info = claude_account_lane.other_lane_record(view, _AGY_CLAUDE_PROBE_LANE)
@@ -501,7 +501,7 @@ def _bound_routing_view(account: ClaudeAccount | None) -> Mapping[str, Any] | No
     Raises :class:`MonitorUnavailable` when the Monitor is unreachable, times
     out, fails the request or truncates its answer.
     """
-    from scripts.fleet import claude_account_lane
+    from lu_machinery.fleet import claude_account_lane
 
     base = _monitor_base()
     # A Monitor that has just restarted may refuse, time out or answer 5xx while its first
@@ -547,7 +547,7 @@ def routing_budget_used_pct(
     old window's and reads as unknown (#12467). A Monitor that does not
     answer raises :class:`MonitorUnavailable` instead of reading as unknown.
     """
-    from scripts.fleet import claude_account_lane
+    from lu_machinery.fleet import claude_account_lane
 
     if account is not None:
         claude_account_lane.require_account(account)
@@ -582,7 +582,7 @@ def account_used_pct(account: ClaudeAccount | None) -> Callable[[str], float | N
     Required: None names no account, so the claude lane then reads as unknown.
     """
     if account is not None:
-        from scripts.fleet.claude_account_lane import require_account
+        from lu_machinery.fleet.claude_account_lane import require_account
 
         require_account(account)
     return functools.partial(routing_budget_used_pct, account=account)
@@ -600,7 +600,7 @@ def policy_for_seat(
     ``plan_metered=False`` (a claude seat on an API-key account, which has no
     plan meter) omits the ``claude`` plan entries; its spend cap guards it.
     """
-    from scripts.agent_runtime.codex_accounts import resolve_codex_account_label
+    from lu_machinery.agent_runtime.codex_accounts import resolve_codex_account_label
 
     codex_lane = ({"sub": "codex:a", "b-sub": "codex:b"}.get(resolve_codex_account_label(codex_account))
                   if seat == "codex" else None)

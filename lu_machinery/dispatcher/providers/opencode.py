@@ -7,8 +7,8 @@ import math
 import subprocess
 from pathlib import Path
 
-from scripts.common.jsonl import jsonl_lines
-from scripts.dispatcher.types import Invocation, ParsedResult, TaskSpec
+from lu_machinery.common.jsonl import jsonl_lines
+from lu_machinery.dispatcher.types import Invocation, ParsedResult, TaskSpec
 
 # OpenCode allows edits and every shell command by default and has no OS sandbox, so read-only
 # carries its own permission rules (https://opencode.ai/docs/permissions/): ``edit`` covers the
@@ -79,7 +79,7 @@ def endpoint(provider: str | None) -> str:
 
 def _remaining_usd(selected: str, key: str) -> float | None:
     """Read sanitized prepaid USD; the legacy key argument is unused."""
-    from scripts.api.subscription_usage import _private_usage
+    from lu_machinery.api.subscription_usage import _private_usage
 
     module = _private_usage()
     return None if module is None else module.prepaid_remaining_usd(selected, timeout_s=_PROBE_TIMEOUT_S)
@@ -159,7 +159,7 @@ def endpoint_refusal(
     """
     import yaml
 
-    from scripts.api import subscription_usage as usage
+    from lu_machinery.api import subscription_usage as usage
 
     selected = endpoint(provider)
     module = usage._private_usage()

@@ -76,7 +76,7 @@ fi
 # the sweeper remains responsible for dead or expired markers.
 SESSION_MARKER_PID="${SESSION_PID:-$PPID}"
 if [[ "$SESSION_MARKER_PID" =~ ^[1-9][0-9]*$ ]]; then
-  PYTHONPATH="$PROJECT_DIR" "$PYTHON" -m scripts.orchestration.session_markers \
+  PYTHONPATH="$PROJECT_DIR" "$PYTHON" -m lu_machinery.orchestration.session_markers \
     remove --instance-id "$SESSION_ID" --pid "$SESSION_MARKER_PID" \
     >/dev/null 2>&1 || true
 fi
@@ -98,7 +98,7 @@ esac
 # stale lease that leaves behind. If a repo checkout still has an OLDER
 # thread_handoff.py that hard-requires --generation, the CLI error is
 # swallowed by `|| true` — a safe no-op in a mixed deploy.
-"$PYTHON" "$PROJECT_DIR/scripts/orchestration/thread_handoff.py" --repo-root "$CANONICAL_ROOT" \
+"$PYTHON" "$PROJECT_DIR/lu_machinery/orchestration/thread_handoff.py" --repo-root "$CANONICAL_ROOT" \
   release-thread-lease --agent "$HANDOFF_AGENT" --current-thread-id "$SESSION_ID" \
   >/dev/null 2>&1 || true
 

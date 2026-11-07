@@ -203,7 +203,7 @@ def is_kimi_model(model: str | None) -> bool:
     if text.startswith("kimi"):
         return True
     try:
-        from scripts.review.model_catalog import kimi_historical_labels
+        from lu_machinery.review.model_catalog import kimi_historical_labels
 
         return text in kimi_historical_labels()
     except Exception:  # catalog unavailable: the prefix rule above still applies
@@ -824,7 +824,7 @@ def format_refusal(agent: str, reasons: Iterable[Any]) -> str:
 def _alternative_seats() -> str:
     """Prefer catalog alternatives; unavailable catalog data must not interrupt a typed refusal."""
     try:
-        from scripts.review.model_catalog import load_model_catalog
+        from lu_machinery.review.model_catalog import load_model_catalog
 
         catalog = load_model_catalog()
         models = catalog["models"]

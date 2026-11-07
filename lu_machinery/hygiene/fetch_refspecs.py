@@ -25,7 +25,7 @@ from typing import Any
 
 # Dual-flavor import: delegate workers put only ``scripts/`` on sys.path.
 try:
-    from scripts.common.git_context import sanitized_git_env
+    from lu_machinery.common.git_context import sanitized_git_env
 except ImportError:  # scripts/ on sys.path (stripped flavor)
     from common.git_context import sanitized_git_env  # type: ignore[no-redef]
 

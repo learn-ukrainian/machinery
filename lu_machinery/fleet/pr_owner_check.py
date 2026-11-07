@@ -23,8 +23,8 @@ from collections.abc import Callable, Mapping
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
-from scripts.common import github_client
-from scripts.orchestration.fleet_repos import FleetRepo, FleetRepoError, load_fleet_repos
+from lu_machinery.common import github_client
+from lu_machinery.orchestration.fleet_repos import FleetRepo, FleetRepoError, load_fleet_repos
 
 # The machinery package's import name, which is also the directory its files have in checkout
 # paths: from this module's package, or from its unresolved location when run as a file.
@@ -56,7 +56,7 @@ def _supervisor_alive(record: dict) -> bool:
     pid, started = record.get("pid"), record.get("process_start")
     if not pid or not started:
         return False
-    from scripts.dispatcher.worker import _identity
+    from lu_machinery.dispatcher.worker import _identity
 
     return _identity(pid) == started
 
@@ -185,7 +185,7 @@ def main(argv: list[str] | None = None) -> int:
         unknown = [k for k in keys if k not in repos]
         if unknown:
             raise FleetRepoError(f"unknown fleet repo key(s): {', '.join(unknown)}")
-        from scripts.dispatcher import store
+        from lu_machinery.dispatcher import store
 
         records = store.list_tasks(strict=True)
         open_prs = {repos[k].github: fetch_open_prs(repos[k].github) for k in keys}

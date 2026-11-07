@@ -13,7 +13,7 @@ observer**. It reads GitHub Actions / site signals and **files GitHub issues or
 comments**. It must **never**:
 
 - merge PRs
-- run `scripts/dispatch.py` (no dispatch seat)
+- run `lu_machinery/dispatch.py` (no dispatch seat)
 - act as CF of record
 - write the primary checkout (local-computer: **Never** / **Ask** only)
 

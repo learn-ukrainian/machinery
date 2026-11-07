@@ -14,13 +14,13 @@ from pathlib import Path
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from scripts.agent_runtime.agent_identity import seat_read_aliases
-from scripts.ai_agent_bridge._channels import resolve_recipient_alias
-from scripts.common.bridge_paths import configured_bridge_db_path
-from scripts.common.repo_root import main_checkout_root
-from scripts.fleet_comms.paths import default_plane_root
-from scripts.lib.readonly_sqlite import open_readonly
-from scripts.orchestration.handoff_slot_registry import is_registered_slot, registry_readable
+from lu_machinery.agent_runtime.agent_identity import seat_read_aliases
+from lu_machinery.ai_agent_bridge._channels import resolve_recipient_alias
+from lu_machinery.common.bridge_paths import configured_bridge_db_path
+from lu_machinery.common.repo_root import main_checkout_root
+from lu_machinery.fleet_comms.paths import default_plane_root
+from lu_machinery.lib.readonly_sqlite import open_readonly
+from lu_machinery.orchestration.handoff_slot_registry import is_registered_slot, registry_readable
 
 ROOT = Path(__file__).resolve().parents[1]
 # The machinery package's import name, which is also the directory its files have in checkout
@@ -50,8 +50,8 @@ def probe(recipient: str, *, limit: int = 5) -> dict:
     if type(limit) is not int or limit < 1 or limit > 500:
         return unknown
     try:
-        from scripts.agent_runtime.kimi_admission import BRIDGE_MODE
-        from scripts.agent_runtime.target_admission import resolve_and_admit
+        from lu_machinery.agent_runtime.kimi_admission import BRIDGE_MODE
+        from lu_machinery.agent_runtime.target_admission import resolve_and_admit
 
         if not re.fullmatch(r"[a-z]+-[a-z0-9]+(?:-[a-z0-9]+)*", recipient):
             return unknown

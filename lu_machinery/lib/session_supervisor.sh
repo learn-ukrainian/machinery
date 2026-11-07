@@ -126,7 +126,7 @@ claim_session_supervisor_env() {
   if [ "${LU_MONITOR_HOST_ID+x}" = x ]; then
     host_id="${LU_MONITOR_HOST_ID:-local}"
   else
-    host_id="$("$python_bin" -m scripts.api.occupancy_local resolve-host-id 2>/dev/null)" || host_id="local"
+    host_id="$("$python_bin" -m lu_machinery.api.occupancy_local resolve-host-id 2>/dev/null)" || host_id="local"
     if [ -z "$host_id" ]; then
       host_id="local"
     fi
@@ -136,7 +136,7 @@ claim_session_supervisor_env() {
   heartbeat_at="$(_iso_timestamp)"
 
   local -a supervisor_args=(
-    "-m" "scripts.session_supervisor"
+    "-m" "lu_machinery.session_supervisor"
     "open"
     "--role" "driver"
     "--stream" "$stream"
@@ -174,7 +174,7 @@ claim_session_supervisor_env() {
         && [ "${LC_DRIVER_FORCE:-0}" = "1" ] \
         && [ -z "${SESSION_SUPERVISOR_WAKE_DELIVERY:-}" ]; then
       echo "Session supervisor: attributed --force release of ${stream}" >&2
-      if ! "$python_bin" -m scripts.session_supervisor release --role driver --force \
+      if ! "$python_bin" -m lu_machinery.session_supervisor release --role driver --force \
           --stream "$stream" \
           --actor-agent "$agent" \
           --actor-host-id "$host_id" \
@@ -252,7 +252,7 @@ PY
   # Read/claim races can advance the stream between preflight and CAS. Never
   # start a provider for a generation beyond this event's one-successor budget.
   if [ -n "$expected_generation" ] && [ "${SESSION_STREAM_GENERATION:-}" != "$expected_generation" ]; then
-    "$python_bin" -m scripts.session_supervisor close --role driver >/dev/null || true
+    "$python_bin" -m lu_machinery.session_supervisor close --role driver >/dev/null || true
     echo "Error: supervisory wake was superseded before the lease claim." >&2
     return 1
   fi
@@ -335,7 +335,7 @@ session_supervisor_publish_start_failure() {
   "$helper_root/.venv/bin/python" -c \
     'import json,sys; print(json.dumps(dict(stream=sys.argv[1], generation=int(sys.argv[2]), reason=sys.argv[3])))' \
     "$stream" "$generation" "$reason" 2>/dev/null | \
-    "$helper_root/.venv/bin/python" -m scripts.fleet_comms channel publish cto - \
+    "$helper_root/.venv/bin/python" -m lu_machinery.fleet_comms channel publish cto - \
       --sender "$sender" --kind status --idempotency-key "$stream-$generation-$reason" \
       >/dev/null 2>&1 || true
 }

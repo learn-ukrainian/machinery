@@ -6,7 +6,7 @@ guard, attribution, lint and content contracts, dependency-audit scoping,
 `pytest --collect-only` and Frontend. They run no pytest shards; the gate summary
 states plainly that full pytest was not run (operator decision, 2026-10-29).
 The parallel required `pr-affected` job executes literal changed existing
-`tests/**/test_*.py` files, every entry in `scripts/ci/pr-affected-guards.txt` (a whole test path, or a pinned `path::test` id that runs only that test and costs nothing extra when its file is already selected), and
+`tests/**/test_*.py` files, every entry in `lu_machinery/ci/pr-affected-guards.txt` (a whole test path, or a pinned `path::test` id that runs only that test and costs nothing extra when its file is already selected), and
 the tests that directly import, load, read or run a changed non-test file.
 The same job also runs `pytest tests -m 'repo_wide and not atlas_release and not slow and not site_toolchain'`
 in a separate required step.
@@ -25,7 +25,7 @@ changes still fail the checkout-integrity check.
 The diff uses NUL-delimited Git paths, rename destinations and tracked regular
 files. Deleted files are reported.
 Unsafe paths, missing guards and symlinks fail closed. Tests for changed code come
-from the direct edges of the static scan in `scripts/ci/components.py`
+from the direct edges of the static scan in `lu_machinery/ci/components.py`
 (`scan_imports`): imports, literal loads, file reads and Python subprocess targets.
 Only direct importers are selected; the transitive closure spans most of the suite,
 which the merge group runs. A `conftest.py` counts as an importer for every test file under its directory, because
@@ -138,7 +138,7 @@ Direct regression tests cover arbitrary module names and resolved-path boundarie
 | --- | --- |
 | Queue commit metadata scan | `merge_group` only. TruffleHog over the queue commit's message, author and committer (below). |
 | Secret scan | Event-aware TruffleHog range, OPSEC public-identifier lint, internal-ID check. |
-| Checks | PR pytest collection, quarantine admission verification, and `scripts/ci/checks.sh` for every lint and content-contract gate on every tier; fails if any failed. |
+| Checks | PR pytest collection, quarantine admission verification, and `lu_machinery/ci/checks.sh` for every lint and content-contract gate on every tier; fails if any failed. |
 | PR changed tests and guards | PRs execute changed test files, tests that import changed files, tests that name a changed file as text, all explicit guards, and marker-only repository invariants; full tiers exit without duplicate execution. |
 | Frontend | Every event. Always runs the real MDX compiler regressions (`-m site_toolchain`); builds and tests the site only when the diff touches the frontend denominator. |
 | Refresh pytest durations | Full tier only. Freezes one file-weight snapshot for every shard (below). |
@@ -167,7 +167,7 @@ that chose *which* tests or checks a change ran is gone.
 | Read-only token (`permissions: contents: read`) | workflow | workflow; pytest duration refresh adds `actions: read` |
 | Credential-free checkout (`persist-credentials: false`) | every checkout | every checkout (tested) |
 | SHA-pinned actions | every `uses:` | every `uses:` (tested; actionlint + zizmor) |
-| Ruff lint (`ruff check` of the machinery package plus scripts/, tests/, agents_extensions/ and dashboards/; see `scripts/ci/checks.sh`) | Fast checks, not docs-only | checks.sh, every run. `ruff format --check` stays off (~2,050 files differ). |
+| Ruff lint (`ruff check` of the machinery package plus scripts/, tests/, agents_extensions/ and dashboards/; see `lu_machinery/ci/checks.sh`) | Fast checks, not docs-only | checks.sh, every run. `ruff format --check` stays off (~2,050 files differ). |
 | Strict v2 plan validation | Fast checks | checks.sh (same PR path scoping) |
 | Arc landing drift (`build_arc_landing a1 --check`) | Fast checks | checks.sh |
 | Word Atlas sense-lint ratchet | Contracts | checks.sh |
@@ -178,7 +178,7 @@ that chose *which* tests or checks a change ran is gone.
 | Atlas manifest freshness and enrichment | Contracts | checks.sh (the manifest load itself is in `python-ci-env`) |
 | Static practice assets | Contracts | checks.sh |
 | Dossier word counts | Contracts | checks.sh |
-| BIO preparation capsules and holds | Contracts (inline Python) | checks.sh → `scripts/ci/bio_preparation_gate.py` |
+| BIO preparation capsules and holds | Contracts (inline Python) | checks.sh → `lu_machinery/ci/bio_preparation_gate.py` |
 | Frontend build, generated-artifact drift (directly after the build), unit and built-output tests | Frontend, when the denominator matched | Frontend (same denominator, same order); one hydrate and one recorded build, reused only after verification (below) |
 | Frontend change denominator incl. backend hydrate inputs | Changes (`classify_changes`) | Frontend scope step (`frontend_change_scope.py`); completeness kept by `tests/test_frontend_denominator_invariant.py` |
 | Full non-slow pytest, strict markers, `--timeout=120` | pytest shards (full/selected/docs/content tiers) | pytest shards, full suite on merge-group, nightly and opt-in manual events |
@@ -217,7 +217,7 @@ test files this change deleted or rewrote.
 
 ## CI Gate
 
-`scripts/ci/gate.py` parses the event JSON and checks the checkout against
+`lu_machinery/ci/gate.py` parses the event JSON and checks the checkout against
 `GITHUB_SHA`, the event ref, action and candidate identity. Unknown events,
 missing metadata, incorrect refs and malformed proof fail closed.
 
@@ -305,9 +305,9 @@ files; those are imported only with `import type`, which the compiler erases.
 
 ## pytest shards
 
-- `scripts/ci/split_tests.py split` assigns the tracked `tests/**/test_*.py`
+- `lu_machinery/ci/split_tests.py split` assigns the tracked `tests/**/test_*.py`
   files to N shards, longest first onto the least-loaded shard, using
-  `scripts/ci/pytest-file-durations.json`. A file with no recorded time gets
+  `lu_machinery/ci/pytest-file-durations.json`. A file with no recorded time gets
   the median. Every shard computes the same assignment; the shard number and
   count come from `matrix.shard` and `strategy.job-total`.
 - The shard collects through one `tests` path; the `LU_PYTEST_SHARD_FILES`
@@ -339,12 +339,12 @@ files; those are imported only with `import type`, which the compiler erases.
 
   ```bash
   gh run download <run-id> --pattern 'pytest-junit-shard-*' --dir /tmp/junit
-  .venv/bin/python -m scripts.ci.split_tests durations --shards /tmp/junit > scripts/ci/pytest-file-durations.json
+  .venv/bin/python -m lu_machinery.ci.split_tests durations --shards /tmp/junit > lu_machinery/ci/pytest-file-durations.json
   ```
 
 ### History shard
 
-Eight test files are listed in `scripts/ci/history-tests.txt`. All eight read old
+Eight test files are listed in `lu_machinery/ci/history-tests.txt`. All eight read old
 commits: `git ls-tree`/`git show`/`git cat-file` of an old SHA, a recorded historical
 commit, a frozen base commit, and `origin/main` ancestry. Fetching `main` from GitHub on a
 shallow checkout downloaded all of main's history, 65-77 s per test instead of
@@ -367,7 +367,7 @@ history or fetches from GitHub therefore fails on a shallow shard; add its file
 to the list.
 
 To change the shard count, edit the static `matrix.shard` list (it must stay
-`1..N`). `scripts/ci/slot_inventory.py --check` (actionlint workflow) counts
+`1..N`). `lu_machinery/ci/slot_inventory.py --check` (actionlint workflow) counts
 every PR-path job against the slot ceiling set in that script, which keeps a
 margin for incident response. It counts each workflow's jobs once, as if one
 run of each were in flight. It does not model overlapping runs, such as
@@ -404,8 +404,8 @@ scan in place; see
 ## Shard setup
 
 Per shard: checkout (shallow; full history on the history shard), Python
-3.12.15, then `scripts/ci/test_env.sh start` runs `npm ci` and
-`scripts/ci/start_postgres.sh` (bubblewrap, PostgreSQL 16 cluster, DSN
+3.12.15, then `lu_machinery/ci/test_env.sh start` runs `npm ci` and
+`lu_machinery/ci/start_postgres.sh` (bubblewrap, PostgreSQL 16 cluster, DSN
 verification) in the background while `python-ci-env` installs the locked
 environment from main's exact-key uv cache; `test_env.sh wait` fails the job if
 either background task failed. A container image was not adopted: the checkout
@@ -422,23 +422,23 @@ on hosted image `20260920.314` found 3.12.14 already cached, while 3.12.8
 required a download on every shard.
 
 The history shard keeps full Git history: eight pinned test files read history
-(listed in `scripts/ci/history-tests.txt`, consumed
-by `scripts/ci/split_tests.py`).
+(listed in `lu_machinery/ci/history-tests.txt`, consumed
+by `lu_machinery/ci/split_tests.py`).
 Other shards are shallow. #9211 rejected blobless checkout because those
 history readers need the committed blobs as well as the commit graph.
 
 ## Cloud advisory runner dependency parity (#6977 slice A)
 
-`scripts/ci/cursor_cloud_full_pytest.sh` (the offline-verifiable Cursor cloud
+`lu_machinery/ci/cursor_cloud_full_pytest.sh` (the offline-verifiable Cursor cloud
 pytest prototype; see `docs/design/2026-09-06-cloud-agent-pytest-advisory.md`)
 mirrors the `python-ci-env` install: same lockfile exclude set
 (`torch`/`torchvision`/`open_clip_torch`/`stanza`), `uv pip` when available,
 `packages/v4-runtime --no-build-isolation` + `build_assets.py`, and an
 unconditional hard-fail manifest hydrate. It also requires
 `LEARN_UKRAINIAN_CP_PG_DSN` whenever control-plane tests are selected, and
-detects (never sudo-installs) the native deps `scripts/ci/start_postgres.sh`
+detects (never sudo-installs) the native deps `lu_machinery/ci/start_postgres.sh`
 provisions (`bubblewrap`, `libpq`). It plans node-ID shards with
-`scripts/ci/pytest_shards.py` (`plan` / `run` / `verify-artifacts`), which
+`lu_machinery/ci/pytest_shards.py` (`plan` / `run` / `verify-artifacts`), which
 GitHub Actions no longer uses. **When the CI dependency install changes,
 update the runner script to match** — a drifted runner is a false-green risk.
 Runner ↔ CI parity is covered offline by
@@ -479,13 +479,13 @@ Use the task-prescribed interpreter as `$P` and ignored, managed scratch as `$R`
 
 ```bash
 # Run/job metadata census only, before observing candidate selection/results.
-"$P" -m scripts.ci.component_shadow inventory --output "$R/baseline.json"
-"$P" -m scripts.ci.component_shadow register --baseline "$R/baseline.json" \
+"$P" -m lu_machinery.ci.component_shadow inventory --output "$R/baseline.json"
+"$P" -m lu_machinery.ci.component_shadow register --baseline "$R/baseline.json" \
   --minimum-narrowed-cases 1 --output "$R/registration.json"
 # After registration, acquire the complete live census through the stop date.
-"$P" -m scripts.ci.component_shadow inventory --first-attempts --created "$START..$STOP" \
+"$P" -m lu_machinery.ci.component_shadow inventory --first-attempts --created "$START..$STOP" \
   --output "$R/receipts/runs.json"
-"$P" -m scripts.ci.component_shadow check --registration "$R/registration.json" \
+"$P" -m lu_machinery.ci.component_shadow check --registration "$R/registration.json" \
   --receipts "$R/receipts"
 ```
 

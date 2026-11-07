@@ -202,7 +202,7 @@ def _deepseek_catalog_identity(model: str | None) -> str | None:
     Moving aliases use the adapter's current pin; versioned historical routes
     retain their catalog identity even after retirement (#9301).
     """
-    from scripts.review.model_catalog import resolve_catalog_model_id
+    from lu_machinery.review.model_catalog import resolve_catalog_model_id
 
     from .adapters.deepseek import DEEPSEEK_OPENCODE_MODEL_ROUTES
 
@@ -261,7 +261,7 @@ def _kimicc_alias(requested_model: str | None) -> str | None:
     Telemetry reports that route's ``kimicc_alias``, the same label recorded
     after spawn, rather than the native ``k3-256k`` default.
     """
-    from scripts.review.model_catalog import ModelCatalogError, resolve_kimi_model
+    from lu_machinery.review.model_catalog import ModelCatalogError, resolve_kimi_model
 
     from .adapters.kimicc import KimiccHarness
 

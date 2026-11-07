@@ -21,13 +21,13 @@ from pathlib import Path
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from scripts.ci._location import checkout_relative, module_name
-from scripts.common import github_client
-from scripts.common.repo_root import main_checkout_root
-from scripts.orchestration import fleet_repos, postmerge_criteria
-from scripts.orchestration import issue_stream_audit as audit
-from scripts.orchestration import task_lifecycle as lifecycle
-from scripts.publish.github import read
+from lu_machinery.ci._location import checkout_relative, module_name
+from lu_machinery.common import github_client
+from lu_machinery.common.repo_root import main_checkout_root
+from lu_machinery.orchestration import fleet_repos, postmerge_criteria
+from lu_machinery.orchestration import issue_stream_audit as audit
+from lu_machinery.orchestration import task_lifecycle as lifecycle
+from lu_machinery.publish.github import read
 
 ROOT = Path(__file__).resolve().parents[2]
 MAX_AGE_S = 3600

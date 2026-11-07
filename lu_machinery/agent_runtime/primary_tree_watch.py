@@ -57,7 +57,7 @@ from pathlib import Path
 # ``scripts.*`` resolves under pytest/module runs; the delegate worker puts
 # only ``scripts/`` on sys.path.
 try:
-    from scripts.common.git_context import sanitized_git_env
+    from lu_machinery.common.git_context import sanitized_git_env
 except ImportError:  # scripts/ on sys.path (stripped flavor)
     from common.git_context import sanitized_git_env  # type: ignore[no-redef]
 
@@ -91,7 +91,7 @@ def _load_containment():
     import importlib
 
     try:
-        return importlib.import_module("scripts.guardrails.worktree_containment")
+        return importlib.import_module("lu_machinery.guardrails.worktree_containment")
     except ImportError:
         try:
             return importlib.import_module("guardrails.worktree_containment")

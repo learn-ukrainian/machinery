@@ -50,7 +50,7 @@
       "effort": "high",
       "account_env": ["CODEX_HOME"],
       "account": "sub",
-      "path_prepend": ["scripts/agent_runtime/shims"]
+      "path_prepend": ["lu_machinery/agent_runtime/shims"]
     },
     {
       "session": "codex-atlas",
@@ -64,7 +64,7 @@
       "effort": "high",
       "account_env": ["CODEX_HOME"],
       "account": "sub",
-      "path_prepend": ["scripts/agent_runtime/shims"]
+      "path_prepend": ["lu_machinery/agent_runtime/shims"]
     },
     {
       "session": "codex-core",
@@ -78,7 +78,7 @@
       "effort": "high",
       "account_env": ["CODEX_HOME"],
       "account": "sub",
-      "path_prepend": ["scripts/agent_runtime/shims"]
+      "path_prepend": ["lu_machinery/agent_runtime/shims"]
     },
     {
       "session": "practice",
@@ -106,7 +106,7 @@
       "effort": "medium",
       "account_env": ["CODEX_HOME"],
       "account": "sub",
-      "path_prepend": ["scripts/agent_runtime/shims"]
+      "path_prepend": ["lu_machinery/agent_runtime/shims"]
     },
     {
       "session": "kube-dojo",
@@ -115,7 +115,7 @@
       "epic": "kube-dojo",
       "sender": "claude-kube-dojo",
       "goal": ".claude/kube-dojo-epic/DRIVER-STATE.md",
-      "launcher": "scripts/start-kube-dojo-driver.sh",
+      "launcher": "lu_machinery/start-kube-dojo-driver.sh",
       "model": "claude-sonnet-5-5",
       "effort": "high",
       "account_env": ["CLAUDE_CONFIG_DIR"],

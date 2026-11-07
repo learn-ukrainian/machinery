@@ -16,8 +16,8 @@ from pathlib import Path
 
 import yaml
 
-from scripts.common.repo_root import project_interpreter
-from scripts.review.isolation import ReviewIsolationError
+from lu_machinery.common.repo_root import project_interpreter
+from lu_machinery.review.isolation import ReviewIsolationError
 
 _HOST = re.compile(r"[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+\Z")
 

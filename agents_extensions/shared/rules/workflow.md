@@ -46,12 +46,12 @@ curl -s 'http://localhost:8765/api/knowledge/cold-start?role=quality'  # role-sc
 # Generic or genuinely role-unknown session: skip the role-scoped request; remain pointer-free.
 curl -s 'http://localhost:8765/api/comms/inbox?agent=claude'  # unread messages
 # Fleet-comms durable authority: query live mode + parity (see fleet-comms-coordination.md)
-.venv/bin/python -m scripts.fleet_comms plane-status
+.venv/bin/python -m lu_machinery.fleet_comms plane-status
 ```
 
 ### Public GitHub publishing
 
-Publish agent-authored GitHub changes with `python -m scripts.publish` using
+Publish agent-authored GitHub changes with `python -m lu_machinery.publish` using
 its named verbs and closed fields. Repository code uses the same module API.
 Raw `gh` is reserved for the strict read allowlist and verified private
 repository writes. API reads use the module's named read helpers; arbitrary
@@ -78,7 +78,7 @@ one of these outcomes in the brief or orchestration note:
 Example scoped dispatch fragment:
 
 ```bash
-.venv/bin/python scripts/dispatch.py dispatch --model <catalog-model> \
+.venv/bin/python lu_machinery/dispatch.py dispatch --model <catalog-model> \
   --agent codex --task-id quality-4952 \
   --prompt-file docs/dispatch-briefs/quality-4952.md --worktree \
   --mode workspace-write \
@@ -194,7 +194,7 @@ with `review-loop` for review rounds and the budget.
    On `REQUEST_CHANGES`: fix on the branch → green CI on the new head → re-CF that SHA.
    An open PR or its green CI is not approval.
 1. Independent cross-family exact-head review **APPROVE** on the tip you intend to land.
-2. Open the PR if it is not already open, then run `"$PY" "$PRIMARY_REPO/scripts/review/record_cf_verdict.py"` to bind the completed
+2. Open the PR if it is not already open, then run `"$PY" "$PRIMARY_REPO/lu_machinery/review/record_cf_verdict.py"` to bind the completed
    review, reviewed head, and author qualification in a **PR comment bound to the head SHA**,
    with reviewer model/family/harness provenance. Resolve `PRIMARY_REPO` and `PY` with the
    [review-loop setup](../skills/review-loop/SKILL.md#review-loop) to use current recorder rules
@@ -210,7 +210,7 @@ with `review-loop` for review rounds and the budget.
 3. Only then enqueue. Never arm auto-merge ahead of either gate —
 early-armed auto-merge is how #7447–#7449 landed with empty reviews, and a moved head
 voids both approval and CI; re-establish both on the new head. Automated merge pipelines cannot replace review gates; enqueue
-with the task-prescribed interpreter and `-m scripts.publish pr-merge --number <N>` after both gates (never `--auto` as a
+with the task-prescribed interpreter and `-m lu_machinery.publish pr-merge --number <N>` after both gates (never `--auto` as a
 substitute for review). Do **not** pass `--delete-branch` while this repo uses a
 merge queue (head deletion mid-queue can close without landing); delete the remote branch
 only after `MERGED`. Dispatched agents still do NOT self-enable auto-merge or apply merge-automation labels.
@@ -304,7 +304,7 @@ for every worker/reviewer process using the target worktrees to exit, then run
 with the task-prescribed project interpreter:
 
 ```bash
-.venv/bin/python -m scripts.orchestration.merge_closeout <N> --apply
+.venv/bin/python -m lu_machinery.orchestration.merge_closeout <N> --apply
 ```
 
 Require exit 0 and the receipt proving that no dispatch worktree still holds the
@@ -322,10 +322,10 @@ driver, or the worker that owns the task, reads that disposition. A `retained` o
 `error` worktree is removed only after confirming its content is published (its
 HEAD is on the canonical remote, a pull-request head or `main`) and no live
 process uses it, with the guarded
-`scripts.orchestration.worktree_claims remove`; never by direct Git removal, and
+`lu_machinery.orchestration.worktree_claims remove`; never by direct Git removal, and
 if the content is not published, publish it or record the owner and reason it
 stays. Before a branch sweep, inspect
-`scripts.hygiene.branch_sweep --json` receipts; then apply only safe dispositions
+`lu_machinery.hygiene.branch_sweep --json` receipts; then apply only safe dispositions
 and prove no residue. Close linked issues only with all acceptance criteria
 verified on the delivered artifact; name any residual, owner and dependency.
 
@@ -351,7 +351,7 @@ auto-merge.
 
 **Stream membership is AUTHORITATIVE + FAIL-CLOSED.** A PR is *in-stream* iff its linked issue resolves
 to the session's stream-epic in the issue→epic membership registry — `/api/issues/streams` (from
-`scripts.orchestration.issue_stream_audit`). **Branch prefixes (`codex/`, `claude/`, `agy/`) are AUTHOR
+`lu_machinery.orchestration.issue_stream_audit`). **Branch prefixes (`codex/`, `claude/`, `agy/`) are AUTHOR
 lanes, NOT streams — never use them for membership.** If a PR does not resolve to exactly one
 stream-epic there (no link, multiple/conflicting `Closes/Refs`, or not yet indexed), it is
 **out-of-stream → hands-off** for every track session. Out-of-stream — another stream's PR, OR any PR
@@ -378,7 +378,7 @@ spot-check via `X-Agent` trailers + stream issue links when CI queues back up.
 
 Thread rollover handoffs are managed by the `thread-rollover` skill. When a
 thread approaches context threshold, use the `thread-rollover` skill to prepare
-a handoff packet using `scripts/orchestration/thread_handoff.py prepare --agent codex --active-thread-id <id>`.
+a handoff packet using `lu_machinery/orchestration/thread_handoff.py prepare --agent codex --active-thread-id <id>`.
 This creates an isolated `handoff.md` inside `.agent/thread-rollovers/codex/<lineage-id>/`.
 Do **not** write `docs/session-state/current.md` or any other git-tracked
 handoff file just to survive compaction.
@@ -525,14 +525,14 @@ use `/api/worktrees`. `claude agents` does not replace any of these.
 ## Work intake — stream epics (#4708, binding for ALL orchestrators incl. Codex UI)
 
 Every OPEN issue belongs to **exactly one stream epic**. The registry is
-`scripts/config/issue_streams.yaml` (streams → epic numbers; mirrored in
+`lu_machinery/config/issue_streams.yaml` (streams → epic numbers; mirrored in
 `docs/WORKSTREAMS.md` § Streams). This is how orchestrators stay on track and schedule:
 
 **Only the CTO opens GitHub issues.** Epic and lane drivers report findings to the CTO
 through Fleet Comms; the CTO opens, folds or drops them.
 
 - **Cold start**: your queue = YOUR stream's epic checklist/sub-issues, not the global
-  issue list. Check `/api/issues/streams` (from `scripts.orchestration.issue_stream_audit`) for drift.
+  issue list. Check `/api/issues/streams` (from `lu_machinery.orchestration.issue_stream_audit`) for drift.
 - **Before the CTO files (#10665)**: search open issues for duplicates by symptom AND by
   affected file. When an open parent issue has the same outcome, add the finding there as
   a checklist item. Open a new linked issue only when the work needs its own PR or has a
@@ -563,7 +563,7 @@ through Fleet Comms; the CTO opens, folds or drops them.
 - These intake rules bind every lane, the CTO included.
 - **New stream?** Only with a new epic + a registry entry in the same PR — streams are
   deliberate, not emergent.
-- Auditor: `.venv/bin/python -m scripts.orchestration.issue_stream_audit` (`--check` for
+- Auditor: `.venv/bin/python -m lu_machinery.orchestration.issue_stream_audit` (`--check` for
   gates, `--migrate` to convert body references into native sub-issues).
 
 ## Mandatory task workflow
@@ -571,9 +571,9 @@ through Fleet Comms; the CTO opens, folds or drops them.
 Disposable worker scratch uses `$TMPDIR`, the dispatch-managed lease, never a
 literal system temp path. This includes pytest `--basetemp`, `mktemp`, probe
 outputs and temporary Git checkouts. Dispatch owns exit/failure/interruption
-cleanup; standalone large runs use `scripts.tools.task_scratch run` so the
+cleanup; standalone large runs use `lu_machinery.tools.task_scratch run` so the
 existing lifecycle and recovery reaper retain ownership. Legacy unmanaged
-directories are inventoried with `scripts.hygiene.tmp_sweep` (dry-run by
+directories are inventoried with `lu_machinery.hygiene.tmp_sweep` (dry-run by
 default); unknown attribution or liveness always preserves them.
 
 Every task follows this workflow. No exceptions for non-trivial changes.
@@ -621,7 +621,7 @@ Every task follows this workflow. No exceptions for non-trivial changes.
 The machine gate is:
 
 ```bash
-.venv/bin/python -m scripts.orchestration.task_closeout --help
+.venv/bin/python -m lu_machinery.orchestration.task_closeout --help
 ```
 
 Read-only `reconcile` appends an idempotent observation receipt. Remote changes
@@ -648,7 +648,7 @@ with no path check, and `delegate --agent agy` with no review-typing flag
 is not gated.
 ```bash
 printf '%s\n' "Adversarial review for #NNN. Read {path}." | \
-  .venv/bin/python scripts/ai_agent_bridge/__main__.py ask-claude - \
+  .venv/bin/python lu_machinery/ai_agent_bridge/__main__.py ask-claude - \
     --task-id review-NNN --review --branch <branch>
 ```
 
@@ -704,8 +704,8 @@ Must test (protected):
   dependency-patch guards, platform/environment isolation.
 - **K11** test manifests/registries that name test files or node ids
   (`tests/test_repo_wide_marker_invariant.py` `KNOWN_REPO_WIDE_*`,
-  `scripts/ci/history-tests.txt` + `split_tests.py:201-203`, `scripts/ci/components.json`,
-  `scripts/ci/pytest_shards.py` serial/perf lists and `SELECTION_DIGEST`, workflow path
+  `lu_machinery/ci/history-tests.txt` + `split_tests.py:201-203`, `lu_machinery/ci/components.json`,
+  `lu_machinery/ci/pytest_shards.py` serial/perf lists and `SELECTION_DIGEST`, workflow path
   lists, `store_access_baseline.json`, `lint_tmp_paths.py`): a deletion must update the
   manifest in the same PR or is refused.
 - **K12** repo-wide AST/source-tree invariant scanners (`repo_wide` / `repo_invariant` markers).
@@ -735,21 +735,21 @@ those.
 `ab`, which resolves to ApacheBench on the operator machine):
 ```bash
   # List / inspect
-.venv/bin/python scripts/ai_agent_bridge/__main__.py channel list
-.venv/bin/python scripts/ai_agent_bridge/__main__.py channel info pipeline
-.venv/bin/python scripts/ai_agent_bridge/__main__.py channel tail reviews -n 20
-.venv/bin/python scripts/ai_agent_bridge/__main__.py channel tail reviews --thread THREAD_ID
+.venv/bin/python lu_machinery/ai_agent_bridge/__main__.py channel list
+.venv/bin/python lu_machinery/ai_agent_bridge/__main__.py channel info pipeline
+.venv/bin/python lu_machinery/ai_agent_bridge/__main__.py channel tail reviews -n 20
+.venv/bin/python lu_machinery/ai_agent_bridge/__main__.py channel tail reviews --thread THREAD_ID
 
   # Post (short form — single recipient)
-.venv/bin/python scripts/ai_agent_bridge/__main__.py p reviews claude \
+.venv/bin/python lu_machinery/ai_agent_bridge/__main__.py p reviews claude \
   "quick question about module X"
 
   # Post (long form — multi-recipient, threading, parent/corr ids)
-.venv/bin/python scripts/ai_agent_bridge/__main__.py post reviews \
+.venv/bin/python lu_machinery/ai_agent_bridge/__main__.py post reviews \
   "Review of #NNN" --to claude,codex --parent MSG_ID
 
   # Multi-agent bounded discussion
-.venv/bin/python scripts/ai_agent_bridge/__main__.py discuss architecture \
+.venv/bin/python lu_machinery/ai_agent_bridge/__main__.py discuss architecture \
   "Should we extract the V6 god object?" \
   --with claude,gemini,codex --max-rounds 2
 ```

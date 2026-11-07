@@ -46,9 +46,9 @@ from typing import Any
 
 import pytest
 
-from scripts.common.acp_runtime_lock import process_start_time
-from scripts.common.scratch import ensure_scratch_root
-from scripts.common.task_scratch import (
+from lu_machinery.common.acp_runtime_lock import process_start_time
+from lu_machinery.common.scratch import ensure_scratch_root
+from lu_machinery.common.task_scratch import (
     LEASE_FILENAME,
     LEASE_SCHEMA_VERSION,
     LOCK_FILENAME,
@@ -61,7 +61,7 @@ from scripts.common.task_scratch import (
     allocate,
     current_boot_id,
 )
-from scripts.common.task_scratch import NAMESPACE_DIRNAME as LEASE_KIND
+from lu_machinery.common.task_scratch import NAMESPACE_DIRNAME as LEASE_KIND
 
 NAMESPACE = "pytest-runs"
 RUNS_DIRNAME = "runs"

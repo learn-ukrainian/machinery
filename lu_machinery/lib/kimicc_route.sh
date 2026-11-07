@@ -120,7 +120,7 @@ kimicc_configure_route() {
     echo "Error: Python binary not found for the KimiCC route." >&2
     return 1
   fi
-  if ! route="$("$python_bin" "$catalog_dir/scripts/review/model_catalog.py" \
+  if ! route="$("$python_bin" "$catalog_dir/lu_machinery/review/model_catalog.py" \
       --resolve-kimi-model "$MODEL_ALIAS" --format kimicc)"; then
     echo "Error: Kimi route refused for model '$MODEL_ALIAS'." >&2
     return 2

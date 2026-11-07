@@ -25,8 +25,8 @@ from jsonschema import Draft202012Validator, FormatChecker
 if __package__ in {None, ""}:
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from scripts.common.repo_root import machinery_path
-from scripts.orchestration.red_ci_known_failures import (
+from lu_machinery.common.repo_root import machinery_path
+from lu_machinery.orchestration.red_ci_known_failures import (
     VALID_STOP_CODES,
     RedCIKnownFailuresValidationError,
     load_and_validate_registry,

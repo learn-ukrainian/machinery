@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from scripts.common.repo_root import resolve_repo_root
+from lu_machinery.common.repo_root import resolve_repo_root
 
 
 def tasks_dir() -> Path:

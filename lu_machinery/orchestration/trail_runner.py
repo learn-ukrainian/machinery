@@ -13,10 +13,10 @@ from typing import Any
 if __package__ in {None, ""}:
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from scripts.common.repo_root import machinery_path
-from scripts.orchestration.trails.executor import TrailExecutor
-from scripts.orchestration.trails.models import ExitClass, TrailRunnerError, TrailRunResult
-from scripts.orchestration.trails.store import TrailStore
+from lu_machinery.common.repo_root import machinery_path
+from lu_machinery.orchestration.trails.executor import TrailExecutor
+from lu_machinery.orchestration.trails.models import ExitClass, TrailRunnerError, TrailRunResult
+from lu_machinery.orchestration.trails.store import TrailStore
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 RUNS_DATABASE_PATH = PROJECT_ROOT / "batch_state/trails/runs.sqlite3"

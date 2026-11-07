@@ -43,12 +43,12 @@ from agents_extensions.shared.session_streams.store import (
     SessionStreamStore,
     validate_entry_body,
 )
-from scripts.api.monitor_context import MonitorContext, get_ctx, resolve_context
-from scripts.api.observer_presence import _direct_loopback_peer
-from scripts.api.occupancy_sanitize import opaque_host_id, safe_field
-from scripts.api.state_helpers import cache_get_or_compute_async, cache_retain, ctx_scoped_ttl_key
-from scripts.orchestration import issue_stream_audit as audit
-from scripts.orchestration.thread_handoff import _bundle_conversion, _bundle_require_json_value
+from lu_machinery.api.monitor_context import MonitorContext, get_ctx, resolve_context
+from lu_machinery.api.observer_presence import _direct_loopback_peer
+from lu_machinery.api.occupancy_sanitize import opaque_host_id, safe_field
+from lu_machinery.api.state_helpers import cache_get_or_compute_async, cache_retain, ctx_scoped_ttl_key
+from lu_machinery.orchestration import issue_stream_audit as audit
+from lu_machinery.orchestration.thread_handoff import _bundle_conversion, _bundle_require_json_value
 
 router = APIRouter()
 logger = logging.getLogger(__name__)

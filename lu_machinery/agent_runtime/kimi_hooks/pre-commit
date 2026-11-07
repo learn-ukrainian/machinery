@@ -8,7 +8,7 @@ if [ -z "$python" ] || [ -z "$root" ]; then
     echo "❌ commit refused: the Kimi worktree boundary is incomplete (kimiguard.python or kimiguard.root unset)" >&2
     exit 1
 fi
-"$python" -I "$root/scripts/agent_runtime/kimi_boundary.py" pre-commit || exit 1
+"$python" -I "$root/lu_machinery/agent_runtime/kimi_boundary.py" pre-commit || exit 1
 chain=$(git config --worktree --get kimiguard.chainhooks) || chain=
 if [ -n "$chain" ] && [ -x "$chain/pre-commit" ]; then
     exec "$chain/pre-commit" "$@"

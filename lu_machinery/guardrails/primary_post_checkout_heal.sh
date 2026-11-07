@@ -27,7 +27,7 @@ if [ "$GIT_DIR" != "$GIT_COMMON" ]; then
   exit 0
 fi
 
-if [ ! -f "$ROOT/scripts/guardrails/assert_primary_on_main.py" ]; then
+if [ ! -f "$ROOT/lu_machinery/guardrails/assert_primary_on_main.py" ]; then
   exit 0
 fi
 
@@ -46,8 +46,8 @@ fi
 
 # Diagnose quietly if broken; always allow the checkout to complete (Git has
 # already moved it). Repair remains an explicit operator action.
-DOCTOR=scripts/guardrails/assert_primary_on_main.py
-if ! "$PY" "$ROOT/scripts/guardrails/assert_primary_on_main.py" --cwd "$ROOT" --quiet 2>/dev/null; then
+DOCTOR=lu_machinery/guardrails/assert_primary_on_main.py
+if ! "$PY" "$ROOT/lu_machinery/guardrails/assert_primary_on_main.py" --cwd "$ROOT" --quiet 2>/dev/null; then
   echo "WARNING: primary is off main/detached. Inspect it, then run the explicit doctor if appropriate: .venv/bin/python $DOCTOR --heal" >&2
 fi
 

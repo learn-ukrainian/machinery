@@ -17,7 +17,7 @@ launcher_adapter_preflight() {
     # resolve every alias to the configured native model id before exec.
     local py
     py="$(launcher_project_python)" || exit 3
-    if ! LC_MODEL="$("$py" "$LC_ROOT/scripts/review/model_catalog.py" \
+    if ! LC_MODEL="$("$py" "$LC_ROOT/lu_machinery/review/model_catalog.py" \
         --resolve-kimi-model "$LC_MODEL" --format native)"; then
       launcher_error "unknown --model '$LC_MODEL'. Kimi models are retired in the model catalog."
       exit 2
@@ -25,7 +25,7 @@ launcher_adapter_preflight() {
     return
   fi
   # shellcheck source=scripts/lib/kimicc_route.sh
-  source "$LC_ROOT/scripts/lib/kimicc_route.sh"
+  source "$LC_ROOT/lu_machinery/lib/kimicc_route.sh"
   ENDPOINT="$LC_ENDPOINT" MODEL_ALIAS="$LC_MODEL" ISOLATE_CONFIG="$LC_ISOLATE_CONFIG"
   export ENDPOINT MODEL_ALIAS ISOLATE_CONFIG
   kimicc_configure_route "$LC_SESSION_ROOT" "$LC_SESSION_ROOT" "$LC_DURABLE_HELPER_ROOT" || exit $?

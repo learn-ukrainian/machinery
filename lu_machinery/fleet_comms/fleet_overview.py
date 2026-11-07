@@ -19,7 +19,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from scripts.api.occupancy_sanitize import opaque_host_id, safe_field
+from lu_machinery.api.occupancy_sanitize import opaque_host_id, safe_field
 
 try:
     from agents_extensions.shared.session_streams.db import (
@@ -108,7 +108,7 @@ def resolve_monitor_url(raw: str | None = None) -> str:
         or DEFAULT_MONITOR_URL
     ).strip()
     try:
-        from scripts.session_supervisor.remote import monitor_url
+        from lu_machinery.session_supervisor.remote import monitor_url
 
         return monitor_url(candidate)
     except Exception:

@@ -19,7 +19,7 @@ kill every new process while an already-running App task remains healthy. Run a
 bounded fresh worker through the same bridge used by the fleet:
 
 ```bash
-.venv/bin/python -m scripts.orchestration.codex_transport_health probe \
+.venv/bin/python -m lu_machinery.orchestration.codex_transport_health probe \
   --fresh --json
 ```
 
@@ -33,7 +33,7 @@ is classified as `reserved_collaboration_schema`.
 Read the cached result without spending a model call:
 
 ```bash
-.venv/bin/python -m scripts.orchestration.codex_transport_health status --json
+.venv/bin/python -m lu_machinery.orchestration.codex_transport_health status --json
 ```
 
 Monitor exposes the same receipt at `GET /api/runtime/transport-health`; the
@@ -68,7 +68,7 @@ Re-verified against the current OpenAI Codex Hooks reference on 2026-07-26:
 
 The Codex manifest therefore sends each tool event through one tracked,
 deterministic entry point:
-`scripts/agent_runtime/codex_hook_entry.sh`. The Bash-command venv guard has
+`lu_machinery/agent_runtime/codex_hook_entry.sh`. The Bash-command venv guard has
 its own 3-second fail-closed deadline. `PreToolUse` local policy checks then run
 sequentially with their former 3–5 second individual deadlines. The two
 independent, network-backed merge guards run concurrently with separate
@@ -161,7 +161,7 @@ repeated inbox prompt. Confirm that a CLI 0.146 startup no longer prints the
 remains:
 
 ```bash
-.venv/bin/python -m scripts.orchestration.codex_transport_health status --json
+.venv/bin/python -m lu_machinery.orchestration.codex_transport_health status --json
 ```
 
 To roll back, revert the tracked source change and rerun `npm run agents:deploy`;
@@ -272,7 +272,7 @@ protected branch (`main`/`master`). It is wired into both providers:
   `guard-primary-checkout-write.py`.
 
 Every containment decision is delegated to
-`scripts.guardrails.worktree_containment` (#4444); the hook only maps each
+`lu_machinery.guardrails.worktree_containment` (#4444); the hook only maps each
 provider payload onto the target path(s) that module classifies. Writes into a
 `.worktrees/**` dispatch worktree, any other registered worktree, gitignored
 local/runtime state, or paths outside the repo are allowed. On a block the hook
@@ -328,7 +328,7 @@ checkout sitting on a protected branch. No command-string intent parsing is
 involved; the decision is a pure containment classification.
 
 - **Reuses #4444.** The guard classifies `cwd` via
-  `scripts.guardrails.worktree_containment` (`classify_repo_path` +
+  `lu_machinery.guardrails.worktree_containment` (`classify_repo_path` +
   `is_protected_branch`). Dispatch worktrees, any other registered worktree, and
   out-of-repo paths all pass; only a primary checkout on `main`/`master` is
   refused. A cheap in-tree pre-filter (`_RUNNER_REPO_TREE`) skips the git plumbing
@@ -388,7 +388,7 @@ Tests: `tests/test_agent_runtime.py` (`test_write_guard_*`,
 Run the probe from the repository root:
 
 ```bash
-.venv/bin/python scripts/agent_runtime/codex_hook_probe.py --keep-workdir
+.venv/bin/python lu_machinery/agent_runtime/codex_hook_probe.py --keep-workdir
 ```
 
 The probe creates a temporary Git repo under `/private/tmp`, installs a minimal
@@ -407,7 +407,7 @@ matching hook tool name, as evidence that the path is blockable.
 Use this command for a cheap harness-only check that does not call Codex:
 
 ```bash
-.venv/bin/python scripts/agent_runtime/codex_hook_probe.py --self-test
+.venv/bin/python lu_machinery/agent_runtime/codex_hook_probe.py --self-test
 ```
 
 ## Desktop/direct edit probe
@@ -436,7 +436,7 @@ Environment:
   `.worktrees/dispatch/codex/4447-codex-hooks-deploy`
 - Codex CLI: `codex-cli 0.142.5`
 - Command:
-  `.venv/bin/python scripts/agent_runtime/codex_hook_probe.py --keep-workdir --timeout 240`
+  `.venv/bin/python lu_machinery/agent_runtime/codex_hook_probe.py --keep-workdir --timeout 240`
 - Probe repo:
   `/private/tmp/codex-hook-probe-9w43s82u/codex-hook-probe-repo`
 

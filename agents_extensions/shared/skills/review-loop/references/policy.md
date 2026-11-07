@@ -17,7 +17,7 @@ below, both seat dispatches at that head count as one round.
   Security, data-loss and other high-risk changes get the same three rounds
   ([where it stays strict](#where-review-stays-strict)). A target repository whose own review
   policy sets a different automatic budget declares it as `review_rounds` under `repositories`
-  in `scripts/config/review_budget_policy.yaml` (kube-dojo: five), and the recorder applies
+  in `lu_machinery/config/review_budget_policy.yaml` (kube-dojo: five), and the recorder applies
   that budget to its PRs.
 - **Scope is frozen at round 1; new code goes in a new PR.** Later rounds review the fixes to
   the ledger's findings and the hunks those fixes change. New behaviour, or code that the
@@ -47,7 +47,7 @@ below, both seat dispatches at that head count as one round.
   the cross-family review gate; no round budget, risk floor, or reviewer selection changes.
 - **One repair-verification round per lineage, outside the budget.** When a PR approved at its
   last reviewed head A needs a new head N only for a CI fix or a conflict resolution, the
-  recorder admits one more round at N with no request PR (`scripts/review/repair_round.py`).
+  recorder admits one more round at N with no request PR (`lu_machinery/review/repair_round.py`).
   It needs: the review lineage before N on record, with A's APPROVE the latest verdict of every
   seat; a CI fix tied to a failed run of the required CI workflow at A itself (a PR run) or of
   this PR's merge-queue candidate built from A; or a conflict resolution whose merge tree differs from Git's own merge of its pinned
@@ -102,19 +102,19 @@ below, both seat dispatches at that head count as one round.
 A recorded `CHANGES_REQUESTED` or `BLOCKED` is cleared only by an APPROVE at a **new** head;
 the recorder refuses a same-head APPROVE after it. So an escalation ruling on a recorded
 rejection is followed by a head move (the fix, or a base update with
-`"$PY" -m scripts.publish pr-update-branch --number "$PR"`) and one more round at that head.
+`"$PY" -m lu_machinery.publish pr-update-branch --number "$PR"`) and one more round at that head.
 
 ## A BLOCKED that only lacked a capability
 
 When the reviewer stopped only because a capability it needed was missing, the CTO may record a
 capability failure for the run instead of a verdict
-(`scripts/review/capability_failure.py`):
+(`lu_machinery/review/capability_failure.py`):
 
 Resolve `PRIMARY_REPO` and `PY` as in the [review-loop setup](../SKILL.md#review-loop).
 Use the primary recorder so the caller's branch age cannot select its rules.
 
 ```bash
-"$PY" "$PRIMARY_REPO/scripts/review/record_cf_verdict.py" capability-failure --task-id "$REVIEW_TASK" --pr "$PR" \
+"$PY" "$PRIMARY_REPO/lu_machinery/review/record_cf_verdict.py" capability-failure --task-id "$REVIEW_TASK" --pr "$PR" \
   --capability <sources-mcp|test-execution|shell|browser|checkout-data|ci-logs> --authority claude-cto
 ```
 
@@ -140,7 +140,7 @@ on what they already report.
   also names the applicable contracts, not only the outcome, acceptance criteria and non-goals.
 - **Author evidence at the exact head.** Before round 1 and before every delta round the
   author supplies the results of the affected static checks (ruff, the repository's custom
-  lints under `scripts/hygiene`, `scripts/audit` and `scripts/lint`, and type checking where
+  lints under `lu_machinery/hygiene`, `scripts/audit` and `lu_machinery/lint`, and type checking where
   it runs), the affected tests, the behaviour evidence the change needs and any required
   canaries, as the brief's checks-already-run list. Reuse the same-head CI results instead of
   re-running them.

@@ -22,7 +22,7 @@ from typing import Literal
 # Dual-flavor import: pytest / package loads use ``scripts.*``; direct file
 # invocation of this CLI has only ``scripts/hygiene/`` on ``sys.path[0]``.
 try:
-    from scripts.path_safety import assert_delete_target
+    from lu_machinery.path_safety import assert_delete_target
 except ImportError:  # pragma: no cover - direct ``scripts/hygiene/*.py`` invocation
     _SCRIPTS_DIR = Path(__file__).resolve().parents[1]
     if str(_SCRIPTS_DIR) not in sys.path:

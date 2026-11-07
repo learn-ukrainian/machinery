@@ -5,7 +5,7 @@ launcher_adapter_validate() {
 }
 launcher_adapter_preflight() {
   # shellcheck source=scripts/lib/profile_resolver.sh
-  source "$LC_ROOT/scripts/lib/profile_resolver.sh"
+  source "$LC_ROOT/lu_machinery/lib/profile_resolver.sh"
   # Linked worktrees carry no venv (#6858); resolve through the validated
   # durable helper root (#9121).
   CLAUDE_PROFILE_RESOLVER_PYTHON="$LC_DURABLE_HELPER_ROOT/.venv/bin/python"

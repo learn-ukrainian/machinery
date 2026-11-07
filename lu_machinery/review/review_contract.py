@@ -16,13 +16,13 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
-from scripts.common.jsonl import jsonl_lines
-from scripts.orchestration.integration_sweep import (
+from lu_machinery.common.jsonl import jsonl_lines
+from lu_machinery.orchestration.integration_sweep import (
     ITEM_ID_RE,
     VOID_QUOTE_MISMATCH,
     VOID_REVIEWER_BOOKKEEPING,
 )
-from scripts.review.evidence import (
+from lu_machinery.review.evidence import (
     OUTCOME_MALFORMED,
     UNVERIFIED_FOLLOW_UP_OUTCOMES,
     EvidenceCheckResult,
@@ -32,7 +32,7 @@ from scripts.review.evidence import (
     normalize_line_endings,
     verify_finding_evidence,
 )
-from scripts.review.target_resolution import ReviewTarget
+from lu_machinery.review.target_resolution import ReviewTarget
 
 SCHEMA_VERSION = "code-review-findings.v1"
 RECEIPT_SCHEMA_VERSION = "code-review-receipt.v1"
@@ -101,7 +101,7 @@ def schema_path(
     reviews use item-judgment envelopes parsed from free-text blocks and do not bind a
     top-level JSON schema.
     """
-    from scripts.review.language_lane import is_ukrainian_review
+    from lu_machinery.review.language_lane import is_ukrainian_review
 
     if profile is not None and profile.strip().casefold() == "ukrainian":
         return None
@@ -189,7 +189,7 @@ def _whole_reply_fence(text: str) -> str:
         return text
     from markdown_it import MarkdownIt
 
-    from scripts.review.verdict_parser import _closes_code_fence, _commonmark_lines
+    from lu_machinery.review.verdict_parser import _closes_code_fence, _commonmark_lines
 
     lines = _commonmark_lines(text)
     tokens = MarkdownIt("commonmark").parse(text)
@@ -210,8 +210,8 @@ def _whole_reply_fence(text: str) -> str:
 def _parse_review_loop_envelope(text: str) -> dict[str, Any]:
     from markdown_it import MarkdownIt
 
-    from scripts.fleet_comms.review_publication import ReviewPublicationError
-    from scripts.review.verdict_parser import (
+    from lu_machinery.fleet_comms.review_publication import ReviewPublicationError
+    from lu_machinery.review.verdict_parser import (
         _REVIEW_SCORE_LABEL_RE,
         _REVIEW_VERDICT_LINE_RE,
         _closes_code_fence,
@@ -309,7 +309,7 @@ def _outside_blockquotes(text: str) -> str:
     """Drop CommonMark blockquotes so an example object cannot lock a decision."""
     from markdown_it import MarkdownIt
 
-    from scripts.review.verdict_parser import _commonmark_lines
+    from lu_machinery.review.verdict_parser import _commonmark_lines
 
     raw_lines = _commonmark_lines(text, keepends=True)
     lines = _commonmark_lines(text)
@@ -339,7 +339,7 @@ def _outside_blockquotes(text: str) -> str:
 
 def _effective_verdict(payload: Mapping[str, Any]) -> str | None:
     """The verdict the receipt's evidence states, when the payload can be read."""
-    from scripts.fleet_comms.review_publication import ReviewPublicationError, resolve_verdict_and_evidence
+    from lu_machinery.fleet_comms.review_publication import ReviewPublicationError, resolve_verdict_and_evidence
 
     try:
         verdict, _evidence = resolve_verdict_and_evidence(payload)
@@ -356,7 +356,7 @@ def _explanation_rejections(payload: Mapping[str, Any]) -> set[str]:
     explanation = overall.get("explanation")
     if not isinstance(explanation, str):
         return set()
-    from scripts.fleet_comms.review_publication import _stated_verdicts
+    from lu_machinery.fleet_comms.review_publication import _stated_verdicts
 
     return _stated_verdicts(explanation) - {"APPROVED"}
 
@@ -375,7 +375,7 @@ def decision_lock(raw: str) -> dict[str, Any]:
     only when exactly one findings object is readable, even if it does not
     yet validate.
     """
-    from scripts.review.verdict_parser import recognized_verdicts
+    from lu_machinery.review.verdict_parser import recognized_verdicts
 
     try:
         visible = _outside_blockquotes(raw)
@@ -1019,7 +1019,7 @@ def build_ukrainian_behavior_receipt(
     Reviewer identity is the recorded seat chunks. Caller reviewer flags and
     code-review findings are not inputs. The singular reviewer key is omitted.
     """
-    from scripts.orchestration.integration_sweep import contributing_ukrainian_chunks
+    from lu_machinery.orchestration.integration_sweep import contributing_ukrainian_chunks
 
     provenance = contributing_ukrainian_chunks(
         comments,
@@ -1355,7 +1355,7 @@ def _captured_output(value: Any) -> str | None:
 
 def captured_sources_events(trace: str) -> tuple[dict[str, Any], ...]:
     """Sources results in this dispatch's trace, without summary or call-count fallbacks."""
-    from scripts.agent_runtime.tool_calls import normalize_tool_calls
+    from lu_machinery.agent_runtime.tool_calls import normalize_tool_calls
 
     events = []
     captured = []
@@ -1470,7 +1470,7 @@ def validate_item_claims(
     of that receipt's stored result. Unsupported and foreign-attempt citations are dropped,
     recorded with reasons for audit, and counted.
     """
-    from scripts.review.product_hooks import attempt_hooks
+    from lu_machinery.review.product_hooks import attempt_hooks
 
     ledger = attempt_hooks().ledger()
     indexed: dict[str, dict[str, Any]] = {}
@@ -1510,7 +1510,7 @@ def validate_item_claims(
 
     if binding is not None:
         try:
-            from scripts.dispatcher import store
+            from lu_machinery.dispatcher import store
 
             root = store.receipts_root()
             if root and root.exists():

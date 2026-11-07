@@ -19,7 +19,7 @@ in the B.1 design round (task bridge-b1-schema-design, 2026-04-11).
 import sqlite3
 from datetime import UTC, datetime
 
-from scripts.fleet_comms.migrations import apply_migrations
+from lu_machinery.fleet_comms.migrations import apply_migrations
 
 from ._config import DB_PATH
 from .broker_indexes import apply as apply_broker_indexes
@@ -217,7 +217,7 @@ def _kimi_message_sql(to_llm: object, data: object) -> int:
     attachment, so any model or recipient key it carries counts
     (``target_admission.stored_kimi_request``).
     """
-    from scripts.agent_runtime.target_admission import stored_kimi_request
+    from lu_machinery.agent_runtime.target_admission import stored_kimi_request
 
     return int(stored_kimi_request((to_llm,), attachments=(data,)))
 
@@ -229,7 +229,7 @@ def _kimi_row_sql(agent: object, model: object) -> int:
     clause, so no claim, lease, attempt, status, error or telemetry touches
     them; reading them is allowed (``target_admission.stored_kimi_row``).
     """
-    from scripts.agent_runtime.target_admission import stored_kimi_row
+    from lu_machinery.agent_runtime.target_admission import stored_kimi_row
 
     return int(stored_kimi_row(agent, model))
 

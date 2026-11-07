@@ -29,8 +29,8 @@ from typing import Any
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
-from scripts.common.git_context import sanitized_git_env
-from scripts.orchestration.task_record_store import read_task_record
+from lu_machinery.common.git_context import sanitized_git_env
+from lu_machinery.orchestration.task_record_store import read_task_record
 
 from .monitor_context import MonitorContext, get_ctx, resolve_context
 

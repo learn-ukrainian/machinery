@@ -14,7 +14,7 @@ import os
 import shutil
 from pathlib import Path
 
-from scripts.review.model_catalog import retired_model_refusal
+from lu_machinery.review.model_catalog import retired_model_refusal
 
 from ..errors import AgentRuntimeError
 from ..failure_codes import opencode_provider_error, provider_failure_code, provider_stderr_error
@@ -123,7 +123,7 @@ class GlmAdapter:
         invocation_model = _OPENCODE_MODEL_ROUTES.get(target_model, target_model)
 
         try:
-            from scripts.ai_agent_bridge.routing_guard import assert_model_routing_allowed
+            from lu_machinery.ai_agent_bridge.routing_guard import assert_model_routing_allowed
         except ModuleNotFoundError:  # pragma: no cover - direct-script runs with only scripts/ on sys.path
             from ai_agent_bridge.routing_guard import assert_model_routing_allowed
 
@@ -165,7 +165,7 @@ class GlmAdapter:
         _ = (output_file, call_start_time)
 
         try:
-            from scripts.ai_agent_bridge._opencode import _parse_opencode_stream, read_opencode_turn_status
+            from lu_machinery.ai_agent_bridge._opencode import _parse_opencode_stream, read_opencode_turn_status
         except ModuleNotFoundError:  # pragma: no cover - direct-script runs with only scripts/ on sys.path
             from ai_agent_bridge._opencode import _parse_opencode_stream, read_opencode_turn_status
 

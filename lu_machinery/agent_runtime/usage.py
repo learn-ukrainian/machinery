@@ -51,12 +51,12 @@ try:
 except ModuleNotFoundError as exc:
     if exc.name != "secret_redactor":
         raise
-    from scripts.secret_redactor import redact_text, redact_value
+    from lu_machinery.secret_redactor import redact_text, redact_value
 
 from learn_ukrainian_v4_runtime.agent_identity import RETIRED_AGENT_ALIASES
 
 try:
-    from scripts.common.repo_root import main_checkout_root
+    from lu_machinery.common.repo_root import main_checkout_root
 except ImportError:  # pragma: no cover - package import path
     from common.repo_root import main_checkout_root
 
@@ -114,7 +114,7 @@ _ACCOUNT_RATE_LIMIT_CACHE: dict[tuple[str, str, str], float] = {}
 
 def _codex_accounts() -> ModuleType:
     try:
-        return importlib.import_module("scripts.agent_runtime.codex_accounts")
+        return importlib.import_module("lu_machinery.agent_runtime.codex_accounts")
     except ImportError:  # pragma: no cover - scripts/ on sys.path
         return importlib.import_module("agent_runtime.codex_accounts")
 
@@ -237,7 +237,7 @@ def write_record(record: dict[str, Any]) -> None:
 def _utc_timestamp(value: Any) -> datetime | None:
     """Explicit-UTC reading of a record timestamp (the one UTC-only rule of the fleet); None otherwise."""
     try:
-        from scripts.fleet.reset_reserve import utc_datetime
+        from lu_machinery.fleet.reset_reserve import utc_datetime
     except ImportError:  # pragma: no cover - scripts/ on sys.path
         from fleet.reset_reserve import utc_datetime
     return utc_datetime(value)

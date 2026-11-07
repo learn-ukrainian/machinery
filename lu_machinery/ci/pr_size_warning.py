@@ -9,10 +9,10 @@ import re
 import subprocess
 from pathlib import Path
 
-from scripts.ci._location import module_name
-from scripts.common.git_context import sanitized_git_env
-from scripts.common.repo_root import rules_dir
-from scripts.review.target_resolution import is_test_path
+from lu_machinery.ci._location import module_name
+from lu_machinery.common.git_context import sanitized_git_env
+from lu_machinery.common.repo_root import rules_dir
+from lu_machinery.review.target_resolution import is_test_path
 
 POLICY = rules_dir() / "workflow.md"
 SHA = re.compile(r"[0-9a-fA-F]{40}")

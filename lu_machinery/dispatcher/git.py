@@ -17,16 +17,16 @@ from pathlib import Path, PurePosixPath
 
 import yaml
 
-from scripts.common.git_context import sanitized_git_env
-from scripts.common.git_credentials import canonical_origins as canonical_origins
-from scripts.common.git_credentials import verification_credentials
-from scripts.common.repo_root import configured_github_slug, product_root, resolve_repo_root
-from scripts.common.task_scratch import TaskScratchError, allocate
-from scripts.common.task_store_paths import tasks_dir
-from scripts.dispatcher import site_deps
-from scripts.dispatcher.types import TaskSpec
-from scripts.orchestration.execution_safe_git import run_git as execution_safe_git
-from scripts.storage.topology import STORE_FILES
+from lu_machinery.common.git_context import sanitized_git_env
+from lu_machinery.common.git_credentials import canonical_origins as canonical_origins
+from lu_machinery.common.git_credentials import verification_credentials
+from lu_machinery.common.repo_root import configured_github_slug, product_root, resolve_repo_root
+from lu_machinery.common.task_scratch import TaskScratchError, allocate
+from lu_machinery.common.task_store_paths import tasks_dir
+from lu_machinery.dispatcher import site_deps
+from lu_machinery.dispatcher.types import TaskSpec
+from lu_machinery.orchestration.execution_safe_git import run_git as execution_safe_git
+from lu_machinery.storage.topology import STORE_FILES
 
 ROOT = resolve_repo_root(Path(__file__), 2)
 CONFIG = Path(__file__).resolve().parents[1] / "config" / "fleet_repos.yaml"
@@ -387,7 +387,7 @@ def create_worktree(repo: Path, path: Path, branch: str, sha: str, *, full_check
 
     def run_git(where, *args):
         return _git(where, *no_replace, *args, isolate=True)
-    from scripts.orchestration import worktree_claims
+    from lu_machinery.orchestration import worktree_claims
 
     path.parent.mkdir(parents=True, exist_ok=True)
     # Serialize config enablement and keep sparse settings local to the new worktree.
@@ -404,7 +404,7 @@ def create_worktree(repo: Path, path: Path, branch: str, sha: str, *, full_check
             else:
                 run_git(path, "sparse-checkout", "set", "--no-cone", "--", "/*", *(f"!/{name}/" for name in excluded))
             run_git(path, "reset", "--hard", sha)
-            from scripts.orchestration.worktree_claims import new_helper_creator, publish_helper_creator
+            from lu_machinery.orchestration.worktree_claims import new_helper_creator, publish_helper_creator
 
             receipt_path, receipt = new_helper_creator(
                 path.resolve(), repo_root=repo,
@@ -569,7 +569,7 @@ def _install_refresh_hooks(path: Path, registry: Path) -> None:
                         and not entry.name.endswith(".sample"):
                     (hooks / entry.name).symlink_to(entry)
         root = Path(__file__).resolve().parents[2]
-        refresh = " ".join(shlex.quote(word) for word in (sys.executable, "-m", "scripts.dispatcher.git", "refresh",
+        refresh = " ".join(shlex.quote(word) for word in (sys.executable, "-m", "lu_machinery.dispatcher.git", "refresh",
                                                           _key(path), str(registry)))
         for name in REFRESH_HOOKS:
             script = hooks / name
@@ -686,7 +686,7 @@ def github_degraded_when(degraded):
 
 
 def _gh(*args: str) -> str:
-    from scripts.common import github_client
+    from lu_machinery.common import github_client
 
     degraded = _GITHUB_DEGRADED.get()
     if degraded is not None and degraded():
@@ -708,7 +708,7 @@ def _repo_and_base(record: dict) -> tuple[str | None, str]:
 
 def _accepted_prs(task_id: str, repo: str) -> list[int]:
     """Numbers of ``repo`` pull requests this task accepted through ``pr_ownership``, current or since cleared."""
-    from scripts.orchestration import pr_ownership
+    from lu_machinery.orchestration import pr_ownership
 
     data = pr_ownership.load(pr_ownership.state_path())
     # Decision custody stores its decision owner in ``successor``. That is not a task acceptance.
@@ -894,8 +894,8 @@ def _salvage_hold(tree: Path, primary: Path, untracked: list[str]) -> tuple[str,
     commit pointer), so one with commits that are on none of its remotes, or with uncommitted work,
     keeps the tree. So does meaningful ignored output past SALVAGE_IGNORED_LIMIT.
     """
-    from scripts.fleet.regenerable_output import committed_release_pins, is_regenerable_ignored_path
-    from scripts.orchestration.worktree_artifacts import is_disposable_path
+    from lu_machinery.fleet.regenerable_output import committed_release_pins, is_regenerable_ignored_path
+    from lu_machinery.orchestration.worktree_artifacts import is_disposable_path
 
     ignored = [name for name in _git(tree, "ls-files", "-z", "--others", "--ignored", "--exclude-standard",
                                      isolate=True, strip=False).split("\0") if name]
@@ -927,8 +927,8 @@ def _require_public_push(tree: Path, remote: str, ref: str, commit: str) -> None
     --commit-range`` (the pre-push gate's blob scan). Any refusal or any failure to run either
     scan raises ``_Kept`` and does not push. The detail is a fixed phrase.
     """
-    from scripts.opsec import git_push
-    from scripts.opsec.prepublish import OVERRIDE, PublishBlocked
+    from lu_machinery.opsec import git_push
+    from lu_machinery.opsec.prepublish import OVERRIDE, PublishBlocked
 
     def refuse() -> None:
         raise _Kept("opsec_refused", OPSEC_REFUSAL_DETAIL)
@@ -1043,7 +1043,7 @@ def _retention_held(record: dict) -> bool:
 
     A supervisor can still be holding the record from before the hold was set.
     """
-    from scripts.dispatcher import store
+    from lu_machinery.dispatcher import store
 
     hold = store.retention_hold_disposition(record)
     if hold is None:
@@ -1144,7 +1144,7 @@ def settle_worktree(record: dict, borrowed=lambda: False, salvage: bool = False)
     if hold:
         return disposition("retained", *hold)
 
-    from scripts.orchestration import worktree_claims
+    from lu_machinery.orchestration import worktree_claims
 
     salvaged = None
     if changed or unpublished:

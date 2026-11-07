@@ -26,7 +26,7 @@ from typing import Any
 
 import jwt
 
-from scripts.common.github_client import http_open
+from lu_machinery.common.github_client import http_open
 
 _GITHUB_API_URL = "https://api.github.com"
 _REPO_ROOT = Path(__file__).resolve().parents[2]

@@ -7,8 +7,8 @@ code in ``scripts.project_api.config`` (Monitor split, C-4687).
 import os
 from pathlib import Path
 
-from scripts.common.bridge_paths import configured_bridge_db_path
-from scripts.common.repo_root import product_root
+from lu_machinery.common.bridge_paths import configured_bridge_db_path
+from lu_machinery.common.repo_root import product_root
 
 # Project root is the immutable code snapshot when the API is release-served.
 # Mutable data remains reachable through the release's explicit symlinks.

@@ -10,10 +10,10 @@ import uuid
 from datetime import UTC, datetime
 from pathlib import Path, PureWindowsPath
 
-from scripts.common.git_context import validate_plain_branch_name
-from scripts.common.task_store_paths import tasks_dir
-from scripts.dispatcher.types import ReviewAttempt
-from scripts.orchestration.task_record_store import (
+from lu_machinery.common.git_context import validate_plain_branch_name
+from lu_machinery.common.task_store_paths import tasks_dir
+from lu_machinery.dispatcher.types import ReviewAttempt
+from lu_machinery.orchestration.task_record_store import (
     iter_task_records,
     locate_task_record,
     read_task_record,
@@ -85,7 +85,7 @@ def check_review_attempt(binding: ReviewAttempt, *, claim=False, owner: str | No
         if path.exists() or path.is_symlink():
             raise ValueError("review attempt already spent")
     if claim:
-        from scripts.agent_runtime.review_mcp import _create_file, _open_attempt_dir
+        from lu_machinery.agent_runtime.review_mcp import _create_file, _open_attempt_dir
 
         fd = _open_attempt_dir(root, create=True)
         try:
@@ -106,7 +106,7 @@ def new_record(
     record.update(worktree_dirty_on_exit=None, error=None)
     record["owned_paths"] = list(metadata.get("owned_path") or [])
     record["worktree_base_ref"] = metadata.get("base") or "origin/main"
-    from scripts.dispatcher.git import canonical_origins, verification_origin
+    from lu_machinery.dispatcher.git import canonical_origins, verification_origin
     if spec.mode != "workspace-write":
         record["worktree_remote_url"] = None
     else:
@@ -117,7 +117,7 @@ def new_record(
             record["worktree_remote_url"] = None
     fields = ("task_id", "agent", "provider", "model", "effort", "mode", "claude_account", "codex_account")
     record.update({name: getattr(spec, name) for name in fields})
-    from scripts.dispatcher.watchdog import deadlines
+    from lu_machinery.dispatcher.watchdog import deadlines
 
     record.update(zip(("hard_timeout", "silence_timeout", "initial_response_timeout"), deadlines(spec.options), strict=True))
     record["options"] = spec.options
@@ -268,7 +268,7 @@ def create(record: dict, prompt: bytes) -> Path:
     with task_state_lock(path):
         existing = read(record["task_id"], missing_ok=True)
         if existing is not None:
-            from scripts.orchestration.dispatch_admission import is_admission_hold_record
+            from lu_machinery.orchestration.dispatch_admission import is_admission_hold_record
 
             if not (existing.get("schema_version") == 2 and existing.get("status") == "spawning"
                     and existing.get("run_nonce") == record.get("run_nonce")
@@ -336,7 +336,7 @@ def publish_failed_record(record: dict, path: Path) -> None:
 
 def _grant_paths_validated(root: Path, paths: list[str]) -> list[str]:
     """Literal relative paths inside the existing worktree; no sparse checkout changes."""
-    from scripts.dispatcher import ownership, scope
+    from lu_machinery.dispatcher import ownership, scope
 
     def validate(raw: str) -> str:
         if (not isinstance(raw, str) or not raw or raw != raw.strip() or "\\" in raw
@@ -390,7 +390,7 @@ def _grant_worktree(record: dict) -> Path:
 
 def grant_paths(task_id: str, run_nonce: str, paths: list[str], reason: str, approval_ref: str) -> dict:
     """Append attributable approval for an honest worker; caller identity is unauthenticated."""
-    from scripts.dispatcher import ownership
+    from lu_machinery.dispatcher import ownership
 
     if not reason.strip() or not approval_ref.strip() or not paths:
         raise ValueError("paths, reason and approval-ref must be nonempty")

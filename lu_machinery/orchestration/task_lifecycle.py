@@ -27,9 +27,9 @@ from typing import Any
 
 from jsonschema import Draft202012Validator, FormatChecker
 
-from scripts.github_check_rollup import group_collapsed_by_name
-from scripts.orchestration import issue_stream_audit, task_identity
-from scripts.review.review_contract import finding_supports_approval, unverified_follow_up_notes
+from lu_machinery.github_check_rollup import group_collapsed_by_name
+from lu_machinery.orchestration import issue_stream_audit, task_identity
+from lu_machinery.review.review_contract import finding_supports_approval, unverified_follow_up_notes
 
 SCHEMA_VERSION = "task-lifecycle.v1"
 AC_SCHEMA_VERSION = "acceptance-criteria.v1"
@@ -1555,7 +1555,7 @@ def _ukrainian_behavior_proof_error(
         return "ukrainian behavior-proof receipt carries a singular reviewer"
     if not isinstance(comments, Sequence) or not authenticated_login:
         return "ukrainian behavior-proof receipt has no authoritative PR comments"
-    from scripts.orchestration.integration_sweep import contributing_ukrainian_chunks
+    from lu_machinery.orchestration.integration_sweep import contributing_ukrainian_chunks
 
     provenance = contributing_ukrainian_chunks(
         comments, str(head_sha or ""), authenticated_login, learner_content=True,
@@ -1645,7 +1645,7 @@ def _behavior_proof_reference_error(
             or not all(isinstance(path, str) for path in changed_paths)
         ):
             return "behavior-proof learner-content file list is unreadable"
-        from scripts.orchestration.integration_sweep import requires_ukrainian_behavior_receipt
+        from lu_machinery.orchestration.integration_sweep import requires_ukrainian_behavior_receipt
 
         if requires_ukrainian_behavior_receipt(changed_paths) and receipt.get("review_profile") != "ukrainian":
             return "learner-content change requires a ukrainian behavior-proof receipt"
@@ -1791,7 +1791,7 @@ def _latest_premerge_local(
         if not isinstance(local, dict):
             continue
         if "recovered_from_preserved" in local:
-            from scripts.orchestration.lifecycle_observation import recovery_refusal
+            from lu_machinery.orchestration.lifecycle_observation import recovery_refusal
 
             if recovery_refusal(ledger, local, head_sha=head_sha, branch=branch):
                 continue
@@ -1938,7 +1938,7 @@ def evaluate(payload: Mapping[str, Any], observation: Mapping[str, Any]) -> dict
     for receipt in ledger["observation_receipts"]:
         recovered = (receipt.get("observation") or {}).get("local") or {}
         if "recovered_from_preserved" in recovered:
-            from scripts.orchestration.lifecycle_observation import recovery_refusal
+            from lu_machinery.orchestration.lifecycle_observation import recovery_refusal
 
             refusal = recovery_refusal(ledger, recovered, head_sha=head_sha, branch=pr.get("head_branch"))
             if refusal:

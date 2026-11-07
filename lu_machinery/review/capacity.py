@@ -6,7 +6,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from math import isfinite
 
-from scripts.fleet import credit_lane
+from lu_machinery.fleet import credit_lane
 
 
 @dataclass(frozen=True)

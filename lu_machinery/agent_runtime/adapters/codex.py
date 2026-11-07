@@ -47,9 +47,9 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from scripts.agent_runtime.attempt_safe_read import AttemptReadError, safe_read_attempt_file
-from scripts.review.product_hooks import attempt_hooks
-from scripts.secret_redactor import redact_text
+from lu_machinery.agent_runtime.attempt_safe_read import AttemptReadError, safe_read_attempt_file
+from lu_machinery.review.product_hooks import attempt_hooks
+from lu_machinery.secret_redactor import redact_text
 
 from ..read_only_tmp import validate_read_only_tmp_root
 from ..result import ParseResult
@@ -65,7 +65,7 @@ from .codex_events import (
 )
 
 if TYPE_CHECKING:
-    from scripts.review.isolation import SandboxCapability
+    from lu_machinery.review.isolation import SandboxCapability
 
 _logger = logging.getLogger(__name__)
 
@@ -93,7 +93,7 @@ def _codex_config_layers(
     after auth staging, so signed-in cloud layers and auth refreshes are shared
     with launch. Other callers use the same environment allowlist.
     """
-    from scripts.review.isolation import build_reviewer_env, wrap_argv_with_sandbox
+    from lu_machinery.review.isolation import build_reviewer_env, wrap_argv_with_sandbox
 
     probe_env = dict(env) if env is not None else build_reviewer_env(engine="codex", reject_root=cwd)
     probe_env["CODEX_HOME"] = home
@@ -343,7 +343,7 @@ class CodexAdapter:
         read_only_tmp_root = validate_read_only_tmp_root(tc_early, cwd, mode, adapter="CodexAdapter")
         review_write_root: Path | None = None
         if tc_early.get("review_isolation"):
-            from scripts.review.isolation import validated_review_write_root
+            from lu_machinery.review.isolation import validated_review_write_root
 
             review_write_root = validated_review_write_root(tc_early)
 

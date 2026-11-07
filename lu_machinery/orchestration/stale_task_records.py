@@ -54,13 +54,13 @@ for _path in (PROJECT_ROOT, Path(__file__).resolve().parents[1]):
     if str(_path) not in sys.path:
         sys.path.insert(0, str(_path))
 
-from scripts import secret_redactor
-from scripts.common import github_client
-from scripts.common.git_context import sanitized_git_env
-from scripts.common.repo_root import main_checkout_root
-from scripts.common.task_store_paths import tasks_dir as default_tasks_dir
-from scripts.orchestration import fleet_repos, task_record_store, worktree_claims
-from scripts.orchestration.dead_worker_state import task_state_lock
+from lu_machinery import secret_redactor
+from lu_machinery.common import github_client
+from lu_machinery.common.git_context import sanitized_git_env
+from lu_machinery.common.repo_root import main_checkout_root
+from lu_machinery.common.task_store_paths import tasks_dir as default_tasks_dir
+from lu_machinery.orchestration import fleet_repos, task_record_store, worktree_claims
+from lu_machinery.orchestration.dead_worker_state import task_state_lock
 
 # This package's import name, from the unresolved file location: never from __package__, which a
 # short import spelling (orchestration.x with scripts/ on sys.path) shortens. Its dotted parts

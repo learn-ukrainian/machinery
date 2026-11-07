@@ -25,7 +25,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends
 
-from scripts.common.git_context import sanitized_git_env
+from lu_machinery.common.git_context import sanitized_git_env
 
 from .monitor_context import MonitorContext, get_ctx, resolve_context
 

@@ -98,7 +98,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 try:
-    from scripts.common.repo_root import machinery_path, project_interpreter
+    from lu_machinery.common.repo_root import machinery_path, project_interpreter
 except ImportError:  # agent_runtime loaded with scripts/ on path
     from common.repo_root import machinery_path, project_interpreter  # type: ignore[no-redef]
 
@@ -112,8 +112,8 @@ from .deepseek import DEEPSEEK_OPENCODE_MODEL_ROUTES, DeepSeekAdapter
 from .glm import assert_glm_egress_allowed
 
 try:
-    from scripts.guardrails import worktree_containment as _worktree_containment
-    from scripts.guardrails.worktree_containment import (
+    from lu_machinery.guardrails import worktree_containment as _worktree_containment
+    from lu_machinery.guardrails.worktree_containment import (
         NotAGitRepositoryError,
         resolve_main_root,
         resolve_main_root_without_git,
@@ -405,7 +405,7 @@ def _validate_sealed_review_mcp_config(raw: object, *, adapter_label: str) -> st
         snapshot_stat = snapshot.lstat()
         config_parent_stat = config_path.parent.lstat()
         helper_parent_stat = helper.parent.lstat()
-        from scripts.review.isolation import _SEALED_READ_MCP_SOURCE, _has_review_temp_root_marker
+        from lu_machinery.review.isolation import _SEALED_READ_MCP_SOURCE, _has_review_temp_root_marker
 
         expected_helper = hashlib.sha256(_SEALED_READ_MCP_SOURCE.encode("utf-8")).hexdigest()
         observed_helper = hashlib.sha256(helper.read_bytes()).hexdigest()
@@ -2195,7 +2195,7 @@ def _require_claude_acp_launcher(*, adapter_label: str) -> str:
 
 def _claude_code_floor(model: str | None) -> tuple[int, int, int]:
     try:
-        from scripts.review.isolation import CLAUDE_MIN_SUPPORTED_CLI_VERSION
+        from lu_machinery.review.isolation import CLAUDE_MIN_SUPPORTED_CLI_VERSION
     except ImportError:  # pragma: no cover - stripped sys.path flavor
         from review.isolation import CLAUDE_MIN_SUPPORTED_CLI_VERSION  # type: ignore[import-not-found, no-redef]
     return max(CLAUDE_MIN_SUPPORTED_CLI_VERSION, CLAUDE_ACP_MIN_CLAUDE_CODE_VERSIONS.get(model or "", (0, 0, 0)))
@@ -2204,7 +2204,7 @@ def _claude_code_floor(model: str | None) -> tuple[int, int, int]:
 def _probe_pinned_claude_code(executable: Path, *, adapter_label: str) -> tuple[int, int, int]:
     """Run the pinned executable's ``--version`` with a minimal env and parse it."""
     try:
-        from scripts.utils.claude_version import _parse_claude_semver, run_version_probe
+        from lu_machinery.utils.claude_version import _parse_claude_semver, run_version_probe
     except ImportError:  # pragma: no cover - stripped sys.path flavor
         from utils.claude_version import (  # type: ignore[import-not-found, no-redef]
             _parse_claude_semver,
@@ -2426,7 +2426,7 @@ def _attest_claude_code_child(parsed: ParseResult, *, plan: InvocationPlan | Non
     if not parsed.ok:
         return parsed
     try:
-        from scripts.utils.claude_version import _parse_claude_semver
+        from lu_machinery.utils.claude_version import _parse_claude_semver
     except ImportError:  # pragma: no cover - stripped sys.path flavor
         from utils.claude_version import _parse_claude_semver  # type: ignore[import-not-found, no-redef]
     # The plan metadata is the ask's adapter-owned record; the runner hands the
@@ -3449,7 +3449,7 @@ class _AcpxDiscussionAdapter:
                 f"{type(self).__name__}: model={model!r} rejected; caller may only pass None or {self.fixed_model!r}"
             )
         if self.name == "acpx-cursor-shadow":
-            from scripts.review.model_catalog import ModelCatalogError, apply_cursor_model_pins
+            from lu_machinery.review.model_catalog import ModelCatalogError, apply_cursor_model_pins
 
             try:
                 model = apply_cursor_model_pins(model or self.default_model)

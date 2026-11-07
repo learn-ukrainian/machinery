@@ -5,12 +5,12 @@ import os
 from dataclasses import replace
 from pathlib import Path
 
-from scripts.common.safe_open import safe_open_below
-from scripts.common.task_store_paths import tasks_dir
-from scripts.dispatcher import providers
-from scripts.dispatcher.types import Invocation, TaskSpec
-from scripts.lib import rules_core
-from scripts.lint.lint_agent_skills import _frontmatter
+from lu_machinery.common.safe_open import safe_open_below
+from lu_machinery.common.task_store_paths import tasks_dir
+from lu_machinery.dispatcher import providers
+from lu_machinery.dispatcher.types import Invocation, TaskSpec
+from lu_machinery.lib import rules_core
+from lu_machinery.lint.lint_agent_skills import _frontmatter
 
 
 def shared_root() -> Path:
@@ -74,7 +74,7 @@ def build(
     if conversation is not None:
         if spec.agent != "agy" or launch_prompt is not None:
             raise ValueError("only AGY can continue an existing conversation")
-        from scripts.dispatcher.providers.agy import continuation
+        from lu_machinery.dispatcher.providers.agy import continuation
 
         invocation = continuation(invocation, conversation)
         launch_prompt = json.loads(invocation.stdin or b"")["message"]["content"][0]["text"].encode("utf-8")

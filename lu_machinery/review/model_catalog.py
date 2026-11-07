@@ -20,12 +20,12 @@ if __package__ in (None, ""):
 if __name__ == "__main__":
     # Delegate before defining a second ModelCatalogError class. Role validation
     # and launcher entry points must use the same package module instance.
-    from scripts.review.model_catalog import _main as package_main
+    from lu_machinery.review.model_catalog import _main as package_main
 
     raise SystemExit(package_main())
 
 if TYPE_CHECKING:
-    from scripts.review.role_resolution import RoleResolution
+    from lu_machinery.review.role_resolution import RoleResolution
 
 CATALOG_PATH = Path(__file__).resolve().parents[1] / "config" / "model_catalog.yaml"
 PROJECT_ROOT = CATALOG_PATH.parents[2]
@@ -698,7 +698,7 @@ def _validate_ukrainian_seat_catalog(models: Mapping[str, Any]) -> None:
     Eligible families come from ``ukrainian_seats``. Grok may keep the role
     because that role grants it no language route.
     """
-    from scripts.review.ukrainian_seats import UKRAINIAN_SEAT_FAMILIES
+    from lu_machinery.review.ukrainian_seats import UKRAINIAN_SEAT_FAMILIES
 
     held: set[str] = set()
     for model_id, model in models.items():
@@ -730,7 +730,7 @@ def validate_catalog(data: Any) -> dict[str, Any]:
             f"schema_version must be one of {sorted(SUPPORTED_SCHEMA_VERSIONS)!r}, got {catalog.get('schema_version')!r}"
         )
 
-    from scripts.review.role_resolution import expand_routing_references
+    from lu_machinery.review.role_resolution import expand_routing_references
 
     catalog = expand_routing_references(catalog)
     reviewed_on = catalog.get("reviewed_on")
@@ -1017,7 +1017,7 @@ def validate_catalog(data: Any) -> dict[str, Any]:
             seen_models.update(rung_models)
     _validate_usage_pools(catalog.get("usage_pools"))
     _validate_budget_substitution_models(catalog.get("budget_substitution_models"), catalog)
-    from scripts.review.role_resolution import validate_role_catalog
+    from lu_machinery.review.role_resolution import validate_role_catalog
 
     validate_role_catalog(catalog)
     _validate_ukrainian_seat_catalog(catalog["models"])
@@ -1030,7 +1030,7 @@ def resolve_role(
     context: dict[str, Any] | None = None, health: dict[str, Any] | None = None,
 ) -> RoleResolution:
     """Shared Python/shell API for additive routing roles; never launch a process."""
-    from scripts.review.role_resolution import resolve_role as resolve
+    from lu_machinery.review.role_resolution import resolve_role as resolve
 
     return resolve(role, catalog=catalog, purpose=purpose, transport=transport,
                    family=family, context=context, health=health)
@@ -1132,7 +1132,7 @@ def apply_cursor_model_pins(model: str | None, catalog: dict[str, Any] | None = 
         for candidate in _model_id_candidates(text_lower)
     )
     if is_claude:
-        from scripts.agent_runtime.adapters.claude import _default_claude_bin
+        from lu_machinery.agent_runtime.adapters.claude import _default_claude_bin
         if _default_claude_bin():
             raise ModelCatalogError(
                 f"CURSOR_CLAUDE_REFUSED: Claude models ({text}) must use the native Claude CLI "
@@ -1155,7 +1155,7 @@ def _cursor_role_pins(catalog: dict[str, Any]) -> tuple[str, ...]:
     """The same approved logical seats after a holder rotation; v1 is PR 4 compatibility."""
     if "roles" not in catalog:
         return CURSOR_AUTO_EXPECTED_ALLOWLIST
-    from scripts.review.role_resolution import resolve_routing_reference
+    from lu_machinery.review.role_resolution import resolve_routing_reference
 
     return tuple(
         resolve_routing_reference({"role": "legacy_reviewers", "seat": seat}, catalog) for seat in ("xai_reviewer",)

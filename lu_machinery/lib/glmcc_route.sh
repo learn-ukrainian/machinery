@@ -104,7 +104,7 @@ glmcc_configure_route() {
     echo 'Error: Python binary not found for the GLM Claude-Code route.' >&2
     return 1
   fi
-  if ! route="$("$python_bin" "$project_dir/scripts/review/model_catalog.py" --resolve-glm-model "$MODEL_ALIAS" --format glmcc 2>/dev/null)"; then
+  if ! route="$("$python_bin" "$project_dir/lu_machinery/review/model_catalog.py" --resolve-glm-model "$MODEL_ALIAS" --format glmcc 2>/dev/null)"; then
     echo "Error: unsupported GLM model '$MODEL_ALIAS' (use glm-5.3 / glm / glm53)." >&2
     return 2
   fi
@@ -136,7 +136,7 @@ EOF
   # fail closed rather than silently allowing settings.json to override this
   # process-scoped allowlisted route.
   # shellcheck source=scripts/lib/claude_route_guard.sh
-  source "$project_dir/scripts/lib/claude_route_guard.sh"
+  source "$project_dir/lu_machinery/lib/claude_route_guard.sh"
   CLAUDE_ROUTE_GUARD_PYTHON="$python_bin"
   export CLAUDE_ROUTE_GUARD_PYTHON
   if [ "$ISOLATE_CONFIG" = 1 ] && [ -z "${CLAUDE_CONFIG_DIR:-}" ]; then
@@ -148,7 +148,7 @@ EOF
   fi
 
   # shellcheck source=scripts/lib/profile_resolver.sh
-  source "$project_dir/scripts/lib/profile_resolver.sh"
+  source "$project_dir/lu_machinery/lib/profile_resolver.sh"
   CLAUDE_PROFILE_RESOLVER_PYTHON="$python_bin"
   export CLAUDE_PROFILE_RESOLVER_PYTHON
   if ! resolve_context_profile "$profile" "$LEAD_MODEL"; then

@@ -2,7 +2,7 @@
 
 The public repository runs `stale-branch-cleanup.yml` daily at 04:43 UTC and
 through **Run workflow**. Both events run the same standard-library helper.
-HTTP reads use `scripts.common.github_client` with fresh, uncached responses
+HTTP reads use `lu_machinery.common.github_client` with fresh, uncached responses
 and the helper's redirect refusal policy. The sparse checkout includes that
 shared client, and the workflow invokes the helper as a Python module.
 Select the default branch for manual runs. Branch and tag selections elsewhere

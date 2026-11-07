@@ -33,9 +33,9 @@ for _path in (REPO_ROOT, _PACKAGE_DIR):
     if str(_path) not in sys.path:
         sys.path.insert(0, str(_path))
 
-from scripts.orchestration import worktree_claims
-from scripts.orchestration.task_record_store import ARCHIVE_DIR_NAME
-from scripts.orchestration.worktree_claims import RELEASED_TASK_STATUSES, WorktreeLockError
+from lu_machinery.orchestration import worktree_claims
+from lu_machinery.orchestration.task_record_store import ARCHIVE_DIR_NAME
+from lu_machinery.orchestration.worktree_claims import RELEASED_TASK_STATUSES, WorktreeLockError
 
 
 def _mp(relative: str) -> str:

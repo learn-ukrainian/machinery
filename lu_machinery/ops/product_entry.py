@@ -88,7 +88,7 @@ from importlib.machinery import ModuleSpec
 from pathlib import Path
 from types import ModuleType
 
-from scripts.common import repo_root
+from lu_machinery.common import repo_root
 
 _SQLITE_MODULES = frozenset({"sqlite3", "_sqlite3"})
 _NAME_RE = re.compile(r"scripts(?:\.[a-z_][a-z0-9_]*)+")

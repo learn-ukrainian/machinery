@@ -1,6 +1,6 @@
 """Control-plane storage seam (Phase 0b — sqlite default, real pg adapter)."""
 
-from scripts.control_plane.storage import (
+from lu_machinery.control_plane.storage import (
     Authority,
     ControlPlaneError,
     ControlPlanePgConnectError,

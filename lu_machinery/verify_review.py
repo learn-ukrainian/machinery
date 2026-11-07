@@ -45,10 +45,10 @@ _REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
-from scripts.opsec.prepublish import publication_cli
-from scripts.publish.github import Request, request_run
-from scripts.review.evidence import build_target_manifest
-from scripts.review.review_contract import (
+from lu_machinery.opsec.prepublish import publication_cli
+from lu_machinery.publish.github import Request, request_run
+from lu_machinery.review.evidence import build_target_manifest
+from lu_machinery.review.review_contract import (
     BEHAVIOR_PROOF_SCHEMA_VERSION,
     EXIT_INVALID,
     AgentIdentity,
@@ -58,7 +58,7 @@ from scripts.review.review_contract import (
     sha256_text,
     verify_review,
 )
-from scripts.review.target_resolution import (
+from lu_machinery.review.target_resolution import (
     TargetResolutionError,
     resolve_review_target,
 )

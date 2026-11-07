@@ -8,9 +8,9 @@ from pathlib import Path
 
 import yaml
 
-from scripts.common import repo_root
-from scripts.lint.lint_fleet_roster import SEAT_FIELDS, load_orchestrator_seats
-from scripts.review.role_resolution import resolve_routing_reference
+from lu_machinery.common import repo_root
+from lu_machinery.lint.lint_fleet_roster import SEAT_FIELDS, load_orchestrator_seats
+from lu_machinery.review.role_resolution import resolve_routing_reference
 
 ROOT = Path(__file__).resolve().parents[5]
 # The catalog is a machinery file; the tables name it by its checkout-relative path, whose first

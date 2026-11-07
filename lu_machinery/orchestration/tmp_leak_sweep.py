@@ -41,8 +41,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from scripts.common.scratch import resolve_scratch_root
-from scripts.common.task_scratch import (
+from lu_machinery.common.scratch import resolve_scratch_root
+from lu_machinery.common.task_scratch import (
     DEFAULT_MIN_FREE_GB,
     NAMESPACE_DIRNAME,
     SCRATCH_MIN_FREE_ENV,
@@ -50,7 +50,7 @@ from scripts.common.task_scratch import (
     managed_scratch_paths,
     scratch_min_free_gb,
 )
-from scripts.path_safety import assert_delete_target
+from lu_machinery.path_safety import assert_delete_target
 
 # 2h normal; 30m under disk pressure.
 DEFAULT_MIN_AGE_S = 2 * 60 * 60
@@ -623,7 +623,7 @@ def _remove_path(
     expected_dev: int,
     expected_ino: int,
 ) -> None:
-    from scripts.hygiene.retention_engine import reap_attributed_temp
+    from lu_machinery.hygiene.retention_engine import reap_attributed_temp
 
     target = assert_delete_target(
         path,

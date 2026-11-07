@@ -189,7 +189,7 @@ review_scheduler:
       participant: agy
       adapter_transport: native_agy
       catalog_transport: agy
-      sealed_executable: scripts/dispatch.py
+      sealed_executable: lu_machinery/dispatch.py
       quota_bucket: agy
       credential_bucket: agy
       quota_limit: 2
@@ -215,7 +215,7 @@ review_scheduler:
       participant: muse
       adapter_transport: native_muse
       catalog_transport: native_muse
-      sealed_executable: scripts/dispatch.py
+      sealed_executable: lu_machinery/dispatch.py
       quota_bucket: muse
       credential_bucket: muse
       quota_limit: 1
@@ -1403,7 +1403,7 @@ seats:
         route: muse
         transport: native_muse
         effort: high
-        invocation: .venv/bin/python scripts/dispatch.py dispatch --agent muse --model {wire_id} --effort high --contributor-mode off
+        invocation: .venv/bin/python lu_machinery/dispatch.py dispatch --agent muse --model {wire_id} --effort high --contributor-mode off
         review_profiles:
         - code
         - infra
@@ -1421,7 +1421,7 @@ seats:
         effort: high
         route: codex
         transport: native_codex
-        invocation: .venv/bin/python scripts/dispatch.py dispatch --agent codex --codex-account b-sub --model {wire_id} --effort high
+        invocation: .venv/bin/python lu_machinery/dispatch.py dispatch --agent codex --codex-account b-sub --model {wire_id} --effort high
         review_profiles:
         - code
         - infra
@@ -1436,7 +1436,7 @@ seats:
         effort: high
         route: codex
         transport: native_codex
-        invocation: .venv/bin/python scripts/dispatch.py dispatch --agent codex --model {wire_id} --effort high
+        invocation: .venv/bin/python lu_machinery/dispatch.py dispatch --agent codex --model {wire_id} --effort high
         review_profiles:
         - code
         - infra
@@ -1457,7 +1457,7 @@ seats:
         effort: high
         route: codex
         transport: native_codex
-        invocation: .venv/bin/python scripts/dispatch.py dispatch --agent codex --model {wire_id} --effort high
+        invocation: .venv/bin/python lu_machinery/dispatch.py dispatch --agent codex --model {wire_id} --effort high
         review_profiles: [code]
         capabilities: [code_review, isolation, sealed_evidence]
   xai_reviewer:
@@ -1474,7 +1474,7 @@ seats:
         - critical_review
         route: cursor
         transport: cursor
-        invocation: .venv/bin/python scripts/dispatch.py dispatch --agent cursor --model {wire_id}
+        invocation: .venv/bin/python lu_machinery/dispatch.py dispatch --agent cursor --model {wire_id}
         review_profiles:
         - code
         - infra
@@ -1493,7 +1493,7 @@ seats:
         effort: high
         route: claude
         transport: native_claude
-        invocation: .venv/bin/python scripts/dispatch.py dispatch --agent claude --model {wire_id}
+        invocation: .venv/bin/python lu_machinery/dispatch.py dispatch --agent claude --model {wire_id}
         review_profiles:
         - code
         - infra
@@ -1507,7 +1507,7 @@ seats:
         route: agy
         transport: agy
         transport_fallback_for: claude-opus-5-5
-        invocation: .venv/bin/python scripts/dispatch.py dispatch --agent agy --model {wire_id}
+        invocation: .venv/bin/python lu_machinery/dispatch.py dispatch --agent agy --model {wire_id}
         review_profiles:
         - code
         - infra
@@ -1525,7 +1525,7 @@ seats:
         effort: high
         route: claude
         transport: native_claude
-        invocation: .venv/bin/python scripts/dispatch.py dispatch --agent claude --model {wire_id}
+        invocation: .venv/bin/python lu_machinery/dispatch.py dispatch --agent claude --model {wire_id}
         review_profiles:
         - code
         - infra
@@ -1539,7 +1539,7 @@ seats:
         route: agy
         transport: agy
         transport_fallback_for: claude-sonnet-5-5
-        invocation: .venv/bin/python scripts/dispatch.py dispatch --agent agy --model {wire_id}
+        invocation: .venv/bin/python lu_machinery/dispatch.py dispatch --agent agy --model {wire_id}
         review_profiles:
         - code
         - infra
@@ -1555,7 +1555,7 @@ seats:
         route: claude
         transport: native_claude
         effort: high
-        invocation: .venv/bin/python scripts/dispatch.py dispatch --agent claude --model {wire_id} --effort high
+        invocation: .venv/bin/python lu_machinery/dispatch.py dispatch --agent claude --model {wire_id} --effort high
   bounded_worker:
     model_id: gpt-6-luna
     bindings:
@@ -1567,7 +1567,7 @@ seats:
         route: codex
         transport: native_codex
         effort: high
-        invocation: .venv/bin/python scripts/dispatch.py dispatch --agent codex --model {wire_id} --effort high
+        invocation: .venv/bin/python lu_machinery/dispatch.py dispatch --agent codex --model {wire_id} --effort high
   google_bounded:
     model_id: gemini-3.8-flash-high
     bindings:
@@ -1583,7 +1583,7 @@ seats:
         route: agy
         transport: agy
         effort: high
-        invocation: .venv/bin/python scripts/dispatch.py dispatch --agent agy --model {wire_id} --effort high
+        invocation: .venv/bin/python lu_machinery/dispatch.py dispatch --agent agy --model {wire_id} --effort high
 roles:
   routine_mechanical:
     routes: [mechanical_worker/native, anthropic_practical/native]

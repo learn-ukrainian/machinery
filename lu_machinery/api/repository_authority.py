@@ -8,9 +8,9 @@ import subprocess
 from pathlib import Path
 from urllib.parse import urlparse
 
-from scripts.common.git_context import sanitized_git_env
-from scripts.common.release_layout import MANIFEST_NAME, is_release_root
-from scripts.guardrails.worktree_containment import classify_repo_path
+from lu_machinery.common.git_context import sanitized_git_env
+from lu_machinery.common.release_layout import MANIFEST_NAME, is_release_root
+from lu_machinery.guardrails.worktree_containment import classify_repo_path
 
 _FULL_SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 _HASH_RE = re.compile(r"^[0-9a-f]{64}$")

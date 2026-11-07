@@ -96,7 +96,7 @@ def admission_digest(entry: dict) -> str:
 
 
 def _gh(*args: str) -> str:
-    from scripts.common import github_client
+    from lu_machinery.common import github_client
 
     return github_client.run(
         ["gh", *args], fresh=True, capture_output=True, text=True, check=True, timeout=120,
@@ -105,7 +105,7 @@ def _gh(*args: str) -> str:
 
 def _merge_group_evidence(run: dict, node_id: str) -> tuple[int, datetime]:
     """Prove an unrelated queue failure using the tested tree and shared import scan."""
-    from scripts.ci import components
+    from lu_machinery.ci import components
 
     branch = re.fullmatch(r"gh-readonly-queue/main/pr-([1-9][0-9]*)-([0-9a-f]{40})", run.get("head_branch", ""))
     try:
@@ -173,7 +173,7 @@ def _merge_group_evidence(run: dict, node_id: str) -> tuple[int, datetime]:
 
 
 def _check_admission(entry: dict, *, repository: str, destination: Path) -> None:
-    from scripts.ci.junit_results import parse_junit
+    from lu_machinery.ci.junit_results import parse_junit
 
     if entry.get("renewed_on", entry["admitted_on"]) > date.today():
         raise ValueError("admission start date must not be in the future")
@@ -238,7 +238,7 @@ def check_admissions(entries: list[dict], previous: list[dict], *, repository: s
     after checking the operator/advisor provenance and coverage explanation.
     Their digest-bound comment attests that judgment; a run ID alone does not.
     """
-    from scripts.common.scratch import ensure_scratch_root
+    from lu_machinery.common.scratch import ensure_scratch_root
 
     old = {entry["node_id"]: entry for entry in previous}
     changed = [entry for entry in entries if old.get(entry["node_id"]) != entry]

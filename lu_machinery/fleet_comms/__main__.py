@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from scripts.fleet_comms.cli import main
+from lu_machinery.fleet_comms.cli import main
 
 if __name__ == "__main__":
     raise SystemExit(main())

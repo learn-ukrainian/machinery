@@ -85,7 +85,7 @@ from pathlib import Path
 from urllib.parse import quote
 from uuid import UUID
 
-from scripts.secret_redactor import redact_text
+from lu_machinery.secret_redactor import redact_text
 
 from ..failure_codes import provider_failure_code, provider_stderr_error
 from ..grok_reviewer_permissions import GROK_REVIEWER_TOOLS
@@ -280,7 +280,7 @@ def _guard_agent_definition(
     payload consumed by the existing guards. ``promptMode`` stays at its
     default (extend), so the body is appended to the base system prompt.
     """
-    from scripts.common.repo_root import machinery_path
+    from lu_machinery.common.repo_root import machinery_path
 
     from .claude import _worker_guard_settings
 
@@ -313,7 +313,7 @@ def _guard_agent_definition(
 
 def _reviewer_agent_definition(cwd: Path) -> str:
     """Read-only reviewer agent: fleet guards plus the publish guard."""
-    from scripts.common.repo_root import machinery_path, project_interpreter
+    from lu_machinery.common.repo_root import machinery_path, project_interpreter
 
     source_root = Path(__file__).resolve().parents[3]
     guard = machinery_path("agent_runtime/grok_reviewer_permissions.py")
@@ -528,7 +528,7 @@ class GrokBuildAdapter:
         )
         review_write_root: Path | None = None
         if review_isolation:
-            from scripts.review.isolation import validated_review_write_root
+            from lu_machinery.review.isolation import validated_review_write_root
 
             review_write_root = validated_review_write_root(tc)
             trusted = tc.get("review_engine_binary")
@@ -805,7 +805,7 @@ class GrokBuildAdapter:
         requested_model = self.default_model
         if plan is not None and "-m" in plan.cmd:
             requested_model = plan.cmd[plan.cmd.index("-m") + 1]
-        from scripts.review.model_catalog import runtime_model_matches_requested
+        from lu_machinery.review.model_catalog import runtime_model_matches_requested
 
         attribution = {
             "requested_provider": "grok",

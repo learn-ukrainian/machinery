@@ -58,8 +58,8 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from scripts.common.jsonl import jsonl_lines
-from scripts.common.repo_root import product_root, project_interpreter
+from lu_machinery.common.jsonl import jsonl_lines
+from lu_machinery.common.repo_root import product_root, project_interpreter
 
 # The product build command, relative to the product checkout it runs in (C-4746).
 V7_BUILD_REL = Path("scripts/build/v7_build.py")

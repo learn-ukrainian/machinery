@@ -40,8 +40,8 @@ from collections.abc import Iterable, Mapping
 from datetime import UTC, datetime
 from pathlib import Path
 
-from scripts.common.git_context import sanitized_git_env
-from scripts.guardrails import worktree_containment as wc
+from lu_machinery.common.git_context import sanitized_git_env
+from lu_machinery.guardrails import worktree_containment as wc
 
 SCHEMA = "primary-dirt-audit.v1"
 STATE_NAMESPACE = ("learn-ukrainian", "primary-dirt-audit")

@@ -209,7 +209,7 @@ def parse_saved_view_params(raw: dict[str, str | list[str] | None]) -> dict[str,
             # owner/name strings (and env overrides) must never create cache
             # keys or repoint collectors. Private P2 stays browser-local.
             # Same admission gate as collectors / normalize — no sibling bypass.
-            from scripts.work.sources_public import admit_public_repository_id
+            from lu_machinery.work.sources_public import admit_public_repository_id
 
             for item in cleaned:
                 try:

@@ -61,8 +61,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from scripts.common.acp_runtime_lock import owner_alive, process_start_time
-from scripts.common.scratch import (
+from lu_machinery.common.acp_runtime_lock import owner_alive, process_start_time
+from lu_machinery.common.scratch import (
     DEFAULT_SCRATCH_ROOT,
     ensure_scratch_root,
     fallback_scratch_root,

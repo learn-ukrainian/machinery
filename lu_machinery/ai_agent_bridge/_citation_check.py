@@ -67,7 +67,7 @@ from pathlib import Path
 from typing import NamedTuple
 
 try:
-    from scripts.lib.readonly_sqlite import open_readonly
+    from lu_machinery.lib.readonly_sqlite import open_readonly
 except ModuleNotFoundError as exc:
     if exc.name != Path(os.path.abspath(__file__)).parents[1].name:
         raise
@@ -250,7 +250,7 @@ def _repository_sources_db() -> Path:
     """
     global _REPOSITORY_SOURCES_DB
     if _REPOSITORY_SOURCES_DB is None:
-        from scripts.storage.topology import resolve_active_sources_db
+        from lu_machinery.storage.topology import resolve_active_sources_db
 
         root = Path(__file__).resolve().parents[2]
         _REPOSITORY_SOURCES_DB = resolve_active_sources_db(root, env={}, refuse_network=False).path

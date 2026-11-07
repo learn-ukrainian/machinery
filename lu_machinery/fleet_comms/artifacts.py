@@ -47,17 +47,17 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-from scripts.control_plane.storage import (
+from lu_machinery.control_plane.storage import (
     Authority,
     StoreId,
     assert_component_supported,
 )
-from scripts.control_plane.storage import connect as cp_connect
-from scripts.fleet_comms.contracts import new_id
-from scripts.fleet_comms.migrations import apply_migrations
-from scripts.fleet_comms.paths import DEFAULT_ROOT_REL, default_plane_root
-from scripts.fleet_comms.paths import validate_plane_root as validate_plane_root
-from scripts.fleet_comms.pg_schema import (
+from lu_machinery.control_plane.storage import connect as cp_connect
+from lu_machinery.fleet_comms.contracts import new_id
+from lu_machinery.fleet_comms.migrations import apply_migrations
+from lu_machinery.fleet_comms.paths import DEFAULT_ROOT_REL, default_plane_root
+from lu_machinery.fleet_comms.paths import validate_plane_root as validate_plane_root
+from lu_machinery.fleet_comms.pg_schema import (
     PG_BLOB_TABLE,
     PgSchemaError,
     apply_pg_schema,
@@ -2326,7 +2326,7 @@ class ArtifactStore:
     # ever supply this store's own already-resolved connection and dialect.
 
     def resolve_v4_execution_observation(self, *, task_id: str, run_id: str, role: str) -> dict[str, Any] | None:
-        from scripts.fleet_comms import v4_canonical_authority_store as v4_store
+        from lu_machinery.fleet_comms import v4_canonical_authority_store as v4_store
 
         return v4_store.resolve_execution_observation(task_id=task_id, run_id=run_id, role=role, conn=self._conn, is_pg=self._authority is Authority.PG)
 
@@ -2341,7 +2341,7 @@ class ArtifactStore:
         """The exclusive Sources-invocation writer: builds the record from
         a typed handler outcome and an authenticated attempt."""
         self._refuse_readonly_write("record_v4_sources_invocation_from_typed_outcome")
-        from scripts.fleet_comms import v4_canonical_authority_store as v4_store
+        from lu_machinery.fleet_comms import v4_canonical_authority_store as v4_store
 
         with self._transaction() as conn:
             return v4_store.record_sources_invocation_from_typed_outcome(
@@ -2355,7 +2355,7 @@ class ArtifactStore:
             )
 
     def resolve_v4_sources_invocation(self, *, invocation_id: str) -> dict[str, Any] | None:
-        from scripts.fleet_comms import v4_canonical_authority_store as v4_store
+        from lu_machinery.fleet_comms import v4_canonical_authority_store as v4_store
 
         return v4_store.resolve_sources_invocation(invocation_id=invocation_id, conn=self._conn, is_pg=self._authority is Authority.PG)
 

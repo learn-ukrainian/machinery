@@ -18,7 +18,7 @@ set -euo pipefail
 
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 # shellcheck source=scripts/lib/kimicc_route.sh
-source "$PROJECT_DIR/scripts/lib/kimicc_route.sh"
+source "$PROJECT_DIR/lu_machinery/lib/kimicc_route.sh"
 
 MODEL_ALIAS="${KIMICC_MODEL:-k3}"
 ENDPOINT="${KIMICC_ENDPOINT:-coding}"

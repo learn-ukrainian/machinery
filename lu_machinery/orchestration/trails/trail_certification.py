@@ -23,14 +23,14 @@ from typing import Any, Literal
 import yaml
 from jsonschema import Draft202012Validator, FormatChecker
 
-from scripts.orchestration.trails.executor import TrailExecutor
-from scripts.orchestration.trails.models import (
+from lu_machinery.orchestration.trails.executor import TrailExecutor
+from lu_machinery.orchestration.trails.models import (
     CommandExecution,
     InjectedCrash,
     TrailRunResult,
 )
-from scripts.orchestration.trails.store import TrailStore, digest_json
-from scripts.orchestration.validate_trailspec import compute_trail_hash, validate_trailspec_data
+from lu_machinery.orchestration.trails.store import TrailStore, digest_json
+from lu_machinery.orchestration.validate_trailspec import compute_trail_hash, validate_trailspec_data
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 CERTIFICATION_ATTESTATION_SCHEMA_PATH = (

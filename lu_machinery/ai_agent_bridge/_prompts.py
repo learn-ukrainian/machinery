@@ -3,8 +3,8 @@
 import os
 from pathlib import Path
 
-from scripts.common.repo_root import product_root
-from scripts.lib import rules_core
+from lu_machinery.common.repo_root import product_root
+from lu_machinery.lib import rules_core
 
 from ._config import MACHINERY_PACKAGE, REPO_ROOT
 

@@ -12,12 +12,12 @@ exactly 3 goals, 3 decisions/rationales, 2 negative constraints/prohibitions, an
 Monitor facts and never pad anchors.
 
 ```bash
-.venv/bin/python scripts/orchestration/thread_handoff.py resume --agent <agent> --lineage-id <lineage-id> --rollover-id <rollover-id> --replacement-thread-id <exact-replacement-task-id>
-.venv/bin/python scripts/context_canary.py mint --snapshot <semantic_snapshot_path> --out <strict_probe_path>
-.venv/bin/python scripts/context_canary.py questions --probe <strict_probe_path> --out <strict_questions_path>
-.venv/bin/python scripts/context_canary.py score --probe <strict_probe_path> --answers <strict_answers_path> --expected-lineage-id <lineage-id> --expected-rollover-id <rollover-id> --verdict <strict_verdict_path>
-.venv/bin/python scripts/orchestration/thread_handoff_canary.py --rollover-id <rollover-id> --replacement-thread-id <exact-replacement-task-id> --challenge <canary_challenge> --proof-file <canary_proof_path>
-.venv/bin/python scripts/orchestration/thread_handoff.py confirm-started --agent <agent> --lineage-id <lineage-id> --rollover-id <rollover-id> --new-thread-id <exact-replacement-task-id> --canary-proof <canary_proof_path> --strict-probe <strict_probe_path> --strict-verdict <strict_verdict_path>
+.venv/bin/python lu_machinery/orchestration/thread_handoff.py resume --agent <agent> --lineage-id <lineage-id> --rollover-id <rollover-id> --replacement-thread-id <exact-replacement-task-id>
+.venv/bin/python lu_machinery/context_canary.py mint --snapshot <semantic_snapshot_path> --out <strict_probe_path>
+.venv/bin/python lu_machinery/context_canary.py questions --probe <strict_probe_path> --out <strict_questions_path>
+.venv/bin/python lu_machinery/context_canary.py score --probe <strict_probe_path> --answers <strict_answers_path> --expected-lineage-id <lineage-id> --expected-rollover-id <rollover-id> --verdict <strict_verdict_path>
+.venv/bin/python lu_machinery/orchestration/thread_handoff_canary.py --rollover-id <rollover-id> --replacement-thread-id <exact-replacement-task-id> --challenge <canary_challenge> --proof-file <canary_proof_path>
+.venv/bin/python lu_machinery/orchestration/thread_handoff.py confirm-started --agent <agent> --lineage-id <lineage-id> --rollover-id <rollover-id> --new-thread-id <exact-replacement-task-id> --canary-proof <canary_proof_path> --strict-probe <strict_probe_path> --strict-verdict <strict_verdict_path>
 ```
 
 Create `strict_answers_path` only from the questions-only view after restoring

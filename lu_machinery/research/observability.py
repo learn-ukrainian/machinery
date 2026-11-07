@@ -41,10 +41,10 @@ from typing import Any, NamedTuple, cast
 
 import yaml
 
-from scripts.common.repo_root import machinery_path
-from scripts.orchestration import issue_stream_audit as isa
-from scripts.research import consumption
-from scripts.research import registry as reg
+from lu_machinery.common.repo_root import machinery_path
+from lu_machinery.orchestration import issue_stream_audit as isa
+from lu_machinery.research import consumption
+from lu_machinery.research import registry as reg
 
 logger = logging.getLogger("research.observability")
 

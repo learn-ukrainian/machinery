@@ -13,7 +13,7 @@ On limit: note the substitution and reroute per the fallback table — never blo
 
 Every agent that commits to a branch adds its model family to the branch's author
 families; the cross-family reviewer must be outside all of them
-(`scripts/dispatcher/checks.py`, `check_branch_author_families`). The Ukrainian
+(`lu_machinery/dispatcher/checks.py`, `check_branch_author_families`). The Ukrainian
 review profile (`agents_extensions/shared/skills/review-loop/references/ukrainian.md`)
 seats only Gemini and Sol, so adding author families can leave no eligible reviewer.
 A takeover successor or helper on a Ukrainian content branch must therefore stay
@@ -26,8 +26,8 @@ Before picking a seat, read fresh tool output from all of these:
 
 ```bash
 curl -sS --max-time 3 "http://127.0.0.1:8765/api/state/routing-budget"
-.venv/bin/python -m scripts.fleet.capacity_pick
-.venv/bin/python -m scripts.fleet.usage show     # pace (also the capacity_pick pace column)
+.venv/bin/python -m lu_machinery.fleet.capacity_pick
+.venv/bin/python -m lu_machinery.fleet.usage show     # pace (also the capacity_pick pace column)
 ```
 
 Prefer cooler / higher-headroom seats from that data. Do **not** habit-route to a hot,
@@ -75,9 +75,9 @@ Before **every** implement `dispatch.py dispatch`:
    written `NOTE: fleet_breadth` with tool-backed blockers.
 6. Before handoff, run and attach:
    ```bash
-   .venv/bin/python -m scripts.fleet.driver_breadth_report --initiator "$SESSION_HANDOFF_AGENT" --since-hours 24
+   .venv/bin/python -m lu_machinery.fleet.driver_breadth_report --initiator "$SESSION_HANDOFF_AGENT" --since-hours 24
    # optional hard check:
-   .venv/bin/python -m scripts.fleet.driver_breadth_report --initiator grok --since-hours 24 --enforce
+   .venv/bin/python -m lu_machinery.fleet.driver_breadth_report --initiator grok --since-hours 24 --enforce
    ```
 
 Fixation on one practical seat while free lanes sit idle = utilization failure
@@ -122,14 +122,14 @@ Chat "ready" is not DoR. Tables: `docs/best-practices/task-quality.md` and `/api
 Before review, apply the size signal and its split-or-justify line in [workflow.md § Merge policy](../../../rules/workflow.md#merge-policy--ready-prs-must-not-sit-4703-landing-order-7450).
 
 ```bash
-.venv/bin/python scripts/dispatch.py dispatch --model <catalog-model>  --agent <lane> --worktree ...
+.venv/bin/python lu_machinery/dispatch.py dispatch --model <catalog-model>  --agent <lane> --worktree ...
 ```
 
 A takeover or any worker pushing to an existing PR branch is dispatched with `--branch <PR head branch>`.
 A workspace-write dispatch uses `--base origin/main` with that branch, and the PR's files as owned paths. A `--base` that settlement cannot verify, including a commit SHA, is refused at dispatch by the origin-base rule settlement uses. A `--base` whose branch equals `--branch` is refused at dispatch too, because settlement requires those refs to differ. Read-only dispatches still accept a SHA base.
 
 If frozen inputs require creating a tree before dispatch, use
-`create_worktree` from `scripts.dispatcher.git`, with `creator_actor` naming the driver.
+`create_worktree` from `lu_machinery.dispatcher.git`, with `creator_actor` naming the driver.
 The helper writes a durable creator receipt. Tasks launched with `--cwd` borrow
 that tree. Once all borrowers are terminal, use `worktree_claims remove PATH`
 without `--owner-task-id`. The remover preserves output before plain Git removal.
@@ -185,7 +185,7 @@ unless the CTO approves that specific test. Never
 collect the whole `tests/` tree (`pytest tests`, `pytest tests -k …`) or use `-n auto`
 or `-n` above 2, and run those tests in the foreground and wait. The full suite
 runs in the PR's CI (and again in the merge queue on the merged tree) — that is
-the proof; do not trigger extra full runs. Use `.venv/bin/python -m scripts.publish workflow-run --workflow ci.yml --ref <branch>`
+the proof; do not trigger extra full runs. Use `.venv/bin/python -m lu_machinery.publish workflow-run --workflow ci.yml --ref <branch>`
 only when the brief explicitly asks for it (a branch with no PR yet, a baseline
 capture, or diagnosis).
 
@@ -203,7 +203,7 @@ live worker and no wait is a driver defect. When the wait returns, read the resu
 take the next action. This wait is a §2c fill window, not an idle period: fill free lanes
 before holding.
 
-Dispatch v2 terminal statuses (`scripts/dispatcher/worker.py`): **`done` = SUCCESS**;
+Dispatch v2 terminal statuses (`lu_machinery/dispatcher/worker.py`): **`done` = SUCCESS**;
 other terminal statuses: `failed | timeout | rate_limited | cancelled |
 crashed | no_deliverable`. `--dry-run` prints a plan without creating a task record. Emit on any
 status NOT in `{spawning, running, ""}`. The task file is truth; `/api/delegate/active`

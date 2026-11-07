@@ -11,8 +11,8 @@ from __future__ import annotations
 
 import json
 
-from scripts.common.jsonl import jsonl_lines
-from scripts.dispatcher.types import Invocation, ParsedResult, TaskSpec
+from lu_machinery.common.jsonl import jsonl_lines
+from lu_machinery.dispatcher.types import Invocation, ParsedResult, TaskSpec
 
 
 def build(spec: TaskSpec, env: dict[str, str]) -> Invocation:

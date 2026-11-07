@@ -13,7 +13,7 @@ from pathlib import Path
 if __package__ in {None, ""}:
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from scripts.dispatcher import pool_selector as selector
+from lu_machinery.dispatcher import pool_selector as selector
 
 # The machinery package's directory name, which is also its import name and the first component
 # of its files' checkout paths. Taken from this file's unresolved location, so neither a short
@@ -103,7 +103,7 @@ def screen(policy_path: Path | None = None, *, redact: bool = False) -> str:
         sources = selector.budget_sources(selector.read_budget(), now)
     except Exception:
         sources = {}
-    from scripts.dispatcher.store import list_tasks
+    from lu_machinery.dispatcher.store import list_tasks
 
     records = list_tasks(include_archive=True)
     counts, history = shadow_history(now, {p.key: p.source for p in policy.pools} if policy else {}, records)

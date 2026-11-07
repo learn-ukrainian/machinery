@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Any
 
 try:
-    from scripts.lib.readonly_sqlite import open_readonly
+    from lu_machinery.lib.readonly_sqlite import open_readonly
 except ModuleNotFoundError as exc:
     # Only this package's own absence selects the short spelling; its name comes from this
     # file's unresolved location (design-v1 amendment 1), never __package__.
@@ -28,10 +28,10 @@ except ModuleNotFoundError as exc:
         raise
     from lib.readonly_sqlite import open_readonly  # type: ignore[no-redef]
 
-from scripts.common import github_client
-from scripts.control_plane.storage import StoreId, assert_component_supported
-from scripts.control_plane.storage import connect as cp_connect
-from scripts.fleet_comms.efficiency_metrics import (
+from lu_machinery.common import github_client
+from lu_machinery.control_plane.storage import StoreId, assert_component_supported
+from lu_machinery.control_plane.storage import connect as cp_connect
+from lu_machinery.fleet_comms.efficiency_metrics import (
     _AUTHORITY_BACKLOG_STATES,
     _column_names,
     _table_exists,
@@ -42,12 +42,12 @@ from scripts.fleet_comms.efficiency_metrics import (
     collect_stream_bottleneck_metrics,
     resolve_metrics_source,
 )
-from scripts.fleet_comms.message_plane import (
+from lu_machinery.fleet_comms.message_plane import (
     default_plane_root,
     read_plane_status,
     resolve_plane_mode,
 )
-from scripts.fleet_comms.opsec_store import (
+from lu_machinery.fleet_comms.opsec_store import (
     COMMS_RESPONSE_SCHEMA_VERSION,
     batch_tasks_store,
     comms_plane_store,
@@ -186,7 +186,7 @@ def _probe_plane_status(root: Path | None, repo_root: Path | None) -> dict[str, 
 
 
 def _resolve_broker_db_ro(root: Path | None, repo_root: Path | None) -> Path:
-    from scripts.fleet_comms.cli import _default_message_db
+    from lu_machinery.fleet_comms.cli import _default_message_db
 
     db_env = os.environ.get("AB_DB_PATH")
     if db_env:

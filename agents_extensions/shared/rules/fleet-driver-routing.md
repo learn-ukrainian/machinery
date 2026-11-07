@@ -11,7 +11,7 @@ catalog seats with 33% dispatch `done` rate while free lanes sat idle.
 attach tool-backed breadth evidence on handoff; missing card is a process defect.
 
 **Owner:** fleet / harness lane; source path this file +
-`scripts/fleet/driver_breadth_report.py`.
+`lu_machinery/fleet/driver_breadth_report.py`.
 
 **False-positive budget:** NOTE with tool-backed reason (near_cap, language-lane
 only, PATH/tool outage already substituted) is allowed; silent single-seat
@@ -65,18 +65,18 @@ pool has headroom. A review of a Grok author runs the reviewer resolver's non-xA
 through Cursor (D-129, #10464), and the Other Models pool never carries a review. DeepSeek V4.1 Flash coding through opencode is allowed; review-of-record and Ukrainian work need measured evidence first; `deepseek-v4.1-flash` remains active in the catalog, and Pro is retired.
 
 **Use active catalog seats with headroom.** Live check:
-`.venv/bin/python -m scripts.fleet.capacity_pick` (preferred) +
-`.venv/bin/python -m scripts.fleet.usage show` (per-lane remaining% + pace lines)
+`.venv/bin/python -m lu_machinery.fleet.capacity_pick` (preferred) +
+`.venv/bin/python -m lu_machinery.fleet.usage show` (per-lane remaining% + pace lines)
 + `/api/delegate/active` + disk. (`codexbar usage` is retired — do not cite it.)
 
 **Mandatory pre-dispatch (binding):** Before every implement `dispatch.py dispatch`, run:
 
 ```bash
-.venv/bin/python -m scripts.fleet.capacity_pick
+.venv/bin/python -m lu_machinery.fleet.capacity_pick
 # pace detail per lane (remaining%, pace lines, will_last, deficit):
-.venv/bin/python -m scripts.fleet.usage show
+.venv/bin/python -m lu_machinery.fleet.usage show
 # then dispatch with an explicit eligible provider/model:
-.venv/bin/python scripts/dispatch.py dispatch --agent <lane> --model <catalog-model> --prompt-file <brief> --worktree
+.venv/bin/python lu_machinery/dispatch.py dispatch --agent <lane> --model <catalog-model> --prompt-file <brief> --worktree
 ```
 
 **Refuse deficit when cooler seats exist.** Do **not** habit-route to Codex (or any
@@ -95,7 +95,7 @@ stampede one hot lane.
 | --- | --- | --- |
 | **Cursor, included pool** | code/infra CI, mechanical + ordinary infra/code implement | `--agent cursor --model grok-4.7-high`. Not Fast, not `grok-4.6`, not `grok-4.5`. Not CF of a Grok author |
 | **Cursor, Other Models** | named third-party model, non-review work only; never a review (D-129, #10464) | Pin only an approved concrete slug from § Cursor pools. Draws the API pool. A review of a Grok author goes to the `resolve-reviewer` non-xAI pick instead. |
-| **DeepSeek V4.1 Flash** | Latest `deepseek-v4.1-flash` coding through opencode | Direct DeepSeek API or OpenRouter with a named US provider allow-list; never private-repository content or secrets. Pro and older are retired. Review-of-record and Ukrainian work need measured evidence first. `scripts/ai_agent_bridge/routing_guard.py` still refuses `openrouter/deepseek` until a named US provider allow-list exists. `ask-deepseek` remains consult-only for non-language work. |
+| **DeepSeek V4.1 Flash** | Latest `deepseek-v4.1-flash` coding through opencode | Direct DeepSeek API or OpenRouter with a named US provider allow-list; never private-repository content or secrets. Pro and older are retired. Review-of-record and Ukrainian work need measured evidence first. `lu_machinery/ai_agent_bridge/routing_guard.py` still refuses `openrouter/deepseek` until a named US provider allow-list exists. `ask-deepseek` remains consult-only for non-language work. |
 | **Kimi** | retired (OO-58, #11327) | do not dispatch; every Kimi id is refused |
 | **AGY Gemini Flash** | agentic scripts, language-lane content | `gemini-3.8-flash-high` |
 | **Claude Sonnet** | routine judgment/CF | Opus 5.5 / Sol 6.1 for hard judgment; ~1 Claude driver |
@@ -115,7 +115,7 @@ without an automatic fallback dispatch.
 reserve can temporarily admit Codex Sol despite a hot or near-cap pace signal. It never overrides
 an exhausted or unknown weekly allotment, runtime blockage, stale usage, or unhealthy route.
 
-**Credit-balance lanes (#9518):** a lane in `scripts/config/credit_lanes.yaml` whose plan allowance
+**Credit-balance lanes (#9518):** a lane in `lu_machinery/config/credit_lanes.yaml` whose plan allowance
 is at or below the near-cap threshold and whose fresh probe carries a positive credit balance shows
 as `credit_balance_present` in `capacity_pick`: credit balance present; draw not verified by the
 router. It is usable only while there is no evidence against it, ranked after plan-backed seats,
@@ -260,7 +260,7 @@ whichever the breadth script reports):
 | After | Minimum |
 | --- | --- |
 | ≥3 implement dispatches | ≥**2** distinct **agents** AND ≥**2** **tiers** used, **or** a single `NOTE: fleet_breadth` with tool-backed blockers |
-| Handoff / FAIL-HANDOFF | Attach `.venv/bin/python -m scripts.fleet.driver_breadth_report --initiator <prefix> --since-hours 24` output (or equivalent). Missing report = incomplete handoff. |
+| Handoff / FAIL-HANDOFF | Attach `.venv/bin/python -m lu_machinery.fleet.driver_breadth_report --initiator <prefix> --since-hours 24` output (or equivalent). Missing report = incomplete handoff. |
 
 Trivial one-shot (typo, single-file comment) is exempt if labeled
 `ROUTING_CARD_V1 tier: heap` with `acceptance_cmd` and **no** multi-file product claim.
@@ -283,9 +283,9 @@ Trivial one-shot (typo, single-file comment) is exempt if labeled
 ## 6. Mechanical report
 
 ```bash
-.venv/bin/python -m scripts.fleet.driver_breadth_report --help
-.venv/bin/python -m scripts.fleet.driver_breadth_report --initiator grok --since-hours 24
-.venv/bin/python -m scripts.fleet.driver_breadth_report --initiator grok --since-hours 24 --enforce
+.venv/bin/python -m lu_machinery.fleet.driver_breadth_report --help
+.venv/bin/python -m lu_machinery.fleet.driver_breadth_report --initiator grok --since-hours 24
+.venv/bin/python -m lu_machinery.fleet.driver_breadth_report --initiator grok --since-hours 24 --enforce
 ```
 
 `--enforce` exits **2** when the breadth floor fails without a recorded NOTE file

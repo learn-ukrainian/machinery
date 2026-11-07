@@ -5,10 +5,10 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import JSONResponse
 
-from scripts.api import fleet_workers_collect as workers_collect
-from scripts.api.fleet_workers_collect import WORKERS_SCHEMA, workers_payload
-from scripts.api.monitor_context import MonitorContext, get_ctx
-from scripts.api.project_state_router import LocalDocumentSnapshot, get_cached_local_document
+from lu_machinery.api import fleet_workers_collect as workers_collect
+from lu_machinery.api.fleet_workers_collect import WORKERS_SCHEMA, workers_payload
+from lu_machinery.api.monitor_context import MonitorContext, get_ctx
+from lu_machinery.api.project_state_router import LocalDocumentSnapshot, get_cached_local_document
 
 router = APIRouter(prefix="/workers/v1", tags=["fleet-workers"])
 

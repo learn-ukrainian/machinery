@@ -67,7 +67,7 @@ in every model call, plus instructions to run `lu-driver-state render --lane cto
 ## Routing
 
 Read fresh before every routing or budget decision: core.md P2,
-`agents_extensions/shared/rules/model-assignment.md`, `scripts/config/model_catalog.yaml`
+`agents_extensions/shared/rules/model-assignment.md`, `lu_machinery/config/model_catalog.yaml`
 (`review_ladders`) and the served ruleset (`/api/rules`). Standing orders in the tracker
 bind until the rules absorb them; when they disagree with the catalog, the standing order
 wins and the mismatch is a rules-change item.

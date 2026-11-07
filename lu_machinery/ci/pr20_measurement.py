@@ -22,7 +22,7 @@ from typing import Any
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from scripts.ci._location import checkout_relative, module_name
+from lu_machinery.ci._location import checkout_relative, module_name
 
 SIZE = 50
 BASELINE_MEMBERSHIP_SHA256 = "83b9115d8f86a96991ef0329d4f68bec2877fb2773b5765b4412e985b42e3272"

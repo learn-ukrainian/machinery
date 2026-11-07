@@ -15,7 +15,7 @@ from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 
-from scripts.session_canary import handoff_select
+from lu_machinery.session_canary import handoff_select
 
 # This package's import name, as ``python -m`` names its modules: from this module's unresolved
 # location (design-v1 amendment 1), never __package__.

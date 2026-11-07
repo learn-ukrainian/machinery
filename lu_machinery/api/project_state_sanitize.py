@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from scripts.api.occupancy_sanitize import (
+from lu_machinery.api.occupancy_sanitize import (
     _ALIAS_TOKEN,
     _FQDN,
     _IPV4,
@@ -201,6 +201,6 @@ def validate_report_document(document: dict[str, Any]) -> None:
 
     workers = document.get("workers")
     if workers is not None:
-        from scripts.api.fleet_workers_sanitize import validate_workers_list  # noqa: PLC0415, I001  # lazy-ok: breaks cycle with project_state_sanitize
+        from lu_machinery.api.fleet_workers_sanitize import validate_workers_list  # noqa: PLC0415, I001  # lazy-ok: breaks cycle with project_state_sanitize
 
         validate_workers_list(workers)

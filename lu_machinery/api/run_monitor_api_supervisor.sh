@@ -32,4 +32,4 @@ if [[ ! -f "${supervisor}" ]]; then
 fi
 
 cd "${primary}"
-exec "${python}" -m scripts.api.launchd_supervisor "$@"
+exec "${python}" -m lu_machinery.api.launchd_supervisor "$@"

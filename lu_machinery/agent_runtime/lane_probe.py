@@ -23,18 +23,18 @@ from typing import Any
 
 if __package__ in (None, ""):  # run as a file: put the repository root on sys.path
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-    __package__ = "scripts.agent_runtime"
+    __package__ = "lu_machinery.agent_runtime"
 
 try:
-    from scripts.lib.readonly_sqlite import import_named_module
+    from lu_machinery.lib.readonly_sqlite import import_named_module
 except ModuleNotFoundError as exc:
     if exc.name != Path(os.path.abspath(__file__)).parents[1].name:
         raise
     from lib.readonly_sqlite import import_named_module  # type: ignore[no-redef]
 
-from scripts.common.repo_root import machinery_root
-from scripts.orchestration.handoff_slot_registry import is_registered_slot, registered_slots
-from scripts.utils.claude_version import run_version_probe
+from lu_machinery.common.repo_root import machinery_root
+from lu_machinery.orchestration.handoff_slot_registry import is_registered_slot, registered_slots
+from lu_machinery.utils.claude_version import run_version_probe
 
 from .registry import AGENTS, get_agent_entry
 

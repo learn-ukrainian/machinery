@@ -451,7 +451,7 @@ def process_for_codex(message_id: int, new_session: bool = False, no_timeout: bo
     )
     # The shared helper's legacy actual_model parameter/from_model key is a
     # routing label here. Native Codex has no qualified backend observation.
-    from scripts.agent_runtime.telemetry import codex_model_identity
+    from lu_machinery.agent_runtime.telemetry import codex_model_identity
 
     provenance = json.loads(provenance_data)
     provenance["model_identity"] = codex_model_identity()

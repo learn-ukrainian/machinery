@@ -14,8 +14,8 @@ from typing import Any
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from scripts.ci._location import checkout_relative, module_name
-from scripts.ci.check_issue_task_quality import (
+from lu_machinery.ci._location import checkout_relative, module_name
+from lu_machinery.ci.check_issue_task_quality import (
     FIELDS,
     NON_OVERRIDABLE,
     evaluate_issue,
@@ -25,7 +25,7 @@ from scripts.ci.check_issue_task_quality import (
     score_body,
     time_budget,
 )
-from scripts.common.github_client import GitHubClient, GitHubRateLimited
+from lu_machinery.common.github_client import GitHubClient, GitHubRateLimited
 
 MARKER = "<!-- issue-task-quality:v1 -->"
 BOT_LOGIN = "github-actions[bot]"

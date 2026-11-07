@@ -33,12 +33,12 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from scripts.common import github_client
-from scripts.orchestration import lifecycle_observation
-from scripts.orchestration import scheduled_worktree_cleanup as swc
-from scripts.orchestration import worktree_git as rw
-from scripts.orchestration.fleet_repos import canonical_repository, pull_request_repository
-from scripts.publish.github import Request, request_run
+from lu_machinery.common import github_client
+from lu_machinery.orchestration import lifecycle_observation
+from lu_machinery.orchestration import scheduled_worktree_cleanup as swc
+from lu_machinery.orchestration import worktree_git as rw
+from lu_machinery.orchestration.fleet_repos import canonical_repository, pull_request_repository
+from lu_machinery.publish.github import Request, request_run
 
 # This package's import name, from the unresolved file location: never from __package__, which a
 # short import spelling (orchestration.x with scripts/ on sys.path) shortens. Its dotted parts
@@ -554,8 +554,8 @@ def collect_criterion_receipts(repo_root: Path, pr: PullRequestInfo, *, repo: st
     """
     from datetime import UTC, datetime
 
-    from scripts.orchestration import task_closeout
-    from scripts.orchestration import task_lifecycle as tl
+    from lu_machinery.orchestration import task_closeout
+    from lu_machinery.orchestration import task_lifecycle as tl
 
     primary = tl.canonical_state_root(repo_root)
     slug = canonical_repository(repo) if repo else rw._pr_repository(repo_root)

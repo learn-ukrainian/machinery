@@ -24,7 +24,7 @@ except Exception:
 # The publication gate, by import name. This hook is outside the machinery package: under the
 # checkout that owns it, the gate's package is the directory of the same dotted path, and the
 # name's first component is the machinery package's directory, which holds the gh shim.
-_GATE_MODULE = "scripts.opsec.prepublish"
+_GATE_MODULE = "lu_machinery.opsec.prepublish"
 _GATE_PACKAGE_PATH = Path(*_GATE_MODULE.split(".")[:-1])
 _SHIM_PATH = Path(_GATE_MODULE.partition(".")[0], "agent_runtime", "shims")
 
@@ -122,7 +122,7 @@ def main() -> int:
             return 0
         root = next(parent for parent in Path(__file__).resolve().parents if (parent / _GATE_PACKAGE_PATH).is_dir())
         sys.path.insert(0, str(root))
-        from scripts.opsec.prepublish import PublishBlocked, real_gh
+        from lu_machinery.opsec.prepublish import PublishBlocked, real_gh
 
         command = payload.get("tool_input", {}).get("command", "")
         if not invokes_gh(command):

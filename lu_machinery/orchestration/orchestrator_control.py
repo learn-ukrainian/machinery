@@ -28,9 +28,9 @@ _IMPORT_ROOT = Path(__file__).resolve().parents[2]
 if str(_IMPORT_ROOT) not in sys.path:
     sys.path.insert(0, str(_IMPORT_ROOT))
 
-from scripts.dispatcher.cli import ALIASES
-from scripts.orchestration.execution_safe_git import run_git
-from scripts.orchestration.task_record_store import (
+from lu_machinery.dispatcher.cli import ALIASES
+from lu_machinery.orchestration.execution_safe_git import run_git
+from lu_machinery.orchestration.task_record_store import (
     iter_task_records,
     locate_task_record,
     read_task_record,
@@ -190,7 +190,7 @@ def record_task(
     tasks = [item for item in state.get("tasks", []) if item.get("task_id") != task_id]
     lifecycle = (previous or {}).get("task_lifecycle")
     if lifecycle_file:
-        from scripts.orchestration import task_lifecycle
+        from lu_machinery.orchestration import task_lifecycle
 
         lifecycle_path = Path(lifecycle_file).expanduser().resolve()
         lifecycle = task_lifecycle.carrier_projection(
@@ -753,7 +753,7 @@ def cmd_inbox(args: argparse.Namespace) -> int:
         max_result_chars=args.max_result_chars,
         max_log_chars=args.max_log_chars,
     )
-    from scripts.ai_agent_bridge._channels_cli import authority_inbox_notice
+    from lu_machinery.ai_agent_bridge._channels_cli import authority_inbox_notice
 
     # JSON stays machine-parseable: its pointer goes to stderr.
     authority_inbox_notice(

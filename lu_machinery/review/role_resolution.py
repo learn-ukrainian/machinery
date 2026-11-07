@@ -16,7 +16,7 @@ from shlex import join as shell_join
 from shlex import split as shell_split
 from typing import Any
 
-from scripts.review.model_catalog import (
+from lu_machinery.review.model_catalog import (
     CATALOG_SCHEMA_VERSIONS,
     VALID_CODEX_EFFORTS,
     VALID_RISKS,
@@ -52,7 +52,7 @@ def invocation_codex_account(invocation: str) -> str:
         return "sub"
     if labels[0] in {"sub", "b-sub"}:
         return labels[0]
-    from scripts.agent_runtime.codex_accounts import resolve_codex_account_label
+    from lu_machinery.agent_runtime.codex_accounts import resolve_codex_account_label
 
     return resolve_codex_account_label(labels[0])
 
@@ -135,7 +135,7 @@ def _expanded_route(seat: dict[str, Any], route: dict[str, Any], models: dict[st
 
 def expanded_legacy_view(catalog: dict[str, Any] | None = None) -> dict[str, Any]:
     """Return an independent v1 view, expanding receipt labels from stable seats."""
-    from scripts.review.model_catalog import validate_catalog
+    from lu_machinery.review.model_catalog import validate_catalog
 
     catalog = validate_catalog(catalog if catalog is not None else load_model_catalog())
     result = deepcopy(catalog)
@@ -282,7 +282,7 @@ def validate_role_catalog(catalog: dict[str, Any]) -> None:
                 allowed_labels = {label for rung in catalog["review_ladders"][risk] for label in rung}
                 if route.get("legacy_name") not in allowed_labels:
                     raise ModelCatalogError(f"roles.{role} introduces a route outside the existing risk ladder")
-                from scripts.review.family_exclusions import family_exclusion
+                from lu_machinery.review.family_exclusions import family_exclusion
 
                 if family_exclusion(family=model["family"], route=route["route"], transport=route["transport"], risk=risk):
                     raise ModelCatalogError(f"roles.{role} violates code-review family exclusions")
@@ -343,7 +343,7 @@ def resolve_role(
     Context permits capability/isolation requirements and seat/family exclusions.
     This envelope does not replace runtime admission or formal-review receipts.
     """
-    from scripts.review.model_catalog import validate_catalog
+    from lu_machinery.review.model_catalog import validate_catalog
 
     catalog = validate_catalog(catalog if catalog is not None else load_model_catalog())
     return _resolve_role(
@@ -397,7 +397,7 @@ def _resolve_role(
     if health is None:
         normalized = {}
     else:
-        from scripts.review.reviewer_resolver import normalize_routing_snapshot
+        from lu_machinery.review.reviewer_resolver import normalize_routing_snapshot
 
         normalized = normalize_routing_snapshot(health)
         accounts = health.get("codex_accounts")
@@ -500,7 +500,7 @@ def _resolve_role(
 def _role_health_rank(observed: str | None) -> int:
     if observed is None:
         return 0  # Existing fail-open rank; avoids reviewer import during catalog bootstrap.
-    from scripts.review.reviewer_resolver import _health_rank
+    from lu_machinery.review.reviewer_resolver import _health_rank
 
     return _health_rank(observed)
 

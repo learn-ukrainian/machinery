@@ -19,13 +19,13 @@ _ROOT = Path(__file__).resolve().parents[2]
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
-from scripts.agent_runtime.attribution import resolve_invocation_attribution
-from scripts.common import task_store_paths
-from scripts.fleet import ignored_task_output as output
-from scripts.orchestration import worktree_artifacts as artifacts
-from scripts.orchestration import worktree_claims as claims
-from scripts.orchestration import worktree_git as rw
-from scripts.orchestration.task_record_store import locate_task_record
+from lu_machinery.agent_runtime.attribution import resolve_invocation_attribution
+from lu_machinery.common import task_store_paths
+from lu_machinery.fleet import ignored_task_output as output
+from lu_machinery.orchestration import worktree_artifacts as artifacts
+from lu_machinery.orchestration import worktree_claims as claims
+from lu_machinery.orchestration import worktree_git as rw
+from lu_machinery.orchestration.task_record_store import locate_task_record
 
 # The machinery package's import name, which is also the directory its files have in checkout
 # paths: from this module's package, or from its unresolved location when run as a file.
@@ -101,7 +101,7 @@ def _current_custody(lease: Any, stream: str) -> dict[str, Any]:
     lease does. A local PID never proves a remote lease expired, so Monitor is the
     sole authority and any unavailable or malformed answer refuses. Read only.
     """
-    from scripts.session_supervisor.remote import RemoteEpicClient
+    from lu_machinery.session_supervisor.remote import RemoteEpicClient
 
     if lease.stream_id != stream:
         raise Refusal("CROSS_STREAM", "caller's stream custody is not the creator's canonical stream")
@@ -123,7 +123,7 @@ def _current_custody(lease: Any, stream: str) -> dict[str, Any]:
 def verify_current_custody(expected: dict[str, Any]) -> None:
     """Revalidate writer or receipt custody against Monitor without acquiring a lease."""
     from agents_extensions.shared.session_streams.model import parse_timestamp
-    from scripts.session_supervisor.remote import RemoteEpicClient, RemoteSupervisorError
+    from lu_machinery.session_supervisor.remote import RemoteEpicClient, RemoteSupervisorError
 
     stream = expected["stream_id"]
     try:

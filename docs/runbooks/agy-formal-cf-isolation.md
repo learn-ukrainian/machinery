@@ -38,15 +38,15 @@ Formal CF for AGY-authored work is requested by the driver of record via direct 
 ## Live lane (non-formal / bounded work)
 
 ```bash
-.venv/bin/python scripts/dispatch.py dispatch --agent agy --model gemini-3.8-flash-high \
+.venv/bin/python lu_machinery/dispatch.py dispatch --agent agy --model gemini-3.8-flash-high \
   --mode workspace-write --worktree --task-id <task> --prompt-file BRIEF
-.venv/bin/python scripts/ai_agent_bridge/__main__.py ask-agy - \
+.venv/bin/python lu_machinery/ai_agent_bridge/__main__.py ask-agy - \
   --task-id agy-bounded --to-model gemini-3.8-flash-high
 ```
 
 ## What an AGY task record carries (#12408)
 
-The task record is published to Fleet messages, PR comments and reviewer briefs, so it never copies AGY's text. Provider text can hold any value, and no redactor recognizes every secret form. Each field that `scripts/dispatcher/providers/agy.py` derives from AGY's output is a fixed value or a validated typed value:
+The task record is published to Fleet messages, PR comments and reviewer briefs, so it never copies AGY's text. Provider text can hold any value, and no redactor recognizes every secret form. Each field that `lu_machinery/dispatcher/providers/agy.py` derives from AGY's output is a fixed value or a validated typed value:
 
 | Field | What the record carries |
 | --- | --- |
@@ -56,7 +56,7 @@ The task record is published to Fleet messages, PR comments and reviewer briefs,
 | Unoffered model | `agy_model_unavailable: AGY does not offer the requested model to this account` when AGY refuses `--model` before any init or turn. Do not retry it, and do not reroute to it. |
 | Schema refusal | `agy_output_schema_unsupported: AGY rejected the --json-schema argument; its text is in the task's retained stream`. |
 | Usage | Only `input_tokens`, `output_tokens`, `thinking_tokens`, `cache_read_tokens` and `total_tokens` with non-negative integer values. Every other key and value is dropped. |
-| Resolved model | A catalog identifier of a model with an AGY wire id (`routing_wire_ids.agy` in `scripts/config/model_catalog.yaml`), else `unrecognized`, which fails the identity check. |
+| Resolved model | A catalog identifier of a model with an AGY wire id (`routing_wire_ids.agy` in `lu_machinery/config/model_catalog.yaml`), else `unrecognized`, which fails the identity check. |
 
 To read AGY's own message, such as the reset time or the reason a schema was rejected, open the task's retained stdout and stderr logs.
 
@@ -64,8 +64,8 @@ To read AGY's own message, such as the reset time or the reason a schema was rej
 
 ```bash
 # Direct ask-* cross-family review (replaces removed review-pr):
-.venv/bin/python scripts/ai_agent_bridge/__main__.py ask-claude - --type review --pr <N> --task-id review-<N> < prompt.md
-.venv/bin/python scripts/ai_agent_bridge/__main__.py ask-codex - --type review --pr <N> --task-id review-<N> < prompt.md
+.venv/bin/python lu_machinery/ai_agent_bridge/__main__.py ask-claude - --type review --pr <N> --task-id review-<N> < prompt.md
+.venv/bin/python lu_machinery/ai_agent_bridge/__main__.py ask-codex - --type review --pr <N> --task-id review-<N> < prompt.md
 ```
 
 ## Flip criteria (do not skip)

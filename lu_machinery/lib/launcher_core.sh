@@ -349,7 +349,7 @@ launcher_clear_foreign_route_state() {
 launcher_export_git_identity() {
   local py identity name email
   py="$(launcher_project_python)" || return 3
-  identity="$("$py" "$LC_ROOT/scripts/lib/git_identity.py" "$LC_PROVIDER" "${LC_MODEL:-}")" || return 3
+  identity="$("$py" "$LC_ROOT/lu_machinery/lib/git_identity.py" "$LC_PROVIDER" "${LC_MODEL:-}")" || return 3
   IFS=$'\t' read -r name email <<< "$identity"
   export GIT_AUTHOR_NAME="$name" GIT_COMMITTER_NAME="$name"
   export GIT_AUTHOR_EMAIL="$email" GIT_COMMITTER_EMAIL="$email"

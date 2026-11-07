@@ -50,13 +50,13 @@ and publication is proven. Remote branches remain until `MERGED`.
 ## Safety contract
 
 Every Git-based worktree removal preserves ignored output at the sole raw
-`git worktree remove` boundary in `scripts/orchestration/worktree_claims.py`,
-using `scripts/fleet/ignored_task_output.py`. ACP execution teardown, data-tier
+`git worktree remove` boundary in `lu_machinery/orchestration/worktree_claims.py`,
+using `lu_machinery/fleet/ignored_task_output.py`. ACP execution teardown, data-tier
 cleanup, sibling Git maintenance, task-family cleanup, and the removal CLI all
 inherit this guard. Preservation runs once, after ownership/claim checks and
 before deletion. A preservation failure returns a typed skipped/refusal result
 and leaves the directory intact. The dispatcher's settlement
-(`scripts/dispatcher/git.py` `settle_worktree`) removes through the same
+(`lu_machinery/dispatcher/git.py` `settle_worktree`) removes through the same
 chokepoint: ignored output is inventoried, and untracked files are copied into
 `batch_state/preserved/<task>/` (receipt `branch_holder_archive`) before a forced
 removal; uncommitted tracked changes keep the tree. `branch_sweep` deletes branch refs only. The legacy temp leak
@@ -80,7 +80,7 @@ After every borrowing task is terminal, remove the tree without
 `--owner-task-id`:
 
 ```bash
-"$PRIMARY_REPO/.venv/bin/python" -m scripts.orchestration.worktree_claims remove \
+"$PRIMARY_REPO/.venv/bin/python" -m lu_machinery.orchestration.worktree_claims remove \
     .worktrees/dispatch/claude/source-author --reason 'terminal helper borrowers' --json
 ```
 
@@ -99,7 +99,7 @@ The remover never forces helper removal. Branch refs remain unchanged.
 For a helper tree created before this fix, attest its provenance once:
 
 ```bash
-"$PRIMARY_REPO/.venv/bin/python" -m scripts.orchestration.worktree_claims attribute-helper \
+"$PRIMARY_REPO/.venv/bin/python" -m lu_machinery.orchestration.worktree_claims attribute-helper \
     .worktrees/dispatch/claude/source-author --actor claude-driver \
     --reason 'pre-fix dispatcher helper creation' --json
 ```
@@ -257,7 +257,7 @@ Infra owns this attribution residual.
 Task records written by the retired reaper may carry `worktree_reap_proof`
 (`merged-reuse-reap.v1`) for a keep-false continuation cohort. Preservation and
 lifecycle recovery still read and verify that proof against current identities
-(`scripts/orchestration/worktree_git.py`); nothing writes new ones. The proof
+(`lu_machinery/orchestration/worktree_git.py`); nothing writes new ones. The proof
 does not release retention intent.
 A switched-branch proof identifies the checkout using Git's raw common-directory
 and configured-origin output, then checks Git's porcelain registration list in
@@ -322,7 +322,7 @@ client's admission refused keeps a tree as `github_deferred` in any
 settlement. A range the public push gate refuses stays as `opsec_refused`
 and is not pushed or retried; the hourly alert names it with the other safety
 stops. An owner sets or clears a hold with
-`scripts/dispatch.py retain-worktree TASK --set` or `--clear`. While the hold
+`lu_machinery/dispatch.py retain-worktree TASK --set` or `--clear`. While the hold
 is set, settlement, salvage and this run leave the worktree untouched
 (`retention_hold`). A later write of the task record does not drop the hold,
 and the old-tree report does not inspect a held checkout. Clearing the hold
@@ -330,7 +330,7 @@ does not push or remove the tree; the next settlement decides. The run's private
 finished task's tree still on disk with its reason; the summary carries
 `retained_count`, `retained_safety_stops` and `retained_complete`.
 A finished data-tier run discards its own checkout output first (`discard_run_output` in
-`scripts/ci/data_tier.py`; the file and byte totals go in the run summary's `discarded_output`).
+`lu_machinery/ci/data_tier.py`; the file and byte totals go in the run summary's `discarded_output`).
 The checkout is a fresh `origin/main` worktree, so everything ignored in it is the run's own
 snapshot, provisioned copy or test output, and the test report, log and summary a failed run needs
 stay in `batch_state/data-tier/`. A finished run therefore leaves nothing to preserve (#12528).
@@ -344,7 +344,7 @@ Task records that share one tree resolve to the one dispatcher record that
 created it when every other record is a finished continuation. A provider whose
 liveness is unknown holds the tree only until the recorded supervisor pid and
 start time prove it gone and no process works inside the tree.
-`scripts/dispatch.py worktrees` lists every linked worktree with its
+`lu_machinery/dispatch.py worktrees` lists every linked worktree with its
 owning task and disposition ([dispatch v2](../design/dispatch-v2.md)). The guarded removers in `worktree_claims` also refuse while an
 unfinished task record names the checkout, including a non-terminal review
 attempt that reads from it. The task record claims the deepest registered linked checkout containing each of these inputs, including subdirectories and symlink spellings: its `review_contract.input_root`, and every `review_input_paths` entry, namely the attempt manifest (dispatch resolves its path once at admission, so every later read and the worker use the symlink target, never the supplied spelling) and the worker's own code checkout (it runs from there for the whole attempt). A formal attempt takes no output schema (`--review-attempt` with `--output-schema` is refused). Inputs in the primary checkout, or outside any registered checkout, claim nothing. Before it reserves the attempt id, dispatch refuses a review contract without an `input_root`, and refuses the attempt when the fleet scratch root (`LU_SCRATCH_ROOT`, which holds the worker's runtime tmp lease) lies inside a registered linked checkout (`review_scratch_root_in_worktree`). It holds the shared removal lock of every claimed checkout during input preparation until the task record publishes the claims. Only a terminal task status ends the protection; an owner or settled-claim exemption does not, and a record with an unreadable or malformed claim, or an unavailable worktree registration, refuses removal rather than releasing it. A file in the task-record directory that parses as JSON but is not an object (a worker's proof list) is no task record and claims nothing; bytes that do not parse still refuse.
@@ -353,7 +353,7 @@ attempt that reads from it. The task record claims the deepest registered linked
 
 Dispatch/review branch attachment may release a terminal, unambiguously bound
 holder with only untracked `*.orig`, `*.patch`, or `pytest_out.txt` scratch.
-The closed classifier lives in `scripts/fleet/regenerable_output.py`;
+The closed classifier lives in `lu_machinery/fleet/regenerable_output.py`;
 these patterns do not become auto-finalize exclusions. Each eligible file is
 regular, has one hard link, and is at most 256 MiB. An `.orig` stem must be a
 tracked path. A filesystem scan also rejects special files that Git omits.
@@ -412,7 +412,7 @@ or unpushed work remains protected.
 
 ## Branch sweep evidence (#9909)
 
-`scripts.hygiene.branch_sweep` stays a dry run unless `--apply` is passed. A
+`lu_machinery.hygiene.branch_sweep` stays a dry run unless `--apply` is passed. A
 merged pull-request head that matches the branch tip, and a tip that is already
 an ancestor of `origin/main`, are still the only ancestry proofs. Any other
 agent or scratch branch is deleted only when one more proof holds: every commit
@@ -463,7 +463,7 @@ A bundle leaves the local archive only through the age-out below.
 
 `batch_state/branch-archive/` is the rescue copy of local branches the sweep deleted. It is
 not backed up (`docs/runbooks/data-backup.md`). Writers: `_write_verified_bundle` and
-`_write_archive_receipts` (`scripts/hygiene/branch_sweep.py`) for bundles and
+`_write_archive_receipts` (`lu_machinery/hygiene/branch_sweep.py`) for bundles and
 `stale-local-receipts.jsonl`; `_append_receipt` for `evidence.jsonl`. Readers:
 
 - `evidence.jsonl` has no program reader. It is the append-only audit trail for a human
@@ -492,7 +492,7 @@ under the archive lock:
 5. Only then is the local file unlinked. Any failure keeps the local file. A rerun after a crash finds
    the matching bulk copy and finishes. The bulk copy is never deleted or overwritten here.
 
-Restore: `.venv/bin/python -m scripts.hygiene.branch_sweep --restore-bundle NAME [--restore-to DIR]`
+Restore: `.venv/bin/python -m lu_machinery.hygiene.branch_sweep --restore-bundle NAME [--restore-to DIR]`
 copies the bulk file back (default: this archive directory, never replacing a file), checks its sha256
 against the `bundle-relocated` line and runs `git bundle verify`. Then use the original receipt's
 `git fetch <bundle> refs/heads/<branch>:refs/heads/<branch>`. An earlier receipt's local path in its
@@ -539,7 +539,7 @@ The worktree reaper (the common reaper, the post-task reaper and the
 dispatch-admission disk reaper) and its `learn-ukrainian-worktree-reaper`
 service and timer are gone: the dispatcher removes each task's own worktree
 when the task settles. Remove one leftover worktree by hand with
-`python -m scripts.orchestration.worktree_claims remove <path> --owner-task-id <id> --reason '<why>'`.
+`python -m lu_machinery.orchestration.worktree_claims remove <path> --owner-task-id <id> --reason '<why>'`.
 On a host that still has the units installed:
 
 ```bash
@@ -552,14 +552,14 @@ systemctl --user daemon-reload && systemctl --user reset-failed
 ## Deletion ownership
 
 Untracked files that a shell call left in the primary checkout itself are a
-separate path: `scripts.hygiene.primary_dirt_cleanup` removes only the files
+separate path: `lu_machinery.hygiene.primary_dirt_cleanup` removes only the files
 an audit record proves the calling session created
 ([`primary-checkout-dirt.md`](primary-checkout-dirt.md), #11253).
 
 Every worktree removal goes through one guarded chokepoint (#8610): Python
 callers use `worktree_claims.remove_unclaimed_worktree`, and shell and YAML
-callers use `python -m scripts.orchestration.worktree_claims remove PATH`
-(`scripts/wt.sh clean`, the RB2 trail's `cleanup_failed_worktree`). Holding
+callers use `python -m lu_machinery.orchestration.worktree_claims remove PATH`
+(`lu_machinery/wt.sh clean`, the RB2 trail's `cleanup_failed_worktree`). Holding
 the per-worktree lock dispatch holds from attach until its task record is
 published, it runs the caller's ownership proof, proves a forced target clean,
 refuses while another task's unfinished record names the checkout, and only
@@ -623,7 +623,7 @@ depth, the ask entry path converts SIGTERM into an orderly unwind
 
 ### Interrupted `git worktree add` (#8663)
 
-Dispatch v2 prepares worktrees through `scripts/dispatcher/git.py`. The legacy
+Dispatch v2 prepares worktrees through `lu_machinery/dispatcher/git.py`. The legacy
 adaptive `DELEGATE_WORKTREE_ADD_*` timeouts and their launcher recovery path
 are retired. Do not infer that an interrupted checkout is disposable: inspect
 its task record, Git registration, process liveness and custody first. Remove
@@ -668,7 +668,7 @@ record, successful push record and complete preservation tree first. Keep the
 tree's `batch_state/preserved/<task>/<attempt>` layout within the copy root.
 
 ```bash
-.venv/bin/python -m scripts.orchestration.task_closeout recover-local \
+.venv/bin/python -m lu_machinery.orchestration.task_closeout recover-local \
   --state-file ledger.json \
   --task-record task.json \
   --preserved-manifest batch_state/preserved/example/attempt.manifest.json \
@@ -727,7 +727,7 @@ typed refusal with no append. The association supplies local observation only;
 review, CI and behavior evidence require their own verification.
 
 The merge owner closes out the exact PR as soon as GitHub reports it `MERGED`, using
-`scripts.orchestration.merge_closeout`. This is the one command that proves the PR
+`lu_machinery.orchestration.merge_closeout`. This is the one command that proves the PR
 MERGED, finds every worktree still tied to it (by branch, by exact merged head SHA,
 or by an earlier commit that exists only on that PR, including detached
 review-checkout siblings), and proves the remote and local branch are both gone. It
@@ -739,7 +739,7 @@ a residual.
 PRIMARY_REPO="$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")"
 cd "$PRIMARY_REPO"
 
-"$PRIMARY_REPO/.venv/bin/python" -m scripts.orchestration.merge_closeout <PR_NUMBER> --apply
+"$PRIMARY_REPO/.venv/bin/python" -m lu_machinery.orchestration.merge_closeout <PR_NUMBER> --apply
 ```
 
 Starting a later review round (`review-<topic>-rN`) also removes earlier clean
@@ -756,7 +756,7 @@ present after `--apply` ran (residual branches are reported, never force-deleted
 past an exact-head-match proof). A kept worktree is a blocker for its owner to
 resolve, not permission to remove it with `--force`.
 
-The canonical PR lifecycle trail (`scripts/config/trails/rb3-pr-lifecycle.trail.yaml`)
+The canonical PR lifecycle trail (`lu_machinery/config/trails/rb3-pr-lifecycle.trail.yaml`)
 runs its own post-merge step: it deletes the merged remote branch when no open PR
 uses it, prunes origin, and removes no worktree; a worktree still on disk stops the
 trail at `STOP-hygiene-failed`. Other merge owners must invoke the exact command
@@ -778,13 +778,13 @@ evidence for an arbitrary dispatch worktree.
 Dry run:
 
 ```bash
-.venv/bin/python scripts/orchestration/scheduled_worktree_cleanup.py
+.venv/bin/python lu_machinery/orchestration/scheduled_worktree_cleanup.py
 ```
 
 Apply:
 
 ```bash
-.venv/bin/python scripts/orchestration/scheduled_worktree_cleanup.py --apply
+.venv/bin/python lu_machinery/orchestration/scheduled_worktree_cleanup.py --apply
 ```
 
 Each run performs the following in both repository roots:
@@ -888,12 +888,12 @@ instructions.
 Render the plist without writing system configuration:
 
 ```bash
-.venv/bin/python scripts/orchestration/install_worktree_cleanup_launchd.py render
+.venv/bin/python lu_machinery/orchestration/install_worktree_cleanup_launchd.py render
 ```
 
 The job runs at load and every 4 hours. launchd `Program` is `/bin/bash`
 (Apple-signed, survives a `.venv` rebuild) plus
-`scripts/orchestration/run_scheduled_worktree_cleanup.sh`, which execs the
+`lu_machinery/orchestration/run_scheduled_worktree_cleanup.sh`, which execs the
 public checkout's `.venv/bin/python`. Pointing `Program` at the venv
 interpreter is what produced exit 78 (`Unable to get updated LWCR ... error
 0x3`) after the 2026-08-15 venv rewrite. The wrapper passes both repository
@@ -909,7 +909,7 @@ Install only after the cleanup code is merged into the public primary checkout.
 Both primary checkouts must be on `main`.
 
 ```bash
-.venv/bin/python scripts/orchestration/install_worktree_cleanup_launchd.py install
+.venv/bin/python lu_machinery/orchestration/install_worktree_cleanup_launchd.py install
 ```
 
 Installation is idempotent. It writes and loads:
@@ -921,7 +921,7 @@ Installation is idempotent. It writes and loads:
 Verify the persisted plist and live service:
 
 ```bash
-.venv/bin/python scripts/orchestration/install_worktree_cleanup_launchd.py status
+.venv/bin/python lu_machinery/orchestration/install_worktree_cleanup_launchd.py status
 ```
 
 After installation, inspect the first receipt for errors. A venv rebuild does not require
@@ -933,13 +933,13 @@ A red or missing scheduled run surfaces on the existing integrity canary
 pre-flight warning). Probe:
 
 ```bash
-.venv/bin/python scripts/hygiene/check_worktree_cleanup_integrity.py
+.venv/bin/python lu_machinery/hygiene/check_worktree_cleanup_integrity.py
 ```
 
 ## Uninstall
 
 ```bash
-.venv/bin/python scripts/orchestration/install_worktree_cleanup_launchd.py uninstall
+.venv/bin/python lu_machinery/orchestration/install_worktree_cleanup_launchd.py uninstall
 ```
 
 Uninstalling preserves receipts and logs for audit and recovery.
@@ -952,10 +952,10 @@ not match `sweep_review_temp_orphans` and will refill the disk within hours.
 
 ```bash
 # dry-run
-.venv/bin/python -m scripts.orchestration.tmp_leak_sweep
+.venv/bin/python -m lu_machinery.orchestration.tmp_leak_sweep
 
 # apply
-.venv/bin/python -m scripts.orchestration.tmp_leak_sweep --apply
+.venv/bin/python -m lu_machinery.orchestration.tmp_leak_sweep --apply
 ```
 
 The scheduled git-hygiene runner (`scheduled_worktree_cleanup.py`) invokes the same
@@ -1045,7 +1045,7 @@ resuming sessions during an apply run; use dry-run when that cannot be ensured.
 To inspect session scratch independently:
 
 ```bash
-.venv/bin/python -m scripts.maintenance.claude_session_scratch
+.venv/bin/python -m lu_machinery.maintenance.claude_session_scratch
 ```
 
 Add `--rollover-root .agent/thread-rollovers/claude` to read confirmed lineage
@@ -1081,7 +1081,7 @@ registers, so every one of those comes from the primary checkout via
 
 ```bash
 export PRIMARY_REPO="$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")"
-"$PRIMARY_REPO/.venv/bin/python" scripts/tools/task_scratch.py run --task-id atlas-8307-410k \
+"$PRIMARY_REPO/.venv/bin/python" lu_machinery/tools/task_scratch.py run --task-id atlas-8307-410k \
     --evidence-dir batch_state/tmp/atlas-8307-410k-evidence -- \
     bash -euc '
       "$PRIMARY_REPO/.venv/bin/python" -m scripts.benchmarks.generate_synthetic_atlas \
@@ -1132,10 +1132,10 @@ entirely; migrate each producer by pointing its output flags at
 
 ```bash
 # inventory: every lease with the guard that preserves it (mutation-free)
-"$PRIMARY_REPO/.venv/bin/python" scripts/tools/task_scratch.py recover
+"$PRIMARY_REPO/.venv/bin/python" lu_machinery/tools/task_scratch.py recover
 
 # reclaim proven orphans (what the scheduled runner does)
-"$PRIMARY_REPO/.venv/bin/python" scripts/tools/task_scratch.py recover --apply
+"$PRIMARY_REPO/.venv/bin/python" lu_machinery/tools/task_scratch.py recover --apply
 ```
 
 `scheduled_worktree_cleanup.py` runs the same recovery after the `/tmp` leak sweep.

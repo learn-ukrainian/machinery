@@ -18,7 +18,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # The dispatcher beside this wrapper, named from the wrapper's own location so the
 # instruction holds in either checkout layout.
 KUBE_DISPATCHER="$(basename "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)")/dispatch.py"
-source "$ROOT/scripts/lib/launcher_core.sh"
+source "$ROOT/lu_machinery/lib/launcher_core.sh"
 # The lane and the first-run instruction are fixed wrapper options: scope re-entry and
 # successors replay only the caller's argv, and this wrapper adds them exactly once.
 # LC_WRAPPER_FIXED_EPIC makes the launcher refuse any caller lane before side effects.

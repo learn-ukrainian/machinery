@@ -48,7 +48,7 @@ from pathlib import Path
 from typing import Any
 
 try:
-    from scripts.lib.readonly_sqlite import import_named_module
+    from lu_machinery.lib.readonly_sqlite import import_named_module
 except ModuleNotFoundError as exc:
     if exc.name != Path(os.path.abspath(__file__)).parents[1].name:
         raise
@@ -76,7 +76,7 @@ else:
 # reached through the historical top-level ``agent_runtime`` package alias;
 # otherwise ContextVar provenance is set on one module object and checked on
 # another.
-from scripts.agent_runtime.adapters.acpx import (
+from lu_machinery.agent_runtime.adapters.acpx import (
     ACPX_PARTICIPANT_CATALOG_TRANSPORTS,
     ACPX_PARTICIPANT_EFFORTS,
     ACPX_SUPPORTED_PARTICIPANTS,
@@ -85,12 +85,16 @@ from scripts.agent_runtime.adapters.acpx import (
     _require_local_metadata_field,
     active_communication_scope,
 )
-from scripts.agent_runtime.adapters.acpx import TRANSPORT_ENV as ACPX_TRANSPORT_ENV
-from scripts.agent_runtime.adapters.agy import AgyAdapter, AgyRuntimeIdentity, _stream_result, agy_model_state
-from scripts.agent_runtime.adapters.muse import MuseRunEvidence
-from scripts.agent_runtime.attempt_safe_read import AttemptReadError, safe_attempt_file_size, safe_read_attempt_file
-from scripts.agent_runtime.result import AgyAttempt, AgyTelemetry
-from scripts.secret_redactor import redact_value
+from lu_machinery.agent_runtime.adapters.acpx import TRANSPORT_ENV as ACPX_TRANSPORT_ENV
+from lu_machinery.agent_runtime.adapters.agy import AgyAdapter, AgyRuntimeIdentity, _stream_result, agy_model_state
+from lu_machinery.agent_runtime.adapters.muse import MuseRunEvidence
+from lu_machinery.agent_runtime.attempt_safe_read import (
+    AttemptReadError,
+    safe_attempt_file_size,
+    safe_read_attempt_file,
+)
+from lu_machinery.agent_runtime.result import AgyAttempt, AgyTelemetry
+from lu_machinery.secret_redactor import redact_value
 
 from .accounting import model_accounting_fields
 from .adapters.base import AgentAdapter
@@ -139,7 +143,7 @@ from .watchdog import (
 try:
     from telemetry.emit import current_run_id, current_session_id
 except ImportError:  # pragma: no cover - package import path
-    from scripts.telemetry.emit import current_run_id, current_session_id
+    from lu_machinery.telemetry.emit import current_run_id, current_session_id
 
 # Poll interval while waiting on subprocess + watchdog. 1s is a good balance:
 # fast enough that stall detection fires within 1s of the threshold, slow
@@ -220,7 +224,7 @@ def _observe_agy_identity(
         observed_slug = AgyAdapter.resolve_model_slug(observed) if isinstance(observed, str) else None
     except ValueError:
         observed_slug = None
-    from scripts.review.model_catalog import load_model_catalog
+    from lu_machinery.review.model_catalog import load_model_catalog
 
     family = next((
         spec["family"] for key, spec in load_model_catalog()["models"].items()
@@ -900,7 +904,7 @@ def _merge_guard_enabled(*, mode: str, env: dict[str, str]) -> bool:
 
 def _apply_merge_guard(*, mode: str, env: dict[str, str]) -> dict[str, str]:
     """Prepend gh/git shims and stamp env vars when merge guard is active."""
-    from scripts.opsec.prepublish import publish_environment
+    from lu_machinery.opsec.prepublish import publish_environment
 
     if not _merge_guard_enabled(mode=mode, env=env):
         unguarded_env = publish_environment(env)
@@ -1330,7 +1334,7 @@ def _emit_substitution_event(
         try:
             from telemetry.emit import emit_event
         except ImportError:  # pragma: no cover - package import path
-            from scripts.telemetry.emit import emit_event
+            from lu_machinery.telemetry.emit import emit_event
 
         emit_event("agent_runtime_substitution", payload)
     except Exception:
@@ -1689,7 +1693,7 @@ def _build_gemini_attempt_tool_config(
 
 def _attempt_boundary_refusal(exc: Exception, *, stage: str) -> str:
     """Keep the refusal identifier, never isolation diagnostics or exception text."""
-    from scripts.review.isolation import ReviewIsolationError
+    from lu_machinery.review.isolation import ReviewIsolationError
 
     detail = type(exc).__name__
     if isinstance(exc, ReviewIsolationError):
@@ -1988,7 +1992,7 @@ def _execute_invocation_once(
         env["AGENT_NO_TELEMETRY_FOOTER"] = "1"
     elif tool_config and tool_config.get("review_isolation"):
         try:
-            from scripts.review.isolation import (
+            from lu_machinery.review.isolation import (
                 ReviewIsolationError,
                 apply_review_isolation_to_invocation,
             )
@@ -2089,7 +2093,7 @@ def _execute_invocation_once(
             if v4_authorization_id:
                 from learn_ukrainian_v4_runtime import v4_execution_origin as origin
 
-                from scripts.fleet_comms.request_executor import RequestExecutor
+                from lu_machinery.fleet_comms.request_executor import RequestExecutor
 
                 with RequestExecutor() as executor:
                     v4_claim = executor.claim_v4_runner_execution(request_id=v4_authorization_id)
@@ -2464,7 +2468,7 @@ def _finalize_v4_runner_origin(
     """Persist the runner-owned V4 observation, including typed read refusals."""
     from learn_ukrainian_v4_runtime import v4_execution_origin as origin
 
-    from scripts.fleet_comms.request_executor import RequestExecutor
+    from lu_machinery.fleet_comms.request_executor import RequestExecutor
 
     output_bytes = b""
     if getattr(plan, "output_file", None) is not None:
@@ -3165,7 +3169,7 @@ def _load_worktree_containment():
     Returns ``None`` only if neither import succeeds (a broken deployment).
     """
     for candidate in (
-        "scripts.guardrails.worktree_containment",
+        "lu_machinery.guardrails.worktree_containment",
         "guardrails.worktree_containment",
     ):
         try:
@@ -3558,7 +3562,7 @@ def _prepare_rules_core(
     task_id: str | None,
     tool_config: dict | None,
 ) -> str:
-    from scripts.lib import rules_core
+    from lu_machinery.lib import rules_core
 
     if delivery is RulesCoreDelivery.INJECT:
         try:
@@ -3570,8 +3574,8 @@ def _prepare_rules_core(
     if delivery is not RulesCoreDelivery.BOUND:
         raise RulesCoreDeliveryError("runtime rules delivery must be INJECT or admitted BOUND")
 
-    from scripts.dispatcher import store
-    from scripts.review.render_contract import check_rules_dependency, recorded_core_context
+    from lu_machinery.dispatcher import store
+    from lu_machinery.review.render_contract import check_rules_dependency, recorded_core_context
 
     try:
         if not task_id:
@@ -3807,7 +3811,7 @@ def _invoke_impl(
     # a caller's explicit ``None`` for those adapters while retaining the
     # effective label for headroom and usage records.
     if v4_authorization_id:
-        from scripts.fleet_comms.request_executor import RequestExecutorError
+        from lu_machinery.fleet_comms.request_executor import RequestExecutorError
 
         raise RequestExecutorError(
             "legacy V4 runner execution is retired; use the protected packaged V4 service runtime"
@@ -4001,7 +4005,7 @@ def _refuse_retired_launch_model(agent_name: str, model: str | None, tool_config
         if not default_model or not is_kimi_seat(agent_name, model=default_model):
             return
         effective_model = default_model
-    from scripts.review.model_catalog import retired_model_refusal
+    from lu_machinery.review.model_catalog import retired_model_refusal
 
     refusal = retired_model_refusal(effective_model)
     if refusal:
@@ -4182,7 +4186,7 @@ def _validate_catalog_model(
 ) -> None:
     """Require a current active catalog model on the adapter's real route that may consult (#9583)."""
     try:
-        from scripts.review.model_catalog import (
+        from lu_machinery.review.model_catalog import (
             CONSULT_ACTIVITY,
             activity_role_refusal,
             load_model_catalog,
@@ -4358,7 +4362,7 @@ def invoke_inter_agent(
     # Every ACP ask, discussion leg and sealed review starts with the rules core
     # (explicit rules_seat, then $LU_RULES_SEAT); without it the call is refused as a typed
     # transport error, before any provenance is bound or a process is spawned.
-    from scripts.lib import rules_core
+    from lu_machinery.lib import rules_core
 
     try:
         rules_core.require_core(rules_seat)

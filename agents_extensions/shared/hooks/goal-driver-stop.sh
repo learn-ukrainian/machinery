@@ -79,7 +79,7 @@ case "$HANDOFF_AGENT" in
         # hard-requires --generation, the CLI's error is swallowed by
         # `|| true` below — a safe no-op in a mixed-deploy, exactly like the
         # old missing-env-var path.
-        "$PYTHON" "$PROJECT_DIR/scripts/orchestration/thread_handoff.py" \
+        "$PYTHON" "$PROJECT_DIR/lu_machinery/orchestration/thread_handoff.py" \
           --repo-root "$CANONICAL_ROOT" refresh-thread-lease-heartbeat \
           --agent "$HANDOFF_AGENT" --current-thread-id "$SESSION_ID" \
           >/dev/null 2>&1 || true
@@ -91,4 +91,4 @@ case "$HANDOFF_AGENT" in
 esac
 unset HANDOFF_AGENT
 
-exec "$PYTHON" -m scripts.goal_driver.stop_hook <<<"$STDIN_JSON"
+exec "$PYTHON" -m lu_machinery.goal_driver.stop_hook <<<"$STDIN_JSON"

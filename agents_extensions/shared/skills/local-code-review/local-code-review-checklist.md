@@ -4,7 +4,7 @@
 > resolves the exact target, runs a non-mutating review, resolves a
 > cross-family reviewer, and requires separate behavior proof for
 > user-visible changes. For the exact-head review comment, use
-> `"$PY" "$PRIMARY_REPO/scripts/review/record_cf_verdict.py"` after the toolful review settles.
+> `"$PY" "$PRIMARY_REPO/lu_machinery/review/record_cf_verdict.py"` after the toolful review settles.
 > Resolve `PRIMARY_REPO` and `PY` with the [review-loop setup](../review-loop/SKILL.md#review-loop)
 > to use current primary-checkout recorder rules regardless of branch age.
 
@@ -15,7 +15,7 @@ can be a separate CLI call. Pick a path once per review and reuse it:
 STATE_FILE=.agent/review-closeout/<short-slug>.json
 ```
 
-Every subcommand is `.venv/bin/python -m scripts.review.closeout_cli --state-file "$STATE_FILE" ...`.
+Every subcommand is `.venv/bin/python -m lu_machinery.review.closeout_cli --state-file "$STATE_FILE" ...`.
 
 ---
 
@@ -23,20 +23,20 @@ Every subcommand is `.venv/bin/python -m scripts.review.closeout_cli --state-fil
 
 ```bash
 # local: staged + unstaged + untracked, diffed against HEAD
-.venv/bin/python -m scripts.review.closeout_cli --state-file "$STATE_FILE" \
+.venv/bin/python -m lu_machinery.review.closeout_cli --state-file "$STATE_FILE" \
   target --mode local --repo-root .
 
 # commit: one already-made commit vs its parent
-.venv/bin/python -m scripts.review.closeout_cli --state-file "$STATE_FILE" \
+.venv/bin/python -m lu_machinery.review.closeout_cli --state-file "$STATE_FILE" \
   target --mode commit --commit <sha> --repo-root .
 
 # branch: explicit base, merge-base semantics
-.venv/bin/python -m scripts.review.closeout_cli --state-file "$STATE_FILE" \
+.venv/bin/python -m lu_machinery.review.closeout_cli --state-file "$STATE_FILE" \
   target --mode branch --branch <branch> --base <base-ref> --repo-root .
 
 # pr: actual PR base (never an assumed default branch), merge-base semantics —
 # diffs against the fork point, not the base branch's possibly-since-moved tip
-.venv/bin/python -m scripts.review.closeout_cli --state-file "$STATE_FILE" \
+.venv/bin/python -m lu_machinery.review.closeout_cli --state-file "$STATE_FILE" \
   target --mode pr --pr <number> --repo-root .
 ```
 
@@ -66,7 +66,7 @@ never does it.
 ## Step 2: Freeze the scope baseline — before the first review pass
 
 ```bash
-.venv/bin/python -m scripts.review.closeout_cli --state-file "$STATE_FILE" freeze \
+.venv/bin/python -m lu_machinery.review.closeout_cli --state-file "$STATE_FILE" freeze \
   --issue "<issue/request reference>" \
   --intended-behavior "<what this change is supposed to do>" \
   --non-goals "<what it explicitly does not do>" \
@@ -150,7 +150,7 @@ curl -s 'http://localhost:8765/api/state/routing-budget?fresh_codexbar=true' \
   | .venv/bin/python -c 'import json,sys; d=json.load(sys.stdin); print(json.dumps(d.get("lane_health", d)))' \
   > /tmp/routing-snapshot.json
 
-.venv/bin/python -m scripts.review.closeout_cli --state-file "$STATE_FILE" resolve-reviewer \
+.venv/bin/python -m lu_machinery.review.closeout_cli --state-file "$STATE_FILE" resolve-reviewer \
   --author-model "<the author's actual model/seat, e.g. claude-opus-5-5, gpt-6.1-sol, grok-4.7>" \
   --review-profile "<same profile as Step 2>" \
   --risk "<same risk as Step 2>" \
@@ -161,11 +161,11 @@ curl -s 'http://localhost:8765/api/state/routing-budget?fresh_codexbar=true' \
 ```
 
 When the frozen diff governs a seat — its adapter `<seat>*.py` under
-`scripts/agent_runtime/adapters/`, or that seat's reviewer hooks —
+`lu_machinery/agent_runtime/adapters/`, or that seat's reviewer hooks —
 pass those paths as repeatable `--owned-path` values, or name the seat with
 repeatable `--subject-seat` / `--subject-family`. The resolver then excludes
 that seat and records why on the trace. An unambiguous path such as
-`scripts/agent_runtime/adapters/grok_build.py` infers `grok`. A shared surface
+`lu_machinery/agent_runtime/adapters/grok_build.py` infers `grok`. A shared surface
 (`acpx.py`, `base.py`, `guard-reviewer-publish.py`) is ambiguous: pass
 `--subject-seat` or `--subject-family` instead of guessing. Omit all three
 when the change governs no seat; selection stays on the author-family ladder.
@@ -248,10 +248,10 @@ diff, missing head files and symlinks remain refused. See
 For every finding, raise it, then adjudicate it:
 
 ```bash
-.venv/bin/python -m scripts.review.closeout_cli --state-file "$STATE_FILE" finding raise \
+.venv/bin/python -m lu_machinery.review.closeout_cli --state-file "$STATE_FILE" finding raise \
   --id F1 --summary "<one-line summary>" --source "reviewer:<concrete_model>"
 
-.venv/bin/python -m scripts.review.closeout_cli --state-file "$STATE_FILE" finding adjudicate \
+.venv/bin/python -m lu_machinery.review.closeout_cli --state-file "$STATE_FILE" finding adjudicate \
   --id F1 --disposition "<in_scope_blocker|follow_up|stop_and_escalate>" \
   --rationale "<why this disposition>"
 ```
@@ -327,7 +327,7 @@ must appear in your final report, not vanish from it.
 Only apply a fix for a finding once it is adjudicated `in_scope_blocker`:
 
 ```bash
-.venv/bin/python -m scripts.review.closeout_cli --state-file "$STATE_FILE" finding apply --id F1
+.venv/bin/python -m lu_machinery.review.closeout_cli --state-file "$STATE_FILE" finding apply --id F1
 ```
 
 (or `finding skip --id F1 --rationale "..."` for an explicit, rationale-carrying
@@ -342,7 +342,7 @@ After applying findings, re-check the breakers before calling the review
 done. For `mode=local` the working tree alone is the signal:
 
 ```bash
-.venv/bin/python -m scripts.review.closeout_cli --state-file "$STATE_FILE" check-expansion --repo-root .
+.venv/bin/python -m lu_machinery.review.closeout_cli --state-file "$STATE_FILE" check-expansion --repo-root .
 ```
 
 For `mode=commit`/`branch`/`pr`, fixes land as **commits**, not working-tree
@@ -355,14 +355,14 @@ stored root is absent. After `target --repo public --repo-root .` from a
 linked worktree, this command measures that worktree's `HEAD`:
 
 ```bash
-.venv/bin/python -m scripts.review.closeout_cli --state-file "$STATE_FILE" \
+.venv/bin/python -m lu_machinery.review.closeout_cli --state-file "$STATE_FILE" \
   check-expansion --repo-root . --current-head HEAD
 ```
 
 Then record the cycle:
 
 ```bash
-.venv/bin/python -m scripts.review.closeout_cli --state-file "$STATE_FILE" record-cycle --outstanding-count <N>
+.venv/bin/python -m lu_machinery.review.closeout_cli --state-file "$STATE_FILE" record-cycle --outstanding-count <N>
 ```
 
 Apply the canonical
@@ -418,11 +418,11 @@ make this skill review learner content. `behavior-proof receipt` writes that
 carrier's receipt from the live pull-request comments.
 
 ```bash
-.venv/bin/python -m scripts.review.closeout_cli --state-file "$STATE_FILE" \
+.venv/bin/python -m lu_machinery.review.closeout_cli --state-file "$STATE_FILE" \
   behavior-proof record --surface source_aware --status pass \
   --command '<actual command>' --cwd . --exit-code 0 \
   --observation '<what happened>' --evidence-ref '<durable evidence reference>'
-.venv/bin/python -m scripts.review.closeout_cli --state-file "$STATE_FILE" \
+.venv/bin/python -m lu_machinery.review.closeout_cli --state-file "$STATE_FILE" \
   behavior-proof record --surface source_blind --status pass \
   --command '<actual user-facing command>' --cwd . --exit-code 0 \
   --observation '<what happened>' --evidence-ref '<durable evidence reference>'
@@ -449,8 +449,8 @@ the field.
   available, document reproducible manual steps instead of naming a tool or
   skill that the current environment does not provide.
 - **Generated artifact** (deployed skill mirrors, built docs, MDX output):
-  run the actual generator/deploy script (e.g. `scripts/deploy_prompts.sh`,
-  `scripts/lint/lint_agent_skills.py`, the relevant build script) and read
+  run the actual generator/deploy script (e.g. `lu_machinery/deploy_prompts.sh`,
+  `lu_machinery/lint/lint_agent_skills.py`, the relevant build script) and read
   its output/exit code.
 - **No dedicated tooling exists for this specific surface**: say so
   explicitly, then describe the exact manual steps you took (commands run,

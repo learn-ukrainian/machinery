@@ -13,7 +13,7 @@ MACHINERY_REL="$(basename "$(cd "$(dirname "$0")" && pwd)")"
 cd "$PROJECT_ROOT"
 
 # shellcheck disable=SC1091
-source "$PROJECT_ROOT/scripts/deploy_orphan_paths.sh"
+source "$PROJECT_ROOT/lu_machinery/deploy_orphan_paths.sh"
 
 # Entries are anchored at the target root, exactly as deploy excludes them.
 path_matches_declared_entry() {

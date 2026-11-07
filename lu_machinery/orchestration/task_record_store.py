@@ -245,11 +245,11 @@ def write_state_unlocked(path: Path, state: dict[str, Any]) -> None:
 
 def write_record_unlocked(path: Path, state: dict[str, Any]) -> None:
     """Preserve the legacy public-cause sink and use dispatcher persistence for v2."""
-    from scripts.orchestration.task_record_causes import _append_diagnostics, _public_record
+    from lu_machinery.orchestration.task_record_causes import _append_diagnostics, _public_record
 
     public, recorded = _public_record(state)
     if state.get("schema_version") == 2:
-        from scripts.dispatcher import store
+        from lu_machinery.dispatcher import store
 
         store.replace(public, path)
     else:

@@ -609,7 +609,7 @@ def main(argv: list[str] | None = None) -> int:
                 return 2
         dispatch_argv = _dispatch_argv(remote_argv)
         if dispatch_argv is not None:
-            from scripts.agent_runtime.attribution import resolve_invocation_attribution
+            from lu_machinery.agent_runtime.attribution import resolve_invocation_attribution
 
             explicit = None
             task_id = None

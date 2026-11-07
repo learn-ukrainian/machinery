@@ -32,8 +32,8 @@ _MACHINERY = Path(os.path.abspath(__file__)).parents[1].name
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from scripts.ops.context_guard import TelemetryUnavailable, Tmux
-from scripts.ops.driver_lanes import (
+from lu_machinery.ops.context_guard import TelemetryUnavailable, Tmux
+from lu_machinery.ops.driver_lanes import (
     EXIT_MARKER,
     Lane,
     LaneConfigError,

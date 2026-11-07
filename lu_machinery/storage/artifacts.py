@@ -31,7 +31,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
-from scripts.storage import paths
+from lu_machinery.storage import paths
 
 
 def _machinery_top() -> str:

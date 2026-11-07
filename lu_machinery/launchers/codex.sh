@@ -88,7 +88,7 @@ launcher_codex_resolve_canonical_root() {
 }
 
 launcher_codex_assert_primary_on_main() {
-  local assertion="$LC_CODEX_CANONICAL_ROOT/scripts/guardrails/assert_primary_on_main.py"
+  local assertion="$LC_CODEX_CANONICAL_ROOT/lu_machinery/guardrails/assert_primary_on_main.py"
   if [ -x "$LC_CODEX_CANONICAL_ROOT/.venv/bin/python" ] && [ -f "$assertion" ]; then
     if ! "$LC_CODEX_CANONICAL_ROOT/.venv/bin/python" "$assertion" \
         --cwd "$LC_CODEX_CANONICAL_ROOT" --quiet; then
@@ -111,7 +111,7 @@ launcher_codex_native_profile_preflight() {
   export PROJECT_DIR="$LC_CODEX_CANONICAL_ROOT"
 
   # shellcheck source=scripts/lib/thread_rollover_link.sh
-  source "$LC_ROOT/scripts/lib/thread_rollover_link.sh"
+  source "$LC_ROOT/lu_machinery/lib/thread_rollover_link.sh"
   clear_codex_launcher_rollover_env
   if [ "$LC_MODE" = interactive ]; then
     deploy_failure_policy="continue"
@@ -121,7 +121,7 @@ launcher_codex_native_profile_preflight() {
   fi
 
   # shellcheck source=scripts/lib/profile_resolver.sh
-  source "$LC_ROOT/scripts/lib/profile_resolver.sh"
+  source "$LC_ROOT/lu_machinery/lib/profile_resolver.sh"
   CLAUDE_PROFILE_RESOLVER_PYTHON="$LC_CODEX_CANONICAL_ROOT/.venv/bin/python"
   export CLAUDE_PROFILE_RESOLVER_PYTHON
   if ! resolve_context_profile native_codex "$LC_MODEL"; then
@@ -137,7 +137,7 @@ launcher_codex_native_profile_preflight() {
 launcher_codex_transport_probe() {
   local py
   py="$(launcher_project_python)" || exit 3
-  local probe=("$py" -m scripts.orchestration.codex_transport_health probe --ttl-seconds "${CODEX_TRANSPORT_PROBE_TTL_SECONDS:-900}" --timeout-seconds "${CODEX_TRANSPORT_PROBE_TIMEOUT_SECONDS:-120}" --model "$LC_MODEL" --effort low --json)
+  local probe=("$py" -m lu_machinery.orchestration.codex_transport_health probe --ttl-seconds "${CODEX_TRANSPORT_PROBE_TTL_SECONDS:-900}" --timeout-seconds "${CODEX_TRANSPORT_PROBE_TIMEOUT_SECONDS:-120}" --model "$LC_MODEL" --effort low --json)
   if [ "$LC_DRY_RUN" = 1 ]; then printf 'codex adapter: would probe '; printf '%q ' "${probe[@]}"; printf '\n'; return 0; fi
   if ! "${probe[@]}"; then
     launcher_error 'Codex transport is degraded; do not retry Codex, route this cycle through the external fleet/epic roster.'
@@ -151,7 +151,7 @@ launcher_adapter_preflight() {
     launcher_require_binary codex 'Codex executable is unavailable.' 3 || exit $?
   else
     # shellcheck source=scripts/lib/codex_cc_route.sh
-    source "$LC_ROOT/scripts/lib/codex_cc_route.sh"
+    source "$LC_ROOT/lu_machinery/lib/codex_cc_route.sh"
     codex_cc_configure_route "$LC_MODEL" || exit $?
     LC_AUTH_SOURCE="$CODEX_CC_AUTH_SOURCE"
     launcher_require_binary claude 'Claude Code executable is unavailable for the Codex harness.' 3 || exit $?
@@ -169,7 +169,7 @@ launcher_adapter_prelease() {
   local stream
   stream="$(launcher_selector_stream "$LC_EPIC")" || return 1
   # shellcheck source=scripts/lib/thread_rollover_link.sh
-  source "$LC_ROOT/scripts/lib/thread_rollover_link.sh"
+  source "$LC_ROOT/lu_machinery/lib/thread_rollover_link.sh"
   if [ "$LC_DRY_RUN" = 1 ]; then
     # detect is read-only; a dry run reports the packet it would bind.
     resolve_codex_pending_rollover "$LC_CODEX_CANONICAL_ROOT" "$SESSION_HANDOFF_AGENT" "$stream" \
@@ -181,7 +181,7 @@ launcher_adapter_prelease() {
 launcher_adapter_canary() {
   local py stream
   py="$(launcher_project_python)" || exit 3
-  local cmd=("$py" -m scripts.session_canary.codex_lane)
+  local cmd=("$py" -m lu_machinery.session_canary.codex_lane)
   if [ "$LC_DRY_RUN" = 1 ]; then echo 'codex adapter: would mint and bootstrap provider canary'; return 0; fi
   stream="$(launcher_selector_stream "$LC_EPIC")" || return 1
   "${cmd[@]}" mint --epic "$LC_EPIC" --stream "$stream" \

@@ -80,7 +80,7 @@ def assert_model_routing_allowed(model: str | None, *, context: str) -> None:
 
     ``context`` names the call site for the error message (and telemetry).
     """
-    from scripts.review.model_catalog import retired_model_refusal
+    from lu_machinery.review.model_catalog import retired_model_refusal
 
     if refusal := retired_model_refusal(model):
         raise RoutingGuardError(f"{context}: {refusal}")

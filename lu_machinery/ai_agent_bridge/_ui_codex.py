@@ -68,7 +68,7 @@ if __package__ in {None, ""}:
 
 import ijson
 
-from scripts.common.jsonl import jsonl_lines as split_jsonl_lines
+from lu_machinery.common.jsonl import jsonl_lines as split_jsonl_lines
 
 CODEX_SESSIONS_ROOT = Path.home() / ".codex" / "sessions"
 DEFAULT_TIMEOUT_S = 1800  # 30 min — covers most multi-turn dispatches

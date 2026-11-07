@@ -114,13 +114,13 @@ Define the function once, then run the exact command for each route:
 ```bash
 CANARY_CHECKOUT="$(git rev-parse --show-toplevel)"
 # The machinery package directory, named through one of its own packages.
-CANARY_MACHINERY="$(dirname "$CANARY_CHECKOUT/scripts/ai_llm")"
+CANARY_MACHINERY="$(dirname "$CANARY_CHECKOUT/lu_machinery/ai_llm")"
 # Default to the reviewed checkout; override only with another eligible input checkout.
 CANARY_INPUT_ROOT="${CANARY_INPUT_ROOT:-$CANARY_CHECKOUT}"
 agy_review_canary() {
   PYTHONPATH="$CANARY_MACHINERY:$(dirname "$CANARY_MACHINERY")" \
     "$PROJECT_PYTHON" - "$1" "$CANARY_MANIFEST" "$CANARY_INPUT_ROOT" \
-    scripts.agent_runtime.runner scripts.agent_runtime.review_mcp <<'PY'
+    lu_machinery.agent_runtime.runner lu_machinery.agent_runtime.review_mcp <<'PY'
 import hashlib
 import importlib
 import json

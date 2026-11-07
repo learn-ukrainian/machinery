@@ -30,7 +30,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
-from scripts.ci.test_source_cache import parse_test_source, read_test_source
+from lu_machinery.ci.test_source_cache import parse_test_source, read_test_source
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 

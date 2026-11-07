@@ -56,7 +56,7 @@ from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from pathlib import Path
 
-from scripts.common.repo_root import machinery_path
+from lu_machinery.common.repo_root import machinery_path
 
 # Every lane handoff the selector knows by name. A file of this shape that
 # exists in the epic directory is included even when a caller omits it.

@@ -35,8 +35,8 @@ from urllib.parse import quote
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from scripts.ci._location import module_name
-from scripts.common import github_client
+from lu_machinery.ci._location import module_name
+from lu_machinery.common import github_client
 
 DEFAULT_WORKFLOW = "CI"
 DEFAULT_WORKFLOW_FILE = "ci.yml"
@@ -1122,7 +1122,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     if args.pr_target:
-        from scripts.gh_merge_queue_status import check_and_report_pr_status
+        from lu_machinery.gh_merge_queue_status import check_and_report_pr_status
 
         return check_and_report_pr_status(
             pr=args.pr_target,

@@ -14,7 +14,7 @@ launcher_adapter_exec() {
     local py
     py="$(launcher_project_python)" || return 3
     # Extension deployment precedes this read-only gate. No AGY probe may run first.
-    (cd "$LC_ROOT" && "$py" -m scripts.agent_runtime.agy_hook_config --cwd "$LC_ROOT") || return 3
+    (cd "$LC_ROOT" && "$py" -m lu_machinery.agent_runtime.agy_hook_config --cwd "$LC_ROOT") || return 3
   fi
   local cmd=(agy --model "$LC_MODEL")
   local arg prompt_flag="" core_placed=0

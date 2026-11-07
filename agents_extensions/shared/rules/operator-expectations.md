@@ -35,7 +35,7 @@ are the tie-breakers.
    direct commits to main. **Merge duty:** nobody arms auto-merge. The worker that
    receives a brief runs its chain to the end (rules core P1): once required CI and independent
    cross-family exact-head review both pass, it enqueues via
-   `.venv/bin/python -m scripts.publish pr-merge --number <N>`, unless its brief says
+   `.venv/bin/python -m lu_machinery.publish pr-merge --number <N>`, unless its brief says
    `full-stop`. The accountable orchestrator lands what no brief owns and ensures every
    approved PR lands in `main`. Never leave an approved, green PR unmerged.
    **Landing and cleanup:** follow `workflow.md` § Merge policy and its
@@ -98,7 +98,7 @@ are the tie-breakers.
    Haiku bounded writes are workspace-write only, including with explicit envelopes;
    security, Ukrainian, review, design/approval and driver roles stay excluded.
    Other bounded work retains its required Sol envelope. Session breadth floor + handoff report:
-   `fleet-driver-routing.md` + `python -m scripts.fleet.driver_breadth_report`.
+   `fleet-driver-routing.md` + `python -m lu_machinery.fleet.driver_breadth_report`.
 5. **Know each model's strengths and weaknesses; route by fit.** The canonical per-task routing
    table is `model-assignment.md` (served at `/api/rules`). Model names are examples, not
    constants — confirm current capability before relying on a specific string. Distinguish the
@@ -111,7 +111,7 @@ are the tie-breakers.
 6. **Limits happen — handle them.** Providers rate-limit and quota out; that is normal
    operations, not an outage. On limit: check `/api/orient` runtime headroom; for
    Claude/Codex budget buckets at `near_cap`, substitute per
-   `scripts/config/agent_fallback_substitutions.yaml`; for other lanes, reach the SAME model
+   `lu_machinery/config/agent_fallback_substitutions.yaml`; for other lanes, reach the SAME model
    through a different harness or an equivalent lane per the harness-vs-model table. Always
    NOTE the substitution in the artifact — silent rerouting hides review-independence, cost,
    and data-egress changes. Never silently drop work because a lane was full; never burn a
@@ -140,7 +140,7 @@ are the tie-breakers.
 9. **Maximum Ukrainian immersion — with the A1 exception.** Learners learn Ukrainian IN
    Ukrainian. **A1 is the deliberate exception**: absolute beginners need English
    scaffolding, so A1 has intentionally LOW immersion bands — authoritative values live in
-   `IMMERSION_POLICIES` / `compute_immersion_band()` in `scripts/config.py` (banded, e.g.
+   `IMMERSION_POLICIES` / `compute_immersion_band()` in `lu_machinery/config.py` (banded, e.g.
    ULP S1 ~40–55%, later A1 bands lower/higher per design) — scaffolding is a design
    feature there, not a defect to fix. From A2 immersion is graduated UP:
    `a2-bridge` 75–100% → `a2-ramp`+ 85–100% (easy-UA teaching voice; English shrinks to

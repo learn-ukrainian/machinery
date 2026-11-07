@@ -32,7 +32,7 @@ if __package__ in (None, ""):  # run as a file: put the repository root on sys.p
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 try:
-    from scripts.fleet.reset_reserve import (
+    from lu_machinery.fleet.reset_reserve import (
         codex_is_threatened,
         codex_reserve_account,
         codex_reset_reserve_eligible,
@@ -51,14 +51,14 @@ except ImportError:  # pragma: no cover - script path fallback
     )
 
 try:
-    from scripts.agent_runtime.agent_identity import RETIRED_AGENT_ALIASES
+    from lu_machinery.agent_runtime.agent_identity import RETIRED_AGENT_ALIASES
 except ImportError:  # pragma: no cover - script path fallback
     from agent_runtime.agent_identity import RETIRED_AGENT_ALIASES  # type: ignore
 
-from scripts.common.task_store_paths import tasks_dir as default_tasks_dir
-from scripts.fleet import credit_lane
-from scripts.fleet.routing_policy import projected_unused_pct
-from scripts.orchestration import dispatch_admission, task_record_store
+from lu_machinery.common.task_store_paths import tasks_dir as default_tasks_dir
+from lu_machinery.fleet import credit_lane
+from lu_machinery.fleet.routing_policy import projected_unused_pct
+from lu_machinery.orchestration import dispatch_admission, task_record_store
 
 # The machinery package's import name, which is also the directory its files have in checkout
 # paths: from this module's package, or from its unresolved location when run as a file.
@@ -164,8 +164,8 @@ def is_avoid_lane(
     if lane is not None and lane.strip().lower() in RETIRED_AGENT_ALIASES:
         return True
     if lane == "kimi":
-        from scripts.agent_runtime.registry import AGENTS
-        from scripts.review.model_catalog import retired_model_refusal
+        from lu_machinery.agent_runtime.registry import AGENTS
+        from lu_machinery.review.model_catalog import retired_model_refusal
 
         if retired_model_refusal(AGENTS[lane]["default_model"]):
             return True
@@ -363,7 +363,7 @@ def build_lane_rows(
         info = agents.get(lane) if isinstance(agents.get(lane), dict) else {}
         quota_source: str | None = None
         if lane == "deepseek":
-            from scripts.fleet.prepaid_status import api_lane_status_from_account
+            from lu_machinery.fleet.prepaid_status import api_lane_status_from_account
 
             account = (budget.get("api_accounts") or {}).get(lane) or {}
             status = api_lane_status_from_account(lane, account)
@@ -731,7 +731,7 @@ def format_pick_order(pick_order: list[dict[str, Any]]) -> str:
 
 def cooler_lanes(rows: list[dict[str, Any]]) -> list[str]:
     """Lanes with verified capacity; UNKNOWN (including stale/advisory) rows never qualify."""
-    from scripts.review.model_catalog import load_model_catalog, usage_pool_for_seat
+    from lu_machinery.review.model_catalog import load_model_catalog, usage_pool_for_seat
 
     catalog = load_model_catalog()
     seen: set[str] = set()
@@ -987,7 +987,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
-    from scripts.fleet.usage import read_budget
+    from lu_machinery.fleet.usage import read_budget
 
     budget = read_budget(fresh=bool(args.fresh), transport=args.transport)
     active = fetch_active_in_flight()

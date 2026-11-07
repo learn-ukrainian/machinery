@@ -43,7 +43,7 @@ from enum import StrEnum
 from pathlib import Path
 
 try:
-    from scripts.lib.readonly_sqlite import SQLiteConnection
+    from lu_machinery.lib.readonly_sqlite import SQLiteConnection
 except ModuleNotFoundError as exc:
     # Script execution puts the script directory on sys.path, so the top-level
     # package is absent (exc.name is the package name). Any other import failure
@@ -61,14 +61,14 @@ except ModuleNotFoundError as exc:
 # Anchor ledger + task-state to the PRIMARY checkout (not a worktree copy),
 # matching the task-store path encoding.
 try:
-    from scripts.common.repo_root import resolve_repo_root
+    from lu_machinery.common.repo_root import resolve_repo_root
 except ImportError:  # pragma: no cover - flat script path
     from common.repo_root import resolve_repo_root  # type: ignore
 
-from scripts.common.task_store_paths import tasks_dir
-from scripts.control_plane.storage import StoreId
-from scripts.control_plane.storage import connect as cp_connect
-from scripts.orchestration import dispatch_admission
+from lu_machinery.common.task_store_paths import tasks_dir
+from lu_machinery.control_plane.storage import StoreId
+from lu_machinery.control_plane.storage import connect as cp_connect
+from lu_machinery.orchestration import dispatch_admission
 
 # File lives at scripts/guardrails/… → parents[2] is the checkout root.
 _REPO_ROOT = resolve_repo_root(Path(__file__), 2)
@@ -702,7 +702,7 @@ def _task_still_active(
     are authoritative.
     """
     # Imported here because the shared markers also use OwnershipLedger.
-    from scripts.orchestration.dead_worker_state import worker_liveness
+    from lu_machinery.orchestration.dead_worker_state import worker_liveness
 
     state_path = state_dir / f"{_safe_task_state_name(task_id)}.json"
     data: dict = {}
@@ -825,7 +825,7 @@ def _task_still_active(
 
 def publish_requeue_notice(notice: str, *, task_id: str, initiator: str, run_nonce: str) -> None:
     """Reuse Fleet's immutable message/delivery API, deduplicated for this dispatch."""
-    from scripts.fleet_comms.authority import AuthorityService
+    from lu_machinery.fleet_comms.authority import AuthorityService
 
     with AuthorityService() as service:
         service.publish_message(
@@ -1007,7 +1007,7 @@ class OwnershipLedger:
         return released
 
     def release(self, task_id: str, *, pid: int | None = None) -> None:
-        from scripts.orchestration.dead_worker_state import worker_liveness
+        from lu_machinery.orchestration.dead_worker_state import worker_liveness
 
         with self._connect() as conn:
             conn.execute("BEGIN IMMEDIATE")
@@ -1244,7 +1244,7 @@ class OwnershipLedger:
         ``(None, blockers, concrete)`` when ``queue`` is set and only concrete
         overlaps stand in the way. The caller commits.
         """
-        from scripts.orchestration.dead_worker_state import worker_liveness
+        from lu_machinery.orchestration.dead_worker_state import worker_liveness
 
         claims = [claim for p in (owned_paths or ()) for claim in expand_claim(p)]
         # Deduplicate by normalized ledger identity (kind+norm) so repeatable

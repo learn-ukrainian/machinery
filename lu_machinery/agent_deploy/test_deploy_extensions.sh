@@ -8,7 +8,7 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 # shellcheck source=scripts/lib/deploy_extensions.sh
-source "$REPO_ROOT/scripts/lib/deploy_extensions.sh"
+source "$REPO_ROOT/lu_machinery/lib/deploy_extensions.sh"
 
 fail() {
   printf 'FAIL: %s\n' "$1" >&2
@@ -103,7 +103,7 @@ contains "$out" "not found" "missing package.json warns instead of failing"
 # --- launchers actually use the helper (regression guard on the wiring) ---
 # Post-cutover (#5958) the deploy gate lives in the SHARED core so every
 # provider launcher refuses to run against stale extensions.
-launcher=scripts/lib/launcher_core.sh
+launcher=lu_machinery/lib/launcher_core.sh
 grep -q 'deploy_extensions.sh' "$REPO_ROOT/$launcher" \
   || fail "$launcher no longer sources deploy_extensions.sh"
 grep -q 'deploy_agent_extensions' "$REPO_ROOT/$launcher" \
@@ -116,7 +116,7 @@ fi
 
 # Post-cutover (#5958) the codex bootstrap/canonical wiring lives in the
 # provider adapter; the thin start-codex.sh delegates to launcher_core.
-codex_adapter=scripts/launchers/codex.sh
+codex_adapter=lu_machinery/launchers/codex.sh
 grep -q 'thread_rollover_link.sh' "$REPO_ROOT/$codex_adapter" \
   || fail "$codex_adapter no longer sources the Codex checkout bootstrap"
 grep -q 'bootstrap_codex_checkout' "$REPO_ROOT/$codex_adapter" \
@@ -125,7 +125,7 @@ grep -q 'git -C "$LC_SESSION_ROOT" worktree list' "$REPO_ROOT/$codex_adapter" \
   || fail "$codex_adapter no longer resolves the canonical checkout"
 # The CODEX_CANONICAL_REPO_ROOT override is validated where the helper root is
 # resolved (#9121).
-grep -q -- '--git-common-dir' "$REPO_ROOT/scripts/lib/launcher_core.sh" \
+grep -q -- '--git-common-dir' "$REPO_ROOT/lu_machinery/lib/launcher_core.sh" \
   || fail "launcher_core.sh no longer validates the canonical checkout override"
 grep -q 'branch --show-current' "$REPO_ROOT/$codex_adapter" \
   || fail "$codex_adapter no longer requires canonical main"

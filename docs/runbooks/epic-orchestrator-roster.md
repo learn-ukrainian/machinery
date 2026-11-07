@@ -99,7 +99,7 @@ pins `claude-opus-5-5[1m]` with `--effort high` by default; pass
 1-2 short scheduled sessions/day, dispatch-heavy, never a resident polling loop
 (see model-assignment.md § Orchestration operating pattern). Both Anthropic wrappers
 resolve to the same `claude-<lane>` handoff slot, so the stream lease still allows only one
-Anthropic driver per lane. The legacy `scripts/start-bio-driver.sh` runs Claude + the
+Anthropic driver per lane. The legacy `lu_machinery/start-bio-driver.sh` runs Claude + the
 `curriculum-track-orchestrator` agent-def if you specifically want that agent.
 
 Both Claude launchers apply the weekly usage guard. Every Claude launch is
@@ -131,9 +131,9 @@ the review-loop ukrainian seats, with no Claude seat (no DeepSeek, and Grok is n
 
 ### Machine-authority projection (lint #5642)
 
-Exact tables below must match `scripts/config/model_catalog.yaml` → `orchestrator_seats` and
-`scripts/config/fleet_communications.yaml` → `endpoints[*].formal_review_eligible`. Enforced by
-`.venv/bin/python scripts/lint/lint_fleet_roster.py` (never rewrites prose).
+Exact tables below must match `lu_machinery/config/model_catalog.yaml` → `orchestrator_seats` and
+`lu_machinery/config/fleet_communications.yaml` → `endpoints[*].formal_review_eligible`. Enforced by
+`.venv/bin/python lu_machinery/lint/lint_fleet_roster.py` (never rewrites prose).
 
 <!-- fleet-roster-projection:begin orchestrator_seats -->
 | seat | model_id | effort | escalate_model_id | escalate_effort |
@@ -213,7 +213,7 @@ language + review lanes free and puts the loop on the most replaceable capacity:
 3. Driver reads live routing from `/api/rules` + `model_catalog.yaml` (never hard-codes the
    roster), then runs the loop: topology → route → dispatch → Monitor settle → cross-family
    exact-head CF → CI Gate green on that head → merge queue (`drive-epic` §6/§7; never
-   `.venv/bin/python -m scripts.publish pr-merge --auto` first) → dual-write handoff.
+   `.venv/bin/python -m lu_machinery.publish pr-merge --auto` first) → dual-write handoff.
 4. Driver ends on its seat's handoff signal (canary **FAIL-HANDOFF** < 8/10 for
    grok; the thread-handoff for Claude/Sonnet), not on a compact count.
 
@@ -225,7 +225,7 @@ The launchers claim **session-stream/lease** authority (#5512); `drive-epic`
 teaches the message-plane and cross-family review loop.
 
 - Production default is **`authority`** (#6159). Query live data with
-  `.venv/bin/python -m scripts.fleet_comms plane-status`; the default is not a
+  `.venv/bin/python -m lu_machinery.fleet_comms plane-status`; the default is not a
   substitute for that observation.
 - Implemented modes are `off` | `shadow` | `dual_write` | `authority`.
   Fleet-comms is the durable message-plane source of truth in `authority`;

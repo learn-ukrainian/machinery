@@ -26,7 +26,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from typing import Any
 
-from scripts.common import github_client
+from lu_machinery.common import github_client
 
 # (path, request headers, timeout seconds) -> (status, response headers, body)
 RestTransport = Callable[[str, dict[str, str], float], tuple[int, dict[str, str], bytes]]

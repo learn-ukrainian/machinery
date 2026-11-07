@@ -33,22 +33,22 @@ from prometheus_client import CollectorRegistry, Counter, Histogram, make_asgi_a
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
-import scripts.github_rest_cache as github_rest
-from scripts.common.jsonl import physical_lines
-from scripts.common.release_layout import is_release_root
-from scripts.common.repo_root import ProductRootError, machinery_path
-from scripts.control_plane.storage import StoreId, assert_component_supported
-from scripts.github_check_rollup import group_collapsed_by_name
-from scripts.guardrails import worktree_containment
-from scripts.orientation_packet import PACKET_MAX_BYTES, cap_response, json_bytes
-from scripts.research import registry as reg
+import lu_machinery.github_rest_cache as github_rest
+from lu_machinery.common.jsonl import physical_lines
+from lu_machinery.common.release_layout import is_release_root
+from lu_machinery.common.repo_root import ProductRootError, machinery_path
+from lu_machinery.control_plane.storage import StoreId, assert_component_supported
+from lu_machinery.github_check_rollup import group_collapsed_by_name
+from lu_machinery.guardrails import worktree_containment
+from lu_machinery.orientation_packet import PACKET_MAX_BYTES, cap_response, json_bytes
+from lu_machinery.research import registry as reg
 
 try:
     from path_safety import safe_join  # scripts/ on sys.path (test sys.path-hack)
 except ImportError:
     from ..path_safety import safe_join  # scripts.api package import (production)
 
-from scripts.orchestration import issue_stream_audit as isa
+from lu_machinery.orchestration import issue_stream_audit as isa
 
 from . import config
 from . import delegate_router as delegate_api
@@ -964,7 +964,7 @@ def _collect_capacity_orient_data(ctx: MonitorContext | None = None) -> dict:
 
 def _collect_bridge_pending_orient_data(ctx: MonitorContext | None = None) -> dict:
     resolve_context(ctx)
-    from scripts.ai_agent_bridge import _channels  # noqa: PLC0415 — optional broker bridge
+    from lu_machinery.ai_agent_bridge import _channels  # noqa: PLC0415 — optional broker bridge
 
     return _channels.bridge_pending_summary()
 
@@ -1001,7 +1001,7 @@ def _core_bare_canary(ctx: MonitorContext | None = None) -> bool:
     """
     resolved_ctx = resolve_context(ctx)
     try:
-        from scripts.hygiene.check_core_bare import check_core_bare  # noqa: PLC0415 — script-path fallback
+        from lu_machinery.hygiene.check_core_bare import check_core_bare  # noqa: PLC0415 — script-path fallback
     except ImportError:  # path-flavoured import for test/script contexts
         from hygiene.check_core_bare import check_core_bare  # noqa: PLC0415 — script-path fallback
     try:
@@ -1030,7 +1030,7 @@ def _self_symlink_canary(ctx: MonitorContext | None = None) -> bool:
     """
     resolved_ctx = resolve_context(ctx)
     try:
-        from scripts.hygiene.check_self_symlinks import check_self_symlinks  # noqa: PLC0415 — script-path fallback
+        from lu_machinery.hygiene.check_self_symlinks import check_self_symlinks  # noqa: PLC0415 — script-path fallback
     except ImportError:  # path-flavoured import for test/script contexts
         from hygiene.check_self_symlinks import check_self_symlinks  # noqa: PLC0415 — script-path fallback
     try:
@@ -1055,7 +1055,7 @@ def _primary_integrity_canary(ctx: MonitorContext | None = None) -> bool:
     """
     resolved_ctx = resolve_context(ctx)
     try:
-        from scripts.hygiene.check_primary_integrity import (  # noqa: PLC0415 — script-path fallback
+        from lu_machinery.hygiene.check_primary_integrity import (  # noqa: PLC0415 — script-path fallback
             check_primary_integrity,
         )
     except ImportError:  # path-flavoured import for test/script contexts
@@ -1085,7 +1085,7 @@ def _node_modules_integrity_canary(ctx: MonitorContext | None = None) -> bool:
     """
     resolved_ctx = resolve_context(ctx)
     try:
-        from scripts.hygiene.check_node_modules_integrity import (  # noqa: PLC0415 — script-path fallback
+        from lu_machinery.hygiene.check_node_modules_integrity import (  # noqa: PLC0415 — script-path fallback
             check_node_modules_integrity,
         )
     except ImportError:  # path-flavoured import for test/script contexts
@@ -1117,7 +1117,9 @@ def _venv_integrity_canary(ctx: MonitorContext | None = None) -> bool:
     """
     resolved_ctx = resolve_context(ctx)
     try:
-        from scripts.hygiene.check_venv_integrity import check_venv_integrity  # noqa: PLC0415 — script-path fallback
+        from lu_machinery.hygiene.check_venv_integrity import (  # noqa: PLC0415 — script-path fallback
+            check_venv_integrity,
+        )
     except ImportError:  # path-flavoured import for test/script contexts
         from hygiene.check_venv_integrity import check_venv_integrity  # noqa: PLC0415 — script-path fallback
     try:
@@ -1144,7 +1146,7 @@ def _worktree_cleanup_integrity_canary(ctx: MonitorContext | None = None) -> boo
     """
     resolved_ctx = resolve_context(ctx)
     try:
-        from scripts.hygiene.check_worktree_cleanup_integrity import (  # noqa: PLC0415 — script-path fallback
+        from lu_machinery.hygiene.check_worktree_cleanup_integrity import (  # noqa: PLC0415 — script-path fallback
             check_worktree_cleanup_integrity,
         )
     except ImportError:  # path-flavoured import for test/script contexts
@@ -1173,7 +1175,7 @@ def _tmp_usability_canary() -> dict:
     Never raises: the canary must not break health collection.
     """
     try:
-        from scripts.hygiene.check_tmp_usability import probe_tmp_usability  # noqa: PLC0415 — script-path fallback
+        from lu_machinery.hygiene.check_tmp_usability import probe_tmp_usability  # noqa: PLC0415 — script-path fallback
     except ImportError:  # path-flavoured import for test/script contexts
         from hygiene.check_tmp_usability import probe_tmp_usability  # noqa: PLC0415 — script-path fallback
     try:

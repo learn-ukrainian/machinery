@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from scripts.guardrails.worktree_containment import (
+from lu_machinery.guardrails.worktree_containment import (
     NotAGitRepositoryError,
     canonicalize,
     resolve_main_root,

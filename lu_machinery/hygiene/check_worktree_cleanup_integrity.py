@@ -55,7 +55,7 @@ _append_event = _check_primary_integrity._append_event
 _resolve_main_root = _check_primary_integrity._resolve_main_root
 _running_dispatches = _check_primary_integrity._running_dispatches
 
-from scripts.common.safe_unit_install import InstallError, check_state_paths, load_unit
+from lu_machinery.common.safe_unit_install import InstallError, check_state_paths, load_unit
 
 
 def _machinery_top() -> str:

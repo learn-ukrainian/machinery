@@ -53,7 +53,7 @@ ROOT = Path(__file__).resolve().parents[2]
 if __package__ in (None, "") and str(ROOT) not in sys.path:  # run as a file by rules_core.sh
     sys.path.insert(0, str(ROOT))
 
-from scripts.common.repo_root import RULES_DIR_REL, ProductRootError, product_root, rules_dir
+from lu_machinery.common.repo_root import RULES_DIR_REL, ProductRootError, product_root, rules_dir
 
 _MACHINERY = Path(os.path.abspath(__file__)).parents[1].name
 _ENTRY = f"{_MACHINERY}/lib/{Path(__file__).name}"
@@ -143,7 +143,7 @@ def resolve_seat(
     if lane:
         if str(ROOT) not in sys.path:
             sys.path.insert(0, str(ROOT))
-        from scripts.orchestration.driver_agent_type import resolve_driver_agent_type
+        from lu_machinery.orchestration.driver_agent_type import resolve_driver_agent_type
 
         if resolve_driver_agent_type(lane, provider=provider) in CONTENT_AGENT_TYPES:
             return "content"

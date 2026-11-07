@@ -18,4 +18,4 @@ if [[ ! -x "$PYTHON" ]]; then
   echo "project interpreter missing: $PYTHON (set LEARN_UKRAINIAN_PYTHON or LEARN_UKRAINIAN_PRIMARY_REPO_ROOT)" >&2
   exit 1
 fi
-exec "$PYTHON" "$REPO_ROOT/scripts/api/project_state_local.py" report
+exec "$PYTHON" "$REPO_ROOT/lu_machinery/api/project_state_local.py" report

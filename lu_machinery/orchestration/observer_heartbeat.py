@@ -23,10 +23,10 @@ from urllib.parse import urlparse
 if __package__ in (None, ""):  # run as a file: put the repository root on sys.path
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from scripts.api.occupancy_local import resolve_launcher_host_id
-from scripts.api.occupancy_sanitize import CLOUD_OBSERVER_HOST_ID, opaque_host_id, safe_field
-from scripts.api.telemetry.transcript_tokens import read_session_record, session_context_telemetry
-from scripts.orchestration.session_markers import iter_session_markers
+from lu_machinery.api.occupancy_local import resolve_launcher_host_id
+from lu_machinery.api.occupancy_sanitize import CLOUD_OBSERVER_HOST_ID, opaque_host_id, safe_field
+from lu_machinery.api.telemetry.transcript_tokens import read_session_record, session_context_telemetry
+from lu_machinery.orchestration.session_markers import iter_session_markers
 
 DEFAULT_MONITOR = "http://127.0.0.1:8765"
 ALLOWED_AGENTS = frozenset({"grok-bot", "qa-engineer", "cursor", "codex", "claude"})
@@ -215,7 +215,7 @@ def _default_reporter_host_id() -> str | None:
         resolved = resolve_launcher_host_id()
         if resolved == CLOUD_OBSERVER_HOST_ID or resolved == "mac-operator":
             return resolved
-        from scripts.api.occupancy import parse_host_id_map
+        from lu_machinery.api.occupancy import parse_host_id_map
 
         return resolved if resolved in parse_host_id_map().values() else None
     except Exception:

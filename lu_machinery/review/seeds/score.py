@@ -57,7 +57,7 @@ if __package__ in (None, ""):  # run as a file: put the repository root on sys.p
     sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
 try:
-    from scripts.lib.readonly_sqlite import SQLiteConnection, open_readonly
+    from lu_machinery.lib.readonly_sqlite import SQLiteConnection, open_readonly
 except ModuleNotFoundError as exc:
     # Only this package's own absence selects the short spelling; its name comes from this
     # file's unresolved location (design-v1 amendment 1), never __package__.
@@ -65,8 +65,8 @@ except ModuleNotFoundError as exc:
         raise
     from lib.readonly_sqlite import SQLiteConnection, open_readonly  # type: ignore[no-redef]
 
-from scripts.review import findings_db
-from scripts.review.seeds import manifest as seed_manifest
+from lu_machinery.review import findings_db
+from lu_machinery.review.seeds import manifest as seed_manifest
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 REPORT_DIR = ("audit", "reviewer-measurement")
