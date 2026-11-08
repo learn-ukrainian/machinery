@@ -265,3 +265,51 @@ def test_adapter_requires_a_selected_consumer(release, product, name):
         assert result.returncode == 1
         assert f"{product}/.venv/bin/python" in result.stderr
         assert str(release) not in result.stderr
+
+
+def test_deployed_session_setup_runs_installed_release_code(release, product):
+    """Code taken from the consumer checkout: a deployed hook found no lu_machinery (R62)."""
+    hooks = product / ".claude/hooks"
+    hooks.mkdir(parents=True)
+    shutil.copy2(SOURCE / HOOKS / "session-setup.sh", hooks / "session-setup.sh")
+    subprocess.run(
+        [sys.executable, "-I", "-m", "venv", "--without-pip", str(product / ".venv")],
+        check=True,
+    )
+    purelib = subprocess.run(
+        [
+            str(product / ".venv/bin/python"),
+            "-I",
+            "-c",
+            "import sysconfig; print(sysconfig.get_path('purelib'))",
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    Path(purelib, "release.pth").write_text(f"{release}\n")
+    env = {
+        "SESSION_START_BUDGET_SECONDS": "60",
+        "CLAUDE_SESSION_RECORD_PYTHON": sys.executable,
+        "CLAUDE_PROFILE_RESOLVER_PYTHON": sys.executable,
+        "CLAUDEX_SUPERVISOR_PYTHON": sys.executable,
+        "THREAD_ROLLOVER_PYTHON": sys.executable,
+        "LEARN_UKRAINIAN_CLAUDEX_RUN_ID": "release-root-run",
+        "LEARN_UKRAINIAN_CLAUDEX_LAUNCH_GENERATION": "1",
+    }
+    result = run_shell(
+        hooks / "session-setup.sh",
+        env={**env, "CLAUDE_PROJECT_DIR": str(product)},
+        cwd=product,
+    )
+    assert result.returncode == 0, result.stderr
+    context = json.loads(result.stdout)["hookSpecificOutput"]["additionalContext"]
+    assert "did not match the owned child generation" in context
+    Path(purelib, "release.pth").unlink()
+    result = run_shell(
+        hooks / "session-setup.sh",
+        env={**env, "CLAUDE_PROJECT_DIR": str(product)},
+        cwd=product,
+    )
+    assert result.returncode == 1
+    assert "no installed lu_machinery release" in result.stderr
