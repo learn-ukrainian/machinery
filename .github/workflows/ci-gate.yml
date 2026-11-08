@@ -15,16 +15,20 @@
 #   new errors fail, the baseline only shrinks); actionlint (with a pinned ShellCheck) and zizmor (offline) over
 #   .github/workflows/; the TruffleHog secret scan and the Semgrep SAST scan.
 #   The secret-scan and sast jobs below are the only definition of each scan
-#   for the machinery repository.
-# - The mypy job is the only one here that imports lu_machinery: it runs the
-#   ratchet module from the checkout. Tests run in tests.yml.
+#   for the machinery repository. installed-wheel builds the release wheel
+#   from the tracked tree, installs it offline with requirements-machinery.lock
+#   (pip --require-hashes) into a clean venv and imports every lu_machinery
+#   module from it; pytest calls tests.yml (the machinery test manifest).
+# - The mypy job imports lu_machinery from the checkout: it runs the ratchet
+#   module. installed-wheel imports only the installed wheel.
 # - Every job counts its targets first and fails on zero, because the tools
 #   exit 0 on an empty or missing target. Each job prints what it inspected.
 # - CI Gate needs every other job, runs even when one of them fails, and passes
 #   only when every expected job reports `success`. A failed, cancelled or
 #   skipped job, a missing result or an unexpected job fails it, because GitHub
 #   counts a skipped required check as passing. There is no matrix, so each
-#   check name is the job name. A new job must be added to both `needs` and the
+#   check name is the job name (the called tests.yml job reports as
+#   "pytest / pytest"). A new job must be added to both `needs` and the
 #   gate's expected list; nothing else catches a job left out of both.
 # - Hosted runners only (ubuntu-24.04). Every tool is downloaded at a pinned
 #   version and checked against a pinned SHA-256 before it runs: release
@@ -1127,12 +1131,157 @@ jobs:
           rm -rf "$RUNNER_TEMP/sast" "$RUNNER_TEMP/semgrep-rules"
           "$RUNNER_TEMP/semgrep-venv" "$RUNNER_TEMP/semgrep-requirements.txt"
 
+  # The release path of docs/release.md on a hosted runner: build sdist and
+  # wheel from the tracked tree with pinned tools, fill a temporary wheelhouse
+  # with the wheel and every locked dependency, install offline with hashes
+  # required, then import every module from the installed wheel only.
+  installed-wheel:
+    name: Installed wheel
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          check-latest: false
+
+      - name: Build sdist and wheel with pinned tools
+        run: |
+          set -euo pipefail
+          work="$RUNNER_TEMP/installed-wheel"
+          rm -rf "$work"
+          mkdir -p "$work/src" "$work/dist"
+          # Only tracked files, as in a release build.
+          git archive --format=tar HEAD | tar -x -C "$work/src"
+          cd "$work"
+          python -I -m venv build-venv
+          cat > build-requirements.txt <<'REQUIREMENTS'
+          build==1.6.1 \
+              --hash=sha256:ecd351a4be9d35a9eaaba244a7687143c9c7d4aea6ac964e7e7ddab20cbcf4e7
+          packaging==26.3 \
+              --hash=sha256:d7193f7c8e4e93f444fde0262bf90af30e16fa0ad0ad44cb553c87339b23cd1c
+          pyproject-hooks==1.2.0 \
+              --hash=sha256:9e5c6bfa8dcc30091c74b0cf803c81fdd29d94f01992a7707bc97babb1141913
+          setuptools==84.1.0 \
+              --hash=sha256:5231689c6ac8156cd155cfb98c3fd6fb252c3e7e9bd3d78b64d3c55f132624c9
+          REQUIREMENTS
+          build-venv/bin/python -I -m pip install --no-cache-dir --disable-pip-version-check \
+            --no-input --require-hashes --only-binary=:all: --requirement build-requirements.txt
+          build-venv/bin/python -I -m build --sdist --wheel --no-isolation --outdir dist src
+          ls -l dist
+          wheels="$(find dist -maxdepth 1 -name 'lu_machinery-*-py3-none-any.whl' | wc -l)"
+          sdists="$(find dist -maxdepth 1 -name 'lu_machinery-*.tar.gz' | wc -l)"
+          if [ "$wheels" -ne 1 ] || [ "$sdists" -ne 1 ]; then
+            echo "::error::Expected one wheel and one sdist, got ${wheels} and ${sdists}"
+            exit 1
+          fi
+
+      - name: Install offline from a hash-locked wheelhouse
+        run: |
+          set -euo pipefail
+          lock="$PWD/requirements-machinery.lock"
+          work="$RUNNER_TEMP/installed-wheel"
+          cd "$work"
+          wheel="$(find dist -maxdepth 1 -name 'lu_machinery-*-py3-none-any.whl')"
+          version="$(python -I -c 'import sys, tomllib; print(tomllib.load(open(sys.argv[1], "rb"))["project"]["version"])' src/pyproject.toml)"
+          mkdir wheelhouse
+          python -I -m pip download --no-cache-dir --disable-pip-version-check --no-input \
+            --require-hashes --only-binary=:all: --no-deps --dest wheelhouse --requirement "$lock"
+          cp "$wheel" wheelhouse/
+          # The consumer lock: the release line, then the dependency lock.
+          digest="$(sha256sum "$wheel" | cut -d' ' -f1)"
+          { printf 'lu-machinery==%s \\\n    --hash=sha256:%s\n' "$version" "$digest"; cat "$lock"; } > consumer.lock
+          echo "lu-machinery ${version} sha256:${digest}; wheelhouse holds $(find wheelhouse -name '*.whl' | wc -l) wheel(s)"
+          python -I -m venv consumer
+          consumer/bin/python -I -m pip install --no-cache-dir --disable-pip-version-check --no-input \
+            --no-index --find-links wheelhouse --require-hashes --requirement consumer.lock
+          consumer/bin/python -I -m pip check --disable-pip-version-check
+
+      - name: Import every module from the installed wheel
+        run: |
+          set -euo pipefail
+          work="$RUNNER_TEMP/installed-wheel"
+          mkdir -p "$work/scratch/home"
+          cat > "$work/import_all.py" <<'PY'
+          import importlib
+          import importlib.metadata
+          import sys
+          from pathlib import Path
+
+          import lu_machinery
+
+          # Modules that need an optional extra of pyproject.toml, which the
+          # lock does not install: each may fail only with ModuleNotFoundError
+          # for that extra's package.
+          OPTIONAL = {"lu_machinery.debug.debug_pymorphy": "pymorphy2"}
+
+          site = Path(sys.argv[1]).resolve()
+          origin = Path(lu_machinery.__file__).resolve()
+          print(f"lu-machinery {importlib.metadata.version('lu-machinery')} from {origin}")
+          if site not in origin.parents:
+              sys.exit(f"::error::lu_machinery was imported from {origin}, not the consumer venv")
+          # The distribution's file manifest (RECORD) lists every shipped
+          # module, including namespace subtrees that pkgutil discovery skips.
+          names = set()
+          for file in importlib.metadata.distribution("lu-machinery").files or []:
+              parts = file.parts
+              if parts[0] != "lu_machinery" or file.suffix != ".py":
+                  continue
+              parts = parts[:-1] if parts[-1] == "__init__.py" else (*parts[:-1], file.stem)
+              if not all(part.isidentifier() for part in parts):
+                  sys.exit(f"::error::{file} is shipped but cannot be imported by name")
+              names.add(".".join(parts))
+          failed = {}
+          optional = 0
+          for name in sorted(names):
+              try:
+                  module = importlib.import_module(name)
+              except ModuleNotFoundError as exc:
+                  if name in OPTIONAL and exc.name == OPTIONAL[name]:
+                      print(f"{name}: skipped, needs the optional {exc.name}")
+                      optional += 1
+                  else:
+                      failed[name] = f"ModuleNotFoundError: {exc}"
+                  continue
+              except BaseException as exc:  # a module that exits on import fails too
+                  failed[name] = f"{type(exc).__name__}: {exc}"
+                  continue
+              # Namespace packages have no __file__, only __path__ entries.
+              origins = [module.__file__] if module.__file__ else list(module.__path__)
+              stray = [path for path in origins if site not in Path(path).resolve().parents]
+              if not origins or stray:
+                  failed[name] = f"imported from {origins}"
+          for name, reason in sorted(failed.items()):
+              print(f"::error::{name}: {reason}")
+          print(f"Imported {len(names) - len(failed) - optional} of {len(names)} module(s); {optional} need an optional extra.")
+          if not names or failed:
+              sys.exit(1)
+          PY
+          cd "$work/scratch"
+          # No checkout, PYTHONPATH or runner variable reaches the imports.
+          env -i PATH=/usr/bin:/bin HOME="$work/scratch/home" TMPDIR="$work/scratch" \
+            "$work/consumer/bin/python" -I -B "$work/import_all.py" "$work/consumer"
+
+      - name: Remove build files
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/installed-wheel"
+
+  pytest:
+    name: pytest
+    permissions:
+      contents: read
+    uses: ./.github/workflows/tests.yml # zizmor: ignore[self-repository] -- actionlint 1.7.12 does not support $/ syntax.
+
   ci-gate:
     name: CI Gate
     # always(): a job skipped because a dependency failed would otherwise count
     # as a passing required check.
     if: always()
-    needs: [ruff, compileall, mypy, actionlint, zizmor, secret-scan, sast]
+    needs: [ruff, compileall, mypy, actionlint, zizmor, secret-scan, sast, installed-wheel, pytest]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions: {}
@@ -1143,7 +1292,7 @@ jobs:
         run: |
           set -euo pipefail
           # Keep this list equal to `needs` above.
-          expected=(actionlint compileall mypy ruff sast secret-scan zizmor)
+          expected=(actionlint compileall installed-wheel mypy pytest ruff sast secret-scan zizmor)
           if ! actual="$(jq -r 'if type == "object" then keys[] else error("not an object") end' \
                 <<< "$NEEDS_JSON" 2> /dev/null)"; then
             echo "::error::Job results are not a JSON object; failing closed"
