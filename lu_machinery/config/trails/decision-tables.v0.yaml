@@ -10,7 +10,7 @@
 # freeze live data (roster, pace, quotas) — the drive-epic golden rule: method, never
 # roster.
 #
-# This file validates against agents_extensions/shared/schemas/decision-tables.v0.schema.json
+# This file validates against lu_machinery/schemas/decision-tables.v0.schema.json
 # (validate_decision_tables in scripts/orchestration/validate_trailspec.py) and is covered
 # by tests/test_validate_trailspec.py.
 schema_version: decision-tables.v0

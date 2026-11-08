@@ -19,7 +19,6 @@ from lu_machinery.common.repo_root import machinery_path
 from lu_machinery.orchestration.red_ci_known_failures import VALID_STOP_CODES
 
 STOP_UNKNOWN = "STOP-unknown"
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_DECISION_TABLES_PATH = machinery_path("config/trails/decision-tables.v1.yaml")
 _ACTION_TOKEN = re.compile(r"^[a-z][a-z0-9-]*$")
 
