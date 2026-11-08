@@ -21,6 +21,8 @@ from pathlib import Path
 
 from lu_machinery.common.repo_root import state_root
 
+from . import _config
+
 # Default: keep small reviews fully inline; large coding deliverables go to disk.
 DEFAULT_INLINE_MAX_BYTES = 12 * 1024
 # How much of the head to keep in the SQLite ``messages.content`` row.
@@ -157,7 +159,7 @@ def maybe_sidecare_response(
 
     path = write_reply_sidecar(full, task_id=task_id, from_llm=from_llm, msg_type=msg_type)
     try:
-        rel = path.resolve().relative_to(state_root().resolve()).as_posix()
+        rel = path.resolve().relative_to(_config.REPO_ROOT.resolve()).as_posix()
     except ValueError:
         rel = str(path)
 

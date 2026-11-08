@@ -3,7 +3,6 @@
 import asyncio
 import json
 import subprocess
-from pathlib import Path
 
 import pytest
 
@@ -16,7 +15,6 @@ from lu_machinery.api import (
     telemetry_router,
 )
 from lu_machinery.api.telemetry import response
-from lu_machinery.api.telemetry.transcript_tokens import TranscriptTelemetry
 
 
 @pytest.fixture
@@ -118,30 +116,31 @@ def test_occupancy_and_rollover_paths_follow_state_at_use_time(roots, monkeypatc
     assert seen[-1] == product
 
 
-def test_response_telemetry_passes_state_root_to_every_reader(roots, monkeypatch):
-    _, state = roots
-    seen = []
-    telemetry = TranscriptTelemetry(123, None, 1, Path("test.jsonl"))
-
-    def session(root, session_id):
-        seen.append(root)
-        return telemetry
-
-    def current(root):
-        seen.append(root)
-        return telemetry
-
-    def record(root, session_id):
-        seen.append(root)
-        return None
-
-    monkeypatch.setattr(response, "session_context_telemetry", session)
-    monkeypatch.setattr(response, "current_context_telemetry", current)
-    monkeypatch.setattr(response, "read_session_record", record)
+def test_response_telemetry_keeps_product_transcript_identity_and_state_records(roots, tmp_path, monkeypatch):
+    product, state = roots
+    home = tmp_path / "home"
+    monkeypatch.setenv("HOME", str(home))
     monkeypatch.setenv("LEARN_UKRAINIAN_TELEMETRY_FOOTER", "1")
-    monkeypatch.delenv("AGENT_NO_TELEMETRY_FOOTER", raising=False)
-    assert response.build_telemetry_payload("session-1")["caller_match"] is True
-    assert response.build_telemetry_payload()["caller_match"] is False
+    for name in ("AGENT_NO_TELEMETRY_FOOTER", "LEARN_UKRAINIAN_TRANSCRIPT_PATH", "CLAUDE_TRANSCRIPT_PATH"):
+        monkeypatch.delenv(name, raising=False)
+    project_dir = home / ".claude/projects" / str(product.resolve()).replace("/", "-")
+    project_dir.mkdir(parents=True)
+    transcript = project_dir / "session-1.jsonl"
+    transcript.write_text(json.dumps({"type": "assistant", "message": {"usage": {"input_tokens": 1234}}}) + "\n")
+    # Missing SessionStart records must retain the product-cwd transcript fallback.
+    assert response.build_telemetry_payload("session-1")["ctx"] == 1234
+    assert response.build_telemetry_payload()["newest_transcript"]["ctx"] == 1234
     assert response.append_telemetry_footer("hello", "session-1") != "hello"
     assert response.append_telemetry_footer("hello") != "hello"
-    assert seen == [state] * 5
+    # Session metadata remains primary-owned even though transcript identity is product.
+    record = state / ".agent/sessions/session-1.json"
+    record.parent.mkdir(parents=True)
+    record.write_text(json.dumps({"schema_version": 1, "session_id": "session-1",
+                                  "transcript_path": str(transcript), "observed_model_id": "state-model"}))
+    decoy = product / ".agent/sessions/session-1.json"
+    decoy.parent.mkdir(parents=True)
+    decoy.write_text(json.dumps({"schema_version": 1, "session_id": "session-1",
+                                 "observed_model_id": "product-decoy"}))
+    payload = response.build_telemetry_payload("session-1")
+    assert payload["ctx"] == 1234
+    assert payload["observed_model"] == "state-model"

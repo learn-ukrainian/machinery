@@ -2,6 +2,7 @@
 
 import subprocess
 import sys
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -39,6 +40,8 @@ def test_reply_and_ask_files_are_written_only_to_state(roots, monkeypatch):
     assert len(list(path.glob("reply-test-*.md"))) == 1
     assert next(path.glob("reply-test-*.md")).read_text() == "complete reply\n" * 1000
     assert "batch_state/asks/root-proof/" in result.content
+    assert Path(result.sidecar_path).is_absolute()
+    assert Path(result.sidecar_path).read_text() == "complete reply\n" * 1000
     assert _ask_lifecycle._ask_state_dir(42) == state / "batch_state/asks/message-42"
     assert _ask_lifecycle._ask_log_path(42) == state / ".mcp/servers/message-broker/logs/ask-42.log"
     # Exercise the fallback as well as the real fleet path resolver.
@@ -51,6 +54,11 @@ def test_reply_and_ask_files_are_written_only_to_state(roots, monkeypatch):
     monkeypatch.setenv("LEARN_UKRAINIAN_PRIMARY_REPO_ROOT", str(product))
     assert _ask_lifecycle._ask_log_path(42) == product / ".mcp/servers/message-broker/logs/ask-42.log"
     assert _ask_lifecycle._plane_root() == product / "batch_state/fleet-comms/v1"
+    same_root = _reply_sidecar.maybe_sidecare_response(
+        "complete reply\n" * 1000, task_id="same-root", from_llm="test", msg_type="response",
+    )
+    assert not Path(same_root.sidecar_path).is_absolute()
+    assert (product / same_root.sidecar_path).is_file()
 
 
 @pytest.mark.parametrize("kind", ["ask", "claude", "gemini"])

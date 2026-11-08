@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 from typing import Any
 
+from lu_machinery.api import config
 from lu_machinery.api.observer_presence import (
     MAC_OPERATOR_HOST_ID,
     fresh_notebook_presence_for_session,
@@ -177,7 +178,7 @@ def build_telemetry_payload(
         if not validate_session_id(session_id):
             return _unavailable_session_payload("invalid-session-id")
         try:
-            telemetry = session_context_telemetry(state_root(), session_id)
+            telemetry = session_context_telemetry(config.PROJECT_ROOT, session_id)
             if telemetry is not None:
                 return {
                     **telemetry_dict(telemetry, session_id),
@@ -194,7 +195,7 @@ def build_telemetry_payload(
             return fallback
         return _unavailable_session_payload("session-transcript-not-found")
 
-    newest = current_context_telemetry(state_root())
+    newest = current_context_telemetry(config.PROJECT_ROOT)
     payload: dict[str, Any] = {
         "ctx": None,
         "prev_ctx": None,
@@ -216,9 +217,9 @@ def append_telemetry_footer(text: str, session_id: str | None = None) -> str:
         return text
     try:
         telemetry = (
-            session_context_telemetry(state_root(), session_id)
+            session_context_telemetry(config.PROJECT_ROOT, session_id)
             if session_id
-            else current_context_telemetry(state_root())
+            else current_context_telemetry(config.PROJECT_ROOT)
         )
     except SessionRecordError:
         return text
