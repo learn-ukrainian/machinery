@@ -5,6 +5,9 @@
 # unresolved location (design-v1 amendment 1).
 _thread_rollover_lib_dir="$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)" || _thread_rollover_lib_dir=''
 THREAD_ROLLOVER_PACKAGE="${_thread_rollover_lib_dir%/*}"
+# The tree that holds this file supplies the rollover code; the project only
+# supplies the interpreter and the state (#100 R63, as the hook since #142).
+THREAD_ROLLOVER_CODE_ROOT="${THREAD_ROLLOVER_PACKAGE%/*}"
 THREAD_ROLLOVER_PACKAGE="${THREAD_ROLLOVER_PACKAGE##*/}"
 unset _thread_rollover_lib_dir
 
@@ -74,7 +77,24 @@ resolve_codex_pending_rollover() {
   local handoff_agent="$2"
   local stream_id="${3-${SESSION_STREAM_ID:-}}"
   local python_bin="$project_dir/.venv/bin/python"
-  local handoff_script="$project_dir/lu_machinery/orchestration/thread_handoff.py"
+  local handoff_script="$THREAD_ROLLOVER_CODE_ROOT/$THREAD_ROLLOVER_PACKAGE/orchestration/thread_handoff.py"
+  # Every Python child starts with -I, so the caller's PYTHONPATH and cwd stay
+  # off its import path. thread_handoff runs through the hook's module bootstrap
+  # (#142): an installed package when the interpreter has one, else only the
+  # package loaded from the code root by spec, so that root never goes on
+  # sys.path. The package name comes from the module (design-v1 amendment 1).
+  local module_bootstrap='
+import importlib.util, runpy, sys
+root = sys.argv.pop(1)
+module = sys.argv.pop(1)
+name = module.partition(".")[0]
+if importlib.util.find_spec(name) is None:
+    pkg = root + "/" + name
+    spec = importlib.util.spec_from_file_location(name, pkg + "/__init__.py", submodule_search_locations=[pkg])
+    sys.modules[name] = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(sys.modules[name])
+runpy.run_module(module, run_name="__main__", alter_sys=True)
+'
   local detect_output=""
   local detect_rc=0
   local parsed=""
@@ -91,7 +111,7 @@ resolve_codex_pending_rollover() {
 
   if [ -n "${THREAD_ROLLOVER_COMMAND_RUNNER:-}" ]; then
     runner=(
-      "$python_bin" "$THREAD_ROLLOVER_COMMAND_RUNNER"
+      "$python_bin" -I "$THREAD_ROLLOVER_COMMAND_RUNNER"
       --timeout "${THREAD_ROLLOVER_COMMAND_TIMEOUT_SECONDS:-3}" --
     )
     parser_runner=("${runner[@]}")
@@ -104,17 +124,11 @@ resolve_codex_pending_rollover() {
     return 1
   fi
 
-  if [ -n "${THREAD_ROLLOVER_COMMAND_RUNNER:-}" ]; then
-    detect_output="$(
-      "${runner[@]}" "$python_bin" "$handoff_script" --repo-root "$project_dir" \
-        detect --agent "$handoff_agent" --stream "$stream_id" --format json 2>&1
-    )" || detect_rc=$?
-  else
-    detect_output="$(
-      "$python_bin" "$handoff_script" --repo-root "$project_dir" \
-        detect --agent "$handoff_agent" --stream "$stream_id" --format json 2>&1
-    )" || detect_rc=$?
-  fi
+  detect_output="$(
+    ${runner[@]+"${runner[@]}"} "$python_bin" -I -c "$module_bootstrap" "$THREAD_ROLLOVER_CODE_ROOT" \
+      "$THREAD_ROLLOVER_PACKAGE.orchestration.thread_handoff" --repo-root "$project_dir" \
+      detect --agent "$handoff_agent" --stream "$stream_id" --format json 2>&1
+  )" || detect_rc=$?
   if [ "$detect_rc" -ne 0 ]; then
     printf 'Error: Codex rollover preflight refused launch for %s.\n' "$handoff_agent" >&2
     printf '%s\n' "$detect_output" >&2
@@ -126,7 +140,7 @@ resolve_codex_pending_rollover() {
   # this line aborted every local run of the thread-restart e2e suite while CI
   # (bash 5) stayed green.
   if ! parsed="$(
-    printf '%s' "$detect_output" | ${parser_runner[@]+"${parser_runner[@]}"} "$python_bin" -c '
+    printf '%s' "$detect_output" | ${parser_runner[@]+"${parser_runner[@]}"} "$python_bin" -I -c '
 import json
 import re
 import sys

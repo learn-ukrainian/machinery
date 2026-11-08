@@ -148,8 +148,8 @@ def resolve_seat(
     if from_env:
         return from_env
     if lane:
-        if str(ROOT) not in sys.path:
-            sys.path.insert(0, str(ROOT))
+        # The package is already importable here (this module imported it above); putting ROOT on sys.path
+        # would let a later import resolve from the checkout (#100 R65).
         from lu_machinery.orchestration.driver_agent_type import resolve_driver_agent_type
 
         if resolve_driver_agent_type(lane, provider=provider) in CONTENT_AGENT_TYPES:
