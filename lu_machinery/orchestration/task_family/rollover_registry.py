@@ -20,6 +20,8 @@ from typing import Any
 from jsonschema import Draft202012Validator, FormatChecker
 from referencing import Registry, Resource
 
+from lu_machinery.common.repo_root import machinery_path
+
 from .. import task_identity
 from .planner import canonical_json, sha256_digest
 from .storage import advisory_lock, atomic_write_json
@@ -30,9 +32,8 @@ DEFAULT_STALE_HOURS = 24.0
 LINEAGE_ID_RE = re.compile(r"^[a-z][a-z0-9-]{0,63}$")
 ROLLOVER_ID_RE = re.compile(r"^rollover-[a-z0-9]+(?:-[a-z0-9]+)*$")
 
-_ROOT = Path(__file__).resolve().parents[3]
-_REGISTRY_SCHEMA_PATH = _ROOT / "agents_extensions" / "shared" / "schemas" / "rollover-registry.v1.schema.json"
-_TASK_IDENTITY_SCHEMA_PATH = _ROOT / "agents_extensions" / "shared" / "schemas" / "task-identity.v1.schema.json"
+_REGISTRY_SCHEMA_PATH = machinery_path("schemas/rollover-registry.v1.schema.json")
+_TASK_IDENTITY_SCHEMA_PATH = machinery_path("schemas/task-identity.v1.schema.json")
 _REGISTRY_SCHEMA = json.loads(_REGISTRY_SCHEMA_PATH.read_text(encoding="utf-8"))
 _TASK_IDENTITY_SCHEMA = json.loads(_TASK_IDENTITY_SCHEMA_PATH.read_text(encoding="utf-8"))
 _SCHEMA_REGISTRY = Registry().with_resource(

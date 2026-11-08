@@ -288,13 +288,11 @@ def _uri_requests_read_only(database: str | os.PathLike[str] | bytes) -> bool:
 @functools.lru_cache(maxsize=1)
 def _declared_writer_paths() -> frozenset[str]:
     """Writer paths from the allowlist file, without importing the linter."""
-    for parent in Path(__file__).resolve().parents:
-        candidate = parent / _ALLOWLIST
-        if not candidate.is_file():
-            continue
-        entries = json.loads(candidate.read_text(encoding="utf-8"))
-        return frozenset(entry["path"] for entry in entries if entry.get("kind") == "writer")
-    return frozenset()
+    candidate = machinery_path("hygiene/sqlite_reference_allowlist.json")
+    if not candidate.is_file():
+        return frozenset()
+    entries = json.loads(candidate.read_text(encoding="utf-8"))
+    return frozenset(entry["path"] for entry in entries if entry.get("kind") == "writer")
 
 
 def _script_path(filename: str) -> str | None:
