@@ -311,7 +311,7 @@ jobs:
             exit 1
           fi
 
-      - name: zizmor .github/workflows/
+      - name: zizmor workflows and local actions
         run: |
           set -euo pipefail
           venv="$RUNNER_TEMP/zizmor-venv"
@@ -319,11 +319,11 @@ jobs:
             echo "::error::.github/workflows/ is missing; nothing would be audited"
             exit 1
           fi
-          mapfile -t files < <(find .github/workflows -maxdepth 1 -type f \
+          mapfile -t files < <(find .github/workflows .github/actions -type f \
             \( -name '*.yml' -o -name '*.yaml' \) | LC_ALL=C sort)
-          echo "zizmor audits ${#files[@]} workflow file(s) offline."
+          echo "zizmor audits ${#files[@]} workflow/action file(s) offline."
           if [ "${#files[@]}" -eq 0 ]; then
-            echo "::error::.github/workflows/ holds no workflow files"
+            echo "::error::.github/workflows/ holds no workflow/action files"
             exit 1
           fi
           printf '  %s\n' "${files[@]}"
