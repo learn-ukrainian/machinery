@@ -547,11 +547,6 @@ def doctor() -> str:
 
     module = _private_usage()
     lines = ["Credential inventory unavailable."] if module is None else module.credential_inventory()
-    lines = list(lines)
-    lines.append(
-        "Notebook tip: if `usage show --fresh` ImportErrors on learn_ukrainian_v4_runtime, "
-        "run `.venv/bin/pip install -e packages/v4-runtime` (Monitor-backed `show` needs no v4)."
-    )
     return "\n".join(lines)
 
 
