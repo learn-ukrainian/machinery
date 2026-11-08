@@ -290,12 +290,18 @@ if [ -n "${LEARN_UKRAINIAN_CLAUDEX_RUN_ID:-}" ]; then
     _bind_pythonpath="$PROJECT_DIR"
     _bind_cwd=$(cd . && pwd -P)
     if [ -n "${PYTHONPATH:-}" ]; then
-      _bind_ifs=$IFS
-      IFS=:
-      read -r -a _bind_parts <<< "$PYTHONPATH"
-      IFS=$_bind_ifs
-      unset _bind_ifs
-      for _bind_part in "${_bind_parts[@]}"; do
+      _bind_rest=$PYTHONPATH
+      while [ -n "$_bind_rest" ]; do
+        case "$_bind_rest" in
+          *:*)
+            _bind_part=${_bind_rest%%:*}
+            _bind_rest=${_bind_rest#*:}
+            ;;
+          *)
+            _bind_part=$_bind_rest
+            _bind_rest=
+            ;;
+        esac
         if [ -z "$_bind_part" ] || [ "$_bind_part" = "." ]; then
           continue
         fi
@@ -307,7 +313,7 @@ if [ -n "${LEARN_UKRAINIAN_CLAUDEX_RUN_ID:-}" ]; then
         fi
         _bind_pythonpath="${_bind_pythonpath}:${_bind_part}"
       done
-      unset _bind_parts _bind_part _bind_resolved
+      unset _bind_rest _bind_part _bind_resolved
     fi
     unset _bind_cwd
     if ! PYTHONPATH="$_bind_pythonpath" run_bounded 3 "${SUPERVISOR_BIND_CMD[@]}" >/dev/null 2>&1; then
