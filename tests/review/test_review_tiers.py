@@ -50,7 +50,10 @@ def test_deleted_github_path_keeps_high_tier():
 
 def test_mixed_pr_takes_highest_tier():
     """Docs cannot dilute an ordinary code, learner-content, or protected change."""
-    files = [{"filename": "docs/example.md", "status": "modified"}]
+    files = [
+        {"filename": "docs/example.md", "status": "modified"},
+        {"filename": "lu_machinery/common/unused.py", "status": "removed"},
+    ]
     assert classify_pr_files(files) == "low"
     files.append({"filename": "lu_machinery/common/example.py", "status": "modified"})
     assert classify_pr_files(files) == "medium"

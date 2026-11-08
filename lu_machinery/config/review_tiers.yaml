@@ -8,6 +8,28 @@ tiers:
     - .githooks/**
     - .pre-commit-config.yaml
     - .trufflehogignore
+    - requirements*.txt
+    - '**/requirements*.txt'
+    - pyproject.toml
+    - '**/pyproject.toml'
+    - setup.py
+    - '**/setup.py'
+    - setup.cfg
+    - '**/setup.cfg'
+    - package.json
+    - '**/package.json'
+    - package-lock.json
+    - '**/package-lock.json'
+    - uv.lock
+    - '**/uv.lock'
+    - poetry.lock
+    - '**/poetry.lock'
+    - Pipfile*
+    - '**/Pipfile*'
+    - pnpm-lock.yaml
+    - '**/pnpm-lock.yaml'
+    - yarn.lock
+    - '**/yarn.lock'
     - agents_extensions/*/hooks/**
     - agents_extensions/*/hooks*.json
     - agents_extensions/*/settings*.json
@@ -105,7 +127,18 @@ tiers:
     - data/**
     - tests/**
     - '**/tests/**'
-    - '*.md'
-    - '*.rst'
-    - '*.txt'
+    - README
+    - README.md
+    - README.rst
+    - README.txt
+    - '**/README'
+    - '**/README.md'
+    - '**/README.rst'
+    - '**/README.txt'
+    - CONTRIBUTING.md
+    - CHANGELOG.md
+    - LICENSE
+    - LICENSE.md
+    - LICENSE.txt
+    - SECURITY.md
 # Removed High/content paths keep their tier; all other removals are Low.

@@ -617,7 +617,7 @@ def lookup_verdict(
     *,
     complete: bool = True,
     learner_content: bool = False,
-    low_tier: bool = False,
+    low_tier: bool | None = None,
 ) -> Verdict:
     """Resolve one SHA's verdict; malformed or edited evidence for it poisons it.
 
@@ -635,8 +635,10 @@ def lookup_verdict(
     no items.
     A malformed marker poisons this SHA unless it is attributable to another head; see
     the module docstring for the threat model (#11127).
-    ``low_tier`` must come from the shared path/status table. Only Low admits
-    an unscoped same-family code approval; rejections stand at every tier.
+    Landing callers must pass ``low_tier`` from the shared path/status table.
+    None preserves the historical reading for callers inspecting prior verdicts.
+    Only Low admits an unscoped same-family code approval. Scoped pair records
+    never prove whole-head non-authorship at Low; rejections stand at every tier.
     """
     if not complete or not isinstance(comments, Sequence) or isinstance(comments, (str, bytes)):
         return Verdict("unknown", reason=COMMENTS_UNAVAILABLE)
@@ -723,7 +725,12 @@ def lookup_verdict(
         # An unedited comment has a parseable creation time; list order breaks same-second ties.
         posted = (_timestamp(_field(comment, "created_at", "createdAt")), index)
         candidates.append((_timestamp(marker["started"]), posted, recorded))
-    if not low_tier:
+    if low_tier is True:
+        candidates = [
+            item for item in candidates
+            if item[2]["verdict"] in REJECTED or not item[2].get("review_pair")
+        ]
+    elif low_tier is False:
         candidates = [
             item for item in candidates
             if item[2]["verdict"] in REJECTED
