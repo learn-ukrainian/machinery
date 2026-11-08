@@ -1066,10 +1066,11 @@ if __name__ == "__main__":
             from . import agent_github_identity, retired_seat_admission
 
             # Resolve the same members as the child policy without minting.
-            _ = (
-                getattr(agent_github_identity, "resolve_agent_github_identity"),
-                getattr(retired_seat_admission, "is_kimi_seat"),
-            )
+            for module, member in (
+                (agent_github_identity, "resolve_agent_github_identity"),
+                (retired_seat_admission, "is_kimi_seat"),
+            ):
+                getattr(module, member)
 
             if args.check_helper:
                 raise SystemExit(0)
