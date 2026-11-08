@@ -11,7 +11,7 @@
 #
 # - Jobs: Ruff over lu_machinery/ with the source repository's Ruff version and
 #   lint settings (the extracted tree has no Ruff configuration yet); compileall
-#   of lu_machinery on the pinned Python; actionlint (with a pinned ShellCheck) and zizmor (offline) over
+#   of lu_machinery on Python 3.12; actionlint (with a pinned ShellCheck) and zizmor (offline) over
 #   .github/workflows/; the TruffleHog secret scan and the Semgrep SAST scan.
 #   The secret-scan and sast jobs below are the only definition of each scan
 #   for the machinery repository.
@@ -58,8 +58,13 @@ concurrency:
   group: ci-gate-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
+# setup-python prefers the runner tool cache with check-latest disabled. The
+# previous patch pins mirrored a source environment, not a patch-specific check.
+# CPython 3.12 wheels and compileall work across 3.12 patch releases.
+# Cache only verified release archives, never venvs or repository build outputs.
+# Fork PRs restore only. No prefix restore keys.
 env:
-  PYTHON_VERSION: "3.12.15"
+  PYTHON_VERSION: "3.12"
   RUFF_VERSION: "0.15.21"
   ZIZMOR_VERSION: "1.31.1"
   ACTIONLINT_VERSION: "1.7.12"
@@ -83,7 +88,8 @@ jobs:
 
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
-          python-version: "3.12.15"
+          python-version: ${{ env.PYTHON_VERSION }}
+          check-latest: false
 
       - name: Install Ruff (hash-pinned wheel)
         run: |
@@ -146,7 +152,7 @@ jobs:
           "$ruff" check --no-cache --config "$config" --output-format=github lu_machinery
 
   compileall:
-    name: Compile (Python 3.12.15)
+    name: Compile (Python 3.12)
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -156,13 +162,15 @@ jobs:
 
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
-          python-version: "3.12.15"
+          python-version: ${{ env.PYTHON_VERSION }}
+          check-latest: false
 
       - name: Compile lu_machinery
         run: |
           set -euo pipefail
           reported="$(python -I -c 'import platform; print(platform.python_version())')"
-          if [ "$reported" != "$PYTHON_VERSION" ]; then
+          minor="$(python -I -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')"
+          if [ "$minor" != "$PYTHON_VERSION" ]; then
             echo "::error::Expected Python ${PYTHON_VERSION}, got: ${reported}"
             exit 1
           fi
@@ -202,38 +210,41 @@ jobs:
   actionlint:
     name: actionlint
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
-      - name: Install actionlint and ShellCheck (pinned, checksum-verified)
+      - name: Restore verified actionlint
+        uses: ./.github/actions/cached-release-tool # zizmor: ignore[self-repository] -- actionlint 1.7.12 does not support $/ syntax.
+        with:
+          tool: actionlint
+          version: ${{ env.ACTIONLINT_VERSION }}
+          sha256: ${{ env.ACTIONLINT_LINUX_AMD64_SHA256 }}
+          url: https://github.com/rhysd/actionlint/releases/download/v${{ env.ACTIONLINT_VERSION }}/actionlint_${{ env.ACTIONLINT_VERSION }}_linux_amd64.tar.gz
+          member: actionlint
+
+      - name: Restore verified ShellCheck
+        uses: ./.github/actions/cached-release-tool # zizmor: ignore[self-repository] -- actionlint 1.7.12 does not support $/ syntax.
+        with:
+          tool: shellcheck
+          version: ${{ env.SHELLCHECK_VERSION }}
+          sha256: ${{ env.SHELLCHECK_LINUX_X86_64_SHA256 }}
+          url: https://github.com/koalaman/shellcheck/releases/download/v${{ env.SHELLCHECK_VERSION }}/shellcheck-v${{ env.SHELLCHECK_VERSION }}.linux.x86_64.tar.gz
+          member: shellcheck-v${{ env.SHELLCHECK_VERSION }}/shellcheck
+          strip-components: '1'
+
+      - name: Verify actionlint and ShellCheck versions
         run: |
           set -euo pipefail
           tool="$RUNNER_TEMP/actionlint"
-          rm -rf "$tool"
-          mkdir -p "$tool"
-          fetch() {
-            curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
-              --retry 3 --output "$1" "$2"
-          }
-          tarball="actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
-          fetch "$tool/$tarball" \
-            "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/$tarball"
-          printf '%s  %s\n' "$ACTIONLINT_LINUX_AMD64_SHA256" "$tool/$tarball" | sha256sum --check --strict
-          tar -xzf "$tool/$tarball" -C "$tool" actionlint
-          sc_tarball="shellcheck-v${SHELLCHECK_VERSION}.linux.x86_64.tar.gz"
-          fetch "$tool/$sc_tarball" \
-            "https://github.com/koalaman/shellcheck/releases/download/v${SHELLCHECK_VERSION}/$sc_tarball"
-          printf '%s  %s\n' "$SHELLCHECK_LINUX_X86_64_SHA256" "$tool/$sc_tarball" | sha256sum --check --strict
-          tar -xzf "$tool/$sc_tarball" -C "$tool" --strip-components=1 "shellcheck-v${SHELLCHECK_VERSION}/shellcheck"
           reported="$("$tool/actionlint" -version | head -n 1)"
           if [ "$reported" != "$ACTIONLINT_VERSION" ]; then
             echo "::error::Expected actionlint ${ACTIONLINT_VERSION}, got: ${reported}"
             exit 1
           fi
-          reported="$("$tool/shellcheck" --version | sed -n 's/^version: //p')"
+          reported="$("$RUNNER_TEMP/shellcheck/shellcheck" --version | sed -n 's/^version: //p')"
           if [ "$reported" != "$SHELLCHECK_VERSION" ]; then
             echo "::error::Expected shellcheck ${SHELLCHECK_VERSION}, got: ${reported}"
             exit 1
@@ -257,11 +268,11 @@ jobs:
           printf '  %s\n' "${files[@]}"
           # The pinned ShellCheck lints every run: script; pyflakes is disabled
           # so the result never depends on what the runner image ships.
-          "$tool/actionlint" -shellcheck="$tool/shellcheck" -pyflakes= "${files[@]}"
+          "$tool/actionlint" -shellcheck="$RUNNER_TEMP/shellcheck/shellcheck" -pyflakes= "${files[@]}"
 
       - name: Remove tools
         if: always()
-        run: rm -rf "$RUNNER_TEMP/actionlint"
+        run: rm -rf "$RUNNER_TEMP/actionlint" "$RUNNER_TEMP/shellcheck"
 
   zizmor:
     name: zizmor
@@ -274,7 +285,8 @@ jobs:
 
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
-          python-version: "3.12.15"
+          python-version: ${{ env.PYTHON_VERSION }}
+          check-latest: false
 
       - name: Install zizmor (hash-pinned wheel)
         run: |
@@ -347,20 +359,22 @@ jobs:
       # For the exclusion coverage check only; the scanner is a Go binary.
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
-          python-version: "3.12.15"
+          python-version: ${{ env.PYTHON_VERSION }}
+          check-latest: false
 
-      - name: Install TruffleHog (pinned, checksum-verified)
+      - name: Restore verified TruffleHog
+        uses: ./.github/actions/cached-release-tool # zizmor: ignore[self-repository] -- actionlint 1.7.12 does not support $/ syntax.
+        with:
+          tool: trufflehog
+          version: ${{ env.TRUFFLEHOG_VERSION }}
+          sha256: ${{ env.TRUFFLEHOG_LINUX_AMD64_SHA256 }}
+          url: https://github.com/trufflesecurity/trufflehog/releases/download/v${{ env.TRUFFLEHOG_VERSION }}/trufflehog_${{ env.TRUFFLEHOG_VERSION }}_linux_amd64.tar.gz
+          member: trufflehog
+
+      - name: Verify TruffleHog version
         run: |
           set -euo pipefail
           tool="$RUNNER_TEMP/trufflehog"
-          rm -rf "$tool"
-          mkdir -p "$tool"
-          tarball="trufflehog_${TRUFFLEHOG_VERSION}_linux_amd64.tar.gz"
-          curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
-            --retry 3 --output "$tool/$tarball" \
-            "https://github.com/trufflesecurity/trufflehog/releases/download/v${TRUFFLEHOG_VERSION}/$tarball"
-          printf '%s  %s\n' "$TRUFFLEHOG_LINUX_AMD64_SHA256" "$tool/$tarball" | sha256sum --check --strict
-          tar -xzf "$tool/$tarball" -C "$tool" trufflehog
           reported="$("$tool/trufflehog" --version 2>&1)"
           if [ "$reported" != "trufflehog ${TRUFFLEHOG_VERSION}" ]; then
             echo "::error::Expected trufflehog ${TRUFFLEHOG_VERSION}, got: ${reported}"
@@ -592,7 +606,8 @@ jobs:
 
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
-          python-version: "3.12.14"
+          python-version: ${{ env.PYTHON_VERSION }}
+          check-latest: false
 
       - name: Install Semgrep (hash-pinned wheels)
         run: |

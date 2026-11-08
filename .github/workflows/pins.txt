@@ -53,7 +53,9 @@ SEMGREP_CORE_LINUX_X86_64_SHA256=e19fedac1f7c292522b498a8f8394361e6ed389aeef9dd7
 #   semgrep-1.183.0.data/purelib/semgrep/bin/semgrep-core inside that wheel
 #   (checked 2026-11-04 after verifying the wheel against the pin above).
 #   prepublication-gate.sh refuses a Semgrep venv with any other engine.
-SEMGREP_PYTHON=3.12.14
+SEMGREP_PYTHON=3.12
+#   CPython minor ABI for the hash-pinned wheels. Patch versions follow the
+#   hosted runner tool cache; no Semgrep check requires an exact patch.
 SEMGREP_RULES_REPOSITORY=https://github.com/semgrep/semgrep-rules
 SEMGREP_RULES_COMMIT=16b9e6d45f10649f6a531ec4838ed9924372c3bc
 #   Commit dated 2026-10-21 ("add php docker rule (#4114)"); the develop head
@@ -69,15 +71,23 @@ ACTIONS_SETUP_PYTHON=6d4fd22b20465ccc0f7354476588e8df7c9ca0e0
 
 # Bootstrap CI Gate (ci-gate.yml). Its secret-scan and sast jobs run the
 # TruffleHog and Semgrep pins above, and it uses no actions besides the two
-# above.
+# above plus the cache action below.
 # Upstream checks below were made on 2026-11-05.
 CI_GATE_RUNNER=ubuntu-24.04
 #   GitHub-hosted Ubuntu 24.04 x64 image, https://github.com/actions/runner-images
 #   (ubuntu-latest pointed to it on 2026-11-05). The versioned label keeps the
 #   image fixed when ubuntu-latest moves.
-CI_GATE_PYTHON=3.12.15
-#   The source repository's .python-version. Built for ubuntu-24.04 x64 in
-#   https://github.com/actions/python-versions versions-manifest.json.
+CI_GATE_PYTHON=3.12
+#   Prefer the hosted runner's cached 3.12 patch with check-latest: false.
+#   The former 3.12.15 pin mirrored the source environment; compileall and
+#   the cp312 wheels have no patch-specific requirement.
+#   https://github.com/actions/setup-python/blob/main/docs/advanced-usage.md
+ACTIONS_CACHE=55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+#   actions/cache v6.1.0, checked against its upstream tag on 2026-11-08.
+#   Restore/save sub-actions cache checksum-verified release archives only.
+#   Keys include OS, architecture, tool, version and expected archive SHA-256.
+#   Fork PRs restore only; no restore-key prefixes or cached executable state.
+#   https://github.com/actions/cache/releases/tag/v6.1.0
 RUFF_VERSION=0.15.21
 #   Release 0.15.21, published 2026-07-09, tag commit 3e1f63645109e69f9bccc7be354c5ee4672fb8f3
 #   https://github.com/astral-sh/ruff/releases/tag/0.15.21
