@@ -43,7 +43,7 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
-from lu_machinery.common.repo_root import state_root
+from lu_machinery.common.repo_root import main_checkout_root, state_root
 from lu_machinery.lib.readonly_sqlite import refuse_writable_corpus_database
 
 _ENV_AUTHORITY = "LEARN_UKRAINIAN_CP_AUTHORITY"
@@ -181,7 +181,7 @@ def sqlite_path(store: StoreId, *, repo_root: Path | None = None) -> Path:
         )
         return plane_root / "comms.sqlite3"
     if store is StoreId.SESSION_STREAMS:
-        return root / ".agent" / "session-streams" / "v1" / "session-streams.sqlite3"
+        return main_checkout_root(root).resolve() / ".agent" / "session-streams" / "v1" / "session-streams.sqlite3"
     if store is StoreId.WRITE_OWNERSHIP:
         override = (os.environ.get("LEARN_UKRAINIAN_OWNERSHIP_LEDGER") or "").strip()
         if override:
