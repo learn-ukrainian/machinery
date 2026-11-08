@@ -546,7 +546,7 @@ def show_status():
     if log_file.exists():
         print("\nRecent log entries:")
         try:
-            with open(log_file) as f:
+            with open(log_file, encoding="utf-8") as f:
                 lines = f.readlines()[-10:]
                 for line in lines:
                     print(f"  {line.rstrip()}")
