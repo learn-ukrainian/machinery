@@ -1126,7 +1126,7 @@ def isolated_bridge_db(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     # Carry those paths forward so each test gets its own DB under xdist too.
     _BRIDGE_DB_BINDINGS_TO_REPLACE.add(isolated_path.resolve())
     for name, module in tuple(sys.modules.items()):
-        if module is None or not name.startswith(("scripts.", "ai_agent_bridge", "agent_runtime.")):
+        if module is None or not name.startswith(("lu_machinery.", "ai_agent_bridge", "agent_runtime.")):
             continue
         for attribute, value in tuple(vars(module).items()):
             if not isinstance(value, (str, os.PathLike)) or not os.fspath(value).endswith(_BRIDGE_DB_SUFFIXES):
@@ -1136,7 +1136,7 @@ def isolated_bridge_db(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 
     # The production API app has a context and store handles created at import.
     # Rebuild both against the isolated path, preserving other configured roots.
-    api_main = _loaded_module("scripts", "api", "main")
+    api_main = _loaded_module("lu_machinery", "api", "main")
     if api_main is not None:
         app = vars(api_main).get("app")
         context = getattr(getattr(app, "state", None), "ctx", None)
@@ -1613,11 +1613,11 @@ def _isolate_overview_last_good(tmp_path, monkeypatch):
         "DASHBOARD_OVERVIEW_LAST_GOOD_PATH",
         str(tmp_path / "dashboard_overview_last_good.json"),
     )
-    router = _loaded_module("scripts", "api", "dashboard_router")
+    router = _loaded_module("lu_machinery", "api", "dashboard_router")
     if router is not None:
         router.reset_overview_state_for_tests()
     yield
-    router = _loaded_module("scripts", "api", "dashboard_router")
+    router = _loaded_module("lu_machinery", "api", "dashboard_router")
     if router is not None:
         router.reset_overview_state_for_tests()
 
@@ -2015,13 +2015,13 @@ def _retarget_api_batch_state(monkeypatch: pytest.MonkeyPatch, batch_state: Path
     is the lesson store, not ``tasks/``, and this guard does not watch it.
     """
     monkeypatch.setenv("LEARN_UKRAINIAN_BATCH_STATE_DIR", str(batch_state))
-    api_config = _loaded_module("scripts", "api", "config")
+    api_config = _loaded_module("lu_machinery", "api", "config")
     if api_config is not None:
         monkeypatch.setattr(api_config, "BATCH_STATE_DIR", batch_state)
-    monitor_context = _loaded_module("scripts", "api", "monitor_context")
+    monitor_context = _loaded_module("lu_machinery", "api", "monitor_context")
     if monitor_context is not None:
         monitor_context.production_context.cache_clear()
-    api_main = _loaded_module("scripts", "api", "main")
+    api_main = _loaded_module("lu_machinery", "api", "main")
     if api_main is None:
         return
     app = vars(api_main).get("app")
