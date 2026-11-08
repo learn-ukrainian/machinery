@@ -58,7 +58,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: ci-gate-${{ github.event.pull_request.number || github.ref }}
+  group: ci-gate-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 # setup-python prefers the runner tool cache with check-latest disabled. The
@@ -279,6 +279,18 @@ jobs:
           # The pinned ShellCheck lints every run: script; pyflakes is disabled
           # so the result never depends on what the runner image ships.
           "$tool/actionlint" -shellcheck="$RUNNER_TEMP/shellcheck/shellcheck" -pyflakes= "${files[@]}"
+
+      - name: ShellCheck .github/ shell scripts
+        run: |
+          set -euo pipefail
+          mapfile -t scripts < <(find .github -type f -name '*.sh' | LC_ALL=C sort)
+          echo "ShellCheck inspects ${#scripts[@]} shell script(s)."
+          if [ "${#scripts[@]}" -eq 0 ]; then
+            echo "::error::.github/ holds no shell scripts; nothing would be checked"
+            exit 1
+          fi
+          printf '  %s\n' "${scripts[@]}"
+          "$RUNNER_TEMP/shellcheck/shellcheck" "${scripts[@]}"
 
       - name: Remove tools
         if: always()
