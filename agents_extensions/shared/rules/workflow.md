@@ -296,7 +296,7 @@ for every worker/reviewer process using the target worktrees to exit, then run
 with the task-prescribed project interpreter:
 
 ```bash
-.venv/bin/python -m lu_machinery.orchestration.merge_closeout <N> --apply
+.venv/bin/python -m lu_machinery.orchestration.merge_closeout <N> --repo <owner/name> --repo-root <checkout> --apply
 ```
 
 Require exit 0 and the receipt proving that no dispatch worktree still holds the

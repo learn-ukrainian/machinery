@@ -123,7 +123,7 @@ dispatch. After one denial, retry once in a literal form before you stop; a seco
     exited:
 
     ```bash
-    "$PY" -m lu_machinery.orchestration.merge_closeout "$PR" --apply
+    "$PY" -m lu_machinery.orchestration.merge_closeout "$PR" --repo <owner/name> --repo-root <checkout> --apply
     ```
 
     `merge_closeout` proves no worktree still holds the PR and that its branches are gone; it
