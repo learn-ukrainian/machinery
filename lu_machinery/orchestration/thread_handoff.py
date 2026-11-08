@@ -5254,8 +5254,7 @@ def _cmd_confirm_started_locked(args: argparse.Namespace) -> int:
     except ValueError as exc:
         print(json.dumps({"error": str(exc)}, indent=2))
         return 2
-    if confirmed is not state:
-        write_rollover_state(state_path, state_root, confirmed, already_locked=True)
+    write_rollover_state(state_path, state_root, confirmed, already_locked=True)
     bundle_upload = (
         _maybe_auto_upload_bundle(
             args,

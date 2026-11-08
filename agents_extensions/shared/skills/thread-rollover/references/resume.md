@@ -26,9 +26,11 @@ native adapters that have already registered the replacement:
 ```
 
 Confirmation checks the persisted replacement binding and lease. It requires no
-semantic snapshot, quiz, verdict, or canary proof. Exact retries are idempotent;
-a different replacement ID fails closed. The lineage, rollover ID, generation
-fence, checkout continuity and native identity/title rules remain in force.
+semantic snapshot, quiz, verdict, or canary proof. Exact retries require the same
+clean, continuous checkout and are idempotent; a different replacement ID fails
+closed. A retry also repairs the registry projection after a partial write. The
+lineage, rollover ID, generation fence and native identity/title rules remain in
+force.
 Pass `--stream <stream-id>` to confirmation when a bundle upload is required;
 the configured `--monitor-base-url` carries through to the upload.
 
