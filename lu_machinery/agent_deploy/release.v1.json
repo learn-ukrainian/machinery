@@ -473,7 +473,7 @@
     "hooks/session-setup.sh": {
       "mode": 493,
       "owner": "fleet",
-      "sha256": "4bf5bb6e54759290979106ea76b649d7ad7a4b1331f8ad2481c0b4ba3ee16877",
+      "sha256": "7f9ac7a3fcde54a9031aba3f18e9ec9f4b09775db40983cc1a4300a617d18fc1",
       "targets": {
         "agy": [
           ".agent/hooks/session-setup.sh"
