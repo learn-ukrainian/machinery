@@ -188,7 +188,7 @@ job/reservation state. Never infer provider health from route counts alone.
 
 ### Discuss is not formal review
 
-`.venv/bin/python lu_machinery/ai_agent_bridge/__main__.py discuss` produces design
+`.venv/bin/python -m lu_machinery.ai_agent_bridge discuss` produces design
 input and transcripts. It does **not** satisfy independent cross-family review.
 
 Formal CF uses one direct `ask-<lane> --type review` request to a qualified
@@ -735,18 +735,18 @@ printf '%s\n' 'Bounded read-only task.' | ACPX_AUTH_CHAT_GPT=1 \
   --task-id acp-task --correlation-id acp-task-v1 --idempotency-key acp-task-v1
 
 # Normal fleet-TUI surface: automatically ACP-backed for an enabled pair.
-.venv/bin/python lu_machinery/ai_agent_bridge/__main__.py discuss <channel> "..." \
+.venv/bin/python -m lu_machinery.ai_agent_bridge discuss <channel> "..." \
   --with claude,grok
 
 # More or fewer than two participants reject loudly before provider or
 # authority work; there is no bridge/provider-execution fallback.
-.venv/bin/python lu_machinery/ai_agent_bridge/__main__.py discuss <channel> "..." \
+.venv/bin/python -m lu_machinery.ai_agent_bridge discuss <channel> "..." \
   --with agy,codex,cursor
 
 # Direct toolful CF: choose a qualified lane outside the author family.
 # Request verdict + findings at the exact PR head, then post them on the PR.
 printf '%s\n' 'Review PR #<N> at head <SHA>: verdict + findings.' | \
-  .venv/bin/python lu_machinery/ai_agent_bridge/__main__.py ask-<lane> - \
+  .venv/bin/python -m lu_machinery.ai_agent_bridge ask-<lane> - \
   --task-id review-<N> --type review
 
 # Execution

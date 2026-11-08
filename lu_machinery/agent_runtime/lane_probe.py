@@ -21,10 +21,6 @@ import time
 from pathlib import Path
 from typing import Any
 
-if __package__ in (None, ""):  # run as a file: put the repository root on sys.path
-    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-    __package__ = "lu_machinery.agent_runtime"
-
 from lu_machinery.lib.readonly_sqlite import import_named_module
 from lu_machinery.orchestration.handoff_slot_registry import is_registered_slot, registered_slots
 from lu_machinery.utils.claude_version import run_version_probe
@@ -62,9 +58,8 @@ def _mode_for_probe(adapter: Any) -> str:
 def _load_adapter(agent: str) -> Any:
     """Load the registered adapter without importing the full task runner.
 
-    SessionStart imports this module as ``scripts.agent_runtime.lane_probe``.
-    The normal runner also supports legacy ``agent_runtime`` top-level imports,
-    but loading it here would make a binary-only health check depend on the
+    SessionStart runs this module with ``python -m lu_machinery.agent_runtime.lane_probe``.
+    Loading the runner here would make a binary-only health check depend on the
     runner's optional bridge-only imports.
     """
     entry = get_agent_entry(agent)
