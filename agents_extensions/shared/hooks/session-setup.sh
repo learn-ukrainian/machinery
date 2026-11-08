@@ -286,10 +286,34 @@ if [ -n "${LEARN_UKRAINIAN_CLAUDEX_RUN_ID:-}" ]; then
     )
     [ -n "$SOURCE" ] && SUPERVISOR_BIND_CMD+=(--source "$SOURCE")
     [ -n "$OBSERVED_MODEL" ] && SUPERVISOR_BIND_CMD+=(--model "$OBSERVED_MODEL")
-    if ! PYTHONPATH="$PROJECT_DIR${PYTHONPATH:+:$PYTHONPATH}" run_bounded 3 "${SUPERVISOR_BIND_CMD[@]}" >/dev/null 2>&1; then
+    # Drop empty and cwd components. CPython treats each as the cwd, ahead of the stdlib.
+    _bind_pythonpath="$PROJECT_DIR"
+    _bind_cwd=$(cd . && pwd -P)
+    if [ -n "${PYTHONPATH:-}" ]; then
+      _bind_ifs=$IFS
+      IFS=:
+      read -r -a _bind_parts <<< "$PYTHONPATH"
+      IFS=$_bind_ifs
+      unset _bind_ifs
+      for _bind_part in "${_bind_parts[@]}"; do
+        if [ -z "$_bind_part" ] || [ "$_bind_part" = "." ]; then
+          continue
+        fi
+        if [ -d "$_bind_part" ]; then
+          _bind_resolved=$(cd "$_bind_part" && pwd -P) || _bind_resolved=
+          if [ "$_bind_resolved" = "$_bind_cwd" ]; then
+            continue
+          fi
+        fi
+        _bind_pythonpath="${_bind_pythonpath}:${_bind_part}"
+      done
+      unset _bind_parts _bind_part _bind_resolved
+    fi
+    unset _bind_cwd
+    if ! PYTHONPATH="$_bind_pythonpath" run_bounded 3 "${SUPERVISOR_BIND_CMD[@]}" >/dev/null 2>&1; then
       ISSUES+=("CLAUDEX SUPERVISOR BIND FAILED: SessionStart did not match the owned child generation.")
     fi
-    unset SUPERVISOR_BIND_CMD
+    unset SUPERVISOR_BIND_CMD _bind_pythonpath
   fi
 fi
 

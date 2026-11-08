@@ -3223,8 +3223,15 @@ def request_claudex_rollover(
     if origin and origin != "namespace":
         loaded_root = os.fspath(Path(origin).resolve().parent.parent)
         prior_path = child_env.get("PYTHONPATH")
+        cwd_real = os.path.realpath(os.getcwd())
+        inherited_parts: list[str] = []
+        for part in (prior_path or "").split(os.pathsep):
+            if not part or part == "." or os.path.realpath(part) == cwd_real:
+                continue
+            inherited_parts.append(part)
+        inherited = os.pathsep.join(inherited_parts)
         child_env["PYTHONPATH"] = (
-            loaded_root if not prior_path else loaded_root + os.pathsep + prior_path
+            loaded_root if not inherited else loaded_root + os.pathsep + inherited
         )
     result = run_command(
         [
