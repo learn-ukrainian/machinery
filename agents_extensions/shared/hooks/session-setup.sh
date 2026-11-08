@@ -189,7 +189,9 @@ run_bounded() {
   shift
   clamp_bounded_timeout "$requested_timeout" || return $?
   if [ -x "$BOUNDED_PYTHON" ] && [ -f "$BOUNDED_RUNNER" ]; then
-    "$BOUNDED_PYTHON" "$BOUNDED_RUNNER" \
+    # -I: the runner imports only the stdlib, so the caller's PYTHONPATH and cwd
+    # must not reach it. Its command still gets the full environment.
+    "$BOUNDED_PYTHON" -I "$BOUNDED_RUNNER" \
       --timeout "$CLAMPED_BOUNDED_TIMEOUT_SECONDS" -- "$@"
     return $?
   fi
