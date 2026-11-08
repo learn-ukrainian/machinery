@@ -1064,8 +1064,9 @@ def _build_parser() -> argparse.ArgumentParser:
         default=None,
         help=(
             "Required for commit/branch/pr-mode targets: the explicit reviewed head "
-            "(e.g. HEAD, or a specific SHA) to re-diff against the frozen base_sha "
-            "after committed fixes. Ignored for mode=local, which re-resolves from "
+            "(e.g. HEAD, or a specific SHA) after committed fixes. Branch/pr measure "
+            "from the merge base with the stored base branch; commit uses the frozen "
+            "parent. Ignored for mode=local, which re-resolves from "
             "the working tree instead. Default: unset."
         ),
     )
