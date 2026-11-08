@@ -527,10 +527,12 @@ def project_interpreter(root: Path | None = None, *, env: Mapping[str, str] | No
     ``MachineryConfigError``. A missing or non-executable file raises
     ``FileNotFoundError``. There is no fallback. The operator who sets it
     vouches for it, as for ``PATH``. Unset, the interpreter is the validated
-    primary checkout's ``.venv/bin/python`` when that file is executable. The
+    primary checkout's ``.venv/bin/python`` when that file is executable.     The
     primary is the git common-dir checkout ``main_checkout_root`` finds for a
-    linked worktree, and the checkout itself otherwise. A worktree-local
-    ``.venv`` and ``sys.executable`` are not used. Anything else raises
+    linked worktree, and the checkout itself when ``.git`` is a directory.
+    A gitfile that is not Git's ``.git/worktrees/<name>`` shape is not a
+    primary, so its ``.venv`` is refused. A worktree-local ``.venv`` and
+    ``sys.executable`` are not used. Anything else raises
     ``FileNotFoundError``.
     """
     configured = configured_interpreter(env)
@@ -541,7 +543,15 @@ def project_interpreter(root: Path | None = None, *, env: Mapping[str, str] | No
             )
         return configured
     repo = RUNTIME_ROOT if root is None else Path(root)
-    primary = _venv_python(main_checkout_root(repo))
+    primary_root = main_checkout_root(repo)
+    # main_checkout_root anchors a malformed gitfile to the directory itself.
+    # That directory is a linked worktree, not the primary, so its .venv is refused.
+    if (repo / ".git").is_file() and primary_root.resolve() == repo.resolve():
+        refused = repo / ".venv" / "bin" / "python"
+        raise FileNotFoundError(
+            f"project interpreter not found: {refused} (a linked worktree .venv is not used)"
+        )
+    primary = _venv_python(primary_root)
     if _executable_file(primary):
         return primary
     raise FileNotFoundError(f"project interpreter not found: {primary} is not an executable file")

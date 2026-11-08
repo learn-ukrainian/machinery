@@ -204,6 +204,12 @@ _session_probe_python() {
     printf '%s\n' "$configured"
     return 0
   fi
+  # Git could not name the primary, so the probe root is this directory.
+  # A linked worktree's .git is a file; its .venv is not the interpreter.
+  if [ -f "${PROJECT_DIR:-}/.git" ] && [ "$root" = "${PROJECT_DIR:-}" ]; then
+    echo "session-setup.sh: project interpreter not found: a linked worktree .venv is not used" >&2
+    return 1
+  fi
   if [ -n "$root" ] && [ -x "$root/.venv/bin/python" ]; then
     printf '%s\n' "$root/.venv/bin/python"
     return 0

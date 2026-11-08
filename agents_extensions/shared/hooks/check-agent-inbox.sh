@@ -60,6 +60,11 @@ _inbox_probe_python() {
       root="$PROJECT_DIR"
     fi
   fi
+  # Git could not name the primary, so the probe root is this directory.
+  # A linked worktree's .git is a file; its .venv is not the interpreter.
+  if [ -f "${PROJECT_DIR:-}/.git" ] && [ "$root" = "${PROJECT_DIR:-}" ]; then
+    return 1
+  fi
   [ -x "$root/.venv/bin/python" ] || return 1
   printf '%s\n' "$root/.venv/bin/python"
 }

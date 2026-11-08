@@ -19,6 +19,11 @@ _context_rule_probe() {
     printf '%s\n' "$configured"
     return 0
   fi
+  # Git could not name the primary, so the probe root is this directory.
+  # A linked worktree's .git is a file; its .venv is not the interpreter.
+  if [ -f "${PROJECT_DIR:-}/.git" ] && [ "$root" = "${PROJECT_DIR:-}" ]; then
+    return 1
+  fi
   [ -n "$root" ] && [ -x "$root/.venv/bin/python" ] || return 1
   printf '%s\n' "$root/.venv/bin/python"
 }

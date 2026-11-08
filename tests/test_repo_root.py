@@ -177,6 +177,17 @@ def test_project_interpreter_refuses_a_worktree_venv_when_the_primary_has_none(t
         project_interpreter(worktree, env={})
 
 
+def test_project_interpreter_refuses_a_malformed_gitfile_venv(tmp_path, monkeypatch):
+    """A gitfile that is not .git/worktrees/<name> does not select that directory's .venv."""
+    checkout = tmp_path / "wt"
+    local = _write_venv_python(checkout)
+    (checkout / ".git").write_text("gitdir: /nonexistent/elsewhere\n", encoding="utf-8")
+    monkeypatch.setattr(sys, "executable", str(local))
+
+    with pytest.raises(FileNotFoundError, match="is not used"):
+        project_interpreter(checkout, env={})
+
+
 def test_project_interpreter_prefers_the_primary_checkout_venv(tmp_path, monkeypatch):
     """The primary checkout's .venv/bin/python wins when the worktree also has one."""
     primary = tmp_path / "primary"

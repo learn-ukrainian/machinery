@@ -70,6 +70,11 @@ _lease_probe_python() {
     printf '%s\n' "$configured"
     return 0
   fi
+  # Git could not name the primary, so CANONICAL_ROOT is this directory.
+  # A linked worktree's .git is a file; its .venv is not the interpreter.
+  if [ -f "${PROJECT_DIR:-}/.git" ] && [ "$CANONICAL_ROOT" = "${PROJECT_DIR:-}" ]; then
+    return 1
+  fi
   [ -x "$CANONICAL_ROOT/.venv/bin/python" ] || return 1
   printf '%s\n' "$CANONICAL_ROOT/.venv/bin/python"
 }

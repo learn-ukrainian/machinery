@@ -315,3 +315,39 @@ def test_deployed_guards_do_not_import_a_planted_stdlib_module(tmp_path: Path) -
         assert "planted dataclasses" not in result.stderr, (name, result.stderr)
         assert "planted dataclasses" not in result.stdout, (name, result.stdout)
     assert not plant_log.exists()
+
+
+def test_deploy_inventory_ships_the_hook_loader() -> None:
+    """A deployed consumer receives load_hook_package.py beside the guards (R72)."""
+    inventory = json.loads((SOURCE / "lu_machinery/agent_deploy/release.v1.json").read_text(encoding="utf-8"))
+    record = inventory["files"]["hooks/load_hook_package.py"]
+    assert record["owner"] == "fleet"
+    assert set(record["targets"]) == {"agy", "claude", "codex", "cursor"}
+
+
+def test_deployed_probe_does_not_execute_a_worktree_venv_when_git_cannot_name_the_primary(tmp_path: Path) -> None:
+    """A stale worktree gitfile is not an interpreter when git cannot name the primary."""
+    product = tmp_path / "wt"
+    log = tmp_path / "picked.log"
+    _wrapper(product / ".venv" / "bin" / "python", log)
+    (product / ".git").write_text("gitdir: /nonexistent/elsewhere\n", encoding="utf-8")
+    deployed = tmp_path / "consumer" / ".claude" / "hooks"
+    deployed.mkdir(parents=True)
+    shutil.copy2(HOOKS / "goal-driver-stop.sh", deployed / "goal-driver-stop.sh")
+    env = {
+        "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
+        "HOME": str(tmp_path / "home"),
+        "CLAUDE_PROJECT_DIR": str(product),
+    }
+    result = subprocess.run(
+        ["bash", str(deployed / "goal-driver-stop.sh")],
+        input="{}\n",
+        text=True,
+        capture_output=True,
+        cwd=tmp_path,
+        env=env,
+        timeout=30,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    assert not log.exists()
