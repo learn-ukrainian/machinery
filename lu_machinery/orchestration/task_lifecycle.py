@@ -27,6 +27,7 @@ from typing import Any
 
 from jsonschema import Draft202012Validator, FormatChecker
 
+from lu_machinery.common.repo_root import machinery_path
 from lu_machinery.github_check_rollup import group_collapsed_by_name
 from lu_machinery.orchestration import issue_stream_audit, task_identity
 from lu_machinery.review.review_contract import finding_supports_approval, unverified_follow_up_notes
@@ -93,8 +94,7 @@ FORBIDDEN_RECEIPT_PATH_MARKERS = (
     "/data/telemetry/",
 )
 
-_ROOT = Path(__file__).resolve().parents[2]
-_SCHEMA_PATH = _ROOT / "agents_extensions" / "shared" / "schemas" / "task-lifecycle.v1.schema.json"
+_SCHEMA_PATH = machinery_path("schemas/task-lifecycle.v1.schema.json")
 _SCHEMA = json.loads(_SCHEMA_PATH.read_text(encoding="utf-8"))
 _VALIDATOR = Draft202012Validator(_SCHEMA, format_checker=FormatChecker())
 # Preserve the legacy bold-ID grammar, adding observed numeric suffix IDs.

@@ -69,7 +69,7 @@ import uuid
 from datetime import UTC, datetime
 from pathlib import Path
 
-from lu_machinery.common.repo_root import machinery_path, main_checkout_root, project_interpreter
+from lu_machinery.common.repo_root import machinery_path, main_checkout_root, product_root, project_interpreter
 from lu_machinery.common.scratch import ensure_scratch_root
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -562,9 +562,9 @@ class SourcesRelay:
     """
 
     def __init__(self, endpoint: Path, readers: frozenset[str], env: dict[str, str]):
-        from lu_machinery.agent_runtime.sources_read_only import SERVER_PATH
+        from lu_machinery.agent_runtime.sources_read_only import SERVER_RELATIVE_PATH
 
-        self.server = [str(project_interpreter()), str(SERVER_PATH)]
+        self.server = [str(project_interpreter()), str(product_root() / SERVER_RELATIVE_PATH)]
         self.readers, self.env = readers, env
         self.completed = self.failed = 0
         self.tools: dict[str, int] = {}
