@@ -45,7 +45,7 @@ if not __package__:
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from lu_machinery.common import github_client
-from lu_machinery.common.repo_root import product_root
+from lu_machinery.common.repo_root import machinery_path, product_root
 from lu_machinery.common.repo_root import state_root as shared_state_root
 from lu_machinery.identity import KNOWN_HARNESS_EXECUTABLES
 from lu_machinery.orchestration import task_identity
@@ -3219,8 +3219,7 @@ def request_claudex_rollover(
     result = run_command(
         [
             sys.executable,
-            "-m",
-            f"{_PACKAGE}.claudex_supervisor",
+            os.fspath(machinery_path("orchestration/claudex_supervisor.py")),
             "request-rollover",
             "--state-root",
             os.fspath(state_root),
