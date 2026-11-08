@@ -346,9 +346,14 @@ def test_runtime_target_interpreter_policy_and_state_roots_are_distinct(monkeypa
 
 def test_unset_configuration_keeps_todays_roots(clean_env, monkeypatch) -> None:
     monkeypatch.setattr(rr, "_IN_TREE_SOURCE", True)
+    # Interpreter selection is not under test here and depends on the host (a linked worktree whose
+    # primary has no .venv, run by another checkout's venv, is refused by design), so pin it.
+    stand_in = Path(sys.executable)
+    monkeypatch.setattr(rr, "project_interpreter", lambda *args, **kwargs: stand_in)
     runtime = Path(rr.__file__).resolve().parents[2]
     primary = rr.main_checkout_root(runtime)
     roots = rr.machinery_roots()
+    assert roots.interpreter == stand_in
     assert roots.runtime == runtime == REPO
     assert (roots.primary, roots.state, roots.github_slug) == (
         primary,
