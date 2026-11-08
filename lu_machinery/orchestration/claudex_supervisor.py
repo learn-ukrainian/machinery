@@ -677,13 +677,15 @@ class ClaudexSupervisor:
         # -P so the gate does not import a lu_machinery/ from the caller's cwd.
         # The token is the PYTHONPATH to restore before the user command runs.
         prior_path = launch_env.get("PYTHONPATH")
+        # An empty value is absent. Appending it would leave a trailing empty
+        # entry, and CPython treats that entry as the cwd, ahead of the stdlib.
         pythonpath_token = "0" if prior_path is None else "1" + prior_path
         spec = importlib.util.find_spec("lu_machinery")
         origin = getattr(spec, "origin", None) if spec is not None else None
         if origin and origin != "namespace":
             loaded_root = os.fspath(Path(origin).resolve().parent.parent)
             launch_env["PYTHONPATH"] = (
-                loaded_root if prior_path is None else loaded_root + os.pathsep + prior_path
+                loaded_root if not prior_path else loaded_root + os.pathsep + prior_path
             )
         command = [self.script_path, *self.forward_argv]
         gate_command = [
