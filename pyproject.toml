@@ -1,0 +1,19 @@
+[tool.mypy]
+python_version = "3.12"
+warn_return_any = true
+warn_unused_configs = true
+ignore_missing_imports = true
+exclude = [
+    "starlight/",
+    "node_modules/",
+]
+# Gradual adoption: the shared runtime modules that carry a baseline.
+files = [
+    "lu_machinery/api/main.py",
+    "lu_machinery/api/state_helpers.py",
+    "lu_machinery/agent_runtime",
+    # The Claude account route key (#10630): its owner and the decision consumers outside agent_runtime.
+    "lu_machinery/fleet/claude_account_lane.py",
+    "lu_machinery/review/closeout_cli.py",
+    "lu_machinery/lib/claude_weekly_used.py",
+]

@@ -39,7 +39,7 @@ improvised or malformed findings block is refused even beside a valid verdict li
 
 A capability-only `BLOCKED` uses `uncertain`, no findings, and `missing_capabilities`.
 The recorder's extension and the permitted capabilities are defined by
-[the capability-failure policy](policy.md#a-blocked-that-only-lacked-a-capability) and
+[the capability-failure policy](policy.md#recording-the-verdict) and
 `lu_machinery/review/verdict_parser.py`. `missing_capabilities` is allowed only where the schema
 already allows it.
 
@@ -64,8 +64,8 @@ Freeze sections 2 to 4 of the template from round 1; do not edit them. Section 1
 - the budget state (`round 2 of 3`, or of the budget the repository declares).
 
 The reviewer marks every earlier id `resolved` or `still open: <reason>`, confirms or contests
-each `not_applicable` claim on its evidence ([severity](policy.md#severity)), reviews only the
-delta scope in [policy](policy.md#delta-scope), and replies in the round 1 reply format.
+each `not_applicable` claim on its evidence ([findings](policy.md#3-findings)), reviews only the
+diff since the last reviewed head ([policy](policy.md#4-convergence)), and replies in the round 1 reply format.
 
 ## Commands a read-only reviewer can run
 

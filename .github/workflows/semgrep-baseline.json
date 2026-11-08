@@ -14,38 +14,77 @@
  "errors_at_baseline": [
   {
    "path": "agents_extensions/shared/hooks/session-setup.sh",
+   "spans": [
+    "41b805ea7ac014e23556e98bb374702a08344268f92489a02f0880849394a1e4",
+    "a41ccbdc0d7ca36d11bba7b424c2bff2e33995514f973fc077d103fe7f712f2b"
+   ],
    "type": "PartialParsing"
   },
   {
    "path": "lu_machinery/agent_runtime/shims/git",
+   "spans": [
+    "18cd36b2b7bdd213791af85934f3f09c0388f67340cd035a1f3632ed6c4c244b"
+   ],
    "type": "PartialParsing"
   },
   {
    "path": "lu_machinery/fleet_comms/agent_success_metrics.py",
+   "spans": [],
    "type": "Other syntax error"
   },
   {
    "path": "lu_machinery/lib/driver_scope.sh",
+   "spans": [
+    "18cd36b2b7bdd213791af85934f3f09c0388f67340cd035a1f3632ed6c4c244b",
+    "18cd36b2b7bdd213791af85934f3f09c0388f67340cd035a1f3632ed6c4c244b",
+    "18cd36b2b7bdd213791af85934f3f09c0388f67340cd035a1f3632ed6c4c244b",
+    "18cd36b2b7bdd213791af85934f3f09c0388f67340cd035a1f3632ed6c4c244b",
+    "18cd36b2b7bdd213791af85934f3f09c0388f67340cd035a1f3632ed6c4c244b",
+    "18cd36b2b7bdd213791af85934f3f09c0388f67340cd035a1f3632ed6c4c244b",
+    "18cd36b2b7bdd213791af85934f3f09c0388f67340cd035a1f3632ed6c4c244b",
+    "18cd36b2b7bdd213791af85934f3f09c0388f67340cd035a1f3632ed6c4c244b",
+    "18cd36b2b7bdd213791af85934f3f09c0388f67340cd035a1f3632ed6c4c244b",
+    "18cd36b2b7bdd213791af85934f3f09c0388f67340cd035a1f3632ed6c4c244b",
+    "18cd36b2b7bdd213791af85934f3f09c0388f67340cd035a1f3632ed6c4c244b",
+    "5feceb66ffc86f38d952786c6d696c79c2dbc239dd4e91b46729d73a27fb57e9",
+    "dabd3aff769f07eb2965401eb029974ebba3407afd02b26ddb564ea5f8efae72"
+   ],
    "type": "PartialParsing"
   },
   {
    "path": "lu_machinery/lib/launcher_core.sh",
+   "spans": [
+    "18cd36b2b7bdd213791af85934f3f09c0388f67340cd035a1f3632ed6c4c244b",
+    "5feceb66ffc86f38d952786c6d696c79c2dbc239dd4e91b46729d73a27fb57e9",
+    "62b67e1f685b7fef51102005dddd27774be3fee38c42965c53aab035d0b6b221",
+    "62b67e1f685b7fef51102005dddd27774be3fee38c42965c53aab035d0b6b221",
+    "62b67e1f685b7fef51102005dddd27774be3fee38c42965c53aab035d0b6b221"
+   ],
    "type": "PartialParsing"
   },
   {
    "path": "lu_machinery/lib/thread_rollover_link.sh",
+   "spans": [
+    "4be261c018f23deac37f17f24abb5f42c4f32044fa3116d7b618446fb03ca09e"
+   ],
    "type": "PartialParsing"
   },
   {
    "path": "lu_machinery/ops/context_guard.py",
+   "spans": [],
    "type": "Other syntax error"
   },
   {
    "path": "lu_machinery/orchestration/run_scheduled_backup.sh",
+   "spans": [
+    "2ddde4db719320f9eff7927214f62c190b0c9fc7e7d84f24296737503c7f167d",
+    "2ddde4db719320f9eff7927214f62c190b0c9fc7e7d84f24296737503c7f167d"
+   ],
    "type": "PartialParsing"
   },
   {
    "path": "lu_machinery/telemetry/cost_report.py",
+   "spans": [],
    "type": "Other syntax error"
   }
  ],
@@ -2632,6 +2671,6 @@
   }
  ],
  "rules_commit": "16b9e6d45f10649f6a531ec4838ed9924372c3bc",
- "schema": "machinery-semgrep-baseline/v1",
+ "schema": "machinery-semgrep-baseline/v2",
  "semgrep_version": "1.183.0"
 }
