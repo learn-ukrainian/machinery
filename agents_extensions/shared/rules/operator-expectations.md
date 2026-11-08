@@ -218,16 +218,7 @@ are the tie-breakers.
     substantive phase or epic kickoff, freeze a prompt that names the user-visible outcome,
     real-world or source denominator,
     non-goals, role map, independent held-out evaluation, stop/residual policy, and completion
-    vocabulary. A high-stakes domain prompt needs a domain-fit reviewer and a distinct adversarial
-    scope/circularity critic; smaller consequential work needs at least one fast critic; a
-    genuinely trivial bounded prompt is explicitly exempt. The prompt author counts as neither
-    reviewer. Route those roles from the live
-    `model-assignment.md` rules, never by permanent reviewer identity. Bind each review to the
-    prompt SHA-256 and its explicit checklist verdict, findings, and author reconciliation;
-    re-review after a material change to the outcome, scope, denominator, role map, acceptance
-    criteria, or independent evaluation. A non-goal that shrinks the actual mission needs
-    operator/advisor approval. Prompt review improves dispatch quality only: it never replaces
-    exact-head implementation review or the independent cross-family PR gate.
+    vocabulary. A non-goal that shrinks the actual mission needs operator/advisor approval.
 15. **Simplest adequate solution — adjust the code to the data, not the data to the code.** Before
     building, name the smallest change that achieves the user-visible outcome, and start there.
     Prefer changing code, config or a reader over migrating or reshaping data to fit existing code;
