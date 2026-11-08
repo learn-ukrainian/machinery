@@ -15,7 +15,7 @@ def _live_repo_root() -> Path:
     """Return the checkout Git operations and child tools must target."""
     configured = os.environ.get("LEARN_UK_REPO_ROOT")
     if not configured:
-        return state_root()
+        return product_root()
     supplied = Path(configured)
     if not supplied.is_absolute():
         raise RuntimeError("LEARN_UK_REPO_ROOT must be an absolute path")
