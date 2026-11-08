@@ -17,7 +17,8 @@ if __package__ in (None, ""):
 from lu_machinery.ci._location import checkout_relative
 from lu_machinery.ci.junit_results import parse_junit
 from lu_machinery.common import github_client
-from lu_machinery.common.flake_quarantine import REGISTRY, load_registry
+from lu_machinery.common.flake_quarantine import load_registry
+from lu_machinery.common.repo_root import product_root
 
 
 def _gh(*args: str) -> str:
@@ -169,8 +170,8 @@ def main(argv: list[str] | None = None) -> int:
                         help="Directory of <run-id>/*.xml queue artifacts for offline replay")
     parser.add_argument("--fetch-queue", action="store_true",
                         help="Download the last seven days of merge_group JUnit from GitHub Actions")
-    parser.add_argument("--registry", type=Path, default=REGISTRY,
-                        help="Quarantine YAML path; default tests/flake_quarantine.yaml")
+    parser.add_argument("--registry", type=Path, default=None,
+                        help="Quarantine YAML path (default: tests/flake_quarantine.yaml in the selected product)")
     parser.add_argument("--output", type=Path, required=True,
                         help="Write JSON ledger to this path, e.g. ci-artifacts/flake-ledger.json")
     parser.add_argument("--dry-run", action="store_true",
@@ -179,7 +180,7 @@ def main(argv: list[str] | None = None) -> int:
     if bool(args.queue_dir) == bool(args.fetch_queue):
         parser.error("choose exactly one of --queue-dir or --fetch-queue")
     today = datetime.now(UTC).date()
-    entries = load_registry(args.registry)
+    entries = load_registry(args.registry or (product_root() / "tests/flake_quarantine.yaml"))
     with tempfile.TemporaryDirectory(prefix="flake-ledger-") as temp:
         queue_dir = Path(temp) if args.fetch_queue else args.queue_dir
         if args.fetch_queue:

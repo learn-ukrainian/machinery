@@ -22,6 +22,8 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
 
+from lu_machinery.common.repo_root import product_root
+
 
 def _machinery_top() -> str:
     # Name the package from the unresolved file location, never from __package__
@@ -36,8 +38,6 @@ def _mp(relative: str) -> str:
 def _mod(*parts: str) -> str:
     return ".".join((_machinery_top(), *parts))
 
-
-REPO_ROOT = Path(__file__).resolve().parents[2]
 
 # The machinery package directory and the product scripts tree (one directory
 # in this checkout), then the shared session streams.
@@ -95,7 +95,7 @@ def _allowlist_lookup() -> dict[tuple[str, str], int]:
 
 def iter_scan_paths(repo_root: Path | None = None, only: Iterable[Path] | None = None) -> list[Path]:
     """Scope files; ``only`` narrows to those files, using the same scope rules as repo-wide."""
-    root = (repo_root or REPO_ROOT).resolve()
+    root = (repo_root or product_root()).resolve()
     found = (
         [path for scan_root in _SCAN_ROOTS for path in (root / scan_root).rglob("*.py")]
         if only is None
@@ -163,7 +163,7 @@ def _call_snippet(lines: list[str], line_index: int) -> str:
 
 def find_control_plane_connects(repo_root: Path | None = None, only: Iterable[Path] | None = None) -> list[Finding]:
     """Return direct control-plane ``sqlite3.connect`` findings outside the seam."""
-    root = (repo_root or REPO_ROOT).resolve()
+    root = (repo_root or product_root()).resolve()
     findings: list[Finding] = []
     for path in iter_scan_paths(root, only):
         rel = _rel(path, root)
@@ -252,7 +252,7 @@ def main(argv: list[str] | None = None) -> int:
         ),
     )
     parser.add_argument(
-        "--repo", type=Path, default=REPO_ROOT, help="Repository root (default this checkout; example .)."
+        "--repo", type=Path, default=None, help="Repository to scan (default: the selected product checkout; example .)."
     )
     parser.add_argument(
         "paths",
@@ -266,6 +266,8 @@ def main(argv: list[str] | None = None) -> int:
         help="Also scan tracked files changed against REF, including the working tree (default: unset; example HEAD).",
     )
     args = parser.parse_args(argv)
+    if args.repo is None:
+        args.repo = product_root()
     selected = None
     if args.paths or args.changed_from:
         selected = list(args.paths)

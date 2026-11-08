@@ -28,11 +28,9 @@ from lu_machinery.ci import deploy_paths, frontend_change_scope
 from lu_machinery.ci._location import checkout_relative, module_name, package_dir_name
 from lu_machinery.ci.junit_results import parse_junit
 from lu_machinery.common.jsonl import jsonl_lines
-from lu_machinery.common.repo_root import project_interpreter
+from lu_machinery.common.repo_root import machinery_path, product_root, project_interpreter
 from lu_machinery.storage.test_baseline import nodeid_to_junit_id
 
-ROOT = Path(__file__).resolve().parents[2]
-MANIFEST = ROOT / checkout_relative("ci", "components.json")
 _PACKAGE_NAME = Path(__file__).parents[1].name
 _PACKAGE_PREFIX = f"{_PACKAGE_NAME}."
 NODE_IDS = (
@@ -68,8 +66,9 @@ def repo_path(value: str) -> str:
     return value
 
 
-def load_manifest(path: Path = MANIFEST) -> dict:
+def load_manifest(path: Path | None = None) -> dict:
     """Validate structural safety before applying any ownership or command."""
+    path = path or (product_root() / "scripts/ci/components.json")
     data = json.loads(path.read_text(encoding="utf-8"))
     if data["schema_version"] != 1 or set(data["components"]) != set(NODE_IDS):
         raise ValueError("expected schema version 1 and the eight approved nodes")
@@ -127,8 +126,9 @@ def _with_machinery_prefixes(prefixes: list[dict]) -> list[dict]:
     return [*prefixes, *mapped]
 
 
-def tracked_paths(root: Path = ROOT) -> list[str]:
+def tracked_paths(root: Path | None = None) -> list[str]:
     """Use the complete index, including skip-worktree paths in sparse trees."""
+    root = root or product_root()
     result = subprocess.run(
         ["git", "ls-files", "-z"], cwd=root, check=True, capture_output=True, timeout=30,
     )
@@ -156,8 +156,9 @@ def assign_path(path: str, manifest: dict) -> tuple[list[str], str]:
     return list(candidates.pop()), "prefix"
 
 
-def python_sources(root: Path = ROOT) -> dict[str, bytes]:
+def python_sources(root: Path | None = None) -> dict[str, bytes]:
     """Read indexed blobs in one batch, overlaying only tracked worktree edits."""
+    root = root or product_root()
     index = subprocess.run(["git", "ls-files", "-s", "-z"], cwd=root, check=True,
                            capture_output=True, timeout=30).stdout
     entries = {}
@@ -524,8 +525,9 @@ def directory_edges(known_paths: set[str], loaders: dict[str, dict]) -> list[tup
     return sorted(edges)
 
 
-def import_graph(manifest: dict, root: Path = ROOT) -> dict:
+def import_graph(manifest: dict, root: Path | None = None) -> dict:
     """Lift discovered file dependencies to node edges; assert mandatory imports."""
+    root = root or product_root()
     sources = python_sources(root)
     # Snapshot content, not object identity: callers can mutate a manifest or
     # edit tracked sources between queries. Keep cached results private too.
@@ -584,8 +586,9 @@ def affected(paths: Sequence[str], manifest: dict, graph: dict | None = None) ->
             "import_edges": len(graph["file_edges"]), "unresolved_edges": len(graph["unresolved_edges"])}
 
 
-def parity_gaps(paths: Sequence[str], manifest: dict, root: Path = ROOT, graph: dict | None = None) -> list[str]:
+def parity_gaps(paths: Sequence[str], manifest: dict, root: Path | None = None, graph: dict | None = None) -> list[str]:
     """Cross-check existing selector semantics without deriving them from the map."""
+    root = root or product_root()
     patterns = frontend_change_scope.load_denominator(root / manifest["selector_contracts"]["frontend_denominator"])["paths"]
     fronts = set(manifest["selector_contracts"]["frontend_components"])
     gaps = []
@@ -606,8 +609,9 @@ def parity_gaps(paths: Sequence[str], manifest: dict, root: Path = ROOT, graph: 
     return gaps
 
 
-def inventory(manifest: dict, root: Path = ROOT) -> dict:
+def inventory(manifest: dict, root: Path | None = None) -> dict:
     """Count explicit coverage, separately from conservative fallback selection."""
+    root = root or product_root()
     paths = tracked_paths(root)
     graph = import_graph(manifest, root)
     missing = {kind: [] for kind in ("unmapped", "ambiguous", "dynamic-unresolved")}
@@ -636,8 +640,9 @@ def inventory(manifest: dict, root: Path = ROOT) -> dict:
     }
 
 
-def test_files(component: str, manifest: dict, root: Path = ROOT) -> list[str]:
+def test_files(component: str, manifest: dict, root: Path | None = None) -> list[str]:
     """Resolve all mapped pytest files plus transitive source importers."""
+    root = root or product_root()
     node = manifest["components"][component]
     files = set(node["test_files"])
     prefixes = tuple(node["test_prefixes"])
@@ -673,8 +678,9 @@ def test_files(component: str, manifest: dict, root: Path = ROOT) -> list[str]:
     return sorted(files)
 
 
-def vitest_files(component: str, manifest: dict, root: Path = ROOT) -> list[str]:
+def vitest_files(component: str, manifest: dict, root: Path | None = None) -> list[str]:
     """Assign Vitest's configured test directories by the same path ownership."""
+    root = root or product_root()
     return [path for path in tracked_paths(root)
             if path.startswith(("site/tests/unit/", "site/src/pages/__tests__/"))
             and re.search(r"\.(test|spec)\.tsx?$", path)
@@ -697,8 +703,9 @@ def node_test_commands(component: str, manifest: dict, files: list[str], front_f
     return commands
 
 
-def collect_tests(files: Sequence[str], args: Sequence[str], root: Path = ROOT) -> tuple[list[str], int]:
+def collect_tests(files: Sequence[str], args: Sequence[str], root: Path | None = None) -> tuple[list[str], int]:
     """Collect fresh IDs; any collection error is a full-selection obligation."""
+    root = root or product_root()
     result = subprocess.run(
         [str(project_interpreter(root)), "-m", "pytest", "--collect-only", "--verbosity=-1", *files, *args],
         cwd=root, capture_output=True, text=True, timeout=900,
@@ -707,8 +714,9 @@ def collect_tests(files: Sequence[str], args: Sequence[str], root: Path = ROOT) 
     return ids, result.returncode if result.returncode else (0 if ids else 5)
 
 
-def collect_vitest(files: Sequence[str], root: Path = ROOT) -> tuple[list[dict], int]:
+def collect_vitest(files: Sequence[str], root: Path | None = None) -> tuple[list[dict], int]:
     """Collect Vitest IDs with its installed CLI, independently of pytest IDs."""
+    root = root or product_root()
     if not files:
         return [], 0
     result = subprocess.run(["npm", "exec", "--", "vitest", "list", "--json",
@@ -728,12 +736,13 @@ def digest(value: object) -> str:
     return hashlib.sha256(json.dumps(value, sort_keys=True, ensure_ascii=True).encode()).hexdigest()
 
 
-def current_identities(component: str, manifest: dict, root: Path = ROOT) -> dict[str, str]:
+def current_identities(component: str, manifest: dict, root: Path | None = None) -> dict[str, str]:
     """Bind source/config/lock identities to Git plus current tracked modifications.
 
     Sparse files use their indexed blob IDs; materialized modifications use Git's
     hash-object without writing objects. This never depends on a checkout census.
     """
+    root = root or product_root()
     indexed = subprocess.run(["git", "ls-files", "-s", "-z"], cwd=root, capture_output=True, check=True, timeout=30)
     blobs = {}
     for entry in indexed.stdout.decode("utf-8", errors="surrogateescape").split("\0"):
@@ -759,15 +768,16 @@ def current_identities(component: str, manifest: dict, root: Path = ROOT) -> dic
              if PurePosixPath(path).name in {"package-lock.json", "requirements-lock.txt", ".python-version", ".nvmrc"}}
     return {"source": digest(sources), "config": digest(configs), "lockfiles": digest(locks),
             "tools": digest({"node": manifest["components"][component], "manifest": manifest,
-                             "runner": hashlib.sha256((root / checkout_relative("ci", "components.py")).read_bytes()).hexdigest()})}
+                             "runner": hashlib.sha256(machinery_path("ci/components.py").read_bytes()).hexdigest()})}
 
 
-def verify_inputs(path: Path, component: str, manifest: dict, root: Path = ROOT) -> dict[str, Path]:
+def verify_inputs(path: Path, component: str, manifest: dict, root: Path | None = None) -> dict[str, Path]:
     """Verify required families and every member before any output or subprocess.
 
     Existing family schemas/versions are declared rather than replaced here.
     These byte/identity checks do not grant publication or semantic approval.
     """
+    root = root or product_root()
     data = json.loads(path.read_text(encoding="utf-8"))
     if data.get("schema") != "component-inputs.v1" or data.get("component") != component:
         raise ValueError("input wrapper schema/component mismatch")
@@ -888,8 +898,9 @@ def run_commands(commands: list[dict], root: Path, output_dir: Path | None,
     return reports, overall_code
 
 
-def junit_coverage(paths: list[Path], manifest: dict, components: Sequence[str], root: Path = ROOT) -> tuple[dict, int]:
+def junit_coverage(paths: list[Path], manifest: dict, components: Sequence[str], root: Path | None = None) -> tuple[dict, int]:
     """Compare freshly collected node IDs with full-run pytest JUnit outcomes."""
+    root = root or product_root()
     if not paths:
         raise ValueError("JUnit input is required")
     rows = parse_junit(paths)
@@ -1068,7 +1079,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                               "vitest_collection_exit": front_code}
                 else:
                     commands = node_test_commands(args.component, manifest, files, front_files, workers=args.workers, timeout=args.timeout)
-                    results, code = run_commands(commands, ROOT, None, {}, keep_going=True)
+                    results, code = run_commands(commands, product_root(), None, {}, keep_going=True)
                     report = {"component": args.component, **census, "test_ids": ids, "vitest_ids": front_ids, "commands": results,
                               "artifact_dependent_test_ids": artifact_ids,
                               "artifact_owner_slice": 5 if artifact_ids else None,
@@ -1079,10 +1090,10 @@ def main(argv: Sequence[str] | None = None) -> int:
                     raise ValueError("harness/shared-core are test/verification nodes, not product builds")
                 # Pre-expand everything before a producer can write a partial output.
                 for command in commands:
-                    expand_command(command, ROOT, args.output_dir, members)
+                    expand_command(command, product_root(), args.output_dir, members)
                 if args.operation == "build":
                     args.output_dir.mkdir(parents=True, exist_ok=True)
-                results, code = run_commands(commands, ROOT, args.output_dir, members)
+                results, code = run_commands(commands, product_root(), args.output_dir, members)
                 report = {"component": args.component, "commands": results,
                           "build_scope": node.get("build_scope") if args.operation == "build" else None,
                           "input_bytes_verified": bool(getattr(args, "inputs", None)),

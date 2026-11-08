@@ -34,6 +34,8 @@ from functools import cached_property, lru_cache, wraps
 from pathlib import Path
 from threading import RLock
 
+from lu_machinery.common.repo_root import ProductRootError, product_root
+
 
 def _machinery_top() -> str:
     # Unresolved package directory (design-v1 amendment 1). Never __package__.
@@ -61,7 +63,6 @@ def _scan_trees_text() -> str:
     return f"{', '.join(head)} and {last}" if head else last
 
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
 READER_BOUNDARY = _mp("lib/readonly_sqlite.py")
 REFERENCE_MANIFEST = Path(__file__).with_name("sqlite_reference_allowlist.json")
 SQLITE_MODULES = frozenset({"sqlite3", "sqlite3.dbapi2", "_sqlite3"})
@@ -771,13 +772,14 @@ def _commit_sha(commit: str, root: Path) -> str | None:
 
 
 @_without_cyclic_gc
-def census(commit: str, root: Path = REPO_ROOT) -> dict:
+def census(commit: str, root: Path | None = None) -> dict:
     """Read the complete committed tree, independent of checkout sparsity.
 
     A shallow checkout has no frozen base object. Classify HEAD, the tree
     that checkout has, as ``base_blob_ids`` does. ``base_commit`` is the
     tree that was actually read.
     """
+    root = root or product_root()
     sha = _commit_sha(commit, root)
     if sha is None and commit != "HEAD":
         sha = _commit_sha("HEAD", root)
@@ -850,7 +852,7 @@ def baseline_policy_violations(root: Path) -> list[str]:
         return []
     current = json.loads(BASELINE.read_text())
     current_entries = {StoreFinding(**row) for row in current["entries"]}
-    rel = BASELINE.relative_to(REPO_ROOT).as_posix()
+    rel = f"scripts/hygiene/{BASELINE.name}"
     initial_correction = None
     for ref in ("HEAD", "HEAD^", "origin/main"):
         result = subprocess.run(["git", "show", f"{ref}:{rel}"], cwd=root,
@@ -963,18 +965,26 @@ def _scan_all(jobs: list) -> list[_FileScan]:
 def find_violations(
     repo_root: Path | None = None, allowlist: tuple[AllowedReference, ...] | None = None
 ) -> tuple[list[str], list[str]]:
-    root = (repo_root or REPO_ROOT).resolve()
+    if repo_root is None:
+        root = product_root().resolve()
+        apply_baseline = True
+    else:
+        root = repo_root.resolve()
+        try:
+            apply_baseline = root == product_root().resolve()
+        except ProductRootError:
+            apply_baseline = False
     writers = {writer.path: writer for writer in (load_allowlist() if allowlist is None else allowlist)}
     violations, unreadable = [], []
     seen = set()
-    baseline = baseline_entries() if root == REPO_ROOT.resolve() else set()
-    payload = json.loads(BASELINE.read_text()) if root == REPO_ROOT.resolve() else {}
+    baseline = baseline_entries() if apply_baseline else set()
+    payload = json.loads(BASELINE.read_text()) if apply_baseline else {}
     base_blobs = base_blob_ids(root, payload["base_commit"]) if "base_commit" in payload else {}
     by_path = {}
     for finding in baseline:
         by_path.setdefault(finding.path, []).append(finding)
     current = set()
-    if root == REPO_ROOT.resolve():
+    if apply_baseline:
         violations.extend(baseline_policy_violations(root))
     order: list[tuple[str, tuple | None]] = []  # (rel, job); job None = unreadable on disk
     for path in iter_scan_paths(root):
