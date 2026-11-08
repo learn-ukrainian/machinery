@@ -40,10 +40,10 @@ from typing import Any
 
 import yaml
 
+from lu_machinery.common.repo_root import machinery_path
 from lu_machinery.review import findings_db, second_seat
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
-TAXONOMY_PATH = REPO_ROOT / "schemas" / "review-taxonomy-v1.yaml"
+TAXONOMY_PATH = machinery_path("schemas/review-taxonomy-v1.yaml")
 MEASUREMENT_DIR = ("batch_state", "review-measurement")
 FILE_MODE = 0o600
 DIRECTORY_MODE = 0o700

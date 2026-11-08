@@ -23,7 +23,7 @@ Every Ukrainian-profile brief identifies these contracts and their applicability
 Every code or infra brief includes this **Reply format** section. It is the reply contract
 `verify_review` and the verdict recorder both accept. The reply is one JSON object and
 nothing else. The object matches
-[`schemas/code-review-findings.v1.schema.json`](../../../../../schemas/code-review-findings.v1.schema.json)
+[`lu_machinery/schemas/code-review-findings.v1.schema.json`](../../../../../lu_machinery/schemas/code-review-findings.v1.schema.json)
 at the exact review head: the reviewer uses that file's field names, required fields,
 allowed values and nested definitions, and adds none. `overall` includes `correctness`,
 `explanation` and `confidence`. Each finding includes `confidence` and `verbatim` with the
