@@ -11,14 +11,6 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-_PROJECT_ROOT = Path(__file__).resolve().parents[2]
-if str(_PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(_PROJECT_ROOT))
-
-from lu_machinery.api.occupancy_local import resolve_launcher_host_id
-from lu_machinery.api.project_state_collect import collect_local_document
-from lu_machinery.api.project_state_sanitize import ProjectStateValidationError, validate_report_document
-
 DEFAULT_POST_URL = "http://127.0.0.1:8765/api/fleet/projects/v1/report"
 DEFAULT_TIMEOUT_S = 10.0
 
@@ -55,6 +47,14 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    # Collection needs the product API dependencies; imports and --help do not.
+    from lu_machinery.api.occupancy_local import resolve_launcher_host_id  # noqa: PLC0415
+    from lu_machinery.api.project_state_collect import collect_local_document  # noqa: PLC0415
+    from lu_machinery.api.project_state_sanitize import (  # noqa: PLC0415
+        ProjectStateValidationError,
+        validate_report_document,
+    )
+
     command = args.command or "report"
     host_id = (args.host_id or resolve_launcher_host_id()).strip().lower()
     # Lane usage probes live subscription endpoints; "0" skips them (hermetic tests).

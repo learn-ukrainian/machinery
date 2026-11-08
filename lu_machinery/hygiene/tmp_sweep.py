@@ -44,7 +44,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from lu_machinery.common.repo_root import main_checkout_root, product_root, state_root
+from lu_machinery.common.repo_root import MachineryConfigError, main_checkout_root, product_root, state_root
 from lu_machinery.common.scratch import (
     DEFAULT_SCRATCH_ROOT,
     fallback_scratch_root,
@@ -1907,6 +1907,8 @@ def main(argv: list[str] | None = None) -> int:
         # The step in progress stays unconfirmed in the ledger, and the next run reconciles it.
         print(f"ledger unavailable or not durable, run stopped: {error}", file=sys.stderr)
         return 1
+    except MachineryConfigError as error:
+        parser.error(str(error))
     except (ValueError, OSError):
         parser.error("invalid or unreadable temporary/task area; no deletion authorized")
     if args.json:

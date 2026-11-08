@@ -15,8 +15,8 @@ shrink. Before that first landing, the baseline has no predecessor; it must
 still equal the mypy census exactly, so entries mypy does not report fail.
 Where the machinery package directory is not ``scripts`` (after the machinery
 move), the module slot of two exact baseline message forms is respelled with
-the pinned rename map, which that checkout must carry at
-packaging/machinery-move/rename-map.json with a verified .sha256 beside it.
+the pinned rename map, shipped as a package resource at
+lu_machinery/lint/rename-map.json with a verified .sha256 beside it.
 
 Examples:
   .venv/bin/python -m scripts.lint.mypy_ratchet
@@ -46,7 +46,7 @@ from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
-from lu_machinery.common.repo_root import RUNTIME_ROOT, product_root
+from lu_machinery.common.repo_root import RUNTIME_ROOT, machinery_path, product_root
 
 
 def _package_dir() -> Path:
@@ -378,7 +378,7 @@ _SLOT_TEMPLATES: dict[str, tuple[re.Pattern[str], str]] = {
         "variable",
     ),
 }
-RENAME_MAP = Path("packaging") / "machinery-move" / "rename-map.json"
+RENAME_MAP = Path("lint/rename-map.json")
 _DIGEST_LINE = re.compile(rf"(?P<digest>[0-9a-f]{{64}})  {re.escape(RENAME_MAP.name)}\n")
 
 
@@ -478,8 +478,8 @@ class _RenameMap:
 def _load_rename_map(package_dir: Path) -> _RenameMap:
     """Read and verify the rename map a renamed machinery checkout must carry.
 
-    Contract: ``packaging/machinery-move/rename-map.json``, in the directory
-    that holds the machinery package, has the exact bytes of the ownership
+    Contract: ``lint/rename-map.json``, inside the machinery package, has
+    the exact bytes of the ownership
     map (``path -> machinery|product``) that the extraction's rename tools
     read; portcheck keeps it as
     ``runs/<sha12>-all/derive/map.json``. Those tools record the SHA-256 of
@@ -490,7 +490,7 @@ def _load_rename_map(package_dir: Path) -> _RenameMap:
     or mismatched artifact is an error, never the source layout.
     """
 
-    path = package_dir.parent / RENAME_MAP
+    path = machinery_path(RENAME_MAP.as_posix())
     digest_path = path.with_name(path.name + ".sha256")
     prefix = f"rename map {path}"
     try:

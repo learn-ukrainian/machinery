@@ -49,6 +49,7 @@ except ModuleNotFoundError as exc:
         raise
     from lib.readonly_sqlite import SQLiteConnection  # type: ignore[no-redef]
 
+from lu_machinery.common.repo_root import MachineryConfigError
 from lu_machinery.control_plane.health import authority_collector_payload
 from lu_machinery.control_plane.storage import StoreId, assert_component_supported
 from lu_machinery.control_plane.storage import connect as cp_connect
@@ -1873,6 +1874,9 @@ def main(argv: list[str] | None = None) -> int:
         if getattr(args, "root", None):
             validate_plane_root(Path(args.root))
         return int(func(args))
+    except MachineryConfigError as exc:
+        sys.stderr.write(str(exc) + "\n")
+        return EXIT_USAGE
     except FleetCommsCliError as exc:
         sys.stderr.write(str(exc) + "\n")
         return EXIT_ERROR

@@ -31,7 +31,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from lu_machinery.ci.test_source_cache import parse_test_source, read_test_source
-from lu_machinery.common.repo_root import product_root
+from lu_machinery.common.repo_root import MachineryConfigError, product_root
 
 # Regex matching epic ID stream literals
 _EPIC_ID_RE = re.compile(r"\bepic:\d+\b", re.IGNORECASE)
@@ -478,7 +478,11 @@ def main(argv: Sequence[str] | None = None) -> int:
             elif p.is_file():
                 paths.append(p)
 
-    findings = find_stale_pinned_assertions(repo_root=args.root, paths=paths)
+    try:
+        findings = find_stale_pinned_assertions(repo_root=args.root, paths=paths)
+    except MachineryConfigError as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
 
     if not findings:
         print("OK: no forbidden hard-coded epic/stream assertions found in tests")

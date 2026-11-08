@@ -19,10 +19,6 @@ import yaml
 from filelock import FileLock, Timeout
 from jsonschema import Draft202012Validator, FormatChecker
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
-if str(PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(PROJECT_ROOT))
-
 from lu_machinery.common.repo_root import ProductRootError, main_checkout_root
 from lu_machinery.common.repo_root import product_root as resolve_product_root
 from lu_machinery.fleet import claude_account_lane, credit_lane
