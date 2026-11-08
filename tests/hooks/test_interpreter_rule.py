@@ -398,10 +398,24 @@ ROUTED = (
 )
 
 
+def _checkout() -> Path:
+    """The git checkout that holds ``.githooks``. The installed package does not."""
+    here = Path(__file__).resolve()
+    for parent in (here, *here.parents):
+        if (parent / ".githooks" / "_lib.sh").is_file():
+            return parent
+    raise AssertionError("the test is not inside a checkout that contains .githooks")
+
+
 def test_routed_scripts_do_not_build_a_venv_interpreter_path() -> None:
     """Reverting a script to its own .venv/bin/python selector fails this census (R74)."""
+    checkout = _checkout()
     for relative in ROUTED:
-        text = (SOURCE / relative).read_text(encoding="utf-8")
+        if relative.startswith(".githooks/"):
+            path = checkout / relative
+        else:
+            path = machinery_root() / relative.removeprefix("lu_machinery/")
+        text = path.read_text(encoding="utf-8")
         assert ".venv/bin/python" not in text, relative
 
 
@@ -431,15 +445,25 @@ def test_project_python_and_githooks_follow_the_rule(tmp_path: Path) -> None:
 
     hook_log = tmp_path / "hook.log"
     hook_override = _wrapper(tmp_path / "hook-python", hook_log)
+    packaged = machinery_root()
+    launcher = primary / "lu_machinery" / "pre_commit" / "project_python.sh"
+    library = primary / "lu_machinery" / "lib" / "project_interpreter.sh"
+    launcher.parent.mkdir(parents=True)
+    library.parent.mkdir(parents=True)
+    shutil.copy2(packaged / "pre_commit" / "project_python.sh", launcher)
+    shutil.copy2(packaged / "lib" / "project_interpreter.sh", library)
+    hook_lib = primary / ".githooks"
+    hook_lib.mkdir()
+    shutil.copy2(_checkout() / ".githooks" / "_lib.sh", hook_lib / "_lib.sh")
     hook = _run(
-        ["bash", "-c", f'source "{SOURCE}/.githooks/_lib.sh" && run_project_python -c "print(1)"'],
-        cwd=SOURCE,
+        ["bash", "-c", f'source "{hook_lib / "_lib.sh"}" && run_project_python -c "print(1)"'],
+        cwd=worktree,
         env={**_base_env(tmp_path), "LEARN_UKRAINIAN_PYTHON": str(hook_override)},
     )
     assert hook.returncode == 0, hook.stderr
     assert hook_log.read_text(encoding="utf-8").split()[0] == str(hook_override)
     for relative in (".githooks/_lib.sh", ".githooks/commit-msg", ".githooks/post-merge", ".githooks/pre-push"):
-        assert "run_project_python" in (SOURCE / relative).read_text(encoding="utf-8")
+        assert "run_project_python" in (_checkout() / relative).read_text(encoding="utf-8")
 
 
 def test_repo_root_launchers_follow_the_rule(tmp_path: Path) -> None:
@@ -668,16 +692,19 @@ import importlib.util, os, sys
 root, name = sys.argv[1], sys.argv[2]
 package = os.path.join(root, name)
 init = os.path.join(package, "__init__.py")
+before = list(sys.path)
 spec = importlib.util.spec_from_file_location(name, init, submodule_search_locations=[package])
 sys.modules[name] = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(sys.modules[name])
-import lu_machinery.opsec.gh_entry  # noqa: F401
-if root in sys.path:
-    sys.exit("checkout is on sys.path")
+import lu_machinery.opsec.gh_entry as entry
+checkout = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(entry.__file__))))
+if sys.path.count(checkout) > before.count(checkout):
+    sys.exit("checkout was inserted onto sys.path")
 """
+    package = machinery_root()
     result = subprocess.run(
-        [sys.executable, "-I", "-c", script, str(SOURCE), "lu_machinery"],
-        cwd=SOURCE,
+        [sys.executable, "-I", "-c", script, str(package.parent), package.name],
+        cwd=package.parent,
         env={"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "PYTHONDONTWRITEBYTECODE": "1"},
         capture_output=True,
         text=True,
@@ -685,7 +712,7 @@ if root in sys.path:
         check=False,
     )
     assert result.returncode == 0, result.stderr
-    assert "sys.path.insert" not in (SOURCE / "lu_machinery/opsec/gh_entry.py").read_text(encoding="utf-8")
+    assert "sys.path.insert" not in (package / "opsec" / "gh_entry.py").read_text(encoding="utf-8")
 
 
 def test_retired_model_check_uses_the_rule_not_the_helper_venv(tmp_path: Path) -> None:
