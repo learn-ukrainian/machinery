@@ -7,8 +7,10 @@ from __future__ import annotations
 
 import hashlib
 import json
+import signal
 import subprocess
 import sys
+from pathlib import Path
 
 import pytest
 
@@ -165,11 +167,13 @@ def test_missing_release_resource_cannot_fall_back(consumer, release, monkeypatc
     assert snapshot(consumer) == before
 
 
-@pytest.mark.parametrize("defect", ["logical", "skill", "delegator", "disabled", "preserve-policy", "prefix"])
-def test_silent_policy_override_refused_before_writes(consumer, monkeypatch, defect):
+@pytest.mark.parametrize("defect", ["logical", "skill", "delegator", "disabled", "preserve-policy", "prefix", "skill-name"])
+def test_silent_policy_override_refused_before_writes(consumer, monkeypatch, capsys, defect):
     """Duplicate names/paths or absent/disabled mandatory hooks cannot override fleet policy."""
     if defect == "logical":
         write(consumer, "agents_extensions/shared/rules/core.md", CORE)
+    elif defect == "skill-name":
+        write(consumer, "agents_extensions/shared/skills/different/SKILL.md", SKILL)
     elif defect == "prefix":
         write(consumer, "agents_extensions/shared/rules", "file instead of directory")
     elif defect == "skill":
@@ -189,6 +193,8 @@ def test_silent_policy_override_refused_before_writes(consumer, monkeypatch, def
     before = snapshot(consumer)
     assert invoke(monkeypatch, consumer) == 2
     assert snapshot(consumer) == before
+    if defect == "skill-name":
+        assert "duplicate skill name: fleet" in capsys.readouterr().err
 
 
 def test_unsafe_retirement_preserves_modified_unknown_and_runtime(consumer, monkeypatch):
@@ -307,4 +313,44 @@ def test_wrong_project_selection_invalid_input_has_no_side_effects(consumer, mon
     monkeypatch.setenv("LU_PRODUCT_ROOT", str(consumer))
     before = snapshot(consumer)
     assert invoke(monkeypatch, selected) == 2
+    assert snapshot(consumer) == before
+
+
+def test_sigkill_after_first_write_recovers_without_deleting_unknown_files(consumer, release, monkeypatch):
+    """SIGKILL bypasses finally cleanup; the next apply must recover its temporary file."""
+    script = """
+import os, signal, sys
+from pathlib import Path
+from lu_machinery.agent_deploy import plan
+from lu_machinery.agent_deploy.__main__ import main
+install = Path(sys.argv[1])
+locations = {"lu_machinery": install / "lu_machinery",
+             "lu_machinery.agent_deploy": install / "lu_machinery/agent_deploy",
+             "agents_extensions.shared": install / "agents_extensions/shared"}
+plan.resources.files = lambda name: locations[name]
+def kill_after_write(fd, mode):
+    os.kill(os.getpid(), signal.SIGKILL)
+plan.os.fchmod = kill_after_write
+sys.argv = ["agent_deploy", "--project-root", sys.argv[2]]
+raise SystemExit(main())
+"""
+    killed = subprocess.run([sys.executable, "-c", script, str(release.parents[1]), str(consumer)],
+                            cwd=Path(__file__).resolve().parents[2], capture_output=True, text=True, timeout=20)
+    assert killed.returncode == -signal.SIGKILL, killed.stdout + killed.stderr
+    assert not (consumer / plan.STATE).exists()
+    before = snapshot(consumer)
+    assert invoke(monkeypatch, consumer, check=True) == 1
+    assert snapshot(consumer) == before
+    assert invoke(monkeypatch, consumer) == 0
+    assert invoke(monkeypatch, consumer, check=True) == 0
+    assert not any(p.name.startswith(".agent-deploy-") for p in consumer.rglob("*"))
+    assert not (consumer / ".deploy-state/agent-deploy.tmp").exists()
+
+
+def test_unknown_staging_content_is_preserved_before_first_apply(consumer, monkeypatch):
+    """A reserved staging filename never licenses deleting unrelated unowned bytes."""
+    write(consumer, ".deploy-state/agent-deploy.tmp", "unrelated user content", 0o600)
+    before = snapshot(consumer)
+    assert invoke(monkeypatch, consumer) == 2
+    assert invoke(monkeypatch, consumer, check=True) == 2
     assert snapshot(consumer) == before

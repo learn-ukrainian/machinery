@@ -14,7 +14,6 @@ import hashlib
 import importlib.resources as resources  # nosemgrep: python.lang.compatibility.python37-compatibility-importlib2
 import json
 import os
-import secrets
 import stat
 import subprocess
 import unicodedata
@@ -24,10 +23,11 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 from lu_machinery.common.safe_open import safe_open_below
-from lu_machinery.lint.lint_agent_skills import metadata_errors
+from lu_machinery.lint.lint_agent_skills import _parse_frontmatter, metadata_errors
 
 DESCRIPTOR = "agents_extensions/deployment.v1.json"
 STATE = ".deploy-state/agent-deploy.v1.json"
+STAGING = ".deploy-state/agent-deploy.tmp"
 TARGETS = {"claude": ".claude", "codex": ".codex", "agy": ".agent", "gemini": ".gemini", "cursor": ".cursor"}
 
 
@@ -140,20 +140,23 @@ class Tree:
         return found
 
     def replace(self, path: str, blob: bytes, mode: int) -> None:
-        with self.parent(path, create=True) as (fd, name):
-            temp = ".agent-deploy-" + secrets.token_hex(12)
-            handle = safe_open_below(fd, temp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        # The per-target lock serializes all writes, so one reserved staging
+        # slot suffices. SIGKILL can leave it behind without polluting a provider
+        # tree. Recovery validates its bytes against the reconstructed plan.
+        with self.parent(path, create=True) as (fd, name), self.parent(STAGING, create=True) as (stage_fd, temp):
+            handle = safe_open_below(stage_fd, temp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
             try:
                 with os.fdopen(handle, "wb") as file:
                     file.write(blob)
                     os.fchmod(file.fileno(), mode)
                     file.flush()
                     os.fsync(file.fileno())
-                os.replace(temp, name, src_dir_fd=fd, dst_dir_fd=fd)
+                os.replace(temp, name, src_dir_fd=stage_fd, dst_dir_fd=fd)
                 os.fsync(fd)
+                os.fsync(stage_fd)
             finally:
                 with contextlib.suppress(FileNotFoundError):
-                    os.unlink(temp, dir_fd=fd)
+                    os.unlink(temp, dir_fd=stage_fd)
 
     def unlink(self, path: str) -> None:
         with self.parent(path) as (fd, name):
@@ -301,6 +304,14 @@ def build(tree: Tree) -> Plan:
     shared, inventory, release = release_inputs()
     def replaces(provider: str, path: str) -> bool:
         return any(path == p or path.startswith(p + "/") for p in inventory["provider_replacements"].get(provider, []))
+    skill_names: set[str] = set()
+    for path, out in shared.items():
+        if path.startswith("skills/") and path.endswith("/SKILL.md"):
+            data, error = _parse_frontmatter(out.blob.decode())
+            declared_release_name = data.get("name") if data is not None else None
+            if error or not isinstance(declared_release_name, str):
+                raise Invalid("invalid release skill metadata: " + path)
+            skill_names.add(declared_release_name)
     groups: dict[str, dict[str, Output]] = {"shared": shared}
     used_sources: list[str] = []
     for group, spec in sources.items():
@@ -325,9 +336,14 @@ def build(tree: Tree) -> Plan:
             skill = items.get(f"skills/{name}/SKILL.md")
             if skill is None:
                 raise Invalid("missing SKILL.md: " + name)
+            metadata, _error = _parse_frontmatter(skill[0].decode())
+            declared_name = metadata.get("name") if metadata is not None else None
+            if isinstance(declared_name, str) and declared_name in skill_names:
+                raise Invalid("duplicate skill name: " + declared_name)
             errors = metadata_errors(skill[0].decode(), name)
             if errors:
                 raise Invalid("skill lint: " + "; ".join(errors))
+            skill_names.add(name)
         # Product lint selection is code-side. Generic consumers never run curriculum checks.
         if tree.read("curriculum/l2-uk-en/curriculum.yaml") is not None:
             from lu_machinery.lint.lint_prompts import RULES
@@ -345,15 +361,6 @@ def build(tree: Tree) -> Plan:
             if path.startswith("hooks/") and not mode & 0o111:
                 raise Invalid("product hook is not executable: " + path)
             destination[path] = Output(blob, 0o755 if mode & 0o111 else 0o644, "product", source + "/" + path)
-    # Skill names are reserved across groups, even if their relative files differ.
-    skill_owners: dict[str, str] = {}
-    for group, group_items in groups.items():
-        for path in group_items:
-            if path.startswith("skills/") and len(path.split("/")) > 2:
-                name = path.split("/")[1]
-                previous = skill_owners.setdefault(name, group)
-                if previous != group:
-                    raise Invalid("duplicate skill name: " + name)
     outputs: dict[str, Output] = {}
     def add(target: str, path: str, out: Output) -> None:
         full = target + "/" + relative(path)
@@ -454,6 +461,17 @@ def matches(actual: tuple[bytes, int] | None, record: dict[str, Any]) -> bool:
 def preflight(tree: Tree, plan: Plan, old: dict[str, Any], check: bool) -> list[str]:
     problems: list[str] = []
     actual: tuple[bytes, int] | None
+    staged = tree.read(STAGING)
+    if staged is not None:
+        # A killed buffered write may leave an empty or partial prefix, with
+        # either its initial private mode or its final mode. Unrelated bytes,
+        # special files and symlinks are never adopted or removed.
+        candidates = [(out.blob, out.mode) for out in plan.files.values()]
+        candidates.append((plan.manifest(), 0o644))
+        if not any(blob.startswith(staged[0]) and staged[1] in {0o600, mode} for blob, mode in candidates):
+            raise Invalid("unrecognized deployment staging content")
+        if check:
+            problems.append("interrupted deployment staging remains")
     roots = plan.roots | {path.split("/")[0] for path in old["files"]}
     for root in sorted(roots):
         # Check every entry, including directories. Unknown empty dirs are harmless;
@@ -514,6 +532,9 @@ def deploy(tree: Tree, *, check: bool) -> int:
 def apply(tree: Tree, plan: Plan, old: dict[str, Any]) -> int:
     """Apply a fully admitted plan, then publish its verified ownership record."""
     changed = 0
+    if tree.read(STAGING) is not None:
+        tree.unlink(STAGING)
+        changed += 1
     for path, out in sorted(plan.files.items()):
         actual = tree.read(path)
         if actual != (out.blob, out.mode):
