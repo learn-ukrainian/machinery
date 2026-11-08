@@ -47,11 +47,7 @@ from pathlib import Path
 
 import yaml
 
-if __package__ in (None, ""):
-    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-
-from lu_machinery.api.config import LIVE_REPO_ROOT
-from lu_machinery.common.repo_root import machinery_path, main_checkout_root
+from lu_machinery.common.repo_root import machinery_path, product_root, state_root
 from lu_machinery.opsec.prepublish import publication_cli
 from lu_machinery.publish.github import Request, request_run
 
@@ -60,16 +56,8 @@ from lu_machinery.publish.github import Request, request_run
 # are also its directories in checkout-relative paths.
 _PACKAGE = f"{Path(os.path.abspath(__file__)).parents[1].name}.{Path(os.path.abspath(__file__)).parent.name}"
 _PACKAGE_DIR = _PACKAGE.replace(".", "/")
-_MACHINERY = _PACKAGE.partition(".")[0]
 
-# The product checkout this module was reached from: the directory that holds the package
-# entry, resolved itself (an immutable release snapshot reached through ``current`` stays
-# that snapshot) without following a symlinked package directory, so that the registry
-# under ``_MACHINERY``, the issues, the docs and the cache all belong to that checkout.
-ROOT = Path(os.path.abspath(__file__)).parents[2].resolve()
 REGISTRY_PATH = machinery_path("config/issue_streams.yaml")
-WORKSTREAMS_PATH = ROOT / "docs" / "WORKSTREAMS.md"
-CACHE_PATH = ROOT / "batch_state" / "issue_stream_audit.json"
 ISSUE_REF_RE = re.compile(r"#(\d{2,6})\b")
 ISSUE_RANGE_RE = re.compile(r"#(\d{2,6})\s*[–-]\s*#(\d{2,6})\b")
 CONFIRMED_AT_RE = re.compile(r"\bconfirmed-at\s*:\s*(\d{4}-\d{2}-\d{2})\b", re.IGNORECASE)
@@ -106,7 +94,7 @@ MembershipResolver = Callable[[int, int], bool]
 #   REFRESH_LOCK_PATH  — cross-process ``flock`` advisory lock
 #
 # Both describe the one live audit, so they are anchored at the PRIMARY
-# checkout (``main_checkout_root``), never the invoking linked worktree: a
+# checkout (``state_root``), never the invoking linked worktree: a
 # worktree-relative sidecar made every checkout the audit ran from look like it
 # held unattributed task output, which the common reaper then retained (#10519).
 #
@@ -120,21 +108,14 @@ MembershipResolver = Callable[[int, int], bool]
 # --------------------------------------------------------------------------- #
 
 
-def refresh_sidecar_paths(root: Path) -> tuple[Path, Path]:
-    """Return ``(state, lock)`` paths for the refresh sidecars of ``root``.
-
-    A linked worktree resolves to its primary checkout; a primary checkout or an
-    immutable release snapshot (whose ``batch_state`` is a live-data link)
-    resolves to itself.
-    """
-    batch_state = main_checkout_root(root) / "batch_state"
+def refresh_sidecar_paths(root: Path | None = None) -> tuple[Path, Path]:
+    """Return refresh sidecar paths under the shared state anchor."""
+    batch_state = state_root(root) / "batch_state"
     return (
         batch_state / "issue_stream_audit_refresh.json",
         batch_state / "issue_stream_audit_refresh.lock",
     )
 
-
-REFRESH_STATE_PATH, REFRESH_LOCK_PATH = refresh_sidecar_paths(ROOT)
 
 # Grace for the spawn→acquire race: the scheduler writes ``scheduled``, spawns
 # the worker, and releases the lock. The worker subprocess then acquires it.
@@ -251,8 +232,9 @@ def _validate_refresh_state(raw: object) -> dict | None:
 
 def _read_refresh_state_raw() -> object | None:
     """Read the raw sidecar JSON (fail-safe to ``None``)."""
+    path, _ = refresh_sidecar_paths()
     try:
-        return json.loads(REFRESH_STATE_PATH.read_text(encoding="utf-8"))
+        return json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return None
 
@@ -264,10 +246,11 @@ def _write_refresh_state_atomic(state: dict) -> None:
     rename on the same filesystem. A crash mid-write leaves the previous
     state intact; a reader never observes partial JSON.
     """
-    REFRESH_STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    path, _ = refresh_sidecar_paths()
+    path.parent.mkdir(parents=True, exist_ok=True)
     data = json.dumps(state, ensure_ascii=False)
     fd, tmp = tempfile.mkstemp(
-        dir=str(REFRESH_STATE_PATH.parent),
+        dir=str(path.parent),
         prefix=".issue_stream_audit_refresh.",
         suffix=".tmp",
     )
@@ -277,7 +260,7 @@ def _write_refresh_state_atomic(state: dict) -> None:
             handle.write(data)
             handle.flush()
             os.fsync(handle.fileno())
-        os.replace(tmp, str(REFRESH_STATE_PATH))
+        os.replace(tmp, str(path))
     except Exception:
         if fd >= 0:
             with contextlib.suppress(OSError):
@@ -295,8 +278,9 @@ def _try_lock_nb() -> int | None:
     when the lock is held by another process (or the file can't be opened)."""
     fd: int | None = None
     try:
-        REFRESH_LOCK_PATH.parent.mkdir(parents=True, exist_ok=True)
-        fd = os.open(str(REFRESH_LOCK_PATH), os.O_CREAT | os.O_RDWR, 0o600)
+        _, path = refresh_sidecar_paths()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        fd = os.open(str(path), os.O_CREAT | os.O_RDWR, 0o600)
         os.fchmod(fd, 0o600)
     except OSError:
         if fd is not None:
@@ -434,31 +418,17 @@ def public_refresh_view(state: dict) -> dict:
 # --------------------------------------------------------------------------- #
 # Scheduler + worker
 # --------------------------------------------------------------------------- #
-def _venv_python() -> str:
-    """Path to the live checkout's venv for the detached worker.
-
-    The supervised API imports this module from an immutable release snapshot,
-    which intentionally has no ``.venv``.  The supervisor-provided live root
-    owns the approved interpreter while ``ROOT`` remains the worker's snapshot
-    cwd so the detached process executes the exact deployed code.
-    """
-    # Intentional: ROOT is an immutable release snapshot with no .venv.
-    # The worker executes snapshot code with the live checkout's interpreter.
-    return str(LIVE_REPO_ROOT / ".venv" / "bin" / "python")
-
-
 def _spawn_worker(run_id: str) -> bool:
     """Spawn the detached refresh worker subprocess. Returns True on success."""
     try:
         subprocess.Popen(
             [
-                _venv_python(),
+                sys.executable,
                 "-m",
                 "lu_machinery.orchestration.issue_stream_audit",
                 "--refresh-worker",
                 run_id,
             ],
-            cwd=str(ROOT),
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             start_new_session=True,
@@ -711,7 +681,7 @@ def _milestone_issue_numbers(text: str) -> set[int]:
     return numbers
 
 
-def load_milestone_rows(path: Path = WORKSTREAMS_PATH) -> list[dict]:
+def load_milestone_rows(path: Path | None = None) -> list[dict]:
     """Read the bounded stream-milestone table from ``docs/WORKSTREAMS.md``.
 
     The workstreams document deliberately remains the orientation layer, not a
@@ -719,6 +689,7 @@ def load_milestone_rows(path: Path = WORKSTREAMS_PATH) -> list[dict]:
     row fields needed for advisory drift warnings.  ``confirmed-at: YYYY-MM-DD``
     may appear in any row cell; rows without that explicit marker are not aged.
     """
+    path = path if path is not None else product_root() / "docs/WORKSTREAMS.md"
     lines = path.read_text(encoding="utf-8").splitlines()
     in_section = False
     header: dict[str, int] | None = None
@@ -830,9 +801,9 @@ def milestone_warnings(
     return warnings
 
 
-def _gh_json(args: list[str], timeout_s: float = 30.0, *, cwd: Path = ROOT):
+def _gh_json(args: list[str], timeout_s: float = 30.0, *, cwd: Path | None = None):
     proc = request_run(
-        args if isinstance(args, Request) else ["gh", *args], capture_output=True, text=True, timeout=timeout_s, cwd=cwd
+        args if isinstance(args, Request) else ["gh", *args], capture_output=True, text=True, timeout=timeout_s, cwd=product_root(cwd)
     )
     if proc.returncode != 0:
         # gh api graphql exits 1 when GraphQL errors are present in the response
@@ -851,7 +822,7 @@ def _gh_json(args: list[str], timeout_s: float = 30.0, *, cwd: Path = ROOT):
     return json.loads(proc.stdout)
 
 
-def fetch_open_issues(repo_root: Path = ROOT) -> list[dict]:
+def fetch_open_issues(repo_root: Path | None = None) -> list[dict]:
     return _gh_json(
         ["issue", "list", "--state", "open", "--limit", "500", "--json", "number,title"],
         cwd=repo_root,
@@ -860,7 +831,7 @@ def fetch_open_issues(repo_root: Path = ROOT) -> list[dict]:
 
 def fetch_issue_states(
     numbers: set[int],
-    repo_root: Path = ROOT,
+    repo_root: Path | None = None,
     *,
     known_open_issue_numbers: set[int] | None = None,
 ) -> tuple[dict[int, str], set[int]]:
@@ -897,10 +868,11 @@ def fetch_issue_states(
 _REPO_CACHE: dict[str, tuple[str, str]] = {}
 
 
-def _repo_owner_name(repo_root: Path = ROOT) -> tuple[str, str]:
+def _repo_owner_name(repo_root: Path | None = None) -> tuple[str, str]:
     """Resolve the actual owner/name once per repo root — GraphQL -f fields do
     NOT expand the gh {owner}/{repo} placeholders (REST paths do). Caught by
     live probe."""
+    repo_root = product_root(repo_root)
     key = str(repo_root)
     if key not in _REPO_CACHE:
         data = _gh_json(["repo", "view", "--json", "owner,name"], cwd=repo_root)
@@ -952,7 +924,7 @@ class _RetryBudget:
         self.remaining = limit
 
 
-def _fetch_subissues_page(epic: int, cursor: str | None, repo_root: Path = ROOT) -> dict:
+def _fetch_subissues_page(epic: int, cursor: str | None, repo_root: Path | None = None) -> dict:
     """One GraphQL page of ``issue.subIssues`` (+ ``body`` on the first page)."""
     owner, name = _repo_owner_name(repo_root)
     data = _gh_json(
@@ -997,7 +969,7 @@ def _paginate_subissues(epic: int, fetch_page: Callable[[int, str | None], dict]
     return native, body
 
 
-def fetch_epic_membership(epic: int, repo_root: Path = ROOT) -> tuple[set[int], set[int]]:
+def fetch_epic_membership(epic: int, repo_root: Path | None = None) -> tuple[set[int], set[int]]:
     """Return (native_sub_issue_numbers, body_reference_numbers) for one epic.
 
     Native sub-issues are paginated (see ``_paginate_subissues``) so an epic
@@ -1010,7 +982,7 @@ def fetch_epic_membership(epic: int, repo_root: Path = ROOT) -> tuple[set[int], 
 
 def _fetch_subissue_batch(
     cursors: dict[int, str | None],
-    repo_root: Path = ROOT,
+    repo_root: Path | None = None,
     body_roots: set[int] | None = None,
     retry_budget: _RetryBudget | None = None,
 ) -> dict[int, dict | _IncompleteNode | None]:
@@ -1224,7 +1196,7 @@ def _tree_membership(
 
 
 def fetch_tree_membership(
-    roots: set[int], repo_root: Path = ROOT, warnings: list[dict] | None = None
+    roots: set[int], repo_root: Path | None = None, warnings: list[dict] | None = None
 ) -> dict[int, tuple[set[int], set[int]]]:
     owner, name = _repo_owner_name(repo_root)
     retry_budget = _RetryBudget()
@@ -1368,7 +1340,7 @@ def hygiene_warnings(
     membership cache writer both append them after the traversal warnings, so
     no publication of the shared cache serves a reduced hygiene report (#10793).
     """
-    registry_path = root / _MACHINERY / "config" / "issue_streams.yaml"
+    registry_path = REGISTRY_PATH
     closed_epics = load_closed_epics(registry_path)
     milestone_rows = load_milestone_rows(root / "docs" / "WORKSTREAMS.md")
     milestone_numbers = {number for row in milestone_rows for number in row["issue_numbers"]}
@@ -1469,19 +1441,10 @@ def run_audit(
     *,
     max_confirmed_age_days: int = DEFAULT_MAX_CONFIRMED_AGE_DAYS,
 ) -> dict:
-    """Run one live audit, scoped to ``repo_root`` (defaults to this module's
-    own checkout, ``ROOT``, preserving the plain-CLI default behavior).
-
-    Every input — the stream registry, workstream milestone table, ``gh``
-    execution cwd for issue/membership fetches, and the cache the report is
-    written to — uses the SAME resolved root, so a caller auditing a
-    non-default checkout (e.g. a closeout invocation bound to another
-    worktree) never validates membership against, or writes a cache into, this
-    module's own repo instead.
-    """
-    root = repo_root.resolve() if repo_root is not None else ROOT
+    """Audit the selected product using the packaged registry and shared state cache."""
+    root = product_root(repo_root)
     repository = "/".join(_repo_owner_name(root))
-    registry = load_registry(root / _MACHINERY / "config" / "issue_streams.yaml", audit_only=True)
+    registry = load_registry(REGISTRY_PATH, audit_only=True)
     open_issues = fetch_open_issues(root)
     traversal_warnings: list[dict] = []
     membership = fetch_tree_membership(
@@ -1501,13 +1464,14 @@ def run_audit(
     report["warnings"] = traversal_warnings + hygiene_warnings(
         root, open_issue_numbers, max_confirmed_age_days=max_confirmed_age_days
     )
-    publish_cache(report, registry, root / "batch_state" / "issue_stream_audit.json")
+    publish_cache(report, registry, state_root() / "batch_state" / "issue_stream_audit.json")
     return report
 
 
 def read_cache(max_age_s: int) -> dict | None:
+    path = state_root() / "batch_state/issue_stream_audit.json"
     try:
-        report = json.loads(CACHE_PATH.read_text(encoding="utf-8"))
+        report = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return None
     if time.time() - report.get("generated_at", 0) > max_age_s:
@@ -1705,7 +1669,7 @@ def read_membership_index(max_age_s: int, *, cache_path: Path | None = None) -> 
     separate live auditor run, so discovery/gate paths stay offline and
     non-mutating.
     """
-    path = cache_path if cache_path is not None else CACHE_PATH
+    path = cache_path if cache_path is not None else state_root() / "batch_state/issue_stream_audit.json"
     try:
         report = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
