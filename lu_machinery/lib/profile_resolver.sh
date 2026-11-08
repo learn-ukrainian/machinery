@@ -24,7 +24,7 @@ _context_profile_contract_rollover_mode() {
       PROFILE_ID) contract_profile="$value" ;;
       ROLLOVER_MODE) contract_mode="$value" ;;
     esac
-  done < <("$py_bin" "$contract_py" --profile "$p_id" --model "$m_id" --format env0 2>/dev/null)
+  done < <("$py_bin" -I "$contract_py" --profile "$p_id" --model "$m_id" --format env0 2>/dev/null)
   [ "$contract_profile" = "$profile_id" ] || return 1
   case "$contract_mode" in
     continuation|operator_restart) printf '%s\n' "$contract_mode" ;;
@@ -59,7 +59,9 @@ resolve_context_profile() {
     echo "Error: Could not create context-profile output file" >&2
     return 1
   }
-  if ! "$py_bin" "$resolver_py" \
+  # -I: the resolver imports only the stdlib and yaml, so the caller's
+  # PYTHONPATH and cwd stay off its import path.
+  if ! "$py_bin" -I "$resolver_py" \
     --profile "$p_id" --model "$m_id" --format env0 >"$output_file"; then
     rm -f "$output_file"
     echo "Error: Context-profile resolution failed" >&2

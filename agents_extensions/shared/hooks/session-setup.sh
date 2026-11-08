@@ -74,7 +74,25 @@ fi
 # and is never pushed so CI cannot catch it — only a local canary can. Auto-heal
 # so no session inherits a broken tree. Runs BEFORE the headless-skip because
 # pipeline jobs need a work tree too. See issue #2842.
-_LU_REPO="${CLAUDE_PROJECT_DIR:-$(cd "$(dirname "$0")/../.." && pwd)}"
+#
+# MACHINERY_DIR holds lu_machinery/ beside agents_extensions/. Run from that
+# layout (a checkout or the installed wheel in site-packages), this file's own
+# tree supplies the code, and the project is CLAUDE_PROJECT_DIR or else the cwd
+# the harness runs hooks in; site-packages is never the project. A deployed copy
+# (.claude/hooks/) takes both from the project, as before.
+_HOOK_DIR="$(cd "$(dirname "$0")" && pwd)"
+case "$_HOOK_DIR" in
+  */agents_extensions/shared/hooks)
+    MACHINERY_DIR="${_HOOK_DIR%/agents_extensions/shared/hooks}"
+    PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$(pwd)}"
+    ;;
+  *)
+    PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$(cd "$_HOOK_DIR/../.." && pwd)}"
+    MACHINERY_DIR="$PROJECT_DIR"
+    ;;
+esac
+unset _HOOK_DIR
+_LU_REPO="$PROJECT_DIR"
 if [ "$(_hook_deadline 2 git -C "$_LU_REPO" config --get core.bare 2>/dev/null)" = "true" ]; then
   _hook_deadline 2 git -C "$_LU_REPO" config --local core.bare false 2>/dev/null \
     && echo "⚠️  repo-health: reset core.bare true→false (git work tree was broken; see #2842)" >&2
@@ -136,7 +154,6 @@ if [ -z "$SESSION_ID" ]; then
   SESSION_ID="${CODEX_THREAD_ID:-${CODEX_SESSION_ID:-}}"
 fi
 
-PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$(cd "$(dirname "$0")/../.." && pwd)}"
 ISSUES=()
 INFO=()
 
@@ -165,7 +182,23 @@ if [ ! -x "$SHARED_VENV_ROOT/.venv/bin/python" ]; then
 fi
 SHARED_PYTHON="$SHARED_VENV_ROOT/.venv/bin/python"
 BOUNDED_PYTHON="${CLAUDE_SESSION_RECORD_PYTHON:-$SHARED_PYTHON}"
-BOUNDED_RUNNER_DEFAULT="$PROJECT_DIR/lu_machinery/agent_runtime/bounded_command.py"
+BOUNDED_RUNNER_DEFAULT="$MACHINERY_DIR/lu_machinery/agent_runtime/bounded_command.py"
+# Every lu_machinery module this hook runs starts as
+#   "$PYTHON" -I -c "$LU_MODULE_BOOTSTRAP" "$MACHINERY_DIR" <module> <args...>
+# -I keeps the caller's PYTHONPATH and cwd off the import path. An installed
+# lu_machinery is used when the interpreter has one; otherwise only lu_machinery
+# is loaded from MACHINERY_DIR by spec, so that directory never goes on sys.path
+# and no other name can resolve there. The environment is passed on unchanged.
+LU_MODULE_BOOTSTRAP='
+import importlib.util, runpy, sys
+pkg = sys.argv.pop(1) + "/lu_machinery"
+module = sys.argv.pop(1)
+if importlib.util.find_spec("lu_machinery") is None:
+    spec = importlib.util.spec_from_file_location("lu_machinery", pkg + "/__init__.py", submodule_search_locations=[pkg])
+    sys.modules["lu_machinery"] = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(sys.modules["lu_machinery"])
+runpy.run_module(module, run_name="__main__", alter_sys=True)
+'
 BOUNDED_RUNNER="${SESSION_BOUNDED_RUNNER:-$BOUNDED_RUNNER_DEFAULT}"
 SESSION_START_BUDGET_SECONDS="${SESSION_START_BUDGET_SECONDS:-12}"
 if ! [[ "$SESSION_START_BUDGET_SECONDS" =~ ^[1-9][0-9]*$ ]]; then
@@ -244,7 +277,7 @@ REQUESTED_PROFILE_ID="${LEARN_UKRAINIAN_REQUESTED_PROFILE_ID:-}"
 if [ "$IS_CODEX_SESSION" = "1" ] && [ -z "$REQUESTED_PROFILE_ID" ]; then
   REQUESTED_PROFILE_ID="native_codex"
 fi
-PROFILE_RESOLVER_DEFAULT="$PROJECT_DIR/lu_machinery/lib/profile_resolver.sh"
+PROFILE_RESOLVER_DEFAULT="$MACHINERY_DIR/lu_machinery/lib/profile_resolver.sh"
 PROFILE_RESOLVER_SH="${CLAUDE_PROFILE_RESOLVER_SH:-$PROFILE_RESOLVER_DEFAULT}"
 if [ ! -f "$PROFILE_RESOLVER_SH" ]; then
   echo "Error: context-profile resolver not found." >&2
@@ -256,7 +289,9 @@ fi
 export CLAUDE_PROFILE_RESOLVER_PYTHON="${CLAUDE_PROFILE_RESOLVER_PYTHON:-$SHARED_PYTHON}"
 # shellcheck disable=SC1090
 source "$PROFILE_RESOLVER_SH"
-if ! resolve_context_profile "$REQUESTED_PROFILE_ID" "$OBSERVED_MODEL"; then
+# The resolver reads its contract under its PROJECT_DIR: here, the machinery
+# tree whose lu_machinery/config holds the profiles.
+if ! PROJECT_DIR="$MACHINERY_DIR" resolve_context_profile "$REQUESTED_PROFILE_ID" "$OBSERVED_MODEL"; then
   echo "Error: main-session context-profile resolution failed." >&2
   exit 1
 fi
@@ -273,23 +308,15 @@ fi
 # A supervised Claudex child inherits a random run id and generation. Bind those
 # to Claude Code's official SessionStart id before any rollover can be requested.
 if [ -n "${LEARN_UKRAINIAN_CLAUDEX_RUN_ID:-}" ]; then
-  CLAUDEX_SUPERVISOR_DEFAULT="$PROJECT_DIR/lu_machinery/orchestration/claudex_supervisor.py"
+  CLAUDEX_SUPERVISOR_DEFAULT="$MACHINERY_DIR/lu_machinery/orchestration/claudex_supervisor.py"
   CLAUDEX_SUPERVISOR_SCRIPT="${CLAUDEX_SUPERVISOR_SCRIPT:-$CLAUDEX_SUPERVISOR_DEFAULT}"
   CLAUDEX_SUPERVISOR_PYTHON="${CLAUDEX_SUPERVISOR_PYTHON:-$SHARED_PYTHON}"
   if [ -z "$SESSION_ID" ] || [ ! -f "$CLAUDEX_SUPERVISOR_SCRIPT" ] || [ ! -x "$CLAUDEX_SUPERVISOR_PYTHON" ]; then
     ISSUES+=("CLAUDEX SUPERVISOR BIND FAILED: official session identity or runtime helper is unavailable.")
   else
     SUPERVISOR_BIND_CMD=(
-      "$CLAUDEX_SUPERVISOR_PYTHON" -I -c '
-import importlib.util, runpy, sys
-pkg = sys.argv.pop(1) + "/lu_machinery"
-if importlib.util.find_spec("lu_machinery") is None:
-    spec = importlib.util.spec_from_file_location("lu_machinery", pkg + "/__init__.py", submodule_search_locations=[pkg])
-    sys.modules["lu_machinery"] = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(sys.modules["lu_machinery"])
-runpy.run_module("lu_machinery.orchestration.claudex_supervisor", run_name="__main__", alter_sys=True)
-'
-      "$PROJECT_DIR" bind-session
+      "$CLAUDEX_SUPERVISOR_PYTHON" -I -c "$LU_MODULE_BOOTSTRAP"
+      "$MACHINERY_DIR" lu_machinery.orchestration.claudex_supervisor bind-session
       --run-id "$LEARN_UKRAINIAN_CLAUDEX_RUN_ID"
       --launch-generation "${LEARN_UKRAINIAN_CLAUDEX_LAUNCH_GENERATION:-}"
       --session-id "$SESSION_ID"
@@ -297,9 +324,7 @@ runpy.run_module("lu_machinery.orchestration.claudex_supervisor", run_name="__ma
     )
     [ -n "$SOURCE" ] && SUPERVISOR_BIND_CMD+=(--source "$SOURCE")
     [ -n "$OBSERVED_MODEL" ] && SUPERVISOR_BIND_CMD+=(--model "$OBSERVED_MODEL")
-    # -I: the bind ignores the caller's PYTHONPATH and cwd. Without an installed
-    # package it loads only lu_machinery from the project; the project root is
-    # never on sys.path. The supervised command keeps the caller's PYTHONPATH.
+    # The supervised command keeps the caller's PYTHONPATH.
     if ! run_bounded 3 "${SUPERVISOR_BIND_CMD[@]}" >/dev/null 2>&1; then
       ISSUES+=("CLAUDEX SUPERVISOR BIND FAILED: SessionStart did not match the owned child generation.")
     fi
@@ -327,7 +352,7 @@ fi
 # a broken local binary or package shim without sending a model request. Keep
 # it bounded and advisory: a failed probe must surface the unavailable lane,
 # never prevent a SessionStart response from reaching the operator.
-LANE_PROBE_SCRIPT="$PROJECT_DIR/lu_machinery/agent_runtime/lane_probe.py"
+LANE_PROBE_SCRIPT="$MACHINERY_DIR/lu_machinery/agent_runtime/lane_probe.py"
 if [ -f "$LANE_PROBE_SCRIPT" ]; then
   # Resolve provider/lane identities through the runtime registry, preserving
   # HANDOFF_AGENT for identity, inbox, and rollover operations below (#9580).
@@ -337,8 +362,8 @@ if [ -f "$LANE_PROBE_SCRIPT" ]; then
   # JSON, and jq prints nothing for empty input (it does not use the // default),
   # which used to leave the SessionStart reason blank (#12725).
   LANE_PROBE_BOUND=3
-  LANE_PROBE_JSON=$(run_bounded "$LANE_PROBE_BOUND" env "PYTHONPATH=$PROJECT_DIR" "$BOUNDED_PYTHON" \
-    -m lu_machinery.agent_runtime.lane_probe --handoff-agent "$HANDOFF_AGENT" --cwd "$PROJECT_DIR" --timeout 2 2>/dev/null) || LANE_PROBE_RC=$?
+  LANE_PROBE_JSON=$(run_bounded "$LANE_PROBE_BOUND" "$BOUNDED_PYTHON" -I -c "$LU_MODULE_BOOTSTRAP" \
+    "$MACHINERY_DIR" lu_machinery.agent_runtime.lane_probe --handoff-agent "$HANDOFF_AGENT" --cwd "$PROJECT_DIR" --timeout 2 2>/dev/null) || LANE_PROBE_RC=$?
   if [ "$LANE_PROBE_RC" -ne 0 ]; then
     LANE_PROBE_AGENT=$(printf '%s' "$LANE_PROBE_JSON" | _hook_deadline 2 jq -r '.probes[0].agent // empty' 2>/dev/null || true)
     LANE_PROBE_AGENT="${LANE_PROBE_AGENT:-$HANDOFF_AGENT}"
@@ -367,8 +392,8 @@ unset LANE_PROBE_SCRIPT
 # a shadow comms DB and swallowed a message. Advisory only: the guard alerts
 # here and NEVER deletes (garbage root entries are forensic evidence).
 ROOT_GUARD_RC=0
-ROOT_GUARD_JSON=$(run_bounded 3 env "PYTHONPATH=$PROJECT_DIR" "$BOUNDED_PYTHON" \
-  -m lu_machinery.hygiene.root_entry_guard --repo-root "$CANONICAL_ROOT" --json 2>/dev/null) || ROOT_GUARD_RC=$?
+ROOT_GUARD_JSON=$(run_bounded 3 "$BOUNDED_PYTHON" -I -c "$LU_MODULE_BOOTSTRAP" \
+  "$MACHINERY_DIR" lu_machinery.hygiene.root_entry_guard --repo-root "$CANONICAL_ROOT" --json 2>/dev/null) || ROOT_GUARD_RC=$?
 if [ "$ROOT_GUARD_RC" -eq 0 ] && [ -n "$ROOT_GUARD_JSON" ]; then
   ROOT_GUARD_COUNT=$(printf '%s' "$ROOT_GUARD_JSON" | _hook_deadline 2 jq -r '.unexpected_count // 0' 2>/dev/null || echo 0)
   if [[ "$ROOT_GUARD_COUNT" =~ ^[0-9]+$ ]] && [ "$ROOT_GUARD_COUNT" -gt 0 ]; then
@@ -386,7 +411,7 @@ if [ "$ROOT_GUARD_RC" -eq 0 ] && [ -n "$ROOT_GUARD_JSON" ]; then
     ROOT_GUARD_NAMES=""
     ROOT_GUARD_WITHHELD="names unavailable"
     if [ -x "${BOUNDED_PYTHON:-}" ]; then
-      if ROOT_GUARD_NAMES=$(printf '%s' "$ROOT_GUARD_JSON" | _hook_deadline 2 "$BOUNDED_PYTHON" -c '
+      if ROOT_GUARD_NAMES=$(printf '%s' "$ROOT_GUARD_JSON" | _hook_deadline 2 "$BOUNDED_PYTHON" -I -c '
 import json
 import sys
 names = [str(entry.get("name", "")) for entry in json.load(sys.stdin)["unexpected"]]
@@ -502,8 +527,7 @@ fi
 # retains its documented environment fallback for non-Claude fixtures.
 CURRENT_THREAD_ID="${SESSION_ID:-${CODEX_THREAD_ID:-${CODEX_SESSION_ID:-}}}"
 ROLLOVER_PYTHON="${THREAD_ROLLOVER_PYTHON:-$SHARED_PYTHON}"  # canonical: worktrees carry no venv (F001 r5)
-ROLLOVER_SCRIPT_DEFAULT="$PROJECT_DIR/lu_machinery/orchestration/thread_handoff.py"
-ROLLOVER_SCRIPT="${THREAD_ROLLOVER_SCRIPT:-$ROLLOVER_SCRIPT_DEFAULT}"
+ROLLOVER_CMD=("$ROLLOVER_PYTHON" -I -c "$LU_MODULE_BOOTSTRAP" "$MACHINERY_DIR" lu_machinery.orchestration.thread_handoff)
 HANDOFF_CONTEXT=""
 HANDOFF_WARNINGS=""
 
@@ -514,7 +538,7 @@ HANDOFF_WARNINGS=""
 # replacement drift that appeared while Codex was starting.
 if [ "${CODEX_SESSION:-0}" = "1" ] \
   && [ -n "${CODEX_LAUNCHER_ROLLOVER_AGENT:-}${CODEX_LAUNCHER_ROLLOVER_LINEAGE_ID:-}${CODEX_LAUNCHER_ROLLOVER_ID:-}" ]; then
-  ROLLOVER_LINK_HELPER="$PROJECT_DIR/lu_machinery/lib/thread_rollover_link.sh"
+  ROLLOVER_LINK_HELPER="$MACHINERY_DIR/lu_machinery/lib/thread_rollover_link.sh"
   if [ -z "${CODEX_LAUNCHER_ROLLOVER_AGENT:-}" ] \
     || [ -z "${CODEX_LAUNCHER_ROLLOVER_LINEAGE_ID:-}" ] \
     || [ -z "${CODEX_LAUNCHER_ROLLOVER_ID:-}" ]; then
@@ -548,7 +572,7 @@ $VERIFY_OUTPUT"
         --rollover-id "$CODEX_LAUNCHER_ROLLOVER_ID"
       )
       BIND_OUTPUT=""
-      if ! BIND_OUTPUT=$(run_bounded 3 "$ROLLOVER_PYTHON" "$ROLLOVER_SCRIPT" --repo-root "$CANONICAL_ROOT" \
+      if ! BIND_OUTPUT=$(run_bounded 3 "${ROLLOVER_CMD[@]}" --repo-root "$CANONICAL_ROOT" \
         bind-replacement "${EXACT_ROLLOVER_COMMON[@]}" \
         --replacement-task-id "$CURRENT_THREAD_ID" \
         --evidence "Codex launcher SessionStart bound the exact fresh CLI task ID" 2>&1); then
@@ -557,13 +581,13 @@ Output:
 $BIND_OUTPUT"
       else
         RESUME_OUTPUT=""
-        if ! RESUME_OUTPUT=$(run_bounded 3 "$ROLLOVER_PYTHON" "$ROLLOVER_SCRIPT" --repo-root "$CANONICAL_ROOT" \
+        if ! RESUME_OUTPUT=$(run_bounded 3 "${ROLLOVER_CMD[@]}" --repo-root "$CANONICAL_ROOT" \
           resume "${EXACT_ROLLOVER_COMMON[@]}" \
           --replacement-thread-id "$CURRENT_THREAD_ID" 2>&1); then
           HANDOFF_CONTEXT="ERROR: CODEX LAUNCHER EXACT ROLLOVER RESUME FAILED — stop.
 Output:
 $RESUME_OUTPUT"
-        elif ! HANDOFF_CONTEXT=$(run_bounded 3 "$ROLLOVER_PYTHON" "$ROLLOVER_SCRIPT" --repo-root "$CANONICAL_ROOT" \
+        elif ! HANDOFF_CONTEXT=$(run_bounded 3 "${ROLLOVER_CMD[@]}" --repo-root "$CANONICAL_ROOT" \
           detect --agent "$CODEX_LAUNCHER_ROLLOVER_AGENT" \
           --current-thread-id "$CURRENT_THREAD_ID" --format session-start 2>&1); then
           HANDOFF_CONTEXT="ERROR: CODEX LAUNCHER EXACT ROLLOVER READBACK FAILED — stop.
@@ -637,7 +661,7 @@ EOF
 }
 
 # Validate SESSION_EPIC if set against fleet taxonomy selectors.
-HANDOFF_IDENTITY_DEFAULT="$PROJECT_DIR/lu_machinery/lib/handoff_identity.sh"
+HANDOFF_IDENTITY_DEFAULT="$MACHINERY_DIR/lu_machinery/lib/handoff_identity.sh"
 HANDOFF_IDENTITY_SH="${CLAUDE_HANDOFF_IDENTITY_SH:-$HANDOFF_IDENTITY_DEFAULT}"
 if [ -f "$HANDOFF_IDENTITY_SH" ]; then
   # shellcheck disable=SC1090
@@ -788,8 +812,8 @@ if [ -n "$ROLLOVER_BUNDLE_STREAM" ]; then
 fi
 
 GATE_RC=0
-GATE_JSON=$(run_bounded 9 env "PYTHONPATH=$PROJECT_DIR" "$BOUNDED_PYTHON" \
-  -m lu_machinery.hooks.session_start_gate "${GATE_ARGS[@]}" 2>/dev/null) || GATE_RC=$?
+GATE_JSON=$(run_bounded 9 "$BOUNDED_PYTHON" -I -c "$LU_MODULE_BOOTSTRAP" "$MACHINERY_DIR" \
+  lu_machinery.hooks.session_start_gate "${GATE_ARGS[@]}" 2>/dev/null) || GATE_RC=$?
 unset GATE_ARGS
 
 GATE_FIELDS=()
@@ -895,8 +919,8 @@ if [ "$GATE_RC" -eq 0 ] && [ -n "$SESSION_MARKER_AGENT" ] && [ -n "$SESSION_ID" 
   [ -n "${SESSION_EPIC:-}" ] && SESSION_MARKER_ARGS+=(--epic "$SESSION_EPIC")
   [ -n "${SESSION_TASK_ID:-${SESSION_STREAM_TASK_ID:-}}" ] \
     && SESSION_MARKER_ARGS+=(--task-id "${SESSION_TASK_ID:-${SESSION_STREAM_TASK_ID:-}}")
-  run_bounded 2 env "PYTHONPATH=$PROJECT_DIR" "$BOUNDED_PYTHON" \
-    -m lu_machinery.orchestration.session_markers "${SESSION_MARKER_ARGS[@]}" \
+  run_bounded 2 "$BOUNDED_PYTHON" -I -c "$LU_MODULE_BOOTSTRAP" "$MACHINERY_DIR" \
+    lu_machinery.orchestration.session_markers "${SESSION_MARKER_ARGS[@]}" \
     >/dev/null 2>&1 || true
   unset SESSION_MARKER_ARGS
 fi
@@ -957,7 +981,7 @@ if [ -z "$HANDOFF_CONTEXT" ] && [ "$GATE_DETECT_STATUS" = "none" ]; then
   fi
 
   if [ -z "$HANDOFF_CONTEXT" ] && [ -z "$GATE_DETECT_CONTEXT" ]; then
-    if ! HANDOFF_CONTEXT=$(run_bounded 3 "$ROLLOVER_PYTHON" "$ROLLOVER_SCRIPT" \
+    if ! HANDOFF_CONTEXT=$(run_bounded 3 "${ROLLOVER_CMD[@]}" \
       --repo-root "$CANONICAL_ROOT" detect --agent "$HANDOFF_AGENT" \
       --current-thread-id "$CURRENT_THREAD_ID" "${TASK_FAMILY_ARGS[@]}" \
       "${ROLLOVER_STREAM_ARGS[@]}" --format session-start 2>&1); then
@@ -1170,7 +1194,7 @@ _emit_session_start_json() {
     echo "WARNING: jq failed emitting SessionStart JSON; trying project interpreter fallback." >&2
   fi
   if [ -x "${BOUNDED_PYTHON:-}" ]; then
-    printf '%s' "$msg" | _hook_deadline 2 "$BOUNDED_PYTHON" -c \
+    printf '%s' "$msg" | _hook_deadline 2 "$BOUNDED_PYTHON" -I -c \
       'import json,sys; print(json.dumps({"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":sys.stdin.read()}}))'
     return $?
   fi
