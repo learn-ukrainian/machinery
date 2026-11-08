@@ -228,7 +228,7 @@ scope under the review budget and the Step 6 breakers.
 class, with one reproducer and every sibling spelling found in this round, not
 one spelling per round. A P0–P2 finding cites `sources` that show its trigger is
 reachable under the input contract
-([severity](../review-loop/references/policy.md#severity)); a trigger absent from
+([findings](../review-loop/references/policy.md#3-findings)); a trigger absent from
 the frozen input of a one-shot run is P3. Later rounds apply the review budget. Reviewers keep their own
 independent adversarial cases; the author's matrix narrows nothing.
 
@@ -264,12 +264,10 @@ Disposition guide, subject to this round's scope under the review budget:
   demonstrated P0–P2 regression against main. A reviewer who cannot establish
   reachability says so, and the author answers with a reproduction or a
   code-path proof.
-- **`follow_up`** — real but not blocking: pre-existing defects off the
-  change's paths, wording, P3 findings, and confirmed P2 findings that are not
-  regressions, which are fixed in the PR when cheap and safe or tracked on an
-  open issue before enqueue
-  ([severity](../review-loop/references/policy.md#severity), item 3); track it
-  with an owner.
+- **`follow_up`** — real but not blocking: a pre-existing defect the change
+  does not expose or worsen, which becomes an issue
+  ([findings](../review-loop/references/policy.md#3-findings)); track it with an
+  owner. Style, naming, cleanup and "consider" items are not findings.
 - **`stop_and_escalate`** — fixing it would itself blow a breaker (Step 6):
   it changes the public/task contract, crosses an owner boundary, needs a
   canonical design decision, or the fix/review loop already failed to
@@ -281,7 +279,7 @@ only an `in_scope_blocker` (or an open `stop_and_escalate`) withholds approval.
 The author may answer a P0–P2 finding with `not_applicable` and its proof
 (command and output, or code path) in the ledger; the priority stays as the
 reviewer set it, and the reviewer confirms or contests the claim in the delta
-round ([severity](../review-loop/references/policy.md#severity)).
+round ([findings](../review-loop/references/policy.md#3-findings)).
 Every blocker states a reproducible failure, its impact and the required
 corrected behaviour; a code-level fix is a suggestion, not the requirement. A
 delta review (round 2 onwards) attests the new exact head and checks only the fix

@@ -7,7 +7,9 @@ and after every merge. The ordered steps are the `full-send` and `full-stop` ski
 ## §6. Cross-family review gate (load-bearing — discussion ≠ review)
 
 A review of record is **independent and cross-family** (outside the author's model
-family; never self-review, never same-family). The CF of record must be
+family; never self-review, never same-family), except at the
+[review policy](../../review-loop/references/policy.md#2-risk-tier-is-set-by-the-change)'s
+Low tier, where any qualified non-author reviewer suffices. The CF of record must be
 **exact-head**: attested `resolved_model`, `VERDICT: APPROVE` (or equivalent),
 and the attested SHA equals the current PR head. Discussion on the thread is not CF.
 If the head moves after APPROVE, the CF is stale — re-run exact-head CF before any
@@ -36,7 +38,7 @@ through the author and obtain fresh exact-head review after any content change.
 
 **Reviewer family is live data.** Resolve through `closeout_cli resolve-reviewer`
 using the live model catalog and health (§6 below). Do **not** hardcode Claude
-Sonnet (or any one model). The writer's family is never eligible.
+Sonnet (or any one model). Above Low tier the writer's family is never eligible.
 
 **Cursor Cloud-authored PRs:** CF is another Cloud seat on a **different family**,
 chosen from the "Code review" row of `model-assignment.md`
@@ -156,7 +158,7 @@ Review briefs must ask reviewers to cite files with repository-relative paths, i
 
 ### Review stopping rule
 
-The review budget, delta scope, ledger and severity rules live only in the
+Review tiers, findings, rounds and the ledger live only in the
 [`review-loop` policy](../../review-loop/references/policy.md); every reviewer and driver
 follows it.
 
@@ -181,10 +183,10 @@ read-only dispatch (#8703, above).
    with their CI run ids. Name classes; never a "try to break it" list of individual spellings.
 4. **Dispositions** (a `## Dispositions` heading; `local-code-review` checklist Step 5):
    - `in_scope_blocker` — a P0–P2 finding whose trigger is reachable under the input
-     contract ([severity](../../review-loop/references/policy.md#severity)), or a demonstrated
+     contract ([findings](../../review-loop/references/policy.md#3-findings)), or a demonstrated
      P0–P2 regression against main;
-   - `follow_up` — pre-existing defects off the change's paths, wording, P3, and confirmed P2
-     findings handled under the policy's item 3; tracked with an owner;
+   - `follow_up` — a pre-existing defect the change does not expose or worsen, filed as an
+     issue with an owner;
    - `stop_and_escalate` — material contract ambiguity, or a fix that would trip a breaker.
 5. **Reviewer duties** — one class-level finding per input class, with a concrete example and every
    sibling found within this round's scope. Every P0–P2 finding cites `sources` that show its

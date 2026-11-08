@@ -160,49 +160,49 @@ def is_ukrainian_content_change(inputs: ResolverInputs) -> bool:
 # --- family resolution -------------------------------------------------------
 
 
-from learn_ukrainian_v4_runtime.identity import (
+from lu_machinery.identity import (
     _VALID_CONCRETE_FAMILIES as _VALID_CONCRETE_FAMILIES,
 )
-from learn_ukrainian_v4_runtime.identity import (
+from lu_machinery.identity import (
     AMBIGUOUS_AUTHOR_FAMILY as AMBIGUOUS_AUTHOR_FAMILY,
 )
-from learn_ukrainian_v4_runtime.identity import (
+from lu_machinery.identity import (
     AMBIGUOUS_HARNESS_SEATS as AMBIGUOUS_HARNESS_SEATS,
 )
-from learn_ukrainian_v4_runtime.identity import (
+from lu_machinery.identity import (
     CONFLICTING_AUTHOR_FAMILY as CONFLICTING_AUTHOR_FAMILY,
 )
-from learn_ukrainian_v4_runtime.identity import (
+from lu_machinery.identity import (
     CURSOR_AUTO_HARNESS_SEATS as CURSOR_AUTO_HARNESS_SEATS,
 )
-from learn_ukrainian_v4_runtime.identity import (
+from lu_machinery.identity import (
     CURSOR_AUTO_MODEL_TOKENS as CURSOR_AUTO_MODEL_TOKENS,
 )
-from learn_ukrainian_v4_runtime.identity import (
+from lu_machinery.identity import (
     CURSOR_AUTO_UNION_FAMILIES as CURSOR_AUTO_UNION_FAMILIES,
 )
-from learn_ukrainian_v4_runtime.identity import (
+from lu_machinery.identity import (
     CURSOR_AUTO_UNION_FAMILY as CURSOR_AUTO_UNION_FAMILY,
 )
-from learn_ukrainian_v4_runtime.identity import (
+from lu_machinery.identity import (
     UNATTESTED_AUTHOR_FAMILY as UNATTESTED_AUTHOR_FAMILY,
 )
-from learn_ukrainian_v4_runtime.identity import (
+from lu_machinery.identity import (
     UNATTESTED_HARNESS_SEATS as UNATTESTED_HARNESS_SEATS,
 )
-from learn_ukrainian_v4_runtime.identity import (
+from lu_machinery.identity import (
     UNATTESTED_MODEL_TOKENS as UNATTESTED_MODEL_TOKENS,
 )
-from learn_ukrainian_v4_runtime.identity import (
+from lu_machinery.identity import (
     UNKNOWN_AUTHOR_FAMILY as UNKNOWN_AUTHOR_FAMILY,
 )
-from learn_ukrainian_v4_runtime.identity import (
+from lu_machinery.identity import (
     UNRESOLVED_AUTHOR_FAMILIES as UNRESOLVED_AUTHOR_FAMILIES,
 )
-from learn_ukrainian_v4_runtime.identity import (
+from lu_machinery.identity import (
     resolve_author_family as resolve_author_family,
 )
-from learn_ukrainian_v4_runtime.identity import (
+from lu_machinery.identity import (
     resolve_family as resolve_family,
 )
 

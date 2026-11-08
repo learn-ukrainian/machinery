@@ -125,16 +125,7 @@ Every `dispatch.py dispatch` `--prompt-file` (and equivalent inline prompt) must
 Before presenting to the operator or dispatching a substantive phase or epic kickoff,
 freeze the exact prompt and record its SHA-256, user-visible outcome, real-world or
 source denominator, non-goals, role map, independent held-out evaluation, stop/residual
-policy, and completion vocabulary. A high-stakes domain prompt receives a domain-fit review plus a distinct
-adversarial scope/circularity critique; smaller consequential work receives at least one
-fast critic. A genuinely trivial bounded prompt is explicitly exempt. The prompt author
-counts as neither reviewer. Select reviewer
-roles from live `model-assignment.md` routing, require explicit checklist verdicts and
-findings, and reconcile findings before dispatch. Re-review when outcome, scope,
-denominator, role map, acceptance criteria, or independent evaluation changes materially.
-
-Prompt review is not implementation review and never satisfies the independent
-cross-family PR gate. Discovery, seeds, prototypes, schemas, transport checks, and
+policy, and completion vocabulary. Discovery, seeds, prototypes, schemas, transport checks, and
 self-authored canaries can establish research or engine readiness, never product validity.
 A completion report names the verified user-visible outcome, denominator, held-out proof,
 and residual gap. For normative language evidence, establish the source's pedagogical or
@@ -150,14 +141,13 @@ remain available in `agents_extensions/shared/rules/_load-via-api.md`.
 After a write that needs to be immediately visible (just-committed
 change, just-filed issue), pass `?fresh=true` to `/api/orient`.
 
-**Canary mint (production v2):** use this only inside a prepared rollover packet.
-The reserved snapshot has exactly 3 goals, 3 decision/rationale records, 2 negative
-constraint/prohibition records, and 2 next actions from durable allowed `source_ref`
-records. Never relabel Git, GitHub, or Monitor metadata as semantic anchors, fabricate,
-or pad. The replacement must run the exact reserved-path commands emitted by
-`thread_handoff.py detect --agent codex --format session-start`, including
-`context_canary.py mint --snapshot`, `questions`, and strict `score --verdict` before
-the separate challenge proof and `confirm-started` can unlock cleanup.
+**Thread rollover:** read the exact durable handoff returned by the detector,
+then bind/resume and confirm the exact replacement with `thread_handoff.py`.
+Confirmation checks the replacement binding and lease without a semantic
+snapshot, self-answered quiz, or canary proof. Preserve the lineage/rollover IDs,
+generation fence, bundle upload and native identity/title requirements.
+Predecessor archival still requires authoritative idle and unpinned app evidence.
+The commands are in `thread-rollover/references/resume.md`.
 
 ### Review dispatch admission
 
@@ -185,7 +175,7 @@ with `review-loop` for review rounds and the budget.
 
 0. **CF review on the branch (binding).** Push the implementation branch and open the PR;
    `.github/workflows/ci.yml` runs on `opened` / `synchronize` with no draft guard, so every
-   pushed fix starts CI on the new head. Run independent exact-head cross-family CF on that
+   pushed fix starts CI on the new head. Run independent exact-head review at the PR's tier on that
    branch (`ask-<lane> --review --branch <name>` / detached dispatch; drive-epic §6) once the
    `CI Gate` is green on the head, as `full-send` orders. Delegate
    admission pins the remote-tracking target; fetch refuses movement. Compare
@@ -193,7 +183,9 @@ with `review-loop` for review rounds and the budget.
    Continue client expiry on the same task/nonce (§6), never repeat the launch.
    On `REQUEST_CHANGES`: fix on the branch → green CI on the new head → re-CF that SHA.
    An open PR or its green CI is not approval.
-1. Independent cross-family exact-head review **APPROVE** on the tip you intend to land.
+1. Independent exact-head review **APPROVE** on the tip you intend to land, at the tier the
+   [review policy](../skills/review-loop/references/policy.md#2-risk-tier-is-set-by-the-change)
+   sets: cross-family, except any qualified non-author reviewer at Low tier.
 2. Open the PR if it is not already open, then run `"$PY" "$PRIMARY_REPO/lu_machinery/review/record_cf_verdict.py"` to bind the completed
    review, reviewed head, and author qualification in a **PR comment bound to the head SHA**,
    with reviewer model/family/harness provenance. Resolve `PRIMARY_REPO` and `PY` with the
@@ -229,8 +221,8 @@ unchanged-head CI recovery allowance and evidence requirements still bind.
 excluding tests, test fixtures, generated files and whole-file deletions, is a
 review-size signal, not a rule: above it, split the PR, or record one line in the
 PR body (`Size justification: <reason>`) stating why the change is one outcome.
-The review budget and its frozen round-1 scope are in the
-[`review-loop` policy](../skills/review-loop/references/policy.md#budget).
+Review tiers and rounds are in the
+[`review-loop` policy](../skills/review-loop/references/policy.md).
 
 **Revert first (trial until 2026-11-05).** When a merged change breaks main
 (red CI on main), bypasses a gate, or breaks a deployed service, the owning
@@ -346,7 +338,7 @@ replaces one. The non-zero and residual stop conditions above are unchanged.
 2026-07-07 one-hour out-of-lane backstop for TRACK sessions).** Multiple streams run in parallel, so a
 session's start/end sweep is **OWN-STREAM ONLY**: it may review or review-route
 **only** PRs in its own stream. Only the accountable lead, or the worker whose brief owns
-the PR, may enqueue them, after current-head cross-family approval and green CI. Nobody arms
+the PR, may enqueue them, after current-head approval at its review tier and green CI. Nobody arms
 auto-merge.
 
 **Stream membership is AUTHORITATIVE + FAIL-CLOSED.** A PR is *in-stream* iff its linked issue resolves
@@ -365,7 +357,7 @@ holder: Codex-main; a ROLE, not a hardcoded session/model — the roster owns re
 integration + final merge judgment). The scheduled GitHub Actions integration sweep reports PR
 state only; it never arms, enqueues, or dequeues. The local merge-queue keeper (#8564) is the
 automatic landing actor under the operator's 2026-09-23 decision. The accountable lead enqueues
-in-stream PRs once current-head cross-family approval and green CI are verified.
+in-stream PRs once current-head approval at its review tier and green CI are verified.
 
 **Merge-cadence soft check (#5737 — operator/orchestrator expectation, not a hard gate).**
 No lane should routinely land **>5 PRs/day against one feature area**. Prefer one shippable
@@ -385,7 +377,7 @@ handoff file just to survive compaction.
 
 SessionStart automatically runs the read-only engine detector. If it reports a
 packet, follow its exact ordered commands; it never chooses a lease by filesystem
-order and never auto-runs resume, proof, confirmation, or cleanup. A no-packet
+order and never auto-runs resume, confirmation, or cleanup. A no-packet
 cold start orients from durable project state with tool-backed reads — the legacy
 cold-start orientation-health canary mint is retired (operator 2026-08-31); canary
 probes exist only inside the `thread-rollover` flow.
@@ -591,10 +583,10 @@ Every task follows this workflow. No exceptions for non-trivial changes.
    User-visible ACs require typed `behavior_proof` evidence referencing the
    canonical #5302 receipt path/digest, target-input fingerprint, and exact
    reviewed SHA; never copy a `behavior_proof_status` string.
-6. **Pass the independent review and CI gates** — cross-family review within the
-   [`review-loop` budget](../skills/review-loop/references/policy.md): qualified toolful
-   reviewer outside the author model family. A PR may be opened
-   before approval so CI exists; merge still needs exact-head cross-family APPROVE
+6. **Pass the independent review and CI gates** — review at the
+   [`review-loop` policy](../skills/review-loop/references/policy.md) tier: qualified toolful
+   reviewer outside the author model family (any qualified non-author reviewer at Low tier). A PR may be opened
+   before approval so CI exists; merge still needs the tier's exact-head APPROVE
    and same-head green CI. `record_cf_verdict.py` binds verdict + findings to
    the PR head (drive-epic §6–§7). The
    shielded formal path remains retired, including for high-risk code. Non-blocking

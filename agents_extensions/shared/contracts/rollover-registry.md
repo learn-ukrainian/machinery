@@ -28,9 +28,11 @@ Successful boundaries are ordered:
 
 ```text
 PREPARED → AWAITING_NATIVE_CREATE → REPLACEMENT_CREATED → RESUMED
-→ STRICT_RECALL_PASSED → CANARY_PASSED → CONFIRMED
-→ PREDECESSOR_ARCHIVED → HEARTBEAT_RETIRED
+→ CONFIRMED → PREDECESSOR_ARCHIVED → HEARTBEAT_RETIRED
 ```
+
+`STRICT_RECALL_PASSED` and `CANARY_PASSED` remain readable only in historical
+records. They rank as `RESUMED` and are refused as new transitions.
 
 `BLOCKED` preserves the last successful boundary. `SUPERSEDED` and
 `ABANDONED_WITH_PROOF` are terminal dispositions. A mutation may not skip a

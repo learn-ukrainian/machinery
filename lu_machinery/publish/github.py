@@ -525,6 +525,7 @@ def _refuse_incomplete_seats(dest, number, head, runner, cwd, environment):
         lookup_verdict,
         pr_file_paths,
     )
+    from lu_machinery.review.tiers import classify_pr_files
 
     # The setting is explicit per repository; an absent, ambiguous or non-boolean one is unverifiable.
     rows = [
@@ -551,9 +552,13 @@ def _refuse_incomplete_seats(dest, number, head, runner, cwd, environment):
             raise ValueError
         if not isinstance(login, str) or not re.fullmatch(r"\S+", login):
             raise ValueError
-        paths = pr_file_paths([item for page in files for item in page])
+        file_rows = [item for page in files for item in page]
+        paths = pr_file_paths(file_rows)
+        low_tier = classify_pr_files(file_rows) == "low"
         content = changes_learner_content(paths)
-        state = lookup_verdict([item for page in pages for item in page], head, login, learner_content=content).state
+        state = lookup_verdict(
+            [item for page in pages for item in page], head, login, learner_content=content, low_tier=low_tier,
+        ).state
     except github_client.GitHubRateLimited:
         raise
     except Exception:
@@ -563,8 +568,9 @@ def _refuse_incomplete_seats(dest, number, head, runner, cwd, environment):
     if state not in {"APPROVED", "needs-CF"}:
         raise gate.PublishBlocked(f"OPSEC: merge refused: recorded review verdict is {state} at this head.")
     if state == "needs-CF" and recorder:
+        requirement = "non-author" if low_tier else "cross-family"
         raise gate.PublishBlocked(
-            f"OPSEC: merge refused: no cross-family APPROVE from {_RECORDER} is recorded at {head}."
+            f"OPSEC: merge refused: no {requirement} APPROVE from {_RECORDER} is recorded at {head}."
         )
     from lu_machinery.review import contract_canary
 

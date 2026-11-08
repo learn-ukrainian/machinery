@@ -43,10 +43,8 @@ if __name__ == "__main__":
         raise SystemExit(2) from None
 
 import yaml
-from learn_ukrainian_v4_runtime.agent_identity import normalize_seat
-from learn_ukrainian_v4_runtime.identity import _VALID_CONCRETE_FAMILIES
-from learn_ukrainian_v4_runtime.model_families import canonical_cursor_model, is_cursor_auto_selector
 
+from lu_machinery.agent_identity import normalize_seat
 from lu_machinery.common.jsonl import jsonl_lines
 from lu_machinery.common.repo_root import machinery_path
 from lu_machinery.fleet.claude_account_lane import ClaudeAccount, account_from_record
@@ -56,6 +54,8 @@ from lu_machinery.fleet_comms.review_publication import (
     ReviewPublicationError,
 )
 from lu_machinery.fleet_comms.review_publisher import post_commit_status
+from lu_machinery.identity import _VALID_CONCRETE_FAMILIES
+from lu_machinery.model_families import canonical_cursor_model, is_cursor_auto_selector
 from lu_machinery.opsec.prepublish import (
     PublishBlocked,
     absolute_path_spans,
@@ -122,6 +122,7 @@ from lu_machinery.review.role_resolution import resolve_routing_reference
 from lu_machinery.review.security_paths import git_changed_paths, is_security_sensitive_change
 from lu_machinery.review.subject_seat import prepare_subject_exclusion
 from lu_machinery.review.target_resolution import TargetResolutionError, resolve_review_repository
+from lu_machinery.review.tiers import classify_pr_files
 from lu_machinery.review.ukrainian_seats import (
     UKRAINIAN_SEAT_ROUTES,
     attested_author_families,
@@ -1602,7 +1603,8 @@ def _task_flag_values(task: dict[str, Any], key: str) -> tuple[str, ...]:
 
 
 def _require_qualified_reviewer(
-    facts: BranchReviewFacts, *, task: dict[str, Any], model: str, family: str, review_mode: str = "cross_family"
+    facts: BranchReviewFacts, *, task: dict[str, Any], model: str, family: str, review_mode: str = "cross_family",
+    low_tier: bool = False,
 ) -> None:
     """Evaluate the actual reviewer against the resolver's rules on the branch facts (AC-01).
 
@@ -1639,6 +1641,10 @@ def _require_qualified_reviewer(
         claude_account=account_from_record(task, agent=agent),
         structural=True,
     )
+    if low_tier:
+        # Only family independence is waived. The original facts still prove
+        # non-authorship; model, risk, subject and harness qualification bind.
+        inputs = replace(inputs, author_families=frozenset(), author_commits=(), author_model="", author_family=None)
     if review_mode == "cross_family" and mixed_family_review(inputs):
         facts.reviewer_scope(family)
     results = [evaluate_candidate(candidate, inputs, review_mode=review_mode) for candidate in candidates]
@@ -2916,9 +2922,21 @@ def record(
             raise RecordError("unknown history conflicts with completed review task")
     if not facts.existing_families:
         raise RecordError("PR has no attributed author commits")
-    mixed_pair = review_mode == "cross_family" and not ukrainian and facts.mixed_family
+    low_tier = False
+    if not ukrainian and review_mode == "cross_family":
+        try:
+            low_tier = classify_pr_files(GitHubAdapter(review_root).pr_file_rows(repository, number)) == "low"
+        except SweepError:
+            # Unavailable files never grant the Low-tier exception.
+            low_tier = False
+    mixed_pair = review_mode == "cross_family" and not ukrainian and not low_tier and facts.mixed_family
     scope = facts.reviewer_scope(family) if mixed_pair else facts
-    if review_mode == "red_team" or mixed_pair:
+    if review_mode == "red_team" or mixed_pair or low_tier:
+        if low_tier and any(
+            commit.family and commit.source != VERIFIED_APP_BOT and not (commit.task_id or commit.record_task_id)
+            for commit in facts.commits
+        ):
+            raise RecordError("AUTHOR_IDENTITY_UNRESOLVED: Low-tier review needs attributed author task identities")
         agent = str(task.get("agent") or "")
         reviewer_ids = {
             key
@@ -2940,9 +2958,9 @@ def record(
             raise RecordError(refusal)
     # Every mode, red team included (F9): an unresolved author has no model a seat rule can compare.
     require_resolved_branch_authors(facts)
-    if review_mode != "red_team" and family in scope.excluded_families:
+    if review_mode != "red_team" and not low_tier and family in scope.excluded_families:
         raise RecordError("reviewer family equals an author family")
-    _require_qualified_reviewer(facts, task=task, model=model, family=family, review_mode=review_mode)
+    _require_qualified_reviewer(facts, task=task, model=model, family=family, review_mode=review_mode, low_tier=low_tier)
     adapter = GitHubAdapter(Path.cwd())
     login = adapter.identity()
     reply = repository_relative_reply(reply, task=task, primary_root=review_root)
@@ -3126,7 +3144,7 @@ def record(
             # approval alone: another Ukrainian seat may still be missing (#12020), and a
             # declared item denominator may still be short (#12257). A voided chunk does not
             # count, so its own verdict does not decide the status.
-            current = lookup_verdict(comments, sha, login)
+            current = lookup_verdict(comments, sha, login, low_tier=low_tier)
             state = "success" if current.state == "APPROVED" else "failure" if current.state in REJECTED else "pending"
             if current.state == NEEDS_SEAT and mixed_pair:
                 pending_reason = "; awaiting Anthropic/OpenAI review pair"
