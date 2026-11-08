@@ -18,7 +18,7 @@ from typing import Any
 
 from lu_machinery.common.repo_root import project_interpreter
 
-from .kimi_admission import format_refusal
+from .retired_seat_admission import format_refusal
 
 TRAIL_MCP_SERVER_NAME = "trail"
 # The server runs by module name under this package's import name (the unresolved

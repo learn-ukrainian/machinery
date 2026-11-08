@@ -36,7 +36,7 @@ def admit_compat_target(command_target: str, *, model: str | None = None, data: 
     model/recipient keys, raises ``KimiAdmissionRefused`` (a ``ValueError``): Kimi seats take web, UI and backend
     coding only, never ACP asks, consults, discussions or reviews. An unknown name raises ``ValueError``.
     """
-    from lu_machinery.agent_runtime.kimi_admission import ACP_MODE
+    from lu_machinery.agent_runtime.retired_seat_admission import ACP_MODE
     from lu_machinery.agent_runtime.target_admission import resolve_and_admit
 
     (target,) = resolve_and_admit((command_target,), mode=ACP_MODE, model=model, attachments=(data,), compat=True)
@@ -50,7 +50,7 @@ def require_compat_target(command_target: str, *, model: str | None = None, data
 
 def refuse_kimi_compat(command_target: str, *, model: str | None = None, data: object = None) -> None:
     """The Kimi gate for one ACP ask: the command target, its participant, adapter agent, pin, override and attachment."""
-    from lu_machinery.agent_runtime.kimi_admission import ACP_MODE
+    from lu_machinery.agent_runtime.retired_seat_admission import ACP_MODE
     from lu_machinery.agent_runtime.target_admission import resolve_and_admit
 
     resolve_and_admit((command_target,), mode=ACP_MODE, model=model, attachments=(data,))
@@ -72,7 +72,7 @@ def refuse_kimi_recipients(
     alone, before any broker access. Entry points that deliver take their
     targets from ``resolve_and_admit`` instead.
     """
-    from lu_machinery.agent_runtime.kimi_admission import BRIDGE_MODE
+    from lu_machinery.agent_runtime.retired_seat_admission import BRIDGE_MODE
     from lu_machinery.agent_runtime.target_admission import resolve_and_admit
 
     explicit_models = [model for model in models if model]
@@ -283,7 +283,7 @@ def _resolve_quota_substitution(seat: str, reason: str, *, already_substituted: 
             file=sys.stderr,
         )
         return None
-    from lu_machinery.agent_runtime.kimi_admission import ACP_MODE
+    from lu_machinery.agent_runtime.retired_seat_admission import ACP_MODE
     from lu_machinery.agent_runtime.target_admission import SubstituteUnavailable, resolve_and_admit
 
     try:

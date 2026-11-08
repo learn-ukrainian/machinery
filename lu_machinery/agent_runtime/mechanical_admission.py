@@ -8,7 +8,7 @@ from collections.abc import Callable, Iterable, Mapping, Sequence
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-from lu_machinery.agent_runtime.kimi_admission import CYRILLIC, ContentTree, content_problem, worktree_trees
+from lu_machinery.agent_runtime.retired_seat_admission import CYRILLIC, ContentTree, content_problem, worktree_trees
 from lu_machinery.review.model_catalog import (
     MECHANICAL_FAMILIES,
     bounded_execution_policy,

@@ -325,8 +325,8 @@ def validate_driver_brief(
     args: Mapping[str, Any], *, repo_root: Path, brief_sha256: str | None, model_id: str | None,
 ) -> list[str]:
     """Validate the narrow driver-supplied recon, classification or implementation contract, without authenticating its caller."""
-    from lu_machinery.agent_runtime.kimi_admission import worktree_trees
     from lu_machinery.agent_runtime.mechanical_admission import MechanicalAdmissionRefused, refuse_mechanical_task
+    from lu_machinery.agent_runtime.retired_seat_admission import worktree_trees
     from lu_machinery.lib import rules_core
 
     def refuse(detail: str) -> None:

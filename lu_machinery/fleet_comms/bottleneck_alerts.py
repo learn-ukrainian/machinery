@@ -259,7 +259,7 @@ _PUBLIC_CAUSES = frozenset(
         "finalize_failed", "finalize_remote_unknown", "finalize_skipped_paths", "finalize_unpushed",
         "forward_configuration_failed", "github_auth_required", "github_secondary_rate_limited",
         "interrupted before the completion gates ran", "interrupted_during_finalize", "invalid finished_at",
-        "invalid_delivery_declaration", "junk_only_worktree_changes", "kimi_admission_refused",
+        "invalid_delivery_declaration", "junk_only_worktree_changes", "retired_seat_admission_refused",
         "kimi_content_refused", "kimi_worktree_mismatch", "leftovers_scan_unknown", "mechanical_admission_refused",
         "merge_base_unresolved", "move detection failed; nothing committed", "muse_worker_task_binding_refused",
         "no finished_at", "no provable unpushed work", "no recorded worktree", "no_changes_under_owned_paths",

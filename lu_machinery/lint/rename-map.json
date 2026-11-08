@@ -464,7 +464,7 @@
  "scripts/agent_runtime/grok_reviewer_permissions.py": "machinery",
  "scripts/agent_runtime/json_parse.py": "machinery",
  "scripts/agent_runtime/jsonl.py": "machinery",
- "scripts/agent_runtime/kimi_admission.py": "machinery",
+ "scripts/agent_runtime/retired_seat_admission.py": "machinery",
  "scripts/agent_runtime/kimi_boundary.py": "machinery",
  "scripts/agent_runtime/kimi_hooks/pre-commit": "machinery",
  "scripts/agent_runtime/kimi_hooks/pre-push": "machinery",

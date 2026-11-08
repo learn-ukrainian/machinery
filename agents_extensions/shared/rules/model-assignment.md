@@ -442,7 +442,7 @@ or count as a formal review.
   CLI was the only bus (never OpenRouter). The old split was `kimi-code/k3-256k` for everyday
   coding and `kimi-code/k3` for complex coding. The historical limit was web, UI and backend
   coding only — no Ukrainian-language content, no reviews, consults, design or rules.
-  `refuse_kimi_if_disallowed` (`lu_machinery/agent_runtime/kimi_admission.py`)
+  `refuse_kimi_if_disallowed` (`lu_machinery/agent_runtime/retired_seat_admission.py`)
   rejects every recognized retired seat or model before execution or broker writes.
 * **Retired, not subscribed (operator 2026-10-23):** GLM, Pool/Laguna, Composer,
   Gemini 3.1 Pro, Gemini 4 Argon and Qwen (Gemma is live for hramatka through OpenCode,

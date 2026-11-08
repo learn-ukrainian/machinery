@@ -17,7 +17,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-from lu_machinery.agent_runtime.kimi_admission import ACP_MODE
+from lu_machinery.agent_runtime.retired_seat_admission import ACP_MODE
 from lu_machinery.agent_runtime.target_admission import resolve_and_admit, stored_kimi_request
 from lu_machinery.control_plane.storage import (
     Authority,
