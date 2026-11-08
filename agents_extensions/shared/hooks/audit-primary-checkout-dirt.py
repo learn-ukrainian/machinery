@@ -26,16 +26,27 @@ Threat model and cost: ``scripts/guardrails/primary_dirt_audit.py``.
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import os
 import shlex
 import sys
 from pathlib import Path
 
-# The shipped hooks and package are siblings in the release. Bootstrap code
-# imports for plain shebang launches; this path never selects product or state.
-sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+# The shipped hooks and package are siblings in a machinery tree (a checkout or
+# the wheel's site-packages). There only lu_machinery is loaded from the tree, by
+# spec, so the tree root never goes on sys.path and no other name can resolve
+# there (machinery #100). A deployed copy imports the release installed for its
+# interpreter. This path never selects product or state.
+_HOOK_DIR = Path(__file__).resolve().parent
+_TREE = _HOOK_DIR.parents[2]
+if _HOOK_DIR.as_posix().endswith("/agents_extensions/shared/hooks") and (_TREE / "lu_machinery" / "__init__.py").is_file():
+    _spec = importlib.util.spec_from_file_location(
+        "lu_machinery", _TREE / "lu_machinery" / "__init__.py", submodule_search_locations=[str(_TREE / "lu_machinery")]
+    )
+    sys.modules["lu_machinery"] = importlib.util.module_from_spec(_spec)
+    _spec.loader.exec_module(sys.modules["lu_machinery"])
+sys.path.insert(0, str(_HOOK_DIR))
 from tool_names import is_shell_tool
 
 # Don't write __pycache__ next to deployed hooks (#9108).

@@ -73,6 +73,12 @@ else
 fi
 unset _lc_machinery_package _lc_machinery_flags
 
+# Every Python child that runs machinery code starts through the shared module
+# bootstrap: -I, and only this tree's package loaded by spec, so neither the cwd,
+# PYTHONPATH nor any checkout root is on its import path (#100 R68).
+# shellcheck source=scripts/lib/project_interpreter.sh
+source "$(dirname -- "${BASH_SOURCE[0]}")/project_interpreter.sh" || return 1
+
 launcher_usage() {
   if [ "$LC_PROVIDER" = muse ]; then
     # shellcheck source=scripts/launchers/muse.sh
@@ -255,13 +261,15 @@ launcher_drop_unneeded_secrets() {
   if [ -z "${LC_DURABLE_HELPER_ROOT:-}" ] || [ ! -x "$py" ]; then
     return 0
   fi
-  # Pin the sanitizer to this machinery tree; neither cwd nor ambient PYTHONPATH selects it.
-  if ! PYTHONPATH="${LC_MACHINERY_DIR%/*}" "$py" -P -m "${LC_MACHINERY_PACKAGE}.agent_runtime.env_sanitize" \
+  # The sanitizer is this machinery tree's, through the module bootstrap; neither the cwd
+  # nor an ambient PYTHONPATH selects it, and no import pin reaches the provider child.
+  if ! project_python_run "$py" -m "${LC_MACHINERY_PACKAGE}.agent_runtime.env_sanitize" \
     --provider "$LC_PROVIDER" --check-helper; then
     launcher_error "could not drop unneeded API keys"
     return 1
   fi
-  LC_CHILD_ENV_COMMAND+=("PYTHONPATH=${LC_MACHINERY_DIR%/*}" "$py" -P -m "${LC_MACHINERY_PACKAGE}.agent_runtime.env_sanitize"
+  project_python_command "$py"
+  LC_CHILD_ENV_COMMAND+=("${PROJECT_PYTHON_COMMAND[@]}" -m "${LC_MACHINERY_PACKAGE}.agent_runtime.env_sanitize"
     --provider "$LC_PROVIDER" --harness "${LC_HARNESS:-}")
   if [ "${LC_MODE:-}" = driver ]; then
     LC_CHILD_ENV_COMMAND+=(--driver-launcher)
@@ -348,7 +356,7 @@ launcher_clear_foreign_route_state() {
 launcher_export_git_identity() {
   local py identity name email
   py="$(launcher_project_python)" || return 3
-  identity="$("$py" "$LC_ROOT/lu_machinery/lib/git_identity.py" "$LC_PROVIDER" "${LC_MODEL:-}")" || return 3
+  identity="$(project_python_run "$py" -m "$LC_MACHINERY_PACKAGE.lib.git_identity" "$LC_PROVIDER" "${LC_MODEL:-}")" || return 3
   IFS=$'\t' read -r name email <<< "$identity"
   export GIT_AUTHOR_NAME="$name" GIT_COMMITTER_NAME="$name"
   export GIT_AUTHOR_EMAIL="$email" GIT_COMMITTER_EMAIL="$email"
@@ -576,7 +584,7 @@ launcher_normalize_model() {
     claude:opus-5) LC_MODEL='claude-opus-5' ;;
   esac
   if [ -n "$LC_MODEL" ]; then
-    "$LC_DURABLE_HELPER_ROOT/.venv/bin/python" "$LC_MACHINERY_DIR/review/model_catalog.py" \
+    project_python_run "$LC_DURABLE_HELPER_ROOT/.venv/bin/python" -m "$LC_MACHINERY_PACKAGE.review.model_catalog" \
       --check-retired-model "$LC_MODEL" || exit 2
   fi
 }
@@ -628,8 +636,6 @@ launcher_resolve_roots() {
   unset "${LC_GIT_LOCAL_ENV_VARS[@]}"
   LC_SESSION_ROOT="$LC_ROOT"
   LC_DURABLE_HELPER_ROOT=""
-  # shellcheck source=scripts/lib/project_interpreter.sh
-  source "$LC_MACHINERY_DIR/lib/project_interpreter.sh"
   if [ "${LC_PROVIDER:-}" = codex ] && [ -n "${CODEX_CANONICAL_REPO_ROOT:-}" ]; then
     LC_DURABLE_HELPER_ROOT="$(launcher_canonical_override_root "$CODEX_CANONICAL_REPO_ROOT")" || exit 1
   elif ! LC_DURABLE_HELPER_ROOT="$(project_primary_root_resolve "$LC_ROOT")"; then
@@ -861,17 +867,16 @@ launcher_validate_cursor_pin() {
     exit 4
   fi
   local normalized
-  if ! normalized="$("$LC_DURABLE_HELPER_ROOT/.venv/bin/python" -c '
+  if ! normalized="$(project_python_run "$LC_DURABLE_HELPER_ROOT/.venv/bin/python" -c '
 import importlib
 import sys
-sys.path.insert(0, sys.argv[1])
-catalog = importlib.import_module(sys.argv[3])
+catalog = importlib.import_module(sys.argv[2])
 try:
-    print(catalog.apply_cursor_model_pins(sys.argv[2]) or "")
+    print(catalog.apply_cursor_model_pins(sys.argv[1]) or "")
 except catalog.ModelCatalogError as exc:
     print(str(exc), file=sys.stderr)
     sys.exit(4)
-' "$LC_ROOT" "$LC_MODEL" "$LC_MACHINERY_PACKAGE.review.model_catalog")"; then
+' "$LC_MODEL" "$LC_MACHINERY_PACKAGE.review.model_catalog")"; then
     launcher_error "model '$LC_MODEL' is not certified for the $seat; pin $LC_CURSOR_SEAT_PIN; never Auto, Fast or a previous generation."
     exit 4
   fi
@@ -930,7 +935,7 @@ launcher_seed_driver_state() {
   fi
   local py="${LU_DRIVER_STATE_PYTHON:-$LC_ROOT/.venv/bin/python}"
   [ -x "$py" ] || return 0
-  (cd "$LC_ROOT" && "$py" -m "$LC_MACHINERY_PACKAGE.driver_state" init --epic "$LC_EPIC" >/dev/null 2>&1) || true
+  (cd "$LC_ROOT" && project_python_run "$py" -m "$LC_MACHINERY_PACKAGE.driver_state" init --epic "$LC_EPIC" >/dev/null 2>&1) || true
 }
 
 launcher_import_rollover_bundle() {
@@ -942,14 +947,15 @@ launcher_import_rollover_bundle() {
   esac
   helper_root="$LC_DURABLE_HELPER_ROOT"
   py="$helper_root/.venv/bin/python"
-  script="$helper_root/$LC_MACHINERY_PACKAGE/orchestration/thread_handoff.py"
+  # This tree's thread_handoff; the helper root supplies the interpreter and the state.
+  script="$LC_MACHINERY_DIR/orchestration/thread_handoff.py"
   if [ ! -x "$py" ] || [ ! -f "$script" ]; then
     printf 'WARNING: rollover bundle pre-lease import unavailable; continuing fail-open (helper=%s).\n' "$helper_root" >&2
     return 0
   fi
   output=""
   rc=0
-  output="$("$py" "$script" \
+  output="$(project_python_run "$py" -m "$LC_MACHINERY_PACKAGE.orchestration.thread_handoff" \
     --repo-root "$helper_root" \
     --monitor-base-url "${LU_MONITOR_LOOPBACK:-http://127.0.0.1:8765}" \
     import-bundle --from-api "$stream" --stream "$stream" 2>&1)" || rc=$?
@@ -994,7 +1000,7 @@ launcher_cursor_observer_presence() {
   local task_id
   task_id="${SESSION_TASK_ID:-${LC_EPIC:-cursor-driver}}"
   # Linked worktrees carry no venv; the validated durable helper root does.
-  "$LC_DURABLE_HELPER_ROOT/.venv/bin/python" -m "$LC_MACHINERY_PACKAGE.orchestration.observer_heartbeat" \
+  project_python_run "$LC_DURABLE_HELPER_ROOT/.venv/bin/python" -m "$LC_MACHINERY_PACKAGE.orchestration.observer_heartbeat" \
     --agent cursor \
     --task-id "$task_id" \
     --epic "$LC_EPIC" \
@@ -1097,7 +1103,7 @@ launcher_driver_renew_loop() {
       if ! kill -0 "$launcher_pid" 2>/dev/null || ! kill -0 "$child_pid" 2>/dev/null; then
         break
       fi
-      if heartbeat_error="$("$LC_DURABLE_HELPER_ROOT/.venv/bin/python" -m "$LC_MACHINERY_PACKAGE.session_supervisor" heartbeat --role driver 2>&1 >/dev/null)"; then
+      if heartbeat_error="$(project_python_run "$LC_DURABLE_HELPER_ROOT/.venv/bin/python" -m "$LC_MACHINERY_PACKAGE.session_supervisor" heartbeat --role driver 2>&1 >/dev/null)"; then
         renew_started=$SECONDS
         continue
       fi
@@ -1166,7 +1172,7 @@ launcher_close_driver_lease() {
     attempt=$((attempt + 1))
     # Linked worktrees carry no venv; the validated durable helper root does.
     # Capture stderr per attempt for classification only — it is never echoed.
-    if close_stderr="$("$LC_DURABLE_HELPER_ROOT/.venv/bin/python" \
+    if close_stderr="$(project_python_run "$LC_DURABLE_HELPER_ROOT/.venv/bin/python" \
         -m "$LC_MACHINERY_PACKAGE.session_supervisor" close --role driver 2>&1 >/dev/null)"; then
       LC_DRIVER_LEASE_CLOSED=1
       return 0
@@ -1389,7 +1395,7 @@ launcher_inject_driver_agent() {
   local py="$LC_DURABLE_HELPER_ROOT/.venv/bin/python"
   local agent_type=""
   [ -x "$py" ] || return 0
-  agent_type="$(cd "$LC_SESSION_ROOT" && "$py" -m "$LC_MACHINERY_PACKAGE.orchestration.driver_agent_type" --lane "$LC_EPIC" 2>/dev/null || true)"
+  agent_type="$(cd "$LC_SESSION_ROOT" && project_python_run "$py" -m "$LC_MACHINERY_PACKAGE.orchestration.driver_agent_type" --lane "$LC_EPIC" 2>/dev/null || true)"
   if [ -z "$agent_type" ]; then
     printf 'launcher: no driver_agent_type for lane %s in area_assignments.yaml; no named agent selected; using the launcher model or project settings (Sonnet 5.5)\n' "$LC_EPIC" >&2
     return 0
@@ -1636,7 +1642,7 @@ launcher_claude_cap_guard() {
   if awk -v p="$pct" -v t="$stop" 'BEGIN{exit !(p>=t)}'; then
     local handoff=""
     if [ -n "$py" ] && [ -f "$LC_MACHINERY_DIR/fleet/routing_policy.py" ]; then
-      handoff="$("$py" -I "$LC_MACHINERY_DIR/fleet/routing_policy.py" --handoff 2>/dev/null || true)"
+      handoff="$(project_python_run "$py" -m "$LC_MACHINERY_PACKAGE.fleet.routing_policy" --handoff 2>/dev/null || true)"
     fi
     if [ -n "$handoff" ]; then
       printf 'launcher: cap-handoff %s branch=%s task=%s\n' "$handoff" "${LC_BRANCH:-}" "${LC_TASK_ID:-}" >&2

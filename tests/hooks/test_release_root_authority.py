@@ -320,3 +320,223 @@ def test_deployed_session_setup_runs_installed_release_code(release, product):
     )
     assert result.returncode == 1
     assert "no installed lu_machinery release" in result.stderr
+
+
+# Hooks that run machinery code, with a stdin payload that reaches it (#100 R69).
+CODE_HOOKS = {
+    "release-thread-lease.sh": {"session_id": "r69", "hook_event_name": "SessionEnd"},
+    "goal-driver-stop.sh": {"session_id": "r69", "hook_event_name": "Stop"},
+    "precompact-handoff-guard.sh": {
+        "session_id": "r69",
+        "hook_event_name": "PreCompact",
+        "trigger": "auto",
+    },
+    "post-compact.sh": {
+        "session_id": "r69",
+        "hook_event_name": "SessionStart",
+        "source": "compact",
+    },
+    "check-agent-inbox.sh": {
+        "session_id": "r69",
+        "hook_event_name": "UserPromptSubmit",
+    },
+    "context-monitor.sh": {"session_id": "r69", "hook_event_name": "PostToolUse"},
+}
+# Every project-relative machinery path those hooks took their code from before R69.
+DECOY_FILES = (
+    "__init__.py",
+    "orchestration/__init__.py",
+    "orchestration/thread_handoff.py",
+    "agent_runtime/__init__.py",
+    "agent_runtime/bounded_command.py",
+    "lib/handoff_identity.sh",
+    "lib/profile_resolver.sh",
+    "lib/project_interpreter.sh",
+)
+_DECOY_PY = (
+    "import os\nopen(os.environ['LU_TEST_DECOY_LOG'], 'a').write(__file__ + '\\n')\n"
+)
+_DECOY_SH = 'printf "%s\\n" "${BASH_SOURCE[0]}" >> "$LU_TEST_DECOY_LOG"\n'
+
+
+@pytest.fixture(scope="module")
+def marked_release(tmp_path_factory):
+    """A release whose package import is logged, to show the hook ran release code."""
+    site = tmp_path_factory.mktemp("marked") / "site-packages"
+    shutil.copytree(
+        SOURCE / "lu_machinery",
+        site / "lu_machinery",
+        ignore=shutil.ignore_patterns("__pycache__"),
+    )
+    shutil.copytree(
+        SOURCE / HOOKS, site / HOOKS, ignore=shutil.ignore_patterns("__pycache__")
+    )
+    init = site / "lu_machinery" / "__init__.py"
+    init.write_text(
+        "import os as _os\n"
+        "if _os.environ.get('LU_TEST_RELEASE_LOG'):\n"
+        "    open(_os.environ['LU_TEST_RELEASE_LOG'], 'a').write('release\\n')\n"
+        + init.read_text()
+    )
+    return site
+
+
+def consumer_with_decoy(product, release):
+    """A consumer checkout holding a decoy lu_machinery/, its interpreter importing the release."""
+    for relative in DECOY_FILES:
+        path = product / "lu_machinery" / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(_DECOY_SH if relative.endswith(".sh") else _DECOY_PY)
+    subprocess.run(
+        [sys.executable, "-I", "-m", "venv", "--without-pip", str(product / ".venv")],
+        check=True,
+    )
+    purelib = subprocess.run(
+        [
+            str(product / ".venv/bin/python"),
+            "-I",
+            "-c",
+            "import sysconfig; print(sysconfig.get_path('purelib'))",
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    dependencies = subprocess.run(
+        [
+            sys.executable,
+            "-I",
+            "-c",
+            "import sysconfig; print(sysconfig.get_path('purelib'))",
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    Path(purelib, "release.pth").write_text(f"{release}\n{dependencies}\n")
+
+
+@pytest.mark.parametrize("name", CODE_HOOKS)
+def test_deployed_hook_runs_release_code_not_the_project_copy(
+    marked_release, product, tmp_path, name
+):
+    """Code taken from $PROJECT_DIR/lu_machinery: a deployed hook ran the consumer's copy (R69)."""
+    consumer_with_decoy(product, marked_release)
+    hooks = product / ".claude/hooks"
+    hooks.mkdir(parents=True)
+    for helper in (name, "context-rollover-lib.sh", "context-hook-state.py"):
+        shutil.copy2(SOURCE / HOOKS / helper, hooks / helper)
+    transcript = tmp_path / "transcript.jsonl"
+    transcript.write_text(
+        "x" * 700
+    )  # a size-based token estimate above zero reaches the code
+    payload = {
+        **CODE_HOOKS[name],
+        "transcript_path": str(transcript),
+        "cwd": str(product),
+    }
+    decoy_log, release_log = tmp_path / "decoy.log", tmp_path / "release.log"
+    closed = "http://127.0.0.1:9"
+    env = {
+        "PATH": os.environ["PATH"],
+        "HOME": str(tmp_path),
+        "CLAUDE_PROJECT_DIR": str(product),
+        "LU_TEST_DECOY_LOG": str(decoy_log),
+        "LU_TEST_RELEASE_LOG": str(release_log),
+        "LU_MONITOR_LOOPBACK": closed,
+        "AB_MONITOR_URL": closed,
+        "AB_DB_PATH": str(tmp_path / "messages.db"),
+    }
+    result = subprocess.run(
+        ["bash", str(hooks / name)],
+        input=json.dumps(payload),
+        text=True,
+        capture_output=True,
+        cwd=product,
+        env=env,
+    )
+    assert not decoy_log.exists(), (decoy_log.read_text(), result.stderr)
+    if name != "context-monitor.sh":
+        assert release_log.exists(), (
+            f"the release was never imported: rc={result.returncode} {result.stderr}"
+        )
+
+
+def test_codex_entry_hands_hooks_the_payload_project(release, product):
+    """Location-derived project: the Codex entry gave PostToolUse hooks its own tree (R70)."""
+    marker = product / "stamped"
+    (product / ".githooks").mkdir()
+    (product / ".githooks/pytest_stamp.py").write_text(
+        f"open({str(marker)!r}, 'w').write('ok')\n"
+    )
+    (product / ".venv/bin").mkdir(parents=True)
+    (product / ".venv/bin/python").symlink_to(sys.executable)
+    payload = {
+        "tool_name": "Bash",
+        "tool_input": {"command": "true"},
+        "cwd": str(product),
+        "session_id": "r70",
+    }
+    result = subprocess.run(
+        [
+            "bash",
+            str(release / "lu_machinery/agent_runtime/codex_hook_entry.sh"),
+            "post-tool-use",
+        ],
+        input=json.dumps(payload),
+        text=True,
+        capture_output=True,
+        cwd=product,
+        env={"PATH": os.environ["PATH"], "HOME": str(product.parent)},
+    )
+    assert marker.read_text() == "ok", result.stderr
+    assert not (release / ".githooks").exists()
+
+
+def test_codex_entry_audit_child_keeps_the_tree_off_sys_path(product, tmp_path):
+    """Tree root on sys.path: the audit child imported a stdlib-named file from it (#161 F1)."""
+    tree = tmp_path / "tree"
+    shutil.copytree(
+        SOURCE / "lu_machinery",
+        tree / "lu_machinery",
+        ignore=shutil.ignore_patterns("__pycache__"),
+    )
+    shutil.copytree(
+        SOURCE / HOOKS, tree / HOOKS, ignore=shutil.ignore_patterns("__pycache__")
+    )
+    marker = tmp_path / "planted"
+    # repo_root imports dataclasses late, after the audit has started.
+    (tree / "dataclasses.py").write_text(
+        f"open({str(marker)!r}, 'w').write('loaded')\nraise ImportError('plant')\n"
+    )
+    (product / ".venv/bin").mkdir(parents=True)
+    (product / ".venv/bin/python").symlink_to(sys.executable)
+    (product / ".git/info/exclude").write_text(
+        ".venv/\n"
+    )  # a clean product: no dirt to report
+    payload = {
+        "tool_name": "Bash",
+        "tool_input": {"command": "true"},
+        "hook_event_name": "PostToolUse",
+        "session_id": "f1",
+        "tool_use_id": "f1-call",
+        "cwd": str(product),
+    }
+    result = subprocess.run(
+        [
+            "bash",
+            str(tree / "lu_machinery/agent_runtime/codex_hook_entry.sh"),
+            "post-tool-use",
+        ],
+        input=json.dumps(payload),
+        text=True,
+        capture_output=True,
+        cwd=product,
+        env={
+            "PATH": os.environ["PATH"],
+            "HOME": str(tmp_path),
+            "LU_PRODUCT_ROOT": str(product),
+        },
+    )
+    assert not marker.exists(), result.stderr
+    assert result.returncode == 0, result.stderr

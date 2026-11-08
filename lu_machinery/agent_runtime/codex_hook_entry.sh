@@ -11,8 +11,15 @@ set -u
 MODE="${1:-}"
 PAYLOAD=$(cat)
 
+# SCRIPT_ROOT is the machinery tree holding this file: it supplies the code
+# (the hooks and the policy module), never the project (machinery #100 R70).
 SCRIPT_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 HOOKS_DIR="$SCRIPT_ROOT/agents_extensions/shared/hooks"
+# shellcheck source=lu_machinery/lib/project_interpreter.sh
+source "$SCRIPT_ROOT/lu_machinery/lib/project_interpreter.sh"
+# The project is the payload's checkout, else the configured one (CLAUDE_PROJECT_DIR,
+# else LU_PRODUCT_ROOT); never this file's own tree.
+CONFIGURED_PROJECT="${CLAUDE_PROJECT_DIR:-${LU_PRODUCT_ROOT:-}}"
 
 payload_cwd=$(printf '%s' "$PAYLOAD" | jq -r '
   .tool_input.workdir
@@ -21,16 +28,22 @@ payload_cwd=$(printf '%s' "$PAYLOAD" | jq -r '
   // .cwd
   // empty
 ' 2>/dev/null)
-[ -n "$payload_cwd" ] || payload_cwd="$SCRIPT_ROOT"
+[ -n "$payload_cwd" ] || payload_cwd="$CONFIGURED_PROJECT"
 
-COMMON_DIR=$(git -C "$payload_cwd" rev-parse --path-format=absolute --git-common-dir 2>/dev/null) \
-  || COMMON_DIR=$(git -C "$SCRIPT_ROOT" rev-parse --path-format=absolute --git-common-dir 2>/dev/null) \
-  || COMMON_DIR=""
+COMMON_DIR=""
+if [ -n "$payload_cwd" ]; then
+  COMMON_DIR=$(git -C "$payload_cwd" rev-parse --path-format=absolute --git-common-dir 2>/dev/null) \
+    || COMMON_DIR=""
+fi
+if [ -z "$COMMON_DIR" ] && [ -n "$CONFIGURED_PROJECT" ]; then
+  COMMON_DIR=$(git -C "$CONFIGURED_PROJECT" rev-parse --path-format=absolute --git-common-dir 2>/dev/null) \
+    || COMMON_DIR=""
+fi
 
 if [ -n "$COMMON_DIR" ]; then
   CANONICAL_ROOT="$(dirname "$COMMON_DIR")"
 else
-  CANONICAL_ROOT="$SCRIPT_ROOT"
+  CANONICAL_ROOT="$CONFIGURED_PROJECT"
 fi
 
 PYTHON_BIN="$CANONICAL_ROOT/.venv/bin/python"
@@ -44,7 +57,7 @@ case "$MODE" in
     fi
 
     printf '%s' "$PAYLOAD" \
-      | "$PYTHON_BIN" "$SCRIPT_ROOT/lu_machinery/agent_runtime/codex_hook_policy.py" \
+      | project_python_run "$PYTHON_BIN" -m lu_machinery.agent_runtime.codex_hook_policy \
         --python-bin "$PYTHON_BIN" \
         --hooks-dir "$HOOKS_DIR" \
         --canonical-root "$CANONICAL_ROOT"
@@ -54,18 +67,18 @@ case "$MODE" in
 
   post-tool-use)
     printf '%s' "$PAYLOAD" \
-      | CLAUDE_PROJECT_DIR="$SCRIPT_ROOT" bash "$HOOKS_DIR/tool-timing.sh"
+      | CLAUDE_PROJECT_DIR="$CANONICAL_ROOT" bash "$HOOKS_DIR/tool-timing.sh"
     # stamp-pytest only inspects a Bash `command` (#8529); running it for
     # every other tool payload was pure interpreter-startup cost.
     TOOL_NAME=$(printf '%s' "$PAYLOAD" | jq -r '.tool_name // empty' 2>/dev/null || true)
     if [ "$TOOL_NAME" = "Bash" ]; then
       printf '%s' "$PAYLOAD" \
-        | CLAUDE_PROJECT_DIR="$SCRIPT_ROOT" bash "$HOOKS_DIR/stamp-pytest.sh"
+        | CLAUDE_PROJECT_DIR="$CANONICAL_ROOT" bash "$HOOKS_DIR/stamp-pytest.sh"
       # Primary-checkout dirt audit (#11253): exit 2 hands the attribution
       # report to the model; Codex runs PostToolUse for non-zero exits too.
       AUDIT_HOOK="$HOOKS_DIR/audit-primary-checkout-dirt.py"
       if [ -x "$PYTHON_BIN" ]; then
-        printf '%s' "$PAYLOAD" | "$PYTHON_BIN" "$AUDIT_HOOK"
+        printf '%s' "$PAYLOAD" | "$PYTHON_BIN" -I "$AUDIT_HOOK"
       else
         printf '%s' "$PAYLOAD" | "$AUDIT_HOOK"
       fi

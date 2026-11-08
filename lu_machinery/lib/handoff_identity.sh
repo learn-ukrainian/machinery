@@ -234,35 +234,18 @@ launcher_session_epic() {
 _handoff_slot_registry() {
   local repo_root="$_HANDOFF_IDENTITY_DIR/../.."
   local py=""
+  [ -f "$_HANDOFF_IDENTITY_DIR/project_interpreter.sh" ] || return 2
+  # shellcheck source=scripts/lib/project_interpreter.sh
+  source "$_HANDOFF_IDENTITY_DIR/project_interpreter.sh"
   if [ -n "${LC_DURABLE_HELPER_ROOT:-}" ]; then
     py="$LC_DURABLE_HELPER_ROOT/.venv/bin/python"
-  elif [ -f "$_HANDOFF_IDENTITY_DIR/project_interpreter.sh" ]; then
-    # shellcheck source=scripts/lib/project_interpreter.sh
-    source "$_HANDOFF_IDENTITY_DIR/project_interpreter.sh"
+  else
     py="$(project_interpreter_resolve "$repo_root" 2>/dev/null)" || return 2
   fi
   [ -n "$py" ] && [ -x "$py" ] || return 2
-  # The machinery package's import name: this file's package directory name,
-  # from its unresolved location (design-v1 amendment 1).
-  local package="${_HANDOFF_IDENTITY_DIR%/*}"
-  package="${package##*/}"
-  # -I keeps the caller's PYTHONPATH and cwd off the import path (#100 R64).
-  # The hook's module bootstrap (#142) uses an installed package when the
-  # interpreter has one, else loads only the package from repo_root by spec, so
-  # repo_root never goes on sys.path.
-  local module_bootstrap='
-import importlib.util, runpy, sys
-root = sys.argv.pop(1)
-module = sys.argv.pop(1)
-name = module.partition(".")[0]
-if importlib.util.find_spec(name) is None:
-    pkg = root + "/" + name
-    spec = importlib.util.spec_from_file_location(name, pkg + "/__init__.py", submodule_search_locations=[pkg])
-    sys.modules[name] = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(sys.modules[name])
-runpy.run_module(module, run_name="__main__", alter_sys=True)
-'
-  "$py" -I -c "$module_bootstrap" "$repo_root" "$package.orchestration.handoff_slot_registry" "$@"
+  # The shared module bootstrap (#100 R64, R68) runs this tree's package with -I:
+  # neither the caller's PYTHONPATH nor its cwd is on the import path.
+  project_python_run "$py" -m "$PROJECT_PACKAGE.orchestration.handoff_slot_registry" "$@"
 }
 
 # launcher_require_registered_slot "<provider>" "<selector>"

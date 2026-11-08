@@ -40,6 +40,18 @@ RECIPIENT_LABEL=$(printf '%s' "$RECIPIENT" | tr '[:lower:]' '[:upper:]')
 if [ ! -x "$PROJECT_DIR/.venv/bin/python" ]; then
   exit 0
 fi
+# Code root (machinery #100 R62, R69): run from a machinery tree (a checkout or the
+# installed wheel), this file's own tree supplies the code; a deployed copy takes it
+# from the release the project interpreter imports, never from $PROJECT_DIR. Machinery
+# modules then run through the shared module bootstrap (lib/project_interpreter.sh).
+_hook_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+case "$_hook_dir" in
+  */agents_extensions/shared/hooks) MACHINERY_DIR="${_hook_dir%/agents_extensions/shared/hooks}" ;;
+  *) MACHINERY_DIR=$("$PROJECT_DIR/.venv/bin/python" -I -c 'import os, lu_machinery; print(os.path.dirname(os.path.dirname(os.path.abspath(lu_machinery.__file__))))' 2>/dev/null) || MACHINERY_DIR="" ;;
+esac
+unset _hook_dir
+# shellcheck source=lu_machinery/lib/project_interpreter.sh
+source "$MACHINERY_DIR/lu_machinery/lib/project_interpreter.sh" 2>/dev/null || exit 0
 
 # Fast path: probe the same broker DB the bridge CLI reads
 # (scripts/ai_agent_bridge/_config.py DB_PATH → _messaging.py check_inbox)
@@ -73,7 +85,7 @@ if [ -n "$DB_FILE" ] && [ -f "$DB_FILE" ]; then
   else
     # stdlib-only fallback for hosts without the sqlite3 CLI; prints nothing
     # on any error so the live CLI below stays the authority.
-    UNREAD_COUNT=$("$PROJECT_DIR/.venv/bin/python" - "$DB_FILE" "$RECIPIENT" <<'PYEOF'
+    UNREAD_COUNT=$("$PROJECT_DIR/.venv/bin/python" -I - "$DB_FILE" "$RECIPIENT" <<'PYEOF'
 import sqlite3
 import sys
 from pathlib import Path
@@ -106,7 +118,7 @@ fi
 # Ask the live CLI for the recipient's inbox. Keep its existing output as the
 # source of both the count and the bounded preview; the fast path above only
 # ever short-circuits a proven-empty inbox, never replaces this listing.
-INBOX_OUTPUT=$("$PROJECT_DIR/.venv/bin/python" -m lu_machinery.ai_agent_bridge inbox --for "$RECIPIENT" 2>/dev/null) || exit 0
+INBOX_OUTPUT=$(project_python_run "$PROJECT_DIR/.venv/bin/python" -m lu_machinery.ai_agent_bridge inbox --for "$RECIPIENT" 2>/dev/null) || exit 0
 
 # The legacy human listing emits `N unread`; the live channel listing emits a
 # `pending: N` line. Accept both existing CLI shapes without creating a new

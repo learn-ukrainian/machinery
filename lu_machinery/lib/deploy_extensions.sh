@@ -57,10 +57,9 @@ deploy_agent_extensions() {
     # .agent is concurrent agent-owned state. The helper opens it with
     # O_NOFOLLOW|O_DIRECTORY and updates leaves by dir_fd; plain shell
     # redirection/cp/rm here would reintroduce deploy's path-swap escape.
-    local scripts_dir helper_project_root status_helper status_python status_rc=0
+    local scripts_dir helper_project_root status_python status_rc=0
     scripts_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
     helper_project_root="$(cd "$scripts_dir/.." && pwd)"
-    status_helper="$scripts_dir/agent_deploy/update_agent_deploy_status.py"
 
     # A missing interpreter must not read as an unsafe .agent root: the
     # resolver prints its own "project interpreter not found" line. The helper
@@ -74,7 +73,7 @@ deploy_agent_extensions() {
             rm -f "$log_file"
             return 1
         fi
-        "$status_python" "$status_helper" clear --agent-root "$project_dir/.agent" || status_rc=$?
+        project_python_run "$status_python" -m "$PROJECT_PACKAGE.agent_deploy.update_agent_deploy_status" clear --agent-root "$project_dir/.agent" || status_rc=$?
         if [ "$status_rc" -eq 1 ]; then
             echo "Error: agent extensions deployed but deploy-status cleanup refused an unsafe .agent root." >&2
             rm -f "$log_file"
@@ -96,7 +95,7 @@ deploy_agent_extensions() {
         if [ -z "$status_python" ]; then
             echo "Error: deploy-status update skipped (project interpreter missing)." >&2
         else
-            "$status_python" "$status_helper" record-failure \
+            project_python_run "$status_python" -m "$PROJECT_PACKAGE.agent_deploy.update_agent_deploy_status" record-failure \
                 --agent-root "$project_dir/.agent" \
                 --script "$npm_script" \
                 --exit-code "$exit_code" \

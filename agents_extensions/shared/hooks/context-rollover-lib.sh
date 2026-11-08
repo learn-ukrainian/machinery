@@ -3,6 +3,32 @@
 # Sourced, never registered as a hook; executing it directly does nothing.
 # State I/O is delegated to the descriptor-relative Python helper (#9791).
 
+# The machinery code root (#100 R62, R69): run from a machinery tree (a checkout or
+# the installed wheel), this file's own tree; a deployed copy asks the project
+# interpreter (THREAD_ROLLOVER_PYTHON, else the canonical checkout's) for the
+# release it imports. Never <project>/lu_machinery.
+_context_code_root() {
+  local dir probe
+  dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)" || return 1
+  case "$dir" in
+    */agents_extensions/shared/hooks) printf '%s\n' "${dir%/agents_extensions/shared/hooks}" ;;
+    *)
+      probe="${THREAD_ROLLOVER_PYTHON:-$(context_canonical_root "$1")/.venv/bin/python}"
+      [ -x "$probe" ] || return 1
+      "$probe" -I -c 'import os, lu_machinery; print(os.path.dirname(os.path.dirname(os.path.abspath(lu_machinery.__file__))))' 2>/dev/null
+      ;;
+  esac
+}
+
+# Source the code root's project_interpreter.sh: the interpreter resolver and the
+# shared module bootstrap. Returns 1 when the code root is unavailable.
+_context_source_interpreter_lib() {
+  local root
+  root=$(_context_code_root "$1") && [ -n "$root" ] || return 1
+  # shellcheck source=lu_machinery/lib/project_interpreter.sh
+  source "$root/lu_machinery/lib/project_interpreter.sh" 2>/dev/null
+}
+
 # Match the existing rollover hooks' explicit interpreter override; otherwise
 # use the shared project interpreter resolver. Never fall back to PATH Python.
 context_hook_state() {
@@ -10,13 +36,13 @@ context_hook_state() {
   shift 3
   interpreter="${THREAD_ROLLOVER_PYTHON:-}"
   if [ -z "$interpreter" ]; then
-    # shellcheck source=scripts/lib/project_interpreter.sh
-    source "$project_dir/lu_machinery/lib/project_interpreter.sh" 2>/dev/null || return 0
+    _context_source_interpreter_lib "$project_dir" || return 0
     interpreter=$(project_interpreter_resolve "$project_dir" 2>/dev/null) || return 0
   fi
   [ -x "$interpreter" ] || return 0
   helper="$(dirname "${BASH_SOURCE[0]}")/context-hook-state.py"
-  "$interpreter" "$helper" "$operation" "$project_dir" "$session_id" "$@" 2>/dev/null || true
+  # The helper is stdlib-only: -I keeps the cwd and PYTHONPATH off its import path.
+  "$interpreter" -I "$helper" "$operation" "$project_dir" "$session_id" "$@" 2>/dev/null || true
 }
 
 # Latest assistant input/cache usage from a Claude Code transcript, or 0.
@@ -105,24 +131,23 @@ context_driver_lane_name() {
   command -v tmux >/dev/null 2>&1 || return 0
   session=$(tmux display-message -p -t "$TMUX_PANE" '#{session_name}' 2>/dev/null) || return 0
   [ -n "$session" ] || return 0
+  _context_source_interpreter_lib "$project_dir" || return 0
   interpreter="${THREAD_ROLLOVER_PYTHON:-}"
   if [ -z "$interpreter" ]; then
-    # shellcheck source=scripts/lib/project_interpreter.sh
-    source "$project_dir/lu_machinery/lib/project_interpreter.sh" 2>/dev/null || return 0
     interpreter=$(project_interpreter_resolve "$project_dir" 2>/dev/null) || return 0
   fi
   [ -x "$interpreter" ] || return 0
-  name=$("$interpreter" -I -c '
+  # The registry module runs from the code root through the shared module bootstrap.
+  name=$(project_python_run "$interpreter" -c '
 import importlib
 import sys
-sys.path.insert(0, sys.argv[1])
-load_registry = importlib.import_module(sys.argv[2]).load_registry
+load_registry = importlib.import_module(sys.argv[1]).load_registry
 lanes = [
     lane.name
     for lane in load_registry().lanes
-    if lane.session == sys.argv[3] and lane.epic == sys.argv[4] and lane.kind == "claude"
+    if lane.session == sys.argv[2] and lane.epic == sys.argv[3] and lane.kind == "claude"
 ]
 print(lanes[0] if len(lanes) == 1 else "")
-' "$project_dir" "$registry_module" "$session" "$SESSION_EPIC" 2>/dev/null) || return 0
+' "$registry_module" "$session" "$SESSION_EPIC" 2>/dev/null) || return 0
   printf '%s\n' "$name"
 }

@@ -20,6 +20,9 @@
 _fleet_comms_lib_dir="$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)" || _fleet_comms_lib_dir=''
 FLEET_COMMS_MACHINERY_PACKAGE="${_fleet_comms_lib_dir%/*}"
 FLEET_COMMS_MACHINERY_PACKAGE="${FLEET_COMMS_MACHINERY_PACKAGE##*/}"
+# This tree's package runs through the shared module bootstrap (#100 R68).
+# shellcheck source=scripts/lib/project_interpreter.sh
+[ -z "$_fleet_comms_lib_dir" ] || source "$_fleet_comms_lib_dir/project_interpreter.sh"
 unset _fleet_comms_lib_dir
 
 # Select ACP for eligible `ab discuss` calls without starting any process.
@@ -53,12 +56,12 @@ fleet_comms_resolve_plane_mode() {
   local mode="off"
   local root="${PROJECT_DIR:-${LC_ROOT:-.}}"
   local py=""
-  if [ -f "$root/lu_machinery/fleet_comms/message_plane.py" ] \
+  if [ -f "$PROJECT_CODE_ROOT/$FLEET_COMMS_MACHINERY_PACKAGE/fleet_comms/message_plane.py" ] \
       && py="$(fleet_comms_resolve_python "$root")"; then
     mode="$(
       (
         cd "$root" || exit 0
-        "$py" -c \
+        project_python_run "$py" -c \
           'import importlib, sys; print(importlib.import_module(sys.argv[1]).resolve_plane_mode(None))' \
           "$FLEET_COMMS_MACHINERY_PACKAGE.fleet_comms.message_plane" 2>/dev/null || true
       )
@@ -134,6 +137,6 @@ fleet_comms_warn_if_plane_unreachable() {
   fi
   (
     cd "$root" || exit 0
-    "$py" -m lu_machinery.orchestration.plane_tunnel_gate
+    project_python_run "$py" -m "$FLEET_COMMS_MACHINERY_PACKAGE.orchestration.plane_tunnel_gate"
   ) || true
 }

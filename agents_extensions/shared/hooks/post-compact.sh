@@ -56,7 +56,20 @@ if [ ! -x "$SHARED_VENV_ROOT/.venv/bin/python" ] && [ -n "$PRIMARY_ROOT" ]; then
 fi
 SHARED_PYTHON="$SHARED_VENV_ROOT/.venv/bin/python"
 BOUNDED_PYTHON="${THREAD_ROLLOVER_PYTHON:-$SHARED_PYTHON}"
-BOUNDED_RUNNER_DEFAULT="$PROJECT_DIR/lu_machinery/agent_runtime/bounded_command.py"
+MACHINERY_DIR=""
+# Code root (machinery #100 R62, R69): run from a machinery tree (a checkout or the
+# installed wheel), this file's own tree supplies the code; a deployed copy takes it
+# from the release the project interpreter imports, never from $PROJECT_DIR. Machinery
+# modules then run through the shared module bootstrap (lib/project_interpreter.sh).
+_hook_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+case "$_hook_dir" in
+  */agents_extensions/shared/hooks) MACHINERY_DIR="${_hook_dir%/agents_extensions/shared/hooks}" ;;
+  *) MACHINERY_DIR=$("$BOUNDED_PYTHON" -I -c 'import os, lu_machinery; print(os.path.dirname(os.path.dirname(os.path.abspath(lu_machinery.__file__))))' 2>/dev/null) || MACHINERY_DIR="" ;;
+esac
+unset _hook_dir
+# shellcheck source=lu_machinery/lib/project_interpreter.sh
+source "$MACHINERY_DIR/lu_machinery/lib/project_interpreter.sh" 2>/dev/null || MACHINERY_DIR=""
+BOUNDED_RUNNER_DEFAULT="$MACHINERY_DIR/lu_machinery/agent_runtime/bounded_command.py"
 BOUNDED_RUNNER="${SESSION_BOUNDED_RUNNER:-$BOUNDED_RUNNER_DEFAULT}"
 run_bounded() {
   local timeout_seconds="$1"
@@ -64,7 +77,16 @@ run_bounded() {
   if [ ! -x "$BOUNDED_PYTHON" ] || [ ! -f "$BOUNDED_RUNNER" ]; then
     return 127
   fi
-  "$BOUNDED_PYTHON" "$BOUNDED_RUNNER" --timeout "$timeout_seconds" -- "$@"
+  "$BOUNDED_PYTHON" -I "$BOUNDED_RUNNER" --timeout "$timeout_seconds" -- "$@"
+}
+# run_bounded_python <timeout> <python> (-m <module> | -c <code>) [args...]: a machinery
+# child through the shared module bootstrap, under the bound.
+run_bounded_python() {
+  local timeout_seconds="$1" python="$2"
+  shift 2
+  [ -n "$MACHINERY_DIR" ] && declare -F project_python_command >/dev/null || return 127
+  project_python_command "$python"
+  run_bounded "$timeout_seconds" "${PROJECT_PYTHON_COMMAND[@]}" "$@"
 }
 CONTEXT=""
 
@@ -118,7 +140,7 @@ case "$POST_COMPACT_AGENT" in
       # from the shared driver handoff; a fixed filename can select stale state.
       DIARY_REL=""
       HANDOFF_SELECT_MODULE=lu_machinery.session_canary.handoff_select
-      DIARY_REL=$(run_bounded 2 env "PYTHONPATH=$PROJECT_DIR" "$BOUNDED_PYTHON" -c '
+      DIARY_REL=$(run_bounded_python 2 "$BOUNDED_PYTHON" -c '
 import importlib
 import sys
 from pathlib import Path
@@ -136,7 +158,7 @@ if selected is not None:
         # shellcheck disable=SC2016
         HYDRATION_STREAM=$(run_bounded 2 bash -c '
 source "$1" && launcher_selector_stream "$2"
-' post-compact-stream "$PROJECT_DIR/lu_machinery/lib/handoff_identity.sh" "$SESSION_EPIC" 2>/dev/null) \
+' post-compact-stream "$MACHINERY_DIR/lu_machinery/lib/handoff_identity.sh" "$SESSION_EPIC" 2>/dev/null) \
           || HYDRATION_STREAM=""
       fi
       if [ -z "$HYDRATION_STREAM" ]; then
@@ -149,7 +171,7 @@ source "$1" && launcher_selector_stream "$2"
         HYDRATION_RC=0
         # Hydrate retries timeout-class failures up to 3 times (500 ms each plus
         # interpreter start-up), so it needs more than the 2 s used elsewhere here.
-        HYDRATION=$(run_bounded 6 "$BOUNDED_PYTHON" \
+        HYDRATION=$(run_bounded_python 6 "$BOUNDED_PYTHON" \
           -m lu_machinery.session_canary.codex_lane hydrate --epic "$SESSION_EPIC" --stream "$HYDRATION_STREAM" 2>&1) \
           || HYDRATION_RC=$?
       fi
@@ -207,10 +229,15 @@ if [ -z "$HANDOFF_AGENT" ]; then
   fi
 fi
 ROLLOVER_PYTHON="${THREAD_ROLLOVER_PYTHON:-$SHARED_PYTHON}"  # worktrees carry no venv
-ROLLOVER_SCRIPT_DEFAULT="$PROJECT_DIR/lu_machinery/orchestration/thread_handoff.py"
-ROLLOVER_SCRIPT="${THREAD_ROLLOVER_SCRIPT:-$ROLLOVER_SCRIPT_DEFAULT}"
-ROLLOVER_HEALTH=$(run_bounded 2 "$ROLLOVER_PYTHON" "$ROLLOVER_SCRIPT" \
-  --repo-root "$CANONICAL_ROOT" detect --agent "$HANDOFF_AGENT" 2>&1) || true
+# THREAD_ROLLOVER_SCRIPT names a replacement script (a test seam); the default is
+# this code root's thread_handoff module through the bootstrap.
+if [ -n "${THREAD_ROLLOVER_SCRIPT:-}" ]; then
+  ROLLOVER_HEALTH=$(run_bounded 2 "$ROLLOVER_PYTHON" -I "$THREAD_ROLLOVER_SCRIPT" \
+    --repo-root "$CANONICAL_ROOT" detect --agent "$HANDOFF_AGENT" 2>&1) || true
+else
+  ROLLOVER_HEALTH=$(run_bounded_python 2 "$ROLLOVER_PYTHON" -m lu_machinery.orchestration.thread_handoff \
+    --repo-root "$CANONICAL_ROOT" detect --agent "$HANDOFF_AGENT" 2>&1) || true
+fi
 
 # 3. Key reminders. Claude keys its per-project directory by the checkout
 # path with every character outside [A-Za-z0-9-] replaced by '-'. The memory

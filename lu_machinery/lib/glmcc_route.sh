@@ -8,6 +8,13 @@
 #   they are never exported as ZAI_API_KEY and never printed.
 # - Default CLAUDE_CONFIG_DIR=$HOME/.claude-glmcc keeps native Claude untouched.
 
+# The GLM model route comes from this tree's catalog through the shared module
+# bootstrap (#100 R68).
+_glmcc_route_lib_dir="$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)" || _glmcc_route_lib_dir=''
+# shellcheck source=scripts/lib/project_interpreter.sh
+[ -z "$_glmcc_route_lib_dir" ] || source "$_glmcc_route_lib_dir/project_interpreter.sh"
+unset _glmcc_route_lib_dir
+
 glmcc_default_base_url() {
   case "$1" in
     coding|platform) printf '%s\n' 'https://api.z.ai/api/anthropic' ;;
@@ -75,7 +82,7 @@ glmcc_load_secret_file_auth() {
   # The key is never placed on argv or exported as ZAI_*.
   if ! _glmcc_auth="$(
     LEARN_UKRAINIAN_ROOT="$project_dir" GLMCC_SECRET_PATH="$secret_path" \
-      "$python_bin" - <<'PY'
+      "$python_bin" -I - <<'PY'
 import os
 import sys
 from pathlib import Path
@@ -104,7 +111,7 @@ glmcc_configure_route() {
     echo 'Error: Python binary not found for the GLM Claude-Code route.' >&2
     return 1
   fi
-  if ! route="$("$python_bin" "$project_dir/lu_machinery/review/model_catalog.py" --resolve-glm-model "$MODEL_ALIAS" --format glmcc 2>/dev/null)"; then
+  if ! route="$(project_python_run "$python_bin" -m "$PROJECT_PACKAGE.review.model_catalog" --resolve-glm-model "$MODEL_ALIAS" --format glmcc 2>/dev/null)"; then
     echo "Error: unsupported GLM model '$MODEL_ALIAS' (use glm-5.3 / glm / glm53)." >&2
     return 2
   fi

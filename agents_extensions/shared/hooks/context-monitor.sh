@@ -53,6 +53,19 @@ case "$PROJECT_DIR" in
 esac
 TRANSCRIPT=$(printf '%s' "$INPUT" | jq -r '.transcript_path // empty' 2>/dev/null)
 [ -z "$TRANSCRIPT" ] || [ ! -f "$TRANSCRIPT" ] && exit 0
+CANONICAL_ROOT=$(context_canonical_root "$PROJECT_DIR") || exit 0
+# Code root (machinery #100 R62, R69): run from a machinery tree (a checkout or the
+# installed wheel), this file's own tree supplies the code; a deployed copy takes it
+# from the release the project interpreter imports, never from $PROJECT_DIR. Machinery
+# modules then run through the shared module bootstrap (lib/project_interpreter.sh).
+_hook_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+case "$_hook_dir" in
+  */agents_extensions/shared/hooks) MACHINERY_DIR="${_hook_dir%/agents_extensions/shared/hooks}" ;;
+  *) MACHINERY_DIR=$("${THREAD_ROLLOVER_PYTHON:-$CANONICAL_ROOT/.venv/bin/python}" -I -c 'import os, lu_machinery; print(os.path.dirname(os.path.dirname(os.path.abspath(lu_machinery.__file__))))' 2>/dev/null) || MACHINERY_DIR="" ;;
+esac
+unset _hook_dir
+# shellcheck source=lu_machinery/lib/project_interpreter.sh
+source "$MACHINERY_DIR/lu_machinery/lib/project_interpreter.sh" 2>/dev/null || MACHINERY_DIR=""
 
 # Prefer the latest assistant input/cache usage. Output tokens are not current
 # context usage and therefore are deliberately excluded.
@@ -108,10 +121,12 @@ case "$WINDOW" in
   *) [ "$WINDOW" -gt 0 ] || WINDOW_VALID=0 ;;
 esac
 if [ "$WINDOW_VALID" -eq 0 ]; then
-  # Project root is selected at runtime.
+  # The resolver and its contract come from the code root, as in session-setup.sh;
+  # its interpreter defaults to the canonical checkout's (linked worktrees have none).
+  export CLAUDE_PROFILE_RESOLVER_PYTHON="${CLAUDE_PROFILE_RESOLVER_PYTHON:-$CANONICAL_ROOT/.venv/bin/python}"
   # shellcheck disable=SC1091
-  source "$PROJECT_DIR/lu_machinery/lib/profile_resolver.sh" 2>/dev/null || exit 0
-  if ! resolve_context_profile \
+  source "$MACHINERY_DIR/lu_machinery/lib/profile_resolver.sh" 2>/dev/null || exit 0
+  if ! PROJECT_DIR="$MACHINERY_DIR" resolve_context_profile \
     "${LEARN_UKRAINIAN_REQUESTED_PROFILE_ID:-${LEARN_UKRAINIAN_PROFILE_ID:-}}" \
     "${LEARN_UKRAINIAN_OBSERVED_MODEL_ID:-${LEARN_UKRAINIAN_MAIN_MODEL_ID:-}}" \
     >/dev/null 2>&1; then
@@ -143,7 +158,7 @@ else
   HANDOFF_AGENT="claude"
 fi
 
-HANDOFF_IDENTITY_DEFAULT="$PROJECT_DIR/lu_machinery/lib/handoff_identity.sh"
+HANDOFF_IDENTITY_DEFAULT="$MACHINERY_DIR/lu_machinery/lib/handoff_identity.sh"
 HANDOFF_IDENTITY_SH="${CLAUDE_HANDOFF_IDENTITY_SH:-$HANDOFF_IDENTITY_DEFAULT}"
 if [ -f "$HANDOFF_IDENTITY_SH" ]; then
   # shellcheck disable=SC1090
@@ -164,20 +179,17 @@ fi
 # context-rollover-guard.sh can match the prepared lease to this session.
 # Task-identity values only the agent knows stay as <placeholders>.
 PREPARE_PY="<project interpreter>"
-if [ -f "$PROJECT_DIR/lu_machinery/lib/project_interpreter.sh" ]; then
-  # shellcheck source=scripts/lib/project_interpreter.sh
-  source "$PROJECT_DIR/lu_machinery/lib/project_interpreter.sh"
-  if PREPARE_PY_RESOLVED=$(project_interpreter_resolve "$PROJECT_DIR" 2>/dev/null); then
-    PREPARE_PY=$(printf '%q' "$PREPARE_PY_RESOLVED")
-  fi
-  unset PREPARE_PY_RESOLVED
+if declare -F project_interpreter_resolve >/dev/null \
+    && PREPARE_PY_RESOLVED=$(project_interpreter_resolve "$PROJECT_DIR" 2>/dev/null); then
+  PREPARE_PY=$(printf '%q' "$PREPARE_PY_RESOLVED")
 fi
+unset PREPARE_PY_RESOLVED
 if [[ "${0:-}" == *"/.gemini/"* ]]; then
   PREPARE_HARNESS="agy"
 else
   PREPARE_HARNESS="claude-code"
 fi
-PREPARE_SCRIPT=lu_machinery/orchestration/thread_handoff.py
+PREPARE_SCRIPT="-m lu_machinery.orchestration.thread_handoff"
 PREPARE_CMD="${PREPARE_PY} ${PREPARE_SCRIPT} prepare --agent ${HANDOFF_AGENT} --harness ${PREPARE_HARNESS} --active-thread-id $(printf '%q' "$SESSION_ID")"
 if [ -n "$ROLLOVER_STREAM" ]; then
   PREPARE_CMD="$PREPARE_CMD --stream $ROLLOVER_STREAM --stream-epic $ROLLOVER_STREAM_EPIC"
