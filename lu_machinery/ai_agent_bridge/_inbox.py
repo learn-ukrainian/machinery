@@ -71,7 +71,7 @@ except ImportError:
     Result = Any
     _HAS_RUNTIME = False
 
-from . import _channels
+from . import _channels, _config
 from ._channels_watch import (
     emit_delivery_delivered,
     emit_delivery_failed,
@@ -79,7 +79,7 @@ from ._channels_watch import (
     emit_reply_complete,
     emit_reply_started,
 )
-from ._config import CLAUDE_CMD, MACHINERY_PACKAGE, REPO_ROOT
+from ._config import CLAUDE_CMD, MACHINERY_PACKAGE
 from ._db import get_db
 from ._gemini import (
     _is_gemini_429_error,
@@ -647,7 +647,7 @@ def _link_gemini_session(
         delivery_brief=claimed.deliveries[-1].body,
         started_at=started_at,
         session_id=_get_session_id(task_id, "gemini"),
-        project_name=REPO_ROOT.name,
+        project_name=_config.REPO_ROOT.name,
     )
     if recovery and recovery.session_id:
         _set_session_id(task_id, "gemini", recovery.session_id)
@@ -786,7 +786,7 @@ def _invoke_thread(
                 target.recipient,
                 prompt,
                 mode=mode,
-                cwd=REPO_ROOT,
+                cwd=_config.REPO_ROOT,
                 model=target.model,
                 task_id=task_id,
                 initiator=claimed.deliveries[-1].from_agent,
@@ -839,7 +839,7 @@ def _invoke_gemini_thread_with_fallback(
                 hop.recipient,
                 prompt,
                 mode=mode,
-                cwd=REPO_ROOT,
+                cwd=_config.REPO_ROOT,
                 model=hop.model,
                 task_id=task_id,
                 initiator=claimed.deliveries[-1].from_agent,
@@ -929,7 +929,7 @@ def run_inbox(
     try:
         from lu_machinery.fleet_comms.bottleneck_alerts import scan_bottlenecks_at_inbox_checkpoint
 
-        scan_bottlenecks_at_inbox_checkpoint(repo_root=REPO_ROOT)
+        scan_bottlenecks_at_inbox_checkpoint(repo_root=_config.REPO_ROOT)
     except Exception:
         logger.exception("bottleneck alert checkpoint failed; continuing inbox drain")
     _channels.expire_stale_deliveries()

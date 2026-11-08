@@ -76,13 +76,18 @@ def wt_layout(tmp_path) -> tuple[Path, Path]:
 
 
 def test_bridge_config_state_paths_resolve_to_primary_in_worktree(wt_layout):
-    """Verify that importing _config.py from a worktree layout resolves state paths to the primary root."""
+    """Verify that _config.py run from a worktree layout resolves state paths to the primary root.
+
+    lu_machinery derives no state anchor (C-4843), so the primary is configured, as installed
+    machinery has it; the worktree stays the working directory.
+    """
     main_repo, worktree = wt_layout
 
     # Run subprocess to check DB_PATH and PID_DIR
     script = "from lu_machinery.ai_agent_bridge._config import DB_PATH, PID_DIR; print(f'{DB_PATH};{PID_DIR}')"
     env = os.environ.copy()
     env.pop("AB_DB_PATH", None)  # Exercise the default path, not the suite's isolated override.
+    env["LEARN_UKRAINIAN_PRIMARY_REPO_ROOT"] = str(main_repo)
     proc = subprocess.run(
         [sys.executable, "-c", script],
         cwd=str(worktree),

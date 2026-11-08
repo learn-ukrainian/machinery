@@ -20,6 +20,7 @@ from agent_runtime.errors import (
     RateLimitedError,
 )
 
+from . import _config
 from ._ask_contract import resolve_model_selection, response_provenance
 from ._ask_lifecycle import (
     launch_background_ask,
@@ -28,7 +29,6 @@ from ._ask_lifecycle import (
     register_ask,
     skip_stored_kimi_row,
 )
-from ._config import REPO_ROOT
 from ._db import get_db, get_session, set_session
 from ._messaging import acknowledge, send_message
 from ._prompts import build_codex_prompt, require_core_or_exit
@@ -357,7 +357,7 @@ def process_for_codex(message_id: int, new_session: bool = False, no_timeout: bo
         review_target = review_target_from_message(msg) if review else None
         with provision_review_worktree(
             review_target,
-            repo_root=REPO_ROOT,
+            repo_root=_config.REPO_ROOT,
             allow_local_fallback=bool(review),
         ) as checkout:
             if review:
@@ -386,7 +386,7 @@ def process_for_codex(message_id: int, new_session: bool = False, no_timeout: bo
                 prompt,
                 # Reviews always use read-only sandbox — never danger/write modes.
                 mode="read-only" if review else _codex_bridge_runtime_mode(),
-                cwd=checkout.path if checkout is not None else REPO_ROOT,
+                cwd=checkout.path if checkout is not None else _config.REPO_ROOT,
                 model=model,
                 effort=effort,
                 task_id=msg["task_id"],

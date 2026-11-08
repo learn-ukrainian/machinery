@@ -55,9 +55,9 @@ from typing import Any
 
 from agent_runtime.kimi_admission import is_kimi_seat
 
-from . import _channels
+from . import _channels, _config
 from ._channels_watch import watch_channel_events
-from ._config import DISPATCH_ENTRY, MACHINERY_PACKAGE, REPO_ROOT
+from ._config import DISPATCH_ENTRY, MACHINERY_PACKAGE
 
 _PREFLIGHT_FILE_PATH_RE = re.compile(r"[\w/-]+\.py\b")
 _PREFLIGHT_MULTI_STEP_RE = re.compile(
@@ -199,7 +199,7 @@ def _git_output(args: list[str]) -> str:
     try:
         result = subprocess.run(
             ["git", *args],
-            cwd=str(REPO_ROOT),
+            cwd=str(_config.REPO_ROOT),
             capture_output=True,
             text=True,
             timeout=10,
@@ -1945,7 +1945,7 @@ def _handle_discuss(args) -> int:
             previous_transport = os.environ.get("LU_ACPX_TRANSPORT")
             os.environ["LU_ACPX_TRANSPORT"] = "active"
             try:
-                with acp_execution_cwd(REPO_ROOT, task_id=acp_task_id) as execution_cwd:
+                with acp_execution_cwd(_config.REPO_ROOT, task_id=acp_task_id) as execution_cwd:
                     payload = run_discussion(
                         prompt=acp_prompt,
                         cwd=execution_cwd,
@@ -2058,7 +2058,7 @@ def _handle_discuss(args) -> int:
                 agent_name,
                 prompt_text,
                 mode="read-only",
-                cwd=REPO_ROOT,
+                cwd=_config.REPO_ROOT,
                 model=agent_models.get(agent_name),
                 task_id=f"discuss-{correlation_id[:8]}-r{round_idx}-{agent_name}",
                 initiator=runtime_initiator,
@@ -2085,7 +2085,7 @@ def _handle_discuss(args) -> int:
             if agent_name == "cursor":
                 recovered = _recover_cursor_discuss_response_from_session_log(
                     result,
-                    REPO_ROOT,
+                    _config.REPO_ROOT,
                 )
                 if recovered:
                     return (agent_name, recovered, True)

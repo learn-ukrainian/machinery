@@ -19,14 +19,12 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-from ._config import REPO_ROOT
+from . import _config
 
 # Default: keep small reviews fully inline; large coding deliverables go to disk.
 DEFAULT_INLINE_MAX_BYTES = 12 * 1024
 # How much of the head to keep in the SQLite ``messages.content`` row.
 DEFAULT_INLINE_HEAD_BYTES = 4 * 1024
-
-_SIDECAR_ROOT = REPO_ROOT / "batch_state" / "asks"
 
 # Heuristics for "model hit a hard stop mid-deliverable".
 _TRUNCATION_TAIL_RE = re.compile(
@@ -109,7 +107,7 @@ def write_reply_sidecar(
     digest = hashlib.sha256(raw).hexdigest()
     task_seg = _safe_task_segment(task_id)
     agent_seg = re.sub(r"[^A-Za-z0-9._-]+", "-", (from_llm or "agent"))[:40] or "agent"
-    directory = _SIDECAR_ROOT / task_seg
+    directory = _config.REPO_ROOT / "batch_state" / "asks" / task_seg
     directory.mkdir(parents=True, exist_ok=True)
     path = directory / f"reply-{agent_seg}-{digest[:16]}.md"
     # Idempotent: same body → same path; rewrite is fine.
@@ -159,7 +157,7 @@ def maybe_sidecare_response(
 
     path = write_reply_sidecar(full, task_id=task_id, from_llm=from_llm, msg_type=msg_type)
     try:
-        rel = path.resolve().relative_to(REPO_ROOT.resolve()).as_posix()
+        rel = path.resolve().relative_to(_config.REPO_ROOT.resolve()).as_posix()
     except ValueError:
         rel = str(path)
 

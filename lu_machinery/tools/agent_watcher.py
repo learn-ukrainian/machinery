@@ -43,7 +43,8 @@ import yaml
 # ``ai_agent_bridge`` identity (a second sys.modules entry with divergent state).
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 from lu_machinery.ai_agent_bridge._env import build_agent_env
-from lu_machinery.common.repo_root import project_interpreter
+from lu_machinery.common.bridge_paths import default_bridge_db_path
+from lu_machinery.common.repo_root import machinery_path, product_root, project_interpreter, state_root
 
 
 # ---------------------------------------------------------------------------
@@ -64,10 +65,9 @@ def _capture_login_env() -> dict:
             if "=" in line:
                 k, v = line.split("=", 1)
                 env[k] = v
-        repo_root = Path(__file__).parent.parent.parent
-        return build_agent_env(env, repo_root=repo_root)
+        return build_agent_env(env, repo_root=product_root())
     except Exception:
-        return build_agent_env(os.environ, repo_root=Path(__file__).parent.parent.parent)
+        return build_agent_env(os.environ, repo_root=product_root())
 
 
 _LOGIN_ENV_CACHE: dict | None = None
@@ -91,10 +91,11 @@ def _project_python() -> Path:
     return project_interpreter()
 
 
-DB_PATH = Path(__file__).parent.parent.parent / ".mcp/servers/message-broker/messages.db"
-PID_FILE = Path(__file__).parent.parent.parent / ".mcp/servers/message-broker/watcher.pid"
-LOG_FILE = Path(__file__).parent.parent.parent / ".mcp/servers/message-broker/watcher.log"
-BRIDGE_SCRIPT = Path(__file__).parent.parent / "ai_agent_bridge" / "__main__.py"
+# The broker database, pid file and log under the shared state root. main() binds them
+# when it runs, never at import (C-4843).
+DB_PATH: Path
+PID_FILE: Path
+LOG_FILE: Path
 
 # Timing configuration
 POLL_INTERVAL_SECONDS = 5  # How often to check for new messages
@@ -129,7 +130,7 @@ def load_agent_config() -> dict:
     """Load agent registry from scripts/config/agents.yaml (cached)."""
     global _AGENTS_CONFIG
     if _AGENTS_CONFIG is None:
-        config_path = Path(__file__).parent.parent / "config" / "agents.yaml"
+        config_path = machinery_path("config/agents.yaml")
         if config_path.exists():
             with open(config_path) as f:
                 _AGENTS_CONFIG = yaml.safe_load(f).get("agents", {})
@@ -172,12 +173,12 @@ def _save_stuck_report(task_id: str, turn_count: int, last_msg: dict):
         report_dir = None
         for track in ("bio", "hist", "istorio", "lit", "oes", "ruth"):
             if track in task_id:
-                report_dir = Path(__file__).parent.parent.parent / f"curriculum/l2-uk-en/{track}/stuck"
+                report_dir = product_root() / f"curriculum/l2-uk-en/{track}/stuck"
                 report_dir.mkdir(parents=True, exist_ok=True)
                 break
 
         if not report_dir:
-            report_dir = Path(__file__).parent.parent.parent / "curriculum/l2-uk-en/stuck"
+            report_dir = product_root() / "curriculum/l2-uk-en/stuck"
             report_dir.mkdir(parents=True, exist_ok=True)
 
         slug = task_id.replace("rebuild-", "").replace("review-", "").replace("-v4", "")
@@ -345,7 +346,7 @@ def trigger_agent(agent: str, message_id: int, task_id: str | None = None, from_
         bridge_cmd = agents[agent]["bridge_command"]
         cmd = [
             str(_project_python()),
-            str(BRIDGE_SCRIPT),
+            str(machinery_path("ai_agent_bridge/__main__.py")),
             bridge_cmd,
             str(message_id)
         ]
@@ -359,7 +360,7 @@ def trigger_agent(agent: str, message_id: int, task_id: str | None = None, from_
             capture_output=True,
             text=True,
             timeout=360,  # 6 min (safety net for bridge's 5 min sync timeout)
-            cwd=str(Path(__file__).parent.parent.parent),
+            cwd=str(product_root()),
             env=_get_login_env(),
         )
 
@@ -557,6 +558,11 @@ def main():
     parser.add_argument("--once", action="store_true", help="Process one message and exit")
 
     args = parser.parse_args()
+    global DB_PATH, PID_FILE, LOG_FILE
+    state = state_root()
+    DB_PATH = default_bridge_db_path(state)
+    PID_FILE = state / ".mcp/servers/message-broker/watcher.pid"
+    LOG_FILE = state / ".mcp/servers/message-broker/watcher.log"
     _configure_logging()
 
     if args.status:

@@ -20,7 +20,8 @@ from typing import TYPE_CHECKING
 from agent_runtime.target_admission import COMPAT_TARGETS as _TARGETS  # noqa: F401  (legacy ask names, read-only)
 from lu_machinery.common.repo_root import machinery_path
 
-from ._config import DISPATCH_ENTRY, REPO_ROOT
+from . import _config
+from ._config import DISPATCH_ENTRY
 
 if TYPE_CHECKING:
     from agent_runtime.target_admission import AdmittedTarget
@@ -739,7 +740,7 @@ def _run_compat_ask_impl(
             stdout_only=stdout_only,
             hard_timeout=hard_timeout,
             target=target,
-            repo_root=REPO_ROOT,
+            repo_root=_config.REPO_ROOT,
         )
     except AskForwardError:
         raise
@@ -898,7 +899,7 @@ def _run_single_acp_job(
                     raise ValueError(reachability_error)
                 from ._acp_execution import acp_execution_cwd
 
-                with acp_execution_cwd(REPO_ROOT, task_id=task_id) as execution_cwd:
+                with acp_execution_cwd(_config.REPO_ROOT, task_id=task_id) as execution_cwd:
                     result = invoke_inter_agent(
                         participant,
                         prompt,

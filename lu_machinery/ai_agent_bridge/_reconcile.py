@@ -7,9 +7,8 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from . import _channels
+from . import _channels, _config
 from ._broker import _is_task_locked
-from ._config import REPO_ROOT
 from ._db import get_db
 
 _DEFAULT_HARD_TIMEOUT_SECONDS = 900
@@ -56,7 +55,7 @@ def _find_timeout_recovery_commit(delivery_id: str) -> str | None:
     )
     for args in commands:
         result = subprocess.run(
-            ["git", "-C", str(REPO_ROOT), *args],
+            ["git", "-C", str(_config.REPO_ROOT), *args],
             check=False,
             capture_output=True,
             text=True,

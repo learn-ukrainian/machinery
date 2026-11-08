@@ -29,6 +29,7 @@ from agent_runtime.errors import (
 )
 from lu_machinery.common.jsonl import jsonl_lines as split_jsonl_lines
 
+from . import _config
 from ._ask_contract import (
     MAX_TOTAL_ASK_RETRIES,
     NATIVE_ASK_TOOL_CONTRACT,
@@ -45,7 +46,6 @@ from ._ask_lifecycle import (
     record_ask_reply,
     register_ask,
 )
-from ._config import REPO_ROOT
 from ._db import get_db, set_session
 from ._messaging import acknowledge, send_message
 from ._prompts import bridge_prompt, require_core_or_exit
@@ -181,7 +181,7 @@ def process_for_grok_build(
         review_target = review_target_from_message(msg) if review else None
         with provision_review_worktree(
             review_target,
-            repo_root=REPO_ROOT,
+            repo_root=_config.REPO_ROOT,
             allow_local_fallback=bool(review),
         ) as checkout:
             if review:
@@ -209,7 +209,7 @@ def process_for_grok_build(
                 "grok",
                 prompt,
                 mode="read-only",
-                cwd=checkout.path if checkout is not None else REPO_ROOT,
+                cwd=checkout.path if checkout is not None else _config.REPO_ROOT,
                 model=model,
                 task_id=msg["task_id"],
                 session_id=None,
@@ -255,7 +255,7 @@ def process_for_grok_build(
 
     turn_status = _native_grok_turn_status(
         session_id=getattr(result, "session_id", None),
-        cwd=checkout.path if checkout is not None else REPO_ROOT,
+        cwd=checkout.path if checkout is not None else _config.REPO_ROOT,
     )
     if turn_status["outcome"] != "completed":
         if (
@@ -376,7 +376,7 @@ def _attempt_cancel_and_retell_retry(
             "grok",
             retry_prompt,
             mode="read-only",
-            cwd=checkout.path if checkout is not None else REPO_ROOT,
+            cwd=checkout.path if checkout is not None else _config.REPO_ROOT,
             model=model,
             task_id=msg["task_id"],
             session_id=None,
@@ -405,7 +405,7 @@ def _attempt_cancel_and_retell_retry(
 
     new_turn_status = _native_grok_turn_status(
         session_id=getattr(result, "session_id", None),
-        cwd=checkout.path if checkout is not None else REPO_ROOT,
+        cwd=checkout.path if checkout is not None else _config.REPO_ROOT,
     )
     if new_turn_status["outcome"] != "completed":
         _handle_grok_build_incomplete_turn(

@@ -29,7 +29,6 @@ from common.repo_root import machinery_path, project_interpreter
 from . import _config
 from ._ask_contract import MAX_TOTAL_ASK_RETRIES
 from ._broker import _remove_pid_file, _write_pid_file
-from ._config import _PARENT_ENV, PID_DIR, REPO_ROOT
 from ._db import connect_readonly, get_db
 
 _ASK_AGENT = "ask"
@@ -44,7 +43,7 @@ def _now_iso() -> str:
 
 
 def _ask_state_root() -> Path:
-    return REPO_ROOT / "batch_state" / "asks"
+    return _config.REPO_ROOT / "batch_state" / "asks"
 
 
 def _ask_task_key(message_id: int) -> str:
@@ -58,7 +57,7 @@ def _ask_state_dir(message_id: int) -> Path:
 
 
 def _ask_log_path(message_id: int) -> Path:
-    return REPO_ROOT / ".mcp" / "servers" / "message-broker" / "logs" / f"ask-{message_id}.log"
+    return _config.REPO_ROOT / ".mcp" / "servers" / "message-broker" / "logs" / f"ask-{message_id}.log"
 
 
 def _atomic_write_json(path: Path, payload: dict[str, Any]) -> None:
@@ -382,7 +381,7 @@ def launch_background_ask(message_id: int, target: str, options: dict[str, Any])
     not treat a dead worker as a successful dispatch.
     """
     task_key = str(message_id)
-    log_dir = REPO_ROOT / ".mcp" / "servers" / "message-broker" / "logs"
+    log_dir = _config.REPO_ROOT / ".mcp" / "servers" / "message-broker" / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
     log_file = log_dir / f"ask-{message_id}.log"
 
@@ -405,8 +404,8 @@ def launch_background_ask(message_id: int, target: str, options: dict[str, Any])
                 ],
                 stdout=log,
                 stderr=subprocess.STDOUT,
-                cwd=str(REPO_ROOT),
-                env=_PARENT_ENV,
+                cwd=str(_config.REPO_ROOT),
+                env=_config._PARENT_ENV,
                 start_new_session=True,
             )
     except OSError as exc:
@@ -1002,7 +1001,7 @@ def _process_target(message_id: int, target: str, options: dict[str, Any]) -> bo
 
 
 def _background_options(message_id: int, target: str) -> dict[str, Any]:
-    state_path = PID_DIR / f"{_ASK_AGENT}-{message_id}.json"
+    state_path = _config.PID_DIR / f"{_ASK_AGENT}-{message_id}.json"
     payload = json.loads(state_path.read_text(encoding="utf-8"))
     if payload.get("target") != target:
         raise ValueError(f"background target mismatch for ask #{message_id}")
@@ -1110,11 +1109,11 @@ def _plane_root() -> Path:
         return _PLANE_ROOT_OVERRIDE
     plane_mod = _import_message_plane()
     if plane_mod is not None:
-        return Path(plane_mod.default_plane_root(repo_root=REPO_ROOT))
+        return Path(plane_mod.default_plane_root(repo_root=_config.REPO_ROOT))
     env = os.environ.get("FLEET_COMMS_ROOT")
     if env:
         return Path(env)
-    return REPO_ROOT / "batch_state" / "fleet-comms" / "v1"
+    return _config.REPO_ROOT / "batch_state" / "fleet-comms" / "v1"
 
 
 def _plane_try_open_ask(message_id: int) -> None:

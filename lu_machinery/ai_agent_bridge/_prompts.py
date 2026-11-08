@@ -1,12 +1,11 @@
 """Prompt building for Gemini and Claude interactions."""
 
-import os
 from pathlib import Path
 
-from lu_machinery.common.repo_root import product_root
 from lu_machinery.lib import rules_core
 
-from ._config import MACHINERY_PACKAGE, REPO_ROOT
+from . import _config
+from ._config import MACHINERY_PACKAGE
 
 
 def _product_doc(relative: str) -> Path:
@@ -16,7 +15,7 @@ def _product_doc(relative: str) -> Path:
     bridge also serves other repositories); unset, the document is in the product checkout
     ``product_root`` selects (C-4746), which refuses when there is none.
     """
-    return (REPO_ROOT if os.environ.get("AB_REPO_ROOT") else product_root()) / relative
+    return _config.REPO_ROOT / relative
 
 
 def review_protocol_prefix(

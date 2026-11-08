@@ -31,15 +31,10 @@ from datetime import UTC, datetime
 
 logger = logging.getLogger(__name__)
 
-from fastapi import APIRouter, Depends, Query, Request, Response
-from fastapi.responses import JSONResponse
-
-try:
-    from path_safety import safe_join  # scripts/ on sys.path (test sys.path-hack)
-except ImportError:
-    from ..path_safety import safe_join  # scripts.api package import (production)
 from pathlib import Path
 
+from fastapi import APIRouter, Depends, Query, Request, Response
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 try:
@@ -215,7 +210,7 @@ def _run_delivery_expiry_sweep(message_db: "os.PathLike[str]") -> None:
         # a second sys.modules identity — and on the sweep's background thread
         # it did so at racy, xdist-order-dependent times.
         from lu_machinery.ai_agent_bridge import _channels as _ch  # noqa: PLC0415 — optional broker bridge
-        from lu_machinery.ai_agent_bridge import _db as _ch_db  # noqa: PLC0415 — optional broker bridge
+        from lu_machinery.ai_agent_bridge import _config as _ch_config  # noqa: PLC0415 — optional broker bridge
     except Exception:
         logger.exception(
             "bridge delivery-expiry sweep: %s.ai_agent_bridge not importable",
@@ -223,13 +218,14 @@ def _run_delivery_expiry_sweep(message_db: "os.PathLike[str]") -> None:
         )
         return
 
-    # `_db.get_db()` reads its own module-level DB_PATH, bound once from
-    # AB_DB_PATH at first import — it does not track this router's
-    # MonitorContext. Point it at the exact same broker DB this router
-    # already resolved from the app's context so the sweep can never land
-    # on a different file.
-    previous_db_path = _ch_db.DB_PATH
-    _ch_db.DB_PATH = message_db
+    # `_db.get_db()` reads the bridge's `_config.DB_PATH`, resolved at each
+    # call from AB_DB_PATH and the state root — it does not track this
+    # router's MonitorContext. Point it at the exact same broker DB this
+    # router already resolved from the app's context so the sweep can never
+    # land on a different file. Restoring drops the override (an earlier one
+    # is put back), so the attribute resolves at the call again.
+    previous_db_path = vars(_ch_config).get("DB_PATH")
+    _ch_config.DB_PATH = message_db
     try:
         released = _ch.release_expired_leases()
         expired = _ch.expire_stale_deliveries()
@@ -246,7 +242,10 @@ def _run_delivery_expiry_sweep(message_db: "os.PathLike[str]") -> None:
     except Exception:
         logger.exception("bridge delivery-expiry sweep failed")
     finally:
-        _ch_db.DB_PATH = previous_db_path
+        if previous_db_path is None:
+            vars(_ch_config).pop("DB_PATH", None)
+        else:
+            _ch_config.DB_PATH = previous_db_path
 
 
 def _parse_agent_csv(raw: str | None) -> list[str]:
@@ -1217,8 +1216,8 @@ async def get_channel_endpoint(name: str, ctx: MonitorContext = Depends(get_ctx)
     context_sha = ""
     context_errors: list[str] = []
     try:
-        # safe_join enforces CodeQL-recognized containment under CONTEXT_ROOT.
-        ctx_path = safe_join(_ch.CONTEXT_ROOT, safe_name, "context.md")
+        # channel_context_path enforces CodeQL-recognized containment under the context root.
+        ctx_path = _ch.channel_context_path(safe_name)
         if ctx_path.is_file():
             context_preview = ctx_path.read_text("utf-8")[:2000]
             context_sha = _ch.context_sha256(ctx_path)
@@ -1628,7 +1627,7 @@ def comms_inbox(
     ``ai_agent_bridge`` to actually drain messages.
     """
     try:
-        from lu_machinery.ai_agent_bridge import _db as _bridge_db  # noqa: PLC0415 — optional broker bridge
+        from lu_machinery.ai_agent_bridge import _config as _bridge_config  # noqa: PLC0415 — optional broker bridge
         from lu_machinery.ai_agent_bridge._channels import (  # noqa: PLC0415 — optional broker bridge
             pending_deliveries_for,
         )
@@ -1638,15 +1637,15 @@ def comms_inbox(
             content={"error": "channel bridge not importable"},
         )
 
-    # ``_db.get_db()`` reads its own module-level DB_PATH, bound once from
-    # AB_DB_PATH at first import — it does not track this router's
+    # ``_db.get_db()`` reads the bridge's ``_config.DB_PATH``, resolved at
+    # each call — it does not track this router's
     # MonitorContext. Point it at the context's broker DB for the duration
     # of the query so the bridge can never land on a different file than
     # every other comms route (same save/restore discipline as the
     # delivery-expiry sweep below).
     message_db = ctx.roots.message_db_path
-    previous_db_path = _bridge_db.DB_PATH
-    _bridge_db.DB_PATH = message_db
+    previous_db_path = vars(_bridge_config).get("DB_PATH")
+    _bridge_config.DB_PATH = message_db
     try:
         all_pending = pending_deliveries_for(agent)
     except ValueError as exc:
@@ -1663,7 +1662,10 @@ def comms_inbox(
             content={"error": "bridge query failed", "error_id": error_id},
         )
     finally:
-        _bridge_db.DB_PATH = previous_db_path
+        if previous_db_path is None:
+            vars(_bridge_config).pop("DB_PATH", None)
+        else:
+            _bridge_config.DB_PATH = previous_db_path
 
     total = len(all_pending)
     truncated = total > limit

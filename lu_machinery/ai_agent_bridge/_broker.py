@@ -7,7 +7,7 @@ import subprocess
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-from ._config import DB_PATH, PID_DIR, REPO_ROOT
+from . import _config
 
 
 def _git_status_snapshot() -> set[str]:
@@ -16,7 +16,7 @@ def _git_status_snapshot() -> set[str]:
         result = subprocess.run(
             ["git", "status", "--porcelain"],
             capture_output=True, text=True, timeout=10,
-            cwd=str(REPO_ROOT)
+            cwd=str(_config.REPO_ROOT)
         )
         return set(result.stdout.strip().splitlines()) if result.stdout.strip() else set()
     except Exception:
@@ -35,7 +35,7 @@ def _validate_file_writes(pre_snapshot: set[str], allowed_path: str) -> list[str
 
     # Normalize allowed path to be relative to repo root
     try:
-        allowed_rel = str(Path(allowed_path).resolve().relative_to(REPO_ROOT.resolve()))
+        allowed_rel = str(Path(allowed_path).resolve().relative_to(_config.REPO_ROOT.resolve()))
     except ValueError:
         allowed_rel = allowed_path
 
@@ -50,8 +50,8 @@ def _validate_file_writes(pre_snapshot: set[str], allowed_path: str) -> list[str
 
 def _write_pid_file(agent: str, task_id: str, info: dict, pid: int | None = None):
     """Write a PID file for a running agent process."""
-    PID_DIR.mkdir(parents=True, exist_ok=True)
-    pid_file = PID_DIR / f"{agent}-{task_id}.json"
+    _config.PID_DIR.mkdir(parents=True, exist_ok=True)
+    pid_file = _config.PID_DIR / f"{agent}-{task_id}.json"
     pid_data = {
         "pid": pid or os.getpid(),
         "agent": agent,
@@ -73,7 +73,7 @@ def _is_task_locked(agent: str, task_id: str) -> bool:
     if not task_id:
         return False
 
-    pid_file = PID_DIR / f"{agent}-{task_id}.json"
+    pid_file = _config.PID_DIR / f"{agent}-{task_id}.json"
     if not pid_file.exists():
         return False
 
@@ -133,7 +133,7 @@ def _check_stale_lock(data: dict, pid: int, pid_file: Path) -> bool:
 
 def _remove_pid_file(agent: str, task_id: str):
     """Remove PID file when process finishes."""
-    pid_file = PID_DIR / f"{agent}-{task_id}.json"
+    pid_file = _config.PID_DIR / f"{agent}-{task_id}.json"
     pid_file.unlink(missing_ok=True)
 
 
@@ -189,12 +189,12 @@ def broker_retention_cleanup(older_than: str = "30d", dry_run: bool = False) -> 
     """
     from ._db import register_kimi_row_functions
 
-    if not DB_PATH.exists():
+    if not _config.DB_PATH.exists():
         return 0
 
     cutoff = datetime.now(UTC) - _parse_age_window(older_than)
     cutoff_iso = cutoff.isoformat()
-    db = sqlite3.connect(str(DB_PATH))
+    db = sqlite3.connect(str(_config.DB_PATH))
     db.row_factory = sqlite3.Row
     db.execute("PRAGMA busy_timeout=5000")
     db.execute("PRAGMA foreign_keys=ON")
@@ -310,10 +310,10 @@ def _table_exists(db: sqlite3.Connection, table: str) -> bool:
 def _cleanup_stale_pids(action: str, max_age_hours: int, dry_run: bool) -> int:
     """Clean stale PID files. Returns count of cleaned items."""
     cleaned = 0
-    if not PID_DIR.exists():
+    if not _config.PID_DIR.exists():
         return 0
 
-    for pid_file in PID_DIR.glob("*.json"):
+    for pid_file in _config.PID_DIR.glob("*.json"):
         try:
             data = json.loads(pid_file.read_text())
             pid = data.get("pid", 0)
@@ -352,10 +352,10 @@ def _cleanup_ancient_messages(action: str, max_age_hours: int, dry_run: bool) ->
     from ._ask_lifecycle import skip_stored_kimi_row
 
     cleaned = 0
-    if not DB_PATH.exists():
+    if not _config.DB_PATH.exists():
         return 0
 
-    db = sqlite3.connect(str(DB_PATH))
+    db = sqlite3.connect(str(_config.DB_PATH))
     db.row_factory = sqlite3.Row
     datetime.now(UTC).isoformat()
     rows = db.execute(
@@ -383,11 +383,11 @@ def _cleanup_ancient_messages(action: str, max_age_hours: int, dry_run: bool) ->
 
 def bridge_status():
     """Show status of all running bridge processes."""
-    if not PID_DIR.exists():
+    if not _config.PID_DIR.exists():
         print("No PID directory found. No processes tracked yet.")
         return
 
-    pid_files = list(PID_DIR.glob("*.json"))
+    pid_files = list(_config.PID_DIR.glob("*.json"))
     if not pid_files:
         print("No bridge processes tracked.")
         return
@@ -434,7 +434,7 @@ def _print_process_info(name: str, data: dict):
     print(f"    Model: {data.get('model', 'N/A')}")
     print(f"    Started: {data.get('started')}")
     # Show log file tail
-    log_dir = REPO_ROOT / ".mcp/servers/message-broker/logs"
+    log_dir = _config.REPO_ROOT / ".mcp/servers/message-broker/logs"
     log_file = log_dir / f"{data.get('agent')}-{data.get('task_id')}.log"
     if log_file.exists():
         lines = log_file.read_text().strip().split('\n')
