@@ -198,12 +198,20 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--repo",
         type=Path,
-        default=Path(__file__).resolve().parents[2],
-        help="repo path to check (default: this project root)",
+        default=None,
+        help="repo path to check (default: the product checkout)",
     )
     args = parser.parse_args(argv)
 
-    ok, message = check_core_bare(args.repo, fix=args.fix)
+    repo = args.repo
+    if repo is None:
+        try:
+            from lu_machinery.common.repo_root import product_root
+        except ModuleNotFoundError:  # direct file-path invocation
+            sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+            from lu_machinery.common.repo_root import product_root
+        repo = product_root()
+    ok, message = check_core_bare(repo, fix=args.fix)
     if not ok:
         print(f"❌ {message}", file=sys.stderr)
         return 1

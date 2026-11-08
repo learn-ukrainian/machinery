@@ -18,6 +18,7 @@ if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from lu_machinery.common.nofollow_walk import ComponentOpenError, open_directory_component
+from lu_machinery.common.repo_root import state_root
 from lu_machinery.common.task_scratch import ContainmentError, _remove_invocation_dir, fd_mount_id
 from lu_machinery.fleet import ignored_task_output, pr_identity
 from lu_machinery.hygiene.batch_state_retention import default_batch_root
@@ -39,7 +40,7 @@ RELEASE_AGE_DAYS = 3
 
 @lru_cache(maxsize=4096)
 def landed_reason(head: str, branch: str) -> str | None:
-    repo_root = Path(__file__).resolve().parents[2]
+    repo_root = state_root()  # before the try: a missing anchor must refuse, not read as "keep"
     try:
         result = subprocess.run(["git", "merge-base", "--is-ancestor", head, "origin/main"], cwd=repo_root, env=pr_identity._sanitized_env(), capture_output=True, timeout=15, check=False)
         if result.returncode == 0:
@@ -299,6 +300,8 @@ def expire_entry(root: int, name: str, batch: Path, keep_list: Path | None, keep
 
 
 def run(batch: Path, keep_list: Path | None, reports: Path, *, apply: bool = False, allow_empty_keep_list: bool = False, expire_older_than_hours: int | None = None) -> int:
+    if expire_older_than_hours is None:
+        state_root()  # landing proof needs the anchor: refuse now, not as per-entry "unreadable" skips
     root = directory(batch / "preserved")
     try:
         try:
@@ -412,8 +415,8 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     if args.expire_older_than_hours is not None and args.expire_older_than_hours <= 0:
         parser.error("--expire-older-than-hours must be a positive integer")
-    batch = (args.batch_root or default_batch_root()).absolute()
     try:
+        batch = (args.batch_root or default_batch_root()).absolute()
         return run(batch, args.keep_list, args.reports_dir or batch / "reports", apply=args.apply, allow_empty_keep_list=args.allow_empty_keep_list, expire_older_than_hours=args.expire_older_than_hours)
     except (OSError, ValueError, ComponentOpenError) as exc:
         print(f"preserved-retention: {type(exc).__name__}", file=sys.stderr)

@@ -55,7 +55,12 @@ _append_event = _check_primary_integrity._append_event
 _resolve_main_root = _check_primary_integrity._resolve_main_root
 _running_dispatches = _check_primary_integrity._running_dispatches
 
-from lu_machinery.common.safe_unit_install import InstallError, check_state_paths, load_unit
+from lu_machinery.common.repo_root import state_root
+from lu_machinery.common.safe_unit_install import (
+    InstallError,
+    check_state_paths,
+    load_unit,
+)
 
 
 def _machinery_top() -> str:
@@ -285,7 +290,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("-q", "--quiet", action="store_true", help="suppress the OK message (alerts still print)")
     parser.add_argument(
-        "--repo", type=Path, default=Path(__file__).resolve().parents[2], help="repo path used to resolve telemetry state (default: this project root)"
+        "--repo", type=Path, default=None, help="repo path used to resolve telemetry state (default: configured shared-state root)"
     )
     parser.add_argument("--home", type=Path, default=None, help="home directory that owns the LaunchAgent (default: ~)")
     parser.add_argument(
@@ -299,8 +304,12 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
+    try:
+        repo = args.repo if args.repo is not None else state_root()
+    except ValueError as error:
+        parser.error(str(error))
     ok, message = check_worktree_cleanup_integrity(
-        args.repo,
+        repo,
         home=args.home,
         tasks_dir=args.tasks_dir,
         state_dir=args.state_dir,

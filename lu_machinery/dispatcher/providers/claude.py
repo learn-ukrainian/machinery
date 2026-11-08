@@ -8,6 +8,7 @@ from pathlib import Path
 
 from lu_machinery.agent_runtime.sources_read_only import sources_tool_sets
 from lu_machinery.common.jsonl import jsonl_lines
+from lu_machinery.common.repo_root import product_root
 from lu_machinery.dispatcher.providers.stream_json import SOURCES_SERVER
 from lu_machinery.dispatcher.types import Invocation, ParsedResult, TaskSpec
 from lu_machinery.lib import rules_core
@@ -128,7 +129,7 @@ def review_shell_env(spec: TaskSpec) -> dict[str, str]:
 
 
 def _sources_mcp_config() -> str:
-    servers = json.loads(rules_core.source_path(".mcp.json").read_text(encoding="utf-8"))["mcpServers"]
+    servers = json.loads((product_root() / ".mcp.json").read_text(encoding="utf-8"))["mcpServers"]
     return json.dumps({"mcpServers": {_SOURCES_SERVER: servers[_SOURCES_SERVER]}}, separators=(",", ":"))
 
 

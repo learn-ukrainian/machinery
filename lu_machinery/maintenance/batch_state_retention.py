@@ -25,14 +25,15 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
 # The package directory, from the unresolved file location. A literal scripts/
-# join is the machinery package name (design-v1 amendment 1).
+# join is the machinery package name (design-v1 amendment 1). It and its parent go
+# on sys.path only for file-path invocation; neither is a state or product root.
 _PACKAGE_DIR = Path(os.path.abspath(__file__)).parents[1]
-for _path in (REPO_ROOT, _PACKAGE_DIR):
+for _path in (_PACKAGE_DIR.parent, _PACKAGE_DIR):
     if str(_path) not in sys.path:
         sys.path.insert(0, str(_path))
 
+from lu_machinery.common.repo_root import state_root
 from lu_machinery.orchestration import worktree_claims
 from lu_machinery.orchestration.task_record_store import ARCHIVE_DIR_NAME
 from lu_machinery.orchestration.worktree_claims import RELEASED_TASK_STATUSES, WorktreeLockError
@@ -42,7 +43,6 @@ def _mp(relative: str) -> str:
     return f"{Path(os.path.abspath(__file__)).parents[1].name}/{relative}"
 
 
-DEFAULT_BATCH_STATE = REPO_ROOT / "batch_state"
 # A clean verdict already lives on the task record, so the full JSON has no
 # forensic value after a day. Seven days reclaimed nothing: the dirs are younger.
 DEFAULT_MIN_AGE_DAYS = 1.0
@@ -88,7 +88,7 @@ def read_only_snapshot_digest(
 def worktree_lock(path: Path | str, timeout_s: float | None = None) -> contextlib.AbstractContextManager[None]:
     """Use the shared repository lock also held by dispatch and record movers."""
     return worktree_claims.worktree_lock(
-        path, lock_dir=worktree_claims.repository_lock_dir(REPO_ROOT), timeout_s=timeout_s,
+        path, lock_dir=worktree_claims.repository_lock_dir(state_root()), timeout_s=timeout_s,
     )
 
 
@@ -793,7 +793,7 @@ def _parser() -> argparse.ArgumentParser:
             "\n"
             "Exit codes:\n"
             "  0  report written (dry-run or apply)\n"
-            "  2  the path is not a directory named batch_state\n"
+            "  2  the path is not a directory named batch_state, or no state root is configured\n"
             "\n"
             "Related:\n"
             "  Legacy read-only snapshot sidecars (#7203, #8783)\n"
@@ -803,9 +803,9 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--batch-state",
         type=Path,
-        default=DEFAULT_BATCH_STATE,
         help=(
-            "Directory named batch_state to measure. Default: <repo>/batch_state. "
+            "Directory named batch_state to measure. Default: <state root>/batch_state, "
+            "the primary named by LEARN_UKRAINIAN_PRIMARY_REPO_ROOT. "
             "The sweep refuses any other directory name."
         ),
     )
@@ -833,7 +833,7 @@ def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     try:
         report = plan_retention(
-            args.batch_state,
+            args.batch_state or state_root() / "batch_state",
             min_age_days=args.min_age_days,
             apply=args.apply,
         )

@@ -2,7 +2,7 @@
 """Append one JSONL timing row for a harness hook invocation.
 
 Enable with HOOK_TIMING=1 (or HOOK_TIMING=always). Default log path:
-  batch_state/hook-timing.jsonl  (gitignored runtime)
+  batch_state/hook-timing.jsonl under the state root  (gitignored runtime)
 
 Does not modify tool stdin/stdout contracts beyond passing them through when
 used as a wrapper (see run_hook_timed.sh).
@@ -20,8 +20,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_LOG = ROOT / "batch_state" / "hook-timing.jsonl"
+from lu_machinery.common.repo_root import MachineryConfigError, state_root
+
 _HOOK_TIMEOUT_SECONDS = 60
 _TIMEOUT_RETURN_CODE = 124
 
@@ -41,7 +41,7 @@ def timing_enabled() -> bool:
 
 def log_path() -> Path:
     raw = (os.environ.get("HOOK_TIMING_LOG") or "").strip()
-    return Path(raw) if raw else DEFAULT_LOG
+    return Path(raw) if raw else state_root() / "batch_state" / "hook-timing.jsonl"
 
 
 def append_row(row: dict[str, Any], path: Path | None = None, *, force: bool = False) -> None:
@@ -88,23 +88,27 @@ def run_wrapped(argv: list[str]) -> int:
         sys.stdout.buffer.write(proc.stdout)
     if proc.stderr:
         sys.stderr.buffer.write(proc.stderr)
-    append_row(
-        {
-            "event": event or "unknown",
-            "matcher": matcher or None,
-            "tool_name": tool or None,
-            "command": argv[0],
-            "argv_tail": argv[1:6],
-            "ms": round(ms, 2),
-            "rc": proc.returncode,
-            "stdout_bytes": len(proc.stdout or b""),
-            "stderr_bytes": len(proc.stderr or b""),
-            "harness": os.environ.get("SESSION_HANDOFF_AGENT")
-            or os.environ.get("GROK_AGENT")
-            or os.environ.get("CLAUDE_CODE")
-            or "unknown",
-        }
-    )
+    try:
+        append_row(
+            {
+                "event": event or "unknown",
+                "matcher": matcher or None,
+                "tool_name": tool or None,
+                "command": argv[0],
+                "argv_tail": argv[1:6],
+                "ms": round(ms, 2),
+                "rc": proc.returncode,
+                "stdout_bytes": len(proc.stdout or b""),
+                "stderr_bytes": len(proc.stderr or b""),
+                "harness": os.environ.get("SESSION_HANDOFF_AGENT")
+                or os.environ.get("GROK_AGENT")
+                or os.environ.get("CLAUDE_CODE")
+                or "unknown",
+            }
+        )
+    except MachineryConfigError as exc:
+        # No state root for the default log: the wrapped hook's result (a deny exits 2) still stands.
+        print(f"hook_timing: timing row not written: {exc}", file=sys.stderr)
     return int(proc.returncode)
 
 
@@ -125,17 +129,20 @@ def main(argv: list[str] | None = None) -> int:
 
     args = parser.parse_args(argv)
     if args.cmd == "log":
-        append_row(
-            {
-                "event": args.event,
-                "matcher": args.matcher or None,
-                "tool_name": args.tool_name or None,
-                "command": args.command or None,
-                "ms": args.ms,
-                "rc": args.rc,
-            },
-            force=True,
-        )
+        try:
+            append_row(
+                {
+                    "event": args.event,
+                    "matcher": args.matcher or None,
+                    "tool_name": args.tool_name or None,
+                    "command": args.command or None,
+                    "ms": args.ms,
+                    "rc": args.rc,
+                },
+                force=True,
+            )
+        except MachineryConfigError as exc:
+            raise SystemExit(f"hook_timing: {exc}") from None
         return 0
     if args.cmd == "wrap":
         cmd = list(args.command)

@@ -43,10 +43,8 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
-from lu_machinery.common.repo_root import resolve_repo_root
+from lu_machinery.common.repo_root import main_checkout_root, state_root
 from lu_machinery.lib.readonly_sqlite import refuse_writable_corpus_database
-
-_MODULE_ROOT = resolve_repo_root(Path(__file__), 2)
 
 _ENV_AUTHORITY = "LEARN_UKRAINIAN_CP_AUTHORITY"
 _ENV_PG_DSN = "LEARN_UKRAINIAN_CP_PG_DSN"
@@ -102,7 +100,7 @@ def _repo_root(repo_root: Path | None) -> Path:
     configured = (os.environ.get("LEARN_UK_REPO_ROOT") or "").strip()
     if configured:
         return Path(configured).expanduser().resolve()
-    return _MODULE_ROOT
+    return state_root()
 
 
 def _parse_authority(raw: str) -> Authority:
@@ -183,9 +181,7 @@ def sqlite_path(store: StoreId, *, repo_root: Path | None = None) -> Path:
         )
         return plane_root / "comms.sqlite3"
     if store is StoreId.SESSION_STREAMS:
-        from agents_extensions.shared.session_streams.db import default_database_path
-
-        return default_database_path(root)
+        return main_checkout_root(root).resolve() / ".agent" / "session-streams" / "v1" / "session-streams.sqlite3"
     if store is StoreId.WRITE_OWNERSHIP:
         override = (os.environ.get("LEARN_UKRAINIAN_OWNERSHIP_LEDGER") or "").strip()
         if override:
