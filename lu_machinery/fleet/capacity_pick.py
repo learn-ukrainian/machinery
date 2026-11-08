@@ -55,6 +55,7 @@ try:
 except ImportError:  # pragma: no cover - script path fallback
     from agent_runtime.agent_identity import RETIRED_AGENT_ALIASES  # type: ignore
 
+from lu_machinery.common.repo_root import state_root
 from lu_machinery.common.task_store_paths import tasks_dir as default_tasks_dir
 from lu_machinery.fleet import credit_lane
 from lu_machinery.fleet.routing_policy import projected_unused_pct
@@ -338,7 +339,6 @@ def build_lane_rows(
     if "codex:b" not in lane_list and isinstance(accounts.get("codex:b"), dict):
         insert_at = lane_list.index("codex") + 1 if "codex" in lane_list else len(lane_list)
         lane_list.insert(insert_at, "codex:b")
-    reserve_root = Path(__file__).resolve().parents[2]
 
     def _account_reserve(label: str, info: dict[str, Any]) -> dict[str, Any]:
         """The reserve that names this account. The other account's assertion does not apply."""
@@ -346,7 +346,7 @@ def build_lane_rows(
         supplied = (
             reset_reserve
             if reset_reserve is not None
-            else load_reset_reserve(reserve_root, codex_info=tagged, account=label)
+            else load_reset_reserve(state_root(), codex_info=tagged, account=label)
         )
         if codex_reserve_account(supplied) != label:
             return unavailable_reserve()

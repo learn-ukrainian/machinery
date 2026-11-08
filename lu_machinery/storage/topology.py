@@ -23,7 +23,7 @@ from pathlib import Path, PurePosixPath
 from types import MappingProxyType
 from typing import Any, Literal
 
-from lu_machinery.common.repo_root import main_checkout_root
+from lu_machinery.common.repo_root import main_checkout_root, product_root
 
 # Required top-level directories that identify a learn-ukrainian bulk root.
 # Both rebuild consumers and the Windows mirror use these as presence markers.
@@ -197,14 +197,8 @@ class ActiveDatabaseNetworkError(ValueError):
 
 
 def default_repository_root(start: Path | None = None) -> Path:
-    """Resolve the repository root containing ``data/`` and ``scripts/``."""
-    cur = start.expanduser().resolve() if start is not None else Path.cwd().resolve()
-    for candidate in (cur, *cur.parents):
-        if (candidate / "scripts").is_dir() and (candidate / "data").is_dir():
-            return candidate
-        if (candidate / "scripts").is_dir() and (candidate / "AGENTS.md").is_file():
-            return candidate
-    return cur
+    """Resolve the explicitly selected product checkout."""
+    return product_root(start)
 
 
 def _is_marker_valid(root: Path, markers: Sequence[str] = REQUIRED_BULK_MARKERS) -> tuple[bool, tuple[str, ...]]:
@@ -586,7 +580,6 @@ def store_locality(path: Path) -> Literal["local", "network", "unknown"]:
 GENERATIONS_DIRNAME = "sources-generations"
 SELECTOR_NAME = "sources.db"
 _GENERATION_NAME = re.compile(r"sources\.\d{8}T\d{6}Z-[0-9a-f]{12}\.db")
-_REPO_ROOT = Path(__file__).resolve().parents[2]
 
 StoreKind = Literal["selector", "generation", "legacy_live", "other"]
 Layout = Literal["selector", "legacy_file", "missing"]
@@ -636,7 +629,7 @@ def inspect_selector(selector: Path) -> SelectorState:
 @functools.cache
 def live_store_path() -> Path:
     """The primary checkout's store path (selector, or the regular file before the bootstrap)."""
-    return resolve_active_sources_db(main_checkout_root(_REPO_ROOT), env={}).path
+    return resolve_active_sources_db(main_checkout_root(product_root()), env={}).path
 
 
 @dataclass(frozen=True)

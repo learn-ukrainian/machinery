@@ -388,7 +388,7 @@ Tests: `tests/test_agent_runtime.py` (`test_write_guard_*`,
 Run the probe from the repository root:
 
 ```bash
-.venv/bin/python lu_machinery/agent_runtime/codex_hook_probe.py --keep-workdir
+.venv/bin/python -m lu_machinery.agent_runtime.codex_hook_probe --keep-workdir
 ```
 
 The probe creates a temporary Git repo under `/private/tmp`, installs a minimal
@@ -407,7 +407,7 @@ matching hook tool name, as evidence that the path is blockable.
 Use this command for a cheap harness-only check that does not call Codex:
 
 ```bash
-.venv/bin/python lu_machinery/agent_runtime/codex_hook_probe.py --self-test
+.venv/bin/python -m lu_machinery.agent_runtime.codex_hook_probe --self-test
 ```
 
 ## Desktop/direct edit probe

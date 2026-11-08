@@ -66,6 +66,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import NamedTuple
 
+from lu_machinery.common.repo_root import product_root
+
 try:
     from lu_machinery.lib.readonly_sqlite import open_readonly
 except ModuleNotFoundError as exc:
@@ -252,7 +254,7 @@ def _repository_sources_db() -> Path:
     if _REPOSITORY_SOURCES_DB is None:
         from lu_machinery.storage.topology import resolve_active_sources_db
 
-        root = Path(__file__).resolve().parents[2]
+        root = product_root()
         _REPOSITORY_SOURCES_DB = resolve_active_sources_db(root, env={}, refuse_network=False).path
     return _REPOSITORY_SOURCES_DB
 
@@ -325,7 +327,7 @@ def _garbled_esum_catalog() -> dict[str, dict]:
     global _GARBLED_ESUM_CATALOG
     if _GARBLED_ESUM_CATALOG is not None:
         return _GARBLED_ESUM_CATALOG
-    path = Path(__file__).resolve().parents[2] / "registry" / "lexicon" / "esum_garbled_etymologies.json"
+    path = product_root() / "registry" / "lexicon" / "esum_garbled_etymologies.json"
     catalog: dict[str, dict] = {}
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))

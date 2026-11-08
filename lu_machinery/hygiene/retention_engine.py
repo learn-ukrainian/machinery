@@ -26,16 +26,16 @@ from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_PLAN_DIR = REPO_ROOT / "batch_state" / "fleet-comms" / "retention"
-DEFAULT_OBSERVATION_LOG = DEFAULT_PLAN_DIR / "gate5-observation-log.json"
+PLAN_DIR_REL = Path("batch_state") / "fleet-comms" / "retention"
 DEFAULT_ARCHIVE_ROOT = Path.home() / "Library" / "Application Support" / "learn-ukrainian" / "retention-archives"
 GATE5_TARGET_DAYS = 7
 
-# Ensure repo scripts/ is importable when invoked as a file path.
-if str(REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT))
+# Make the package importable when invoked as a file path; never a state or product root.
+_IMPORT_ROOT = str(Path(__file__).resolve().parents[2])
+if _IMPORT_ROOT not in sys.path:
+    sys.path.insert(0, _IMPORT_ROOT)
 
+from lu_machinery.common.repo_root import MachineryConfigError, product_root, state_root
 from lu_machinery.hygiene.lane_disk_retention import (
     scan_dispatch_worktrees,
     scan_home_session_hints,
@@ -243,7 +243,7 @@ def record_gate5_observation(
     plan: dict[str, Any],
     *,
     plan_path: Path,
-    log_path: Path = DEFAULT_OBSERVATION_LOG,
+    log_path: Path,
     target_days: int = GATE5_TARGET_DAYS,
 ) -> dict[str, Any]:
     """Append Gate 5 dry-run evidence. One calendar day (UTC) per unique day label.
@@ -325,7 +325,7 @@ def record_gate5_observation(
                     # batch_state/tmp/ — approve only the log's parent directory.
                     guarded = assert_delete_target(
                         tmp_path,
-                        repo_root=REPO_ROOT,
+                        repo_root=state_root(),
                         approved_temp_roots=(log_path.parent,),
                     )
                     guarded.unlink()
@@ -339,17 +339,20 @@ def record_gate5_observation(
 
 
 def cmd_plan(args: argparse.Namespace) -> int:
-    try:
-        root = resolve_repo_root(Path(args.repo_root).resolve() if args.repo_root else None)
-    except RuntimeError:
-        root = Path(args.repo_root or REPO_ROOT).resolve()
+    if args.repo_root:
+        try:
+            root = resolve_repo_root(Path(args.repo_root).resolve())
+        except RuntimeError:
+            root = Path(args.repo_root).resolve()
+    else:
+        root = product_root().resolve()
     plan = build_plan(
         repo_root=root,
         archive_root=Path(args.archive_root),
         stale_hours=args.stale_hours,
         include_home=args.include_home,
     )
-    plan_dir = Path(args.plan_dir)
+    plan_dir = Path(args.plan_dir or state_root() / PLAN_DIR_REL)
     path = write_plan(plan, plan_dir)
     observation = record_gate5_observation(
         plan,
@@ -372,14 +375,15 @@ def cmd_plan(args: argparse.Namespace) -> int:
 
 
 def cmd_latest(args: argparse.Namespace) -> int:
-    latest = Path(args.plan_dir) / "latest.json"
+    plan_dir = Path(args.plan_dir or state_root() / PLAN_DIR_REL)
+    latest = plan_dir / "latest.json"
     if not latest.is_file():
         sys.stdout.write(
             json.dumps(
                 {
                     "schema": "fleet-comms.retention.plan.v1",
                     "missing": True,
-                    "plan_dir": str(Path(args.plan_dir)),
+                    "plan_dir": str(plan_dir),
                 },
                 indent=2,
                 sort_keys=True,
@@ -404,7 +408,7 @@ def build_parser() -> argparse.ArgumentParser:
             f"  .venv/bin/python {_mp('hygiene/retention_engine.py')} latest\n"
             "Outputs: plan writes plan-<stamp>-<digest>.json, latest.json and the Gate 5 observation log under "
             "--plan-dir; every subcommand prints JSON to stdout.\n"
-            "Exit codes: 0 success; 2 invalid usage.\n"
+            "Exit codes: 0 success; 2 invalid usage or no product or state root configured.\n"
             "Related: Sol PR-L retention Gate 5; #9737; docs/runbooks/tmp-retention.md; "
             f"{_mp('hygiene/lane_disk_retention.py')}."
         ),
@@ -419,13 +423,12 @@ def build_parser() -> argparse.ArgumentParser:
     plan.add_argument(
         "--repo-root",
         default=None,
-        help="Repository whose primary checkout is planned (default: this checkout; example: .).",
+        help="Repository whose primary checkout is planned (default: the product root, LU_PRODUCT_ROOT; example: .).",
     )
     plan.add_argument(
         "--plan-dir",
         type=Path,
-        default=DEFAULT_PLAN_DIR,
-        help="Directory for plan files and the observation log (default: batch_state/fleet-comms/retention).",
+        help="Directory for plan files and the observation log (default: <state root>/batch_state/fleet-comms/retention).",
     )
     plan.add_argument(
         "--archive-root",
@@ -454,8 +457,7 @@ def build_parser() -> argparse.ArgumentParser:
     latest.add_argument(
         "--plan-dir",
         type=Path,
-        default=DEFAULT_PLAN_DIR,
-        help="Directory holding latest.json (default: batch_state/fleet-comms/retention).",
+        help="Directory holding latest.json (default: <state root>/batch_state/fleet-comms/retention).",
     )
     latest.set_defaults(func=cmd_latest)
 
@@ -465,7 +467,10 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
-    return int(args.func(args))
+    try:
+        return int(args.func(args))
+    except MachineryConfigError as error:
+        parser.error(str(error))
 
 
 if __name__ == "__main__":

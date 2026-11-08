@@ -29,13 +29,12 @@ import argparse
 import json
 import subprocess
 import urllib.request
-from pathlib import Path
 
 from lu_machinery.ci.advisory_checks import is_advisory, load_advisory_checks
 from lu_machinery.common import github_client
+from lu_machinery.common.repo_root import product_root
 from lu_machinery.github_check_rollup import collapse_status_rollup
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DELEGATE_ACTIVE_URL = "http://127.0.0.1:8765/api/delegate/active"
 
 OK, RED, UNKNOWN = "ok", "red", "unknown"
@@ -46,7 +45,7 @@ DEFAULT_GH_TIMEOUT_SECONDS = 60.0
 def _git(*args: str) -> tuple[int, str]:
     try:
         proc = subprocess.run(
-            ["git", "-C", str(PROJECT_ROOT), *args],
+            ["git", "-C", str(product_root()), *args],
             capture_output=True,
             text=True,
             timeout=DEFAULT_GIT_TIMEOUT_SECONDS,
@@ -62,7 +61,7 @@ def _gh_json(*args: str) -> tuple[int, object]:
             ["gh", *args],
             capture_output=True,
             text=True,
-            cwd=PROJECT_ROOT,
+            cwd=product_root(),
             timeout=DEFAULT_GH_TIMEOUT_SECONDS,
             fresh=True,
         )

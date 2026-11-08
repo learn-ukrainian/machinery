@@ -32,34 +32,33 @@ from lu_machinery.orchestration.red_ci_known_failures import (
     load_and_validate_registry,
 )
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
 TRAIL_SPEC_SCHEMA_PATH = (
-    PROJECT_ROOT / "agents_extensions/shared/schemas/trailspec.v1.schema.json"
+    machinery_path("schemas/trailspec.v1.schema.json")
 )
 TRAIL_SPEC_V11_SCHEMA_PATH = (
-    PROJECT_ROOT / "agents_extensions/shared/schemas/trailspec.v1.1.schema.json"
+    machinery_path("schemas/trailspec.v1.1.schema.json")
 )
 STEP_RECEIPT_SCHEMA_PATH = (
-    PROJECT_ROOT / "agents_extensions/shared/schemas/step-receipt.v1.schema.json"
+    machinery_path("schemas/step-receipt.v1.schema.json")
 )
 STEP_RECEIPT_V11_SCHEMA_PATH = (
-    PROJECT_ROOT / "agents_extensions/shared/schemas/step-receipt.v1.1.schema.json"
+    machinery_path("schemas/step-receipt.v1.1.schema.json")
 )
 COMMAND_RECEIPT_SCHEMA_PATH = (
-    PROJECT_ROOT / "agents_extensions/shared/schemas/command-receipt.v1.schema.json"
+    machinery_path("schemas/command-receipt.v1.schema.json")
 )
 SEAT_TAXONOMY_PATH = machinery_path("config/fleet_communications.yaml")
 DEFAULT_EXAMPLE_TRAIL_PATH = (
     machinery_path("config/trails/rb3-pr-lifecycle.trail.yaml")
 )
 DECISION_TABLES_SCHEMA_PATH = (
-    PROJECT_ROOT / "agents_extensions/shared/schemas/decision-tables.v0.schema.json"
+    machinery_path("schemas/decision-tables.v0.schema.json")
 )
 DECISION_TABLES_V1_SCHEMA_PATH = (
-    PROJECT_ROOT / "agents_extensions/shared/schemas/decision-tables.v1.schema.json"
+    machinery_path("schemas/decision-tables.v1.schema.json")
 )
 ESTATE_REGISTRY_SCHEMA_PATH = (
-    PROJECT_ROOT / "agents_extensions/shared/schemas/estate-registry.v1.schema.json"
+    machinery_path("schemas/estate-registry.v1.schema.json")
 )
 DEFAULT_DECISION_TABLES_PATH = (
     machinery_path("config/trails/decision-tables.v0.yaml")
