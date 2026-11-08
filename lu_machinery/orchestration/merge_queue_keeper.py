@@ -47,6 +47,7 @@ from lu_machinery.orchestration.integration_sweep import (
 )
 from lu_machinery.publish.github import Request, request_run
 from lu_machinery.review import contract_canary
+from lu_machinery.review.tiers import classify_pr_files
 
 # This package's import name, from the unresolved file location: never from __package__, which a
 # short import spelling (orchestration.x with scripts/ on sys.path) shortens. Its dotted parts
@@ -258,11 +259,16 @@ class GitHub:
     def comments(self, number: int) -> list[dict[str, Any]]:
         return self.paged(Request("read-comments", repo=self.repository, number=number))
 
-    def pr_files(self, number: int) -> list[str]:
+    def pr_file_rows(self, number: int) -> list[dict[str, Any]]:
         try:
-            return pr_file_paths(self.paged(Request("read-pr-files", repo=self.repository, number=number)))
+            rows = self.paged(Request("read-pr-files", repo=self.repository, number=number))
+            pr_file_paths(rows)
+            return rows
         except ValueError as exc:
             raise KeeperError(str(exc)) from exc
+
+    def pr_files(self, number: int) -> list[str]:
+        return pr_file_paths(self.pr_file_rows(number))
 
     def checks(self, head: str) -> list[dict[str, Any]]:
         data = self.json(Request("read-checks", repo=self.repository, sha=head))
@@ -601,7 +607,9 @@ def _ever_approved(comments: list[dict[str, Any]], login: str) -> bool:
     return any(lookup_verdict(comments, head, login).state == "APPROVED" for head in heads)
 
 
-def _recorded_approval_for_head(comments: list[dict[str, Any]], head: str, login: str) -> bool:
+def _recorded_approval_for_head(
+    comments: list[dict[str, Any]], head: str, login: str, *, low_tier: bool | None = None,
+) -> bool:
     """Find a recorder-approved head even when a later marker changed the verdict.
 
     One Ukrainian seat's approval counts, so a queued head whose other seat is
@@ -612,7 +620,7 @@ def _recorded_approval_for_head(comments: list[dict[str, Any]], head: str, login
         and isinstance(row.get("body"), str)
         and (marker := parse_marker(row["body"])) is not None
         and marker["sha"] == head
-        and lookup_verdict([row], head, login).state in {"APPROVED", NEEDS_SEAT}
+        and lookup_verdict([row], head, login, low_tier=low_tier).state in {"APPROVED", NEEDS_SEAT}
         for row in comments
     )
 
@@ -1137,21 +1145,27 @@ def run(gh: GitHub, state_path: Path, *, apply: bool = False) -> tuple[list[str]
         comment_safe = True
         # Whether the PR changes learner content, which takes the Ukrainian seats; None when unread.
         learner_content: bool | None = None
+        file_rows: list[dict[str, Any]] = []
+        low_tier = False
         # The typed canary refusal for a review-contract change; None when it may queue (#12399).
         canary: str | None = None
         try:
             comments = gh.comments(number)
-            files = gh.pr_files(number)
+            file_rows = gh.pr_file_rows(number)
+            files = pr_file_paths(file_rows)
+            low_tier = classify_pr_files(file_rows) == "low"
             learner_content = changes_learner_content(files)
             canary = contract_canary.refusal(files, head)
-            verdict = lookup_verdict(comments, head, login, learner_content=learner_content)
+            verdict = lookup_verdict(
+                comments, head, login, learner_content=learner_content, low_tier=low_tier,
+            )
             check_rows = gh.checks(head)
             checks = _check_state(check_rows, head)
         except KeeperError:
             comments, checks, check_rows = [], "CI-unknown", []
             verdict = Verdict("unknown", reason=COMMENTS_UNAVAILABLE)
             comment_safe = False
-        if comment_safe and _recorded_approval_for_head(comments, head, login):
+        if comment_safe and _recorded_approval_for_head(comments, head, login, low_tier=low_tier):
             approved_before = True
         if approved_before:
             approved_now[key] = head
@@ -1255,10 +1269,14 @@ def run(gh: GitHub, state_path: Path, *, apply: bool = False) -> tuple[list[str]
                 try:
                     current_comments = gh.comments(number)
                     if learner_content is None:
-                        files = gh.pr_files(number)
+                        file_rows = gh.pr_file_rows(number)
+                        files = pr_file_paths(file_rows)
                         learner_content = changes_learner_content(files)
                         canary = contract_canary.refusal(files, head)
-                    current_verdict = lookup_verdict(current_comments, head, login, learner_content=learner_content)
+                    low_tier = classify_pr_files(file_rows) == "low"
+                    current_verdict = lookup_verdict(
+                        current_comments, head, login, learner_content=learner_content, low_tier=low_tier,
+                    )
                 except KeeperError:
                     current_comments, current_verdict = [], Verdict("unknown", reason=COMMENTS_UNAVAILABLE)
                     comment_safe = False
@@ -1269,7 +1287,7 @@ def run(gh: GitHub, state_path: Path, *, apply: bool = False) -> tuple[list[str]
                     comment_safe = True
                     can_comment = True
                     verdict = current_verdict
-                    if _recorded_approval_for_head(current_comments, head, login):
+                    if _recorded_approval_for_head(current_comments, head, login, low_tier=low_tier):
                         approved_before = True
                         approved_now[key] = head
                 try:
