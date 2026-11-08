@@ -15,12 +15,9 @@ def _live_repo_root() -> Path:
     """Return the checkout Git operations and child tools must target."""
     configured = os.environ.get("LEARN_UK_REPO_ROOT")
     if not configured:
-        return product_root()
-    supplied = Path(configured)
-    if not supplied.is_absolute():
-        raise RuntimeError("LEARN_UK_REPO_ROOT must be an absolute path")
-    candidate = supplied.resolve()
-    if not candidate.is_dir() or not (candidate / ".git").exists():
+        return __getattr__("PRODUCT_ROOT")
+    candidate = product_root(configured).resolve()
+    if not (candidate / ".git").exists():
         raise RuntimeError(f"LEARN_UK_REPO_ROOT is not a Git checkout: {candidate}")
     return candidate
 
