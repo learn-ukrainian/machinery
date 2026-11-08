@@ -31,8 +31,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from lu_machinery.ci.test_source_cache import parse_test_source, read_test_source
-
-REPO_ROOT = Path(__file__).resolve().parents[2]
+from lu_machinery.common.repo_root import product_root
 
 # Regex matching epic ID stream literals
 _EPIC_ID_RE = re.compile(r"\bepic:\d+\b", re.IGNORECASE)
@@ -400,7 +399,7 @@ def _scan_block(
 
 def scan_file(file_path: Path, repo_root: Path | None = None) -> list[AssertionViolation]:
     """Scan a single Python test file for forbidden hard-coded epic assertions."""
-    root = (repo_root or REPO_ROOT).resolve()
+    root = (repo_root if repo_root is not None else product_root()).resolve()
     rel_path = file_path.resolve().relative_to(root).as_posix()
 
     try:
@@ -425,7 +424,7 @@ def find_stale_pinned_assertions(
     paths: Sequence[Path] | None = None,
 ) -> list[AssertionViolation]:
     """Scan test files under repo_root or explicit paths for stale pinned assertions."""
-    root = (repo_root or REPO_ROOT).resolve()
+    root = (repo_root if repo_root is not None else product_root()).resolve()
     if paths:
         target_files = [p.resolve() for p in paths if p.is_file() and p.suffix == ".py"]
     else:
@@ -460,8 +459,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--root",
         type=Path,
-        default=REPO_ROOT,
-        help="Repository root directory",
+        default=None,
+        help="Repository root (default: the selected product checkout).",
     )
     return parser
 
