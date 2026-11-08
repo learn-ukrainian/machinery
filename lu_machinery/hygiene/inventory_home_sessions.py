@@ -24,12 +24,12 @@ from typing import Literal
 try:
     from lu_machinery.common.repo_root import MachineryConfigError, state_root
     from lu_machinery.path_safety import assert_delete_target
-except ImportError:  # pragma: no cover - direct ``scripts/hygiene/*.py`` invocation
-    _SCRIPTS_DIR = Path(__file__).resolve().parents[1]
-    if str(_SCRIPTS_DIR) not in sys.path:
-        sys.path.insert(0, str(_SCRIPTS_DIR))
-    from common.repo_root import MachineryConfigError, state_root  # type: ignore[no-redef]
-    from path_safety import assert_delete_target  # type: ignore[no-redef]
+except ImportError:  # pragma: no cover - direct file invocation
+    _install_root = Path(__file__).resolve().parents[2]
+    if str(_install_root) not in sys.path:
+        sys.path.insert(0, str(_install_root))
+    from lu_machinery.common.repo_root import MachineryConfigError, state_root  # type: ignore[no-redef]
+    from lu_machinery.path_safety import assert_delete_target  # type: ignore[no-redef]
 
 DEFAULT_RETENTION_DAYS = 14.0
 DEFAULT_ARCHIVE_ROOT = (

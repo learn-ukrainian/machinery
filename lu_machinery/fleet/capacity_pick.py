@@ -31,33 +31,18 @@ from typing import Any, cast
 if __package__ in (None, ""):  # run as a file: put the repository root on sys.path
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-try:
-    from lu_machinery.fleet.reset_reserve import (
-        codex_is_threatened,
-        codex_reserve_account,
-        codex_reset_reserve_eligible,
-        effective_reset_reserve,
-        load_reset_reserve,
-        unavailable_reserve,
-    )
-except ImportError:  # pragma: no cover - script path fallback
-    from reset_reserve import (  # type: ignore
-        codex_is_threatened,
-        codex_reserve_account,
-        codex_reset_reserve_eligible,
-        effective_reset_reserve,
-        load_reset_reserve,
-        unavailable_reserve,
-    )
-
-try:
-    from lu_machinery.agent_runtime.agent_identity import RETIRED_AGENT_ALIASES
-except ImportError:  # pragma: no cover - script path fallback
-    from agent_runtime.agent_identity import RETIRED_AGENT_ALIASES  # type: ignore
-
+from lu_machinery.agent_runtime.agent_identity import RETIRED_AGENT_ALIASES
 from lu_machinery.common.repo_root import state_root
 from lu_machinery.common.task_store_paths import tasks_dir as default_tasks_dir
 from lu_machinery.fleet import credit_lane
+from lu_machinery.fleet.reset_reserve import (
+    codex_is_threatened,
+    codex_reserve_account,
+    codex_reset_reserve_eligible,
+    effective_reset_reserve,
+    load_reset_reserve,
+    unavailable_reserve,
+)
 from lu_machinery.fleet.routing_policy import projected_unused_pct
 from lu_machinery.orchestration import dispatch_admission, task_record_store
 

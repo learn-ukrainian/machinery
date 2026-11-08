@@ -18,8 +18,14 @@ else:
 
     if __package__:
         from .lint import lint_ipa as _implementation
-    else:  # imported as a top-level module, with this file's directory on sys.path
-        from lint import lint_ipa as _implementation  # type: ignore[no-redef]
+    else:  # imported as a top-level module: the install root holds the package
+        import sys
+        from pathlib import Path
+
+        _root = str(Path(__file__).resolve().parents[1])
+        if _root not in sys.path:
+            sys.path.insert(0, _root)
+        from lu_machinery.lint import lint_ipa as _implementation  # type: ignore[no-redef]
 
     def __getattr__(name: str) -> Any:
         return getattr(_implementation, name)

@@ -13,17 +13,13 @@ import subprocess
 import sys
 from pathlib import Path
 
-# Dual-flavor import support
 try:
     from lu_machinery.guardrails import worktree_containment as wc
 except ImportError:
-    try:
-        import worktree_containment as wc  # type: ignore[import-not-found]
-    except ImportError:
-        _root = Path(__file__).resolve().parent.parent.parent
-        if str(_root) not in sys.path:
-            sys.path.insert(0, str(_root))
-        from lu_machinery.guardrails import worktree_containment as wc
+    _root = Path(__file__).resolve().parents[2]
+    if str(_root) not in sys.path:
+        sys.path.insert(0, str(_root))
+    from lu_machinery.guardrails import worktree_containment as wc
 
 # The product checkout the guard protects. A direct file-path launch has no package on sys.path.
 try:
@@ -32,22 +28,18 @@ except ImportError:
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
     from lu_machinery.common.repo_root import MachineryConfigError, product_root
 
-# Dual-flavor git environment sanitizer import
 try:
     from lu_machinery.common.git_context import sanitized_git_env
 except ImportError:
-    try:
-        from common.git_context import sanitized_git_env  # type: ignore[import-not-found]
-    except ImportError:
-        def sanitized_git_env() -> dict[str, str]:
-            # Mirror of scripts.common.git_context.GIT_REDIRECT_ENV_KEYS — keep in sync.
-            _GIT_ENV = {
-                "GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_PREFIX",
-                "GIT_COMMON_DIR", "GIT_OBJECT_DIRECTORY",
-                "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_NAMESPACE",
-                "GIT_CEILING_DIRECTORIES", "GIT_DISCOVERY_ACROSS_FILESYSTEM",
-            }
-            return {k: v for k, v in os.environ.items() if k not in _GIT_ENV}
+    def sanitized_git_env() -> dict[str, str]:
+        # Mirror of scripts.common.git_context.GIT_REDIRECT_ENV_KEYS — keep in sync.
+        _GIT_ENV = {
+            "GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_PREFIX",
+            "GIT_COMMON_DIR", "GIT_OBJECT_DIRECTORY",
+            "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_NAMESPACE",
+            "GIT_CEILING_DIRECTORIES", "GIT_DISCOVERY_ACROSS_FILESYSTEM",
+        }
+        return {k: v for k, v in os.environ.items() if k not in _GIT_ENV}
 
 
 # These guards run inside git hooks; a wedged git or hook installer must exit

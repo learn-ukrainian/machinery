@@ -15,9 +15,9 @@ import re
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 try:
-    from path_safety import safe_join, trusted_join
+    from lu_machinery.path_safety import safe_join, trusted_join
 except ImportError:
     from ..path_safety import safe_join, trusted_join
 
@@ -119,25 +119,25 @@ DIMENSION_SHORT_LABELS = {
 import contextlib
 
 from lu_machinery.common.repo_root import product_root
-from research.research_markdown_utils import (
+from lu_machinery.research.research_markdown_utils import (
     count_blockquotes as _count_blockquotes,
 )
-from research.research_markdown_utils import (
+from lu_machinery.research.research_markdown_utils import (
     count_dated_entries as _count_dated_entries,
 )
-from research.research_markdown_utils import (
+from lu_machinery.research.research_markdown_utils import (
     count_guillemet_quotes as _count_guillemet_quotes,
 )
-from research.research_markdown_utils import (
+from lu_machinery.research.research_markdown_utils import (
     count_h3_subsections as _count_h3_subsections,
 )
-from research.research_markdown_utils import (
+from lu_machinery.research.research_markdown_utils import (
     count_numbered_items as _count_numbered_items,
 )
-from research.research_markdown_utils import (
+from lu_machinery.research.research_markdown_utils import (
     count_urls as _count_urls,
 )
-from research.research_markdown_utils import (
+from lu_machinery.research.research_markdown_utils import (
     extract_section as _extract_section,
 )
 
@@ -929,9 +929,9 @@ def find_research_path(track_dir: Path, slug: str) -> Path | None:
         f"{slug}-research.md",
         f"{slug}-knowledge-packet.md",
     ]:
-        rp = _docs_research_index(track_dir.name).get(candidate)
-        if rp:
-            return rp
+        docs_rp = _docs_research_index(track_dir.name).get(candidate)
+        if docs_rp:
+            return docs_rp
     return None
 
 

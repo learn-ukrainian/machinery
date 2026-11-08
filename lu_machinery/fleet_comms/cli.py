@@ -40,15 +40,6 @@ from typing import Any
 if __package__ in (None, ""):  # run as a file: put the repository root on sys.path
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-try:
-    from lu_machinery.lib.readonly_sqlite import SQLiteConnection
-except ModuleNotFoundError as exc:
-    # Only this package's own absence selects the short spelling; its name comes from this
-    # file's unresolved location (design-v1 amendment 1), never __package__.
-    if exc.name != Path(os.path.abspath(__file__)).parents[1].name:
-        raise
-    from lib.readonly_sqlite import SQLiteConnection  # type: ignore[no-redef]
-
 from lu_machinery.common.repo_root import MachineryConfigError
 from lu_machinery.control_plane.health import authority_collector_payload
 from lu_machinery.control_plane.storage import StoreId, assert_component_supported
@@ -75,6 +66,7 @@ from lu_machinery.fleet_comms.opsec_store import (
 )
 from lu_machinery.fleet_comms.paths import PlaneRootAnchorError
 from lu_machinery.fleet_comms.review_publication import DEFAULT_GATE_KIND
+from lu_machinery.lib.readonly_sqlite import SQLiteConnection
 
 # This package's import name, as ``python -m`` runs it: from this module's unresolved location
 # (design-v1 amendment 1), never __package__.

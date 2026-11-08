@@ -87,10 +87,7 @@ def _load_containment():
     try:
         return importlib.import_module("lu_machinery.guardrails.worktree_containment")
     except ImportError:
-        try:
-            return importlib.import_module("guardrails.worktree_containment")
-        except ImportError:
-            return None
+        return None
 
 
 def _tracked_dirty_paths(main_root: Path) -> set[str] | None:

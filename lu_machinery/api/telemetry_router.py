@@ -9,7 +9,6 @@ C-4687).
 
 from __future__ import annotations
 
-import os
 import sqlite3
 from collections import defaultdict
 from contextlib import closing
@@ -20,14 +19,8 @@ from typing import Any, Literal
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
-try:
-    from lu_machinery.lib.readonly_sqlite import SQLiteConnection
-except ModuleNotFoundError as exc:
-    if exc.name != Path(os.path.abspath(__file__)).parents[1].name:
-        raise
-    from lib.readonly_sqlite import SQLiteConnection  # type: ignore[no-redef]
-
 from lu_machinery.common.repo_root import state_root
+from lu_machinery.lib.readonly_sqlite import SQLiteConnection
 from lu_machinery.telemetry.legacy_bridge import bridge_usage_summary
 
 from .monitor_context import MonitorContext, get_ctx, resolve_context

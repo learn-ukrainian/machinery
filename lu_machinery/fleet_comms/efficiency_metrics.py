@@ -19,15 +19,6 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal
 
-try:
-    from lu_machinery.lib.readonly_sqlite import SQLiteConnection, is_sqlite_connection, open_readonly
-except ModuleNotFoundError as exc:
-    # Only this package's own absence selects the short spelling; its name comes from this
-    # file's unresolved location (design-v1 amendment 1), never __package__.
-    if exc.name != Path(os.path.abspath(__file__)).parents[1].name:
-        raise
-    from lib.readonly_sqlite import SQLiteConnection, is_sqlite_connection, open_readonly  # type: ignore[no-redef]
-
 from lu_machinery.control_plane.storage import (
     Authority,
     ControlPlaneError,
@@ -38,6 +29,7 @@ from lu_machinery.control_plane.storage import (
 from lu_machinery.control_plane.storage import connect as cp_connect
 from lu_machinery.fleet_comms.message_plane import resolve_plane_mode
 from lu_machinery.fleet_comms.opsec_store import batch_tasks_store, comms_plane_store
+from lu_machinery.lib.readonly_sqlite import SQLiteConnection, is_sqlite_connection, open_readonly
 from lu_machinery.orchestration.task_record_store import ARCHIVE_DIR_NAME, parse_task_record
 
 # Alert thresholds are intentionally reported, not enforced here. #5646 owns

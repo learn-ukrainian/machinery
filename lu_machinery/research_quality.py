@@ -27,8 +27,11 @@ else:
 
     if __package__:
         from .research import research_quality as _implementation
-    else:  # imported as a top-level module, with this file's directory on sys.path
-        from research import research_quality as _implementation  # type: ignore[no-redef]
+    else:  # imported as a top-level module: the install root holds the package
+        _root = str(_Path(__file__).resolve().parents[1])
+        if _root not in _sys.path:
+            _sys.path.insert(0, _root)
+        from lu_machinery.research import research_quality as _implementation  # type: ignore[no-redef]
 
     def __getattr__(name: str) -> Any:
         return getattr(_implementation, name)

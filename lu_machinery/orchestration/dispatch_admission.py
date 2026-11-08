@@ -465,10 +465,7 @@ def required_review_receipts(author_families: Iterable[str]) -> frozenset[str]:
 
 
 def config_defaults() -> Thresholds:
-    try:
-        from lu_machinery import config
-    except ImportError:  # pragma: no cover - flat script path
-        import config  # type: ignore[no-redef]
+    from lu_machinery import config
 
     return Thresholds(
         max_live_write_workers=int(config.DISPATCH_MAX_LIVE_WRITE_WORKERS),

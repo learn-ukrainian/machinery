@@ -14,13 +14,6 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-try:
-    from lu_machinery.lib.readonly_sqlite import open_readonly
-except ModuleNotFoundError as exc:
-    if exc.name != Path(os.path.abspath(__file__)).parents[1].name:
-        raise
-    from lib.readonly_sqlite import open_readonly  # type: ignore[no-redef]
-
 from lu_machinery.api import delegate_router
 from lu_machinery.api.delegate_router import _derived_task_status
 from lu_machinery.api.fleet_workers_models import (
@@ -51,6 +44,7 @@ from lu_machinery.api.project_state_store import (
     get_live_report,
     workers_status_from_document,
 )
+from lu_machinery.lib.readonly_sqlite import open_readonly
 from lu_machinery.orchestration.dispatch_admission import _ACTIVE_STATUS_MARKERS
 from lu_machinery.orchestration.dispatch_admission import (
     ACTIVE_STATUSES as _DELEGATE_ACTIVE_STATUSES,

@@ -188,10 +188,7 @@ class DeepSeekAdapter:
     ) -> ParseResult:
         _ = (output_file, call_start_time)
 
-        try:
-            from lu_machinery.ai_agent_bridge._opencode import _parse_opencode_stream, read_opencode_turn_status
-        except ModuleNotFoundError:  # pragma: no cover - direct-script runs with only scripts/ on sys.path
-            from ai_agent_bridge._opencode import _parse_opencode_stream, read_opencode_turn_status
+        from lu_machinery.ai_agent_bridge._opencode import _parse_opencode_stream, read_opencode_turn_status
 
         # Invocation pins --format json: stdout is an NDJSON event stream, so
         # the reply is the LAST assistant text part (#8514 — under the runner's
