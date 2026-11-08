@@ -21,7 +21,13 @@ import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
+# Make the package importable when invoked as a file path; never a state or product root.
+_IMPORT_ROOT = str(Path(__file__).resolve().parents[2])
+if _IMPORT_ROOT not in sys.path:
+    sys.path.insert(0, _IMPORT_ROOT)
+
+from lu_machinery.common.repo_root import ProductRootError, product_root
+
 DEFAULT_WORKTREE_STALE_HOURS = 72
 DEFAULT_SESSION_STALE_DAYS = 14
 _GIT_TIMEOUT_SECONDS = 30
@@ -54,7 +60,7 @@ def _git(args: list[str], *, cwd: Path) -> str:
 
 def scan_dispatch_worktrees(
     *,
-    repo_root: Path = REPO_ROOT,
+    repo_root: Path,
     stale_hours: float = DEFAULT_WORKTREE_STALE_HOURS,
     now: float | None = None,
 ) -> list[WorktreeReport]:
@@ -145,7 +151,11 @@ def scan_home_session_hints(
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--repo-root", type=Path, default=REPO_ROOT)
+    parser.add_argument(
+        "--repo-root",
+        type=Path,
+        help="Checkout whose .worktrees/dispatch is scanned (default: the product root, LU_PRODUCT_ROOT).",
+    )
     parser.add_argument("--stale-hours", type=float, default=DEFAULT_WORKTREE_STALE_HOURS)
     parser.add_argument("--session-stale-days", type=float, default=DEFAULT_SESSION_STALE_DAYS)
     parser.add_argument("--json", action="store_true", help="Machine-readable JSON report")
@@ -155,6 +165,10 @@ def main(argv: list[str] | None = None) -> int:
         help="Also scan ~/.codex ~/.claude ~/.cursor ~/.grok size hints (read-only)",
     )
     args = parser.parse_args(argv)
+    try:
+        args.repo_root = args.repo_root or product_root()
+    except ProductRootError as error:
+        parser.error(str(error))
 
     worktrees = scan_dispatch_worktrees(
         repo_root=args.repo_root,
