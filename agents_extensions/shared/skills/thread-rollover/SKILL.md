@@ -21,10 +21,10 @@ paths. Do not load preparation mechanics merely to inspect or resume a packet.
 | --- | --- |
 | Detect, inspect health, or resolve ambiguous packets | [Health and exact detection](references/health.md) |
 | Prepare a replacement or repair an interrupted native intent | [Prepare and bind](references/prepare.md) |
-| Resume the exact replacement and prove continuity | [Resume and confirm](references/resume.md) |
+| Read the handoff, resume and confirm the exact replacement | [Resume and confirm](references/resume.md) |
 | Archive a confirmed predecessor or reconcile final cleanup | [Archive proof](references/archive.md) |
 
-Preparation never authorizes cleanup. Exact native identity/title readback and
-both continuity proofs must pass before predecessor cleanup. Missing support,
+Preparation never authorizes cleanup. Exact replacement binding, lease confirmation and native identity/title readback
+must pass before predecessor cleanup. Missing support,
 unknown pin state, running tasks, or ambiguous evidence preserve the predecessor.
 Never delete leases or infer completion from age, names, or a missing process.

@@ -51,7 +51,7 @@ After every compact (including when canary still PASSes):
 3. Open the active phase receipt named there
 4. If open task is missing from dual-write → **STOP inventing** — stamp or hand off
 
-Production **thread rollover** still uses strict **10/10** via `lu_machinery/context_canary.py mint --snapshot` (separate protocol).
+Thread rollover confirmation uses the exact replacement binding and lease. Read the durable handoff and follow `thread-rollover/references/resume.md`; no snapshot quiz is required.
 
 ## Handoff = DIARY (required)
 

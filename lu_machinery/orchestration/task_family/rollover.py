@@ -995,12 +995,6 @@ def _confirmation_blockers(state: dict[str, Any], binding: dict[str, Any]) -> li
         blockers.append("persisted predecessor identity does not match the native binding")
     if cleanup.get("old_automation_ready_to_delete") is not True:
         blockers.append("existing confirmation cleanup proof gate is still locked")
-    proof = replacement.get("canary_proof") or {}
-    verdict = replacement.get("strict_verdict") or {}
-    if proof.get("status") != "PASS":
-        blockers.append("script canary proof is not PASS")
-    if verdict.get("verdict") != "PASS" or verdict.get("correct") != 10 or verdict.get("k") != 10:
-        blockers.append("strict recall verdict is not PASS 10/10")
     return blockers
 
 
@@ -1067,14 +1061,14 @@ def authorize_archive(
         "source_status": "idle",
         "pin_state": "unpinned",
         "evidence": evidence,
-        "canary_proof_sha256": sha256_digest(replacement["canary_proof"]),
-        "strict_verdict_sha256": sha256_digest(replacement["strict_verdict"]),
         "confirmed_at": replacement["confirmed_at"],
     }
     if storage.rollover_archive_authorization_path.exists():
         existing_authorization = storage.read_json(storage.rollover_archive_authorization_path)
         stable_existing = dict(existing_authorization)
         stable_existing.pop("evidence", None)
+        stable_existing.pop("canary_proof_sha256", None)
+        stable_existing.pop("strict_verdict_sha256", None)
         stable_retry = dict(authorization)
         stable_retry.pop("evidence", None)
         if stable_existing != stable_retry:

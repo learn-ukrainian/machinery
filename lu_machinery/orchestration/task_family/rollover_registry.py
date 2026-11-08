@@ -101,13 +101,14 @@ SUCCESS_SEQUENCE = (
     RolloverState.AWAITING_NATIVE_CREATE,
     RolloverState.REPLACEMENT_CREATED,
     RolloverState.RESUMED,
-    RolloverState.STRICT_RECALL_PASSED,
-    RolloverState.CANARY_PASSED,
     RolloverState.CONFIRMED,
     RolloverState.PREDECESSOR_ARCHIVED,
     RolloverState.HEARTBEAT_RETIRED,
 )
 SUCCESS_RANK = {state: index for index, state in enumerate(SUCCESS_SEQUENCE)}
+# Historical records remain readable; new transitions go from RESUMED to CONFIRMED.
+_RETIRED_QUIZ_STATES = {RolloverState.STRICT_RECALL_PASSED, RolloverState.CANARY_PASSED}
+SUCCESS_RANK.update({state: SUCCESS_RANK[RolloverState.RESUMED] for state in _RETIRED_QUIZ_STATES})
 
 
 def utc_now() -> datetime:
@@ -525,36 +526,19 @@ def record_from_lease(
         "runtime_path",
         "handoff_path",
         "bootstrap_prompt_path",
-        "semantic_snapshot_path",
-        "strict_probe_path",
-        "strict_questions_path",
-        "strict_answers_path",
-        "strict_verdict_path",
-        "canary_proof_path",
     )
     _validate_existing_json_sources(
         state_root,
         [*family_paths.values(), *(replacement.get(key) for key in packet_path_keys)],
     )
     state, blocking_reason = _effective_state_from_lease(state_root, lease)
-    strict = replacement.get("strict_verdict")
-    strict = strict if isinstance(strict, Mapping) else {}
-    strict_result = strict.get("verdict") or strict.get("status")
-    strict_state = (
-        "passed" if strict_result == "PASS" else "failed" if isinstance(strict_result, str) else "pending"
-    )
-    strict_score = strict.get("score")
-    if strict_score is None:
-        strict_score = strict.get("correct")
-    canary = replacement.get("canary_proof")
-    canary = canary if isinstance(canary, Mapping) else {}
     cleanup = lease.get("cleanup")
     cleanup = cleanup if isinstance(cleanup, Mapping) else {}
     prepared_at = str(replacement.get("prepared_at") or lease.get("updated_at") or isoformat_z(now))
     updated_at = str(lease.get("updated_at") or replacement.get("confirmed_at") or prepared_at)
     evidence = [
         _relative(lease_path, state_root),
-        *(replacement.get(key) for key in ("handoff_path", "canary_proof_path", "strict_verdict_path")),
+        replacement.get("handoff_path"),
         *(_relative(path, state_root) for path in family_paths.values() if path.is_file()),
     ]
     last_success = state
@@ -564,10 +548,6 @@ def record_from_lease(
             last_success = RolloverState.REPLACEMENT_CREATED
         if replacement.get("status") in {"resumed", "started"}:
             last_success = RolloverState.RESUMED
-        if strict_state == "passed":
-            last_success = RolloverState.STRICT_RECALL_PASSED
-        if canary.get("status") == "PASS":
-            last_success = RolloverState.CANARY_PASSED
         if replacement.get("status") == "started":
             last_success = RolloverState.CONFIRMED
         if state in TERMINAL_STATES and SUCCESS_RANK[last_success] >= SUCCESS_RANK[RolloverState.REPLACEMENT_CREATED]:
@@ -592,15 +572,6 @@ def record_from_lease(
             "state": native.get("status") or "legacy_or_unrecorded",
             "family_id": native.get("family_id"),
             "operation_id": native.get("operation_id"),
-        },
-        "strict_recall": {
-            "state": strict_state,
-            "score": strict_score,
-            "verdict_path": replacement.get("strict_verdict_path"),
-        },
-        "canary": {
-            "state": "passed" if canary.get("status") == "PASS" else "pending",
-            "proof_path": replacement.get("canary_proof_path"),
         },
         "confirmation": {
             "state": "confirmed" if replacement.get("status") == "started" else "pending",
@@ -663,8 +634,6 @@ def _merge_projection(existing: dict[str, Any], projected: dict[str, Any]) -> di
     if projection_not_behind:
         for key in (
             "native_creation",
-            "strict_recall",
-            "canary",
             "confirmation",
             "predecessor_archival",
             "heartbeat",
@@ -744,6 +713,8 @@ def transition(
     already_locked: bool = False,
     maintenance_plan: Path | None = None,
 ) -> dict[str, Any]:
+    if state in _RETIRED_QUIZ_STATES:
+        raise ValueError("quiz boundaries are retired; confirm the exact resumed replacement")
     path = record_path(state_root, agent=agent, lineage_id=lineage_id, rollover_id=rollover_id)
 
     def apply() -> dict[str, Any]:
@@ -815,10 +786,6 @@ def transition(
             record["terminal_reason"] = reason
         if state is RolloverState.REPLACEMENT_CREATED:
             record["native_creation"] = {**record["native_creation"], "state": "replacement_created"}
-        elif state is RolloverState.STRICT_RECALL_PASSED:
-            record["strict_recall"] = {**record["strict_recall"], "state": "passed"}
-        elif state is RolloverState.CANARY_PASSED:
-            record["canary"] = {**record["canary"], "state": "passed"}
         elif state is RolloverState.CONFIRMED:
             record["confirmation"] = {**record["confirmation"], "state": "confirmed", "confirmed_at": at}
         elif state is RolloverState.PREDECESSOR_ARCHIVED:
@@ -830,8 +797,6 @@ def transition(
                 "native_creation",
                 "task_identity",
                 "title_transition",
-                "strict_recall",
-                "canary",
                 "confirmation",
                 "predecessor_archival",
                 "heartbeat",
@@ -978,8 +943,6 @@ def _minimal_record_from_plan(state_root: Path, plan_path: Path, plan: Mapping[s
             "family_id": plan.get("family_id"),
             "operation_id": plan.get("operation_id"),
         },
-        "strict_recall": {"state": "pending", "score": None, "verdict_path": None},
-        "canary": {"state": "pending", "proof_path": None},
         "confirmation": {"state": "pending", "confirmed_at": None, "confirmed_by": None},
         "predecessor_archival": {"state": "pending"},
         "heartbeat": {"automation_id": None, "state": "unknown", "cleanup_authorized": False},
@@ -1163,7 +1126,7 @@ def next_safe_action(record: Mapping[str, Any]) -> str:
     if state is RolloverState.REPLACEMENT_CREATED:
         return "resume-exact with the authoritative replacement task ID"
     if state in {RolloverState.RESUMED, RolloverState.STRICT_RECALL_PASSED, RolloverState.CANARY_PASSED}:
-        return "complete strict recall and canary proof, then confirm this exact successor"
+        return "read the durable handoff, then confirm this exact resumed successor"
     if state is RolloverState.CONFIRMED:
         return "reconcile and archive only the exact confirmed predecessor"
     if state is RolloverState.PREDECESSOR_ARCHIVED:
@@ -1470,10 +1433,10 @@ def reconcile_snapshot(record: Mapping[str, Any], snapshot: Mapping[str, Any]) -
         if recorded_replacement_id and confirmation_replacement_id != recorded_replacement_id:
             discrepancies.append("native confirmation conflicts with the durable replacement ID")
         if SUCCESS_RANK.get(last_boundary, -1) < SUCCESS_RANK[RolloverState.CONFIRMED]:
-            if last_boundary is RolloverState.CANARY_PASSED:
+            if SUCCESS_RANK.get(last_boundary, -1) >= SUCCESS_RANK[RolloverState.RESUMED]:
                 transitions.append(RolloverState.CONFIRMED.value)
             else:
-                discrepancies.append("native confirmation cannot skip strict-recall or canary boundaries")
+                discrepancies.append("native confirmation requires the exact resumed replacement")
         if isinstance(confirmation_replacement_id, str):
             try:
                 identity = task_identity.mark_confirmed(

@@ -141,14 +141,13 @@ remain available in `agents_extensions/shared/rules/_load-via-api.md`.
 After a write that needs to be immediately visible (just-committed
 change, just-filed issue), pass `?fresh=true` to `/api/orient`.
 
-**Canary mint (production v2):** use this only inside a prepared rollover packet.
-The reserved snapshot has exactly 3 goals, 3 decision/rationale records, 2 negative
-constraint/prohibition records, and 2 next actions from durable allowed `source_ref`
-records. Never relabel Git, GitHub, or Monitor metadata as semantic anchors, fabricate,
-or pad. The replacement must run the exact reserved-path commands emitted by
-`thread_handoff.py detect --agent codex --format session-start`, including
-`context_canary.py mint --snapshot`, `questions`, and strict `score --verdict` before
-the separate challenge proof and `confirm-started` can unlock cleanup.
+**Thread rollover:** read the exact durable handoff returned by the detector,
+then bind/resume and confirm the exact replacement with `thread_handoff.py`.
+Confirmation checks the replacement binding and lease without a semantic
+snapshot, self-answered quiz, or canary proof. Preserve the lineage/rollover IDs,
+generation fence, bundle upload and native identity/title requirements.
+Predecessor archival still requires authoritative idle and unpinned app evidence.
+The commands are in `thread-rollover/references/resume.md`.
 
 ### Review dispatch admission
 
@@ -378,7 +377,7 @@ handoff file just to survive compaction.
 
 SessionStart automatically runs the read-only engine detector. If it reports a
 packet, follow its exact ordered commands; it never chooses a lease by filesystem
-order and never auto-runs resume, proof, confirmation, or cleanup. A no-packet
+order and never auto-runs resume, confirmation, or cleanup. A no-packet
 cold start orients from durable project state with tool-backed reads — the legacy
 cold-start orientation-health canary mint is retired (operator 2026-08-31); canary
 probes exist only inside the `thread-rollover` flow.
