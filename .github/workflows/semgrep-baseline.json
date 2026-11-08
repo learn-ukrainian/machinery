@@ -992,7 +992,7 @@
   {
    "path": "lu_machinery/orchestration/sources_watchdog.py",
    "rule": "python.lang.maintainability.return-not-in-function",
-   "sha256": "8b802d48647e7413a4e8cc7ae9917e9d7db2b7e47068829a69efb201a533d717"
+   "sha256": "66348f9a4e9f693ca4ae00ee0d839379e3edfc1fb6141da2382e1e2413a9efc5"
   },
   {
    "path": "lu_machinery/orchestration/stale_task_records.py",
@@ -1882,7 +1882,7 @@
   {
    "path": "lu_machinery/orchestration/trails/trail_mcp.py",
    "rule": "python.lang.security.audit.dangerous-subprocess-use-audit",
-   "sha256": "f916ae579761c5221bd6c059a2cc0efda70ace318f9c81231e456bde3b8aa59c"
+   "sha256": "43af0194cf105e2afb62ea1a2747b0141fa45440265c41272fa04a2c3358c473"
   },
   {
    "path": "lu_machinery/orchestration/worktree_git.py",

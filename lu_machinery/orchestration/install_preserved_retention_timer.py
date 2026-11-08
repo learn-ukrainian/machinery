@@ -8,6 +8,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+from lu_machinery.common.repo_root import machinery_path, state_root
 from lu_machinery.common.safe_unit_install import InstallError, open_unit_dir, read_unit, write_unit
 from lu_machinery.orchestration.install_data_tier_timer import systemctl_user, verify_units
 
@@ -18,13 +19,21 @@ _PACKAGE = f"{Path(os.path.abspath(__file__)).parents[1].name}.{Path(os.path.abs
 _MACHINERY = _PACKAGE.partition(".")[0]
 _MODULE = f"{_PACKAGE}.{Path(__file__).stem}"
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
-TEMPLATE_DIR = PROJECT_ROOT / "packaging/systemd"
+TEMPLATE_DIR = machinery_path("packaging/systemd")
 UNITS = ("learn-ukrainian-preserved-retention.service", "learn-ukrainian-preserved-retention.timer")
 
 
 def render_units(repo_root: Path) -> dict[str, str]:
-    return {name: (TEMPLATE_DIR / name).read_text().replace("@REPO_ROOT@", str(repo_root)) for name in UNITS}
+    rendered = {}
+    for name in UNITS:
+        source = TEMPLATE_DIR / name
+        if not source.is_file():
+            raise InstallError(f"unit template missing: {name}")
+        text = source.read_text(encoding="utf-8")
+        if name.endswith(".service") and ("@REPO_ROOT@" not in text or "@PYTHON@" not in text):
+            raise InstallError(f"unit placeholder missing: {name}")
+        rendered[name] = text.replace("@REPO_ROOT@", str(repo_root)).replace("@PYTHON@", sys.executable)
+    return rendered
 
 
 def install(rendered: dict[str, str], unit_dir: Path, *, apply: bool, enable: bool) -> int:
@@ -56,8 +65,8 @@ def main(argv: list[str] | None = None) -> int:
         description="Install daily preserved residue backstop user units. Default: read-only check. Enable after merge.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
-            f"Examples:\n  .venv/bin/python -m {_MODULE} --check\n"
-            f"  .venv/bin/python -m {_MODULE} --apply --enable\n"
+            f"Examples:\n  <project-python> -m {_MODULE} --check\n"
+            f"  <project-python> -m {_MODULE} --apply --enable\n"
             "Outputs: owner-only user units; --apply reloads systemd; --enable starts the timer.\n"
             "Exit codes: 0 current/applied, 1 drift or install error, 2 invalid usage.\n"
             f"Related: C-2481, {_MACHINERY}.hygiene.preserved_retention, install_tmp_sweep_timer."
@@ -66,8 +75,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--repo-root",
         type=Path,
-        default=PROJECT_ROOT,
-        help="Primary checkout rendered into units (default: this checkout; example: primary clone).",
+        default=None,
+        help="Primary checkout rendered into the units (default: configured shared-state root).",
     )
     parser.add_argument(
         "--unit-dir",
@@ -84,7 +93,10 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     if args.enable and not args.apply:
         parser.error("--enable requires --apply")
-    repo = args.repo_root.expanduser().resolve()
+    try:
+        repo = (args.repo_root if args.repo_root is not None else state_root()).expanduser().resolve()
+    except ValueError as error:
+        parser.error(str(error))
     if not (repo / ".git").is_dir():
         parser.error("--repo-root must be a primary checkout")
     rendered = render_units(repo)

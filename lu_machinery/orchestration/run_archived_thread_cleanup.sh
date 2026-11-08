@@ -19,16 +19,17 @@ if [[ -z "${primary}" ]]; then
   exit 78
 fi
 
-python="${primary}/.venv/bin/python"
-cleanup="$(cd "$(dirname "$0")" && pwd)/archived_thread_cleanup.py"
-
-if [[ ! -x "${python}" ]]; then
-  echo "archived-thread-cleanup: missing interpreter: ${python}" >&2
+script_dir="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck disable=SC1091
+source "${script_dir}/../lib/project_interpreter.sh"
+module="${script_dir}/archived_thread_cleanup.py"
+if [[ ! -f "${module}" ]]; then
+  echo "archived-thread-cleanup: missing module: ${module}" >&2
   exit 78
 fi
-if [[ ! -f "${cleanup}" ]]; then
-  echo "archived-thread-cleanup: missing script: ${cleanup}" >&2
+if ! python="$(project_interpreter_resolve "${primary}")"; then
+  echo "archived-thread-cleanup: missing interpreter" >&2
   exit 78
 fi
 
-exec "${python}" "${cleanup}" "$@"
+exec "${python}" -m lu_machinery.orchestration.archived_thread_cleanup "$@"
