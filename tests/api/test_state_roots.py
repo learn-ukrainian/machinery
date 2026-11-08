@@ -1,6 +1,7 @@
 """API state must not follow a separately selected product snapshot (#100 R15)."""
 
 import asyncio
+import importlib
 import json
 import subprocess
 import sys
@@ -203,20 +204,18 @@ def _fill_optional(monkeypatch):
 
 
 def _load_api(name, monkeypatch):
-    """Import an API module, filling any further missing third-party import."""
-    import importlib
-
+    """Import an API module, stubbing only the named slim-job gaps."""
     _fill_optional(monkeypatch)
-    for _ in range(40):
+    pending = set(_OPTIONAL_IMPORTS)
+    while True:
         try:
             return importlib.import_module(name)
         except ModuleNotFoundError as exc:
-            missing = exc.name or ""
-            root = missing.split(".", 1)[0]
-            if not missing or root in {"lu_machinery", "tests"}:
+            missing = exc.name
+            if missing not in pending:
                 raise
+            pending.remove(missing)
             monkeypatch.setitem(sys.modules, missing, _ImportGap(missing))
-    raise ImportError(name)
 
 
 def test_rollover_orient_reads_state_registry_not_the_product_checkout(roots, monkeypatch):
@@ -305,8 +304,8 @@ def test_fleet_plane_reads_state_root_not_the_product_checkout(roots, monkeypatc
     assert roots_seen == [plane]
     assert listed["availability"] == "empty"
 
+    seen.clear()
     board = fleet_router.fleet_facade_board(None, None, None, ctx)
-    assert state.resolve() in seen
-    assert plane in seen
+    assert seen == [state.resolve(), plane]
     assert board["probes"]["plane_status"]["status"] == "ok"
     assert not (product / "batch_state").exists()
