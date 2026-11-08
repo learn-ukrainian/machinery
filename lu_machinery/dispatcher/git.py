@@ -666,7 +666,8 @@ def _flagged_entries_changed(local, tree: Path) -> bool:
         if local(["config", "--type=bool", "core.sparseCheckout"], check=False).stdout.strip() != "true":
             return True
         # check-rules reads only configuration and the rules file, never the index, so no fsmonitor or hook runs.
-        included = subprocess.run(
+        # The fixed Git executable and literal argv run in the sanitized Git environment; no shell runs.
+        included = subprocess.run(  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit
             [EXECUTION_SAFE_GIT, "--no-pager", "-c", "core.fsmonitor=false", "-c", f"core.hooksPath={os.devnull}",
              "-C", str(tree), "sparse-checkout", "check-rules", "-z"],
             input="\0".join(absent) + "\0", env=safe_git_env(), capture_output=True, text=True, check=True, timeout=30,
