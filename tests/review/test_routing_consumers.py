@@ -152,6 +152,9 @@ def test_catalog_file_path_role_validation_is_clean_exit_two(tmp_path, bad, entr
     package = machinery_package()
     review = tmp_path / package / "review"
     review.mkdir(parents=True)
+    # A complete fixture package must outrank the installed regular package
+    # when the CLI child resolves lu_machinery.review.model_catalog.
+    (tmp_path / package / "__init__.py").write_text("")
     for name in ("model_catalog.py", "role_resolution.py", "family_exclusions.py", "ukrainian_seats.py", "__init__.py"):
         shutil.copyfile(source / name, review / name)
     config = tmp_path / package / "config"
