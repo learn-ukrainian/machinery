@@ -117,7 +117,7 @@ def select(base: str, head: str, event: str, root: Path | None = None) -> dict:
         except (dependency.MergeBaseError, subprocess.SubprocessError, OSError):
             reason = "diff-unavailable"
     patterns = dependency.load_denominator(root / dependency.DENOMINATOR_REL)["paths"]
-    if any(path.startswith((".github/", f"{checkout_relative('ci').as_posix()}/")) or dependency_input(path, patterns) for path in paths):
+    if any(path.startswith((".github/", "scripts/ci/", f"{checkout_relative('ci').as_posix()}/")) or dependency_input(path, patterns) for path in paths):
         reason = "workflow-tool-or-dependency"
     affected = components.affected(paths, manifest, graph)
     if not reason and (affected["fallback_reasons"] or "shared-core" in affected["components"]):

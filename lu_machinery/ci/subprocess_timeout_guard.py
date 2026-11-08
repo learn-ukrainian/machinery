@@ -36,12 +36,12 @@ from functools import lru_cache
 from pathlib import Path
 from typing import NamedTuple
 
-from lu_machinery.ci._location import checkout_relative, module_name
+from lu_machinery.ci._location import module_name
 from lu_machinery.ci.test_source_cache import parse_test_source, read_test_source
 from lu_machinery.common.repo_root import product_root
 
 _ALLOWLIST_REL = Path("scripts/ci/subprocess_timeout_allowlist.txt")
-_PACKAGE_NAME = Path(__file__).parents[1].name
+_SCRIPT_DIR = "scripts"
 BOUNDED_FUNCS = frozenset({"run", "check_output", "call", "check_call"})
 SHAPE_HASH_HEX_LEN = 16
 ALLOWLIST_KEY_PARTS = 4
@@ -62,7 +62,7 @@ _UNALLOWLISTED_DETAIL = (
     "path::qualname::callee::shape.\n"
 )
 UNALLOWLISTED_PREAMBLE = (
-    f"Timeout-less subprocess calls under {_PACKAGE_NAME}/ not in allowlist (issue #7176).\n"
+    f"Timeout-less subprocess calls under {_SCRIPT_DIR}/ not in allowlist (issue #7176).\n"
     + _UNALLOWLISTED_DETAIL
 )
 
@@ -311,7 +311,7 @@ def check_paths(
                 for hit in hits:
                     test_offenders.append(f"{rel}:{hit.lineno} {hit.name}")
 
-        scripts_root = root / _PACKAGE_NAME
+        scripts_root = root / _SCRIPT_DIR
         if scripts_root.is_dir():
             hits_by_key, scan_errors = scan_scripts(scripts_root, root)
             syntax_errors.extend(scan_errors)
@@ -336,15 +336,15 @@ def check_paths(
         try:
             rel = path.resolve().relative_to(root).as_posix()
             is_test = rel.startswith("tests/")
-            is_script = rel.startswith(f"{_PACKAGE_NAME}/")
+            is_script = rel.startswith(f"{_SCRIPT_DIR}/")
         except ValueError:
             parts = path.resolve().parts
             if "tests" in parts:
                 rel = "/".join(parts[parts.index("tests") :])
                 is_test = True
                 is_script = False
-            elif _PACKAGE_NAME in parts:
-                rel = "/".join(parts[parts.index(_PACKAGE_NAME) :])
+            elif _SCRIPT_DIR in parts:
+                rel = "/".join(parts[parts.index(_SCRIPT_DIR) :])
                 is_test = False
                 is_script = True
             else:
@@ -379,20 +379,20 @@ def check_paths(
 
 def build_parser() -> argparse.ArgumentParser:
     description = (
-        f"Check Python files under tests/ and {_PACKAGE_NAME}/ for timeout-less subprocess calls.\n"
+        f"Check Python files under tests/ and {_SCRIPT_DIR}/ for timeout-less subprocess calls.\n"
         "Use as a pre-commit hook or local check before push; do not use for non-Python or third-party files."
     )
     epilog = (
         "Examples:\n"
         f"  .venv/bin/python -m {module_name(__spec__, __file__)} tests/test_foo.py\n"
-        f"  .venv/bin/python -m {module_name(__spec__, __file__)} {checkout_relative('ci', 'bar.py').as_posix()}\n"
+        f"  .venv/bin/python -m {module_name(__spec__, __file__)} scripts/ci/bar.py\n"
         f"  .venv/bin/python -m {module_name(__spec__, __file__)}\n\n"
         "Outputs:\n"
         "  Prints paste-ready violation messages to stderr when timeout-less calls are found.\n"
         "  No files written or modified.\n\n"
         "Exit codes:\n"
         "  0: Clean (no unallowlisted or timeout-less subprocess calls found)\n"
-        f"  1: Violations found (timeout-less call in tests/ or unallowlisted call in {_PACKAGE_NAME}/)\n"
+        f"  1: Violations found (timeout-less call in tests/ or unallowlisted call in {_SCRIPT_DIR}/)\n"
         "  2: Usage or syntax error (invalid arguments, missing path, or Python syntax error)\n\n"
         "Related:\n"
         "  tests/test_subprocess_timeout_guard.py (CI backstop test)\n"
@@ -408,7 +408,7 @@ def build_parser() -> argparse.ArgumentParser:
         "paths",
         nargs="*",
         type=Path,
-        help=f"Optional specific Python test/script files or directories to check (default: scan all tests/ and {_PACKAGE_NAME}/)",
+        help=f"Optional specific Python test/script files or directories to check (default: scan all tests/ and {_SCRIPT_DIR}/)",
     )
     parser.add_argument(
         "--root",

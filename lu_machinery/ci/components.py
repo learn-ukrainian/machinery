@@ -28,7 +28,7 @@ from lu_machinery.ci import deploy_paths, frontend_change_scope
 from lu_machinery.ci._location import checkout_relative, module_name, package_dir_name
 from lu_machinery.ci.junit_results import parse_junit
 from lu_machinery.common.jsonl import jsonl_lines
-from lu_machinery.common.repo_root import product_root, project_interpreter
+from lu_machinery.common.repo_root import machinery_path, product_root, project_interpreter
 from lu_machinery.storage.test_baseline import nodeid_to_junit_id
 
 _PACKAGE_NAME = Path(__file__).parents[1].name
@@ -768,7 +768,7 @@ def current_identities(component: str, manifest: dict, root: Path | None = None)
              if PurePosixPath(path).name in {"package-lock.json", "requirements-lock.txt", ".python-version", ".nvmrc"}}
     return {"source": digest(sources), "config": digest(configs), "lockfiles": digest(locks),
             "tools": digest({"node": manifest["components"][component], "manifest": manifest,
-                             "runner": hashlib.sha256((root / checkout_relative("ci", "components.py")).read_bytes()).hexdigest()})}
+                             "runner": hashlib.sha256(machinery_path("ci/components.py").read_bytes()).hexdigest()})}
 
 
 def verify_inputs(path: Path, component: str, manifest: dict, root: Path | None = None) -> dict[str, Path]:
