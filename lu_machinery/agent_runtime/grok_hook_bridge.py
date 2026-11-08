@@ -59,12 +59,12 @@ def guard_argv(command: str) -> list[str]:
     except ValueError as exc:
         raise GuardInvocationError("unreadable fleet guard invocation") from exc
     try:
-        from lu_machinery.common.repo_root import product_root
+        from lu_machinery.common.repo_root import machinery_path
     except ModuleNotFoundError:
         # File launch from a checkout: the package is not installed on this interpreter.
         sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-        from lu_machinery.common.repo_root import product_root
-    hooks_dir = product_root() / "agents_extensions/shared/hooks"
+        from lu_machinery.common.repo_root import machinery_path
+    hooks_dir = machinery_path("agents_extensions/shared/hooks")
     if len(argv) == 1:
         guard = Path(argv[0])
         if guard != hooks_dir / guard.name or guard.name == _PROJECT_PYTHON_HOOK_WRAPPER:
