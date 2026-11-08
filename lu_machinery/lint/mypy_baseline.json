@@ -7478,26 +7478,6 @@
       "message": "Name \"resolve_profile\" already defined (possibly by an import)"
     },
     {
-      "path": "lu_machinery/lint/lint_agent_skills.py",
-      "code": "arg-type",
-      "message": "Argument 1 to \"set\" has incompatible type \"None | dict[str, object]\"; expected \"Iterable[object]\""
-    },
-    {
-      "path": "lu_machinery/lint/lint_agent_skills.py",
-      "code": "arg-type",
-      "message": "Argument 1 to \"set\" has incompatible type \"None | dict[str, object]\"; expected \"Iterable[str]\""
-    },
-    {
-      "path": "lu_machinery/lint/lint_agent_skills.py",
-      "code": "union-attr",
-      "message": "Item \"None\" of \"None | dict[str, object]\" has no attribute \"get\""
-    },
-    {
-      "path": "lu_machinery/lint/lint_agent_skills.py",
-      "code": "union-attr",
-      "message": "Item \"None\" of \"None | dict[str, object]\" has no attribute \"get\""
-    },
-    {
       "path": "lu_machinery/lint/lint_prompts.py",
       "code": "var-annotated",
       "message": "Need type annotation for \"violations\" (hint: \"violations: list[<type>] = ...\")"

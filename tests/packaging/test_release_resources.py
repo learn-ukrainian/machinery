@@ -92,6 +92,12 @@ def release(tmp_path_factory):
         cwd=scratch,
     )
     assert installed.returncode == 0, installed.stdout + installed.stderr
+    # The deployer uses its declared runtime YAML dependency to lint product skills.
+    yaml_installed = _run(
+        [str(executable), "-I", "-m", "pip", "install", "--disable-pip-version-check",
+         "--only-binary=:all:", "PyYAML==6.0.3"], cwd=scratch,
+    )
+    assert yaml_installed.returncode == 0, yaml_installed.stdout + yaml_installed.stderr
     env = {k: v for k, v in os.environ.items() if not k.startswith(("LU_", "LEARN_UKRAINIAN_"))}
     env["PYTHONPATH"] = ""
     return scratch, wheel, executable, env
@@ -255,3 +261,78 @@ def test_missing_resource_admission_bypass(release):
         assert not marker.exists()
     finally:
         core.write_bytes(saved)
+
+
+def test_wheel_only_deployer_isolation_idempotency_and_false_green(release):
+    """A real installed wheel deploys a non-curriculum consumer and detects tampering."""
+    scratch, wheel, executable, env = release
+    consumer = scratch / "agent-consumer"
+    consumer.mkdir()
+    subprocess.run(["git", "init", "-q", str(consumer)], check=True)
+    source = consumer / "agents_extensions/shared"
+    skill = source / "skills/consumer/SKILL.md"
+    skill.parent.mkdir(parents=True)
+    skill.write_text("---\nname: consumer\ndescription: Consumer example\n---\nRead this example.\n")
+    with zipfile.ZipFile(wheel) as archive:
+        inventory = json.loads(archive.read("lu_machinery/agent_deploy/release.v1.json"))
+    descriptor = {"providers": ["claude", "codex", "agy", "gemini"], "sources": {
+        "shared": {"path": "agents_extensions/shared", "required": True},
+        "codex": {"path": "agents_extensions/codex", "required": True},
+        "gemini": {"path": "gemini_extensions", "required": False}}, "preserve": []}
+    (consumer / "agents_extensions/deployment.v1.json").write_text(json.dumps(descriptor))
+    # Configurations are input fixtures. Independent assertions below never use
+    # the inventory to derive expected output paths, bytes, modes, or counts.
+    for provider, configs in inventory["required_hooks"].items():
+        for destination, requirements in configs.items():
+            data = {}
+            for requirement in requirements:
+                node = data
+                for key in requirement["path"][:-1]:
+                    node = node.setdefault(key, {})
+                node.setdefault(requirement["path"][-1], []).append(
+                    {**requirement["group"], "hooks": requirement["hooks"]})
+            path = source / "settings.json" if provider == "claude" else consumer / "agents_extensions/codex/hooks.json"
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps(data))
+    command = [str(executable), "-I", "-m", "lu_machinery.agent_deploy", "--project-root", str(consumer)]
+    first = _run(command, cwd=scratch, env=env)
+    assert first.returncode == 0, first.stdout + first.stderr
+    assert (consumer / ".agents/skills/consumer/SKILL.md").read_text() == "---\nname: consumer\ndescription: Consumer example\n---\nRead this example.\n"
+    assert not (consumer / ".claude/rules/core.md").exists()
+    assert not (consumer / ".codex/skills").exists()
+    hook = consumer / ".claude/hooks/enforce-venv.sh"
+    assert hook.stat().st_mode & 0o777 == 0o755
+    assert (consumer / ".agent/rules/core-part-01.md").read_text().startswith("---\ntrigger: always_on\n")
+    def snapshot():
+        return {str(p.relative_to(consumer)): (p.read_bytes(), p.stat().st_mode, p.stat().st_mtime_ns)
+                for p in consumer.rglob("*") if p.is_file() and ".git" not in p.parts}
+    before = snapshot()
+    second = _run(command, cwd=scratch, env=env)
+    assert second.returncode == 0 and "0 changes" in second.stdout, second.stdout + second.stderr
+    checked = _run([*command, "--check"], cwd=scratch, env=env)
+    assert checked.returncode == 0, checked.stdout + checked.stderr
+    assert snapshot() == before
+    # Edit both the output AND the recorded manifest. Check must reconstruct
+    # the expected bytes from the installed release instead of trusting state.
+    hook.write_text("#!/bin/sh\nexit 0\n")
+    state = consumer / ".deploy-state/agent-deploy.v1.json"
+    data = json.loads(state.read_text())
+    data["files"][".claude/hooks/enforce-venv.sh"]["sha256"] = hashlib.sha256(hook.read_bytes()).hexdigest()
+    state.write_text(json.dumps(data))
+    tampered = snapshot()
+    drift = _run([*command, "--check"], cwd=scratch, env=env)
+    assert drift.returncode == 1, drift.stdout + drift.stderr
+    assert snapshot() == tampered
+    # No namespace/product copy can supply a missing installed resource.
+    locate = _run([str(executable), "-I", "-c",
+        "from importlib.resources import files; print(files('lu_machinery').joinpath('..','agents_extensions','shared','rules','core.md'))"], cwd=scratch, env=env)
+    assert locate.returncode == 0, locate.stderr
+    core = Path(locate.stdout.strip())
+    blob = core.read_bytes()
+    core.unlink()
+    try:
+        missing = _run(command, cwd=scratch, env=env)
+        assert missing.returncode == 2, missing.stdout + missing.stderr
+        assert snapshot() == tampered
+    finally:
+        core.write_bytes(blob)
