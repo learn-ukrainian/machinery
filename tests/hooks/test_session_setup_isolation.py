@@ -1,13 +1,15 @@
 """SessionStart hook run from its own tree: code location and child import isolation (machinery #100 R44, R45).
 
-The hook is run by file path from this checkout, the layout the wheel keeps in site-packages, against a
-scratch project that holds no machinery code. Each spawned interpreter is the one running pytest.
+The hook is run by file path from a machinery tree, the layout the wheel keeps in site-packages: this checkout
+against a scratch project that holds no machinery code, or a copy of the tree that is also the cwd and the
+project. Each spawned interpreter is the one running pytest.
 """
 
 from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -36,7 +38,8 @@ if __name__ != "sitecustomize":
         _sys.path[:] = _saved
     _sys.modules[__name__] = _real
 """
-_PLANTED = ("subprocess", "uuid", "json", "sitecustomize")
+# Every stdlib name, so an import made late in a child (after code there changed sys.path) is caught too.
+_PLANTED = [*sorted(set(sys.stdlib_module_names) - {"__future__"}), "sitecustomize"]
 
 
 def _scratch_project(tmp_path: Path) -> Path:
@@ -46,8 +49,25 @@ def _scratch_project(tmp_path: Path) -> Path:
     return project
 
 
+def _tree_copy(tmp_path: Path) -> Path:
+    """A machinery tree (``lu_machinery/`` beside the hook) that is also a Git checkout."""
+    tree = tmp_path / "tree"
+    shutil.copytree(_REPO_ROOT / "lu_machinery", tree / "lu_machinery", ignore=shutil.ignore_patterns("__pycache__"))
+    hooks = tree / "agents_extensions" / "shared" / "hooks"
+    hooks.mkdir(parents=True)
+    shutil.copy2(_HOOK, hooks / _HOOK.name)
+    subprocess.run(["git", "init", "-q", str(tree)], check=True)
+    return tree
+
+
 def _run_hook(
-    *, cwd: Path, home: Path, project: Path | None, pythonpath: str | None, plant_log: Path
+    *,
+    cwd: Path,
+    home: Path,
+    project: Path | None,
+    pythonpath: str | None,
+    plant_log: Path,
+    hook: Path = _HOOK,
 ) -> subprocess.CompletedProcess[str]:
     env = {
         "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
@@ -67,7 +87,7 @@ def _run_hook(
     if pythonpath is not None:
         env["PYTHONPATH"] = pythonpath
     return subprocess.run(
-        ["bash", str(_HOOK)], cwd=cwd, env=env, input=_STDIN, capture_output=True, text=True, timeout=120, check=False
+        ["bash", str(hook)], cwd=cwd, env=env, input=_STDIN, capture_output=True, text=True, timeout=120, check=False
     )
 
 
@@ -96,15 +116,20 @@ def test_hook_tree_supplies_its_code_to_a_project_without_machinery(tmp_path: Pa
 
 @pytest.mark.parametrize("pythonpath", [None, ".", ":"], ids=["unset", "dot", "colon"])
 def test_hook_python_children_never_import_from_the_cwd(tmp_path: Path, pythonpath: str | None) -> None:
-    """Defect class: hook children started with the cwd or a cwd PYTHONPATH entry on sys.path (R45)."""
-    project = _scratch_project(tmp_path)
+    """Defect class: a hook child resolves an import from the cwd (R45).
+
+    The cwd is the machinery tree and the project, the checkout layout. A child is exposed when it starts with
+    the cwd or a cwd ``PYTHONPATH`` entry on ``sys.path``, or when code it imports puts the tree there later.
+    """
+    tree = _tree_copy(tmp_path)
     for name in _PLANTED:
-        (project / f"{name}.py").write_text(_PLANT, encoding="utf-8")
+        (tree / f"{name}.py").write_text(_PLANT, encoding="utf-8")
     home = tmp_path / "home"
     home.mkdir()
     plant_log = tmp_path / "plant.log"
     plant_log.write_text("", encoding="utf-8")
-    result = _run_hook(cwd=project, home=home, project=project, pythonpath=pythonpath, plant_log=plant_log)
+    hook = tree / "agents_extensions" / "shared" / "hooks" / _HOOK.name
+    result = _run_hook(cwd=tree, home=home, project=tree, pythonpath=pythonpath, plant_log=plant_log, hook=hook)
     assert result.returncode == 0, result.stderr
-    assert (project / ".agent" / "sessions" / "isolation-probe.json").is_file(), "the session gate did not run"
+    assert (tree / ".agent" / "sessions" / "isolation-probe.json").is_file(), "the session gate did not run"
     assert plant_log.read_text(encoding="utf-8") == ""
