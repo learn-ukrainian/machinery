@@ -64,7 +64,7 @@ TYPED_CAUSE_CODES = frozenset(
         "changes_unreadable",
         "kimi_content_refused",
         # The worker-side Kimi admission and worktree boundary.
-        "retired_seat_admission_refused",
+        "kimi_admission_refused",
         "kimi_worktree_mismatch",
         "review_admission_refused",
         "mechanical_admission_refused",
