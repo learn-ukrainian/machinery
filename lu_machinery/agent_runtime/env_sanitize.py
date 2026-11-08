@@ -1077,7 +1077,7 @@ if __name__ == "__main__":
             child = child_credential_env(
                 os.environ, args.provider, harness=args.harness, driver_launcher=args.driver_launcher
             )
-            # The launcher pins this process's imports; the child must not inherit that pin.
+            # The launcher's module bootstrap sets no PYTHONPATH pin; drop any ambient value so the child never inherits one.
             child.pop("PYTHONPATH", None)
             # exec preserves ignored signals; undo Python's startup defaults.
             for signal_name in ("SIGPIPE", "SIGXFSZ"):
