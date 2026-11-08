@@ -10,6 +10,7 @@
 
 # TruffleHog (secret scan)
 TRUFFLEHOG_VERSION=3.99.0
+TRUFFLEHOG_RELEASE_ASSET_ID=616256576
 #   Release v3.99.0, published 2026-10-06, tag commit b2b0a92070f206ab7b5a1105d82a7f2f48d92341
 #   https://github.com/trufflesecurity/trufflehog/releases/tag/v3.99.0
 #   The rule set is the detector catalog built into this CLI release.
@@ -63,6 +64,11 @@ SEMGREP_RULES_COMMIT=16b9e6d45f10649f6a531ec4838ed9924372c3bc
 #   permits scanning one's own code.
 SEMGREP_CONFIGS=python/lang python/correctness python/jinja2 python/jwt python/requests python/sh generic/secrets bash/lang yaml/github-actions yaml/kubernetes
 
+# Release archives use GitHub's official asset API and application/octet-stream,
+# with the read-only job token. IDs above/below identify the same versioned assets;
+# archive SHA-256 verification remains mandatory before extraction, even on hits.
+# https://docs.github.com/en/rest/releases/assets#get-a-release-asset
+
 # GitHub actions used by the workflow
 ACTIONS_CHECKOUT=3d3c42e5aac5ba805825da76410c181273ba90b1
 #   actions/checkout tag v7.0.1 (the latest release; rechecked 2026-11-05)
@@ -107,6 +113,7 @@ ZIZMOR_WHEEL_MANYLINUX_2_28_X86_64_SHA256=58e878eb2dbd2c6183c105e1ac28c14f7dd1ec
 #   https://pypi.org/project/zizmor/1.31.1/ (uploaded 2026-10-15); the wheel
 #   has no dependencies.
 ACTIONLINT_VERSION=1.7.12
+ACTIONLINT_RELEASE_ASSET_ID=384924896
 #   Release v1.7.12, published 2026-03-30, tag commit 914e7df21a07ef503a81201c76d2b11c789d3fca
 #   https://github.com/rhysd/actionlint/releases/tag/v1.7.12 (the latest release)
 ACTIONLINT_LINUX_AMD64_SHA256=8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
@@ -114,6 +121,7 @@ ACTIONLINT_LINUX_AMD64_SHA256=8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b0
 #   actionlint_1.7.12_checksums.txt and the GitHub release asset digest, and the
 #   value the source repository's scripts/audit/check_workflows.sh pins.
 SHELLCHECK_VERSION=0.11.0
+SHELLCHECK_RELEASE_ASSET_ID=336391469
 #   Release v0.11.0, published 2025-08-04, annotated tag object
 #   b12c2a6a0834a5b8c12b1c0eb36704f698de5bac on commit aac0823e6b58f8a499e856e93738082691cbf212
 #   https://github.com/koalaman/shellcheck/releases/tag/v0.11.0 (the latest release)

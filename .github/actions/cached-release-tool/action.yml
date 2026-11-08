@@ -10,8 +10,14 @@ inputs:
   sha256:
     description: Expected release archive SHA-256
     required: true
-  url:
-    description: HTTPS release archive URL
+  repository:
+    description: Public upstream owner/repository
+    required: true
+  asset-id:
+    description: Pinned GitHub release asset ID
+    required: true
+  token:
+    description: Read-only job token for the public release-asset API
     required: true
   member:
     description: Binary member to extract
@@ -33,15 +39,22 @@ runs:
       shell: bash
       env:
         TOOL: ${{ inputs.tool }}
-        URL: ${{ inputs.url }}
+        RELEASE_REPOSITORY: ${{ inputs.repository }}
+        ASSET_ID: ${{ inputs.asset-id }}
+        GH_TOKEN: ${{ inputs.token }}
       run: |
         set -euo pipefail
         archive="$RUNNER_TEMP/release-cache/$TOOL/archive.tar.gz"
         mkdir -p "$(dirname "$archive")"
         echo "Downloading $TOOL release archive (cache miss)."
+        # The initial authenticated host is fixed; curl strips Authorization
+        # on redirects to a different host. No --location-trusted or tracing.
+        url="https://api.github.com/repos/$RELEASE_REPOSITORY/releases/assets/$ASSET_ID"
         curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
           --retry 30 --retry-all-errors --retry-delay 10 --retry-max-time 300 \
-          --connect-timeout 20 --max-time 60 --output "$archive" "$URL"
+          --connect-timeout 20 --max-time 60 \
+          --header 'Accept: application/octet-stream' \
+          --header "Authorization: Bearer $GH_TOKEN" --output "$archive" "$url"
     - name: Verify and extract binary
       shell: bash
       env:

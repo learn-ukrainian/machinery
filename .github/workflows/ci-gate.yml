@@ -71,10 +71,13 @@ env:
   RUFF_VERSION: "0.15.21"
   ZIZMOR_VERSION: "1.31.1"
   ACTIONLINT_VERSION: "1.7.12"
+  ACTIONLINT_RELEASE_ASSET_ID: "384924896"
   ACTIONLINT_LINUX_AMD64_SHA256: 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
   SHELLCHECK_VERSION: "0.11.0"
+  SHELLCHECK_RELEASE_ASSET_ID: "336391469"
   SHELLCHECK_LINUX_X86_64_SHA256: b7af85e41cc99489dcc21d66c6d5f3685138f06d34651e6d34b42ec6d54fe6f6
   TRUFFLEHOG_VERSION: "3.99.0"
+  TRUFFLEHOG_RELEASE_ASSET_ID: "616256576"
   TRUFFLEHOG_LINUX_AMD64_SHA256: e35ae3fd1e4b7a0c1699d0fda1814282bf906d03379bd4337b092b3a84c6740b
   SEMGREP_VERSION: "1.183.0"
   SEMGREP_RULES_COMMIT: 16b9e6d45f10649f6a531ec4838ed9924372c3bc
@@ -225,7 +228,9 @@ jobs:
           tool: actionlint
           version: ${{ env.ACTIONLINT_VERSION }}
           sha256: ${{ env.ACTIONLINT_LINUX_AMD64_SHA256 }}
-          url: https://github.com/rhysd/actionlint/releases/download/v${{ env.ACTIONLINT_VERSION }}/actionlint_${{ env.ACTIONLINT_VERSION }}_linux_amd64.tar.gz
+          repository: rhysd/actionlint
+          asset-id: ${{ env.ACTIONLINT_RELEASE_ASSET_ID }}
+          token: ${{ github.token }}
           member: actionlint
 
       - name: Restore verified ShellCheck
@@ -234,7 +239,9 @@ jobs:
           tool: shellcheck
           version: ${{ env.SHELLCHECK_VERSION }}
           sha256: ${{ env.SHELLCHECK_LINUX_X86_64_SHA256 }}
-          url: https://github.com/koalaman/shellcheck/releases/download/v${{ env.SHELLCHECK_VERSION }}/shellcheck-v${{ env.SHELLCHECK_VERSION }}.linux.x86_64.tar.gz
+          repository: koalaman/shellcheck
+          asset-id: ${{ env.SHELLCHECK_RELEASE_ASSET_ID }}
+          token: ${{ github.token }}
           member: shellcheck-v${{ env.SHELLCHECK_VERSION }}/shellcheck
           strip-components: '1'
 
@@ -371,7 +378,9 @@ jobs:
           tool: trufflehog
           version: ${{ env.TRUFFLEHOG_VERSION }}
           sha256: ${{ env.TRUFFLEHOG_LINUX_AMD64_SHA256 }}
-          url: https://github.com/trufflesecurity/trufflehog/releases/download/v${{ env.TRUFFLEHOG_VERSION }}/trufflehog_${{ env.TRUFFLEHOG_VERSION }}_linux_amd64.tar.gz
+          repository: trufflesecurity/trufflehog
+          asset-id: ${{ env.TRUFFLEHOG_RELEASE_ASSET_ID }}
+          token: ${{ github.token }}
           member: trufflehog
 
       - name: Verify TruffleHog version
