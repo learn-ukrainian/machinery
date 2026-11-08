@@ -15,7 +15,7 @@ simpler manual procedure beats new tooling.
 | Low | Deletions of unused code, docs, data, test-only, comments | Required CI green + one exact-head APPROVE from a qualified non-author reviewer (any family); no cross-family seat required |
 | Medium | Ordinary code changes | Required CI + one cross-family review |
 | High | CI workflows, launchers, publishing/merge gates, secrets/credential handling, security tooling, installers | Required CI + cross-family review at critical depth; a second reviewer only here |
-| Ukrainian content | Learner-facing Ukrainian text | Gemini via AGY with Sources, seated by the [Ukrainian profile](ukrainian.md); deletions of content paths are Low |
+| Ukrainian content | Learner-facing Ukrainian text | Gemini via AGY with Sources, seated by the [Ukrainian profile](ukrainian.md); deletions of learner-facing content keep this tier |
 
 The tier comes from the paths changed, never from the author. The path-to-tier table lives in
 one place, `lu_machinery/config/review_tiers.yaml`. A PR spanning tiers takes the highest tier it
