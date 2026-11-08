@@ -21,7 +21,8 @@ def probe_acp_health(cwd: Path) -> dict[str, dict[str, Any]]:
 
     Shared runtime failure excludes every ACP lane immediately. Per-provider
     failures affect only routes that use that CLI. Unexpected probe errors are
-    unknown and ineligible, never evidence of a healthy executable.
+    unknown and ineligible, never evidence of a healthy executable. The acpx
+    binary comes from the selected product (``product_root()``), never from ``cwd``.
     """
     checked_at = datetime.now(UTC).isoformat()
 
@@ -36,7 +37,7 @@ def probe_acp_health(cwd: Path) -> dict[str, dict[str, Any]]:
 
     participants = acpx.ACPX_SUPPORTED_PARTICIPANTS
     try:
-        binary = acpx._resolve_acpx_binary(adapter_label="ACP routing", cwd=cwd)
+        binary = acpx._resolve_acpx_binary(adapter_label="ACP routing")
         root_help = acpx._probe_cli_help(binary)
         if not root_help or any(flag not in root_help for flag in acpx._ACPX_REQUIRED_GLOBAL_FLAGS):
             raise acpx.AcpxShadowRefusalError("ACP root help unavailable", failure_code="cli_incompatible")

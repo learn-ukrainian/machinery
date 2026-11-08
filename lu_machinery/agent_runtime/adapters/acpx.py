@@ -1407,15 +1407,14 @@ def _require_non_primary_worktree(cwd: Path, *, adapter_label: str) -> None:
 def _resolve_acpx_binary(
     *,
     adapter_label: str,
-    cwd: Path,
 ) -> str:
     """Resolve local ACPX, sharing it with worktrees.
 
-    The default candidate is the product checkout's (``product_root()``). A
-    source worktree normally has no independent ``node_modules`` tree. If the
-    default candidate is absent, resolve the canonical primary checkout from the
-    invocation cwd (else the product) and accept only that checkout's
-    dependency binary. Never consult PATH or a global install.
+    The default candidate is the selected product checkout's (``product_root()``).
+    A product worktree normally has no independent ``node_modules`` tree. If the
+    default candidate is absent, resolve that product's canonical primary checkout
+    and accept only its dependency binary. The invocation cwd never selects the
+    binary, and PATH or a global install is never consulted.
 
     Tests may explicitly patch :data:`_ACPX_BINARY`; an override remains
     authoritative so an isolated test cannot accidentally borrow a developer
@@ -1430,12 +1429,8 @@ def _resolve_acpx_binary(
             raise AcpxShadowRefusalError(f"{adapter_label}: no product checkout holds acpx: {exc}") from exc
         candidate = product / "node_modules" / ".bin" / "acpx"
         if not candidate.is_file():
-            for discovery_root in (cwd, product):
-                try:
-                    main_root = resolve_main_root(discovery_root)
-                    break
-                except NotAGitRepositoryError:
-                    continue
+            with contextlib.suppress(NotAGitRepositoryError):
+                main_root = resolve_main_root(product)
             if main_root is not None:
                 primary_candidate = main_root / "node_modules" / ".bin" / "acpx"
                 if primary_candidate.is_file():
@@ -1447,7 +1442,7 @@ def _resolve_acpx_binary(
             if main_root is not None:
                 primary_hint = f"; canonical primary candidate is {main_root / 'node_modules' / '.bin' / 'acpx'}"
             else:
-                primary_hint = "; cwd is not inside a Git checkout, so no canonical primary install is available"
+                primary_hint = "; the product is not inside a Git checkout, so no canonical primary install is available"
         raise AcpxShadowRefusalError(
             f"{adapter_label}: project-local acpx binary not found at {candidate}{primary_hint}; run "
             "`npm install` in the canonical primary checkout. "
@@ -1459,11 +1454,10 @@ def _resolve_acpx_binary(
 def _require_compatible_acpx_binary(
     *,
     adapter_label: str,
-    cwd: Path,
     builtin_agent: str | None,
 ) -> tuple[str, str]:
     """Require the resolved binary's exact one-shot command contract."""
-    binary = _resolve_acpx_binary(adapter_label=adapter_label, cwd=cwd)
+    binary = _resolve_acpx_binary(adapter_label=adapter_label)
     observed_version, missing = _probe_acpx_cli_compatibility(
         binary,
         builtin_agent=builtin_agent,
@@ -2979,7 +2973,6 @@ class AcpxAdapter:
         _require_non_primary_worktree(cwd, adapter_label="AcpxAdapter")
         binary, acpx_version = _require_compatible_acpx_binary(
             adapter_label="AcpxAdapter",
-            cwd=cwd,
             builtin_agent="codex",
         )
 
@@ -3486,7 +3479,6 @@ class _AcpxDiscussionAdapter:
         builtin_agent = self.target_agent if custom_agent is None else None
         binary, acpx_version = _require_compatible_acpx_binary(
             adapter_label=type(self).__name__,
-            cwd=cwd,
             builtin_agent=builtin_agent,
         )
         participant_runtime_metadata = self._participant_runtime_metadata(binary)
@@ -3994,7 +3986,6 @@ class AcpxGrokShadowAdapter:
         _require_non_primary_worktree(cwd, adapter_label="AcpxGrokShadowAdapter")
         acpx_binary, acpx_version = _require_compatible_acpx_binary(
             adapter_label="AcpxGrokShadowAdapter",
-            cwd=cwd,
             builtin_agent=None,
         )
 
