@@ -246,7 +246,8 @@ def persisted_payload(day: str, *, root: Path | None = None, build=build_report)
 
 
 def publish_payload(payload: bytes, day: str, sender: str) -> int:
-    result = subprocess.run(
+    # The running interpreter and fixed module are trusted; argv is separate and no shell runs.
+    result = subprocess.run(  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit
         [
             sys.executable,
             "-m",

@@ -421,7 +421,8 @@ def public_refresh_view(state: dict) -> dict:
 def _spawn_worker(run_id: str) -> bool:
     """Spawn the detached refresh worker subprocess. Returns True on success."""
     try:
-        subprocess.Popen(
+        # The running interpreter and fixed module are trusted; argv is separate and no shell runs.
+        subprocess.Popen(  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit
             [
                 sys.executable,
                 "-m",
