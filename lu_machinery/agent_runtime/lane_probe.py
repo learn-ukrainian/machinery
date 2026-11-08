@@ -25,26 +25,11 @@ if __package__ in (None, ""):  # run as a file: put the repository root on sys.p
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
     __package__ = "lu_machinery.agent_runtime"
 
-try:
-    from lu_machinery.lib.readonly_sqlite import import_named_module
-except ModuleNotFoundError as exc:
-    if exc.name != Path(os.path.abspath(__file__)).parents[1].name:
-        raise
-    from lib.readonly_sqlite import import_named_module  # type: ignore[no-redef]
-
-from lu_machinery.common.repo_root import machinery_root
+from lu_machinery.lib.readonly_sqlite import import_named_module
 from lu_machinery.orchestration.handoff_slot_registry import is_registered_slot, registered_slots
 from lu_machinery.utils.claude_version import run_version_probe
 
 from .registry import AGENTS, get_agent_entry
-
-_SCRIPTS_DIR = machinery_root()
-# Several legacy adapters retain top-level imports such as ``ai_llm`` and
-# ``ai_agent_bridge``. Delegate adds this same source root before loading them;
-# SessionStart runs this probe as ``scripts.agent_runtime`` and needs the
-# compatibility import root too.
-if str(_SCRIPTS_DIR) not in sys.path:
-    sys.path.insert(0, str(_SCRIPTS_DIR))
 
 _PROBE_PROMPT = "Dispatch adapter health probe; do not execute this prompt."
 _DEFAULT_TIMEOUT_SECONDS = 3

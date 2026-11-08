@@ -89,6 +89,7 @@ def test_background_logs_use_state_but_child_cwd_stays_product(roots, monkeypatc
         _gemini._launch_gemini_background({"task_id": "root-proof"}, 42, "test-model", "test", auth_mode=None)
         log_name = "gemini-root-proof.log"
     assert len(captured) == 1
+    assert captured[0][0][1:3] == ["-m", "lu_machinery.ai_agent_bridge"]
     assert captured[0][1]["cwd"] == str(product)
     log = state / ".mcp/servers/message-broker/logs" / log_name
     assert log.read_text() == "child log\n"
@@ -105,3 +106,46 @@ def test_broker_reads_log_tail_from_state(roots, capsys):
     output = capsys.readouterr().out
     assert "Last output: state-log" in output
     assert "product-decoy" not in output
+
+
+def test_consumer_import_order_preserves_package_identity(tmp_path):
+    """A consumer's runtime must not shadow machinery or be shadowed by the bridge."""
+    consumer = tmp_path / "consumer"
+    runtime = consumer / "agent_runtime"
+    (runtime / "adapters").mkdir(parents=True)
+    for name in ("__init__.py", "adapters/__init__.py", "adapters/kimi.py"):
+        (runtime / name).write_text("")
+    (runtime / "redact.py").write_text("CONSUMER = True\n")
+    probe = """
+import importlib
+import sys
+sys.path[:0] = sys.argv[1:3]
+before = sys.path.copy()
+modules = ("agent_runtime.redact", "lu_machinery.ai_agent_bridge")
+if sys.argv[3] == "bridge-first":
+    modules = modules[::-1]
+for name in modules:
+    importlib.import_module(name)
+    if name == "lu_machinery.ai_agent_bridge":
+        importlib.import_module("lu_machinery.agent_runtime.acpx_discuss")
+        importlib.import_module("lu_machinery.agent_runtime.lane_probe")
+from lu_machinery.ai_agent_bridge import _claude, _gemini
+from lu_machinery.agent_runtime import runner
+from lu_machinery.agent_runtime.adapters.claude import ClaudeAdapter
+from lu_machinery.agent_runtime.errors import AgentTimeoutError
+assert _claude.runtime_invoke is runner.invoke
+assert _gemini.runtime_invoke is runner.invoke
+assert _claude.AgentTimeoutError is AgentTimeoutError
+assert importlib.import_module("agent_runtime.redact").CONSUMER is True
+assert sys.path == before
+print("PASS", sys.argv[3])
+"""
+    failures = []
+    for order in ("consumer-first", "bridge-first"):
+        result = subprocess.run(
+            [sys.executable, "-I", "-c", probe, str(consumer), str(Path(__file__).resolve().parents[2]), order],
+            cwd=tmp_path, capture_output=True, text=True, check=False,
+        )
+        if result.returncode != 0 or result.stdout.strip() != f"PASS {order}":
+            failures.append(f"{order}: {result.stdout}{result.stderr}")
+    assert not failures, "\n".join(failures)

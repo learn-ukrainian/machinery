@@ -4,7 +4,7 @@ Exposes ad-hoc one-shot Cursor Agent calls. Useful for Q&A, discussions,
 and single-shot reads through Cursor's Composer or other models.
 
 Invocation pattern:
-    .venv/bin/python scripts/ai_agent_bridge/__main__.py ask-cursor <content> \
+    .venv/bin/python -m lu_machinery.ai_agent_bridge ask-cursor <content> \
       --task-id <task> [--model composer-2.5] [--data FILE]
 
 Every call runs a concrete approved Cursor pin: the catalog's Cursor seat pin

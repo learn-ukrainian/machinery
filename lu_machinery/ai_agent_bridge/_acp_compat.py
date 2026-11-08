@@ -17,14 +17,16 @@ from collections.abc import Iterable
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from agent_runtime.target_admission import COMPAT_TARGETS as _TARGETS  # noqa: F401  (legacy ask names, read-only)
+from lu_machinery.agent_runtime.target_admission import (
+    COMPAT_TARGETS as _TARGETS,  # noqa: F401  (legacy ask names, read-only)
+)
 from lu_machinery.common.repo_root import machinery_path
 
 from . import _config
 from ._config import DISPATCH_ENTRY
 
 if TYPE_CHECKING:
-    from agent_runtime.target_admission import AdmittedTarget
+    from lu_machinery.agent_runtime.target_admission import AdmittedTarget
 
 
 def admit_compat_target(command_target: str, *, model: str | None = None, data: object = None) -> AdmittedTarget:
@@ -34,8 +36,8 @@ def admit_compat_target(command_target: str, *, model: str | None = None, data: 
     model/recipient keys, raises ``KimiAdmissionRefused`` (a ``ValueError``): Kimi seats take web, UI and backend
     coding only, never ACP asks, consults, discussions or reviews. An unknown name raises ``ValueError``.
     """
-    from agent_runtime.kimi_admission import ACP_MODE
-    from agent_runtime.target_admission import resolve_and_admit
+    from lu_machinery.agent_runtime.kimi_admission import ACP_MODE
+    from lu_machinery.agent_runtime.target_admission import resolve_and_admit
 
     (target,) = resolve_and_admit((command_target,), mode=ACP_MODE, model=model, attachments=(data,), compat=True)
     return target
@@ -48,8 +50,8 @@ def require_compat_target(command_target: str, *, model: str | None = None, data
 
 def refuse_kimi_compat(command_target: str, *, model: str | None = None, data: object = None) -> None:
     """The Kimi gate for one ACP ask: the command target, its participant, adapter agent, pin, override and attachment."""
-    from agent_runtime.kimi_admission import ACP_MODE
-    from agent_runtime.target_admission import resolve_and_admit
+    from lu_machinery.agent_runtime.kimi_admission import ACP_MODE
+    from lu_machinery.agent_runtime.target_admission import resolve_and_admit
 
     resolve_and_admit((command_target,), mode=ACP_MODE, model=model, attachments=(data,))
 
@@ -70,8 +72,8 @@ def refuse_kimi_recipients(
     alone, before any broker access. Entry points that deliver take their
     targets from ``resolve_and_admit`` instead.
     """
-    from agent_runtime.kimi_admission import BRIDGE_MODE
-    from agent_runtime.target_admission import resolve_and_admit
+    from lu_machinery.agent_runtime.kimi_admission import BRIDGE_MODE
+    from lu_machinery.agent_runtime.target_admission import resolve_and_admit
 
     explicit_models = [model for model in models if model]
     resolve_and_admit(
@@ -91,7 +93,7 @@ def registered_participant_model(participant: str) -> str | None:
     carrying an independently hardcoded slug that goes stale on every model
     rotation (#6894). Returns None for unknown or deliberately unpinned seats.
     """
-    from agent_runtime.adapters.acpx import ACPX_SUPPORTED_PARTICIPANTS
+    from lu_machinery.agent_runtime.adapters.acpx import ACPX_SUPPORTED_PARTICIPANTS
 
     entry = ACPX_SUPPORTED_PARTICIPANTS.get(participant)
     if not entry:
@@ -115,7 +117,7 @@ def resolve_compat_model(command_target: str, model: str | None) -> str | None:
     if participant == "agy":
         pin = registered_participant_model("agy")
         if model.strip().lower().startswith("gemini"):
-            from agent_runtime.adapters.agy import AgyAdapter, unknown_model_suggestion
+            from lu_machinery.agent_runtime.adapters.agy import AgyAdapter, unknown_model_suggestion
 
             accepted_model = AgyAdapter.resolve_model_slug(model)
             if not pin:
@@ -205,7 +207,7 @@ def _stored_substitution_decision(result: object) -> dict[str, object] | None:
 
 def _is_rate_limited_error(error: BaseException) -> bool:
     """True only for the runner's RateLimitedError, including subclasses."""
-    from agent_runtime.errors import RateLimitedError
+    from lu_machinery.agent_runtime.errors import RateLimitedError
 
     return isinstance(error, RateLimitedError)
 
@@ -281,8 +283,8 @@ def _resolve_quota_substitution(seat: str, reason: str, *, already_substituted: 
             file=sys.stderr,
         )
         return None
-    from agent_runtime.kimi_admission import ACP_MODE
-    from agent_runtime.target_admission import SubstituteUnavailable, resolve_and_admit
+    from lu_machinery.agent_runtime.kimi_admission import ACP_MODE
+    from lu_machinery.agent_runtime.target_admission import SubstituteUnavailable, resolve_and_admit
 
     try:
         (target,) = resolve_and_admit(
@@ -377,7 +379,7 @@ def _result_receipt(
 
 
 def _replay_result(raw: bytes) -> object:
-    from agent_runtime.result import Result
+    from lu_machinery.agent_runtime.result import Result
 
     payload = json.loads(raw)
     if not isinstance(payload, dict):
@@ -639,7 +641,7 @@ def run_compat_ask(
         raise ValueError("ACP ask requires a non-empty task_id")
     # Every ACP ask starts with the rules core: refuse before telemetry, the
     # job-host forward or any authority enqueue/claim (the runner re-checks).
-    from agent_runtime.runner import InterAgentTransportError
+    from lu_machinery.agent_runtime.runner import InterAgentTransportError
     from lu_machinery.lib import rules_core
 
     try:
@@ -828,8 +830,8 @@ def _run_single_acp_job(
     set this attempt is the substitute seat: its job metadata and result
     receipt carry the record.
     """
-    from agent_runtime.runner import invoke_inter_agent
-    from agent_runtime.target_admission import require_admitted
+    from lu_machinery.agent_runtime.runner import invoke_inter_agent
+    from lu_machinery.agent_runtime.target_admission import require_admitted
     from lu_machinery.fleet_comms.authority import AuthorityService, AuthorityServiceError
 
     # The target comes from resolve_and_admit (a quota substitute too): no seat is resolved here.

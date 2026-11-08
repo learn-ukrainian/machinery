@@ -23,9 +23,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from agent_runtime.errors import AgentStalledError, AgentTimeoutError
-from common.repo_root import machinery_path, project_interpreter
-from lu_machinery.common.repo_root import state_root
+from lu_machinery.agent_runtime.errors import AgentStalledError, AgentTimeoutError
+from lu_machinery.common.repo_root import project_interpreter, state_root
 
 from . import _config
 from ._ask_contract import MAX_TOTAL_ASK_RETRIES
@@ -398,7 +397,8 @@ def launch_background_ask(message_id: int, target: str, options: dict[str, Any])
             proc = subprocess.Popen(
                 [
                     str(project_interpreter()),
-                    str(machinery_path("ai_agent_bridge/__main__.py")),
+                    "-m",
+                    "lu_machinery.ai_agent_bridge",
                     "process-ask",
                     str(message_id),
                     target,
@@ -546,7 +546,7 @@ def process_background_ask(message_id: int, target: str) -> None:
     stored message addressed to a Kimi seat or model is skipped right after
     the read, before any lifecycle record (``skip_stored_kimi_row``).
     """
-    from agent_runtime.kimi_admission import KimiAdmissionRefused
+    from lu_machinery.agent_runtime.kimi_admission import KimiAdmissionRefused
 
     from ._acp_compat import refuse_kimi_compat
     from ._messaging import read_message
@@ -929,7 +929,7 @@ def skip_stored_kimi_row(msg: dict[str, Any], message_id: int, target: str | Non
     ``target`` is the stored or generic drain target, never a Kimi request:
     those are refused before the broker is opened.
     """
-    from agent_runtime.kimi_admission import KimiAdmissionRefused
+    from lu_machinery.agent_runtime.kimi_admission import KimiAdmissionRefused
 
     from ._acp_compat import refuse_kimi_recipients
 
