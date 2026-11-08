@@ -15,7 +15,7 @@ attempt-specific environment variables:
 - LU_REVIEW_LEDGER_PATH
 
 The generated MCP configuration defines exclusively a `sources` server started
-over stdio from the primary checkout's virtual environment and server script,
+over stdio with the running interpreter and the selected product checkout's server script,
 bypassing the shared streamable-HTTP daemon (127.0.0.1:8766). Because the prompt may be
 rendered in another checkout, ``check_review_contract`` refuses the attempt when the
 server code or templates its render recorded differ from what the seat would run, and
