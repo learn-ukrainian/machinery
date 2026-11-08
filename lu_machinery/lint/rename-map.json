@@ -31,6 +31,7 @@
  "agents_extensions/shared/hooks/guard-reviewer-publish.py": "machinery",
  "agents_extensions/shared/hooks/guard-secret-print.py": "machinery",
  "agents_extensions/shared/hooks/heal-core-bare.py": "machinery",
+ "agents_extensions/shared/hooks/load_hook_package.py": "machinery",
  "agents_extensions/shared/hooks/post-compact.sh": "machinery",
  "agents_extensions/shared/hooks/precompact-handoff-guard.sh": "machinery",
  "agents_extensions/shared/hooks/release-thread-lease.sh": "machinery",
