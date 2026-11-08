@@ -455,11 +455,6 @@
    "sha256": "5f696db9e5cfe93ad7d7a9596c1170b1a6dfcfd884408d2cc8b0be2ee03ab384"
   },
   {
-   "path": "lu_machinery/session_canary/kimi_lane.py",
-   "rule": "python.lang.correctness.common-mistakes.identical-is-comparison",
-   "sha256": "e977873831c211e710b6542bd480b2dfffce1af8594af25bcb538eae778c3543"
-  },
-  {
    "path": "agents_extensions/shared/session_streams/store.py",
    "rule": "python.lang.correctness.common-mistakes.string-concat-in-list",
    "sha256": "0d492c7383705eac95e959869fbe036c6b8eb96fc3e8171d3fc0115e5be05e5b"

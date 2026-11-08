@@ -7,7 +7,7 @@ acknowledged a message.
 
 ## §8. Handoff — dual-write, cutover-aware
 
-End the session on your seat's handoff signal (canary FAIL-HANDOFF for grok/gemini/kimi;
+End the session on your seat's handoff signal (canary FAIL-HANDOFF for grok/gemini;
 the SessionStart / thread-handoff for Claude/Sonnet), not on a compact count. The
 driver-state database is the lane's handoff through every plane mode (OO-63 and OO-86).
 
