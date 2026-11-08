@@ -51,6 +51,7 @@ from lu_machinery.review.target_resolution import (
     TargetResolutionError,
     diff_against_base,
     repository_target_error,
+    resolve_branch_target,
     resolve_local_target,
     resolve_review_repository,
     resolve_review_target,
@@ -313,15 +314,10 @@ def _baseline_from_state(state: dict) -> ScopeBaseline:
 def _cmd_check_expansion(args: argparse.Namespace) -> int:
     """Re-measure the frozen target's mode against its current state.
 
-    ``local`` mode is re-resolved from the working tree, same as before — it
-    has no committed endpoint by definition. Every other mode (commit/branch/
-    pr) is frozen against a committed base/head, so a clean working tree
-    tells us nothing: review-triggered fixes land as *commits*, not
-    uncommitted changes. Re-resolving those modes means re-diffing the
-    frozen ``base_sha`` against an explicit ``--current-head`` (the reviewed
-    head after fixes) — never re-querying ``gh pr view`` or re-deriving the
-    mode from ``git status``, since either could silently drift from the
-    mode the baseline was actually frozen under.
+    Local mode measures the working tree. Branch and PR modes measure the
+    explicit current head from its merge base with the stored base branch,
+    excluding unrelated changes integrated from that branch. Commit mode
+    retains its frozen parent. The frozen baseline and receipts never change.
 
     The diff runs in the repository stored with the target. ``--repo-root``
     is only the fallback when that stored root is absent, so a worktree
@@ -368,9 +364,19 @@ def _cmd_check_expansion(args: argparse.Namespace) -> int:
                 )
                 return 1
             current_head_sha = rev_parse(repo_root, args.current_head)
-            changed_paths, non_test_loc = diff_against_base(repo_root, baseline.target.base_sha, current_head_sha)
-            current_files = frozenset(changed_paths)
-            current_non_test_loc = non_test_loc
+            if mode in {"branch", "pr"}:
+                base = target_args.get("base")
+                if not isinstance(base, str) or not base.strip():
+                    raise TargetResolutionError(f"check-expansion for mode={mode!r} requires the stored base branch")
+                if mode == "pr":
+                    base = f"refs/remotes/origin/{base}"
+                current = resolve_branch_target(repo_root, current_head_sha, base)
+                current_files = frozenset(current.changed_paths)
+                current_non_test_loc = current.non_test_loc
+            else:
+                changed_paths, non_test_loc = diff_against_base(repo_root, baseline.target.base_sha, current_head_sha)
+                current_files = frozenset(changed_paths)
+                current_non_test_loc = non_test_loc
     except TargetResolutionError as exc:
         print(json.dumps({"error": str(exc)}), file=sys.stderr)
         return 1
