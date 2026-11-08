@@ -16,7 +16,7 @@ from agent_runtime.errors import AgentTimeoutError, RateLimitedError
 from agent_runtime.kimi_admission import KimiAdmissionRefused
 from agent_runtime.runner import InterAgentTransportError
 from lu_machinery.common import github_client
-from lu_machinery.common.repo_root import product_root
+from lu_machinery.common.repo_root import MachineryConfigError, product_root, state_root
 
 from ._ask_contract import EFFORT_CHOICES
 from ._ask_lifecycle import (
@@ -1555,9 +1555,11 @@ def _resolve_same_repo_pr_head(pr_number: int, *, repo_root: Path | None = None)
         live_canonical_branch_head,
     )
 
-    repo_root = product_root(repo_root)
     try:
+        repo_root = product_root(repo_root)
         repository = _origin_github_repo(repo_root)
+    except MachineryConfigError as exc:
+        raise SystemExit(str(exc)) from None
     except (OSError, TargetResolutionError) as exc:
         raise SystemExit(f"ask --pr {pr_number}: canonical repository unavailable") from exc
     if repository is None:
@@ -1710,7 +1712,6 @@ def _handle_acp_compat(args, target: str) -> None:
     pr_number = getattr(args, "pr", None)
     branch = getattr(args, "branch", None)
     repo = getattr(args, "repo", None)
-    review_root = product_root()
     if repo is not None:
         if not (review or pr_number is not None or branch is not None):
             raise SystemExit("--repo requires review intent (--review, --type review, --pr or --branch)")
@@ -1720,12 +1721,17 @@ def _handle_acp_compat(args, target: str) -> None:
         try:
             repo = canonical_repo_key(repo)
             review_root = resolve_review_repository(
-                review_root, repo, mode="pr" if pr_number is not None else "branch", branch=branch,
+                state_root(), repo, mode="pr" if pr_number is not None else "branch", branch=branch,
             )
-        except (FleetRepoError, TargetResolutionError) as exc:
+        except (FleetRepoError, TargetResolutionError, MachineryConfigError) as exc:
             raise SystemExit(str(exc)) from None
     resolved_head_sha: str | None = None
     if pr_number is not None or branch is not None:
+        if repo is None:
+            try:
+                review_root = product_root()
+            except MachineryConfigError as exc:
+                raise SystemExit(str(exc)) from None
         # #7010: sealed review-pr was removed in #8520. Route
         # --pr/--branch to the same lightweight direct path as
         # `ask-LANE - --type review`: the target is folded into the prompt and

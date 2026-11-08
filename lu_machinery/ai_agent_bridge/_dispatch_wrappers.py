@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from lu_machinery.common import github_client
-from lu_machinery.common.repo_root import product_root, state_root
+from lu_machinery.common.repo_root import machinery_path, product_root, state_root
 from lu_machinery.review.verdict_parser import ACCEPTED_VERDICT_TOKENS, recognized_verdicts, unsupported_verdict_tokens
 from lu_machinery.secret_redactor import redact_text
 
@@ -89,7 +89,7 @@ def _run_text_command(
 ) -> str:
     proc = subprocess.run(
         cmd,
-        cwd=state_root(),
+        cwd=machinery_path("dispatch.py").parent.parent,
         check=True,
         capture_output=True,
         text=True,
@@ -246,7 +246,7 @@ def _run_dispatch(
         print(f"State file: {_task_state_path(task_id)}")
         return 0
     try:
-        proc = github_client.run(command, cwd=state_root(), timeout=timeout)
+        proc = github_client.run(command, cwd=machinery_path("dispatch.py").parent.parent, timeout=timeout)
         return int(proc.returncode)
     except subprocess.TimeoutExpired:
         print(
@@ -471,7 +471,7 @@ def run_ask_review_dispatch(
         try:
             dispatch_proc = subprocess.run(
                 dispatch_command,
-                cwd=state_root(),
+                cwd=machinery_path("dispatch.py").parent.parent,
                 capture_output=True,
                 text=True,
                 timeout=DISPATCH_COMMAND_TIMEOUT_SECONDS,
@@ -492,7 +492,7 @@ def run_ask_review_dispatch(
         try:
             wait_proc = subprocess.run(
                 wait_command,
-                cwd=state_root(),
+                cwd=machinery_path("dispatch.py").parent.parent,
                 capture_output=True,
                 text=True,
                 timeout=timeout + ASK_REVIEW_WAIT_GRACE_SECONDS,

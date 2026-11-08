@@ -20,7 +20,7 @@ import psutil
 
 from lu_machinery.agent_runtime import bounded_advisory
 from lu_machinery.agent_runtime.read_only_tmp import create_dispatch_lease, discard_dispatch_lease
-from lu_machinery.common.repo_root import machinery_path, state_root
+from lu_machinery.common.repo_root import machinery_path
 from lu_machinery.common.scratch import ensure_scratch_root
 from lu_machinery.common.task_scratch import TaskScratchError
 from lu_machinery.dispatcher import admission, agy_sandbox, git, headroom, ownership, providers, runtime_context, store
@@ -200,7 +200,7 @@ def start(spec: TaskSpec, record: dict, prompt: bytes, hard_timeout: float) -> N
             try:
                 process, launch = admission.spawn_supervisor(
                     [sys.executable, "-m", "lu_machinery.dispatcher.worker", str(path)],
-                    task_id=spec.task_id, run_nonce=record["run_nonce"], cwd=state_root(),
+                    task_id=spec.task_id, run_nonce=record["run_nonce"], cwd=machinery_path("dispatch.py").parent.parent,
                     stderr=err, stderr_log=logs / f"{spec.task_id}.stderr.log",
                     env={**os.environ,
                          "LEARN_UKRAINIAN_DISPATCH_TASK_ID": spec.task_id,

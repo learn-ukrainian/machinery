@@ -20,6 +20,8 @@ import shlex
 import subprocess
 import sys
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import Mock
 
 import pytest
 
@@ -210,7 +212,7 @@ def _systemd_home(tmp_path: Path) -> Path:
 
 
 @pytest.mark.parametrize("repo", sorted(REPOS))
-def test_dispatch_targets_state_and_slug_follow_the_configuration(layout, repo: str) -> None:
+def test_dispatch_targets_state_and_slug_follow_the_configuration(monkeypatch, layout, repo: str) -> None:
     roots = _import_time_roots(_subprocess_env(**_configured(layout, repo)))
     assert Path(roots[repo]) == (layout["product"] if repo == "public" else layout[repo]).resolve()
     assert Path(roots["tasks_dir"]) == layout["primary"] / "batch_state" / "tasks"
@@ -220,6 +222,37 @@ def test_dispatch_targets_state_and_slug_follow_the_configuration(layout, repo: 
     assert roots["slug"] == roots["github"]["public"] == CONFIGURED_SLUG
     assert roots["github"]["kube-dojo"] == REPOS["kube-dojo"]
     assert roots["bridge_dispatcher"] == [sys.executable, "-m", "lu_machinery.dispatch", "wait", "probe", "--timeout", "1"]
+
+    from lu_machinery.ai_agent_bridge import _acp_compat, _cli
+    from lu_machinery.review import target_resolution
+
+    for key, value in _configured(layout, repo).items():
+        monkeypatch.setenv(key, value)
+    monkeypatch.setattr(_cli, "require_core_or_exit", Mock())
+    monkeypatch.setattr(_acp_compat, "require_compat_target", Mock(return_value="claude"))
+    resolve = Mock(side_effect=_Execed)
+    monkeypatch.setattr(target_resolution, "resolve_review_repository", resolve)
+    args = SimpleNamespace(content="review", task_id="root-probe", review=True, repo=repo, branch="feature")
+    with pytest.raises(_Execed):
+        _cli._handle_acp_compat(args, "claude")
+    assert resolve.call_args.args[0] == layout["primary"]
+
+    from lu_machinery.ai_agent_bridge import _dispatch_wrappers as bridge
+
+    launch = Mock(return_value=SimpleNamespace(returncode=0))
+    monkeypatch.setattr(bridge.github_client, "run", launch)
+    command = [sys.executable, "-m", "lu_machinery.dispatch", "dispatch", "--task-id", "root-probe"]
+    assert bridge._run_dispatch(command, False, Path("unused-prompt")) == 0
+    assert launch.call_args.kwargs["cwd"] == rr.machinery_path("dispatch.py").parent.parent
+    assert launch.call_args.kwargs["cwd"] not in {layout["primary"], layout["product"]}
+
+    monkeypatch.delenv(rr.PRODUCT_ROOT_ENV)
+    ask = Mock(return_value=SimpleNamespace(ok=True))
+    monkeypatch.setattr(_acp_compat, "run_compat_ask", ask)
+    monkeypatch.setattr(_cli, "_resolve_from_llm", Mock(return_value="root-probe"))
+    args.repo, args.branch, args.review = None, None, False
+    _cli._handle_acp_compat(args, "claude")
+    ask.assert_called_once()
 
 
 @pytest.mark.parametrize("repo", sorted(REPOS))
