@@ -17,9 +17,11 @@ from pathlib import Path
 
 import pytest
 
-SOURCE = Path(__file__).resolve().parents[2]
+from lu_machinery.common.repo_root import machinery_root
+
+SOURCE = machinery_root().parent
 HOOKS = SOURCE / "agents_extensions" / "shared" / "hooks"
-LIB = SOURCE / "lu_machinery" / "lib"
+LIB = machinery_root() / "lib"
 SESSION_STDIN = json.dumps({"session_id": "interpreter-rule", "source": "startup", "model": "claude-opus-5-5"})
 
 GUARDS = {
@@ -259,7 +261,7 @@ def test_deployed_guards_do_not_import_a_planted_stdlib_module(tmp_path: Path) -
     ):
         subprocess.run(["git", "-C", str(product), *args], check=True, capture_output=True, env=env)
     release = tmp_path / "site-packages"
-    shutil.copytree(SOURCE / "lu_machinery", release / "lu_machinery", ignore=shutil.ignore_patterns("__pycache__"))
+    shutil.copytree(machinery_root(), release / "lu_machinery", ignore=shutil.ignore_patterns("__pycache__"))
     subprocess.run([sys.executable, "-I", "-m", "venv", "--without-pip", str(product / ".venv")], check=True)
     purelib = subprocess.run(
         [str(product / ".venv" / "bin" / "python"), "-I", "-c", "import sysconfig; print(sysconfig.get_path('purelib'))"],
@@ -319,7 +321,7 @@ def test_deployed_guards_do_not_import_a_planted_stdlib_module(tmp_path: Path) -
 
 def test_deploy_inventory_ships_the_hook_loader() -> None:
     """A deployed consumer receives load_hook_package.py beside the guards (R72)."""
-    inventory = json.loads((SOURCE / "lu_machinery/agent_deploy/release.v1.json").read_text(encoding="utf-8"))
+    inventory = json.loads((machinery_root() / "agent_deploy/release.v1.json").read_text(encoding="utf-8"))
     record = inventory["files"]["hooks/load_hook_package.py"]
     assert record["owner"] == "fleet"
     assert set(record["targets"]) == {"agy", "claude", "codex", "cursor"}

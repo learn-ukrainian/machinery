@@ -573,11 +573,11 @@ def _wt_sh_fixture(tmp_path: Path) -> tuple[Path, Path]:
     """A primary carrying the machinery wt.sh and a shim for its project interpreter."""
     primary = _primary(tmp_path)
     (primary / machinery_package()).mkdir()
-    shutil.copy2(PROJECT_ROOT / machinery_package() / "wt.sh", primary / machinery_package() / "wt.sh")
+    shutil.copy2(repo_root.machinery_path("wt.sh"), primary / machinery_package() / "wt.sh")
     library = primary / machinery_package() / "lib"
     library.mkdir()
     shutil.copy2(
-        PROJECT_ROOT / machinery_package() / "lib" / "project_interpreter.sh",
+        repo_root.machinery_path("lib/project_interpreter.sh"),
         library / "project_interpreter.sh",
     )
     python = primary / ".venv" / "bin" / "python"
@@ -623,7 +623,7 @@ def test_wt_sh_create_from_linked_worktree_targets_primary_sibling(tmp_path):
     python.chmod(0o755)
     linked_script = worktree / machinery_package() / "wt.sh"
     linked_script.parent.mkdir()
-    shutil.copy2(PROJECT_ROOT / machinery_package() / "wt.sh", linked_script)
+    shutil.copy2(repo_root.machinery_path("wt.sh"), linked_script)
 
     proc = subprocess.run(
         ["bash", str(linked_script), "create", "818", "linked invocation"],
