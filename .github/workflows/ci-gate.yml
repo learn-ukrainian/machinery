@@ -566,12 +566,16 @@ jobs:
   #   empty rule directory fails the job.
   # - Diff-aware against .github/workflows/semgrep-baseline.json, the reviewed
   #   baseline of the first push (semgrep_baseline.py beside it): a finding not
-  #   in the baseline fails the job, and so does any scan error (parse failure
-  #   or timeout) in a file the change touches or without a path. A missing or
-  #   mismatched baseline or rules checkout, unparsable output, any exit other
-  #   than 0 or 1, and a scan that covered no Python file fail closed. Scan
-  #   errors in untouched files are warnings. --timeout 30 and --jobs 2 are
-  #   explicit; --strict is not used because the checker judges every error.
+  #   in the baseline fails the job, and so does a scan error without a path.
+  #   A scan error in a file the change touches passes only when each of its
+  #   spans lies on lines the PR diff leaves unchanged and the baseline records
+  #   the same error (path, error type, span text hash), at most as many times
+  #   as recorded; a timeout, an error without spans and any span on an added
+  #   or modified line fail. A missing or mismatched baseline or rules
+  #   checkout, unparsable output, any exit other than 0 or 1, and a scan that
+  #   covered no Python file fail closed. Scan errors in untouched files are
+  #   warnings. --timeout 30 and --jobs 2 are explicit; --strict is not used
+  #   because the checker judges every error.
   # - Exclusions: Semgrep's built-in ignore list applies while the repository
   #   has no .semgrepignore (it skips test/, tests/, vendor/, build/, dist/ and
   #   similar), and files over 1 MB are skipped (Semgrep's default
@@ -864,7 +868,7 @@ jobs:
             git diff -z --no-renames --name-only "$base" HEAD > "$work/changed"
           fi
           python -I -B "$checker" check --results "$results" --root . --rules-dir "$rules" \
-            --baseline "$baseline" --changed "$work/changed" \
+            --baseline "$baseline" --changed "$work/changed" --base "$base" \
             --semgrep-version "$SEMGREP_VERSION" --rules-commit "$SEMGREP_RULES_COMMIT" \
             --configs "${configs[*]}"
 
