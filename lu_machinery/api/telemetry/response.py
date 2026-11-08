@@ -10,6 +10,7 @@ from lu_machinery.api.observer_presence import (
     MAC_OPERATOR_HOST_ID,
     fresh_notebook_presence_for_session,
 )
+from lu_machinery.common.repo_root import state_root
 from lu_machinery.lib.session_record import SessionRecordError, validate_session_id
 
 from .footer import PREMIUM_THRESHOLD_TOKENS, render_footer
@@ -59,7 +60,7 @@ def telemetry_dict(telemetry: TranscriptTelemetry, session_id: str | None = None
     )
 
     record = (
-        read_session_record(config.PROJECT_ROOT, session_id)
+        read_session_record(state_root(), session_id)
         if session_id is not None
         else None
     )

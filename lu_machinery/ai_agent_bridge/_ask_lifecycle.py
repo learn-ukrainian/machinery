@@ -25,6 +25,7 @@ from typing import Any
 
 from agent_runtime.errors import AgentStalledError, AgentTimeoutError
 from common.repo_root import machinery_path, project_interpreter
+from lu_machinery.common.repo_root import state_root
 
 from . import _config
 from ._ask_contract import MAX_TOTAL_ASK_RETRIES
@@ -43,7 +44,7 @@ def _now_iso() -> str:
 
 
 def _ask_state_root() -> Path:
-    return _config.REPO_ROOT / "batch_state" / "asks"
+    return state_root() / "batch_state" / "asks"
 
 
 def _ask_task_key(message_id: int) -> str:
@@ -57,7 +58,7 @@ def _ask_state_dir(message_id: int) -> Path:
 
 
 def _ask_log_path(message_id: int) -> Path:
-    return _config.REPO_ROOT / ".mcp" / "servers" / "message-broker" / "logs" / f"ask-{message_id}.log"
+    return state_root() / ".mcp" / "servers" / "message-broker" / "logs" / f"ask-{message_id}.log"
 
 
 def _atomic_write_json(path: Path, payload: dict[str, Any]) -> None:
@@ -381,7 +382,7 @@ def launch_background_ask(message_id: int, target: str, options: dict[str, Any])
     not treat a dead worker as a successful dispatch.
     """
     task_key = str(message_id)
-    log_dir = _config.REPO_ROOT / ".mcp" / "servers" / "message-broker" / "logs"
+    log_dir = state_root() / ".mcp" / "servers" / "message-broker" / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
     log_file = log_dir / f"ask-{message_id}.log"
 
@@ -1109,11 +1110,11 @@ def _plane_root() -> Path:
         return _PLANE_ROOT_OVERRIDE
     plane_mod = _import_message_plane()
     if plane_mod is not None:
-        return Path(plane_mod.default_plane_root(repo_root=_config.REPO_ROOT))
+        return Path(plane_mod.default_plane_root(repo_root=state_root()))
     env = os.environ.get("FLEET_COMMS_ROOT")
     if env:
         return Path(env)
-    return _config.REPO_ROOT / "batch_state" / "fleet-comms" / "v1"
+    return state_root() / "batch_state" / "fleet-comms" / "v1"
 
 
 def _plane_try_open_ask(message_id: int) -> None:

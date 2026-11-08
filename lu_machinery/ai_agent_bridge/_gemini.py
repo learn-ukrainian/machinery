@@ -25,6 +25,7 @@ from agent_runtime.errors import (
 from agent_runtime.runner import invoke as runtime_invoke
 from common.http_status import has_http_status
 from common.repo_root import project_interpreter
+from lu_machinery.common.repo_root import state_root
 from secret_redactor import redact_text
 
 from . import _config
@@ -339,7 +340,7 @@ def _launch_gemini_background(
         print(f"⏸️  Task '{task_key}' is already being processed by another Gemini bridge. Skipping.")
         return
 
-    log_dir = _config.REPO_ROOT / ".mcp/servers/message-broker/logs"
+    log_dir = state_root() / ".mcp/servers/message-broker/logs"
     log_dir.mkdir(parents=True, exist_ok=True)
     log_file = log_dir / f"gemini-{task_key}.log"
 

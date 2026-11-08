@@ -28,6 +28,7 @@ from agent_runtime.errors import (
 )
 from agent_runtime.runner import invoke as runtime_invoke
 from common.repo_root import project_interpreter
+from lu_machinery.common.repo_root import state_root
 from secret_redactor import redact_text
 
 from . import _config
@@ -37,7 +38,12 @@ from ._ask_contract import (
     response_provenance,
     unsupported_effort_note,
 )
-from ._ask_lifecycle import launch_background_ask, record_ask_failure, record_ask_reply, register_ask
+from ._ask_lifecycle import (
+    launch_background_ask,
+    record_ask_failure,
+    record_ask_reply,
+    register_ask,
+)
 from ._broker import _is_task_locked, _remove_pid_file, _write_pid_file
 from ._config import CLAUDE_CMD
 from ._db import get_db, get_session, set_session
@@ -482,7 +488,7 @@ def _launch_claude_background(msg, message_id, new_session):
         print(f"⏸️  Task '{task_key}' is already being processed by another Claude bridge. Skipping.")
         return
 
-    log_dir = _config.REPO_ROOT / ".mcp/servers/message-broker/logs"
+    log_dir = state_root() / ".mcp/servers/message-broker/logs"
     log_dir.mkdir(parents=True, exist_ok=True)
     log_file = log_dir / f"claude-{task_key}.log"
 

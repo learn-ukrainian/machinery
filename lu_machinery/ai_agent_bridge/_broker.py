@@ -7,6 +7,8 @@ import subprocess
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+from lu_machinery.common.repo_root import state_root
+
 from . import _config
 
 
@@ -434,7 +436,7 @@ def _print_process_info(name: str, data: dict):
     print(f"    Model: {data.get('model', 'N/A')}")
     print(f"    Started: {data.get('started')}")
     # Show log file tail
-    log_dir = _config.REPO_ROOT / ".mcp/servers/message-broker/logs"
+    log_dir = state_root() / ".mcp/servers/message-broker/logs"
     log_file = log_dir / f"{data.get('agent')}-{data.get('task_id')}.log"
     if log_file.exists():
         lines = log_file.read_text().strip().split('\n')

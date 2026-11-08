@@ -15,6 +15,9 @@ from typing import TYPE_CHECKING, Any
 
 from fastapi import Request
 
+from lu_machinery.common.bridge_paths import configured_bridge_db_path
+from lu_machinery.common.repo_root import state_root
+
 from . import config
 from .resilience import connect_sqlite
 
@@ -44,6 +47,7 @@ def _frozen_mapping(values: Mapping[str, Path]) -> Mapping[str, Path]:
 class MonitorRoots:
     """Filesystem roots used by Monitor routes and their store handles."""
 
+    state_root: Path
     project_root: Path
     live_repo_root: Path
     dashboards_dir: Path
@@ -268,6 +272,7 @@ def _effective_roots(project_root: Path) -> Mapping[str, Path]:
 
 def _roots(
     *,
+    state_root_path: Path,
     project_root: Path,
     live_repo_root: Path,
     dashboards_dir: Path,
@@ -278,6 +283,7 @@ def _roots(
     backup_dir: Path,
 ) -> MonitorRoots:
     return MonitorRoots(
+        state_root=state_root_path,
         project_root=project_root,
         live_repo_root=live_repo_root,
         dashboards_dir=dashboards_dir,
@@ -285,9 +291,9 @@ def _roots(
         curriculum_root=curriculum_root,
         plans_root=curriculum_root / "plans",
         backup_dir=backup_dir,
-        logs_dir=project_root / "logs",
-        queue_dir=project_root / "agents_extensions" / "shared" / "consultation-queue",
-        pid_dir=project_root / ".mcp" / "servers" / "message-broker" / "pids",
+        logs_dir=state_root_path / "logs",
+        queue_dir=state_root_path / "agents_extensions" / "shared" / "consultation-queue",
+        pid_dir=state_root_path / ".mcp" / "servers" / "message-broker" / "pids",
         effective_roots=_effective_roots(project_root),
         message_db_path=message_db_path,
         session_streams_db_path=session_streams_db_path,
@@ -340,6 +346,7 @@ def _stores(context: MonitorContext, *, fixture: bool) -> MonitorStores:
 
 def _build_context(
     *,
+    state_root_path: Path,
     project_root: Path,
     live_repo_root: Path,
     dashboards_dir: Path,
@@ -352,6 +359,7 @@ def _build_context(
 ) -> MonitorContext:
     root = project_root.resolve() if fixture else None
     roots = _roots(
+        state_root_path=state_root_path,
         project_root=project_root,
         live_repo_root=live_repo_root,
         dashboards_dir=dashboards_dir,
@@ -367,6 +375,7 @@ def _build_context(
 
 @lru_cache(maxsize=1)
 def _cached_production_context(
+    state_root_path: Path,
     project_root: Path,
     live_repo_root: Path,
     dashboards_dir: Path,
@@ -377,6 +386,7 @@ def _cached_production_context(
     backup_dir: Path,
 ) -> MonitorContext:
     return _build_context(
+        state_root_path=state_root_path,
         project_root=project_root,
         live_repo_root=live_repo_root,
         dashboards_dir=dashboards_dir,
@@ -395,17 +405,19 @@ def production_context() -> MonitorContext:
         default_database_path,
     )
 
+    shared_root = state_root()
     project_root = Path(config.PROJECT_ROOT)
     live_repo_root = Path(config.LIVE_REPO_ROOT)
     return _cached_production_context(
+        shared_root,
         project_root,
         live_repo_root,
         Path(config.DASHBOARDS_DIR),
-        Path(config.BATCH_STATE_DIR),
+        Path(os.environ.get("LEARN_UKRAINIAN_BATCH_STATE_DIR", str(shared_root / "batch_state"))),
         Path(config.CURRICULUM_ROOT),
-        Path(config.MESSAGE_DB),
-        default_database_path(live_repo_root),
-        Path(os.environ.get("BACKUP_DIR", str(project_root / "data" / "backups"))),
+        configured_bridge_db_path(shared_root),
+        default_database_path(shared_root),
+        Path(os.environ.get("BACKUP_DIR", str(shared_root / "data" / "backups"))),
     )
 
 
@@ -418,6 +430,7 @@ def fixture_context(root: os.PathLike[str] | str) -> MonitorContext:
     """Build a context whose roots and stores are entirely under ``root``."""
     fixture_root = _as_path(root).resolve()
     return _build_context(
+        state_root_path=fixture_root,
         project_root=fixture_root,
         live_repo_root=fixture_root,
         dashboards_dir=fixture_root / "dashboards",

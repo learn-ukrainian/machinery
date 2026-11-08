@@ -19,6 +19,8 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
+from lu_machinery.common.repo_root import state_root
+
 from . import _config
 
 # Default: keep small reviews fully inline; large coding deliverables go to disk.
@@ -107,7 +109,7 @@ def write_reply_sidecar(
     digest = hashlib.sha256(raw).hexdigest()
     task_seg = _safe_task_segment(task_id)
     agent_seg = re.sub(r"[^A-Za-z0-9._-]+", "-", (from_llm or "agent"))[:40] or "agent"
-    directory = _config.REPO_ROOT / "batch_state" / "asks" / task_seg
+    directory = state_root() / "batch_state" / "asks" / task_seg
     directory.mkdir(parents=True, exist_ok=True)
     path = directory / f"reply-{agent_seg}-{digest[:16]}.md"
     # Idempotent: same body → same path; rewrite is fine.
