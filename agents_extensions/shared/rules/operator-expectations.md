@@ -34,7 +34,7 @@ are the tie-breakers.
    `extensions.worktreeConfig=true`), never an intentional mode. PRs for everything — no
    direct commits to main. **Merge duty:** nobody arms auto-merge. The worker that
    receives a brief runs its chain to the end (rules core P1): once required CI and independent
-   cross-family exact-head review both pass, it enqueues via
+   exact-head review at the review-policy tier both pass, it enqueues via
    `.venv/bin/python -m lu_machinery.publish pr-merge --number <N>`, unless its brief says
    `full-stop`. The accountable orchestrator lands what no brief owns and ensures every
    approved PR lands in `main`. Never leave an approved, green PR unmerged.
@@ -51,7 +51,7 @@ are the tie-breakers.
    or a handoff lists "Next: …". It is finished only when delivered **end-to-end**
    and hygiene is complete:
    - **User-visible outcome** verified against the stated denominator (tool-backed).
-   - **Landing** (when code/docs changed): exact-head independent cross-family APPROVE
+   - **Landing** (when code/docs changed): exact-head independent APPROVE at the review-policy tier
      posted on the PR + CI Gate green on that **same** head + merged by the accountable
      driver — never ask the operator to merge. A PR may open before approval so CI
      runs (OO-53). Gates: `workflow.md` § Merge policy; steps: the `full-send` skill.
@@ -85,7 +85,8 @@ are the tie-breakers.
    ≥1 other agent BEFORE committing; solo only for trivial work. Two distinct duties, don't
    conflate them: (a) *discussion/panel input* improves the work but does NOT satisfy the
    independent-review gate; (b) the **review gate requires an independent reviewer from
-   OUTSIDE your own model family** — never self-review, never same-family swarms. Keep lanes
+   OUTSIDE your own model family** (at Low tier, any qualified non-author reviewer) — never
+   self-review, never same-family swarms. Keep lanes
    busy — an idle paid lane wastes the operator's money (operator policy: max out paid
    limits; cost is never a reason to hold back — passivity is the failure mode, not spend).
    **Driver routing is enforced** (operator GO 2026-08-06): every dispatch needs a
@@ -218,16 +219,7 @@ are the tie-breakers.
     substantive phase or epic kickoff, freeze a prompt that names the user-visible outcome,
     real-world or source denominator,
     non-goals, role map, independent held-out evaluation, stop/residual policy, and completion
-    vocabulary. A high-stakes domain prompt needs a domain-fit reviewer and a distinct adversarial
-    scope/circularity critic; smaller consequential work needs at least one fast critic; a
-    genuinely trivial bounded prompt is explicitly exempt. The prompt author counts as neither
-    reviewer. Route those roles from the live
-    `model-assignment.md` rules, never by permanent reviewer identity. Bind each review to the
-    prompt SHA-256 and its explicit checklist verdict, findings, and author reconciliation;
-    re-review after a material change to the outcome, scope, denominator, role map, acceptance
-    criteria, or independent evaluation. A non-goal that shrinks the actual mission needs
-    operator/advisor approval. Prompt review improves dispatch quality only: it never replaces
-    exact-head implementation review or the independent cross-family PR gate.
+    vocabulary. A non-goal that shrinks the actual mission needs operator/advisor approval.
 15. **Simplest adequate solution — adjust the code to the data, not the data to the code.** Before
     building, name the smallest change that achieves the user-visible outcome, and start there.
     Prefer changing code, config or a reader over migrating or reshaping data to fit existing code;

@@ -143,11 +143,6 @@ manifest of their names and hashes. Keep gold separate from candidate-readable
 inputs. Do not include a ledger's own hash inside its hashed bytes; retain its
 digest in the approval receipt. A working-tree mismatch invalidates the freeze.
 
-Before execution, the driver obtains independent domain-fit and adversarial
-scope/circularity review of the exact frozen packet, binds verdicts to its
-digest, and reconciles material findings. This implements the approved
-pre-dispatch review requirement; it is not admission or implementation CF.
-
 ### Freeze ledger fields
 
 Use a private record labelled `agy-authority-qualification.v1`. Its minimum

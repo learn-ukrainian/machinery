@@ -1,0 +1,61 @@
+name: Verified release tool
+description: Cache a pinned binary distribution and verify it before every extraction.
+inputs:
+  tool:
+    description: Binary name
+    required: true
+  version:
+    description: Pinned tool version
+    required: true
+  sha256:
+    description: Expected release archive SHA-256
+    required: true
+  repository:
+    description: Public upstream owner/repository
+    required: true
+  asset-id:
+    description: Pinned GitHub release asset ID
+    required: true
+  token:
+    description: Read-only job token for the public release-asset API
+    required: true
+  member:
+    description: Binary member to extract
+    required: true
+  strip-components:
+    description: Archive path components to strip
+    default: '0'
+runs:
+  using: composite
+  steps:
+    - name: Restore release archive
+      id: cache
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ runner.temp }}/release-cache/${{ inputs.tool }}/archive.tar.gz
+        key: ci-tools-v1-${{ runner.os }}-${{ runner.arch }}-${{ inputs.tool }}-${{ inputs.version }}-${{ inputs.sha256 }}
+    - name: Download release archive on cache miss
+      if: steps.cache.outputs.cache-hit != 'true'
+      shell: bash
+      env:
+        TOOL: ${{ inputs.tool }}
+        RELEASE_REPOSITORY: ${{ inputs.repository }}
+        ASSET_ID: ${{ inputs.asset-id }}
+        GH_TOKEN: ${{ inputs.token }}
+      run: bash "$GITHUB_ACTION_PATH/fetch-verify.sh" download
+    - name: Verify and extract binary
+      shell: bash
+      env:
+        TOOL: ${{ inputs.tool }}
+        SHA256: ${{ inputs.sha256 }}
+        MEMBER: ${{ inputs.member }}
+        STRIP_COMPONENTS: ${{ inputs.strip-components }}
+      run: bash "$GITHUB_ACTION_PATH/fetch-verify.sh" verify
+    # Save only verified distributions, before any repository checks execute.
+    # Fork PRs can restore base caches but cannot write through this action.
+    - name: Save verified release archive
+      if: steps.cache.outputs.cache-hit != 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ runner.temp }}/release-cache/${{ inputs.tool }}/archive.tar.gz
+        key: ${{ steps.cache.outputs.cache-primary-key }}
