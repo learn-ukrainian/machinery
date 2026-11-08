@@ -1209,22 +1209,44 @@ jobs:
           cat > "$work/import_all.py" <<'PY'
           import importlib
           import importlib.metadata
-          import pkgutil
           import sys
           from pathlib import Path
 
           import lu_machinery
+
+          # Modules that need an optional extra of pyproject.toml, which the
+          # lock does not install: each may fail only with ModuleNotFoundError
+          # for that extra's package.
+          OPTIONAL = {"lu_machinery.debug.debug_pymorphy": "pymorphy2"}
 
           site = Path(sys.argv[1]).resolve()
           origin = Path(lu_machinery.__file__).resolve()
           print(f"lu-machinery {importlib.metadata.version('lu-machinery')} from {origin}")
           if site not in origin.parents:
               sys.exit(f"::error::lu_machinery was imported from {origin}, not the consumer venv")
-          names = [info.name for info in pkgutil.walk_packages(lu_machinery.__path__, "lu_machinery.")]
+          # The distribution's file manifest (RECORD) lists every shipped
+          # module, including namespace subtrees that pkgutil discovery skips.
+          names = set()
+          for file in importlib.metadata.distribution("lu-machinery").files or []:
+              parts = file.parts
+              if parts[0] != "lu_machinery" or file.suffix != ".py":
+                  continue
+              parts = parts[:-1] if parts[-1] == "__init__.py" else (*parts[:-1], file.stem)
+              if not all(part.isidentifier() for part in parts):
+                  sys.exit(f"::error::{file} is shipped but cannot be imported by name")
+              names.add(".".join(parts))
           failed = {}
-          for name in names:
+          optional = 0
+          for name in sorted(names):
               try:
                   module = importlib.import_module(name)
+              except ModuleNotFoundError as exc:
+                  if name in OPTIONAL and exc.name == OPTIONAL[name]:
+                      print(f"{name}: skipped, needs the optional {exc.name}")
+                      optional += 1
+                  else:
+                      failed[name] = f"ModuleNotFoundError: {exc}"
+                  continue
               except BaseException as exc:  # a module that exits on import fails too
                   failed[name] = f"{type(exc).__name__}: {exc}"
                   continue
@@ -1235,7 +1257,7 @@ jobs:
                   failed[name] = f"imported from {origins}"
           for name, reason in sorted(failed.items()):
               print(f"::error::{name}: {reason}")
-          print(f"Imported {len(names) - len(failed)} of {len(names)} module(s).")
+          print(f"Imported {len(names) - len(failed) - optional} of {len(names)} module(s); {optional} need an optional extra.")
           if not names or failed:
               sys.exit(1)
           PY
