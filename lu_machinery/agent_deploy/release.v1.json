@@ -808,7 +808,7 @@
     "rules/fleet-comms-coordination.md": {
       "mode": 420,
       "owner": "fleet",
-      "sha256": "512f1bf2fc3b78a50cc83782ef0ca16f9ed05a3927c23723445e9b0c6852241f",
+      "sha256": "b3fb20680cf1c121ed44346e591b289bc877a54f994f46a4dd450943be2e93f9",
       "targets": {
         "agy": [
           ".agent/rules/fleet-comms-coordination.md"
@@ -890,7 +890,7 @@
     "rules/model-assignment.md": {
       "mode": 420,
       "owner": "fleet",
-      "sha256": "c54fd2c01e226397f1fcaa34df86aa4ae0b51a31293b49d096cbe6d12a718f0b",
+      "sha256": "7388a5a7d3947d368a304613b0dd875750c028162382b48b6ccaed1208f511e8",
       "targets": {
         "agy": [
           ".agent/rules/model-assignment.md"
@@ -972,7 +972,7 @@
     "rules/workflow.md": {
       "mode": 420,
       "owner": "fleet",
-      "sha256": "b39da0963ec4ee865d6560ddddc644ef593550e74e4f3ff387c574d19e9d2a0b",
+      "sha256": "4f1b68aca992920cd953231425ef736ec1998719a151f8e3c8e0c52408aded74",
       "targets": {
         "agy": [
           ".agent/rules/workflow.md"
