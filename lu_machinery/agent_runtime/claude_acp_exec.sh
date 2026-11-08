@@ -1,10 +1,10 @@
 #!/bin/sh
-# ACP Claude seat launcher (#10500): the adapter reads this file only from the
-# canonical primary checkout, pins its SHA-256, writes the verified bytes to a
-# private per-launch copy that CLAUDE_CODE_EXECUTABLE names, and validates the
-# pinned host Claude Code before every launch. It sources and execs no
-# repository file; one it gains joins the adapter's digest closure and is
-# copied beside it. Editing this file changes that digest.
+# ACP Claude seat launcher (#10500): the adapter reads this file from the running
+# machinery package and checks ownership, modes and symlinks through /.
+# It stores no digest pins and provides no runtime content-drift detection.
+# Captured bytes run from a private copy named by CLAUDE_CODE_EXECUTABLE.
+# This script sources no package files; any future dependency must join the
+# package-relative closure. The host Claude Code identity is checked below.
 # ACPX cannot pass a tool deny and --deny-all never covers
 # tools that run without asking, so the headless background denies (#9690) are
 # added here; the SDK's own --disallowedTools follows in "$@" and accumulates.

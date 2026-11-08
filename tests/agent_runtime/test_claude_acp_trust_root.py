@@ -118,11 +118,17 @@ def test_writable_ancestor_above_package_refuses(private_tree, monkeypatch, mode
     closure.parent.mkdir(parents=True)
     closure.write_text("#!/bin/sh\nexit 0\n")
     closure.chmod(0o700)
+    closure.parent.chmod(0o755)
+    package.chmod(0o755)
     parent.chmod(mode)
     # A group shared with another account is unsafe, unlike a user-private group.
     monkeypatch.setattr(acpx, "_claude_code_group_write_permitted", lambda gid: False)
     monkeypatch.setattr(acpx, "machinery_root", lambda: package)
-    with pytest.raises(acpx.ClaudeCodeExecutableRefusal, match="writable") as refusal:
+    write_kind = "group" if mode == 0o770 else "world"
+    # The refusal must identify the intended parent above the package, not a
+    # lower fixture directory or an unrelated private-copy path.
+    message = rf"launcher closure file .*: its ancestor directory 3 levels up is {write_kind}-writable"
+    with pytest.raises(acpx.ClaudeCodeExecutableRefusal, match=message) as refusal:
         acpx._require_claude_acp_launcher(adapter_label="test")
     assert refusal.value.reason == "untrusted_path"
 
