@@ -57,7 +57,7 @@ for _path in (PROJECT_ROOT, Path(__file__).resolve().parents[1]):
 from lu_machinery import secret_redactor
 from lu_machinery.common import github_client
 from lu_machinery.common.git_context import sanitized_git_env
-from lu_machinery.common.repo_root import main_checkout_root
+from lu_machinery.common.repo_root import main_checkout_root, state_root
 from lu_machinery.common.task_store_paths import tasks_dir as default_tasks_dir
 from lu_machinery.orchestration import fleet_repos, task_record_store, worktree_claims
 from lu_machinery.orchestration.dead_worker_state import task_state_lock
@@ -112,7 +112,7 @@ def _read_state_json(path: Path) -> dict[str, Any] | None:
 def worktree_lock(path: Path | str, timeout_s: float = DEFAULT_LOCK_TIMEOUT_S):
     """Use the canonical repository-wide lock shared with task owners."""
     return worktree_claims.worktree_lock(
-        path, lock_dir=worktree_claims.repository_lock_dir(PROJECT_ROOT), timeout_s=timeout_s
+        path, lock_dir=worktree_claims.repository_lock_dir(state_root()), timeout_s=timeout_s
     )
 
 

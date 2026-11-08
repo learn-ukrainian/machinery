@@ -2,7 +2,8 @@
 """Measure shared harness hook wall times and emit a JSON report.
 
 Used for the hook audit (operator 2026-08-06). Safe: empty/`{}` payloads only;
-hooks are invoked with CLAUDE_PROJECT_DIR set; no network required for local guards.
+hooks are invoked with CLAUDE_PROJECT_DIR set to the product checkout ``product_root()``
+selects; no network required for local guards.
 """
 
 from __future__ import annotations
@@ -18,114 +19,119 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-ROOT = Path(__file__).resolve().parents[2]
+from lu_machinery.common.repo_root import (
+    MachineryConfigError,
+    machinery_path,
+    product_root,
+    project_interpreter,
+    state_root,
+)
+
 _HOOK_TIMEOUT_SECONDS = 60
 _TIMEOUT_RETURN_CODE = 124
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
-from lu_machinery.common.repo_root import machinery_path, project_interpreter
 
 
-def _python_bin() -> str:
-    """Project interpreter, including from a dispatch worktree with no local .venv."""
+def _python_bin(root: Path) -> str:
+    """The product's project interpreter, including from a dispatch worktree with no local .venv."""
     try:
-        return str(project_interpreter())
+        return str(project_interpreter(root))
     except FileNotFoundError:
         return sys.executable
 
 
-PYTHON = _python_bin()
-
-# (name, argv, stdin_bytes|None, env_extra)
-STACK: list[tuple[str, list[str], bytes | None, dict[str, str]]] = [
-    (
-        "session-setup.sh",
-        ["bash", str(ROOT / "agents_extensions/shared/hooks/session-setup.sh")],
-        None,
-        {},
-    ),
-    (
-        "post-compact.sh",
-        ["bash", str(ROOT / "agents_extensions/shared/hooks/post-compact.sh")],
-        b"{}",
-        {},
-    ),
-    (
-        "post-compact.sh+GROK_SESSION",
-        ["bash", str(ROOT / "agents_extensions/shared/hooks/post-compact.sh")],
-        b"{}",
-        {"SESSION_HANDOFF_AGENT": "grok", "GROK_AGENT": "1"},
-    ),
-    (
-        "enforce-venv.sh",
-        ["bash", str(ROOT / "agents_extensions/shared/hooks/enforce-venv.sh")],
-        b"{}",
-        {},
-    ),
-    (
-        "heal-core-bare.py",
-        [PYTHON, str(ROOT / "agents_extensions/shared/hooks/heal-core-bare.py")],
-        None,
-        {},
-    ),
-    (
-        "guard-primary-checkout-write.py",
-        [PYTHON, str(ROOT / "agents_extensions/shared/hooks/guard-primary-checkout-write.py")],
-        b"{}",
-        {},
-    ),
-    (
-        "guard-pr-merge.py",
-        [PYTHON, str(ROOT / "agents_extensions/shared/hooks/guard-pr-merge.py")],
-        b"{}",
-        {},
-    ),
-    (
-        "guard-secret-print.py",
-        [PYTHON, str(ROOT / "agents_extensions/shared/hooks/guard-secret-print.py")],
-        b"{}",
-        {},
-    ),
-    (
-        "guard-branch-switch-in-main.py",
-        [PYTHON, str(ROOT / "agents_extensions/shared/hooks/guard-branch-switch-in-main.py")],
-        b"{}",
-        {},
-    ),
-    (
-        "guard-admin-merge.py",
-        [PYTHON, str(ROOT / "agents_extensions/shared/hooks/guard-admin-merge.py")],
-        b"{}",
-        {},
-    ),
-    (
-        "context-monitor.sh",
-        ["bash", str(ROOT / "agents_extensions/shared/hooks/context-monitor.sh")],
-        b'{"session_id":"","transcript_path":""}',
-        {},
-    ),
-    (
-        "context-monitor.sh+GROK_AGENT",
-        ["bash", str(ROOT / "agents_extensions/shared/hooks/context-monitor.sh")],
-        b'{"session_id":"x","transcript_path":"/nonexistent"}',
-        {"GROK_AGENT": "1", "SESSION_HANDOFF_AGENT": "grok"},
-    ),
-    (
-        "tool-timing.sh",
-        ["bash", str(ROOT / "agents_extensions/shared/hooks/tool-timing.sh")],
-        b'{"tool_name":"Bash","duration_ms":1,"hook_event_name":"PostToolUse"}',
-        {},
-    ),
-    (
-        "codex_hook_entry pre-tool-use",
-        ["bash", str(machinery_path("agent_runtime/codex_hook_entry.sh")), "pre-tool-use"],
-        b"{}",
-        {},
-    ),
-]
+def _stack(root: Path) -> list[tuple[str, list[str], bytes | None, dict[str, str]]]:
+    """(name, argv, stdin_bytes|None, env_extra) for each hook of the product checkout ``root``."""
+    python = _python_bin(root)
+    return [
+        (
+            "session-setup.sh",
+            ["bash", str(root / "agents_extensions/shared/hooks/session-setup.sh")],
+            None,
+            {},
+        ),
+        (
+            "post-compact.sh",
+            ["bash", str(root / "agents_extensions/shared/hooks/post-compact.sh")],
+            b"{}",
+            {},
+        ),
+        (
+            "post-compact.sh+GROK_SESSION",
+            ["bash", str(root / "agents_extensions/shared/hooks/post-compact.sh")],
+            b"{}",
+            {"SESSION_HANDOFF_AGENT": "grok", "GROK_AGENT": "1"},
+        ),
+        (
+            "enforce-venv.sh",
+            ["bash", str(root / "agents_extensions/shared/hooks/enforce-venv.sh")],
+            b"{}",
+            {},
+        ),
+        (
+            "heal-core-bare.py",
+            [python, str(root / "agents_extensions/shared/hooks/heal-core-bare.py")],
+            None,
+            {},
+        ),
+        (
+            "guard-primary-checkout-write.py",
+            [python, str(root / "agents_extensions/shared/hooks/guard-primary-checkout-write.py")],
+            b"{}",
+            {},
+        ),
+        (
+            "guard-pr-merge.py",
+            [python, str(root / "agents_extensions/shared/hooks/guard-pr-merge.py")],
+            b"{}",
+            {},
+        ),
+        (
+            "guard-secret-print.py",
+            [python, str(root / "agents_extensions/shared/hooks/guard-secret-print.py")],
+            b"{}",
+            {},
+        ),
+        (
+            "guard-branch-switch-in-main.py",
+            [python, str(root / "agents_extensions/shared/hooks/guard-branch-switch-in-main.py")],
+            b"{}",
+            {},
+        ),
+        (
+            "guard-admin-merge.py",
+            [python, str(root / "agents_extensions/shared/hooks/guard-admin-merge.py")],
+            b"{}",
+            {},
+        ),
+        (
+            "context-monitor.sh",
+            ["bash", str(root / "agents_extensions/shared/hooks/context-monitor.sh")],
+            b'{"session_id":"","transcript_path":""}',
+            {},
+        ),
+        (
+            "context-monitor.sh+GROK_AGENT",
+            ["bash", str(root / "agents_extensions/shared/hooks/context-monitor.sh")],
+            b'{"session_id":"x","transcript_path":"/nonexistent"}',
+            {"GROK_AGENT": "1", "SESSION_HANDOFF_AGENT": "grok"},
+        ),
+        (
+            "tool-timing.sh",
+            ["bash", str(root / "agents_extensions/shared/hooks/tool-timing.sh")],
+            b'{"tool_name":"Bash","duration_ms":1,"hook_event_name":"PostToolUse"}',
+            {},
+        ),
+        (
+            "codex_hook_entry pre-tool-use",
+            ["bash", str(machinery_path("agent_runtime/codex_hook_entry.sh")), "pre-tool-use"],
+            b"{}",
+            {},
+        ),
+    ]
 
 
 def _time_one(
+    root: Path,
     name: str,
     argv: list[str],
     stdin: bytes | None,
@@ -134,7 +140,7 @@ def _time_one(
     repeats: int,
 ) -> dict[str, Any]:
     env = os.environ.copy()
-    env["CLAUDE_PROJECT_DIR"] = str(ROOT)
+    env["CLAUDE_PROJECT_DIR"] = str(root)
     env.update(env_extra)
     samples: list[float] = []
     last_rc = 0
@@ -146,7 +152,7 @@ def _time_one(
                 input=stdin,
                 capture_output=True,
                 env=env,
-                cwd=ROOT,
+                cwd=root,
                 timeout=_HOOK_TIMEOUT_SECONDS,
             )
         except subprocess.TimeoutExpired:
@@ -193,21 +199,26 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--out",
         type=Path,
-        default=ROOT / "batch_state" / "hook-audit-measure.json",
-        help="Write JSON report here",
+        help="Write JSON report here (default: batch_state/hook-audit-measure.json under the state root)",
     )
     parser.add_argument("--json-stdout", action="store_true")
     args = parser.parse_args(argv)
+    try:
+        root = product_root()
+        out = args.out or state_root() / "batch_state" / "hook-audit-measure.json"
+        stack = _stack(root)
+    except MachineryConfigError as exc:
+        raise SystemExit(f"measure_hook_stack: {exc}") from None
 
     rows = [
-        _time_one(name, argv, stdin, env_extra, repeats=args.repeats)
-        for name, argv, stdin, env_extra in STACK
+        _time_one(root, name, argv, stdin, env_extra, repeats=args.repeats)
+        for name, argv, stdin, env_extra in stack
     ]
     bash_tax = estimate_bash_pretool_tax(rows)
     report = {
         "schema": "hook-stack-measure.v1",
         "generated_at": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "repo": str(ROOT),
+        "repo": str(root),
         "repeats": args.repeats,
         "hooks": rows,
         "estimates": {
@@ -225,12 +236,12 @@ def main(argv: list[str] | None = None) -> int:
             ),
         },
     }
-    args.out.parent.mkdir(parents=True, exist_ok=True)
-    args.out.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     if args.json_stdout:
         print(json.dumps(report, ensure_ascii=False, indent=2))
     else:
-        print(f"wrote {args.out}")
+        print(f"wrote {out}")
         print(
             f"session-setup median={report['estimates']['session_start_median_ms']} ms  "
             f"post-compact={report['estimates']['post_compact_median_ms']} ms  "
