@@ -1252,7 +1252,7 @@
   {
    "path": "lu_machinery/ai_agent_bridge/_ask_lifecycle.py",
    "rule": "python.lang.security.audit.dangerous-subprocess-use-audit",
-   "sha256": "c745a905297fef7fa3fd1c13995582045b7729de90d3f973589edf43cff8b668"
+   "sha256": "a6443ed464501a3cff6592cb3f1ea15c5fe8b55ed82c30aa39fac29c4e0d373c"
   },
   {
    "path": "lu_machinery/ai_agent_bridge/_channels_cli.py",
@@ -1262,7 +1262,7 @@
   {
    "path": "lu_machinery/ai_agent_bridge/_claude.py",
    "rule": "python.lang.security.audit.dangerous-subprocess-use-audit",
-   "sha256": "59d26df8c22b8f1fc508d8257d66246f83c7ce302034b44ea1602906c3040a6b"
+   "sha256": "40df3946e840ff069ee93d7b0204750a9506567c490a7cf71467de05b3d759bd"
   },
   {
    "path": "lu_machinery/ai_agent_bridge/_cursor.py",
@@ -1287,7 +1287,7 @@
   {
    "path": "lu_machinery/ai_agent_bridge/_gemini.py",
    "rule": "python.lang.security.audit.dangerous-subprocess-use-audit",
-   "sha256": "7c5c0b9f6e3e29cd10224417de0eb3c515c8ad7c0683ec632fb95aa3374ef03c"
+   "sha256": "8ac731b698c8931a3b9046e761ebb74e22f551097699c70946b6d43dfdeedf29"
   },
   {
    "path": "lu_machinery/ai_agent_bridge/_job_host_forward.py",
@@ -2077,7 +2077,7 @@
   {
    "path": "lu_machinery/tools/agent_watcher.py",
    "rule": "python.lang.security.audit.dangerous-subprocess-use-audit",
-   "sha256": "3ec1460ea52505c5235bbaada4b15dd87b7e92b85c7b7bced5ad6125cf54bfb1"
+   "sha256": "71e16cdd6a3e9889ef6653ca881387fe4581afbeee0dcb7ba1f28b682e0c8958"
   },
   {
    "path": "lu_machinery/tools/coverage_report.py",
