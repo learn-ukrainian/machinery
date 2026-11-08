@@ -31,6 +31,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
+from lu_machinery.common.repo_root import product_root
 from lu_machinery.storage import paths
 
 
@@ -43,7 +44,6 @@ def _mod(*parts: str) -> str:
     return ".".join((_machinery_top(), *parts))
 
 
-ROOT = paths.ROOT
 TABLE = "registry/artifacts/classification-v1.tsv"
 _JOURNAL_SCRATCH = re.compile(r"\.lu-journal-[0-9a-f]{32}-[A-Za-z0-9_]{8}\.tmp\Z")
 
@@ -1300,7 +1300,7 @@ def write_artifact_set(
 
 
 def write_artifact(
-    target: Path, group: str, producer: str, write: Callable[[Path], object], *, repo: Path = ROOT
+    target: Path, group: str, producer: str, write: Callable[[Path], object], *, repo: Path | None = None
 ) -> Path:
     """Run ``write`` for ``target``; publish through a staging file when it is a manifest artifact.
 
@@ -1309,6 +1309,7 @@ def write_artifact(
     any other group raises ``ValueError`` and nothing is written. An unregistered output under a
     migrated A tree is refused; specific pre-existing host-state paths and scratch paths remain direct.
     """
+    repo = product_root(repo)
     data_root = (repo / "data").absolute()
     lexical_target = Path(os.path.abspath(target))
     resolved = Path(target).resolve()
@@ -1583,9 +1584,10 @@ def _parser() -> argparse.ArgumentParser:
     return parser
 
 
-def main(argv: list[str] | None = None, *, repo: Path = ROOT) -> int:
+def main(argv: list[str] | None = None, *, repo: Path | None = None) -> int:
     args = _parser().parse_args(argv)
     try:
+        repo = product_root(repo)
         # An abrupt process death cannot run publish's in-process rollback.
         # Restore the prior version before any subsequent operation observes it.
         recover_incomplete(repo)
