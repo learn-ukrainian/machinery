@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from functools import cache
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlsplit_held_out_break as urlsplit
+from urllib.parse import urlsplit
 
 import yaml
 
