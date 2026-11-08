@@ -33,6 +33,7 @@ except ModuleNotFoundError as exc:
     from lib.readonly_sqlite import SQLiteConnection, is_sqlite_connection, open_readonly  # type: ignore[no-redef]
 
 from lu_machinery.agent_runtime.accounting import recorded_model_accounting_fields
+from lu_machinery.common.repo_root import state_root
 from lu_machinery.control_plane import storage
 from lu_machinery.control_plane.health import authority_collector_payload, read_failure_code
 from lu_machinery.fleet_comms import message_plane
@@ -539,9 +540,12 @@ def fleet_facade_broker_report(
     ctx: MonitorContext = Depends(get_ctx),
 ) -> dict[str, Any]:
     """Expose the legacy Broker Ops retirement report through its shared builder."""
-    routes_db = ctx.roots.project_root / "data" / "telemetry" / "legacy_comms_routes.db"
-    bridge_db = ctx.roots.project_root / "data" / "telemetry" / "legacy_bridge"
-    payload = build_legacy_broker_report(days, routes_db=routes_db, bridge_db=bridge_db)
+    root = ctx.roots.project_root if ctx.root is not None else state_root()
+    routes_db = root / "data" / "telemetry" / "legacy_comms_routes.db"
+    bridge_db = root / "data" / "telemetry" / "legacy_bridge"
+    payload = build_legacy_broker_report(
+        days, routes_db=routes_db, bridge_db=bridge_db if bridge_db.is_file() else routes_db
+    )
     payload["response_schema_version"] = COMMS_RESPONSE_SCHEMA_VERSION
     return payload
 

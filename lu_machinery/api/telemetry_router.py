@@ -27,6 +27,7 @@ except ModuleNotFoundError as exc:
         raise
     from lib.readonly_sqlite import SQLiteConnection  # type: ignore[no-redef]
 
+from lu_machinery.common.repo_root import state_root
 from lu_machinery.telemetry.legacy_bridge import bridge_usage_summary
 
 from .monitor_context import MonitorContext, get_ctx, resolve_context
@@ -58,7 +59,9 @@ def _tool_timings_path(ctx: MonitorContext | None = None) -> Path:
 
 
 def _legacy_comms_db_path(ctx: MonitorContext | None = None) -> Path:
-    return legacy_comms_db_path_for_root(resolve_context(ctx).roots.project_root)
+    context = resolve_context(ctx)
+    root = context.roots.project_root if context.root is not None else state_root()
+    return legacy_comms_db_path_for_root(root)
 
 
 def _open_telemetry_db(ctx: MonitorContext, path: Path) -> SQLiteConnection:
@@ -220,4 +223,4 @@ def read_legacy_bridge_asks(
     _ctx: MonitorContext = Depends(get_ctx),
 ):
     """Return body-free one-shot bridge usage and coverage truth."""
-    return bridge_usage_summary(window)
+    return bridge_usage_summary(window, db_path=_legacy_comms_db_path(_ctx))
