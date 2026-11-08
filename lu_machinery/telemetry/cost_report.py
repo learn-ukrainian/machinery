@@ -24,7 +24,7 @@ COST_RATES_PATH = machinery_path("telemetry/cost_rates.yaml")
 DEFAULT_DIVISOR = 3.8
 PROMPT_BLOAT_THRESHOLD = 30_000
 
-_CYRILLIC_RE = re.compile(r"[А-Яа-яЇїІіЄєҐґ]")
+_CYRILLIC_RE = re.compile("[А-Яа-яЇїІіЄєҐґ]")
 _LATIN_RE = re.compile(r"[A-Za-z]")
 _AGENT_MODEL_RE = re.compile(r"\(([^()]+)\)\s*$")
 _PHASE_SORT = {
