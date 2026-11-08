@@ -303,7 +303,8 @@ def _enforce_delivery(record: dict) -> None:
             cause = "work_not_pushed_or_unknown"
     # Merged work leaves nothing on the task branch to inspect (it may be reset or deleted), so the
     # merged pull request is the evidence; it refuses an outside-owned path the same way.
-    if cause and cause.split(":", 1)[0] in MERGE_RESCUABLE and record.get("worktree_dirty_on_exit") is False and (
+    if cause and cause.split(":", 1)[0] in MERGE_RESCUABLE and (
+            record.get("worktree_dirty_on_exit") is False or record.get("worktree_untracked_only_on_exit") is True) and (
             merged := git.merged_delivery(record)):
         paths = merged["paths"]
         cause = _outside_cause(paths, owned) if owned else None
@@ -313,8 +314,10 @@ def _enforce_delivery(record: dict) -> None:
         record.update(status="no_deliverable", error=cause, no_deliverable_reason=cause)
 
 
-# Refusals that a merged pull request answers: the local branch could not show the delivery.
-MERGE_RESCUABLE = frozenset({"owned_paths_verification_failed", "no_commits_or_unknown", "work_not_pushed_or_unknown"})
+# Refusals that a merged pull request answers: the local branch could not show the delivery, or the tree
+# held only untracked files (worktree_untracked_only_on_exit), which settlement's removal preserves.
+MERGE_RESCUABLE = frozenset({"owned_paths_verification_failed", "no_commits_or_unknown", "work_not_pushed_or_unknown",
+                             "worktree_dirty_or_unknown"})
 
 
 def _cgroup(pid: int) -> str | None:
