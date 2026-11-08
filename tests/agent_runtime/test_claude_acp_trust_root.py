@@ -6,6 +6,7 @@ import shutil
 import subprocess
 import sys
 import sysconfig
+import tomllib
 from pathlib import Path
 
 import pytest
@@ -69,8 +70,18 @@ def test_installed_wheel_preparation_without_checkout(private_tree, source_tree)
     """The wheel must prepare its launcher without git metadata or source imports."""
     source = source_tree
     wheels = private_tree / "wheels"
-    subprocess.run([sys.executable, "-m", "pip", "wheel", "--no-deps", "--no-build-isolation",
-                    "--wheel-dir", str(wheels), str(source)], check=True, capture_output=True, text=True)
+    # CI's pytest environment need not contain a build backend. Follow the
+    # existing packaging tests: an isolated builder owns its declared tooling.
+    builder = private_tree / "builder"
+    subprocess.run([sys.executable, "-m", "venv", str(builder)], check=True)
+    build_python = builder / "bin/python"
+    requirements = tomllib.loads((source / "pyproject.toml").read_text())["build-system"]["requires"]
+    prepared = subprocess.run([str(build_python), "-m", "pip", "install", "--only-binary=:all:",
+                               *requirements], capture_output=True, text=True, timeout=180)
+    assert prepared.returncode == 0, prepared.stdout + prepared.stderr
+    built = subprocess.run([str(build_python), "-m", "pip", "wheel", "--no-deps", "--no-build-isolation",
+                            "--wheel-dir", str(wheels), str(source)], capture_output=True, text=True, timeout=180)
+    assert built.returncode == 0, built.stdout + built.stderr
     venv = private_tree / "venv"
     # Reuse test dependencies, but install machinery itself as a wheel. -I and
     # a cwd outside the checkout prevent source-tree imports in the child.
