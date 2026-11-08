@@ -324,9 +324,10 @@ _MCP_SERVER_NAME_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 # by name; a settings deny removes them in dontAsk, bypass and default modes.
 # Advisor calls are also disabled for every spawn through this module (#10083); only the
 # dispatcher's Claude provider attaches the Opus advisor, to approved runs (#12094).
-# env_sanitize allowlists the background variable for the claude provider,
-# and for kimi only from adapter overrides. KimiccHarness reuses both constants; every
-# other headless run is spawned by ``run_headless_claude``/``popen_headless_claude``.
+# env_sanitize allowlists the background variable for the claude provider
+# and the acpx-claude-shadow seat. The retired Kimi seat has no allowlist
+# entry. Headless Claude runs are spawned by ``run_headless_claude`` /
+# ``popen_headless_claude``; the ACPX Claude shadow applies the same constants.
 HEADLESS_BACKGROUND_ENV = {
     "CLAUDE_CODE_DISABLE_BACKGROUND_TASKS": "1",
     "CLAUDE_CODE_DISABLE_ADVISOR_TOOL": "1",
