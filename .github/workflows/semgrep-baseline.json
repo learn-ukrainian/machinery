@@ -1062,7 +1062,7 @@
   {
    "path": "lu_machinery/dispatcher/primary.py",
    "rule": "python.lang.security.audit.dangerous-os-exec-audit",
-   "sha256": "ebeb5a5ce3d570b6d3af6aad0a8cb1fe8a15f9ef6895c1162867bfde478baaae"
+   "sha256": "33d2b4441d02ce947fff1a5ac898602e3daad92bec099aacd4b3cd05cd9b12ae"
   },
   {
    "path": "lu_machinery/opsec/git_push.py",
@@ -1272,17 +1272,17 @@
   {
    "path": "lu_machinery/ai_agent_bridge/_dispatch_wrappers.py",
    "rule": "python.lang.security.audit.dangerous-subprocess-use-audit",
-   "sha256": "3ba6ee6b480eedb30268825c6a417bc4b85d9d1547cc0d96c1f5e57a6544b915"
+   "sha256": "1ffb260527c38b110a5206a1388ee25a40c209125b1bc72596c2cedfe4801253"
   },
   {
    "path": "lu_machinery/ai_agent_bridge/_dispatch_wrappers.py",
    "rule": "python.lang.security.audit.dangerous-subprocess-use-audit",
-   "sha256": "6d76453bc8b625af72404961d9975ee64317f97c853da73060f8136eb59211ed"
+   "sha256": "ddeca4415c3764f2ee8dcb3066f3ed4498b7ba98eaed0ea0a2fe5fbf15700c58"
   },
   {
    "path": "lu_machinery/ai_agent_bridge/_dispatch_wrappers.py",
    "rule": "python.lang.security.audit.dangerous-subprocess-use-audit",
-   "sha256": "ba4cc43ecccdfaa6b08a8233180d38abaa74b0e89ab55f2441f5dceb45b9cbcb"
+   "sha256": "b23598fe4262534922120d6c72b4cfdf06a3ff767f7134f4c1086f994e0b9f43"
   },
   {
    "path": "lu_machinery/ai_agent_bridge/_gemini.py",
@@ -1507,7 +1507,7 @@
   {
    "path": "lu_machinery/dispatcher/agy_sandbox.py",
    "rule": "python.lang.security.audit.dangerous-subprocess-use-audit",
-   "sha256": "c7cbd534972af5acb61c98cda62c73aa677a71f82b220b65945a2cff68a00889"
+   "sha256": "fc0cd4d26764312210087da56402f3ebea4d6e5d3b058ce9de6df390ad031167"
   },
   {
    "path": "lu_machinery/dispatcher/git.py",
@@ -1522,7 +1522,7 @@
   {
    "path": "lu_machinery/dispatcher/git.py",
    "rule": "python.lang.security.audit.dangerous-subprocess-use-audit",
-   "sha256": "d688366f604fe505756a5020b327e89ca904fc8ccd5d35ce4245fcf77bb22de7"
+   "sha256": "7818c4b57318c8d680121f3376dca80a4faaf6547442d49c67416222d8f4b35b"
   },
   {
    "path": "lu_machinery/dispatcher/site_deps.py",
