@@ -104,6 +104,19 @@ RUFF_VERSION=0.15.21
 RUFF_WHEEL_MANYLINUX_2_17_X86_64_SHA256=bab0905d2f29e0d9fbc3c373ed23db0095edaa3f71f1f4f519ec15134d9e85c8
 #   https://pypi.org/project/ruff/0.15.21/ (uploaded 2026-07-09); the wheel has
 #   no dependencies.
+MYPY_VERSION=2.1.0
+#   https://pypi.org/project/mypy/2.1.0/ (wheel uploaded 2026-05-11). The source
+#   repository's requirements-lock.txt version, which recorded the
+#   lu_machinery/lint/mypy_baseline.json census. Checked 2026-11-08.
+MYPY_WHEEL_CP312_MANYLINUX_2_17_X86_64_SHA256=bf03e12003084a67395184d3eb8cbd6a489dc3655b5664b28c210a9e2403ab0b
+#   The mypy job of ci-gate.yml also pins the [project] dependency closure of
+#   pyproject.toml: 59 packages, one wheel hash each, for CPython 3.12 on x86_64
+#   Linux, all at the source repository's requirements-lock.txt versions. The
+#   closure is required: typed packages change the error census, and on
+#   2026-11-08 a venv with only mypy and its own dependencies reported 16
+#   ratchet violations on a tree the full closure passes. Every package that
+#   tests.yml also pins has the same version and wheel hash there. Bump these
+#   pins together with the baseline.
 ZIZMOR_VERSION=1.31.1
 #   Release v1.31.1, published 2026-10-15, tag commit effdb35fa7868863f11655db256d9008922fa427
 #   https://github.com/zizmorcore/zizmor/releases/tag/v1.31.1
