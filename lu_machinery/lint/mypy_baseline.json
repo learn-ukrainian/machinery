@@ -760,11 +760,6 @@
     {
       "path": "lu_machinery/agent_runtime/usage.py",
       "code": "no-redef",
-      "message": "Name \"main_checkout_root\" already defined (possibly by an import)"
-    },
-    {
-      "path": "lu_machinery/agent_runtime/usage.py",
-      "code": "no-redef",
       "message": "Name \"utc_datetime\" already defined (possibly by an import)"
     },
     {
@@ -2781,11 +2776,6 @@
       "path": "lu_machinery/api/subscription_usage.py",
       "code": "index",
       "message": "Value of type \"Any | None | dict[Any, Any]\" is not indexable"
-    },
-    {
-      "path": "lu_machinery/api/subscription_usage.py",
-      "code": "no-redef",
-      "message": "Name \"main_checkout_root\" already defined (possibly by an import)"
     },
     {
       "path": "lu_machinery/api/subscription_usage.py",
