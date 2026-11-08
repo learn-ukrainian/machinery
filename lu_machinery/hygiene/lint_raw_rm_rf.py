@@ -15,6 +15,7 @@ import sys
 from pathlib import Path
 
 from lu_machinery.common.repo_root import product_root
+
 # Unresolved package directory (design-v1 amendment 1). Never __package__.
 _MACHINERY_DIR = Path(os.path.abspath(__file__)).parents[1].name
 

@@ -37,8 +37,8 @@ from pathlib import Path
 from typing import NamedTuple
 
 from lu_machinery.ci._location import checkout_relative, module_name
-from lu_machinery.common.repo_root import product_root
 from lu_machinery.ci.test_source_cache import parse_test_source, read_test_source
+from lu_machinery.common.repo_root import product_root
 
 _ALLOWLIST_REL = Path("scripts/ci/subprocess_timeout_allowlist.txt")
 _PACKAGE_NAME = Path(__file__).parents[1].name

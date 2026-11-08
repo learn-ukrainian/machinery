@@ -15,6 +15,7 @@ from pathlib import Path
 import yaml
 
 from lu_machinery.common.repo_root import product_root
+
 REQUIRED = {
     "node_id", "fix_issue", "owner", "admitted_on", "expires_on", "observed_run_ids", "renewals",
     "equivalent_coverage", "admission_approval",

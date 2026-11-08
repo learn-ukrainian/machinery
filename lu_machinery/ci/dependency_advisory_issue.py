@@ -27,12 +27,12 @@ import sys
 from pathlib import Path
 
 from lu_machinery.ci._location import checkout_relative, module_name
-from lu_machinery.common.repo_root import product_root
 from lu_machinery.ci.audit_dependencies import (
     filter_npm_audit_vulnerabilities,
     load_npm_audit_ignores,
     load_pip_audit_ignores,
 )
+from lu_machinery.common.repo_root import product_root
 
 ISSUE_LABEL = "dependency-advisory"
 ISSUE_TITLE = "Dependency advisories: unsuppressed findings (scheduled audit)"
@@ -242,10 +242,7 @@ def build_issue_body(findings: list[Finding]) -> str:
         )
     lines += [
         "",
-        "Resolve by upgrading the affected package or adding an audited suppression to "
-        "`scripts/config/pip-audit-ignore.yaml` / "
-        "`scripts/config/npm-audit-ignore.yaml`. "
-        "This issue updates on each scheduled run and closes automatically when the audit is clean.",
+        "Resolve by upgrading the affected package or adding an audited suppression to `scripts/config/pip-audit-ignore.yaml` / `scripts/config/npm-audit-ignore.yaml`. This issue updates on each scheduled run and closes automatically when the audit is clean.",
         "",
         f"_Maintained by the scheduled security audit (#9871). Label: `{ISSUE_LABEL}`._",
     ]
@@ -301,8 +298,7 @@ def main(argv: list[str] | None = None) -> int:
             "\n"
             "Related:\n"
             f"  Suppression logic: {checkout_relative('ci', 'audit_dependencies.py').as_posix()} with\n"
-            "  scripts/config/pip-audit-ignore.yaml and "
-            "scripts/config/npm-audit-ignore.yaml.\n"
+            "  scripts/config/pip-audit-ignore.yaml and scripts/config/npm-audit-ignore.yaml.\n"
             "  Workflow: the advisory-issue job in .github/workflows/security-audit.yml (#9871)."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,

@@ -21,6 +21,7 @@ from pathlib import Path
 import yaml
 
 from lu_machinery.common.repo_root import product_root
+
 _RESULT = re.compile(r"needs\.([\w-]+)\.result\b")
 _EXPRESSION = re.compile(r"\$\{\{(.*?)\}\}", re.DOTALL)
 _MATRIX_VALUE = re.compile(r"matrix\.([\w.-]+)\Z")

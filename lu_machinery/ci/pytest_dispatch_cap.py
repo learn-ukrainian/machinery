@@ -49,9 +49,9 @@ from collections.abc import Generator, Mapping
 from pathlib import Path
 from types import ModuleType
 
-from lu_machinery.common.repo_root import product_root
-
 import pytest
+
+from lu_machinery.common.repo_root import product_root
 
 try:
     from lu_machinery.common.test_thread_caps import THREAD_CAPS
