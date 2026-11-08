@@ -26,6 +26,7 @@ from typing import Any
 from xml.parsers.expat import ExpatError
 
 from lu_machinery.api.release_snapshot import build_release, prune_releases
+from lu_machinery.common.repo_root import MachineryConfigError, machinery_path, state_root
 from lu_machinery.common.safe_unit_install import (
     InstallError,
     check_state_paths,
@@ -58,12 +59,6 @@ def _package_top() -> str:
     return Path(os.path.abspath(__file__)).parents[1].name
 
 
-# Checkout-relative directory of this package, from the unresolved file
-# location. Never __package__: a short import spelling would name the wrong tree.
-_HERE = Path(os.path.abspath(__file__))
-_PACKAGE_DIR = f"{_HERE.parents[1].name}/{_HERE.parent.name}"
-
-
 def _self_module() -> str:
     here = Path(os.path.abspath(__file__))
     return f"{here.parents[1].name}.{here.parent.name}.{here.stem}"
@@ -77,11 +72,6 @@ class LaunchdError(RuntimeError):
     """Raised when launchd cannot reach the requested API state."""
 
 
-def default_repo_root() -> Path:
-    """Return the checkout that contains this supervisor."""
-    return Path(__file__).resolve().parents[2]
-
-
 def default_home() -> Path:
     """Return the current user's home without shell expansion."""
     return Path.home()
@@ -92,9 +82,9 @@ def plist_path(home: Path) -> Path:
     return home / "Library" / "LaunchAgents" / f"{LABEL}.plist"
 
 
-def wrapper_path(repo_root: Path) -> Path:
-    """Return the stable bash wrapper launchd executes, inside ``repo_root``."""
-    return repo_root / _PACKAGE_DIR / WRAPPER_NAME
+def wrapper_path() -> Path:
+    """Return the stable bash wrapper launchd executes: a packaged machinery file."""
+    return machinery_path(f"api/{WRAPPER_NAME}")
 
 
 def _pid_dir(repo_root: Path) -> Path:
@@ -158,7 +148,7 @@ def build_plist(*, repo_root: Path) -> dict[str, object]:
             STABLE_PROGRAM,
             "--noprofile",
             "--norc",
-            str(wrapper_path(root)),
+            str(wrapper_path()),
             "run",
             "--repo-root",
             str(root),
@@ -182,11 +172,11 @@ def render_plist(*, repo_root: Path) -> bytes:
 
 
 def _validate_runtime(repo_root: Path) -> None:
-    # Intentional: the LaunchAgent is bound to this repo_root, which may not
-    # be the process's primary checkout.
+    # The LaunchAgent wrapper runs this checkout's interpreter. The API child
+    # uses sys.executable, which is that interpreter once the wrapper has exec'd it.
     interpreter = repo_root / ".venv" / "bin" / "python"
-    supervisor = repo_root / _package_top() / Path(__file__).parent.name / "launchd_supervisor.py"
-    wrapper = wrapper_path(repo_root)
+    supervisor = machinery_path("api/launchd_supervisor.py")
+    wrapper = wrapper_path()
     if not interpreter.is_file() or not os.access(interpreter, os.X_OK):
         raise LaunchdError(f"required interpreter is missing or not executable: {interpreter}")
     if not supervisor.is_file():
@@ -523,9 +513,8 @@ def _prepare_api_command(repo_root: Path, *, live_mode: bool, port: int) -> tupl
     environment["PYTHONDONTWRITEBYTECODE"] = "1"
     environment["PYTHONPATH"] = str(launch_dir) + os.pathsep + environment.get("PYTHONPATH", "")
     command = [
-        # Intentional: uvicorn uses the interpreter of the checkout this
-        # supervisor was installed for, rendered even when the file is absent.
-        str(repo_root / ".venv" / "bin" / "python"),
+        # The wrapper execs this checkout's interpreter, so this is that interpreter.
+        sys.executable,
         "-B",
         "-m",
         "uvicorn",
@@ -535,7 +524,7 @@ def _prepare_api_command(repo_root: Path, *, live_mode: bool, port: int) -> tupl
         "--port",
         str(port),
         "--log-config",
-        f"{_package_top()}/{Path(__file__).parent.name}/logging.json",
+        os.fspath(machinery_path("api/logging.json")),
         "--timeout-graceful-shutdown",
         "8",
     ]
@@ -664,8 +653,8 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     def add_repo_arguments(command: argparse.ArgumentParser) -> None:
-        command.add_argument("--repo-root", type=Path, default=default_repo_root(),
-                             help="checkout to supervise (default: this project root)")
+        command.add_argument("--repo-root", type=Path, default=None,
+                             help="checkout to supervise (default: the shared-state root)")
         command.add_argument("--home", type=Path, default=default_home(),
                              help="home owning Library/LaunchAgents (default: current user's home)")
 
@@ -691,7 +680,7 @@ def build_parser() -> argparse.ArgumentParser:
     status_parser.add_argument("--home", type=Path, default=default_home(), help="LaunchAgent home (default: current user's home)")
 
     run_parser = subparsers.add_parser("run", help="run one supervised API child (launchd entry point)")
-    run_parser.add_argument("--repo-root", type=Path, default=default_repo_root(), help="checkout to run (default: this project root)")
+    run_parser.add_argument("--repo-root", type=Path, default=None, help="checkout to run (default: the shared-state root)")
     return parser
 
 
@@ -700,24 +689,24 @@ def main(argv: Sequence[str] | None = None) -> int:
     # Unresolved: the unit helper must see a symlinked home to refuse it (#9875).
     home = Path(os.path.abspath(getattr(args, "home", default_home()).expanduser()))
     try:
-        if args.command in {"install", "render"}:
-            root = args.repo_root.expanduser().resolve()
-            rendered = render_plist(repo_root=root)
-            if args.command == "render" or args.dry_render:
-                print(rendered.decode("utf-8"), end="")
+        if args.command in {"install", "render", "start", "run"}:
+            root = (args.repo_root if args.repo_root is not None else state_root()).expanduser().resolve()
+            if args.command in {"install", "render"}:
+                rendered = render_plist(repo_root=root)
+                if args.command == "render" or args.dry_render:
+                    print(rendered.decode("utf-8"), end="")
+                    return 0
+                print(json.dumps(install(repo_root=root, home=home), sort_keys=True))
                 return 0
-            print(json.dumps(install(repo_root=root, home=home), sort_keys=True))
-            return 0
-        if args.command == "start":
-            print(
-                json.dumps(
-                    start(
-                        repo_root=args.repo_root.expanduser().resolve(), home=home, live_mode=args.live, port=args.port
-                    ),
-                    sort_keys=True,
+            if args.command == "start":
+                print(
+                    json.dumps(
+                        start(repo_root=root, home=home, live_mode=args.live, port=args.port),
+                        sort_keys=True,
+                    )
                 )
-            )
-            return 0
+                return 0
+            return run_managed_api(repo_root=root)
         if args.command == "stop":
             print(json.dumps(stop(home=home), sort_keys=True))
             return 0
@@ -728,9 +717,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             payload, returncode = status(home=home)
             print(json.dumps(payload, sort_keys=True))
             return returncode
-        if args.command == "run":
-            return run_managed_api(repo_root=args.repo_root.expanduser().resolve())
-    except (LaunchdError, InstallError) as exc:
+    except (LaunchdError, InstallError, MachineryConfigError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 1
     return 1
