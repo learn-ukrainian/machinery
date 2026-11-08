@@ -39,6 +39,11 @@ from pathlib import Path
 from typing import Any, BinaryIO
 from urllib.parse import urlencode, urlparse
 
+# Direct file-path callers need this checkout on the import path before installation.
+# This selects code only; product and shared-state roots remain explicitly configured.
+if not __package__:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
 from lu_machinery.common import github_client
 from lu_machinery.common.repo_root import product_root
 from lu_machinery.common.repo_root import state_root as shared_state_root
