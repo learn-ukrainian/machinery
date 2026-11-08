@@ -8,14 +8,14 @@ Reviewer sessions and write sessions both enter through this bridge.
 
 The guard argument is either a tracked guard path, run directly, or the project
 interpreter followed by one of the tracked guards that need it. A tracked guard
-sits in the release's shared hooks directory or, while the Claude settings
-builder still emits product paths, the configured product's. The Claude adapter emits that second form; any other path,
-interpreter, guard or extra argument denies.
+sits in the release's shared hooks directory, where the Claude settings builder
+points every guard; the configured product root plays no part. The Claude
+adapter emits the second form for parser guards; any other path, interpreter,
+guard or extra argument denies.
 """
 
 from __future__ import annotations
 
-import contextlib
 import json
 import shlex
 import subprocess
@@ -61,19 +61,15 @@ def guard_argv(command: str) -> list[str]:
     except ValueError as exc:
         raise GuardInvocationError("unreadable fleet guard invocation") from exc
     try:
-        from lu_machinery.common.repo_root import ProductRootError, machinery_path, product_root
+        from lu_machinery.common.repo_root import machinery_path
     except ModuleNotFoundError:
         # File launch from a checkout: the package is not installed on this interpreter.
         sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-        from lu_machinery.common.repo_root import ProductRootError, machinery_path, product_root
-    # Release guards always qualify. Product-tree guards qualify only while the Claude
-    # settings builder still emits them; without a configured product, only the release does.
-    hooks_dirs = [machinery_path("agents_extensions/shared/hooks")]
-    with contextlib.suppress(ProductRootError):
-        hooks_dirs.append(product_root() / "agents_extensions/shared/hooks")
+        from lu_machinery.common.repo_root import machinery_path
+    hooks_dir = machinery_path("agents_extensions/shared/hooks")
 
     def tracked(guard: Path) -> bool:
-        return any(guard == hooks_dir / guard.name for hooks_dir in hooks_dirs)
+        return guard == hooks_dir / guard.name
 
     if len(argv) == 1:
         guard = Path(argv[0])
