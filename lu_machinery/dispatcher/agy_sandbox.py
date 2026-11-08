@@ -69,10 +69,9 @@ import uuid
 from datetime import UTC, datetime
 from pathlib import Path
 
-from lu_machinery.common.repo_root import machinery_path, main_checkout_root, product_root, project_interpreter
+from lu_machinery.common.repo_root import machinery_path, main_checkout_root, product_root
 from lu_machinery.common.scratch import ensure_scratch_root
 
-ROOT = Path(__file__).resolve().parents[2]
 # The machinery package's canonical import name: the unresolved name of its directory.
 _PACKAGE = Path(__file__).absolute().parents[1].name
 SCHEMA = 1
@@ -187,7 +186,7 @@ def _tool_results_from_receipt(receipt: Path) -> Path:
 def launcher(spec, agy_argv: list[str]) -> list[str]:
     """The argv of every read-only AGY launch: this boundary, which runs ``agy_argv`` inside it."""
     argv = [
-        str(project_interpreter()), "-I", "-c", _BOOTSTRAP, str(ROOT),
+        sys.executable, "-I", "-c", _BOOTSTRAP, str(machinery_path("dispatcher/agy_sandbox.py").parent.parent.parent),
         "--task-id", spec.task_id, "--worktree", str(spec.worktree), "--scratch", str(scratch(spec.task_id)),
         "--receipt", str(receipt_file(spec.final_file)),
     ]
@@ -564,7 +563,7 @@ class SourcesRelay:
     def __init__(self, endpoint: Path, readers: frozenset[str], env: dict[str, str]):
         from lu_machinery.agent_runtime.sources_read_only import SERVER_RELATIVE_PATH
 
-        self.server = [str(project_interpreter()), str(product_root() / SERVER_RELATIVE_PATH)]
+        self.server = [sys.executable, str(product_root() / SERVER_RELATIVE_PATH)]
         self.readers, self.env = readers, env
         self.completed = self.failed = 0
         self.tools: dict[str, int] = {}
@@ -607,7 +606,7 @@ class SourcesRelay:
                 connection.close()
                 return
             # Same process group as the launcher, so a killed task takes its servers with it.
-            process = subprocess.Popen(self.server, cwd=ROOT, env=self.env, stdin=subprocess.PIPE,
+            process = subprocess.Popen(self.server, cwd=product_root(), env=self.env, stdin=subprocess.PIPE,
                                        stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
             self.processes.append(process)
         pending: dict[str, tuple[str, str | None]] = {}
@@ -843,7 +842,7 @@ def _write_error(path: Path) -> str:
 
 def _venv() -> Path:
     """The project virtual environment, mounted read-only so a review can run the interpreter and tests."""
-    return project_interpreter().parent.parent.resolve(strict=True)
+    return Path(sys.executable).parent.parent.resolve(strict=True)
 
 
 def _venv_reads() -> list[Path]:
@@ -1096,7 +1095,7 @@ class _Boundary:
             except OSError as exc:
                 raise Refused("the AGY OAuth token is unavailable") from exc
             _write_private(app / "antigravity-oauth-token", token)  # a regular-file copy: no shared link or inode
-        interpreter = project_interpreter().resolve(strict=True)
+        interpreter = Path(sys.executable).resolve(strict=True)
         projected = {name: source.read_bytes() for name, source in _PROJECTED.items()}
         if self.shell:
             projected["bin/gh"] = _GH_SHIM.format(interpreter=interpreter).encode()

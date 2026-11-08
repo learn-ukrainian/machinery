@@ -10,6 +10,7 @@ from urllib.parse import unquote
 import yaml
 
 from lu_machinery.agent_runtime import bounded_advisory as advisory
+from lu_machinery.common.repo_root import machinery_path
 from lu_machinery.dispatcher import git, store
 from lu_machinery.dispatcher.types import TaskSpec
 from lu_machinery.review.model_catalog import (
@@ -238,7 +239,7 @@ def _handle_private_input(spec: TaskSpec, message: str) -> None:
 def check_private_input(spec: TaskSpec, repo_key: str) -> None:
     if spec.agent not in {"muse", "opencode"}:
         return
-    repos = yaml.safe_load(git.CONFIG.read_text())["repos"]
+    repos = yaml.safe_load(machinery_path("config/fleet_repos.yaml").read_text())["repos"]
     private = {
         key: item for key, item in repos.items() if item.get("private", False) or "private" in item.get("role", "")
     }

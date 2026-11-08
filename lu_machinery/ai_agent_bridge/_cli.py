@@ -16,6 +16,7 @@ from agent_runtime.errors import AgentTimeoutError, RateLimitedError
 from agent_runtime.kimi_admission import KimiAdmissionRefused
 from agent_runtime.runner import InterAgentTransportError
 from lu_machinery.common import github_client
+from lu_machinery.common.repo_root import product_root
 
 from ._ask_contract import EFFORT_CHOICES
 from ._ask_lifecycle import (
@@ -34,7 +35,6 @@ from ._codex import (
 from ._config import BRIDGE_ENTRY, DISPATCH_ENTRY, MACHINERY_PACKAGE
 from ._db import get_db
 from ._dispatch_wrappers import (
-    REPO_ROOT,
     REVIEW_DEEP_INSTRUCTIONS,
     handle_review_deep,
 )
@@ -1555,7 +1555,7 @@ def _resolve_same_repo_pr_head(pr_number: int, *, repo_root: Path | None = None)
         live_canonical_branch_head,
     )
 
-    repo_root = Path(REPO_ROOT) if repo_root is None else repo_root
+    repo_root = product_root(repo_root)
     try:
         repository = _origin_github_repo(repo_root)
     except (OSError, TargetResolutionError) as exc:
@@ -1710,7 +1710,7 @@ def _handle_acp_compat(args, target: str) -> None:
     pr_number = getattr(args, "pr", None)
     branch = getattr(args, "branch", None)
     repo = getattr(args, "repo", None)
-    review_root = Path(REPO_ROOT)
+    review_root = product_root()
     if repo is not None:
         if not (review or pr_number is not None or branch is not None):
             raise SystemExit("--repo requires review intent (--review, --type review, --pr or --branch)")

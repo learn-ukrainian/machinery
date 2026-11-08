@@ -707,9 +707,9 @@ def probe_test_slots() -> SlotQueueProbe:
 
 def primary_checkout() -> Path:
     """The primary checkout that owns ``.worktrees/``, also from a linked worktree."""
-    from lu_machinery.common.repo_root import main_checkout_root
+    from lu_machinery.common.repo_root import main_checkout_root, product_root
 
-    return main_checkout_root(Path(__file__).resolve().parents[2])
+    return main_checkout_root(product_root())
 
 
 def worktrees_disk_path() -> Path:
@@ -800,15 +800,12 @@ def post_disk_alert(body: str, idempotency_key: str) -> None:
     """
     if os.environ.get("PYTEST_CURRENT_TEST") and os.environ.get("LU_TEST_DISPATCH_HEALTHY_HOST") == "1":
         raise RuntimeError("test host: alerts are not published")
-    from lu_machinery.common.repo_root import project_interpreter
 
-    root = primary_checkout()
-    try:
-        interpreter = project_interpreter(root)
-    except FileNotFoundError as exc:
-        raise RuntimeError(f"fleet_comms publish could not run: {exc}") from exc
+    from lu_machinery.common.repo_root import state_root
+
+    root = state_root()
     command = [
-        str(interpreter),
+        sys.executable,
         "-m",
         "lu_machinery.fleet_comms",
         "channel",
