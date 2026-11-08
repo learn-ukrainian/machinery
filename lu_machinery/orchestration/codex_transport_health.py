@@ -31,7 +31,7 @@ from lu_machinery.agent_runtime.errors import (
     RateLimitedError,
 )
 from lu_machinery.agent_runtime.result import Result
-from lu_machinery.common.repo_root import ProductRootError, main_checkout_root, product_root
+from lu_machinery.common.repo_root import ProductRootError, StateRootError, product_root, state_root
 
 SCHEMA_VERSION = "codex-transport-health.v2"
 HEALTHY = "healthy"
@@ -44,23 +44,14 @@ DEFAULT_TIMEOUT_SECONDS = 120
 DEFAULT_MODEL = "gpt-6.1-sol"
 DEFAULT_EFFORT = "low"
 
-SOURCE_REPO_ROOT = Path(__file__).resolve().parents[2]
-RUNTIME_REPO_ROOT = main_checkout_root(SOURCE_REPO_ROOT)
 # The product's Codex config, relative to the product checkout (C-4746).
 DEFAULT_CONFIG_REL = "agents_extensions/codex/config.toml"
-TRANSPORT_RECEIPT_PATH = RUNTIME_REPO_ROOT / "batch_state" / "runtime" / "codex-transport-health.json"
 
 NativeInvoker = Callable[..., Result]
 
 
 def _invoke_native(*args: Any, **kwargs: Any) -> Result:
     # Keep read-only receipt queries independent of the execution machinery.
-    # runner.py imports the top-level ``ai_llm`` package (``scripts/ai_llm``).
-    # ``python -m`` from the repo root does not put ``scripts/`` on ``sys.path``;
-    # delegate's worker and ``acpx_discuss`` insert it before this import.
-    scripts_dir = str(Path(__file__).resolve().parents[1])
-    if scripts_dir not in sys.path:
-        sys.path.insert(0, scripts_dir)
     from lu_machinery.agent_runtime.runner import invoke
 
     return invoke(*args, **kwargs)
@@ -115,7 +106,9 @@ def _sanitized_namespace(namespace: str | None) -> str | None:
     return "other" if namespace else None
 
 
-def load_receipt(receipt_path: Path = TRANSPORT_RECEIPT_PATH) -> dict[str, Any] | None:
+def load_receipt(receipt_path: Path | None = None) -> dict[str, Any] | None:
+    if receipt_path is None:
+        receipt_path = state_root() / "batch_state" / "runtime" / "codex-transport-health.json"
     try:
         payload = json.loads(receipt_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
@@ -149,7 +142,7 @@ def _write_receipt(receipt: dict[str, Any], receipt_path: Path) -> None:
 
 def current_transport_health(
     *,
-    receipt_path: Path = TRANSPORT_RECEIPT_PATH,
+    receipt_path: Path | None = None,
     config_path: Path | None = None,
     now: datetime | None = None,
 ) -> dict[str, Any]:
@@ -246,9 +239,9 @@ def _receipt(
 
 def probe_codex_transport(
     *,
-    receipt_path: Path = TRANSPORT_RECEIPT_PATH,
+    receipt_path: Path | None = None,
     config_path: Path | None = None,
-    runtime_repo_root: Path = RUNTIME_REPO_ROOT,
+    runtime_repo_root: Path | None = None,
     ttl_seconds: int = DEFAULT_TTL_SECONDS,
     timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS,
     model: str = DEFAULT_MODEL,
@@ -258,6 +251,8 @@ def probe_codex_transport(
     invoker: NativeInvoker = _invoke_native,
 ) -> dict[str, Any]:
     """Probe one genuinely fresh Codex worker or reuse an unexpired receipt."""
+    if receipt_path is None:
+        receipt_path = state_root() / "batch_state" / "runtime" / "codex-transport-health.json"
     checked_now = now or _utc_now()
     if not force_fresh:
         cached = current_transport_health(
@@ -289,6 +284,8 @@ def probe_codex_transport(
 
     sentinel = f"CODEX-TRANSPORT-OK-{uuid.uuid4().hex}"
     prompt = f"Transport health probe. Return exactly this sentinel and nothing else: {sentinel}"
+    if runtime_repo_root is None:
+        runtime_repo_root = state_root()
     try:
         result = invoker(
             "codex",
@@ -377,12 +374,12 @@ def _parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     status = subparsers.add_parser("status", help="Read the cached probe receipt")
-    status.add_argument("--receipt", type=Path, default=TRANSPORT_RECEIPT_PATH)
+    status.add_argument("--receipt", type=Path, default=None)
     status.add_argument("--config", type=Path, default=None, help="default: the product's Codex config")
     status.add_argument("--json", action="store_true")
 
     probe = subparsers.add_parser("probe", help="Run or reuse a fresh-process probe")
-    probe.add_argument("--receipt", type=Path, default=TRANSPORT_RECEIPT_PATH)
+    probe.add_argument("--receipt", type=Path, default=None)
     probe.add_argument("--config", type=Path, default=None, help="default: the product's Codex config")
     probe.add_argument("--ttl-seconds", type=int, default=DEFAULT_TTL_SECONDS)
     probe.add_argument("--timeout-seconds", type=int, default=DEFAULT_TIMEOUT_SECONDS)
@@ -397,7 +394,9 @@ def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     try:
         args.config = args.config or default_config_path()
-    except ProductRootError as exc:
+        if args.receipt is None:
+            args.receipt = state_root() / "batch_state" / "runtime" / "codex-transport-health.json"
+    except (ProductRootError, StateRootError) as exc:
         raise SystemExit(f"codex transport health: {exc}") from None
     if args.command == "status":
         result = current_transport_health(

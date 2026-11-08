@@ -15,12 +15,12 @@ Design choices:
 - **File-based state, not in-process.** Multiple scripts hit the same
   key (bridge, v6_build, wiki compile). A 429 in one must immediately
   steer the others. File atime/mtime is enough — no DB needed.
-- **Project-local path.** State lives under ``batch_state/`` so it
-  moves with the checkout and doesn't need a separate cleanup step.
+- **Shared state path.** State lives under the configured primary
+  checkout's ``batch_state/`` so all workers share the cooldown.
 - **Clock is time.time() not monotonic.** Cooldown spans process
   lifetimes; we need a wall clock.
 
-No network calls, no subprocess, no imports outside stdlib. Safe to
+No network calls or subprocesses. Safe to
 import from any adapter during ``build_invocation``.
 """
 from __future__ import annotations
@@ -31,16 +31,13 @@ import os
 import time
 from pathlib import Path
 
+from lu_machinery.common.repo_root import state_root
+
 #: Default cooldown window after a 429. 1h matches Gemini API's typical
 #: per-minute recovery profile and is long enough to batch many wiki
 #: articles under subscription without flapping, short enough that a
 #: transient 429 doesn't lock out API for the rest of the day.
 DEFAULT_COOLDOWN_S: int = 3600
-
-#: Project-local state file. Resolved relative to the repo root (the
-#: parent of ``scripts/``), which keeps multiple checkouts isolated.
-_REPO_ROOT = Path(__file__).resolve().parents[2]
-_DEFAULT_STATE_PATH = _REPO_ROOT / "batch_state" / "gemini_api_cooldown.json"
 
 #: Env var override for the state path. Primarily for tests — prod code
 #: uses the default. Exposing it as an env var (not just a function arg)
@@ -53,7 +50,7 @@ def _state_path() -> Path:
     override = os.environ.get(_COOLDOWN_PATH_ENV)
     if override:
         return Path(override)
-    return _DEFAULT_STATE_PATH
+    return state_root() / "batch_state" / "gemini_api_cooldown.json"
 
 
 def set_api_cooldown(duration_s: int = DEFAULT_COOLDOWN_S) -> float:
