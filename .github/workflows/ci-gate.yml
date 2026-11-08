@@ -234,7 +234,10 @@ jobs:
       - name: Fetch origin/main for the shrink check
         run: |
           set -euo pipefail
-          git fetch --no-tags --no-recurse-submodules --depth=1 origin \
+          # No --depth: on a push to main the checkout is the main tip, and a
+          # depth-1 fetch of it would move the shallow boundary to HEAD and
+          # drop HEAD^. Without it, Git fetches only commits it does not have.
+          git fetch --no-tags --no-recurse-submodules origin \
             +refs/heads/main:refs/remotes/origin/main
           # A ref the ratchet cannot read is skipped, not failed, so require all three.
           for ref in HEAD HEAD^ origin/main; do
