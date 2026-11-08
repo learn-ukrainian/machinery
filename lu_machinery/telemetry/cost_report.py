@@ -523,7 +523,7 @@ def build_cost_windows(
             window["warnings"] = [
                 *window["warnings"],
                 f"Dispatch-meta cost ledger is empty for this window, but {runtime_calls} runtime "
-                "call(s) were recorded; those calls are not reflected in the cost estimates.",
+                + "call(s) were recorded; those calls are not reflected in the cost estimates.",
             ]
         windows[key] = window
     return {
@@ -565,8 +565,8 @@ def render_terminal(summary: dict[str, Any]) -> str:
     lines = [
         _ansi("1;36", f"Estimated cost report [{summary['scope']['label']}]"),
         f"Calls: {totals['calls']}  Prompt est.: {_fmt_int(totals['prompt_tokens_est'])}  "
-        f"Output est.: {_fmt_int(totals['response_tokens_est'])}  "
-        f"Cost est.: {_ansi('1;32', _fmt_cost(float(totals['cost_usd_est'])) + ' USD')}",
+        + f"Output est.: {_fmt_int(totals['response_tokens_est'])}  "
+        + f"Cost est.: {_ansi('1;32', _fmt_cost(float(totals['cost_usd_est'])) + ' USD')}",
     ]
     if summary["since"]:
         lines.append(f"Since mtime: {summary['since']}")
