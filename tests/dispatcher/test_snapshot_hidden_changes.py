@@ -12,6 +12,9 @@ import pytest
 
 from lu_machinery.dispatcher import git
 
+# Converted on checkout (UTF-8 stored, UTF-16LE in the tree); the name has a leading blank and a carriage return.
+ENCODED = " encoded\r.txt"
+
 
 def _git(cwd, *args):
     return subprocess.run(["git", "-c", "protocol.file.allow=always", "-C", str(cwd), *args],
@@ -34,6 +37,8 @@ def _dirty(work):
 def work(tmp_path):
     work = _repo(tmp_path / "work")
     (work / "tracked.txt").write_text("committed\n")
+    (work / ".gitattributes").write_text("*encoded* working-tree-encoding=UTF-16LE\n")
+    (work / ENCODED).write_bytes("кодоване\n".encode("utf-16-le"))
     (work / "excluded").mkdir()
     (work / "excluded" / "data.txt").write_text("outside the sparse rules\n")
     _git(work, "add", ".")
@@ -56,11 +61,12 @@ def _submodule(tmp_path, work, ignore):
 
 
 def test_clean_tree_reads_clean(work):
-    """A clean tree stays clean, also as a dispatch tree: sparse-excluded entries and an unedited flagged one."""
+    """A clean tree stays clean, also as a dispatch tree: sparse-excluded entries and unedited flagged ones,
+    including one converted on checkout whose name a cat-file batch request or a text read would alter."""
     assert _dirty(work) is False
     _git(work, "sparse-checkout", "set", "--no-cone", "--", "/*", "!/excluded/")
     assert not (work / "excluded").exists()
-    _git(work, "update-index", "--assume-unchanged", "tracked.txt")
+    _git(work, "update-index", "--assume-unchanged", "tracked.txt", ENCODED)
     assert _dirty(work) is False
 
 
@@ -79,16 +85,29 @@ def test_skip_worktree_edit_reads_dirty(work):
 
 
 def test_assume_unchanged_edit_reads_dirty(work):
-    _git(work, "update-index", "--assume-unchanged", "tracked.txt")
+    """Also an edit that leaves the stored blob's own bytes in a file converted on checkout."""
+    _git(work, "update-index", "--assume-unchanged", "tracked.txt", ENCODED)
     (work / "tracked.txt").write_text("hidden edit\n")
     assert _git(work, "status", "--porcelain") == ""
+    assert _dirty(work) is True
+    (work / "tracked.txt").write_text("committed\n")
+    assert _dirty(work) is False
+    (work / ENCODED).write_bytes(subprocess.run(["git", "-C", str(work), "show", f"HEAD:{ENCODED}"],
+                                                check=True, capture_output=True).stdout)
     assert _dirty(work) is True
 
 
 def test_submodule_edit_with_ignore_dirty_reads_dirty(tmp_path, work):
+    """Also an edit that the submodule's own assume-unchanged flag hides from its status."""
     sub = _submodule(tmp_path, work, "dirty")
     (sub / "inner.txt").write_text("hidden edit\n")
     assert _git(work, "status", "--porcelain") == ""
+    assert _dirty(work) is True
+    (sub / "inner.txt").write_text("inner\n")
+    _git(sub, "update-index", "--assume-unchanged", "inner.txt")
+    assert _dirty(work) is False
+    (sub / "inner.txt").write_text("hidden edit\n")
+    assert _git(work, "status", "--porcelain", "--ignore-submodules=none") == ""
     assert _dirty(work) is True
 
 
