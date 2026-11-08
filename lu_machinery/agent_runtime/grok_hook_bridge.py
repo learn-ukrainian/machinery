@@ -6,9 +6,10 @@ consume Claude-shaped fields. This bridge preserves the original payload and
 adds the shape the guards require; an unreadable event or missing guard denies.
 Reviewer sessions and write sessions both enter through this bridge.
 
-The guard argument is either a tracked guard path in this checkout, run
-directly, or the project interpreter followed by one of the tracked guards that
-need it. The Claude adapter emits that second form; any other path,
+The guard argument is either a tracked guard path, run directly, or the project
+interpreter followed by one of the tracked guards that need it. A tracked guard
+sits in the release's shared hooks directory or, while the Claude settings
+builder still emits product paths, the configured product's. The Claude adapter emits that second form; any other path,
 interpreter, guard or extra argument denies.
 """
 
@@ -59,15 +60,25 @@ def guard_argv(command: str) -> list[str]:
     except ValueError as exc:
         raise GuardInvocationError("unreadable fleet guard invocation") from exc
     try:
-        from lu_machinery.common.repo_root import machinery_path
+        from lu_machinery.common.repo_root import ProductRootError, machinery_path, product_root
     except ModuleNotFoundError:
         # File launch from a checkout: the package is not installed on this interpreter.
         sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-        from lu_machinery.common.repo_root import machinery_path
-    hooks_dir = machinery_path("agents_extensions/shared/hooks")
+        from lu_machinery.common.repo_root import ProductRootError, machinery_path, product_root
+    # Release guards always qualify. Product-tree guards qualify only while the Claude
+    # settings builder still emits them; without a configured product, only the release does.
+    hooks_dirs = [machinery_path("agents_extensions/shared/hooks")]
+    try:
+        hooks_dirs.append(product_root() / "agents_extensions/shared/hooks")
+    except ProductRootError:
+        pass
+
+    def tracked(guard: Path) -> bool:
+        return any(guard == hooks_dir / guard.name for hooks_dir in hooks_dirs)
+
     if len(argv) == 1:
         guard = Path(argv[0])
-        if guard != hooks_dir / guard.name or guard.name == _PROJECT_PYTHON_HOOK_WRAPPER:
+        if not tracked(guard) or guard.name == _PROJECT_PYTHON_HOOK_WRAPPER:
             raise GuardInvocationError("only tracked fleet guards may run")
         if not guard.is_file():
             raise GuardInvocationError("fleet guard unavailable")
@@ -75,7 +86,7 @@ def guard_argv(command: str) -> list[str]:
     if len(argv) != 2:
         raise GuardInvocationError("one fleet guard path or pinned interpreter invocation required")
     python_bin, guard = (Path(arg) for arg in argv)
-    if guard.name not in PROJECT_PYTHON_GUARDS or guard != hooks_dir / guard.name:
+    if guard.name not in PROJECT_PYTHON_GUARDS or not tracked(guard):
         raise GuardInvocationError("only tracked parser guards may run under the project interpreter")
     if not guard.is_file():
         raise GuardInvocationError("fleet guard unavailable")
