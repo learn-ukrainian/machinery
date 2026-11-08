@@ -59,7 +59,7 @@ from types import ModuleType
 from typing import Any, NamedTuple
 from urllib.parse import urlsplit
 
-from lu_machinery.common.repo_root import ProductRootError, StateRootError, state_root
+from lu_machinery.common.repo_root import MachineryConfigError, ProductRootError, state_root
 from lu_machinery.common.repo_root import product_root as resolve_product_root
 from lu_machinery.ops.product_entry import ConfiguredModuleError, load_configured_module
 
@@ -734,7 +734,7 @@ def main(argv: list[str] | None = None) -> int:
     diagnostics = hang_diagnostics()
     try:
         anchored = state_root()
-    except StateRootError as error:
+    except MachineryConfigError as error:
         print(f"watchdog error: {error}", file=sys.stderr)
         return 2
     dump_dir = args.dump_dir or diagnostics.resolve_dump_dir(anchored)

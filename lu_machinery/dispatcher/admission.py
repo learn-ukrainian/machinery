@@ -135,7 +135,6 @@ def claude_launch(spec, invocation):
         claude_labelled_inputs_digest,
         claude_login_credential_fingerprint,
     )
-    from lu_machinery.common.repo_root import project_interpreter
     from lu_machinery.dispatcher.types import Invocation
 
     if spec.agent != "claude":
@@ -179,7 +178,7 @@ def claude_launch(spec, invocation):
         )
     except ClaudeAccountRefused as exc:
         raise ValueError(f"CLAUDE_ACCOUNT_REFUSED: {exc.code}") from None
-    guarded = [str(project_interpreter()), "-I", "-c", adapter._LAUNCH_GUARD_CODE, str(adapter._CODE_ROOT), verified]
+    guarded = [sys.executable, "-I", "-c", adapter._LAUNCH_GUARD_CODE, str(adapter._CODE_ROOT), verified]
     return Invocation([*guarded, "--", *argv], invocation.stdin, env, invocation.final_file)
 
 

@@ -9,16 +9,9 @@ from __future__ import annotations
 
 import json
 import subprocess
-import sys
-from pathlib import Path
 from typing import Any
 
 from mcp.server.mcpserver import MCPServer
-
-# File launch (trail isolation execs this path) still needs the package parent on
-# sys.path. That is the import root, not a checkout. -m needs nothing here.
-if __package__ in {None, ""}:
-    sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
 from lu_machinery.common.repo_root import product_root, project_interpreter
 

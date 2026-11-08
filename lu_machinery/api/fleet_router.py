@@ -128,7 +128,7 @@ _TOKEN_LITERAL = re.compile(r"\b(?:gh[pousr]_[A-Za-z0-9_]{16,}|sk-[A-Za-z0-9_-]{
 def _plane_root(ctx: MonitorContext | None = None) -> Path:
     """Resolve the existing durable plane root without creating it."""
     resolved_ctx = resolve_context(ctx)
-    return message_plane.default_plane_root(repo_root=resolved_ctx.roots.project_root)
+    return message_plane.default_plane_root(repo_root=resolved_ctx.roots.state_root)
 
 
 def _plane_db_path(ctx: MonitorContext | None = None) -> Path:
@@ -388,7 +388,7 @@ def _paged_query(
 def _safe_plane_status(ctx: MonitorContext | None = None) -> dict[str, Any]:
     """Project the existing plane read model without paths or raw telemetry rows."""
     resolved_ctx = resolve_context(ctx)
-    status = read_plane_status(repo_root=resolved_ctx.roots.project_root, recent_limit=0)
+    status = read_plane_status(repo_root=resolved_ctx.roots.state_root, recent_limit=0)
     mode = _safe_text(status.get("mode"), fallback="invalid")
     authority_active = mode == "authority"
     schema = status.get("schema") if isinstance(status.get("schema"), dict) else {}
@@ -480,11 +480,11 @@ def fleet_facade_help(ctx: MonitorContext = Depends(get_ctx)) -> dict[str, Any]:
 def fleet_facade_status(ctx: MonitorContext = Depends(get_ctx)) -> dict[str, Any]:
     """Expose the CLI fleet-status payload without a second health authority."""
     active_ctx = ctx if ctx is not None else resolve_context(None)
-    status = read_plane_status(repo_root=active_ctx.roots.project_root, recent_limit=50)
+    status = read_plane_status(repo_root=active_ctx.roots.state_root, recent_limit=50)
     epics_store = getattr(getattr(active_ctx, "stores", None), "epics_store", None)
     payload = fleet_status_payload(
         status,
-        repo_root=active_ctx.roots.project_root,
+        repo_root=active_ctx.roots.state_root,
         epics_store=epics_store,
     )
     payload["read_only"] = True
@@ -503,7 +503,7 @@ def fleet_facade_board(
         stream_id=stream_id,
         agent=agent,
         needle=needle,
-        repo_root=ctx.roots.project_root,
+        repo_root=ctx.roots.state_root,
     )
 
 
