@@ -14,9 +14,8 @@ from pathlib import Path
 from statistics import mean, median
 from typing import Any
 
-from learn_ukrainian_v4_runtime.model_families import canonical_cursor_model
-
 from lu_machinery.fleet_comms.efficiency_metrics import _parse_timestamp, _read_task_record, _task_record_paths
+from lu_machinery.model_families import canonical_cursor_model
 from lu_machinery.review.model_catalog import ModelCatalogError, load_model_catalog, model_aliases
 from lu_machinery.review.record_cf_verdict import RecordError, normalize_verdict
 from lu_machinery.review.verdict_parser import _commonmark_lines, _without_code_fences, review_score
@@ -85,7 +84,7 @@ _ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}\Z")
 _FINDING = re.compile(r"^ {0,3}(?:#{1,6} |[-*] )?[*_]*\[(P[0-3])\](?:[*_\s:.-]|$)")
 _FINDING_ID = re.compile(
     r"^ {0,3}(?:#{1,6} +|[-*+] +|\d+[.)] +)?[*_]*(F\d+)\b[*_]*"
-    r"[\s:.(\[—–-]*(?:severity[:\s]+)?(P[0-3])\b",
+    r"[\s:.(\[\u2014\u2013-]*(?:severity[:\s]+)?(P[0-3])\b",
     re.IGNORECASE,
 )
 # Prose that talks about a finding's resolution ("resolved", "still open", "never been resolved") is

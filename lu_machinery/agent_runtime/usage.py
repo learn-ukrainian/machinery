@@ -53,7 +53,7 @@ except ModuleNotFoundError as exc:
         raise
     from lu_machinery.secret_redactor import redact_text, redact_value
 
-from learn_ukrainian_v4_runtime.agent_identity import RETIRED_AGENT_ALIASES
+from lu_machinery.agent_identity import RETIRED_AGENT_ALIASES
 
 try:
     from lu_machinery.common.repo_root import main_checkout_root

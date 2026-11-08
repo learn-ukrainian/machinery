@@ -530,7 +530,8 @@ _V7_STATEMENTS = (
 
 # V4 canonical authority store (PR #7662 repair 6): the sqlite-dialect twin
 # of ``scripts.fleet_comms.pg_schema``'s v3 (same table shapes, TEXT-parity
-# by design). See ``scripts.fleet_comms.v4_canonical_authority_store``.
+# by design). Its reader and writer belong to the product-owned V4 runtime package;
+# the tables stay because applied migrations are never removed.
 _V8_STATEMENTS = (
     """CREATE TABLE IF NOT EXISTS v4_execution_observations (
         task_id TEXT NOT NULL,

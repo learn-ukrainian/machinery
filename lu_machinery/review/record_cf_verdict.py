@@ -43,10 +43,8 @@ if __name__ == "__main__":
         raise SystemExit(2) from None
 
 import yaml
-from learn_ukrainian_v4_runtime.agent_identity import normalize_seat
-from learn_ukrainian_v4_runtime.identity import _VALID_CONCRETE_FAMILIES
-from learn_ukrainian_v4_runtime.model_families import canonical_cursor_model, is_cursor_auto_selector
 
+from lu_machinery.agent_identity import normalize_seat
 from lu_machinery.common.jsonl import jsonl_lines
 from lu_machinery.common.repo_root import machinery_path
 from lu_machinery.fleet.claude_account_lane import ClaudeAccount, account_from_record
@@ -56,6 +54,8 @@ from lu_machinery.fleet_comms.review_publication import (
     ReviewPublicationError,
 )
 from lu_machinery.fleet_comms.review_publisher import post_commit_status
+from lu_machinery.identity import _VALID_CONCRETE_FAMILIES
+from lu_machinery.model_families import canonical_cursor_model, is_cursor_auto_selector
 from lu_machinery.opsec.prepublish import (
     PublishBlocked,
     absolute_path_spans,

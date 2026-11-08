@@ -132,9 +132,8 @@ THREAD_LEASE_SCHEMA_VERSION = 2
 # Executable basenames trusted as durable agent-driver harness processes. The
 # ancestor walk in _find_harness_ancestor stops at the nearest one of these; a
 # transient hook-launcher subshell is never mistaken for the long-lived owner.
-from learn_ukrainian_v4_runtime.identity import KNOWN_HARNESS_EXECUTABLES as KNOWN_HARNESS_EXECUTABLES
-
 from lu_machinery.common import github_client
+from lu_machinery.identity import KNOWN_HARNESS_EXECUTABLES as KNOWN_HARNESS_EXECUTABLES
 
 # This package's import name, from the unresolved file location: never from __package__, which a
 # short import spelling (orchestration.x with scripts/ on sys.path) shortens. Its dotted parts

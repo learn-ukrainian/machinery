@@ -853,7 +853,7 @@ def contributing_ukrainian_chunks(
     if not author_models or not all(isinstance(model, str) and model for model in author_models):
         return {"refused": "author-models-unresolved", "author_models": (), "author_families": (), "seats": ()}
     families = attested_author_families(admitted)
-    from learn_ukrainian_v4_runtime.identity import (
+    from lu_machinery.identity import (
         UNKNOWN_AUTHOR_FAMILY,
         UNRESOLVED_AUTHOR_FAMILIES,
     )
