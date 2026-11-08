@@ -26,7 +26,7 @@ def _run(command, *, cwd, env=None):
 
 @pytest.fixture(scope="module")
 def release(tmp_path_factory):
-    """Build once, then install the real wheel into an isolated consumer venv."""
+    """Install the head-built wheel into an isolated consumer venv."""
     scratch = tmp_path_factory.mktemp("release-resources")
     wheel = release_wheel(REPO, scratch)
     consumer = scratch / "consumer"

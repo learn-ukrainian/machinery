@@ -320,8 +320,8 @@ def test_app_identity_mints_a_repository_scoped_token(monkeypatch) -> None:
         captured["timeout"] = timeout
         return FakeResponse()
 
-    monkeypatch.setattr("agent_runtime.agent_github_identity.urllib.request.urlopen", fake_urlopen)
-    monkeypatch.setattr("agent_runtime.agent_github_identity.jwt.encode", lambda *_args, **_kwargs: "signed-jwt")
+    monkeypatch.setattr("lu_machinery.agent_runtime.agent_github_identity.urllib.request.urlopen", fake_urlopen)
+    monkeypatch.setattr("lu_machinery.agent_runtime.agent_github_identity.jwt.encode", lambda *_args, **_kwargs: "signed-jwt")
     identity = resolve_agent_github_identity(
         environment={
             "LU_AGENT_GITHUB_APP_ID": "123",

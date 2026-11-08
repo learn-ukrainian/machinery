@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 import sys
 import tomllib
@@ -15,13 +16,19 @@ def release_wheel(repo: Path, scratch: Path) -> Path:
         if not wheel.is_absolute() or not wheel.is_file():
             raise ValueError("LU_TEST_WHEEL must name an existing absolute wheel path")
         return wheel
+    source = scratch / "wheel-source"
+    source.mkdir()
+    for name in ("pyproject.toml", "MANIFEST.in"):
+        shutil.copy2(repo / name, source / name)
+    for name in ("lu_machinery", "agents_extensions"):
+        shutil.copytree(repo / name, source / name, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
     builder = scratch / "builder"
     subprocess.run([sys.executable, "-I", "-m", "venv", str(builder)], check=True, capture_output=True)
     executable = builder / "bin/python"
     requirements = tomllib.loads((repo / "pyproject.toml").read_text())["build-system"]["requires"]
     for args in (
         ["install", "--only-binary=:all:", *requirements],
-        ["wheel", "--no-deps", "--no-build-isolation", "--wheel-dir", str(scratch / "wheels"), str(repo)],
+        ["wheel", "--no-deps", "--no-build-isolation", "--wheel-dir", str(scratch / "wheels"), str(source)],
     ):
         result = subprocess.run(
             [str(executable), "-I", "-m", "pip", "--disable-pip-version-check", *args],
