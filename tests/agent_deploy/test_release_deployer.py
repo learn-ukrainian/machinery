@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import signal
 import subprocess
 import sys
@@ -354,3 +355,77 @@ def test_unknown_staging_content_is_preserved_before_first_apply(consumer, monke
     assert invoke(monkeypatch, consumer) == 2
     assert invoke(monkeypatch, consumer, check=True) == 2
     assert snapshot(consumer) == before
+
+
+@pytest.mark.parametrize("defect", ["global", "never_matcher", "local_source", "local_preserved", "codex_feature", "codex_alias"])
+def test_mandatory_hooks_cannot_be_globally_disabled_or_made_unreachable(consumer, monkeypatch, defect):
+    """F1: actual provider disable switches and nonmatching groups cannot neutralize fleet hooks."""
+    if defect == "never_matcher":
+        path = consumer / "agents_extensions/codex/hooks.json"
+        data = json.loads(path.read_text())
+        data["hooks"]["SessionStart"][0]["matcher"] = "no-such-source-ever"
+        path.write_text(json.dumps(data))
+    elif defect in {"codex_feature", "codex_alias"}:
+        key = "hooks" if defect == "codex_feature" else "codex_hooks"
+        write(consumer, "agents_extensions/codex/config.toml", f"[features]\n{key} = false\n")
+    elif defect == "global":
+        path = consumer / "agents_extensions/shared/settings.json"
+        data = json.loads(path.read_text())
+        data["disableAllHooks"] = True
+        path.write_text(json.dumps(data))
+    elif defect == "local_source":
+        data = json.loads((consumer / plan.DESCRIPTOR).read_text())
+        data["preserve"] = [".agent/tmp"]
+        descriptor(consumer, **data)
+        write(consumer, "agents_extensions/shared/settings.local.json", '{"disableAllHooks": true}')
+    else:
+        write(consumer, ".claude/settings.local.json", '{"disableAllHooks": true}')
+    before = snapshot(consumer)
+    assert invoke(monkeypatch, consumer) == 2
+    assert invoke(monkeypatch, consumer, check=True) == 2
+    assert snapshot(consumer) == before
+
+
+@pytest.mark.parametrize("kind", ["skill", "file"])
+def test_codex_provider_never_plans_retired_skill_discovery(consumer, monkeypatch, kind):
+    """F2: provider skills use .agents; an invalid skills leaf refuses before any write."""
+    body = "---\nname: codexonly\ndescription: Codex example\n---\nUse this example.\n"
+    if kind == "skill":
+        write(consumer, "agents_extensions/codex/skills/codexonly/SKILL.md", body)
+        assert invoke(monkeypatch, consumer) == 0
+        assert (consumer / ".agents/skills/codexonly/SKILL.md").read_text() == body
+        assert not (consumer / ".codex/skills").exists()
+        assert invoke(monkeypatch, consumer, check=True) == 0
+    else:
+        write(consumer, "agents_extensions/codex/skills", "not a skill directory")
+        before = snapshot(consumer)
+        assert invoke(monkeypatch, consumer) == 2
+        assert snapshot(consumer) == before
+
+
+@pytest.mark.parametrize("kind", ["symlink", "fifo", "unreadable"])
+def test_preserved_runtime_content_is_not_opened_or_traversed(consumer, tmp_path, monkeypatch, kind):
+    """F3: sockets, links and unreadable files in excluded runtime paths cannot block deploy."""
+    runtime = consumer / ".agent/tmp"
+    runtime.mkdir(parents=True)
+    path = runtime / "active"
+    outside = write(tmp_path, "outside-runtime", "external runtime\n")
+    outside_before = (outside.read_bytes(), outside.stat().st_mtime_ns)
+    if kind == "symlink":
+        path.symlink_to(outside)
+    elif kind == "fifo":
+        os.mkfifo(path)
+    else:
+        path.write_text("private runtime\n")
+        path.chmod(0)
+    mode_before = path.lstat().st_mode
+    try:
+        assert invoke(monkeypatch, consumer) == 0
+        assert invoke(monkeypatch, consumer, check=True) == 0
+        assert path.lstat().st_mode == mode_before
+        assert (outside.read_bytes(), outside.stat().st_mtime_ns) == outside_before
+    finally:
+        if kind == "unreadable":
+            path.chmod(0o600)
+    if kind == "unreadable":
+        assert path.read_text() == "private runtime\n"

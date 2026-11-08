@@ -16,8 +16,9 @@ import json
 import os
 import stat
 import subprocess
+import tomllib
 import unicodedata
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any
@@ -113,12 +114,14 @@ class Tree:
         except FileNotFoundError:
             return None
 
-    def inventory(self, path: str) -> dict[str, tuple[bytes, int]]:
+    def inventory(self, path: str, *, exclude: Callable[[str], bool] | None = None) -> dict[str, tuple[bytes, int]]:
         found: dict[str, tuple[bytes, int]] = {}
         def visit(fd: int, prefix: str) -> None:
             for name in sorted(os.listdir(fd)):
                 relative(name)
                 key = prefix + name
+                if exclude is not None and exclude(path + "/" + key):
+                    continue
                 info = os.stat(name, dir_fd=fd, follow_symlinks=False)
                 if stat.S_ISDIR(info.st_mode):
                     child = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
@@ -364,6 +367,8 @@ def build(tree: Tree) -> Plan:
     outputs: dict[str, Output] = {}
     def add(target: str, path: str, out: Output) -> None:
         full = target + "/" + relative(path)
+        if full == ".codex/skills" or full.startswith(".codex/skills/"):
+            raise Invalid("planned legacy Codex discovery path")
         if full in outputs:
             raise Invalid("duplicate output: " + full)
         if any(full == p or full.startswith(p + "/") or p.startswith(full + "/") for p in preserve):
@@ -393,7 +398,8 @@ def build(tree: Tree) -> Plan:
                     continue
                 add(root, relative_path, out)
         for path, out in groups.get(provider, {}).items():
-            add(".agents" if provider == "agy" else target, path, out)
+            output_root = ".agents" if provider == "agy" or (provider == "codex" and path.startswith("skills/")) else target
+            add(output_root, path, out)
     if "agy" in providers:
         for path, blob in agy_parts(shared["rules/core.md"].blob).items():
             add(".agent", path, Output(blob, 0o644, "fleet", "generated:core"))
@@ -414,11 +420,31 @@ def build(tree: Tree) -> Plan:
                     raise Invalid("missing mandatory hook event")
                 for hook in requirement["hooks"]:
                     if not any(isinstance(group, dict)
-                               and all(group.get(k) == v for k, v in requirement["group"].items())
+                               and {k: v for k, v in group.items() if k != "hooks"} == requirement["group"]
                                and group.get("enabled", True) is True and group.get("disabled", False) is False
                                and hook in group.get("hooks", []) for group in groups_for_event):
                         raise Invalid("missing mandatory hook delegator: " + config)
 
+    # Local project settings can override mandatory hooks even when the file
+    # is preserved. Only recognized control files are read; runtime scratch
+    # remains excluded from the target inventory below.
+    if "claude" in providers:
+        for config in (".claude/settings.json", ".claude/settings.local.json"):
+            planned = outputs.get(config)
+            existing = tree.read(config) if planned is None else None
+            control_blob = planned.blob if planned is not None else existing[0] if existing is not None else None
+            if control_blob is not None:
+                settings = decode(control_blob)
+                if not isinstance(settings, dict) or settings.get("disableAllHooks", False) is not False:
+                    raise Invalid("mandatory Claude hooks disabled: " + config)
+    if "codex" in providers:
+        planned = outputs.get(".codex/config.toml")
+        existing = tree.read(".codex/config.toml") if planned is None else None
+        control_blob = planned.blob if planned is not None else existing[0] if existing is not None else None
+        if control_blob is not None:
+            features = tomllib.loads(control_blob.decode()).get("features", {})
+            if not isinstance(features, dict) or any(key in features and features[key] is not True for key in ("hooks", "codex_hooks")):
+                raise Invalid("mandatory Codex hooks disabled: .codex/config.toml")
     for path in outputs:
         if any(str(parent) in outputs for parent in PurePosixPath(path).parents):
             raise Invalid("file/directory collision in planned outputs")
@@ -474,12 +500,10 @@ def preflight(tree: Tree, plan: Plan, old: dict[str, Any], check: bool) -> list[
             problems.append("interrupted deployment staging remains")
     roots = plan.roots | {path.split("/")[0] for path in old["files"]}
     for root in sorted(roots):
-        # Check every entry, including directories. Unknown empty dirs are harmless;
-        # symlinks and unknown files are never silently adopted or removed.
-        for path, actual in tree.inventory(root).items():
+        # Exclude runtime entries before stat/open/recursion. Non-preserved
+        # links and special files still fail closed inside inventory().
+        for path, actual in tree.inventory(root, exclude=lambda path: preserved(path, plan)).items():
             full = root + "/" + path
-            if preserved(full, plan):
-                continue
             expected = plan.files.get(full)
             if expected is not None:
                 if full not in old["files"] and actual != (expected.blob, expected.mode):
