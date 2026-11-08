@@ -34,7 +34,7 @@ from lu_machinery.fleet_comms.paths import (
 from ._config import BRIDGE_ENTRY
 
 if TYPE_CHECKING:
-    from agent_runtime.target_admission import AdmittedTarget
+    from lu_machinery.agent_runtime.target_admission import AdmittedTarget
 
 # Loop-prevention: set on the remote ask so a misconfigured job-host retire
 # marker cannot bounce forever.
@@ -143,6 +143,7 @@ def _build_remote_ask_script(
     """
     argv = [
         ".venv/bin/python",
+        "-m",
         BRIDGE_ENTRY,
         f"ask-{command_target}",
         "-",
@@ -432,7 +433,7 @@ def maybe_forward_compat_ask(
     When retired but forward config is missing, raises ``AskForwardError`` with
     a human message so callers never surface a raw ``PlaneRootAnchorError``.
     """
-    from agent_runtime.target_admission import require_admitted
+    from lu_machinery.agent_runtime.target_admission import require_admitted
 
     target = require_admitted(target)
     if not should_attempt_ask_forward(repo_root=repo_root):

@@ -16,7 +16,6 @@ import logging
 import os
 import re
 import sqlite3
-import sys
 import threading
 import time
 from collections.abc import Callable, Iterator, Mapping, Sequence
@@ -26,19 +25,6 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
-
-# runner.py retains historical sibling imports such as ai_llm; support both
-# package invocation and the legacy scripts-on-PYTHONPATH form.
-_SCRIPTS_DIR = Path(__file__).resolve().parents[1]
-if str(_SCRIPTS_DIR) not in sys.path:
-    sys.path.insert(0, str(_SCRIPTS_DIR))
-
-try:
-    from lu_machinery.lib.readonly_sqlite import open_readonly
-except ModuleNotFoundError as exc:
-    if exc.name != Path(os.path.abspath(__file__)).parents[1].name:
-        raise
-    from lib.readonly_sqlite import open_readonly  # type: ignore[no-redef]
 
 from lu_machinery.agent_runtime.adapters.acpx import (
     ACPX_SUPPORTED_PARTICIPANTS,
@@ -59,6 +45,7 @@ from lu_machinery.fleet_comms.artifacts import ArtifactStore
 from lu_machinery.fleet_comms.message_plane import default_plane_root
 from lu_machinery.guardrails.worktree_containment import classify_repo_path
 from lu_machinery.lib import rules_core
+from lu_machinery.lib.readonly_sqlite import open_readonly
 
 logger = logging.getLogger(__name__)
 

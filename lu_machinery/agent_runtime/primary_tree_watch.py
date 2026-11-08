@@ -53,13 +53,7 @@ from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 
-# Dual-flavor import, same rationale as runner._load_worktree_containment:
-# ``scripts.*`` resolves under pytest/module runs; the delegate worker puts
-# only ``scripts/`` on sys.path.
-try:
-    from lu_machinery.common.git_context import sanitized_git_env
-except ImportError:  # scripts/ on sys.path (stripped flavor)
-    from common.git_context import sanitized_git_env  # type: ignore[no-redef]
+from lu_machinery.common.git_context import sanitized_git_env
 
 _logger = logging.getLogger(__name__)
 
