@@ -44,14 +44,20 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-if __package__ in (None, ""):  # run as a file: put the repository root on sys.path
-    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-
-from lu_machinery.common.scratch import DEFAULT_SCRATCH_ROOT, fallback_scratch_root, resolve_scratch_root
+from lu_machinery.common.repo_root import main_checkout_root, product_root, state_root
+from lu_machinery.common.scratch import (
+    DEFAULT_SCRATCH_ROOT,
+    fallback_scratch_root,
+    resolve_scratch_root,
+)
 from lu_machinery.common.task_scratch import TaskScratchError, mount_points
 from lu_machinery.common.task_store_paths import tasks_dir
 from lu_machinery.hygiene import batch_state_retention
-from lu_machinery.hygiene.batch_state_retention import EXCLUDED, default_batch_root, load_holds, scratch_expiry
+from lu_machinery.hygiene.batch_state_retention import (
+    EXCLUDED,
+    load_holds,
+    scratch_expiry,
+)
 from lu_machinery.hygiene.retention_engine import plan_digest, reap_attributed_temp
 from lu_machinery.hygiene.tmp_sweep_ledger import (
     DEFAULT_DIGEST_LIMIT,
@@ -92,7 +98,6 @@ def _mod(*parts: str) -> str:
     return ".".join((_machinery_top(), *parts))
 
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
 # Unsettled deliverables (needs_finalize), blocked work and dry-run records are held.
 REAPABLE_STATES = frozenset({"done", "failed", "timeout", "cancelled", "crashed", "rate_limited", "no_deliverable"})
 HARNESS_NAMES = re.compile(r"^(?:claude|codex|gemini|agy|cursor|kimi|acpx)(?:[-_.]|$)")
@@ -1256,7 +1261,7 @@ def sweep(
     *,
     temp_root: Path = Path("/tmp"),
     task_root: Path | None = None,
-    repo_root: Path = REPO_ROOT,
+    repo_root: Path | None = None,
     min_age_s: float = 12 * 3600,
     scratch: ScratchPolicy | None = None,
     apply: bool = False,
@@ -1273,6 +1278,8 @@ def sweep(
     same passes without changing anything. Inactive pytest scratch follows
     its own rule (:mod:`scripts.hygiene.pytest_retention`, #11297).
     """
+    worktree_root = main_checkout_root(product_root() if repo_root is None else repo_root)
+    repo_root = repo_root if repo_root is not None else state_root()
     if not math.isfinite(min_age_s) or min_age_s <= 0:
         raise ValueError("minimum age must be finite and positive")
     if not math.isfinite(quarantine_s) or quarantine_s <= 0 or digest_limit < 0:
@@ -1305,6 +1312,7 @@ def sweep(
             root,
             tasks=tasks,
             repo_root=repo_root,
+            worktree_root=worktree_root,
             min_age_s=min_age_s,
             scratch=scratch,
             apply=apply,
@@ -1330,6 +1338,7 @@ def _sweep_locked(
     *,
     tasks: Path,
     repo_root: Path,
+    worktree_root: Path,
     min_age_s: float,
     scratch: ScratchPolicy | None,
     apply: bool,
@@ -1367,7 +1376,7 @@ def _sweep_locked(
         errors += purge_errors
         inventory = load_tasks(tasks)
         references, complete = process_snapshot()
-        worktrees = registered_worktrees(repo_root)
+        worktrees = registered_worktrees(worktree_root)
         managed = protected_roots()
         for path in sorted(root.iterdir()):
             if path.name.startswith(QUARANTINE_PREFIX):
@@ -1397,7 +1406,7 @@ def _sweep_locked(
                         tasks=load_tasks(tasks),
                         references=fresh_refs,
                         process_complete=fresh_complete,
-                        worktrees=registered_worktrees(repo_root),
+                        worktrees=registered_worktrees(worktree_root),
                         managed=protected_roots(),
                         now=time.time(),
                         min_age_s=min_age_s,
@@ -1884,8 +1893,7 @@ def main(argv: list[str] | None = None) -> int:
         if not math.isfinite(args.digest_limit_mib) or args.digest_limit_mib < 0:
             raise ValueError("digest limit must be finite and non-negative")
         report = sweep(
-            temp_root=default_batch_root() if args.batch_state else args.temp_root or SYSTEM_TEMP_AREAS[0],
-            repo_root=default_batch_root().parent if args.batch_state else REPO_ROOT,
+            temp_root=state_root() / "batch_state" if args.batch_state else args.temp_root or SYSTEM_TEMP_AREAS[0],
             task_root=args.task_root,
             min_age_s=args.min_age_hours * 3600,
             scratch=scratch,

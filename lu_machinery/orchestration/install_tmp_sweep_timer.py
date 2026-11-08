@@ -15,8 +15,17 @@ import subprocess
 import sys
 from pathlib import Path
 
-from lu_machinery.common.safe_unit_install import InstallError, open_unit_dir, read_unit, write_unit
-from lu_machinery.orchestration.install_data_tier_timer import systemctl_user, verify_units
+from lu_machinery.common.repo_root import machinery_path, state_root
+from lu_machinery.common.safe_unit_install import (
+    InstallError,
+    open_unit_dir,
+    read_unit,
+    write_unit,
+)
+from lu_machinery.orchestration.install_data_tier_timer import (
+    systemctl_user,
+    verify_units,
+)
 
 # This package's import name, from the unresolved file location: never from __package__, which a
 # short import spelling (orchestration.x with scripts/ on sys.path) shortens. Its dotted parts
@@ -24,8 +33,7 @@ from lu_machinery.orchestration.install_data_tier_timer import systemctl_user, v
 _PACKAGE = f"{Path(os.path.abspath(__file__)).parents[1].name}.{Path(os.path.abspath(__file__)).parent.name}"
 _MODULE = f"{_PACKAGE}.{Path(__file__).stem}"
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
-TEMPLATE_DIR = PROJECT_ROOT / "packaging" / "systemd"
+TEMPLATE_DIR = machinery_path("packaging/systemd")
 UNITS = ("learn-ukrainian-tmp-sweep.service", "learn-ukrainian-tmp-sweep.timer")
 
 
@@ -38,7 +46,7 @@ def render_units(repo_root: Path) -> dict[str, str]:
         text = source.read_text(encoding="utf-8")
         if name.endswith(".service") and "@REPO_ROOT@" not in text:
             raise InstallError(f"unit placeholder missing: {name}")
-        rendered[name] = text.replace("@REPO_ROOT@", str(repo_root))
+        rendered[name] = text.replace("@REPO_ROOT@", str(repo_root)).replace("@PYTHON@", sys.executable)
     return rendered
 
 
@@ -100,8 +108,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--repo-root",
         type=Path,
-        default=PROJECT_ROOT,
-        help="Primary checkout rendered into the units (default: this checkout; example: the main clone path).",
+        default=None,
+        help="Primary checkout rendered into the units (default: configured shared-state root).",
     )
     parser.add_argument(
         "--unit-dir",
@@ -129,7 +137,10 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     if args.enable and not args.apply:
         parser.error("--enable requires --apply")
-    repo_root = args.repo_root.expanduser().resolve()
+    try:
+        repo_root = (args.repo_root if args.repo_root is not None else state_root()).expanduser().resolve()
+    except ValueError as error:
+        parser.error(str(error))
     if not (repo_root / ".git").is_dir():
         parser.error("--repo-root must be a primary checkout (its .git is a directory)")
     rendered = render_units(repo_root)

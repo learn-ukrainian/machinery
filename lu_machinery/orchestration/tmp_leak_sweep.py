@@ -41,6 +41,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from lu_machinery.common.repo_root import state_root
 from lu_machinery.common.scratch import resolve_scratch_root
 from lu_machinery.common.task_scratch import (
     DEFAULT_MIN_FREE_GB,
@@ -662,7 +663,7 @@ def sweep_tmp_leaks(
     if min_free_gb is None:
         min_free_gb = scratch_min_free_gb()
     roots = list(tmp_roots) if tmp_roots is not None else default_tmp_roots()
-    resolved_repo = (repo_root or Path(__file__).resolve().parents[2]).resolve()
+    resolved_repo = (repo_root if repo_root is not None else state_root()).resolve()
     approved_roots = tuple(roots)
     free_gb: float | None = None
     for root in roots:
@@ -813,12 +814,15 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
-    report = sweep_tmp_leaks(
-        apply=args.apply,
-        min_age_s=args.min_age_s,
-        pressure_min_age_s=args.pressure_min_age_s,
-        min_free_gb=args.min_free_gb,
-    )
+    try:
+        report = sweep_tmp_leaks(
+            apply=args.apply,
+            min_age_s=args.min_age_s,
+            pressure_min_age_s=args.pressure_min_age_s,
+            min_free_gb=args.min_free_gb,
+        )
+    except ValueError as error:
+        parser.error(str(error))
     if args.json:
         import json
 
