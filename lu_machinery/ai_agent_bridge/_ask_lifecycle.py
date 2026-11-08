@@ -25,7 +25,6 @@ from typing import Any
 
 from agent_runtime.errors import AgentStalledError, AgentTimeoutError
 from common.repo_root import machinery_path, project_interpreter
-
 from lu_machinery.common.repo_root import state_root
 
 from . import _config

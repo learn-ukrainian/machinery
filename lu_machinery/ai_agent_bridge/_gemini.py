@@ -15,6 +15,7 @@ import time
 from pathlib import Path
 
 import yaml
+
 from agent_runtime.errors import (
     AgentStalledError,
     AgentTimeoutError,
@@ -24,9 +25,8 @@ from agent_runtime.errors import (
 from agent_runtime.runner import invoke as runtime_invoke
 from common.http_status import has_http_status
 from common.repo_root import project_interpreter
-from secret_redactor import redact_text
-
 from lu_machinery.common.repo_root import state_root
+from secret_redactor import redact_text
 
 from . import _config
 from ._ask_lifecycle import record_ask_failure, register_ask

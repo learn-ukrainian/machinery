@@ -28,9 +28,8 @@ from agent_runtime.errors import (
 )
 from agent_runtime.runner import invoke as runtime_invoke
 from common.repo_root import project_interpreter
-from secret_redactor import redact_text
-
 from lu_machinery.common.repo_root import state_root
+from secret_redactor import redact_text
 
 from . import _config
 from ._ask_contract import (

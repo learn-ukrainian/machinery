@@ -456,9 +456,7 @@ def resolve_launcher_host_id() -> str:
         return driver_host_id
 
     try:
-        from lu_machinery.api.occupancy import (
-            parse_host_id_map,  # noqa: PLC0415 — # lazy-ok: occupancy cycle breaker
-        )
+        from lu_machinery.api.occupancy import parse_host_id_map  # noqa: PLC0415 — # lazy-ok: occupancy cycle breaker
 
         mapping = parse_host_id_map()
         claimed = self_host_opaque_ids(mapping)
