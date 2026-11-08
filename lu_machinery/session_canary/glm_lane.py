@@ -24,10 +24,6 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-ROOT = Path(__file__).resolve().parents[2]
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
-
 from lu_machinery.agent_runtime.adapters.glm import (
     _OPENCODE_MODEL_ROUTES,
     GlmAdapter,
@@ -35,6 +31,7 @@ from lu_machinery.agent_runtime.adapters.glm import (
     assert_glm_egress_allowed,
 )
 from lu_machinery.common.epic_selector import validate_epic
+from lu_machinery.common.repo_root import state_root
 from lu_machinery.session_canary import grok_lane as _gl
 from lu_machinery.session_canary import handoff_select, shared_hydration
 
@@ -171,7 +168,7 @@ def run_glm_probe(
 
     probe_prompt = prompt or FIXED_PROBE_PROMPT
     target_token = expected_token or EXPECTED_PROBE_TOKEN
-    cwd = (repo or ROOT).resolve()
+    cwd = (repo or state_root()).resolve()
     glm_adapter = adapter or GlmAdapter()
 
     try:
@@ -413,7 +410,7 @@ def cmd_status(args: argparse.Namespace) -> int:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog=f"python -m {_PACKAGE}.glm_lane")
-    parser.add_argument("--repo", type=Path, default=ROOT)
+    parser.add_argument("--repo", type=Path, default=None, help="State root; default is the shared-state anchor")
     sub = parser.add_subparsers(dest="subcommand", required=True)
 
     boot = sub.add_parser("bootstrap", help="Write GLM cold-start board and handoff skeleton")
@@ -423,7 +420,7 @@ def build_parser() -> argparse.ArgumentParser:
     boot.set_defaults(func=cmd_bootstrap)
 
     probe = sub.add_parser("probe", help="Run GLM transport precondition check and live probe")
-    probe.add_argument("--repo", type=Path, default=ROOT)
+    probe.add_argument("--repo", type=Path, default=None)
     probe.add_argument("--timeout", type=float, default=30.0)
     probe.set_defaults(func=cmd_probe)
 
@@ -480,9 +477,9 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
-    if not hasattr(args, "repo") or args.repo is None:
-        args.repo = ROOT
     try:
+        if not hasattr(args, "repo") or args.repo is None:
+            args.repo = state_root()
         # Hydration/protocol use routing aliases; probe has no epic paths.
         if args.subcommand not in {"hydrate", "protocol", "probe"}:
             validate_epic(args.epic)

@@ -1577,7 +1577,7 @@
   {
    "path": "lu_machinery/hooks/measure_hook_stack.py",
    "rule": "python.lang.security.audit.dangerous-subprocess-use-audit",
-   "sha256": "8de87c7e3ad70c09677ca0c621c853631f5cee38a1f5bc4d34d6ce935b9b3178"
+   "sha256": "9c085473b47557c3d51a10c2ed92a8c84eceb5b85c9d171929e962233ff70d86"
   },
   {
    "path": "lu_machinery/hygiene/check_core_bare.py",

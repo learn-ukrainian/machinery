@@ -164,7 +164,8 @@ def _gh_api_transport(path: str, headers: dict[str, str], timeout: float) -> tup
         response_headers.update({"x-github-stale": "true", "x-github-age": str(result.age_seconds)})
     # The shared disk cache already resolved 304; this compatibility layer
     # consumes a complete body while retaining its own projection contract.
-    return 200 if result.status == 304 else result.status, response_headers, json.dumps(result.value).encode()
+    body = result.value if isinstance(result.value, bytes) else json.dumps(result.value).encode()
+    return 200 if result.status == 304 else result.status, response_headers, body
 
 
 class GitHubRestCache:

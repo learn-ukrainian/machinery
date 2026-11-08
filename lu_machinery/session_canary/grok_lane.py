@@ -56,12 +56,8 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[2]
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
-
 from lu_machinery.common.epic_selector import validate_epic
-from lu_machinery.common.repo_root import machinery_path
+from lu_machinery.common.repo_root import machinery_path, state_root
 from lu_machinery.session_canary import handoff_select
 
 # The machinery package's import name, which is also the directory its files have in checkout paths:
@@ -1369,7 +1365,7 @@ def build_parser() -> argparse.ArgumentParser:
             "Material edits after mint → re-mint to refresh facts."
         ),
     )
-    p.add_argument("--repo", type=Path, default=ROOT, help="Repository root")
+    p.add_argument("--repo", type=Path, default=None, help="State root; default is the shared-state anchor")
     sub = p.add_subparsers(dest="command", required=True)
 
     mint = sub.add_parser(
@@ -1506,6 +1502,8 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     try:
+        if args.repo is None:
+            args.repo = state_root()
         # Validate raw path selectors before handlers strip/lower them.
         if args.command != "protocol":
             validate_epic(args.epic)

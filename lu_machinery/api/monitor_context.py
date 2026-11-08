@@ -15,16 +15,13 @@ from typing import TYPE_CHECKING, Any
 
 from fastapi import Request
 
-from agents_extensions.shared.session_streams.db import (
-    SessionStreamDatabase,
-    default_database_path,
-)
-from agents_extensions.shared.session_streams.store import SessionStreamStore
-
 from . import config
 from .resilience import connect_sqlite
 
 if TYPE_CHECKING:
+    from agents_extensions.shared.session_streams.db import SessionStreamDatabase
+    from agents_extensions.shared.session_streams.store import SessionStreamStore
+
     from .observer_presence import ObserverPresence
     from .project_state_store import StoredReport
 
@@ -230,6 +227,10 @@ class MonitorContext:
         """Open one database through the context's single guarded choke point."""
         path = self.resolve_db_path(database)
         if session_streams:
+            from agents_extensions.shared.session_streams.db import (  # noqa: PLC0415  # lazy-ok: checkout-only session store
+                SessionStreamDatabase,
+            )
+
             return SessionStreamDatabase(path)
         if read_only:
             # Percent-encode the path. A raw file:{path} URI drops mode=ro when
@@ -295,6 +296,10 @@ def _roots(
 
 
 def _stores(context: MonitorContext, *, fixture: bool) -> MonitorStores:
+    from agents_extensions.shared.session_streams.store import (  # noqa: PLC0415  # lazy-ok: checkout-only session store
+        SessionStreamStore,
+    )
+
     roots = context.roots
     session_database = context._open_db(roots.session_streams_db_path, session_streams=True)
 
@@ -386,6 +391,10 @@ def _cached_production_context(
 
 def production_context() -> MonitorContext:
     """Build a cached context keyed by the current production configuration."""
+    from agents_extensions.shared.session_streams.db import (  # noqa: PLC0415  # lazy-ok: checkout-only session store
+        default_database_path,
+    )
+
     project_root = Path(config.PROJECT_ROOT)
     live_repo_root = Path(config.LIVE_REPO_ROOT)
     return _cached_production_context(

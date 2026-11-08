@@ -716,3 +716,23 @@ def test_revoke_excludes_parent_tls_overrides(tmp_path, monkeypatch):
         with pytest.raises(module.GitHubIdentityError, match="revocation failed"):
             module.revoke_installation_token(TOKEN, api_base_url=url)
         assert requests == []
+
+
+def test_http_open_raw_error_with_bytes_body_raises_http_error() -> None:
+    """A non-JSON (bytes) error body must surface as HTTPError, not TypeError, so retry loops retry it."""
+    import io
+    import urllib.error
+    import urllib.request
+
+    from lu_machinery.common.github_client import http_open
+
+    body = b"<html>502 Bad Gateway</html>"
+
+    def opener(request, timeout=None, **kwargs):
+        raise urllib.error.HTTPError(request.full_url, 502, "Bad Gateway", {}, io.BytesIO(body))
+
+    request = urllib.request.Request("https://api.github.com/repos/o/r/actions/artifacts")
+    with pytest.raises(urllib.error.HTTPError) as caught:
+        http_open(request, opener=opener, timeout=5)
+    assert caught.value.code == 502
+    assert caught.value.read() == body
