@@ -640,7 +640,7 @@ with no path check, and `delegate --agent agy` with no review-typing flag
 is not gated.
 ```bash
 printf '%s\n' "Adversarial review for #NNN. Read {path}." | \
-  .venv/bin/python lu_machinery/ai_agent_bridge/__main__.py ask-claude - \
+  .venv/bin/python -m lu_machinery.ai_agent_bridge ask-claude - \
     --task-id review-NNN --review --branch <branch>
 ```
 
@@ -727,21 +727,21 @@ those.
 `ab`, which resolves to ApacheBench on the operator machine):
 ```bash
   # List / inspect
-.venv/bin/python lu_machinery/ai_agent_bridge/__main__.py channel list
-.venv/bin/python lu_machinery/ai_agent_bridge/__main__.py channel info pipeline
-.venv/bin/python lu_machinery/ai_agent_bridge/__main__.py channel tail reviews -n 20
-.venv/bin/python lu_machinery/ai_agent_bridge/__main__.py channel tail reviews --thread THREAD_ID
+.venv/bin/python -m lu_machinery.ai_agent_bridge channel list
+.venv/bin/python -m lu_machinery.ai_agent_bridge channel info pipeline
+.venv/bin/python -m lu_machinery.ai_agent_bridge channel tail reviews -n 20
+.venv/bin/python -m lu_machinery.ai_agent_bridge channel tail reviews --thread THREAD_ID
 
   # Post (short form — single recipient)
-.venv/bin/python lu_machinery/ai_agent_bridge/__main__.py p reviews claude \
+.venv/bin/python -m lu_machinery.ai_agent_bridge p reviews claude \
   "quick question about module X"
 
   # Post (long form — multi-recipient, threading, parent/corr ids)
-.venv/bin/python lu_machinery/ai_agent_bridge/__main__.py post reviews \
+.venv/bin/python -m lu_machinery.ai_agent_bridge post reviews \
   "Review of #NNN" --to claude,codex --parent MSG_ID
 
   # Multi-agent bounded discussion
-.venv/bin/python lu_machinery/ai_agent_bridge/__main__.py discuss architecture \
+.venv/bin/python -m lu_machinery.ai_agent_bridge discuss architecture \
   "Should we extract the V6 god object?" \
   --with claude,gemini,codex --max-rounds 2
 ```

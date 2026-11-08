@@ -11,7 +11,6 @@ import json
 import os
 import re
 import sqlite3
-import sys
 from collections import defaultdict
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
@@ -30,13 +29,10 @@ except ModuleNotFoundError as exc:
         raise
     from lib.readonly_sqlite import SQLiteConnection, import_named_module, open_readonly  # type: ignore[no-redef]
 
-from .monitor_context import MonitorContext, get_ctx, resolve_context
-from .monitor_context import production_context as production_context  # re-export: test monkeypatches
-
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-
-import agent_runtime.registry as agent_registry
-from agent_runtime.adapters.acpx import (
+from lu_machinery.agent_identity import RETIRED_AGENT_ALIASES
+from lu_machinery.agent_runtime import registry as agent_registry
+from lu_machinery.agent_runtime.accounting import recorded_model_accounting_fields
+from lu_machinery.agent_runtime.adapters.acpx import (
     ACPX_CLI_COMPATIBILITY_CONTRACT,
     ACPX_SUPPORTED_PARTICIPANTS,
     AGY_CLI_COMPATIBILITY_CONTRACT,
@@ -47,19 +43,20 @@ from agent_runtime.adapters.acpx import (
     AcpxAdapter,
     AcpxGrokShadowAdapter,
 )
-from agent_runtime.adapters.acpx import (
+from lu_machinery.agent_runtime.adapters.acpx import (
     TRANSPORT_ENV as ACPX_TRANSPORT_ENV,
 )
-from agent_runtime.adapters.gemini import has_gemini_oauth_credentials, resolve_gemini_auth_mode
-from agent_runtime.agent_identity import RETIRED_AGENT_ALIASES
-from agent_runtime.failure_codes import RUNTIME_FAILURE_CODES
-from agent_runtime.usage import _iter_usage_records as _iter_usage_file_records
-from agent_runtime.usage import has_headroom
-from lu_machinery.agent_runtime.accounting import recorded_model_accounting_fields
+from lu_machinery.agent_runtime.adapters.gemini import has_gemini_oauth_credentials, resolve_gemini_auth_mode
+from lu_machinery.agent_runtime.failure_codes import RUNTIME_FAILURE_CODES
+from lu_machinery.agent_runtime.usage import _iter_usage_records as _iter_usage_file_records
+from lu_machinery.agent_runtime.usage import has_headroom
 from lu_machinery.control_plane import storage
 from lu_machinery.fleet_comms import message_plane
 from lu_machinery.fleet_comms.message_plane import read_plane_status
 from lu_machinery.orchestration import codex_transport_health
+
+from .monitor_context import MonitorContext, get_ctx, resolve_context
+from .monitor_context import production_context as production_context  # re-export: test monkeypatches
 
 router = APIRouter(tags=["runtime"])
 
@@ -162,7 +159,7 @@ def _registry_path() -> Path | None:
     """Resolve the on-disk source of the live agent registry, fresh each call.
 
     Deliberately not a module-level constant: routing this through the
-    imported ``agent_runtime.registry`` module's own ``__file__`` keeps the
+    imported ``lu_machinery.agent_runtime.registry`` module's own ``__file__`` keeps the
     on-disk source a single live indirection a test can repoint directly
     (``monkeypatch.setattr(agent_registry, "__file__", ...)``), instead of a
     second cached ``Path`` this router would need its own OPSEC fixture seam
@@ -206,7 +203,7 @@ def _load_registry_default_models() -> dict[str, str | None]:
     registry_path = _registry_path()
     if registry_path is None:
         raise RuntimeError("agent registry source path is unavailable")
-    spec = importlib.util.spec_from_file_location("agent_runtime._runtime_registry_snapshot", registry_path)
+    spec = importlib.util.spec_from_file_location("_lu_runtime_registry_snapshot", registry_path)
     if spec is None or spec.loader is None:
         raise ImportError(f"cannot load agent registry from {registry_path}")
     registry_snapshot = importlib.util.module_from_spec(spec)
@@ -222,7 +219,7 @@ _registry_models = _registry_default_models(agent_registry)
 def _refresh_agent_registry_if_changed() -> None:
     """Refresh registry-backed defaults after an on-disk registry update.
 
-    The live ``agent_runtime.registry`` module is never reloaded in place: a
+    The live ``lu_machinery.agent_runtime.registry`` module is never reloaded in place: a
     bad or incomplete write cannot corrupt concurrent runtime consumers. Its
     last known-good snapshot stays live and the next request retries the load.
     """
@@ -322,7 +319,7 @@ class UsageRecords(list[dict[str, Any]]):
 def _iter_usage_records(paths: list[Path], unreadable: dict[str, int] | None = None) -> UsageRecords:
     """Parse usage JSONL records through the shared strict line reader.
 
-    Every usage-file reader shares ``agent_runtime.usage._iter_usage_records``
+    Every usage-file reader shares ``lu_machinery.agent_runtime.usage._iter_usage_records``
     (#9924): a line that is not strict UTF-8, not JSON, or not a JSON object is
     skipped and counted on ``unreadable`` — the ``{"files", "lines", "records"}``
     counter the usage summaries expose — never raised, never silently dropped.
@@ -386,7 +383,7 @@ def _last_used_agent_models(
     """Extract the most recently used model per agent from runtime usage records.
 
     ``unreadable`` receives the strict reader's fault counts (#9924) the same
-    way ``agent_runtime.usage.has_headroom`` exposes them; omitted means the
+    way ``lu_machinery.agent_runtime.usage.has_headroom`` exposes them; omitted means the
     counts are computed but not surfaced to the caller.
     """
     latest_by_agent: dict[str, tuple[datetime, str]] = {}
@@ -427,7 +424,7 @@ def list_runtime_agents(ctx: MonitorContext, unreadable: dict[str, int] | None =
         if path.stem in {"__init__", "acpx", "base"} or path.stem.startswith("_"):
             continue
         try:
-            module = import_named_module(f"agent_runtime.adapters.{path.stem}")
+            module = import_named_module(f"lu_machinery.agent_runtime.adapters.{path.stem}")
         except Exception:
             continue
 
@@ -1105,7 +1102,7 @@ def runtime_recent_outcomes_today(ctx: MonitorContext | None = None, *, unreadab
     """Today's per-outcome counts.
 
     ``unreadable`` receives the strict reader's fault counts (#9924) the same
-    way ``agent_runtime.usage.has_headroom`` exposes them; omitted means the
+    way ``lu_machinery.agent_runtime.usage.has_headroom`` exposes them; omitted means the
     counts are computed but not surfaced to the caller.
     """
     counts = {key: 0 for key in _KNOWN_OUTCOMES}

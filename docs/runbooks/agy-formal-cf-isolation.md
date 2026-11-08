@@ -40,7 +40,7 @@ Formal CF for AGY-authored work is requested by the driver of record via direct 
 ```bash
 .venv/bin/python lu_machinery/dispatch.py dispatch --agent agy --model gemini-3.8-flash-high \
   --mode workspace-write --worktree --task-id <task> --prompt-file BRIEF
-.venv/bin/python lu_machinery/ai_agent_bridge/__main__.py ask-agy - \
+.venv/bin/python -m lu_machinery.ai_agent_bridge ask-agy - \
   --task-id agy-bounded --to-model gemini-3.8-flash-high
 ```
 
@@ -64,8 +64,8 @@ To read AGY's own message, such as the reset time or the reason a schema was rej
 
 ```bash
 # Direct ask-* cross-family review (replaces removed review-pr):
-.venv/bin/python lu_machinery/ai_agent_bridge/__main__.py ask-claude - --type review --pr <N> --task-id review-<N> < prompt.md
-.venv/bin/python lu_machinery/ai_agent_bridge/__main__.py ask-codex - --type review --pr <N> --task-id review-<N> < prompt.md
+.venv/bin/python -m lu_machinery.ai_agent_bridge ask-claude - --type review --pr <N> --task-id review-<N> < prompt.md
+.venv/bin/python -m lu_machinery.ai_agent_bridge ask-codex - --type review --pr <N> --task-id review-<N> < prompt.md
 ```
 
 ## Flip criteria (do not skip)

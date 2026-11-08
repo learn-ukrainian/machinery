@@ -77,14 +77,13 @@ the primary interpreter + bridge module (same bus as every other seat — not a
 second discuss API):
 
 ```bash
-.venv/bin/python \
-  lu_machinery/ai_agent_bridge/__main__.py discuss <channel> "<topic>" \
+.venv/bin/python -m lu_machinery.ai_agent_bridge discuss <channel> "<topic>" \
   --with <a>,<b> [--max-rounds N]
 ```
 
 | Verb | How |
 | --- | --- |
-| **inbox** | `… __main__.py inbox show\|ack …` (fleet-comms dual-write) |
+| **inbox** | `… -m lu_machinery.ai_agent_bridge inbox show\|ack …` (fleet-comms dual-write) |
 | **dispatch** | `lu_machinery/dispatch.py dispatch --model <catalog-model> --agent <non-cursor> …` (Cursor driver holds concurrency 1 — do not self-dispatch) |
 | **discuss** | `ab discuss` via the venv bridge above → ACPX controller (`LU_ACPX_TRANSPORT=active`) on the same plane |
 | **receipts** | `batch_state/tasks/<task-id>.json` + channel/thread ids; Cursor receipts must carry `resolved_model` / `resolved_model_known` / `resolved_model_source` |

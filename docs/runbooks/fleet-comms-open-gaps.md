@@ -139,7 +139,7 @@ Practical seats @ **high** — not Sol on routine PRs:
 
 ```bash
 # Direct ask-* cross-family review (replaces removed review-pr):
-.venv/bin/python lu_machinery/ai_agent_bridge/__main__.py ask-codex - \
+.venv/bin/python -m lu_machinery.ai_agent_bridge ask-codex - \
   --type review --pr <N> --task-id review-<N> < prompt.md
 
 # Headless dispatch equivalent:
@@ -153,8 +153,8 @@ Practical seats @ **high** — not Sol on routine PRs:
   --task-id review-<N> --model claude-opus-5-5 --effort high \
   --prompt-file prompt.md
 
-.venv/bin/python lu_machinery/ai_agent_bridge/__main__.py ask-pool ...  # default Laguna S 2.1
-.venv/bin/python lu_machinery/ai_agent_bridge/__main__.py ask-pool ... --model poolside/poolside/laguna-xs-2.1  # XS 2.1 light
+.venv/bin/python -m lu_machinery.ai_agent_bridge ask-pool ...  # default Laguna S 2.1
+.venv/bin/python -m lu_machinery.ai_agent_bridge ask-pool ... --model poolside/poolside/laguna-xs-2.1  # XS 2.1 light
 ```
 
 Automatic selection and admission occur in one `BEGIN IMMEDIATE` transaction
