@@ -7,6 +7,7 @@ import os
 import re
 import shlex
 import shutil
+import stat
 import subprocess
 import sys
 import time
@@ -31,7 +32,9 @@ from lu_machinery.common.task_scratch import TaskScratchError, allocate
 from lu_machinery.common.task_store_paths import tasks_dir
 from lu_machinery.dispatcher import site_deps
 from lu_machinery.dispatcher.types import TaskSpec
+from lu_machinery.orchestration.execution_safe_git import GIT as EXECUTION_SAFE_GIT
 from lu_machinery.orchestration.execution_safe_git import run_git as execution_safe_git
+from lu_machinery.orchestration.execution_safe_git import safe_git_env
 from lu_machinery.storage.topology import STORE_FILES
 
 # Default trees excluded from dispatch worktrees.
@@ -624,6 +627,80 @@ PULL_HEAD = re.compile(r"refs/pull/[0-9]+/head")
 
 
 
+def _flagged_entries_changed(local, tree: Path) -> bool:
+    """Whether an index entry flagged assume-unchanged or skip-worktree holds uncommitted work in the tree.
+
+    Status trusts both flags and never compares such an entry, so it is compared here: a missing file is a
+    deletion, except a skip-worktree entry the sparse-checkout rules exclude; a present one must keep the
+    entry's type and executable bit, and its bytes must equal the entry's blob, raw or in its checkout form
+    (cat-file --filters). A flagged submodule entry or a path under a symlinked directory counts as changed.
+    Filter drivers stay disabled (execution_safe_git), so a driver-filtered file can read changed, never clean.
+    """
+    flagged = []
+    for entry in local(["ls-files", "--stage", "-v", "-z"]).stdout.split("\0"):
+        if entry and (entry[0].islower() or entry[0] == "S"):
+            meta, name = entry[2:].split("\t", 1)
+            mode, oid, _stage = meta.split(" ")
+            flagged.append((entry[0] in "Ss", mode, oid, name))
+    if not flagged:
+        return False
+    executable = local(["config", "--type=bool", "core.fileMode"], check=False).stdout.strip() != "false"
+    absent, compare = [], []
+    for skip, mode, oid, name in flagged:
+        parts = PurePosixPath(name).parts
+        if mode == "160000" or any(os.path.islink(tree.joinpath(*parts[:depth])) for depth in range(1, len(parts))):
+            return True
+        if not os.path.lexists(tree / name):
+            if not skip:
+                return True
+            absent.append(name)
+            continue
+        info = os.lstat(tree / name)
+        if mode == "120000":
+            if not stat.S_ISLNK(info.st_mode):
+                return True
+        elif not stat.S_ISREG(info.st_mode) or (executable and bool(info.st_mode & 0o100) != (mode == "100755")):
+            return True
+        compare.append((oid, name))
+    if absent:
+        if local(["config", "--type=bool", "core.sparseCheckout"], check=False).stdout.strip() != "true":
+            return True
+        # check-rules reads only configuration and the rules file, never the index, so no fsmonitor or hook runs.
+        included = subprocess.run(
+            [EXECUTION_SAFE_GIT, "--no-pager", "-c", "core.fsmonitor=false", "-c", f"core.hooksPath={os.devnull}",
+             "-C", str(tree), "sparse-checkout", "check-rules", "-z"],
+            input="\0".join(absent) + "\0", env=safe_git_env(), capture_output=True, text=True, check=True, timeout=30,
+        ).stdout
+        if any(included.split("\0")):
+            return True
+    # Bytes equal to the entry's blob or to its checkout form hold no uncommitted work.
+    raw = _batch_blobs(local, [], [oid for oid, _ in compare])
+    converted = _batch_blobs(local, ["--filters"], [f"{oid} {name}" for oid, name in compare])
+    for (_oid, name), blob, checkout in zip(compare, raw, converted, strict=True):
+        path = tree / name
+        if (os.fsencode(os.readlink(path)) if path.is_symlink() else path.read_bytes()) not in (blob, checkout):
+            return True
+    return False
+
+
+def _batch_blobs(local, options: list[str], requests: list[str]) -> list[bytes]:
+    """Contents of the blobs that NUL-separated ``cat-file --batch`` requests name, in request order."""
+    if not requests:
+        return []
+    out = local(["cat-file", "--batch", *options, "-Z"], text=False,
+                input=b"".join(request.encode() + b"\0" for request in requests)).stdout
+    blobs, position = [], 0
+    for _ in requests:
+        end = out.index(b"\0", position)
+        header = out[position:end].split(b" ")
+        if len(header) != 3 or header[1] != b"blob":
+            raise ValueError("flagged index entry has no readable blob")
+        position = end + 1 + int(header[2])
+        blobs.append(out[end + 1:position])
+        position += 1
+    return blobs
+
+
 def snapshot_delivery(spec: TaskSpec, record: dict) -> dict:
     delivery = dict(
         head_sha=None, remote_head_sha=None, remote_ref=None, publish_branch=record.get("publish_branch"),
@@ -637,11 +714,16 @@ def snapshot_delivery(spec: TaskSpec, record: dict) -> dict:
             head_sha=local(["rev-parse", "HEAD"]).stdout.strip(),
             commits_ahead=int(local(["rev-list", "--count", f"{start_sha}..HEAD"]).stdout),
         )
-        status = [line for line in local(["status", "--porcelain"]).stdout.splitlines() if line]
+        # --ignore-submodules=none overrides submodule.<name>.ignore and diff.ignoreSubmodules, so a submodule
+        # edit or new submodule commit is reported whatever the tree configures.
+        status = [line for line in local(["status", "--porcelain", "--ignore-submodules=none"]).stdout.splitlines()
+                  if line]
+        hidden = _flagged_entries_changed(local, spec.worktree)
         # Untracked files alone, which settlement's removal preserves, leave the merge rescue open
         # (worker._enforce_delivery); it reads this status, taken with head_sha, never the tree again.
-        delivery.update(worktree_dirty_on_exit=bool(status),
-                        worktree_untracked_only_on_exit=bool(status) and all(line.startswith("?? ") for line in status))
+        delivery.update(worktree_dirty_on_exit=bool(status) or hidden,
+                        worktree_untracked_only_on_exit=bool(status) and not hidden
+                        and all(line.startswith("?? ") for line in status))
         if spec.mode == "read-only":
             delivery["push_state"] = "not_applicable"
             delivery["push_state_reason"] = "read_only"

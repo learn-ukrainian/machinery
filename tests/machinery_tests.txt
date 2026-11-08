@@ -56,6 +56,7 @@ tests/hooks/test_session_setup_isolation.py
 tests/hooks/test_interpreter_rule.py
 tests/agent_runtime/test_retired_seat_admission.py
 tests/agent_runtime/test_deepseek_admission.py
+tests/dispatcher/test_snapshot_hidden_changes.py
 # [support]
 tests/__init__.py
 tests/conftest.py
