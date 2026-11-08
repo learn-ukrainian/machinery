@@ -972,7 +972,7 @@
     "rules/workflow.md": {
       "mode": 420,
       "owner": "fleet",
-      "sha256": "34cab2da9e163c235c4caee54ea22feedcf9ae908ab50f478284276c22f75178",
+      "sha256": "b39da0963ec4ee865d6560ddddc644ef593550e74e4f3ff387c574d19e9d2a0b",
       "targets": {
         "agy": [
           ".agent/rules/workflow.md"
@@ -1539,7 +1539,7 @@
     "skills/full-send/SKILL.md": {
       "mode": 420,
       "owner": "fleet",
-      "sha256": "ef0b4a1ee8b55506a6433fdf08782583cf771d398aa0787990f0c583c5006687",
+      "sha256": "0560576e9a8c918081bf9687a113dc4c921f878cd4da3792254202cced9dc63b",
       "targets": {
         "agy": [
           ".agent/skills/full-send/SKILL.md",
