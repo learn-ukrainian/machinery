@@ -20,18 +20,20 @@ def _git(cwd, *args):
 
 @pytest.mark.parametrize(("case", "tree"), [
     ("merged", "clean"), ("open", "clean"), ("merged-other-head", "clean"),
-    ("merged", "untracked"), ("merged", "tracked"), ("merged", "staged"),
+    ("merged", "untracked"), ("merged", "tracked"), ("merged", "staged"), ("merged", "late-commit"),
 ])
 def test_merged_pr_proves_delivery_after_branch_and_pull_ref_are_gone(tmp_path, monkeypatch, case, tree):
     """Defect class: a squash-merged task whose branch closeout deleted, and whose refs/pull/N/head the remote
     no longer advertises, or whose tree held only untracked scratch, settled no_deliverable. An open PR, a
-    merged PR whose head is not the task's head, or a tracked or staged change left in the tree still refuses."""
+    merged PR whose head is not the task's head, a tracked or staged change left in the tree, or one committed
+    after the exit snapshot still refuses."""
     remote, work = tmp_path / "remote.git", tmp_path / "work"
     _git(tmp_path, "init", "--bare", "-b", "main", str(remote))
     _git(tmp_path, "clone", str(remote), str(work))
     for key, value in (("user.name", "t"), ("user.email", "t@example.invalid"), ("commit.gpgsign", "false")):
         _git(work, "config", key, value)
     _git(work, "commit", "--allow-empty", "-m", "base")
+    base = _git(work, "rev-parse", "HEAD")
     _git(work, "push", "origin", "main")
     _git(work, "switch", "-c", "claude/rescue-probe")
     (work / "docs").mkdir()
@@ -45,6 +47,9 @@ def test_merged_pr_proves_delivery_after_branch_and_pull_ref_are_gone(tmp_path, 
     _git(work, "merge", "--squash", "claude/rescue-probe")
     _git(work, "commit", "-m", "deliver (#7)")
     _git(work, "push", "origin", "main", ":claude/rescue-probe")
+    # The task worktree stays on its branch, with the canonical origin recorded at dispatch.
+    _git(work, "switch", "claude/rescue-probe")
+    _git(work, "remote", "set-url", "origin", "https://github.com/org/repo.git")
 
     @contextmanager
     def private_remote(task_id, url):
@@ -74,7 +79,7 @@ def test_merged_pr_proves_delivery_after_branch_and_pull_ref_are_gone(tmp_path, 
     if tree == "untracked":
         (work / ".pytest_breadcrumbs").mkdir()
         (work / ".pytest_breadcrumbs" / "breadcrumb_master.txt").write_text("scratch\n")
-    elif tree in {"tracked", "staged"}:
+    elif tree in {"tracked", "staged", "late-commit"}:
         (work / "docs" / "owned.md").write_text("further work\n")
         if tree == "staged":
             _git(work, "add", "docs/owned.md")
@@ -82,9 +87,13 @@ def test_merged_pr_proves_delivery_after_branch_and_pull_ref_are_gone(tmp_path, 
         "task_id": "rescue-probe", "mode": "workspace-write", "status": "done", "error": None,
         "owned_paths": ["docs/owned.md"], "worktree_remote_url": "https://github.com/org/repo.git",
         "worktree_base_ref": "origin/main", "worktree_branch": "claude/rescue-probe", "publish_branch": None,
-        "started_at": "2026-11-08T12:30:00+00:00", "head_sha": head, "commits_ahead": 1,
-        "push_state": "unpushed", "worktree_dirty_on_exit": tree != "clean", "worktree_path": str(work),
+        "started_at": "2026-11-08T12:30:00+00:00", "worktree_base_sha": base, "worktree_path": str(work),
     }
+    record.update(git.snapshot_delivery(SimpleNamespace(worktree=work, mode="workspace-write"), record))
+    assert (record["head_sha"], record["commits_ahead"], record["worktree_dirty_on_exit"]) == (head, 1, tree != "clean")
+    if tree == "late-commit":
+        # A surviving descendant commits after the exit snapshot: the gate reads the snapshot, not the tree.
+        _git(work, "commit", "-am", "further work")
     worker._enforce_delivery(record)
     if case == "merged" and tree in {"clean", "untracked"}:
         assert (record["status"], record["error"], record["delivery_pr"]) == ("done", None, "org/repo#7")

@@ -628,7 +628,7 @@ def snapshot_delivery(spec: TaskSpec, record: dict) -> dict:
     delivery = dict(
         head_sha=None, remote_head_sha=None, remote_ref=None, publish_branch=record.get("publish_branch"),
         push_state="unknown", push_state_reason="observation_failed", commits_ahead=None,
-        worktree_dirty_on_exit=None,
+        worktree_dirty_on_exit=None, worktree_untracked_only_on_exit=None,
     )
     try:
         start_sha = record.get("worktree_start_sha", record["worktree_base_sha"])
@@ -636,8 +636,12 @@ def snapshot_delivery(spec: TaskSpec, record: dict) -> dict:
         delivery.update(
             head_sha=local(["rev-parse", "HEAD"]).stdout.strip(),
             commits_ahead=int(local(["rev-list", "--count", f"{start_sha}..HEAD"]).stdout),
-            worktree_dirty_on_exit=bool(local(["status", "--porcelain"]).stdout.strip()),
         )
+        status = [line for line in local(["status", "--porcelain"]).stdout.splitlines() if line]
+        # Untracked files alone, which settlement's removal preserves, leave the merge rescue open
+        # (worker._enforce_delivery); it reads this status, taken with head_sha, never the tree again.
+        delivery.update(worktree_dirty_on_exit=bool(status),
+                        worktree_untracked_only_on_exit=bool(status) and all(line.startswith("?? ") for line in status))
         if spec.mode == "read-only":
             delivery["push_state"] = "not_applicable"
             delivery["push_state_reason"] = "read_only"

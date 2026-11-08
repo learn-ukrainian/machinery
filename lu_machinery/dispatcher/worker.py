@@ -303,7 +303,8 @@ def _enforce_delivery(record: dict) -> None:
             cause = "work_not_pushed_or_unknown"
     # Merged work leaves nothing on the task branch to inspect (it may be reset or deleted), so the
     # merged pull request is the evidence; it refuses an outside-owned path the same way.
-    if cause and cause.split(":", 1)[0] in MERGE_RESCUABLE and _tracked_clean(record) and (
+    if cause and cause.split(":", 1)[0] in MERGE_RESCUABLE and (
+            record.get("worktree_dirty_on_exit") is False or record.get("worktree_untracked_only_on_exit") is True) and (
             merged := git.merged_delivery(record)):
         paths = merged["paths"]
         cause = _outside_cause(paths, owned) if owned else None
@@ -313,23 +314,8 @@ def _enforce_delivery(record: dict) -> None:
         record.update(status="no_deliverable", error=cause, no_deliverable_reason=cause)
 
 
-def _tracked_clean(record: dict) -> bool:
-    """Whether the tree left no tracked or staged change; untracked files alone pass.
-
-    Settlement's removal preserves untracked files (worker scratch, build and test output), so they
-    hide no delivery. A tracked, staged or hidden change, or a tree that cannot be read, does not pass.
-    """
-    if record.get("worktree_dirty_on_exit") is not True:
-        return record.get("worktree_dirty_on_exit") is False
-    try:
-        changed, _ = git._tree_changes(Path(record["worktree_path"]))
-    except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError):
-        return False
-    return not changed
-
-
 # Refusals that a merged pull request answers: the local branch could not show the delivery, or the tree
-# holds only untracked files (_tracked_clean).
+# held only untracked files (worktree_untracked_only_on_exit), which settlement's removal preserves.
 MERGE_RESCUABLE = frozenset({"owned_paths_verification_failed", "no_commits_or_unknown", "work_not_pushed_or_unknown",
                              "worktree_dirty_or_unknown"})
 
