@@ -630,7 +630,7 @@ def agy_review_settings(
         ):
             raise ValueError("agy_review_permissions_unsafe_checkout")
         file_grants.append(f"read_file({root})")
-    readers, writers = sources_tool_sets.__wrapped__(sources_server_launch()[1])
+    readers, writers = sources_tool_sets(sources_server_launch()[1])
     tools = review_tools(review_access or "isolated")
     if not set(readers) >= tools:
         raise ValueError("review_contract_contains_non_read_only_sources_tool")

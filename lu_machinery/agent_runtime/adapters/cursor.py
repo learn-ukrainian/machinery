@@ -36,6 +36,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from lu_machinery.common.repo_root import product_root
 from lu_machinery.review.model_catalog import (
     CURSOR_AUTO_OUTSIDE_CODING_TASK_CODE,
     ModelCatalogError,
@@ -166,7 +167,8 @@ class CursorAdapter:
                 - ``cursor_workspace``: overrides the ``--workspace`` path.
                 - ``approve_mcps``: bool, toggles ``--approve-mcps``.
                 - ``mcp_config_path``: source `.mcp.json` to mirror into
-                  ``{cursor_workspace}/.cursor/mcp.json``.
+                  ``{cursor_workspace}/.cursor/mcp.json``; default: the
+                  product checkout's.
                 - ``mcp_server_names``: MCP servers to mirror/approve.
                 - ``cursor_mode``: "plan" | "ask", toggles ``--mode``.
                 - ``sandbox``: "enabled" | "disabled". Default for workspace-write
@@ -319,7 +321,7 @@ class CursorAdapter:
 
         requested = config.get("mcp_server_names") or []
         if not requested and is_strict:
-            source_path = Path(str(config.get("mcp_config_path") or ".mcp.json"))
+            source_path = Path(str(config.get("mcp_config_path") or product_root() / ".mcp.json"))
             source_servers = self._read_mcp_servers(source_path)
             requested = list(source_servers.keys())
         if not requested:
@@ -327,7 +329,7 @@ class CursorAdapter:
         if not isinstance(requested, list):
             requested = [str(requested)]
 
-        source_path = Path(str(config.get("mcp_config_path") or ".mcp.json"))
+        source_path = Path(str(config.get("mcp_config_path") or product_root() / ".mcp.json"))
         source_servers = self._read_mcp_servers(source_path)
 
         selected: dict[str, dict] = {}

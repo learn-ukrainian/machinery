@@ -61,18 +61,14 @@ except ModuleNotFoundError as exc:
 # Anchor ledger + task-state to the PRIMARY checkout (not a worktree copy),
 # matching the task-store path encoding.
 try:
-    from lu_machinery.common.repo_root import resolve_repo_root
+    from lu_machinery.common.repo_root import product_root, state_root
 except ImportError:  # pragma: no cover - flat script path
-    from common.repo_root import resolve_repo_root  # type: ignore
+    from common.repo_root import product_root, state_root  # type: ignore
 
 from lu_machinery.common.task_store_paths import tasks_dir
 from lu_machinery.control_plane.storage import StoreId
 from lu_machinery.control_plane.storage import connect as cp_connect
 from lu_machinery.orchestration import dispatch_admission
-
-# File lives at scripts/guardrails/… → parents[2] is the checkout root.
-_REPO_ROOT = resolve_repo_root(Path(__file__), 2)
-DEFAULT_LEDGER_PATH = _REPO_ROOT / "batch_state" / "tasks" / "write-ownership.sqlite3"
 
 LEDGER_ENV_VAR = "LEARN_UKRAINIAN_OWNERSHIP_LEDGER"
 TASK_STATE_ENV_VAR = "LEARN_UKRAINIAN_OWNERSHIP_TASK_STATE_DIR"
@@ -88,7 +84,7 @@ def default_ledger_path() -> Path:
     idle machine and failed on a busy one.
     """
     override = (os.environ.get(LEDGER_ENV_VAR) or "").strip()
-    return Path(override) if override else DEFAULT_LEDGER_PATH
+    return Path(override) if override else state_root() / "batch_state" / "tasks" / "write-ownership.sqlite3"
 
 
 def default_task_state_dir() -> Path:
@@ -843,7 +839,7 @@ def _warn_broad_claims(paths: Sequence[str] | None) -> None:
         if "**" in text:
             prefix = text.split("*", 1)[0].rstrip("/")
             alternative = f"{prefix}/<file>" if text.endswith("/**") else "specific files"
-        elif claim.kind != ClaimKind.UNKNOWN and (text.endswith("/") or (_REPO_ROOT / body).is_dir()):
+        elif claim.kind != ClaimKind.UNKNOWN and (text.endswith("/") or (product_root() / body).is_dir()):
             alternative = f"{claim.norm}/<file>"
         else:
             continue

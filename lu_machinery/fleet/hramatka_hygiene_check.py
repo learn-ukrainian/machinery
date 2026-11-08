@@ -31,6 +31,7 @@ queue_pointer_ok, zombie_worktrees, df, plus supporting detail
 from __future__ import annotations
 
 import argparse
+import functools
 import json
 import re
 import shutil
@@ -41,12 +42,10 @@ from pathlib import Path
 from typing import Any
 
 from lu_machinery.common import github_client
-from lu_machinery.common.repo_root import main_checkout_root
+from lu_machinery.common.repo_root import main_checkout_root, product_root
 from lu_machinery.common.task_store_paths import tasks_dir as default_tasks_dir
 from lu_machinery.fleet import pr_identity
 from lu_machinery.orchestration.task_record_store import read_task_record
-
-REPO_ROOT = main_checkout_root(Path(__file__).resolve().parents[2])
 
 POLICY_VERSION = "hramatka-hygiene-v1"
 
@@ -57,8 +56,6 @@ PRIVATE_BOARD = 349
 
 DEFAULT_HIGH_WATER_PERCENT = 95
 GH_TIMEOUT_SECONDS = 15.0
-
-_DISPATCH_WORKTREES_ROOT = REPO_ROOT / ".worktrees" / "dispatch"
 
 # Same terminal-status vocabulary as the drive-epic settle-loop contract,
 # duplicated (not imported) so this gate stays free of orchestration imports.
@@ -108,7 +105,7 @@ def _gh_issue(
     number: int,
     *,
     timeout: float = GH_TIMEOUT_SECONDS,
-    cwd: Path = REPO_ROOT,
+    cwd: Path | None = None,
 ) -> dict[str, Any]:
     """Read one repo-qualified issue's number/body/state through `gh api`.
 
@@ -125,7 +122,7 @@ def _gh_issue(
                 "--jq",
                 "{number: .number, body: .body, state: .state}",
             ],
-            cwd=cwd,
+            cwd=cwd or main_checkout_root(product_root()),
             capture_output=True,
             text=True,
             timeout=timeout,
@@ -387,15 +384,25 @@ def hygiene_check(
     private_repo: str = PRIVATE_REPOSITORY,
     private_board: int = PRIVATE_BOARD,
     high_water_percent: int = DEFAULT_HIGH_WATER_PERCENT,
-    disk_path: Path = REPO_ROOT,
-    repo_root: Path = REPO_ROOT,
-    dispatch_worktrees_root: Path = _DISPATCH_WORKTREES_ROOT,
+    disk_path: Path | None = None,
+    repo_root: Path | None = None,
+    dispatch_worktrees_root: Path | None = None,
     tasks_dir: Path | None = None,
     reader: IssueReader = _gh_issue,
     open_pr_probe: OpenPrProbe = _branch_has_open_pr,
 ) -> dict[str, Any]:
-    """Run every hygiene check and return the JSON receipt (never raises)."""
+    """Run every hygiene check and return the JSON receipt.
+
+    Never raises once the product checkout is selected. A path left ``None`` defaults to the primary
+    checkout of the product (``product_root()``), so ``ProductRootError`` is raised, before any check,
+    when none is configured.
+    """
     reasons: list[str] = []
+    disk_path = disk_path or main_checkout_root(product_root())
+    repo_root = repo_root or main_checkout_root(product_root())
+    dispatch_worktrees_root = dispatch_worktrees_root or main_checkout_root(product_root()) / ".worktrees" / "dispatch"
+    if reader is _gh_issue:
+        reader = functools.partial(_gh_issue, cwd=repo_root)
 
     try:
         epic_issue = reader(public_repo, public_epic)
@@ -473,13 +480,13 @@ def main(argv: list[str] | None = None, *, reader: IssueReader = _gh_issue) -> i
         default=DEFAULT_HIGH_WATER_PERCENT,
         help="disk Use%% at/above which the gate reports stale",
     )
-    parser.add_argument("--disk-path", type=Path, default=REPO_ROOT, help="path whose filesystem df is reported")
-    parser.add_argument("--repo-root", type=Path, default=REPO_ROOT, help="primary checkout used for git worktree list")
+    parser.add_argument("--disk-path", type=Path, default=None, help="path whose filesystem df is reported (default: the product's primary checkout)")
+    parser.add_argument("--repo-root", type=Path, default=None, help="primary checkout used for git worktree list (default: the product's primary checkout)")
     parser.add_argument(
         "--dispatch-worktrees-root",
         type=Path,
-        default=_DISPATCH_WORKTREES_ROOT,
-        help=".worktrees/dispatch root to scan for zombies",
+        default=None,
+        help=".worktrees/dispatch root to scan for zombies (default: under the product's primary checkout)",
     )
     parser.add_argument("--tasks-dir", type=Path, default=default_tasks_dir(), help="batch_state/tasks directory")
     args = parser.parse_args(argv)
