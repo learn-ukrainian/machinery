@@ -18,11 +18,14 @@ def _git(cwd, *args):
     return subprocess.run(["git", "-C", str(cwd), *args], check=True, capture_output=True, text=True).stdout.strip()
 
 
-@pytest.mark.parametrize("case", ["merged", "open", "merged-other-head"])
-def test_merged_pr_proves_delivery_after_branch_and_pull_ref_are_gone(tmp_path, monkeypatch, case):
+@pytest.mark.parametrize(("case", "tree"), [
+    ("merged", "clean"), ("open", "clean"), ("merged-other-head", "clean"),
+    ("merged", "untracked"), ("merged", "tracked"), ("merged", "staged"),
+])
+def test_merged_pr_proves_delivery_after_branch_and_pull_ref_are_gone(tmp_path, monkeypatch, case, tree):
     """Defect class: a squash-merged task whose branch closeout deleted, and whose refs/pull/N/head the remote
-    no longer advertises, settled no_deliverable; an open PR, or a merged PR whose head is not the task's head,
-    still refuses."""
+    no longer advertises, or whose tree held only untracked scratch, settled no_deliverable. An open PR, a
+    merged PR whose head is not the task's head, or a tracked or staged change left in the tree still refuses."""
     remote, work = tmp_path / "remote.git", tmp_path / "work"
     _git(tmp_path, "init", "--bare", "-b", "main", str(remote))
     _git(tmp_path, "clone", str(remote), str(work))
@@ -68,15 +71,22 @@ def test_merged_pr_proves_delivery_after_branch_and_pull_ref_are_gone(tmp_path, 
     # The ownership walk fetches the deleted branch, as the recorded failures did.
     monkeypatch.setattr(git, "ownership_git", Mock(side_effect=subprocess.CalledProcessError(128, ["git", "fetch"])))
     assert not _git(remote, "for-each-ref", "refs/pull", "refs/heads/claude")
+    if tree == "untracked":
+        (work / ".pytest_breadcrumbs").mkdir()
+        (work / ".pytest_breadcrumbs" / "breadcrumb_master.txt").write_text("scratch\n")
+    elif tree in {"tracked", "staged"}:
+        (work / "docs" / "owned.md").write_text("further work\n")
+        if tree == "staged":
+            _git(work, "add", "docs/owned.md")
     record = {
         "task_id": "rescue-probe", "mode": "workspace-write", "status": "done", "error": None,
         "owned_paths": ["docs/owned.md"], "worktree_remote_url": "https://github.com/org/repo.git",
         "worktree_base_ref": "origin/main", "worktree_branch": "claude/rescue-probe", "publish_branch": None,
         "started_at": "2026-11-08T12:30:00+00:00", "head_sha": head, "commits_ahead": 1,
-        "push_state": "unpushed", "worktree_dirty_on_exit": False,
+        "push_state": "unpushed", "worktree_dirty_on_exit": tree != "clean", "worktree_path": str(work),
     }
     worker._enforce_delivery(record)
-    if case == "merged":
+    if case == "merged" and tree in {"clean", "untracked"}:
         assert (record["status"], record["error"], record["delivery_pr"]) == ("done", None, "org/repo#7")
     else:
         assert (record["status"], record["error"]) == (
