@@ -17,14 +17,13 @@ if __package__ in {None, ""}:  # run as a file (launchers do): the repository ro
 
 from lu_machinery.common.repo_root import machinery_path
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
 TAXONOMY_PATH = machinery_path("config/fleet_taxonomy.yaml")
 ASSIGNMENTS_PATH = machinery_path("config/area_assignments.yaml")
 TAXONOMY_SCHEMA_PATH = (
-    PROJECT_ROOT / "agents_extensions/shared/schemas/fleet-taxonomy.v1.schema.json"
+    machinery_path("schemas/fleet-taxonomy.v1.schema.json")
 )
 ASSIGNMENTS_SCHEMA_PATH = (
-    PROJECT_ROOT / "agents_extensions/shared/schemas/area-assignments.v1.schema.json"
+    machinery_path("schemas/area-assignments.v1.schema.json")
 )
 
 
