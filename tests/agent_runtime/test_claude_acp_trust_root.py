@@ -54,11 +54,12 @@ def test_checkout_preparation_captures_running_package(private_tree, source_tree
 _PREPARE = '''
 from pathlib import Path
 from lu_machinery.agent_runtime.adapters import acpx
+from lu_machinery.common.repo_root import machinery_root
 # Preparation only: production cleanup deliberately refuses when /proc is
 # unreadable. The owning TemporaryDirectory removes these fixture copies.
 acpx._CLAUDE_ACP_LAUNCHER_COPY_BASE = Path.cwd() / "copies"
 launcher = Path(acpx._require_claude_acp_launcher(adapter_label="test"))
-assert launcher.read_bytes() == (acpx.machinery_root() / "agent_runtime/claude_acp_exec.sh").read_bytes()
+assert launcher.read_bytes() == (machinery_root() / "agent_runtime/claude_acp_exec.sh").read_bytes()
 assert launcher.stat().st_mode & 0o777 == 0o500
 print("launcher preparation passed")
 '''
@@ -84,11 +85,12 @@ def test_installed_wheel_preparation_without_checkout(private_tree, source_tree)
 import sys
 from pathlib import Path
 from lu_machinery.agent_runtime.adapters import acpx
-assert acpx.machinery_root().is_relative_to(Path(sys.prefix))
-assert not any((p / ".git").exists() for p in acpx.machinery_root().parents)
+from lu_machinery.common.repo_root import machinery_root
+assert machinery_root().is_relative_to(Path(sys.prefix))
+assert not any((p / ".git").exists() for p in machinery_root().parents)
 acpx._CLAUDE_ACP_LAUNCHER_COPY_BASE = Path.cwd() / "copies"
 launcher = Path(acpx._require_claude_acp_launcher(adapter_label="wheel-test"))
-assert launcher.read_bytes() == (acpx.machinery_root() / "agent_runtime/claude_acp_exec.sh").read_bytes()
+assert launcher.read_bytes() == (machinery_root() / "agent_runtime/claude_acp_exec.sh").read_bytes()
 print("installed-wheel launcher preparation passed")
 '''], cwd=private_tree, env={k: v for k, v in os.environ.items() if k != "PYTHONPATH"},
         check=False, capture_output=True, text=True, umask=0o022)
