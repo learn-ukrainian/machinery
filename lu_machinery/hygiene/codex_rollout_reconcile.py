@@ -417,6 +417,7 @@ def apply(
         return {"schema": SCHEMA, "mode": "apply", "error": "expected_count_required"}
     if expected_eligible_digest is None:
         return {"schema": SCHEMA, "mode": "apply", "error": "expected_digest_required"}
+    state_root()  # refuse an unanchored install before SQLite is opened: even a read can create WAL sidecars
     home = _home(codex_home)
     database = discover_database(home, db_path)
     backup_path: Path | None = None
