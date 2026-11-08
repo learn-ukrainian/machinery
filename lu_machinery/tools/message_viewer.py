@@ -20,6 +20,8 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 try:
+    from lu_machinery.common.bridge_paths import default_bridge_db_path
+    from lu_machinery.common.repo_root import state_root
     from lu_machinery.lib.readonly_sqlite import open_readonly as _open_readonly
 except ModuleNotFoundError as exc:
     # Script execution puts the script directory on sys.path, so the
@@ -32,15 +34,14 @@ except ModuleNotFoundError as exc:
     # execution does not put on sys.path.
     if str(_scripts_dir) not in sys.path:
         sys.path.insert(0, str(_scripts_dir))
+    from common.bridge_paths import default_bridge_db_path  # type: ignore[no-redef]
+    from common.repo_root import state_root  # type: ignore[no-redef]
     from lib.readonly_sqlite import open_readonly as _open_readonly  # type: ignore[no-redef]
 
 app = Flask(__name__)
 
-# Database path
-DB_PATH = Path(__file__).parent.parent.parent / ".mcp/servers/message-broker/messages.db"
-
-# Also check .gemini/outbox for file-based messages
-OUTBOX_PATH = Path(__file__).parent.parent.parent / ".gemini/outbox"
+# The broker database and the .gemini/outbox file-based messages are read under the
+# shared state root, resolved at each read (C-4843).
 
 HTML_TEMPLATE = """
 <!DOCTYPE html>
@@ -341,9 +342,10 @@ HTML_TEMPLATE = """
 
 def get_db():
     """Get database connection."""
-    if not DB_PATH.exists():
+    db_path = default_bridge_db_path(state_root())
+    if not db_path.exists():
         return None
-    conn = _open_readonly(DB_PATH)
+    conn = _open_readonly(db_path)
     conn.row_factory = sqlite3.Row
     return conn
 
@@ -368,11 +370,12 @@ def get_outbox_messages():
     """Fetch messages from .gemini/outbox/"""
     import yaml
 
-    if not OUTBOX_PATH.exists():
+    outbox_path = state_root() / ".gemini/outbox"
+    if not outbox_path.exists():
         return []
 
     messages = []
-    for filepath in sorted(OUTBOX_PATH.glob("*.yaml"), reverse=True):
+    for filepath in sorted(outbox_path.glob("*.yaml"), reverse=True):
         try:
             with open(filepath) as f:
                 data = yaml.safe_load(f)
@@ -436,7 +439,7 @@ def api_stats():
 
 if __name__ == '__main__':
     print("📬 Message Viewer starting...")
-    print(f"   Database: {DB_PATH}")
-    print(f"   Outbox: {OUTBOX_PATH}")
+    print(f"   Database: {default_bridge_db_path(state_root())}")
+    print(f"   Outbox: {state_root() / '.gemini/outbox'}")
     print("\n   Open: http://localhost:5055\n")
     app.run(host='127.0.0.1', port=5055, debug=False)

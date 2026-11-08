@@ -30,6 +30,7 @@ from agent_runtime.runner import invoke as runtime_invoke
 from common.repo_root import project_interpreter
 from secret_redactor import redact_text
 
+from . import _config
 from ._ask_contract import (
     failed_response_provenance,
     resolve_model_selection,
@@ -38,7 +39,7 @@ from ._ask_contract import (
 )
 from ._ask_lifecycle import launch_background_ask, record_ask_failure, record_ask_reply, register_ask
 from ._broker import _is_task_locked, _remove_pid_file, _write_pid_file
-from ._config import _PARENT_ENV, CLAUDE_CMD, REPO_ROOT
+from ._config import CLAUDE_CMD
 from ._db import get_db, get_session, set_session
 from ._messaging import acknowledge, send_message
 from ._prompts import build_claude_prompt, require_core_or_exit
@@ -260,7 +261,7 @@ def _run_claude_sync_via_runtime(
         review_target = review_target_from_message(msg) if review else None
         with provision_review_worktree(
             review_target,
-            repo_root=REPO_ROOT,
+            repo_root=_config.REPO_ROOT,
             allow_local_fallback=bool(review),
         ) as checkout:
             if review:
@@ -288,7 +289,7 @@ def _run_claude_sync_via_runtime(
                 "claude",
                 prompt,
                 mode="read-only",
-                cwd=checkout.path if checkout is not None else REPO_ROOT,
+                cwd=checkout.path if checkout is not None else _config.REPO_ROOT,
                 model=target_model,
                 effort=effort_to_invoke,
                 task_id=msg.get('task_id'),
@@ -481,7 +482,7 @@ def _launch_claude_background(msg, message_id, new_session):
         print(f"⏸️  Task '{task_key}' is already being processed by another Claude bridge. Skipping.")
         return
 
-    log_dir = REPO_ROOT / ".mcp/servers/message-broker/logs"
+    log_dir = _config.REPO_ROOT / ".mcp/servers/message-broker/logs"
     log_dir.mkdir(parents=True, exist_ok=True)
     log_file = log_dir / f"claude-{task_key}.log"
 
@@ -502,8 +503,8 @@ def _launch_claude_background(msg, message_id, new_session):
             bridge_cmd,
             stdout=lf,
             stderr=subprocess.STDOUT,
-            cwd=str(REPO_ROOT),
-            env=_PARENT_ENV,
+            cwd=str(_config.REPO_ROOT),
+            env=_config._PARENT_ENV,
             start_new_session=True
         )
         lf.close()

@@ -39,18 +39,18 @@ except ModuleNotFoundError as exc:
     from lib.readonly_sqlite import SQLiteConnection, open_readonly  # type: ignore[no-redef]
 
 try:
-    from lu_machinery.common.repo_root import machinery_path
+    from lu_machinery.common.repo_root import machinery_path, product_root, state_root
 except ModuleNotFoundError as exc:
     if exc.name != Path(os.path.abspath(__file__)).parents[1].name:
         raise
-    from common.repo_root import machinery_path  # type: ignore[no-redef]
+    from common.repo_root import machinery_path, product_root, state_root  # type: ignore[no-redef]
 
 from agent_runtime.agent_identity import seat_read_aliases
 from secret_redactor import redact_text
 
 from . import _config
 from ._channels import resolve_recipient_alias
-from ._config import MACHINERY_PACKAGE, PRIMARY_REPO_ROOT
+from ._config import MACHINERY_PACKAGE
 
 if TYPE_CHECKING:
     from agents_extensions.shared.session_streams.model import Lease
@@ -63,7 +63,6 @@ WATCH_ENTRY = f"{MACHINERY_PACKAGE}/ai_agent_bridge/inbox_watch.sh"
 DEFAULT_POLL_INTERVAL_SECONDS = 15.0
 _MONITOR_BACKOFF_MAX_SECONDS = 300.0
 MAX_PREVIEW_CHARS = 240
-DEFAULT_LOCK_DIR = PRIMARY_REPO_ROOT / ".agent"
 SUPERVISORY_RESTART_EXIT = 75
 SUPERVISORY_TRANSIENT_EXIT = 76
 SUPERVISORY_DELIVERY_SECONDS = 60
@@ -400,7 +399,7 @@ def wake_driver_once(
 
 def preflight_supervisory_successor() -> bool:
     """Check the same captured launcher request before spending a delivery attempt."""
-    helper = Path(__file__).resolve().parents[1] / "lib/session_supervisor.sh"
+    helper = machinery_path("lib/session_supervisor.sh")
     # This code's own launcher core, passed to the shell as an argument (never found through LC_ROOT).
     launcher_core = machinery_path("lib/launcher_core.sh")
     try:
@@ -451,7 +450,7 @@ def run_live_supervisory_watcher(*, interval_seconds: float = DEFAULT_POLL_INTER
     from lu_machinery.session_supervisor.remote import RemoteEpicClient, RemoteUnavailableError
 
     lease = lease_from_environment()
-    supervisor = SessionSupervisor(None, repo_root=Path.cwd(), remote=RemoteEpicClient())
+    supervisor = SessionSupervisor(None, repo_root=product_root(), remote=RemoteEpicClient())
     with AuthorityService() as service:
         require_supervisory_api(service)
         delay = interval_seconds
@@ -492,7 +491,6 @@ def run_supervisory_wake_watcher(agent: str, provider: str, epic: str, *, interv
     from lu_machinery.fleet_comms.authority import AuthorityService
     from lu_machinery.session_supervisor.remote import RemoteEpicClient
 
-    repo_root = Path(__file__).resolve().parents[2]
     resolved = subprocess.run(
         ["bash", "-c", 'source "$1"; launcher_selector_stream "$2"',
          "supervisory-selector", str(machinery_path("lib/handoff_identity.sh")), epic],
@@ -500,7 +498,7 @@ def run_supervisory_wake_watcher(agent: str, provider: str, epic: str, *, interv
     )
     stream_id = resolved.stdout.strip()
     supervisory_recipient(stream_id)
-    launcher = repo_root / f"start-{provider}-driver.sh"
+    launcher = product_root() / f"start-{provider}-driver.sh"
     lock = acquire_watcher_lock(agent)
     conn: SQLiteConnection | None = None
     last_seen = 0
@@ -694,7 +692,7 @@ def _wake_event(event: object) -> dict:
 
 def codex_wake_state_path(agent: str, lock_dir: Path | None = None) -> Path:
     """Use the watcher's existing per-seat state directory and slot naming."""
-    return watcher_lock_path(agent, DEFAULT_LOCK_DIR if lock_dir is None else lock_dir).with_suffix(".wake.json")
+    return watcher_lock_path(agent, lock_dir).with_suffix(".wake.json")
 
 
 def _rollout_key(report: dict) -> str:
@@ -800,15 +798,18 @@ def open_readonly_db(db_path: Path) -> SQLiteConnection:
     return conn
 
 
-def watcher_lock_path(agent: str, lock_dir: Path = DEFAULT_LOCK_DIR) -> Path:
-    """Return the ignored per-seat pidfile path, rejecting unsafe slot strings."""
+def watcher_lock_path(agent: str, lock_dir: Path | None = None) -> Path:
+    """Return the ignored per-seat pidfile path, rejecting unsafe slot strings.
+
+    ``lock_dir`` defaults to ``.agent`` under the shared state root.
+    """
     slot = canonical_slot(agent)
     if not slot.replace("-", "").replace("_", "").replace(".", "").isalnum():
         raise ValueError(f"agent slot contains unsupported lock-path characters: {slot!r}")
-    return lock_dir / f"inbox-watch-{slot}.pid"
+    return (state_root() / ".agent" if lock_dir is None else lock_dir) / f"inbox-watch-{slot}.pid"
 
 
-def acquire_watcher_lock(agent: str, lock_dir: Path = DEFAULT_LOCK_DIR) -> WatcherLock:
+def acquire_watcher_lock(agent: str, lock_dir: Path | None = None) -> WatcherLock:
     """Acquire an exclusive watcher lock and record the owning process id."""
     path = watcher_lock_path(agent, lock_dir)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -837,7 +838,7 @@ def acquire_watcher_lock(agent: str, lock_dir: Path = DEFAULT_LOCK_DIR) -> Watch
     return WatcherLock(fd=fd)
 
 
-def stop_watcher(agent: str, lock_dir: Path = DEFAULT_LOCK_DIR) -> str:
+def stop_watcher(agent: str, lock_dir: Path | None = None) -> str:
     """Request a clean SIGTERM stop for the watcher that owns an agent slot."""
     path = watcher_lock_path(agent, lock_dir)
     if not path.exists():
@@ -866,7 +867,7 @@ def run_watcher(
     *,
     interval_seconds: float = DEFAULT_POLL_INTERVAL_SECONDS,
     db_path: Path | None = None,
-    lock_dir: Path = DEFAULT_LOCK_DIR,
+    lock_dir: Path | None = None,
     output: TextIO = sys.stdout,
     once: bool = False,
 ) -> int:

@@ -54,6 +54,7 @@ except ModuleNotFoundError as exc:
 
 from lu_machinery.common.jsonl import jsonl_lines as split_jsonl_lines
 
+from . import _config
 from ._ask_contract import (
     requested_effort,
     resolve_model_selection,
@@ -69,7 +70,6 @@ from ._ask_lifecycle import (
     record_ask_reply,
     register_ask,
 )
-from ._config import REPO_ROOT
 from ._messaging import acknowledge, send_message
 from ._prompts import require_core_or_exit, with_core_or_exit
 from ._reply_sidecar import write_reply_sidecar
@@ -548,7 +548,7 @@ def _handle_opencode_incomplete_turn(
                 msg_type="error",
             )
             try:
-                sidecar_rel_path = path.resolve().relative_to(REPO_ROOT.resolve()).as_posix()
+                sidecar_rel_path = path.resolve().relative_to(_config.REPO_ROOT.resolve()).as_posix()
             except ValueError:
                 sidecar_rel_path = str(path)
         except Exception:

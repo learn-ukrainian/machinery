@@ -21,7 +21,7 @@ from datetime import UTC, datetime
 
 from lu_machinery.fleet_comms.migrations import apply_migrations
 
-from ._config import DB_PATH
+from . import _config
 from .broker_indexes import apply as apply_broker_indexes
 
 # ── Schema definitions ─────────────────────────────────────────────────
@@ -271,8 +271,8 @@ def _apply_broker_index_migration(conn: sqlite3.Connection) -> None:
 
 def init_db():
     """Initialize database if needed."""
-    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(DB_PATH)
+    _config.DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(_config.DB_PATH)
     _tune_connection(conn)
     conn.executescript(_LEGACY_SCHEMA)
     conn.executescript(_CHANNELS_SCHEMA)
@@ -320,9 +320,9 @@ def _add_column_racesafe(conn: sqlite3.Connection, ddl: str) -> None:
 
 def get_db():
     """Get database connection with auto-migration (#604, #1190)."""
-    if not DB_PATH.exists():
+    if not _config.DB_PATH.exists():
         return init_db()
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(_config.DB_PATH)
     _tune_connection(conn)
 
     try:
@@ -532,9 +532,9 @@ def connect_readonly() -> sqlite3.Connection | None:
     ``query_only``). It still sees rows not yet checkpointed from the WAL, so
     SQLite may create the ``-wal``/``-shm`` sidecars of a WAL-mode database.
     """
-    if not DB_PATH.exists():
+    if not _config.DB_PATH.exists():
         return None
-    conn = sqlite3.connect(f"{DB_PATH.resolve().as_uri()}?mode=ro", uri=True)
+    conn = sqlite3.connect(f"{_config.DB_PATH.resolve().as_uri()}?mode=ro", uri=True)
     conn.execute("PRAGMA query_only=ON")
     conn.execute("PRAGMA busy_timeout=5000")
     conn.row_factory = sqlite3.Row

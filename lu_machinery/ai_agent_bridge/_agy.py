@@ -23,6 +23,7 @@ from lu_machinery.agent_runtime.agy_hook_config import provision_workspace_guard
 from lu_machinery.common import github_client
 from lu_machinery.common.scratch import ensure_scratch_root
 
+from . import _config
 from ._ask_contract import (
     requested_effort,
     resolve_model_selection,
@@ -30,7 +31,6 @@ from ._ask_contract import (
     unsupported_effort_note,
 )
 from ._ask_lifecycle import launch_background_ask, record_ask_failure, record_ask_reply, register_ask
-from ._config import REPO_ROOT
 from ._db import get_db, set_session
 from ._messaging import acknowledge, send_message
 from ._prompts import build_agy_prompt, require_core_or_exit
@@ -598,7 +598,7 @@ def process_for_agy(
     try:
         with provision_review_worktree(
             review_target,
-            repo_root=REPO_ROOT,
+            repo_root=_config.REPO_ROOT,
             allow_local_fallback=bool(review),
         ) as checkout:
             prompt = build_agy_prompt(
@@ -623,7 +623,7 @@ def process_for_agy(
             else:
                 tool_config = {
                     "bridge_repo_read": True,
-                    "repo_read_root": str(REPO_ROOT),
+                    "repo_read_root": str(_config.REPO_ROOT),
                 }
                 review_cwd = _agy_ask_scratch_cwd()
             prompt = append_review_prompt_evidence(

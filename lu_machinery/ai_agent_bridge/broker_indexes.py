@@ -12,8 +12,8 @@ import argparse
 import sqlite3
 from pathlib import Path
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_DB = PROJECT_ROOT / ".mcp" / "servers" / "message-broker" / "messages.db"
+from lu_machinery.common.bridge_paths import default_bridge_db_path
+from lu_machinery.common.repo_root import state_root
 
 
 def _table_columns(conn: sqlite3.Connection, table: str) -> set[str]:
@@ -86,8 +86,10 @@ def apply(conn: sqlite3.Connection) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Add broker indexes for comms hot paths.")
-    parser.add_argument("--db", type=Path, default=DEFAULT_DB)
+    parser.add_argument("--db", type=Path, help="broker database (default: the one under the shared state root)")
     args = parser.parse_args()
+    if args.db is None:
+        args.db = default_bridge_db_path(state_root())
 
     if not args.db.exists():
         raise SystemExit(f"Broker DB not found: {args.db}")

@@ -63,7 +63,7 @@ from typing import TYPE_CHECKING, Any
 from lu_machinery.common.repo_root import machinery_path
 from secret_redactor import redact_text, redact_value
 
-from ._config import REPO_ROOT
+from . import _config
 from ._db import connect_readonly, get_db
 from ._prompts import review_protocol_prefix
 
@@ -300,11 +300,10 @@ SHARED_CHANNEL = "shared"
 
 # ── B.2: Context injection + Monitor API fetch (#1190) ────────────────
 
-# Root directory for channel context files. In-repo, git-tracked,
-# reviewable — context drift becomes a first-class commit history.
-# Each channel gets its own subdirectory: docs/agent-channels/{channel}/
-CONTEXT_ROOT = Path(os.environ.get("AB_CONTEXT_DIR", str(REPO_ROOT / "docs" / "agent-channels")))
-WAKE_ROOT = Path(os.environ.get("AB_WAKE_DIR", str(REPO_ROOT / ".agent" / "wake")))
+# The channel context root is ``AB_CONTEXT_DIR``, else ``docs/agent-channels`` in the
+# bridge's repository, resolved at each use. In-repo, git-tracked, reviewable — context
+# drift becomes a first-class commit history. Each channel gets its own subdirectory:
+# docs/agent-channels/{channel}/
 
 # Monitor API endpoint for dynamic project state.
 # See docs/MONITOR-API.md. Short timeout because the API is on the same
@@ -361,10 +360,10 @@ def context_sha256(path: Path) -> str:
     we'd rather log an empty rev than block a post on a missing
     context file. The absence itself is meaningful signal during debug.
 
-    Paths must stay under ``CONTEXT_ROOT`` (CodeQL ``py/path-injection``
+    Paths must stay under the channel context root (CodeQL ``py/path-injection``
     barrier: ``os.path.realpath`` + ``startswith(root + os.sep)``).
     """
-    root_real = os.path.realpath(str(CONTEXT_ROOT))
+    root_real = os.path.realpath(os.environ.get("AB_CONTEXT_DIR") or _config.REPO_ROOT / "docs" / "agent-channels")
     candidate = os.path.realpath(str(path))
     if not candidate.startswith(root_real + os.sep):
         return ""
@@ -441,9 +440,10 @@ def _touch_wake_file(target: AdmittedTarget) -> None:
 
     agent = require_admitted(target).recipient
     try:
-        WAKE_ROOT.mkdir(parents=True, exist_ok=True)
-        wake_path = WAKE_ROOT / agent
-        tmp_path = WAKE_ROOT / f".{agent}.{uuid.uuid4().hex}.tmp"
+        wake_root = Path(os.environ.get("AB_WAKE_DIR") or _config.REPO_ROOT / ".agent" / "wake")
+        wake_root.mkdir(parents=True, exist_ok=True)
+        wake_path = wake_root / agent
+        tmp_path = wake_root / f".{agent}.{uuid.uuid4().hex}.tmp"
         tmp_path.write_text(_now_iso(), encoding="utf-8")
         tmp_path.replace(wake_path)
     except OSError:
@@ -516,13 +516,13 @@ def channel_context_path(channel: str) -> Path:
     treats a missing file as "no pinned context" rather than erroring.
 
     Uses the CodeQL-recognized ``realpath`` + ``startswith`` containment
-    idiom so request-derived channel names cannot escape ``CONTEXT_ROOT``.
+    idiom so request-derived channel names cannot escape the channel context root.
     """
     safe = require_safe_channel_name(channel)
-    root_real = os.path.realpath(str(CONTEXT_ROOT))
+    root_real = os.path.realpath(os.environ.get("AB_CONTEXT_DIR") or _config.REPO_ROOT / "docs" / "agent-channels")
     candidate = os.path.realpath(os.path.join(root_real, safe, "context.md"))
     if not candidate.startswith(root_real + os.sep):
-        raise ValueError("channel context path escapes CONTEXT_ROOT")
+        raise ValueError("channel context path escapes the channel context root")
     return Path(candidate)
 
 

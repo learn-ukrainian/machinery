@@ -12,7 +12,8 @@ from agent_runtime.adapters.kimi import KimiAdapter, resolve_kimi_model
 from common.http_status import has_http_status
 from lu_machinery.common.repo_root import product_root
 
-from ._config import _MODEL_CACHE, _MODEL_CACHE_TTL, _PARENT_ENV, AGY_CLI
+from . import _config
+from ._config import _MODEL_CACHE, _MODEL_CACHE_TTL, AGY_CLI
 
 GROK_BUILD_DEFAULT_MODEL = "grok-4.7"  # operator order 2026-09-22 (#8464)
 GROK_BUILD_DEFAULT_EFFORT = "high"
@@ -107,7 +108,7 @@ def check_model(
         _MODEL_CACHE[cache_key] = (False, _time.time())
         return False
 
-    env = dict(_PARENT_ENV)
+    env = dict(_config._PARENT_ENV)
     env.update(plan.env_overrides)
 
     try:
