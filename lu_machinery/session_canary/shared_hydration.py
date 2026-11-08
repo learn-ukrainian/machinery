@@ -29,9 +29,9 @@ from jsonschema import Draft202012Validator, FormatChecker
 
 from agents_extensions.shared.session_streams.hooks import lease_from_environment
 from agents_extensions.shared.session_streams.model import parse_timestamp, validate_stream_id
+from lu_machinery.common.repo_root import state_root
 from lu_machinery.session_supervisor.remote import RemoteEpicClient, monitor_url
 
-ROOT = Path(__file__).resolve().parents[2]
 # Per-attempt monotonic budget. 0.5 s was too tight for a real Monitor read
 # (stream-evidence-timeout blocked lanes), so the default is 2 s;
 # LU_HYDRATION_DEADLINE_SECONDS overrides it within bounds. All retries share
@@ -176,12 +176,13 @@ def _safe_identity(value: str) -> bool:
     return bool(re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}", value))
 
 
-def _normalize_path(value: str, *, repo_root: Path) -> str:
+def _normalize_path(value: str, *, repo_root: Path | None) -> str:
     """Return only a repo-relative path; refuse absolute and traversal escapes."""
     candidate = Path(value)
     if candidate.is_absolute():
+        root = repo_root or state_root()
         try:
-            return candidate.resolve().relative_to(repo_root.resolve()).as_posix()
+            return candidate.resolve().relative_to(root.resolve()).as_posix()
         except ValueError as exc:
             raise HydrationSanitizationError("out-of-repo-path") from exc
     looks_like_path = (
@@ -193,15 +194,16 @@ def _normalize_path(value: str, *, repo_root: Path) -> str:
         )
     )
     if looks_like_path:
-        normalized = (repo_root / candidate).resolve()
+        root = repo_root or state_root()
+        normalized = (root / candidate).resolve()
         try:
-            return normalized.relative_to(repo_root.resolve()).as_posix()
+            return normalized.relative_to(root.resolve()).as_posix()
         except ValueError as exc:
             raise HydrationSanitizationError("out-of-repo-path") from exc
     return value
 
 
-def sanitize_hydration_value(value: Any, *, repo_root: Path = ROOT, key: str | None = None) -> Any:
+def sanitize_hydration_value(value: Any, *, repo_root: Path | None = None, key: str | None = None) -> Any:
     """Deep-copy safe JSON values, normalizing repo paths and rejecting secrets.
 
     This intentionally rejects raw command-output keys rather than attempting
