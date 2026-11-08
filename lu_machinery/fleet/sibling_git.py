@@ -26,7 +26,7 @@ if __package__ in (None, ""):  # run as a file: put the repository root on sys.p
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from lu_machinery.agent_runtime.agent_github_identity import resolve_agent_github_identity, revoke_installation_token
-from lu_machinery.common.repo_root import machinery_path
+from lu_machinery.common.repo_root import StateRootError, machinery_path, state_root
 from lu_machinery.orchestration import worktree_claims
 from lu_machinery.orchestration.execution_safe_git import LOCAL_COMMANDS, SafeGitRunner
 from lu_machinery.orchestration.execution_safe_git import run_git as safe_git
@@ -35,7 +35,6 @@ from lu_machinery.orchestration.task_record_store import parse_task_record
 
 _GIT = "/usr/bin/git"
 _FETCH_REMOTE = "sibling-git-canonical"
-_SOURCE_ROOT = Path(__file__).resolve().parents[2]
 _REGISTRY_PATH = machinery_path("config/fleet_repos.yaml")
 # The machinery package's import name, which is also the directory its files have in checkout
 # paths: from this module's package, or from its unresolved location when run as a file.
@@ -83,9 +82,9 @@ def _git_dir(checkout: Path) -> tuple[Path, Path]:
     return git_dir.resolve(), common
 
 
-def primary_root(source: Path = _SOURCE_ROOT) -> Path:
-    """Resolve our own repository from its marker, never inherited Git state."""
-    _, common = _git_dir(_plain_path(source))
+def primary_root(source: Path | None = None) -> Path:
+    """Resolve the protected primary (default: the state root) from its marker, never inherited Git state."""
+    _, common = _git_dir(_plain_path(state_root() if source is None else source))
     if common.name != ".git":
         raise Refusal("cannot establish the protected repository")
     return _plain_path(common.parent)
@@ -807,7 +806,7 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(result, sort_keys=True))
         return 0
     except (ValueError, OSError, RuntimeError, subprocess.SubprocessError) as exc:
-        reason = str(exc) if isinstance(exc, Refusal) else "dependency or repository validation failed"
+        reason = str(exc) if isinstance(exc, (Refusal, StateRootError)) else "dependency or repository validation failed"
         print(
             f"Refused: {reason}.\nRun from this repository root, using the project interpreter:\n{examples()}",
             file=sys.stderr,

@@ -29,9 +29,9 @@ from functools import partial
 from pathlib import Path
 from typing import Any
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
-if str(PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(PROJECT_ROOT))
+_IMPORT_ROOT = str(Path(__file__).resolve().parents[2])
+if _IMPORT_ROOT not in sys.path:
+    sys.path.insert(0, _IMPORT_ROOT)
 
 from lu_machinery.common import github_client
 from lu_machinery.orchestration import lifecycle_observation

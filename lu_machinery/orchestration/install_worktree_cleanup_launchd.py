@@ -19,10 +19,11 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
-if str(PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(PROJECT_ROOT))
+_IMPORT_ROOT = str(Path(__file__).resolve().parents[2])
+if _IMPORT_ROOT not in sys.path:
+    sys.path.insert(0, _IMPORT_ROOT)
 
+from lu_machinery.common.repo_root import MachineryConfigError
 from lu_machinery.common.safe_unit_install import (
     InstallError,
     check_unit_dir,
@@ -328,9 +329,8 @@ def positive_interval(value: str) -> int:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    public_repo = scheduled_worktree_cleanup.default_public_repo()
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--public-repo", type=Path, default=public_repo)
+    parser.add_argument("--public-repo", type=Path, default=None)
     parser.add_argument(
         "--private-repo",
         type=Path,
@@ -351,8 +351,12 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
-    args = build_parser().parse_args(argv)
-    public_repo = args.public_repo.expanduser().resolve()
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    try:
+        public_repo = (args.public_repo or scheduled_worktree_cleanup.default_public_repo()).expanduser().resolve()
+    except MachineryConfigError as exc:
+        parser.error(str(exc))
     private_repo = (
         args.private_repo.expanduser().resolve()
         if args.private_repo is not None

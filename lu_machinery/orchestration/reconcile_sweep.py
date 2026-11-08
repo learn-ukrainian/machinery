@@ -22,12 +22,11 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
-SCRIPTS_DIR = Path(__file__).resolve().parents[1]
-for path in (PROJECT_ROOT, SCRIPTS_DIR):
+for path in (Path(__file__).resolve().parents[2], Path(__file__).resolve().parents[1]):
     if str(path) not in sys.path:
         sys.path.insert(0, str(path))
 
+from lu_machinery.common.repo_root import MachineryConfigError, state_root
 from lu_machinery.common.task_store_paths import tasks_dir
 from lu_machinery.dispatcher import worker
 from lu_machinery.guardrails.delegate_ownership import (
@@ -168,8 +167,7 @@ def _run_reconcile_sweep(
     task_dir: Path | None,
     ledger: OwnershipLedger | None,
 ) -> ReconcileSweepReport:
-    root = repo_root or PROJECT_ROOT
-    tdir = task_dir or default_task_dir(root)
+    tdir = task_dir or default_task_dir(repo_root)
     own_ledger = ledger or OwnershipLedger(default_ledger_path(), task_state_dir=tdir)
 
     # 1. Stale ownership claims reconciliation / probe
@@ -314,8 +312,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--repo-root",
         type=Path,
-        default=PROJECT_ROOT,
-        help="Repository root path (default: %(default)s).",
+        default=None,
+        help="Repository root path (default: the state root, LEARN_UKRAINIAN_PRIMARY_REPO_ROOT).",
     )
     parser.add_argument(
         "--task-dir",
@@ -334,7 +332,10 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
-    repo_root = args.repo_root.expanduser().resolve()
+    try:
+        repo_root = (args.repo_root or state_root()).expanduser().resolve()
+    except MachineryConfigError as exc:
+        parser.error(str(exc))
     task_dir = args.task_dir.expanduser().resolve() if args.task_dir else default_task_dir(repo_root)
 
     report = run_reconcile_sweep(
