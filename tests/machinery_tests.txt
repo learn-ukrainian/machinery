@@ -76,6 +76,7 @@ tests/helpers/github_command_boundary.py
 tests/helpers/github_transport.py
 tests/helpers/monitor.py
 tests/helpers/python.py
+tests/helpers/wheel.py
 tests/helpers/restore_import_state.py
 tests/helpers/reviewer_routing.py
 tests/helpers/source_db_write_guard.py

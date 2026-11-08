@@ -6,12 +6,13 @@ import shutil
 import subprocess
 import sys
 import sysconfig
-import tomllib
 from pathlib import Path
 
 import pytest
 
 from lu_machinery.agent_runtime.adapters import acpx
+from lu_machinery.common.repo_root import machinery_root
+from tests.helpers.wheel import release_wheel
 
 
 @pytest.fixture
@@ -32,7 +33,7 @@ def source_tree(private_tree):
     for name in ("pyproject.toml", "MANIFEST.in"):
         shutil.copy2(checkout / name, source / name)
     for name in ("lu_machinery", "agents_extensions"):
-        shutil.copytree(checkout / name, source / name, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+        shutil.copytree(machinery_root() if name == "lu_machinery" else checkout / name, source / name, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
     # Model a checkout created under umask 022, without changing the shared tree.
     for path in source.rglob("*"):
         if not path.is_symlink():
@@ -66,22 +67,9 @@ print("launcher preparation passed")
 '''
 
 
-def test_installed_wheel_preparation_without_checkout(private_tree, source_tree):
+def test_installed_wheel_preparation_without_checkout(private_tree):
     """The wheel must prepare its launcher without git metadata or source imports."""
-    source = source_tree
-    wheels = private_tree / "wheels"
-    # CI's pytest environment need not contain a build backend. Follow the
-    # existing packaging tests: an isolated builder owns its declared tooling.
-    builder = private_tree / "builder"
-    subprocess.run([sys.executable, "-m", "venv", str(builder)], check=True)
-    build_python = builder / "bin/python"
-    requirements = tomllib.loads((source / "pyproject.toml").read_text())["build-system"]["requires"]
-    prepared = subprocess.run([str(build_python), "-m", "pip", "install", "--only-binary=:all:",
-                               *requirements], capture_output=True, text=True, timeout=180)
-    assert prepared.returncode == 0, prepared.stdout + prepared.stderr
-    built = subprocess.run([str(build_python), "-m", "pip", "wheel", "--no-deps", "--no-build-isolation",
-                            "--wheel-dir", str(wheels), str(source)], capture_output=True, text=True, timeout=180)
-    assert built.returncode == 0, built.stdout + built.stderr
+    wheel = release_wheel(Path(__file__).resolve().parents[2], private_tree)
     venv = private_tree / "venv"
     # Reuse test dependencies, but install machinery itself as a wheel. -I and
     # a cwd outside the checkout prevent source-tree imports in the child.
@@ -90,8 +78,9 @@ def test_installed_wheel_preparation_without_checkout(private_tree, source_tree)
     site = venv / f"lib/python{sys.version_info.major}.{sys.version_info.minor}/site-packages"
     (site / "test-dependencies.pth").write_text(sysconfig.get_path("purelib") + "\n")
     subprocess.run([str(interpreter), "-m", "pip", "install", "--no-deps", "--force-reinstall",
-                    str(next(wheels.glob("lu_machinery-*.whl")))], check=True, capture_output=True, text=True, umask=0o022)
-    shutil.rmtree(source)
+                    str(wheel)], check=True, capture_output=True, text=True, umask=0o022)
+    launcher = site / "lu_machinery/agent_runtime/claude_acp_exec.sh"
+    launcher.write_bytes(launcher.read_bytes() + b"\n# Source-release fixture, without a stored content pin.\n")
     result = subprocess.run([str(interpreter), "-I", "-c", '''
 import sys
 from pathlib import Path
