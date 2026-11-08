@@ -20,7 +20,9 @@ if __package__:
 else:
     from context_profiles import resolve_profile
 
-from lu_machinery.common.repo_root import MachineryConfigError, main_checkout_root, state_root as shared_state_root
+from lu_machinery.common.repo_root import MachineryConfigError
+from lu_machinery.common.repo_root import state_root as shared_state_root
+
 SCHEMA_VERSION = 1
 SESSION_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
 ALLOWED_RECORD_KEYS = {
@@ -78,8 +80,8 @@ def validate_transcript_path(path_str: str) -> bool:
 
 
 def canonical_state_root(project_root: Path | None = None) -> Path:
-    """Return the configured shared-state root, or an explicitly supplied checkout's primary."""
-    return shared_state_root() if project_root is None else main_checkout_root(project_root)
+    """Return the configured shared-state root; project_root is the in-tree start hint."""
+    return shared_state_root(project_root)
 
 
 def sessions_dir(*, state_root: Path | None = None) -> Path:

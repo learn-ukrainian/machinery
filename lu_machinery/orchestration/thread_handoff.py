@@ -40,7 +40,8 @@ from typing import Any, BinaryIO
 from urllib.parse import urlencode, urlparse
 
 from lu_machinery.common import github_client
-from lu_machinery.common.repo_root import product_root, state_root as shared_state_root
+from lu_machinery.common.repo_root import product_root
+from lu_machinery.common.repo_root import state_root as shared_state_root
 from lu_machinery.identity import KNOWN_HARNESS_EXECUTABLES
 from lu_machinery.orchestration import task_identity
 from lu_machinery.orchestration.task_family import codex_state as task_family_codex_state
@@ -126,25 +127,8 @@ def repo_root_from_file() -> Path:
 
 
 def canonical_state_root(repo_root: Path) -> Path:
-    """Find the primary checkout that owns shared rollover runtime state.
-
-    Linked worktrees have their own working-tree root but share Git's common
-    directory, which lives at ``<primary-checkout>/.git``.  Rollover leases
-    must be visible to every worktree in that repository, so default state is
-    rooted at the primary checkout rather than the invoking worktree.
-    """
-    result = run_command(
-        ["git", "rev-parse", "--path-format=absolute", "--git-common-dir"],
-        cwd=repo_root,
-        env=git_environment(),
-    )
-    if result.returncode != 0 or not result.stdout:
-        detail = result.stderr or result.stdout or "git did not report a common directory"
-        raise ValueError(f"cannot discover canonical Git common directory: {detail}")
-    common_dir = Path(result.stdout)
-    if not common_dir.is_absolute() or common_dir.name != ".git":
-        raise ValueError(f"cannot derive canonical checkout root from Git common directory: {result.stdout!r}")
-    return common_dir.parent.resolve()
+    """Return the configured shared-state root; repo_root is the in-tree start hint."""
+    return shared_state_root(repo_root)
 
 
 def resolve_roots(repo_root_arg: Path | None) -> tuple[Path, Path]:
