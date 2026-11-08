@@ -41,8 +41,65 @@
 #   stdout: absolute interpreter path (exit 0)
 #   stderr: "Error: project interpreter not found: <paths tried>" (exit 1)
 #
+# project_python_command <python>
+#   sets PROJECT_PYTHON_COMMAND to the argv prefix that starts <python> isolated
+#   on this library's own machinery tree; append `-m <module> [args...]` or
+#   `-c <code> [args...]`, exactly as after `python`
+#
+# project_python_run <python> (-m <module> | -c <code>) [args...]
+#   runs that command; exit status and streams are the child's
+#
 # Load-bearing tests: tests/test_deploy_extensions.py (real temporary repos),
-# tests/test_launcher_helper_root.py (every launcher helper site).
+# tests/test_launcher_helper_root.py (every launcher helper site),
+# tests/hooks/test_session_setup_isolation.py (every launcher-library child).
+
+# The machinery tree that holds this file, from its unresolved location
+# (design-v1 amendment 1): PROJECT_PACKAGE is the package directory's name,
+# which is its import name, and PROJECT_CODE_ROOT the directory that holds it.
+_project_interpreter_lib_dir="$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)" \
+    || _project_interpreter_lib_dir=''
+PROJECT_PACKAGE="${_project_interpreter_lib_dir%/*}"
+PROJECT_CODE_ROOT="${PROJECT_PACKAGE%/*}"
+PROJECT_PACKAGE="${PROJECT_PACKAGE##*/}"
+unset _project_interpreter_lib_dir
+
+# The one module bootstrap for every launcher-library Python child (#100 R68).
+# The child starts with -I, so the caller's PYTHONPATH, user site and cwd stay
+# off its import path. The bootstrap loads only the package from
+# PROJECT_CODE_ROOT by spec, so that directory never goes on sys.path and no
+# other name can resolve there; the tree that holds the library supplies the
+# code, whatever the interpreter or project has installed. It then runs
+# `-m <module>` as __main__, or `-c <code>` with sys.argv[0] == "-c", as Python
+# itself would. The environment is passed on unchanged.
+PROJECT_MODULE_BOOTSTRAP='
+import importlib.util, os, runpy, sys
+root, name, mode, target = sys.argv[1:5]
+del sys.argv[1:5]
+pkg = os.path.join(root, name)
+init = os.path.join(pkg, "__init__.py")
+if mode not in ("-m", "-c"):
+    sys.exit("module bootstrap: expected -m <module> or -c <code>, got %s" % mode)
+if not os.path.isfile(init):
+    sys.exit("module bootstrap: no %s package at %s" % (name, pkg))
+spec = importlib.util.spec_from_file_location(name, init, submodule_search_locations=[pkg])
+sys.modules[name] = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(sys.modules[name])
+if mode == "-m":
+    runpy.run_module(target, run_name="__main__", alter_sys=True)
+else:
+    exec(compile(target, "<string>", "exec"), {"__name__": "__main__"})
+'
+
+project_python_command() {
+    PROJECT_PYTHON_COMMAND=("${1:?project_python_command: interpreter required}" -I -c "$PROJECT_MODULE_BOOTSTRAP" \
+        "$PROJECT_CODE_ROOT" "$PROJECT_PACKAGE")
+}
+
+project_python_run() {
+    project_python_command "$1" || return 1
+    shift
+    "${PROJECT_PYTHON_COMMAND[@]}" "$@"
+}
 
 # Collapse "." and ".." segments of an absolute path without following
 # symlinks (a symlinked .git must stay visible to the checks below).

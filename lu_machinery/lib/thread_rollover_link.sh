@@ -5,10 +5,12 @@
 # unresolved location (design-v1 amendment 1).
 _thread_rollover_lib_dir="$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)" || _thread_rollover_lib_dir=''
 THREAD_ROLLOVER_PACKAGE="${_thread_rollover_lib_dir%/*}"
-# The tree that holds this file supplies the rollover code; the project only
-# supplies the interpreter and the state (#100 R63, as the hook since #142).
-THREAD_ROLLOVER_CODE_ROOT="${THREAD_ROLLOVER_PACKAGE%/*}"
 THREAD_ROLLOVER_PACKAGE="${THREAD_ROLLOVER_PACKAGE##*/}"
+# The tree that holds this file supplies the rollover code through the shared
+# module bootstrap; the project only supplies the interpreter and the state
+# (#100 R63, R68).
+# shellcheck source=scripts/lib/project_interpreter.sh
+[ -z "$_thread_rollover_lib_dir" ] || source "$_thread_rollover_lib_dir/project_interpreter.sh"
 unset _thread_rollover_lib_dir
 
 ensure_thread_rollover_link() {
@@ -77,24 +79,10 @@ resolve_codex_pending_rollover() {
   local handoff_agent="$2"
   local stream_id="${3-${SESSION_STREAM_ID:-}}"
   local python_bin="$project_dir/.venv/bin/python"
-  local handoff_script="$THREAD_ROLLOVER_CODE_ROOT/$THREAD_ROLLOVER_PACKAGE/orchestration/thread_handoff.py"
+  local handoff_script="$PROJECT_CODE_ROOT/$PROJECT_PACKAGE/orchestration/thread_handoff.py"
   # Every Python child starts with -I, so the caller's PYTHONPATH and cwd stay
-  # off its import path. thread_handoff runs through the hook's module bootstrap
-  # (#142): an installed package when the interpreter has one, else only the
-  # package loaded from the code root by spec, so that root never goes on
-  # sys.path. The package name comes from the module (design-v1 amendment 1).
-  local module_bootstrap='
-import importlib.util, runpy, sys
-root = sys.argv.pop(1)
-module = sys.argv.pop(1)
-name = module.partition(".")[0]
-if importlib.util.find_spec(name) is None:
-    pkg = root + "/" + name
-    spec = importlib.util.spec_from_file_location(name, pkg + "/__init__.py", submodule_search_locations=[pkg])
-    sys.modules[name] = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(sys.modules[name])
-runpy.run_module(module, run_name="__main__", alter_sys=True)
-'
+  # off its import path; thread_handoff runs through the shared module bootstrap
+  # (project_interpreter.sh), so the code root never goes on sys.path either.
   local detect_output=""
   local detect_rc=0
   local parsed=""
@@ -124,9 +112,10 @@ runpy.run_module(module, run_name="__main__", alter_sys=True)
     return 1
   fi
 
+  project_python_command "$python_bin"
   detect_output="$(
-    ${runner[@]+"${runner[@]}"} "$python_bin" -I -c "$module_bootstrap" "$THREAD_ROLLOVER_CODE_ROOT" \
-      "$THREAD_ROLLOVER_PACKAGE.orchestration.thread_handoff" --repo-root "$project_dir" \
+    ${runner[@]+"${runner[@]}"} "${PROJECT_PYTHON_COMMAND[@]}" \
+      -m "$PROJECT_PACKAGE.orchestration.thread_handoff" --repo-root "$project_dir" \
       detect --agent "$handoff_agent" --stream "$stream_id" --format json 2>&1
   )" || detect_rc=$?
   if [ "$detect_rc" -ne 0 ]; then

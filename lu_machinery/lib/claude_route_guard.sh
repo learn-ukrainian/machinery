@@ -60,7 +60,7 @@ claude_settings_conflicting_route_keys() {
   fi
 
   keys_csv="$(
-    "$py_bin" - "$settings_path" <<'PY'
+    "$py_bin" -I - "$settings_path" <<'PY'
 import json
 import sys
 from pathlib import Path

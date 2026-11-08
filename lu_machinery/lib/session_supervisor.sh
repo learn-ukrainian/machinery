@@ -23,6 +23,10 @@
 _session_supervisor_lib_dir="$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)" || _session_supervisor_lib_dir=''
 SESSION_SUPERVISOR_PACKAGE="${_session_supervisor_lib_dir%/*}"
 SESSION_SUPERVISOR_PACKAGE="${SESSION_SUPERVISOR_PACKAGE##*/}"
+# Every Python child that runs this package starts through the shared module
+# bootstrap (-I, the package loaded from this tree by spec; #100 R68).
+# shellcheck source=scripts/lib/project_interpreter.sh
+[ -z "$_session_supervisor_lib_dir" ] || source "$_session_supervisor_lib_dir/project_interpreter.sh"
 
 # Load the selector SSOT when this helper is sourced independently.  The
 # launcher normally sources handoff_identity.sh first; this guarded import also
@@ -126,7 +130,7 @@ claim_session_supervisor_env() {
   if [ "${LU_MONITOR_HOST_ID+x}" = x ]; then
     host_id="${LU_MONITOR_HOST_ID:-local}"
   else
-    host_id="$("$python_bin" -m lu_machinery.api.occupancy_local resolve-host-id 2>/dev/null)" || host_id="local"
+    host_id="$(project_python_run "$python_bin" -m "$SESSION_SUPERVISOR_PACKAGE.api.occupancy_local" resolve-host-id 2>/dev/null)" || host_id="local"
     if [ -z "$host_id" ]; then
       host_id="local"
     fi
@@ -136,7 +140,7 @@ claim_session_supervisor_env() {
   heartbeat_at="$(_iso_timestamp)"
 
   local -a supervisor_args=(
-    "-m" "lu_machinery.session_supervisor"
+    "-m" "$SESSION_SUPERVISOR_PACKAGE.session_supervisor"
     "open"
     "--role" "driver"
     "--stream" "$stream"
@@ -161,12 +165,12 @@ claim_session_supervisor_env() {
     local watcher launch_plan launch_identity
     watcher="$(cd "$(dirname "${BASH_SOURCE[0]}")/../ai_agent_bridge" && pwd)/inbox_watch.sh"
     launch_plan="$("$watcher" "$agent" --launch-plan "$SESSION_SUPERVISOR_WAKE_DELIVERY" --stream "$stream")" || return 1
-    launch_identity="$("$python_bin" -c 'import json,sys; p=json.loads(sys.argv[1]); print(p["session_id"]); print(p["generation"])' "$launch_plan")" || return 1
+    launch_identity="$("$python_bin" -I -c 'import json,sys; p=json.loads(sys.argv[1]); print(p["session_id"]); print(p["generation"])' "$launch_plan")" || return 1
     expected_generation="${launch_identity##*$'\n'}"
     supervisor_args+=("--session-id" "${launch_identity%%$'\n'*}")
   fi
 
-  if ! "$python_bin" "${supervisor_args[@]}" > "$supervisor_tmp" 2>&1; then
+  if ! project_python_run "$python_bin" "${supervisor_args[@]}" > "$supervisor_tmp" 2>&1; then
     # Remote v1 is TTL-only: an unexpired lease is live regardless of PID.
     # Local --local callers retain proof-gated dead-process recovery; launchers
     # must not silently switch to that local path when Monitor refuses a claim.
@@ -174,7 +178,7 @@ claim_session_supervisor_env() {
         && [ "${LC_DRIVER_FORCE:-0}" = "1" ] \
         && [ -z "${SESSION_SUPERVISOR_WAKE_DELIVERY:-}" ]; then
       echo "Session supervisor: attributed --force release of ${stream}" >&2
-      if ! "$python_bin" -m lu_machinery.session_supervisor release --role driver --force \
+      if ! project_python_run "$python_bin" -m "$SESSION_SUPERVISOR_PACKAGE.session_supervisor" release --role driver --force \
           --stream "$stream" \
           --actor-agent "$agent" \
           --actor-host-id "$host_id" \
@@ -187,7 +191,7 @@ claim_session_supervisor_env() {
         return 1
       fi
       rm -f "$release_tmp"
-      if ! "$python_bin" "${supervisor_args[@]}" > "$supervisor_tmp" 2>&1; then
+      if ! project_python_run "$python_bin" "${supervisor_args[@]}" > "$supervisor_tmp" 2>&1; then
         echo "Error: session supervisor failed to claim ${stream} after --force release" >&2
         sed 's/^/  supervisor: /' "$supervisor_tmp" >&2
         return 1
@@ -209,7 +213,7 @@ claim_session_supervisor_env() {
 
   # Parse the supervisor's JSON capsule into sourceable export statements.
   local exports
-  exports="$($python_bin - "$stream" "$agent" "$harness" "$instance_id" "$$" "$task_id" "$ttl_seconds" "$heartbeat_at" "$supervisor_tmp" <<'PY'
+  exports="$("$python_bin" -I - "$stream" "$agent" "$harness" "$instance_id" "$$" "$task_id" "$ttl_seconds" "$heartbeat_at" "$supervisor_tmp" <<'PY'
 import json, shlex, sys
 
 capsule_path = sys.argv[-1]
@@ -252,7 +256,7 @@ PY
   # Read/claim races can advance the stream between preflight and CAS. Never
   # start a provider for a generation beyond this event's one-successor budget.
   if [ -n "$expected_generation" ] && [ "${SESSION_STREAM_GENERATION:-}" != "$expected_generation" ]; then
-    "$python_bin" -m lu_machinery.session_supervisor close --role driver >/dev/null || true
+    project_python_run "$python_bin" -m "$SESSION_SUPERVISOR_PACKAGE.session_supervisor" close --role driver >/dev/null || true
     echo "Error: supervisory wake was superseded before the lease claim." >&2
     return 1
   fi
@@ -332,10 +336,10 @@ session_supervisor_publish_start_failure() {
   case "$reason" in wake-file-missing|watcher-failed|scope-start-failed) ;; *) return 0 ;; esac
   [ -n "$helper_root" ] && [ -x "$helper_root/.venv/bin/python" ] && [ -n "$sender" ] || return 0
   # Use Python for JSON encoding and a numeric generation, not shell escaping.
-  "$helper_root/.venv/bin/python" -c \
+  "$helper_root/.venv/bin/python" -I -c \
     'import json,sys; print(json.dumps(dict(stream=sys.argv[1], generation=int(sys.argv[2]), reason=sys.argv[3])))' \
     "$stream" "$generation" "$reason" 2>/dev/null | \
-    "$helper_root/.venv/bin/python" -m lu_machinery.fleet_comms channel publish cto - \
+    project_python_run "$helper_root/.venv/bin/python" -m "$SESSION_SUPERVISOR_PACKAGE.fleet_comms" channel publish cto - \
       --sender "$sender" --kind status --idempotency-key "$stream-$generation-$reason" \
       >/dev/null 2>&1 || true
 }
@@ -396,25 +400,25 @@ session_supervisor_start_inbox_watch() {
           fi
         )
         exec 216<&-
-        exec "$capture_python" -c '
+        project_python_command "$capture_python"
+        exec "${PROJECT_PYTHON_COMMAND[@]}" -c '
 import os
 import sys
-sys.path.insert(0, sys.argv[1])
 scratch = None
 try:
     with os.fdopen(214, "rb") as original:
         raw = original.read()
     try:
-        os.waitpid(int(sys.argv[5]), 0)
+        os.waitpid(int(sys.argv[4]), 0)
     except ChildProcessError:
         pass  # Bash already reaped the producer before exec.
     # Bash may reap printf before exec. Check the complete stream itself:
     # every original argument has one NUL, including an empty argument.
-    if raw.count(b"\0") != int(sys.argv[4]) or (raw and not raw.endswith(b"\0")):
+    if raw.count(b"\0") != int(sys.argv[3]) or (raw and not raw.endswith(b"\0")):
         raise ValueError("argument stream incomplete")
     import importlib
     import tempfile
-    allocate = importlib.import_module(sys.argv[6]).allocate
+    allocate = importlib.import_module(sys.argv[5]).allocate
     scratch = allocate("cto-argument-capture")
     try:
         with tempfile.TemporaryFile(dir=scratch.payload_dir) as capture:
@@ -439,8 +443,8 @@ except Exception as exc:
         os.close(215)
     except OSError:
         pass
-os.execv(sys.argv[2], [sys.argv[2], sys.argv[3], "--live-supervisory", "--notify-parent"])
-' "$LC_ROOT" "$watcher" "${LC_DRIVER_HANDOFF:-$LC_PROVIDER}" "${#LC_DRIVER_ORIGINAL_ARGS[@]}" "$!" \
+os.execv(sys.argv[1], [sys.argv[1], sys.argv[2], "--live-supervisory", "--notify-parent"])
+' "$watcher" "${LC_DRIVER_HANDOFF:-$LC_PROVIDER}" "${#LC_DRIVER_ORIGINAL_ARGS[@]}" "$!" \
           "$SESSION_SUPERVISOR_PACKAGE.common.task_scratch"
       fi
     fi
@@ -506,11 +510,11 @@ session_supervisor_cto_wrapper_signature() {
   local py
   py="$(launcher_project_python 2>/dev/null)" || return 3
   # Private launch values travel on stdin, never in helper argv or diagnostics.
-  printf '%s\0' "${LC_DRIVER_ORIGINAL_ARGS[@]}" | "$py" -c '
+  project_python_command "$py"
+  printf '%s\0' "${LC_DRIVER_ORIGINAL_ARGS[@]}" | "${PROJECT_PYTHON_COMMAND[@]}" -c '
 import importlib
 import sys
 from pathlib import Path
-sys.path.insert(0, sys.argv[1])
 supervisor = importlib.import_module(sys.argv[4])
 try:
     args = sys.stdin.buffer.read().decode().split("\0")[:-1]

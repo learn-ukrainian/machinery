@@ -27,8 +27,8 @@ selects for a task; ``/api/rules?scope=task:<name>`` serves them, and
 ``_load-via-api.md`` lists the same selection for offline reads.
 
 Usage:
-    rules_core.py [--root DIR] [--seat core|content] [--lane LANE] [--provider P]
-                  [--format text|block|toml|seat|json] [--output PATH]
+    python -m lu_machinery.lib.rules_core [--root DIR] [--seat core|content] [--lane LANE]
+        [--provider P] [--format text|block|toml|seat|json] [--output PATH]
 
 Exit codes:
     0  printed (or wrote) the requested form
@@ -48,8 +48,8 @@ from dataclasses import dataclass
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-if __package__ in (None, "") and str(ROOT) not in sys.path:  # run as a file by rules_core.sh
-    sys.path.insert(0, str(ROOT))
+# Runs as a module only: rules_core.sh starts it through the shared module bootstrap
+# (project_interpreter.sh), so nothing here puts ROOT on sys.path (#100 R68).
 
 from lu_machinery.common.repo_root import (
     RULES_DIR_REL,
@@ -59,8 +59,8 @@ from lu_machinery.common.repo_root import (
 )
 
 _MACHINERY = Path(os.path.abspath(__file__)).parents[1].name
-_ENTRY = f"{_MACHINERY}/lib/{Path(__file__).name}"
-_SHELL = Path(_ENTRY).with_suffix(".sh").as_posix()
+_ENTRY = f"-m {_MACHINERY}.lib.{Path(__file__).stem}"
+_SHELL = f"{_MACHINERY}/lib/{Path(__file__).stem}.sh"
 _ROUTER = f"{_MACHINERY}/api/rules_router.py"
 
 CORE_REL = f"{RULES_DIR_REL}/core.md"

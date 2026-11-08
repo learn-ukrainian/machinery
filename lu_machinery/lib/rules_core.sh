@@ -15,6 +15,9 @@
 # product selection belongs to product_root(), including LU_PRODUCT_ROOT.
 _rules_core_lib_dir="$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)" || _rules_core_lib_dir=''
 RULES_CORE_LOADER="${_rules_core_lib_dir:+$_rules_core_lib_dir/rules_core.py}"
+# The loader runs as a module of this tree through the shared bootstrap (#100 R68).
+# shellcheck source=scripts/lib/project_interpreter.sh
+[ -z "$_rules_core_lib_dir" ] || source "$_rules_core_lib_dir/project_interpreter.sh"
 unset _rules_core_lib_dir
 
 # rules_core_refuse REASON — the refusal line for a launch that cannot load the core.
@@ -40,12 +43,12 @@ rules_core_load() {
   if [ -n "$lane" ]; then
     lane_args=(--lane "$lane" --provider "$provider")
   fi
-  if ! LC_RULES_SEAT="$("$py" "$script" ${lane_args[@]+"${lane_args[@]}"} --format seat)"; then
+  if ! LC_RULES_SEAT="$(project_python_run "$py" -m "$PROJECT_PACKAGE.lib.rules_core" ${lane_args[@]+"${lane_args[@]}"} --format seat)"; then
     LC_RULES_SEAT=""
     rules_core_refuse "seat resolution failed: $script"
     return 1
   fi
-  if ! LC_RULES_CORE="$("$py" "$script" --seat "$LC_RULES_SEAT" --format block)"; then
+  if ! LC_RULES_CORE="$(project_python_run "$py" -m "$PROJECT_PACKAGE.lib.rules_core" --seat "$LC_RULES_SEAT" --format block)"; then
     LC_RULES_CORE=""
     rules_core_refuse "seat $LC_RULES_SEAT needs readable fleet core.md" \
       "and, for content, product agents_extensions/shared/rules/core-curriculum.md"
@@ -71,5 +74,5 @@ rules_core_prefix() {
 
 # rules_core_toml PYTHON — the framed core as one TOML basic string.
 rules_core_toml() {
-  "$1" "$RULES_CORE_LOADER" --seat "$LC_RULES_SEAT" --format toml
+  project_python_run "$1" -m "$PROJECT_PACKAGE.lib.rules_core" --seat "$LC_RULES_SEAT" --format toml
 }
