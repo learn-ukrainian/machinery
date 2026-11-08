@@ -18,53 +18,9 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
-if __package__:
-    from lu_machinery.lib.session_record import canonical_state_root, validate_session_id
-    from lu_machinery.orchestration import thread_handoff
-else:
-    sys.path.insert(0, os.fspath(PROJECT_ROOT))
-    from lu_machinery.lib.session_record import canonical_state_root, validate_session_id
-    from lu_machinery.orchestration import thread_handoff
-
-
-def resolve_relaunch_python(project_root: Path = PROJECT_ROOT) -> Path:
-    """Resolve the Python interpreter for launching supervisor child gates.
-
-    Preserves the launcher contract:
-    1. Local checkout virtualenv (project_root / ".venv/bin/python") if present.
-    2. Canonical repository virtualenv (canonical_state_root(project_root) / ".venv/bin/python")
-       for venv-less linked worktrees or detached checkouts.
-    3. The active interpreter (sys.executable), e.g. for CI or environments without .venv.
-    4. Fallback to project_root / ".venv/bin/python" if no valid executable is found.
-    """
-    # Intentional relaunch contract: this checkout's venv when it owns one,
-    # then the canonical checkout, then any sys.executable.
-    local = project_root / ".venv" / "bin" / "python"
-    if local.is_file() and os.access(local, os.X_OK):
-        return local
-
-    try:
-        canonical_root = canonical_state_root(project_root)
-        canonical = canonical_root / ".venv" / "bin" / "python"
-        if canonical.is_file() and os.access(canonical, os.X_OK):
-            return canonical
-    except Exception as exc:
-        print(
-            f"[supervisor] warning: failed to resolve canonical state root ({type(exc).__name__}): {exc}",
-            file=sys.stderr,
-        )
-
-    if sys.executable:
-        current = Path(sys.executable)
-        if current.is_file() and os.access(current, os.X_OK):
-            return current
-
-    return local
-
-
-# Pin child launches to this checkout or its canonical virtualenv in worktrees
-REPO_PYTHON = resolve_relaunch_python(PROJECT_ROOT)
+from lu_machinery.common.repo_root import MachineryConfigError, state_root as shared_state_root
+from lu_machinery.lib.session_record import validate_session_id
+from lu_machinery.orchestration import thread_handoff
 
 SCHEMA_VERSION = 1
 REQUEST_TTL_SECONDS = 300
@@ -633,7 +589,7 @@ class ClaudexSupervisor:
         self.script_path = os.fspath(Path(script_path).resolve())
         self.forward_argv = list(forward_argv)
         self.base_env = dict(env or os.environ)
-        self.state_root = (state_root or canonical_state_root(PROJECT_ROOT)).resolve()
+        self.state_root = (state_root if state_root is not None else shared_state_root()).resolve()
         self.contract = _route_contract(self.forward_argv, self.base_env)
         self.command_hash = compute_command_hash(self.script_path, self.forward_argv)
         self.run_id = uuid.uuid4().hex
@@ -689,14 +645,15 @@ class ClaudexSupervisor:
         with contextlib.suppress(OSError):
             ready_file.unlink()
         launch_env = self.base_env.copy()
-        venv_bin = os.fspath(REPO_PYTHON.parent)
+        python = Path(sys.executable)
+        venv_bin = os.fspath(python.parent)
         current_path = launch_env.get("PATH", "")
         if current_path:
             launch_env["PATH"] = f"{venv_bin}{os.pathsep}{current_path}"
         else:
             launch_env["PATH"] = venv_bin
-        if (REPO_PYTHON.parent.parent / "pyvenv.cfg").is_file():
-            launch_env["VIRTUAL_ENV"] = os.fspath(REPO_PYTHON.parent.parent)
+        if (python.parent.parent / "pyvenv.cfg").is_file():
+            launch_env["VIRTUAL_ENV"] = os.fspath(python.parent.parent)
         launch_env.update(
             {
                 "LEARN_UKRAINIAN_CLAUDEX_MANAGED_LAUNCH": "1",
@@ -708,8 +665,9 @@ class ClaudexSupervisor:
         )
         command = [self.script_path, *self.forward_argv]
         gate_command = [
-            os.fspath(REPO_PYTHON),
-            os.fspath(Path(__file__).resolve()),
+            sys.executable,
+            "-m",
+            "lu_machinery.orchestration.claudex_supervisor",
             "_launch-child",
             os.fspath(ready_file),
             *command,
@@ -862,7 +820,7 @@ def _state_root_from_args(value: Path | None) -> Path:
     test_override = os.environ.get("CLAUDEX_SUPERVISOR_TEST_STATE_ROOT")
     if test_override:
         return Path(test_override).resolve()
-    return canonical_state_root(PROJECT_ROOT)
+    return shared_state_root()
 
 
 def _env_int(name: str) -> int | None:
@@ -975,13 +933,13 @@ def main() -> int:
     if sys.argv[1] in {"-h", "--help"}:
         parser.print_help(sys.stderr)
         return 0
-    state_root = _state_root_from_args(None)
     try:
+        state_root = _state_root_from_args(None)
         supervisor = ClaudexSupervisor(
             sys.argv[1], sys.argv[2:], state_root=state_root
         )
         return supervisor.run()
-    except SupervisorError as exc:
+    except (SupervisorError, MachineryConfigError) as exc:
         print(f"Error: {exc}", file=sys.stderr)
         return 1
 

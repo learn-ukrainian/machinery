@@ -96,14 +96,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
-# The machinery package's directory name, which is also its import name and the first component
-# of its files' checkout paths. Taken from this file's unresolved location, so neither a short
-# import spelling nor a symlinked directory changes it.
-_MACHINERY = Path(os.path.abspath(__file__)).parents[1].name
-if str(REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT))
-
+from lu_machinery.common.repo_root import MachineryConfigError, state_root
 from lu_machinery.lib.readonly_sqlite import open_readonly
 from lu_machinery.ops.driver_lanes import (
     EXIT_MARKER,
@@ -119,6 +112,10 @@ from lu_machinery.ops.driver_lanes import (
 )
 from lu_machinery.secret_redactor import redact_text
 
+# The machinery package's directory name, which is also its import name. Taken from this file's
+# unresolved location, so a short import spelling does not change it.
+_MACHINERY = Path(os.path.abspath(__file__)).parents[1].name
+
 STATE_ENV = "LU_CONTEXT_GUARD_STATE_DIR"
 CAPTURE_LINES = 80
 AGENT_COMMANDS = {"claude": "claude", "codex": "codex"}
@@ -127,7 +124,9 @@ CODEX_PCT_RE = re.compile(r"Context (\d+)% used")
 CLAUDE_BUSY_RE = re.compile(r"esc to interrupt|ing… \(")
 # A response line, optionally behind the CLI's response bullet. The guard's own
 # prompt quotes the token mid-sentence, so its echo never starts a line with it.
-DONE_LINE_RE = re.compile(r"^\s*(?:[●⏺•✦]\s*)?HANDOFF-DONE(?=\s|:|$)")
+# Alternation, not a class of these marks: a class makes Semgrep's redos analyzer
+# abort the file with a spanless syntax error, so the scan cannot see the module.
+DONE_LINE_RE = re.compile(r"^\s*(?:(?:●|⏺|•|✦)\s*)?HANDOFF-DONE(?=\s|:|$)")
 EXIT_DIALOG = ("Move to background and exit", "Exit and stop tasks")
 # The fixed pane script prints this after the launcher exits (scripts/ops/driver_lanes.py).
 LAUNCHER_EXIT_RE = re.compile(rf"{re.escape(EXIT_MARKER)}(-?\d+) id=([0-9a-f]{{32}})")
@@ -1383,7 +1382,7 @@ def comms_db(log: Callable[[str], None]) -> Path | None:
     try:
         from lu_machinery.fleet_comms.paths import default_plane_root
 
-        return default_plane_root(repo_root=REPO_ROOT) / "comms.sqlite3"
+        return default_plane_root(repo_root=state_root()) / "comms.sqlite3"
     except Exception as exc:  # the pane-side HANDOFF-DONE check still works without Fleet
         log(f"comms plane unresolved {type(exc).__name__}: {exc}")
         return None
@@ -1410,7 +1409,7 @@ def main(argv: list[str] | None = None) -> int:
         epilog=(
             "Examples:\n"
             f"  .venv/bin/python -m {_MACHINERY}.ops.context_guard tick\n"
-            f"  .venv/bin/python {_MACHINERY}/ops/context_guard.py tick --lane infra-muse\n"
+            f"  .venv/bin/python -m {_MACHINERY}.ops.context_guard tick --lane infra-muse\n"
             f"  .venv/bin/python -m {_MACHINERY}.ops.context_guard handoff-sessions\n"
             "Outputs: tick types into lane panes, posts to Fleet Comms, respawns exited lanes, and writes\n"
             "  state.json and guard.log under the state directory; handoff-sessions prints a JSON list.\n"
@@ -1449,6 +1448,11 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(sessions_in_handoff(load_state(state_path))))
         return 0
     try:
+        repo = state_root()
+    except MachineryConfigError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+    try:
         registry = load_registry(args.data)
         local = load_local_config(default_local_config_path())
     except LaneConfigError as exc:
@@ -1463,7 +1467,7 @@ def main(argv: list[str] | None = None) -> int:
         state = load_state(state_path)
         guard = Guard(
             registry=registry,
-            repo_root=REPO_ROOT,
+            repo_root=repo,
             tmux=Tmux(),
             log=log,
             send=fleet_sender(registry.guard_sender, log),

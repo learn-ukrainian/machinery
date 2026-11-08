@@ -17,17 +17,8 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
-if str(PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(PROJECT_ROOT))
-
+from lu_machinery.common.repo_root import MachineryConfigError, machinery_path, product_root
 from lu_machinery.common.safe_unit_install import InstallError, ensure_state_dirs, install_unit, load_unit
-
-# This package's import name, from the unresolved file location: never from __package__, which a
-# short import spelling (orchestration.x with scripts/ on sys.path) shortens. Its dotted parts
-# are also its directories in checkout-relative paths.
-_PACKAGE = f"{Path(os.path.abspath(__file__)).parents[1].name}.{Path(os.path.abspath(__file__)).parent.name}"
-_PACKAGE_DIR = _PACKAGE.replace(".", "/")
 
 LABEL = "com.learn-ukrainian.project-state-reporter"
 DEFAULT_INTERVAL_MINUTES = 5
@@ -41,16 +32,13 @@ class LaunchdError(RuntimeError):
     """The requested launchd state could not be verified."""
 
 
-def default_repo_root() -> Path:
-    return Path(__file__).resolve().parents[2]
-
-
 def plist_path(home: Path) -> Path:
     return home / "Library" / "LaunchAgents" / f"{LABEL}.plist"
 
 
-def wrapper_path(repo_root: Path) -> Path:
-    return repo_root / _PACKAGE_DIR / WRAPPER_NAME
+def wrapper_path() -> Path:
+    """Return the stable bash wrapper launchd executes: a packaged machinery file."""
+    return machinery_path(f"orchestration/{WRAPPER_NAME}")
 
 
 def build_plist(*, repo_root: Path, home: Path, interval_minutes: int) -> dict[str, Any]:
@@ -63,7 +51,7 @@ def build_plist(*, repo_root: Path, home: Path, interval_minutes: int) -> dict[s
             STABLE_PROGRAM,
             "--noprofile",
             "--norc",
-            str(wrapper_path(repo_root)),
+            str(wrapper_path()),
         ],
         "RunAtLoad": True,
         "StandardErrorPath": str(home / ".codex" / "project-state-reporter" / "logs" / "stderr.log"),
@@ -100,15 +88,25 @@ def _launchctl(command: Sequence[str], *, check: bool = False) -> subprocess.Com
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Install Mac project-state reporter LaunchAgent.")
-    parser.add_argument("--repo-root", type=Path, default=default_repo_root())
+    parser.add_argument(
+        "--repo-root",
+        type=Path,
+        default=None,
+        help="product checkout the reporter runs in (default: LU_PRODUCT_ROOT)",
+    )
     parser.add_argument("--home", type=Path, default=Path.home())
     parser.add_argument("--interval-minutes", type=int, default=DEFAULT_INTERVAL_MINUTES)
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args(argv)
 
     runtime = args.home / ".codex" / "project-state-reporter"
+    try:
+        repo_root = (args.repo_root if args.repo_root is not None else product_root()).expanduser().resolve()
+    except MachineryConfigError as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
     plist = build_plist(
-        repo_root=args.repo_root.resolve(),
+        repo_root=repo_root,
         home=args.home,
         interval_minutes=args.interval_minutes,
     )
