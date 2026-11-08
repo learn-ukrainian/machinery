@@ -16,6 +16,7 @@ import contextlib
 import gzip
 import hashlib
 import http.client
+import importlib.util
 import io
 import json
 import os
@@ -45,7 +46,7 @@ if not __package__:
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from lu_machinery.common import github_client
-from lu_machinery.common.repo_root import machinery_path, product_root
+from lu_machinery.common.repo_root import product_root
 from lu_machinery.common.repo_root import state_root as shared_state_root
 from lu_machinery.identity import KNOWN_HARNESS_EXECUTABLES
 from lu_machinery.orchestration import task_identity
@@ -3216,10 +3217,23 @@ def request_claudex_rollover(
     if not isinstance(rollover_id, str):
         raise ValueError("prepared rollover id is malformed")
 
+    # -I keeps the caller's PYTHONPATH and cwd off the child's import path;
+    # the child appends the loaded package root after the stdlib and
+    # site-packages.
+    spec = importlib.util.find_spec("lu_machinery")
+    origin = getattr(spec, "origin", None) if spec is not None else None
+    loaded_root = ""
+    if origin and origin != "namespace":
+        loaded_root = os.fspath(Path(origin).resolve().parent.parent)
     result = run_command(
         [
             sys.executable,
-            os.fspath(machinery_path("orchestration/claudex_supervisor.py")),
+            "-I",
+            "-c",
+            "import runpy, sys; root = sys.argv.pop(1); root and sys.path.append(root); "
+            "runpy.run_module('lu_machinery.orchestration.claudex_supervisor', "
+            "run_name='__main__', alter_sys=True)",
+            loaded_root,
             "request-rollover",
             "--state-root",
             os.fspath(state_root),
