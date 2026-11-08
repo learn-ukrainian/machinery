@@ -27,7 +27,9 @@ ROOT = Path(__file__).resolve().parents[2]
 # The machinery package directory, found from this file as ``repo_root.machinery_root`` finds it:
 # minimal workflow checkouts omit ``common/``, so this module does not import repo_root at import.
 _PACKAGE = Path(__file__).resolve().parents[1]
-if str(ROOT) not in sys.path:
+# Imported as part of the package, the package already resolves, and the directory must not go ahead
+# of the stdlib (it is often the cwd).
+if (__package__ or "").partition(".")[0] != _PACKAGE.name and str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 POLICY = Path(__file__).with_name("blocking.json")
 # Dropped from every internal environment; only the private override authority may admit with it.

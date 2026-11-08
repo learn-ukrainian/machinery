@@ -603,12 +603,6 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--stream", default="")
     args = parser.parse_args(argv)
 
-    # Imports must resolve against the session checkout, matching the old
-    # per-script invocation semantics ($PROJECT_DIR scripts, canonical venv).
-    project_dir = str(Path(args.project_dir).resolve())
-    if project_dir not in sys.path:
-        sys.path.insert(0, project_dir)
-
     result: dict[str, Any] = {
         "session_record": phase_session_record(args),
         "python_version": phase_python_version(args),

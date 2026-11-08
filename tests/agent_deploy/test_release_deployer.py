@@ -87,7 +87,7 @@ def release(tmp_path, monkeypatch):
             {"type": "command", "command": ".claude/hooks/fleet.sh", "timeout": 10}]}]},
         "codex": {".codex/hooks.json": [
             {"path": ["hooks", "SessionStart"], "group": {}, "hooks": [
-                {"type": "command", "command": ".codex/hooks/fleet.sh", "timeout": 10}]}]}}}
+                {"type": "command", "command": ".codex/hooks/fleet.sh", "timeout": 10, "statusMessage": "Checking learn-ukrainian session state"}]}]}}}
     write(package, "agent_deploy/release.v1.json", json.dumps(inventory))
     locations = {"lu_machinery": package, "lu_machinery.agent_deploy": package / "agent_deploy", "agents_extensions.shared": fleet}
     monkeypatch.setattr(plan.resources, "files", lambda name: locations[name])
@@ -106,7 +106,7 @@ def consumer(tmp_path, release):
     write(root, "agents_extensions/shared/settings.json", json.dumps({"hooks": {"SessionStart": [
         {"matcher": "startup", "hooks": [{"type": "command", "command": ".claude/hooks/fleet.sh", "timeout": 10}]}]}}))
     write(root, "agents_extensions/codex/hooks.json", json.dumps({"hooks": {"SessionStart": [
-        {"hooks": [{"type": "command", "command": ".codex/hooks/fleet.sh", "timeout": 10}]}]}}))
+        {"hooks": [{"type": "command", "command": ".codex/hooks/fleet.sh", "timeout": 10, "statusMessage": "Checking consumer session state"}]}]}}))
     return root
 
 
@@ -276,14 +276,17 @@ def test_non_idempotency_literal_inventory_and_modes(consumer, monkeypatch):
     assert (consumer / ".agents/skills/product/SKILL.md").read_text() == PRODUCT
 
 
-@pytest.mark.parametrize("defect", ["interruption", "late-discovery"])
-def test_interrupted_apply_cannot_publish_false_success_and_recovers(consumer, monkeypatch, defect):
-    """A failed replacement cannot publish a success manifest; same inputs recover."""
+@pytest.mark.parametrize("defect", ["interruption", "late-discovery", "partial_crash_then_source_change"])
+def test_interrupted_apply_cannot_publish_false_success_and_recovers(consumer, monkeypatch, capsys, defect):
+    """Interrupted outputs recover after source edits using the documented input restoration."""
     original = plan.Tree.replace
     calls = []
     def interrupted(self, path, blob, mode):
         calls.append(path)
-        if len(calls) == 3:
+        if defect == "partial_crash_then_source_change" and path == ".agent/skills/product/SKILL.md":
+            original(self, path, blob, mode)
+            raise OSError("injected interruption after product output")
+        if len(calls) == 3 and defect != "partial_crash_then_source_change":
             if defect == "interruption":
                 raise OSError("injected interruption")
             (consumer / ".codex/skills").mkdir(parents=True)
@@ -292,10 +295,32 @@ def test_interrupted_apply_cannot_publish_false_success_and_recovers(consumer, m
     assert invoke(monkeypatch, consumer) != 0
     assert not (consumer / plan.STATE).exists()
     assert invoke(monkeypatch, consumer, check=True) != 0
+    source = consumer / "agents_extensions/shared/skills/product/SKILL.md"
+    desired = PRODUCT.replace("Run the product example.", "Run the updated product example.")
+    if defect == "partial_crash_then_source_change":
+        source.write_text(desired)
+        before = snapshot(consumer)
+        assert invoke(monkeypatch, consumer) == 2
+        assert "see --help section: Recovery after an interrupted fresh apply" in capsys.readouterr().err
+        assert snapshot(consumer) == before
+        monkeypatch.setattr(sys, "argv", ["agent_deploy", "--help"])
+        with pytest.raises(SystemExit) as exited:
+            main()
+        assert exited.value.code == 0
+        help_text = capsys.readouterr().out
+        assert "Restore the product sources and installed" in help_text
+        assert "apply again to establish ownership" in help_text
+        assert "Do not delete provider directories or the ownership manifest" in help_text
+        # Follow the documented recovery, without deleting any output or state.
+        source.write_text(PRODUCT)
     monkeypatch.setattr(plan.Tree, "replace", original)
     if defect == "late-discovery":
         (consumer / ".codex/skills").rmdir()
     assert invoke(monkeypatch, consumer) == 0
+    if defect == "partial_crash_then_source_change":
+        source.write_text(desired)
+        assert invoke(monkeypatch, consumer) == 0
+        assert (consumer / ".agents/skills/product/SKILL.md").read_text() == desired
     assert invoke(monkeypatch, consumer, check=True) == 0
 
 

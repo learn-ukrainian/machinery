@@ -285,7 +285,9 @@ def test_wheel_only_deployer_isolation_idempotency_and_false_green(release):
                 for key in requirement["path"][:-1]:
                     node = node.setdefault(key, {})
                 node.setdefault(requirement["path"][-1], []).append(
-                    {**requirement["group"], "hooks": requirement["hooks"]})
+                    {**requirement["group"], "hooks": [
+                        {**hook, "statusMessage": "Checking consumer session state"}
+                        for hook in requirement["hooks"]]})
             path = source / "settings.json" if provider == "claude" else consumer / "agents_extensions/codex/hooks.json"
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(json.dumps(data))
@@ -295,6 +297,9 @@ def test_wheel_only_deployer_isolation_idempotency_and_false_green(release):
     assert (consumer / ".agents/skills/consumer/SKILL.md").read_text() == "---\nname: consumer\ndescription: Consumer example\n---\nRead this example.\n"
     assert not (consumer / ".claude/rules/core.md").exists()
     assert not (consumer / ".codex/skills").exists()
+    codex_hooks = json.loads((consumer / ".codex/hooks.json").read_text())["hooks"]
+    assert all(hook["statusMessage"] == "Checking consumer session state"
+               for groups in codex_hooks.values() for group in groups for hook in group["hooks"])
     hook = consumer / ".claude/hooks/enforce-venv.sh"
     assert hook.stat().st_mode & 0o777 == 0o755
     assert (consumer / ".agent/rules/core-part-01.md").read_text().startswith("---\ntrigger: always_on\n")

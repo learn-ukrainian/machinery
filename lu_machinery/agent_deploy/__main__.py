@@ -18,6 +18,13 @@ def main() -> int:
   .venv/bin/python -I -m lu_machinery.agent_deploy --project-root /work/project --check
 Outputs: enabled provider files and .deploy-state/agent-deploy.v1.json; check writes nothing.
 Exit codes: 0 verified/applied; 1 drift or application failure; 2 invalid/unsafe input.
+Recovery after an interrupted fresh apply followed by source edits:
+  Keep a copy of the desired source edits. Restore the product sources and installed
+  release used by the interrupted apply, then apply again to establish ownership.
+  Restore the desired source edits/release, apply again, and run --check.
+  Do not delete provider directories or the ownership manifest: they may contain
+  consumer files. If the interrupted inputs are unavailable, stop and reconcile
+  differing unowned outputs individually against a trusted backup before retrying.
 Related: agents_extensions/deployment.v1.json; machinery #100.""",
     )
     parser.add_argument("--project-root", default=None, help="Absolute consumer Git root, e.g. /work/project; default: LU_PRODUCT_ROOT, otherwise refuse")
