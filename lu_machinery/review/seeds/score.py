@@ -53,9 +53,6 @@ from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
 
-if __package__ in (None, ""):  # run as a file: put the repository root on sys.path
-    sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
-
 try:
     from lu_machinery.lib.readonly_sqlite import SQLiteConnection, open_readonly
 except ModuleNotFoundError as exc:
@@ -68,7 +65,6 @@ except ModuleNotFoundError as exc:
 from lu_machinery.review import findings_db
 from lu_machinery.review.seeds import manifest as seed_manifest
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
 REPORT_DIR = ("audit", "reviewer-measurement")
 EXPLORATORY_TITLE = "EXPLORATORY — not for choosing a threshold"
 
@@ -828,7 +824,7 @@ def render_report(score: SeatScore, paired: dict[str, Any] | None = None) -> str
 
 def report_path(seat: str, day: date, repo_root: Path | None = None) -> Path:
     """``audit/reviewer-measurement/<date>-<seat>/REPORT.md``: where the runner writes the report."""
-    base = Path(repo_root) if repo_root is not None else REPO_ROOT
+    base = findings_db.batch_root(repo_root)
     return base.joinpath(*REPORT_DIR, f"{day.isoformat()}-{seat}", "REPORT.md")
 
 
