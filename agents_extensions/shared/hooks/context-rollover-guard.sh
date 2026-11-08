@@ -38,7 +38,14 @@ SESSION_ID=$(printf '%s' "$INPUT" | jq -r '.session_id // empty' 2>/dev/null)
 [ -z "$SESSION_ID" ] && SESSION_ID="${LEARN_UKRAINIAN_SESSION_ID:-}"
 [ -z "$SESSION_ID" ] && exit 0
 case "$SESSION_ID" in */*|*..*) exit 0 ;; esac
-PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$(cd "$(dirname "$0")/../.." && pwd)}"
+# The project is configured (CLAUDE_PROJECT_DIR from the harness, else
+# LU_PRODUCT_ROOT), never derived from this file's location: an installed
+# release lives in site-packages, not in the project (machinery #100, R51).
+PROJECT_DIR="${CLAUDE_PROJECT_DIR:-${LU_PRODUCT_ROOT:-}}"
+case "$PROJECT_DIR" in
+  /*) [ -d "$PROJECT_DIR" ] || { echo "context-rollover-guard.sh: project root $PROJECT_DIR is not a directory" >&2; exit 1; } ;;
+  *) echo "context-rollover-guard.sh: no project root: set CLAUDE_PROJECT_DIR or LU_PRODUCT_ROOT to an absolute checkout path" >&2; exit 1 ;;
+esac
 
 RECORD_FILE=$(context_session_record_file "$PROJECT_DIR" "$SESSION_ID")
 [ -f "$RECORD_FILE" ] && [ ! -L "$RECORD_FILE" ] || exit 0

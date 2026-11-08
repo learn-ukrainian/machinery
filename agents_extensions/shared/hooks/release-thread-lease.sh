@@ -34,7 +34,14 @@ if [ -n "$CLAUDE_NON_INTERACTIVE" ] || [ -n "$LEARN_UKRAINIAN_PIPELINE" ] || [ -
   exit 0
 fi
 
-PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$(cd "$(dirname "$0")/../.." && pwd)}"
+# The project is configured (CLAUDE_PROJECT_DIR from the harness, else
+# LU_PRODUCT_ROOT), never derived from this file's location: an installed
+# release lives in site-packages, not in the project (machinery #100, R51).
+PROJECT_DIR="${CLAUDE_PROJECT_DIR:-${LU_PRODUCT_ROOT:-}}"
+case "$PROJECT_DIR" in
+  /*) [ -d "$PROJECT_DIR" ] || { echo "release-thread-lease.sh: project root $PROJECT_DIR is not a directory" >&2; exit 1; } ;;
+  *) echo "release-thread-lease.sh: no project root: set CLAUDE_PROJECT_DIR or LU_PRODUCT_ROOT to an absolute checkout path" >&2; exit 1 ;;
+esac
 # Canonical checkout owns the shared venv — linked worktrees have none
 # (F001 r5 on #5896: the PROJECT_DIR default silently skipped this hook in
 # every worktree session). Derivation must run BEFORE the interpreter pick.
