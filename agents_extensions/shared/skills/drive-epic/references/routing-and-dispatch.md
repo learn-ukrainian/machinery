@@ -87,26 +87,8 @@ Fixation on one practical seat while free lanes sit idle = utilization failure
 
 Freeze the exact prompt before presenting or routing it. Record its SHA-256, user-visible
 outcome, real-world or source denominator, non-goals, role map, independent held-out evaluation,
-stop/residual policy, and completion vocabulary. For high-stakes domain work, obtain a
-domain-fit review and a distinct adversarial scope/circularity critique; for smaller
-consequential work, obtain at least one fast critic. A genuinely trivial bounded prompt is
-explicitly exempt. The prompt author counts as neither reviewer. Choose these roles from live
-`model-assignment.md` routing, not a
-permanent reviewer identity; collect explicit checklist verdicts/findings and reconcile them
-before dispatch.
-
-Bind each checklist verdict and the author's finding reconciliation to the frozen
-prompt SHA-256. A FAIL blocks dispatch: revise the packet, freeze its new SHA-256,
-and obtain a fresh critique of the new SHA-256 from the same critic set required
-above before dispatch. After two FAIL rounds
-on one artifact, state the stopping rule, change the approach, and record any
-approved residual with its owner and reopen condition. Keep the denominator and
-every valid gate; reducing mission scope still requires the approval below.
-
-Re-review after a material change to outcome, scope, denominator, role map, acceptance
-criteria, or independent evaluation. A non-goal that shrinks the actual mission needs
-operator/advisor approval. Prompt review is pre-dispatch quality control only: it never
-replaces exact-head implementation review or the cross-family PR review gate. Discovery,
+stop/residual policy, and completion vocabulary. A non-goal that shrinks the actual mission
+needs operator/advisor approval. Discovery,
 seeds, prototypes, schemas, transport checks, and self-authored canaries may prove research or
 engine readiness, never product completion. On handback, name the verified user-visible outcome,
 denominator, held-out proof, and residual gap. For normative language evidence, establish the
@@ -169,7 +151,7 @@ real CLI is intended, evidence for each attack class uses the real tool as the o
 its version pinned.
 Reviewers keep their own independent adversarial cases; the author's matrix does not replace
 review. After a rejected review round the author continues only within the
-[review budget](../../review-loop/references/policy.md#budget). A contested decision
+[review policy](../../review-loop/references/policy.md#4-convergence). A contested decision
 or a fragile or high-risk fix escalates per the rules core P6.
 
 Write every brief so pytest basetemp, probe copies, and report copies go to the

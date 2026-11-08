@@ -1,0 +1,7 @@
+# #10608: empty until baseline evidence and designated admission approval exist.
+# Each entry: node_id, fix_issue, owner, admitted_on, expires_on,
+# observed_run_ids, equivalent_coverage (other exact node: behavior explanation),
+# admission_approval (repair-issue comment ID), renewals (0 or 1),
+# and renewed_on for a renewal. See docs/runbooks/flake-quarantine.md.
+# CI verifies changed admissions online; pytest lint remains offline.
+entries: []
