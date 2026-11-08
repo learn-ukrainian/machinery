@@ -1283,21 +1283,6 @@
       "message": "Need type annotation for \"seen\" (hint: \"seen: set[<type>] = ...\")"
     },
     {
-      "path": "lu_machinery/ai_agent_bridge/measure_cold_start.py",
-      "code": "attr-defined",
-      "message": "Module \"os\" does not explicitly export attribute \"sys\""
-    },
-    {
-      "path": "lu_machinery/ai_agent_bridge/measure_cold_start.py",
-      "code": "attr-defined",
-      "message": "Module \"os\" does not explicitly export attribute \"sys\""
-    },
-    {
-      "path": "lu_machinery/ai_agent_bridge/measure_cold_start.py",
-      "code": "attr-defined",
-      "message": "Module \"os\" does not explicitly export attribute \"sys\""
-    },
-    {
       "path": "lu_machinery/ai_agent_bridge/monitor_client.py",
       "code": "no-any-return",
       "message": "Returning Any from function declared to return \"dict[str, Any]\""

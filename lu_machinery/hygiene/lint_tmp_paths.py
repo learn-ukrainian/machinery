@@ -1498,11 +1498,6 @@ ALLOWLIST: tuple[tuple[str, str, str], ...] = (
         "1c57c0f6ac43dd4fc0b4f4baba7647ce4221086b52f0e6b4700ff406bee6dcb6:1 6d5be74edda0bef1c874b37524180a9d00e74786df83c224eeb3f0886d1eddb0:1 de38a4b3d27869748216e8d8b2b660b8a1fab17ddb59a80dc44d7689f7f26715:1",
     ),
     (
-        _mp("storage/install_data_volume_dropins.py"),
-        "Legacy literal/default/example; follow-up outside this bounded packet (#9702).",
-        "555147d6feaab79ab3052f2cc60928944aa8adfd6f9a30beff6b67a8fee2da8f:1",
-    ),
-    (
         _mp("storage/paths.py"),
         "Existing literal or temp producer exposed by expanded lint; migration tracked in #9702.",
         "32a439e034e2413660306849879079698906485d55b251cee04fdaa6288b5f87:1",
