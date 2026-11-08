@@ -491,3 +491,52 @@ def test_codex_entry_hands_hooks_the_payload_project(release, product):
     )
     assert marker.read_text() == "ok", result.stderr
     assert not (release / ".githooks").exists()
+
+
+def test_codex_entry_audit_child_keeps_the_tree_off_sys_path(product, tmp_path):
+    """Tree root on sys.path: the audit child imported a stdlib-named file from it (#161 F1)."""
+    tree = tmp_path / "tree"
+    shutil.copytree(
+        SOURCE / "lu_machinery",
+        tree / "lu_machinery",
+        ignore=shutil.ignore_patterns("__pycache__"),
+    )
+    shutil.copytree(
+        SOURCE / HOOKS, tree / HOOKS, ignore=shutil.ignore_patterns("__pycache__")
+    )
+    marker = tmp_path / "planted"
+    # repo_root imports dataclasses late, after the audit has started.
+    (tree / "dataclasses.py").write_text(
+        f"open({str(marker)!r}, 'w').write('loaded')\nraise ImportError('plant')\n"
+    )
+    (product / ".venv/bin").mkdir(parents=True)
+    (product / ".venv/bin/python").symlink_to(sys.executable)
+    (product / ".git/info/exclude").write_text(
+        ".venv/\n"
+    )  # a clean product: no dirt to report
+    payload = {
+        "tool_name": "Bash",
+        "tool_input": {"command": "true"},
+        "hook_event_name": "PostToolUse",
+        "session_id": "f1",
+        "tool_use_id": "f1-call",
+        "cwd": str(product),
+    }
+    result = subprocess.run(
+        [
+            "bash",
+            str(tree / "lu_machinery/agent_runtime/codex_hook_entry.sh"),
+            "post-tool-use",
+        ],
+        input=json.dumps(payload),
+        text=True,
+        capture_output=True,
+        cwd=product,
+        env={
+            "PATH": os.environ["PATH"],
+            "HOME": str(tmp_path),
+            "LU_PRODUCT_ROOT": str(product),
+        },
+    )
+    assert not marker.exists(), result.stderr
+    assert result.returncode == 0, result.stderr
