@@ -258,11 +258,14 @@ launcher_drop_unneeded_secrets() {
   if [ -z "${LC_DURABLE_HELPER_ROOT:-}" ] || [ ! -x "$py" ]; then
     return 0
   fi
-  if ! "$py" -m lu_machinery.agent_runtime.env_sanitize --provider "$LC_PROVIDER" --check-helper; then
+  # Pin the sanitizer to this machinery tree; neither cwd nor ambient PYTHONPATH selects it.
+  if ! PYTHONPATH="${LC_MACHINERY_DIR%/*}" "$py" -P -m "${LC_MACHINERY_PACKAGE}.agent_runtime.env_sanitize" \
+    --provider "$LC_PROVIDER" --check-helper; then
     launcher_error "could not drop unneeded API keys"
     return 1
   fi
-  LC_CHILD_ENV_COMMAND+=("$py" -m lu_machinery.agent_runtime.env_sanitize --provider "$LC_PROVIDER" --harness "${LC_HARNESS:-}")
+  LC_CHILD_ENV_COMMAND+=("PYTHONPATH=${LC_MACHINERY_DIR%/*}" "$py" -P -m "${LC_MACHINERY_PACKAGE}.agent_runtime.env_sanitize"
+    --provider "$LC_PROVIDER" --harness "${LC_HARNESS:-}")
   if [ "${LC_MODE:-}" = driver ]; then
     LC_CHILD_ENV_COMMAND+=(--driver-launcher)
   fi
