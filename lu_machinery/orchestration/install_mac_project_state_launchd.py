@@ -44,7 +44,12 @@ def wrapper_path() -> Path:
 def build_plist(*, repo_root: Path, home: Path, interval_minutes: int) -> dict[str, Any]:
     return {
         "Label": LABEL,
-        "EnvironmentVariables": {"PATH": LAUNCHD_PATH},
+        # The root anchors, as the systemd units set them: launchd passes no other environment.
+        "EnvironmentVariables": {
+            "PATH": LAUNCHD_PATH,
+            "LEARN_UKRAINIAN_PRIMARY_REPO_ROOT": str(repo_root),
+            "LU_PRODUCT_ROOT": str(repo_root),
+        },
         "LowPriorityIO": True,
         "ProcessType": "Background",
         "ProgramArguments": [

@@ -159,7 +159,12 @@ def build_plist(*, repo_root: Path) -> dict[str, object]:
         "KeepAlive": {"SuccessfulExit": False},
         # launchd applies this between restarts, preventing a crash-loop spin.
         "ThrottleInterval": THROTTLE_INTERVAL_SECONDS,
-        "EnvironmentVariables": {"PATH": _LAUNCHD_PATH},
+        # The root anchors, as the systemd units set them: launchd passes no other environment.
+        "EnvironmentVariables": {
+            "PATH": _LAUNCHD_PATH,
+            "LEARN_UKRAINIAN_PRIMARY_REPO_ROOT": str(root),
+            "LU_PRODUCT_ROOT": str(root),
+        },
         "StandardOutPath": str(_launchd_stdout_path(root)),
         "StandardErrorPath": str(_launchd_stderr_path(root)),
         "WorkingDirectory": str(root),

@@ -99,7 +99,7 @@ interpreter does not select the primary checkout's Python modules.
    The dispatcher refuses a review past the PR's round budget, counting every review dispatched
    for the PR whether or not its verdict was recorded ([policy](references/policy.md#recording-the-verdict)).
    For a code or infra review, `--require-review-verdict` binds
-   `schemas/code-review-findings.v1.schema.json` on a provider that accepts a schema. The
+   `lu_machinery/schemas/code-review-findings.v1.schema.json` on a provider that accepts a schema. The
    brief asks for that object ([brief](references/brief.md#reply-format)). A provider that
    cannot take a schema gets one format correction in the same task before it settles; the
    correction cannot change the verdict, the findings, or their meaning. A Ukrainian review

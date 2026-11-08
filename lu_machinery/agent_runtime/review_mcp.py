@@ -100,7 +100,7 @@ from types import MappingProxyType
 from typing import Any
 
 from lu_machinery.agent_runtime.sources_read_only import sources_tool_sets
-from lu_machinery.common.repo_root import product_root, state_root
+from lu_machinery.common.repo_root import StateRootError, product_root, state_root
 from lu_machinery.common.safe_open import UnsafeEntryError, safe_open_below
 from lu_machinery.review.product_hooks import attempt_hooks
 from lu_machinery.review.render_contract import check_launch_contract, check_render_contract
@@ -355,8 +355,12 @@ def _open_receipts_root(root: Path, *, create: bool) -> int:
     never creates anything.
     """
     root = Path(os.path.abspath(root))
-    primary_root = state_root()
-    if root == primary_root / _DEFAULT_RECEIPTS_PARTS[0] / _DEFAULT_RECEIPTS_PARTS[1]:
+    try:
+        primary_root: Path | None = state_root()
+    except StateRootError:
+        # No state anchor, so this cannot be the default root: open it as an explicit one (#100 R16).
+        primary_root = None
+    if primary_root is not None and root == primary_root.joinpath(*_DEFAULT_RECEIPTS_PARTS):
         fd = os.open(primary_root, os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
         try:
             for name in _DEFAULT_RECEIPTS_PARTS:
@@ -932,12 +936,10 @@ def prepare_review_attempt(
     manifest_bytes = manifest_file.read_bytes()
     manifest_sha256 = hashlib.sha256(manifest_bytes).hexdigest()
 
-    primary_root = state_root()
-
     # The receipts root (default or explicit) is the trust anchor: verified itself, with
     # everything below it walked no-follow. Its ancestors are followed by design.
     if receipts_root is None:
-        base_dir = primary_root.joinpath(*_DEFAULT_RECEIPTS_PARTS)
+        base_dir = state_root().joinpath(*_DEFAULT_RECEIPTS_PARTS)
     else:
         base_dir = Path(os.path.abspath(receipts_root))
     review_dir = base_dir / review_id

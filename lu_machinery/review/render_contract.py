@@ -35,7 +35,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from lu_machinery.common.repo_root import project_interpreter
 from lu_machinery.lib import rules_core
 
 #: The sources server a review seat calls, relative to a checkout.
@@ -392,8 +391,8 @@ def check_render_contract(
 ) -> dict[str, Any]:
     """Refuse a review attempt whose prompt was rendered against other code than the attempt would run (#9163).
 
-    ``server_checkout`` is where the attempt's sources server launches, with ``interpreter`` (the project
-    interpreter by default). Compares the render record's server digest with that server's code now, and its
+    ``server_checkout`` is where the attempt's sources server launches, with ``interpreter`` (the running
+    interpreter by default, as ``review_mcp.sources_server_launch`` launches it). Compares the render record's server digest with that server's code now, and its
     template digest with the render checkout's loaded templates now. Returns the record the task stores: the
     digests compared, and the server components and interpreter ``check_launch_contract`` checks again at launch.
     """
@@ -419,7 +418,7 @@ def check_render_contract(
             f"{prompt_sha256}, its render record names {recorded['prompt_sha256']}; {_RERENDER} (#9163)"
         )
     server = Path(server_checkout).resolve()
-    python = Path(interpreter) if interpreter is not None else project_interpreter()
+    python = Path(interpreter) if interpreter is not None else Path(sys.executable)
     code = server_code(server)
     try:
         render_code = server_code(Path(recorded["render_checkout"]))

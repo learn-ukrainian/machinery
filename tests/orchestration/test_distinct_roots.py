@@ -234,7 +234,8 @@ def test_dispatch_targets_state_and_slug_follow_the_configuration(monkeypatch, l
     args = SimpleNamespace(content="review", task_id="root-probe", review=True, repo=repo, branch="feature")
     with pytest.raises(_Execed):
         _cli._handle_acp_compat(args, "claude")
-    assert resolve.call_args.args[0] == layout["primary"]
+    # The default key resolves from the product checkout, as dispatch does; siblings from the state root.
+    assert resolve.call_args.args[0] == (layout["product"] if repo == "public" else layout["primary"])
 
     from lu_machinery.ai_agent_bridge import _dispatch_wrappers as bridge
 
