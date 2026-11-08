@@ -26,8 +26,6 @@ def _mod(*parts: str) -> str:
     return ".".join((_machinery_top(), *parts))
 
 
-ROOT = Path(__file__).resolve().parents[2]
-DATA_ROOT = ROOT / "data"
 _NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 
@@ -73,9 +71,14 @@ def checked_destination(repo: Path, relative: str, root: str) -> Path:
     return current
 
 
-def artifact_store_root(repo: Path = ROOT) -> Path:
-    """Return the host store, shared by all worktrees of this checkout."""
-    return _cached_store_root(repo.resolve(), os.environ.get("LU_ARTIFACT_STORE"))
+def artifact_store_root(repo: Path | None = None) -> Path:
+    """Return the host store, shared by all worktrees of the configured product checkout.
+
+    ``repo`` is an explicit product root, else ``LU_PRODUCT_ROOT``; the installed package
+    refuses (``ProductRootError``) when neither is set, and never derives a root from its
+    own install location.
+    """
+    return _cached_store_root(product_root(repo).resolve(), os.environ.get("LU_ARTIFACT_STORE"))
 
 
 @lru_cache(maxsize=64)

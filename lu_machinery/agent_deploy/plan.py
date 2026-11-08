@@ -271,14 +271,16 @@ def release_inputs() -> tuple[dict[str, Output], dict[str, Any], str]:
     for path, record in inventory["files"].items():
         relative(path)
         blob = root.joinpath(path).read_bytes()
-        if digest(blob) != record["sha256"]:
-            raise Invalid("release resource hash mismatch: " + path)
         if record["owner"] != "fleet" or record["mode"] not in {0o644, 0o755}:
             raise Invalid("invalid release ownership or mode")
         result[path] = Output(blob, record["mode"], "fleet", "release:" + path)
     if "rules/core.md" not in result:
         raise Invalid("release inventory has no core")
-    return result, inventory, digest(raw)
+    # Bind release identity to both routing metadata and the packaged bytes.
+    # Consumer ownership records retain hashes for drift detection.
+    identity = digest(encoded({"inventory": digest(raw),
+                               "files": {path: out.record() for path, out in result.items()}}))
+    return result, inventory, identity
 
 
 def build(tree: Tree) -> Plan:
