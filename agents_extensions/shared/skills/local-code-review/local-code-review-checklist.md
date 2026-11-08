@@ -346,9 +346,11 @@ done. For `mode=local` the working tree alone is the signal:
 For `mode=commit`/`branch`/`pr`, fixes land as **commits**, not working-tree
 changes — a clean tree after committing a fix proves nothing. Pass the
 reviewed head explicitly (typically `HEAD` right after committing the fix)
-so the breaker re-diffs the frozen `base_sha` against the real post-fix
-state instead of silently seeing "nothing changed". The diff runs in the
-repository stored by `target`; `--repo-root` is only the fallback when that
+so the breaker measures the committed post-fix state. Branch and PR modes
+measure from the merge base with the stored base branch, excluding changes
+integrated from that branch. PR mode uses its origin tracking ref. Commit
+mode measures from the frozen parent. The diff runs in the repository
+stored by `target`; `--repo-root` is only the fallback when that
 stored root is absent. After `target --repo public --repo-root .` from a
 linked worktree, this command measures that worktree's `HEAD`:
 
