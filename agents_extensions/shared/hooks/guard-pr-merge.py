@@ -103,14 +103,6 @@ if __name__ == "__main__":
 _MERGE_GUARD_MODULE = "lu_machinery.publish.merge_guard"
 _PUBLISHER = _MERGE_GUARD_MODULE.rpartition(".")[0]
 
-# The checkout that owns this hook; the machinery imports below come only from it.
-_MACHINERY_ROOT = next(
-    (parent for parent in Path(__file__).resolve().parents if parent.joinpath(*_PUBLISHER.split(".")).is_dir()),
-    None,
-)
-if _MACHINERY_ROOT is not None:
-    sys.path.insert(0, str(_MACHINERY_ROOT))
-
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 # Don't write __pycache__ next to deployed hooks (#9108).
 sys.dont_write_bytecode = True
@@ -132,12 +124,10 @@ except Exception as exc:
     print(f"guard dependency unavailable: shell_redirects ({exc})", file=sys.stderr)
     raise SystemExit(2) from exc
 
-if _MACHINERY_ROOT is None:
-    # No owning checkout: never import the merge rules from elsewhere on sys.path.
-    print("guard dependency unavailable: merge readiness", file=sys.stderr)
-    raise SystemExit(2)
-
 try:
+    from lu_machinery.common.repo_root import product_root
+
+    product_root()
     from lu_machinery.ci.advisory_checks import is_advisory as is_advisory
     from lu_machinery.common.github_client import _gh_api_call
     from lu_machinery.publish.merge_guard import (
@@ -160,8 +150,8 @@ try:
     from lu_machinery.publish.merge_guard import (
         _rollup_value as _rollup_value,
     )
-except ImportError:
-    print("guard dependency unavailable: merge readiness", file=sys.stderr)
+except (ImportError, ValueError):
+    print("guard dependency unavailable: merge readiness or product root", file=sys.stderr)
     raise SystemExit(2) from None
 
 

@@ -21,14 +21,6 @@ except Exception:
     raise SystemExit(2) from None
 
 
-# The publication gate, by import name. This hook is outside the machinery package: under the
-# checkout that owns it, the gate's package is the directory of the same dotted path, and the
-# name's first component is the machinery package's directory, which holds the gh shim.
-_GATE_MODULE = "lu_machinery.opsec.prepublish"
-_GATE_PACKAGE_PATH = Path(*_GATE_MODULE.split(".")[:-1])
-_SHIM_PATH = Path(_GATE_MODULE.partition(".")[0], "agent_runtime", "shims")
-
-
 def _shell_words(command: str) -> list[str]:
     lexer = shlex.shlex(command, posix=True, punctuation_chars=";|&()\n")
     lexer.whitespace = " \t\r"
@@ -120,14 +112,15 @@ def main() -> int:
 
         if not is_shell_tool(payload.get("tool_name")):
             return 0
-        root = next(parent for parent in Path(__file__).resolve().parents if (parent / _GATE_PACKAGE_PATH).is_dir())
-        sys.path.insert(0, str(root))
+        from lu_machinery.common.repo_root import machinery_path, product_root
+
+        product_root()
         from lu_machinery.opsec.prepublish import PublishBlocked, real_gh
 
         command = payload.get("tool_input", {}).get("command", "")
         if not invokes_gh(command):
             return 0
-        shim = str(root / _SHIM_PATH)
+        shim = str(machinery_path("agent_runtime/shims"))
         if os.environ.get("PATH", "").split(os.pathsep)[0] == shim:
             return 0
         prefix = "export PATH=" + shlex.quote(shim) + ':"$PATH"; '

@@ -210,21 +210,7 @@ def _package_init_files(module: str) -> tuple[str, ...]:
 
 
 def _load_containment():
-    """Import ``scripts.guardrails.worktree_containment`` from any launch dir.
-
-    The hook runs from a deployed copy (``<root>/.{claude,codex,agent}/hooks/``)
-    or from source (``agents_extensions/shared/hooks/``); in both the repo root
-    that owns ``scripts/`` is an ancestor. Walk upward for it and put it on
-    ``sys.path``. The caller blocks if containment cannot be loaded.
-    """
-    here = Path(__file__).resolve()
-    marker = _module_file(_CONTAINMENT_MODULE)
-    root = next((c for c in (here.parent, *here.parents) if (c / marker).exists()), None)
-    if root is None:
-        # No owning checkout: never import containment from elsewhere on sys.path.
-        return None
-    # The owning checkout comes first, even when PYTHONPATH already lists it later.
-    sys.path[:] = [str(root), *(entry for entry in sys.path if entry != str(root))]
+    """Load the installed containment implementation, never product-owned code."""
     try:
         from lu_machinery.guardrails import worktree_containment as wc
     except Exception:  # pragma: no cover - defensive import failure
@@ -233,8 +219,10 @@ def _load_containment():
 
 
 def _protected_repo_anchor() -> Path:
-    """The source or deployed hook location identifies its owning repository."""
-    return Path(__file__).resolve().parent
+    """The configured product, never the release directory containing this hook."""
+    from lu_machinery.common.repo_root import product_root
+
+    return product_root()
 
 
 # ---------------------------------------------------------------------------
@@ -2647,13 +2635,16 @@ def _sibling_git_invocation(command: str, cwd: str) -> bool:
         return False
     try:
         words = shlex.split(command)
-        root = next(p for p in Path(__file__).resolve().parents
-                    if (p / _module_file(_CONTAINMENT_MODULE)).is_file())
+        from lu_machinery.common.repo_root import product_root
+
+        root = product_root().resolve(strict=True)
         execution = Path(cwd)
         if not execution.is_absolute() or execution.resolve(strict=True) != root:
             return False
+        from lu_machinery.common.repo_root import machinery_root
+
         for relative in _package_init_files(_SIBLING_GIT_MODULE):
-            source = root / relative
+            source = machinery_root().parent / relative
             if not source.is_file() or source.resolve(strict=True) != source:
                 return False
         marker = root / ".git"
@@ -2755,6 +2746,12 @@ def _main() -> int:
     if wc is None:
         return _block_uncertain("containment_unavailable")
 
+    try:
+        protected_anchor = _protected_repo_anchor()
+        wc.resolve_main_root(protected_anchor)
+    except Exception:
+        return _block_uncertain("product_root_unavailable")
+
     # The cwd may be outside Git while an absolute target still names the
     # protected checkout. In that case classify each resolved target below.
     main_root = None
@@ -2781,7 +2778,7 @@ def _main() -> int:
         try:
             for intent in git_intents:
                 summary = str(intent.get("summary") or "git write")
-                intent_root = wc.resolve_main_root(_protected_repo_anchor())
+                intent_root = wc.resolve_main_root(protected_anchor)
                 options = intent.get("git_options") or []
                 redirects = set(wc.GIT_REDIRECT_ENV_KEYS)
                 environment = intent.get("git_environment") or frozenset()

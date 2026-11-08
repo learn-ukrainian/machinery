@@ -37,7 +37,6 @@ Allowed in the MAIN worktree:
 
 from __future__ import annotations
 
-import importlib.util
 import json
 import os
 import re
@@ -117,73 +116,33 @@ def _git_probe_env() -> dict[str, str]:
     return env
 
 
-def _public_primary_root() -> Path:
-    """Find this source tree's primary checkout, even when run from a worktree."""
-    source_root = Path(__file__).resolve().parents[2]
-    try:
-        common_dir = subprocess.run(
-            ["git", "rev-parse", "--path-format=absolute", "--git-common-dir"],
-            cwd=source_root,
-            capture_output=True,
-            text=True,
-            check=True,
-            env=_git_probe_env(),
-        ).stdout.strip()
-    except (subprocess.CalledProcessError, FileNotFoundError):
-        return source_root
-    return Path(common_dir).resolve().parent
-
-
 class RootsConfigurationError(Exception):
-    """The machinery roots configuration names a primary checkout that cannot be used."""
+    """The configured checkout authority cannot be resolved."""
 
 
-def _configured_primary_root() -> Path | None:
-    """The primary checkout named by the machinery roots configuration, else ``None``.
-
-    Read through ``scripts/common/repo_root.py`` of this hook's own source tree, the
-    one reader of ``LEARN_UKRAINIAN_PRIMARY_REPO_ROOT`` (#12681). Unset or empty, the
-    reader is not loaded at all, so the guard behaves exactly as without the
-    configuration. A value the reader refuses, or a set value with no reader beside
-    this hook, raises, so the command is blocked rather than judged against the
-    wrong checkout.
-    """
-    if not os.environ.get("LEARN_UKRAINIAN_PRIMARY_REPO_ROOT"):
-        return None
-    here = Path(__file__).resolve()
-    reader_file = Path(*_ROOTS_READER_MODULE.split(".")).with_suffix(".py")
-    reader = next(
-        (candidate / reader_file for candidate in here.parents if (candidate / reader_file).is_file()),
-        None,
-    )
-    if reader is None:
-        raise RootsConfigurationError("LEARN_UKRAINIAN_PRIMARY_REPO_ROOT is set but no roots reader is installed")
-    name = "_guard_branch_switch_repo_root"
+def _public_primary_root() -> Path:
+    """Protect the product primary, independent of the installed hook location."""
     try:
-        module = sys.modules.get(name)
-        if module is None:
-            spec = importlib.util.spec_from_file_location(name, reader)
-            if spec is None or spec.loader is None:
-                raise ImportError(f"cannot load {reader}")
-            module = importlib.util.module_from_spec(spec)
-            # Registered before it runs: its dataclass looks its module up by name.
-            sys.modules[name] = module
-            try:
-                spec.loader.exec_module(module)
-            except BaseException:
-                sys.modules.pop(name, None)
-                raise
-        return module.configured_primary_root()
+        from lu_machinery.common.repo_root import product_root
+        from lu_machinery.guardrails.worktree_containment import resolve_main_root
+
+        return resolve_main_root(product_root())
     except Exception as exc:
         raise RootsConfigurationError(str(exc)) from exc
 
 
-# This deployed public hook is also the only branch guard for the private
-# infrastructure checkout. Resolve both roots so symlinked invocations compare
-# the actual checkout directories, not their textual spellings. A configured
-# primary checkout is protected too; the Git-derived one stays protected, so the
-# configuration never removes a protected root. Resolved on first use: most
-# commands never reach a branch verb, and the lookup spawns git.
+def _configured_primary_root() -> Path | None:
+    try:
+        from lu_machinery.common.repo_root import configured_primary_root
+
+        return configured_primary_root()
+    except Exception as exc:
+        raise RootsConfigurationError(str(exc)) from exc
+
+
+# Protect the configured product primary and any explicitly configured state
+# primary. The private infrastructure checkout retains its existing protection.
+# Resolve on first use because ordinary commands never reach a branch verb.
 PROTECTED_ROOTS: list[Path] | None = None
 
 
