@@ -358,7 +358,7 @@ def _validate_matrix_semantics(matrix: Mapping[str, Any], repo_root: Path) -> No
 
 
 def load_matrix(*, repo_root: Path | None = None, matrix_path: Path = DEFAULT_MATRIX_PATH) -> dict[str, Any]:
-    repo_root = product_root(repo_root)
+    repo_root = repo_root or product_root()
     readiness_gates()  # every pilot operation loads the matrix: refuse first when the gates are unavailable
     path = _repository_backed_file(repo_root, matrix_path)
     matrix = _read_yaml(path)
@@ -564,7 +564,7 @@ def build_shadow_report(
     repo_root: Path | None = None,
     matrix_path: Path = DEFAULT_MATRIX_PATH,
 ) -> dict[str, Any]:
-    repo_root = product_root(repo_root)
+    repo_root = repo_root or product_root()
     matrix_file = _repository_backed_file(repo_root, matrix_path)
     matrix = load_matrix(repo_root=repo_root, matrix_path=matrix_file)
     before = _learner_hashes(matrix, repo_root)
@@ -663,7 +663,7 @@ def validate_report_value(
 def load_report(
     path: Path, *, repo_root: Path | None = None, matrix_path: Path = DEFAULT_MATRIX_PATH
 ) -> dict[str, Any]:
-    repo_root = product_root(repo_root)
+    repo_root = repo_root or product_root()
     report = _read_json(path)
     matrix = load_matrix(repo_root=repo_root, matrix_path=matrix_path)
     validate_report_value(
@@ -698,7 +698,7 @@ def verify_authorization(
     repo_root: Path | None = None,
     matrix_path: Path = DEFAULT_MATRIX_PATH,
 ) -> dict[str, Any]:
-    repo_root = product_root(repo_root)
+    repo_root = repo_root or product_root()
     report = load_report(report_path, repo_root=repo_root, matrix_path=matrix_path)
     authorization = _read_json(authorization_path)
     _validate(

@@ -31,6 +31,7 @@ queue_pointer_ok, zombie_worktrees, df, plus supporting detail
 from __future__ import annotations
 
 import argparse
+import functools
 import json
 import re
 import shutil
@@ -400,6 +401,8 @@ def hygiene_check(
     disk_path = disk_path or main_checkout_root(product_root())
     repo_root = repo_root or main_checkout_root(product_root())
     dispatch_worktrees_root = dispatch_worktrees_root or main_checkout_root(product_root()) / ".worktrees" / "dispatch"
+    if reader is _gh_issue:
+        reader = functools.partial(_gh_issue, cwd=repo_root)
 
     try:
         epic_issue = reader(public_repo, public_epic)

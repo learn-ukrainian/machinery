@@ -347,7 +347,7 @@ def lint_fleet_roster(
     projection_paths: tuple[Path, ...] | list[Path] | None = None,
     project_root: Path | None = None,
 ) -> list[LintIssue]:
-    project_root = product_root(project_root)
+    project_root = project_root or product_root()
     if projection_paths is None:
         projection_paths = [project_root / relative for relative in DEFAULT_PROJECTION_PATHS]
     issues: list[LintIssue] = []

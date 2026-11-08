@@ -171,7 +171,7 @@ def _repository_name(repo_root: Path | None = None) -> str:
     try:
         remote = subprocess.run(
             ["git", "config", "--get", "remote.origin.url"],
-            cwd=product_root(repo_root),
+            cwd=repo_root or product_root(),
             check=True,
             capture_output=True,
             text=True,

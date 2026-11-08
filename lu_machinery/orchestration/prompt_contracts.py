@@ -313,7 +313,7 @@ def _source_identity(kind: str, source_id: str, path: Path, repo_root: Path) -> 
 
 
 def load_registry(*, repo_root: Path | None = None) -> dict[str, Any]:
-    repo_root = product_root(repo_root)
+    repo_root = repo_root or product_root()
     registry_path = _repo_file(repo_root, REGISTRY_PATH)
     schema = _load_json(_repo_file(repo_root, REGISTRY_SCHEMA_PATH))
     registry = _load_yaml(registry_path)
@@ -325,7 +325,7 @@ def load_registry(*, repo_root: Path | None = None) -> dict[str, Any]:
 
 
 def load_profiles(*, repo_root: Path | None = None) -> dict[str, Any]:
-    repo_root = product_root(repo_root)
+    repo_root = repo_root or product_root()
     schema = _load_json(_repo_file(repo_root, PROFILE_SCHEMA_PATH))
     profiles = _load_yaml(_repo_file(repo_root, PROFILE_PATH))
     _validate(profiles, schema, "prompt profiles")
@@ -350,7 +350,7 @@ def _repo_existing(repo_root: Path, relative: str | Path, label: str) -> Path:
 
 def load_legacy_migration(*, repo_root: Path | None = None) -> dict[str, Any]:
     """Load the hash-frozen legacy disposition and canonical owner registry."""
-    repo_root = product_root(repo_root)
+    repo_root = repo_root or product_root()
     migration = _load_yaml(_repo_file(repo_root, MIGRATION_PATH))
     schema = _load_json(_repo_file(repo_root, MIGRATION_SCHEMA_PATH))
     _validate(migration, schema, "legacy prompt migration")
@@ -437,7 +437,7 @@ def active_track_profiles(
     active_tracks: Mapping[str, str] | None = None,
 ) -> dict[str, str]:
     """Resolve exact semantic profiles from the active curriculum manifest."""
-    repo_root = product_root(repo_root)
+    repo_root = repo_root or product_root()
     profiles = load_profiles(repo_root=repo_root)
     try:
         return resolve_profile_selectors(
@@ -551,7 +551,7 @@ def resolve_prompt(
     profile_id: str | None = None,
     repo_root: Path | None = None,
 ) -> ResolvedPrompt:
-    repo_root = product_root(repo_root)
+    repo_root = repo_root or product_root()
     manifest, manifest_path, resolved_version = _load_manifest(
         prompt_id,
         version,
@@ -641,7 +641,7 @@ def resolve_profile(
     route: str = "tool-capable",
     repo_root: Path | None = None,
 ) -> ResolvedPrompt:
-    repo_root = product_root(repo_root)
+    repo_root = repo_root or product_root()
     profile = load_profiles(repo_root=repo_root)["profiles"].get(profile_id)
     if not isinstance(profile, Mapping):
         raise PromptContractError(f"prompt profile is not registered: {profile_id}")
@@ -664,7 +664,7 @@ def resolve_track_profile(
     repo_root: Path | None = None,
 ) -> ResolvedPrompt:
     """Resolve one active track through the manifest-derived profile map."""
-    repo_root = product_root(repo_root)
+    repo_root = repo_root or product_root()
     normalized = track.strip().lower()
     if context.get("track") != normalized:
         raise PromptContractError("prompt context track does not match requested active track")
@@ -675,14 +675,14 @@ def resolve_track_profile(
 
 
 def validate_output(resolved: ResolvedPrompt, payload: Mapping[str, Any], *, repo_root: Path | None = None) -> None:
-    repo_root = product_root(repo_root)
+    repo_root = repo_root or product_root()
     manifest, _, _ = _load_manifest(resolved.prompt_id, resolved.version, repo_root=repo_root)
     output_schema = _load_json(_repo_file(repo_root, manifest["output_schema"]))
     _validate(dict(payload), output_schema, "prompt output")
 
 
 def verify_record(record: Mapping[str, Any], *, repo_root: Path | None = None) -> ResolvedPrompt:
-    repo_root = product_root(repo_root)
+    repo_root = repo_root or product_root()
     required = set(ResolvedPrompt.__dataclass_fields__)
     if set(record) != required:
         raise PromptContractError("resolved prompt record has missing or extra fields")
@@ -712,7 +712,7 @@ def verify_record(record: Mapping[str, Any], *, repo_root: Path | None = None) -
 
 
 def audit_contracts(*, repo_root: Path | None = None) -> dict[str, Any]:
-    repo_root = product_root(repo_root)
+    repo_root = repo_root or product_root()
     registry = load_registry(repo_root=repo_root)
     prompt_versions: list[str] = []
     variants: list[str] = []
