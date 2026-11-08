@@ -91,11 +91,10 @@ def _project_python() -> Path:
     return project_interpreter()
 
 
-# The broker database, pid file and log under the shared state root. main() binds them
-# when it runs, never at import (C-4843).
-DB_PATH: Path
-PID_FILE: Path
-LOG_FILE: Path
+# The watcher's pid file and log, relative to the shared state root. Every use resolves
+# state_root() (C-4843), as the broker database does through default_bridge_db_path().
+WATCHER_PID = Path(".mcp/servers/message-broker/watcher.pid")
+WATCHER_LOG = Path(".mcp/servers/message-broker/watcher.log")
 
 # Timing configuration
 POLL_INTERVAL_SECONDS = 5  # How often to check for new messages
@@ -117,7 +116,7 @@ def _configure_logging() -> None:
         level=logging.INFO,
         format='%(asctime)s [%(levelname)s] %(message)s',
         handlers=[
-            logging.FileHandler(LOG_FILE),
+            logging.FileHandler(state_root() / WATCHER_LOG),
             logging.StreamHandler(),
         ],
     )
@@ -228,9 +227,10 @@ def _save_stuck_report(task_id: str, turn_count: int, last_msg: dict):
 
 def get_db():
     """Get database connection."""
-    if not DB_PATH.exists():
+    db_path = default_bridge_db_path(state_root())
+    if not db_path.exists():
         return None
-    return sqlite3.connect(DB_PATH)
+    return sqlite3.connect(db_path)
 
 
 def get_unread_messages(for_agent: str | None = None):
@@ -388,7 +388,7 @@ def run_watcher():
     """Main watcher loop."""
     logger.info("=" * 60)
     logger.info("Agent Watcher starting...")
-    logger.info(f"Database: {DB_PATH}")
+    logger.info(f"Database: {default_bridge_db_path(state_root())}")
     logger.info(f"Poll interval: {POLL_INTERVAL_SECONDS}s (idle: {IDLE_POLL_INTERVAL_SECONDS}s)")
     logger.info(f"Max turns per task: {MAX_TURNS_PER_TASK}")
     logger.info("=" * 60)
@@ -465,15 +465,17 @@ def run_watcher():
 
 def write_pid():
     """Write PID file for daemon mode."""
-    PID_FILE.parent.mkdir(parents=True, exist_ok=True)
-    PID_FILE.write_text(str(os.getpid()))
+    pid_file = state_root() / WATCHER_PID
+    pid_file.parent.mkdir(parents=True, exist_ok=True)
+    pid_file.write_text(str(os.getpid()))
 
 
 def read_pid() -> int:
     """Read PID from file."""
-    if PID_FILE.exists():
+    pid_file = state_root() / WATCHER_PID
+    if pid_file.exists():
         try:
-            return int(PID_FILE.read_text().strip())
+            return int(pid_file.read_text().strip())
         except (ValueError, OSError):
             pass
     return None
@@ -500,8 +502,9 @@ def stop_daemon():
             print(f"Sent SIGTERM to watcher (PID {pid})")
             # Wait for cleanup
             time.sleep(1)
-            if PID_FILE.exists():
-                PID_FILE.unlink()
+            pid_file = state_root() / WATCHER_PID
+            if pid_file.exists():
+                pid_file.unlink()
             return True
         except OSError as e:
             print(f"Error stopping daemon: {e}")
@@ -512,9 +515,11 @@ def stop_daemon():
 
 def show_status():
     """Show watcher status."""
-    print(f"Database: {DB_PATH}")
-    print(f"PID file: {PID_FILE}")
-    print(f"Log file: {LOG_FILE}")
+    state = state_root()
+    log_file = state / WATCHER_LOG
+    print(f"Database: {default_bridge_db_path(state)}")
+    print(f"PID file: {state / WATCHER_PID}")
+    print(f"Log file: {log_file}")
 
     agents = load_agent_config()
     print(f"Registered agents: {', '.join(agents.keys())}")
@@ -538,10 +543,10 @@ def show_status():
         print("\nNo pending messages")
 
     # Show recent log entries
-    if LOG_FILE.exists():
+    if log_file.exists():
         print("\nRecent log entries:")
         try:
-            with open(LOG_FILE) as f:
+            with open(log_file) as f:
                 lines = f.readlines()[-10:]
                 for line in lines:
                     print(f"  {line.rstrip()}")
@@ -558,11 +563,6 @@ def main():
     parser.add_argument("--once", action="store_true", help="Process one message and exit")
 
     args = parser.parse_args()
-    global DB_PATH, PID_FILE, LOG_FILE
-    state = state_root()
-    DB_PATH = default_bridge_db_path(state)
-    PID_FILE = state / ".mcp/servers/message-broker/watcher.pid"
-    LOG_FILE = state / ".mcp/servers/message-broker/watcher.log"
     _configure_logging()
 
     if args.status:
@@ -591,8 +591,9 @@ def main():
 
     # Handle cleanup on exit
     def cleanup(signum, frame):
-        if PID_FILE.exists():
-            PID_FILE.unlink()
+        pid_file = state_root() / WATCHER_PID
+        if pid_file.exists():
+            pid_file.unlink()
         logger.info("Watcher stopped")
         sys.exit(0)
 

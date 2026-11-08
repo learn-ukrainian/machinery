@@ -150,6 +150,10 @@ def _column_exists(conn: SQLiteConnection, table: str, column: str) -> bool:
 
 _EXPIRE_SWEEP_INTERVAL_S = 900.0  # 15 minutes
 _expire_sweep_lock = threading.Lock()
+# Serializes the callers that point the bridge's _config.DB_PATH at this router's broker DB
+# (the expiry sweep thread and comms_inbox), so an overlapping restore cannot drop or pin
+# another caller's override.
+_bridge_db_override_lock = threading.Lock()
 _expire_sweep_thread: threading.Thread | None = None
 
 
@@ -223,29 +227,31 @@ def _run_delivery_expiry_sweep(message_db: "os.PathLike[str]") -> None:
     # router's MonitorContext. Point it at the exact same broker DB this
     # router already resolved from the app's context so the sweep can never
     # land on a different file. Restoring drops the override (an earlier one
-    # is put back), so the attribute resolves at the call again.
-    previous_db_path = vars(_ch_config).get("DB_PATH")
-    _ch_config.DB_PATH = message_db
-    try:
-        released = _ch.release_expired_leases()
-        expired = _ch.expire_stale_deliveries()
-        dead_counts = _ch.bulk_expire_dead_lanes()
-        total_dead = sum(dead_counts.values())
-        if released or expired or total_dead:
-            logger.info(
-                "bridge delivery-expiry sweep: released=%d expired=%d dead_lane_expired=%d (%s)",
-                released,
-                expired,
-                total_dead,
-                dead_counts,
-            )
-    except Exception:
-        logger.exception("bridge delivery-expiry sweep failed")
-    finally:
-        if previous_db_path is None:
-            vars(_ch_config).pop("DB_PATH", None)
-        else:
-            _ch_config.DB_PATH = previous_db_path
+    # is put back), so the attribute resolves at the call again; the lock
+    # keeps overlapping callers from undoing each other's override.
+    with _bridge_db_override_lock:
+        previous_db_path = vars(_ch_config).get("DB_PATH")
+        _ch_config.DB_PATH = message_db
+        try:
+            released = _ch.release_expired_leases()
+            expired = _ch.expire_stale_deliveries()
+            dead_counts = _ch.bulk_expire_dead_lanes()
+            total_dead = sum(dead_counts.values())
+            if released or expired or total_dead:
+                logger.info(
+                    "bridge delivery-expiry sweep: released=%d expired=%d dead_lane_expired=%d (%s)",
+                    released,
+                    expired,
+                    total_dead,
+                    dead_counts,
+                )
+        except Exception:
+            logger.exception("bridge delivery-expiry sweep failed")
+        finally:
+            if previous_db_path is None:
+                vars(_ch_config).pop("DB_PATH", None)
+            else:
+                _ch_config.DB_PATH = previous_db_path
 
 
 def _parse_agent_csv(raw: str | None) -> list[str]:
@@ -1644,28 +1650,29 @@ def comms_inbox(
     # every other comms route (same save/restore discipline as the
     # delivery-expiry sweep below).
     message_db = ctx.roots.message_db_path
-    previous_db_path = vars(_bridge_config).get("DB_PATH")
-    _bridge_config.DB_PATH = message_db
-    try:
-        all_pending = pending_deliveries_for(agent)
-    except ValueError as exc:
-        # ``_validate_agent`` raises ValueError on unknown agent — treat
-        # as 400 so the caller can fix the query, not as 500.
-        error_id = uuid.uuid4().hex
-        logger.warning(f"Invalid agent in bridge query [{error_id}]: {exc}", exc_info=True)
-        return JSONResponse(status_code=400, content={"error": "invalid agent", "error_id": error_id})
-    except Exception:
-        error_id = uuid.uuid4().hex
-        logger.error(f"Bridge query failed [{error_id}]", exc_info=True)
-        return JSONResponse(
-            status_code=500,
-            content={"error": "bridge query failed", "error_id": error_id},
-        )
-    finally:
-        if previous_db_path is None:
-            vars(_bridge_config).pop("DB_PATH", None)
-        else:
-            _bridge_config.DB_PATH = previous_db_path
+    with _bridge_db_override_lock:
+        previous_db_path = vars(_bridge_config).get("DB_PATH")
+        _bridge_config.DB_PATH = message_db
+        try:
+            all_pending = pending_deliveries_for(agent)
+        except ValueError as exc:
+            # ``_validate_agent`` raises ValueError on unknown agent — treat
+            # as 400 so the caller can fix the query, not as 500.
+            error_id = uuid.uuid4().hex
+            logger.warning(f"Invalid agent in bridge query [{error_id}]: {exc}", exc_info=True)
+            return JSONResponse(status_code=400, content={"error": "invalid agent", "error_id": error_id})
+        except Exception:
+            error_id = uuid.uuid4().hex
+            logger.error(f"Bridge query failed [{error_id}]", exc_info=True)
+            return JSONResponse(
+                status_code=500,
+                content={"error": "bridge query failed", "error_id": error_id},
+            )
+        finally:
+            if previous_db_path is None:
+                vars(_bridge_config).pop("DB_PATH", None)
+            else:
+                _bridge_config.DB_PATH = previous_db_path
 
     total = len(all_pending)
     truncated = total > limit

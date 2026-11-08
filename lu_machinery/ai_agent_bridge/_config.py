@@ -12,7 +12,7 @@ _local_repo_root = Path(__file__).resolve().parents[2]
 if str(_local_repo_root) not in sys.path:
     sys.path.insert(0, str(_local_repo_root))
 
-from lu_machinery.common.bridge_paths import configured_bridge_db_path
+from lu_machinery.common.bridge_paths import default_bridge_db_path
 from lu_machinery.common.repo_root import product_root, state_root
 
 # The machinery package as the checkout names it (the unresolved name of the package
@@ -87,10 +87,13 @@ def __getattr__(name: str):
         return default_gemini_model()
     if name == "REPO_ROOT":
         return product_root(os.environ.get("AB_REPO_ROOT") or None)
+    # A set override wins without resolving the state root it replaces.
     if name == "DB_PATH":
-        return configured_bridge_db_path(state_root())
+        override = os.environ.get("AB_DB_PATH")
+        return Path(override) if override else default_bridge_db_path(state_root())
     if name == "PID_DIR":
-        return Path(os.environ.get("AB_PID_DIR", str(state_root() / ".mcp" / "servers" / "message-broker" / "pids")))
+        override = os.environ.get("AB_PID_DIR")
+        return Path(override) if override else state_root() / ".mcp" / "servers" / "message-broker" / "pids"
     if name == "_PARENT_ENV":
         # Environment for detached children. Use a narrow env so background bridge
         # processes do not inherit shell tokens that agents can print. Set

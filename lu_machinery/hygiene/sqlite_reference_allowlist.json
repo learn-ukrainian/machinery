@@ -995,7 +995,7 @@
     "target_db": "legacy broker DB",
     "reason": "updates watcher state",
     "calls": [
-      "sqlite3.connect(DB_PATH)"
+      "sqlite3.connect(db_path)"
     ]
   },
   {

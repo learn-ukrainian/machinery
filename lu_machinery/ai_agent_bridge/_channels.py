@@ -363,7 +363,7 @@ def context_sha256(path: Path) -> str:
     Paths must stay under the channel context root (CodeQL ``py/path-injection``
     barrier: ``os.path.realpath`` + ``startswith(root + os.sep)``).
     """
-    root_real = os.path.realpath(os.environ.get("AB_CONTEXT_DIR", str(_config.REPO_ROOT / "docs" / "agent-channels")))
+    root_real = os.path.realpath(os.environ.get("AB_CONTEXT_DIR") or _config.REPO_ROOT / "docs" / "agent-channels")
     candidate = os.path.realpath(str(path))
     if not candidate.startswith(root_real + os.sep):
         return ""
@@ -440,7 +440,7 @@ def _touch_wake_file(target: AdmittedTarget) -> None:
 
     agent = require_admitted(target).recipient
     try:
-        wake_root = Path(os.environ.get("AB_WAKE_DIR", str(_config.REPO_ROOT / ".agent" / "wake")))
+        wake_root = Path(os.environ.get("AB_WAKE_DIR") or _config.REPO_ROOT / ".agent" / "wake")
         wake_root.mkdir(parents=True, exist_ok=True)
         wake_path = wake_root / agent
         tmp_path = wake_root / f".{agent}.{uuid.uuid4().hex}.tmp"
@@ -519,7 +519,7 @@ def channel_context_path(channel: str) -> Path:
     idiom so request-derived channel names cannot escape the channel context root.
     """
     safe = require_safe_channel_name(channel)
-    root_real = os.path.realpath(os.environ.get("AB_CONTEXT_DIR", str(_config.REPO_ROOT / "docs" / "agent-channels")))
+    root_real = os.path.realpath(os.environ.get("AB_CONTEXT_DIR") or _config.REPO_ROOT / "docs" / "agent-channels")
     candidate = os.path.realpath(os.path.join(root_real, safe, "context.md"))
     if not candidate.startswith(root_real + os.sep):
         raise ValueError("channel context path escapes the channel context root")
