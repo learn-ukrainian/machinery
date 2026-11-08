@@ -61,14 +61,14 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from lu_machinery.common.repo_root import machinery_path
-from secret_redactor import redact_text, redact_value
+from lu_machinery.secret_redactor import redact_text, redact_value
 
 from . import _config
 from ._db import connect_readonly, get_db
 from ._prompts import review_protocol_prefix
 
 if TYPE_CHECKING:
-    from agent_runtime.target_admission import AdmittedTarget
+    from lu_machinery.agent_runtime.target_admission import AdmittedTarget
 
 
 class StaleClaimError(Exception):
@@ -436,7 +436,7 @@ def _touch_wake_file(target: AdmittedTarget) -> None:
     transaction commits, so watchers never observe a partially-written
     wake file and a wake failure never rolls back the message insert.
     """
-    from agent_runtime.target_admission import require_admitted
+    from lu_machinery.agent_runtime.target_admission import require_admitted
 
     agent = require_admitted(target).recipient
     try:
@@ -1049,7 +1049,7 @@ def _insert_delivery(
     deadline_seconds: int | None,
 ) -> str:
     """Insert one delivery row for the admitted ``target`` inside the caller's transaction; return its id."""
-    from agent_runtime.target_admission import require_admitted
+    from lu_machinery.agent_runtime.target_admission import require_admitted
 
     target = require_admitted(target)
     dlv_id = _new_id()
@@ -1150,8 +1150,8 @@ def post(
     ``attachments``, or a slot whose live holder is a Kimi seat raises
     ``KimiAdmissionRefused`` before any snapshot, broker access, insert or wake.
     """
-    from agent_runtime.kimi_admission import BRIDGE_MODE
-    from agent_runtime.target_admission import resolve_and_admit, resolve_sender
+    from lu_machinery.agent_runtime.kimi_admission import BRIDGE_MODE
+    from lu_machinery.agent_runtime.target_admission import resolve_and_admit, resolve_sender
 
     warnings: list[str] = []
     recipients = list(to_agents or [])

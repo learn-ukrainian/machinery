@@ -16,17 +16,16 @@ from pathlib import Path
 
 import yaml
 
-from agent_runtime.errors import (
+from lu_machinery.agent_runtime.errors import (
     AgentStalledError,
     AgentTimeoutError,
     AgentUnavailableError,
     RateLimitedError,
 )
-from agent_runtime.runner import invoke as runtime_invoke
-from common.http_status import has_http_status
-from common.repo_root import project_interpreter
-from lu_machinery.common.repo_root import state_root
-from secret_redactor import redact_text
+from lu_machinery.agent_runtime.runner import invoke as runtime_invoke
+from lu_machinery.common.http_status import has_http_status
+from lu_machinery.common.repo_root import project_interpreter, state_root
+from lu_machinery.secret_redactor import redact_text
 
 from . import _config
 from ._ask_lifecycle import record_ask_failure, register_ask
@@ -182,7 +181,7 @@ def ask_gemini(
     if async_mode:
         print(f"\n📥 Message #{msg_id} queued for Gemini (async mode - no immediate invocation)")
         print("   Gemini will see this in his inbox when he starts a session.")
-        print(f"   To trigger manually: .venv/bin/python {BRIDGE_ENTRY} process {msg_id}")
+        print(f"   To trigger manually: .venv/bin/python -m {BRIDGE_ENTRY} process {msg_id}")
     else:
         if not stdout_only:
             print(f"\n🚀 Invoking Gemini to process message #{msg_id}...")
@@ -353,7 +352,7 @@ def _launch_gemini_background(
         venv_python = str(project_interpreter())
         bridge_cmd = [
             venv_python,
-            str(Path(__file__).parent / "__main__.py"),
+            "-m", "lu_machinery.ai_agent_bridge",
             "process",
             str(message_id),
             "--model",

@@ -3,13 +3,13 @@
 import os
 import subprocess
 
-from agent_runtime.adapters.agy import (
+from lu_machinery.agent_runtime.adapters.agy import (
     _AGY_MODEL_BY_NORMALIZED,
     AgyAdapter,
     _normalize_model,
 )
-from agent_runtime.adapters.kimi import KimiAdapter, resolve_kimi_model
-from common.http_status import has_http_status
+from lu_machinery.agent_runtime.adapters.kimi import KimiAdapter, resolve_kimi_model
+from lu_machinery.common.http_status import has_http_status
 from lu_machinery.common.repo_root import product_root
 
 from . import _config

@@ -25,14 +25,8 @@ if __package__ in (None, ""):  # run as a file: put the repository root on sys.p
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
     __package__ = "lu_machinery.agent_runtime"
 
-try:
-    from lu_machinery.lib.readonly_sqlite import import_named_module
-except ModuleNotFoundError as exc:
-    if exc.name != Path(os.path.abspath(__file__)).parents[1].name:
-        raise
-    from lib.readonly_sqlite import import_named_module  # type: ignore[no-redef]
-
 from lu_machinery.common.repo_root import machinery_root
+from lu_machinery.lib.readonly_sqlite import import_named_module
 from lu_machinery.orchestration.handoff_slot_registry import is_registered_slot, registered_slots
 from lu_machinery.utils.claude_version import run_version_probe
 

@@ -12,8 +12,8 @@ import os
 import re
 from collections.abc import Callable
 
-from agent_runtime import runner as agent_runner
-from agent_runtime.errors import (
+from lu_machinery.agent_runtime import runner as agent_runner
+from lu_machinery.agent_runtime.errors import (
     AgentStalledError,
     AgentTimeoutError,
     AgentUnavailableError,
@@ -252,7 +252,7 @@ def has_codex_headroom(model: str | None = None, codex_account: str | None = Non
     ``codex_account`` defaults to the account of this process's ``CODEX_HOME``
     (the bridge runs on the ambient home); another account's rate limits never block it.
     """
-    from agent_runtime.usage import has_headroom
+    from lu_machinery.agent_runtime.usage import has_headroom
 
     effective_model = model or "gpt-6.1-sol"
     unreadable = {"files": 0, "lines": 0, "records": 0}

@@ -12,14 +12,14 @@ import json
 import os
 from pathlib import Path, PurePosixPath
 
-from agent_runtime import runner as agent_runner
-from agent_runtime.errors import (
+from lu_machinery.agent_runtime import runner as agent_runner
+from lu_machinery.agent_runtime.agy_hook_config import provision_workspace_guard
+from lu_machinery.agent_runtime.errors import (
     AgentStalledError,
     AgentTimeoutError,
     AgentUnavailableError,
     RateLimitedError,
 )
-from lu_machinery.agent_runtime.agy_hook_config import provision_workspace_guard
 from lu_machinery.common import github_client
 from lu_machinery.common.scratch import ensure_scratch_root
 
@@ -53,7 +53,7 @@ def _default_agy_model() -> str:
     resolver enforces, so deriving the default from it makes stale-slug drift
     impossible (#6894).
     """
-    from agent_runtime.adapters.acpx import ACPX_SUPPORTED_PARTICIPANTS
+    from lu_machinery.agent_runtime.adapters.acpx import ACPX_SUPPORTED_PARTICIPANTS
 
     pin = ACPX_SUPPORTED_PARTICIPANTS["agy"]["model"]
     assert pin is not None  # the agy participant is always pinned

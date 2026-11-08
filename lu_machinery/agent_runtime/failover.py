@@ -15,10 +15,7 @@ from typing import Any
 
 import yaml
 
-try:
-    from lu_machinery.common.repo_root import machinery_path, state_root
-except ImportError:  # agent_runtime loaded with scripts/ on path
-    from common.repo_root import machinery_path, state_root  # type: ignore[no-redef]
+from lu_machinery.common.repo_root import machinery_path, state_root
 
 from .failure_codes import provider_failure_code, provider_stderr_error
 from .result import ParseResult

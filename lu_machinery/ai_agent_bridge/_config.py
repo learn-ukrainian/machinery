@@ -2,25 +2,19 @@
 
 import os
 import shutil
-import sys
 from pathlib import Path
-
-from ._env import build_agent_env
-
-# Bootstrap import path for scripts.* from any cwd
-_local_repo_root = Path(__file__).resolve().parents[2]
-if str(_local_repo_root) not in sys.path:
-    sys.path.insert(0, str(_local_repo_root))
 
 from lu_machinery.common.bridge_paths import default_bridge_db_path
 from lu_machinery.common.repo_root import product_root, state_root
+
+from ._env import build_agent_env
 
 # The machinery package as the checkout names it (the unresolved name of the package
 # directory this file is in, whatever it is called), and its checkout-relative entry
 # points, for commands and the instructions that name them.
 MACHINERY_PACKAGE = Path(__file__).absolute().parents[1].name
 DISPATCH_ENTRY = f"{MACHINERY_PACKAGE}/dispatch.py"
-BRIDGE_ENTRY = f"{MACHINERY_PACKAGE}/ai_agent_bridge/__main__.py"
+BRIDGE_ENTRY = "lu_machinery.ai_agent_bridge"
 
 # The bridge's roots resolve at each access through ``__getattr__`` below, never at
 # import, so the package imports with nothing configured (C-4843). Read them as
