@@ -12,10 +12,31 @@ from pathlib import Path
 
 import pytest
 
+from lu_machinery.common import repo_root
 from lu_machinery.orchestration import worktree_claims
 from tests.helpers import machinery_package
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
+
+
+def configure_state_anchor(anchor: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """Name an unrelated primary checkout as the shared-state anchor (C-4843).
+
+    The standalone lu_machinery checkout no longer derives the public primary from
+    its own location, so the operator's anchor is configured here. It is unrelated
+    to the temporary repositories, as the derived machinery checkout was. Subprocesses
+    inherit it.
+    """
+    anchor.mkdir()
+    subprocess.run(["git", "init", "-q", "-b", "main"], cwd=anchor, check=True, capture_output=True, timeout=30)
+    monkeypatch.setenv(repo_root.PRIMARY_ROOT_ENV, str(anchor))
+    monkeypatch.delenv(repo_root.STATE_ROOT_ENV, raising=False)
+    return anchor
+
+
+@pytest.fixture(autouse=True)
+def _state_anchor(tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch) -> Path:
+    return configure_state_anchor(tmp_path_factory.mktemp("state-anchor") / "primary", monkeypatch)
 
 
 def _git(cwd: Path, *args: str) -> str:
