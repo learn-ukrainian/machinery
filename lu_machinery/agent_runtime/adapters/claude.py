@@ -249,7 +249,7 @@ from functools import cache
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from lu_machinery.common.repo_root import RUNTIME_ROOT, product_root
+from lu_machinery.common.repo_root import RUNTIME_ROOT, machinery_path, product_root
 
 from ..env_sanitize import (
     CLAUDE_CONFIG_DIR_ENV,
@@ -628,7 +628,7 @@ def _worker_guard_invocation(command: str) -> str | None:
         raise RuntimeError(f"Claude worker hook command is unreadable: {command}") from exc
     if not any(marker in text for text in (command, *argv) for marker in _FLEET_GUARD_MARKERS):
         return None
-    hooks_dir = product_root() / "agents_extensions/shared/hooks"
+    hooks_dir = machinery_path("agents_extensions/shared/hooks")
     wrapper = _DEPLOYED_HOOKS_PREFIX + _PROJECT_PYTHON_HOOK_WRAPPER
     if len(argv) == 3 and argv[:2] == ["bash", wrapper] and argv[2] in PROJECT_PYTHON_GUARDS:
         tracked = hooks_dir / argv[2]
@@ -648,12 +648,14 @@ def _worker_guard_invocation(command: str) -> str | None:
 def _worker_guard_settings(*, publish_guard: bool = False) -> str:
     """Build worker hook settings: the product's hook list, run with this installation's guards.
 
-    The settings file and the guard scripts are product files. ``product_root``
-    selects the checkout (C-4746). ``agents_extensions/shared/hooks`` is not in the
-    wheel; it lives in that checkout, which is the tree the in-tree adapter's
-    ``parents[3]`` named. Parser guards run under this process's interpreter.
+    The product supplies its provider settings; mandatory guard executables come
+    from the installed machinery release. Parser guards run under this process's
+    interpreter.
     """
-    source = json.loads((product_root() / "agents_extensions/shared/settings.json").read_text(encoding="utf-8"))
+    try:
+        source = json.loads((product_root() / "agents_extensions/shared/settings.json").read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        raise RuntimeError("Claude worker product settings unavailable: agents_extensions/shared/settings.json") from None
     groups = []
     for group in source["hooks"]["PreToolUse"]:
         hooks = []
@@ -666,7 +668,7 @@ def _worker_guard_settings(*, publish_guard: bool = False) -> str:
         if hooks:
             groups.append({"matcher": group["matcher"], "hooks": hooks})
     if publish_guard:
-        guard = product_root() / "agents_extensions/shared/hooks/guard-reviewer-publish.py"
+        guard = machinery_path("agents_extensions/shared/hooks/guard-reviewer-publish.py")
         if not guard.is_file():
             raise RuntimeError(f"Claude reviewer publish guard unavailable: {guard}")
         # Same failure policy as the shared refusing guards (#10848): a timeout
