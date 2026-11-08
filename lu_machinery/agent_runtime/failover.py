@@ -16,9 +16,9 @@ from typing import Any
 import yaml
 
 try:
-    from lu_machinery.common.repo_root import machinery_path
+    from lu_machinery.common.repo_root import machinery_path, state_root
 except ImportError:  # agent_runtime loaded with scripts/ on path
-    from common.repo_root import machinery_path  # type: ignore[no-redef]
+    from common.repo_root import machinery_path, state_root  # type: ignore[no-redef]
 
 from .failure_codes import provider_failure_code, provider_stderr_error
 from .result import ParseResult
@@ -144,16 +144,12 @@ class FailoverChain:
     cooldown_ttl_s: int = DEFAULT_COOLDOWN_TTL_S
 
 
-def _repo_root() -> Path:
-    return Path(__file__).resolve().parents[2]
-
-
 def default_failover_config_path() -> Path:
     return machinery_path("config/agent_runtime_failover.yaml")
 
 
 def default_cooldown_db_path() -> Path:
-    return _repo_root() / "batch_state" / "agent_runtime_failover_cooldowns.sqlite3"
+    return state_root() / "batch_state" / "agent_runtime_failover_cooldowns.sqlite3"
 
 
 def _configured_path(env_name: str, default: Path) -> Path:
@@ -258,9 +254,10 @@ class FailoverCooldownStore:
     """SQLite-backed route cooldown store shared by parallel dispatches."""
 
     def __init__(self, path: Path | None = None) -> None:
-        self.path = path or _configured_path(
-            FAILOVER_COOLDOWN_DB_ENV,
-            default_cooldown_db_path(),
+        self.path = path or (
+            Path(os.environ[FAILOVER_COOLDOWN_DB_ENV]).expanduser().resolve()
+            if os.environ.get(FAILOVER_COOLDOWN_DB_ENV)
+            else default_cooldown_db_path()
         )
 
     def _connect(self) -> sqlite3.Connection:

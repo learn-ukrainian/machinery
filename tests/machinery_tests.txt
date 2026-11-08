@@ -35,6 +35,7 @@ tests/orchestration/test_merge_queue_keeper.py
 tests/review/test_review_tiers.py
 tests/test_record_cf_verdict.py
 tests/test_repo_root.py
+tests/test_claude_review_shell.py
 # [support]
 tests/__init__.py
 tests/conftest.py

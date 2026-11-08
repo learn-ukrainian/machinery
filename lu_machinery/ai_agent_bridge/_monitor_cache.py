@@ -8,7 +8,7 @@ manifest hash is useless — every session downloads everything anyway.
 This module is the cache.
 
 Design notes:
-- Cache lives under ``.agent/cache/monitor/``. Each component is one
+- Cache lives under ``.agent/cache/monitor/`` in the shared state root. Each component is one
   file named by a stable key (``rules.md``, ``session.md``, ...)
   plus a sibling ``*.meta.json`` holding ``{hash, fetched_at, url}``.
 - Readers call ``get(key, expected_hash)`` — returns cached body if
@@ -39,10 +39,7 @@ _local_repo_root = Path(__file__).resolve().parents[2]
 if str(_local_repo_root) not in sys.path:
     sys.path.insert(0, str(_local_repo_root))
 
-from lu_machinery.common.repo_root import resolve_repo_root
-
-_PROJECT_ROOT = resolve_repo_root(Path(__file__), 2)
-DEFAULT_CACHE_DIR = _PROJECT_ROOT / ".agent" / "cache" / "monitor"
+from lu_machinery.common.repo_root import state_root
 
 # Allow environment override for tests / alternate checkouts. Respects
 # the XDG-ish pattern but keeps the default repo-relative so a fresh
@@ -55,7 +52,7 @@ def cache_dir() -> Path:
     override = os.environ.get(_ENV_VAR)
     if override:
         return Path(override).expanduser()
-    return DEFAULT_CACHE_DIR
+    return state_root() / ".agent" / "cache" / "monitor"
 
 
 @dataclass(frozen=True)

@@ -1758,8 +1758,10 @@ class _RedirectRefreshSidecarLoader:
 
     def exec_module(self, module) -> None:
         self._loader.exec_module(module)
-        module.REFRESH_STATE_PATH = self._state
-        module.REFRESH_LOCK_PATH = self._lock
+        original = module.refresh_sidecar_paths
+        module.refresh_sidecar_paths = lambda root=None: (
+            (self._state, self._lock) if root is None else original(root)
+        )
 
     def __getattr__(self, name: str):
         return getattr(self._loader, name)
@@ -1801,9 +1803,11 @@ def _isolate_issue_stream_refresh_state(_write_ownership_base: Path, monkeypatch
     state = state_dir / "issue_stream_audit_refresh.json"
     lock = state_dir / "issue_stream_audit_refresh.lock"
     module = sys.modules.get(_IssueStreamRefreshImportHook._MODULE)
-    if module is not None and hasattr(module, "REFRESH_STATE_PATH"):
-        monkeypatch.setattr(module, "REFRESH_STATE_PATH", state)
-        monkeypatch.setattr(module, "REFRESH_LOCK_PATH", lock)
+    if module is not None and hasattr(module, "refresh_sidecar_paths"):
+        original = module.refresh_sidecar_paths
+        monkeypatch.setattr(
+            module, "refresh_sidecar_paths", lambda root=None: (state, lock) if root is None else original(root)
+        )
     hook = _IssueStreamRefreshImportHook(state, lock)
     sys.meta_path.insert(0, hook)
     try:
@@ -2791,7 +2795,7 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
     """Mark nightly groups and quarantined flakes; refuse unserved ``rules_core_absent`` tests."""
     _mark_nightly_groups(items)
     selected = rerun_node_ids(
-        load_registry(),
+        load_registry(_REPO_ROOT / "tests/flake_quarantine.yaml"),
         today=datetime.now(UTC).date(),
         event_name="schedule"
         if os.environ.get("LU_FLAKE_DISABLE_RERUN") == "1"
@@ -2994,7 +2998,7 @@ def pytest_configure(config: pytest.Config) -> None:
             "WARNING: credential redaction cannot protect direct terminal output; "
             "keep capture enabled and log_cli disabled when credentials are present.\n"
         )
-    load_registry()
+    load_registry(_REPO_ROOT / "tests/flake_quarantine.yaml")
     if config.getoption("reruns", default=0):
         raise pytest.UsageError("blanket --reruns is forbidden; use tests/flake_quarantine.yaml")
     config.pluginmanager.register(_FlakeRerunReporter(config), "flake-rerun-reporter")

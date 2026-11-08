@@ -59,11 +59,7 @@ from types import ModuleType
 from typing import Any, NamedTuple
 from urllib.parse import urlsplit
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
-if str(PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(PROJECT_ROOT))
-
-from lu_machinery.common.repo_root import ProductRootError
+from lu_machinery.common.repo_root import ProductRootError, StateRootError, state_root
 from lu_machinery.common.repo_root import product_root as resolve_product_root
 from lu_machinery.ops.product_entry import ConfiguredModuleError, load_configured_module
 
@@ -123,7 +119,7 @@ def hang_diagnostics(*, product_root: Path | None = None) -> ModuleType:
     """The product's hang-diagnostics module, loaded when a dump or state write needs it, never at import.
 
     Its name comes from ``HANG_DIAGNOSTICS_FILE`` under ``product_root`` (an absolute path;
-    default: the checkout :func:`scripts.common.repo_root.product_root` selects, C-4746),
+    default: the checkout :func:`lu_machinery.common.repo_root.product_root` selects, C-4746),
     read strictly at each call; the module must come from that root
     and provide every name in ``_DIAGNOSTICS_EXPORTS``. A missing or invalid configuration, or
     a module without that API, raises (``ImportError`` or ``OSError``); ``main`` and
@@ -484,7 +480,7 @@ def prune_dump_dir(dump_dir: Path, *, keep: int, proc_root: Path = Path("/proc")
 class Config:
     unit: str = UNIT
     health_url: str = HEALTH_URL
-    dump_dir: Path = field(default_factory=lambda: hang_diagnostics().resolve_dump_dir(PROJECT_ROOT))
+    dump_dir: Path = field(default_factory=lambda: hang_diagnostics().resolve_dump_dir(state_root()))
     failures_to_act: int = DEFAULT_FAILURES_TO_ACT
     probe_timeout: float = DEFAULT_PROBE_TIMEOUT_S
     max_restarts: int = DEFAULT_MAX_RESTARTS
@@ -541,7 +537,7 @@ def incident_message(config: Config, incident: Mapping[str, Any], dump: str, act
 
 def _relative(path: Path) -> str:
     try:
-        return str(path.relative_to(PROJECT_ROOT))
+        return str(path.relative_to(state_root()))
     except ValueError:
         return str(path)
 
@@ -706,7 +702,7 @@ def run_once(config: Config, host: Host) -> str:
 def default_publisher() -> Callable[[str, str], None]:
     from lu_machinery.orchestration.backup_failure_alert import fleet_comms_publisher
 
-    return fleet_comms_publisher(PROJECT_ROOT)
+    return fleet_comms_publisher(state_root())
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -736,7 +732,12 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     # Load the product diagnostics before acting: without them the watchdog refuses to run.
     diagnostics = hang_diagnostics()
-    dump_dir = args.dump_dir or diagnostics.resolve_dump_dir(PROJECT_ROOT)
+    try:
+        anchored = state_root()
+    except StateRootError as error:
+        print(f"watchdog error: {error}", file=sys.stderr)
+        return 2
+    dump_dir = args.dump_dir or diagnostics.resolve_dump_dir(anchored)
     port = urlsplit(args.health_url).port or 80
     if args.command == "dump":
         incident = capture_incident_dump(args.pid, dump_dir, port, time.time(), reason=args.reason)

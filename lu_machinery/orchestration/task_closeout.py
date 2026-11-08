@@ -31,9 +31,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-if __package__ in (None, ""):
-    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-
+from lu_machinery.common.repo_root import machinery_path, state_root
 from lu_machinery.github_check_rollup import collapse_status_rollup
 from lu_machinery.opsec.prepublish import publication_boundary, publication_cli
 from lu_machinery.orchestration import lifecycle_observation, task_identity, task_lifecycle
@@ -43,7 +41,6 @@ from lu_machinery.publish.github import Request, request_run
 # short import spelling (orchestration.x with scripts/ on sys.path) shortens. Its dotted parts
 # are also its directories in checkout-relative paths.
 _PACKAGE = f"{Path(os.path.abspath(__file__)).parents[1].name}.{Path(os.path.abspath(__file__)).parent.name}"
-_MACHINERY = _PACKAGE.partition(".")[0]
 _MODULE = f"{_PACKAGE}.{Path(__file__).stem}"
 
 Runner = Callable[[list[str], str | None], str]
@@ -54,7 +51,7 @@ def utc_now() -> str:
 
 
 def repo_root_from_file() -> Path:
-    return Path(__file__).resolve().parents[2]
+    return state_root()
 
 
 def _json_file(path: Path) -> dict[str, Any]:
@@ -232,7 +229,7 @@ class GhGitHubAdapter:
             # Closed epics stay in the file for launcher and Work API consumers.
             # Membership roots are the audit registry only (#12176).
             registry = issue_stream_audit.load_registry(
-                self.repo_root / _MACHINERY / "config" / "issue_streams.yaml",
+                machinery_path("config/issue_streams.yaml"),
                 audit_only=True,
             )
         except (OSError, ValueError) as exc:
@@ -250,10 +247,8 @@ class GhGitHubAdapter:
         transferred-scope follow-up issue) must call this ONCE and carry the
         same snapshot through both resolutions rather than re-auditing.
 
-        Scoped to ``self.repo_root`` — never the auditor module's own
-        checkout — so a closeout invocation configured for another
-        checkout/worktree audits and caches against the SAME repository it is
-        validating membership for.
+        Audit ``self.repo_root`` using the packaged registry. The auditor
+        publishes shared-state cache data only for the configured GitHub repository.
         """
         from lu_machinery.orchestration import issue_stream_audit
 
@@ -1333,7 +1328,7 @@ def build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=f"Examples:\n  .venv/bin/python -m {_MODULE} init --help\n  .venv/bin/python -m {_MODULE} carrier --state-file ledger.json\n  .venv/bin/python -m {_MODULE} reconcile --state-file ledger.json\nOutputs: Local lifecycle ledgers and JSON receipts; only mutate can change GitHub.\nExit codes: 0: command succeeded; >=1: refused or failed (locate: 1 if absent).\nRelated: task-identity.md, task-lifecycle-closeout.md; #9297, #10143",
     )
-    parser.add_argument("--repo-root", type=Path, default=repo_root_from_file(), help='Repository worktree root; defaults to this checkout.')
+    parser.add_argument("--repo-root", type=Path, default=None, help='Repository root; defaults to the configured shared-state anchor.')
     sub = parser.add_subparsers(dest="command", required=True)
     recover = sub.add_parser(
         "recover-local", help="Legacy tasks only: append a verified local observation for an already-reaped merged task.",
@@ -1343,7 +1338,7 @@ def build_parser() -> argparse.ArgumentParser:
   .venv/bin/python -m {_MODULE} recover-local --state-file ledger.json --task-record task.json --preserved-manifest batch_state/preserved/task/attempt.manifest.json --push-record push.json
 Outputs: One append-only lifecycle receipt, or the existing verified receipt on retry.
 Exit codes: 0 = recovered/replayed; 2 = typed refusal; no GitHub mutation.
-Related: docs/runbooks/worktree-cleanup.md; #10752.
+Related: task-lifecycle-closeout.md; #10752.
 """,
     )
     recover.add_argument("--state-file", required=True, help="Existing lifecycle ledger, e.g. ledger.json.")
@@ -1460,9 +1455,11 @@ def main(argv: list[str] | None = None) -> int:
 
     args = build_parser().parse_args(argv)
     try:
+        if args.repo_root is None:
+            args.repo_root = repo_root_from_file()
         with repository_context(args.repo_root):
             return args.func(args)
-    except (task_lifecycle.LifecycleError, json.JSONDecodeError, OSError) as exc:
+    except (task_lifecycle.LifecycleError, ValueError, OSError) as exc:
         error = {"error": str(exc)}
         if isinstance(exc, task_lifecycle.EvidencePolicyError):
             error["error_code"] = exc.code

@@ -25,9 +25,6 @@ from collections.abc import Iterable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
-if __package__ in (None, ""):
-    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-
 # The machinery package's directory name, which a change lists its files under, from this module's
 # unresolved location: a symlinked package keeps its checkout name, and a short import spelling
 # (the package directory on ``sys.path``) cannot shorten it.
@@ -36,10 +33,10 @@ _MACHINERY = Path(os.path.abspath(__file__)).parents[1].name
 # The one declaration of the review output contract: bound schemas, the receipt gate, the
 # verdict parser, the recorder, settlement, and each reviewer provider's schema or reply handling.
 # Machinery files are named wherever the machinery package is and whatever it is called;
-# the schema and settlement are product-repository files.
+# the schema is packaged; settlement remains product-owned.
 CONTRACT_PATHS: tuple[str, ...] = (
     f"{_MACHINERY}/review/contract_canary.py",  # this gate: a change to it is proven on live routes too
-    "schemas/code-review-findings.v1.schema.json",
+    f"{_MACHINERY}/schemas/code-review-findings.v1.schema.json",
     f"{_MACHINERY}/review/review_contract.py",
     f"{_MACHINERY}/review/verdict_parser.py",
     f"{_MACHINERY}/review/record_cf_verdict.py",
@@ -139,9 +136,9 @@ def _attested_model(record: Mapping[str, Any]) -> object:
 
 
 def _root() -> Path:
-    from lu_machinery.common.repo_root import main_checkout_root
+    from lu_machinery.common.repo_root import state_root
 
-    return main_checkout_root(Path(__file__).resolve().parents[2])
+    return state_root()
 
 
 def receipt_root(root: Path | None = None) -> Path:

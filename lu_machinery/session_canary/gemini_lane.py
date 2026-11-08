@@ -15,11 +15,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-ROOT = Path(__file__).resolve().parents[2]
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
-
 from lu_machinery.common.epic_selector import validate_epic
+from lu_machinery.common.repo_root import state_root
 from lu_machinery.session_canary import grok_lane as _gl
 from lu_machinery.session_canary import handoff_select, shared_hydration
 
@@ -234,7 +231,7 @@ def cmd_status(args: argparse.Namespace) -> int:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog=f"python -m {_PACKAGE}.gemini_lane")
-    parser.add_argument("--repo", type=Path, default=ROOT)
+    parser.add_argument("--repo", type=Path, default=None, help="State root; default is the shared-state anchor")
     sub = parser.add_subparsers(dest="subcommand", required=True)
 
     boot = sub.add_parser("bootstrap", help="Write Gemini cold-start board")
@@ -296,6 +293,8 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     args.epic = args.epic.strip().lower()
     try:
+        if args.repo is None:
+            args.repo = state_root()
         # Hydration/protocol use routing aliases, without constructing epic paths.
         if args.subcommand not in {"hydrate", "protocol"}:
             validate_epic(args.epic)

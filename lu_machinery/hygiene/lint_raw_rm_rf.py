@@ -14,7 +14,8 @@ import re
 import sys
 from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
+from lu_machinery.common.repo_root import product_root
+
 # Unresolved package directory (design-v1 amendment 1). Never __package__.
 _MACHINERY_DIR = Path(os.path.abspath(__file__)).parents[1].name
 
@@ -70,7 +71,7 @@ def _allowlist_lookup() -> dict[tuple[str, str], int]:
 
 
 def iter_scan_paths(repo_root: Path | None = None) -> list[Path]:
-    root = (repo_root or REPO_ROOT).resolve()
+    root = (repo_root or product_root()).resolve()
     found: list[Path] = []
     for pattern in _SCAN_GLOBS:
         found.extend(root.glob(pattern))
@@ -84,7 +85,7 @@ def iter_scan_paths(repo_root: Path | None = None) -> list[Path]:
 
 def find_raw_rm_rf(repo_root: Path | None = None) -> list[tuple[str, str]]:
     """Return ``(path:line, snippet)`` findings not covered by the allowlist."""
-    root = (repo_root or REPO_ROOT).resolve()
+    root = (repo_root or product_root()).resolve()
     allowlist = _allowlist_lookup()
     usage: dict[tuple[str, str], int] = {}
     findings: list[tuple[str, str]] = []

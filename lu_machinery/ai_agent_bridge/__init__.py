@@ -4,9 +4,9 @@ This package provides bidirectional communication between AI agents (Gemini, Cla
 using a shared SQLite database.
 
 Configuration:
-- ``AB_REPO_ROOT``: defaults to the package's containing repo root.
-- ``AB_DB_PATH``: defaults to ``{REPO_ROOT}/.mcp/servers/message-broker/messages.db``.
-- ``AB_PID_DIR``: defaults to ``{REPO_ROOT}/.mcp/servers/message-broker/pids``.
+- ``AB_REPO_ROOT``: defaults to the product checkout (``product_root``).
+- ``AB_DB_PATH``: defaults to ``{state root}/.mcp/servers/message-broker/messages.db``.
+- ``AB_PID_DIR``: defaults to ``{state root}/.mcp/servers/message-broker/pids``.
 - ``AB_CONTEXT_DIR``: defaults to ``{REPO_ROOT}/docs/agent-channels``.
 - ``AB_WAKE_DIR``: defaults to ``{REPO_ROOT}/.agent/wake``.
 - ``AB_MONITOR_URL``: defaults to empty string (Monitor API disabled).
@@ -39,15 +39,11 @@ from ._codex import ask_codex, process_all_codex, process_for_codex
 from ._config import (
     _MODEL_CACHE,
     _MODEL_CACHE_TTL,
-    _PARENT_ENV,
     AGY_CLI,
     CLAUDE_CMD,
     CODEX_CLI,
-    DB_PATH,
     GEMINI_CLI,
     GH_CHAR_LIMIT,
-    PID_DIR,
-    REPO_ROOT,
     default_gemini_model,
 )
 from ._db import get_db, get_session, init_db, set_session
@@ -139,4 +135,9 @@ def __getattr__(name: str):
         from ._config import default_gemini_model
 
         return default_gemini_model()
+    if name in ("DB_PATH", "PID_DIR", "REPO_ROOT", "_PARENT_ENV"):
+        # Resolved at each access, never at import (C-4843).
+        from . import _config
+
+        return getattr(_config, name)
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

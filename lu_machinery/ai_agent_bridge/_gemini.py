@@ -27,6 +27,7 @@ from common.http_status import has_http_status
 from common.repo_root import project_interpreter
 from secret_redactor import redact_text
 
+from . import _config
 from ._ask_lifecycle import record_ask_failure, register_ask
 from ._broker import (
     _git_status_snapshot,
@@ -38,9 +39,7 @@ from ._broker import (
 from ._config import (
     _MODEL_CACHE,
     _MODEL_CACHE_TTL,
-    _PARENT_ENV,
     BRIDGE_ENTRY,
-    REPO_ROOT,
     default_gemini_model,
 )
 from ._github import _post_review_to_github
@@ -340,7 +339,7 @@ def _launch_gemini_background(
         print(f"⏸️  Task '{task_key}' is already being processed by another Gemini bridge. Skipping.")
         return
 
-    log_dir = REPO_ROOT / ".mcp/servers/message-broker/logs"
+    log_dir = _config.REPO_ROOT / ".mcp/servers/message-broker/logs"
     log_dir.mkdir(parents=True, exist_ok=True)
     log_file = log_dir / f"gemini-{task_key}.log"
 
@@ -364,7 +363,7 @@ def _launch_gemini_background(
             bridge_cmd.extend(["--auth", auth_mode])
         lf = open(log_file, "w")  # noqa: SIM115 — fd passed to Popen, closed after
         proc = subprocess.Popen(
-            bridge_cmd, stdout=lf, stderr=subprocess.STDOUT, cwd=str(REPO_ROOT), env=_PARENT_ENV, start_new_session=True
+            bridge_cmd, stdout=lf, stderr=subprocess.STDOUT, cwd=str(_config.REPO_ROOT), env=_config._PARENT_ENV, start_new_session=True
         )
         lf.close()
         print(f"   PID: {proc.pid}")
@@ -526,7 +525,7 @@ def _run_gemini_attempt(
             "gemini",
             prompt,
             mode=runtime_mode,
-            cwd=REPO_ROOT,
+            cwd=_config.REPO_ROOT,
             model=model,
             task_id=msg.get("task_id"),
             initiator=msg.get("from"),

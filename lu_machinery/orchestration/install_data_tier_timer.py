@@ -16,6 +16,7 @@ import sys
 import tempfile
 from pathlib import Path
 
+from lu_machinery.common.repo_root import machinery_path, state_root
 from lu_machinery.common.safe_unit_install import InstallError, open_unit_dir, read_unit, write_unit
 
 # This package's import name, from the unresolved file location: never from __package__, which a
@@ -24,8 +25,7 @@ from lu_machinery.common.safe_unit_install import InstallError, open_unit_dir, r
 _PACKAGE = f"{Path(os.path.abspath(__file__)).parents[1].name}.{Path(os.path.abspath(__file__)).parent.name}"
 _MODULE = f"{_PACKAGE}.{Path(__file__).stem}"
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
-TEMPLATE_DIR = PROJECT_ROOT / "packaging" / "systemd"
+TEMPLATE_DIR = machinery_path("packaging/systemd")
 UNITS = ("learn-ukrainian-data-tier.service", "learn-ukrainian-data-tier.timer")
 
 
@@ -36,9 +36,9 @@ def render_units(repo_root: Path) -> dict[str, str]:
         if not source.is_file():
             raise InstallError(f"unit template missing: {name}")
         text = source.read_text(encoding="utf-8")
-        if name.endswith(".service") and "@REPO_ROOT@" not in text:
+        if name.endswith(".service") and ("@REPO_ROOT@" not in text or "@PYTHON@" not in text):
             raise InstallError(f"unit placeholder missing: {name}")
-        rendered[name] = text.replace("@REPO_ROOT@", str(repo_root))
+        rendered[name] = text.replace("@REPO_ROOT@", str(repo_root)).replace("@PYTHON@", sys.executable)
     return rendered
 
 
@@ -113,11 +113,14 @@ def build_parser() -> argparse.ArgumentParser:
             "file, or a symlink in any directory from home down to the unit directory, is refused; "
             "--apply reloads the user manager.\n"
             "Exit codes: 0 = current or applied; 1 = drift or installation failure; 2 = invalid usage.\n"
-            "Related: issue #9229 and packaging/systemd/learn-ukrainian-data-tier.*."
+            "Related: issue #9229 and the bundled data-tier systemd units."
         ),
     )
     parser.add_argument(
-        "--repo-root", type=Path, default=PROJECT_ROOT, help="Primary checkout root (default: this checkout)."
+        "--repo-root",
+        type=Path,
+        default=None,
+        help="Primary checkout rendered into the units (default: configured shared-state root).",
     )
     parser.add_argument(
         "--unit-dir",
@@ -140,12 +143,16 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
-    args = build_parser().parse_args(argv)
+    parser = build_parser()
+    args = parser.parse_args(argv)
     if args.check and args.apply:
         raise InstallError("--check and --apply are mutually exclusive")
     if args.enable and not args.apply:
         raise InstallError("--enable requires --apply")
-    repo_root = args.repo_root.expanduser().resolve()
+    try:
+        repo_root = (args.repo_root if args.repo_root is not None else state_root()).expanduser().resolve()
+    except ValueError as error:
+        parser.error(str(error))
     if not (repo_root / ".git").is_dir():
         raise InstallError("repository root must be a primary checkout")
     rendered = render_units(repo_root)

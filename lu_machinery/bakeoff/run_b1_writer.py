@@ -39,10 +39,6 @@ import time
 from pathlib import Path
 from typing import Any
 
-# Ensure scripts/ is importable
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(PROJECT_ROOT))
-
 
 def _product_hooks() -> Any:
     """Load the product hook named by the product checkout's bakeoff configuration.

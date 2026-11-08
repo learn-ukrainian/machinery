@@ -8,19 +8,16 @@ import json
 import os
 import re
 import shlex
+import sys
 import uuid
 from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
 
-from lu_machinery.common.repo_root import main_checkout_root, product_root, project_interpreter
+from lu_machinery.common.repo_root import machinery_path, main_checkout_root, product_root
 from lu_machinery.common.safe_open import safe_open_below
 
-ROOT = Path(__file__).resolve().parents[2]
 GUARD_NAME = "shell-secret-print-guard"
-# Checkout-relative: the machinery package directory as this file was imported from it
-# (unresolved, whatever the package is called), then the hook.
-ENTRY_POINT = Path(Path(__file__).absolute().parents[1].name, "agent_runtime", "secret_print_hook.py")
 GUARD_TIMEOUT_FLOOR = 10
 
 
@@ -124,7 +121,7 @@ def _check_file(path: Path, interpreter: Path, script: Path, *, absolute: bool) 
         raise AgyHookConfigError("missing_script")
 
 
-def check_hook_config(locations: tuple[Path, ...], *, repo_root: Path = ROOT) -> HookConfigResult:
+def check_hook_config(locations: tuple[Path, ...]) -> HookConfigResult:
     """Require a valid enabled guard in every existing loadable candidate.
 
     An absent workspace or effective-HOME candidate cannot load and is skipped.
@@ -141,14 +138,15 @@ def check_hook_config(locations: tuple[Path, ...], *, repo_root: Path = ROOT) ->
     UNKNOWN. It can only fire on ``run_command``, which the settings deny.
     """
     try:
-        interpreter = project_interpreter(repo_root)
+        interpreter = Path(sys.executable)
+        script = machinery_path("agent_runtime/secret_print_hook.py")
         checked = 0
         for path in locations:
             try:
                 path.lstat()
             except FileNotFoundError:
                 continue
-            _check_file(path, interpreter, repo_root / ENTRY_POINT, absolute=path.parent.name == "config")
+            _check_file(path, interpreter, script, absolute=path.parent.name == "config")
             checked += 1
         if not checked:
             raise AgyHookConfigError("missing_file")
@@ -159,31 +157,32 @@ def check_hook_config(locations: tuple[Path, ...], *, repo_root: Path = ROOT) ->
     return HookConfigResult("PASS", "guard_registered")
 
 
-def guard_registration(*, repo_root: Path = ROOT) -> dict:
+def guard_registration() -> dict:
     """Use the tracked overlay, with absolute interpreter and entry-point paths.
 
     The overlay is product configuration, read from the product checkout ``product_root``
-    selects (C-4746). The guard entry point and its interpreter are machinery: they come from
-    ``repo_root``, the trusted machinery checkout, never from product configuration.
+    selects (C-4746). The guard entry point is this package's ``secret_print_hook``
+    (``machinery_path``) and it runs under this process's interpreter, never from
+    product configuration.
     """
     guard = copy.deepcopy(_read_config(product_root() / "agents_extensions/agy/hooks.json")[GUARD_NAME])
     guard["PreToolUse"][0]["hooks"][0]["command"] = shlex.join(
-        [str(project_interpreter(repo_root)), str((repo_root / ENTRY_POINT).absolute()), "--harness", "agy"]
+        [sys.executable, str(machinery_path("agent_runtime/secret_print_hook.py")), "--harness", "agy"]
     )
     return guard
 
 
-def install_worktree_guard(cwd: Path, *, repo_root: Path = ROOT) -> None:
+def install_worktree_guard(cwd: Path) -> None:
     """Merge only a missing guard into a dispatch workspace; never write homes."""
     target = cwd.resolve(strict=True)
     primary = main_checkout_root(target).resolve(strict=True)
     dispatch = (primary / ".worktrees/dispatch").resolve(strict=True) if primary != target else primary
     if ".." in cwd.parts or primary == target or target == dispatch or not target.is_relative_to(dispatch):
         raise AgyHookConfigError("install_requires_dispatch_worktree")
-    provision_workspace_guard(cwd, repo_root=repo_root)
+    provision_workspace_guard(cwd)
 
 
-def provision_workspace_guard(cwd: Path, *, repo_root: Path = ROOT) -> None:
+def provision_workspace_guard(cwd: Path) -> None:
     """Explicitly provision a caller-created workspace, never an ordinary HOME.
 
     The caller owns the directory and its lifecycle. Walk real directories and
@@ -224,7 +223,7 @@ def provision_workspace_guard(cwd: Path, *, repo_root: Path = ROOT) -> None:
             return  # Preserve explicitly disabled or invalid user wiring.
         # Insert only the new member, keeping unrelated hook bytes unchanged.
         end = original.rindex("}")
-        member = json.dumps({GUARD_NAME: guard_registration(repo_root=repo_root)}, indent=2)[1:-1]
+        member = json.dumps({GUARD_NAME: guard_registration()}, indent=2)[1:-1]
         payload = original[:end] + ("," if data else "") + member + original[end:]
         temporary = f".hooks-{uuid.uuid4().hex}.tmp"
         fd = safe_open_below(directory_fd, temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL)

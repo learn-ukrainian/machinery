@@ -20,7 +20,8 @@ from pathlib import Path
 
 import yaml
 
-CI_WORKFLOW_PATH = Path(__file__).resolve().parents[2] / ".github/workflows/ci.yml"
+from lu_machinery.common.repo_root import product_root
+
 _RESULT = re.compile(r"needs\.([\w-]+)\.result\b")
 _EXPRESSION = re.compile(r"\$\{\{(.*?)\}\}", re.DOTALL)
 _MATRIX_VALUE = re.compile(r"matrix\.([\w.-]+)\Z")
@@ -158,7 +159,7 @@ def _job_names(key: str, job: dict) -> set[str]:
 def load_advisory_checks(path: Path | None = None) -> AdvisoryChecks:
     """Read current ci.yml, reporting failures without leaking file contents."""
     try:
-        workflow = yaml.safe_load((path or CI_WORKFLOW_PATH).read_text(encoding="utf-8"))
+        workflow = yaml.safe_load((path or (product_root() / ".github/workflows/ci.yml")).read_text(encoding="utf-8"))
         if not isinstance(workflow, dict) or not isinstance(workflow.get("jobs"), dict):
             raise ValueError("workflow jobs must be a mapping")
         jobs = workflow["jobs"]

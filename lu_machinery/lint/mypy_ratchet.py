@@ -15,8 +15,8 @@ shrink. Before that first landing, the baseline has no predecessor; it must
 still equal the mypy census exactly, so entries mypy does not report fail.
 Where the machinery package directory is not ``scripts`` (after the machinery
 move), the module slot of two exact baseline message forms is respelled with
-the pinned rename map, which that checkout must carry at
-packaging/machinery-move/rename-map.json with a verified .sha256 beside it.
+the pinned rename map, shipped as a package resource at
+lu_machinery/lint/rename-map.json with a verified .sha256 beside it.
 
 Examples:
   .venv/bin/python -m scripts.lint.mypy_ratchet
@@ -46,6 +46,8 @@ from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
+from lu_machinery.common.repo_root import RUNTIME_ROOT, machinery_path, product_root
+
 
 def _package_dir() -> Path:
     # Unresolved package directory (design-v1 amendment 1). Never __package__.
@@ -56,7 +58,6 @@ def _mp(relative: str) -> str:
     return f"{_package_dir().name}/{relative}"
 
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
 BASELINE_PATH = Path(__file__).with_name("mypy_baseline.json")
 SCHEMA = "mypy-ratchet-baseline.v1"
 DEFAULT_TARGET = _package_dir().name
@@ -377,7 +378,7 @@ _SLOT_TEMPLATES: dict[str, tuple[re.Pattern[str], str]] = {
         "variable",
     ),
 }
-RENAME_MAP = Path("packaging") / "machinery-move" / "rename-map.json"
+RENAME_MAP = Path("lint/rename-map.json")
 _DIGEST_LINE = re.compile(rf"(?P<digest>[0-9a-f]{{64}})  {re.escape(RENAME_MAP.name)}\n")
 
 
@@ -477,8 +478,8 @@ class _RenameMap:
 def _load_rename_map(package_dir: Path) -> _RenameMap:
     """Read and verify the rename map a renamed machinery checkout must carry.
 
-    Contract: ``packaging/machinery-move/rename-map.json``, in the directory
-    that holds the machinery package, has the exact bytes of the ownership
+    Contract: ``lint/rename-map.json``, inside the machinery package, has
+    the exact bytes of the ownership
     map (``path -> machinery|product``) that the extraction's rename tools
     read; portcheck keeps it as
     ``runs/<sha12>-all/derive/map.json``. Those tools record the SHA-256 of
@@ -489,7 +490,7 @@ def _load_rename_map(package_dir: Path) -> _RenameMap:
     or mismatched artifact is an error, never the source layout.
     """
 
-    path = package_dir.parent / RENAME_MAP
+    path = machinery_path(RENAME_MAP.as_posix())
     digest_path = path.with_name(path.name + ".sha256")
     prefix = f"rename map {path}"
     try:
@@ -951,8 +952,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument(
         "--root",
         type=Path,
-        default=REPO_ROOT,
-        help="Tree mypy runs in (default: repository root).",
+        default=None,
+        help=(
+            "Tree mypy runs in (default: this checkout when it holds the "
+            "package and pyproject.toml, otherwise the selected product checkout)."
+        ),
     )
     parser.add_argument(
         "--write-baseline",
@@ -965,9 +969,17 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="Ignore the mypy cache. Tests use this; CI keeps the cache.",
     )
     args = parser.parse_args(argv)
-    root = args.root.resolve()
-    baseline = args.baseline if args.baseline.is_absolute() else root / args.baseline
     try:
+        if args.root is not None:
+            root = args.root.resolve()
+        elif (RUNTIME_ROOT / DEFAULT_TARGET).is_dir() and (RUNTIME_ROOT / "pyproject.toml").is_file():
+            # This repository's CI typechecks the package in this checkout, with no
+            # product configured. An installed copy has no project file beside the
+            # package, so that case selects the product and refuses without one.
+            root = RUNTIME_ROOT
+        else:
+            root = product_root().resolve()
+        baseline = args.baseline if args.baseline.is_absolute() else root / args.baseline
         # A renamed layout needs its verified rename map in every mode, so a
         # missing or broken artifact fails before a baseline is written.
         _baseline_spelling()

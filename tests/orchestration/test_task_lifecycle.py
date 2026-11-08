@@ -1221,7 +1221,7 @@ def test_closeout_cli_reconciles_original_actionable_receipt(
     observation_file.write_text(json.dumps(_observation(_body())), encoding="utf-8")
 
     code = task_closeout.main([
-        "reconcile", "--state-file", str(state_file),
+        "--repo-root", str(tmp_path), "reconcile", "--state-file", str(state_file),
         "--observation-file", str(observation_file), "--now", NOW,
     ])
 

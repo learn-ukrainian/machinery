@@ -49,15 +49,14 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
-for _path in (PROJECT_ROOT, Path(__file__).resolve().parents[1]):
+for _path in (Path(__file__).resolve().parents[2], Path(__file__).resolve().parents[1]):
     if str(_path) not in sys.path:
         sys.path.insert(0, str(_path))
 
 from lu_machinery import secret_redactor
 from lu_machinery.common import github_client
 from lu_machinery.common.git_context import sanitized_git_env
-from lu_machinery.common.repo_root import main_checkout_root
+from lu_machinery.common.repo_root import MachineryConfigError, state_root
 from lu_machinery.common.task_store_paths import tasks_dir as default_tasks_dir
 from lu_machinery.orchestration import fleet_repos, task_record_store, worktree_claims
 from lu_machinery.orchestration.dead_worker_state import task_state_lock
@@ -112,7 +111,7 @@ def _read_state_json(path: Path) -> dict[str, Any] | None:
 def worktree_lock(path: Path | str, timeout_s: float = DEFAULT_LOCK_TIMEOUT_S):
     """Use the canonical repository-wide lock shared with task owners."""
     return worktree_claims.worktree_lock(
-        path, lock_dir=worktree_claims.repository_lock_dir(PROJECT_ROOT), timeout_s=timeout_s
+        path, lock_dir=worktree_claims.repository_lock_dir(state_root()), timeout_s=timeout_s
     )
 
 
@@ -276,7 +275,7 @@ def default_repo_checkouts() -> dict[str, Path]:
     checkouts: dict[str, Path] = {}
     for key, repo in fleet_repos.load_fleet_repos().items():
         try:
-            _repo, checkout = fleet_repos.resolve_fleet_repo(key, primary_root=main_checkout_root(PROJECT_ROOT))
+            _repo, checkout = fleet_repos.resolve_fleet_repo(key, primary_root=state_root())
         except fleet_repos.FleetRepoError:
             continue
         checkouts[repo.github] = checkout
@@ -1274,7 +1273,7 @@ def _build_parser() -> argparse.ArgumentParser:
             "Exit codes:\n"
             "  0  finished (dry run, or every write succeeded or was safely skipped)\n"
             "  1  at least one write or move failed\n"
-            "  2  unusable arguments or missing tasks directory\n"
+            "  2  unusable arguments, missing tasks directory or no shared-state anchor\n"
             "\n" + _RELATED
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -1286,7 +1285,7 @@ def _build_parser() -> argparse.ArgumentParser:
             "--tasks-dir",
             type=Path,
             default=None,
-            help=f"Task record directory (default: {default_tasks_dir()}).",
+            help="Task record directory (default: LU_TASKS_DIR, else <state root>/batch_state/tasks).",
         )
         if min_age_default is not None:
             sub.add_argument(
@@ -1390,7 +1389,13 @@ def _build_parser() -> argparse.ArgumentParser:
 @github_client.timer
 def main(argv: list[str] | None = None) -> int:
     args = _build_parser().parse_args(argv)
-    tasks_dir: Path = args.tasks_dir or default_tasks_dir()
+    try:
+        tasks_dir: Path = args.tasks_dir or default_tasks_dir()
+        if args.command == "settle-stale" or (args.command == "archive" and args.apply):
+            state_root()  # fleet checkouts and the shared lock: refuse before any record moves
+    except MachineryConfigError as exc:
+        print(f"refused: {exc}", file=sys.stderr)
+        return EXIT_USAGE
     if not tasks_dir.is_dir():
         print(f"tasks dir not found: {tasks_dir}", file=sys.stderr)
         return EXIT_USAGE

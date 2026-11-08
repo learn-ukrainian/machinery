@@ -16,8 +16,8 @@
     "target_db": "legacy broker DB",
     "reason": "persists broker messages and jobs",
     "calls": [
-      "sqlite3.connect(str(DB_PATH))",
-      "sqlite3.connect(str(DB_PATH))"
+      "sqlite3.connect(str(_config.DB_PATH))",
+      "sqlite3.connect(str(_config.DB_PATH))"
     ]
   },
   {
@@ -27,9 +27,9 @@
     "target_db": "legacy broker DB",
     "reason": "migrates and persists broker state",
     "calls": [
-      "sqlite3.connect(DB_PATH)",
-      "sqlite3.connect(DB_PATH)",
-      "sqlite3.connect(f'{DB_PATH.resolve().as_uri()}?mode=ro', uri=True)"
+      "sqlite3.connect(_config.DB_PATH)",
+      "sqlite3.connect(_config.DB_PATH)",
+      "sqlite3.connect(f'{_config.DB_PATH.resolve().as_uri()}?mode=ro', uri=True)"
     ]
   },
   {
@@ -995,7 +995,7 @@
     "target_db": "legacy broker DB",
     "reason": "updates watcher state",
     "calls": [
-      "sqlite3.connect(DB_PATH)"
+      "sqlite3.connect(db_path)"
     ]
   },
   {

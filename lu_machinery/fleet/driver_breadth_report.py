@@ -19,13 +19,12 @@ from typing import Any
 if __package__ in (None, ""):  # run as a file: put the repository root on sys.path
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
+from lu_machinery.common.repo_root import MachineryConfigError, state_root
 from lu_machinery.fleet import idle_settle as idle_settle
 from lu_machinery.orchestration.task_record_store import iter_task_records, read_task_record
 
 # This CLI as it was started: by its import name under ``-m``, else by its file.
 _ENTRY = f"-m {__spec__.name}" if __spec__ is not None else os.fspath(__file__)
-
-ROOT = Path(__file__).resolve().parents[2]
 
 # Static agent→tier fallback (not a live model_catalog.yaml load).
 _DEFAULT_AGENT_TIER = {
@@ -196,7 +195,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--tasks-dir",
         type=Path,
-        default=ROOT / "batch_state" / "tasks",
+        default=None,
         help="Task records directory (default: batch_state/tasks; e.g. /path/to/tasks)",
     )
     parser.add_argument(
@@ -239,13 +238,21 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
+    try:
+        tasks_dir = args.tasks_dir if args.tasks_dir is not None else state_root() / "batch_state" / "tasks"
+        idle_path = args.idle_store if args.idle_store is not None else idle_settle.default_store_path()
+    except MachineryConfigError as exc:
+        parser.error(str(exc))
     since = datetime.now(UTC) - timedelta(hours=args.since_hours)
-    tasks = load_tasks(args.tasks_dir, initiator_prefix=args.initiator, since=since)
+    tasks = load_tasks(
+        tasks_dir,
+        initiator_prefix=args.initiator,
+        since=since,
+    )
     report = build_report(tasks)
     report["initiator_filter"] = args.initiator
     report["since_hours"] = args.since_hours
     report["generated_at"] = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
-    idle_path = args.idle_store if args.idle_store is not None else idle_settle.default_store_path()
     if idle_path.is_file():
         report["idle_settle"] = idle_settle.build_report(
             idle_settle.events_since(idle_settle.load_events(idle_path), since),

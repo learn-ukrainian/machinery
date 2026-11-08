@@ -17,6 +17,8 @@ from collections import Counter, deque
 from dataclasses import dataclass
 from pathlib import Path
 
+from lu_machinery.common.repo_root import product_root
+
 
 def _machinery_top() -> str:
     # Name the package from the unresolved file location, never from __package__
@@ -32,7 +34,6 @@ def _mod(*parts: str) -> str:
     return ".".join((_machinery_top(), *parts))
 
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
 LITERAL_TEMP = re.compile(
     r"(?<![\w./~])[/](?:(?:private[/]|var[/])?tmp|dev[/]shm)"
     r"(?=$|[/$\s'\";,:)}\]])(?:[/][^\s'\";,:)}\]]*)?"
@@ -1498,11 +1499,6 @@ ALLOWLIST: tuple[tuple[str, str, str], ...] = (
         "1c57c0f6ac43dd4fc0b4f4baba7647ce4221086b52f0e6b4700ff406bee6dcb6:1 6d5be74edda0bef1c874b37524180a9d00e74786df83c224eeb3f0886d1eddb0:1 de38a4b3d27869748216e8d8b2b660b8a1fab17ddb59a80dc44d7689f7f26715:1",
     ),
     (
-        _mp("storage/install_data_volume_dropins.py"),
-        "Legacy literal/default/example; follow-up outside this bounded packet (#9702).",
-        "555147d6feaab79ab3052f2cc60928944aa8adfd6f9a30beff6b67a8fee2da8f:1",
-    ),
-    (
         _mp("storage/paths.py"),
         "Existing literal or temp producer exposed by expanded lint; migration tracked in #9702.",
         "32a439e034e2413660306849879079698906485d55b251cee04fdaa6288b5f87:1",
@@ -2618,8 +2614,9 @@ def unmatched_rows(rows: list[tuple[str, int, str]]) -> list[tuple[str, int, str
     return findings
 
 
-def find_literal_tmp_paths(repo_root: Path = REPO_ROOT) -> list[tuple[str, int]]:
+def find_literal_tmp_paths(repo_root: Path | None = None) -> list[tuple[str, int]]:
     """Find new literals and unmanaged calls outside the counted legacy baseline."""
+    repo_root = repo_root or product_root()
     return [(path, number) for path, number, _ in unmatched_rows(scan_lines(repo_root))]
 
 
@@ -2630,7 +2627,7 @@ def main(argv: list[str] | None = None) -> int:
         epilog='Examples:\n  .venv/bin/python -m ' + _mod("hygiene", "lint_tmp_paths") + '\n  .venv/bin/python -m ' + _mod("hygiene", "lint_tmp_paths") + ' --repo .\n  .venv/bin/python -m ' + _mod("hygiene", "lint_tmp_paths") + ' scripts/a.py tests/b.py\n  .venv/bin/python -m ' + _mod("hygiene", "lint_tmp_paths") + ' --changed-from origin/main\nOutputs: source locations, counted fingerprints and remediation; no writes or literal path contents.\nExit codes: 0 clean; 1 findings; 2 invalid arguments or source read/parse error.\nRelated: #8755; workflow.md; ' + _mod("hygiene", "lint_raw_rm_rf") + '.',
     )
     parser.add_argument(
-        "--repo", type=Path, default=REPO_ROOT, help="Repository to scan (default this checkout; example .)."
+        "--repo", type=Path, default=None, help="Repository to scan (default: the selected product checkout; example .)."
     )
     parser.add_argument(
         "paths", nargs="*", help="Changed-file mode: scan only these files (same allowlist and results as repo-wide)."
@@ -2641,6 +2638,8 @@ def main(argv: list[str] | None = None) -> int:
         help="Changed-file mode: also scan files added/modified against REF (git diff, includes the working tree).",
     )
     args = parser.parse_args(argv)
+    if args.repo is None:
+        args.repo = product_root()
     try:
         selected = None
         if args.paths or args.changed_from:

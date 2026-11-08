@@ -39,12 +39,6 @@ import time
 from collections.abc import Callable
 from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
-
-# Ensure repo scripts/ is importable when invoked as a file path.
-if str(REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT))
-
 from lu_machinery.common.jsonl import jsonl_lines
 
 

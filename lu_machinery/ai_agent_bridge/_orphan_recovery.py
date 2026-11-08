@@ -9,7 +9,8 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
-from ._config import MACHINERY_PACKAGE, REPO_ROOT
+from . import _config
+from ._config import MACHINERY_PACKAGE
 
 # Code and documentation roots a recovered commit may touch: the product checkout's scripts/
 # and the machinery package directory (one entry while the package is scripts/).
@@ -115,7 +116,7 @@ def _run_ruff(
         return True
     ruff_bin = repo_root / ".venv" / "bin" / "ruff"
     if not ruff_bin.exists():
-        ruff_bin = REPO_ROOT / ".venv" / "bin" / "ruff"
+        ruff_bin = _config.REPO_ROOT / ".venv" / "bin" / "ruff"
     try:
         result = subprocess.run(
             [str(ruff_bin), "check", *py_files],
@@ -133,8 +134,10 @@ def _run_ruff(
 def recover_orphan_commit(
     candidate: RecoveryCandidate,
     *,
-    repo_root: Path = REPO_ROOT,
+    repo_root: Path | None = None,
 ) -> RecoveryResult:
+    if repo_root is None:
+        repo_root = _config.REPO_ROOT
     changed_files = _git_head_changed_files(repo_root)
     if not changed_files:
         return RecoveryResult(commit_sha=None, reason="clean-tree")

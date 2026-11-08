@@ -86,11 +86,6 @@ class ContractError(RuntimeError):
         self.exit_code = exit_code
 
 
-def package_repo_root() -> Path:
-    """Root of the learn-ukrainian checkout that ships the schema (not the review target)."""
-    return Path(__file__).resolve().parents[2]
-
-
 def schema_path(
     tooling_root: Path | None = None,
     *,
@@ -109,8 +104,9 @@ def schema_path(
         return None
     if task is not None and is_ukrainian_review(task):
         return None
-    root = tooling_root or package_repo_root()
-    return root / SCHEMA_RELATIVE_PATH
+    from lu_machinery.common.repo_root import machinery_path
+
+    return tooling_root / SCHEMA_RELATIVE_PATH if tooling_root is not None else machinery_path(SCHEMA_RELATIVE_PATH)
 
 
 def load_schema(

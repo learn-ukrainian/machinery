@@ -93,6 +93,7 @@ from lu_machinery.agent_runtime.attempt_safe_read import (
     safe_attempt_file_size,
 )
 from lu_machinery.agent_runtime.result import AgyAttempt, AgyTelemetry
+from lu_machinery.common.repo_root import MachineryConfigError, machinery_path, product_root
 from lu_machinery.secret_redactor import redact_value
 
 from .accounting import model_accounting_fields
@@ -150,11 +151,7 @@ except ImportError:  # pragma: no cover - package import path
 _POLL_INTERVAL_S = 1.0
 _logger = logging.getLogger(__name__)
 _STDIN_TEMP_PREFIX = "agent-runtime-stdin-"
-_SHIMS_DIR = Path(__file__).resolve().parent / "shims"
-# Repo root that owns this runner (scripts/agent_runtime/runner.py → parents[2]).
-# Used by the #4446 write-cwd guard as a cheap pre-filter: only a cwd inside this
-# checkout's own file tree can be its protected primary checkout.
-_RUNNER_REPO_TREE = Path(__file__).resolve().parents[2]
+_SHIMS_DIR = machinery_path("agent_runtime/shims")
 _MCP_RUNTIME_INIT_TIMEOUT_S = 30.0
 _MCP_TRANSPORT_FAILURE_RE = re.compile(r"ERROR\s+rmcp::transport::worker:")
 _MCP_FAILURE_URL_RE = re.compile(r"url \((?P<url>https?://[^)\s]+)\)")
@@ -2062,14 +2059,22 @@ def _execute_invocation_once(
     # proved cwd isolation, but a child can still resolve absolute paths into
     # the primary checkout while running (the agy escape class). Baseline is
     # taken BEFORE the spawn so nothing the child does hides in it. None when
-    # not applicable (read-only, non-dispatch cwd) — always fail-open.
-    tree_watch = PrimaryTreeWatch.start(
-        cwd=review_cwd,
-        mode=mode,
-        agent_name=agent_name,
-        task_id=task_id,
-        event_sink=event_sink,
-        repo_tree=_RUNNER_REPO_TREE,
+    # not applicable (read-only, non-dispatch cwd, no product selected) — always fail-open.
+    try:
+        watched_product: Path | None = product_root()
+    except MachineryConfigError:
+        watched_product = None
+    tree_watch = (
+        PrimaryTreeWatch.start(
+            cwd=review_cwd,
+            mode=mode,
+            agent_name=agent_name,
+            task_id=task_id,
+            event_sink=event_sink,
+            repo_tree=watched_product,
+        )
+        if watched_product is not None
+        else None
     )
 
     try:
@@ -3094,7 +3099,9 @@ def _ensure_write_cwd_isolated(cwd: Path, *, mode: str, agent_name: str) -> None
     predicate cannot be imported (fail closed — a write-capable spawn we cannot
     prove is isolated is exactly what this guard exists to prevent). Dispatch
     worktrees, any other registered worktree, out-of-repo paths, and primary
-    checkouts deliberately on a feature branch all pass.
+    checkouts deliberately on a feature branch all pass. The protected product
+    checkout is ``product_root()``; with none selected (installed package, no
+    ``LU_PRODUCT_ROOT``) the spawn is refused with its ``ProductRootError``.
     """
     wc = _load_worktree_containment()
     if wc is None:
@@ -3105,11 +3112,11 @@ def _ensure_write_cwd_isolated(cwd: Path, *, mode: str, agent_name: str) -> None
             f"Refusing to spawn. {_WRITE_CWD_HINT}"
         )
     resolved = wc.canonicalize(cwd)
-    # Cheap containment gate: only a cwd inside this checkout's own file tree can
-    # be its primary checkout root. Out-of-tree cwds (temp dirs, externally
+    # Cheap containment gate: only a cwd inside the product checkout's own file tree
+    # can be its primary checkout root. Out-of-tree cwds (temp dirs, externally
     # located worktrees) are isolated from the primary checkout by definition, so
     # skip the git-plumbing classify — and its subprocess — entirely for them.
-    if not resolved.is_relative_to(_RUNNER_REPO_TREE):
+    if not resolved.is_relative_to(wc.canonicalize(product_root())):
         return
     if wc.classify_repo_path(resolved, cwd=resolved) != "primary_checkout":
         return

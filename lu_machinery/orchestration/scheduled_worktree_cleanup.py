@@ -37,11 +37,12 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
-if str(PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(PROJECT_ROOT))
+_IMPORT_ROOT = str(Path(__file__).resolve().parents[2])
+if _IMPORT_ROOT not in sys.path:
+    sys.path.insert(0, _IMPORT_ROOT)
 
 from lu_machinery.common import github_client
+from lu_machinery.common.repo_root import MachineryConfigError, state_root
 from lu_machinery.common.task_scratch import recover_orphans as recover_task_scratch
 from lu_machinery.dispatcher.store import retention_hold_disposition
 from lu_machinery.hygiene import fetch_refspecs, home_session_retention_check
@@ -69,7 +70,7 @@ SELF_CGROUP = Path("/proc/self/cgroup")
 
 
 def default_public_repo() -> Path:
-    return PROJECT_ROOT
+    return state_root()
 
 
 def default_private_repo(public_repo: Path) -> Path:
@@ -1588,7 +1589,6 @@ def write_receipt(receipt: dict[str, Any], receipt_dir: Path) -> Path:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    public_repo = default_public_repo()
     parser = argparse.ArgumentParser(
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -1632,7 +1632,6 @@ Related:
         help="Change-only disk watermark alert state. Default: configured hygiene state disk-watermark. "
         "Example: <alert-state-dir>",
     )
-    parser.set_defaults(default_repo_roots=[public_repo, default_private_repo(public_repo)])
     return parser
 
 
@@ -1755,7 +1754,7 @@ def batch_state_retention_reports(repo_roots: list[Path], *, apply: bool) -> lis
 def disk_watermark_alert_report(state_dir: Path) -> dict[str, Any]:
     """Run the once-per-crossing cto alert; a failure is reported as an error, never raised (#10871)."""
     try:
-        return {"detail": disk_watermark_alert.check_and_alert(state_dir, PROJECT_ROOT), "errors": 0}
+        return {"detail": disk_watermark_alert.check_and_alert(state_dir, state_root()), "errors": 0}
     except (ValueError, backup_failure_alert.AlertError, OSError) as exc:
         detail = "state I/O failed; retry retains the publication identity" if isinstance(exc, OSError) else str(exc)
         return {"detail": f"disk watermark alert failed: {detail}", "errors": 1}
@@ -1763,8 +1762,12 @@ def disk_watermark_alert_report(state_dir: Path) -> dict[str, Any]:
 
 @github_client.timer
 def main(argv: list[str] | None = None) -> int:
-    args = build_parser().parse_args(argv)
-    repo_roots = args.repo_root or args.default_repo_roots
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    try:
+        repo_roots = args.repo_root or [public := default_public_repo(), default_private_repo(public)]
+    except MachineryConfigError as exc:
+        parser.error(str(exc))
     receipt = build_receipt(repo_roots, apply=bool(args.apply), **({"git_maintenance": True} if args.git_maintenance else {}))
     if args.git_maintenance:
         receipt_path = write_receipt(receipt, args.receipt_dir.expanduser().resolve())

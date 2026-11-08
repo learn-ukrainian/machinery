@@ -43,7 +43,8 @@ import yaml
 # ``ai_agent_bridge`` identity (a second sys.modules entry with divergent state).
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 from lu_machinery.ai_agent_bridge._env import build_agent_env
-from lu_machinery.common.repo_root import project_interpreter
+from lu_machinery.common.bridge_paths import default_bridge_db_path
+from lu_machinery.common.repo_root import machinery_path, product_root, project_interpreter, state_root
 
 
 # ---------------------------------------------------------------------------
@@ -64,10 +65,9 @@ def _capture_login_env() -> dict:
             if "=" in line:
                 k, v = line.split("=", 1)
                 env[k] = v
-        repo_root = Path(__file__).parent.parent.parent
-        return build_agent_env(env, repo_root=repo_root)
+        return build_agent_env(env, repo_root=product_root())
     except Exception:
-        return build_agent_env(os.environ, repo_root=Path(__file__).parent.parent.parent)
+        return build_agent_env(os.environ, repo_root=product_root())
 
 
 _LOGIN_ENV_CACHE: dict | None = None
@@ -91,10 +91,10 @@ def _project_python() -> Path:
     return project_interpreter()
 
 
-DB_PATH = Path(__file__).parent.parent.parent / ".mcp/servers/message-broker/messages.db"
-PID_FILE = Path(__file__).parent.parent.parent / ".mcp/servers/message-broker/watcher.pid"
-LOG_FILE = Path(__file__).parent.parent.parent / ".mcp/servers/message-broker/watcher.log"
-BRIDGE_SCRIPT = Path(__file__).parent.parent / "ai_agent_bridge" / "__main__.py"
+# The watcher's pid file and log, relative to the shared state root. Every use resolves
+# state_root() (C-4843), as the broker database does through default_bridge_db_path().
+WATCHER_PID = Path(".mcp/servers/message-broker/watcher.pid")
+WATCHER_LOG = Path(".mcp/servers/message-broker/watcher.log")
 
 # Timing configuration
 POLL_INTERVAL_SECONDS = 5  # How often to check for new messages
@@ -116,7 +116,7 @@ def _configure_logging() -> None:
         level=logging.INFO,
         format='%(asctime)s [%(levelname)s] %(message)s',
         handlers=[
-            logging.FileHandler(LOG_FILE),
+            logging.FileHandler(state_root() / WATCHER_LOG),
             logging.StreamHandler(),
         ],
     )
@@ -129,7 +129,7 @@ def load_agent_config() -> dict:
     """Load agent registry from scripts/config/agents.yaml (cached)."""
     global _AGENTS_CONFIG
     if _AGENTS_CONFIG is None:
-        config_path = Path(__file__).parent.parent / "config" / "agents.yaml"
+        config_path = machinery_path("config/agents.yaml")
         if config_path.exists():
             with open(config_path) as f:
                 _AGENTS_CONFIG = yaml.safe_load(f).get("agents", {})
@@ -172,12 +172,12 @@ def _save_stuck_report(task_id: str, turn_count: int, last_msg: dict):
         report_dir = None
         for track in ("bio", "hist", "istorio", "lit", "oes", "ruth"):
             if track in task_id:
-                report_dir = Path(__file__).parent.parent.parent / f"curriculum/l2-uk-en/{track}/stuck"
+                report_dir = product_root() / f"curriculum/l2-uk-en/{track}/stuck"
                 report_dir.mkdir(parents=True, exist_ok=True)
                 break
 
         if not report_dir:
-            report_dir = Path(__file__).parent.parent.parent / "curriculum/l2-uk-en/stuck"
+            report_dir = product_root() / "curriculum/l2-uk-en/stuck"
             report_dir.mkdir(parents=True, exist_ok=True)
 
         slug = task_id.replace("rebuild-", "").replace("review-", "").replace("-v4", "")
@@ -227,9 +227,10 @@ def _save_stuck_report(task_id: str, turn_count: int, last_msg: dict):
 
 def get_db():
     """Get database connection."""
-    if not DB_PATH.exists():
+    db_path = default_bridge_db_path(state_root())
+    if not db_path.exists():
         return None
-    return sqlite3.connect(DB_PATH)
+    return sqlite3.connect(db_path)
 
 
 def get_unread_messages(for_agent: str | None = None):
@@ -345,7 +346,7 @@ def trigger_agent(agent: str, message_id: int, task_id: str | None = None, from_
         bridge_cmd = agents[agent]["bridge_command"]
         cmd = [
             str(_project_python()),
-            str(BRIDGE_SCRIPT),
+            str(machinery_path("ai_agent_bridge/__main__.py")),
             bridge_cmd,
             str(message_id)
         ]
@@ -359,7 +360,7 @@ def trigger_agent(agent: str, message_id: int, task_id: str | None = None, from_
             capture_output=True,
             text=True,
             timeout=360,  # 6 min (safety net for bridge's 5 min sync timeout)
-            cwd=str(Path(__file__).parent.parent.parent),
+            cwd=str(product_root()),
             env=_get_login_env(),
         )
 
@@ -387,7 +388,7 @@ def run_watcher():
     """Main watcher loop."""
     logger.info("=" * 60)
     logger.info("Agent Watcher starting...")
-    logger.info(f"Database: {DB_PATH}")
+    logger.info(f"Database: {default_bridge_db_path(state_root())}")
     logger.info(f"Poll interval: {POLL_INTERVAL_SECONDS}s (idle: {IDLE_POLL_INTERVAL_SECONDS}s)")
     logger.info(f"Max turns per task: {MAX_TURNS_PER_TASK}")
     logger.info("=" * 60)
@@ -464,15 +465,17 @@ def run_watcher():
 
 def write_pid():
     """Write PID file for daemon mode."""
-    PID_FILE.parent.mkdir(parents=True, exist_ok=True)
-    PID_FILE.write_text(str(os.getpid()))
+    pid_file = state_root() / WATCHER_PID
+    pid_file.parent.mkdir(parents=True, exist_ok=True)
+    pid_file.write_text(str(os.getpid()))
 
 
 def read_pid() -> int:
     """Read PID from file."""
-    if PID_FILE.exists():
+    pid_file = state_root() / WATCHER_PID
+    if pid_file.exists():
         try:
-            return int(PID_FILE.read_text().strip())
+            return int(pid_file.read_text().strip())
         except (ValueError, OSError):
             pass
     return None
@@ -499,8 +502,9 @@ def stop_daemon():
             print(f"Sent SIGTERM to watcher (PID {pid})")
             # Wait for cleanup
             time.sleep(1)
-            if PID_FILE.exists():
-                PID_FILE.unlink()
+            pid_file = state_root() / WATCHER_PID
+            if pid_file.exists():
+                pid_file.unlink()
             return True
         except OSError as e:
             print(f"Error stopping daemon: {e}")
@@ -511,9 +515,11 @@ def stop_daemon():
 
 def show_status():
     """Show watcher status."""
-    print(f"Database: {DB_PATH}")
-    print(f"PID file: {PID_FILE}")
-    print(f"Log file: {LOG_FILE}")
+    state = state_root()
+    log_file = state / WATCHER_LOG
+    print(f"Database: {default_bridge_db_path(state)}")
+    print(f"PID file: {state / WATCHER_PID}")
+    print(f"Log file: {log_file}")
 
     agents = load_agent_config()
     print(f"Registered agents: {', '.join(agents.keys())}")
@@ -537,10 +543,10 @@ def show_status():
         print("\nNo pending messages")
 
     # Show recent log entries
-    if LOG_FILE.exists():
+    if log_file.exists():
         print("\nRecent log entries:")
         try:
-            with open(LOG_FILE) as f:
+            with open(log_file, encoding="utf-8") as f:
                 lines = f.readlines()[-10:]
                 for line in lines:
                     print(f"  {line.rstrip()}")
@@ -585,8 +591,9 @@ def main():
 
     # Handle cleanup on exit
     def cleanup(signum, frame):
-        if PID_FILE.exists():
-            PID_FILE.unlink()
+        pid_file = state_root() / WATCHER_PID
+        if pid_file.exists():
+            pid_file.unlink()
         logger.info("Watcher stopped")
         sys.exit(0)
 

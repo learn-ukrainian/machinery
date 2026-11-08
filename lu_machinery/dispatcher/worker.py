@@ -20,7 +20,7 @@ import psutil
 
 from lu_machinery.agent_runtime import bounded_advisory
 from lu_machinery.agent_runtime.read_only_tmp import create_dispatch_lease, discard_dispatch_lease
-from lu_machinery.common.repo_root import project_interpreter
+from lu_machinery.common.repo_root import machinery_path
 from lu_machinery.common.scratch import ensure_scratch_root
 from lu_machinery.common.task_scratch import TaskScratchError
 from lu_machinery.dispatcher import admission, agy_sandbox, git, headroom, ownership, providers, runtime_context, store
@@ -109,7 +109,7 @@ def _dispatcher_code() -> dict:
     """
     from lu_machinery.common.git_context import sanitized_git_env
 
-    root = Path(__file__).resolve().parents[2]
+    root = machinery_path("dispatch.py").parent.parent
 
     def git_out(*args: str) -> str | None:
         try:
@@ -199,8 +199,8 @@ def start(spec: TaskSpec, record: dict, prompt: bytes, hard_timeout: float) -> N
             mask = signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGTERM, signal.SIGINT})
             try:
                 process, launch = admission.spawn_supervisor(
-                    [str(project_interpreter()), "-m", "lu_machinery.dispatcher.worker", str(path)],
-                    task_id=spec.task_id, run_nonce=record["run_nonce"], cwd=Path(__file__).resolve().parents[2],
+                    [sys.executable, "-m", "lu_machinery.dispatcher.worker", str(path)],
+                    task_id=spec.task_id, run_nonce=record["run_nonce"], cwd=machinery_path("dispatch.py").parent.parent,
                     stderr=err, stderr_log=logs / f"{spec.task_id}.stderr.log",
                     env={**os.environ,
                          "LEARN_UKRAINIAN_DISPATCH_TASK_ID": spec.task_id,
@@ -504,7 +504,7 @@ def _load_bound_review_code() -> None:
     when ``review_attempt`` is set), so only that run loads this code. The runner imports ``ai_llm`` from ``scripts/``, which
     ``review_attempt.run`` puts on ``sys.path`` just before it imports the runner; do the same, and leave ``sys.path`` as it was.
     """
-    scripts_dir = str(Path(__file__).resolve().parents[1])
+    scripts_dir = str(machinery_path("agent_runtime").parent)
     added = scripts_dir not in sys.path
     if added:
         sys.path.insert(0, scripts_dir)

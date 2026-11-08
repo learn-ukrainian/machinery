@@ -24,10 +24,6 @@ import sys
 import tempfile
 from pathlib import Path
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
-if str(PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(PROJECT_ROOT))
-
 from lu_machinery.common.repo_root import ProductRootError, product_root
 from lu_machinery.common.safe_unit_install import InstallError, open_unit_dir, read_unit, write_unit
 

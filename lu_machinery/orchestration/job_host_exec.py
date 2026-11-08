@@ -39,9 +39,6 @@ _PACKAGE = f"{Path(os.path.abspath(__file__)).parents[1].name}.{Path(os.path.abs
 _PACKAGE_DIR = _PACKAGE.replace(".", "/")
 _MACHINERY = _PACKAGE.partition(".")[0]
 
-_PROJECT_ROOT = Path(__file__).resolve().parents[2]
-if str(_PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(_PROJECT_ROOT))
 
 
 ENV_HOST = "LU_JOB_DISPATCH_HOST"

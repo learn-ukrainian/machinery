@@ -23,7 +23,8 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 
-from ._config import _PARENT_ENV, AGY_CLI, CLAUDE_CMD, CODEX_CLI, REPO_ROOT
+from . import _config
+from ._config import AGY_CLI, CLAUDE_CMD, CODEX_CLI
 
 try:
     from lu_machinery.agent_runtime.adapters.claude import run_headless_claude
@@ -130,17 +131,16 @@ def _run_backend_command(
     argv: list[str],
     *,
     prompt: str | None = None,
-    cwd: Path = REPO_ROOT,
     env: dict[str, str] | None = None,
 ) -> subprocess.CompletedProcess[str]:
-    env = dict(env) if env is not None else dict(_PARENT_ENV)
+    env = dict(env) if env is not None else dict(_config._PARENT_ENV)
     env.setdefault("TERM", "xterm-256color")
     env.setdefault("COLORTERM", "truecolor")
     options: dict[str, Any] = {
         "input": prompt,
         "capture_output": True,
         "text": True,
-        "cwd": str(cwd),
+        "cwd": str(_config.REPO_ROOT),
         "check": False,
     }
     if backend_name == "claude":
@@ -180,7 +180,7 @@ def _codex_backend(model: str, messages: list[Message], **kwargs: Any) -> Comple
             "--json",
             "--skip-git-repo-check",
             "-C",
-            str(REPO_ROOT),
+            str(_config.REPO_ROOT),
             "--color",
             "never",
             "-s",
@@ -230,7 +230,7 @@ def _gemini_backend(model: str, messages: list[Message], **kwargs: Any) -> Compl
         agy_model,
     ]
 
-    env = dict(_PARENT_ENV)
+    env = dict(_config._PARENT_ENV)
     result = _run_backend_command("agy", cmd, prompt=prompt, env=env)
     return CompletionResponse(content=result.stdout.strip())
 
@@ -272,7 +272,7 @@ _ROUTABLE_MODELS: dict[str, ModelRoute] = {
 def _probe_cli(cmd_prefix: list[str]) -> tuple[bool, str]:
     """Run the backend's fixed ``--version`` probe; an unprobeable prefix is unavailable."""
     try:
-        result = run_version_probe(cmd_prefix, timeout=1, cwd=str(REPO_ROOT), env=_PARENT_ENV)
+        result = run_version_probe(cmd_prefix, timeout=1, cwd=str(_config.REPO_ROOT), env=_config._PARENT_ENV)
     except (OSError, subprocess.TimeoutExpired):
         return False, ""
     if result is not None and result.returncode == 0:

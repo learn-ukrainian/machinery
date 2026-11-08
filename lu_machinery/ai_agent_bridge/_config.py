@@ -12,8 +12,8 @@ _local_repo_root = Path(__file__).resolve().parents[2]
 if str(_local_repo_root) not in sys.path:
     sys.path.insert(0, str(_local_repo_root))
 
-from lu_machinery.common.bridge_paths import configured_bridge_db_path
-from lu_machinery.common.repo_root import resolve_repo_root
+from lu_machinery.common.bridge_paths import default_bridge_db_path
+from lu_machinery.common.repo_root import product_root, state_root
 
 # The machinery package as the checkout names it (the unresolved name of the package
 # directory this file is in, whatever it is called), and its checkout-relative entry
@@ -22,19 +22,17 @@ MACHINERY_PACKAGE = Path(__file__).absolute().parents[1].name
 DISPATCH_ENTRY = f"{MACHINERY_PACKAGE}/dispatch.py"
 BRIDGE_ENTRY = f"{MACHINERY_PACKAGE}/ai_agent_bridge/__main__.py"
 
-# Repo root for path resolution
-REPO_ROOT = Path(os.environ.get("AB_REPO_ROOT", str(Path(__file__).parent.parent.parent)))
-
-PRIMARY_REPO_ROOT = resolve_repo_root(Path(__file__), 2)
-
-# Database path (same as MCP server uses)
-DB_PATH = configured_bridge_db_path(PRIMARY_REPO_ROOT)
-PID_DIR = Path(
-    os.environ.get(
-        "AB_PID_DIR",
-        str(PRIMARY_REPO_ROOT / ".mcp" / "servers" / "message-broker" / "pids"),
-    )
-)
+# The bridge's roots resolve at each access through ``__getattr__`` below, never at
+# import, so the package imports with nothing configured (C-4843). Read them as
+# ``_config.NAME`` where they are used; ``from ._config import NAME`` would resolve at import.
+# REPO_ROOT: the bridge's repository, ``AB_REPO_ROOT`` when set, else the product checkout.
+REPO_ROOT: Path
+# DB_PATH, PID_DIR: the broker database (same as the MCP server uses) and pid directory,
+# under the shared state root.
+DB_PATH: Path
+PID_DIR: Path
+# _PARENT_ENV: the narrow environment for detached children.
+_PARENT_ENV: dict[str, str]
 
 # Resolve CLI paths at import time (before detached children lose PATH)
 # Prefer the local native `claude` binary (#4875: the npm package became a
@@ -81,19 +79,30 @@ def default_gemini_model() -> str:
     )
 
 
+_PIPELINE_ENV_KEY = os.environ.get("AB_PIPELINE_ENV_KEY", "LEARN_UKRAINIAN_PIPELINE")
+
+
 def __getattr__(name: str):
     if name == "GEMINI_DEFAULT_MODEL":
         return default_gemini_model()
+    if name == "REPO_ROOT":
+        return product_root(os.environ.get("AB_REPO_ROOT") or None)
+    # A set override wins without resolving the state root it replaces.
+    if name == "DB_PATH":
+        override = os.environ.get("AB_DB_PATH")
+        return Path(override) if override else default_bridge_db_path(state_root())
+    if name == "PID_DIR":
+        override = os.environ.get("AB_PID_DIR")
+        return Path(override) if override else state_root() / ".mcp" / "servers" / "message-broker" / "pids"
+    if name == "_PARENT_ENV":
+        # Environment for detached children. Use a narrow env so background bridge
+        # processes do not inherit shell tokens that agents can print. Set
+        # GEMINI_SESSION so .bashrc disables hostile aliases (eza, bat, zoxide).
+        env = build_agent_env(os.environ, repo_root=__getattr__("REPO_ROOT"))
+        env["GEMINI_SESSION"] = "1"
+        env[_PIPELINE_ENV_KEY] = "1"  # Suppress inbox hooks during pipeline runs
+        return env
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
-
-
-# Snapshot environment for passing to detached children. Use a narrow env so
-# background bridge processes do not inherit shell tokens that agents can print.
-# Set GEMINI_SESSION so .bashrc disables hostile aliases (eza, bat, zoxide)
-_PARENT_ENV = build_agent_env(os.environ, repo_root=REPO_ROOT)
-_PARENT_ENV["GEMINI_SESSION"] = "1"
-_PIPELINE_ENV_KEY = os.environ.get("AB_PIPELINE_ENV_KEY", "LEARN_UKRAINIAN_PIPELINE")
-_PARENT_ENV[_PIPELINE_ENV_KEY] = "1"  # Suppress inbox hooks during pipeline runs
 
 # Model availability cache: {model: (available: bool, timestamp: float)}
 # Avoids burning API quota on repeated checks within the same session.
