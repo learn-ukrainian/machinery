@@ -291,8 +291,7 @@ fd metadata supplies resumed lengths, and diagnostic tails seek on that fd.
 Reads use that fd only, with a bounded read and a second metadata check. Missing
 optional telemetry remains absent; unsafe reads raise body-free `AttemptReadError`
 codes. Runner parsing converts refusals to failed `ParseResult` values with no response, without
-stdout or provider fallback. V4 finalization records empty output and the typed
-refusal instead of raising on the same read. Diagnostic tail refusals yield no text.
+stdout or provider fallback. Diagnostic tail refusals yield no text.
 
 This uses the directory-fd method described in the
 [Linux open/openat reference](https://man7.org/linux/man-pages/man2/open.2.html);
@@ -307,7 +306,6 @@ This uses the directory-fd method described in the
 | AGY `_transcript_baseline`: resumed prefix sizing | App-data root resolved before launch, while still parent-controlled; formal attempts cannot resume. | Checked fd `fstat` size; no transcript bytes read. |
 | AGY `_conversation_id_from_log`: invocation log | Plan `log_read_root`: parent-owned attempt `write_root`; ordinary log parent resolved before launch; `/` for direct calls. | Shared reader before UUID extraction. |
 | AGY `_inline_saved_tool_result_pointer`: saved result | Plan's transcript read root carried through FIFO, indexed and generic result pairing; parent-owned attempt `write_root`, ordinary pre-launch app-data root, or `/` for direct calls. Ordinary dispatches map a captured app-data alias lexically onto the pre-launch resolved root; attempts never get an alias. Conversation steps directories are lexical containment only, never walk anchors. | The no-follow read stays anchored at the resolved root; the shared reader refuses replaced conversation ancestors even after the transcript has been read. |
-| Runner `_finalize_v4_runner_origin`: output observation | Plan `parent_read_root` (parent-owned attempt `write_root` or ordinary pre-launch adapter root); `/` if absent. | Shared reader before recording; refusal cannot persist host bytes. |
 | Runner failure diagnostics via watchdog `tail_liveness_file_for_debug` | Default `/`: parent-owned filesystem root, with every descendant walked no-follow. | Checked fd seek and bounded tail read; unsafe files yield no diagnostic bytes. |
 | Runner `_prepare_stdin_handle`: prompt input | No named-file walk anchor. | Retains the original parent-created descriptor through spawn, without reopening its name. |
 

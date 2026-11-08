@@ -45,7 +45,7 @@ def attested_author_families(markers: Iterable[Mapping[str, Any]]) -> frozenset[
     The identity import stays inside this function. Catalog validation imports
     this module, and the freshness check does not install the runtime package.
     """
-    from learn_ukrainian_v4_runtime.identity import (
+    from lu_machinery.identity import (
         _VALID_CONCRETE_FAMILIES,
         UNKNOWN_AUTHOR_FAMILY,
         UNRESOLVED_AUTHOR_FAMILIES,

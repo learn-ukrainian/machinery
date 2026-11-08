@@ -91,7 +91,6 @@ from lu_machinery.agent_runtime.adapters.muse import MuseRunEvidence
 from lu_machinery.agent_runtime.attempt_safe_read import (
     AttemptReadError,
     safe_attempt_file_size,
-    safe_read_attempt_file,
 )
 from lu_machinery.agent_runtime.result import AgyAttempt, AgyTelemetry
 from lu_machinery.secret_redactor import redact_value
@@ -1721,7 +1720,6 @@ def _execute_invocation_plan(
     event_sink: Callable[..., None] | None = None,
     stdout_silence_timeout: int | None = None,
     initial_response_timeout: int | None = None,
-    v4_authorization_id: str | None = None,
     agy_budget: _AgyLaunchBudget | None = None,
     cli_version: str = "unknown",
 ) -> _ExecutionOutcome:
@@ -1743,7 +1741,6 @@ def _execute_invocation_plan(
         event_sink=event_sink,
         stdout_silence_timeout=stdout_silence_timeout,
         initial_response_timeout=initial_response_timeout,
-        v4_authorization_id=v4_authorization_id,
         cli_version=cli_version,
     )
     if agent_name != "agy":
@@ -1964,7 +1961,6 @@ def _execute_invocation_once(
     event_sink: Callable[..., None] | None = None,
     stdout_silence_timeout: int | None = None,
     initial_response_timeout: int | None = None,
-    v4_authorization_id: str | None = None,
     cli_version: str = "unknown",
 ) -> _ExecutionOutcome:
     """Spawn one plan, run watchdog/parse flow, and return raw execution state."""
@@ -2062,7 +2058,6 @@ def _execute_invocation_once(
     kill_reason: str | None = None
     escaped_primary: list[str] = []
     cwd_pin: _ChildCwdPin | None = None
-    v4_claim: dict[str, Any] | None = None
     # Mid-dispatch primary-tree tripwire (#6818): the spawn-time guard above
     # proved cwd isolation, but a child can still resolve absolute paths into
     # the primary checkout while running (the agy escape class). Baseline is
@@ -2090,17 +2085,6 @@ def _execute_invocation_once(
                 else:
                     stdin_handle, stdin_temp_path = _prepare_stdin_handle(plan.stdin_payload)
             review_cmd, env = _prepare_spawn_command(review_cmd, env)
-            if v4_authorization_id:
-                from learn_ukrainian_v4_runtime import v4_execution_origin as origin
-
-                from lu_machinery.fleet_comms.request_executor import RequestExecutor
-
-                with RequestExecutor() as executor:
-                    v4_claim = executor.claim_v4_runner_execution(request_id=v4_authorization_id)
-                env = origin.inject_sources_capability(env=env, token=v4_claim["capability_token"])
-                tool_config = origin.apply_mcp_capability_to_tool_config(
-                    tool_config, token=v4_claim["capability_token"]
-                )
             proc, stdout_master_fd, stderr_master_fd = _spawn_subprocess(
                 review_cmd,
                 cwd=review_cwd,
@@ -2340,19 +2324,6 @@ def _execute_invocation_once(
                     f"(stdin_bytes={len(plan.stdin_payload or '')})"
                 )[:500],
             )
-        if v4_claim is not None:
-            parse = _finalize_v4_runner_origin(
-                authorization_id=v4_authorization_id or "",
-                claim=v4_claim,
-                plan=plan,
-                review_cmd=review_cmd,
-                stdout_text=stdout_text,
-                stderr_text=stderr_text,
-                returncode=final_returncode,
-                parse=parse,
-                requested_model=model,
-            )
-            v4_claim = None
         return _ExecutionOutcome(
             parse=parse,
             duration_s=duration_s,
@@ -2438,70 +2409,6 @@ def _execute_invocation_once(
                 cleanup_invocation(plan)
 
         _cleanup_stdin_temp(stdin_temp_path, stdin_handle)
-        if v4_claim is not None and v4_authorization_id:
-            with contextlib.suppress(Exception):
-                _finalize_v4_runner_origin(
-                    authorization_id=v4_authorization_id,
-                    claim=v4_claim,
-                    plan=plan,
-                    review_cmd=review_cmd,
-                    stdout_text="",
-                    stderr_text="",
-                    returncode=None if proc is None else proc.returncode,
-                    parse=ParseResult(ok=False, response=""),
-                    requested_model=model,
-                )
-
-
-def _finalize_v4_runner_origin(
-    *,
-    authorization_id: str,
-    claim: dict[str, Any],
-    plan: Any,
-    review_cmd: list[str],
-    stdout_text: str,
-    stderr_text: str,
-    returncode: int | None,
-    parse: ParseResult,
-    requested_model: str,
-) -> ParseResult:
-    """Persist the runner-owned V4 observation, including typed read refusals."""
-    from learn_ukrainian_v4_runtime import v4_execution_origin as origin
-
-    from lu_machinery.fleet_comms.request_executor import RequestExecutor
-
-    output_bytes = b""
-    if getattr(plan, "output_file", None) is not None:
-        output_path = Path(plan.output_file)
-        try:
-            if not (parse.failure_code or "").startswith("attempt_read_"):
-                output_bytes = safe_read_attempt_file(
-                    output_path,
-                    trusted_root=Path(plan.metadata.get("parent_read_root", "/")),
-                )
-        except FileNotFoundError:
-            pass
-        except AttemptReadError as exc:
-            parse = replace(parse, ok=False, response="", failure_code=str(exc), stderr_excerpt=str(exc))
-    if (parse.failure_code or "").startswith("attempt_read_"):
-        parse = replace(parse, ok=False, response="", stderr_excerpt=parse.failure_code)
-        stderr_text = parse.failure_code
-    with RequestExecutor() as executor:
-        executor.finalize_v4_runner_execution(
-            request_id=authorization_id,
-            attempt_id=claim["attempt_id"],
-            review_cmd=list(review_cmd),
-            transported_prompt=origin.transported_prompt_bytes(plan=plan, review_cmd=review_cmd),
-            stdout=stdout_text.encode("utf-8", errors="replace"),
-            stderr=stderr_text.encode("utf-8", errors="replace"),
-            output_bytes=output_bytes,
-            returncode=returncode,
-            parse_ok=bool(parse.ok),
-            parse_response=parse.response or "",
-            parse_session_id=parse.session_id,
-            requested_model=requested_model,
-        )
-    return parse
 
 
 def _raise_for_kill_reason(
@@ -3628,7 +3535,6 @@ def _invoke_impl(
     effort: str | None = None,
     allow_direct_only: bool = False,
     allow_runner_failover: bool = True,
-    v4_authorization_id: str | None = None,
     rules_seat: str | None = None,
     rules_core_delivery: RulesCoreDelivery = RulesCoreDelivery.INJECT,
 ) -> Result:
@@ -3810,12 +3716,6 @@ def _invoke_impl(
     # intentionally a telemetry label rather than an argv override. Preserve
     # a caller's explicit ``None`` for those adapters while retaining the
     # effective label for headroom and usage records.
-    if v4_authorization_id:
-        from lu_machinery.fleet_comms.request_executor import RequestExecutorError
-
-        raise RequestExecutorError(
-            "legacy V4 runner execution is retired; use the protected packaged V4 service runtime"
-        )
     plan_model = model if allow_direct_only else effective_model
     plan = adapter.build_invocation(
         prompt=prompt,
@@ -3853,7 +3753,6 @@ def _invoke_impl(
         event_sink=event_sink,
         stdout_silence_timeout=stdout_silence_timeout,
         initial_response_timeout=initial_response_timeout,
-        v4_authorization_id=v4_authorization_id,
         cli_version=telemetry.cli_version,
     )
     parse = _validated_agy_parse(execution.parse, agent=agent_name, requested_model=effective_model,
@@ -4034,7 +3933,6 @@ def invoke(
     event_sink: Callable[..., None] | None = None,
     effort: str | None = None,
     initiator: str | None = None,
-    v4_authorization_id: str | None = None,
     allow_runner_failover: bool = True,
     rules_seat: str | None = None,
     rules_core_delivery: RulesCoreDelivery = RulesCoreDelivery.INJECT,
@@ -4106,7 +4004,6 @@ def invoke(
             initial_response_timeout=initial_response_timeout,
             event_sink=event_sink,
             effort=effort,
-            v4_authorization_id=v4_authorization_id,
             rules_seat=rules_seat,
             rules_core_delivery=rules_core_delivery,
             allow_runner_failover=allow_runner_failover
