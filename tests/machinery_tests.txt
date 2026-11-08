@@ -43,6 +43,7 @@ tests/orchestration/test_distinct_roots.py
 tests/orchestration/test_integration_sweep.py
 tests/orchestration/test_merge_queue_keeper.py
 tests/review/test_review_tiers.py
+tests/review/test_scope_expansion.py
 tests/test_record_cf_verdict.py
 tests/test_repo_root.py
 tests/test_claude_review_shell.py
