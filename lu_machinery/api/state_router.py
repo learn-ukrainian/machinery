@@ -29,7 +29,7 @@ from fastapi import APIRouter, Depends, Query, Request
 
 from lu_machinery.agent_identity import normalize_seat, seat_read_aliases
 from lu_machinery.agent_runtime.acp_health import probe_acp_health
-from lu_machinery.common.repo_root import machinery_path, main_checkout_root
+from lu_machinery.common.repo_root import machinery_path, product_root, state_root
 from lu_machinery.fleet import capacity_pick, credit_lane
 from lu_machinery.fleet.reset_reserve import (
     codex_is_threatened,
@@ -163,7 +163,7 @@ def _read_agent_budgets_file(path: Path) -> tuple[dict[str, Any], list[str]]:
 
 def _load_agent_budgets(budget_config_path: Path | None = None) -> tuple[dict[str, Any], list[str]]:
     if budget_config_path is None:
-        budget_config_path = Path(__file__).resolve().parents[1] / "config" / "agent_budgets.yaml"
+        budget_config_path = machinery_path("config/agent_budgets.yaml")
     return _read_agent_budgets_file(budget_config_path)
 
 
@@ -951,7 +951,7 @@ def _compute_dispatch_routing_budget(
     resolved_batch_state = (
         batch_state_dir
         if batch_state_dir is not None
-        else main_checkout_root(Path(__file__).resolve().parents[2]) / "batch_state"
+        else state_root() / "batch_state"
     )
     usage_dir = resolved_batch_state / "api_usage"
     runtime_records_7d = _runtime_usage_records_7d(usage_dir=usage_dir)
@@ -1067,7 +1067,7 @@ def _compute_dispatch_routing_budget(
         return {
             "generated_at": _isoformat_z(current_time),
             "agents": agents,
-            "reset_reserve": load_reset_reserve(project_root or Path(__file__).resolve().parents[2], now=current_time),
+            "reset_reserve": load_reset_reserve(state_root(project_root), now=current_time),
             "api_accounts": api_accounts,
             "in_flight": in_flight_by_agent,
             "recommendation": rec,
@@ -1600,7 +1600,7 @@ def _compute_dispatch_routing_budget(
     recommendation_agents = {lane: dict(info) for lane, info in agents.items()}
     codex_info = agents.get("codex", {})
     reset_reserve = load_reset_reserve(
-        project_root or Path(__file__).resolve().parents[2], now=current_time, codex_info=codex_info
+        state_root(project_root), now=current_time, codex_info=codex_info
     )
     # The reserve ranks Codex first only over capacity the owner verifies (#9740): a reserve whose
     # resets the owner does not count as covering the deficit (e.g. they expire before run-out)
@@ -1976,7 +1976,7 @@ def _codex_subscription_rows(
         b_row["status"] = "hot"
     _attach_credit_states({"codex:b": b_row}, current_time=current_time, snapshot_stale=is_stale, usage_dir=usage_dir)
     _attach_routing_facts({"codex:b": b_row}, current_time=current_time, snapshot_stale=is_stale, usage_dir=usage_dir)
-    root = project_root or Path(__file__).resolve().parents[2]
+    root = state_root(project_root)
     b_row["reset_reserve"] = load_reset_reserve(root, now=current_time, codex_info=b_row, account="b-sub")
     return {"codex:a": a_row, "codex:b": b_row}, b_missing
 
@@ -2040,7 +2040,7 @@ def compute_routing_budget(
         now=now,
         snapshot_stale=dispatch_stale,
     )
-    health = probe_acp_health(project_root or Path(__file__).resolve().parents[2])
+    health = probe_acp_health(product_root(project_root))
     warnings = list(budget["recommendation"].get("warnings", []))
     prepaid_budgets, _ = _load_agent_budgets(budget_config_path)
     for lane in health:

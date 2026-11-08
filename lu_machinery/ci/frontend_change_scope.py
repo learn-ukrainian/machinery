@@ -28,9 +28,9 @@ from pathlib import Path, PurePosixPath
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from lu_machinery.ci._location import checkout_relative
+from lu_machinery.common.repo_root import product_root
 
-DENOMINATOR_REL = checkout_relative("ci", "frontend_change_denominator.json").as_posix()
+DENOMINATOR_REL = "scripts/ci/frontend_change_denominator.json"
 PACKAGE_JSON_REL = "site/package.json"
 HYDRATE_ROOT_SCRIPT = "hydrate"
 
@@ -52,7 +52,7 @@ class MergeBaseError(RuntimeError):
 
 
 def repo_root() -> Path:
-    return Path(__file__).resolve().parents[2]
+    return product_root()
 
 
 def denominator_path(root: Path | None = None) -> Path:

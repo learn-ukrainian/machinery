@@ -15,7 +15,7 @@ attempt-specific environment variables:
 - LU_REVIEW_LEDGER_PATH
 
 The generated MCP configuration defines exclusively a `sources` server started
-over stdio from the primary checkout's virtual environment and server script,
+over stdio with the running interpreter and the selected product checkout's server script,
 bypassing the shared streamable-HTTP daemon (127.0.0.1:8766). Because the prompt may be
 rendered in another checkout, ``check_review_contract`` refuses the attempt when the
 server code or templates its render recorded differ from what the seat would run, and
@@ -91,6 +91,7 @@ import re
 import shutil
 import stat
 import subprocess
+import sys
 import unicodedata
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
@@ -99,7 +100,7 @@ from types import MappingProxyType
 from typing import Any
 
 from lu_machinery.agent_runtime.sources_read_only import sources_tool_sets
-from lu_machinery.common.repo_root import project_interpreter, resolve_repo_root
+from lu_machinery.common.repo_root import product_root, state_root
 from lu_machinery.common.safe_open import UnsafeEntryError, safe_open_below
 from lu_machinery.review.product_hooks import attempt_hooks
 from lu_machinery.review.render_contract import check_launch_contract, check_render_contract
@@ -354,7 +355,7 @@ def _open_receipts_root(root: Path, *, create: bool) -> int:
     never creates anything.
     """
     root = Path(os.path.abspath(root))
-    primary_root = resolve_repo_root(Path(__file__), 2)
+    primary_root = state_root()
     if root == primary_root / _DEFAULT_RECEIPTS_PARTS[0] / _DEFAULT_RECEIPTS_PARTS[1]:
         fd = os.open(primary_root, os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
         try:
@@ -798,13 +799,13 @@ def _agy_oauth_link_state(link: Path, real_token: Path) -> str | None:
 
 
 def review_server_checkout() -> Path:
-    """The checkout every review attempt launches its sources server from: the primary checkout."""
-    return resolve_repo_root(Path(__file__), 2)
+    """The selected product checkout that owns the Sources server."""
+    return product_root()
 
 
 def sources_server_launch() -> tuple[Path, Path]:
-    """The interpreter and server script a trusted ``sources`` server runs: the primary checkout's."""
-    return project_interpreter(), review_server_checkout() / ".mcp" / "servers" / "sources" / "server.py"
+    """The running interpreter and the selected product's Sources server script."""
+    return Path(sys.executable), review_server_checkout() / ".mcp" / "servers" / "sources" / "server.py"
 
 
 def sources_mcp_config(python_bin: Path, sources_server: Path, env: Mapping[str, str] | None = None) -> dict[str, Any]:
@@ -931,8 +932,7 @@ def prepare_review_attempt(
     manifest_bytes = manifest_file.read_bytes()
     manifest_sha256 = hashlib.sha256(manifest_bytes).hexdigest()
 
-    # Primary checkout root: resolved via repository helper scripts.common.repo_root
-    primary_root = review_server_checkout()
+    primary_root = state_root()
 
     # The receipts root (default or explicit) is the trust anchor: verified itself, with
     # everything below it walked no-follow. Its ancestors are followed by design.
@@ -959,7 +959,7 @@ def prepare_review_attempt(
 
     if review_contract is not None:
         # Admission checked the primary earlier in the dispatch; the seat launches what is on disk now (#9163).
-        check_launch_contract(review_contract, primary_root, python_bin)
+        check_launch_contract(review_contract, review_server_checkout(), python_bin)
 
     def _already_exists() -> FileExistsError:
         return FileExistsError(

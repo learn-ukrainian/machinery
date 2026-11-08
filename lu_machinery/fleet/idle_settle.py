@@ -35,7 +35,7 @@ if __package__ in (None, ""):  # run as a file: put the repository root on sys.p
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from lu_machinery.common.jsonl import jsonl_lines
-from lu_machinery.common.repo_root import main_checkout_root
+from lu_machinery.common.repo_root import state_root
 from lu_machinery.fleet import credit_lane
 
 # The machinery package's import name, which is also the directory its files have in checkout
@@ -43,8 +43,6 @@ from lu_machinery.fleet import credit_lane
 _MACHINERY = Path(os.path.abspath(__file__)).parents[1].name
 # This CLI as it was started: by its import name under ``-m``, else by its file.
 _ENTRY = f"-m {__spec__.name}" if __spec__ is not None else os.fspath(__file__)
-
-ROOT = Path(__file__).resolve().parents[2]
 
 EVENT_SCHEMA = "fleet-idle-settle-event.v1"
 REPORT_SCHEMA = "fleet-idle-settle.v1"
@@ -85,7 +83,7 @@ ENFORCE_DISHONEST = "DISHONEST"
 
 
 def default_store_path(repo_root: Path | None = None) -> Path:
-    root = main_checkout_root(repo_root or ROOT)
+    root = state_root(repo_root)
     return root / "batch_state" / "idle_settle" / "events.jsonl"
 
 
@@ -943,7 +941,7 @@ def _cmd_evaluate(args: argparse.Namespace) -> int:
     else:
         snapshot = empty_snapshot()
     kind = args.kind or infer_settle_kind(args.task_id)
-    store = args.store if not args.no_record else None
+    store = (args.store if args.store is not None else default_store_path()) if not args.no_record else None
     rc, _decision, _event = run_evaluate(
         snapshot=snapshot,
         dispatched=bool(args.dispatched),
@@ -959,7 +957,7 @@ def _cmd_evaluate(args: argparse.Namespace) -> int:
 
 def _cmd_report(args: argparse.Namespace) -> int:
     since = None if args.since_hours is None else datetime.now(UTC) - timedelta(hours=args.since_hours)
-    report = build_report(events_since(load_events(args.store), since))
+    report = build_report(events_since(load_events(args.store if args.store is not None else default_store_path()), since))
     if args.json:
         print(json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True))
     else:
@@ -1020,7 +1018,7 @@ def _build_parser() -> argparse.ArgumentParser:
     evaluate.add_argument(
         "--store",
         type=Path,
-        default=default_store_path(),
+        default=None,
         help="Append-only events JSONL (default: batch_state/idle_settle/events.jsonl)",
     )
     evaluate.add_argument("--no-record", action="store_true", help="Skip appending an event (default: record)")
@@ -1043,7 +1041,7 @@ def _build_parser() -> argparse.ArgumentParser:
     report.add_argument(
         "--store",
         type=Path,
-        default=default_store_path(),
+        default=None,
         help="Events JSONL path (default: shared batch_state/idle_settle/events.jsonl)",
     )
     report.add_argument(

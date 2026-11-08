@@ -496,7 +496,7 @@ def _cmd_task(args: argparse.Namespace) -> int:
         snapshot = _idle_snapshot_from_args(args)
         has_snapshot = args.idle_snapshot_json is not None
         record = (not args.no_idle_record) and has_snapshot
-        store = args.idle_store if record else None
+        store = (args.idle_store if args.idle_store is not None else idle_settle.default_store_path()) if record else None
         idle_rc, decision, event = attach_idle_reminder(
             report,
             snapshot=snapshot,
@@ -566,7 +566,7 @@ def _build_parser() -> argparse.ArgumentParser:
     task.add_argument(
         "--idle-store",
         type=Path,
-        default=idle_settle.default_store_path(),
+        default=None,
         help="Append-only idle-settle events JSONL",
     )
     task.add_argument("--no-idle-record", action="store_true")

@@ -12,12 +12,9 @@ import uuid
 from datetime import UTC, date, datetime
 from pathlib import Path
 
-if __package__ in (None, ""):
-    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-
 from lu_machinery.ci import check_issue_task_quality as checker
 from lu_machinery.common import github_client
-from lu_machinery.common.repo_root import machinery_path, project_interpreter
+from lu_machinery.common.repo_root import machinery_path, product_root, state_root
 from lu_machinery.orchestration import fleet_repos
 from lu_machinery.orchestration import issue_stream_audit as audit
 from lu_machinery.publish.github import read
@@ -28,7 +25,6 @@ from lu_machinery.publish.github import read
 _PACKAGE = f"{Path(os.path.abspath(__file__)).parents[1].name}.{Path(os.path.abspath(__file__)).parent.name}"
 _MODULE = f"{_PACKAGE}.{Path(__file__).stem}"
 
-ROOT = Path(__file__).resolve().parents[2]
 LIMIT = 500
 COUNTERS = ("open", "missing_dor", "missing_dod", "malformed_dod", "missing_epic", "pending_native_link")
 CODES = frozenset(
@@ -104,7 +100,7 @@ def collect_repository(repo) -> tuple[list[dict] | None, int | None, dict | None
                 raise ValueError("membership registry absent")
             # Avoid run_audit's unvalidated, checkout-local cache write.
             # Publish only after the independent census reconciles.
-            report = checker.live_audit(repo.github, registry, root=ROOT)
+            report = checker.live_audit(repo.github, registry, root=product_root())
         except github_client.GitHubRateLimited:
             codes.append("rate_limited")
         except Exception:
@@ -114,7 +110,7 @@ def collect_repository(repo) -> tuple[list[dict] | None, int | None, dict | None
             and sorted(i["number"] for i in issues) == report.get("open_issue_numbers")
         ):
             try:
-                checker.write_membership_cache(report, repo.github, registry, root=ROOT)
+                checker.write_membership_cache(report, repo.github, registry, root=product_root())
             except Exception:  # includes the writer's milestone lookups; never leak diagnostics
                 codes.append("membership_audit_cache_write_failed")
     return issues, count, report, codes
@@ -211,7 +207,7 @@ def build_report() -> dict:
     except (OSError, ValueError):
         registry = {}
     source = subprocess.run(
-        ["git", "rev-parse", "HEAD"], cwd=ROOT, capture_output=True, text=True, check=True, timeout=10
+        ["git", "rev-parse", "HEAD"], cwd=product_root(), capture_output=True, text=True, check=True, timeout=10
     ).stdout.strip()
     return {
         "schema": "issue-quality-report.v1",
@@ -223,9 +219,9 @@ def build_report() -> dict:
     }
 
 
-def persisted_payload(day: str, *, root: Path = ROOT, build=build_report) -> bytes:
-    """Publish only a completed, immutable daily payload under ignored reports."""
-    directory = root / "batch_state/reports"
+def persisted_payload(day: str, *, root: Path | None = None, build=build_report) -> bytes:
+    """Persist a daily payload in shared state; root is only an in-tree start hint."""
+    directory = state_root(root) / "batch_state/reports"
     directory.mkdir(parents=True, exist_ok=True)
     path = directory / f"issue-quality-report-{day}.json"
     if not path.exists():
@@ -250,9 +246,10 @@ def persisted_payload(day: str, *, root: Path = ROOT, build=build_report) -> byt
 
 
 def publish_payload(payload: bytes, day: str, sender: str) -> int:
-    result = subprocess.run(
+    # The running interpreter and fixed module are trusted; argv is separate and no shell runs.
+    result = subprocess.run(  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit
         [
-            str(project_interpreter(ROOT)),
+            sys.executable,
             "-m",
             "lu_machinery.fleet_comms",
             "channel",
@@ -272,7 +269,7 @@ def publish_payload(payload: bytes, day: str, sender: str) -> int:
         capture_output=True,
         timeout=60,
         check=False,
-        cwd=ROOT,
+        cwd=state_root(),
     )
     return int(result.returncode != 0)
 

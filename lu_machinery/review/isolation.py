@@ -44,6 +44,7 @@ from typing import Any
 
 from lu_machinery.common.git_context import GIT_REDIRECT_ENV_KEYS
 from lu_machinery.common.jsonl import jsonl_lines
+from lu_machinery.common.repo_root import machinery_path
 from lu_machinery.common.scratch import ScratchScanRootError, ensure_scratch_root, scratch_scan_roots
 from lu_machinery.orchestration.thread_handoff import (
     _default_machine_id,
@@ -490,10 +491,7 @@ def _evaluate_root_owner_liveness(manifest: dict[str, Any]) -> tuple[str, str]:
 
 def _load_hygiene_yaml_min_free_gb() -> float | None:
     """Read review_temp_min_free_gb from config/hygiene.yaml if present."""
-    candidates = [
-        Path(__file__).resolve().parents[2] / "config" / "hygiene.yaml",
-        Path.cwd() / "config" / "hygiene.yaml",
-    ]
+    candidates = [machinery_path("config/hygiene.yaml")]
     for config_path in candidates:
         if config_path.is_file():
             try:
