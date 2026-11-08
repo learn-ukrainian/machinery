@@ -16,7 +16,9 @@ from pathlib import Path
 
 import pytest
 
-_REPO_ROOT = Path(__file__).resolve().parents[2]
+from lu_machinery.common.repo_root import machinery_root
+
+_REPO_ROOT = machinery_root().parent
 _HOOK = _REPO_ROOT / "agents_extensions" / "shared" / "hooks" / "session-setup.sh"
 _STDIN = json.dumps({"session_id": "isolation-probe", "source": "startup", "model": "claude-opus-5-5"})
 

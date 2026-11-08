@@ -48,7 +48,7 @@ def wt_layout(tmp_path) -> tuple[Path, Path]:
     (worktree / ".git").write_text(f"gitdir: {git_dir}\n")
 
     # Copy the bridge and common module code files to the mock worktree
-    src_root = Path(__file__).resolve().parents[1]
+    src_root = rr.machinery_root().parent
 
     # Create empty init for the bridge package to avoid loading other bridge modules
     bridge_init = worktree / "lu_machinery" / "ai_agent_bridge" / "__init__.py"
