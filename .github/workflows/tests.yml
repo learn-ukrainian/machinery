@@ -2,8 +2,9 @@
 #
 # One job, `pytest`, runs every [run] file of tests/machinery_tests.txt as a
 # whole file. The manifest is the only list: the job never discovers tests by
-# itself, and it fails when the manifest is malformed, names an untracked or
-# misplaced file, or lists no [run] file.
+# itself, and it fails when the manifest is malformed, names anything but a
+# tracked regular file under tests/ (a symlink or gitlink is refused), or
+# lists no [run] file.
 #
 # - Dependencies are hash-pinned wheels (pip --require-hashes
 #   --only-binary=:all:) in a fresh venv under the job temp directory; there
@@ -16,9 +17,12 @@
 #   where they apply to these files (timeout 120 s with the thread method,
 #   faulthandler off, DeprecationWarning ignored); addopts is cleared so no
 #   configuration file can select, deselect or skip what the manifest lists.
-# - The run is checked from its JUnit report: at least one test, no failure or
-#   error, nothing deselected, and at least one passed test in every [run]
-#   file.
+# - pytest runs in-process with a recorder (the step-6 V8 harness's method)
+#   that keeps every item as collected, before any hook can deselect or drop
+#   it, and the terminal outcome of each. The job fails on a nonzero exit, no
+#   collected test, any deselection, collection error, failure, error or
+#   unexpected pass, a collected test that never ran or whose node id is not
+#   under a listed file (`<path>::`), and a [run] file with no passed test.
 # - Read-only contents permission, no kept checkout token, no secrets. Tests
 #   run under `env -i` with a temporary HOME and TMPDIR, so no runner
 #   credential or user configuration reaches them, and with isolated
@@ -113,14 +117,22 @@ jobs:
             echo "::error::${MANIFEST} is missing; nothing would be tested"
             exit 1
           fi
-          git ls-files -z -- tests > "$work/tracked"
+          # Index entries with their modes, so a tracked symlink or gitlink is
+          # never taken for a test file.
+          git ls-files -s -z -- tests > "$work/tracked"
           python -I -B - "$MANIFEST" "$work/tracked" "$work/run-files" <<'PY'
+          import os
           import re
+          import stat
           import sys
 
           manifest, tracked_list, out = sys.argv[1:]
+          tracked = {}  # path -> index mode
           with open(tracked_list, "rb") as handle:
-              tracked = {raw.decode("utf-8") for raw in handle.read().split(b"\0") if raw}
+              for raw in handle.read().split(b"\0"):
+                  if raw:
+                      meta, path = raw.decode("utf-8").split("\t", 1)
+                      tracked[path] = meta.split()[0]
           sections = {"run": [], "support": [], "held": []}
           order = ["run", "support", "held"]
           current = None
@@ -146,8 +158,12 @@ jobs:
                       problems.append(f"line {number}: {line!r} has surrounding space or is listed twice")
                       continue
                   seen.add(line)
-                  if line not in tracked:
-                      problems.append(f"line {number}: {line} is not a tracked file under tests/")
+                  try:
+                      on_disk = os.lstat(line).st_mode
+                  except OSError:
+                      on_disk = 0
+                  if tracked.get(line) not in ("100644", "100755") or not stat.S_ISREG(on_disk):
+                      problems.append(f"line {number}: {line} is not a tracked regular file under tests/")
                   if current == "run" and not re.fullmatch(r"tests/(?:[\w-]+/)*test_\w+\.py", line):
                       problems.append(f"line {number}: [run] entry {line} is not a tests/**/test_*.py file")
                   sections[current].append(line)
@@ -179,51 +195,117 @@ jobs:
           work="$RUNNER_TEMP/pytest"
           venv="$RUNNER_TEMP/test-venv"
           mapfile -t files < "$work/run-files"
+          # The runner records every item as collected, before any hook can
+          # deselect, drop or reorder it, and the terminal outcome of each,
+          # the same record the step-6 V8 harness keeps.
+          runner="$work/run_pytest.py"
+          cat > "$runner" <<'PY'
+          import json
+          import sys
+
+          import pytest
+
+          out, *args = sys.argv[1:]
+
+
+          class Recorder:
+              def __init__(self):
+                  self.collected = []
+                  self.deselected = 0
+                  self.collect_errors = 0
+                  self.results = {}
+
+              def pytest_itemcollected(self, item):
+                  self.collected.append(item.nodeid)
+
+              def pytest_collectreport(self, report):
+                  if report.failed:
+                      self.collect_errors += 1
+
+              def pytest_deselected(self, items):
+                  self.deselected += len(items)
+
+              def pytest_runtest_logreport(self, report):
+                  node = report.nodeid
+                  xfail = hasattr(report, "wasxfail")
+                  if report.when == "setup":
+                      if report.failed:
+                          self.results[node] = "errors"
+                      elif report.skipped:
+                          self.results[node] = "xfailed" if xfail else "skipped"
+                  elif report.when == "call":
+                      if xfail:
+                          self.results[node] = "xfailed" if report.skipped else "xpassed"
+                      else:
+                          self.results[node] = report.outcome
+                  elif report.failed:
+                      self.results[node] = "errors"
+
+
+          recorder = Recorder()
+          code = int(pytest.main(args, plugins=[recorder]))
+          with open(out, "w", encoding="utf-8") as handle:
+              json.dump(
+                  {
+                      "exit": code,
+                      "collected": recorder.collected,
+                      "deselected": recorder.deselected,
+                      "collect_errors": recorder.collect_errors,
+                      "results": recorder.results,
+                  },
+                  handle,
+              )
+          sys.exit(code)
+          PY
           set +e
           env -i PATH=/usr/bin:/bin HOME="$work/home" TMPDIR="$work/tmp" \
-            "$venv/bin/python" -I -B -m pytest -p no:cacheprovider \
+            "$venv/bin/python" -I -B "$runner" "$work/record.json" \
+            -p no:cacheprovider --rootdir="$PWD" \
             -o addopts= -o timeout=120 -o timeout_method=thread -o faulthandler_timeout=0 \
-            -W ignore::DeprecationWarning -rfEs --tb=short \
-            --junitxml="$work/junit.xml" "${files[@]}" 2>&1 | tee "$work/pytest.log"
-          rc="${PIPESTATUS[0]}"
+            -W ignore::DeprecationWarning -rfEs --tb=short "${files[@]}"
+          rc=$?
           set -e
-          if [ "$rc" -ne 0 ]; then
-            echo "::error::pytest exited ${rc}"
-            exit 1
-          fi
-          if tail -n 1 "$work/pytest.log" | grep -Eq '[0-9]+ deselected'; then
-            echo "::error::pytest deselected tests; every test of the listed files must run"
-            exit 1
-          fi
-          python -I -B - "$work/junit.xml" "${files[@]}" <<'PY'
+          python -I -B - "$work/record.json" "$rc" "${files[@]}" <<'PY'
+          import json
           import sys
-          import xml.etree.ElementTree as ET
 
-          report, *files = sys.argv[1:]
-          cases = list(ET.parse(report).getroot().iter("testcase"))
-          passed = {path: 0 for path in files}
-          counts = {"passed": 0, "failed": 0, "skipped": 0}
-          for case in cases:
-              outcome = "passed"
-              if case.find("failure") is not None or case.find("error") is not None:
-                  outcome = "failed"
-              elif case.find("skipped") is not None:
-                  outcome = "skipped"
-              counts[outcome] += 1
-              classname = case.get("classname", "")
-              for path in files:
-                  module = path[: -len(".py")].replace("/", ".")
-                  if outcome == "passed" and (classname == module or classname.startswith(module + ".")):
-                      passed[path] += 1
-          print(f"JUnit report: {len(cases)} test(s); {counts}")
+          record_path, rc, *files = sys.argv[1:]
           problems = []
-          if not cases:
-              problems.append("the run recorded no test")
-          if counts["failed"]:
-              problems.append(f"{counts['failed']} test(s) failed or errored")
-          for path, number in passed.items():
-              print(f"  {path}: {number} passed")
-              if not number:
+          try:
+              with open(record_path, encoding="utf-8") as handle:
+                  record = json.load(handle)
+          except (OSError, ValueError) as exc:
+              print(f"::error::pytest (exit {rc}) wrote no readable run record: {exc}")
+              sys.exit(1)
+          collected = list(dict.fromkeys(record["collected"]))
+          results = record["results"]
+          outcomes = {}
+          for node in collected:
+              if node in results:
+                  outcomes[results[node]] = outcomes.get(results[node], 0) + 1
+          print(f"pytest exit {rc}; collected {len(collected)}; outcomes {outcomes}")
+          if rc != "0" or record["exit"] != 0:
+              problems.append(f"pytest exited {rc}")
+          if not collected:
+              problems.append("pytest collected no test")
+          if record["deselected"]:
+              problems.append(f"{record['deselected']} test(s) were deselected; every listed test must run")
+          if record["collect_errors"]:
+              problems.append(f"{record['collect_errors']} collection error(s)")
+          not_run = [node for node in collected if node not in results]
+          if not_run:
+              problems.append(f"{len(not_run)} collected test(s) never ran: {not_run[:10]}")
+          for outcome in ("failed", "errors", "xpassed"):
+              if outcomes.get(outcome):
+                  problems.append(f"{outcomes[outcome]} test(s) {outcome}")
+          owners = {path: [node for node in collected if node.startswith(path + "::")] for path in files}
+          stray = [node for node in collected if not any(node.startswith(path + "::") for path in files)]
+          if stray:
+              problems.append(f"{len(stray)} collected test(s) belong to no [run] file: {stray[:10]}")
+          for path, nodes in owners.items():
+              passed = sum(1 for node in nodes if results.get(node) == "passed")
+              print(f"  {path}: {len(nodes)} collected, {passed} passed")
+              if not passed:
                   problems.append(f"{path}: no test of this [run] file passed")
           for problem in problems:
               print(f"::error::{problem}")
