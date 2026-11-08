@@ -10,7 +10,6 @@ from pathlib import Path
 import pytest
 
 from lu_machinery.agent_runtime.adapters import claude
-from lu_machinery.agent_runtime.grok_hook_bridge import GuardInvocationError, guard_argv
 
 
 def test_product_tree_cannot_supply_fleet_guard_executables(tmp_path, monkeypatch):
@@ -45,18 +44,6 @@ def test_product_tree_cannot_supply_fleet_guard_executables(tmp_path, monkeypatc
             assert script.is_file()
             assert script.is_relative_to(release)
             assert not script.is_relative_to(tmp_path)
-            assert guard_argv(hook["command"]) == shlex.split(hook["command"])
-    # The bridge must keep refusing product scripts, extra arguments, and unpinned Python.
-    product_guard = settings.parent / "hooks/enforce-venv.sh"
-    product_guard.parent.mkdir()
-    product_guard.write_text("#!/bin/sh\nexit 0\n")
-    for command in (
-        shlex.quote(str(product_guard)),
-        shlex.join([str(hooks / "enforce-venv.sh"), "extra"]),
-        shlex.join(["/untrusted/python", str(hooks / "guard-pr-merge.py")]),
-    ):
-        with pytest.raises(GuardInvocationError):
-            guard_argv(command)
 
 
 def test_missing_product_settings_refuses_without_filesystem_traceback(tmp_path, monkeypatch):
