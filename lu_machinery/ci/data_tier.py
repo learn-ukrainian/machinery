@@ -28,19 +28,21 @@ from pathlib import Path
 
 import pytest
 
-if __package__ in (None, ""):  # run as a file: put the repository root on sys.path
-    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-
 from lu_machinery.ci._location import module_name
 from lu_machinery.common import github_client
-from lu_machinery.common.repo_root import project_interpreter
+from lu_machinery.common.repo_root import (
+    ProductRootError,
+    main_checkout_root,
+    product_root,
+    project_interpreter,
+    state_root,
+)
 from lu_machinery.common.scratch import resolve_scratch_root
 from lu_machinery.lib.readonly_sqlite import open_readonly
 from lu_machinery.orchestration import pool_headroom, worktree_claims
 from lu_machinery.orchestration.dispatch_isolation import _parse_bytes, build_scope_argv
 from lu_machinery.storage.topology import StoreRefusal, resolve_store
 
-SOURCE_ROOT = Path(__file__).resolve().parents[2]
 SELECTION = Path(__file__).with_name("data_tier_selection.json")
 BASELINE = Path(__file__).with_name("data_tier_known_failures.json")
 ISSUE_TITLE = "[infra][tests] Nightly data-tier failures"
@@ -109,8 +111,11 @@ def run_process_group(
 
 
 def primary_checkout() -> Path:
-    common = command(["git", "rev-parse", "--path-format=absolute", "--git-common-dir"], cwd=SOURCE_ROOT).stdout.strip()
-    primary = Path(common).resolve().parent
+    """Git primary of the selected product, from Git metadata, never this file's location."""
+    try:
+        primary = main_checkout_root(product_root())
+    except ProductRootError as exc:
+        raise DataTierError(str(exc)) from exc
     if not (primary / ".git").is_dir():
         raise DataTierError("Git common directory does not identify a primary checkout")
     return primary
@@ -146,7 +151,7 @@ def require_memory() -> None:
             "LoadState,ActiveState,MemoryCurrent,MemoryMax,ControlGroup",
             "lu-dispatch.slice",
         ],
-        cwd=SOURCE_ROOT,
+        cwd=state_root(),
     ).stdout
     properties = dict(line.split("=", 1) for line in slice_state.splitlines() if "=" in line)
     if properties.get("LoadState") != "loaded":
@@ -203,7 +208,7 @@ def prune_stale_worktrees(primary: Path, removed: list[worktree_claims.WorktreeR
         return
     scopes = command(
         ["systemctl", "--user", "list-units", "--type=scope", "--state=active", "--no-legend", "lu-data-tier-*"],
-        cwd=SOURCE_ROOT,
+        cwd=state_root(),
     ).stdout
     if scopes.strip():
         raise DataTierError("a previous data-tier scope is still active; cleanup withheld")
@@ -272,7 +277,7 @@ def discard_run_output(checkout: Path) -> dict[str, int]:
 def stop_scope(unit: str) -> None:
     result = subprocess.run(
         ["systemctl", "--user", "show", "-p", "LoadState", unit],
-        cwd=SOURCE_ROOT,
+        cwd=state_root(),
         capture_output=True,
         text=True,
         check=False,
@@ -282,7 +287,7 @@ def stop_scope(unit: str) -> None:
         return
     if result.returncode:
         raise DataTierError(f"scope state unavailable: {safe_text(result.stderr)}")
-    command(["systemctl", "--user", "stop", unit], cwd=SOURCE_ROOT, timeout=60)
+    command(["systemctl", "--user", "stop", unit], cwd=state_root(), timeout=60)
 
 
 def make_test_worktree(primary: Path) -> Path:
@@ -724,7 +729,7 @@ def run(args: argparse.Namespace) -> int:
         if args.only and not args.no_report:
             raise DataTierError("a subset requires --no-report")
         primary = primary_checkout()
-        output_dir = primary / "batch_state" / "data-tier"
+        output_dir = state_root() / "batch_state" / "data-tier"
         output_dir.mkdir(parents=True, exist_ok=True)
         junit = output_dir / f"{run_key}.junit.xml"
         collected = output_dir / f"{run_key}.collected.json"

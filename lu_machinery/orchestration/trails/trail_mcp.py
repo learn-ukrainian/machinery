@@ -15,12 +15,13 @@ from typing import Any
 
 from mcp.server.mcpserver import MCPServer
 
-PROJECT_ROOT = Path(__file__).resolve().parents[3]
-if str(PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(PROJECT_ROOT))
-from lu_machinery.common.repo_root import machinery_path, project_interpreter
+# File launch (trail isolation execs this path) still needs the package parent on
+# sys.path. That is the import root, not a checkout. -m needs nothing here.
+if __package__ in {None, ""}:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
-TRAIL_RUNNER = machinery_path("orchestration/trail_runner.py")
+from lu_machinery.common.repo_root import product_root, project_interpreter
+
 _RUNNER_TIMEOUT_SECONDS = 90
 
 mcp = MCPServer(
@@ -47,13 +48,14 @@ def _run_runner(*args: str) -> dict[str, Any]:
     # The interpreter is resolved for each call, never at import.
     try:
         python_bin = project_interpreter()
+        cwd = product_root()
     except (FileNotFoundError, ValueError) as exc:
         raise TrailMcpError(f"parent-owned TrailSpec runner is unavailable: {exc}") from exc
-    if not python_bin.is_file() or not TRAIL_RUNNER.is_file():
+    if not python_bin.is_file():
         raise TrailMcpError("parent-owned TrailSpec runner is unavailable")
     completed = subprocess.run(
-        [str(python_bin), str(TRAIL_RUNNER), *args],
-        cwd=PROJECT_ROOT,
+        [str(python_bin), "-m", "lu_machinery.orchestration.trail_runner", *args],
+        cwd=cwd,
         capture_output=True,
         check=False,
         text=True,

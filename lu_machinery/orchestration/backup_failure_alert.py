@@ -35,7 +35,8 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
+from lu_machinery.common.repo_root import state_root
+
 DEFAULT_STATE_DIR = Path("batch_state") / "backups" / "alerts"
 LAST_RUN_RECEIPT = Path("batch_state") / "backups" / "last-run.json"
 CHANNEL = "cto"
@@ -207,7 +208,7 @@ def recovery_message(unit: str, now: str, since: str, project_root: Path | None 
 
 def fleet_comms_publisher(project_root: Path) -> Publisher:
     def run_json(arguments: list[str], message: str | None = None) -> dict:
-        command = [".venv/bin/python", "-m", "lu_machinery.fleet_comms", *arguments]
+        command = [sys.executable, "-m", "lu_machinery.fleet_comms", *arguments]
         try:
             result = subprocess.run(
                 command,
@@ -338,7 +339,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("event", choices=("failed", "recovered"))
     parser.add_argument("unit", help="the backup unit name, e.g. learn-ukrainian-backup.service")
-    parser.add_argument("--project-root", type=Path, default=PROJECT_ROOT)
+    parser.add_argument(
+        "--project-root",
+        type=Path,
+        default=None,
+        help="Checkout whose backup receipt is read (default: configured shared-state root).",
+    )
     parser.add_argument(
         "--state-dir",
         type=Path,
@@ -350,7 +356,11 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None, publish: Publisher | None = None) -> int:
     args = build_parser().parse_args(argv)
-    project_root = args.project_root.resolve()
+    try:
+        project_root = (args.project_root if args.project_root is not None else state_root()).resolve()
+    except ValueError as error:
+        print(f"backup-alert: {error}", file=sys.stderr)
+        return 1
     state_dir = args.state_dir or project_root / DEFAULT_STATE_DIR
     try:
         print(

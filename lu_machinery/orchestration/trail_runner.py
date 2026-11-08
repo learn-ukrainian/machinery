@@ -5,22 +5,15 @@ from __future__ import annotations
 
 import argparse
 import json
-import sys
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
-if __package__ in {None, ""}:
-    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-
-from lu_machinery.common.repo_root import machinery_path
+from lu_machinery.common.repo_root import machinery_path, product_root, state_root
 from lu_machinery.orchestration.trails.executor import TrailExecutor
 from lu_machinery.orchestration.trails.models import ExitClass, TrailRunnerError, TrailRunResult
 from lu_machinery.orchestration.trails.store import TrailStore
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
-RUNS_DATABASE_PATH = PROJECT_ROOT / "batch_state/trails/runs.sqlite3"
-RECEIPTS_ROOT = PROJECT_ROOT / "batch_state/trails/receipts"
 TRAILS_ROOT = machinery_path("config/trails")
 
 
@@ -85,9 +78,15 @@ def load_params(path_value: str) -> dict[str, Any]:
 
 
 def default_executor() -> TrailExecutor:
-    """Construct the production ledger rooted at the repository's batch state."""
+    """Ledger on the shared state root; trail commands run in the selected product."""
+    ledger = state_root()
+    commands = product_root()
     return TrailExecutor(
-        TrailStore(RUNS_DATABASE_PATH, RECEIPTS_ROOT), project_root=PROJECT_ROOT
+        TrailStore(
+            ledger / "batch_state/trails/runs.sqlite3",
+            ledger / "batch_state/trails/receipts",
+        ),
+        project_root=commands,
     )
 
 
