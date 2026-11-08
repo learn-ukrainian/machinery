@@ -19,10 +19,7 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
-if str(PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(PROJECT_ROOT))
-
+from lu_machinery.common.repo_root import MachineryConfigError, machinery_path, state_root
 from lu_machinery.common.safe_unit_install import (
     InstallError,
     check_unit_dir,
@@ -31,12 +28,6 @@ from lu_machinery.common.safe_unit_install import (
     load_unit,
     remove_unit,
 )
-
-# This package's import name, from the unresolved file location: never from __package__, which a
-# short import spelling (orchestration.x with scripts/ on sys.path) shortens. Its dotted parts
-# are also its directories in checkout-relative paths.
-_PACKAGE = f"{Path(os.path.abspath(__file__)).parents[1].name}.{Path(os.path.abspath(__file__)).parent.name}"
-_PACKAGE_DIR = _PACKAGE.replace(".", "/")
 
 LABEL = "com.learn-ukrainian.mac-observer-heartbeat"
 DEFAULT_INTERVAL_MINUTES = 5
@@ -54,11 +45,6 @@ class LaunchdError(RuntimeError):
     """The requested launchd state could not be verified."""
 
 
-def default_repo_root() -> Path:
-    """Return the checkout containing this installer."""
-    return Path(__file__).resolve().parents[2]
-
-
 def default_home() -> Path:
     """Return the current user's home without consulting shell expansion."""
     return Path.home()
@@ -74,9 +60,9 @@ def state_dir(home: Path) -> Path:
     return home / ".codex" / "mac-observer"
 
 
-def wrapper_path(repo_root: Path) -> Path:
-    """Return the stable bash wrapper launchd executes."""
-    return repo_root / _PACKAGE_DIR / WRAPPER_NAME
+def wrapper_path() -> Path:
+    """Return the stable bash wrapper launchd executes: a packaged machinery file."""
+    return machinery_path(f"orchestration/{WRAPPER_NAME}")
 
 
 def build_plist(
@@ -95,7 +81,7 @@ def build_plist(
             STABLE_PROGRAM,
             "--noprofile",
             "--norc",
-            str(wrapper_path(repo_root)),
+            str(wrapper_path()),
             "--repo-root",
             str(repo_root),
         ],
@@ -167,10 +153,10 @@ def _validate_runtime(repo_root: Path, *, require_interpreter: bool = False) -> 
         interpreter = repo_root / ".venv" / "bin" / "python"
         if not interpreter.is_file() or not os.access(interpreter, os.X_OK):
             raise LaunchdError(f"required interpreter is missing: {interpreter}")
-        heartbeat_script = repo_root / _PACKAGE_DIR / "observer_heartbeat.py"
+        heartbeat_script = machinery_path("orchestration/observer_heartbeat.py")
         if not heartbeat_script.is_file():
             raise LaunchdError(f"observer heartbeat script is missing: {heartbeat_script}")
-        wrapper = wrapper_path(repo_root)
+        wrapper = wrapper_path()
         if not wrapper.is_file():
             raise LaunchdError(f"heartbeat wrapper is missing: {wrapper}")
         if not os.access(STABLE_PROGRAM, os.X_OK):
@@ -314,7 +300,12 @@ def positive_interval(value: str) -> int:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--repo-root", type=Path, default=default_repo_root())
+    parser.add_argument(
+        "--repo-root",
+        type=Path,
+        default=None,
+        help="primary checkout the service runs against (default: the shared-state root)",
+    )
     parser.add_argument("--home", type=Path, default=default_home())
     parser.add_argument(
         "--interval-minutes",
@@ -331,7 +322,11 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-    repo_root = args.repo_root.expanduser().resolve()
+    try:
+        repo_root = (args.repo_root if args.repo_root is not None else state_root()).expanduser().resolve()
+    except MachineryConfigError as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
     # Unresolved: the unit helper must see a symlinked home to refuse it (#9875).
     home = Path(os.path.abspath(args.home.expanduser()))
     if args.command == "render":

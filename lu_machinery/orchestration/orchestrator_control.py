@@ -22,12 +22,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-# Script-mode runs (``python scripts/orchestration/orchestrator_control.py``) need
-# the repository root importable for the shared task-record layout.
-_IMPORT_ROOT = Path(__file__).resolve().parents[2]
-if str(_IMPORT_ROOT) not in sys.path:
-    sys.path.insert(0, str(_IMPORT_ROOT))
-
+from lu_machinery.common.repo_root import MachineryConfigError, state_root
 from lu_machinery.dispatcher.cli import ALIASES
 from lu_machinery.orchestration.execution_safe_git import run_git
 from lu_machinery.orchestration.task_record_store import (
@@ -44,7 +39,6 @@ _PACKAGE = f"{Path(os.path.abspath(__file__)).parents[1].name}.{Path(os.path.abs
 _MACHINERY = _PACKAGE.partition(".")[0]
 
 SCHEMA_VERSION = 1
-PYTHON = ".venv/bin/python"
 # Dispatch v2 has no grok alias (grok-build is the Grok TUI); the Grok seat runs as the Cursor TUI.
 SEAT_PROVIDERS = {**ALIASES, "grok": "cursor"}
 DEFAULT_DISPATCH_TIMEOUT_SECONDS = 180.0
@@ -61,10 +55,6 @@ TASK_STATUS_ACTIVE = {"running", "spawning"}
 TASK_STATUS_TERMINAL = TASK_STATUS_ATTENTION | {"done"}
 PR_URL_RE = re.compile(r"https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/pull/\d+")
 SAFE_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]*$")
-
-
-def repo_root_from_file() -> Path:
-    return Path(__file__).resolve().parents[2]
 
 
 def utc_now() -> datetime:
@@ -552,8 +542,9 @@ def resolve_prompt_file(repo_root: Path, args: argparse.Namespace) -> Path:
 
 def build_dispatch_command(args: argparse.Namespace, prompt_file: Path) -> list[str]:
     command = [
-        PYTHON,
-        f"{_MACHINERY}/dispatch.py",
+        sys.executable,
+        "-m",
+        "lu_machinery.dispatch",
         "dispatch",
         "--agent",
         SEAT_PROVIDERS.get(args.agent, args.agent),
@@ -769,7 +760,12 @@ def cmd_inbox(args: argparse.Namespace) -> int:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--repo-root", type=Path, default=repo_root_from_file())
+    parser.add_argument(
+        "--repo-root",
+        type=Path,
+        default=None,
+        help="checkout whose batch_state holds the run ledger (default: the shared-state root)",
+    )
     sub = parser.add_subparsers(dest="command", required=True)
 
     start = sub.add_parser("start-run", help="Create a durable orchestration run ledger.")
@@ -791,7 +787,7 @@ def build_parser() -> argparse.ArgumentParser:
         "dispatch",
         help="Dispatch a v2 worker and record it in a run ledger.",
         description=(
-            f"Launch via {_MACHINERY}/dispatch.py. GAP: v2 requires --model and lacks danger mode, "
+            f"Launch via python -m {_MACHINERY}.dispatch. GAP: v2 requires --model and lacks danger mode, "
             "budget ceilings, lifecycle-file propagation, "
             "and authoring-review-risk. Unset authoring-review-risk is unchecked, unlike legacy critical admission. "
             "Seats grok-build, qwen, kimi are refused. "
@@ -898,6 +894,12 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
+    if args.repo_root is None:
+        try:
+            args.repo_root = state_root()
+        except MachineryConfigError as exc:
+            print(json.dumps({"error": str(exc)}))
+            return 1
     return args.func(args)
 
 

@@ -70,11 +70,6 @@
    "type": "PartialParsing"
   },
   {
-   "path": "lu_machinery/ops/context_guard.py",
-   "spans": [],
-   "type": "Other syntax error"
-  },
-  {
    "path": "lu_machinery/orchestration/run_scheduled_backup.sh",
    "spans": [
     "2ddde4db719320f9eff7927214f62c190b0c9fc7e7d84f24296737503c7f167d",
@@ -990,6 +985,11 @@
    "sha256": "b4a2a07e13b8479655966c07ea03b9cc8321386cc093819ab11d76b2f86a481f"
   },
   {
+   "path": "lu_machinery/ops/context_guard.py",
+   "rule": "python.lang.maintainability.return-not-in-function",
+   "sha256": "dc937b59892604f5a86ac96936cd7ff09e25f18ae6b758e8014a24c7fa039e91"
+  },
+  {
    "path": "lu_machinery/orchestration/sources_watchdog.py",
    "rule": "python.lang.maintainability.return-not-in-function",
    "sha256": "66348f9a4e9f693ca4ae00ee0d839379e3edfc1fb6141da2382e1e2413a9efc5"
@@ -1608,6 +1608,11 @@
    "path": "lu_machinery/lint/mypy_ratchet.py",
    "rule": "python.lang.security.audit.dangerous-subprocess-use-audit",
    "sha256": "c68419c330421a7c838e0ff5aa673e2686a953fbef276bf1daa886b156303fb1"
+  },
+  {
+   "path": "lu_machinery/ops/context_guard.py",
+   "rule": "python.lang.security.audit.dangerous-subprocess-use-audit",
+   "sha256": "a11764cf6e8e789dd36f65ae9cee14f6edc74874df03a6752e6a4d6434cff14c"
   },
   {
    "path": "lu_machinery/opsec/git_push.py",
