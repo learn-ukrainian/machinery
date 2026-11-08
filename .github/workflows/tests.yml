@@ -1,0 +1,329 @@
+# Machinery tests (machinery-move contract v3 step 8, first tranche).
+#
+# One job, `pytest`, runs every [run] file of tests/machinery_tests.txt as a
+# whole file. The manifest is the only list: the job never discovers tests by
+# itself, and it fails when the manifest is malformed, names anything but a
+# tracked regular file under tests/ (a symlink or gitlink is refused), or
+# lists no [run] file.
+#
+# - Dependencies are hash-pinned wheels (pip --require-hashes
+#   --only-binary=:all:) in a fresh venv under the job temp directory; there
+#   is no pyproject.toml. Versions are the source repository's
+#   requirements-lock.txt pins at the snapshot commit, resolved for CPython
+#   3.12 on x86_64 Linux (uv pip compile with that lock as constraints); each
+#   hash is the one wheel pip selects on ubuntu-24.04, checked against the
+#   PyPI hashes of that resolution. Bump them together and rerun the job.
+# - pytest settings mirror the source repository's [tool.pytest.ini_options]
+#   where they apply to these files (timeout 120 s with the thread method,
+#   faulthandler off, DeprecationWarning ignored); addopts is cleared so no
+#   configuration file can select, deselect or skip what the manifest lists.
+# - pytest runs in-process with a recorder (the step-6 V8 harness's method)
+#   that keeps every item as collected, before any hook can deselect or drop
+#   it, and the terminal outcome of each. The job fails on a nonzero exit, no
+#   collected test, any deselection, collection error, failure, error or
+#   unexpected pass, a node id collected twice, an outcome for a node never
+#   collected, a collected test that never ran or whose node id is not under a
+#   listed file (`<path>::`), and a [run] file with no passed test.
+# - Read-only contents permission, no kept checkout token, no secrets. Tests
+#   run under `env -i` with a temporary HOME and TMPDIR, so no runner
+#   credential or user configuration reaches them, and with isolated
+#   interpreters (python -I -B).
+# - Hosted runner only (ubuntu-24.04). This workflow does not change the
+#   required checks; making `pytest` required is a branch protection change.
+name: Tests
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+  merge_group:
+    branches: [main]
+    types: [checks_requested]
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: tests-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  PYTHON_VERSION: "3.12.15"
+  MANIFEST: tests/machinery_tests.txt
+
+jobs:
+  pytest:
+    name: pytest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12.15"
+
+      - name: Install test dependencies (hash-pinned wheels)
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          venv="$RUNNER_TEMP/test-venv"
+          rm -rf "$venv"
+          python -I -m venv "$venv"
+          requirements="$RUNNER_TEMP/test-requirements.txt"
+          cat > "$requirements" <<'REQUIREMENTS'
+          cffi==2.1.1 \
+              --hash=sha256:c1453022f490d2459a11819d83ad1d586e9ff65a12ac3e705ffebd46d3685dcf
+          cryptography==50.0.2 \
+              --hash=sha256:9dab55f57c74c3cad24c323bacbbd04be4705ba6eb0d92e920b1fc4837ed5079
+          iniconfig==2.3.0 \
+              --hash=sha256:f631c04d2c48c52b84d0d0549c99ff3859c98df65b3101406327ecc7d53fbf12
+          packaging==26.3 \
+              --hash=sha256:d7193f7c8e4e93f444fde0262bf90af30e16fa0ad0ad44cb553c87339b23cd1c
+          pluggy==1.6.0 \
+              --hash=sha256:e920276dd6813095e9377c0bc5566d94c932c33b27a3e3945d8389c374dd4746
+          pycparser==3.0 \
+              --hash=sha256:b727414169a36b7d524c1c3e31839a521725078d7b2ff038656844266160a992
+          pygments==2.21.0 \
+              --hash=sha256:2363c69b61c4a97c838da3b130dcd6468f4848992b21a82f2a63ec34377137d9
+          pyjwt==2.15.0 \
+              --hash=sha256:7a3742debf6b879e912dbb9819ceec1594be812452b78c5f2e2dfc56564954f8
+          pytest==9.1.1 \
+              --hash=sha256:37a86b45efb9a47a61a36449063e8e18d0cab3161329fc099eb21783169c4f0c
+          pytest-timeout==2.4.0 \
+              --hash=sha256:c42667e5cdadb151aeb5b26d114aff6bdf5a907f176a007a30b940d3d865b5c2
+          pyyaml==6.0.3 \
+              --hash=sha256:ba1cc08a7ccde2d2ec775841541641e4548226580ab850948cbfda66a1befcdc
+          REQUIREMENTS
+          "$venv/bin/python" -I -m pip install --no-cache-dir --disable-pip-version-check \
+            --no-input --require-hashes --only-binary=:all: --requirement "$requirements"
+          "$venv/bin/python" -I -m pip check --disable-pip-version-check
+          reported="$("$venv/bin/python" -I -c 'import sys; print("%d.%d.%d" % sys.version_info[:3])')"
+          if [ "$reported" != "$PYTHON_VERSION" ]; then
+            echo "::error::Expected Python ${PYTHON_VERSION}, got: ${reported}"
+            exit 1
+          fi
+
+      - name: Read the [run] files from the manifest
+        run: |
+          set -euo pipefail
+          work="$RUNNER_TEMP/pytest"
+          rm -rf "$work"
+          mkdir -p "$work/home" "$work/tmp"
+          if [ ! -f "$MANIFEST" ]; then
+            echo "::error::${MANIFEST} is missing; nothing would be tested"
+            exit 1
+          fi
+          # Index entries with their modes, so a tracked symlink or gitlink is
+          # never taken for a test file.
+          git ls-files -s -z -- tests > "$work/tracked"
+          python -I -B - "$MANIFEST" "$work/tracked" "$work/run-files" <<'PY'
+          import os
+          import re
+          import stat
+          import sys
+
+          manifest, tracked_list, out = sys.argv[1:]
+          tracked = {}  # path -> index mode
+          with open(tracked_list, "rb") as handle:
+              for raw in handle.read().split(b"\0"):
+                  if raw:
+                      meta, path = raw.decode("utf-8").split("\t", 1)
+                      tracked[path] = meta.split()[0]
+          sections = {"run": [], "support": [], "held": []}
+          order = ["run", "support", "held"]
+          current = None
+          seen = set()
+          problems = []
+          with open(manifest, encoding="utf-8") as handle:
+              for number, line in enumerate(handle.read().splitlines(), 1):
+                  header = re.fullmatch(r"# \[(\w+)\]", line)
+                  if header:
+                      name = header.group(1)
+                      if not order or name != order[0]:
+                          problems.append(f"line {number}: section [{name}] is unknown or out of order")
+                          break
+                      order.pop(0)
+                      current = name
+                      continue
+                  if not line.strip() or line.startswith("#"):
+                      continue
+                  if current not in ("run", "support"):
+                      problems.append(f"line {number}: a path outside [run] or [support]: {line!r}")
+                      continue
+                  if line != line.strip() or line in seen:
+                      problems.append(f"line {number}: {line!r} has surrounding space or is listed twice")
+                      continue
+                  seen.add(line)
+                  try:
+                      on_disk = os.lstat(line).st_mode
+                  except OSError:
+                      on_disk = 0
+                  if tracked.get(line) not in ("100644", "100755") or not stat.S_ISREG(on_disk):
+                      problems.append(f"line {number}: {line} is not a tracked regular file under tests/")
+                  if current == "run" and not re.fullmatch(r"tests/(?:[\w-]+/)*test_\w+\.py", line):
+                      problems.append(f"line {number}: [run] entry {line} is not a tests/**/test_*.py file")
+                  sections[current].append(line)
+          if order:
+              problems.append(f"sections missing: {order}")
+          if not sections["run"]:
+              problems.append("the [run] section lists no file")
+          for problem in problems:
+              print(f"::error file={manifest}::{problem}")
+          if problems:
+              sys.exit(1)
+          unlisted = sorted(
+              path
+              for path in tracked
+              if path not in seen and re.fullmatch(r"tests/(?:[\w-]+/)*test_\w+\.py", path)
+          )
+          for path in unlisted:
+              print(f"::warning file={path}::{path} is not in {manifest}; the pytest job does not run it")
+          with open(out, "w", encoding="utf-8") as handle:
+              handle.write("".join(f"{path}\n" for path in sections["run"]))
+          print(f"{len(sections['run'])} [run] file(s), {len(sections['support'])} [support] file(s).")
+          for path in sections["run"]:
+              print(f"  {path}")
+          PY
+
+      - name: pytest
+        run: |
+          set -euo pipefail
+          work="$RUNNER_TEMP/pytest"
+          venv="$RUNNER_TEMP/test-venv"
+          mapfile -t files < "$work/run-files"
+          # The runner records every item as collected, before any hook can
+          # deselect, drop or reorder it, and the terminal outcome of each,
+          # the same record the step-6 V8 harness keeps.
+          runner="$work/run_pytest.py"
+          cat > "$runner" <<'PY'
+          import json
+          import sys
+
+          import pytest
+
+          out, *args = sys.argv[1:]
+
+
+          class Recorder:
+              def __init__(self):
+                  self.collected = []
+                  self.deselected = 0
+                  self.collect_errors = 0
+                  self.results = {}
+
+              def pytest_itemcollected(self, item):
+                  self.collected.append(item.nodeid)
+
+              def pytest_collectreport(self, report):
+                  if report.failed:
+                      self.collect_errors += 1
+
+              def pytest_deselected(self, items):
+                  self.deselected += len(items)
+
+              def pytest_runtest_logreport(self, report):
+                  node = report.nodeid
+                  xfail = hasattr(report, "wasxfail")
+                  if report.when == "setup":
+                      if report.failed:
+                          self.results[node] = "errors"
+                      elif report.skipped:
+                          self.results[node] = "xfailed" if xfail else "skipped"
+                  elif report.when == "call":
+                      if xfail:
+                          self.results[node] = "xfailed" if report.skipped else "xpassed"
+                      else:
+                          self.results[node] = report.outcome
+                  elif report.failed:
+                      self.results[node] = "errors"
+
+
+          recorder = Recorder()
+          code = int(pytest.main(args, plugins=[recorder]))
+          with open(out, "w", encoding="utf-8") as handle:
+              json.dump(
+                  {
+                      "exit": code,
+                      "collected": recorder.collected,
+                      "deselected": recorder.deselected,
+                      "collect_errors": recorder.collect_errors,
+                      "results": recorder.results,
+                  },
+                  handle,
+              )
+          sys.exit(code)
+          PY
+          set +e
+          env -i PATH=/usr/bin:/bin HOME="$work/home" TMPDIR="$work/tmp" \
+            "$venv/bin/python" -I -B "$runner" "$work/record.json" \
+            -p no:cacheprovider --rootdir="$PWD" \
+            -o addopts= -o timeout=120 -o timeout_method=thread -o faulthandler_timeout=0 \
+            -W ignore::DeprecationWarning -rfEs --tb=short "${files[@]}"
+          rc=$?
+          set -e
+          python -I -B - "$work/record.json" "$rc" "${files[@]}" <<'PY'
+          import json
+          import sys
+
+          record_path, rc, *files = sys.argv[1:]
+          problems = []
+          try:
+              with open(record_path, encoding="utf-8") as handle:
+                  record = json.load(handle)
+          except (OSError, ValueError) as exc:
+              print(f"::error::pytest (exit {rc}) wrote no readable run record: {exc}")
+              sys.exit(1)
+          # Outcomes are keyed by node id, so two collected items with one id
+          # would let one outcome stand for both: refuse duplicates outright.
+          counts = {}
+          for node in record["collected"]:
+              counts[node] = counts.get(node, 0) + 1
+          duplicates = sorted(node for node, number in counts.items() if number > 1)
+          collected = list(counts)
+          results = record["results"]
+          outcomes = {}
+          for node in collected:
+              if node in results:
+                  outcomes[results[node]] = outcomes.get(results[node], 0) + 1
+          print(f"pytest exit {rc}; collected {len(collected)}; outcomes {outcomes}")
+          if rc != "0" or record["exit"] != 0:
+              problems.append(f"pytest exited {rc}")
+          if not collected:
+              problems.append("pytest collected no test")
+          if record["deselected"]:
+              problems.append(f"{record['deselected']} test(s) were deselected; every listed test must run")
+          if record["collect_errors"]:
+              problems.append(f"{record['collect_errors']} collection error(s)")
+          if duplicates:
+              problems.append(f"{len(duplicates)} node id(s) were collected more than once: {duplicates[:10]}")
+          not_run = [node for node in collected if node not in results]
+          if not_run:
+              problems.append(f"{len(not_run)} collected test(s) never ran: {not_run[:10]}")
+          unknown = [node for node in results if node not in counts]
+          if unknown:
+              problems.append(f"{len(unknown)} outcome(s) for test(s) never collected: {unknown[:10]}")
+          for outcome in ("failed", "errors", "xpassed"):
+              if outcomes.get(outcome):
+                  problems.append(f"{outcomes[outcome]} test(s) {outcome}")
+          owners = {path: [node for node in collected if node.startswith(path + "::")] for path in files}
+          stray = [node for node in collected if not any(node.startswith(path + "::") for path in files)]
+          if stray:
+              problems.append(f"{len(stray)} collected test(s) belong to no [run] file: {stray[:10]}")
+          for path, nodes in owners.items():
+              passed = sum(1 for node in nodes if results.get(node) == "passed")
+              print(f"  {path}: {len(nodes)} collected, {passed} passed")
+              if not passed:
+                  problems.append(f"{path}: no test of this [run] file passed")
+          for problem in problems:
+              print(f"::error::{problem}")
+          sys.exit(1 if problems else 0)
+          PY
+
+      - name: Remove test files
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/pytest" "$RUNNER_TEMP/test-venv" "$RUNNER_TEMP/test-requirements.txt"
