@@ -959,17 +959,14 @@ class Triage:
             else:
                 dotted = self.module_name(path)
                 users = [p for p in all_tests if p != path and dotted in (self.r.lu.text(p) or "")]
-                stem = dotted.rsplit(".", 1)[1]
+                stem = re.escape(dotted.rsplit(".", 1)[1])
+                importer = "|".join(
+                    (rf"\bimport\s+{stem}\b", rf"from\s+\.+{stem}\b", rf"from\s+\.+\s+import\s+[^\n]*\b{stem}\b")
+                )
                 users += [
                     p
                     for p in all_tests
-                    if p != path
-                    and p not in users
-                    and re.search(
-                        rf"\bimport\s+{re.escape(stem)}\b|from\s+\.+{re.escape(stem)}\b|"
-                        rf"from\s+\.+\s+import\s+[^\n]*\b{re.escape(stem)}\b",
-                        self.r.lu.text(p) or "",
-                    )
+                    if p != path and p not in users and re.search(importer, self.r.lu.text(p) or "")
                 ]
             res.users = sorted(users)
             if any(results.get(u, FileResult(u, PRESENT, [], [])).status not in (GONE,) for u in users):
