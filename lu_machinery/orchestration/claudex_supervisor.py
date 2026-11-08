@@ -564,7 +564,7 @@ def _validate_claimed_request(
         raise SupervisorError("rollover request native operation does not match the lease")
 
 
-def _launch_child_gate(ready_file: Path, command: list[str]) -> int:
+def _launch_child_gate(ready_file: Path, pythonpath_token: str, command: list[str]) -> int:
     deadline = time.monotonic() + 15.0
     while not ready_file.exists():
         if time.monotonic() >= deadline:
@@ -573,6 +573,15 @@ def _launch_child_gate(ready_file: Path, command: list[str]) -> int:
         time.sleep(0.01)
     with contextlib.suppress(OSError):
         ready_file.unlink()
+    # The gate process needed PYTHONPATH to import this package. The supervised
+    # command keeps the PYTHONPATH the supervisor was started with.
+    if pythonpath_token == "0":
+        os.environ.pop("PYTHONPATH", None)
+    elif pythonpath_token.startswith("1"):
+        os.environ["PYTHONPATH"] = pythonpath_token[1:]
+    else:
+        print("[supervisor-child] launch gate rejected its path token", file=sys.stderr)
+        return 1
     os.execvpe(command[0], command, os.environ)
     return 1
 
@@ -665,15 +674,16 @@ class ClaudexSupervisor:
                 ),
             }
         )
-        # -P so the child does not import a lu_machinery/ from the caller's cwd.
-        # PYTHONPATH names the tree this process already loaded.
+        # -P so the gate does not import a lu_machinery/ from the caller's cwd.
+        # The token is the PYTHONPATH to restore before the user command runs.
+        prior_path = launch_env.get("PYTHONPATH")
+        pythonpath_token = "0" if prior_path is None else "1" + prior_path
         spec = importlib.util.find_spec("lu_machinery")
         origin = getattr(spec, "origin", None) if spec is not None else None
         if origin and origin != "namespace":
             loaded_root = os.fspath(Path(origin).resolve().parent.parent)
-            prior_path = launch_env.get("PYTHONPATH")
             launch_env["PYTHONPATH"] = (
-                loaded_root if not prior_path else loaded_root + os.pathsep + prior_path
+                loaded_root if prior_path is None else loaded_root + os.pathsep + prior_path
             )
         command = [self.script_path, *self.forward_argv]
         gate_command = [
@@ -683,6 +693,7 @@ class ClaudexSupervisor:
             "lu_machinery.orchestration.claudex_supervisor",
             "_launch-child",
             os.fspath(ready_file),
+            pythonpath_token,
             *command,
         ]
         self._write_runtime("launching")
@@ -848,9 +859,9 @@ def _env_int(name: str) -> int | None:
 
 def main() -> int:
     if len(sys.argv) >= 2 and sys.argv[1] == "_launch-child":
-        if len(sys.argv) < 4:
+        if len(sys.argv) < 5:
             return 2
-        return _launch_child_gate(Path(sys.argv[2]), sys.argv[3:])
+        return _launch_child_gate(Path(sys.argv[2]), sys.argv[3], sys.argv[4:])
 
     parser = argparse.ArgumentParser(description=__doc__)
     subparsers = parser.add_subparsers(dest="command")
