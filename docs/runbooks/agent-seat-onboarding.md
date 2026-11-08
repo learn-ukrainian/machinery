@@ -391,18 +391,17 @@ not permanent routing weights and do not override current CodexBar headroom.
   a version floor replaces the lockfile integrity hash, and the host binary's
   code changes without repo review; this adds no trust boundary, because the
   native delegate route already runs the same host binary.
-- The launcher is read only from the canonical primary checkout and must
-  match the SHA-256 the adapter pins; each launch runs a private copy of the
-  verified bytes. One-time window after the change that
-  adds or edits it merges: until host maintenance pulls `main` into the
-  primary checkout, keeping that tree non-group-writable, the Claude ACP seat
-  refuses as `missing` (or `digest_mismatch` for an edit). Dispatch worktree
-  copies are never used, so their group-writable checkout mode does not matter.
+- The Claude ACP launcher is read from the running `lu_machinery` package in
+  checkout and installed-wheel modes. Every ancestor through `/` must pass
+  ownership, mode and no-symlink checks. The adapter reads each closure file
+  once with `O_NOFOLLOW` and executes a private copy of captured bytes. Runtime
+  content-drift detection is absent; wheel hashes authenticate installation
+  inputs only. Host executable identity checks and background-tool denials
+  remain enforced.
   The launcher compares nanosecond timestamps with GNU `stat`. On hosts whose
   system `stat` is the uutils build (Ubuntu 26.04), GNU `stat` must stay
   installed as `gnustat` beside it, or every launch refuses.
-- Threat model: the pin catches drift, accidents and honest misconfiguration.
-  It is not tamper resistance. Deliberate replacement or forgery by a writer
+- Threat model: deliberate replacement or forgery by a writer
   running as the same Unix user is out of scope, because that writer already
   controls the host binary, the user configuration and the checkout. The
   residuals (path-bound execution after hashing, an in-place host edit that
