@@ -62,12 +62,17 @@ def _import_time_roots(env: dict[str, str]) -> dict[str, str]:
         "import json\n"
         "from lu_machinery.ai_agent_bridge import _dispatch_wrappers as bridge\n"
         "from lu_machinery.common.task_store_paths import tasks_dir\n"
+        "from lu_machinery.common.repo_root import StateRootError\n"
         "from lu_machinery.dispatcher import git\n"
         "from lu_machinery.orchestration.task_identity import DEFAULT_REPOSITORY\n"
         "repos = {key: git.resolve_repo(key) for key in ('public', 'kube-dojo')}\n"
+        "try:\n"
+        "    task_path, task_error = str(tasks_dir()), None\n"
+        "except StateRootError as exc:\n"
+        "    task_path, task_error = None, type(exc).__name__\n"
         "print(json.dumps({**{key: str(path) for key, (path, _) in repos.items()},\n"
         "                  'github': {key: item['github'] for key, (_, item) in repos.items()},\n"
-        "                  'tasks_dir': str(tasks_dir()), 'slug': DEFAULT_REPOSITORY,\n"
+        "                  'tasks_dir': task_path, 'tasks_dir_error': task_error, 'slug': DEFAULT_REPOSITORY,\n"
         "                  'bridge_state': str(bridge.REPO_ROOT), 'bridge_dispatcher': str(bridge.DISPATCHER_ROOT)}))\n"
     )
     result = subprocess.run(
@@ -313,17 +318,14 @@ def test_unset_configuration_keeps_todays_roots(clean_env, monkeypatch) -> None:
     assert rules_core.source_path("docs/x.md") == rules_core.ROOT / "docs/x.md"
 
 
-def test_unset_configuration_keeps_todays_import_time_roots() -> None:
-    """Import-time consumers still bind ``resolve_repo_root``, which C-4843 step 1 leaves as is.
-
-    A later step moves these consumers to :func:`state_root` at their call sites; until
-    then this pins their unchanged behaviour.
-    """
+def test_unset_configuration_refuses_unanchored_task_store_and_keeps_unmigrated_roots() -> None:
+    """S04 task-store calls refuse missing state anchors; unmigrated import defaults stay pinned."""
     roots = _import_time_roots(_subprocess_env())
     primary = rr.main_checkout_root(REPO)
     assert Path(roots["public"]) == primary.resolve()
     assert Path(roots["kube-dojo"]) == (primary.parent / "kube-dojo").resolve()
-    assert Path(roots["tasks_dir"]) == primary / "batch_state" / "tasks"
+    assert roots["tasks_dir"] is None
+    assert roots["tasks_dir_error"] == "StateRootError"
     assert roots["slug"] == DEFAULT_SLUG
     assert roots["github"] == REPOS
     assert Path(roots["bridge_state"]) == Path(roots["bridge_dispatcher"]) == primary
