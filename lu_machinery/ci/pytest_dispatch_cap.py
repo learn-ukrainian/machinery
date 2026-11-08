@@ -49,6 +49,8 @@ from collections.abc import Generator, Mapping
 from pathlib import Path
 from types import ModuleType
 
+from lu_machinery.common.repo_root import product_root
+
 import pytest
 
 try:
@@ -116,15 +118,12 @@ def _resolved(path: Path) -> Path:
 
 
 def repository_root() -> Path:
-    """Checkout that owns this plugin, from its path and the git toplevel.
+    """Product checkout whose ``tests`` tree this plugin bounds.
 
     ``pytest --rootdir`` and the process cwd are not the suite boundary.
+    The installed package does not walk ancestors from its own file.
     """
-    start = Path(__file__).resolve().parent
-    for candidate in (start, *start.parents):
-        if (candidate / "pyproject.toml").is_file() and (candidate / ".git").exists():
-            return candidate
-    raise RuntimeError("pytest dispatch cap cannot locate the repository root from its module path")
+    return product_root()
 
 
 def path_covers_full_suite(raw: str, *, invocation_dir: Path) -> bool:

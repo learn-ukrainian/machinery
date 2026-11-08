@@ -14,7 +14,7 @@ from pathlib import Path
 
 import yaml
 
-REGISTRY = Path(__file__).resolve().parents[2] / "tests/flake_quarantine.yaml"
+from lu_machinery.common.repo_root import product_root
 REQUIRED = {
     "node_id", "fix_issue", "owner", "admitted_on", "expires_on", "observed_run_ids", "renewals",
     "equivalent_coverage", "admission_approval",
@@ -26,12 +26,13 @@ NODE_ID = re.compile(
 )
 
 
-def load_registry(path: Path = REGISTRY) -> list[dict]:
+def load_registry(path: Path | None = None) -> list[dict]:
     """Reject malformed or unbounded entries before pytest can apply markers.
 
     This is offline lint. ``check_admissions`` verifies changed entries against
     GitHub before admission; pytest never needs network access.
     """
+    path = path or (product_root() / "tests/flake_quarantine.yaml")
     document = yaml.safe_load(path.read_text(encoding="utf-8"))
     return _registry_entries(document)
 
@@ -117,7 +118,7 @@ def _merge_group_evidence(run: dict, node_id: str) -> tuple[int, datetime]:
     if not branch:
         raise ValueError("merge-group evidence needs an identifiable PR and base")
     sha, base = run["head_sha"], branch[2]
-    root = REGISTRY.parents[1]
+    root = product_root()
 
     def git(*args: str) -> str:
         try:
@@ -269,7 +270,7 @@ def main(argv: list[str] | None = None) -> int:
     entries = load_registry()
     baseline = subprocess.run(
         ["git", "show", f"{args.base_ref}:tests/flake_quarantine.yaml"],
-        capture_output=True, text=True, check=True, timeout=30,
+        cwd=product_root(), capture_output=True, text=True, check=True, timeout=30,
     ).stdout
     previous = _registry_entries(yaml.safe_load(baseline))
     if all(entry in previous for entry in entries):

@@ -17,6 +17,8 @@ from collections import Counter, deque
 from dataclasses import dataclass
 from pathlib import Path
 
+from lu_machinery.common.repo_root import product_root
+
 
 def _machinery_top() -> str:
     # Name the package from the unresolved file location, never from __package__
@@ -32,7 +34,6 @@ def _mod(*parts: str) -> str:
     return ".".join((_machinery_top(), *parts))
 
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
 LITERAL_TEMP = re.compile(
     r"(?<![\w./~])[/](?:(?:private[/]|var[/])?tmp|dev[/]shm)"
     r"(?=$|[/$\s'\";,:)}\]])(?:[/][^\s'\";,:)}\]]*)?"
@@ -2618,8 +2619,9 @@ def unmatched_rows(rows: list[tuple[str, int, str]]) -> list[tuple[str, int, str
     return findings
 
 
-def find_literal_tmp_paths(repo_root: Path = REPO_ROOT) -> list[tuple[str, int]]:
+def find_literal_tmp_paths(repo_root: Path | None = None) -> list[tuple[str, int]]:
     """Find new literals and unmanaged calls outside the counted legacy baseline."""
+    repo_root = repo_root or product_root()
     return [(path, number) for path, number, _ in unmatched_rows(scan_lines(repo_root))]
 
 
@@ -2630,7 +2632,7 @@ def main(argv: list[str] | None = None) -> int:
         epilog='Examples:\n  .venv/bin/python -m ' + _mod("hygiene", "lint_tmp_paths") + '\n  .venv/bin/python -m ' + _mod("hygiene", "lint_tmp_paths") + ' --repo .\n  .venv/bin/python -m ' + _mod("hygiene", "lint_tmp_paths") + ' scripts/a.py tests/b.py\n  .venv/bin/python -m ' + _mod("hygiene", "lint_tmp_paths") + ' --changed-from origin/main\nOutputs: source locations, counted fingerprints and remediation; no writes or literal path contents.\nExit codes: 0 clean; 1 findings; 2 invalid arguments or source read/parse error.\nRelated: #8755; workflow.md; ' + _mod("hygiene", "lint_raw_rm_rf") + '.',
     )
     parser.add_argument(
-        "--repo", type=Path, default=REPO_ROOT, help="Repository to scan (default this checkout; example .)."
+        "--repo", type=Path, default=None, help="Repository to scan (default: the selected product checkout; example .)."
     )
     parser.add_argument(
         "paths", nargs="*", help="Changed-file mode: scan only these files (same allowlist and results as repo-wide)."
@@ -2641,6 +2643,8 @@ def main(argv: list[str] | None = None) -> int:
         help="Changed-file mode: also scan files added/modified against REF (git diff, includes the working tree).",
     )
     args = parser.parse_args(argv)
+    if args.repo is None:
+        args.repo = product_root()
     try:
         selected = None
         if args.paths or args.changed_from:

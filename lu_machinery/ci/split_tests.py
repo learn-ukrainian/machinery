@@ -65,6 +65,7 @@ if __package__ in (None, ""):
 
 from lu_machinery.ci._location import checkout_relative, module_name
 from lu_machinery.common import github_client
+from lu_machinery.common.repo_root import product_root
 
 # Duration refresh checks this file out without scripts/common/repo_root.py.
 # _location derives the package name from its own unresolved path and imports
@@ -269,7 +270,7 @@ def tracked_test_files(root: Path | None = None) -> list[str]:
 
     ``git ls-files`` is the selection. A duration snapshot never adds or drops a file.
     """
-    repo = root or Path(__file__).resolve().parents[2]
+    repo = root or product_root()
     listed = subprocess.check_output(["git", "ls-files", "--", "tests"], cwd=repo, text=True, timeout=30)
     return [line for line in listed.splitlines() if re.fullmatch(r"tests/(?:[^/]+/)*test_[^/]+\.py", line)]
 

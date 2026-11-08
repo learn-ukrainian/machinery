@@ -37,10 +37,10 @@ from pathlib import Path
 from typing import NamedTuple
 
 from lu_machinery.ci._location import checkout_relative, module_name
+from lu_machinery.common.repo_root import product_root
 from lu_machinery.ci.test_source_cache import parse_test_source, read_test_source
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
-_ALLOWLIST_REL = checkout_relative("ci", "subprocess_timeout_allowlist.txt")
+_ALLOWLIST_REL = Path("scripts/ci/subprocess_timeout_allowlist.txt")
 _PACKAGE_NAME = Path(__file__).parents[1].name
 BOUNDED_FUNCS = frozenset({"run", "check_output", "call", "check_call"})
 SHAPE_HASH_HEX_LEN = 16
@@ -288,7 +288,7 @@ def check_paths(
     Returns:
         tuple of (test_offenders, unallowlisted_script_lines, syntax_errors)
     """
-    root = (repo_root or REPO_ROOT).resolve()
+    root = (repo_root or product_root()).resolve()
     allowlist = (allowlist_path or (root / _ALLOWLIST_REL)).resolve()
 
     test_offenders: list[str] = []
@@ -413,8 +413,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--root",
         type=Path,
-        default=REPO_ROOT,
-        help="Repository root directory (default: %(default)s)",
+        default=None,
+        help="Repository root directory (default: the selected product checkout)",
     )
     parser.add_argument(
         "--allowlist",
@@ -429,7 +429,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
 
-    root = (args.root or REPO_ROOT).resolve()
+    root = (args.root or product_root()).resolve()
     allowlist_path = (args.allowlist or (root / _ALLOWLIST_REL)).resolve()
 
     test_offenders, unallowlisted, syntax_errors = check_paths(

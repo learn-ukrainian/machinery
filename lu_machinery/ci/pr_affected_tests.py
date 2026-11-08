@@ -260,6 +260,7 @@ def importing_tests(
     surviving dependents come from a scan of the base tree.
     """
     from lu_machinery.ci import components
+    from lu_machinery.common.repo_root import product_root
 
     scan = candidate_scan(tuple(components.python_sources().items()), tuple(components.tracked_paths()))
     edges, directories = scan["file_edges"], scan["directory_edges"]
@@ -270,7 +271,7 @@ def importing_tests(
                 meta, name = row.decode("utf-8").split("\t", 1)
                 tree[name] = meta.split()
         blobs = tuple((name, meta[2]) for name, meta in tree.items() if name.endswith(".py") and meta[1] == "blob")
-        sources = components.indexed_python_sources(str(components.ROOT), blobs, ())
+        sources = components.indexed_python_sources(str(product_root()), blobs, ())
         scan = components.scan_imports(sources, set(tree), importers=selecting(sources))
         edges = [*edges, *(edge for edge in scan["file_edges"] if edge[1] in deleted)]
         directories = [*directories, *scan["directory_edges"]]
