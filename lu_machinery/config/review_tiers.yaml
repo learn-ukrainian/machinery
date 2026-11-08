@@ -6,6 +6,8 @@ tiers:
   high:
     - .github/**
     - .githooks/**
+    - .pre-commit-config.yaml
+    - .trufflehogignore
     - agents_extensions/*/hooks/**
     - agents_extensions/*/hooks*.json
     - agents_extensions/*/settings*.json
@@ -33,6 +35,8 @@ tiers:
     - 'scripts/hooks/**'
     - 'lu_machinery/guardrails/**'
     - 'scripts/guardrails/**'
+    - lu_machinery/pre_commit/**
+    - scripts/pre_commit/**
     - 'lu_machinery/agent_runtime/**'
     - 'scripts/agent_runtime/**'
     - 'lu_machinery/session_supervisor/**'
@@ -71,6 +75,14 @@ tiers:
     - 'scripts/fleet_comms/review_publisher.py'
     - 'lu_machinery/config/review_tiers.yaml'
     - 'scripts/config/review_tiers.yaml'
+    - lu_machinery/config/review*.yaml
+    - scripts/config/review*.yaml
+    - lu_machinery/config/fleet_repos.yaml
+    - scripts/config/fleet_repos.yaml
+    - lu_machinery/config/attempt_provider_egress.yaml
+    - scripts/config/attempt_provider_egress.yaml
+    - lu_machinery/config/*audit-ignore.yaml
+    - scripts/config/*audit-ignore.yaml
     - 'lu_machinery/config/model_catalog.yaml'
     - 'scripts/config/model_catalog.yaml'
     - 'lu_machinery/config/agent_runtime*.yaml'
