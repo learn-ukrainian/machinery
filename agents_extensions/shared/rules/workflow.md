@@ -186,7 +186,7 @@ with `review-loop` for review rounds and the budget.
    An open PR or its green CI is not approval.
 1. Independent exact-head review **APPROVE** on the tip you intend to land, at the tier the
    [review policy](../skills/review-loop/references/policy.md#2-risk-tier-is-set-by-the-change)
-   sets: cross-family, except a non-author reviewer of any family at Low tier.
+   sets: cross-family, except any qualified non-author reviewer at Low tier.
 2. Open the PR if it is not already open, then run `"$PY" "$PRIMARY_REPO/lu_machinery/review/record_cf_verdict.py"` to bind the completed
    review, reviewed head, and author qualification in a **PR comment bound to the head SHA**,
    with reviewer model/family/harness provenance. Resolve `PRIMARY_REPO` and `PY` with the
@@ -586,7 +586,7 @@ Every task follows this workflow. No exceptions for non-trivial changes.
    reviewed SHA; never copy a `behavior_proof_status` string.
 6. **Pass the independent review and CI gates** — review at the
    [`review-loop` policy](../skills/review-loop/references/policy.md) tier: qualified toolful
-   reviewer outside the author model family (any non-author family at Low tier). A PR may be opened
+   reviewer outside the author model family (any qualified non-author reviewer at Low tier). A PR may be opened
    before approval so CI exists; merge still needs the tier's exact-head APPROVE
    and same-head green CI. `record_cf_verdict.py` binds verdict + findings to
    the PR head (drive-epic §6–§7). The

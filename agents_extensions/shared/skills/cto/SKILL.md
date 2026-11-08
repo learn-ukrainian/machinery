@@ -41,8 +41,8 @@ in every model call, plus instructions to run `lu-driver-state render --lane cto
   continue, start. Tactics: observe, orient, decide, act; finish before starting; probe
   before believing a limit. Results: a user-visible outcome with its proof, verified end to
   end. Reversible decisions in scope are made now; the rest follow core.md P6.
-- Every CTO mistake gets a ledger entry, is closed only by a concrete change, and a repeat
-  moves its control one step up the enforcement ladder ([learning](references/learning.md)).
+- Every CTO mistake gets a ledger entry and is closed by a fix at the source; a repeat is
+  fixed at the source again, never by a new gate ([learning](references/learning.md)).
 
 ## Rules the CTO seat applies itself
 

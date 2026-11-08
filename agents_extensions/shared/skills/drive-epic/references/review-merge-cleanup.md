@@ -7,7 +7,9 @@ and after every merge. The ordered steps are the `full-send` and `full-stop` ski
 ## §6. Cross-family review gate (load-bearing — discussion ≠ review)
 
 A review of record is **independent and cross-family** (outside the author's model
-family; never self-review, never same-family). The CF of record must be
+family; never self-review, never same-family), except at the
+[review policy](../../review-loop/references/policy.md#2-risk-tier-is-set-by-the-change)'s
+Low tier, where any qualified non-author reviewer suffices. The CF of record must be
 **exact-head**: attested `resolved_model`, `VERDICT: APPROVE` (or equivalent),
 and the attested SHA equals the current PR head. Discussion on the thread is not CF.
 If the head moves after APPROVE, the CF is stale — re-run exact-head CF before any
@@ -36,7 +38,7 @@ through the author and obtain fresh exact-head review after any content change.
 
 **Reviewer family is live data.** Resolve through `closeout_cli resolve-reviewer`
 using the live model catalog and health (§6 below). Do **not** hardcode Claude
-Sonnet (or any one model). The writer's family is never eligible.
+Sonnet (or any one model). Above Low tier the writer's family is never eligible.
 
 **Cursor Cloud-authored PRs:** CF is another Cloud seat on a **different family**,
 chosen from the "Code review" row of `model-assignment.md`
