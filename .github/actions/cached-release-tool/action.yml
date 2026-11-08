@@ -40,7 +40,7 @@ runs:
         mkdir -p "$(dirname "$archive")"
         echo "Downloading $TOOL release archive (cache miss)."
         curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
-          --retry 6 --retry-all-errors --retry-delay 10 --retry-max-time 300 \
+          --retry 30 --retry-all-errors --retry-delay 10 --retry-max-time 300 \
           --connect-timeout 20 --max-time 60 --output "$archive" "$URL"
     - name: Verify and extract binary
       shell: bash
