@@ -44,8 +44,8 @@ if [[ ! -x "${VENV_PY}" ]]; then
     exit 99
 fi
 
-# The Python smoke driver — written to a temp file so we can invoke it
-# without heredoc-pipe parsing oddities.
+# The Python smoke driver is stored aside and fed on stdin. Invoking the
+# temp path would put that directory on sys.path and hide this checkout.
 DRIVER="$(mktemp -t pty-smoke-driver.XXXXXX.py)"
 cat >"${DRIVER}" <<'PYDRIVER'
 import json
@@ -118,9 +118,23 @@ fi
 FAILED=0
 export LU_ROOT="${ROOT}"
 
+# Fail here, not as a PTY regression, when the runner is not this checkout.
+if ! "${VENV_PY}" -c 'import os, sys
+from pathlib import Path
+import lu_machinery.agent_runtime.runner as runner
+module = Path(runner.__file__).resolve()
+root = Path(os.environ["LU_ROOT"]).resolve()
+if not module.is_relative_to(root):
+    sys.stderr.write("lu_machinery.agent_runtime.runner resolved outside the checkout\n")
+    sys.exit(1)
+'; then
+    echo "ERROR: lu_machinery.agent_runtime.runner does not import from ${ROOT}" >&2
+    exit 99
+fi
+
 for AGENT in "${AGENTS[@]}"; do
     echo "=== smoke: ${AGENT} ==="
-    if "${VENV_PY}" "${DRIVER}" "${AGENT}"; then
+    if "${VENV_PY}" - "${AGENT}" < "${DRIVER}"; then
         echo "  OK"
     else
         echo "  AGENT FAILED (exit $?)"
