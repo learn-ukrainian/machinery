@@ -49,9 +49,11 @@ from pathlib import Path
 from typing import Any
 
 try:
+    from lu_machinery.common.repo_root import product_root
     from lu_machinery.common.safe_unit_install import InstallError, install_unit, open_state_log
 except ModuleNotFoundError:  # direct file-path invocation
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+    from lu_machinery.common.repo_root import product_root
     from lu_machinery.common.safe_unit_install import InstallError, install_unit, open_state_log
 
 
@@ -474,8 +476,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--repo",
         type=Path,
-        default=Path(__file__).resolve().parents[2],
-        help="repo path to check (default: this project root)",
+        default=None,
+        help="repo path to check (default: the product checkout)",
     )
     parser.add_argument(
         "--tasks-dir",
@@ -490,16 +492,17 @@ def main(argv: list[str] | None = None) -> int:
         help="watchdog state/log dir (default: <main_root>/data/telemetry/primary-integrity)",
     )
     args = parser.parse_args(argv)
+    repo = args.repo if args.repo is not None else product_root()
 
     tasks_dir = args.tasks_dir
     if tasks_dir is None:
         try:
-            tasks_dir = _resolve_main_root(args.repo) / "batch_state" / "tasks"
+            tasks_dir = _resolve_main_root(repo) / "batch_state" / "tasks"
         except Exception:
             tasks_dir = None
 
     ok, message = check_primary_integrity(
-        args.repo,
+        repo,
         fix=args.fix,
         tasks_dir=tasks_dir,
         state_dir=args.state_dir,

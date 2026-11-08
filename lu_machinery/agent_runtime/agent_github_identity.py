@@ -27,9 +27,9 @@ from typing import Any
 import jwt
 
 from lu_machinery.common.github_client import http_open
+from lu_machinery.common.repo_root import ProductRootError, product_root
 
 _GITHUB_API_URL = "https://api.github.com"
-_REPO_ROOT = Path(__file__).resolve().parents[2]
 _GIT_TIMEOUT_SECONDS = 30
 
 
@@ -166,18 +166,18 @@ def _read_legacy_token(path: Path) -> str | None:
     return None
 
 
-def _repository_name(repo_root: Path = _REPO_ROOT) -> str:
+def _repository_name(repo_root: Path | None = None) -> str:
     """Return the origin repository name for an installation-token scope."""
     try:
         remote = subprocess.run(
             ["git", "config", "--get", "remote.origin.url"],
-            cwd=repo_root,
+            cwd=product_root(repo_root),
             check=True,
             capture_output=True,
             text=True,
             timeout=_GIT_TIMEOUT_SECONDS,
         ).stdout.strip()
-    except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+    except (OSError, ProductRootError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
         raise GitHubIdentityError("cannot determine the repository for the GitHub App token") from exc
 
     remote = remote.removesuffix(".git").rstrip("/")

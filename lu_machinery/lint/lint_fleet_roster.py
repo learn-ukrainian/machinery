@@ -24,18 +24,17 @@ import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from lu_machinery.common.repo_root import machinery_path
+from lu_machinery.common.repo_root import machinery_path, product_root
 from lu_machinery.review.role_resolution import resolve_routing_reference
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
 CATALOG_PATH = machinery_path("config/model_catalog.yaml")
 COMMS_PATH = machinery_path("config/fleet_communications.yaml")
 
-# Source rules only (not deploy copies under .claude/.agent/.gemini).
+# Source rules only (not deploy copies under .claude/.agent/.gemini), relative to the product checkout.
 DEFAULT_PROJECTION_PATHS = (
-    PROJECT_ROOT / "agents_extensions/shared/rules/model-assignment.md",
-    PROJECT_ROOT / "docs/runbooks/fleet-comms-open-gaps.md",
-    PROJECT_ROOT / "docs/runbooks/epic-orchestrator-roster.md",
+    "agents_extensions/shared/rules/model-assignment.md",
+    "docs/runbooks/fleet-comms-open-gaps.md",
+    "docs/runbooks/epic-orchestrator-roster.md",
 )
 
 BEGIN_RE = re.compile(
@@ -345,9 +344,12 @@ def lint_fleet_roster(
     *,
     catalog_path: Path = CATALOG_PATH,
     comms_path: Path = COMMS_PATH,
-    projection_paths: tuple[Path, ...] | list[Path] = DEFAULT_PROJECTION_PATHS,
-    project_root: Path = PROJECT_ROOT,
+    projection_paths: tuple[Path, ...] | list[Path] | None = None,
+    project_root: Path | None = None,
 ) -> list[LintIssue]:
+    project_root = product_root(project_root)
+    if projection_paths is None:
+        projection_paths = [project_root / relative for relative in DEFAULT_PROJECTION_PATHS]
     issues: list[LintIssue] = []
     try:
         seats = load_orchestrator_seats(catalog_path)
@@ -444,11 +446,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
-    projection_paths = (
-        tuple(p.resolve() for p in args.projection)
-        if args.projection
-        else DEFAULT_PROJECTION_PATHS
-    )
+    projection_paths = tuple(p.resolve() for p in args.projection) if args.projection else None
     issues = lint_fleet_roster(
         catalog_path=args.catalog.resolve(),
         comms_path=args.comms.resolve(),
@@ -467,7 +465,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"  - [{issue.kind}] {issue.path}: {issue.message}", file=sys.stderr)
     else:
         print(
-            f"Fleet roster OK ({len(projection_paths)} projection file(s); "
+            f"Fleet roster OK ({len(projection_paths or DEFAULT_PROJECTION_PATHS)} projection file(s); "
             "orchestrator_seats + formal_review_eligible exact match)"
         )
     return 0 if not issues else 1

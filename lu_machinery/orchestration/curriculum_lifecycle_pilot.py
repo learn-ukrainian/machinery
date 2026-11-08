@@ -22,6 +22,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+from lu_machinery.common.repo_root import product_root
 from lu_machinery.orchestration import curriculum_readiness, prompt_contracts
 
 # The product API the pilot uses. A configured module without any of it is refused.
@@ -32,7 +33,7 @@ def readiness_gates(*, product_root: Path | None = None) -> ModuleType:
     """The product's readiness gates module, loaded when the pilot needs it, never at import.
 
     The readiness checks' strict loader (:func:`curriculum_readiness.load_readiness_gates`)
-    reads the configuration under ``product_root`` (an absolute path; default: this checkout)
+    reads the configuration under ``product_root`` (an absolute path; default: the product checkout)
     at each call and refuses a module without every name in ``_GATE_EXPORTS``. A missing or
     invalid configuration, or a module without that API, raises (``ImportError`` or
     ``OSError``) and so refuses the operation that asked for the gates.
@@ -356,7 +357,8 @@ def _validate_matrix_semantics(matrix: Mapping[str, Any], repo_root: Path) -> No
                 raise PilotError(f"historical merge does not bind configured issue/PR: {row['id']}")
 
 
-def load_matrix(*, repo_root: Path = PROJECT_ROOT, matrix_path: Path = DEFAULT_MATRIX_PATH) -> dict[str, Any]:
+def load_matrix(*, repo_root: Path | None = None, matrix_path: Path = DEFAULT_MATRIX_PATH) -> dict[str, Any]:
+    repo_root = product_root(repo_root)
     readiness_gates()  # every pilot operation loads the matrix: refuse first when the gates are unavailable
     path = _repository_backed_file(repo_root, matrix_path)
     matrix = _read_yaml(path)
@@ -559,9 +561,10 @@ def _report_identity(report: Mapping[str, Any]) -> str:
 
 def build_shadow_report(
     *,
-    repo_root: Path = PROJECT_ROOT,
+    repo_root: Path | None = None,
     matrix_path: Path = DEFAULT_MATRIX_PATH,
 ) -> dict[str, Any]:
+    repo_root = product_root(repo_root)
     matrix_file = _repository_backed_file(repo_root, matrix_path)
     matrix = load_matrix(repo_root=repo_root, matrix_path=matrix_file)
     before = _learner_hashes(matrix, repo_root)
@@ -658,8 +661,9 @@ def validate_report_value(
 
 
 def load_report(
-    path: Path, *, repo_root: Path = PROJECT_ROOT, matrix_path: Path = DEFAULT_MATRIX_PATH
+    path: Path, *, repo_root: Path | None = None, matrix_path: Path = DEFAULT_MATRIX_PATH
 ) -> dict[str, Any]:
+    repo_root = product_root(repo_root)
     report = _read_json(path)
     matrix = load_matrix(repo_root=repo_root, matrix_path=matrix_path)
     validate_report_value(
@@ -691,9 +695,10 @@ def verify_authorization(
     authorization_path: Path,
     report_path: Path,
     *,
-    repo_root: Path = PROJECT_ROOT,
+    repo_root: Path | None = None,
     matrix_path: Path = DEFAULT_MATRIX_PATH,
 ) -> dict[str, Any]:
+    repo_root = product_root(repo_root)
     report = load_report(report_path, repo_root=repo_root, matrix_path=matrix_path)
     authorization = _read_json(authorization_path)
     _validate(
@@ -776,13 +781,13 @@ def build_parser() -> argparse.ArgumentParser:
     authorization.add_argument("authorization", type=Path)
     authorization.add_argument("--report", type=Path, required=True)
     authorization.add_argument("--matrix", type=Path, default=DEFAULT_MATRIX_PATH)
-    parser.add_argument("--repo-root", type=Path, default=PROJECT_ROOT, help=argparse.SUPPRESS)
+    parser.add_argument("--repo-root", type=Path, default=None, help=argparse.SUPPRESS)
     return parser
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-    repo_root = args.repo_root.resolve()
+    repo_root = args.repo_root.resolve() if args.repo_root is not None else None
     matrix_path = args.matrix
     if args.command == "shadow":
         report = build_shadow_report(repo_root=repo_root, matrix_path=matrix_path)

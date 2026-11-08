@@ -25,6 +25,13 @@ except ImportError:
             sys.path.insert(0, str(_root))
         from lu_machinery.guardrails import worktree_containment as wc
 
+# The product checkout the guard protects. A direct file-path launch has no package on sys.path.
+try:
+    from lu_machinery.common.repo_root import product_root
+except ImportError:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+    from lu_machinery.common.repo_root import product_root
+
 # Dual-flavor git environment sanitizer import
 try:
     from lu_machinery.common.git_context import sanitized_git_env
@@ -57,7 +64,7 @@ _HOOK_INSTALL_TIMEOUT_S = 60
 def check_primary_checkout_root(hook_mode: bool = False) -> Path:
     """Verify that we are executing from the root of the primary checkout."""
     try:
-        main_root = wc.resolve_main_root()
+        main_root = wc.resolve_main_root(product_root())
     except Exception as e:
         if hook_mode:
             sys.exit(0)
@@ -217,7 +224,7 @@ def release_guard() -> None:
 def status_guard() -> None:
     """Report whether the write guard is ON or OFF, plus offender count."""
     try:
-        main_root = wc.resolve_main_root()
+        main_root = wc.resolve_main_root(product_root())
     except Exception as e:
         print(f"Error: Not inside a git repository: {e}", file=sys.stderr)
         sys.exit(1)
@@ -230,7 +237,7 @@ def status_guard() -> None:
 def check_guard() -> None:
     """Exit non-zero and name offenders if guard is expected ON but writable files exist."""
     try:
-        main_root = wc.resolve_main_root()
+        main_root = wc.resolve_main_root(product_root())
     except Exception as e:
         print(f"Error: Not inside a git repository: {e}", file=sys.stderr)
         sys.exit(1)
