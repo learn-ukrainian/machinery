@@ -22,11 +22,13 @@ from typing import Literal
 # Dual-flavor import: pytest / package loads use ``scripts.*``; direct file
 # invocation of this CLI has only ``scripts/hygiene/`` on ``sys.path[0]``.
 try:
+    from lu_machinery.common.repo_root import MachineryConfigError, state_root
     from lu_machinery.path_safety import assert_delete_target
 except ImportError:  # pragma: no cover - direct ``scripts/hygiene/*.py`` invocation
     _SCRIPTS_DIR = Path(__file__).resolve().parents[1]
     if str(_SCRIPTS_DIR) not in sys.path:
         sys.path.insert(0, str(_SCRIPTS_DIR))
+    from common.repo_root import MachineryConfigError, state_root  # type: ignore[no-redef]
     from path_safety import assert_delete_target  # type: ignore[no-redef]
 
 DEFAULT_RETENTION_DAYS = 14.0
@@ -38,7 +40,6 @@ DEFAULT_ARCHIVE_ROOT = (
     / "home-session-archives"
 )
 APPLY_ENV = "LU_HOME_SESSION_APPLY"
-_DEFAULT_REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 @dataclass(frozen=True)
@@ -218,7 +219,7 @@ def apply_retention(
     if os.environ.get(APPLY_ENV) != "1":
         raise PermissionError(f"--apply requires {APPLY_ENV}=1")
 
-    resolved_repo = (repo_root or _DEFAULT_REPO_ROOT).resolve()
+    resolved_repo = (repo_root or state_root()).resolve()
     store_by_provider = {store.provider: store for store in SESSION_STORES}
     results: list[dict[str, object]] = []
     for candidate in candidates:
@@ -311,13 +312,17 @@ def main(argv: list[str] | None = None) -> int:
     mode = "dry_run"
     if args.apply:
         mode = args.action
-        results = apply_retention(
-            candidates=candidates,
-            home=home,
-            archive_root=args.archive_root.expanduser(),
-            action=args.action,
-            retention_days=args.retention_days,
-        )
+        try:
+            results = apply_retention(
+                candidates=candidates,
+                home=home,
+                archive_root=args.archive_root.expanduser(),
+                action=args.action,
+                retention_days=args.retention_days,
+            )
+        except MachineryConfigError as exc:
+            print(f"home-session-retention: {exc}", file=sys.stderr)
+            return 2
     else:
         results = [{"path": candidate.path, "action": "would_" + args.action} for candidate in candidates]
 

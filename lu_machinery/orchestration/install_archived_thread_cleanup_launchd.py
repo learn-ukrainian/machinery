@@ -24,6 +24,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+from lu_machinery.common.repo_root import MachineryConfigError, machinery_path, state_root
 from lu_machinery.common.safe_unit_install import (
     InstallError,
     check_unit_dir,
@@ -32,12 +33,6 @@ from lu_machinery.common.safe_unit_install import (
     load_unit,
     remove_unit,
 )
-
-# This package's import name, from the unresolved file location: never from __package__, which a
-# short import spelling (orchestration.x with scripts/ on sys.path) shortens. Its dotted parts
-# are also its directories in checkout-relative paths.
-_PACKAGE = f"{Path(os.path.abspath(__file__)).parents[1].name}.{Path(os.path.abspath(__file__)).parent.name}"
-_PACKAGE_DIR = _PACKAGE.replace(".", "/")
 
 LABEL = "com.learn-ukrainian.codex-archived-thread-cleanup"
 DEFAULT_WEEKDAY = "sunday"
@@ -64,11 +59,6 @@ class LaunchdError(RuntimeError):
     """Raised when launchd cannot reach the requested final state."""
 
 
-def default_repo_root() -> Path:
-    """Return the checkout containing this installer."""
-    return Path(__file__).resolve().parents[2]
-
-
 def default_home() -> Path:
     """Return the current user's home without consulting shell expansion."""
     return Path.home()
@@ -90,9 +80,9 @@ def plist_path(home: Path) -> Path:
     return home / "Library" / "LaunchAgents" / f"{LABEL}.plist"
 
 
-def wrapper_path(repo_root: Path) -> Path:
-    """Return the stable bash wrapper launchd executes."""
-    return repo_root / _PACKAGE_DIR / WRAPPER_NAME
+def wrapper_path() -> Path:
+    """Return the stable bash wrapper launchd executes: a packaged machinery file."""
+    return machinery_path(f"orchestration/{WRAPPER_NAME}")
 
 
 def state_dir(home: Path) -> Path:
@@ -127,7 +117,7 @@ def build_plist(*, repo_root: Path, home: Path, codex_binary: Path, weekday: str
             STABLE_PROGRAM,
             "--noprofile",
             "--norc",
-            str(wrapper_path(repo_root)),
+            str(wrapper_path()),
             "--apply",
             "--repo-root",
             str(repo_root),
@@ -204,8 +194,8 @@ def _failure(action: str, result: subprocess.CompletedProcess[str]) -> LaunchdEr
 def _validate_runtime(repo_root: Path, codex_binary: Path) -> None:
     # Intentional: validate the interpreter of the checkout this LaunchAgent runs.
     interpreter = repo_root / ".venv" / "bin" / "python"
-    cleanup_script = repo_root / _PACKAGE_DIR / "archived_thread_cleanup.py"
-    wrapper = wrapper_path(repo_root)
+    cleanup_script = machinery_path("orchestration/archived_thread_cleanup.py")
+    wrapper = wrapper_path()
     if not interpreter.is_file() or not os.access(interpreter, os.X_OK):
         raise LaunchdError(f"required interpreter is missing or not executable: {interpreter}")
     if not cleanup_script.is_file():
@@ -370,8 +360,8 @@ def _add_path_options(parser: argparse.ArgumentParser, *, include_repo: bool) ->
         parser.add_argument(
             "--repo-root",
             type=Path,
-            default=default_repo_root(),
-            help="merged repository checkout to execute",
+            default=None,
+            help="primary checkout the service runs against (default: LEARN_UKRAINIAN_PRIMARY_REPO_ROOT)",
         )
         parser.add_argument(
             "--codex-binary",
@@ -418,7 +408,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     try:
         if args.command in {"install", "render"}:
-            repo_root = args.repo_root.expanduser().resolve()
+            repo_root = (args.repo_root or state_root()).expanduser().resolve()
             codex_binary = resolve_codex_binary(args.codex_binary)
             if args.command == "render" or args.dry_render:
                 rendered = render_plist(
@@ -443,7 +433,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         else:
             payload = uninstall(home=home)
             return_code = 0
-    except (LaunchdError, InstallError) as exc:
+    except (LaunchdError, InstallError, MachineryConfigError) as exc:
         print(json.dumps({"error": str(exc), "label": LABEL}, sort_keys=True))
         return 1
 

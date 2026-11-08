@@ -23,15 +23,16 @@ from pathlib import Path
 from typing import Any
 
 try:
+    from lu_machinery.common.repo_root import MachineryConfigError, state_root
     from lu_machinery.path_safety import assert_delete_target
 except ImportError:  # pragma: no cover - direct file invocation
     _SCRIPTS_DIR = Path(__file__).resolve().parents[1]
     if str(_SCRIPTS_DIR) not in sys.path:
         sys.path.insert(0, str(_SCRIPTS_DIR))
+    from common.repo_root import MachineryConfigError, state_root  # type: ignore[no-redef]
     from path_safety import assert_delete_target  # type: ignore[no-redef]
 
 SCHEMA = "codex.rollout-reconcile.v1"
-_REPO_ROOT = Path(__file__).resolve().parents[2]
 STATE_PATTERN = re.compile(r"state_[A-Za-z0-9][A-Za-z0-9._-]*\.sqlite\Z")
 ROLLOUT_PATTERN = re.compile(r"rollout-[^/]+\.jsonl\Z")
 REQUIRED_COLUMNS = frozenset({"id", "rollout_path", "created_at", "updated_at", "archived"})
@@ -337,6 +338,9 @@ def scan(
     return report
 
 def _create_backup(database: Path, backup_dir: Path) -> Path:
+    # Resolved first: a missing state anchor refuses before anything is written, and the
+    # cleanup below catches ValueError, which would otherwise hide it and leak the backup.
+    guard_root = state_root()
     if os.path.lexists(backup_dir):
         mode = os.lstat(backup_dir).st_mode
         if stat.S_ISLNK(mode) or not stat.S_ISDIR(mode):
@@ -359,7 +363,7 @@ def _create_backup(database: Path, backup_dir: Path) -> Path:
         try:
             guarded = assert_delete_target(
                 path,
-                repo_root=_REPO_ROOT,
+                repo_root=guard_root,
                 approved_temp_roots=(backup_dir,),
             )
             guarded.unlink(missing_ok=True)
@@ -413,6 +417,7 @@ def apply(
         return {"schema": SCHEMA, "mode": "apply", "error": "expected_count_required"}
     if expected_eligible_digest is None:
         return {"schema": SCHEMA, "mode": "apply", "error": "expected_digest_required"}
+    state_root()  # refuse an unanchored install before SQLite is opened: even a read can create WAL sidecars
     home = _home(codex_home)
     database = discover_database(home, db_path)
     backup_path: Path | None = None
@@ -607,7 +612,7 @@ def main(argv: list[str] | None = None) -> int:
                 "expected_count_mismatch", "expected_digest_mismatch"
             } else 2
         return 0 if receipt.get("post_apply_parity") else 2
-    except (OSError, ReconcileError, sqlite3.Error) as exc:
+    except (OSError, ReconcileError, sqlite3.Error, MachineryConfigError) as exc:
         print(_json({"schema": SCHEMA, "mode": args.command, "error": str(exc)}), end="")
         return 2
 
