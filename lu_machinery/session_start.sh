@@ -34,7 +34,7 @@ NC='\033[0m'
 # ---------------------------------------------------------------------------
 if ! curl -s --max-time 2 "$API/api/state/summary" > /dev/null 2>&1; then
     echo -e "${RED}Monitoring API not running at $API${NC}"
-    echo "Start it:  .venv/bin/python -m uvicorn ${MACHINERY_PKG}.api.main:app --host 0.0.0.0 --port 8765 --reload &"
+    echo "Start it:  the project interpreter -m uvicorn ${MACHINERY_PKG}.api.main:app --host 0.0.0.0 --port 8765 --reload &"
     exit 1
 fi
 
@@ -154,17 +154,23 @@ echo ""
 # Check via the message broker MCP — fall back gracefully if not available
 INBOX_COUNT=""
 if command -v curl > /dev/null 2>&1; then
-    # Try the MCP endpoint via the bridge script
-    INBOX_RESULT=$(.venv/bin/python -c "
-import json, sys
-sys.path.insert(0, sys.argv[1])
+    # The bridge package loads from this tree by the shared module bootstrap.
+    repo_root="$(cd "$MACHINERY_DIR/.." && pwd)"
+    # shellcheck disable=SC1091
+    source "$repo_root/lu_machinery/lib/project_interpreter.sh"
+    if inbox_python="$(project_interpreter_resolve "$repo_root")"; then
+        INBOX_RESULT=$(project_python_run "$inbox_python" -c "
+import json
 try:
-    from ai_agent_bridge import check_inbox
+    from lu_machinery.ai_agent_bridge import check_inbox
     msgs = check_inbox('claude')
     print(json.dumps(msgs))
 except Exception as e:
     print(json.dumps({'error': str(e)}))
-" "$MACHINERY_DIR" 2>/dev/null || echo '{"error": "bridge unavailable"}')
+" 2>/dev/null || echo '{"error": "bridge unavailable"}')
+    else
+        INBOX_RESULT='{"error": "bridge unavailable"}'
+    fi
 
     if echo "$INBOX_RESULT" | jq -e '.error' > /dev/null 2>&1; then
         echo -e "${BOLD}GEMINI INBOX${NC}  ${DIM}(check manually: mcp__message-broker__check_inbox)${NC}"

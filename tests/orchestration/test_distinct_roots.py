@@ -208,6 +208,9 @@ def _systemd_home(tmp_path: Path) -> Path:
     wrapper = runtime / "lu_machinery/orchestration/run_project_state_reporter.sh"
     wrapper.parent.mkdir(parents=True)
     shutil.copy2(rr.machinery_path("orchestration/run_project_state_reporter.sh"), wrapper)
+    library = runtime / "lu_machinery/lib/project_interpreter.sh"
+    library.parent.mkdir(parents=True)
+    shutil.copy2(rr.machinery_path("lib/project_interpreter.sh"), library)
     (home / "projects/learn-ukrainian").symlink_to(runtime, target_is_directory=True)
     return home
 

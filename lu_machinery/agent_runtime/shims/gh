@@ -105,13 +105,14 @@ if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
     exit 127
   }
   shim_file="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/gh"
-  # The interpreter the runner stamps (AGENT_GIT_SHIM_PYTHON, as the git and npm shims use), else the
-  # main checkout's .venv found through this checkout's git common dir.
-  python="${AGENT_GIT_SHIM_PYTHON:-}"
-  if [[ -z "$python" ]]; then
-    repo_root="$(cd "$(dirname "$shim_file")/../../.." && pwd)"
-    common_dir="$(git -C "$repo_root" rev-parse --path-format=absolute --git-common-dir)"
-    python="$(dirname "$common_dir")/.venv/bin/python"
+  repo_root="$(cd "$(dirname "$shim_file")/../../.." && pwd)"
+  # shellcheck disable=SC1091
+  source "$(dirname "$shim_file")/../../lib/project_interpreter.sh"
+  if ! python="$(project_interpreter_resolve "$repo_root")"; then
+    echo "error: agent gh shim cannot find the project interpreter; refusing to run gh unguarded." >&2
+    exit 127
   fi
-  exec "$python" "$(_gh_machinery_dir)/opsec/gh_entry.py" "$real_gh" "$shim_file" "$@"
+  # The package loads from this tree, so the entry module does not need the checkout on sys.path.
+  project_python_command "$python"
+  exec "${PROJECT_PYTHON_COMMAND[@]}" -m "${PROJECT_PACKAGE}.opsec.gh_entry" "$real_gh" "$shim_file" "$@"
 fi

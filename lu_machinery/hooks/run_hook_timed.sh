@@ -6,16 +6,38 @@
 #   HOOK_EVENT_NAME=PreToolUse HOOK_MATCHER=Bash \
 #     <path to this file> $CLAUDE_PROJECT_DIR/.claude/hooks/enforce-venv.sh
 #
-# The timer runs as `-m lu_machinery.hooks.hook_timing` under the configured interpreter
-# (LEARN_UKRAINIAN_PYTHON), never one found from this file's location or the cwd (-P keeps the
-# cwd off sys.path). Timing is diagnostics only: without a usable interpreter, or one that
-# cannot import the timer, the hook runs untimed with its own exit code.
+# The timer runs as `-m lu_machinery.hooks.hook_timing` under the one project interpreter.
+# Timing is diagnostics only: an invalid configured interpreter is not replaced, and
+# without a usable interpreter, or one that cannot import the timer, the hook runs
+# untimed with its own exit code.
 set -u
-PYTHON="${LEARN_UKRAINIAN_PYTHON:-}"
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck disable=SC1091
+source "$script_dir/../lib/project_interpreter.sh"
+
+# A working directory may be a subdirectory. The resolver treats a directory
+# with no .git as its own primary, so a nested virtualenv would become the
+# interpreter and could skip the hook. Walk to the nearest .git first.
+owning_checkout() {
+  local dir="$1"
+  dir="$(cd -P "$dir" 2>/dev/null && pwd)" || return 1
+  while [ ! -e "$dir/.git" ]; do
+    [ "$dir" = "/" ] && return 1
+    dir="$(dirname "$dir")"
+  done
+  printf '%s\n' "$dir"
+}
+
 if [ "${HOOK_TIMING:-}" = "1" ] || [ "${HOOK_TIMING:-}" = "true" ] || [ "${HOOK_TIMING:-}" = "always" ]; then
-  if [ -n "$PYTHON" ] && [ -x "$PYTHON" ] && "$PYTHON" -P -c 'import lu_machinery.hooks.hook_timing' 2>/dev/null; then
-    exec "$PYTHON" -P -m lu_machinery.hooks.hook_timing wrap -- "$@"
+  project="${CLAUDE_PROJECT_DIR:-$PWD}"
+  if checkout="$(owning_checkout "$project")"; then
+    project="$checkout"
   fi
-  echo "run_hook_timed: hook runs untimed (LEARN_UKRAINIAN_PYTHON unset or cannot import lu_machinery)" >&2
+  if PYTHON="$(project_interpreter_resolve "$project")" \
+      && project_python_run "$PYTHON" -c 'import lu_machinery.hooks.hook_timing' >/dev/null 2>&1; then
+    project_python_command "$PYTHON"
+    exec "${PROJECT_PYTHON_COMMAND[@]}" -m lu_machinery.hooks.hook_timing wrap -- "$@"
+  fi
+  echo "run_hook_timed: hook runs untimed (project interpreter unavailable or cannot import lu_machinery)" >&2
 fi
 exec "$@"

@@ -353,3 +353,454 @@ def test_deployed_probe_does_not_execute_a_worktree_venv_when_git_cannot_name_th
     )
     assert result.returncode == 0, result.stderr
     assert not log.exists()
+
+
+def _record(path: Path, log: Path, *, code: int = 0, args_path: Path | None = None) -> Path:
+    args = f'printf "%s\\n" "$@" > "{args_path}"\n' if args_path is not None else ""
+    return _executable(path, f'#!/bin/sh\nprintf "%s\\n" "$0" >> "{log}"\n{args}exit {code}\n')
+
+
+def _run(argv: list[str], *, cwd: Path, env: dict[str, str], stdin: str = "") -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        argv, cwd=cwd, env=env, input=stdin, capture_output=True, text=True, timeout=30, check=False,
+    )
+
+
+ROUTED = (
+    "lu_machinery/agent_runtime/_smoke_pty_agents.sh",
+    "lu_machinery/agent_runtime/codex_hook_entry.sh",
+    "lu_machinery/agy_hooks/driver_state_inject.sh",
+    "lu_machinery/agy_hooks/pending_orders_inject.sh",
+    "lu_machinery/ai_agent_bridge/inbox_watch.sh",
+    "lu_machinery/api/run_monitor_api_supervisor.sh",
+    "lu_machinery/ci/checks.sh",
+    "lu_machinery/guardrails/primary_post_checkout_heal.sh",
+    "lu_machinery/hooks/run_hook_timed.sh",
+    "lu_machinery/ops/smoketest_bridge_stdout_only.sh",
+    "lu_machinery/orchestration/run_mac_observer_heartbeat.sh",
+    "lu_machinery/orchestration/run_project_state_reporter.sh",
+    "lu_machinery/orchestration/run_scheduled_worktree_cleanup.sh",
+    "lu_machinery/pre_commit/project_python.sh",
+    "lu_machinery/session_start.sh",
+    "lu_machinery/wt.sh",
+    "lu_machinery/agent_runtime/shims/gh",
+    "lu_machinery/agent_runtime/shims/git",
+    "lu_machinery/agent_runtime/shims/npm",
+    "lu_machinery/agent_runtime/shims/npx",
+    "lu_machinery/dispatcher/npm_shims/npm",
+    "lu_machinery/dispatcher/npm_shims/npx",
+    "lu_machinery/opsec/push_hooks/pre-push",
+    "lu_machinery/dispatcher/claude_review_shell",
+    ".githooks/_lib.sh",
+    ".githooks/commit-msg",
+    ".githooks/post-merge",
+    ".githooks/pre-push",
+)
+
+
+def _checkout() -> Path:
+    """The git checkout that holds ``.githooks``. The installed package does not."""
+    here = Path(__file__).resolve()
+    for parent in (here, *here.parents):
+        if (parent / ".githooks" / "_lib.sh").is_file():
+            return parent
+    raise AssertionError("the test is not inside a checkout that contains .githooks")
+
+
+def test_routed_scripts_do_not_build_a_venv_interpreter_path() -> None:
+    """Reverting a script to its own .venv/bin/python selector fails this census (R74)."""
+    checkout = _checkout()
+    for relative in ROUTED:
+        if relative.startswith(".githooks/"):
+            path = checkout / relative
+        else:
+            path = machinery_root() / relative.removeprefix("lu_machinery/")
+        text = path.read_text(encoding="utf-8")
+        assert ".venv/bin/python" not in text, relative
+
+
+def test_project_python_and_githooks_follow_the_rule(tmp_path: Path) -> None:
+    """The pre-commit launcher and the hooks that call it use the rule, not a worktree venv."""
+    primary, worktree, log = _layout(tmp_path, primary_venv=True, worktree_venv=True)
+    override = _wrapper(tmp_path / "override-python", log)
+    plain = tmp_path / "plain-file"
+    plain.write_text("", encoding="utf-8")
+    script = SOURCE / "lu_machinery/pre_commit/project_python.sh"
+    selected = _run([str(script), "-c", "print(1)"], cwd=worktree, env={**_base_env(tmp_path), "LEARN_UKRAINIAN_PYTHON": str(override)})
+    assert selected.returncode == 0, selected.stderr
+    assert log.read_text(encoding="utf-8").split()[0] == str(override)
+
+    log.write_text("", encoding="utf-8")
+    refused = _run([str(script), "-c", "print(1)"], cwd=worktree, env={**_base_env(tmp_path), "LEARN_UKRAINIAN_PYTHON": str(plain)})
+    assert refused.returncode != 0
+    assert log.read_text(encoding="utf-8") == ""
+    assert str(primary / ".venv/bin/python") not in refused.stdout
+
+    log.write_text("", encoding="utf-8")
+    primary_selected = _run([str(script), "-c", "print(1)"], cwd=worktree, env=_base_env(tmp_path))
+    assert primary_selected.returncode == 0, primary_selected.stderr
+    picked = log.read_text(encoding="utf-8").split()
+    assert picked[0] == str(primary / ".venv/bin/python")
+    assert str(worktree / ".venv/bin/python") not in picked
+
+    hook_log = tmp_path / "hook.log"
+    hook_override = _wrapper(tmp_path / "hook-python", hook_log)
+    packaged = machinery_root()
+    launcher = primary / "lu_machinery" / "pre_commit" / "project_python.sh"
+    library = primary / "lu_machinery" / "lib" / "project_interpreter.sh"
+    launcher.parent.mkdir(parents=True)
+    library.parent.mkdir(parents=True)
+    shutil.copy2(packaged / "pre_commit" / "project_python.sh", launcher)
+    shutil.copy2(packaged / "lib" / "project_interpreter.sh", library)
+    hook_lib = primary / ".githooks"
+    hook_lib.mkdir()
+    shutil.copy2(_checkout() / ".githooks" / "_lib.sh", hook_lib / "_lib.sh")
+    hook = _run(
+        ["bash", "-c", f'source "{hook_lib / "_lib.sh"}" && run_project_python -c "print(1)"'],
+        cwd=worktree,
+        env={**_base_env(tmp_path), "LEARN_UKRAINIAN_PYTHON": str(hook_override)},
+    )
+    assert hook.returncode == 0, hook.stderr
+    assert hook_log.read_text(encoding="utf-8").split()[0] == str(hook_override)
+    for relative in (".githooks/_lib.sh", ".githooks/commit-msg", ".githooks/post-merge", ".githooks/pre-push"):
+        assert "run_project_python" in (_checkout() / relative).read_text(encoding="utf-8")
+
+
+def test_repo_root_launchers_follow_the_rule(tmp_path: Path) -> None:
+    """Launchers that take a checkout use the override or the primary venv, and refuse an invalid one."""
+    primary, worktree, log = _layout(tmp_path, primary_venv=True, worktree_venv=True)
+    plain = tmp_path / "plain-file"
+    plain.write_text("", encoding="utf-8")
+    cases = (
+        (SOURCE / "lu_machinery/api/run_monitor_api_supervisor.sh", ["--repo-root", str(worktree)]),
+        (SOURCE / "lu_machinery/orchestration/run_mac_observer_heartbeat.sh", ["--repo-root", str(worktree)]),
+        (SOURCE / "lu_machinery/orchestration/run_scheduled_worktree_cleanup.sh", ["--repo-root", str(worktree)]),
+    )
+    for script, argv in cases:
+        log.write_text("", encoding="utf-8")
+        refused = _run(
+            [str(script), *argv],
+            cwd=worktree,
+            env={**_base_env(tmp_path), "LEARN_UKRAINIAN_PYTHON": str(plain)},
+        )
+        assert refused.returncode != 0, script
+        assert log.read_text(encoding="utf-8") == "", script
+        selected = _run([str(script), *argv], cwd=worktree, env=_base_env(tmp_path))
+        picked = set(log.read_text(encoding="utf-8").split())
+        assert str(primary / ".venv/bin/python") in picked, (script, selected.stderr)
+        assert str(worktree / ".venv/bin/python") not in picked, script
+
+
+def test_remaining_shell_programs_select_the_rule_and_refuse_invalid(tmp_path: Path) -> None:
+    """Each remaining routed program executes the configured interpreter and does not fall back."""
+    primary, worktree, log = _layout(tmp_path, primary_venv=True, worktree_venv=True)
+    plain = tmp_path / "plain-file"
+    plain.write_text("", encoding="utf-8")
+    args_path = tmp_path / "args"
+    override = _record(tmp_path / "override-python", log, code=1, args_path=args_path)
+    base = _base_env(tmp_path)
+
+    def selected(argv: list[str], *, cwd: Path, extra: dict[str, str], stdin: str = "") -> subprocess.CompletedProcess[str]:
+        log.write_text("", encoding="utf-8")
+        args_path.write_text("", encoding="utf-8")
+        return _run(argv, cwd=cwd, env={**base, "LEARN_UKRAINIAN_PYTHON": str(override), **extra}, stdin=stdin)
+
+    def refused(argv: list[str], *, cwd: Path, extra: dict[str, str], stdin: str = "") -> subprocess.CompletedProcess[str]:
+        log.write_text("", encoding="utf-8")
+        return _run(argv, cwd=cwd, env={**base, "LEARN_UKRAINIAN_PYTHON": str(plain), **extra}, stdin=stdin)
+
+    reporter = SOURCE / "lu_machinery/orchestration/run_project_state_reporter.sh"
+    decoy_log = tmp_path / "decoy.log"
+    decoy = _record(tmp_path / "decoy-root/.venv/bin/python", decoy_log, code=0)
+    decoy_log.write_text("", encoding="utf-8")
+    decoy_run = _run(
+        [str(reporter)],
+        cwd=worktree,
+        env={**base, "LEARN_UKRAINIAN_PRIMARY_REPO_ROOT": str(decoy.parent.parent.parent)},
+    )
+    assert decoy_run.returncode != 0, decoy_run.stderr
+    assert decoy_log.read_text(encoding="utf-8") == ""
+    chosen = selected([str(reporter)], cwd=worktree, extra={})
+    assert str(override) in log.read_text(encoding="utf-8"), chosen.stderr
+    assert refused([str(reporter)], cwd=worktree, extra={}).returncode != 0
+    assert log.read_text(encoding="utf-8") == ""
+
+    timed = SOURCE / "lu_machinery/hooks/run_hook_timed.sh"
+    hook = _executable(tmp_path / "hook.sh", "#!/bin/sh\nprintf RAN\\n")
+    log.write_text("", encoding="utf-8")
+    timed_primary = _run(
+        [str(timed), str(hook)],
+        cwd=worktree,
+        env={**base, "HOOK_TIMING": "1", "CLAUDE_PROJECT_DIR": str(worktree)},
+    )
+    assert "RAN" in timed_primary.stdout
+    assert str(primary / ".venv/bin/python") in log.read_text(encoding="utf-8")
+    assert str(worktree / ".venv/bin/python") not in log.read_text(encoding="utf-8")
+    relative = _executable(worktree / "python", "#!/bin/sh\nprintf relative >> " + f'"{log}"\n')
+    log.write_text("", encoding="utf-8")
+    relative_run = _run(
+        [str(timed), str(hook)],
+        cwd=worktree,
+        env={**base, "HOOK_TIMING": "1", "CLAUDE_PROJECT_DIR": str(worktree), "LEARN_UKRAINIAN_PYTHON": "python"},
+    )
+    assert "RAN" in relative_run.stdout
+    assert log.read_text(encoding="utf-8") == ""
+    assert str(relative) not in relative_run.stdout
+
+    doctor = primary / "lu_machinery/guardrails/assert_primary_on_main.py"
+    doctor.parent.mkdir(parents=True)
+    doctor.write_text("raise SystemExit(0)\n", encoding="utf-8")
+    heal = SOURCE / "lu_machinery/guardrails/primary_post_checkout_heal.sh"
+    log.write_text("", encoding="utf-8")
+    heal_refused = _run([str(heal)], cwd=primary, env={**base, "LEARN_UKRAINIAN_PYTHON": str(plain)})
+    assert heal_refused.returncode == 0
+    assert "unavailable" in heal_refused.stderr
+    assert log.read_text(encoding="utf-8") == ""
+    heal_selected = _run([str(heal)], cwd=primary, env=base)
+    assert str(primary / ".venv/bin/python") in log.read_text(encoding="utf-8"), heal_selected.stderr
+
+    codex = SOURCE / "lu_machinery/agent_runtime/codex_hook_entry.sh"
+    payload = '{"cwd": "' + str(worktree) + '"}'
+    codex_refused = refused([str(codex), "pre-tool-use"], cwd=worktree, extra={"CLAUDE_PROJECT_DIR": str(worktree)}, stdin=payload)
+    assert codex_refused.returncode != 0
+    assert log.read_text(encoding="utf-8") == ""
+    codex_selected = selected([str(codex), "pre-tool-use"], cwd=worktree, extra={"CLAUDE_PROJECT_DIR": str(worktree)}, stdin=payload)
+    assert str(override) in log.read_text(encoding="utf-8"), codex_selected.stderr
+
+    checks = selected([str(SOURCE / "lu_machinery/ci/checks.sh")], cwd=primary, extra={})
+    assert str(override) in log.read_text(encoding="utf-8"), checks.stderr
+    checks_refused = refused([str(SOURCE / "lu_machinery/ci/checks.sh")], cwd=primary, extra={})
+    assert checks_refused.returncode != 0
+    assert log.read_text(encoding="utf-8") == ""
+
+    for script, argv, stdin, extra in (
+        (SOURCE / "lu_machinery/agent_runtime/_smoke_pty_agents.sh", [], "", {}),
+        (SOURCE / "lu_machinery/ops/smoketest_bridge_stdout_only.sh", [], "", {}),
+        (SOURCE / "lu_machinery/ai_agent_bridge/inbox_watch.sh", [], "", {}),
+        (SOURCE / "lu_machinery/opsec/push_hooks/pre-push", [], "a b c d\n", {}),
+        (SOURCE / "lu_machinery/agent_runtime/shims/npm", ["--version"], "", {}),
+        (SOURCE / "lu_machinery/agent_runtime/shims/npx", ["--version"], "", {}),
+        (SOURCE / "lu_machinery/dispatcher/npm_shims/npm", ["--version"], "", {}),
+        (SOURCE / "lu_machinery/dispatcher/npm_shims/npx", ["--version"], "", {}),
+        (SOURCE / "lu_machinery/agy_hooks/driver_state_inject.sh", [], "{}",
+         {"LU_DRIVER_STATE_FILE": str(tmp_path / "state"), "SESSION_HANDOFF_AGENT": "probe",
+          "LU_DRIVER_STATE_PYTHON": str(decoy)}),
+        (SOURCE / "lu_machinery/agy_hooks/pending_orders_inject.sh", [], "{}",
+         {"LU_DRIVER_STATE_PYTHON": str(decoy)}),
+    ):
+        run = selected(["bash", str(script), *argv], cwd=worktree, extra=extra, stdin=stdin)
+        assert str(override) in log.read_text(encoding="utf-8"), (script, run.returncode, run.stderr)
+        assert str(decoy) not in log.read_text(encoding="utf-8"), script
+        deny = refused(["bash", str(script), *argv], cwd=worktree, extra=extra, stdin=stdin)
+        assert str(override) not in log.read_text(encoding="utf-8"), script
+        assert log.read_text(encoding="utf-8") == "", (script, deny.stderr)
+
+    git_log = tmp_path / "git.log"
+    git_python = _record(tmp_path / "git-python", git_log, code=2)
+    git_run = _run(
+        [str(SOURCE / "lu_machinery/agent_runtime/shims/git"), "checkout", "topic"],
+        cwd=worktree,
+        env={**base, "AGENT_NO_MERGE": "1", "LEARN_UKRAINIAN_PYTHON": str(git_python)},
+    )
+    assert git_run.returncode != 0
+    assert str(git_python) in git_log.read_text(encoding="utf-8"), git_run.stderr
+    git_log.write_text("", encoding="utf-8")
+    git_refused = _run(
+        [str(SOURCE / "lu_machinery/agent_runtime/shims/git"), "checkout", "topic"],
+        cwd=worktree,
+        env={**base, "AGENT_NO_MERGE": "1", "LEARN_UKRAINIAN_PYTHON": str(plain)},
+    )
+    assert git_refused.returncode != 0
+    assert git_log.read_text(encoding="utf-8") == ""
+
+    fake_gh = _executable(tmp_path / "fake-gh", "#!/bin/sh\nexit 0\n")
+    gh_env = {"AGENT_REAL_GH": str(fake_gh)}
+    gh_run = selected([str(SOURCE / "lu_machinery/agent_runtime/shims/gh"), "auth", "status"], cwd=worktree, extra=gh_env)
+    assert str(override) in log.read_text(encoding="utf-8"), gh_run.stderr
+    assert refused([str(SOURCE / "lu_machinery/agent_runtime/shims/gh"), "auth", "status"], cwd=worktree, extra=gh_env).returncode != 0
+    assert log.read_text(encoding="utf-8") == ""
+
+    shell_args = tmp_path / "shell-args"
+    shell_python = _record(tmp_path / "shell-python", log, code=0, args_path=shell_args)
+    reviewed = tmp_path / "reviewed"
+    reviewed.mkdir()
+    shell = _run(
+        [str(SOURCE / "lu_machinery/dispatcher/claude_review_shell"), "true"],
+        cwd=worktree,
+        env={**base, "LEARN_UKRAINIAN_PYTHON": str(shell_python), "LU_REVIEW_SHELL_WORKTREE": str(reviewed)},
+    )
+    assert shell.returncode == 0, shell.stderr
+    recorded = shell_args.read_text(encoding="utf-8")
+    assert "sys.path" not in recorded
+    assert recorded.splitlines()[0] == "-I"
+    assert recorded.splitlines()[-1] == "true"
+    log.write_text("", encoding="utf-8")
+    shell_refused = _run(
+        [str(SOURCE / "lu_machinery/dispatcher/claude_review_shell"), "true"],
+        cwd=worktree,
+        env={**base, "LEARN_UKRAINIAN_PYTHON": str(plain), "LU_REVIEW_SHELL_WORKTREE": str(reviewed)},
+    )
+    assert shell_refused.returncode == 125
+    assert "claude_review_shell_interpreter_missing" in shell_refused.stderr
+
+    _executable(tmp_path / "bin/curl", """#!/bin/sh
+url=
+for arg in "$@"; do url=$arg; done
+case $url in
+  */api/state/summary) printf '%s\\n' '{"totals":{"total":1,"research_done":0,"content_done":0,"audit_passing":0,"final_review_done":0},"tracks":{}}' ;;
+  */api/batch/active) printf '%s\\n' '[]' ;;
+  */api/state/failing) printf '%s\\n' '{"count":0,"modules":[]}' ;;
+  */api/state/preparation) printf '%s\\n' '{"totals":{"manifest_active_tracks":0,"manifest_active_modules":0,"module_state_counts":{"built":0,"partial":0,"unbuilt":0},"publication_state_counts":{"published":0,"generated":0,"absent":0}}}' ;;
+  *) printf '%s\\n' '{}' ;;
+esac
+""")
+    session_log = tmp_path / "session.log"
+    session_python = _record(tmp_path / "session-python", session_log, code=1)
+    session = _run(
+        [str(SOURCE / "lu_machinery/session_start.sh")],
+        cwd=worktree,
+        env={**base, "PATH": f"{tmp_path / 'bin'}:{base['PATH']}", "LEARN_UKRAINIAN_PYTHON": str(session_python)},
+    )
+    assert session.returncode == 0, session.stderr
+    assert str(session_python) in session_log.read_text(encoding="utf-8"), session.stderr
+
+    copied = primary / "lu_machinery/wt.sh"
+    copied.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(SOURCE / "lu_machinery/wt.sh", copied)
+    lib = primary / "lu_machinery/lib"
+    lib.mkdir(parents=True)
+    shutil.copy2(SOURCE / "lu_machinery/lib/project_interpreter.sh", lib / "project_interpreter.sh")
+    wt_dir = tmp_path / "learn-ukrainian-wt-7"
+    wt_dir.mkdir()
+    _git(wt_dir, "init", "-q", "--initial-branch=main")
+    _git(wt_dir, "-c", "user.email=fixture@example.invalid", "-c", "user.name=Fixture", "commit", "--allow-empty", "-m", "fixture")
+    wt_log = tmp_path / "wt.log"
+    wt_python = _record(tmp_path / "wt-python", wt_log, code=1)
+    wt = _run([str(copied), "clean", "7"], cwd=primary, env={**base, "LEARN_UKRAINIAN_PYTHON": str(wt_python)})
+    assert str(wt_python) in wt_log.read_text(encoding="utf-8"), (wt.returncode, wt.stderr)
+    wt_log.write_text("", encoding="utf-8")
+    wt_refused = _run([str(copied), "clean", "7"], cwd=primary, env={**base, "LEARN_UKRAINIAN_PYTHON": str(plain)})
+    assert wt_refused.returncode != 0
+    assert wt_log.read_text(encoding="utf-8") == ""
+    assert str(primary / ".venv/bin/python") not in wt_log.read_text(encoding="utf-8")
+
+
+def test_gh_entry_does_not_put_the_checkout_on_sys_path() -> None:
+    """Defect: the gh entry inserts the checkout on sys.path, so a planted module there is importable."""
+    script = r"""
+import importlib.util, os, sys
+root, name = sys.argv[1], sys.argv[2]
+package = os.path.join(root, name)
+init = os.path.join(package, "__init__.py")
+before = list(sys.path)
+spec = importlib.util.spec_from_file_location(name, init, submodule_search_locations=[package])
+sys.modules[name] = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(sys.modules[name])
+import lu_machinery.opsec.gh_entry as entry
+checkout = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(entry.__file__))))
+if sys.path.count(checkout) > before.count(checkout):
+    sys.exit("checkout was inserted onto sys.path")
+"""
+    package = machinery_root()
+    result = subprocess.run(
+        [sys.executable, "-I", "-c", script, str(package.parent), package.name],
+        cwd=package.parent,
+        env={"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "PYTHONDONTWRITEBYTECODE": "1"},
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "sys.path.insert" not in (package / "opsec" / "gh_entry.py").read_text(encoding="utf-8")
+
+
+def test_retired_model_check_uses_the_rule_not_the_helper_venv(tmp_path: Path) -> None:
+    """Defect: the retired-model check runs the helper-root venv and ignores LEARN_UKRAINIAN_PYTHON."""
+    decoy_log = tmp_path / "decoy.log"
+    decoy_log.write_text("", encoding="utf-8")
+    helper = tmp_path / "helper"
+    _executable(
+        helper / ".venv" / "bin" / "python",
+        f'#!/bin/sh\nprintf decoy >> "{decoy_log}"\nexit 0\n',
+    )
+    override_log = tmp_path / "override.log"
+    override = _wrapper(tmp_path / "override-python", override_log)
+    plain = tmp_path / "plain-file"
+    plain.write_text("", encoding="utf-8")
+    script = (
+        f'source "{LIB / "launcher_core.sh"}" && '
+        'LC_DURABLE_HELPER_ROOT="$1" LC_PROVIDER=claude LC_MODEL=claude-opus-5-5 && '
+        "launcher_normalize_model"
+    )
+    selected = subprocess.run(
+        ["bash", "-c", script, "probe", str(helper)],
+        cwd=tmp_path,
+        env={**_base_env(tmp_path), "LEARN_UKRAINIAN_PYTHON": str(override)},
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=False,
+    )
+    assert selected.returncode == 0, selected.stderr
+    assert override_log.read_text(encoding="utf-8").strip() == str(override)
+    assert decoy_log.read_text(encoding="utf-8") == ""
+    refused = subprocess.run(
+        ["bash", "-c", script, "probe", str(helper)],
+        cwd=tmp_path,
+        env={**_base_env(tmp_path), "LEARN_UKRAINIAN_PYTHON": str(plain)},
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+    assert refused.returncode != 0, refused.stderr
+    assert decoy_log.read_text(encoding="utf-8") == ""
+
+
+def test_handoff_alias_error_names_the_packaged_map(tmp_path: Path) -> None:
+    """Defect: a missing alias map is reported at the old scripts/config path."""
+    dest = tmp_path / "lu_machinery" / "lib" / "handoff_identity.sh"
+    dest.parent.mkdir(parents=True)
+    shutil.copy2(LIB / "handoff_identity.sh", dest)
+    result = subprocess.run(
+        ["bash", "-c", 'source "$1" && launcher_selector_resolve atlas', "probe", str(dest)],
+        cwd=tmp_path,
+        env=_base_env(tmp_path),
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+    assert result.returncode != 0
+    assert "lu_machinery/config/launcher_stream_aliases.tsv" in result.stderr
+    assert "scripts/config/launcher_stream_aliases.tsv" not in result.stderr
+
+
+def test_subdirectory_does_not_select_a_nested_venv(tmp_path: Path) -> None:
+    """Defect: a subdirectory with no .git is its own primary, so a nested virtualenv bypasses the checkout."""
+    primary, _worktree, log = _layout(tmp_path, primary_venv=True, worktree_venv=False)
+    nested = primary / "nested"
+    nested.mkdir()
+    nested_log = tmp_path / "nested.log"
+    nested_log.write_text("", encoding="utf-8")
+    _record(nested / ".venv" / "bin" / "python", nested_log, code=0)
+    base = _base_env(tmp_path)
+    package = machinery_root()
+    timed = _run(
+        [str(package / "hooks" / "run_hook_timed.sh"), "/bin/false"],
+        cwd=nested,
+        env={**base, "HOOK_TIMING": "1"},
+    )
+    assert timed.returncode != 0, timed.stderr
+    assert nested_log.read_text(encoding="utf-8") == ""
+    assert str(primary / ".venv/bin/python") in log.read_text(encoding="utf-8")
+    log.write_text("", encoding="utf-8")
+    codex = _run(
+        [str(package / "agent_runtime" / "codex_hook_entry.sh"), "pre-tool-use"],
+        cwd=nested,
+        env=base,
+        stdin=json.dumps({"tool_input": {"workdir": str(nested)}}),
+    )
+    assert nested_log.read_text(encoding="utf-8") == "", codex.stderr
+    assert str(primary / ".venv/bin/python") in log.read_text(encoding="utf-8"), codex.stderr
