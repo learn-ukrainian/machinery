@@ -11,12 +11,24 @@ import ast
 from functools import lru_cache
 from pathlib import Path
 
-SERVER_PATH = Path(__file__).resolve().parents[2] / ".mcp/servers/sources/server.py"
+from lu_machinery.common.repo_root import product_root
+
+# The Sources server is product-owned (C-4843): its path is the configured product checkout's.
+SERVER_RELATIVE_PATH = Path(".mcp/servers/sources/server.py")
+
+
+def sources_tool_sets(server_path: Path | None = None) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """The Sources tool partition of ``server_path``, or of the configured product checkout's server.
+
+    The default is resolved through :func:`product_root` at the call, before the cache lookup, so the
+    cache is keyed by the selected server; an unselectable product root raises ``ProductRootError``.
+    """
+    return _tool_sets(product_root() / SERVER_RELATIVE_PATH if server_path is None else server_path)
 
 
 @lru_cache(maxsize=1)
-def sources_tool_sets(server_path: Path = SERVER_PATH) -> tuple[tuple[str, ...], tuple[str, ...]]:
-    """Lazily partition declarations once per process, without executing code.
+def _tool_sets(server_path: Path) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """Lazily partition declarations once per server path, without executing code.
 
     Missing or unreadable declarations propagate their error: callers must not
     fall back to unrestricted tools. Failed reads are not cached.

@@ -10,8 +10,8 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
-_REPO_ROOT = Path(__file__).resolve().parents[2]
-_DEFAULT_MCP_CONFIG_PATH = _REPO_ROOT / ".mcp.json"
+from lu_machinery.common.repo_root import product_root
+
 _AGY_APP_DATA_ENV = "AGY_APP_DATA_DIR"
 _DEFAULT_AGY_CONFIG_DIRS = (
     "~/.gemini/config",
@@ -84,8 +84,8 @@ def _canonical_agent_name(agent: str) -> str | None:
 
 
 def _resolved_mcp_config_path(mcp_config_path: Path | None) -> Path:
-    """Return the configured `.mcp.json` path, defaulting to repo root."""
-    return (mcp_config_path or _DEFAULT_MCP_CONFIG_PATH).resolve()
+    """Return the configured `.mcp.json` path, defaulting to the product checkout's (C-4843)."""
+    return (mcp_config_path or product_root() / ".mcp.json").resolve()
 
 
 def _resolved_agy_mcp_config_path() -> Path:

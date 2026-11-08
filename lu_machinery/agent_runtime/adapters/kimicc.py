@@ -193,6 +193,7 @@ class KimiccHarness:
         _ensure_supported_claude_cli_version((claude_bin,))
 
         cmd = [
+            "bash",  # the installed wrapper has no execute bit, so launch it through an interpreter
             str(_HEADLESS_WRAPPER),
             "--model",
             route["kimicc_alias"],
