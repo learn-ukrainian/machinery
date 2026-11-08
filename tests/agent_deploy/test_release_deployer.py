@@ -5,9 +5,9 @@ are literals, never constructed by the deployer's inventory or renderer.
 """
 from __future__ import annotations
 
-import hashlib
 import json
 import os
+import shutil
 import signal
 import subprocess
 import sys
@@ -73,13 +73,13 @@ def release(tmp_path, monkeypatch):
     write(fleet, "skills/fleet/SKILL.md", SKILL)
     # Input mappings are intentionally explicit, including omissions.
     inventory = {"version": 1, "provider_replacements": {"codex": ["config.toml", "hooks.json", "memory"]}, "claude_autoload_excludes": ["rules/core.md", "rules/non-negotiable-rules.md", "rules/core-curriculum.md"], "files": {
-        "rules/core.md": {"sha256": hashlib.sha256(CORE).hexdigest(), "mode": 420, "owner": "fleet", "targets": {
+        "rules/core.md": {"mode": 420, "owner": "fleet", "targets": {
             "codex": [".codex/rules/core.md"], "agy": [".agent/rules/core.md"], "gemini": [".gemini/rules/core.md"]}},
-        "rules/fleet.md": {"sha256": hashlib.sha256(b"# Fleet rule\n").hexdigest(), "mode": 420, "owner": "fleet", "targets": {
+        "rules/fleet.md": {"mode": 420, "owner": "fleet", "targets": {
             "claude": [".claude/rules/fleet.md"], "codex": [".codex/rules/fleet.md"], "agy": [".agent/rules/fleet.md"], "gemini": [".gemini/rules/fleet.md"]}},
-        "hooks/fleet.sh": {"sha256": hashlib.sha256(HOOK).hexdigest(), "mode": 493, "owner": "fleet", "targets": {
+        "hooks/fleet.sh": {"mode": 493, "owner": "fleet", "targets": {
             "claude": [".claude/hooks/fleet.sh"], "codex": [".codex/hooks/fleet.sh"], "agy": [".agent/hooks/fleet.sh"]}},
-        "skills/fleet/SKILL.md": {"sha256": hashlib.sha256(SKILL).hexdigest(), "mode": 420, "owner": "fleet", "targets": {
+        "skills/fleet/SKILL.md": {"mode": 420, "owner": "fleet", "targets": {
             "claude": [".claude/skills/fleet/SKILL.md"], "codex": [".agents/skills/fleet/SKILL.md"],
             "agy": [".agent/skills/fleet/SKILL.md", ".agents/skills/fleet/SKILL.md"], "gemini": [".gemini/skills/fleet/SKILL.md"]}},
     }, "required_hooks": {"claude": {".claude/settings.json": [
@@ -151,13 +151,11 @@ def test_non_curriculum_consumer_lints_its_own_sources(consumer, monkeypatch):
     assert lint_skills(consumer) != []
 
 
-@pytest.mark.parametrize("defect", ["missing", "changed", "namespace"])
+@pytest.mark.parametrize("defect", ["missing", "namespace"])
 def test_missing_release_resource_cannot_fall_back(consumer, release, monkeypatch, defect):
-    """Missing/changed release resources or an alternate namespace fail before mutation."""
+    """Missing release resources or an alternate namespace fail before mutation."""
     if defect == "missing":
         (release / "rules/core.md").unlink()
-    elif defect == "changed":
-        (release / "rules/core.md").write_text("tampered")
     else:
         (release / "rules/core.md").unlink()
         write(consumer, "rules/core.md", CORE)
@@ -429,3 +427,44 @@ def test_preserved_runtime_content_is_not_opened_or_traversed(consumer, tmp_path
             path.chmod(0o600)
     if kind == "unreadable":
         assert path.read_text() == "private runtime\n"
+
+
+def test_packaged_resource_edits_load_without_stale_pins_and_change_identity(tmp_path, monkeypatch):
+    """Every listed resource can change without stale pins or an unchanged release identity."""
+    repo = Path(__file__).resolve().parents[2]
+    installed = tmp_path / "installed"
+    package = installed / "lu_machinery"
+    package.mkdir(parents=True)
+    shutil.copytree(repo / "lu_machinery/agent_deploy", package / "agent_deploy")
+    fleet = installed / "agents_extensions/shared"
+    shutil.copytree(repo / "agents_extensions/shared", fleet)
+    locations = {"lu_machinery": package, "lu_machinery.agent_deploy": package / "agent_deploy"}
+    monkeypatch.setattr(plan.resources, "files", lambda name: locations[name])
+    original, inventory, identity = plan.release_inputs()
+    assert plan.release_inputs()[2] == identity
+    for name in inventory["files"]:
+        path = fleet / name
+        before = path.read_bytes()
+        edited = before + b"\n# scratch release edit\n"
+        path.write_bytes(edited)
+        try:
+            outputs, _, changed = plan.release_inputs()
+            assert outputs[name].blob == edited
+            assert outputs[name].mode == original[name].mode
+            assert changed != identity, name
+            assert plan.release_inputs()[2] == changed
+        finally:
+            path.write_bytes(before)
+    assert plan.release_inputs()[2] == identity
+    assert all("sha256" not in record for record in inventory["files"].values())
+    # Modes and routing metadata remain release identity inputs as well.
+    inventory_path = package / "agent_deploy/release.v1.json"
+    inventory["files"]["rules/core.md"]["mode"] = 493
+    inventory_path.write_bytes(plan.encoded(inventory))
+    assert plan.release_inputs()[2] != identity
+    inventory["files"]["rules/core.md"]["mode"] = original["rules/core.md"].mode
+    inventory_path.write_bytes(plan.encoded(inventory))
+    assert plan.release_inputs()[2] == identity
+    inventory["provider_replacements"]["codex"].append("scratch-metadata")
+    inventory_path.write_bytes(plan.encoded(inventory))
+    assert plan.release_inputs()[2] != identity

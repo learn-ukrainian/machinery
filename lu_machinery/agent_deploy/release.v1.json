@@ -17,7 +17,6 @@
     "contracts/rollover-registry.md": {
       "mode": 420,
       "owner": "fleet",
-      "sha256": "a48ed9b6ef265184c07960430f10f73bf9ddf0dda12950ccd69e88d89690c458",
       "targets": {
         "agy": [
           ".agent/contracts/rollover-registry.md"
@@ -36,7 +35,6 @@
     "contracts/task-identity.md": {
       "mode": 420,
       "owner": "fleet",
-      "sha256": "012af3e21fa83abe2dde419014f1a1082ba5f08cc8f1be02f671ea50539ba3c1",
       "targets": {
         "agy": [
           ".agent/contracts/task-identity.md"
@@ -55,7 +53,6 @@
     "contracts/task-lifecycle-closeout.md": {
       "mode": 420,
       "owner": "fleet",
-      "sha256": "2386fedaae60dc2ea38ecac79c6cb7b0a962e0c3b8b06bdaae7d0446d4fb83ef",
       "targets": {
         "agy": [
           ".agent/contracts/task-lifecycle-closeout.md"
@@ -74,7 +71,6 @@
     "hooks/audit-primary-checkout-dirt.py": {
       "mode": 493,
       "owner": "fleet",
-      "sha256": "104d391b0e51740dd727047bfa30fdedbf9ae2574d31f24e97fa171cf240fbce",
       "targets": {
         "agy": [
           ".agent/hooks/audit-primary-checkout-dirt.py"
@@ -93,7 +89,6 @@
     "hooks/auto-audit.sh": {
       "mode": 493,
       "owner": "fleet",
-      "sha256": "3afb0162a7f399bc0c2960fbebe23ff27ebfcf0d5da459a0a4407f890e5aacd1",
       "targets": {
         "agy": [
           ".agent/hooks/auto-audit.sh"
@@ -112,7 +107,6 @@
     "hooks/auto-deploy-agent-extensions.sh": {
       "mode": 493,
       "owner": "fleet",
-      "sha256": "b253f7a646111de907e770b38bb2c93e0a6485ec63aa338f05eb337378e37e60",
       "targets": {
         "agy": [
           ".agent/hooks/auto-deploy-agent-extensions.sh"
@@ -131,7 +125,6 @@
     "hooks/check-agent-inbox.sh": {
       "mode": 493,
       "owner": "fleet",
-      "sha256": "83dd1ca28d05300312165bf983bcd82d1c236ad14fbc30bc7d6af99b80245a6b",
       "targets": {
         "agy": [
           ".agent/hooks/check-agent-inbox.sh"
@@ -150,7 +143,6 @@
     "hooks/context-hook-state.py": {
       "mode": 493,
       "owner": "fleet",
-      "sha256": "97516407500eaff8c36809c47dfa4046e3e86c60e98667152573355f41523866",
       "targets": {
         "agy": [
           ".agent/hooks/context-hook-state.py"
@@ -169,7 +161,6 @@
     "hooks/context-monitor.sh": {
       "mode": 493,
       "owner": "fleet",
-      "sha256": "427863023c6477cb7f903227008703ab1c7c8f2afd2ffa53129af7dd0f8ee577",
       "targets": {
         "agy": [
           ".agent/hooks/context-monitor.sh"
@@ -188,7 +179,6 @@
     "hooks/context-rollover-guard.sh": {
       "mode": 493,
       "owner": "fleet",
-      "sha256": "7a870cb2f2435b5c89f1762cc6ae858deb3905a4516ec6369d30742690fed55b",
       "targets": {
         "agy": [
           ".agent/hooks/context-rollover-guard.sh"
@@ -207,7 +197,6 @@
     "hooks/context-rollover-lib.sh": {
       "mode": 493,
       "owner": "fleet",
-      "sha256": "7a80d419364fe7512138376b3979c780f05fb875c1d03d07fb4f9501a090b434",
       "targets": {
         "agy": [
           ".agent/hooks/context-rollover-lib.sh"
@@ -226,7 +215,6 @@
     "hooks/enforce-venv.sh": {
       "mode": 493,
       "owner": "fleet",
-      "sha256": "f97a64c29e654fb04de01a2fb6023c9084208334cebdbee27f4bcd8efd8d2482",
       "targets": {
         "agy": [
           ".agent/hooks/enforce-venv.sh"
@@ -245,7 +233,6 @@
     "hooks/goal-driver-stop.sh": {
       "mode": 493,
       "owner": "fleet",
-      "sha256": "40f3a0eb7b1adefe4a610e094e0af505eeac78250ba7d270c7eca2bb19e3aff0",
       "targets": {
         "agy": [
           ".agent/hooks/goal-driver-stop.sh"
@@ -264,7 +251,6 @@
     "hooks/guard-admin-merge.py": {
       "mode": 493,
       "owner": "fleet",
-      "sha256": "ad21f9e37743fa7b4e63fc1cb77416355d20b6c7257ac8606a372fcfccba1857",
       "targets": {
         "agy": [
           ".agent/hooks/guard-admin-merge.py"
@@ -283,7 +269,6 @@
     "hooks/guard-branch-switch-in-main.py": {
       "mode": 493,
       "owner": "fleet",
-      "sha256": "dd69456abc4668edf2e24bcc21c2c6fb4063ae1414f492b4161092fcbf8ca79b",
       "targets": {
         "agy": [
           ".agent/hooks/guard-branch-switch-in-main.py"
@@ -302,7 +287,6 @@
     "hooks/guard-pr-merge.py": {
       "mode": 493,
       "owner": "fleet",
-      "sha256": "6836133743e0fb16576fc15c717e3dd6c493eff9fcda7464ab73aa66dedceec7",
       "targets": {
         "agy": [
           ".agent/hooks/guard-pr-merge.py"
@@ -321,7 +305,6 @@
     "hooks/guard-primary-checkout-write.py": {
       "mode": 493,
       "owner": "fleet",
-      "sha256": "ebbba3d7a26a52a72d9b69b9043d6500b482573ca197fffb3e5d3f4a3712b22d",
       "targets": {
         "agy": [
           ".agent/hooks/guard-primary-checkout-write.py"
@@ -340,7 +323,6 @@
     "hooks/guard-public-github-text.py": {
       "mode": 493,
       "owner": "fleet",
-      "sha256": "cb18a2a810890eab440b38f0dd706696980d356896d9dd4bd6614a648df63686",
       "targets": {
         "agy": [
           ".agent/hooks/guard-public-github-text.py"
@@ -359,7 +341,6 @@
     "hooks/guard-reviewer-publish.py": {
       "mode": 493,
       "owner": "fleet",
-      "sha256": "f72c7ab410af0353e228afb9482e4e9419aefc77f6a87c0d6a405586e5f6bbd5",
       "targets": {
         "agy": [
           ".agent/hooks/guard-reviewer-publish.py"
@@ -378,7 +359,6 @@
     "hooks/guard-secret-print.py": {
       "mode": 493,
       "owner": "fleet",
-      "sha256": "e4c790a16f82bbfb7de75797bcebac7f0f5447f67a4e1a7e7787e3446a9b4356",
       "targets": {
         "agy": [
           ".agent/hooks/guard-secret-print.py"
@@ -397,7 +377,6 @@
     "hooks/heal-core-bare.py": {
       "mode": 493,
       "owner": "fleet",
-      "sha256": "953decd116efba9b24b30d6d5d6917d471881ae33ebbd9067f21eef6773237a3",
       "targets": {
         "agy": [
           ".agent/hooks/heal-core-bare.py"
@@ -416,7 +395,6 @@
     "hooks/post-compact.sh": {
       "mode": 493,
       "owner": "fleet",
-      "sha256": "ef9a987b7aa13aec9e4ef29855cb4d03e0067208bf45f1f95dd3578b168ee47b",
       "targets": {
         "agy": [
           ".agent/hooks/post-compact.sh"
@@ -435,7 +413,6 @@
     "hooks/precompact-handoff-guard.sh": {
       "mode": 493,
       "owner": "fleet",
-      "sha256": "008820401f5cd37b841d55fe08570619659db0451b447928fca12054dfbdc637",
       "targets": {
         "agy": [
           ".agent/hooks/precompact-handoff-guard.sh"
@@ -454,7 +431,6 @@
     "hooks/release-thread-lease.sh": {
       "mode": 493,
       "owner": "fleet",
-      "sha256": "d74e3e29653b6177a5193f502d58549c48e51863d3fcf7a757b88c1fc8dafbe7",
       "targets": {
         "agy": [
           ".agent/hooks/release-thread-lease.sh"
@@ -473,7 +449,6 @@
     "hooks/session-setup.sh": {
       "mode": 493,
       "owner": "fleet",
-      "sha256": "4bf5bb6e54759290979106ea76b649d7ad7a4b1331f8ad2481c0b4ba3ee16877",
       "targets": {
         "agy": [
           ".agent/hooks/session-setup.sh"
@@ -492,7 +467,6 @@
     "hooks/shell_redirects.py": {
       "mode": 493,
       "owner": "fleet",
-      "sha256": "e46042d31e0545e9cb438b45e35ab12666e4142124db5e3d806a087c7afa2e16",
       "targets": {
         "agy": [
           ".agent/hooks/shell_redirects.py"
@@ -511,7 +485,6 @@
     "hooks/shell_shlex.py": {
       "mode": 493,
       "owner": "fleet",
-      "sha256": "c300dc57675b9b6f157040ce127403cd7f675f2eb54449bf5b21fa1b2b4d9338",
       "targets": {
         "agy": [
           ".agent/hooks/shell_shlex.py"
@@ -530,7 +503,6 @@
     "hooks/stamp-pytest.sh": {
       "mode": 493,
       "owner": "fleet",
-      "sha256": "ffce8ffa5ca544990d853b7287529679410d2026878388e129a7227cc6b0e33b",
       "targets": {
         "agy": [
           ".agent/hooks/stamp-pytest.sh"
@@ -549,7 +521,6 @@
     "hooks/tool-timing.sh": {
       "mode": 493,
       "owner": "fleet",
-      "sha256": "a0ce9c0d42ec47d6386a2eb40f641bc17e6ba0030979abece51292cd6cf78b1f",
       "targets": {
         "agy": [
           ".agent/hooks/tool-timing.sh"
@@ -568,7 +539,6 @@
     "hooks/tool_names.py": {
       "mode": 493,
       "owner": "fleet",
-      "sha256": "281f2c74db57ef82fa0b563e865a636e43cb2500d9a08a99904fd4b65847060a",
       "targets": {
         "agy": [
           ".agent/hooks/tool_names.py"
@@ -587,7 +557,6 @@
     "prompts/dynamic-area-epic-fleet-governor.md": {
       "mode": 420,
       "owner": "fleet",
-      "sha256": "5e8d3ddc1bf8b81cf6e75627a3a6ff1e4891b555ad5fc7b54051849d2710623e",
       "targets": {
         "agy": [
           ".agent/prompts/dynamic-area-epic-fleet-governor.md"
@@ -606,7 +575,6 @@
     "prompts/nightly-audit.md": {
       "mode": 420,
       "owner": "fleet",
-      "sha256": "e783f9481f7f7e982f363b189ed5887e9645396f4377cc7451187b53a67157b7",
       "targets": {
         "agy": [
           ".agent/prompts/nightly-audit.md"
@@ -625,7 +593,6 @@
     "rules/_load-via-api.md": {
       "mode": 420,
       "owner": "fleet",
-      "sha256": "423293797ad8849dedfbf983da0adfda1b236481f3a7df6c6ad3e28e56d618e9",
       "targets": {
         "agy": [
           ".agent/rules/_load-via-api.md"
@@ -647,7 +614,6 @@
     "rules/catalog-routing-tables.md": {
       "mode": 420,
       "owner": "fleet",
-      "sha256": "11a87194c3d4bec595a39e79f7ec2569a852c5a3c861e3e7c455521e72495137",
       "targets": {
         "agy": [
           ".agent/rules/catalog-routing-tables.md"
@@ -666,7 +632,6 @@
     "rules/cli-help-standard.md": {
       "mode": 420,
       "owner": "fleet",
-      "sha256": "ef97bbcd7e945476d59e18cbedb0aba1db7f1dcc16c3cacf5c830e346ba4ce3d",
       "targets": {
         "agy": [
           ".agent/rules/cli-help-standard.md"
@@ -685,7 +650,6 @@
     "rules/core-expected-ids.txt": {
       "mode": 420,
       "owner": "fleet",
-      "sha256": "c592564f69b5e745c0aa2bdbe5833abda20a3af6926c74648a552132f3ec2e35",
       "targets": {
         "agy": [
           ".agent/rules/core-expected-ids.txt"
@@ -707,7 +671,6 @@
     "rules/core-lifecycle.yaml": {
       "mode": 420,
       "owner": "fleet",
-      "sha256": "1ddd876778f97c73849c13a79f31abf79c9c2b382f0e40f99d66dfb9bbf54c40",
       "targets": {
         "agy": [
           ".agent/rules/core-lifecycle.yaml"
@@ -729,7 +692,6 @@
     "rules/core-manifest.yaml": {
       "mode": 420,
       "owner": "fleet",
-      "sha256": "c9e92fb756deaece717b2f8ed2bc58eb4cd00a951f745d30644e3361c0aea2a2",
       "targets": {
         "agy": [
           ".agent/rules/core-manifest.yaml"
@@ -751,7 +713,6 @@
     "rules/core.md": {
       "mode": 420,
       "owner": "fleet",
-      "sha256": "95874b5f0367693469829006a20f7892bb4ff5174d294ef7471ca2870f6f0f18",
       "targets": {
         "agy": [
           ".agent/rules/core.md"
@@ -770,7 +731,6 @@
     "rules/critical-rules.md": {
       "mode": 420,
       "owner": "fleet",
-      "sha256": "6315040e3ac8830922ee837aee071733eb394243df0ed690386d6c5ca1928695",
       "targets": {
         "agy": [
           ".agent/rules/critical-rules.md"
@@ -789,7 +749,6 @@
     "rules/dispatch-must-use-worktree.md": {
       "mode": 420,
       "owner": "fleet",
-      "sha256": "de680a761a2ec15b43568acf82b4e59fa2b2c74cd1f043203a46acbe4c2d184e",
       "targets": {
         "agy": [
           ".agent/rules/dispatch-must-use-worktree.md"
@@ -808,7 +767,6 @@
     "rules/fleet-comms-coordination.md": {
       "mode": 420,
       "owner": "fleet",
-      "sha256": "512f1bf2fc3b78a50cc83782ef0ca16f9ed05a3927c23723445e9b0c6852241f",
       "targets": {
         "agy": [
           ".agent/rules/fleet-comms-coordination.md"
@@ -827,7 +785,6 @@
     "rules/fleet-driver-routing.md": {
       "mode": 420,
       "owner": "fleet",
-      "sha256": "38e951be7ff72b0f66ecc7e1bbadccd54f1fd3c1d2d2a22d504cb542b25bf43f",
       "targets": {
         "agy": [
           ".agent/rules/fleet-driver-routing.md"
@@ -846,7 +803,6 @@
     "rules/fleet-role-scorecard.md": {
       "mode": 420,
       "owner": "fleet",
-      "sha256": "f5a2fa702523c6d532170b322ffc0bf7ba1f69e36fcdf0283ce64f427327bf9f",
       "targets": {
         "agy": [
           ".agent/rules/fleet-role-scorecard.md"
@@ -868,7 +824,6 @@
     "rules/fleet-shared-doctrine.md": {
       "mode": 420,
       "owner": "fleet",
-      "sha256": "c26ce7aa7b54b9bd2b27ba592980c5a9ac851b0845023f82622106b246562a0b",
       "targets": {
         "agy": [
           ".agent/rules/fleet-shared-doctrine.md"
@@ -890,7 +845,6 @@
     "rules/model-assignment.md": {
       "mode": 420,
       "owner": "fleet",
-      "sha256": "c54fd2c01e226397f1fcaa34df86aa4ae0b51a31293b49d096cbe6d12a718f0b",
       "targets": {
         "agy": [
           ".agent/rules/model-assignment.md"
@@ -909,7 +863,6 @@
     "rules/operator-expectations.md": {
       "mode": 420,
       "owner": "fleet",
-      "sha256": "cd8e1e1a5546bb410ad224ce9c560013eb3a3655f10ffffb682a1b191d1a344f",
       "targets": {
         "agy": [
           ".agent/rules/operator-expectations.md"
@@ -928,7 +881,6 @@
     "rules/storage-topology.md": {
       "mode": 420,
       "owner": "fleet",
-      "sha256": "ebc83c68f18f2d47ca400d9cecb982e711f3ec45a7ead809c5508d6cffce0508",
       "targets": {
         "agy": [
           ".agent/rules/storage-topology.md"
@@ -950,7 +902,6 @@
     "rules/task-scoped-reading.md": {
       "mode": 420,
       "owner": "fleet",
-      "sha256": "2d550d3bcae45a3ef93f79a2b0469e04ea5c932a048d26c5709b27785061cd4f",
       "targets": {
         "agy": [
           ".agent/rules/task-scoped-reading.md"
@@ -972,7 +923,6 @@
     "rules/workflow.md": {
       "mode": 420,
       "owner": "fleet",
-      "sha256": "b39da0963ec4ee865d6560ddddc644ef593550e74e4f3ff387c574d19e9d2a0b",
       "targets": {
         "agy": [
           ".agent/rules/workflow.md"
@@ -991,7 +941,6 @@
     "schemas/trail-run-result.v1.schema.json": {
       "mode": 420,
       "owner": "fleet",
-      "sha256": "692949b3ec296f226ee70452a37596a2b2b06d8c11742f0e752a17280f8b3c03",
       "targets": {
         "agy": [
           ".agent/schemas/trail-run-result.v1.schema.json"
@@ -1010,7 +959,6 @@
     "skills/benchmark-checklist/SKILL.md": {
       "mode": 420,
       "owner": "fleet",
-      "sha256": "58d79047c2e1a5dfc70ad791c04936a05824c74021e4d7ed9dfb3ba257a05fa2",
       "targets": {
         "agy": [
           ".agent/skills/benchmark-checklist/SKILL.md",
@@ -1033,7 +981,6 @@
     "skills/blast-radius/SKILL.md": {
       "mode": 420,
       "owner": "fleet",
-      "sha256": "436f0f30e9ab9b9db155d3ff81db540c699e90598e97d4be103859a3d72c6ff4",
       "targets": {
         "agy": [
           ".agent/skills/blast-radius/SKILL.md",
@@ -1056,7 +1003,6 @@
     "skills/build-monitoring/SKILL.md": {
       "mode": 420,
       "owner": "fleet",
-      "sha256": "5eafe4ca90342d3171b3a3ce3437d954d2398fb9bfdb1ba1c50263c28bf3e64c",
       "targets": {
         "agy": [
           ".agent/skills/build-monitoring/SKILL.md",
@@ -1079,7 +1025,6 @@
     "skills/caveman/SKILL.md": {
       "mode": 420,
       "owner": "fleet",
-      "sha256": "821f5ccfbabd41808db2d772d3e20c6a1cd481a71371efd4398b74e37e127c1a",
       "targets": {
         "agy": [
           ".agent/skills/caveman/SKILL.md",
@@ -1102,7 +1047,6 @@
     "skills/correct/SKILL.md": {
       "mode": 420,
       "owner": "fleet",
-      "sha256": "fe5759776bd5e816eebb4dd0d5405c2676ffb65543c509ff35dac3d438a02142",
       "targets": {
         "agy": [
           ".agent/skills/correct/SKILL.md",
@@ -1125,7 +1069,6 @@
     "skills/cto/SKILL.md": {
       "mode": 420,
       "owner": "fleet",
-      "sha256": "21ebb5cafd29824ccbc47bac115f97c1399007ac7b04512b5e658e431df5a089",
       "targets": {
         "agy": [
           ".agent/skills/cto/SKILL.md",
@@ -1148,7 +1091,6 @@
     "skills/cto/references/cycle.md": {
       "mode": 420,
       "owner": "fleet",
-      "sha256": "e90908b3f7be0648efcfe371b8113818e56cc7033d497719e4efb61fda12980d",
       "targets": {
         "agy": [
           ".agent/skills/cto/references/cycle.md",
@@ -1171,7 +1113,6 @@
     "skills/cto/references/decisions.md": {
       "mode": 420,
       "owner": "fleet",
-      "sha256": "8698a63ac6cfd1ef1e9b393eab544f77ced79b4b32471ff1eba3485858720342",
       "targets": {
         "agy": [
           ".agent/skills/cto/references/decisions.md",
@@ -1194,7 +1135,6 @@
     "skills/cto/references/handoff.md": {
       "mode": 420,
       "owner": "fleet",
-      "sha256": "fc11f0b1aafc69303e0ab7744af2dc8d83990002ceb2ff8f7dc7d30b52327bc6",
       "targets": {
         "agy": [
           ".agent/skills/cto/references/handoff.md",
@@ -1217,7 +1157,6 @@
     "skills/cto/references/learning.md": {
       "mode": 420,
       "owner": "fleet",
-      "sha256": "5ee3c733901921de9bf364ef4c2871003ba030b3d244ef8687c1a5a7f79d15c6",
       "targets": {
         "agy": [
           ".agent/skills/cto/references/learning.md",
@@ -1240,7 +1179,6 @@
     "skills/cto/references/recipes.md": {
       "mode": 420,
       "owner": "fleet",
-      "sha256": "de56e333c86afac9f088c56046b78262fe55c154570d90882e3ebe6d50afb343",
       "targets": {
         "agy": [
           ".agent/skills/cto/references/recipes.md",
@@ -1263,7 +1201,6 @@
     "skills/cto/references/startup.md": {
       "mode": 420,
       "owner": "fleet",
-      "sha256": "cd1449c71cf6aa7f91b05189124ab40cd7f95d4b5af73c0f059d134bf84f7691",
       "targets": {
         "agy": [
           ".agent/skills/cto/references/startup.md",
@@ -1286,7 +1223,6 @@
     "skills/drive-epic/SKILL.md": {
       "mode": 420,
       "owner": "fleet",
-      "sha256": "86ac7af644113f6afe7b3cfe198fafb4e14ab17a67c13488ad8928c81ace50f0",
       "targets": {
         "agy": [
           ".agent/skills/drive-epic/SKILL.md",
@@ -1309,7 +1245,6 @@
     "skills/drive-epic/references/decision-report.md": {
       "mode": 420,
       "owner": "fleet",
-      "sha256": "25f162c54a58b9dea75917dc6e1de8d93f3cd3829aa4a674d32518d9d6d121c7",
       "targets": {
         "agy": [
           ".agent/skills/drive-epic/references/decision-report.md",
@@ -1332,7 +1267,6 @@
     "skills/drive-epic/references/epic-specific.md": {
       "mode": 420,
       "owner": "fleet",
-      "sha256": "c18a088d5fee8e0dd468b83a46bd01999119d332e90da062b15811ae10f577c9",
       "targets": {
         "agy": [
           ".agent/skills/drive-epic/references/epic-specific.md",
@@ -1355,7 +1289,6 @@
     "skills/drive-epic/references/handoff.md": {
       "mode": 420,
       "owner": "fleet",
-      "sha256": "0681eab4645fdf8ea54914ecb83f24b6439817ac3af93b735797149213714f61",
       "targets": {
         "agy": [
           ".agent/skills/drive-epic/references/handoff.md",
@@ -1378,7 +1311,6 @@
     "skills/drive-epic/references/lane-report.md": {
       "mode": 420,
       "owner": "fleet",
-      "sha256": "d4f321a716beb3f22a2552e4a59a1843383b76f30ac9fcb71334098a7599a429",
       "targets": {
         "agy": [
           ".agent/skills/drive-epic/references/lane-report.md",
@@ -1401,7 +1333,6 @@
     "skills/drive-epic/references/model-deltas.md": {
       "mode": 420,
       "owner": "fleet",
-      "sha256": "c15594def88b99db056aa5199162d73aa000bc9ce73ffd2a837aeeb14a5b6a18",
       "targets": {
         "agy": [
           ".agent/skills/drive-epic/references/model-deltas.md",
@@ -1424,7 +1355,6 @@
     "skills/drive-epic/references/orient.md": {
       "mode": 420,
       "owner": "fleet",
-      "sha256": "afc3b4e98086b8267e20c8e38539b8dcf9b7d060a18555a6c55fdaf0156abae2",
       "targets": {
         "agy": [
           ".agent/skills/drive-epic/references/orient.md",
@@ -1447,7 +1377,6 @@
     "skills/drive-epic/references/queue-and-capacity.md": {
       "mode": 420,
       "owner": "fleet",
-      "sha256": "f1439105919b8ccdd4bca2646d8c80bc3c49273de15f0110df5f540f3dc6f55e",
       "targets": {
         "agy": [
           ".agent/skills/drive-epic/references/queue-and-capacity.md",
@@ -1470,7 +1399,6 @@
     "skills/drive-epic/references/review-merge-cleanup.md": {
       "mode": 420,
       "owner": "fleet",
-      "sha256": "771908aabab9b6cf3b13cdb826bceccaf9ae1353558c69760a292bcee161982c",
       "targets": {
         "agy": [
           ".agent/skills/drive-epic/references/review-merge-cleanup.md",
@@ -1493,7 +1421,6 @@
     "skills/drive-epic/references/routing-and-dispatch.md": {
       "mode": 420,
       "owner": "fleet",
-      "sha256": "59a583a8f47ae06ddbb2a7fba045f77305a62f43efe7b89aec2b7b1cafb314bb",
       "targets": {
         "agy": [
           ".agent/skills/drive-epic/references/routing-and-dispatch.md",
@@ -1516,7 +1443,6 @@
     "skills/drive-epic/scripts/render_catalog_tables.py": {
       "mode": 420,
       "owner": "fleet",
-      "sha256": "f5ef0b995a2d58f1491f98619f3f5ee6a812b39718b1c1fd7eb3f79ab3d644c5",
       "targets": {
         "agy": [
           ".agent/skills/drive-epic/scripts/render_catalog_tables.py",
@@ -1539,7 +1465,6 @@
     "skills/full-send/SKILL.md": {
       "mode": 420,
       "owner": "fleet",
-      "sha256": "0560576e9a8c918081bf9687a113dc4c921f878cd4da3792254202cced9dc63b",
       "targets": {
         "agy": [
           ".agent/skills/full-send/SKILL.md",
@@ -1562,7 +1487,6 @@
     "skills/full-send/references/delivery.md": {
       "mode": 420,
       "owner": "fleet",
-      "sha256": "5c7c7f26e0e206e443a51a384d35a51325c03664f109561218beccfdfa04d188",
       "targets": {
         "agy": [
           ".agent/skills/full-send/references/delivery.md",
@@ -1585,7 +1509,6 @@
     "skills/full-send/references/pr-body.md": {
       "mode": 420,
       "owner": "fleet",
-      "sha256": "1e8b510be78863c07b63281d74a61bd88664949c8bac80962677b5c21cb25eb9",
       "targets": {
         "agy": [
           ".agent/skills/full-send/references/pr-body.md",
@@ -1608,7 +1531,6 @@
     "skills/full-send/references/pr-watch.md": {
       "mode": 420,
       "owner": "fleet",
-      "sha256": "e859d9b9888801e208fc39737a7ad13d150bbbe0cee68a6668de8e657f7405cf",
       "targets": {
         "agy": [
           ".agent/skills/full-send/references/pr-watch.md",
@@ -1631,7 +1553,6 @@
     "skills/full-stop/SKILL.md": {
       "mode": 420,
       "owner": "fleet",
-      "sha256": "6d21617628d8b9d403fdf539cd735a4baf02de2f5657daabdb30ce253b06e2dc",
       "targets": {
         "agy": [
           ".agent/skills/full-stop/SKILL.md",
@@ -1654,7 +1575,6 @@
     "skills/local-code-review/SKILL.md": {
       "mode": 420,
       "owner": "fleet",
-      "sha256": "47d26f5516fdd7cd507eed520a9f144a7de871d27fd654eb6ab0986d1b0bde61",
       "targets": {
         "agy": [
           ".agent/skills/local-code-review/SKILL.md",
@@ -1677,7 +1597,6 @@
     "skills/local-code-review/local-code-review-checklist.md": {
       "mode": 420,
       "owner": "fleet",
-      "sha256": "fefbcce9dae47c4961976ee79be3ec4fd7069b03fa6248d8484808feb64f3d74",
       "targets": {
         "agy": [
           ".agent/skills/local-code-review/local-code-review-checklist.md",
@@ -1700,7 +1619,6 @@
     "skills/modernize/SKILL.md": {
       "mode": 420,
       "owner": "fleet",
-      "sha256": "80c1d49d73791a630eee20a6fd6eb08a5c0514b63123152faa8586b6ae24ffbb",
       "targets": {
         "agy": [
           ".agent/skills/modernize/SKILL.md",
@@ -1723,7 +1641,6 @@
     "skills/pr-comments/SKILL.md": {
       "mode": 420,
       "owner": "fleet",
-      "sha256": "471c97a7322418d21d8457c1c0fae5b27f9752fe158e7ab72991bc1f7d86ab2e",
       "targets": {
         "agy": [
           ".agent/skills/pr-comments/SKILL.md",
@@ -1746,7 +1663,6 @@
     "skills/pstack-provenance.md": {
       "mode": 420,
       "owner": "fleet",
-      "sha256": "afde60780e047ddfa21ff46942b1587d083bfaf370a717f159a021a36a84b0c6",
       "targets": {
         "agy": [
           ".agent/skills/pstack-provenance.md",
@@ -1769,7 +1685,6 @@
     "skills/review-loop/SKILL.md": {
       "mode": 420,
       "owner": "fleet",
-      "sha256": "fceb6b07b2cc868558e0ece4b912258d6b74e1a7a67687b19479a6e2c38d2bd8",
       "targets": {
         "agy": [
           ".agent/skills/review-loop/SKILL.md",
@@ -1792,7 +1707,6 @@
     "skills/review-loop/references/brief.md": {
       "mode": 420,
       "owner": "fleet",
-      "sha256": "d123076f30b10fca2102673db6188d5eb7c4ab90878784dc1abff42c6fa06087",
       "targets": {
         "agy": [
           ".agent/skills/review-loop/references/brief.md",
@@ -1815,7 +1729,6 @@
     "skills/review-loop/references/policy.md": {
       "mode": 420,
       "owner": "fleet",
-      "sha256": "10f0f9f2b886f652e32fee021e2b4dd386867fb69c12a9da540f83db504667a5",
       "targets": {
         "agy": [
           ".agent/skills/review-loop/references/policy.md",
@@ -1838,7 +1751,6 @@
     "skills/review-loop/references/ukrainian.md": {
       "mode": 420,
       "owner": "fleet",
-      "sha256": "b8fa6d4a5ace33b4b6510bbc782cb1a492576beceaddf643a160fa228da4aee6",
       "targets": {
         "agy": [
           ".agent/skills/review-loop/references/ukrainian.md",
@@ -1861,7 +1773,6 @@
     "skills/takeover/SKILL.md": {
       "mode": 420,
       "owner": "fleet",
-      "sha256": "47221c4f1ef5045771a0813e8b81c4960307757eb6f9b1b472a24affcdd8c89d",
       "targets": {
         "agy": [
           ".agent/skills/takeover/SKILL.md",
@@ -1884,7 +1795,6 @@
     "skills/task-family-manager/SKILL.md": {
       "mode": 420,
       "owner": "fleet",
-      "sha256": "9bc2ab680d7f069f15e7d6fa6e9c6eb3b4f9037fe5deddb89dcc10e402fe26ea",
       "targets": {
         "agy": [
           ".agent/skills/task-family-manager/SKILL.md",
@@ -1907,7 +1817,6 @@
     "skills/task-family-manager/agents/openai.yaml": {
       "mode": 420,
       "owner": "fleet",
-      "sha256": "6a8322283a1187f12c6d9d417c25c4c1867049511894edeecb87b4686c49435f",
       "targets": {
         "agy": [
           ".agent/skills/task-family-manager/agents/openai.yaml",
@@ -1930,7 +1839,6 @@
     "skills/task-family-manager/references/archive-cleanup.md": {
       "mode": 420,
       "owner": "fleet",
-      "sha256": "9b1b8e9b9e3fbe92ca69ea472e63328209183b123e655b0435f3ec3a30c47996",
       "targets": {
         "agy": [
           ".agent/skills/task-family-manager/references/archive-cleanup.md",
@@ -1953,7 +1861,6 @@
     "skills/task-family-manager/references/manifest.md": {
       "mode": 420,
       "owner": "fleet",
-      "sha256": "380de330f3d5817bae2ae7e016b8298a6aaf27856888b7f2a6afd04aaacb151d",
       "targets": {
         "agy": [
           ".agent/skills/task-family-manager/references/manifest.md",
@@ -1976,7 +1883,6 @@
     "skills/task-family-manager/references/rename.md": {
       "mode": 420,
       "owner": "fleet",
-      "sha256": "a7da7950d7131d6e1c80593fa074cf248c6f087e961b4a7ccb2b3afdceedbac2",
       "targets": {
         "agy": [
           ".agent/skills/task-family-manager/references/rename.md",
@@ -1999,7 +1905,6 @@
     "skills/task-family-manager/references/restore-receipts.md": {
       "mode": 420,
       "owner": "fleet",
-      "sha256": "f06586b984beb5408e3c014b71215ac59b40dcaad31d263c98c0c1e4ee9f4d8e",
       "targets": {
         "agy": [
           ".agent/skills/task-family-manager/references/restore-receipts.md",
@@ -2022,7 +1927,6 @@
     "skills/thread-rollover/SKILL.md": {
       "mode": 420,
       "owner": "fleet",
-      "sha256": "5d3e68f02fd31280ab28603b043a0f676bb840dd112709c5916fdc50f2752e83",
       "targets": {
         "agy": [
           ".agent/skills/thread-rollover/SKILL.md",
@@ -2045,7 +1949,6 @@
     "skills/thread-rollover/agents/openai.yaml": {
       "mode": 420,
       "owner": "fleet",
-      "sha256": "c40004dff367c5c524227afa1c010230ad2257e944b19f6aeba64f80a8b1395d",
       "targets": {
         "agy": [
           ".agent/skills/thread-rollover/agents/openai.yaml",
@@ -2068,7 +1971,6 @@
     "skills/thread-rollover/references/archive.md": {
       "mode": 420,
       "owner": "fleet",
-      "sha256": "116b05d895d3499034898b3bff53c34e41c138f1ce347248cd9d5b9fd7bbcd09",
       "targets": {
         "agy": [
           ".agent/skills/thread-rollover/references/archive.md",
@@ -2091,7 +1993,6 @@
     "skills/thread-rollover/references/health.md": {
       "mode": 420,
       "owner": "fleet",
-      "sha256": "57fe0e6a463160c3fb21d31da0ccc4e4a8a631c26af388ba31f9fad74777ac50",
       "targets": {
         "agy": [
           ".agent/skills/thread-rollover/references/health.md",
@@ -2114,7 +2015,6 @@
     "skills/thread-rollover/references/prepare.md": {
       "mode": 420,
       "owner": "fleet",
-      "sha256": "90b744a0712b35e8ecaac7678379222ca891f48c7b1164dcecb7c9884369da7a",
       "targets": {
         "agy": [
           ".agent/skills/thread-rollover/references/prepare.md",
@@ -2137,7 +2037,6 @@
     "skills/thread-rollover/references/resume.md": {
       "mode": 420,
       "owner": "fleet",
-      "sha256": "1577bad98a6f1db9c2fc757becc16ffc05bb00f68c632535b8810c3215d3c8f1",
       "targets": {
         "agy": [
           ".agent/skills/thread-rollover/references/resume.md",
