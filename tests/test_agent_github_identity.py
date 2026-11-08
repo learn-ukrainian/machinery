@@ -2,17 +2,13 @@ from __future__ import annotations
 
 import json
 import os
-import sys
-from pathlib import Path
 from typing import ClassVar
 from unittest.mock import patch
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lu_machinery"))
-
-from agent_runtime.agent_github_identity import resolve_agent_github_identity
-from agent_runtime.env_sanitize import build_agent_env
+from lu_machinery.agent_runtime.agent_github_identity import resolve_agent_github_identity
+from lu_machinery.agent_runtime.env_sanitize import build_agent_env
 
 
 @pytest.fixture

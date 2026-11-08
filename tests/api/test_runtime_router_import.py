@@ -13,6 +13,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from lu_machinery.common.repo_root import machinery_root
+
 _CHILD = r"""
 import sys
 from pathlib import Path
@@ -39,7 +41,7 @@ registry = sys.modules.get("lu_machinery.agent_runtime.registry")
 registry_file = getattr(registry, "__file__", None)
 expected = repo_path / "lu_machinery"
 if registry is None or registry_file is None or not Path(registry_file).is_relative_to(expected):
-    raise SystemExit(f"registry did not come from the repo package: {registry_file}")
+    raise SystemExit(f"registry did not come from the running release: {registry_file}")
 """
 
 
@@ -53,7 +55,7 @@ def test_planted_top_level_agent_runtime_is_not_imported_by_runtime_router(tmp_p
         encoding="utf-8",
     )
     (package / "registry.py").write_text("AGENTS = {}\n", encoding="utf-8")
-    repo = Path(__file__).resolve().parents[2]
+    repo = machinery_root().parent
     completed = subprocess.run(
         [sys.executable, "-I", "-c", _CHILD, str(planted_root), str(repo)],
         check=False,

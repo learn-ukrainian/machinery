@@ -15,6 +15,7 @@ from pathlib import Path
 import pytest
 import yaml
 
+from lu_machinery.common.repo_root import machinery_path
 from lu_machinery.secret_redactor import REDACTION
 from lu_machinery.session_streams.db import SessionStreamDatabase
 from lu_machinery.session_streams.model import LeaseHolder
@@ -35,7 +36,7 @@ from tests.launcher_sandbox import launcher_environment
 def test_successor_preflight_resolves_executable_with_stripped_pane_path(
     tmp_path: Path, resolution: str, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    helper = Path(__file__).resolve().parents[1] / machinery_package() / "lib/session_supervisor.sh"
+    helper = machinery_path("lib/session_supervisor.sh")
     home = tmp_path / "home"
     cli = (home / ".local/bin" if resolution == "local-bin" else tmp_path / "cli with spaces") / "fixture-cli"
     cli.parent.mkdir(parents=True)
@@ -88,7 +89,7 @@ def test_watcher_preflight_probe_failure_retains_restart(monkeypatch, capsys, fa
 
 
 def test_supervisory_successor_exec_requires_release_and_preserves_argv(tmp_path: Path) -> None:
-    helper = Path(__file__).resolve().parents[1] / machinery_package() / "lib/session_supervisor.sh"
+    helper = machinery_path("lib/session_supervisor.sh")
     successor = tmp_path / "start-codex-driver.sh"
     successor.write_text(
         "#!/usr/bin/env bash\n"
@@ -124,7 +125,7 @@ exit 36
 
 def test_kube_dojo_lane_wrapper_is_its_own_supervisory_successor(tmp_path: Path) -> None:
     """The successor replays the lane wrapper, which re-adds its fixed lane (#12553)."""
-    helper = Path(__file__).resolve().parents[1] / machinery_package() / "lib/session_supervisor.sh"
+    helper = machinery_path("lib/session_supervisor.sh")
     for relative, marker in (("start-claude-driver.sh", "generic"), (f"{machinery_package()}/start-kube-dojo-driver.sh", "lane")):
         entry = tmp_path / relative
         entry.parent.mkdir(parents=True, exist_ok=True)
@@ -149,7 +150,7 @@ exit 36
 
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
-_ISSUE_STREAMS = _REPO_ROOT / machinery_package() / "config" / "issue_streams.yaml"
+_ISSUE_STREAMS = machinery_path("config/issue_streams.yaml")
 
 
 def _infra_harness_stream_id() -> str:

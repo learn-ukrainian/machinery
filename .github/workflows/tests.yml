@@ -7,8 +7,8 @@
 # lists no [run] file.
 #
 # - Dependencies are hash-pinned wheels (pip --require-hashes
-#   --only-binary=:all:) in a fresh venv under the job temp directory; there
-#   is no pyproject.toml. Versions are the source repository's
+#   --only-binary=:all:) in a fresh venv alongside the head-built package.
+#   Test dependency versions are the source repository's
 #   requirements-lock.txt pins at the snapshot commit, resolved for CPython
 #   3.12 on x86_64 Linux (uv pip compile with that lock as constraints); each
 #   hash is the one wheel pip selects on ubuntu-24.04, checked against the
@@ -67,7 +67,7 @@ jobs:
           venv="$RUNNER_TEMP/test-venv"
           rm -rf "$venv"
           python -I -m venv "$venv"
-          requirements="$RUNNER_TEMP/test-requirements.txt"
+          requirements="$RUNNER_TEMP/test-requirements.txt" "$RUNNER_TEMP/installed-wheel"
           cat > "$requirements" <<'REQUIREMENTS'
           annotated-doc==0.0.5 \
               --hash=sha256:117bac03a25ede5df5440e855b32d556049ca169ead221505badf432fed4b101
@@ -137,6 +137,57 @@ jobs:
             echo "::error::Expected Python ${PYTHON_VERSION}, got: ${reported}"
             exit 1
           fi
+
+      - name: Build sdist and wheel with pinned tools
+        run: |
+          set -euo pipefail
+          work="$RUNNER_TEMP/installed-wheel"
+          rm -rf "$work"
+          mkdir -p "$work/src" "$work/dist"
+          # Only tracked files, as in a release build.
+          git archive --format=tar HEAD | tar -x -C "$work/src"
+          cd "$work"
+          python -I -m venv build-venv
+          cat > build-requirements.txt <<'REQUIREMENTS'
+          build==1.6.1 \
+              --hash=sha256:ecd351a4be9d35a9eaaba244a7687143c9c7d4aea6ac964e7e7ddab20cbcf4e7
+          packaging==26.3 \
+              --hash=sha256:d7193f7c8e4e93f444fde0262bf90af30e16fa0ad0ad44cb553c87339b23cd1c
+          pyproject-hooks==1.2.0 \
+              --hash=sha256:9e5c6bfa8dcc30091c74b0cf803c81fdd29d94f01992a7707bc97babb1141913
+          setuptools==84.1.0 \
+              --hash=sha256:5231689c6ac8156cd155cfb98c3fd6fb252c3e7e9bd3d78b64d3c55f132624c9
+          REQUIREMENTS
+          build-venv/bin/python -I -m pip install --no-cache-dir --disable-pip-version-check \
+            --no-input --require-hashes --only-binary=:all: --requirement build-requirements.txt
+          build-venv/bin/python -I -m build --sdist --wheel --no-isolation --outdir dist src
+          ls -l dist
+          wheels="$(find dist -maxdepth 1 -name 'lu_machinery-*-py3-none-any.whl' | wc -l)"
+          sdists="$(find dist -maxdepth 1 -name 'lu_machinery-*.tar.gz' | wc -l)"
+          if [ "$wheels" -ne 1 ] || [ "$sdists" -ne 1 ]; then
+            echo "::error::Expected one wheel and one sdist, got ${wheels} and ${sdists}"
+            exit 1
+          fi
+
+      - name: Install offline from a hash-locked wheelhouse
+        run: |
+          set -euo pipefail
+          lock="$PWD/requirements-machinery.lock"
+          work="$RUNNER_TEMP/installed-wheel"
+          cd "$work"
+          wheel="$(find dist -maxdepth 1 -name 'lu_machinery-*-py3-none-any.whl')"
+          version="$(python -I -c 'import sys, tomllib; print(tomllib.load(open(sys.argv[1], "rb"))["project"]["version"])' src/pyproject.toml)"
+          mkdir wheelhouse
+          python -I -m pip download --no-cache-dir --disable-pip-version-check --no-input \
+            --require-hashes --only-binary=:all: --no-deps --dest wheelhouse --requirement "$lock"
+          cp "$wheel" wheelhouse/
+          # The consumer lock: the release line, then the dependency lock.
+          digest="$(sha256sum "$wheel" | cut -d' ' -f1)"
+          { printf 'lu-machinery==%s \\\n    --hash=sha256:%s\n' "$version" "$digest"; cat "$lock"; } > consumer.lock
+          echo "lu-machinery ${version} sha256:${digest}; wheelhouse holds $(find wheelhouse -name '*.whl' | wc -l) wheel(s)"
+          "$RUNNER_TEMP/test-venv/bin/python" -I -m pip install --no-cache-dir --disable-pip-version-check --no-input \
+            --no-index --find-links wheelhouse --require-hashes --requirement consumer.lock
+          "$RUNNER_TEMP/test-venv/bin/python" -I -m pip check --disable-pip-version-check
 
       - name: Read the [run] files from the manifest
         run: |
@@ -226,15 +277,33 @@ jobs:
           work="$RUNNER_TEMP/pytest"
           venv="$RUNNER_TEMP/test-venv"
           mapfile -t files < "$work/run-files"
+          # Tests keep checkout fixtures and Git metadata, but no importable
+          # source package. Child interpreters therefore resolve the wheel too.
+          rm -rf lu_machinery "$RUNNER_TEMP/installed-wheel/src"
+          LU_TEST_WHEEL="$(find "$RUNNER_TEMP/installed-wheel/dist" -name '*.whl')"
           # The runner records every item as collected, before any hook can
           # deselect, drop or reorder it, and the terminal outcome of each,
           # the same record the step-6 V8 harness keeps.
           runner="$work/run_pytest.py"
           cat > "$runner" <<'PY'
           import json
+          import subprocess
           import sys
+          from pathlib import Path
 
+          import lu_machinery
           import pytest
+
+          origin = Path(lu_machinery.__file__).resolve()
+          assert Path(sys.prefix).resolve() in origin.parents, origin
+          print(f"parent wheel origin: {origin}", flush=True)
+          child = subprocess.run(
+              [sys.executable, "-c", "import lu_machinery; print(lu_machinery.__file__)"],
+              check=True, capture_output=True, text=True,
+          )
+          child_origin = Path(child.stdout.strip()).resolve()
+          assert child_origin == origin, child.stdout
+          print(f"subprocess wheel origin: {child_origin}", flush=True)
 
           out, *args = sys.argv[1:]
 
@@ -301,7 +370,7 @@ jobs:
             ln -s "$found" "$toolchain/$tool"
           done
           set +e
-          env -i PATH="/usr/bin:/bin:$toolchain" HOME="$work/home" TMPDIR="$work/tmp" \
+          env -i PATH="/usr/bin:/bin:$toolchain" HOME="$work/home" TMPDIR="$work/tmp" LU_TEST_WHEEL="$LU_TEST_WHEEL" \
             LEARN_UKRAINIAN_PYTHON="$venv/bin/python" \
             "$venv/bin/python" -I -B "$runner" "$work/record.json" \
             -p no:cacheprovider --rootdir="$PWD" \
@@ -369,4 +438,4 @@ jobs:
 
       - name: Remove test files
         if: always()
-        run: rm -rf "$RUNNER_TEMP/pytest" "$RUNNER_TEMP/test-venv" "$RUNNER_TEMP/test-requirements.txt"
+        run: rm -rf "$RUNNER_TEMP/pytest" "$RUNNER_TEMP/test-venv" "$RUNNER_TEMP/test-requirements.txt" "$RUNNER_TEMP/installed-wheel"

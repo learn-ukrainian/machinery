@@ -5,7 +5,6 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-import shutil
 import subprocess
 import tomllib
 import venv
@@ -13,6 +12,9 @@ import zipfile
 from pathlib import Path
 
 import pytest
+
+from lu_machinery.common.repo_root import machinery_path
+from tests.helpers.wheel import release_wheel
 
 REPO = Path(__file__).resolve().parents[2]
 SHARED = "agents_extensions/shared/"
@@ -26,53 +28,7 @@ def _run(command, *, cwd, env=None):
 def release(tmp_path_factory):
     """Build once, then install the real wheel into an isolated consumer venv."""
     scratch = tmp_path_factory.mktemp("release-resources")
-    source = scratch / "source"
-    source.mkdir()
-    for name in ("pyproject.toml", "MANIFEST.in"):
-        shutil.copy2(REPO / name, source / name)
-    for name in ("lu_machinery", "agents_extensions"):
-        shutil.copytree(
-            REPO / name,
-            source / name,
-            ignore=shutil.ignore_patterns("__pycache__", "*.pyc"),
-        )
-    # The inherited execution guard owns sitecustomize, as does pip's build
-    # isolation. A separate build venv keeps the guard and gives the backend
-    # its declared dependencies without competing sitecustomize hooks.
-    builder = scratch / "builder"
-    venv.EnvBuilder(with_pip=True).create(builder)
-    build_python = builder / "bin" / "python"
-    requirements = tomllib.loads((source / "pyproject.toml").read_text())["build-system"]["requires"]
-    prepared = _run(
-        [
-            str(build_python),
-            "-m",
-            "pip",
-            "install",
-            "--disable-pip-version-check",
-            "--only-binary=:all:",
-            *requirements,
-        ],
-        cwd=scratch,
-    )
-    assert prepared.returncode == 0, prepared.stdout + prepared.stderr
-    built = _run(
-        [
-            str(build_python),
-            "-m",
-            "pip",
-            "wheel",
-            "--no-build-isolation",
-            "--disable-pip-version-check",
-            "--no-deps",
-            "--wheel-dir",
-            str(scratch / "wheels"),
-            str(source),
-        ],
-        cwd=scratch,
-    )
-    assert built.returncode == 0, built.stdout + built.stderr
-    wheel = next((scratch / "wheels").glob("lu_machinery-*.whl"))
+    wheel = release_wheel(REPO, scratch)
     consumer = scratch / "consumer"
     venv.EnvBuilder(with_pip=True).create(consumer)
     executable = consumer / "bin" / "python"
@@ -107,7 +63,7 @@ def test_wheel_omission_or_product_leakage(release):
     """Every tracked machinery resource ships with its bytes; no product resource ships."""
     _, wheel, _, _ = release
     tracked = subprocess.check_output(["git", "ls-files", "agents_extensions/shared"], cwd=REPO, text=True).splitlines()
-    ownership = json.loads((REPO / "lu_machinery/lint/rename-map.json").read_text())
+    ownership = json.loads(machinery_path("lint/rename-map.json").read_text())
     # The historical extraction map predates the approved move into fleet rules.
     moves = {
         SHARED + "rules/" + name: "docs/best-practices/" + name
