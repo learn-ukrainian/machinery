@@ -8523,7 +8523,7 @@
     {
       "author_model": "gpt-6.1-sol",
       "owned_paths": [
-        "scripts/agent_runtime/adapters/claude.py"
+        "lu_machinery/agent_runtime/adapters/claude.py"
       ],
       "review_profile": "code",
       "risk": "low"
@@ -9740,7 +9740,7 @@
     {
       "author_model": "gpt-6.1-sol",
       "owned_paths": [
-        "scripts/agent_runtime/adapters/claude.py"
+        "lu_machinery/agent_runtime/adapters/claude.py"
       ],
       "review_profile": "infra",
       "risk": "low"
@@ -10957,7 +10957,7 @@
     {
       "author_model": "gpt-6.1-sol",
       "owned_paths": [
-        "scripts/agent_runtime/adapters/claude.py"
+        "lu_machinery/agent_runtime/adapters/claude.py"
       ],
       "review_profile": "code",
       "risk": "medium"
@@ -12174,7 +12174,7 @@
     {
       "author_model": "gpt-6.1-sol",
       "owned_paths": [
-        "scripts/agent_runtime/adapters/claude.py"
+        "lu_machinery/agent_runtime/adapters/claude.py"
       ],
       "review_profile": "infra",
       "risk": "medium"
@@ -13391,7 +13391,7 @@
     {
       "author_model": "gpt-6.1-sol",
       "owned_paths": [
-        "scripts/agent_runtime/adapters/claude.py"
+        "lu_machinery/agent_runtime/adapters/claude.py"
       ],
       "review_profile": "code",
       "risk": "high"
@@ -14608,7 +14608,7 @@
     {
       "author_model": "gpt-6.1-sol",
       "owned_paths": [
-        "scripts/agent_runtime/adapters/claude.py"
+        "lu_machinery/agent_runtime/adapters/claude.py"
       ],
       "review_profile": "infra",
       "risk": "high"
@@ -15825,7 +15825,7 @@
     {
       "author_model": "gpt-6.1-sol",
       "owned_paths": [
-        "scripts/agent_runtime/adapters/claude.py"
+        "lu_machinery/agent_runtime/adapters/claude.py"
       ],
       "review_profile": "code",
       "risk": "critical"
@@ -17042,7 +17042,7 @@
     {
       "author_model": "gpt-6.1-sol",
       "owned_paths": [
-        "scripts/agent_runtime/adapters/claude.py"
+        "lu_machinery/agent_runtime/adapters/claude.py"
       ],
       "review_profile": "infra",
       "risk": "critical"
