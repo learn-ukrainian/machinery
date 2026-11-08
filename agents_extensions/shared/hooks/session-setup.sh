@@ -278,7 +278,8 @@ if [ -n "${LEARN_UKRAINIAN_CLAUDEX_RUN_ID:-}" ]; then
     ISSUES+=("CLAUDEX SUPERVISOR BIND FAILED: official session identity or runtime helper is unavailable.")
   else
     SUPERVISOR_BIND_CMD=(
-      "$CLAUDEX_SUPERVISOR_PYTHON" -P -m lu_machinery.orchestration.claudex_supervisor bind-session
+      "$CLAUDEX_SUPERVISOR_PYTHON" -P -c 'import runpy, sys; sys.path.append(sys.argv.pop(1)); runpy.run_module("lu_machinery.orchestration.claudex_supervisor", run_name="__main__", alter_sys=True)'
+      "$PROJECT_DIR" bind-session
       --run-id "$LEARN_UKRAINIAN_CLAUDEX_RUN_ID"
       --launch-generation "${LEARN_UKRAINIAN_CLAUDEX_LAUNCH_GENERATION:-}"
       --session-id "$SESSION_ID"
@@ -286,11 +287,14 @@ if [ -n "${LEARN_UKRAINIAN_CLAUDEX_RUN_ID:-}" ]; then
     )
     [ -n "$SOURCE" ] && SUPERVISOR_BIND_CMD+=(--source "$SOURCE")
     [ -n "$OBSERVED_MODEL" ] && SUPERVISOR_BIND_CMD+=(--model "$OBSERVED_MODEL")
-    # CPython lexically normalizes each entry into the bind's cwd, ahead of the stdlib.
-    # A missing directory still cancels that way, so existence is not the test.
-    _bind_pythonpath="$PROJECT_DIR"
+    # The bind appends the project to sys.path after the stdlib, because the
+    # project is usually the cwd. PYTHONPATH entries go ahead of the stdlib, and CPython lexically
+    # normalizes each one into the bind's cwd, so entries that resolve to the cwd
+    # are dropped. A missing directory still cancels that way, so existence is
+    # not the test.
+    _bind_pythonpath=""
     if [ -n "${PYTHONPATH:-}" ]; then
-      _bind_filtered=$("$CLAUDEX_SUPERVISOR_PYTHON" -I -c '
+      _bind_filtered=$(run_bounded 2 "$CLAUDEX_SUPERVISOR_PYTHON" -I -c '
 import os, sys
 base = os.path.normpath(os.getcwd())
 base_real = os.path.realpath(base)
@@ -306,9 +310,7 @@ sys.stdout.write(os.pathsep.join(kept) + "x")
 ') || _bind_filtered=
       # The trailing x keeps $(...) from stripping a newline that ends the last entry.
       _bind_filtered="${_bind_filtered%x}"
-      if [ -n "$_bind_filtered" ]; then
-        _bind_pythonpath="${PROJECT_DIR}:${_bind_filtered}"
-      fi
+      _bind_pythonpath="$_bind_filtered"
       unset _bind_filtered
     fi
     if ! PYTHONPATH="$_bind_pythonpath" run_bounded 3 "${SUPERVISOR_BIND_CMD[@]}" >/dev/null 2>&1; then
