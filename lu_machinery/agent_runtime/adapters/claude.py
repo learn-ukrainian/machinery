@@ -243,12 +243,13 @@ import re
 import shlex
 import shutil
 import subprocess
+import sys
 from collections.abc import Mapping, Sequence
 from functools import cache
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from lu_machinery.common.repo_root import product_root
+from lu_machinery.common.repo_root import RUNTIME_ROOT, product_root
 
 from ..env_sanitize import (
     CLAUDE_CONFIG_DIR_ENV,
@@ -380,7 +381,7 @@ _LAUNCH_GUARD_CODE = (
     f"from {Path(__file__).absolute().parents[2].name}.agent_runtime.env_sanitize import run_claude_launch_guard; "
     "run_claude_launch_guard(sys.argv[1:])"
 )
-_CODE_ROOT = Path(__file__).resolve().parents[3]
+_CODE_ROOT = RUNTIME_ROOT
 _DISALLOWED_TOOLS_FLAGS = ("--disallowedTools", "--disallowed-tools")
 # The wrappers build the child environment and run the argv directly.
 _WRAPPER_OWNED_KWARGS = frozenset({"env", "shell", "executable"})
@@ -596,8 +597,8 @@ def _reviewer_mcp_config() -> str:
 
 _DEPLOYED_HOOKS_PREFIX = "$CLAUDE_PROJECT_DIR/.claude/hooks/"
 _PROJECT_PYTHON_HOOK_WRAPPER = "run-project-python-hook.sh"
-# Guards that need the project interpreter (their parser dependency is not in
-# the system Python). Only these may appear in the wrapper form.
+# Guards whose parser dependency is not in the system Python. Only these may
+# appear in the wrapper form; they run under this process's interpreter.
 PROJECT_PYTHON_GUARDS = frozenset({"guard-pr-merge.py", "guard-admin-merge.py", "guard-branch-switch-in-main.py"})
 # A command whose raw text or shell words contain any of these is a fleet guard
 # and must take one of the two supported forms.
@@ -608,14 +609,14 @@ _FLEET_GUARD_MARKERS = (".claude/hooks/", _PROJECT_PYTHON_HOOK_WRAPPER, *sorted(
 _WORKER_UNPAIRED_HOOKS = frozenset({_DEPLOYED_HOOKS_PREFIX + "audit-primary-checkout-dirt.py"})
 
 
-def _worker_guard_invocation(command: str, source_root: Path) -> str | None:
+def _worker_guard_invocation(command: str) -> str | None:
     """Translate one deployed hook command into a tracked-source invocation.
 
     The command is split into shell words first, so quoting and escaping never
     change its classification; an unreadable command raises. The single word
     ``$CLAUDE_PROJECT_DIR/.claude/hooks/<guard>`` becomes the tracked guard
     path. The words ``bash $CLAUDE_PROJECT_DIR/.claude/hooks/run-project-python-hook.sh
-    <guard>`` become the project interpreter plus the tracked guard, for the
+    <guard>`` become this process's interpreter plus the tracked guard, for the
     guards in ``PROJECT_PYTHON_GUARDS`` only. Any other command naming the hooks
     directory, the wrapper or one of those guards raises, so a guard is never
     silently dropped. Commands naming none of them are not fleet guards and
@@ -627,15 +628,13 @@ def _worker_guard_invocation(command: str, source_root: Path) -> str | None:
         raise RuntimeError(f"Claude worker hook command is unreadable: {command}") from exc
     if not any(marker in text for text in (command, *argv) for marker in _FLEET_GUARD_MARKERS):
         return None
-    hooks_dir = source_root / "agents_extensions/shared/hooks"
+    hooks_dir = product_root() / "agents_extensions/shared/hooks"
     wrapper = _DEPLOYED_HOOKS_PREFIX + _PROJECT_PYTHON_HOOK_WRAPPER
     if len(argv) == 3 and argv[:2] == ["bash", wrapper] and argv[2] in PROJECT_PYTHON_GUARDS:
         tracked = hooks_dir / argv[2]
         if not tracked.is_file():
             raise RuntimeError(f"Claude worker guard unavailable: {tracked}")
-        from lu_machinery.common.repo_root import project_interpreter
-
-        return shlex.join([str(project_interpreter(source_root)), str(tracked)])
+        return shlex.join([sys.executable, str(tracked)])
     plain = len(argv) == 1 and argv[0].startswith(_DEPLOYED_HOOKS_PREFIX)
     name = argv[0].removeprefix(_DEPLOYED_HOOKS_PREFIX) if plain else ""
     if name not in {"", ".", "..", _PROJECT_PYTHON_HOOK_WRAPPER} and "/" not in name:
@@ -649,14 +648,11 @@ def _worker_guard_invocation(command: str, source_root: Path) -> str | None:
 def _worker_guard_settings(*, publish_guard: bool = False) -> str:
     """Build worker hook settings: the product's hook list, run with this installation's guards.
 
-    The settings file is product configuration, read from the product checkout
-    ``product_root`` selects (C-4746). The guards it names and the interpreter that runs
-    them are machinery: they always come from the checkout this code runs from
-    (``source_root``), never from product configuration.
+    The settings file and the guard scripts are product files. ``product_root``
+    selects the checkout (C-4746). ``agents_extensions/shared/hooks`` is not in the
+    wheel; it lives in that checkout, which is the tree the in-tree adapter's
+    ``parents[3]`` named. Parser guards run under this process's interpreter.
     """
-    from lu_machinery.common.repo_root import product_root
-
-    source_root = Path(__file__).resolve().parents[3]
     source = json.loads((product_root() / "agents_extensions/shared/settings.json").read_text(encoding="utf-8"))
     groups = []
     for group in source["hooks"]["PreToolUse"]:
@@ -664,13 +660,13 @@ def _worker_guard_settings(*, publish_guard: bool = False) -> str:
         for hook in group["hooks"]:
             if hook.get("command") in _WORKER_UNPAIRED_HOOKS:
                 continue
-            invocation = _worker_guard_invocation(hook.get("command", ""), source_root)
+            invocation = _worker_guard_invocation(hook.get("command", ""))
             if invocation is not None:
                 hooks.append({**hook, "command": invocation})
         if hooks:
             groups.append({"matcher": group["matcher"], "hooks": hooks})
     if publish_guard:
-        guard = source_root / "agents_extensions/shared/hooks/guard-reviewer-publish.py"
+        guard = product_root() / "agents_extensions/shared/hooks/guard-reviewer-publish.py"
         if not guard.is_file():
             raise RuntimeError(f"Claude reviewer publish guard unavailable: {guard}")
         # Same failure policy as the shared refusing guards (#10848): a timeout
@@ -1275,8 +1271,6 @@ def _verified_labelled_launch(
         note_claude_account_verified,
         refuse_claude_machine_policy,
     )
-    from lu_machinery.common.repo_root import project_interpreter
-
     login_dir = str(account.config_dir)
     env = build_agent_env(provider="claude", model=model, overrides=env_overrides)
 
@@ -1297,7 +1291,7 @@ def _verified_labelled_launch(
         raise ClaudeAccountRefused("claude_account_settings_changed")
     refuse_claude_machine_policy()
     note_claude_account_verified(account.label, CLAUDE_AUTH_SUBSCRIPTION_LOGIN)
-    return [str(project_interpreter()), "-I", "-c", _LAUNCH_GUARD_CODE, str(_CODE_ROOT), verified, "--", *cmd]
+    return [sys.executable, "-I", "-c", _LAUNCH_GUARD_CODE, str(_CODE_ROOT), verified, "--", *cmd]
 
 
 def _verify_labelled_auth_method(
