@@ -18,18 +18,14 @@ from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 
-if __package__ in (None, ""):
-    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-
-from lu_machinery.ci._location import checkout_relative, module_name
+from lu_machinery.ci._location import module_name
 from lu_machinery.common import github_client
-from lu_machinery.common.repo_root import main_checkout_root
+from lu_machinery.common.repo_root import machinery_path, product_root, state_root
 from lu_machinery.orchestration import fleet_repos, postmerge_criteria
 from lu_machinery.orchestration import issue_stream_audit as audit
 from lu_machinery.orchestration import task_lifecycle as lifecycle
 from lu_machinery.publish.github import read
 
-ROOT = Path(__file__).resolve().parents[2]
 MAX_AGE_S = 3600
 NON_OVERRIDABLE = frozenset({"dod_structure_malformed", "membership_conflicting_ancestry"})
 TARGET_FETCH_TIMEOUT = "membership_timeout_target_fetch"
@@ -146,7 +142,7 @@ def registry_for(repository: str) -> dict[str, list[int]] | None:
     for repo in fleet_repos.load_fleet_repos().values():
         if repo.github.casefold() == repository.casefold() and repo.role == "public-monorepo":
             try:
-                return audit.load_registry(ROOT / checkout_relative("config", "issue_streams.yaml"), audit_only=True)
+                return audit.load_registry(machinery_path("config/issue_streams.yaml"), audit_only=True)
             except FileNotFoundError:
                 return {}
     return None
@@ -160,9 +156,10 @@ def registry_absence(repository: str) -> dict:
 
 
 def live_audit(
-    repository: str, registry: dict, *, root: Path = ROOT, progress: MembershipProgress | None = None
+    repository: str, registry: dict, *, root: Path | None = None, progress: MembershipProgress | None = None
 ) -> dict:
     """Compose the existing live auditor in memory. Never write its shared cache."""
+    root = product_root(root)
     progress = progress or MembershipProgress()
     progress.stage = "live_audit_repository"
     observed_repository = "/".join(audit._repo_owner_name(root))
@@ -292,10 +289,11 @@ def write_membership_cache(report: dict, repository: str, registry: dict, *, roo
     """
     if _audit_refusal(report, repository, registry) or audit.membership_root_results(report, registry) is None:
         return False
-    checkout = ROOT if root is None else root
+    checkout = product_root(root)
+    cache_path = state_root() / "batch_state/issue_stream_audit.json"
     warnings = [*(report.get("warnings") or ()), *audit.hygiene_warnings(checkout, set(report["open_issue_numbers"]))]
     audit.publish_cache(
-        {**report, "warnings": warnings}, registry, main_checkout_root(checkout) / "batch_state/issue_stream_audit.json"
+        {**report, "warnings": warnings}, registry, cache_path
     )
     return True
 
@@ -375,7 +373,7 @@ def evaluate_membership(
 
 def cached_membership(issue: dict, repository: str, number: int, registry: dict, parents: dict) -> dict:
     """Read shared audit evidence, then apply the canonical validator and resolver."""
-    path = main_checkout_root(ROOT) / "batch_state" / "issue_stream_audit.json"
+    path = state_root() / "batch_state" / "issue_stream_audit.json"
     try:
         report = json.loads(path.read_text(encoding="utf-8"))
     except FileNotFoundError:

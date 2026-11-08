@@ -11,17 +11,16 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import re
 import subprocess
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
-from pathlib import Path
 
+from lu_machinery.common.repo_root import machinery_path
 from lu_machinery.orchestration import issue_stream_audit
+from lu_machinery.publish.github import read
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
 PUBLIC_REPOSITORY = "learn-ukrainian/learn-ukrainian.github.io"
 PRIVATE_REPOSITORY = "learn-ukrainian/learn-ukrainian-infra-private"
 HRAMATKA_STREAM = "hramatka"
@@ -114,13 +113,6 @@ class GateDecision:
         return payload
 
 
-from lu_machinery.publish.github import read
-
-# The machinery package's import name, which is also the directory its files have in checkout
-# paths: from this module's package, or from its unresolved location when run as a file.
-_MACHINERY = Path(os.path.abspath(__file__)).parents[1].name
-
-
 class IssueLookupUnavailable(RuntimeError):
     """GitHub did not return a trusted issue observation."""
 
@@ -128,10 +120,10 @@ class IssueLookupUnavailable(RuntimeError):
 IssueReader = Callable[[IssueRef], IssueObservation]
 
 
-def load_stream_registry(repo_root: Path = REPO_ROOT) -> dict[str, list[int]]:
+def load_stream_registry() -> dict[str, list[int]]:
     """Read the canonical stream-to-epic registry without making a network call."""
 
-    return issue_stream_audit.load_registry(repo_root / _MACHINERY / "config" / "issue_streams.yaml")
+    return issue_stream_audit.load_registry(machinery_path("config/issue_streams.yaml"))
 
 
 def _gh_issue_observation(issue: IssueRef) -> IssueObservation:
@@ -147,7 +139,6 @@ def _gh_issue_observation(issue: IssueRef) -> IssueObservation:
             "issue-scope",
             repo=issue.repository,
             number=issue.number,
-            cwd=REPO_ROOT,
             capture_output=True,
             check=False,
             text=True,
