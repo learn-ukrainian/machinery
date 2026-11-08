@@ -2158,6 +2158,13 @@
       }
     }
   },
+  "provider_replacements": {
+    "codex": [
+      "config.toml",
+      "hooks.json",
+      "memory"
+    ]
+  },
   "required_hooks": {
     "claude": {
       ".claude/settings.json": [

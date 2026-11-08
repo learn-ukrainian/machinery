@@ -31,6 +31,7 @@ EXPECTED = {
     ".gemini/rules/core.md", ".gemini/rules/fleet.md",
     ".gemini/skills/fleet/SKILL.md", ".gemini/skills/product/SKILL.md",
     ".codex/settings.json", ".codex/hooks.json",
+    ".claude/memory/MEMORY.md", ".codex/memory/MEMORY.md", ".agent/memory/MEMORY.md",
 }
 
 
@@ -68,7 +69,7 @@ def release(tmp_path, monkeypatch):
     write(fleet, "hooks/fleet.sh", HOOK, 0o755)
     write(fleet, "skills/fleet/SKILL.md", SKILL)
     # Input mappings are intentionally explicit, including omissions.
-    inventory = {"version": 1, "claude_autoload_excludes": ["rules/core.md", "rules/non-negotiable-rules.md", "rules/core-curriculum.md"], "files": {
+    inventory = {"version": 1, "provider_replacements": {"codex": ["config.toml", "hooks.json", "memory"]}, "claude_autoload_excludes": ["rules/core.md", "rules/non-negotiable-rules.md", "rules/core-curriculum.md"], "files": {
         "rules/core.md": {"sha256": hashlib.sha256(CORE).hexdigest(), "mode": 420, "owner": "fleet", "targets": {
             "codex": [".codex/rules/core.md"], "agy": [".agent/rules/core.md"], "gemini": [".gemini/rules/core.md"]}},
         "rules/fleet.md": {"sha256": hashlib.sha256(b"# Fleet rule\n").hexdigest(), "mode": 420, "owner": "fleet", "targets": {
@@ -97,6 +98,8 @@ def consumer(tmp_path, release):
     subprocess.run(["git", "init", "-q", str(root)], check=True)
     descriptor(root)
     write(root, "agents_extensions/shared/skills/product/SKILL.md", PRODUCT)
+    write(root, "agents_extensions/shared/memory/MEMORY.md", "shared memory\n")
+    write(root, "agents_extensions/codex/memory/MEMORY.md", "codex memory\n")
     write(root, "agents_extensions/shared/settings.json", json.dumps({"hooks": {"SessionStart": [
         {"matcher": "startup", "hooks": [{"type": "command", "command": ".claude/hooks/fleet.sh", "timeout": 10}]}]}}))
     write(root, "agents_extensions/codex/hooks.json", json.dumps({"hooks": {"SessionStart": [
@@ -254,6 +257,8 @@ def test_non_idempotency_literal_inventory_and_modes(consumer, monkeypatch):
     assert invoke(monkeypatch, consumer) == 0
     paths = {p for p in snapshot(consumer) if p.startswith((".claude/", ".codex/", ".agents/", ".agent/", ".gemini/"))}
     assert paths == EXPECTED
+    assert (consumer / ".codex/memory/MEMORY.md").read_text() == "codex memory\n"
+    assert (consumer / ".claude/memory/MEMORY.md").read_text() == "shared memory\n"
     assert (consumer / ".agent/rules/core-part-01.md").read_bytes() == b"---\ntrigger: always_on\ndescription: Binding rules core, part 1 of 1.\n---\n# Fleet core\n"
     assert (consumer / ".agent/rules.json").read_text() == '{\n  "exclude": [\n    "core.md",\n    "model-assignment.md",\n    "workflow.md"\n  ]\n}\n'
     assert (consumer / ".claude/hooks/fleet.sh").stat().st_mode & 0o777 == 0o755

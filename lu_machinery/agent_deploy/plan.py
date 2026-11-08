@@ -298,6 +298,8 @@ def build(tree: Tree) -> Plan:
         if path == ".codex/skills" or path.startswith(".codex/skills/"):
             raise Invalid("legacy Codex discovery cannot be preserved")
     shared, inventory, release = release_inputs()
+    def replaces(provider: str, path: str) -> bool:
+        return any(path == p or path.startswith(p + "/") for p in inventory["provider_replacements"].get(provider, []))
     groups: dict[str, dict[str, Output]] = {"shared": shared}
     used_sources: list[str] = []
     for group, spec in sources.items():
@@ -336,7 +338,8 @@ def build(tree: Tree) -> Plan:
                         raise Invalid("prompt lint: " + rule_id)
         destination = groups.setdefault(group, {})
         for path, (blob, mode) in items.items():
-            if path in shared or path in destination:
+            if path in destination or (path in shared and
+                    (shared[path].owner == "fleet" or not replaces(group, path))):
                 raise Invalid("duplicate fleet/product logical path: " + path)
             if path.startswith("hooks/") and not mode & 0o111:
                 raise Invalid("product hook is not executable: " + path)
@@ -361,6 +364,8 @@ def build(tree: Tree) -> Plan:
     for provider in providers:
         target = TARGETS[provider]
         for path, out in groups["shared"].items():
+            if out.owner == "product" and replaces(provider, path):
+                continue
             if out.owner == "fleet":
                 destinations = inventory["files"][path]["targets"].get(provider, [])
             elif provider == "claude" and path in inventory["claude_autoload_excludes"]:
