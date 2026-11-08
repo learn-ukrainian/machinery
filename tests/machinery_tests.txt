@@ -4,7 +4,13 @@
 # ported from learn-ukrainian 2e8d6a46b79f (this repository's snapshot source) with the
 # machinery-move rename tools. .github/workflows/tests.yml runs every [run] file, whole.
 # The second tranche adds the [run] files that only learn_ukrainian_v4_runtime held back; that
-# package's general modules are lu_machinery leaf modules now (decision C-4842).
+# package's general modules are lu_machinery leaf modules now (decision C-4842). A later round
+# re-ported every [held] file onto that state: four stay held, each for the product
+# checkout. It adds the thread-handoff confirmation file (native to this repository, from
+# PR #65) and tests/publish/test_pr_merge_squash_scan.py, which main now carries as a native
+# file (PR #80) in place of the product's version that needed the product's deploy path policy.
+# Native tests added after the second tranche are included below; markdown parsing uses
+# the hosted job's pinned markdown-it-py dependency and its mdurl dependency.
 # [run]: test files the pytest job runs, as whole files.
 # [support]: their fixture and helper closure: every tests/ file imported or opened while the
 #   [run] files ran (import and open audit hook, the source manifest's method). A [support]
@@ -20,6 +26,15 @@ tests/orchestration/test_merge_closeout.py
 tests/orchestration/test_worktree_claims_cli.py
 tests/test_session_supervisor.py
 tests/review/test_routing_consumers.py
+tests/orchestration/test_thread_handoff_confirmation.py
+tests/publish/test_pr_merge_squash_scan.py
+tests/ci/test_semgrep_baseline.py
+tests/orchestration/test_distinct_roots.py
+tests/orchestration/test_integration_sweep.py
+tests/orchestration/test_merge_queue_keeper.py
+tests/review/test_review_tiers.py
+tests/test_record_cf_verdict.py
+tests/test_repo_root.py
 # [support]
 tests/__init__.py
 tests/conftest.py
@@ -69,8 +84,7 @@ tests/sparse_trees.py
 tests/test_agent_github_identity.py
 tests/test_sibling_git.py
 # [held]
-# tests/test_launcher_interactive_scope.py: 101 tests list the product's root start-*.sh wrappers through product_root(), which needs the product checkout.
+# tests/test_launcher_interactive_scope.py: 101 tests list the product's root start-*.sh wrappers through product_root(), which needs the product checkout (ProductRootError: no product is configured; LU_PRODUCT_ROOT names none).
 # tests/test_handoff_slot_registry.py: collection calls product_checkout() (line 35) for the product's root start-*-driver.sh wrappers; product_root() raises ProductRootError without the product checkout.
-# tests/test_rules_core_loading.py: all 153 tests error in setup: product_root() raises ProductRootError without the product checkout.
-# tests/review/test_record_cf_verdict.py: 424 tests need the product checkout: the product review hooks (ProductHooksError), the product's scripts.review.receipts.ledger (ConfiguredModuleError) or the deploy path policy (DeployPathsError).
-# tests/publish/test_pr_merge_squash_scan.py: 8 tests reach the merge seat check, which reads the product's deploy path policy (lu_machinery/ci/deploy_paths.py); without the product checkout it refuses with "review seats unverifiable".
+# tests/test_rules_core_loading.py: all 153 tests error in setup: product_root() raises ProductRootError without the product checkout; collection also needs packages the hosted venv lacks (uvicorn, fastapi, prometheus_client, psycopg, regex).
+# tests/review/test_record_cf_verdict.py: 424 of 587 tests need the product checkout: the product review hooks (ProductHooksError, 350), the product's scripts.review.receipts.ledger (ConfiguredModuleError, 72) or the deploy path policy (DeployPathsError, 1; PublishBlocked, 1). Its support module tests/test_record_cf_verdict.py (3,924 lines at the snapshot) is now a different native 33-line file on main, so the source file cannot be ported at that path.
