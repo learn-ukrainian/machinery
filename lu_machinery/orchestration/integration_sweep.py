@@ -617,6 +617,7 @@ def lookup_verdict(
     *,
     complete: bool = True,
     learner_content: bool = False,
+    low_tier: bool | None = None,
 ) -> Verdict:
     """Resolve one SHA's verdict; malformed or edited evidence for it poisons it.
 
@@ -634,6 +635,10 @@ def lookup_verdict(
     no items.
     A malformed marker poisons this SHA unless it is attributable to another head; see
     the module docstring for the threat model (#11127).
+    Landing callers must pass ``low_tier`` from the shared path/status table.
+    None preserves the historical reading for callers inspecting prior verdicts.
+    Only Low admits an unscoped same-family code approval. Scoped pair records
+    never prove whole-head non-authorship at Low; rejections stand at every tier.
     """
     if not complete or not isinstance(comments, Sequence) or isinstance(comments, (str, bytes)):
         return Verdict("unknown", reason=COMMENTS_UNAVAILABLE)
@@ -720,6 +725,19 @@ def lookup_verdict(
         # An unedited comment has a parseable creation time; list order breaks same-second ties.
         posted = (_timestamp(_field(comment, "created_at", "createdAt")), index)
         candidates.append((_timestamp(marker["started"]), posted, recorded))
+    if low_tier is True:
+        candidates = [
+            item for item in candidates
+            if item[2]["verdict"] in REJECTED or not item[2].get("review_pair")
+        ]
+    elif low_tier is False:
+        candidates = [
+            item for item in candidates
+            if item[2]["verdict"] in REJECTED
+            or item[2].get("review_mode", "cross_family") != "cross_family"
+            or is_ukrainian_review(item[2]) or item[2].get("review_pair")
+            or item[2]["family"] not in attested_author_families([item[2]])
+        ]
     if not candidates:
         state = "CF-unrecorded" if legacy else "CF-stale" if other_head else "needs-CF"
         return Verdict(state, untrusted_markers=tuple(untrusted), superseded_markers=tuple(superseded))
@@ -728,7 +746,7 @@ def lookup_verdict(
         state, marker, seats, reason, index, started = covered
         if reason is not None:
             return unknown(reason, index, comments[index])
-        if state == "APPROVED" and _mixed_pair_pending(candidates):
+        if state == "APPROVED" and not low_tier and _mixed_pair_pending(candidates):
             state = NEEDS_SEAT
         return Verdict(
             state,
@@ -760,7 +778,7 @@ def lookup_verdict(
         # A Ukrainian head is approved only once every required seat has approved it. With no
         # Ukrainian verdict the authors are unattested, so both seats are required (#12181).
         state = NEEDS_SEAT
-    if not standing and _mixed_pair_pending(candidates):
+    if not standing and not low_tier and _mixed_pair_pending(candidates):
         state = NEEDS_SEAT
     return Verdict(
         state,
@@ -1147,14 +1165,19 @@ class GitHubAdapter:
             raise SweepError("PR comments malformed")
         return comments
 
-    def pr_files(self, repository: str, number: int) -> list[str]:
+    def pr_file_rows(self, repository: str, number: int) -> list[dict[str, Any]]:
         pages = self._json(Request("read-pr-files", repo=repository, number=number, paginate=True, slurp=True))
         if not isinstance(pages, list) or not all(isinstance(page, list) for page in pages):
             raise SweepError("PR files pagination incomplete")
         try:
-            return pr_file_paths([item for page in pages for item in page])
+            rows = [item for page in pages for item in page]
+            pr_file_paths(rows)
+            return rows
         except ValueError as exc:
             raise SweepError(str(exc)) from exc
+
+    def pr_files(self, repository: str, number: int) -> list[str]:
+        return pr_file_paths(self.pr_file_rows(repository, number))
 
     def queue_membership(self, repository: str, pr: Mapping[str, Any]) -> bool:
         data = self._json(
@@ -1176,6 +1199,8 @@ class GitHubAdapter:
 
 
 def run(adapter: GitHubAdapter, repository: str, *, now: datetime | None = None) -> list[PRReport]:
+    from lu_machinery.review.tiers import classify_pr_files
+
     observed = (now or datetime.now(UTC)).isoformat(timespec="microseconds")
     prs = adapter.list_open_prs(repository)
     try:
@@ -1190,8 +1215,11 @@ def run(adapter: GitHubAdapter, repository: str, *, now: datetime | None = None)
             continue
         try:
             comments = adapter.comments(repository, number)
-            content = changes_learner_content(adapter.pr_files(repository, number))
-            verdict = lookup_verdict(comments, head, login, learner_content=content)
+            files = adapter.pr_file_rows(repository, number)
+            content = changes_learner_content(pr_file_paths(files))
+            verdict = lookup_verdict(
+                comments, head, login, learner_content=content, low_tier=classify_pr_files(files) == "low",
+            )
         except SweepError:
             verdict = Verdict("unknown", reason=COMMENTS_UNAVAILABLE)
         try:
