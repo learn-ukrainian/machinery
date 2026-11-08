@@ -133,3 +133,69 @@ def test_hook_python_children_never_import_from_the_cwd(tmp_path: Path, pythonpa
     assert result.returncode == 0, result.stderr
     assert (tree / ".agent" / "sessions" / "isolation-probe.json").is_file(), "the session gate did not run"
     assert plant_log.read_text(encoding="utf-8") == ""
+
+
+# The module bootstrap the hook and the launcher libraries use (#142), here in a child that drives rules_core.
+_RULES_CORE_PROBE = """\
+import importlib.util, sys
+root = sys.argv[1]
+pkg = root + "/lu_machinery"
+spec = importlib.util.spec_from_file_location("lu_machinery", pkg + "/__init__.py", submodule_search_locations=[pkg])
+sys.modules["lu_machinery"] = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(sys.modules["lu_machinery"])
+from lu_machinery.lib import rules_core
+rules_core.resolve_seat(lane="infra", provider="claude", env={})
+import os
+on_path = [p for p in sys.path if os.path.abspath(p or ".") == root]
+print("root_on_sys_path", bool(on_path))
+"""
+
+
+def _launcher_lib_child(site: str, tree: Path) -> list[str]:
+    lib = tree / "lu_machinery" / "lib"
+    if site == "thread_rollover_link":
+        script = f'source {lib / "thread_rollover_link.sh"} && resolve_codex_pending_rollover "$1" codex-infra infra'
+        return ["bash", "-c", script, "probe", str(tree)]
+    if site == "handoff_identity":
+        script = f'source {lib / "handoff_identity.sh"} && LC_DURABLE_HELPER_ROOT="$1" _handoff_slot_registry --slot claude-infra'
+        return ["bash", "-c", script, "probe", str(tree)]
+    return [sys.executable, "-I", "-c", _RULES_CORE_PROBE, str(tree)]
+
+
+@pytest.mark.parametrize("site", ["thread_rollover_link", "handoff_identity", "rules_core"])
+def test_launcher_library_python_children_never_import_from_the_cwd(tmp_path: Path, site: str) -> None:
+    """Defect class: a launcher library's Python child resolves an import from the checkout (#100 R63, R64, R65).
+
+    The cwd is the machinery tree and the project, and ``PYTHONPATH`` names it. The Codex rollover preflight
+    (detect, its parser and the bounded runner), the handoff-slot registry check and ``rules_core.resolve_seat``
+    with a lane each run, and no planted stdlib name may load from the tree.
+    """
+    tree = _tree_copy(tmp_path)
+    for name in _PLANTED:
+        (tree / f"{name}.py").write_text(_PLANT, encoding="utf-8")
+    venv_bin = tree / ".venv" / "bin"
+    venv_bin.mkdir(parents=True)
+    (venv_bin / "python").write_text(f'#!/bin/sh\nexec "{sys.executable}" "$@"\n', encoding="utf-8")
+    (venv_bin / "python").chmod(0o755)
+    plant_log = tmp_path / "plant.log"
+    plant_log.write_text("", encoding="utf-8")
+    env = {
+        "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
+        "HOME": str(tmp_path),
+        "PLANT_LOG": str(plant_log),
+        "PYTHONPATH": ".",
+        "THREAD_ROLLOVER_COMMAND_RUNNER": str(tree / "lu_machinery" / "agent_runtime" / "bounded_command.py"),
+        "THREAD_ROLLOVER_COMMAND_TIMEOUT_SECONDS": "60",
+    }
+    result = subprocess.run(
+        _launcher_lib_child(site, tree), cwd=tree, env=env, capture_output=True, text=True, timeout=120, check=False
+    )
+    if site == "thread_rollover_link":
+        assert result.returncode == 0, result.stdout + result.stderr
+        assert "no pending packet for codex-infra" in result.stdout, result.stdout + result.stderr
+    elif site == "handoff_identity":
+        assert result.returncode in (0, 3), result.stdout + result.stderr
+    else:
+        assert result.returncode == 0, result.stderr
+        assert "root_on_sys_path False" in result.stdout, result.stdout + result.stderr
+    assert plant_log.read_text(encoding="utf-8") == ""
