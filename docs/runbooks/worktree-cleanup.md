@@ -739,7 +739,7 @@ a residual.
 PRIMARY_REPO="$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")"
 cd "$PRIMARY_REPO"
 
-"$PRIMARY_REPO/.venv/bin/python" -m lu_machinery.orchestration.merge_closeout <PR_NUMBER> --apply
+"$PRIMARY_REPO/.venv/bin/python" -m lu_machinery.orchestration.merge_closeout <PR_NUMBER> --repo <owner/name> --repo-root "$PRIMARY_REPO" --apply
 ```
 
 Starting a later review round (`review-<topic>-rN`) also removes earlier clean

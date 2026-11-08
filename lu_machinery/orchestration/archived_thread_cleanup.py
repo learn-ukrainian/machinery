@@ -11,7 +11,6 @@ import json
 import os
 import re
 import subprocess
-import sys
 import time
 import tomllib
 import uuid
@@ -21,9 +20,6 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, TextIO
-
-if __package__ in {None, ""}:
-    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from lu_machinery.orchestration.task_family import codex_state, rollover_registry
 
