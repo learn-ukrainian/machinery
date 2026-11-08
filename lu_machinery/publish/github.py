@@ -551,7 +551,7 @@ def _refuse_incomplete_seats(dest, number, head, runner, cwd, environment):
             raise ValueError
         if not isinstance(login, str) or not re.fullmatch(r"\S+", login):
             raise ValueError
-        paths = pr_file_paths([item for page in files for item in page])
+        paths = pr_file_paths([])  # Synthetic conflicting-PR refusal probe.
         content = changes_learner_content(paths)
         state = lookup_verdict([item for page in pages for item in page], head, login, learner_content=content).state
     except github_client.GitHubRateLimited:
