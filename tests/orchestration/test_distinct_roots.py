@@ -204,10 +204,11 @@ def _systemd_exec_start(home: Path) -> subprocess.CompletedProcess[str]:
 def _systemd_home(tmp_path: Path) -> Path:
     home = tmp_path / "home"
     (home / "projects").mkdir(parents=True)
-    runtime = home / "projects" / "learn-ukrainian"
+    runtime = tmp_path / "runtime-real"
     wrapper = runtime / "lu_machinery/orchestration/run_project_state_reporter.sh"
     wrapper.parent.mkdir(parents=True)
     shutil.copy2(rr.machinery_path("orchestration/run_project_state_reporter.sh"), wrapper)
+    (home / "projects/learn-ukrainian").symlink_to(runtime, target_is_directory=True)
     return home
 
 
@@ -314,8 +315,8 @@ def test_systemd_exec_start_runs_with_the_configured_roots(tmp_path: Path, layou
     assert result.returncode == 0, result.stderr
     ran = json.loads(record.read_text(encoding="utf-8"))
     # The relative ExecStart (machinery move, C-4755) starts bash in the physical WorkingDirectory: systemd
-    # sets no PWD, so the copied release wrapper resolves the fixture runtime.
-    reporter = home / "projects/learn-ukrainian/lu_machinery/api/project_state_local.py"
+    # sets no PWD, so the wrapper resolves the physical runtime behind the %h symlink.
+    reporter = tmp_path / "runtime-real/lu_machinery/api/project_state_local.py"
     assert ran == {
         "argv": [str(reporter), "report"],
         "primary": str(layout["primary"]),
@@ -350,6 +351,7 @@ def test_runtime_target_interpreter_policy_and_state_roots_are_distinct(monkeypa
 
 
 def test_unset_configuration_keeps_todays_roots(clean_env, monkeypatch) -> None:
+    assert rr.RUNTIME_ROOT == Path(rr.__file__).resolve().parents[2]
     # This case deliberately models the legacy in-tree copy, independently
     # of where pytest imported the installed resolver.
     monkeypatch.setattr(rr, "_IN_TREE_SOURCE", True)
@@ -371,7 +373,7 @@ def test_unset_configuration_keeps_todays_roots(clean_env, monkeypatch) -> None:
     assert roots.rules_dir == Path(rr.__file__).resolve().parents[2] / "agents_extensions/shared/rules"
     assert rr.resolve_repo_root(REPO / "scripts/common/repo_root.py", 2) == primary
     assert worktree_claims.public_primary_root() == primary
-    assert rr.rules_dir() == Path(rr.__file__).resolve().parents[2] / "agents_extensions/shared/rules"
+    assert rr.rules_dir() == rules_core.ROOT / "agents_extensions/shared/rules"
     with pytest.raises(TypeError):
         rr.rules_dir(Path("/elsewhere"))
     assert rules_core.source_path("docs/x.md", REPO) == REPO / "docs/x.md"

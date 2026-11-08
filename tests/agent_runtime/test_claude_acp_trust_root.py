@@ -67,9 +67,8 @@ print("launcher preparation passed")
 '''
 
 
-def test_installed_wheel_preparation_without_checkout(private_tree, source_tree):
+def test_installed_wheel_preparation_without_checkout(private_tree):
     """The wheel must prepare its launcher without git metadata or source imports."""
-    source = source_tree
     wheel = release_wheel(Path(__file__).resolve().parents[2], private_tree)
     venv = private_tree / "venv"
     # Reuse test dependencies, but install machinery itself as a wheel. -I and
@@ -80,7 +79,8 @@ def test_installed_wheel_preparation_without_checkout(private_tree, source_tree)
     (site / "test-dependencies.pth").write_text(sysconfig.get_path("purelib") + "\n")
     subprocess.run([str(interpreter), "-m", "pip", "install", "--no-deps", "--force-reinstall",
                     str(wheel)], check=True, capture_output=True, text=True, umask=0o022)
-    shutil.rmtree(source)
+    launcher = site / "lu_machinery/agent_runtime/claude_acp_exec.sh"
+    launcher.write_bytes(launcher.read_bytes() + b"\n# Source-release fixture, without a stored content pin.\n")
     result = subprocess.run([str(interpreter), "-I", "-c", '''
 import sys
 from pathlib import Path
