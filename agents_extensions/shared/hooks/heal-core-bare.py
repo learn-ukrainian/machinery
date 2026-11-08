@@ -6,16 +6,18 @@ Reads the Claude Code hook payload on stdin (JSON with `tool_name` +
 and resets it to false if it has drifted to true. This prevents mid-session
 git breakages from bubbling up to the agents.
 
-Always exits 0 to allow the actual tool invocation to proceed.
+Blocks when the configured product cannot be resolved or healed.
 """
 from __future__ import annotations
 
 import json
 import shlex
-import subprocess
 import sys
-from contextlib import suppress
 from pathlib import Path
+
+# The shipped hooks and package are siblings in the release. Bootstrap code
+# imports for plain shebang launches; this path never selects product or state.
+sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
 
 def _read_payload() -> dict:
@@ -39,23 +41,11 @@ def _is_git_command(command: str) -> bool:
     return "git" in tokens
 
 
-# The machinery modules this hook loads and runs, by import name; under a checkout their files are
-# at the same dotted path (this hook is outside the machinery package).
-_ROOTS_READER_MODULE = "lu_machinery.common.repo_root"
-_CORE_BARE_CHECK_MODULE = "lu_machinery.hygiene.check_core_bare"
+def _project_dir() -> Path:
+    from lu_machinery.common.repo_root import product_root
+    from lu_machinery.guardrails.worktree_containment import resolve_main_root_without_git
 
-
-def _module_file(module: str) -> Path:
-    """The checkout-relative file of a machinery module named by its import name."""
-    return Path(*module.split(".")).with_suffix(".py")
-
-
-def _project_dir() -> Path | None:
-    here = Path(__file__).resolve()
-    for candidate in (here.parent, *here.parents):
-        if (candidate / _module_file(_ROOTS_READER_MODULE)).is_file():
-            return candidate
-    return None
+    return resolve_main_root_without_git(product_root().resolve())
 
 
 # Git reads an empty value as false and any other non-false value as true.
@@ -138,30 +128,19 @@ def main() -> int:
     if not command or not _is_git_command(command):
         return 0
 
-    project_dir = _project_dir()
-    if project_dir is None or not _may_be_bare(project_dir):
-        return 0
-
-    script = project_dir / _module_file(_CORE_BARE_CHECK_MODULE)
     try:
-        if str(project_dir) not in sys.path:
-            sys.path.insert(0, str(project_dir))
-        from lu_machinery.common.repo_root import project_interpreter
+        project_dir = _project_dir()
+        if not _may_be_bare(project_dir):
+            return 0
+        from lu_machinery.hygiene.check_core_bare import check_core_bare
 
-        python_bin = project_interpreter()
-    except Exception:
-        return 0
-
-    if script.exists() and python_bin.is_file():
-        with suppress(OSError):
-            subprocess.run(
-                [str(python_bin), str(script), "--repo", str(project_dir), "--fix", "-q"],
-                check=False,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-            )
-
-    return 0
+        ok, message = check_core_bare(project_dir, fix=True)
+        if not ok:
+            print(f"BLOCKED: {message}", file=sys.stderr)
+        return 0 if ok else 2
+    except Exception as exc:
+        print(f"BLOCKED: product bare-check authority unavailable: {exc}", file=sys.stderr)
+        return 2
 
 
 if __name__ == "__main__":
