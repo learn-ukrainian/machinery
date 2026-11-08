@@ -381,8 +381,8 @@ _NATIVE_CODE_REVIEW_OUTPUT = """## Existing code-review output and exact-target 
 In your first completed reply, include a plain, unfenced verdict line using
 the label VERDICT, a colon, then APPROVE, REQUEST_CHANGES, or BLOCKED, as warranted
 by your independent judgment. Also include one native JSON object, unfenced, conforming to
-the code-review-findings.v1 schema (schema_version: code-review-findings.v1).
-In that schema, overall requires correctness, explanation, confidence; each
+lu_machinery/schemas/code-review-findings.v1.schema.json (schema_version: code-review-findings.v1).
+Read that schema: overall requires correctness, explanation, confidence; each
 finding requires id, title, body, priority, confidence, category, location,
 verbatim, why_wrong, smallest_fix, sources. Do not add fields or wrap the object
 in another object. Retain every material and nonblocking finding, including
