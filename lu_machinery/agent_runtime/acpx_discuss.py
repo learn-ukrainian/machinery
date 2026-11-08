@@ -33,8 +33,8 @@ from lu_machinery.agent_runtime.adapters.acpx import (
     active_discussion_scope,
 )
 from lu_machinery.agent_runtime.errors import AgentStalledError, AgentTimeoutError, RateLimitedError
-from lu_machinery.agent_runtime.kimi_admission import ACP_MODE, KimiAdmissionRefused
 from lu_machinery.agent_runtime.result import Result
+from lu_machinery.agent_runtime.retired_seat_admission import ACP_MODE, KimiAdmissionRefused
 from lu_machinery.agent_runtime.runner import (
     _invoke_native_once,
     invoke_inter_agent,

@@ -12,7 +12,7 @@ from pathlib import Path
 from lu_machinery.agent_runtime import usage as runtime_usage
 from lu_machinery.agent_runtime.attribution import resolve_invocation_attribution
 from lu_machinery.agent_runtime.errors import AgentTimeoutError, RateLimitedError
-from lu_machinery.agent_runtime.kimi_admission import KimiAdmissionRefused
+from lu_machinery.agent_runtime.retired_seat_admission import KimiAdmissionRefused
 from lu_machinery.agent_runtime.runner import InterAgentTransportError
 from lu_machinery.common import github_client
 from lu_machinery.common.repo_root import MachineryConfigError, product_root, state_root

@@ -62,7 +62,7 @@ def is_kimi_model(model: str | None) -> bool:
     text = str(model or "").strip().casefold()
     if not text:
         return False
-    if text.startswith("kimi"):
+    if text.startswith(("kimi", "acpx-kimi")):
         return True
     try:
         from lu_machinery.review.model_catalog import kimi_historical_labels
@@ -75,9 +75,7 @@ def is_kimi_model(model: str | None) -> bool:
 def is_kimi_seat(agent: str | None, *, model: str | None = None) -> bool:
     """True when ``agent`` is a Kimi seat (``kimi``, ``kimicc``, ``kimi-<lane>`` slots, ``acpx-kimi*``) or ``model`` names a Kimi model."""
     name = str(agent or "").strip().casefold()
-    if name in KIMI_AGENT_IDS or name.startswith(("kimi-", "acpx-kimi")):
-        return True
-    return is_kimi_model(model)
+    return name in KIMI_AGENT_IDS or is_kimi_model(name) or is_kimi_model(model)
 
 
 def _walk_files(repo_root: Path, base: str) -> Iterable[str]:

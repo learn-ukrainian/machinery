@@ -594,7 +594,7 @@ def child_credential_env(
     Dispatched workers resolve identity as before and receive no signing key.
     """
     from .agent_github_identity import resolve_agent_github_identity
-    from .kimi_admission import is_kimi_seat
+    from .retired_seat_admission import is_kimi_seat
 
     env = {}
     seat = _normalized_provider(provider)
@@ -725,7 +725,7 @@ def build_agent_env(
 
     # Git-config isolation (#2842) — applied last so it always wins; agents
     # cannot persist a repo-bricking core.bare write into system/global config.
-    from .kimi_admission import is_kimi_seat
+    from .retired_seat_admission import is_kimi_seat
 
     # Retired Kimi inputs keep the no-push protection. They get no GitHub identity, no
     # credential helper, an empty gh config, and every push URL rewritten below.
@@ -743,7 +743,7 @@ def build_agent_env(
             no_credentials=no_push,
         )
     except (OSError, subprocess.TimeoutExpired) as exc:  # raised only for a Kimi seat
-        from .kimi_admission import KimiAdmissionRefused, format_refusal
+        from .retired_seat_admission import KimiAdmissionRefused, format_refusal
 
         failure = f"a launch whose credential isolation could not be established ({exc})"
         raise KimiAdmissionRefused(format_refusal(provider, [failure])) from exc
@@ -1063,10 +1063,14 @@ if __name__ == "__main__":
         try:
             # Match the exec path's import closure before the shell claims a
             # lease. Import errors must not expose their exception diagnostics.
-            from . import agent_github_identity, kimi_admission
+            from . import agent_github_identity, retired_seat_admission
 
             # Resolve the same members as the child policy without minting.
-            _ = agent_github_identity.resolve_agent_github_identity, kimi_admission.is_kimi_seat
+            for module, member in (
+                (agent_github_identity, "resolve_agent_github_identity"),
+                (retired_seat_admission, "is_kimi_seat"),
+            ):
+                getattr(module, member)
 
             if args.check_helper:
                 raise SystemExit(0)

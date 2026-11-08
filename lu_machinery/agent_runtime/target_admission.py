@@ -8,7 +8,7 @@ and recipients its ``data`` attachments carry, legacy compat command names,
 the ACP route registry's adapter agent and model pin, retired-CLI aliases,
 role slots resolved to their live holder, quota substitution, and a launch
 route (the legacy budget substitution) — and runs the Kimi gate
-(``kimi_admission.refuse_kimi_if_disallowed``) twice: on the original request
+(``retired_seat_admission.refuse_kimi_if_disallowed``) twice: on the original request
 before any resolution step reads state or has an effect, and on the final
 seats and models together with the original request, raising
 ``KimiAdmissionRefused`` before it returns. A sink therefore receives exactly
@@ -17,7 +17,7 @@ the target that was gated; nothing resolves after the gate.
 The named resolvers are called from this module only
 (``tests/test_target_admission_structure.py`` scans the callers). That scan is
 bounded — named calls and local bindings, not callbacks or aliased calls — so
-the execution-time re-check (``kimi_admission.refuse_kimi_execution``) stays
+the execution-time re-check (``retired_seat_admission.refuse_kimi_execution``) stays
 the backstop.
 """
 
@@ -35,7 +35,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any, cast
 
-from .kimi_admission import (
+from .retired_seat_admission import (
     BRIDGE_MODE,
     REVIEW_MODE,
     KimiAdmissionRefused,

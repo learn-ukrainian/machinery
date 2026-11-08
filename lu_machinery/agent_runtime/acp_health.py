@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from .adapters import acpx
-from .kimi_admission import is_kimi_seat
+from .retired_seat_admission import is_kimi_seat
 
 
 def probe_acp_health(cwd: Path) -> dict[str, dict[str, Any]]:

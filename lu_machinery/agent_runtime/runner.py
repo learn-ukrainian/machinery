@@ -104,10 +104,10 @@ from .failover import (
     tool_config_with_route,
 )
 from .failure_codes import RUNTIME_FAILURE_CODES
-from .kimi_admission import ACP_MODE, KimiAdmissionRefused, refuse_kimi_execution
 from .primary_tree_watch import PrimaryTreeWatch
 from .registry import AGENTS, MACHINERY_PACKAGE, get_agent_entry
 from .result import AgyModelIdentity, ParseResult, Result
+from .retired_seat_admission import ACP_MODE, KimiAdmissionRefused, refuse_kimi_execution
 from .target_admission import resolve_and_admit
 from .telemetry import InvocationTelemetry, codex_model_identity, resolve_invocation_telemetry
 from .trail_isolation import prepare_trail_isolation
@@ -3837,8 +3837,8 @@ def _refuse_retired_launch_model(agent_name: str, model: str | None, tool_config
     elif str(model or "").strip():
         effective_model = str(model).strip()
     else:
-        from .kimi_admission import is_kimi_seat
         from .registry import AGENTS
+        from .retired_seat_admission import is_kimi_seat
 
         default_model = AGENTS.get(agent_name, {}).get("default_model")
         if not default_model or not is_kimi_seat(agent_name, model=default_model):

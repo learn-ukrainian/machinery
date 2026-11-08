@@ -22,7 +22,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, Literal
 
-from lu_machinery.agent_runtime.kimi_admission import ACP_MODE, BRIDGE_MODE, KimiAdmissionRefused
+from lu_machinery.agent_runtime.retired_seat_admission import ACP_MODE, BRIDGE_MODE, KimiAdmissionRefused
 from lu_machinery.agent_runtime.target_admission import (
     AdmittedTarget,
     require_admitted,
