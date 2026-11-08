@@ -1,10 +1,32 @@
 """Repository root and project-interpreter resolvers, and the one machinery root configuration.
 
+Execution modes (C-4843, root contract step 1). This module runs either as the
+**in-tree source copy** (the package directory that sits inside a product checkout
+under the product's own package name) or as **lu_machinery** (the installed package,
+or a standalone machinery checkout, whose package directory is named
+``INSTALLED_PACKAGE_NAME``). :func:`in_tree_source` tells them apart from this file's
+unresolved package directory name alone: no working directory, ancestor, sibling, home
+directory or ``site-packages`` lookup takes part, so a decoy file cannot change the mode.
+
+- :func:`machinery_root` and :func:`machinery_path`: the package directory, in both
+  modes; never configured, and a path never leaves the package.
+- :func:`product_root`: an explicit argument, else ``LU_PRODUCT_ROOT``; with neither,
+  lu_machinery refuses, and only the in-tree copy derives the checkout holding it.
+- :func:`state_root` and :func:`primary_root`: ``LEARN_UKRAINIAN_PRIMARY_REPO_ROOT``;
+  without it, lu_machinery refuses, and only the in-tree copy derives the primary of its
+  own checkout (unchanged).
+
+Refusals raise :class:`ProductRootError` or :class:`StateRootError` (both
+:class:`MachineryConfigError`, a ``ValueError``) at the call, never at import, so
+package-only imports and ``--help`` work with nothing configured. Resolution only
+reads: it creates no directory, file, database or connection. An invalid selection
+never falls through to a later candidate.
+
 Machinery roots (#12681). Five roots are kept distinct, and the four that can live
 outside this checkout come from one configuration: environment variables read at the
-call (a systemd ``EnvironmentFile=``, a launcher or a test can supply them). An unset or
-empty variable keeps today's value, so the defaults are the behaviour before the
-configuration existed.
+call (a systemd ``EnvironmentFile=``, a launcher or a test can supply them). In the
+in-tree source copy an unset or empty variable keeps today's value, so the defaults
+are the behaviour before the configuration existed.
 
 ========================  ====================================  =================================================
 Root                      Variable                              Default (today's behaviour)
@@ -39,20 +61,26 @@ contained, package-relative path under it), never by spelling the package's name
 Machinery code finds the product's files (curriculum data, product configuration, product
 modules named by product data) through :func:`product_root` (C-4746), never through its
 own location: once the machinery is its own repository, the checkout it runs from is not
-the product. The selection order is an explicit argument, then ``LU_PRODUCT_ROOT``, then
-the checkout that holds this package (from the unresolved module location) when it is a
-product checkout. The first candidate that is given is the only one considered: an
-invalid one raises :class:`ProductRootError` and never falls through to the next. Each
-candidate must be absolute and carry the product marker ``PRODUCT_MARKER``. The marker
-proves the layout only; it is not authorization or completeness: loaders keep their own
-origin checks, and a reader whose required file is missing fails through its own error.
-Machinery-owned resources (shared hooks, guard executables) never come from this root.
-Today every entry point runs from a product checkout, so nothing needs setting. Once the
-machinery runs from its own repository, every service, timer, hook or command that reads
+the product. The selection order is an explicit argument, then ``LU_PRODUCT_ROOT``, then,
+in the in-tree source copy only, the checkout that holds this package (from the unresolved
+module location) when it is a product checkout. The first candidate that is given is the
+only one considered: an invalid one raises :class:`ProductRootError` and never falls
+through to the next. Every candidate must be absolute. An explicit or configured product
+must be an existing directory and need not be the Ukrainian curriculum (kube-dojo is a
+product too): the operation that reads it validates the files it needs. Only the derived
+in-tree default must carry the product marker ``PRODUCT_MARKER``, which proves the
+layout, not authorization or completeness: loaders keep their own origin checks, and a
+reader whose required file is missing fails through its own error. Machinery-owned
+resources (shared hooks, guard executables) never come from this root. The installed
+package has no implicit product: every service, timer, hook or command that reads
 product files names the product checkout with ``LU_PRODUCT_ROOT`` (a systemd
 ``EnvironmentFile=``, a launcher) or an explicit root; without one it refuses. The Monitor
 API selects it at startup (``scripts.api.config.PRODUCT_ROOT``): served from a release
 snapshot, that is the snapshot itself, never the live checkout.
+
+Shared runtime state is anchored on ``LEARN_UKRAINIAN_PRIMARY_REPO_ROOT``, never on the
+selected product: kube-dojo's worktrees and the shared dispatch state live in different
+places. The installed package refuses state-dependent use without that anchor.
 """
 
 from __future__ import annotations
@@ -113,12 +141,38 @@ PRODUCT_MARKER = "curriculum/l2-uk-en/curriculum.yaml"
 # amendment 1): with the package directory symlinked into a product checkout, this names
 # the product checkout, not the machinery checkout the link points at.
 _PACKAGE_CHECKOUT = Path(os.path.abspath(__file__)).parents[2]
+# The import name of the installed (and standalone-checkout) machinery package. A package
+# directory with any other name is the in-tree source copy inside a product checkout.
+INSTALLED_PACKAGE_NAME = "lu_machinery"
+# Decided from the unresolved module location once, at import, without touching the file
+# system: a symlinked in-tree package directory keeps the in-tree name.
+_IN_TREE_SOURCE = Path(os.path.abspath(__file__)).parents[1].name != INSTALLED_PACKAGE_NAME
 # GitHub owner (alphanumerics and inner hyphens) / repository name.
 _GITHUB_SLUG_RE = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?/[A-Za-z0-9._-]{1,100}")
 
 
 class MachineryConfigError(ValueError):
     """A machinery root variable is set to a value that cannot be used; the message names it."""
+
+
+class StateRootError(MachineryConfigError):
+    """No shared-state anchor is configured where one is required; the message names the variable."""
+
+
+def in_tree_source() -> bool:
+    """True when this module runs as the in-tree source copy inside a product checkout.
+
+    False for the installed ``lu_machinery`` package and for a standalone machinery
+    checkout: there no product and no state anchor is ever derived from the code's own
+    location (C-4843).
+    """
+    return _IN_TREE_SOURCE
+
+
+def _require_in_tree_default(error: type[MachineryConfigError], what: str, remedy: str) -> None:
+    """Refuse the location-derived default of ``what`` outside the in-tree source copy."""
+    if not _IN_TREE_SOURCE:
+        raise error(f"no {what} is configured, and the {INSTALLED_PACKAGE_NAME} package derives none: {remedy}")
 
 
 def _env(env: Mapping[str, str] | None) -> Mapping[str, str]:
@@ -177,10 +231,21 @@ def runtime_primary_root(start: Path | None = None) -> Path:
 
 
 def primary_root(start: Path | None = None, env: Mapping[str, str] | None = None) -> Path:
-    """The configured primary checkout, else the primary that owns ``start`` (default: the runtime)."""
+    """The configured primary checkout, else the primary that owns ``start`` (default: the runtime).
+
+    The fallback exists only in the in-tree source copy. The installed package requires
+    ``LEARN_UKRAINIAN_PRIMARY_REPO_ROOT`` and raises :class:`StateRootError` without it,
+    whatever ``start`` is: callers pass their own install location there, and a
+    ``site-packages`` directory is never a state anchor.
+    """
     configured = configured_primary_root(env)
     if configured is not None:
         return configured
+    _require_in_tree_default(
+        StateRootError,
+        "shared-state anchor",
+        f"set {PRIMARY_ROOT_ENV} to the primary checkout that holds batch_state/",
+    )
     return main_checkout_root(RUNTIME_ROOT if start is None else start)
 
 
@@ -204,7 +269,9 @@ def state_root(start: Path | None = None, env: Mapping[str, str] | None = None) 
 
     A configured state root must be that same directory (compared after ``realpath``);
     any other value would point state at a new store, which only the operator's state
-    cutover may do, so it is refused.
+    cutover may do, so it is refused. The installed package anchors only on a configured
+    ``LEARN_UKRAINIAN_PRIMARY_REPO_ROOT`` (see :func:`primary_root`): a configured state
+    root alone does not stand in for it.
     """
     primary = primary_root(start, env)
     configured = _configured_path(STATE_ROOT_ENV, env)
@@ -246,7 +313,8 @@ class MachineryRoots:
 def machinery_roots(env: Mapping[str, str] | None = None) -> MachineryRoots:
     """Resolve every machinery root from the configuration and its defaults.
 
-    Raises :class:`MachineryConfigError` for an unusable value and ``FileNotFoundError``
+    Raises :class:`MachineryConfigError` for an unusable or (installed package) missing
+    state anchor, :class:`StateRootError` being the missing case, and ``FileNotFoundError``
     when no interpreter can be resolved.
     """
     return MachineryRoots(
@@ -340,12 +408,16 @@ def product_root(explicit: Path | str | None = None, *, env: Mapping[str, str] |
     """The product checkout whose files machinery reads, or raise :class:`ProductRootError`.
 
     The candidate is ``explicit`` when given, else ``LU_PRODUCT_ROOT`` when set and not
-    empty, else the checkout that holds this package, found from the unresolved module
-    location. Only that one candidate is checked: it must be an absolute path and carry
-    ``PRODUCT_MARKER``; the derived checkout may instead be a linked worktree of a checkout
-    that carries it (see :func:`_carries_product_marker`). A candidate that fails raises at
-    once instead of falling through to a later one. The path is returned as given (symlinks
-    are not resolved), so a release snapshot stays the snapshot.
+    empty. An explicit or configured candidate must be an absolute path to an existing
+    directory; it need not carry ``PRODUCT_MARKER``, since a product other than the
+    Ukrainian curriculum is still a product, and the reading operation validates its own
+    inputs. With neither given, the installed package refuses: it has no implicit product.
+    Only the in-tree source copy then derives the checkout that holds this package from the
+    unresolved module location; that derived candidate must carry ``PRODUCT_MARKER``, or be
+    a linked worktree of a checkout that carries it (see :func:`_carries_product_marker`).
+    Only the one selected candidate is checked: one that fails raises at once instead of
+    falling through to a later one. The path is returned as given (symlinks are not
+    resolved), so a release snapshot stays the snapshot.
 
     Call it when a feature runs or an application starts, never at import, and resolve it
     before a cache lookup so the cache is keyed by the selected root.
@@ -356,11 +428,20 @@ def product_root(explicit: Path | str | None = None, *, env: Mapping[str, str] |
     elif _env(env).get(PRODUCT_ROOT_ENV, ""):
         source, value = PRODUCT_ROOT_ENV, _env(env)[PRODUCT_ROOT_ENV]
     else:
+        _require_in_tree_default(
+            ProductRootError,
+            "product",
+            f"name the product checkout with {PRODUCT_ROOT_ENV} or an explicit product root",
+        )
         source, value, derived = "the checkout holding the machinery package", os.fspath(_PACKAGE_CHECKOUT), True
     if not isinstance(value, str) or "\x00" in value or not os.path.isabs(value):
         raise ProductRootError(f"{source} must be an absolute path, got {value!r}")
     candidate = Path(value)
-    if not _carries_product_marker(candidate, through_primary=derived):
+    if not derived:
+        if not os.path.isdir(candidate):
+            raise ProductRootError(f"{source} ({candidate}) is not an existing directory")
+        return candidate
+    if not _carries_product_marker(candidate, through_primary=True):
         raise ProductRootError(
             f"{source} ({candidate}) is not a product checkout: it has no {PRODUCT_MARKER}; "
             f"name the product checkout with {PRODUCT_ROOT_ENV} or an explicit product root"
@@ -600,6 +681,11 @@ def resolve_repo_root(script_path: Path, parents: int) -> Path:
     A configured ``LEARN_UKRAINIAN_PRIMARY_REPO_ROOT`` names that primary
     directly, so machinery installed outside the checkout anchors state on
     the configured primary instead of on its own install location.
+
+    Unlike :func:`state_root`, this does not refuse an unconfigured installed
+    package: modules bind it at import, and imports must keep working with
+    nothing configured. Those callers move to :func:`state_root` at their
+    call sites in a later step of C-4843, after which this helper is removed.
     """
     configured = configured_primary_root()
     if configured is not None:
