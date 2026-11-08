@@ -29,7 +29,7 @@ SECURITY_SENSITIVE_PATHS = (
     "agents_extensions/*/hooks*.json",
     "agents_extensions/*/settings*.json",
     "agents_extensions/*/config.toml",
-    "lu_machinery/session_streams/**",
+    f"{_MACHINERY}/session_streams/**",
     "start-*.sh",
     "run-dispatcher.sh",
     "services.sh",

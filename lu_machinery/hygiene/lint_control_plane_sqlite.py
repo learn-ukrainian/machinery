@@ -40,10 +40,8 @@ def _mod(*parts: str) -> str:
 
 
 # The machinery package directory and the product scripts tree (one directory
-# in this checkout), then the shared session streams.
-_SCAN_ROOTS: tuple[str, ...] = tuple(
-    dict.fromkeys((_machinery_top(), "scripts", "lu_machinery/session_streams"))
-)
+# in this checkout), including the packaged session streams.
+_SCAN_ROOTS: tuple[str, ...] = tuple(dict.fromkeys((_machinery_top(), "scripts")))
 _CONTROL_PLANE_PACKAGE = _mp("control_plane")
 _SKIP_PATH_PREFIXES: tuple[str, ...] = ("tests/",)
 
