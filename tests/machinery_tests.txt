@@ -18,6 +18,8 @@
 # [held]: source [run] files this repository does not run, with the reason; none is ported.
 #   Each needs the product checkout, which this repository does not hold.
 # [run]
+tests/hygiene/test_tmp_sweep.py
+tests/hygiene/test_pytest_retention.py
 tests/agent_deploy/test_release_deployer.py
 tests/hooks/test_release_root_authority.py
 tests/agent_runtime/test_release_guard_settings.py
