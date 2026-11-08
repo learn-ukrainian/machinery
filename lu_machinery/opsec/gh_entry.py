@@ -1,12 +1,14 @@
-"""Execute admitted raw reads/private writes through the publishing guard and shared client."""
+"""Execute admitted raw reads/private writes through the publishing guard and shared client.
+
+The agent gh shim starts this module through the package bootstrap, so the
+checkout is not put on the import path.
+"""
 
 from __future__ import annotations
 
 import sys
 from pathlib import Path
 
-# Executed by the shim as a file, so imports do not depend on caller cwd.
-sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from lu_machinery.opsec.gh_snapshot import admit
 from lu_machinery.opsec.prepublish import PublishBlocked, internal_environment, real_gh
 
