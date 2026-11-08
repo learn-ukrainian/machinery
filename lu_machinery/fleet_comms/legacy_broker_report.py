@@ -24,10 +24,9 @@ except ModuleNotFoundError as exc:
         raise
     from lib.readonly_sqlite import SQLiteConnection, open_readonly  # type: ignore[no-redef]
 
-from lu_machinery.common.repo_root import main_checkout_root
+from lu_machinery.common.repo_root import state_root
 from lu_machinery.fleet_comms.opsec_store import store_descriptor
 
-_SOURCE_REPO_ROOT = Path(__file__).resolve().parents[2]
 _ROUTES_TABLE = "legacy_comms_route_usage"
 _BRIDGE_TABLE = "legacy_bridge_ask_usage"
 _ROUTE_SEAT_CALLERS = frozenset({"browser", "broker-ops", "cli", "dashboard"})
@@ -48,12 +47,12 @@ _BRIDGE_BACKGROUND_CALLERS = frozenset(
 
 def default_routes_db() -> Path:
     """Return the shared legacy telemetry database without creating it."""
-    return main_checkout_root(_SOURCE_REPO_ROOT) / "data" / "telemetry" / "legacy_comms_routes.db"
+    return state_root() / "data" / "telemetry" / "legacy_comms_routes.db"
 
 
 def default_legacy_bridge_path() -> Path:
     """Return the optional historical bridge store path without creating it."""
-    return main_checkout_root(_SOURCE_REPO_ROOT) / "data" / "telemetry" / "legacy_bridge"
+    return state_root() / "data" / "telemetry" / "legacy_bridge"
 
 
 def _utc_now() -> datetime:

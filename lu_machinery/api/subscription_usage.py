@@ -26,6 +26,7 @@ from types import ModuleType
 from typing import Any
 
 from lu_machinery.api.state_helpers import cache_get_with_age, cache_invalidate, cache_set
+from lu_machinery.common.repo_root import state_root
 from lu_machinery.fleet.credit_lane import SUBSCRIPTION_NEAR_CAP_USED_PCT
 
 try:
@@ -51,11 +52,6 @@ ON_PACE_BAND_PCT = 2.0
 SESSION_WINDOW_MAX_MINUTES = 300
 HEADROOM_DELTA_PCT = -15.0
 HEADROOM_SPEED_MULTIPLIER = 1.5
-
-try:
-    from lu_machinery.common.repo_root import main_checkout_root
-except ImportError:  # pragma: no cover
-    from common.repo_root import main_checkout_root
 
 try:
     from lu_machinery.agent_runtime.codex_accounts import (
@@ -2615,9 +2611,7 @@ def stop_periodic_refresh(*, join_timeout_s: float = 1.0) -> None:
 
 
 def _routing_budget_state_dir() -> Path:
-    source_repo_root = Path(__file__).resolve().parents[2]
-    repo_root = main_checkout_root(source_repo_root)
-    path = repo_root / "batch_state" / "routing_budget"
+    path = state_root() / "batch_state" / "routing_budget"
     path.mkdir(parents=True, exist_ok=True)
     return path
 

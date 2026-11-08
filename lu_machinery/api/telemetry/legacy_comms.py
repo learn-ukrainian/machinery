@@ -26,7 +26,8 @@ from fastapi.routing import APIRoute
 from starlette.background import BackgroundTask
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from .. import config as api_config
+from lu_machinery.common.repo_root import state_root
+
 from ..resilience import connect_sqlite
 
 logger = logging.getLogger(__name__)
@@ -39,7 +40,7 @@ def db_path_for_root(project_root: Path) -> Path:
 
 def _default_db_path() -> Path:
     """Resolve the production default without a module-level Path seam."""
-    return db_path_for_root(Path(api_config.PROJECT_ROOT))
+    return db_path_for_root(state_root())
 
 
 def _request_db_path(request: Request) -> Path | None:
@@ -50,7 +51,10 @@ def _request_db_path(request: Request) -> Path | None:
     """
     ctx = getattr(request.app.state, "ctx", None)
     project_root = getattr(getattr(ctx, "roots", None), "project_root", None)
-    return None if project_root is None else db_path_for_root(project_root)
+    if project_root is None:
+        return None
+    root = project_root if getattr(ctx, "root", None) is not None else state_root()
+    return db_path_for_root(root)
 _RETENTION_DAYS = 90
 _WINDOWS = {
     "1h": timedelta(hours=1),

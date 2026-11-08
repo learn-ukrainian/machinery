@@ -7,7 +7,6 @@ import argparse
 import json
 import logging
 import re
-import sys
 from collections import Counter, defaultdict
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
@@ -18,21 +17,14 @@ from typing import Any
 
 import yaml
 
-# Keep the standalone script entrypoint able to import the shared runtime reader.
-PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
-if str(PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(PROJECT_ROOT))
-
 from lu_machinery.agent_runtime.usage import _iter_usage_records
-from lu_machinery.common.repo_root import machinery_path
+from lu_machinery.common.repo_root import machinery_path, product_root, state_root
 
-CURRICULUM_ROOT = PROJECT_ROOT / "curriculum" / "l2-uk-en"
-API_USAGE_DIR = PROJECT_ROOT / "batch_state" / "api_usage"
 COST_RATES_PATH = machinery_path("telemetry/cost_rates.yaml")
 DEFAULT_DIVISOR = 3.8
 PROMPT_BLOAT_THRESHOLD = 30_000
 
-_CYRILLIC_RE = re.compile(r"[А-Яа-яЇїІіЄєҐґ]")
+_CYRILLIC_RE = re.compile("[А-Яа-яЇїІіЄєҐґ]")
 _LATIN_RE = re.compile(r"[A-Za-z]")
 _AGENT_MODEL_RE = re.compile(r"\(([^()]+)\)\s*$")
 _PHASE_SORT = {
@@ -175,7 +167,7 @@ def _iter_dispatch_meta_files(
     level: str | None = None,
     slug: str | None = None,
 ) -> Iterable[Path]:
-    curriculum_root = root or CURRICULUM_ROOT
+    curriculum_root = root or product_root() / "curriculum" / "l2-uk-en"
     level_part = level or "*"
     slug_part = slug or "*"
     pattern = f"{level_part}/orchestration/{slug_part}/dispatch/*-meta.json"
@@ -289,7 +281,7 @@ def count_runtime_calls(
     slight superset of the cost window's exact N*24h mtime cutoff.
     """
     counts = unreadable if unreadable is not None else {"files": 0, "lines": 0, "records": 0}
-    directory = usage_dir or API_USAGE_DIR
+    directory = usage_dir or state_root() / "batch_state" / "api_usage"
     if not directory.exists():
         return 0
     today = (now or datetime.now(UTC)).date()
@@ -531,7 +523,7 @@ def build_cost_windows(
             window["warnings"] = [
                 *window["warnings"],
                 f"Dispatch-meta cost ledger is empty for this window, but {runtime_calls} runtime "
-                "call(s) were recorded; those calls are not reflected in the cost estimates.",
+                + "call(s) were recorded; those calls are not reflected in the cost estimates.",
             ]
         windows[key] = window
     return {
@@ -573,8 +565,8 @@ def render_terminal(summary: dict[str, Any]) -> str:
     lines = [
         _ansi("1;36", f"Estimated cost report [{summary['scope']['label']}]"),
         f"Calls: {totals['calls']}  Prompt est.: {_fmt_int(totals['prompt_tokens_est'])}  "
-        f"Output est.: {_fmt_int(totals['response_tokens_est'])}  "
-        f"Cost est.: {_ansi('1;32', _fmt_cost(float(totals['cost_usd_est'])) + ' USD')}",
+        + f"Output est.: {_fmt_int(totals['response_tokens_est'])}  "
+        + f"Cost est.: {_ansi('1;32', _fmt_cost(float(totals['cost_usd_est'])) + ' USD')}",
     ]
     if summary["since"]:
         lines.append(f"Since mtime: {summary['since']}")
