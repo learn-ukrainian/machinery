@@ -301,9 +301,6 @@ modules:
   check_decisions.py:
     reason: Shim for scripts/audit, which is product.
     role: product
-  check_issue_task_quality.py:
-    reason: Shim for scripts/ci, which is machinery.
-    role: machinery
   check_review_issues.py:
     reason: Shim for scripts/audit, which is product.
     role: product

@@ -33,7 +33,7 @@ The `handoff_note` contains:
 - Every open PR touched: repository, number, head SHA, verdict at that head, CI and queue state.
 - Every live worker: task ID, FULL run nonce, agent, deliverable and whether its wait is armed.
 - Scorecard: PRs merged, median approved-to-merged time, rework rounds per PR, new mistakes
-  and repeats by ledger item ID. A repeat of a verified correction names its next control step.
+  and repeats by ledger item ID. A repeat names its source fix.
 - Parked item IDs, locations, state and condition to resume, or none.
 - The next three actions by item ID.
 - Startup: record the keeper's launcher argv, exact lineage and rollover IDs to resume
