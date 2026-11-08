@@ -7,7 +7,7 @@ import json
 import os
 import shutil
 import subprocess
-import sys
+import tomllib
 import venv
 import zipfile
 from pathlib import Path
@@ -36,12 +36,33 @@ def release(tmp_path_factory):
             source / name,
             ignore=shutil.ignore_patterns("__pycache__", "*.pyc"),
         )
+    # The inherited execution guard owns sitecustomize, as does pip's build
+    # isolation. A separate build venv keeps the guard and gives the backend
+    # its declared dependencies without competing sitecustomize hooks.
+    builder = scratch / "builder"
+    venv.EnvBuilder(with_pip=True).create(builder)
+    build_python = builder / "bin" / "python"
+    requirements = tomllib.loads((source / "pyproject.toml").read_text())["build-system"]["requires"]
+    prepared = _run(
+        [
+            str(build_python),
+            "-m",
+            "pip",
+            "install",
+            "--disable-pip-version-check",
+            "--only-binary=:all:",
+            *requirements,
+        ],
+        cwd=scratch,
+    )
+    assert prepared.returncode == 0, prepared.stdout + prepared.stderr
     built = _run(
         [
-            sys.executable,
+            str(build_python),
             "-m",
             "pip",
             "wheel",
+            "--no-build-isolation",
             "--disable-pip-version-check",
             "--no-deps",
             "--wheel-dir",
