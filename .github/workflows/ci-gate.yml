@@ -4,8 +4,8 @@
 # check in this source repository.
 #
 # Bootstrap CI for the first push. Branch protection requires one check named
-# "CI Gate", and the merge queue ruleset waits for that check on merge groups,
-# so this workflow runs on pull_request and merge_group for main. Pins and their
+# "CI Gate", and the merge queue ruleset waits for that check on merge groups.
+# Main pushes also run it to seed shared, verified tool archives. Pins and their
 # upstream evidence are recorded in pins.txt beside this file; bump them
 # together there.
 #
@@ -43,6 +43,9 @@
 name: CI Gate
 
 on:
+  # Main-scope archives are visible to future PR and merge-queue refs.
+  push:
+    branches: [main]
   pull_request:
     branches: [main]
     types: [opened, synchronize, reopened]
@@ -336,7 +339,7 @@ jobs:
         run: rm -rf "$RUNNER_TEMP/zizmor" "$RUNNER_TEMP/zizmor-venv" "$RUNNER_TEMP/zizmor-requirements.txt"
 
   # Blocking secret scan with the pinned TruffleHog CLI (pins.txt).
-  # - pull_request and merge_group scan the commits between base and head;
+  # - pull_request, merge_group and main pushes scan the commits between base and head;
   #   workflow_dispatch scans the full history of the dispatched ref.
   # - Verified, unknown and unverified results are reported (pins.txt records
   #   why). Findings fail the job (exit 183), and so do scanner errors
@@ -388,11 +391,14 @@ jobs:
           PR_HEAD: ${{ github.event.pull_request.head.sha }}
           MQ_BASE: ${{ github.event.merge_group.base_sha }}
           MQ_HEAD: ${{ github.event.merge_group.head_sha }}
+          PUSH_BASE: ${{ github.event.before }}
+          PUSH_HEAD: ${{ github.event.after }}
         run: |
           set -euo pipefail
           case "$EVENT_NAME" in
             pull_request) base="$PR_BASE"; head="$PR_HEAD" ;;
             merge_group) base="$MQ_BASE"; head="$MQ_HEAD" ;;
+            push) base="$PUSH_BASE"; head="$PUSH_HEAD" ;;
             workflow_dispatch) base=""; head="$(git rev-parse HEAD)" ;;
             *) echo "::error::Unsupported event ${EVENT_NAME}"; exit 1 ;;
           esac
@@ -793,6 +799,7 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           PR_BASE: ${{ github.event.pull_request.base.sha }}
           MQ_BASE: ${{ github.event.merge_group.base_sha }}
+          PUSH_BASE: ${{ github.event.before }}
         run: |
           set -euo pipefail
           rules="$RUNNER_TEMP/semgrep-rules"
@@ -867,6 +874,7 @@ jobs:
           case "$EVENT_NAME" in
             pull_request) base="$PR_BASE" ;;
             merge_group) base="$MQ_BASE" ;;
+            push) base="$PUSH_BASE" ;;
             workflow_dispatch) base="" ;;
             *) echo "::error::Unsupported event ${EVENT_NAME}"; exit 1 ;;
           esac
