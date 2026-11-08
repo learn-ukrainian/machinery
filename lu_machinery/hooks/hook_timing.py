@@ -106,8 +106,9 @@ def run_wrapped(argv: list[str]) -> int:
                 or "unknown",
             }
         )
-    except MachineryConfigError as exc:
-        # No state root for the default log: the wrapped hook's result (a deny exits 2) still stands.
+    except (MachineryConfigError, OSError) as exc:
+        # No state root for the default log, or the write failed (disk full, permissions): the
+        # wrapped hook's result (a deny exits 2) still stands.
         print(f"hook_timing: timing row not written: {exc}", file=sys.stderr)
     return int(proc.returncode)
 

@@ -34,11 +34,12 @@ from collections.abc import Iterable, Mapping, Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from lu_machinery.common.repo_root import machinery_path
+
 if TYPE_CHECKING:
     from lu_machinery.agent_runtime.kimi_admission import FileChange
 
-_REPO_ROOT = Path(__file__).resolve().parents[2]
-HOOKS_SOURCE = Path(__file__).resolve().parent / "kimi_hooks"
+HOOKS_SOURCE = machinery_path("agent_runtime/kimi_hooks")
 GUARDED_HOOKS = ("pre-commit", "pre-push")
 # Directory under the worktree's own git dir that core.hooksPath points at.
 HOOKS_DIR_NAME = "lu-kimi-hooks"
@@ -316,7 +317,6 @@ def install(
     settings = [
         (f"{_SECTION}.agent", agent),
         (f"{_SECTION}.python", python),
-        (f"{_SECTION}.root", str(_REPO_ROOT)),
         (f"{_SECTION}.base", base_ref),
         (f"{_SECTION}.chainhooks", str(chain)),
         *((f"remote.{remote}.pushurl", PUSH_BLOCK_URL) for remote in _remotes(worktree, env)),
@@ -351,6 +351,6 @@ def remove(worktree: Path, *, env: Mapping[str, str] | None = None) -> None:
 
 
 if __name__ == "__main__":
-    # The hooks run this file with ``python -I``, from the dispatcher's checkout.
-    sys.path.insert(0, str(_REPO_ROOT))
+    # The hooks run ``python -I -m lu_machinery.agent_runtime.kimi_boundary`` with the interpreter
+    # recorded at install (``kimiguard.python``, the dispatcher's ``sys.executable``).
     raise SystemExit(main())
