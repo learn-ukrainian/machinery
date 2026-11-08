@@ -64,11 +64,3 @@ repos:
     transport: https
     role: public-machinery
     verdict_recorder: true
-  # machinery: the public machinery repository. Role avoids "public-monorepo" (learn-ukrainian-only
-  # audits, Kimi and DeepSeek admission) and keeps the "public-" prefix for publisher privacy handling.
-  machinery:
-    github: learn-ukrainian/machinery
-    local_name: machinery
-    transport: https
-    role: public-machinery
-    verdict_recorder: true
