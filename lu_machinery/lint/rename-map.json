@@ -1117,7 +1117,7 @@
  "scripts/ci/check_agent_attribution.py": "machinery",
  "scripts/ci/check_issue_task_quality.py": "machinery",
  "scripts/ci/check_large_files.py": "machinery",
- "scripts/ci/checks.sh": "machinery",
+ "scripts/ci/checks.sh": "product",
  "scripts/ci/ci_timings.py": "machinery",
  "scripts/ci/comment_issue_task_quality.py": "machinery",
  "scripts/ci/component_shadow.py": "machinery",
