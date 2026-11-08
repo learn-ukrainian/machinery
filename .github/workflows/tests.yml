@@ -29,24 +29,15 @@
 #   credential or user configuration reaches them, and with isolated
 #   interpreters (python -I -B). PATH is /usr/bin:/bin plus a directory that
 #   holds only node and npm symlinks, the launcher fixture's toolchain.
-# - Hosted runner only (ubuntu-24.04). This workflow does not change the
-#   required checks; making `pytest` required is a branch protection change.
+# - Hosted runner only (ubuntu-24.04). ci-gate.yml calls this workflow as its
+#   `pytest` job, so it runs on that workflow's events under its concurrency,
+#   and the required CI Gate check fails unless `pytest` succeeds.
 name: Tests
 
 on:
-  pull_request:
-    branches: [main]
-    types: [opened, synchronize, reopened]
-  merge_group:
-    branches: [main]
-    types: [checks_requested]
-  workflow_dispatch:
+  workflow_call:
 
 permissions: {}
-
-concurrency:
-  group: tests-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   PYTHON_VERSION: "3.12"
