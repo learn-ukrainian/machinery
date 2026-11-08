@@ -1703,10 +1703,10 @@ def _claude_code_path_refusal(label: str, path_stat: os.stat_result, *, expect_d
 
 
 def _claude_code_ancestor_label(parent: Path, level: int, relative_to: Path | None) -> str:
-    """Name an ancestor without its absolute host path (repository-relative when known)."""
+    """Name an ancestor without its absolute host path (resource-relative when known)."""
     if relative_to is not None and parent.is_relative_to(relative_to):
         relative = parent.relative_to(relative_to).as_posix()
-        return "the checkout root" if relative == "." else relative
+        return "the resource root" if relative == "." else relative
     return f"its ancestor directory {level} level{'s' if level > 1 else ''} up"
 
 
