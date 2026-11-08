@@ -15,6 +15,7 @@ interpreter, guard or extra argument denies.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import shlex
 import subprocess
@@ -68,10 +69,8 @@ def guard_argv(command: str) -> list[str]:
     # Release guards always qualify. Product-tree guards qualify only while the Claude
     # settings builder still emits them; without a configured product, only the release does.
     hooks_dirs = [machinery_path("agents_extensions/shared/hooks")]
-    try:
+    with contextlib.suppress(ProductRootError):
         hooks_dirs.append(product_root() / "agents_extensions/shared/hooks")
-    except ProductRootError:
-        pass
 
     def tracked(guard: Path) -> bool:
         return any(guard == hooks_dir / guard.name for hooks_dir in hooks_dirs)
