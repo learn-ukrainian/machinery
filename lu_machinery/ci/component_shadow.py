@@ -325,6 +325,8 @@ def register(baseline: dict, root: Path, *, minimum_narrowed_cases: int = 1) -> 
 
 def check(registration: dict, directory: Path, *, now: str | None = None) -> dict:
     """Score full failures independently of selection, refusing incomplete windows."""
+    # None means "now"; an explicit empty or malformed value is refused, never replaced by the clock.
+    scored_at = instant(utc_now() if now is None else now)
     unresolved, misses, exemptions = [], [], []
     narrowed_red, narrowed_injected = 0, 0
     minimum_narrowed = registration.get("minimum_narrowed_cases")
@@ -450,7 +452,7 @@ def check(registration: dict, directory: Path, *, now: str | None = None) -> dic
     narrowed = narrowed_red + narrowed_injected
     if type(minimum_narrowed) is int and minimum_narrowed >= 1 and narrowed < minimum_narrowed:
         unresolved.append(f"narrowed-cases:{narrowed}/{minimum_narrowed}")
-    stopped = instant(now or utc_now()) >= instant(registration["stop_at"])
+    stopped = scored_at >= instant(registration["stop_at"])
     return {"status": "inconclusive" if unresolved and stopped else "unresolved" if unresolved else "fail" if misses else "pass",
             "registered_case_count": len(cases), "live_run_count": len(rows), "pytest_red_run_count": red,
             "narrowed_case_count": narrowed, "narrowed_red_case_count": narrowed_red,

@@ -199,7 +199,9 @@ def _fill_optional(monkeypatch):
             continue
         try:
             __import__(name)
-        except ModuleNotFoundError:
+        except ModuleNotFoundError as exc:
+            if exc.name != name:
+                raise
             monkeypatch.setitem(sys.modules, name, _ImportGap(name))
 
 
@@ -216,6 +218,16 @@ def _load_api(name, monkeypatch):
                 raise
             pending.remove(missing)
             monkeypatch.setitem(sys.modules, missing, _ImportGap(missing))
+
+
+def test_fill_optional_reraises_a_missing_first_party_module(tmp_path, monkeypatch):
+    """A missing module inside an optional import must not be stubbed as that import (#100 R43)."""
+    (tmp_path / "optional_probe_mod.py").write_text("import first_party_module_that_is_absent\n")
+    monkeypatch.syspath_prepend(str(tmp_path))
+    monkeypatch.setattr(sys.modules[__name__], "_OPTIONAL_IMPORTS", ("optional_probe_mod",))
+    with pytest.raises(ModuleNotFoundError) as caught:
+        _fill_optional(monkeypatch)
+    assert caught.value.name == "first_party_module_that_is_absent"
 
 
 def test_rollover_orient_reads_state_registry_not_the_product_checkout(roots, monkeypatch):

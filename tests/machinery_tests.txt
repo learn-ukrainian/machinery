@@ -37,6 +37,7 @@ tests/review/test_routing_consumers.py
 tests/orchestration/test_thread_handoff_confirmation.py
 tests/publish/test_pr_merge_squash_scan.py
 tests/ci/test_semgrep_baseline.py
+tests/ci/test_component_shadow.py
 tests/orchestration/test_distinct_roots.py
 tests/orchestration/test_integration_sweep.py
 tests/orchestration/test_merge_queue_keeper.py
