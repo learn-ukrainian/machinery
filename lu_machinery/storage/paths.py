@@ -14,6 +14,8 @@ from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
 
+from lu_machinery.common.repo_root import product_root
+
 
 def _machinery_top() -> str:
     # Unresolved package directory (design-v1 amendment 1). Never __package__.
@@ -25,7 +27,6 @@ def _mod(*parts: str) -> str:
 
 
 ROOT = Path(__file__).resolve().parents[2]
-REGISTRY_ROOT = ROOT / "registry"
 DATA_ROOT = ROOT / "data"
 _NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
@@ -96,11 +97,11 @@ def _cached_store_root(repo: Path, override: str | None) -> Path:
     return store
 
 
-def manifest_path(group: str, repo: Path = ROOT) -> Path:
-    return checked_destination(repo, f"registry/artifacts/{checked_group(group)}.manifest.json", "registry")
+def manifest_path(group: str, repo: Path | None = None) -> Path:
+    return checked_destination(product_root(repo), f"registry/artifacts/{checked_group(group)}.manifest.json", "registry")
 
 
-def load_manifest(group: str, repo: Path = ROOT) -> dict:
+def load_manifest(group: str, repo: Path | None = None) -> dict:
     path = manifest_path(group, repo)
     if not path.is_file():
         raise MissingArtifactError(
@@ -194,8 +195,9 @@ def _pending_publication(repo: Path) -> bool:
     return False
 
 
-def artifact_set(group: str, *, repo: Path = ROOT, members: set[str] | None = None, retries: int = 50) -> ArtifactSet:
+def artifact_set(group: str, *, repo: Path | None = None, members: set[str] | None = None, retries: int = 50) -> ArtifactSet:
     """Read all A and K bytes against one descriptor without creating local state."""
+    repo = product_root(repo)
     manifest_file = manifest_path(group, repo)
     for _ in range(retries):
         if _pending_publication(repo):
@@ -240,7 +242,7 @@ def artifact_set(group: str, *, repo: Path = ROOT, members: set[str] | None = No
     raise ValueError("artifact set publication or recovery did not settle")
 
 
-def find_entry(group: str, rel: str, repo: Path = ROOT) -> dict:
+def find_entry(group: str, rel: str, repo: Path | None = None) -> dict:
     checked_rel(rel)
     manifest = load_manifest(group, repo)
     matches = [entry for entry in manifest["entries"] if entry.get("path") == f"data/{rel}"]
@@ -282,9 +284,10 @@ def verify_file(path: Path, entry: dict, *, group: str, rel: str) -> None:
         raise MissingArtifactError(group, rel, command, f"sha256 {actual} != {entry.get('sha256')}")
 
 
-def artifact_path(group: str, rel: str, *, repo: Path = ROOT) -> Path:
+def artifact_path(group: str, rel: str, *, repo: Path | None = None) -> Path:
     """Return a verified runtime artifact; only this read may use the local stat cache."""
     checked_rel(rel)
+    repo = product_root(repo)
     manifest_file = manifest_path(group, repo)
     stamp = manifest_file.stat()
     manifest = _cached_manifest(group, repo.resolve(), stamp.st_mtime_ns, stamp.st_size)
