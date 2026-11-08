@@ -100,3 +100,12 @@ downloads the locked dependencies into the same directory, and installs with
 the same command. Rolling back restores the previous lock, wheel,
 configuration and generated deployments, then verifies behaviour; reverting
 the lock alone is not a rollback.
+
+A consumer Codex session sets `LU_PRODUCT_ROOT` to the absolute product checkout.
+The guards shipped in #137 already require that root; they do not infer the
+product from the directory the hook file lives in. The interpreter is one rule:
+`LEARN_UKRAINIAN_PYTHON` when that variable is an absolute path to an executable
+file, and a refusal with no fallback when it is set to anything else; otherwise
+the validated primary checkout's `.venv/bin/python`; otherwise a refusal. A
+worktree-local `.venv` is not the interpreter, and nothing is discovered on
+`PATH`.

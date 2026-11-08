@@ -38,7 +38,17 @@ resolve_context_profile() {
   local project_dir="${PROJECT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
   local contract_py="$project_dir/$PROFILE_RESOLVER_PACKAGE/lib/context_profiles.py"
   local resolver_py="${CLAUDE_PROFILE_RESOLVER_PY:-$contract_py}"
-  local py_bin="${CLAUDE_PROFILE_RESOLVER_PYTHON:-$project_dir/.venv/bin/python}"
+  # shellcheck source=project_interpreter.sh
+  source "$(dirname -- "${BASH_SOURCE[0]}")/project_interpreter.sh"
+  # A launcher has already validated its primary (including the Codex canonical
+  # checkout). Use that same interpreter. Hooks resolve from the checkout.
+  local py_bin
+  if declare -F launcher_project_python >/dev/null \
+    && [ -n "${LC_DURABLE_HELPER_ROOT:-}${LEARN_UKRAINIAN_PYTHON:-}" ]; then
+    py_bin="$(launcher_project_python)" || return 1
+  else
+    py_bin="$(project_interpreter_resolve "$project_dir")" || return 1
+  fi
   local output_file key value var_name index rollover_mode
   local parse_error=0
   local field_count=0

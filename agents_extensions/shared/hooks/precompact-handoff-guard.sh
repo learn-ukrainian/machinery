@@ -23,20 +23,32 @@ case "$PROJECT_DIR" in
   *) echo "precompact-handoff-guard.sh: no project root: set CLAUDE_PROJECT_DIR or LU_PRODUCT_ROOT to an absolute checkout path" >&2; exit 1 ;;
 esac
 CANONICAL_ROOT=$(context_canonical_root "$PROJECT_DIR") || exit 0
-BOUNDED_PYTHON="${THREAD_ROLLOVER_PYTHON:-$CANONICAL_ROOT/.venv/bin/python}"
-[ -x "$BOUNDED_PYTHON" ] || exit 0
-# Code root (machinery #100 R62, R69): run from a machinery tree (a checkout or the
-# installed wheel), this file's own tree supplies the code; a deployed copy takes it
-# from the release the project interpreter imports, never from $PROJECT_DIR. Machinery
-# modules then run through the shared module bootstrap (lib/project_interpreter.sh).
-_hook_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# One interpreter (R66). Fail open. In-tree, the resolver is authoritative. A
+# deployed copy probes only to find the installed release, then keeps the
+# resolver's answer. An invalid override does not fall back.
+_hook_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)" || exit 0
 case "$_hook_dir" in
-  */agents_extensions/shared/hooks) MACHINERY_DIR="${_hook_dir%/agents_extensions/shared/hooks}" ;;
-  *) MACHINERY_DIR=$("$BOUNDED_PYTHON" -I -c 'import os, lu_machinery; print(os.path.dirname(os.path.dirname(os.path.abspath(lu_machinery.__file__))))' 2>/dev/null) || MACHINERY_DIR="" ;;
+  */agents_extensions/shared/hooks)
+    MACHINERY_DIR="${_hook_dir%/agents_extensions/shared/hooks}"
+    # shellcheck source=lu_machinery/lib/project_interpreter.sh
+    source "$MACHINERY_DIR/lu_machinery/lib/project_interpreter.sh" 2>/dev/null || exit 0
+    BOUNDED_PYTHON="$(project_interpreter_resolve "$PROJECT_DIR" 2>/dev/null)" || exit 0
+    ;;
+  *)
+    BOUNDED_PYTHON="$(_context_rule_probe "$CANONICAL_ROOT" 2>/dev/null)" || exit 0
+    MACHINERY_DIR=$("$BOUNDED_PYTHON" -I -c 'import os, lu_machinery; print(os.path.dirname(os.path.dirname(os.path.abspath(lu_machinery.__file__))))' 2>/dev/null) || exit 0
+    # shellcheck source=lu_machinery/lib/project_interpreter.sh
+    source "$MACHINERY_DIR/lu_machinery/lib/project_interpreter.sh" 2>/dev/null || exit 0
+    RESOLVED="$(project_interpreter_resolve "$PROJECT_DIR" 2>/dev/null)" || exit 0
+    if [ "$RESOLVED" != "$BOUNDED_PYTHON" ]; then
+      MACHINERY_DIR=$("$RESOLVED" -I -c 'import os, lu_machinery; print(os.path.dirname(os.path.dirname(os.path.abspath(lu_machinery.__file__))))' 2>/dev/null) || exit 0
+      # shellcheck source=lu_machinery/lib/project_interpreter.sh
+      source "$MACHINERY_DIR/lu_machinery/lib/project_interpreter.sh" 2>/dev/null || exit 0
+    fi
+    BOUNDED_PYTHON="$RESOLVED"
+    ;;
 esac
 unset _hook_dir
-# shellcheck source=lu_machinery/lib/project_interpreter.sh
-source "$MACHINERY_DIR/lu_machinery/lib/project_interpreter.sh" 2>/dev/null || exit 0
 BOUNDED_RUNNER_DEFAULT="$MACHINERY_DIR/lu_machinery/agent_runtime/bounded_command.py"
 BOUNDED_RUNNER="${SESSION_BOUNDED_RUNNER:-$BOUNDED_RUNNER_DEFAULT}"
 [ -f "$BOUNDED_RUNNER" ] || exit 0

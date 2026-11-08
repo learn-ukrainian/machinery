@@ -54,18 +54,44 @@ esac
 TRANSCRIPT=$(printf '%s' "$INPUT" | jq -r '.transcript_path // empty' 2>/dev/null)
 [ -z "$TRANSCRIPT" ] || [ ! -f "$TRANSCRIPT" ] && exit 0
 CANONICAL_ROOT=$(context_canonical_root "$PROJECT_DIR") || exit 0
-# Code root (machinery #100 R62, R69): run from a machinery tree (a checkout or the
-# installed wheel), this file's own tree supplies the code; a deployed copy takes it
-# from the release the project interpreter imports, never from $PROJECT_DIR. Machinery
-# modules then run through the shared module bootstrap (lib/project_interpreter.sh).
-_hook_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Code root (machinery #100 R62, R69, R66): in-tree, this file's tree. A deployed
+# copy asks the one project interpreter for the release it imports. An invalid
+# override does not fall back, and the monitor then stays silent.
+_hook_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)" || exit 0
 case "$_hook_dir" in
-  */agents_extensions/shared/hooks) MACHINERY_DIR="${_hook_dir%/agents_extensions/shared/hooks}" ;;
-  *) MACHINERY_DIR=$("${THREAD_ROLLOVER_PYTHON:-$CANONICAL_ROOT/.venv/bin/python}" -I -c 'import os, lu_machinery; print(os.path.dirname(os.path.dirname(os.path.abspath(lu_machinery.__file__))))' 2>/dev/null) || MACHINERY_DIR="" ;;
+  */agents_extensions/shared/hooks)
+    MACHINERY_DIR="${_hook_dir%/agents_extensions/shared/hooks}"
+    ;;
+  *)
+    _monitor_probe="$(_context_rule_probe "$CANONICAL_ROOT" 2>/dev/null)" || _monitor_probe=""
+    if [ -z "$_monitor_probe" ]; then
+      MACHINERY_DIR=""
+    else
+      MACHINERY_DIR=$("$_monitor_probe" -I -c 'import os, lu_machinery; print(os.path.dirname(os.path.dirname(os.path.abspath(lu_machinery.__file__))))' 2>/dev/null) || MACHINERY_DIR=""
+    fi
+    unset _monitor_probe
+    ;;
 esac
-unset _hook_dir
 # shellcheck source=lu_machinery/lib/project_interpreter.sh
 source "$MACHINERY_DIR/lu_machinery/lib/project_interpreter.sh" 2>/dev/null || MACHINERY_DIR=""
+case "$_hook_dir" in
+  */agents_extensions/shared/hooks) ;;
+  *)
+    if [ -n "$MACHINERY_DIR" ]; then
+      _monitor_resolved="$(project_interpreter_resolve "$PROJECT_DIR" 2>/dev/null)" || _monitor_resolved=""
+      if [ -n "$_monitor_resolved" ]; then
+        _monitor_found=$("$_monitor_resolved" -I -c 'import os, lu_machinery; print(os.path.dirname(os.path.dirname(os.path.abspath(lu_machinery.__file__))))' 2>/dev/null) || _monitor_found=""
+        if [ -n "$_monitor_found" ] && [ "$_monitor_found" != "$MACHINERY_DIR" ]; then
+          MACHINERY_DIR="$_monitor_found"
+          # shellcheck source=lu_machinery/lib/project_interpreter.sh
+          source "$MACHINERY_DIR/lu_machinery/lib/project_interpreter.sh" 2>/dev/null || MACHINERY_DIR=""
+        fi
+      fi
+      unset _monitor_resolved _monitor_found
+    fi
+    ;;
+esac
+unset _hook_dir
 
 # Prefer the latest assistant input/cache usage. Output tokens are not current
 # context usage and therefore are deliberately excluded.
@@ -121,12 +147,11 @@ case "$WINDOW" in
   *) [ "$WINDOW" -gt 0 ] || WINDOW_VALID=0 ;;
 esac
 if [ "$WINDOW_VALID" -eq 0 ]; then
-  # The resolver and its contract come from the code root, as in session-setup.sh;
-  # its interpreter defaults to the canonical checkout's (linked worktrees have none).
-  export CLAUDE_PROFILE_RESOLVER_PYTHON="${CLAUDE_PROFILE_RESOLVER_PYTHON:-$CANONICAL_ROOT/.venv/bin/python}"
+  # The contract is this release's; the interpreter is the product checkout's (R66).
   # shellcheck disable=SC1091
   source "$MACHINERY_DIR/lu_machinery/lib/profile_resolver.sh" 2>/dev/null || exit 0
-  if ! PROJECT_DIR="$MACHINERY_DIR" resolve_context_profile \
+  if ! CLAUDE_PROFILE_RESOLVER_PY="$MACHINERY_DIR/lu_machinery/lib/context_profiles.py" \
+    resolve_context_profile \
     "${LEARN_UKRAINIAN_REQUESTED_PROFILE_ID:-${LEARN_UKRAINIAN_PROFILE_ID:-}}" \
     "${LEARN_UKRAINIAN_OBSERVED_MODEL_ID:-${LEARN_UKRAINIAN_MAIN_MODEL_ID:-}}" \
     >/dev/null 2>&1; then

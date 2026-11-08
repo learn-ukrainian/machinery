@@ -175,49 +175,84 @@ else
   fi
 fi
 
-# Interpreter for bounded session-record calls: the canonical checkout owns the
-# shared venv — linked worktrees have none (formal CF r4 F001 on #5896: the
-# PROJECT_DIR default 127s every worktree session). If an explicit canonical
-# root points at a linked worktree, resolve the shared interpreter from its Git
-# common directory instead of creating or looking for a worktree venv.
-SHARED_VENV_ROOT="$CANONICAL_ROOT"
-if [ ! -x "$SHARED_VENV_ROOT/.venv/bin/python" ]; then
-  SHARED_GIT_COMMON_DIR=$(_hook_deadline 2 git -C "$PROJECT_DIR" rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)
-  if [ -n "$SHARED_GIT_COMMON_DIR" ] && [ "$(basename "$SHARED_GIT_COMMON_DIR")" = ".git" ]; then
-    SHARED_VENV_ROOT=$(dirname "$SHARED_GIT_COMMON_DIR")
-  fi
-fi
-SHARED_PYTHON="$SHARED_VENV_ROOT/.venv/bin/python"
-if [ -z "$MACHINERY_DIR" ]; then
-  # Deployed copy: the directory holding the lu_machinery package the project
-  # interpreter imports. -I keeps the cwd and PYTHONPATH out of the lookup.
-  MACHINERY_DIR=$(_hook_deadline 3 "$SHARED_PYTHON" -I -c '
+# One interpreter (R66): LEARN_UKRAINIAN_PYTHON when it is an absolute executable
+# file, else the validated primary checkout's .venv/bin/python, else refuse.
+# lib/project_interpreter.sh is that rule. An in-tree hook sources the copy
+# beside it. A deployed copy uses the same rule to find the installed release,
+# then sources that release's copy and keeps the resolver's answer. An invalid
+# override does not fall back.
+_session_import_machinery_dir() {
+  _hook_deadline 3 "$1" -I -c '
 import os, lu_machinery
 print(os.path.dirname(os.path.dirname(os.path.abspath(lu_machinery.__file__))))
-' 2>/dev/null) || MACHINERY_DIR=""
+' 2>/dev/null
+}
+_session_probe_python() {
+  local configured="${LEARN_UKRAINIAN_PYTHON:-}" root="$1"
+  if [ -n "$configured" ]; then
+    case "$configured" in
+      /*) ;;
+      *)
+        echo "session-setup.sh: LEARN_UKRAINIAN_PYTHON must be an absolute path, got $configured" >&2
+        return 1
+        ;;
+    esac
+    if [ ! -f "$configured" ] || [ ! -x "$configured" ]; then
+      echo "session-setup.sh: LEARN_UKRAINIAN_PYTHON=$configured is not an executable file" >&2
+      return 1
+    fi
+    printf '%s\n' "$configured"
+    return 0
+  fi
+  # Git could not name the primary, so the probe root is this directory.
+  # A linked worktree's .git is a file; its .venv is not the interpreter.
+  if [ -f "${PROJECT_DIR:-}/.git" ] && [ "$root" = "${PROJECT_DIR:-}" ]; then
+    echo "session-setup.sh: project interpreter not found: a linked worktree .venv is not used" >&2
+    return 1
+  fi
+  if [ -n "$root" ] && [ -x "$root/.venv/bin/python" ]; then
+    printf '%s\n' "$root/.venv/bin/python"
+    return 0
+  fi
+  echo "session-setup.sh: project interpreter not found: ${root:-<unset>}/.venv/bin/python" >&2
+  return 1
+}
+_session_source_interpreter() {
+  # shellcheck source=lu_machinery/lib/project_interpreter.sh
+  source "$1/lu_machinery/lib/project_interpreter.sh"
+}
+if [ -n "$MACHINERY_DIR" ]; then
+  _session_source_interpreter "$MACHINERY_DIR" || {
+    echo "session-setup.sh: cannot source $MACHINERY_DIR/lu_machinery/lib/project_interpreter.sh" >&2
+    exit 1
+  }
+  SHARED_PYTHON="$(project_interpreter_resolve "$PROJECT_DIR")" || exit 1
+else
+  SHARED_PYTHON="$(_session_probe_python "$CANONICAL_ROOT")" || exit 1
+  MACHINERY_DIR="$(_session_import_machinery_dir "$SHARED_PYTHON")" || MACHINERY_DIR=""
   if [ -z "$MACHINERY_DIR" ] || [ ! -f "$MACHINERY_DIR/lu_machinery/__init__.py" ]; then
     echo "session-setup.sh: no installed lu_machinery release: the project interpreter $SHARED_PYTHON cannot import lu_machinery" >&2
     exit 1
   fi
+  _session_source_interpreter "$MACHINERY_DIR" || {
+    echo "session-setup.sh: cannot source $MACHINERY_DIR/lu_machinery/lib/project_interpreter.sh" >&2
+    exit 1
+  }
+  RESOLVED="$(project_interpreter_resolve "$PROJECT_DIR")" || exit 1
+  if [ "$RESOLVED" != "$SHARED_PYTHON" ]; then
+    SHARED_PYTHON="$RESOLVED"
+    MACHINERY_DIR="$(_session_import_machinery_dir "$SHARED_PYTHON")" || MACHINERY_DIR=""
+    if [ -z "$MACHINERY_DIR" ] || [ ! -f "$MACHINERY_DIR/lu_machinery/__init__.py" ]; then
+      echo "session-setup.sh: no installed lu_machinery release: the project interpreter $SHARED_PYTHON cannot import lu_machinery" >&2
+      exit 1
+    fi
+    _session_source_interpreter "$MACHINERY_DIR" || exit 1
+  fi
+  SHARED_PYTHON="$RESOLVED"
 fi
-BOUNDED_PYTHON="${CLAUDE_SESSION_RECORD_PYTHON:-$SHARED_PYTHON}"
+BOUNDED_PYTHON="$SHARED_PYTHON"
+project_python_command "$BOUNDED_PYTHON" || exit 1
 BOUNDED_RUNNER_DEFAULT="$MACHINERY_DIR/lu_machinery/agent_runtime/bounded_command.py"
-# Every lu_machinery module this hook runs starts as
-#   "$PYTHON" -I -c "$LU_MODULE_BOOTSTRAP" "$MACHINERY_DIR" <module> <args...>
-# -I keeps the caller's PYTHONPATH and cwd off the import path. An installed
-# lu_machinery is used when the interpreter has one; otherwise only lu_machinery
-# is loaded from MACHINERY_DIR by spec, so that directory never goes on sys.path
-# and no other name can resolve there. The environment is passed on unchanged.
-LU_MODULE_BOOTSTRAP='
-import importlib.util, runpy, sys
-pkg = sys.argv.pop(1) + "/lu_machinery"
-module = sys.argv.pop(1)
-if importlib.util.find_spec("lu_machinery") is None:
-    spec = importlib.util.spec_from_file_location("lu_machinery", pkg + "/__init__.py", submodule_search_locations=[pkg])
-    sys.modules["lu_machinery"] = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(sys.modules["lu_machinery"])
-runpy.run_module(module, run_name="__main__", alter_sys=True)
-'
 BOUNDED_RUNNER="${SESSION_BOUNDED_RUNNER:-$BOUNDED_RUNNER_DEFAULT}"
 SESSION_START_BUDGET_SECONDS="${SESSION_START_BUDGET_SECONDS:-12}"
 if ! [[ "$SESSION_START_BUDGET_SECONDS" =~ ^[1-9][0-9]*$ ]]; then
@@ -302,15 +337,11 @@ if [ ! -f "$PROFILE_RESOLVER_SH" ]; then
   echo "Error: context-profile resolver not found." >&2
   exit 1
 fi
-# The resolver's own interpreter default is $PROJECT_DIR/.venv — absent in
-# linked worktrees (F001 r5 class). Point it at the canonical venv here; an
-# explicit CLAUDE_PROFILE_RESOLVER_PYTHON still wins.
-export CLAUDE_PROFILE_RESOLVER_PYTHON="${CLAUDE_PROFILE_RESOLVER_PYTHON:-$SHARED_PYTHON}"
 # shellcheck disable=SC1090
 source "$PROFILE_RESOLVER_SH"
-# The resolver reads its contract under its PROJECT_DIR: here, the machinery
-# tree whose lu_machinery/config holds the profiles.
-if ! PROJECT_DIR="$MACHINERY_DIR" resolve_context_profile "$REQUESTED_PROFILE_ID" "$OBSERVED_MODEL"; then
+# The contract is this release's; the interpreter is the product checkout's.
+if ! CLAUDE_PROFILE_RESOLVER_PY="$MACHINERY_DIR/lu_machinery/lib/context_profiles.py" \
+  resolve_context_profile "$REQUESTED_PROFILE_ID" "$OBSERVED_MODEL"; then
   echo "Error: main-session context-profile resolution failed." >&2
   exit 1
 fi
@@ -329,13 +360,11 @@ fi
 if [ -n "${LEARN_UKRAINIAN_CLAUDEX_RUN_ID:-}" ]; then
   CLAUDEX_SUPERVISOR_DEFAULT="$MACHINERY_DIR/lu_machinery/orchestration/claudex_supervisor.py"
   CLAUDEX_SUPERVISOR_SCRIPT="${CLAUDEX_SUPERVISOR_SCRIPT:-$CLAUDEX_SUPERVISOR_DEFAULT}"
-  CLAUDEX_SUPERVISOR_PYTHON="${CLAUDEX_SUPERVISOR_PYTHON:-$SHARED_PYTHON}"
-  if [ -z "$SESSION_ID" ] || [ ! -f "$CLAUDEX_SUPERVISOR_SCRIPT" ] || [ ! -x "$CLAUDEX_SUPERVISOR_PYTHON" ]; then
+  if [ -z "$SESSION_ID" ] || [ ! -f "$CLAUDEX_SUPERVISOR_SCRIPT" ] || [ ! -x "$BOUNDED_PYTHON" ]; then
     ISSUES+=("CLAUDEX SUPERVISOR BIND FAILED: official session identity or runtime helper is unavailable.")
   else
     SUPERVISOR_BIND_CMD=(
-      "$CLAUDEX_SUPERVISOR_PYTHON" -I -c "$LU_MODULE_BOOTSTRAP"
-      "$MACHINERY_DIR" lu_machinery.orchestration.claudex_supervisor bind-session
+      "${PROJECT_PYTHON_COMMAND[@]}" -m lu_machinery.orchestration.claudex_supervisor bind-session
       --run-id "$LEARN_UKRAINIAN_CLAUDEX_RUN_ID"
       --launch-generation "${LEARN_UKRAINIAN_CLAUDEX_LAUNCH_GENERATION:-}"
       --session-id "$SESSION_ID"
@@ -381,8 +410,8 @@ if [ -f "$LANE_PROBE_SCRIPT" ]; then
   # JSON, and jq prints nothing for empty input (it does not use the // default),
   # which used to leave the SessionStart reason blank (#12725).
   LANE_PROBE_BOUND=3
-  LANE_PROBE_JSON=$(run_bounded "$LANE_PROBE_BOUND" "$BOUNDED_PYTHON" -I -c "$LU_MODULE_BOOTSTRAP" \
-    "$MACHINERY_DIR" lu_machinery.agent_runtime.lane_probe --handoff-agent "$HANDOFF_AGENT" --cwd "$PROJECT_DIR" --timeout 2 2>/dev/null) || LANE_PROBE_RC=$?
+  LANE_PROBE_JSON=$(run_bounded "$LANE_PROBE_BOUND" "${PROJECT_PYTHON_COMMAND[@]}" \
+    -m lu_machinery.agent_runtime.lane_probe --handoff-agent "$HANDOFF_AGENT" --cwd "$PROJECT_DIR" --timeout 2 2>/dev/null) || LANE_PROBE_RC=$?
   if [ "$LANE_PROBE_RC" -ne 0 ]; then
     LANE_PROBE_AGENT=$(printf '%s' "$LANE_PROBE_JSON" | _hook_deadline 2 jq -r '.probes[0].agent // empty' 2>/dev/null || true)
     LANE_PROBE_AGENT="${LANE_PROBE_AGENT:-$HANDOFF_AGENT}"
@@ -411,8 +440,8 @@ unset LANE_PROBE_SCRIPT
 # a shadow comms DB and swallowed a message. Advisory only: the guard alerts
 # here and NEVER deletes (garbage root entries are forensic evidence).
 ROOT_GUARD_RC=0
-ROOT_GUARD_JSON=$(run_bounded 3 "$BOUNDED_PYTHON" -I -c "$LU_MODULE_BOOTSTRAP" \
-  "$MACHINERY_DIR" lu_machinery.hygiene.root_entry_guard --repo-root "$CANONICAL_ROOT" --json 2>/dev/null) || ROOT_GUARD_RC=$?
+ROOT_GUARD_JSON=$(run_bounded 3 "${PROJECT_PYTHON_COMMAND[@]}" \
+  -m lu_machinery.hygiene.root_entry_guard --repo-root "$CANONICAL_ROOT" --json 2>/dev/null) || ROOT_GUARD_RC=$?
 if [ "$ROOT_GUARD_RC" -eq 0 ] && [ -n "$ROOT_GUARD_JSON" ]; then
   ROOT_GUARD_COUNT=$(printf '%s' "$ROOT_GUARD_JSON" | _hook_deadline 2 jq -r '.unexpected_count // 0' 2>/dev/null || echo 0)
   if [[ "$ROOT_GUARD_COUNT" =~ ^[0-9]+$ ]] && [ "$ROOT_GUARD_COUNT" -gt 0 ]; then
@@ -545,8 +574,7 @@ fi
 # 13. Session handoff. Claude uses the official SessionStart session id; Codex
 # retains its documented environment fallback for non-Claude fixtures.
 CURRENT_THREAD_ID="${SESSION_ID:-${CODEX_THREAD_ID:-${CODEX_SESSION_ID:-}}}"
-ROLLOVER_PYTHON="${THREAD_ROLLOVER_PYTHON:-$SHARED_PYTHON}"  # canonical: worktrees carry no venv (F001 r5)
-ROLLOVER_CMD=("$ROLLOVER_PYTHON" -I -c "$LU_MODULE_BOOTSTRAP" "$MACHINERY_DIR" lu_machinery.orchestration.thread_handoff)
+ROLLOVER_CMD=("${PROJECT_PYTHON_COMMAND[@]}" -m lu_machinery.orchestration.thread_handoff)
 HANDOFF_CONTEXT=""
 HANDOFF_WARNINGS=""
 
@@ -831,8 +859,8 @@ if [ -n "$ROLLOVER_BUNDLE_STREAM" ]; then
 fi
 
 GATE_RC=0
-GATE_JSON=$(run_bounded 9 "$BOUNDED_PYTHON" -I -c "$LU_MODULE_BOOTSTRAP" "$MACHINERY_DIR" \
-  lu_machinery.hooks.session_start_gate "${GATE_ARGS[@]}" 2>/dev/null) || GATE_RC=$?
+GATE_JSON=$(run_bounded 9 "${PROJECT_PYTHON_COMMAND[@]}" \
+  -m lu_machinery.hooks.session_start_gate "${GATE_ARGS[@]}" 2>/dev/null) || GATE_RC=$?
 unset GATE_ARGS
 
 GATE_FIELDS=()
@@ -938,8 +966,8 @@ if [ "$GATE_RC" -eq 0 ] && [ -n "$SESSION_MARKER_AGENT" ] && [ -n "$SESSION_ID" 
   [ -n "${SESSION_EPIC:-}" ] && SESSION_MARKER_ARGS+=(--epic "$SESSION_EPIC")
   [ -n "${SESSION_TASK_ID:-${SESSION_STREAM_TASK_ID:-}}" ] \
     && SESSION_MARKER_ARGS+=(--task-id "${SESSION_TASK_ID:-${SESSION_STREAM_TASK_ID:-}}")
-  run_bounded 2 "$BOUNDED_PYTHON" -I -c "$LU_MODULE_BOOTSTRAP" "$MACHINERY_DIR" \
-    lu_machinery.orchestration.session_markers "${SESSION_MARKER_ARGS[@]}" \
+  run_bounded 2 "${PROJECT_PYTHON_COMMAND[@]}" \
+    -m lu_machinery.orchestration.session_markers "${SESSION_MARKER_ARGS[@]}" \
     >/dev/null 2>&1 || true
   unset SESSION_MARKER_ARGS
 fi
