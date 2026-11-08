@@ -265,6 +265,13 @@ def test_adapter_requires_a_selected_consumer(release, product, name):
         assert result.returncode == 1
         assert f"{product}/.venv/bin/python" in result.stderr
         assert str(release) not in result.stderr
+    # argparse accepts abbreviations: the interpreter must never come from another root.
+    for args in (("--project-ro", "/other"), ("--p=/other",)):
+        result = run_shell(
+            adapter, *args, env={"LU_PRODUCT_ROOT": str(product)}, cwd=product.parent
+        )
+        assert result.returncode == 2
+        assert f"{name}: spell the option --project-root in full" in result.stderr
 
 
 def test_deployed_session_setup_runs_installed_release_code(release, product):

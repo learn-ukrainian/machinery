@@ -7,6 +7,14 @@ set -euo pipefail
 PROJECT_ROOT="${LU_PRODUCT_ROOT:-}"
 previous=""
 for arg in "$@"; do
+  # argparse also accepts any unambiguous prefix of the option; refuse those
+  # spellings, so the interpreter and the deployer always name the same root.
+  case "${arg%%=*}" in
+    --p|--pr|--pro|--proj|--proje|--projec|--project|--project-|--project-r|--project-ro|--project-roo)
+      echo "check_rules_deployment.sh: spell the option --project-root in full" >&2
+      exit 2
+      ;;
+  esac
   case "$arg" in
     --project-root=*) PROJECT_ROOT="${arg#--project-root=}" ;;
     *) [ "$previous" != "--project-root" ] || PROJECT_ROOT="$arg" ;;
