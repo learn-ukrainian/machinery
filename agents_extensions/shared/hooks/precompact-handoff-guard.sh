@@ -14,7 +14,14 @@ fi
 
 # shellcheck source=agents_extensions/shared/hooks/context-rollover-lib.sh
 source "$(dirname "${BASH_SOURCE[0]}")/context-rollover-lib.sh" 2>/dev/null || exit 0
-PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$(cd "$(dirname "$0")/../.." && pwd)}"
+# The project is configured (CLAUDE_PROJECT_DIR from the harness, else
+# LU_PRODUCT_ROOT), never derived from this file's location: an installed
+# release lives in site-packages, not in the project (machinery #100, R51).
+PROJECT_DIR="${CLAUDE_PROJECT_DIR:-${LU_PRODUCT_ROOT:-}}"
+case "$PROJECT_DIR" in
+  /*) [ -d "$PROJECT_DIR" ] || { echo "precompact-handoff-guard.sh: project root $PROJECT_DIR is not a directory" >&2; exit 1; } ;;
+  *) echo "precompact-handoff-guard.sh: no project root: set CLAUDE_PROJECT_DIR or LU_PRODUCT_ROOT to an absolute checkout path" >&2; exit 1 ;;
+esac
 CANONICAL_ROOT=$(context_canonical_root "$PROJECT_DIR") || exit 0
 BOUNDED_PYTHON="${THREAD_ROLLOVER_PYTHON:-$CANONICAL_ROOT/.venv/bin/python}"
 BOUNDED_RUNNER_DEFAULT="$PROJECT_DIR/lu_machinery/agent_runtime/bounded_command.py"

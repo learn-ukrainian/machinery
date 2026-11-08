@@ -246,7 +246,23 @@ _handoff_slot_registry() {
   # from its unresolved location (design-v1 amendment 1).
   local package="${_HANDOFF_IDENTITY_DIR%/*}"
   package="${package##*/}"
-  (cd "$repo_root" && "$py" -m "$package.orchestration.handoff_slot_registry" "$@")
+  # -I keeps the caller's PYTHONPATH and cwd off the import path (#100 R64).
+  # The hook's module bootstrap (#142) uses an installed package when the
+  # interpreter has one, else loads only the package from repo_root by spec, so
+  # repo_root never goes on sys.path.
+  local module_bootstrap='
+import importlib.util, runpy, sys
+root = sys.argv.pop(1)
+module = sys.argv.pop(1)
+name = module.partition(".")[0]
+if importlib.util.find_spec(name) is None:
+    pkg = root + "/" + name
+    spec = importlib.util.spec_from_file_location(name, pkg + "/__init__.py", submodule_search_locations=[pkg])
+    sys.modules[name] = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(sys.modules[name])
+runpy.run_module(module, run_name="__main__", alter_sys=True)
+'
+  "$py" -I -c "$module_bootstrap" "$repo_root" "$package.orchestration.handoff_slot_registry" "$@"
 }
 
 # launcher_require_registered_slot "<provider>" "<selector>"
