@@ -7,7 +7,6 @@ import hashlib
 import json
 from collections.abc import Callable
 from datetime import UTC, datetime
-from pathlib import Path
 from typing import Any
 
 from lu_machinery.work import SOURCE_PUBLIC
@@ -1064,9 +1063,9 @@ def load_persisted_lifecycle_ledgers(repository_id: str) -> list[dict[str, Any]]
     merge advice then stays unknown.
     """
     try:
-        from lu_machinery.orchestration.task_lifecycle import canonical_state_root
+        from lu_machinery.common.repo_root import state_root
 
-        root = canonical_state_root(Path(__file__).resolve().parents[2])
+        root = state_root()
         digest = hashlib.sha256(repository_id.encode("utf-8")).hexdigest()[:16]
         directory = root / ".agent" / "task-lifecycle" / digest
         if not directory.is_dir():
