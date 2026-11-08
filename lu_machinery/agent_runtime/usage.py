@@ -54,7 +54,6 @@ except ModuleNotFoundError as exc:
     from lu_machinery.secret_redactor import redact_text, redact_value
 
 from lu_machinery.agent_identity import RETIRED_AGENT_ALIASES
-
 from lu_machinery.common.repo_root import state_root
 
 # Rate-limit window in seconds. History:
