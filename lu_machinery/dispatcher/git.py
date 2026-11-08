@@ -628,7 +628,7 @@ def snapshot_delivery(spec: TaskSpec, record: dict) -> dict:
     delivery = dict(
         head_sha=None, remote_head_sha=None, remote_ref=None, publish_branch=record.get("publish_branch"),
         push_state="unknown", push_state_reason="observation_failed", commits_ahead=None,
-        worktree_dirty_on_exit=None,
+        worktree_dirty_on_exit=None, worktree_untracked_only_on_exit=None,
     )
     try:
         start_sha = record.get("worktree_start_sha", record["worktree_base_sha"])
@@ -636,8 +636,12 @@ def snapshot_delivery(spec: TaskSpec, record: dict) -> dict:
         delivery.update(
             head_sha=local(["rev-parse", "HEAD"]).stdout.strip(),
             commits_ahead=int(local(["rev-list", "--count", f"{start_sha}..HEAD"]).stdout),
-            worktree_dirty_on_exit=bool(local(["status", "--porcelain"]).stdout.strip()),
         )
+        status = [line for line in local(["status", "--porcelain"]).stdout.splitlines() if line]
+        # Untracked files alone, which settlement's removal preserves, leave the merge rescue open
+        # (worker._enforce_delivery); it reads this status, taken with head_sha, never the tree again.
+        delivery.update(worktree_dirty_on_exit=bool(status),
+                        worktree_untracked_only_on_exit=bool(status) and all(line.startswith("?? ") for line in status))
         if spec.mode == "read-only":
             delivery["push_state"] = "not_applicable"
             delivery["push_state_reason"] = "read_only"
@@ -750,8 +754,8 @@ def merged_delivery(record: dict) -> dict | None:
     it MERGED into the task's base after the task started. Any lookup failure is None, so the
     caller falls back to refusing on the local evidence. ``paths`` is every path the PR
     changed, rename sources included. The task's own head must also be published (nothing
-    ahead of the task start, or already in the PR or the base), so merged work never hides
-    further work that was not pushed.
+    ahead of the task start, the PR's final head, or already in the PR or the base), so merged
+    work never hides further work that was not pushed.
     """
     try:
         repo, base = _repo_and_base(record)
@@ -759,11 +763,14 @@ def merged_delivery(record: dict) -> dict | None:
             return None
         started = datetime.fromisoformat(record["started_at"].replace("Z", "+00:00"))
         for number in _delivery_prs(record, repo):
-            pr = json.loads(_gh("pr", "view", str(number), "--repo", repo, "--json", "state,baseRefName,mergedAt"))
+            pr = json.loads(_gh("pr", "view", str(number), "--repo", repo, "--json",
+                                "state,baseRefName,mergedAt,headRefOid"))
             if (pr["state"] != "MERGED" or pr["baseRefName"] != base
                     or datetime.fromisoformat(pr["mergedAt"].replace("Z", "+00:00")) < started):
                 continue
-            if record.get("commits_ahead") != 0:
+            # A merged PR whose final head is the task's head proves the push, even once its branch and its
+            # refs/pull/N/head are gone from the remote and a squash merge left that head out of the base.
+            if record.get("commits_ahead") != 0 and pr["headRefOid"] != record["head_sha"]:
                 tip, merged = _canonical_publication(
                     record, f"refs/heads/{record.get('publish_branch') or record['worktree_branch']}", record["head_sha"])
                 if not (merged or tip == record["head_sha"]):
