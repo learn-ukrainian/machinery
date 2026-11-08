@@ -1,0 +1,51 @@
+# Machinery test manifest: machinery-move contract v3 step 8, first tranche.
+# Source: learn-ukrainian packaging/machinery-move/machinery_tests.txt (sha256
+# c6a76f781bd7d410b2e691650e79afbd532ce09b89f2e33b74f8c1077cc80f59; 13 [run], 63 [support]),
+# ported from learn-ukrainian 2e8d6a46b79f (this repository's snapshot source) with the
+# machinery-move rename tools. .github/workflows/tests.yml runs every [run] file, whole.
+# [run]: test files the pytest job runs, as whole files.
+# [support]: their fixture and helper closure: every tests/ file imported or opened while the
+#   [run] files ran (import and open audit hook, the source manifest's method). A [support]
+#   file named test_*.py is imported by a [run] file and is not run itself.
+# [held]: source [run] files this tranche does not run, with the reason; none is ported unless
+#   listed under [support]. Each needs code that is not in this repository: the product checkout, or the
+#   learn_ukrainian_v4_runtime package that 23 lu_machinery modules import.
+# [run]
+tests/test_fleet_repos.py
+tests/test_sibling_git_https.py
+tests/test_worktree_claims_lock_identity.py
+tests/githooks/test_owned_paths_hook.py
+# [support]
+tests/__init__.py
+tests/conftest.py
+tests/cursor_exec_tripwire.py
+tests/cursor_process_guard.py
+tests/data_store_fixtures.py
+tests/flake_quarantine.yaml
+tests/githooks/__init__.py
+tests/helpers/__init__.py
+tests/helpers/checkout_write_defaults.py
+tests/helpers/checkout_write_guard.py
+tests/helpers/github_command_boundary.py
+tests/helpers/github_transport.py
+tests/helpers/monitor.py
+tests/helpers/python.py
+tests/helpers/reviewer_routing.py
+tests/helpers/source_db_write_guard.py
+tests/helpers/stress_fixtures.py
+tests/launcher_sandbox.py
+tests/opsec_fixtures.py
+tests/orchestration/test_worktree_claims_cli.py
+tests/sparse_trees.py
+tests/test_agent_github_identity.py
+tests/test_sibling_git.py
+# [held]
+# tests/orchestration/test_merge_closeout.py: collection imports lu_machinery/orchestration/thread_handoff.py, which imports learn_ukrainian_v4_runtime (line 135).
+# tests/orchestration/test_worktree_claims_cli.py: 4 tests reach lu_machinery/agent_runtime/result.py, which imports learn_ukrainian_v4_runtime (line 22); ported only as [support].
+# tests/test_handoff_slot_registry.py: collection imports lu_machinery/agent_runtime/result.py, which imports learn_ukrainian_v4_runtime (line 22).
+# tests/test_launcher_interactive_scope.py: 101 tests list the product's root start-*.sh wrappers through product_root(), which needs the product checkout.
+# tests/test_session_supervisor.py: 14 tests import lu_machinery.ai_agent_bridge, which reaches lu_machinery/agent_runtime/result.py and learn_ukrainian_v4_runtime.
+# tests/test_rules_core_loading.py: collection imports lu_machinery.api.main (through tests/epics_monitor_stub.py), which imports learn_ukrainian_v4_runtime through lu_machinery/api/lane_health.py (line 16).
+# tests/review/test_record_cf_verdict.py: collection imports lu_machinery/review/record_cf_verdict.py, which imports learn_ukrainian_v4_runtime (lines 46-48).
+# tests/publish/test_pr_merge_squash_scan.py: 8 tests reach lu_machinery/fleet_comms/contracts.py, which imports learn_ukrainian_v4_runtime (line 12).
+# tests/review/test_routing_consumers.py: 6 tests reach lu_machinery/agent_runtime/result.py through lu_machinery/agent_runtime/adapters/agy.py.
