@@ -60,11 +60,21 @@ if [ ! -x "$PYTHON" ]; then
   # Fail open: never let a missing venv kill a Stop event.
   exit 0
 fi
+# Code root (machinery #100 R62, R69): run from a machinery tree (a checkout or the
+# installed wheel), this file's own tree supplies the code; a deployed copy takes it
+# from the release the project interpreter imports, never from $PROJECT_DIR. Machinery
+# modules then run through the shared module bootstrap (lib/project_interpreter.sh).
+_hook_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+case "$_hook_dir" in
+  */agents_extensions/shared/hooks) MACHINERY_DIR="${_hook_dir%/agents_extensions/shared/hooks}" ;;
+  *) MACHINERY_DIR=$("$PYTHON" -I -c 'import os, lu_machinery; print(os.path.dirname(os.path.dirname(os.path.abspath(lu_machinery.__file__))))' 2>/dev/null) || MACHINERY_DIR="" ;;
+esac
+unset _hook_dir
+# shellcheck source=lu_machinery/lib/project_interpreter.sh
+source "$MACHINERY_DIR/lu_machinery/lib/project_interpreter.sh" 2>/dev/null || exit 0
 
-# `python -m` resolves the module against the CURRENT working directory, so a
-# session whose cwd is not the repo root (worktree, other dir) hits
-# "ModuleNotFoundError: No module named 'scripts'". Anchor cwd to the project
-# root first; fail open if it is unreachable. (cwd-drift bug family: #4912/#4899.)
+# The modules run from the code root above, never the cwd; the project root stays
+# the working directory the stop hook reports against (cwd-drift family: #4912/#4899).
 cd "$PROJECT_DIR" || exit 0
 
 # Read stdin exactly once — both the heartbeat refresh below and the exec'd
@@ -86,7 +96,7 @@ case "$HANDOFF_AGENT" in
         # hard-requires --generation, the CLI's error is swallowed by
         # `|| true` below — a safe no-op in a mixed-deploy, exactly like the
         # old missing-env-var path.
-        "$PYTHON" "$PROJECT_DIR/lu_machinery/orchestration/thread_handoff.py" \
+        project_python_run "$PYTHON" -m lu_machinery.orchestration.thread_handoff \
           --repo-root "$CANONICAL_ROOT" refresh-thread-lease-heartbeat \
           --agent "$HANDOFF_AGENT" --current-thread-id "$SESSION_ID" \
           >/dev/null 2>&1 || true
@@ -98,4 +108,5 @@ case "$HANDOFF_AGENT" in
 esac
 unset HANDOFF_AGENT
 
-exec "$PYTHON" -m lu_machinery.goal_driver.stop_hook <<<"$STDIN_JSON"
+project_python_command "$PYTHON"
+exec "${PROJECT_PYTHON_COMMAND[@]}" -m lu_machinery.goal_driver.stop_hook <<<"$STDIN_JSON"

@@ -24,13 +24,27 @@ case "$PROJECT_DIR" in
 esac
 CANONICAL_ROOT=$(context_canonical_root "$PROJECT_DIR") || exit 0
 BOUNDED_PYTHON="${THREAD_ROLLOVER_PYTHON:-$CANONICAL_ROOT/.venv/bin/python}"
-BOUNDED_RUNNER_DEFAULT="$PROJECT_DIR/lu_machinery/agent_runtime/bounded_command.py"
+[ -x "$BOUNDED_PYTHON" ] || exit 0
+# Code root (machinery #100 R62, R69): run from a machinery tree (a checkout or the
+# installed wheel), this file's own tree supplies the code; a deployed copy takes it
+# from the release the project interpreter imports, never from $PROJECT_DIR. Machinery
+# modules then run through the shared module bootstrap (lib/project_interpreter.sh).
+_hook_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+case "$_hook_dir" in
+  */agents_extensions/shared/hooks) MACHINERY_DIR="${_hook_dir%/agents_extensions/shared/hooks}" ;;
+  *) MACHINERY_DIR=$("$BOUNDED_PYTHON" -I -c 'import os, lu_machinery; print(os.path.dirname(os.path.dirname(os.path.abspath(lu_machinery.__file__))))' 2>/dev/null) || MACHINERY_DIR="" ;;
+esac
+unset _hook_dir
+# shellcheck source=lu_machinery/lib/project_interpreter.sh
+source "$MACHINERY_DIR/lu_machinery/lib/project_interpreter.sh" 2>/dev/null || exit 0
+BOUNDED_RUNNER_DEFAULT="$MACHINERY_DIR/lu_machinery/agent_runtime/bounded_command.py"
 BOUNDED_RUNNER="${SESSION_BOUNDED_RUNNER:-$BOUNDED_RUNNER_DEFAULT}"
-[ -x "$BOUNDED_PYTHON" ] && [ -f "$BOUNDED_RUNNER" ] || exit 0
+[ -f "$BOUNDED_RUNNER" ] || exit 0
 cd "$PROJECT_DIR" 2>/dev/null || exit 0
 
-RESULT=$("$BOUNDED_PYTHON" "$BOUNDED_RUNNER" --timeout 2 -- \
-  "$BOUNDED_PYTHON" -m lu_machinery.orchestration.precompact_handoff_check \
+project_python_command "$BOUNDED_PYTHON"
+RESULT=$("$BOUNDED_PYTHON" -I "$BOUNDED_RUNNER" --timeout 2 -- \
+  "${PROJECT_PYTHON_COMMAND[@]}" -m lu_machinery.orchestration.precompact_handoff_check \
   --state-root "$CANONICAL_ROOT" --agent "${SESSION_HANDOFF_AGENT:-claude}" 2>/dev/null) || exit 0
 [ "$RESULT" = "prepared" ] || exit 0
 printf '%s\n' 'Automatic compaction paused: this session has prepared its rollover handoff. Restart the session to continue.' >&2

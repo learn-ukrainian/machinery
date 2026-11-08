@@ -61,6 +61,18 @@ if [ ! -x "$PYTHON" ]; then
   # Fail open: never let a missing venv block SessionEnd.
   exit 0
 fi
+# Code root (machinery #100 R62, R69): run from a machinery tree (a checkout or the
+# installed wheel), this file's own tree supplies the code; a deployed copy takes it
+# from the release the project interpreter imports, never from $PROJECT_DIR. Machinery
+# modules then run through the shared module bootstrap (lib/project_interpreter.sh).
+_hook_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+case "$_hook_dir" in
+  */agents_extensions/shared/hooks) MACHINERY_DIR="${_hook_dir%/agents_extensions/shared/hooks}" ;;
+  *) MACHINERY_DIR=$("$PYTHON" -I -c 'import os, lu_machinery; print(os.path.dirname(os.path.dirname(os.path.abspath(lu_machinery.__file__))))' 2>/dev/null) || MACHINERY_DIR="" ;;
+esac
+unset _hook_dir
+# shellcheck source=lu_machinery/lib/project_interpreter.sh
+source "$MACHINERY_DIR/lu_machinery/lib/project_interpreter.sh" 2>/dev/null || exit 0
 
 cd "$PROJECT_DIR" || exit 0
 
@@ -83,7 +95,7 @@ fi
 # the sweeper remains responsible for dead or expired markers.
 SESSION_MARKER_PID="${SESSION_PID:-$PPID}"
 if [[ "$SESSION_MARKER_PID" =~ ^[1-9][0-9]*$ ]]; then
-  PYTHONPATH="$PROJECT_DIR" "$PYTHON" -m lu_machinery.orchestration.session_markers \
+  project_python_run "$PYTHON" -m lu_machinery.orchestration.session_markers \
     remove --instance-id "$SESSION_ID" --pid "$SESSION_MARKER_PID" \
     >/dev/null 2>&1 || true
 fi
@@ -105,7 +117,7 @@ esac
 # stale lease that leaves behind. If a repo checkout still has an OLDER
 # thread_handoff.py that hard-requires --generation, the CLI error is
 # swallowed by `|| true` — a safe no-op in a mixed deploy.
-"$PYTHON" "$PROJECT_DIR/lu_machinery/orchestration/thread_handoff.py" --repo-root "$CANONICAL_ROOT" \
+project_python_run "$PYTHON" -m lu_machinery.orchestration.thread_handoff --repo-root "$CANONICAL_ROOT" \
   release-thread-lease --agent "$HANDOFF_AGENT" --current-thread-id "$SESSION_ID" \
   >/dev/null 2>&1 || true
 
