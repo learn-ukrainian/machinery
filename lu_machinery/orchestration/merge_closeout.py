@@ -47,6 +47,7 @@ from lu_machinery.orchestration.fleet_repos import (
     resolve_fleet_repo,
 )
 from lu_machinery.publish.github import Request, request_run
+from lu_machinery.review.target_resolution import repository_target_error
 
 # This package's import name, from the unresolved file location: never from __package__, which a
 # short import spelling (orchestration.x with scripts/ on sys.path) shortens. Its dotted parts
@@ -763,11 +764,12 @@ def main(argv: list[str] | None = None) -> int:
             repo_root = args.repo_root.resolve()
             repo_arg = args.repo
         else:
+            selected: FleetRepo | None = None
             try:
                 catalog = load_fleet_repos()
                 supplied = args.repo.strip() if isinstance(args.repo, str) else ""
                 spelling = supplied.casefold()
-                selected: FleetRepo | None = next(
+                selected = next(
                     (
                         item
                         for item in catalog.values()
@@ -786,7 +788,9 @@ def main(argv: list[str] | None = None) -> int:
                 # REST lookup requires owner/name, so the catalog slug is the GitHub argument.
                 repo_arg = selected.github
             except (FleetRepoError, MachineryConfigError) as exc:
-                raise MergeCloseoutError(str(exc)) from exc
+                # A missing private checkout is refused without naming its path.
+                key = selected.key if selected is not None else None
+                raise MergeCloseoutError(str(repository_target_error(key, exc))) from exc
         result = run_merge_closeout(
             repo_root, args.pr_number, repo=repo_arg, apply=args.apply,
             **({"no_lifecycle_observation": args.no_lifecycle_observation} if args.no_lifecycle_observation is not None else {}),

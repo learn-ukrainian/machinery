@@ -1280,6 +1280,29 @@ def test_main_missing_catalog_checkout_refuses_exit_2(
     assert "learn-ukrainian/machinery" in payload["error"]
 
 
+@pytest.mark.parametrize("spelling", ["infra-private", "learn-ukrainian/learn-ukrainian-infra-private"])
+def test_main_missing_private_checkout_refusal_names_no_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], spelling: str
+) -> None:
+    """Defect class: a missing private-catalog checkout must refuse neutrally, never printing its expected path."""
+    layout = tmp_path / "layout"
+    primary = layout / "learn-ukrainian"
+    primary.mkdir(parents=True)
+    unrelated = tmp_path / "unrelated"
+    unrelated.mkdir()
+    monkeypatch.chdir(unrelated)
+    _forbid_cwd_checkout_discovery(monkeypatch)
+    monkeypatch.setattr(mc, "state_root", lambda start=None, env=None: primary)
+
+    exit_code = mc.main(["113", "--repo", spelling, "--json"])
+    payload = json.loads(capsys.readouterr().out)
+
+    assert exit_code == 2
+    assert payload["ok"] is False
+    assert payload["error"].startswith("PRIVATE_REVIEW_TARGET_UNRESOLVED")
+    assert str(layout) not in payload["error"]
+
+
 def test_main_known_repo_without_state_anchor_refuses_with_remedy(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
