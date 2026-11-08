@@ -431,7 +431,11 @@ def _override_admitted(
 
 
 def real_gh(environment: Mapping[str, str]) -> str:
-    """Pin an absolute executable excluding every copy of the agent shim."""
+    """Pin an absolute executable excluding every copy of the agent shim.
+
+    A copy is any ``agent_runtime/shims/gh`` under any package name: the product repository keeps its own
+    shim under ``scripts``, and its launchers put that directory on PATH before this package runs.
+    """
     pinned = environment.get("AGENT_REAL_GH")
     candidates = (
         [pinned]
@@ -451,7 +455,7 @@ def real_gh(environment: Mapping[str, str]) -> str:
             and path.is_file()
             and os.access(path, os.X_OK)
             and path != (ROOT / _MACHINERY / "agent_runtime" / "shims" / "gh").resolve()
-            and path.parts[-4:] != (_MACHINERY, "agent_runtime", "shims", "gh")
+            and path.parts[-3:] != ("agent_runtime", "shims", "gh")
         ):
             return str(path)
     raise PublishBlocked("OPSEC: real gh executable unavailable; write refused.")

@@ -464,7 +464,7 @@ def merge_readiness_runner(runner=None):
 
 SQUASH_TEXT_QUERY = (
     "query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){"
-    "pullRequest(number:$number){headRefOid isMergeQueueEnabled "
+    "pullRequest(number:$number){id headRefOid isMergeQueueEnabled "
     "viewerMergeHeadlineText(mergeType:SQUASH) viewerMergeBodyText(mergeType:SQUASH)}}}"
 )
 
@@ -490,6 +490,7 @@ def _squash_text(gh_repo, fields, dest, temp, runner, cwd, environment):
         if not (
             isinstance(subject, str)
             and isinstance(body, str)
+            and isinstance(pull["id"], str) and bool(pull["id"])
             and type(pull["isMergeQueueEnabled"]) is bool
             and isinstance(pull["headRefOid"], str)
             and pull["headRefOid"].lower() == fields["match_head"].lower()
@@ -499,7 +500,7 @@ def _squash_text(gh_repo, fields, dest, temp, runner, cwd, environment):
         raise
     except Exception:
         raise gate.PublishBlocked("OPSEC: merge refused: squash text unverifiable.") from None
-    return {"subject": subject, "body": body, "queue": pull["isMergeQueueEnabled"]}
+    return {"subject": subject, "body": body, "queue": pull["isMergeQueueEnabled"], "id": pull["id"]}
 
 
 def _refuse_incomplete_seats(dest, number, head, runner, cwd, environment):
@@ -525,6 +526,7 @@ def _refuse_incomplete_seats(dest, number, head, runner, cwd, environment):
         lookup_verdict,
         pr_file_paths,
     )
+    from lu_machinery.review.tiers import classify_pr_files
 
     # The setting is explicit per repository; an absent, ambiguous or non-boolean one is unverifiable.
     rows = [
@@ -551,9 +553,13 @@ def _refuse_incomplete_seats(dest, number, head, runner, cwd, environment):
             raise ValueError
         if not isinstance(login, str) or not re.fullmatch(r"\S+", login):
             raise ValueError
-        paths = pr_file_paths([item for page in files for item in page])
+        file_rows = [item for page in files for item in page]
+        paths = pr_file_paths(file_rows)
+        low_tier = classify_pr_files(file_rows) == "low"
         content = changes_learner_content(paths)
-        state = lookup_verdict([item for page in pages for item in page], head, login, learner_content=content).state
+        state = lookup_verdict(
+            [item for page in pages for item in page], head, login, learner_content=content, low_tier=low_tier,
+        ).state
     except github_client.GitHubRateLimited:
         raise
     except Exception:
@@ -563,8 +569,9 @@ def _refuse_incomplete_seats(dest, number, head, runner, cwd, environment):
     if state not in {"APPROVED", "needs-CF"}:
         raise gate.PublishBlocked(f"OPSEC: merge refused: recorded review verdict is {state} at this head.")
     if state == "needs-CF" and recorder:
+        requirement = "non-author" if low_tier else "cross-family"
         raise gate.PublishBlocked(
-            f"OPSEC: merge refused: no cross-family APPROVE from {_RECORDER} is recorded at {head}."
+            f"OPSEC: merge refused: no {requirement} APPROVE from {_RECORDER} is recorded at {head}."
         )
     from lu_machinery.review import contract_canary
 
@@ -1629,20 +1636,16 @@ def publish(
         elif verb == "issue-close":
             option("comment")
             option("reason")
-        elif verb == "pr-merge" and jump:
-            # gh pr merge cannot jump; the queue composes the squash text scanned above.
+        elif verb == "pr-merge":
+            # Enqueue only. gh pr merge can arm auto-merge on a non-ready PR.
             frozen = temp / "enqueue.json"
             frozen.write_bytes(json.dumps({
                 "query": "mutation($id:ID!,$head:GitObjectID!){enqueuePullRequest(input:"
-                "{pullRequestId:$id,expectedHeadOid:$head,jump:true}){mergeQueueEntry{position jump}}}",
-                "variables": {"id": before["id"], "head": fields["match_head"]},
+                "{pullRequestId:$id,expectedHeadOid:$head,jump:" + str(jump).lower()
+                + "}){mergeQueueEntry{position jump}}}",
+                "variables": {"id": default["id"], "head": fields["match_head"]},
             }).encode("utf-8"))
             argv = ["gh", "api", "--method", "POST", "graphql", "--input", str(frozen), *_hostname_flag(dest)]
-        elif verb == "pr-merge":
-            argv.append("--squash")
-            option("subject")
-            option("match_head", "--match-head-commit")
-            body_file("body")
         elif verb in {"pr-update-branch", "pr-ready", "pr-close", "issue-reopen", "run-cancel"}:
             pass
         elif verb == "run-rerun":

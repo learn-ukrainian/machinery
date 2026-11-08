@@ -486,7 +486,9 @@ def ensure_merge_ready(repo, number, *, runner, cwd, environment, match_head=Non
 
     try:
         meta = decoded(
-            "pr view metadata", get("pr view metadata", ["view", str(number), "--json", "number,isDraft,headRefOid"])
+            "pr view metadata", get("pr view metadata", [
+                "view", str(number), "--json", "number,isDraft,headRefOid,mergeStateStatus",
+            ])
         )
         if (
             not isinstance(meta, dict)
@@ -496,6 +498,14 @@ def ensure_merge_ready(repo, number, *, runner, cwd, environment, match_head=Non
             or not re.fullmatch(r"[0-9a-fA-F]{40}", meta["headRefOid"])
         ):
             raise PublishBlocked("OPSEC: merge readiness unverifiable" + detail("pr view metadata: invalid") + ".")
+        reason = readiness_reason(meta, ([], []))
+        merge_state = meta.get("mergeStateStatus")
+        if not reason and (not isinstance(merge_state, str) or not merge_state):
+            reason = "merge state unverifiable"
+        elif not reason and merge_state not in {"CLEAN", "HAS_HOOKS"}:
+            reason = f"merge state {merge_state}"
+        if reason:
+            raise PublishBlocked("OPSEC: merge refused: " + reason + ".")
         checks = get("pr checks", ["checks", str(number), "--json", "name,bucket,state,workflow"])
         if _checks_json_unsupported(checks):
             bound = bound_view()
