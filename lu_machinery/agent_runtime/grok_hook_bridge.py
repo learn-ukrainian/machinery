@@ -48,14 +48,6 @@ class GuardInvocationError(ValueError):
     """The guard argument is neither a guard path nor a pinned invocation."""
 
 
-def _project_interpreter(source_root: Path) -> Path:
-    if str(source_root) not in sys.path:
-        sys.path.insert(0, str(source_root))
-    from lu_machinery.common.repo_root import project_interpreter
-
-    return project_interpreter(source_root)
-
-
 def guard_argv(command: str) -> list[str]:
     """Return the argv for one guard path or one pinned interpreter invocation.
 
@@ -66,8 +58,13 @@ def guard_argv(command: str) -> list[str]:
         argv = shlex.split(command)
     except ValueError as exc:
         raise GuardInvocationError("unreadable fleet guard invocation") from exc
-    source_root = Path(__file__).resolve().parents[2]
-    hooks_dir = source_root / "agents_extensions/shared/hooks"
+    try:
+        from lu_machinery.common.repo_root import product_root
+    except ModuleNotFoundError:
+        # File launch from a checkout: the package is not installed on this interpreter.
+        sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+        from lu_machinery.common.repo_root import product_root
+    hooks_dir = product_root() / "agents_extensions/shared/hooks"
     if len(argv) == 1:
         guard = Path(argv[0])
         if guard != hooks_dir / guard.name or guard.name == _PROJECT_PYTHON_HOOK_WRAPPER:
@@ -82,8 +79,8 @@ def guard_argv(command: str) -> list[str]:
         raise GuardInvocationError("only tracked parser guards may run under the project interpreter")
     if not guard.is_file():
         raise GuardInvocationError("fleet guard unavailable")
-    if python_bin != _project_interpreter(source_root):
-        raise GuardInvocationError("fleet guard interpreter is not the project interpreter")
+    if python_bin != Path(sys.executable):
+        raise GuardInvocationError("fleet guard interpreter is not this process's interpreter")
     return argv
 
 

@@ -78,6 +78,7 @@ import os
 import re
 import shlex
 import shutil
+import sys
 import tempfile
 from dataclasses import replace
 from datetime import datetime
@@ -280,15 +281,15 @@ def _guard_agent_definition(
     payload consumed by the existing guards. ``promptMode`` stays at its
     default (extend), so the body is appended to the base system prompt.
     """
-    from lu_machinery.common.repo_root import machinery_path, project_interpreter
+    from lu_machinery.common.repo_root import machinery_path
 
     from .claude import _worker_guard_settings
 
     wrapper = machinery_path("agent_runtime/grok_hook_bridge.py")
     if not wrapper.is_file():
         raise RuntimeError(f"Grok hook bridge unavailable: {wrapper}")
-    # Launched through the interpreter: an installed package has no execute bit on the bridge.
-    launcher = shlex.join([str(project_interpreter(Path(__file__).resolve().parents[3])), str(wrapper)])
+    # Launched through this process's interpreter: an installed package has no execute bit on the bridge.
+    launcher = shlex.join([sys.executable, str(wrapper)])
     groups = json.loads(_worker_guard_settings(publish_guard=publish_guard))["hooks"]["PreToolUse"]
     lines = [
         "---",
@@ -315,9 +316,8 @@ def _guard_agent_definition(
 
 def _reviewer_agent_definition(cwd: Path) -> str:
     """Read-only reviewer agent: fleet guards plus the publish guard."""
-    from lu_machinery.common.repo_root import machinery_path, project_interpreter
+    from lu_machinery.common.repo_root import machinery_path
 
-    source_root = Path(__file__).resolve().parents[3]
     guard = machinery_path("agent_runtime/grok_reviewer_permissions.py")
     if not guard.is_file():
         raise RuntimeError("Grok reviewer permission guard unavailable")
@@ -336,7 +336,7 @@ def _reviewer_agent_definition(cwd: Path) -> str:
         publish_guard=True,
         native_aliases=False,
     )
-    guard_command = shlex.join([str(project_interpreter(source_root)), str(guard), "--review-root", str(cwd)])
+    guard_command = shlex.join([sys.executable, str(guard), "--review-root", str(cwd)])
     # This guard consumes native Grok events directly, before native approval.
     hook = (
         '    - matcher: ".*"\n'
