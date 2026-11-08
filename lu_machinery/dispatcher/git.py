@@ -636,7 +636,8 @@ def _hidden_tracked_changes(tree: Path) -> bool:
     (cat-file --filters; a symlink's target text raw). A flagged submodule entry or a path under a symlinked
     directory counts as changed. Each initialized submodule is checked the same way, with its own status run
     with --ignore-submodules=none, since its index flags and its own submodules' ignore settings hide work
-    from the superproject. Filter drivers stay disabled (execution_safe_git), so a driver-filtered or
+    from the superproject; a submodule path under a symlink, or a non-empty submodule directory without its
+    Git metadata, counts as changed. Filter drivers stay disabled (execution_safe_git), so a driver-filtered or
     re-encoded file can read changed, never clean.
     """
     local = partial(execution_safe_git, cwd=tree, capture_output=True, check=True, timeout=30)
@@ -705,8 +706,14 @@ def _hidden_tracked_changes(tree: Path) -> bool:
             return True
     for name in submodules:
         path = tree / name
-        if under_symlink((*PurePosixPath(name).parts, ".git")) or not os.path.lexists(path / ".git"):
-            continue  # not initialized, or not a checkout of its own; the superproject's status reports it
+        if under_symlink((*PurePosixPath(name).parts, ".git")):
+            return True
+        if not os.path.lexists(path / ".git"):
+            # An uninitialized submodule is an empty directory or none; files left without their Git metadata are
+            # invisible to the superproject's status and may be tracked work.
+            if os.path.isdir(path) and os.listdir(path):
+                return True
+            continue
         nested = partial(execution_safe_git, cwd=path, capture_output=True, check=True, timeout=30)
         if nested(["status", "--porcelain", "--ignore-submodules=none"]).stdout or _hidden_tracked_changes(path):
             return True

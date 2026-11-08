@@ -98,7 +98,8 @@ def test_assume_unchanged_edit_reads_dirty(work):
 
 
 def test_submodule_edit_with_ignore_dirty_reads_dirty(tmp_path, work):
-    """Also an edit that the submodule's own assume-unchanged flag hides from its status."""
+    """Also an edit that the submodule's own assume-unchanged flag hides from its status, with or without the
+    submodule's gitfile."""
     sub = _submodule(tmp_path, work, "dirty")
     (sub / "inner.txt").write_text("hidden edit\n")
     assert _git(work, "status", "--porcelain") == ""
@@ -107,6 +108,10 @@ def test_submodule_edit_with_ignore_dirty_reads_dirty(tmp_path, work):
     _git(sub, "update-index", "--assume-unchanged", "inner.txt")
     assert _dirty(work) is False
     (sub / "inner.txt").write_text("hidden edit\n")
+    assert _git(work, "status", "--porcelain", "--ignore-submodules=none") == ""
+    assert _dirty(work) is True
+    # Without its gitfile the populated submodule is invisible to the superproject's status.
+    (sub / ".git").unlink()
     assert _git(work, "status", "--porcelain", "--ignore-submodules=none") == ""
     assert _dirty(work) is True
 
