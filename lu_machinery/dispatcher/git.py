@@ -750,8 +750,8 @@ def merged_delivery(record: dict) -> dict | None:
     it MERGED into the task's base after the task started. Any lookup failure is None, so the
     caller falls back to refusing on the local evidence. ``paths`` is every path the PR
     changed, rename sources included. The task's own head must also be published (nothing
-    ahead of the task start, or already in the PR or the base), so merged work never hides
-    further work that was not pushed.
+    ahead of the task start, the PR's final head, or already in the PR or the base), so merged
+    work never hides further work that was not pushed.
     """
     try:
         repo, base = _repo_and_base(record)
@@ -759,11 +759,14 @@ def merged_delivery(record: dict) -> dict | None:
             return None
         started = datetime.fromisoformat(record["started_at"].replace("Z", "+00:00"))
         for number in _delivery_prs(record, repo):
-            pr = json.loads(_gh("pr", "view", str(number), "--repo", repo, "--json", "state,baseRefName,mergedAt"))
+            pr = json.loads(_gh("pr", "view", str(number), "--repo", repo, "--json",
+                                "state,baseRefName,mergedAt,headRefOid"))
             if (pr["state"] != "MERGED" or pr["baseRefName"] != base
                     or datetime.fromisoformat(pr["mergedAt"].replace("Z", "+00:00")) < started):
                 continue
-            if record.get("commits_ahead") != 0:
+            # A merged PR whose final head is the task's head proves the push, even once its branch and its
+            # refs/pull/N/head are gone from the remote and a squash merge left that head out of the base.
+            if record.get("commits_ahead") != 0 and pr["headRefOid"] != record["head_sha"]:
                 tip, merged = _canonical_publication(
                     record, f"refs/heads/{record.get('publish_branch') or record['worktree_branch']}", record["head_sha"])
                 if not (merged or tip == record["head_sha"]):
