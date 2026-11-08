@@ -112,10 +112,18 @@ def test_consumer_import_order_preserves_package_identity(tmp_path):
     """A consumer's runtime must not shadow machinery or be shadowed by the bridge."""
     consumer = tmp_path / "consumer"
     runtime = consumer / "agent_runtime"
+    common = consumer / "common"
     (runtime / "adapters").mkdir(parents=True)
+    common.mkdir()
     for name in ("__init__.py", "adapters/__init__.py", "adapters/kimi.py"):
         (runtime / name).write_text("")
     (runtime / "redact.py").write_text("CONSUMER = True\n")
+    (common / "__init__.py").write_text("")
+    (common / "repo_root.py").write_text(
+        "POISON = True\n"
+        "def project_interpreter():\n"
+        "    raise RuntimeError('consumer common')\n"
+    )
     probe = """
 import importlib
 import sys
@@ -129,6 +137,7 @@ for name in modules:
     if name == "lu_machinery.ai_agent_bridge":
         importlib.import_module("lu_machinery.agent_runtime.acpx_discuss")
         importlib.import_module("lu_machinery.agent_runtime.lane_probe")
+        importlib.import_module("lu_machinery.agent_runtime.trail_isolation")
 from lu_machinery.ai_agent_bridge import _claude, _gemini
 from lu_machinery.agent_runtime import runner
 from lu_machinery.agent_runtime.adapters.claude import ClaudeAdapter
@@ -137,7 +146,29 @@ assert _claude.runtime_invoke is runner.invoke
 assert _gemini.runtime_invoke is runner.invoke
 assert _claude.AgentTimeoutError is AgentTimeoutError
 assert importlib.import_module("agent_runtime.redact").CONSUMER is True
+assert "common.repo_root" not in sys.modules
 assert sys.path == before
+# A failed package import must not bind the consumer's common.repo_root.
+sys.modules.pop("lu_machinery.agent_runtime.trail_isolation", None)
+sys.modules.pop("lu_machinery.common.repo_root", None)
+
+class _BlockRepoRoot:
+    def find_spec(self, fullname, path, target=None):
+        if fullname == "lu_machinery.common.repo_root":
+            raise ModuleNotFoundError(fullname, name=fullname)
+        return None
+
+sys.meta_path.insert(0, _BlockRepoRoot())
+try:
+    importlib.import_module("lu_machinery.agent_runtime.trail_isolation")
+except ModuleNotFoundError as exc:
+    if exc.name != "lu_machinery.common.repo_root":
+        raise
+else:
+    raise SystemExit("trail_isolation fell back to a bare common import")
+poison = sys.modules.get("common.repo_root")
+if poison is not None and getattr(poison, "POISON", False):
+    raise SystemExit("consumer common.repo_root was bound")
 print("PASS", sys.argv[3])
 """
     failures = []

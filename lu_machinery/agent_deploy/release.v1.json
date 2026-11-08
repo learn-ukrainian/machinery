@@ -74,7 +74,7 @@
     "hooks/audit-primary-checkout-dirt.py": {
       "mode": 493,
       "owner": "fleet",
-      "sha256": "7faca4320527f1cc440923b8925142657a4da419272c1143926e998ef9202f13",
+      "sha256": "104d391b0e51740dd727047bfa30fdedbf9ae2574d31f24e97fa171cf240fbce",
       "targets": {
         "agy": [
           ".agent/hooks/audit-primary-checkout-dirt.py"
@@ -283,7 +283,7 @@
     "hooks/guard-branch-switch-in-main.py": {
       "mode": 493,
       "owner": "fleet",
-      "sha256": "9650451765970ad3717a5a4bba4a93bf041e4abc4241bcfcc84cb9069d344a28",
+      "sha256": "dd69456abc4668edf2e24bcc21c2c6fb4063ae1414f492b4161092fcbf8ca79b",
       "targets": {
         "agy": [
           ".agent/hooks/guard-branch-switch-in-main.py"
@@ -302,7 +302,7 @@
     "hooks/guard-pr-merge.py": {
       "mode": 493,
       "owner": "fleet",
-      "sha256": "5feb8f15fe55baf4f81451f2d8b5f089ddc11f98820e175211f0ba159d0265a3",
+      "sha256": "6836133743e0fb16576fc15c717e3dd6c493eff9fcda7464ab73aa66dedceec7",
       "targets": {
         "agy": [
           ".agent/hooks/guard-pr-merge.py"
@@ -321,7 +321,7 @@
     "hooks/guard-primary-checkout-write.py": {
       "mode": 493,
       "owner": "fleet",
-      "sha256": "ba1076170d88a6ab13c92aa93497e3eae55bea51dd183f201162063e666ea38d",
+      "sha256": "ebbba3d7a26a52a72d9b69b9043d6500b482573ca197fffb3e5d3f4a3712b22d",
       "targets": {
         "agy": [
           ".agent/hooks/guard-primary-checkout-write.py"
@@ -340,7 +340,7 @@
     "hooks/guard-public-github-text.py": {
       "mode": 493,
       "owner": "fleet",
-      "sha256": "8e1c9665623ff24b21f065785a6d1d82db7a9fd1db04b7b569710758bbee0759",
+      "sha256": "cb18a2a810890eab440b38f0dd706696980d356896d9dd4bd6614a648df63686",
       "targets": {
         "agy": [
           ".agent/hooks/guard-public-github-text.py"
@@ -397,7 +397,7 @@
     "hooks/heal-core-bare.py": {
       "mode": 493,
       "owner": "fleet",
-      "sha256": "d869a1cb6c06cfdf0f9cd74f7060549a962a0c1c8971c7d3c616dde9ba1d4c48",
+      "sha256": "953decd116efba9b24b30d6d5d6917d471881ae33ebbd9067f21eef6773237a3",
       "targets": {
         "agy": [
           ".agent/hooks/heal-core-bare.py"
@@ -473,7 +473,7 @@
     "hooks/session-setup.sh": {
       "mode": 493,
       "owner": "fleet",
-      "sha256": "e2dbefbb717691a839e2dc6cb2538bf3477bcbcb5af2a86df6fcf7e932a01b6b",
+      "sha256": "4bf5bb6e54759290979106ea76b649d7ad7a4b1331f8ad2481c0b4ba3ee16877",
       "targets": {
         "agy": [
           ".agent/hooks/session-setup.sh"

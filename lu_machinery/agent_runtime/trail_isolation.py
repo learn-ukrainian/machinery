@@ -16,12 +16,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from .kimi_admission import format_refusal
+from lu_machinery.common.repo_root import project_interpreter
 
-try:
-    from lu_machinery.common.repo_root import project_interpreter
-except ImportError:  # agent_runtime loaded with scripts/ on path
-    from common.repo_root import project_interpreter  # type: ignore[no-redef]
+from .kimi_admission import format_refusal
 
 TRAIL_MCP_SERVER_NAME = "trail"
 # The server runs by module name under this package's import name (the unresolved

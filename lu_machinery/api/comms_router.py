@@ -37,13 +37,6 @@ from fastapi import APIRouter, Depends, Query, Request, Response
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
-try:
-    from lu_machinery.lib.readonly_sqlite import SQLiteConnection
-except ModuleNotFoundError as exc:
-    if exc.name != Path(os.path.abspath(__file__)).parents[1].name:
-        raise
-    from lib.readonly_sqlite import SQLiteConnection  # type: ignore[no-redef]
-
 from lu_machinery.ai_agent_bridge.broker_indexes import apply as apply_broker_indexes
 from lu_machinery.control_plane.storage import ControlPlaneError
 from lu_machinery.fleet_comms.agent_success_metrics import collect_agent_success
@@ -64,6 +57,7 @@ from lu_machinery.fleet_comms.opsec_store import (
     legacy_broker_store,
 )
 from lu_machinery.fleet_comms.paths import default_plane_root
+from lu_machinery.lib.readonly_sqlite import SQLiteConnection
 
 from .monitor_context import MonitorContext, get_ctx, resolve_context
 from .state_helpers import cache_get, cache_set
@@ -208,11 +202,9 @@ def _maybe_run_delivery_expiry_sweep(ctx: MonitorContext) -> None:
 
 def _run_delivery_expiry_sweep(message_db: "os.PathLike[str]") -> None:
     try:
-        # Canonical identity only (#6812): this module already imports
-        # `scripts.*` at module level, so the repo root is always on sys.path
-        # wherever this sweep runs. A bare `ai_agent_bridge` import here loads
-        # a second sys.modules identity — and on the sweep's background thread
-        # it did so at racy, xdist-order-dependent times.
+        # Canonical identity only (#6812). A bare ai_agent_bridge import
+        # loads a second sys.modules identity, and on the sweep's background
+        # thread it did so at racy, xdist-order-dependent times.
         from lu_machinery.ai_agent_bridge import _channels as _ch  # noqa: PLC0415 — optional broker bridge
         from lu_machinery.ai_agent_bridge import _config as _ch_config  # noqa: PLC0415 — optional broker bridge
     except Exception:
@@ -344,13 +336,13 @@ def _append_event_snapshot(activity: dict[str, dict], row, limit: int) -> None:
         )
 
 
-def _bridge_script() -> str:
-    """Checkout-relative identity of the bridge entrypoint."""
-    return f"{Path(__file__).parents[1].name}/ai_agent_bridge/__main__.py"
+def _bridge_launch() -> str:
+    """Argument prefix that runs the installed bridge module."""
+    return "-m lu_machinery.ai_agent_bridge"
 
 
 def _add_agent_activity_actions(activity: dict[str, dict]) -> None:
-    bridge = _bridge_script()
+    bridge = _bridge_launch()
     for agent, snapshot in activity.items():
         if snapshot["pending"]:
             snapshot["next_actions"].append(
