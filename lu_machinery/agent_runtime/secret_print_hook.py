@@ -74,7 +74,8 @@ def run_guard(command: str, *, timeout: float = DEFAULT_TIMEOUT, harness: str = 
         if harness == "agy":
             env = dict(os.environ)
             env.pop("LEARN_UK_SECRETS_OK", None)
-            result = subprocess.run(
+            # This process's interpreter and the resolved guard path; argv is a list and no shell runs.
+            result = subprocess.run(  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit
                 [sys.executable, str(guard_path)],
                 input=payload,
                 text=True,
