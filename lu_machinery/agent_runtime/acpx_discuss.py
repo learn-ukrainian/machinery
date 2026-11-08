@@ -16,7 +16,6 @@ import logging
 import os
 import re
 import sqlite3
-import sys
 import threading
 import time
 from collections.abc import Callable, Iterator, Mapping, Sequence
@@ -26,12 +25,6 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
-
-# runner.py retains historical sibling imports such as ai_llm; support both
-# package invocation and the legacy scripts-on-PYTHONPATH form.
-_SCRIPTS_DIR = Path(__file__).resolve().parents[1]
-if str(_SCRIPTS_DIR) not in sys.path:
-    sys.path.insert(0, str(_SCRIPTS_DIR))
 
 from lu_machinery.agent_runtime.adapters.acpx import (
     ACPX_SUPPORTED_PARTICIPANTS,

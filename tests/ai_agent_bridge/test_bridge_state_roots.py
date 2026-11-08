@@ -126,6 +126,9 @@ if sys.argv[3] == "bridge-first":
     modules = modules[::-1]
 for name in modules:
     importlib.import_module(name)
+    if name == "lu_machinery.ai_agent_bridge":
+        importlib.import_module("lu_machinery.agent_runtime.acpx_discuss")
+        importlib.import_module("lu_machinery.agent_runtime.lane_probe")
 from lu_machinery.ai_agent_bridge import _claude, _gemini
 from lu_machinery.agent_runtime import runner
 from lu_machinery.agent_runtime.adapters.claude import ClaudeAdapter
