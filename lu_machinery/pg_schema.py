@@ -21,7 +21,7 @@ from __future__ import annotations
 import hashlib
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from importlib.resources import files
+from importlib.resources import files  # nosemgrep: python.lang.compatibility.python37-compatibility-importlib2
 from typing import Any
 
 PG_BLOB_TABLE = "fleet_comms_artifact_blobs"
@@ -223,7 +223,8 @@ MIGRATIONS: tuple[PgMigration, ...] = (
 
 
 def _ensure_migration_table(conn: Any) -> None:
-    conn.execute(
+    # The f-string interpolates only the module constant PG_MIGRATION_TABLE.
+    conn.execute(  # nosemgrep: python.lang.security.audit.formatted-sql-query
         f"""CREATE TABLE IF NOT EXISTS {PG_MIGRATION_TABLE} (
             version INTEGER PRIMARY KEY,
             name TEXT NOT NULL,
@@ -260,7 +261,8 @@ def _ensure_operation_roles(conn: Any) -> None:
 
 
 def _applied_migrations(conn: Any) -> dict[int, tuple[str, str]]:
-    rows = conn.execute(f"SELECT version, name, checksum FROM {PG_MIGRATION_TABLE}").fetchall()
+    # The f-string interpolates only the module constant PG_MIGRATION_TABLE.
+    rows = conn.execute(f"SELECT version, name, checksum FROM {PG_MIGRATION_TABLE}").fetchall()  # nosemgrep: python.lang.security.audit.formatted-sql-query
     applied: dict[int, tuple[str, str]] = {}
     for row in rows:
         if isinstance(row, dict):

@@ -84,7 +84,7 @@ _ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}\Z")
 _FINDING = re.compile(r"^ {0,3}(?:#{1,6} |[-*] )?[*_]*\[(P[0-3])\](?:[*_\s:.-]|$)")
 _FINDING_ID = re.compile(
     r"^ {0,3}(?:#{1,6} +|[-*+] +|\d+[.)] +)?[*_]*(F\d+)\b[*_]*"
-    r"[\s:.(\[—–-]*(?:severity[:\s]+)?(P[0-3])\b",
+    r"[\s:.(\[\u2014\u2013-]*(?:severity[:\s]+)?(P[0-3])\b",
     re.IGNORECASE,
 )
 # Prose that talks about a finding's resolution ("resolved", "still open", "never been resolved") is
