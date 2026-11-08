@@ -642,3 +642,8 @@ def test_package_imports_and_help_work_with_nothing_configured(tmp_path):
     assert helped.returncode == 0, helped.stderr
     assert "usage" in helped.stdout.lower()
     assert _tree(decoy) == before
+
+
+def test_gate_probe_deliberate_failure() -> None:
+    """Scratch probe for PR 158: CI Gate must fail when the called pytest job fails."""
+    assert False
