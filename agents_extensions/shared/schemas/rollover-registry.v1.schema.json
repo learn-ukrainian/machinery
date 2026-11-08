@@ -12,8 +12,6 @@
     "state",
     "last_successful_boundary",
     "native_creation",
-    "strict_recall",
-    "canary",
     "confirmation",
     "predecessor_archival",
     "heartbeat",
