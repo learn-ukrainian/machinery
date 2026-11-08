@@ -287,10 +287,9 @@ def _numstat_loc(repo_root: Path, diff_range: list[str]) -> tuple[tuple[str, ...
 
 def diff_against_base(repo_root: Path, base_sha: str, head_sha: str) -> tuple[tuple[str, ...], int]:
     """Public wrapper: (changed_paths, non_test_loc) for an explicit
-    ``base_sha..head_sha`` range. Read-only — used to re-measure a frozen
-    commit/branch/PR target's full diff after committed fixes land, without
-    re-resolving the target from scratch (e.g. re-querying ``gh pr view``,
-    whose live base/head could have moved since the target was frozen)."""
+    ``base_sha..head_sha`` range. Used to re-measure a commit target from its
+    frozen parent after committed fixes. Branch and PR expansion checks use
+    ``resolve_branch_target`` to exclude integrated base-branch changes."""
     return _numstat_loc(repo_root, [base_sha, head_sha])
 
 
