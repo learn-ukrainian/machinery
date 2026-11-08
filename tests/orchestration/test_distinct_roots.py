@@ -20,6 +20,8 @@ import shlex
 import subprocess
 import sys
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import Mock
 
 import pytest
 
@@ -57,23 +59,28 @@ def _subprocess_env(**configured: str) -> dict[str, str]:
 
 
 def _import_time_roots(env: dict[str, str]) -> dict[str, str]:
-    """Roots that consumers bind at import time, read in a fresh interpreter."""
+    """Resolve dispatch consumers lazily in a fresh interpreter."""
     code = (
-        "import json\n"
+        "import json, sys\n"
         "from lu_machinery.ai_agent_bridge import _dispatch_wrappers as bridge\n"
         "from lu_machinery.common.task_store_paths import tasks_dir\n"
-        "from lu_machinery.common.repo_root import StateRootError\n"
+        "from lu_machinery.common.repo_root import MachineryConfigError\n"
         "from lu_machinery.dispatcher import git\n"
         "from lu_machinery.orchestration.task_identity import DEFAULT_REPOSITORY\n"
-        "repos = {key: git.resolve_repo(key) for key in ('public', 'kube-dojo')}\n"
-        "try:\n"
-        "    task_path, task_error = str(tasks_dir()), None\n"
-        "except StateRootError as exc:\n"
-        "    task_path, task_error = None, type(exc).__name__\n"
-        "print(json.dumps({**{key: str(path) for key, (path, _) in repos.items()},\n"
-        "                  'github': {key: item['github'] for key, (_, item) in repos.items()},\n"
-        "                  'tasks_dir': task_path, 'tasks_dir_error': task_error, 'slug': DEFAULT_REPOSITORY,\n"
-        "                  'bridge_state': str(bridge.REPO_ROOT), 'bridge_dispatcher': str(bridge.DISPATCHER_ROOT)}))\n"
+        "roots, errors, github = {}, {}, {}\n"
+        "for key in ('public', 'kube-dojo'):\n"
+        "    try:\n"
+        "        path, item = git.resolve_repo(key)\n"
+        "        roots[key], github[key] = str(path), item['github']\n"
+        "    except MachineryConfigError as exc:\n"
+        "        roots[key], errors[key] = None, type(exc).__name__\n"
+        "for key, resolve in [('tasks_dir', tasks_dir), ('bridge_state', lambda: bridge._task_state_path('probe'))]:\n"
+        "    try:\n"
+        "        roots[key] = str(resolve())\n"
+        "    except MachineryConfigError as exc:\n"
+        "        roots[key], errors[key] = None, type(exc).__name__\n"
+        "print(json.dumps({**roots, 'errors': errors, 'github': github, 'slug': DEFAULT_REPOSITORY,\n"
+        "                  'bridge_dispatcher': bridge.build_ask_review_wait_command('probe', timeout=1)}))\n"
     )
     result = subprocess.run(
         [sys.executable, "-c", code], cwd=REPO, env=env, capture_output=True, text=True, timeout=120, check=False
@@ -148,7 +155,7 @@ def _reexec(monkeypatch: pytest.MonkeyPatch, runtime: Path) -> list[str]:
         calls.append([path, *argv])
         raise _Execed
 
-    monkeypatch.setattr(dispatcher_primary, "RUNTIME_ROOT", runtime)
+    monkeypatch.setattr(dispatcher_primary, "machinery_path", lambda relative: runtime / "lu_machinery" / relative)
     monkeypatch.setattr(dispatcher_primary.os, "execv", fake_execv)
     with pytest.raises(_Execed):
         dispatcher_primary.exec_primary(["list"])
@@ -205,29 +212,58 @@ def _systemd_home(tmp_path: Path) -> Path:
 
 
 @pytest.mark.parametrize("repo", sorted(REPOS))
-def test_dispatch_targets_state_and_slug_follow_the_configuration(layout, repo: str) -> None:
+def test_dispatch_targets_state_and_slug_follow_the_configuration(monkeypatch, layout, repo: str) -> None:
     roots = _import_time_roots(_subprocess_env(**_configured(layout, repo)))
-    assert Path(roots[repo]) == layout[repo].resolve()
+    assert Path(roots[repo]) == (layout["product"] if repo == "public" else layout[repo]).resolve()
     assert Path(roots["tasks_dir"]) == layout["primary"] / "batch_state" / "tasks"
-    assert Path(roots["bridge_state"]) == layout["primary"]
+    assert Path(roots["bridge_state"]) == layout["primary"] / "batch_state" / "tasks" / "probe.json"
     # One slug per process: dispatch identity and task identity both carry the configured one,
     # and a sibling keeps its own catalog slug.
     assert roots["slug"] == roots["github"]["public"] == CONFIGURED_SLUG
     assert roots["github"]["kube-dojo"] == REPOS["kube-dojo"]
-    # The configured target never selects dispatcher code: the bridge still starts the
-    # dispatcher from the running code's own primary.
-    assert Path(roots["bridge_dispatcher"]) == rr.main_checkout_root(REPO)
+    assert roots["bridge_dispatcher"] == [sys.executable, "-m", "lu_machinery.dispatch", "wait", "probe", "--timeout", "1"]
+
+    from lu_machinery.ai_agent_bridge import _acp_compat, _cli
+    from lu_machinery.review import target_resolution
+
+    for key, value in _configured(layout, repo).items():
+        monkeypatch.setenv(key, value)
+    monkeypatch.setattr(_cli, "require_core_or_exit", Mock())
+    monkeypatch.setattr(_acp_compat, "require_compat_target", Mock(return_value="claude"))
+    resolve = Mock(side_effect=_Execed)
+    monkeypatch.setattr(target_resolution, "resolve_review_repository", resolve)
+    args = SimpleNamespace(content="review", task_id="root-probe", review=True, repo=repo, branch="feature")
+    with pytest.raises(_Execed):
+        _cli._handle_acp_compat(args, "claude")
+    assert resolve.call_args.args[0] == layout["primary"]
+
+    from lu_machinery.ai_agent_bridge import _dispatch_wrappers as bridge
+
+    launch = Mock(return_value=SimpleNamespace(returncode=0))
+    monkeypatch.setattr(bridge.github_client, "run", launch)
+    command = [sys.executable, "-m", "lu_machinery.dispatch", "dispatch", "--task-id", "root-probe"]
+    assert bridge._run_dispatch(command, False, Path("unused-prompt")) == 0
+    assert launch.call_args.kwargs["cwd"] == rr.machinery_path("dispatch.py").parent.parent
+    assert launch.call_args.kwargs["cwd"] not in {layout["primary"], layout["product"]}
+
+    monkeypatch.delenv(rr.PRODUCT_ROOT_ENV)
+    ask = Mock(return_value=SimpleNamespace(ok=True))
+    monkeypatch.setattr(_acp_compat, "run_compat_ask", ask)
+    monkeypatch.setattr(_cli, "_resolve_from_llm", Mock(return_value="root-probe"))
+    args.repo, args.branch, args.review = None, None, False
+    _cli._handle_acp_compat(args, "claude")
+    ask.assert_called_once()
 
 
 @pytest.mark.parametrize("repo", sorted(REPOS))
-def test_dispatch_reexec_runs_the_configured_interpreter(monkeypatch, tmp_path: Path, layout, repo: str) -> None:
+def test_dispatch_reexec_keeps_the_running_interpreter(monkeypatch, tmp_path: Path, layout, repo: str) -> None:
     for key, value in _configured(layout, repo).items():
         monkeypatch.setenv(key, value)
     runtime_primary, tree = _linked_worktree(tmp_path)
     call = _reexec(monkeypatch, tree)
     assert call == [
-        str(layout["python"]),
-        str(layout["python"]),
+        sys.executable,
+        sys.executable,
         str(runtime_primary / "lu_machinery/dispatch.py"),
         "list",
     ]
@@ -318,17 +354,19 @@ def test_unset_configuration_keeps_todays_roots(clean_env, monkeypatch) -> None:
     assert rules_core.source_path("docs/x.md") == rules_core.ROOT / "docs/x.md"
 
 
-def test_unset_configuration_refuses_unanchored_task_store_and_keeps_unmigrated_roots() -> None:
-    """S04 task-store calls refuse missing state anchors; unmigrated import defaults stay pinned."""
+def test_unset_configuration_refuses_unanchored_dispatch_roots() -> None:
+    """Installed dispatch consumers refuse state and product access without anchors."""
     roots = _import_time_roots(_subprocess_env())
-    primary = rr.main_checkout_root(REPO)
-    assert Path(roots["public"]) == primary.resolve()
-    assert Path(roots["kube-dojo"]) == (primary.parent / "kube-dojo").resolve()
+    assert roots["public"] is None
+    assert roots["kube-dojo"] is None
     assert roots["tasks_dir"] is None
-    assert roots["tasks_dir_error"] == "StateRootError"
+    assert roots["bridge_state"] is None
+    assert roots["errors"] == {
+        "public": "ProductRootError", "kube-dojo": "StateRootError",
+        "tasks_dir": "StateRootError", "bridge_state": "StateRootError",
+    }
     assert roots["slug"] == DEFAULT_SLUG
-    assert roots["github"] == REPOS
-    assert Path(roots["bridge_state"]) == Path(roots["bridge_dispatcher"]) == primary
+    assert roots["bridge_dispatcher"] == [sys.executable, "-m", "lu_machinery.dispatch", "wait", "probe", "--timeout", "1"]
 
 
 @pytest.mark.parametrize("git_metadata", ["gitfile", "symlink-to-admin-dir", "copied-admin-dir", "absent"])

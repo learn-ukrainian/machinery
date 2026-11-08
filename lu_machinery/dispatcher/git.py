@@ -20,7 +20,13 @@ import yaml
 from lu_machinery.common.git_context import sanitized_git_env
 from lu_machinery.common.git_credentials import canonical_origins as canonical_origins
 from lu_machinery.common.git_credentials import verification_credentials
-from lu_machinery.common.repo_root import configured_github_slug, product_root, resolve_repo_root
+from lu_machinery.common.repo_root import (
+    configured_github_slug,
+    machinery_path,
+    main_checkout_root,
+    product_root,
+    state_root,
+)
 from lu_machinery.common.task_scratch import TaskScratchError, allocate
 from lu_machinery.common.task_store_paths import tasks_dir
 from lu_machinery.dispatcher import site_deps
@@ -28,8 +34,6 @@ from lu_machinery.dispatcher.types import TaskSpec
 from lu_machinery.orchestration.execution_safe_git import run_git as execution_safe_git
 from lu_machinery.storage.topology import STORE_FILES
 
-ROOT = resolve_repo_root(Path(__file__), 2)
-CONFIG = Path(__file__).resolve().parents[1] / "config" / "fleet_repos.yaml"
 # Default trees excluded from dispatch worktrees.
 SPARSE_EXCLUDE_DEFAULT = frozenset({
     "curriculum", "wiki", "data/projects", "data/lexicon", "data/datasets", "data/processed",
@@ -260,7 +264,7 @@ def _git(path: Path, *args: str, isolate: bool = False, strip: bool = True, env:
 
 
 def resolve_repo(key: str | None = None) -> tuple[Path, dict]:
-    repos = yaml.safe_load(CONFIG.read_text())["repos"]
+    repos = yaml.safe_load(machinery_path("config/fleet_repos.yaml").read_text())["repos"]
     key = key or next(name for name, item in repos.items() if item.get("default"))
     if key not in repos:
         raise ValueError("unknown repository key")
@@ -269,7 +273,7 @@ def resolve_repo(key: str | None = None) -> tuple[Path, dict]:
     if slug is not None:
         # A configured slug names the default repository (#12681); unset, the catalog's value stands.
         item["github"] = slug
-    return (ROOT if item.get("default") else ROOT.parent / item["local_name"]).resolve(), item
+    return (main_checkout_root(product_root()) if item.get("default") else state_root().parent / item["local_name"]).resolve(), item
 
 
 def publish_start(repo: Path, repository: dict, branch: str, task_id: str, *, label: str = "publish branch") -> tuple[str, str]:
@@ -568,7 +572,7 @@ def _install_refresh_hooks(path: Path, registry: Path) -> None:
                 if entry.name not in REFRESH_HOOKS and entry.is_file() and os.access(entry, os.X_OK) \
                         and not entry.name.endswith(".sample"):
                     (hooks / entry.name).symlink_to(entry)
-        root = Path(__file__).resolve().parents[2]
+        root = machinery_path("dispatch.py").parent.parent
         refresh = " ".join(shlex.quote(word) for word in (sys.executable, "-m", "lu_machinery.dispatcher.git", "refresh",
                                                           _key(path), str(registry)))
         for name in REFRESH_HOOKS:
@@ -973,7 +977,7 @@ def _require_public_push(tree: Path, remote: str, ref: str, commit: str) -> None
         lint_env.update(GIT_DIR=git_dir, GIT_WORK_TREE=str(tree), GIT_TERMINAL_PROMPT="0")
         completed = subprocess.run(
             [sys.executable, str(script), "--commit-range", f"{base}..{commit}"],
-            cwd=script.parents[2], env=lint_env, capture_output=True, text=True, timeout=120, check=False,
+            cwd=product_root(), env=lint_env, capture_output=True, text=True, timeout=120, check=False,
         )
         if completed.returncode != 0:
             refuse()

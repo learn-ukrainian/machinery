@@ -15,13 +15,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-# Bootstrap import path for scripts.* from any cwd
-_local_repo_root = Path(__file__).resolve().parents[2]
-if str(_local_repo_root) not in sys.path:
-    sys.path.insert(0, str(_local_repo_root))
-
 from lu_machinery.common import github_client
-from lu_machinery.common.repo_root import resolve_repo_root, runtime_primary_root
+from lu_machinery.common.repo_root import machinery_path, product_root, state_root
 from lu_machinery.review.verdict_parser import ACCEPTED_VERDICT_TOKENS, recognized_verdicts, unsupported_verdict_tokens
 from lu_machinery.secret_redactor import redact_text
 
@@ -29,13 +24,6 @@ from ._config import DISPATCH_ENTRY, MACHINERY_PACKAGE
 
 if TYPE_CHECKING:
     from agent_runtime.target_admission import AdmittedTarget
-
-REPO_ROOT = resolve_repo_root(Path(__file__), 2)
-# The dispatcher runs from this code's own primary checkout, never from the configured
-# target primary (LEARN_UKRAINIAN_PRIMARY_REPO_ROOT), so the configuration never selects
-# dispatcher code (#12681). Without a configuration it is REPO_ROOT.
-DISPATCHER_ROOT = runtime_primary_root(Path(__file__).resolve().parents[2])
-PYTHON = ".venv/bin/python"
 
 REVIEW_DEEP_INSTRUCTIONS = (
     "Adversarial review. Find logical bugs, security issues, contradictions, "
@@ -65,7 +53,7 @@ def _is_pr_number(target: str) -> bool:
 
 
 def _task_state_path(task_id: str) -> Path:
-    tasks_dir = REPO_ROOT / "batch_state" / "tasks"
+    tasks_dir = state_root() / "batch_state" / "tasks"
     tasks_dir.mkdir(parents=True, exist_ok=True)
     safe = task_id.replace("/", "_").replace("\\", "_")
     return tasks_dir / f"{safe}.json"
@@ -85,7 +73,7 @@ def _run_json_command(
     proc = github_client.run(
         cmd,
         fresh=True,
-        cwd=REPO_ROOT,
+        cwd=product_root(),
         check=True,
         capture_output=True,
         text=True,
@@ -101,7 +89,7 @@ def _run_text_command(
 ) -> str:
     proc = subprocess.run(
         cmd,
-        cwd=DISPATCHER_ROOT,
+        cwd=machinery_path("dispatch.py").parent.parent,
         check=True,
         capture_output=True,
         text=True,
@@ -201,10 +189,11 @@ def build_review_deep_command(target: str, prompt_file: Path, effort: str, *, pr
     branch, head = pr.get("headRefName"), pr.get("headRefOid")
     if not isinstance(branch, str) or not isinstance(head, str) or not re.fullmatch(r"[0-9a-fA-F]{40}", head):
         raise ValueError("review-deep requires the PR head ref and full head SHA")
-    branch = validate_plain_branch_name(branch, repo_root=REPO_ROOT)
+    branch = validate_plain_branch_name(branch, repo_root=product_root())
     command = [
-        PYTHON,
-        DISPATCH_ENTRY,
+        sys.executable,
+        "-m",
+        f"{MACHINERY_PACKAGE}.dispatch",
         "dispatch",
         "--agent",
         "claude",
@@ -257,7 +246,7 @@ def _run_dispatch(
         print(f"State file: {_task_state_path(task_id)}")
         return 0
     try:
-        proc = github_client.run(command, cwd=DISPATCHER_ROOT, timeout=timeout)
+        proc = github_client.run(command, cwd=machinery_path("dispatch.py").parent.parent, timeout=timeout)
         return int(proc.returncode)
     except subprocess.TimeoutExpired:
         print(
@@ -335,8 +324,9 @@ def build_ask_review_dispatch_command(
     if not model:
         raise ValueError(f"no default dispatch model for {target.recipient!r}")
     cmd = [
-        PYTHON,
-        DISPATCH_ENTRY,
+        sys.executable,
+        "-m",
+        f"{MACHINERY_PACKAGE}.dispatch",
         "dispatch",
         "--agent",
         target.recipient,
@@ -371,7 +361,7 @@ def build_ask_review_dispatch_command(
 
 
 def build_ask_review_wait_command(task_id: str, *, timeout: int) -> list[str]:
-    return [PYTHON, DISPATCH_ENTRY, "wait", task_id, "--timeout", str(timeout)]
+    return [sys.executable, "-m", f"{MACHINERY_PACKAGE}.dispatch", "wait", task_id, "--timeout", str(timeout)]
 
 
 _ASK_REVIEW_DEFAULT_TIMEOUT_S = 1800
@@ -481,7 +471,7 @@ def run_ask_review_dispatch(
         try:
             dispatch_proc = subprocess.run(
                 dispatch_command,
-                cwd=DISPATCHER_ROOT,
+                cwd=machinery_path("dispatch.py").parent.parent,
                 capture_output=True,
                 text=True,
                 timeout=DISPATCH_COMMAND_TIMEOUT_SECONDS,
@@ -502,7 +492,7 @@ def run_ask_review_dispatch(
         try:
             wait_proc = subprocess.run(
                 wait_command,
-                cwd=DISPATCHER_ROOT,
+                cwd=machinery_path("dispatch.py").parent.parent,
                 capture_output=True,
                 text=True,
                 timeout=timeout + ASK_REVIEW_WAIT_GRACE_SECONDS,

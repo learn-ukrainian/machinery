@@ -25,6 +25,7 @@ from typing import Any
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
+from lu_machinery.common.repo_root import state_root
 from lu_machinery.fleet import idle_settle as idle_settle
 from lu_machinery.guardrails.delegate_ownership import (
     TERMINAL_TASK_STATUSES,
@@ -43,12 +44,8 @@ _PACKAGE_DIR = _PACKAGE.replace(".", "/")
 _MODULE = f"{_PACKAGE}.{Path(__file__).stem}"
 
 
-def repo_root_from_file() -> Path:
-    return Path(__file__).resolve().parents[2]
-
-
 def default_task_dir(repo_root: Path | None = None) -> Path:
-    root = repo_root or repo_root_from_file()
+    root = state_root(repo_root)
     return root / "batch_state" / "tasks"
 
 
@@ -342,7 +339,7 @@ def settle_task(
     push: bool = False,
     release_stale: bool = True,
 ) -> SettleReport:
-    root = repo_root or repo_root_from_file()
+    root = state_root(repo_root)
     tdir = task_dir or default_task_dir(root)
     ledger = OwnershipLedger(default_ledger_path(), task_state_dir=tdir)
     actions: list[str] = []

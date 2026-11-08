@@ -6,13 +6,9 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import NoReturn
 
-from lu_machinery.common.repo_root import configured_interpreter, main_checkout_root
+from lu_machinery.common.repo_root import machinery_path, main_checkout_root
 
-# The dispatcher entry point, relative to a checkout: the unresolved name of the machinery
-# package directory this file is in (whatever it is called), then the entry.
 ENTRY = Path(Path(__file__).absolute().parents[1].name, "dispatch.py")
-# The checkout this dispatcher code runs from, read from this file.
-RUNTIME_ROOT = Path(__file__).resolve().parents[2]
 
 
 def _refuse(message: str) -> NoReturn:
@@ -34,11 +30,9 @@ def exec_primary(
 
     The primary here is the running code's own primary, read from its Git metadata:
     the configured target primary (``LEARN_UKRAINIAN_PRIMARY_REPO_ROOT``) never
-    chooses which dispatcher code runs. The re-exec uses the configured interpreter
-    (``LEARN_UKRAINIAN_PYTHON``) when one is set, else this process's interpreter;
-    an unusable configured interpreter also exits 2.
+    chooses which dispatcher code runs. The re-exec uses this process's interpreter.
     """
-    root = RUNTIME_ROOT
+    root = machinery_path("dispatch.py").parent.parent
     try:
         primary = main_checkout_root(root).resolve()
     except ValueError as exc:  # undecodable metadata, or a NUL in its gitdir target
@@ -50,11 +44,4 @@ def exec_primary(
     entry = primary / entry
     if not entry.is_file():
         refuse(f"primary checkout has no entry point: {entry}")
-    try:
-        configured = configured_interpreter()
-    except ValueError as exc:
-        refuse(str(exc))
-    if configured is not None and not configured.is_file():
-        refuse(f"configured interpreter is not a file: {configured}")
-    interpreter = sys.executable if configured is None else str(configured)
-    os.execv(interpreter, [interpreter, str(entry), *argv])
+    os.execv(sys.executable, [sys.executable, str(entry), *argv])
