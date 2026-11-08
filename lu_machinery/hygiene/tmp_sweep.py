@@ -1801,7 +1801,7 @@ def build_parser() -> argparse.ArgumentParser:
             "Exit codes: 0 inventory complete; 1 scan/quarantine/purge errors (including entries kept as "
             "purge_kept_ambiguous until restored or removed by hand) or ledger unavailable; 2 invalid arguments.\n"
             f"Related: #8755, #9737, #9887, #11297; docs/runbooks/tmp-retention.md; {_mod('hygiene', 'retention_engine')}; "
-            f"{_mod('hygiene', 'tmp_sweep_ledger')}; packaging/systemd/learn-ukrainian-tmp-sweep.*."
+            f"{_mod('hygiene', 'tmp_sweep_ledger')}; the bundled tmp-sweep systemd units."
         ),
     )
     parser.add_argument(

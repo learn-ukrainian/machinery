@@ -102,7 +102,7 @@ def build_parser() -> argparse.ArgumentParser:
             "--apply reloads the user manager, --enable starts the timer.\n"
             "Exit codes: 0 = current or applied; 1 = drift or installation failure; 2 = invalid usage "
             "(--check with --apply, --enable without --apply, or a non-primary --repo-root).\n"
-            "Related: issues #9737 and #11297, docs/runbooks/tmp-retention.md and packaging/systemd/learn-ukrainian-tmp-sweep.*."
+            "Related: issues #9737 and #11297, docs/runbooks/tmp-retention.md and the bundled tmp-sweep systemd units."
         ),
     )
     parser.add_argument(
