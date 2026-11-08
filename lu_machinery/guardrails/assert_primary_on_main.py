@@ -18,9 +18,10 @@ import subprocess
 import sys
 from pathlib import Path
 
-# Allow running as scripts/guardrails/*.py
+# Run as a file: put the repository root on sys.path. Imported as part of the package, it already
+# resolves, and the root must not go ahead of the stdlib (it is often the cwd).
 _REPO_CANDIDATE = Path(__file__).resolve().parents[2]
-if str(_REPO_CANDIDATE) not in sys.path:
+if __package__ in (None, "") and str(_REPO_CANDIDATE) not in sys.path:
     sys.path.insert(0, str(_REPO_CANDIDATE))
 
 from lu_machinery.common.repo_root import ProductRootError, product_root
