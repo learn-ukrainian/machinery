@@ -57,7 +57,7 @@ project_python() {
     local root
     root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
     # shellcheck disable=SC1091
-    source "$root/lu_machinery/lib/project_interpreter.sh"
+    source "$root/lu_machinery/lib/project_interpreter.sh" || return 127
     project_interpreter_resolve "$root"
 }
 

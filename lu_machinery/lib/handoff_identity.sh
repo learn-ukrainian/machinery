@@ -173,7 +173,7 @@ launcher_selector_resolve() {
       lane="$key"
       ;;
     *)
-      printf 'launcher alias map missing or malformed: scripts/config/launcher_stream_aliases.tsv\n' >&2
+      printf 'launcher alias map missing or malformed: lu_machinery/config/launcher_stream_aliases.tsv\n' >&2
       return 1
       ;;
   esac

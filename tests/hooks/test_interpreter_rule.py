@@ -684,3 +684,65 @@ if root in sys.path:
     )
     assert result.returncode == 0, result.stderr
     assert "sys.path.insert" not in (SOURCE / "lu_machinery/opsec/gh_entry.py").read_text(encoding="utf-8")
+
+
+def test_retired_model_check_uses_the_rule_not_the_helper_venv(tmp_path: Path) -> None:
+    """Defect: the retired-model check runs the helper-root venv and ignores LEARN_UKRAINIAN_PYTHON."""
+    decoy_log = tmp_path / "decoy.log"
+    decoy_log.write_text("", encoding="utf-8")
+    helper = tmp_path / "helper"
+    _executable(
+        helper / ".venv" / "bin" / "python",
+        f'#!/bin/sh\nprintf decoy >> "{decoy_log}"\nexit 0\n',
+    )
+    override_log = tmp_path / "override.log"
+    override = _wrapper(tmp_path / "override-python", override_log)
+    plain = tmp_path / "plain-file"
+    plain.write_text("", encoding="utf-8")
+    script = (
+        f'source "{LIB / "launcher_core.sh"}" && '
+        'LC_DURABLE_HELPER_ROOT="$1" LC_PROVIDER=claude LC_MODEL=claude-opus-5-5 && '
+        "launcher_normalize_model"
+    )
+    selected = subprocess.run(
+        ["bash", "-c", script, "probe", str(helper)],
+        cwd=tmp_path,
+        env={**_base_env(tmp_path), "LEARN_UKRAINIAN_PYTHON": str(override)},
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=False,
+    )
+    assert selected.returncode == 0, selected.stderr
+    assert override_log.read_text(encoding="utf-8").strip() == str(override)
+    assert decoy_log.read_text(encoding="utf-8") == ""
+    refused = subprocess.run(
+        ["bash", "-c", script, "probe", str(helper)],
+        cwd=tmp_path,
+        env={**_base_env(tmp_path), "LEARN_UKRAINIAN_PYTHON": str(plain)},
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+    assert refused.returncode != 0, refused.stderr
+    assert decoy_log.read_text(encoding="utf-8") == ""
+
+
+def test_handoff_alias_error_names_the_packaged_map(tmp_path: Path) -> None:
+    """Defect: a missing alias map is reported at the old scripts/config path."""
+    dest = tmp_path / "lu_machinery" / "lib" / "handoff_identity.sh"
+    dest.parent.mkdir(parents=True)
+    shutil.copy2(LIB / "handoff_identity.sh", dest)
+    result = subprocess.run(
+        ["bash", "-c", 'source "$1" && launcher_selector_resolve atlas', "probe", str(dest)],
+        cwd=tmp_path,
+        env=_base_env(tmp_path),
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+    assert result.returncode != 0
+    assert "lu_machinery/config/launcher_stream_aliases.tsv" in result.stderr
+    assert "scripts/config/launcher_stream_aliases.tsv" not in result.stderr
