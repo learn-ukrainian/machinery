@@ -29,9 +29,9 @@ if __package__ in (None, ""):
 import yaml
 
 from lu_machinery.ci._location import checkout_relative, module_name
+from lu_machinery.common.repo_root import machinery_path
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
-PINS_PATH = REPO_ROOT / checkout_relative("config", "stack_pins.yaml")
+PINS_PATH = machinery_path("config/stack_pins.yaml")
 
 # kind, target. Targets are public package or release identifiers, not host paths.
 # The code CLI's npm package is derived from its pin name so this file does not

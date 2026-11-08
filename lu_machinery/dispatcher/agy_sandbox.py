@@ -550,6 +550,26 @@ def _input_state(worktree: Path) -> dict:
     return {"head": head, "clean": status == ""}
 
 
+
+def _sources_server() -> Path:
+    """The Sources server the host relay executes.
+
+    A checkout that contains ``.mcp/servers/sources/server.py`` keeps using that file. A standalone
+    machinery checkout has none; the configured product root holds the same server. The path is
+    returned unchanged when neither file exists, so the existing missing-file refusal stays.
+    """
+    from lu_machinery.agent_runtime.sources_read_only import SERVER_PATH
+    from lu_machinery.common.repo_root import ProductRootError, product_root
+
+    if SERVER_PATH.is_file():
+        return SERVER_PATH
+    try:
+        candidate = product_root() / ".mcp" / "servers" / "sources" / "server.py"
+    except ProductRootError:
+        return SERVER_PATH
+    return candidate if candidate.is_file() else SERVER_PATH
+
+
 class SourcesRelay:
     """Parent-owned Sources MCP for one sandbox: read-only tools only, completed calls counted.
 
@@ -562,9 +582,7 @@ class SourcesRelay:
     """
 
     def __init__(self, endpoint: Path, readers: frozenset[str], env: dict[str, str]):
-        from lu_machinery.agent_runtime.sources_read_only import SERVER_PATH
-
-        self.server = [str(project_interpreter()), str(SERVER_PATH)]
+        self.server = [str(project_interpreter()), str(_sources_server())]
         self.readers, self.env = readers, env
         self.completed = self.failed = 0
         self.tools: dict[str, int] = {}
@@ -1121,7 +1139,7 @@ class _Boundary:
         for name in sorted(projected):
             digest.update(name.encode() + b"\0" + hashlib.sha256(projected[name]).digest())
         self.receipt["wrapper_sha256"] = digest.hexdigest()
-        readers, writers = sources_tool_sets()
+        readers, writers = sources_tool_sets(_sources_server())
         if not self.shell:
             _write_private(config / "mcp_config.json", json.dumps({"mcpServers": {"sources": {
                 "command": str(interpreter), "args": [str(boundary / "stdio.py"), str(boundary / "sources.sock")],

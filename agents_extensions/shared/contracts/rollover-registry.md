@@ -12,7 +12,7 @@ Each record is keyed exactly by `(agent, lineage_id, rollover_id)` and lives at:
 ```
 
 The embedded `task_identity` must validate against
-`agents_extensions/shared/schemas/task-identity.v1.schema.json`. The registry
+`lu_machinery/schemas/task-identity.v1.schema.json`. The registry
 key, predecessor/replacement IDs, generation, repository, issue, epic, and
 human-readable title must agree with that envelope. Provider-specific deploy
 copies are generated from `agents_extensions/shared/`; they are not separate
