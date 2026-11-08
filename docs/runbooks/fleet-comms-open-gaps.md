@@ -34,18 +34,18 @@ just because the inline body looks short.
 **This PR:** dual-write inventory without retiring files:
 
 ```bash
-.venv/bin/python -m agents_extensions.shared.session_streams dual-write-status
-.venv/bin/python -m agents_extensions.shared.session_streams inventory --register
+.venv/bin/python -m lu_machinery.session_streams dual-write-status
+.venv/bin/python -m lu_machinery.session_streams inventory --register
 # DB-first projection receipts + drift detection (no file rewrite / no cutover):
-.venv/bin/python -m agents_extensions.shared.session_streams project
-.venv/bin/python -m agents_extensions.shared.session_streams check-drift
+.venv/bin/python -m lu_machinery.session_streams project
+.venv/bin/python -m lu_machinery.session_streams check-drift
 # under an active lease (SESSION_STREAM_* env):
-.venv/bin/python -m agents_extensions.shared.session_streams mirror-handoff \
+.venv/bin/python -m lu_machinery.session_streams mirror-handoff \
   --stream epic:4387
 ```
 
 Registry: manifest inventory from `lu_machinery/config/issue_streams.yaml` via
-`agents_extensions/shared/session_streams/inventory.py` (Sol PR-H; not a hard-coded
+`lu_machinery/session_streams/inventory.py` (Sol PR-H; not a hard-coded
 epic subset). Projection receipts land in `legacy_projection_receipts` after
 inventory; unrecorded file mutation is flagged as `drift` without flipping modes.
 

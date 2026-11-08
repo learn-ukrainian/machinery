@@ -19,8 +19,8 @@ from . import config
 from .resilience import connect_sqlite
 
 if TYPE_CHECKING:
-    from agents_extensions.shared.session_streams.db import SessionStreamDatabase
-    from agents_extensions.shared.session_streams.store import SessionStreamStore
+    from lu_machinery.session_streams.db import SessionStreamDatabase
+    from lu_machinery.session_streams.store import SessionStreamStore
 
     from .observer_presence import ObserverPresence
     from .project_state_store import StoredReport
@@ -227,7 +227,7 @@ class MonitorContext:
         """Open one database through the context's single guarded choke point."""
         path = self.resolve_db_path(database)
         if session_streams:
-            from agents_extensions.shared.session_streams.db import (  # noqa: PLC0415  # lazy-ok: checkout-only session store
+            from lu_machinery.session_streams.db import (  # noqa: PLC0415  # lazy-ok: checkout-only session store
                 SessionStreamDatabase,
             )
 
@@ -296,7 +296,7 @@ def _roots(
 
 
 def _stores(context: MonitorContext, *, fixture: bool) -> MonitorStores:
-    from agents_extensions.shared.session_streams.store import (  # noqa: PLC0415  # lazy-ok: checkout-only session store
+    from lu_machinery.session_streams.store import (  # noqa: PLC0415  # lazy-ok: checkout-only session store
         SessionStreamStore,
     )
 
@@ -391,7 +391,7 @@ def _cached_production_context(
 
 def production_context() -> MonitorContext:
     """Build a cached context keyed by the current production configuration."""
-    from agents_extensions.shared.session_streams.db import (  # noqa: PLC0415  # lazy-ok: checkout-only session store
+    from lu_machinery.session_streams.db import (  # noqa: PLC0415  # lazy-ok: checkout-only session store
         default_database_path,
     )
 

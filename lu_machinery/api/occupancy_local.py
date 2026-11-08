@@ -22,8 +22,6 @@ from typing import Any
 if __package__ in (None, ""):  # run as a file: put the repository root on sys.path
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from agents_extensions.shared.session_streams.db import SessionStreamDatabase
-from agents_extensions.shared.session_streams.model import parse_timestamp
 from lu_machinery.api import config
 from lu_machinery.api.occupancy_sanitize import occupant as _occupant
 from lu_machinery.api.occupancy_sanitize import opaque_host_id as _opaque_host_id
@@ -31,6 +29,8 @@ from lu_machinery.api.occupancy_sanitize import producer_identity
 from lu_machinery.api.occupancy_sanitize import safe_field as _safe_field
 from lu_machinery.api.product_contribution import atlas_provider
 from lu_machinery.api.repository_authority import preparation_data_root
+from lu_machinery.session_streams.db import SessionStreamDatabase
+from lu_machinery.session_streams.model import parse_timestamp
 
 ENV_DRIVER_HOST_ID = "MONITOR_OCCUPANCY_DRIVER_HOST_ID"
 ENV_MARKERS = "MONITOR_OCCUPANCY_MARKERS"

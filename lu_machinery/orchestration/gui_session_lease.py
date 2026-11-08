@@ -14,14 +14,20 @@ from collections.abc import Mapping
 from datetime import timedelta
 from pathlib import Path
 
-from agents_extensions.shared.session_streams.app_lifecycle import (
+from lu_machinery.orchestration.task_family.codex_state import (
+    CleanupThreadRecord,
+    CodexStateMissingTaskError,
+    discover_state_database,
+    read_cleanup_thread_record,
+)
+from lu_machinery.session_streams.app_lifecycle import (
     AppLifecycleReceipt,
     StructuredReadbackAdapter,
     VerifiedAppLifecycleProof,
     make_receipt,
 )
-from agents_extensions.shared.session_streams.db import SessionStreamDatabase
-from agents_extensions.shared.session_streams.model import (
+from lu_machinery.session_streams.db import SessionStreamDatabase
+from lu_machinery.session_streams.model import (
     EntryType,
     HolderKind,
     Lease,
@@ -33,13 +39,7 @@ from agents_extensions.shared.session_streams.model import (
     sha256_text,
     utc_now,
 )
-from agents_extensions.shared.session_streams.store import SessionStreamError, SessionStreamStore
-from lu_machinery.orchestration.task_family.codex_state import (
-    CleanupThreadRecord,
-    CodexStateMissingTaskError,
-    discover_state_database,
-    read_cleanup_thread_record,
-)
+from lu_machinery.session_streams.store import SessionStreamError, SessionStreamStore
 
 READ_THREAD_SOURCE = "codex_app.read_thread"
 STATE_SOURCE = "codex_state.thread_presence"

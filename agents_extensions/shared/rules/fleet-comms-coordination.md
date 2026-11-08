@@ -100,8 +100,8 @@ cold-prompts; silent plane flips; “for now” cutovers.
 .venv/bin/python -m lu_machinery.fleet_comms dead-letters
 
 # Continuity (lease already claimed by launcher — do not re-open)
-.venv/bin/python -m agents_extensions.shared.session_streams tail --stream epic:<N> --limit 20
-.venv/bin/python -m agents_extensions.shared.session_streams dual-write-status
+.venv/bin/python -m lu_machinery.session_streams tail --stream epic:<N> --limit 20
+.venv/bin/python -m lu_machinery.session_streams dual-write-status
 
 # Cross-family PR review and landing: the review-loop and full-send / full-stop skills.
 # SHIELDED formal path (review-pr / lu-review snaps / shielded-reviews) is RETIRED —

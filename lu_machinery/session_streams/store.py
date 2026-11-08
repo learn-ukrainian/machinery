@@ -17,7 +17,7 @@ from functools import lru_cache
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-from lu_machinery.common.repo_root import machinery_path
+from lu_machinery.common.repo_root import machinery_path, primary_root
 
 from .app_lifecycle import VerifiedAppLifecycleProof
 from .db import SessionStreamDatabase
@@ -48,7 +48,6 @@ MAX_ROLLOVER_BUNDLE_BYTES = 4 * 1024 * 1024
 ROLLOVER_BUNDLE_SCHEMA = "rollover-bundle.v1"
 ROLLOVER_BUNDLE_SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 ROLLOVER_BUNDLE_LINEAGE_ROOT = ".agent/thread-rollovers"
-_REPO_ROOT = Path(__file__).resolve().parents[3]
 _HANDOFF_IDENTITY_SH = machinery_path("lib/handoff_identity.sh")
 # Lease holders carry the provider id; each provider mints its handoff slot
 # through its own launcher helper in scripts/lib/handoff_identity.sh.
@@ -461,8 +460,8 @@ def validate_rollover_bundle_members(
     lineage_prefix = f"{ROLLOVER_BUNDLE_LINEAGE_ROOT}/{agent}/{lineage_id}/"
     handoffs = {_rollover_bundle_member_name(candidate) for candidate in handoff_candidates}
     members: list[str] = []
-    for value in names:
-        name = _rollover_bundle_member_name(value)
+    for member in names:
+        name = _rollover_bundle_member_name(member)
         if name.startswith(lineage_prefix):
             parts = name[len(lineage_prefix):].casefold().split("/")
             if parts[-1] == ".native-intent.lock" or parts[-1].endswith(".bundle.tgz") or "_bundle-reconcile" in parts:
@@ -1486,6 +1485,7 @@ class SessionStreamStore:
                 )
             if candidate.instance_id == row["holder_instance_id"]:
                 raise LeaseConflictError("force-close candidate must be a distinct runtime instance")
+            assert candidate.process_id is not None  # PROCESS holders validate their PID in LeaseHolder.
             if not self._process_probe(candidate.process_id):
                 raise LeaseConflictError("force-close candidate process is not live; proof refused")
             heartbeat_at = parse_timestamp(str(row["heartbeat_at"]))
@@ -1930,7 +1930,8 @@ class SessionStreamStore:
                     idempotency_key,
                 ),
             )
-            entry_id = int(cursor.lastrowid)
+            assert cursor.lastrowid is not None  # Successful INSERT into an INTEGER PRIMARY KEY table.
+            entry_id = cursor.lastrowid
             for ordinal, ref in enumerate(ref_tuple):
                 connection.execute(
                     "INSERT INTO entry_refs(entry_id, ordinal, kind, target_entry_id, uri) VALUES (?, ?, ?, ?, ?)",
@@ -2003,7 +2004,10 @@ class SessionStreamStore:
             if not isinstance(value, str) or not value or not self._identity_is_safe(value):
                 raise ValueError(f"rollover bundle {field} is malformed")
         with _bundle_conversion():
-            generation = int(manifest_value.get("generation"))
+            generation_value = manifest_value.get("generation")
+            if generation_value is None:
+                raise ValueError("rollover bundle generation is missing")
+            generation = int(generation_value)
         if generation < 1:
             raise ValueError("rollover bundle generation must be positive")
         with _bundle_conversion():
@@ -2023,7 +2027,7 @@ class SessionStreamStore:
             raise ValueError("rollover bundle manifest has no files")
         # The importer runs this same validation; the archive's embedded
         # manifest, bound to the supplied identity, is what gets stored.
-        embedded, members = verify_rollover_bundle(blob, repo_root=_REPO_ROOT, manifest_override=manifest_value)
+        embedded, members = verify_rollover_bundle(blob, repo_root=primary_root(), manifest_override=manifest_value)
         if files != embedded["files"]:
             raise ValueError("rollover bundle manifest files do not match its archive")
         secret_hits = _bundle_secret_hits(members)
@@ -2102,7 +2106,8 @@ class SessionStreamStore:
                         lease.lease_id,
                     ),
                 )
-                bundle_id = int(cursor.lastrowid)
+                assert cursor.lastrowid is not None  # Successful INSERT into an INTEGER PRIMARY KEY table.
+                bundle_id = cursor.lastrowid
                 if app_proof is not None:
                     event_id = self._insert_lease_event_from_row(
                         connection,
@@ -2801,7 +2806,7 @@ class SessionStreamStore:
 
     @staticmethod
     def _session_row(connection: sqlite3.Connection, stream_id: str, session_id: str) -> sqlite3.Row:
-        row = connection.execute(
+        row: sqlite3.Row | None = connection.execute(
             "SELECT * FROM sessions WHERE stream_id = ? AND session_id = ?",
             (stream_id, session_id),
         ).fetchone()
@@ -2816,7 +2821,7 @@ class SessionStreamStore:
         *,
         require_valid_at: datetime | None = None,
     ) -> sqlite3.Row:
-        row = connection.execute(
+        row: sqlite3.Row | None = connection.execute(
             "SELECT lease.*, session.state AS session_state FROM stream_leases AS lease "
             "JOIN sessions AS session ON session.stream_id = lease.stream_id "
             "AND session.session_id = lease.session_id WHERE lease.stream_id = ?",
@@ -2885,7 +2890,8 @@ class SessionStreamStore:
                 reason,
             ),
         )
-        return int(cursor.lastrowid)
+        assert cursor.lastrowid is not None  # Successful INSERT into an INTEGER PRIMARY KEY table.
+        return cursor.lastrowid
 
     def _insert_lease_event_from_row(
         self,

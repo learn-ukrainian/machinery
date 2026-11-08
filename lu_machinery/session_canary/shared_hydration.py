@@ -27,9 +27,9 @@ from urllib.parse import urlparse
 
 from jsonschema import Draft202012Validator, FormatChecker
 
-from agents_extensions.shared.session_streams.hooks import lease_from_environment
-from agents_extensions.shared.session_streams.model import parse_timestamp, validate_stream_id
 from lu_machinery.common.repo_root import state_root
+from lu_machinery.session_streams.hooks import lease_from_environment
+from lu_machinery.session_streams.model import parse_timestamp, validate_stream_id
 from lu_machinery.session_supervisor.remote import RemoteEpicClient, monitor_url
 
 # Per-attempt monotonic budget. 0.5 s was too tight for a real Monitor read

@@ -21,7 +21,7 @@ curl -sS --max-time 2 "http://127.0.0.1:8765/api/orient?lean=true" || true
 curl -sS --max-time 2 "http://127.0.0.1:8765/api/work/v1/projection?stream=<your-stream>" || true  # best-effort: local server, degraded/absent sources are normal
 curl -sS --max-time 2 "http://127.0.0.1:8765/api/work/v1/next?stream=<your-stream>" || true  # stream-scoped pick list (#6880)
 .venv/bin/python -m lu_machinery.fleet_comms plane-status        # message-plane mode/parity
-.venv/bin/python -m agents_extensions.shared.session_streams dual-write-status
+.venv/bin/python -m lu_machinery.session_streams dual-write-status
 ```
 
 `cold-start-board` probes fleet, plane, and stream state so you orient from live data,

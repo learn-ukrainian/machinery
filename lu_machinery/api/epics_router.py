@@ -18,8 +18,14 @@ import yaml
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import JSONResponse
 
-from agents_extensions.shared.session_streams.inventory import resolve_streams_yaml, streams_yaml_sha256
-from agents_extensions.shared.session_streams.model import (
+from lu_machinery.api.monitor_context import MonitorContext, get_ctx, resolve_context
+from lu_machinery.api.observer_presence import _direct_loopback_peer
+from lu_machinery.api.occupancy_sanitize import opaque_host_id, safe_field
+from lu_machinery.api.state_helpers import cache_get_or_compute_async, cache_retain, ctx_scoped_ttl_key
+from lu_machinery.orchestration import issue_stream_audit as audit
+from lu_machinery.orchestration.thread_handoff import _bundle_conversion, _bundle_require_json_value
+from lu_machinery.session_streams.inventory import resolve_streams_yaml, streams_yaml_sha256
+from lu_machinery.session_streams.model import (
     EntryRef,
     EntryType,
     HolderKind,
@@ -33,8 +39,8 @@ from agents_extensions.shared.session_streams.model import (
     utc_now,
     validate_stream_id,
 )
-from agents_extensions.shared.session_streams.receipts import register_manifest_inventory
-from agents_extensions.shared.session_streams.store import (
+from lu_machinery.session_streams.receipts import register_manifest_inventory
+from lu_machinery.session_streams.store import (
     MAX_ROLLOVER_BUNDLE_BYTES,
     ContentRejectedError,
     LeaseConflictError,
@@ -43,12 +49,6 @@ from agents_extensions.shared.session_streams.store import (
     SessionStreamStore,
     validate_entry_body,
 )
-from lu_machinery.api.monitor_context import MonitorContext, get_ctx, resolve_context
-from lu_machinery.api.observer_presence import _direct_loopback_peer
-from lu_machinery.api.occupancy_sanitize import opaque_host_id, safe_field
-from lu_machinery.api.state_helpers import cache_get_or_compute_async, cache_retain, ctx_scoped_ttl_key
-from lu_machinery.orchestration import issue_stream_audit as audit
-from lu_machinery.orchestration.thread_handoff import _bundle_conversion, _bundle_require_json_value
 
 router = APIRouter()
 logger = logging.getLogger(__name__)

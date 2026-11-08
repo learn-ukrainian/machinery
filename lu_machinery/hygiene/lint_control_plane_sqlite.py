@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Ratchet: direct ``sqlite3.connect`` opens of control-plane stores (#7365).
 
-Scans ``scripts/`` and ``agents_extensions/shared/session_streams/`` for
+Scans ``scripts/`` and ``lu_machinery/session_streams/`` for
 ``sqlite3.connect`` calls that target the four control-plane sqlite files.
 New opens outside ``scripts/control_plane/`` fail; existing call sites are
 allowlisted by ``(path, snippet, max_occurrences)`` so later slices can shrink
@@ -40,10 +40,8 @@ def _mod(*parts: str) -> str:
 
 
 # The machinery package directory and the product scripts tree (one directory
-# in this checkout), then the shared session streams.
-_SCAN_ROOTS: tuple[str, ...] = tuple(
-    dict.fromkeys((_machinery_top(), "scripts", "agents_extensions/shared/session_streams"))
-)
+# in this checkout), including the packaged session streams.
+_SCAN_ROOTS: tuple[str, ...] = tuple(dict.fromkeys((_machinery_top(), "scripts")))
 _CONTROL_PLANE_PACKAGE = _mp("control_plane")
 _SKIP_PATH_PREFIXES: tuple[str, ...] = ("tests/",)
 
