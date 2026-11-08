@@ -21,8 +21,9 @@
 #   that keeps every item as collected, before any hook can deselect or drop
 #   it, and the terminal outcome of each. The job fails on a nonzero exit, no
 #   collected test, any deselection, collection error, failure, error or
-#   unexpected pass, a collected test that never ran or whose node id is not
-#   under a listed file (`<path>::`), and a [run] file with no passed test.
+#   unexpected pass, a node id collected twice, an outcome for a node never
+#   collected, a collected test that never ran or whose node id is not under a
+#   listed file (`<path>::`), and a [run] file with no passed test.
 # - Read-only contents permission, no kept checkout token, no secrets. Tests
 #   run under `env -i` with a temporary HOME and TMPDIR, so no runner
 #   credential or user configuration reaches them, and with isolated
@@ -277,7 +278,13 @@ jobs:
           except (OSError, ValueError) as exc:
               print(f"::error::pytest (exit {rc}) wrote no readable run record: {exc}")
               sys.exit(1)
-          collected = list(dict.fromkeys(record["collected"]))
+          # Outcomes are keyed by node id, so two collected items with one id
+          # would let one outcome stand for both: refuse duplicates outright.
+          counts = {}
+          for node in record["collected"]:
+              counts[node] = counts.get(node, 0) + 1
+          duplicates = sorted(node for node, number in counts.items() if number > 1)
+          collected = list(counts)
           results = record["results"]
           outcomes = {}
           for node in collected:
@@ -292,9 +299,14 @@ jobs:
               problems.append(f"{record['deselected']} test(s) were deselected; every listed test must run")
           if record["collect_errors"]:
               problems.append(f"{record['collect_errors']} collection error(s)")
+          if duplicates:
+              problems.append(f"{len(duplicates)} node id(s) were collected more than once: {duplicates[:10]}")
           not_run = [node for node in collected if node not in results]
           if not_run:
               problems.append(f"{len(not_run)} collected test(s) never ran: {not_run[:10]}")
+          unknown = [node for node in results if node not in counts]
+          if unknown:
+              problems.append(f"{len(unknown)} outcome(s) for test(s) never collected: {unknown[:10]}")
           for outcome in ("failed", "errors", "xpassed"):
               if outcomes.get(outcome):
                   problems.append(f"{outcomes[outcome]} test(s) {outcome}")
