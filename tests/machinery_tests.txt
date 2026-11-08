@@ -9,6 +9,8 @@
 # checkout. It adds the thread-handoff confirmation file (native to this repository, from
 # PR #65) and tests/publish/test_pr_merge_squash_scan.py, which main now carries as a native
 # file (PR #80) in place of the product's version that needed the product's deploy path policy.
+# Native tests added after the second tranche are included below; markdown parsing uses
+# the hosted job's pinned markdown-it-py dependency and its mdurl dependency.
 # [run]: test files the pytest job runs, as whole files.
 # [support]: their fixture and helper closure: every tests/ file imported or opened while the
 #   [run] files ran (import and open audit hook, the source manifest's method). A [support]
@@ -26,6 +28,13 @@ tests/test_session_supervisor.py
 tests/review/test_routing_consumers.py
 tests/orchestration/test_thread_handoff_confirmation.py
 tests/publish/test_pr_merge_squash_scan.py
+tests/ci/test_semgrep_baseline.py
+tests/orchestration/test_distinct_roots.py
+tests/orchestration/test_integration_sweep.py
+tests/orchestration/test_merge_queue_keeper.py
+tests/review/test_review_tiers.py
+tests/test_record_cf_verdict.py
+tests/test_repo_root.py
 # [support]
 tests/__init__.py
 tests/conftest.py
@@ -78,4 +87,4 @@ tests/test_sibling_git.py
 # tests/test_launcher_interactive_scope.py: 101 tests list the product's root start-*.sh wrappers through product_root(), which needs the product checkout (ProductRootError: no product is configured; LU_PRODUCT_ROOT names none).
 # tests/test_handoff_slot_registry.py: collection calls product_checkout() (line 35) for the product's root start-*-driver.sh wrappers; product_root() raises ProductRootError without the product checkout.
 # tests/test_rules_core_loading.py: all 153 tests error in setup: product_root() raises ProductRootError without the product checkout; collection also needs packages the hosted venv lacks (uvicorn, fastapi, prometheus_client, psycopg, regex).
-# tests/review/test_record_cf_verdict.py: 424 of 587 tests need the product checkout: the product review hooks (ProductHooksError, 350), the product's scripts.review.receipts.ledger (ConfiguredModuleError, 72) or the deploy path policy (DeployPathsError, 1; PublishBlocked, 1); collection also needs markdown-it-py, which the hosted venv lacks. Its support module tests/test_record_cf_verdict.py (3,924 lines at the snapshot) is now a different native 33-line file on main, so the source file cannot be ported at that path.
+# tests/review/test_record_cf_verdict.py: 424 of 587 tests need the product checkout: the product review hooks (ProductHooksError, 350), the product's scripts.review.receipts.ledger (ConfiguredModuleError, 72) or the deploy path policy (DeployPathsError, 1; PublishBlocked, 1). Its support module tests/test_record_cf_verdict.py (3,924 lines at the snapshot) is now a different native 33-line file on main, so the source file cannot be ported at that path.
