@@ -14,8 +14,25 @@ set -u
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091
 source "$script_dir/../lib/project_interpreter.sh"
+
+# A working directory may be a subdirectory. The resolver treats a directory
+# with no .git as its own primary, so a nested virtualenv would become the
+# interpreter and could skip the hook. Walk to the nearest .git first.
+owning_checkout() {
+  local dir="$1"
+  dir="$(cd -P "$dir" 2>/dev/null && pwd)" || return 1
+  while [ ! -e "$dir/.git" ]; do
+    [ "$dir" = "/" ] && return 1
+    dir="$(dirname "$dir")"
+  done
+  printf '%s\n' "$dir"
+}
+
 if [ "${HOOK_TIMING:-}" = "1" ] || [ "${HOOK_TIMING:-}" = "true" ] || [ "${HOOK_TIMING:-}" = "always" ]; then
   project="${CLAUDE_PROJECT_DIR:-$PWD}"
+  if checkout="$(owning_checkout "$project")"; then
+    project="$checkout"
+  fi
   if PYTHON="$(project_interpreter_resolve "$project")" \
       && project_python_run "$PYTHON" -c 'import lu_machinery.hooks.hook_timing' >/dev/null 2>&1; then
     project_python_command "$PYTHON"

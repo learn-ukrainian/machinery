@@ -17,6 +17,20 @@ SCRIPT_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 HOOKS_DIR="$SCRIPT_ROOT/agents_extensions/shared/hooks"
 # shellcheck source=lu_machinery/lib/project_interpreter.sh
 source "$SCRIPT_ROOT/lu_machinery/lib/project_interpreter.sh"
+
+# A working directory may be a subdirectory. The resolver treats a directory
+# with no .git as its own primary, so a nested virtualenv would become the
+# interpreter. Walk to the nearest .git and let the resolver validate that
+# checkout. A directory outside any checkout is passed through unchanged.
+owning_checkout() {
+  local dir="$1"
+  dir="$(cd -P "$dir" 2>/dev/null && pwd)" || return 1
+  while [ ! -e "$dir/.git" ]; do
+    [ "$dir" = "/" ] && return 1
+    dir="$(dirname "$dir")"
+  done
+  printf '%s\n' "$dir"
+}
 # The project is the payload's checkout, else the configured one (CLAUDE_PROJECT_DIR,
 # else LU_PRODUCT_ROOT); never this file's own tree.
 CONFIGURED_PROJECT="${CLAUDE_PROJECT_DIR:-${LU_PRODUCT_ROOT:-}}"
@@ -47,6 +61,9 @@ else
 fi
 
 resolve_root="${payload_cwd:-$CONFIGURED_PROJECT}"
+if [ -n "$resolve_root" ] && checkout="$(owning_checkout "$resolve_root")"; then
+  resolve_root="$checkout"
+fi
 PYTHON_BIN=""
 if [ -n "$resolve_root" ]; then
   PYTHON_BIN="$(project_interpreter_resolve "$resolve_root" 2>/dev/null)" || PYTHON_BIN=""

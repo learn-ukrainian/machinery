@@ -775,3 +775,32 @@ def test_handoff_alias_error_names_the_packaged_map(tmp_path: Path) -> None:
     assert result.returncode != 0
     assert "lu_machinery/config/launcher_stream_aliases.tsv" in result.stderr
     assert "scripts/config/launcher_stream_aliases.tsv" not in result.stderr
+
+
+def test_subdirectory_does_not_select_a_nested_venv(tmp_path: Path) -> None:
+    """Defect: a subdirectory with no .git is its own primary, so a nested virtualenv bypasses the checkout."""
+    primary, _worktree, log = _layout(tmp_path, primary_venv=True, worktree_venv=False)
+    nested = primary / "nested"
+    nested.mkdir()
+    nested_log = tmp_path / "nested.log"
+    nested_log.write_text("", encoding="utf-8")
+    _record(nested / ".venv" / "bin" / "python", nested_log, code=0)
+    base = _base_env(tmp_path)
+    package = machinery_root()
+    timed = _run(
+        [str(package / "hooks" / "run_hook_timed.sh"), "/bin/false"],
+        cwd=nested,
+        env={**base, "HOOK_TIMING": "1"},
+    )
+    assert timed.returncode != 0, timed.stderr
+    assert nested_log.read_text(encoding="utf-8") == ""
+    assert str(primary / ".venv/bin/python") in log.read_text(encoding="utf-8")
+    log.write_text("", encoding="utf-8")
+    codex = _run(
+        [str(package / "agent_runtime" / "codex_hook_entry.sh"), "pre-tool-use"],
+        cwd=nested,
+        env=base,
+        stdin=json.dumps({"tool_input": {"workdir": str(nested)}}),
+    )
+    assert nested_log.read_text(encoding="utf-8") == "", codex.stderr
+    assert str(primary / ".venv/bin/python") in log.read_text(encoding="utf-8"), codex.stderr
