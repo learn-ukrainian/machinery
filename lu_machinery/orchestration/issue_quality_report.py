@@ -220,7 +220,7 @@ def build_report() -> dict:
 
 
 def persisted_payload(day: str, *, root: Path | None = None, build=build_report) -> bytes:
-    """Publish only a completed, immutable daily payload under ignored reports."""
+    """Persist a daily payload in shared state; root is only an in-tree start hint."""
     directory = state_root(root) / "batch_state/reports"
     directory.mkdir(parents=True, exist_ok=True)
     path = directory / f"issue-quality-report-{day}.json"
@@ -269,6 +269,7 @@ def publish_payload(payload: bytes, day: str, sender: str) -> int:
         capture_output=True,
         timeout=60,
         check=False,
+        cwd=state_root(),
     )
     return int(result.returncode != 0)
 

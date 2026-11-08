@@ -94,7 +94,7 @@ def build_parser() -> argparse.ArgumentParser:
             "--apply reloads the user manager, --enable starts the timer.\n"
             "Exit codes: 0 = current or applied; 1 = drift or installation failure; 2 = invalid usage "
             "(--check with --apply, --enable without --apply, or a non-primary --repo-root).\n"
-            "Related: issue #10565, docs/best-practices/task-quality.md and packaging/systemd/learn-ukrainian-issue-quality-report.*."
+            "Related: issue #10565, docs/best-practices/task-quality.md and lu_machinery/packaging/systemd/learn-ukrainian-issue-quality-report.*."
         ),
     )
     parser.add_argument(

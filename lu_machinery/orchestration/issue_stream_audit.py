@@ -47,7 +47,7 @@ from pathlib import Path
 
 import yaml
 
-from lu_machinery.common.repo_root import machinery_path, product_root, state_root
+from lu_machinery.common.repo_root import github_slug, machinery_path, product_root, state_root
 from lu_machinery.opsec.prepublish import publication_cli
 from lu_machinery.publish.github import Request, request_run
 
@@ -109,7 +109,7 @@ MembershipResolver = Callable[[int, int], bool]
 
 
 def refresh_sidecar_paths(root: Path | None = None) -> tuple[Path, Path]:
-    """Return refresh sidecar paths under the shared state anchor."""
+    """Return shared-state sidecars; root is only an in-tree start hint."""
     batch_state = state_root(root) / "batch_state"
     return (
         batch_state / "issue_stream_audit_refresh.json",
@@ -1446,6 +1446,8 @@ def run_audit(
     root = product_root(repo_root)
     cache_path = state_root() / "batch_state/issue_stream_audit.json"
     repository = "/".join(_repo_owner_name(root))
+    if repository.casefold() != github_slug().casefold():
+        raise ValueError("audit repository does not match the shared stream registry")
     registry = load_registry(REGISTRY_PATH, audit_only=True)
     open_issues = fetch_open_issues(root)
     traversal_warnings: list[dict] = []
