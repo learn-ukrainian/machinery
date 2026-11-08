@@ -118,6 +118,7 @@ DIMENSION_SHORT_LABELS = {
 
 import contextlib
 
+from lu_machinery.common.repo_root import product_root
 from research.research_markdown_utils import (
     count_blockquotes as _count_blockquotes,
 )
@@ -140,8 +141,6 @@ from research.research_markdown_utils import (
     extract_section as _extract_section,
 )
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
-DOCS_RESEARCH_ROOT = PROJECT_ROOT / "docs" / "research"
 _docs_research_index_cache: dict[Path, tuple[float, dict[str, Path]]] = {}
 
 # ==================== SUBSTANCE SCORING ====================
@@ -938,7 +937,7 @@ def find_research_path(track_dir: Path, slug: str) -> Path | None:
 
 def _docs_research_index(track_id: str) -> dict[str, Path]:
     """Return filename -> path index for docs/research/{track_id}."""
-    docs_research_dir = DOCS_RESEARCH_ROOT / track_id
+    docs_research_dir = product_root() / "docs" / "research" / track_id
     if not docs_research_dir.is_dir():
         return {}
     try:

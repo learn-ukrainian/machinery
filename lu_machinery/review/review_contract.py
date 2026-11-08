@@ -19,7 +19,6 @@ from typing import Any
 
 from lu_machinery.agent_runtime.sources_read_only import sources_tool_sets
 from lu_machinery.common.jsonl import jsonl_lines
-from lu_machinery.common.repo_root import product_root
 from lu_machinery.orchestration.integration_sweep import (
     ITEM_ID_RE,
     VOID_QUOTE_MISMATCH,
@@ -1316,23 +1315,19 @@ class ClaimsValidationResult:
 # such as ``verify_pilot``) does not. Names come from the server's declarations, and a ``_``-separated
 # extension of one (``verify_stress_result``) still cites it.
 _TOOL_NAME_PREFIX = re.compile(r"(?:verify|query|search|inspect|check|translate|vet|get)_\w+")
-# The product-owned Sources server whose declarations name the tools.
-_SOURCES_SERVER = Path(".mcp/servers/sources/server.py")
-
 
 def _cited_fact() -> re.Pattern[str]:
     """The cited-fact pattern for the configured product checkout's Sources server (C-4843).
 
-    The server is product-owned, so its declarations come from :func:`product_root`, resolved
-    before the cache lookup; an unselectable product root raises ``ProductRootError``.
+    ``sources_tool_sets`` resolves the product-owned server at the call; an unselectable product
+    root raises ``ProductRootError`` and an unreadable declaration propagates.
     """
-    return _cited_fact_for(product_root() / _SOURCES_SERVER)
+    return _cited_fact_for(*sources_tool_sets())
 
 
 @lru_cache(maxsize=1)
-def _cited_fact_for(server_path: Path) -> re.Pattern[str]:
-    """Compile once per declaration file; an unreadable server declaration propagates."""
-    readers, writers = sources_tool_sets(server_path)
+def _cited_fact_for(readers: tuple[str, ...], writers: tuple[str, ...]) -> re.Pattern[str]:
+    """Compile once per tool partition, so a different server gives its own pattern."""
     tools = sorted((name for name in (*readers, *writers) if _TOOL_NAME_PREFIX.fullmatch(name)), key=lambda n: (-len(n), n))
     if not tools:
         raise ValueError("sources_tool_names_empty")

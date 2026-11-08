@@ -84,6 +84,7 @@ def _load_sibling(module_name: str, filename: str):
 
 _check_primary_integrity = _load_sibling("_venv_integrity_check_primary_integrity", "check_primary_integrity.py")
 _append_event = _check_primary_integrity._append_event
+product_root = _check_primary_integrity.product_root
 _resolve_main_root = _check_primary_integrity._resolve_main_root
 _running_dispatches = _check_primary_integrity._running_dispatches
 
@@ -301,9 +302,7 @@ def main(argv: list[str] | None = None) -> int:
         description="Detect an empty or shebang-broken primary venv (#6830).",
     )
     parser.add_argument("-q", "--quiet", action="store_true", help="suppress the OK message (alerts still print)")
-    parser.add_argument(
-        "--repo", type=Path, default=Path(__file__).resolve().parents[2], help="repo path to check (default: this project root)"
-    )
+    parser.add_argument("--repo", type=Path, default=None, help="repo path to check (default: the product checkout)")
     parser.add_argument(
         "--python-exe",
         type=Path,
@@ -320,16 +319,17 @@ def main(argv: list[str] | None = None) -> int:
         help="watchdog state/log dir (default: <main_root>/data/telemetry/venv-integrity)",
     )
     args = parser.parse_args(argv)
+    repo = args.repo if args.repo is not None else product_root()
 
     tasks_dir = args.tasks_dir
     if tasks_dir is None:
         try:
-            tasks_dir = _resolve_main_root(args.repo) / "batch_state" / "tasks"
+            tasks_dir = _resolve_main_root(repo) / "batch_state" / "tasks"
         except Exception:
             tasks_dir = None
 
     ok, message = check_venv_integrity(
-        args.repo,
+        repo,
         tasks_dir=tasks_dir,
         state_dir=args.state_dir,
         python_exe=args.python_exe,

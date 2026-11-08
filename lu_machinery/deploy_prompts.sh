@@ -509,7 +509,7 @@ echo "  ✅ All hook files are executable."
 echo ""
 
 echo "=== Lint agent skills ==="
-"$PROJECT_PYTHON" lu_machinery/lint/lint_agent_skills.py
+"$PROJECT_PYTHON" -m lu_machinery.lint.lint_agent_skills
 echo ""
 
 if [[ "$DRY_RUN" == false ]]; then

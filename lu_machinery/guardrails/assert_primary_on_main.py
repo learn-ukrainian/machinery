@@ -23,6 +23,7 @@ _REPO_CANDIDATE = Path(__file__).resolve().parents[2]
 if str(_REPO_CANDIDATE) not in sys.path:
     sys.path.insert(0, str(_REPO_CANDIDATE))
 
+from lu_machinery.common.repo_root import ProductRootError, product_root
 from lu_machinery.guardrails.worktree_containment import (
     is_primary_checkout,
     resolve_main_root,
@@ -72,8 +73,8 @@ def _git(cwd: Path, *args: str) -> subprocess.CompletedProcess[str]:
 
 
 def primary_head_state(cwd: Path | None = None) -> dict[str, object]:
-    """Return head diagnostics for the main worktree of this repo."""
-    start = (cwd or Path.cwd()).resolve()
+    """Return head diagnostics for the main worktree of the product checkout (or of ``cwd``)."""
+    start = (cwd or product_root()).resolve()
     main_root = resolve_main_root(start)
     if main_root is None:
         return {"ok": True, "reason": "not_a_git_repo", "path": str(start)}
@@ -170,7 +171,7 @@ def main(argv: list[str] | None = None) -> int:
         "--cwd",
         type=Path,
         default=None,
-        help="Starting directory for repo discovery (default: process cwd)",
+        help="Starting directory for repo discovery (default: the product checkout)",
     )
     parser.add_argument(
         "--heal",
@@ -193,7 +194,11 @@ def main(argv: list[str] | None = None) -> int:
             )
         return 0
 
-    state = primary_head_state(args.cwd)
+    try:
+        state = primary_head_state(args.cwd)
+    except ProductRootError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 2
     if state.get("ok"):
         if not args.quiet:
             print(f"OK primary on {state.get('branch', 'n/a')} ({state.get('path')})")
