@@ -42,7 +42,9 @@ debug = ["pymorphy2>=0.9.1", "pymorphy2-dicts-uk", "stanza>=1.13.0"]
 include-package-data = true
 
 [tool.setuptools.packages.find]
-include = ["lu_machinery*"]
+# A data-only namespace preserves the source layout beside lu_machinery.
+# Runtime readers use machinery_path, never namespace imports.
+include = ["lu_machinery*", "agents_extensions.shared"]
 
 [tool.mypy]
 python_version = "3.12"

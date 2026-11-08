@@ -26,14 +26,9 @@ rule files individually (``critical-rules.md`` +
 Consolidating them behind one endpoint lets agents check a single hash
 on ``/api/state/manifest`` and only refetch when rules actually change.
 
-Source of truth is the Claude extensions rule directory — `.claude/rules/`,
-`.agent/rules/`, and `.gemini/rules/` are deployed copies
-(``npm run agents:deploy``). We read the source so a fresh checkout
-(or a worktree that hasn't deployed) still gets the current rules. Every scope,
-``full`` included, reads fleet rules from the machinery rules root
-(``LEARN_UKRAINIAN_RULES_DIR``, via ``rules_core.source_path``) and any other
-source from the checkout. The content seat's curriculum addendum comes from
-``product_root()``; the API context's machinery root never selects the product.
+Fleet rules and skills come from this machinery release through
+``rules_core.source_path``. Product-owned rules come from ``product_root()``;
+the API context's project root never selects fleet or product rule sources.
 """
 
 from __future__ import annotations
@@ -101,8 +96,8 @@ RULE_SOURCES: tuple[str, ...] = (
     "agents_extensions/shared/rules/model-assignment.md",
     # Driver routing card + breadth floor (operator GO 2026-08-06).
     "agents_extensions/shared/rules/fleet-driver-routing.md",
-    "docs/best-practices/fleet-shared-doctrine.md",
-    "docs/best-practices/fleet-role-scorecard.md",
+    "agents_extensions/shared/rules/fleet-shared-doctrine.md",
+    "agents_extensions/shared/rules/fleet-role-scorecard.md",
 )
 
 # Separator between files. Explicit so the concatenation is stable
@@ -112,37 +107,25 @@ _FILE_SEP = "\n\n---\n\n"
 
 
 def _read_rule_files(project_root: Path) -> tuple[list[str], list[str]]:
-    """Return (present_paths, file_contents) for every file that exists."""
+    """Return every required source; refuse incomplete reference bundles."""
     present_paths: list[str] = []
     contents: list[str] = []
     for rel in RULE_SOURCES:
-        path = rules_core.source_path(rel, project_root)
-        if not path.exists() or not path.is_file():
-            continue
         try:
-            body = path.read_text(encoding="utf-8")
-        except OSError:
-            # Unreadable file — skip rather than 500. The manifest hash
-            # will change if the set of readable files changes, so
-            # agents will notice the degraded state.
-            continue
+            body = rules_core.assemble((rel,))
+        except rules_core.RulesCoreMissing as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
         present_paths.append(rel)
-        contents.append(body.rstrip() + "\n")
+        contents.append(body)
     return present_paths, contents
 
 
 def _assemble_rules(project_root: Path) -> tuple[str, list[str], str]:
     """Return (markdown, sources, sha256_hex) for the concatenated rules.
 
-    Raises ``HTTPException(500)`` if not a single source file could be
-    read — something is badly wrong with the checkout in that case.
+    Raises ``HTTPException(503)`` when a required release or product rule is absent.
     """
     sources, parts = _read_rule_files(project_root)
-    if not parts:
-        raise HTTPException(
-            status_code=500,
-            detail=(f"No rule sources readable under {', '.join(RULE_SOURCES)}. Is the repo checked out?"),
-        )
     markdown = _FILE_SEP.join(parts).rstrip() + "\n"
     digest = hashlib.sha256(markdown.encode("utf-8")).hexdigest()
     return markdown, sources, digest
@@ -159,9 +142,9 @@ def _assemble_scope(project_root: Path, scope: str) -> tuple[str, list[str], str
         return _assemble_rules(project_root)
     try:
         sources = list(rules_core.scope_sources(scope))
-        markdown = rules_core.assemble(tuple(sources), rules_root=project_root)
+        markdown = rules_core.assemble(tuple(sources))
     except rules_core.RulesCoreMissing as exc:
-        raise HTTPException(status_code=503, detail=f"{exc}; scope {scope!r} is unavailable in this checkout.") from exc
+        raise HTTPException(status_code=503, detail=f"{exc}; scope {scope!r} is unavailable.") from exc
     except rules_core.RulesCoreError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return markdown, sources, scope_digest(scope, markdown)

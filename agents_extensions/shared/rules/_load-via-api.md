@@ -35,8 +35,8 @@ read this full fallback list — same paths, same order as
     agents_extensions/shared/rules/cli-help-standard.md
     agents_extensions/shared/rules/model-assignment.md
     agents_extensions/shared/rules/fleet-driver-routing.md
-    docs/best-practices/fleet-shared-doctrine.md
-    docs/best-practices/fleet-role-scorecard.md
+    agents_extensions/shared/rules/fleet-shared-doctrine.md
+    agents_extensions/shared/rules/fleet-role-scorecard.md
 
 Scoped selections — `GET /api/rules?scope=<scope>&format=markdown`, each with
 its own hash. Offline, `lu_machinery/lib/rules_core.py` reads the same files in the
@@ -57,8 +57,8 @@ run receives the core as an appended system prompt:
                            agents_extensions/shared/rules/workflow.md
     scope=task:driver      agents_extensions/shared/rules/fleet-comms-coordination.md
                            agents_extensions/shared/rules/fleet-driver-routing.md
-                           docs/best-practices/fleet-shared-doctrine.md
-                           docs/best-practices/fleet-role-scorecard.md
+                           agents_extensions/shared/rules/fleet-shared-doctrine.md
+                           agents_extensions/shared/rules/fleet-role-scorecard.md
                            agents_extensions/shared/skills/drive-epic/SKILL.md
     scope=task:fleet-comms agents_extensions/shared/rules/fleet-comms-coordination.md
     scope=task:review      agents_extensions/shared/skills/local-code-review/SKILL.md

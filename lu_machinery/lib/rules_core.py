@@ -1,14 +1,12 @@
-"""The rules core every agent seat loads, read from the local checkout.
+"""The rules core every agent seat loads, read from this machinery release.
 
 One loader for every seat: launchers (``scripts/lib/rules_core.sh``), legacy dispatch
 workers and review dispatches, every runtime invocation
 (``agent_runtime.runner._invoke_impl``), the legacy bridge prompt builders,
 and ``GET /api/rules?scope=...``. Everything here is offline: files come from the
-configured source trees, never from the working directory or the Monitor API.
-For fleet rules, the operator's
-machinery configuration (``LEARN_UKRAINIAN_RULES_DIR``, see
-``scripts/common/repo_root.py``) names it for every root, so machinery installed outside
-the checkout serves the configured rules. Unset, it is ``<root>/agents_extensions/shared/rules``.
+installed release, never from the working directory or the Monitor API.
+Fleet sources use machinery_path with the same relative layout in source and wheel.
+Product rules come only from product_root().
 
 Seats:
     core     ``core.md`` in the rules directory
@@ -29,7 +27,7 @@ selects for a task; ``/api/rules?scope=task:<name>`` serves them, and
 ``_load-via-api.md`` lists the same selection for offline reads.
 
 Usage:
-    rules_core.py [--root DIR] [--rules-root DIR] [--seat core|content] [--lane LANE] [--provider P]
+    rules_core.py [--root DIR] [--seat core|content] [--lane LANE] [--provider P]
                   [--format text|block|toml|kimi-agent-file|seat|json] [--output PATH]
 
 Exit codes:
@@ -53,7 +51,12 @@ ROOT = Path(__file__).resolve().parents[2]
 if __package__ in (None, "") and str(ROOT) not in sys.path:  # run as a file by rules_core.sh
     sys.path.insert(0, str(ROOT))
 
-from lu_machinery.common.repo_root import RULES_DIR_REL, ProductRootError, product_root, rules_dir
+from lu_machinery.common.repo_root import (
+    RULES_DIR_REL,
+    ProductRootError,
+    machinery_path,
+    product_root,
+)
 
 _MACHINERY = Path(os.path.abspath(__file__)).parents[1].name
 _ENTRY = f"{_MACHINERY}/lib/{Path(__file__).name}"
@@ -90,7 +93,11 @@ class TaskScope:
 TASK_SCOPES: dict[str, TaskScope] = {
     "repo-change": TaskScope(
         "Any repository change",
-        (f"{_RULES}/critical-rules.md", f"{_RULES}/dispatch-must-use-worktree.md", f"{_RULES}/workflow.md"),
+        (
+            f"{_RULES}/critical-rules.md",
+            f"{_RULES}/dispatch-must-use-worktree.md",
+            f"{_RULES}/workflow.md",
+        ),
     ),
     "cli": TaskScope("CLI implementation", (f"{_RULES}/cli-help-standard.md",)),
     "curriculum": TaskScope("Curriculum planning", (f"{_RULES}/non-negotiable-rules.md",)),
@@ -101,8 +108,8 @@ TASK_SCOPES: dict[str, TaskScope] = {
         (
             f"{_RULES}/fleet-comms-coordination.md",
             f"{_RULES}/fleet-driver-routing.md",
-            "docs/best-practices/fleet-shared-doctrine.md",
-            "docs/best-practices/fleet-role-scorecard.md",
+            "agents_extensions/shared/rules/fleet-shared-doctrine.md",
+            "agents_extensions/shared/rules/fleet-role-scorecard.md",
             f"{_SKILLS}/drive-epic/SKILL.md",
         ),
     ),
@@ -150,11 +157,6 @@ def resolve_seat(
     return "core"
 
 
-def core_dir(root: Path | None = None) -> Path:
-    """The rules directory: the configured one, else that of ``root``, else of this checkout."""
-    return rules_dir(ROOT if root is None else Path(root))
-
-
 def seat_sources(seat: str) -> tuple[str, ...]:
     if seat == "core":
         return (CORE_REL,)
@@ -175,30 +177,33 @@ def scope_sources(scope: str) -> tuple[str, ...]:
     raise RulesCoreError(f"unknown scope {scope!r} (expected core, content, or task:<name>)")
 
 
-def source_path(rel: str, root: Path | None = None, *, rules_root: Path | None = None) -> Path:
-    """Resolve product curriculum separately from fleet rules.
+_PRODUCT_RULES = frozenset(
+    (
+        "agents_extensions/shared/rules/activity-yaml.md",
+        "agents_extensions/shared/rules/core-curriculum.md",
+        "agents_extensions/shared/rules/mcp-sources-and-dictionaries.md",
+        "agents_extensions/shared/rules/non-negotiable-rules.md",
+        "agents_extensions/shared/rules/pipeline.md",
+        "agents_extensions/shared/rules/ukrainian-linguistics.md",
+    )
+)
 
-    ``root`` explicitly selects the product as well as the default rules checkout.
-    ``rules_root`` only selects the machinery checkout; it never overrides the
-    configured product. Core seats therefore never call the product resolver.
-    """
-    if rel == CONTENT_ADDENDUM_REL:
-        try:
+
+def source_path(rel: str, root: Path | None = None) -> Path:
+    """Fleet resources come from the release; product rules use the selected product."""
+    try:
+        if rel in _PRODUCT_RULES or not rel.startswith("agents_extensions/shared/"):
             return product_root(root) / rel
-        except ProductRootError as exc:
-            raise RulesCoreMissing(f"rules source unavailable: {rel} ({exc})") from exc
-    checkout = root if rules_root is None else rules_root
-    rel_path = Path(rel)
-    if rel_path.is_relative_to(RULES_DIR_REL):
-        return core_dir(checkout) / rel_path.relative_to(RULES_DIR_REL)
-    return (ROOT if checkout is None else Path(checkout)) / rel
+        return machinery_path(rel)
+    except (ProductRootError, OSError, ValueError, RuntimeError) as exc:
+        raise RulesCoreMissing(f"rules source unavailable: {rel} ({exc})") from exc
 
 
-def assemble(sources: tuple[str, ...], root: Path | None = None, *, rules_root: Path | None = None) -> str:
+def assemble(sources: tuple[str, ...], root: Path | None = None) -> str:
     """Join sources the way the legacy bundle does; every source must be readable and non-empty."""
     parts: list[str] = []
     for rel in sources:
-        path = source_path(rel, root, rules_root=rules_root)
+        path = source_path(rel, root)
         try:
             body = path.read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError) as exc:
@@ -209,13 +214,13 @@ def assemble(sources: tuple[str, ...], root: Path | None = None, *, rules_root: 
     return FILE_SEP.join(parts).rstrip() + "\n"
 
 
-def core_text(seat: str = "core", root: Path | None = None, *, rules_root: Path | None = None) -> str:
-    return assemble(seat_sources(seat), root, rules_root=rules_root)
+def core_text(seat: str = "core", root: Path | None = None) -> str:
+    return assemble(seat_sources(seat), root)
 
 
-def core_block(seat: str = "core", root: Path | None = None, *, rules_root: Path | None = None) -> str:
+def core_block(seat: str = "core", root: Path | None = None) -> str:
     """The core framed for injection into a prompt or system prompt."""
-    text = core_text(seat, root, rules_root=rules_root)
+    text = core_text(seat, root)
     digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
     return f'{BLOCK_OPEN} seat="{seat}" sha256="{digest}">\n{text}{BLOCK_CLOSE}'
 
@@ -302,19 +307,19 @@ def kimi_agent_file_text(block: str) -> str:
     )
 
 
-def _render(fmt: str, seat: str, root: Path | None, *, rules_root: Path | None = None) -> str:
+def _render(fmt: str, seat: str, root: Path | None) -> str:
     if fmt == "seat":
         return seat + "\n"
     if fmt == "text":
-        return core_text(seat, root, rules_root=rules_root)
-    block = core_block(seat, root, rules_root=rules_root)
+        return core_text(seat, root)
+    block = core_block(seat, root)
     if fmt == "block":
         return block + "\n"
     if fmt == "toml":
         return toml_basic_string(block) + "\n"
     if fmt == "kimi-agent-file":
         return kimi_agent_file_text(block)
-    text = core_text(seat, root, rules_root=rules_root)
+    text = core_text(seat, root)
     first, last = pillar_anchors(text)
     payload = {
         "seat": seat,
@@ -348,20 +353,23 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--root",
         type=Path,
-        help="explicit product and default rules checkout, e.g. /product "
-        "(product default: LU_PRODUCT_ROOT, then this checkout)",
+        help="explicit product root, e.g. /product "
+        "(default: LU_PRODUCT_ROOT; in-tree product copy derives its product)",
     )
     parser.add_argument(
-        "--rules-root",
-        type=Path,
-        help="machinery checkout for fleet rules only, e.g. /machinery "
-        "(default: --root, then this checkout; LEARN_UKRAINIAN_RULES_DIR overrides fleet rules)",
+        "--seat",
+        choices=SEATS,
+        help=f"seat to load (default: ${SEAT_ENV}, then --lane, then core)",
     )
-    parser.add_argument("--seat", choices=SEATS, help=f"seat to load (default: ${SEAT_ENV}, then --lane, then core)")
     parser.add_argument(
-        "--lane", help="driver lane, e.g. core (default: none); curriculum-orchestrator selects content"
+        "--lane",
+        help="driver lane, e.g. core (default: none); curriculum-orchestrator selects content",
     )
-    parser.add_argument("--provider", default="claude", help="slot provider for --lane lookup (default: claude)")
+    parser.add_argument(
+        "--provider",
+        default="claude",
+        help="slot provider for --lane lookup (default: claude)",
+    )
     parser.add_argument(
         "--format",
         choices=("text", "block", "toml", "kimi-agent-file", "seat", "json"),
@@ -369,11 +377,15 @@ def main(argv: list[str] | None = None) -> int:
         help="text: sources joined; block: framed for a prompt; toml: block as a TOML string; "
         "kimi-agent-file: Kimi agent definition; seat: resolved seat; json: sizes and anchors (default: block)",
     )
-    parser.add_argument("--output", type=Path, help="write to this file, e.g. rules.md (default: stdout)")
+    parser.add_argument(
+        "--output",
+        type=Path,
+        help="write to this file, e.g. rules.md (default: stdout)",
+    )
     args = parser.parse_args(argv)
     seat = resolve_seat(args.seat, lane=args.lane, provider=args.provider)
     try:
-        rendered = _render(args.format, seat, args.root, rules_root=args.rules_root)
+        rendered = _render(args.format, seat, args.root)
     except RulesCoreMissing as exc:
         print(f"rules_core: {exc}", file=sys.stderr)
         return 3
