@@ -278,7 +278,7 @@ if [ -n "${LEARN_UKRAINIAN_CLAUDEX_RUN_ID:-}" ]; then
     ISSUES+=("CLAUDEX SUPERVISOR BIND FAILED: official session identity or runtime helper is unavailable.")
   else
     SUPERVISOR_BIND_CMD=(
-      "$CLAUDEX_SUPERVISOR_PYTHON" "$CLAUDEX_SUPERVISOR_SCRIPT" bind-session
+      "$CLAUDEX_SUPERVISOR_PYTHON" -P -m lu_machinery.orchestration.claudex_supervisor bind-session
       --run-id "$LEARN_UKRAINIAN_CLAUDEX_RUN_ID"
       --launch-generation "${LEARN_UKRAINIAN_CLAUDEX_LAUNCH_GENERATION:-}"
       --session-id "$SESSION_ID"
@@ -286,10 +286,35 @@ if [ -n "${LEARN_UKRAINIAN_CLAUDEX_RUN_ID:-}" ]; then
     )
     [ -n "$SOURCE" ] && SUPERVISOR_BIND_CMD+=(--source "$SOURCE")
     [ -n "$OBSERVED_MODEL" ] && SUPERVISOR_BIND_CMD+=(--model "$OBSERVED_MODEL")
-    if ! run_bounded 3 "${SUPERVISOR_BIND_CMD[@]}" >/dev/null 2>&1; then
+    # CPython lexically normalizes each entry into the bind's cwd, ahead of the stdlib.
+    # A missing directory still cancels that way, so existence is not the test.
+    _bind_pythonpath="$PROJECT_DIR"
+    if [ -n "${PYTHONPATH:-}" ]; then
+      _bind_filtered=$("$CLAUDEX_SUPERVISOR_PYTHON" -I -c '
+import os, sys
+base = os.path.normpath(os.getcwd())
+base_real = os.path.realpath(base)
+kept = []
+for part in os.environ.get("PYTHONPATH", "").split(os.pathsep):
+    if not part or part == ".":
+        continue
+    lexical = os.path.normpath(part if os.path.isabs(part) else os.path.join(base, part))
+    if lexical == base or os.path.realpath(lexical) == base_real:
+        continue
+    kept.append(part)
+sys.stdout.write(os.pathsep.join(kept) + "x")
+') || _bind_filtered=
+      # The trailing x keeps $(...) from stripping a newline that ends the last entry.
+      _bind_filtered="${_bind_filtered%x}"
+      if [ -n "$_bind_filtered" ]; then
+        _bind_pythonpath="${PROJECT_DIR}:${_bind_filtered}"
+      fi
+      unset _bind_filtered
+    fi
+    if ! PYTHONPATH="$_bind_pythonpath" run_bounded 3 "${SUPERVISOR_BIND_CMD[@]}" >/dev/null 2>&1; then
       ISSUES+=("CLAUDEX SUPERVISOR BIND FAILED: SessionStart did not match the owned child generation.")
     fi
-    unset SUPERVISOR_BIND_CMD
+    unset SUPERVISOR_BIND_CMD _bind_pythonpath
   fi
 fi
 
