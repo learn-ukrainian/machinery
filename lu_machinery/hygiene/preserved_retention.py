@@ -415,8 +415,8 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     if args.expire_older_than_hours is not None and args.expire_older_than_hours <= 0:
         parser.error("--expire-older-than-hours must be a positive integer")
-    batch = (args.batch_root or default_batch_root()).absolute()
     try:
+        batch = (args.batch_root or default_batch_root()).absolute()
         return run(batch, args.keep_list, args.reports_dir or batch / "reports", apply=args.apply, allow_empty_keep_list=args.allow_empty_keep_list, expire_older_than_hours=args.expire_older_than_hours)
     except (OSError, ValueError, ComponentOpenError) as exc:
         print(f"preserved-retention: {type(exc).__name__}", file=sys.stderr)

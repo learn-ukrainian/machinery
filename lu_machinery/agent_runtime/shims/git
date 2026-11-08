@@ -538,8 +538,9 @@ if [[ "$_opsec_push" == 1 ]]; then
   # The scanner is the one in this shim's own machinery package directory.
   _opsec_machinery="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
   _opsec_hooks="$_opsec_machinery/opsec/push_hooks"
-  _opsec_python="$_opsec_root/.venv/bin/python"
-  if [[ ! -x "$_opsec_python" ]]; then
+  # The interpreter the runner stamps, as the branch guard above uses, else this checkout's .venv.
+  _opsec_python="${AGENT_GIT_SHIM_PYTHON:-$_opsec_root/.venv/bin/python}"
+  if [[ -z "${AGENT_GIT_SHIM_PYTHON:-}" && ! -x "$_opsec_python" ]]; then
     # A linked worktree has no interpreter of its own: use the main checkout's.
     _opsec_common="$(_exec_git env -u GIT_DIR -u GIT_COMMON_DIR -u GIT_WORK_TREE "$real_git" -C "$_opsec_root" \
       rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" || _opsec_common=""

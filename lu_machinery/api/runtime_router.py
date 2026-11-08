@@ -1746,13 +1746,12 @@ async def runtime_transport_health():
 
     No ``MonitorContext`` root applies here: the receipt path and the
     product's Codex config are resolved through ``codex_transport_health``'s
-    own attributes at call time (the config through ``product_root``,
+    own resolvers at call time (the config through ``product_root``,
     C-4746; never re-exported as a local ``Path`` global), and the response
     is fully sanitized status fields with no filesystem paths.
     """
     return await asyncio.to_thread(
         codex_transport_health.current_transport_health,
-        receipt_path=codex_transport_health.TRANSPORT_RECEIPT_PATH,
         config_path=codex_transport_health.default_config_path(),
     )
 

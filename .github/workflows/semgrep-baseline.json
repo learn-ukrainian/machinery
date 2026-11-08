@@ -420,16 +420,6 @@
    "sha256": "2a642c5c987dc0ca60cd5bebac103ebd6b3a9950c94606c0b4c377f3b062b0ce"
   },
   {
-   "path": "lu_machinery/token_usage.py",
-   "rule": "python.lang.best-practice.unspecified-open-encoding",
-   "sha256": "3d8bac8d1db9b13ead1e3d7d67f0daab27c7058f9ba11cfcea5737796dda3f6d"
-  },
-  {
-   "path": "lu_machinery/token_usage.py",
-   "rule": "python.lang.best-practice.unspecified-open-encoding",
-   "sha256": "6caf3c9657ff60d05d761a3300ba793a92ac069ad3f378e2c854813fe1768e4d"
-  },
-  {
    "path": "lu_machinery/tools/agent_watcher.py",
    "rule": "python.lang.best-practice.unspecified-open-encoding",
    "sha256": "41521991beb26293ae5817e72859ba649afb3d0145ea8488cba63b1b619cd39e"
@@ -633,11 +623,6 @@
    "path": "lu_machinery/hygiene/lint_source_db_writable_connects.py",
    "rule": "python.lang.correctness.list-modify-while-iterate",
    "sha256": "a1f5c7d9c7defd9849e290801d889ef6c672bebd69ae799e569a517bdb6b90a2"
-  },
-  {
-   "path": "lu_machinery/ai_agent_bridge/measure_cold_start.py",
-   "rule": "python.lang.correctness.no-strings-as-booleans",
-   "sha256": "5e8bad71021e48f04505bd6476b8c5634c2de901e287b54dad382fe1687d3325"
   },
   {
    "path": "lu_machinery/agent_runtime/acpx_discuss.py",
@@ -1577,7 +1562,7 @@
   {
    "path": "lu_machinery/hooks/measure_hook_stack.py",
    "rule": "python.lang.security.audit.dangerous-subprocess-use-audit",
-   "sha256": "8de87c7e3ad70c09677ca0c621c853631f5cee38a1f5bc4d34d6ce935b9b3178"
+   "sha256": "9c085473b47557c3d51a10c2ed92a8c84eceb5b85c9d171929e962233ff70d86"
   },
   {
    "path": "lu_machinery/hygiene/check_core_bare.py",
@@ -2138,16 +2123,6 @@
    "path": "lu_machinery/ai_agent_bridge/_channels.py",
    "rule": "python.lang.security.audit.dynamic-urllib-use-detected",
    "sha256": "be0fbb2c4415773ca192b8fe14a04aa1699b5da17267f74fbd6b9fb446879354"
-  },
-  {
-   "path": "lu_machinery/ai_agent_bridge/measure_cold_start.py",
-   "rule": "python.lang.security.audit.dynamic-urllib-use-detected",
-   "sha256": "42cd25e1ecf95ac8d2ac24b2fdf8033199a83ed5111ac596f7bc033879bfb990"
-  },
-  {
-   "path": "lu_machinery/ai_agent_bridge/measure_cold_start.py",
-   "rule": "python.lang.security.audit.dynamic-urllib-use-detected",
-   "sha256": "52bc6e056ea73b4f169e0bd44542a0e39a8bb25f177c6ac510c3646d96874a95"
   },
   {
    "path": "lu_machinery/ai_agent_bridge/monitor_client.py",

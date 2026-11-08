@@ -55,7 +55,7 @@ from lu_machinery.ci.components import (
     scan_imports,
     scan_runtime_edges,
 )
-from lu_machinery.common.repo_root import machinery_path
+from lu_machinery.common.repo_root import machinery_path, product_root
 
 
 def _machinery_top() -> str:
@@ -80,7 +80,6 @@ def _in_trees(parts: Sequence[str]) -> bool:
     return bool(parts) and parts[0] in _trees()
 
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
 BASELINE_PATH = Path(__file__).with_name("boundary_baseline.json")
 CONFIG_PATH = machinery_path("config/package_boundary.yaml")
 SCHEMA = "boundary-ratchet-baseline.v1"
@@ -1096,17 +1095,22 @@ def main(argv: Sequence[str] | None = None) -> int:
         default=CONFIG_PATH,
         help="Package boundary YAML.",
     )
-    parser.add_argument("--root", type=Path, default=REPO_ROOT, help="Repository root.")
+    parser.add_argument(
+        "--root",
+        type=Path,
+        default=None,
+        help="Repository root (default: the selected product checkout).",
+    )
     parser.add_argument(
         "--write-baseline",
         action="store_true",
         help="Rewrite the baseline from the current census and exit.",
     )
     args = parser.parse_args(argv)
-    root = args.root.resolve()
-    baseline = args.baseline if args.baseline.is_absolute() else root / args.baseline
-    config_path = args.config if args.config.is_absolute() else root / args.config
     try:
+        root = (args.root if args.root is not None else product_root()).resolve()
+        baseline = args.baseline if args.baseline.is_absolute() else root / args.baseline
+        config_path = args.config if args.config.is_absolute() else root / args.config
         if args.write_baseline:
             config = load_config(config_path)
             violations = classification_violations(root, config)

@@ -46,6 +46,8 @@ from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
+from lu_machinery.common.repo_root import RUNTIME_ROOT, product_root
+
 
 def _package_dir() -> Path:
     # Unresolved package directory (design-v1 amendment 1). Never __package__.
@@ -56,7 +58,6 @@ def _mp(relative: str) -> str:
     return f"{_package_dir().name}/{relative}"
 
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
 BASELINE_PATH = Path(__file__).with_name("mypy_baseline.json")
 SCHEMA = "mypy-ratchet-baseline.v1"
 DEFAULT_TARGET = _package_dir().name
@@ -951,8 +952,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument(
         "--root",
         type=Path,
-        default=REPO_ROOT,
-        help="Tree mypy runs in (default: repository root).",
+        default=None,
+        help=(
+            "Tree mypy runs in (default: this checkout when it holds the "
+            "package and pyproject.toml, otherwise the selected product checkout)."
+        ),
     )
     parser.add_argument(
         "--write-baseline",
@@ -965,9 +969,17 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="Ignore the mypy cache. Tests use this; CI keeps the cache.",
     )
     args = parser.parse_args(argv)
-    root = args.root.resolve()
-    baseline = args.baseline if args.baseline.is_absolute() else root / args.baseline
     try:
+        if args.root is not None:
+            root = args.root.resolve()
+        elif (RUNTIME_ROOT / DEFAULT_TARGET).is_dir() and (RUNTIME_ROOT / "pyproject.toml").is_file():
+            # This repository's CI typechecks the package in this checkout, with no
+            # product configured. An installed copy has no project file beside the
+            # package, so that case selects the product and refuses without one.
+            root = RUNTIME_ROOT
+        else:
+            root = product_root().resolve()
+        baseline = args.baseline if args.baseline.is_absolute() else root / args.baseline
         # A renamed layout needs its verified rename map in every mode, so a
         # missing or broken artifact fails before a baseline is written.
         _baseline_spelling()

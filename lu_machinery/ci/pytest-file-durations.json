@@ -82,7 +82,6 @@
   "tests/ai_agent_bridge/test_hermes_review_isolation.py": 1.806,
   "tests/ai_agent_bridge/test_idle_driver_wake.py": 2.576,
   "tests/ai_agent_bridge/test_inbox_watch.py": 2.834,
-  "tests/ai_agent_bridge/test_measure_cold_start.py": 1.298,
   "tests/ai_agent_bridge/test_module_identity.py": 1.684,
   "tests/ai_agent_bridge/test_openai_proxy.py": 0.749,
   "tests/ai_agent_bridge/test_openai_proxy_arg_max.py": 0.172,
