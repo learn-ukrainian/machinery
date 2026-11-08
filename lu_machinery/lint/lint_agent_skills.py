@@ -13,8 +13,8 @@ from pathlib import Path
 
 import yaml
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
-SKILLS_DIR = PROJECT_ROOT / "agents_extensions/shared" / "skills"
+from lu_machinery.common.repo_root import product_root
+
 REQUIRED_KEYS = {"name", "description"}
 
 
@@ -40,21 +40,23 @@ def _frontmatter(path: Path) -> tuple[dict[str, object] | None, str | None]:
 
 
 def main() -> int:
-    if not SKILLS_DIR.is_dir():
-        print(f"skills directory not found: {SKILLS_DIR.relative_to(PROJECT_ROOT)}", file=sys.stderr)
+    project_root = product_root()
+    skills_dir = project_root / "agents_extensions/shared" / "skills"
+    if not skills_dir.is_dir():
+        print(f"skills directory not found: {skills_dir.relative_to(project_root)}", file=sys.stderr)
         return 1
 
     errors: list[str] = []
-    skill_files = sorted(SKILLS_DIR.glob("*/SKILL.md"))
-    skill_dirs = sorted(path for path in SKILLS_DIR.iterdir() if path.is_dir())
+    skill_files = sorted(skills_dir.glob("*/SKILL.md"))
+    skill_dirs = sorted(path for path in skills_dir.iterdir() if path.is_dir())
 
     for skill_dir in skill_dirs:
         skill_file = skill_dir / "SKILL.md"
         if skill_file not in skill_files:
-            errors.append(f"{skill_dir.relative_to(PROJECT_ROOT)}: missing SKILL.md")
+            errors.append(f"{skill_dir.relative_to(project_root)}: missing SKILL.md")
 
     for skill_file in skill_files:
-        rel = skill_file.relative_to(PROJECT_ROOT)
+        rel = skill_file.relative_to(project_root)
         data, error = _frontmatter(skill_file)
         if error is not None:
             errors.append(f"{rel}: {error}")
