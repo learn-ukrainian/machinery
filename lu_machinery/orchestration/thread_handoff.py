@@ -3223,10 +3223,18 @@ def request_claudex_rollover(
     if origin and origin != "namespace":
         loaded_root = os.fspath(Path(origin).resolve().parent.parent)
         prior_path = child_env.get("PYTHONPATH")
-        cwd_real = os.path.realpath(os.getcwd())
+        # The child is started with cwd=repo_root, so a relative entry is
+        # resolved there, not against this process's cwd.
+        child_cwd = os.path.normpath(os.fspath(repo_root))
+        child_cwd_real = os.path.realpath(child_cwd)
         inherited_parts: list[str] = []
         for part in (prior_path or "").split(os.pathsep):
-            if not part or part == "." or os.path.realpath(part) == cwd_real:
+            if not part or part == ".":
+                continue
+            lexical = os.path.normpath(
+                part if os.path.isabs(part) else os.path.join(child_cwd, part)
+            )
+            if lexical == child_cwd or os.path.realpath(lexical) == child_cwd_real:
                 continue
             inherited_parts.append(part)
         inherited = os.pathsep.join(inherited_parts)

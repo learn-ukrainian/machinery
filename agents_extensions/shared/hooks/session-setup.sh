@@ -286,36 +286,29 @@ if [ -n "${LEARN_UKRAINIAN_CLAUDEX_RUN_ID:-}" ]; then
     )
     [ -n "$SOURCE" ] && SUPERVISOR_BIND_CMD+=(--source "$SOURCE")
     [ -n "$OBSERVED_MODEL" ] && SUPERVISOR_BIND_CMD+=(--model "$OBSERVED_MODEL")
-    # Drop empty and cwd components. CPython treats each as the cwd, ahead of the stdlib.
+    # CPython lexically normalizes each entry into the bind's cwd, ahead of the stdlib.
+    # A missing directory still cancels that way, so existence is not the test.
     _bind_pythonpath="$PROJECT_DIR"
-    _bind_cwd=$(cd . && pwd -P)
     if [ -n "${PYTHONPATH:-}" ]; then
-      _bind_rest=$PYTHONPATH
-      while [ -n "$_bind_rest" ]; do
-        case "$_bind_rest" in
-          *:*)
-            _bind_part=${_bind_rest%%:*}
-            _bind_rest=${_bind_rest#*:}
-            ;;
-          *)
-            _bind_part=$_bind_rest
-            _bind_rest=
-            ;;
-        esac
-        if [ -z "$_bind_part" ] || [ "$_bind_part" = "." ]; then
-          continue
-        fi
-        if [ -d "$_bind_part" ]; then
-          _bind_resolved=$(cd "$_bind_part" && pwd -P) || _bind_resolved=
-          if [ "$_bind_resolved" = "$_bind_cwd" ]; then
-            continue
-          fi
-        fi
-        _bind_pythonpath="${_bind_pythonpath}:${_bind_part}"
-      done
-      unset _bind_rest _bind_part _bind_resolved
+      _bind_filtered=$("$CLAUDEX_SUPERVISOR_PYTHON" -I -c '
+import os, sys
+base = os.path.normpath(os.getcwd())
+base_real = os.path.realpath(base)
+kept = []
+for part in os.environ.get("PYTHONPATH", "").split(os.pathsep):
+    if not part or part == ".":
+        continue
+    lexical = os.path.normpath(part if os.path.isabs(part) else os.path.join(base, part))
+    if lexical == base or os.path.realpath(lexical) == base_real:
+        continue
+    kept.append(part)
+sys.stdout.write(os.pathsep.join(kept))
+') || _bind_filtered=
+      if [ -n "$_bind_filtered" ]; then
+        _bind_pythonpath="${PROJECT_DIR}:${_bind_filtered}"
+      fi
+      unset _bind_filtered
     fi
-    unset _bind_cwd
     if ! PYTHONPATH="$_bind_pythonpath" run_bounded 3 "${SUPERVISOR_BIND_CMD[@]}" >/dev/null 2>&1; then
       ISSUES+=("CLAUDEX SUPERVISOR BIND FAILED: SessionStart did not match the owned child generation.")
     fi
