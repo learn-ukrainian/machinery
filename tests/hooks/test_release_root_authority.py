@@ -191,3 +191,132 @@ def test_public_guard_uses_release_shim_and_requires_product_authority(
     assert str(product / "lu_machinery") not in command
     result = run_hook(release, product, name, "gh pr view 1", missing=True)
     assert result.returncode == 2 and "OPSEC" in result.stderr
+
+
+SHELL_HOOKS = (
+    "auto-deploy-agent-extensions.sh",
+    "auto-audit.sh",
+    "stamp-pytest.sh",
+    "post-compact.sh",
+    "precompact-handoff-guard.sh",
+    "goal-driver-stop.sh",
+    "context-rollover-guard.sh",
+    "check-agent-inbox.sh",
+    "context-monitor.sh",
+    "release-thread-lease.sh",
+)
+ADAPTERS = ("deploy_prompts.sh", "check_rules_deployment.sh")
+
+
+def run_shell(path, *args, env=None, cwd):
+    """A bare host environment: no harness, product, dispatch or Python variables."""
+    base = {"PATH": os.environ["PATH"], "HOME": str(cwd)}
+    return subprocess.run(
+        ["bash", str(path), *args],
+        input=json.dumps({"session_id": "release-root", "hook_event_name": "Stop"}),
+        text=True,
+        capture_output=True,
+        cwd=cwd,
+        env={**base, **(env or {})},
+    )
+
+
+@pytest.mark.parametrize("name", SHELL_HOOKS)
+def test_shell_hook_refuses_location_derived_project(release, tmp_path, name):
+    """Location-derived project root: unset configuration silently used the release tree."""
+    result = run_shell(release / HOOKS / name, "agents_extensions/x", cwd=tmp_path)
+    assert result.returncode == 1, result.stderr
+    assert (
+        f"{name}: no project root: set CLAUDE_PROJECT_DIR or LU_PRODUCT_ROOT"
+        in result.stderr
+    )
+
+
+def test_shell_hook_runs_the_configured_product(release, product):
+    """Location-derived project root: the configured product's helper must be the one run."""
+    marker = product / "stamped"
+    (product / ".githooks").mkdir()
+    (product / ".githooks/pytest_stamp.py").write_text(
+        f"open({str(marker)!r}, 'w').write('ok')\n"
+    )
+    (product / ".venv/bin").mkdir(parents=True)
+    (product / ".venv/bin/python").symlink_to(sys.executable)
+    result = run_shell(
+        release / HOOKS / "stamp-pytest.sh",
+        env={"LU_PRODUCT_ROOT": str(product)},
+        cwd=product.parent,
+    )
+    assert result.returncode == 0, result.stderr
+    assert marker.read_text() == "ok"
+
+
+@pytest.mark.parametrize("name", ADAPTERS)
+def test_adapter_requires_a_selected_consumer(release, product, name):
+    """Location-derived --project-root: the adapter must not target its own release tree."""
+    adapter = release / "lu_machinery" / name
+    result = run_shell(adapter, cwd=product.parent)
+    assert result.returncode == 2
+    assert f"{name}: no consumer is selected" in result.stderr
+    for env, args in (
+        ({"LU_PRODUCT_ROOT": str(product)}, ()),
+        ({}, ("--project-root", str(product))),
+    ):
+        result = run_shell(adapter, *args, env=env, cwd=product.parent)
+        assert result.returncode == 1
+        assert f"{product}/.venv/bin/python" in result.stderr
+        assert str(release) not in result.stderr
+    # argparse accepts abbreviations: the interpreter must never come from another root.
+    for args in (("--project-ro", "/other"), ("--p=/other",)):
+        result = run_shell(
+            adapter, *args, env={"LU_PRODUCT_ROOT": str(product)}, cwd=product.parent
+        )
+        assert result.returncode == 2
+        assert f"{name}: spell the option --project-root in full" in result.stderr
+
+
+def test_deployed_session_setup_runs_installed_release_code(release, product):
+    """Code taken from the consumer checkout: a deployed hook found no lu_machinery (R62)."""
+    hooks = product / ".claude/hooks"
+    hooks.mkdir(parents=True)
+    shutil.copy2(SOURCE / HOOKS / "session-setup.sh", hooks / "session-setup.sh")
+    subprocess.run(
+        [sys.executable, "-I", "-m", "venv", "--without-pip", str(product / ".venv")],
+        check=True,
+    )
+    purelib = subprocess.run(
+        [
+            str(product / ".venv/bin/python"),
+            "-I",
+            "-c",
+            "import sysconfig; print(sysconfig.get_path('purelib'))",
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    Path(purelib, "release.pth").write_text(f"{release}\n")
+    env = {
+        "SESSION_START_BUDGET_SECONDS": "60",
+        "CLAUDE_SESSION_RECORD_PYTHON": sys.executable,
+        "CLAUDE_PROFILE_RESOLVER_PYTHON": sys.executable,
+        "CLAUDEX_SUPERVISOR_PYTHON": sys.executable,
+        "THREAD_ROLLOVER_PYTHON": sys.executable,
+        "LEARN_UKRAINIAN_CLAUDEX_RUN_ID": "release-root-run",
+        "LEARN_UKRAINIAN_CLAUDEX_LAUNCH_GENERATION": "1",
+    }
+    result = run_shell(
+        hooks / "session-setup.sh",
+        env={**env, "CLAUDE_PROJECT_DIR": str(product)},
+        cwd=product,
+    )
+    assert result.returncode == 0, result.stderr
+    context = json.loads(result.stdout)["hookSpecificOutput"]["additionalContext"]
+    assert "did not match the owned child generation" in context
+    Path(purelib, "release.pth").unlink()
+    result = run_shell(
+        hooks / "session-setup.sh",
+        env={**env, "CLAUDE_PROJECT_DIR": str(product)},
+        cwd=product,
+    )
+    assert result.returncode == 1
+    assert "no installed lu_machinery release" in result.stderr

@@ -79,16 +79,23 @@ fi
 # layout (a checkout or the installed wheel in site-packages), this file's own
 # tree supplies the code, and the project is CLAUDE_PROJECT_DIR or else the cwd
 # the harness runs hooks in; site-packages is never the project. A deployed copy
-# (.claude/hooks/) takes both from the project, as before.
+# (.claude/hooks/ in a consumer) takes the project from configuration
+# (CLAUDE_PROJECT_DIR, else LU_PRODUCT_ROOT), never from its own location, and
+# its code from the release installed for the project interpreter, below: a
+# consumer checkout holds no lu_machinery/ (machinery #100, R62).
 _HOOK_DIR="$(cd "$(dirname "$0")" && pwd)"
+MACHINERY_DIR=""
 case "$_HOOK_DIR" in
   */agents_extensions/shared/hooks)
     MACHINERY_DIR="${_HOOK_DIR%/agents_extensions/shared/hooks}"
     PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$(pwd)}"
     ;;
   *)
-    PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$(cd "$_HOOK_DIR/../.." && pwd)}"
-    MACHINERY_DIR="$PROJECT_DIR"
+    PROJECT_DIR="${CLAUDE_PROJECT_DIR:-${LU_PRODUCT_ROOT:-}}"
+    case "$PROJECT_DIR" in
+      /*) [ -d "$PROJECT_DIR" ] || { echo "session-setup.sh: project root $PROJECT_DIR is not a directory" >&2; exit 1; } ;;
+      *) echo "session-setup.sh: no project root: set CLAUDE_PROJECT_DIR or LU_PRODUCT_ROOT to an absolute checkout path" >&2; exit 1 ;;
+    esac
     ;;
 esac
 unset _HOOK_DIR
@@ -181,6 +188,18 @@ if [ ! -x "$SHARED_VENV_ROOT/.venv/bin/python" ]; then
   fi
 fi
 SHARED_PYTHON="$SHARED_VENV_ROOT/.venv/bin/python"
+if [ -z "$MACHINERY_DIR" ]; then
+  # Deployed copy: the directory holding the lu_machinery package the project
+  # interpreter imports. -I keeps the cwd and PYTHONPATH out of the lookup.
+  MACHINERY_DIR=$(_hook_deadline 3 "$SHARED_PYTHON" -I -c '
+import os, lu_machinery
+print(os.path.dirname(os.path.dirname(os.path.abspath(lu_machinery.__file__))))
+' 2>/dev/null) || MACHINERY_DIR=""
+  if [ -z "$MACHINERY_DIR" ] || [ ! -f "$MACHINERY_DIR/lu_machinery/__init__.py" ]; then
+    echo "session-setup.sh: no installed lu_machinery release: the project interpreter $SHARED_PYTHON cannot import lu_machinery" >&2
+    exit 1
+  fi
+fi
 BOUNDED_PYTHON="${CLAUDE_SESSION_RECORD_PYTHON:-$SHARED_PYTHON}"
 BOUNDED_RUNNER_DEFAULT="$MACHINERY_DIR/lu_machinery/agent_runtime/bounded_command.py"
 # Every lu_machinery module this hook runs starts as

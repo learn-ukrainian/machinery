@@ -1,7 +1,33 @@
 #!/usr/bin/env bash
 # Compatibility adapter for read-only release deployment verification.
+# The consumer is --project-root or else LU_PRODUCT_ROOT, the order the deployer
+# applies; this file's location never selects it (an installed release lives in
+# site-packages). Consumer wrappers pass their own checkout (machinery #100, R56).
 set -euo pipefail
-PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+PROJECT_ROOT="${LU_PRODUCT_ROOT:-}"
+previous=""
+for arg in "$@"; do
+  # argparse also accepts any unambiguous prefix of the option; refuse those
+  # spellings, so the interpreter and the deployer always name the same root.
+  case "${arg%%=*}" in
+    --p|--pr|--pro|--proj|--proje|--projec|--project|--project-|--project-r|--project-ro|--project-roo)
+      echo "check_rules_deployment.sh: spell the option --project-root in full" >&2
+      exit 2
+      ;;
+  esac
+  case "$arg" in
+    --project-root=*) PROJECT_ROOT="${arg#--project-root=}" ;;
+    *) [ "$previous" != "--project-root" ] || PROJECT_ROOT="$arg" ;;
+  esac
+  previous="$arg"
+done
+case "$PROJECT_ROOT" in
+  /*) ;;
+  *)
+    echo "check_rules_deployment.sh: no consumer is selected: pass --project-root /absolute/checkout or set LU_PRODUCT_ROOT" >&2
+    exit 2
+    ;;
+esac
 source "$(dirname "${BASH_SOURCE[0]}")/lib/project_interpreter.sh"
 PROJECT_PYTHON="$(project_interpreter_resolve "$PROJECT_ROOT")"
-exec "$PROJECT_PYTHON" -I -m lu_machinery.agent_deploy --project-root "$PROJECT_ROOT" --check "$@"
+exec "$PROJECT_PYTHON" -I -m lu_machinery.agent_deploy --check "$@"

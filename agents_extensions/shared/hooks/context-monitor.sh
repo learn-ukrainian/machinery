@@ -43,7 +43,14 @@ SESSION_ID=$(printf '%s' "$INPUT" | jq -r '.session_id // empty' 2>/dev/null)
 [ -z "$SESSION_ID" ] && SESSION_ID="${LEARN_UKRAINIAN_SESSION_ID:-${CODEX_THREAD_ID:-}}"
 [ -z "$SESSION_ID" ] && exit 0
 
-PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$(cd "$(dirname "$0")/../.." && pwd)}"
+# The project is configured (CLAUDE_PROJECT_DIR from the harness, else
+# LU_PRODUCT_ROOT), never derived from this file's location: an installed
+# release lives in site-packages, not in the project (machinery #100, R51).
+PROJECT_DIR="${CLAUDE_PROJECT_DIR:-${LU_PRODUCT_ROOT:-}}"
+case "$PROJECT_DIR" in
+  /*) [ -d "$PROJECT_DIR" ] || { echo "context-monitor.sh: project root $PROJECT_DIR is not a directory" >&2; exit 1; } ;;
+  *) echo "context-monitor.sh: no project root: set CLAUDE_PROJECT_DIR or LU_PRODUCT_ROOT to an absolute checkout path" >&2; exit 1 ;;
+esac
 TRANSCRIPT=$(printf '%s' "$INPUT" | jq -r '.transcript_path // empty' 2>/dev/null)
 [ -z "$TRANSCRIPT" ] || [ ! -f "$TRANSCRIPT" ] && exit 0
 

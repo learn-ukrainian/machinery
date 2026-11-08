@@ -7,7 +7,14 @@ if [ -n "$CLAUDE_NON_INTERACTIVE" ] || [ -n "$LEARN_UKRAINIAN_PIPELINE" ] || [ -
   exit 0
 fi
 
-PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$(cd "$(dirname "$0")/../.." && pwd)}"
+# The project is configured (CLAUDE_PROJECT_DIR from the harness, else
+# LU_PRODUCT_ROOT), never derived from this file's location: an installed
+# release lives in site-packages, not in the project (machinery #100, R51).
+PROJECT_DIR="${CLAUDE_PROJECT_DIR:-${LU_PRODUCT_ROOT:-}}"
+case "$PROJECT_DIR" in
+  /*) [ -d "$PROJECT_DIR" ] || { echo "auto-audit.sh: project root $PROJECT_DIR is not a directory" >&2; exit 1; } ;;
+  *) echo "auto-audit.sh: no project root: set CLAUDE_PROJECT_DIR or LU_PRODUCT_ROOT to an absolute checkout path" >&2; exit 1 ;;
+esac
 
 # The changed file path is passed as the first argument
 CHANGED_FILE="${1:-}"
