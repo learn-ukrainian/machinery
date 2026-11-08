@@ -1,13 +1,4061 @@
-"""Focused recorder/publisher fixtures ported from the product test suite."""
+"""
+Pytest configuration and shared fixtures for audit tests.
 
+Provides reusable content snippets and module templates for testing.
+
+Credential redaction protects serialized reports, captured output and warnings.
+It cannot intercept direct terminal writes with ``-s``, ``--capture=no``,
+``--capture=tee-sys``, ``-o log_cli=true`` or ``--log-cli-level=...``. Keep capture enabled and live logging disabled when running
+tests with credentials. Such sessions emit one warning, without values.
+``--noconftest`` disables credential stripping, redaction and this warning together.
+"""
+
+import os
+import re
+
+# Credential-shaped names are removed at import, in every process that loads
+# this module, and this process never puts them back. Match the suffix only:
+# ``..._TOKENS`` is not ``_TOKEN``, and a bare ``_KEY`` is not ``_API_KEY``.
+# Comparison is case-insensitive. Names that merely look secret stay visible:
+# ``AWS_SECRET_ACCESS_KEY`` and ``*_KEY``. The broader credential rule also
+# strips passwords and APIKEY names before collection. This process owns its
+# environment, so the parent shell is unchanged.
+#
+# ``LU_TEST_CREDENTIAL_STRIP`` is not read and is not written. A nested
+# ``pytest.main`` in this process does not import this module again, so it
+# neither strips nor restores. A child process that imports this module strips
+# again.
+#
+# An xdist worker is one of those processes. ``pytest_configure_node`` copies
+# the credential-shaped names still in ``os.environ`` into ``node.workerinput``
+# under ``_XDIST_PUBLISHED_CREDENTIALS_KEY``. The import strip has already
+# removed ambient names, so the copy is what this session published. The
+# worker puts that copy back in ``pytest_configure``. Values are not logged.
+#
+# Plugins that load before this conftest — AnyIO, pytest-cov, pytest-mock,
+# pytest-rerunfailures, pytest-timeout, pytest-xdist, and the repo's own
+# dispatch-cap plugin — do not read credential-suffix names, so that load
+# order does not retain one.
+_CREDENTIAL_ENV_SUFFIXES = ("_API_KEY", "_TOKEN", "_SECRET")
+_XDIST_PUBLISHED_CREDENTIALS_KEY = "lu_suite_published_credentials"
+_XDIST_REDACTION_SECRETS_KEY = "lu_suite_redaction_secrets"
+_IMPORT_STRIPPED_SECRETS: dict[str, str] = {}
+_IMPORT_HAD_CREDENTIALS = False
+_CREDENTIAL_ENV_RE = re.compile(r"(?i)(?:^|_)(?:API_KEY|APIKEY|TOKEN|SECRET|PASSWORD|PASSWD)$")
+
+
+def _is_credential_shaped_env_name(name: str) -> bool:
+    """True when ``name`` ends with a credential suffix, ignoring case."""
+    return name.upper().endswith(_CREDENTIAL_ENV_SUFFIXES)
+
+
+def _strip_credential_shaped_env() -> None:
+    """Drop credential-shaped names. This process never puts them back."""
+    global _IMPORT_HAD_CREDENTIALS
+    for name in tuple(os.environ):
+        if _is_credential_shaped_env_name(name) or _CREDENTIAL_ENV_RE.search(name):
+            # These token-suffix values identify test processes and fenced
+            # leases. Strip them as before, but do not call them credentials.
+            if name not in {"LU_TEST_CURSOR_SESSION_TOKEN", "SESSION_STREAM_FENCING_TOKEN"}:
+                _IMPORT_HAD_CREDENTIALS = True
+            value = os.environ[name]
+            if len(value) >= 12:
+                _IMPORT_STRIPPED_SECRETS[name] = value
+            del os.environ[name]
+
+
+def _published_credential_env() -> dict[str, str]:
+    """Credential-shaped names currently set. The caller must not log them."""
+    return {name: os.environ[name] for name in tuple(os.environ) if _is_credential_shaped_env_name(name)}
+
+
+_strip_credential_shaped_env()
+
+import ast
+import contextlib
+import functools
+import importlib.machinery
+import ipaddress
+import itertools
 import json
+import linecache
+import shutil
+import socket
+import sqlite3
 import subprocess
+import sys
+import tempfile
+import threading
+import warnings
+import weakref
+from collections.abc import Callable, Collection, Generator, Mapping
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import Any
+from urllib.parse import parse_qs, unquote, urlsplit
 
 import pytest
+from _pytest._io.saferepr import SafeRepr, saferepr
+from _pytest.reports import pytest_report_from_serializable as _restore_pytest_report
+from _pytest.reports import pytest_report_to_serializable as _serialize_pytest_report
 
-from lu_machinery.orchestration import integration_sweep as sweep
-from lu_machinery.publish import github as publisher
-from lu_machinery.review import record_cf_verdict as recorder
+# Add project root to path
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+# Importing repo_root installs the env formatter before any test runs.
+# scripts.common is on the rules-workflow allowlist; scripts.lib is not.
+from lu_machinery.common.bridge_paths import configured_bridge_db_path, default_bridge_db_path
+from lu_machinery.common.flake_quarantine import TIMEOUT_PATTERN, load_registry, rerun_node_ids
+from lu_machinery.common.repo_root import main_checkout_root, resolve_repo_root
+from tests import sparse_trees
+from tests.helpers.monitor import UNREACHABLE_MONITOR_URL, UNREACHABLE_TOOL_TIMING_URL
+
+pytest_plugins = [
+    "lu_machinery.common.pytest_scratch",
+    "tests.helpers.github_command_boundary",
+    "tests.helpers.github_transport",
+    "tests.helpers.source_db_write_guard",
+    "tests.helpers.checkout_write_guard",
+    "tests.helpers.checkout_write_defaults",
+    "tests.cursor_process_guard",
+    "tests.helpers.stress_fixtures",
+    "tests.helpers.reviewer_routing",
+    "tests.data_store_fixtures",
+]
+
+
+@pytest.fixture(scope="session", autouse=True)
+def sources_log_dir(tmp_path_factory: pytest.TempPathFactory) -> Generator[Path, None, None]:
+    """Keep sources request logs outside the checkout in each pytest worker."""
+    log_dir = tmp_path_factory.mktemp("mcp-sources-logs")
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setenv("LU_MCP_SOURCES_LOG_DIR", str(log_dir))
+        yield log_dir
+
+
+_GUARD_FREE_DISK_TEST = "test_snapshot_stops_when_free_disk_falls_below_the_floor"
+_guard_reads_production_free_disk = False
+# Same string as ``scripts.storage.generations.FREE_DISK_FLOOR_ENV``.
+# The patch below checks that constant once ``Sources`` is imported.
+_FREE_DISK_FLOOR_ENV = "LU_EVIDENCE_FREE_DISK_FLOOR_BYTES"
+_SOURCES_MODULE = "scripts.curriculum.evidence.sources"
+
+
+def _patch_sources_free_disk(module: Any) -> None:
+    """Point ``Sources.free_disk_bytes`` at the recorded floor, not the runner disk."""
+    sources_cls = module.Sources
+    current = sources_cls.free_disk_bytes
+    if getattr(current, "_lu_reports_floor_instead_of_runner_disk", False):
+        return
+    evidence_config = sys.modules["lu_machinery.storage.generations"]
+    if evidence_config.FREE_DISK_FLOOR_ENV != _FREE_DISK_FLOOR_ENV:
+        raise RuntimeError(
+            f"{_SOURCES_MODULE} free-disk env is {evidence_config.FREE_DISK_FLOOR_ENV!r}, not {_FREE_DISK_FLOOR_ENV!r}"
+        )
+    real = current
+
+    def free_disk_bytes(self: Any) -> int:
+        if _guard_reads_production_free_disk:
+            return real(self)
+        return evidence_config.FREE_DISK_FLOOR_BYTES
+
+    free_disk_bytes._lu_reports_floor_instead_of_runner_disk = True
+    sources_cls.free_disk_bytes = free_disk_bytes
+
+
+class _SourcesFreeDiskLoader:
+    """Execute the real loader, then keep ``Sources`` off the runner's free disk."""
+
+    def __init__(self, loader: Any) -> None:
+        self._loader = loader
+
+    def create_module(self, spec: Any) -> Any:
+        create = getattr(self._loader, "create_module", None)
+        if create is None:
+            return None
+        return create(spec)
+
+    def exec_module(self, module: Any) -> None:
+        self._loader.exec_module(module)
+        _patch_sources_free_disk(module)
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._loader, name)
+
+
+class _SourcesFreeDiskImportHook:
+    """Patch evidence ``Sources`` on first import without importing it here (#12655)."""
+
+    def find_spec(self, fullname: str, path: Any, target: Any = None) -> Any:
+        if fullname != _SOURCES_MODULE:
+            return None
+        spec = importlib.machinery.PathFinder.find_spec(fullname, path, target)
+        if spec is None or spec.loader is None:
+            return None
+        if not isinstance(spec.loader, _SourcesFreeDiskLoader):
+            spec.loader = _SourcesFreeDiskLoader(spec.loader)
+        return spec
+
+
+def _install_sources_free_disk_hook() -> None:
+    if any(isinstance(hook, _SourcesFreeDiskImportHook) for hook in sys.meta_path):
+        return
+    module = sys.modules.get(_SOURCES_MODULE)
+    if module is not None and hasattr(module, "Sources"):
+        _patch_sources_free_disk(module)
+    sys.meta_path.insert(0, _SourcesFreeDiskImportHook())
+
+
+_install_sources_free_disk_hook()
+
+
+@pytest.fixture(scope="session", autouse=True)
+def no_free_disk_floor() -> Generator[None, None, None]:
+    """Keep evidence ``Sources`` snapshots off the runner's free disk (#12640).
+
+    One fixture replaces the copies under ``tests/build`` and
+    ``tests/curriculum/evidence``. Session scope runs it before module-scoped
+    fixtures that open a snapshot. The floor environment is what a subprocess
+    inherits. Replacing ``free_disk_bytes`` keeps an in-process ``_guard`` off
+    ``shutil.disk_usage``. That replacement is installed on first import of
+    ``Sources``: importing it here would load ``ijson`` for every session,
+    including the deploy-idempotency job that does not install ``ijson``
+    (#12655). The guard's own test still calls the production reading for
+    the duration of its body.
+    """
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setenv(_FREE_DISK_FLOOR_ENV, "0")
+        yield
+
+
+@pytest.hookimpl(wrapper=True)
+def pytest_runtest_call(item: pytest.Item) -> Generator[None, object, object]:
+    """Let the free-disk guard test call the production reading (#12640)."""
+    global _guard_reads_production_free_disk
+    name = getattr(item, "originalname", item.name)
+    _guard_reads_production_free_disk = name == _GUARD_FREE_DISK_TEST
+    try:
+        return (yield)
+    finally:
+        _guard_reads_production_free_disk = False
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _lexicon_cap_test_unit_prefix() -> Generator[None, None, None]:
+    """Name scopes created by the suite ``lexicon-captest-*`` (#9624).
+
+    The cap tests OOM-kill real scopes on purpose; under the production prefix
+    the host's CappedScopeOomKill alert counts them as word-card workload
+    kills. ``os.environ`` (not a fixture-local value) so xdist workers and
+    nested subprocesses inherit it.
+
+    The two strings are literals because importing ``scripts.lexicon.runner``
+    runs its package ``__init__`` (bs4), which shared-conftest setup must not
+    do; ``test_suite_test_prefix_literals_match_runner_memory`` pins them to
+    ``scripts.lexicon.runner.memory``.
+    """
+    env_name = "LEXICON_CAP_UNIT_PREFIX"
+    previous = os.environ.get(env_name)
+    os.environ[env_name] = "lexicon-captest"
+    try:
+        yield
+    finally:
+        if previous is None:
+            os.environ.pop(env_name, None)
+        else:
+            os.environ[env_name] = previous
+
+
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+
+
+class _TelemetryIsolation:
+    """Redirect events and refuse this process's emitter writes to production.
+
+    Audit opens rather than shared directory contents: live fleet processes
+    can append to production throughout a test session. The emitter frame
+    attributes an attempted write to this session, including either import
+    spelling and a replaced event-path resolver.
+    A child that scrubs the redirect environment can write to production
+    without this process's audit hook observing it.
+    """
+
+    def __init__(self, production_dirs: tuple[Path, ...]) -> None:
+        self.production_dirs = {root.resolve() for root in production_dirs}
+        self.leaks: set[str] = set()
+
+    def _audit_write(self, event: str, args: tuple[object, ...]) -> None:
+        if not self.production_dirs or event != "open" or len(args) < 3:
+            return
+        raw_path, mode, flags = args
+        writing = isinstance(mode, str) and any(char in mode for char in "wax+")
+        if not writing and not (isinstance(flags, int) and flags & (os.O_WRONLY | os.O_RDWR)):
+            return
+        if not isinstance(raw_path, (str, bytes, os.PathLike)):
+            return
+        path = Path(os.fsdecode(raw_path)).resolve()
+        root = next((root for root in self.production_dirs if path.is_relative_to(root)), None)
+        if root is None:
+            return
+        frame = sys._getframe(1)
+        try:
+            while frame is not None:
+                if frame.f_globals.get("__name__") in {"telemetry.emit", "lu_machinery.telemetry.emit"}:
+                    self.leaks.add(f"batch_state/telemetry/events/{path.relative_to(root).as_posix()}")
+                    # emit_event swallows ordinary write errors. Retain the
+                    # attempt for sessionfinish as well as preventing the write.
+                    raise PermissionError("telemetry event guard: test emitter attempted a production write")
+                frame = frame.f_back
+        finally:
+            del frame
+
+    def pytest_sessionstart(self, session: pytest.Session) -> None:
+        config = session.config
+        # Session fixtures start after collection. Install here so imports and
+        # session fixtures also inherit the redirect, including xdist workers.
+        event_dir = config._tmp_path_factory.mktemp("telemetry-events")
+        patcher = pytest.MonkeyPatch()
+        patcher.setenv("LU_TELEMETRY_EVENTS_DIR", str(event_dir))
+        config.add_cleanup(patcher.undo)
+        sys.addaudithook(self._audit_write)
+        # Python audit hooks cannot be removed. Disable this session's hook
+        # during cleanup so a later pytest.main session has its own boundary.
+        config.add_cleanup(self.production_dirs.clear)
+
+    @pytest.hookimpl(optionalhook=True)
+    def pytest_testnodedown(self, node: Any, error: object) -> None:
+        self.leaks.update(getattr(node, "workeroutput", {}).get("telemetry_leaks", ()))
+
+    @pytest.hookimpl(trylast=True)
+    def pytest_sessionfinish(self, session: pytest.Session, exitstatus: int) -> None:
+        if hasattr(session.config, "workerinput"):
+            session.config.workeroutput["telemetry_leaks"] = sorted(self.leaks)
+        if self.leaks:
+            print("telemetry event guard: test emitter attempted production writes:")
+            for name in sorted(self.leaks):
+                print(f"  {name}")
+            if session.exitstatus == pytest.ExitCode.OK:
+                session.exitstatus = pytest.ExitCode.TESTS_FAILED
+
+
+def _loaded_module(*parts: str):
+    """Find an already imported module without making it a fixture import."""
+    return sys.modules.get(".".join(parts))
+
+
+# Identity a launched agent session carries (#8778). A test that inherits it
+# keys hook dedupe, leases, and telemetry on the operator's live session.
+# tests/test_session_identity_env_isolation.py parses the export sites and
+# fails when a launcher or runtime exports a name missing here.
+SESSION_IDENTITY_ENV_VARS = (
+    # Launcher driver identity (scripts/lib/launcher_core.sh).
+    "SESSION_EPIC",
+    "SESSION_SEAT",
+    "SESSION_HANDOFF_AGENT",
+    "LU_DRIVER_STATE_FILE",
+    # Verified driver scope re-entry identity (scripts/lib/driver_scope.sh).
+    "LU_DRIVER_SCOPE_UNIT",
+    "LU_DRIVER_SCOPE_PID",
+    # Rules-core seat of the launched session (scripts/lib/rules_core.sh); its
+    # Dispatch workers and ACP calls inherit it.
+    "LU_RULES_SEAT",
+    # Stream lease capsule (scripts/lib/session_supervisor.sh).
+    "SESSION_STREAM_ID",
+    "SESSION_STREAM_SESSION_ID",
+    "SESSION_STREAM_LEASE_ID",
+    "SESSION_STREAM_GENERATION",
+    "SESSION_STREAM_FENCING_TOKEN",
+    "SESSION_STREAM_AGENT",
+    "SESSION_STREAM_HARNESS",
+    "SESSION_STREAM_INSTANCE_ID",
+    "SESSION_STREAM_PROCESS_ID",
+    "SESSION_STREAM_HEARTBEAT_AT",
+    "SESSION_STREAM_EXPIRES_AT",
+    "SESSION_STREAM_TTL_SECONDS",
+    "SESSION_STREAM_VERSION",
+    "SESSION_STREAM_TASK_ID",
+    "SESSION_SUPERVISOR_CAPSULE_PATH",
+    "SESSION_SUPERVISOR_WAKE_DELIVERY",
+    "SESSION_SUPERVISOR_WAKE_STREAM",
+    # Codex launcher and thread rollover (scripts/launchers/codex.sh,
+    # scripts/lib/thread_rollover_link.sh).
+    "CODEX_SESSION",
+    "CODEX_LAUNCHER_ROLLOVER_AGENT",
+    "CODEX_LAUNCHER_ROLLOVER_LINEAGE_ID",
+    "CODEX_LAUNCHER_ROLLOVER_ID",
+    # Resolved context profile (scripts/lib/profile_resolver.sh and the
+    # glmcc/kimicc route libraries).
+    "LEARN_UKRAINIAN_PROFILE_ID",
+    "LEARN_UKRAINIAN_TRANSPORT",
+    "LEARN_UKRAINIAN_MAIN_MODEL_ID",
+    "LEARN_UKRAINIAN_MAIN_CONTEXT_WINDOW_TOKENS",
+    "LEARN_UKRAINIAN_AUTO_COMPACT_CAPACITY_TOKENS",
+    "LEARN_UKRAINIAN_COLD_START_PROFILE",
+    "LEARN_UKRAINIAN_COLD_START_BUDGET_TOKENS",
+    "LEARN_UKRAINIAN_ROLLOVER_WARNING_PERCENTAGES",
+    "LEARN_UKRAINIAN_ROLLOVER_MODE",
+    "LEARN_UKRAINIAN_REQUESTED_PROFILE_ID",
+    "LEARN_UKRAINIAN_REQUESTED_MODEL_ID",
+    "LEARN_UKRAINIAN_RESOLUTION_REASON",
+    "LEARN_UKRAINIAN_TRUSTED",
+    "LEARN_UKRAINIAN_MODEL_MISMATCH",
+    "LEARN_UKRAINIAN_EXPECTED_PROFILE_ID",
+    "LEARN_UKRAINIAN_EXPECTED_MAIN_MODEL_ID",
+    "LEARN_UKRAINIAN_EXPECTED_MAIN_CONTEXT_WINDOW_TOKENS",
+    "LEARN_UKRAINIAN_KIMICC_MANAGED_LAUNCH",
+    # Claudex supervisor child launch (scripts/orchestration/claudex_supervisor.py);
+    # rollover and SessionStart bind to the supervisor run through these.
+    "LEARN_UKRAINIAN_CLAUDEX_MANAGED_LAUNCH",
+    "LEARN_UKRAINIAN_CLAUDEX_RUN_ID",
+    "LEARN_UKRAINIAN_CLAUDEX_LAUNCH_GENERATION",
+    # SessionStart runtime (scripts/lib/session_record.py, session-setup.sh).
+    "LEARN_UKRAINIAN_SESSION_ID",
+    "LEARN_UKRAINIAN_SESSION_RECORD",
+    "LEARN_UKRAINIAN_TRANSCRIPT_PATH",
+    "LEARN_UKRAINIAN_OBSERVED_MODEL_ID",
+    "LEARN_UKRAINIAN_OBSERVED_CONTEXT_WINDOW_TOKENS",
+    "LEARN_UKRAINIAN_THREAD_LEASE_GENERATION",
+    # Dispatch worker identity (scripts/dispatcher/environment.py).
+    "LEARN_UKRAINIAN_DISPATCH_TASK_ID",
+    "LEARN_UKRAINIAN_DISPATCH_AGENT",
+    "LU_X_AGENT_TRAILER",
+    "LU_RUNTIME_INITIATOR",
+    "LU_RUNTIME_INITIATOR_SOURCE",
+    "LU_RUNTIME_RUN_NONCE",
+    # This task's supported evidence directory; a leaked value makes a test
+    # write into a live task's evidence instead of its own (#11342).
+    "LU_TASK_EVIDENCE_DIR",
+    # Telemetry run/session ids (scripts/telemetry/emit.py).
+    "LU_RUN_ID",
+    "LU_SESSION_ID",
+    # Codex hook probe session (scripts/agent_runtime/codex_hook_probe.py).
+    "CODEX_HOOK_PROBE_LOG",
+    "CODEX_HOOK_PROBE_DENY_TOOLS",
+    # Harness-native ids the hooks read; the harness, not a launcher, sets them.
+    "LEARN_UK_HOOK_SESSION_ID",
+    "CODEX_THREAD_ID",
+    "CODEX_SESSION_ID",
+    "CLAUDE_CODE_SESSION_ID",
+    # SessionStart env file; a leaked path lets a test append to the live session.
+    "CLAUDE_ENV_FILE",
+)
+
+
+@pytest.hookimpl(wrapper=True, tryfirst=True)
+def pytest_runtest_protocol(item: pytest.Item, nextitem: pytest.Item | None) -> Generator[None, object, object]:
+    """Run every test without the launching agent session's identity (#8778).
+
+    The outermost wrapper around setup, call, and teardown, so no fixture of
+    any scope sees the identity. Tests that need a variable set it themselves;
+    the original environment returns after teardown.
+
+    Inherited credentials were already removed at import, before collection.
+    Variables published later by the suite remain available to its tests.
+    """
+    with pytest.MonkeyPatch.context() as patch:
+        for name in SESSION_IDENTITY_ENV_VARS:
+            patch.delenv(name, raising=False)
+        parent = getattr(item, "callspec", None)
+        mode = parent.params.get("_launcher_parent_environment") if parent is not None else None
+        if mode is not None:
+            from tests.launcher_sandbox import SEAT_CONTAMINATION
+
+            # Before fixtures of any scope, including checkout builders.
+            for name, value in SEAT_CONTAMINATION.items():
+                if mode == "polluted":
+                    patch.setenv(name, value)
+                else:
+                    patch.delenv(name, raising=False)
+        return (yield)
+
+
+def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
+    """Distribute audited launcher regressions normally, including their parameters."""
+    from tests.launcher_sandbox import LAUNCHER_TEST_FILES, POLLUTED_PARENT_TESTS
+
+    if _repo_rel(str(metafunc.definition.path)) in LAUNCHER_TEST_FILES:
+        regression = metafunc.definition.nodeid in {node.split("[", 1)[0] for node in POLLUTED_PARENT_TESTS}
+        regression = regression or _repo_rel(str(metafunc.definition.path)) == "tests/test_launcher_env_hermetic.py"
+        modes = ("clean", "polluted") if regression else ("clean",)
+        metafunc.parametrize(
+            "_launcher_parent_environment", modes, indirect=True,
+            ids=tuple("parent-" + mode for mode in modes),
+        )
+
+
+@pytest.fixture(autouse=True)
+def _launcher_parent_environment(request: pytest.FixtureRequest) -> dict[str, str]:
+    """Exercise inherited seat leaks before launcher fixtures build child environments.
+
+    The protocol hook has scrubbed live identity and injected the case's input.
+    Verify the effective parent, then let tests supply deliberate child inputs.
+    Tests outside the audited inventory keep their existing environment.
+    """
+    if not hasattr(request, "param"):
+        return {}
+    from tests.launcher_sandbox import SEAT_CONTAMINATION
+
+    effective = {name: os.environ[name] for name in SEAT_CONTAMINATION if name in os.environ}
+    assert effective == (SEAT_CONTAMINATION if request.param == "polluted" else {})
+    request.node.user_properties.append(("launcher_parent", request.param))
+    request.node.user_properties.append(("launcher_parent_verified_variables", len(effective)))
+    return effective
+
+
+@pytest.hookimpl(wrapper=True, tryfirst=True)
+def pytest_runtest_makereport(
+    item: pytest.Item, call: pytest.CallInfo[None]
+) -> Generator[None, object, pytest.TestReport]:
+    """Sanitize all outcomes before terminal, JUnit, or xdist consumers."""
+    item_property_count = len(item.user_properties)
+    report = yield
+    report._lu_xdist_worker = hasattr(item.config, "workerinput")
+    _sanitize_secret_report(report, _IMPORT_STRIPPED_SECRETS)
+    # record_property persists on the item across phases. Store its sanitized
+    # values so teardown cannot count the same disclosure a second time.
+    if _IMPORT_STRIPPED_SECRETS:
+        item.user_properties[:] = report.user_properties[:item_property_count]
+    return report
+
+
+@pytest.hookimpl(wrapper=True, tryfirst=True)
+def pytest_make_collect_report(collector: pytest.Collector) -> Generator[None, object, pytest.CollectReport]:
+    """Protect collection failures and output using the import-time snapshot."""
+    report = yield
+    return _sanitize_secret_report(report, _IMPORT_STRIPPED_SECRETS)
+
+
+@pytest.hookimpl(wrapper=True, tryfirst=True)
+def pytest_runtest_logreport(report: pytest.TestReport) -> Generator[None, object, object]:
+    """Redact worker reports before controller terminal and JUnit consumers."""
+    _sanitize_secret_report(report, _IMPORT_STRIPPED_SECRETS)
+    return (yield)
+
+
+@pytest.hookimpl(wrapper=True, tryfirst=True)
+def pytest_collectreport(report: pytest.CollectReport) -> Generator[None, object, object]:
+    """Redact xdist collection reports before controller consumers."""
+    _sanitize_secret_report(report, _IMPORT_STRIPPED_SECRETS)
+    return (yield)
+
+
+@pytest.hookimpl(tryfirst=True)
+def pytest_warning_recorded(warning_message: warnings.WarningMessage) -> None:
+    """Redact before warning consumers. Historic hooks cannot use wrappers."""
+    if not _IMPORT_STRIPPED_SECRETS:
+        return
+    message = str(warning_message.message)
+    line = warning_message.line
+    if line is None:
+        line = linecache.getline(warning_message.filename, warning_message.lineno)
+    redacted_line = line
+    for value in sorted(set(_IMPORT_STRIPPED_SECRETS.values()), key=len, reverse=True):
+        message = message.replace(value, "[REDACTED]")
+        redacted_line = redacted_line.replace(value, "[REDACTED]")
+    if message != str(warning_message.message):
+        # Preserve the separately stored warning category without invoking
+        # a custom warning constructor that may require extra arguments.
+        warning_message.message = message
+    if redacted_line != line:
+        warning_message.line = redacted_line
+
+
+_REDACTION_FAILURE = "[REDACTED] report unavailable: credential redaction failed"
+
+
+def _redaction_failure_data(data: Any) -> dict[str, Any]:
+    """Return a fixed failure with no original fields or exception details."""
+    when = data.get("when") if isinstance(data, dict) else None
+    if when in {"setup", "call", "teardown"}:
+        report = pytest.TestReport(
+            nodeid="[REDACTED]",
+            location=("[REDACTED]", 0, "[REDACTED]"),
+            keywords={},
+            outcome="failed",
+            longrepr=_REDACTION_FAILURE,
+            when=when,
+        )
+    else:
+        report = pytest.CollectReport(nodeid="[REDACTED]", outcome="failed", longrepr=_REDACTION_FAILURE, result=[])
+    return _serialize_pytest_report(report)
+
+
+def _redact_clipped_secret_literals(text: str, values: Collection[str]) -> str:
+    """Remove whole clipped literals, including sides shorter than eight chars."""
+    representations = [repr(value) for value in values]
+    max_literal = max(map(len, representations), default=0)
+    # Eight characters cover the observed clipped credential fragments without
+    # treating short ordinary word overlaps as secrets. Only clipped literals
+    # participate; complete values are handled by exact replacement below.
+    minimum_overlap = 8
+    bodies = [rendered[1:-1] for rendered in representations]
+
+    def overlaps(prefix: str, suffix: str = "") -> bool:
+        for body in bodies:
+            # Search for the first eight prefix characters, then confirm the
+            # entire remaining head fragment. Do the converse for the tail.
+            start = prefix.find(body[:minimum_overlap]) if len(body) >= minimum_overlap else -1
+            while start != -1:
+                if body.startswith(prefix[start:]):
+                    return True
+                start = prefix.find(body[:minimum_overlap], start + 1)
+            end = suffix.find(body[-minimum_overlap:]) if len(body) >= minimum_overlap else -1
+            while end != -1:
+                if body.endswith(suffix[: end + minimum_overlap]):
+                    return True
+                end = suffix.find(body[-minimum_overlap:], end + 1)
+        return False
+
+    quotes: dict[str, int] = {}
+    spans = []
+    index = 0
+    while index <= len(text):
+        char = text[index] if index < len(text) else "\n"
+        if char == "\\":
+            index += 2
+            continue
+        if char == "\n":
+            # Pytest also clips entire diff lines, leaving an open literal.
+            for quote, start in quotes.items():
+                if 12 <= index - start < max_literal and text[index - 3 : index] == "...":
+                    prefix = text[start : index - 3]
+                    if any(rendered.startswith(prefix) for rendered in representations) or overlaps(prefix):
+                        spans.append((start, index, quote + "[REDACTED]..."))
+            quotes.clear()
+        elif char in "\"'":
+            start = quotes.get(char)
+            quotes[char] = index
+            if start is not None and 3 < index + 1 - start < max_literal:
+                literal = text[start : index + 1]
+                if "..." in literal:
+                    size = len(literal)
+                    # SafeRepr.repr applies an additional whole-value limit.
+                    # repr1 uses only reprlib's per-element shortening.
+                    renderer = SafeRepr(size)
+                    matches = any(
+                        len(repr(value)) > size and literal in {saferepr(value, maxsize=size), renderer.repr1(value, 1)}
+                        for value in values
+                    )
+                    # Whole-container clipping can leave unequal prefix and
+                    # suffix lengths inside the literal. Both must agree.
+                    cut = literal.find("...")
+                    while not matches and cut != -1:
+                        prefix, suffix = literal[:cut], literal[cut + 3 :]
+                        matches = overlaps(prefix, suffix) or (
+                            len(prefix) > 1
+                            and len(suffix) > 1
+                            and any(
+                                len(rendered) > size and rendered.startswith(prefix) and rendered.endswith(suffix)
+                                for rendered in representations
+                            )
+                        )
+                        cut = literal.find("...", cut + 1)
+                    if matches:
+                        spans.append((start, index + 1, char + "[REDACTED]" + char))
+        index += 1
+    chunks = []
+    end = 0
+    for start, stop, replacement in sorted(spans):
+        if start >= end:
+            chunks.extend((text[end:start], replacement))
+            end = stop
+    chunks.append(text[end:])
+    return "".join(chunks)
+
+
+_SECRET_FRAGMENT_LENGTH = 8
+# Eight consecutive known-secret characters cover the assertion-diff leaks at
+# lengths 40, 108 and 325, including URL interiors, without relying on quoting,
+# clipping markers, entropy or vendor prefixes. Shorter overlaps commonly occur
+# in ordinary words/paths; the 1..7-character controls must remain unchanged.
+# Exact values and recognized clipped reprs still cover shorter disclosures.
+# Windows wholly inside a public vendor prefix are not secret fragments.
+# Every window crossing into the credential body is still indexed, even when
+# it contains only one body character. Exact-value and clipped-repr rules stay.
+_PUBLIC_CREDENTIAL_PREFIX_RE = re.compile(r"github_pat_|sk-(?:proj-|svcacct-|ant-(?:api03-|oat01-|admin01-))")
+
+
+@functools.lru_cache(maxsize=16)
+def _secret_fragment_index(values: tuple[str, ...]) -> frozenset[str]:
+    """Index raw and escaped secret windows once for recursive report fields."""
+    return frozenset(
+        body[start : start + _SECRET_FRAGMENT_LENGTH]
+        for value in values
+        if value
+        for prefix in [_PUBLIC_CREDENTIAL_PREFIX_RE.match(value)]
+        for body in {value, repr(value)[1:-1]}
+        for start in range(
+            max(0, (prefix.end() if prefix else 0) - _SECRET_FRAGMENT_LENGTH + 1),
+            len(body) - _SECRET_FRAGMENT_LENGTH + 1,
+        )
+    )
+
+
+def _secret_fragment_spans(text: str, fragments: frozenset[str]) -> list[tuple[int, int]]:
+    """Merge overlapping/adjacent indexed windows into maximal secret runs."""
+    spans = []
+    for index in range(len(text) - _SECRET_FRAGMENT_LENGTH + 1):
+        if text[index : index + _SECRET_FRAGMENT_LENGTH] not in fragments:
+            continue
+        stop = index + _SECRET_FRAGMENT_LENGTH
+        if spans and index <= spans[-1][1]:
+            spans[-1] = (spans[-1][0], stop)
+        else:
+            spans.append((index, stop))
+    return spans
+
+
+@functools.lru_cache(maxsize=16)
+def _short_secret_repr_pattern(values: tuple[str, ...]) -> re.Pattern[str] | None:
+    """Keep exact tiny SafeRepr coverage when neither side has eight chars."""
+    literals = {
+        rendered
+        for value in values
+        for size in range(5, 2 * _SECRET_FRAGMENT_LENGTH + 4)
+        if len(repr(value)) > size
+        for rendered in (saferepr(value, maxsize=size), SafeRepr(size).repr1(value, 1))
+    }
+    return (
+        re.compile("|".join(re.escape(value) for value in sorted(literals, key=len, reverse=True)))
+        if literals
+        else None
+    )
+
+
+def _redact_shortened_secret_reprs(text: str, values: Collection[str]) -> str:
+    """Redact every known-secret run of at least eight chars anywhere in text."""
+    known = tuple(sorted(set(values)))
+    if "..." in text and (pattern := _short_secret_repr_pattern(known)) is not None:
+        text = pattern.sub(lambda match: match[0][0] + "[REDACTED]" + match[0][-1], text)
+    fragments = _secret_fragment_index(known)
+    if not fragments:
+        return text
+    spans = _secret_fragment_spans(text, fragments)
+    if not spans:
+        return text
+    # Repr normalization also removes very short visible sides. Bound that
+    # work to matched neighborhoods: a clipped literal is shorter than the
+    # longest full repr. Ordinary quoted text needs only the linear gram scan.
+    clipped = "..." in text and ("'" in text or '"' in text)
+    if clipped:
+        padding = max(len(repr(value)) for value in values)
+        windows = []
+        for start, stop in spans:
+            start, stop = max(0, start - padding), min(len(text), stop + padding)
+            if windows and start <= windows[-1][1]:
+                windows[-1] = (windows[-1][0], stop)
+            else:
+                windows.append((start, stop))
+    else:
+        windows = spans
+    chunks = []
+    cursor = 0
+    for start, stop in windows:
+        chunks.append(text[cursor:start])
+        if clipped:
+            region = _redact_clipped_secret_literals(text[start:stop], values)
+            position = 0
+            for left, right in _secret_fragment_spans(region, fragments):
+                chunks.extend((region[position:left], "[REDACTED]"))
+                position = right
+            chunks.append(region[position:])
+        else:
+            chunks.append("[REDACTED]")
+        cursor = stop
+    chunks.append(text[cursor:])
+    return "".join(chunks)
+
+
+def _redact_secret_data(data: Any, values: Collection[str]) -> Any:
+    """Redact every serialized string, including keys and shortened reprs."""
+    if isinstance(data, str):
+        for value in values:
+            if value:
+                for rendered in sorted({value, repr(value)[1:-1]}, key=len, reverse=True):
+                    data = data.replace(rendered, "[REDACTED]")
+        return _redact_shortened_secret_reprs(data, values)
+    if isinstance(data, dict):
+        return {_redact_secret_data(key, values): _redact_secret_data(value, values) for key, value in data.items()}
+    if isinstance(data, list):
+        return [_redact_secret_data(value, values) for value in data]
+    if isinstance(data, tuple):
+        return tuple(_redact_secret_data(value, values) for value in data)
+    return data
+
+
+@pytest.hookimpl(wrapper=True, tryfirst=True)
+def pytest_report_to_serializable() -> Generator[None, object, Any]:
+    """Cover fields added by serialization plugins before xdist transport."""
+    data = yield
+    if _IMPORT_STRIPPED_SECRETS:
+        try:
+            data = _redact_secret_data(data, sorted(set(_IMPORT_STRIPPED_SECRETS.values()), key=len, reverse=True))
+        except Exception:
+            data = _redaction_failure_data(data)
+    return data
+
+
+@pytest.hookimpl(wrapper=True, tryfirst=True)
+def pytest_report_from_serializable(data: dict[str, Any]) -> Generator[None, object, Any]:
+    """Redact incoming serialized fields before any deserializer consumes them."""
+    if _IMPORT_STRIPPED_SECRETS:
+        try:
+            redacted = _redact_secret_data(data, sorted(set(_IMPORT_STRIPPED_SECRETS.values()), key=len, reverse=True))
+        except Exception:
+            redacted = _redaction_failure_data(data)
+        data.clear()
+        data.update(redacted)
+    return (yield)
+
+
+def _sanitize_secret_report(report: Any, secrets: Mapping[str, str]) -> Any:
+    """Round-trip all report fields through pytest's serializer before consumers."""
+    if not secrets:
+        return report
+    try:
+        data = _serialize_pytest_report(report)
+        if data is None:
+            return report
+        # JUnit calls str() on every property. Do this before both redaction and
+        # xdist serialization, including bytes, paths, and plugin objects.
+        data["user_properties"] = [(str(name), str(value)) for name, value in data.get("user_properties", [])]
+        values = sorted(set(secrets.values()), key=len, reverse=True)
+        sanitized = _redact_secret_data(data, values)
+        # Captured output repeats in later phases. Only new output and properties
+        # promote a passed report; all other fields are still redacted recursively.
+        phase = getattr(report, "when", None)
+        current = {"longrepr": data["longrepr"], "user_properties": data.get("user_properties", [])}
+        current["sections"] = [
+            (title, content) for title, content in report.sections if phase is None or title.endswith(" " + phase)
+        ]
+        current_leaked = [
+            name for name, value in secrets.items() if value and _redact_secret_data(current, [value]) != current
+        ]
+        restored = _restore_pytest_report(sanitized)
+        # xdist checks the in-memory nodeid against its collected item before
+        # sending the report. Its serialized nodeid is redacted by the hook above.
+        if getattr(report, "_lu_xdist_worker", False):
+            restored.__dict__.pop("nodeid", None)
+        # Collection results are runtime items, deliberately omitted by pytest's
+        # serializer. Keep the original items so redaction never stops collection.
+        restored.__dict__.pop("result", None)
+        report.__dict__.update(restored.__dict__)
+        if report.outcome == "passed" and current_leaked:
+            report.outcome = "failed"
+            report.longrepr = "captured output contained the value of scrubbed env var " + ", ".join(current_leaked)
+        return report
+    except Exception:
+        worker = getattr(report, "_lu_xdist_worker", False)
+        nodeid = report.nodeid if worker else "[REDACTED]"
+        failure = _restore_pytest_report(_redaction_failure_data({"when": getattr(report, "when", None)}))
+        report.__dict__.clear()
+        report.__dict__.update(failure.__dict__)
+        if worker:
+            report.nodeid = nodeid
+            report._lu_xdist_worker = True
+        return report
+
+
+def _is_agent_runtime_shim(path: str | os.PathLike[str]) -> bool:
+    parts = Path(path).parts
+    return len(parts) >= 3 and parts[-3:-1] == ("agent_runtime", "shims")
+
+
+def _resolve_real_gh_binary() -> str | None:
+    """Resolve gh behind agent-runtime shims using the runner's path rules."""
+    candidates = [os.environ.get("AGENT_REAL_GH")]
+    search_path = os.environ.get("AGENT_ORIGINAL_PATH", os.environ.get("PATH", os.defpath))
+    candidates.extend(os.path.join(entry, "gh") for entry in search_path.split(os.pathsep) if entry)
+    for candidate in candidates:
+        if not candidate or _is_agent_runtime_shim(candidate):
+            continue
+        if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
+            return os.path.realpath(candidate)
+    return None
+
+
+_REAL_GH_BINARY = _resolve_real_gh_binary()
+_LIVE_GITHUB_ALLOWED = False
+
+
+@pytest.fixture(autouse=True)
+def _restore_process_umask() -> Generator[None, None, None]:
+    """Give every test the umask it started with.
+
+    The umask is process-wide, and code run in-process can narrow it for good
+    (``scripts.dispatcher.worker.supervise`` sets 077 for its worker process).
+    Without this, every later test on the same xdist worker gets narrower
+    ``mkdir`` modes, so mode checks pass or fail by shard placement.
+    """
+    prior = os.umask(0)
+    os.umask(prior)
+    yield
+    os.umask(prior)
+
+
+@pytest.fixture(autouse=True)
+def _no_host_claude_default_account(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep claude dispatch tests off the host's default-account file (#10619); account tests opt in."""
+    monkeypatch.setenv("LU_CLAUDE_DEFAULT_ACCOUNT_FILE", "")
+
+
+@pytest.fixture(autouse=True)
+def driver_scope_detection(monkeypatch: pytest.MonkeyPatch) -> Callable[[], bool]:
+    """Make fallback tests independent of the caller's cgroup (#9624).
+
+    Dispatch callers span several test modules. Default them to outside a
+    driver scope; detector tests restore the returned production function,
+    while refusal tests can replace the same seam with an inside result.
+    """
+    from lu_machinery.orchestration import dispatch_isolation
+
+    detector = dispatch_isolation._caller_in_driver_scope
+    monkeypatch.setattr(dispatch_isolation, "_caller_in_driver_scope", lambda: False)
+    return detector
+
+
+_CLAUDE_ADAPTER_ALIASES = ("lu_machinery.agent_runtime.adapters.claude", "agent_runtime.adapters.claude")
+_STUBBED_CLAUDE_CLI_VERSION = (2, 1, 200)
+# Bridge package the rules-workflow venv does not install. The Claude adapter
+# reaches it through fleet_comms contracts; its absence is not an alias typo.
+_BRIDGE_RUNTIME = "learn_ukrainian_v4_runtime"
+# alias -> why this process last left that probe unpatched. A later successful
+# import removes the entry. The dict is the record; the warning fires once per
+# distinct reason so a runtime-less session does not warn on every test.
+_CLAUDE_GATE_IMPORT_SKIPS: dict[str, str] = {}
+
+
+def _missing_bridge_runtime(exc: ModuleNotFoundError) -> str | None:
+    """Return the missing bridge-runtime module, or None for any other import failure."""
+    missing = exc.name or ""
+    if missing == _BRIDGE_RUNTIME or missing.startswith(_BRIDGE_RUNTIME + "."):
+        return missing
+    return None
+
+
+def _record_claude_gate_skip(alias: str, missing: str) -> None:
+    """Record why ``alias`` was not patched. Warn once per distinct reason."""
+    reason = f"runtime dependency {missing!r} is absent"
+    if _CLAUDE_GATE_IMPORT_SKIPS.get(alias) == reason:
+        return
+    _CLAUDE_GATE_IMPORT_SKIPS[alias] = reason
+    warnings.warn(
+        f"Claude CLI version-probe stub skipped {alias}: {reason}",
+        RuntimeWarning,
+        stacklevel=2,
+    )
+
+
+@pytest.fixture(autouse=True)
+def _stub_claude_cli_version_gate(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep tests independent of the installed Claude CLI version (#9903).
+
+    ``scripts.agent_runtime.adapters.claude`` and ``agent_runtime.adapters.claude``
+    are two module objects, each with its own process-cached
+    ``_probe_claude_cli_version``. The gate calls that probe through the Claude
+    module's globals at call time. ``kimicc`` copies the gate by name, so
+    replacing the gate is order-sensitive: a late import keeps the replacement
+    after teardown. Patching the probe covers every copy, including one imported
+    while the stub is active, and teardown restores the real probe for all of
+    them. This fixture does not import ``kimicc`` and does not replace the gate.
+
+    An alias whose import fails because ``learn_ukrainian_v4_runtime`` is not
+    installed is skipped and the missing module is recorded. The Claude adapter
+    reaches that package through fleet_comms contracts, and the rules-workflow
+    venv does not install it. Any other import error still propagates.
+
+    Tests marked ``real_claude_cli_gate`` keep the real probe (with their own
+    fakes) and only get fresh caches. A test that patches the gate or the probe
+    itself runs after this fixture, so its patch wins.
+    """
+    import importlib
+    import importlib.util
+
+    keep_real_probe = request.node.get_closest_marker("real_claude_cli_gate") is not None
+
+    def _stub(_cmd_prefix: tuple[str, ...]) -> tuple[int, int, int]:
+        return _STUBBED_CLAUDE_CLI_VERSION
+
+    for alias in _CLAUDE_ADAPTER_ALIASES:
+        if alias not in sys.modules and importlib.util.find_spec(alias.split(".")[0]) is None:
+            continue
+        try:
+            module = importlib.import_module(alias)
+        except ModuleNotFoundError as exc:
+            missing = _missing_bridge_runtime(exc)
+            if missing is None:
+                raise
+            _record_claude_gate_skip(alias, missing)
+            continue
+        _CLAUDE_GATE_IMPORT_SKIPS.pop(alias, None)
+        probe = getattr(module, "_probe_claude_cli_version", None)
+        if probe is not None and hasattr(probe, "cache_clear"):
+            probe.cache_clear()
+            request.addfinalizer(probe.cache_clear)
+        if probe is not None and not keep_real_probe:
+            monkeypatch.setattr(module, "_probe_claude_cli_version", _stub)
+
+
+@pytest.fixture(autouse=True)
+def dispatch_slice_probe(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
+    """Decouple tests from the host's ``lu-dispatch.slice`` (#8891, #9514).
+
+    ``probe_isolation`` asks the host's systemd user manager whether the
+    dispatch slice can hold a worker, and it reaches that manager even from a
+    shell without ``XDG_RUNTIME_DIR`` (#9514). Where it can (and CI cannot),
+    ``cmd_dispatch`` takes the ``systemd-run --scope`` launch path, which
+    needs a real ``Popen`` surface (``poll()``, pipes, ``/proc``) that fake
+    worker processes do not provide. Default the probe to "not ready" so every
+    dispatch takes the plain-``Popen`` path; a slice-path test sets
+    ``dispatch_slice_probe["ready"] = True`` instead, and a test of the probe
+    itself is marked ``host_dispatch_probe``.
+    ``LU_TEST_FORCE_DISPATCH_SCOPE=1`` forces that ready probe for a whole run
+    without asking the host. An ambient ``LU_DISPATCH_ISOLATION=fallback``
+    would override even a "ready" probe, so the fixture clears it; only a
+    test that exercises the forced fallback sets it again itself.
+    """
+    state: dict[str, Any] = {"ready": False, "reason": "test stub: host slice probe disabled"}
+    if request.node.get_closest_marker("host_dispatch_probe") is not None:
+        return state
+    from lu_machinery.orchestration import dispatch_isolation
+
+    monkeypatch.delenv("LU_DISPATCH_ISOLATION", raising=False)
+    if os.environ.get("LU_TEST_FORCE_DISPATCH_SCOPE") == "1":
+        state["ready"] = True
+        state["reason"] = None
+
+    def _probe(env: Any = None, **_kwargs: Any) -> Any:
+        source = os.environ if env is None else env
+        forced = dispatch_isolation._forced_fallback(source)
+        if forced is not None:
+            return forced
+        return dispatch_isolation.ProbeResult(ready=state["ready"], reason=state["reason"])
+
+    monkeypatch.setattr(dispatch_isolation, "probe_isolation", _probe)
+    return state
+
+
+@pytest.fixture(autouse=True)
+def _live_github_spawn_policy(request: pytest.FixtureRequest) -> Generator[None, None, None]:
+    """Permit real ``gh`` only for tests explicitly marked as integrations."""
+    global _LIVE_GITHUB_ALLOWED
+    previous = _LIVE_GITHUB_ALLOWED
+    _LIVE_GITHUB_ALLOWED = request.node.get_closest_marker("live_github") is not None
+    try:
+        yield
+    finally:
+        _LIVE_GITHUB_ALLOWED = previous
+
+
+@pytest.fixture(autouse=True)
+def _github_client_cache(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, request: pytest.FixtureRequest) -> None:
+    """New GitHub disk-cache writes remain test-owned and credential-free."""
+    monkeypatch.setenv("LU_GITHUB_CACHE_DIR", str(tmp_path / "github-cache"))
+    # The launcher backend must not bypass per-test fake CLIs on PATH.
+    if request.node.get_closest_marker("live_github") is None:
+        monkeypatch.delenv("AGENT_REAL_GH", raising=False)
+
+
+@pytest.fixture(autouse=True)
+def _default_fake_github_cli(
+    _fake_github_bin: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    request: pytest.FixtureRequest,
+) -> None:
+    """Resolve ordinary test GitHub CLI lookups to a failing local stub."""
+    if request.node.get_closest_marker("live_github") is not None:
+        return
+    # An empty PATH entry means "the current directory". Drop unset, empty,
+    # and blank inherited entries so the stub is prepended without putting
+    # cwd on PATH.
+    inherited = [entry for entry in os.environ.get("PATH", "").split(os.pathsep) if entry]
+    monkeypatch.setenv("PATH", os.pathsep.join([os.fspath(_fake_github_bin), *inherited]))
+
+
+@pytest.fixture(scope="session")
+def _fake_github_bin(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """One failing local gh binary shared by tests in this pytest session."""
+    fake_bin = tmp_path_factory.mktemp("fake-gh")
+    fake_gh = fake_bin / "gh"
+    fake_gh.write_text(
+        "#!/bin/sh\nprintf '%s\\n' 'gh stub: inject a test response instead of contacting GitHub' >&2\nexit 127\n",
+        encoding="utf-8",
+    )
+    fake_gh.chmod(0o755)
+    return fake_bin
+
+
+def _bridge_db_paths() -> tuple[Path, Path]:
+    """Return the primary bridge DB and any configured path before tests begin."""
+    primary_repo_root = resolve_repo_root(Path(__file__), 1)
+    return (
+        default_bridge_db_path(primary_repo_root).resolve(),
+        configured_bridge_db_path(primary_repo_root).resolve(),
+    )
+
+
+_REAL_BRIDGE_DB_PATH, _CONFIGURED_BRIDGE_DB_PATH = _bridge_db_paths()
+_API_BRIDGE_DB_PATH = default_bridge_db_path(_REPO_ROOT).resolve()
+_UNISOLATED_BRIDGE_DB_PATHS = frozenset({_REAL_BRIDGE_DB_PATH, _CONFIGURED_BRIDGE_DB_PATH, _API_BRIDGE_DB_PATH})
+_BRIDGE_DB_SUFFIXES = tuple(sorted({path.name for path in _UNISOLATED_BRIDGE_DB_PATHS}))
+_BRIDGE_DB_BINDINGS_TO_REPLACE = set(_UNISOLATED_BRIDGE_DB_PATHS)
+
+
+def _sqlite_database_path(database: object) -> tuple[Path | None, bool]:
+    """Return a SQLite path and whether a URI explicitly opens it read-only.
+
+    ``bytes`` and ``os.PathLike`` objects whose ``__fspath__`` returns bytes are
+    paths. Decode them before the ``file:`` check so the guard does not raise
+    ``TypeError`` or treat a raw bytes path as "not a path".
+    """
+    if not isinstance(database, (str, bytes, os.PathLike)):
+        return None, False
+    raw_path = os.fsdecode(os.fspath(database))
+    if raw_path.startswith("file:"):
+        parsed = urlsplit(raw_path)
+        query = parse_qs(parsed.query)
+        return Path(unquote(parsed.path)).resolve(), query.get("mode") == ["ro"]
+    return Path(raw_path).resolve(), False
+
+
+@pytest.fixture(autouse=True)
+def isolated_bridge_db(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """Redirect imported and future bridge users to one per-test database."""
+    isolated_path = tmp_path / "messages.db"
+    monkeypatch.setenv("AB_DB_PATH", str(isolated_path))
+    # A module first imported during a prior test may retain that test's path.
+    # Carry those paths forward so each test gets its own DB under xdist too.
+    _BRIDGE_DB_BINDINGS_TO_REPLACE.add(isolated_path.resolve())
+    for name, module in tuple(sys.modules.items()):
+        if module is None or not name.startswith(("lu_machinery.", "ai_agent_bridge", "agent_runtime.")):
+            continue
+        for attribute, value in tuple(vars(module).items()):
+            if not isinstance(value, (str, os.PathLike)) or not os.fspath(value).endswith(_BRIDGE_DB_SUFFIXES):
+                continue
+            if Path(value).resolve() in _BRIDGE_DB_BINDINGS_TO_REPLACE:
+                monkeypatch.setattr(module, attribute, isolated_path)
+
+    # The production API app has a context and store handles created at import.
+    # Rebuild both against the isolated path, preserving other configured roots.
+    api_main = _loaded_module("lu_machinery", "api", "main")
+    if api_main is not None:
+        app = vars(api_main).get("app")
+        context = getattr(getattr(app, "state", None), "ctx", None)
+        if context is not None and context.roots.message_db_path.resolve() in _BRIDGE_DB_BINDINGS_TO_REPLACE:
+            monkeypatch.setattr(app.state, "ctx", context.with_roots(message_db_path=isolated_path))
+    return isolated_path
+
+
+@pytest.fixture(autouse=True)
+def _guard_real_bridge_db_writes(monkeypatch: pytest.MonkeyPatch, request: pytest.FixtureRequest):
+    """Fail the test that tries to open the live bridge DB with write access."""
+    original_connect = sqlite3.connect
+
+    def guarded_connect(database, *args, **kwargs):
+        path, read_only = _sqlite_database_path(database)
+        if path in _UNISOLATED_BRIDGE_DB_PATHS and not read_only:
+            pytest.fail(
+                f"{request.node.nodeid} attempted a writable connection to the real bridge DB "
+                f"at {path}; isolate it with AB_DB_PATH or a DB_PATH fixture",
+                pytrace=False,
+            )
+        return original_connect(database, *args, **kwargs)
+
+    monkeypatch.setattr(sqlite3, "connect", guarded_connect)
+
+
+def _pytest_tmp_size(root: Path, stop_after_bytes: int | None = None) -> tuple[int, bool]:
+    """Return the size of a tree without following symlinks.
+
+    When a budget is supplied, stop as soon as the measured size exceeds it.
+    The boolean reports that the walk stopped early, so callers do not present
+    a lower bound as an exact size.
+    """
+    size = 0
+    pending = [root]
+    while pending:
+        directory = pending.pop()
+        try:
+            entries_context = os.scandir(directory)
+        except (FileNotFoundError, PermissionError):
+            # A temp directory may disappear or become unreadable during teardown.
+            continue
+        with entries_context as entries:
+            for entry in entries:
+                try:
+                    if entry.is_dir(follow_symlinks=False):
+                        pending.append(Path(entry.path))
+                    else:
+                        file_stat = entry.stat(follow_symlinks=False)
+                        size += getattr(file_stat, "st_blocks", 0) * 512 or file_stat.st_size
+                except FileNotFoundError:
+                    # A test may have removed a temp file while the walk ran.
+                    continue
+                if stop_after_bytes is not None and size > stop_after_bytes:
+                    return size, True
+    return size, False
+
+
+# =============================================================================
+# CONTENT-TREE POLLUTION GUARD (#8631)
+# =============================================================================
+# A test that drives a build/promote writer against the real repo root leaves
+# files under ``curriculum/`` (e.g. ``a1/my-morning/wiki_completeness_gate.json``).
+# That makes the checkout dirty, and ``curriculum/`` changes read as content
+# drift. The controller snapshots ``git status`` for the content trees at
+# session start and fails the session if it differs at session end.
+
+_CONTENT_TREE_PATHSPECS = ("curriculum/", "site/src/content/")
+_CONTENT_TREE_GIT_TIMEOUT_S = 60
+_CONTENT_TREE_SNAPSHOT_KEY = "_content_tree_snapshot"
+# Sealed lexicon fixtures (#9001). A missing gitignored sqlite must not make a
+# test rewrite tracked files under this tree.
+_LEXICON_FIXTURE_PATHSPEC = "tests/fixtures/lexicon/"
+_LEXICON_FIXTURE_SNAPSHOT_KEY = "_lexicon_fixture_snapshot"
+# Gitignored corpus databases (#9158). SQLite creates a missing file on a
+# read-write connect, so a reader without ``mode=ro`` leaves an empty
+# ``data/sources.db`` in a checkout that has no corpus (CI, sparse worktrees),
+# and later tests take the empty file for a real database. The connect wrapper
+# ``_checkout_corpus_db_guarded_connect`` reports the creation in this process;
+# the session snapshot catches creators it cannot see (subprocesses).
+_CHECKOUT_CORPUS_DB_SNAPSHOT_KEY = "_checkout_corpus_db_snapshot"
+
+
+def _git_pathspec_snapshot(root: Path, pathspecs: tuple[str, ...]) -> frozenset[str] | None:
+    """``git status --porcelain`` lines for ``pathspecs``, or None outside git."""
+    git_args = ["git", "-C", str(root)]
+    try:
+        top = subprocess.run(
+            [*git_args, "rev-parse", "--show-toplevel"],
+            capture_output=True,
+            text=True,
+            timeout=_CONTENT_TREE_GIT_TIMEOUT_S,
+            check=False,
+        )
+        if top.returncode != 0 or Path(top.stdout.strip()).resolve() != root.resolve():
+            return None
+        status = subprocess.run(
+            [*git_args, "status", "--porcelain", "--untracked-files=all", "--", *pathspecs],
+            capture_output=True,
+            text=True,
+            timeout=_CONTENT_TREE_GIT_TIMEOUT_S,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if status.returncode != 0:
+        return None
+    return frozenset(line for line in status.stdout.splitlines() if line.strip())
+
+
+def _content_tree_snapshot(root: Path) -> frozenset[str] | None:
+    """``git status --porcelain`` lines for the content trees, or None outside git."""
+    return _git_pathspec_snapshot(root, _CONTENT_TREE_PATHSPECS)
+
+
+def _content_tree_changes(before: frozenset[str] | None, after: frozenset[str] | None) -> tuple[list[str], list[str]]:
+    """Sorted ``(added, removed)`` status lines between two snapshots.
+
+    Both directions count: deleting a pre-existing untracked file or restoring a
+    pre-existing tracked modification changes the tree just as much as a new file.
+    """
+    if before is None or after is None:
+        return [], []
+    return sorted(after - before), sorted(before - after)
+
+
+def _checkout_corpus_db_paths() -> tuple[Path, Path]:
+    """The checkout's corpus databases, read from ``_REPO_ROOT`` at call time.
+
+    Literal joins, so the CI test-area invariant resolves them as static repo
+    paths rather than computed ones.
+    """
+    return (_REPO_ROOT / "data" / "sources.db", _REPO_ROOT / "data" / "vesum.db")
+
+
+def _checkout_corpus_db_snapshot() -> frozenset[str]:
+    """The corpus databases present in the checkout."""
+    return frozenset(path.relative_to(_REPO_ROOT).as_posix() for path in _checkout_corpus_db_paths() if path.exists())
+
+
+@pytest.hookimpl(specname="pytest_sessionstart", tryfirst=True)
+def pytest_sessionstart_runtime_scratch(session: pytest.Session) -> None:
+    config = session.config
+    # Collection and higher-scope fixtures run before the per-test override.
+    # Each xdist worker has its own factory and session-lifetime patch.
+    root = config._tmp_path_factory.mktemp("runtime-scratch-session")
+    # Explicit scratch overrides suppress consumers' own short-path fallback.
+    # Leave space for the PostgreSQL fixture's longest Unix socket name.
+    socket_suffix = Path("pg-XXXXXXXX") / ".s.PGSQL.65535"
+    if len(os.fsencode(root / socket_suffix)) > 103:
+        for base in (Path(f"/run/user/{os.getuid()}"), Path("/dev/shm"), Path("/tmp")):
+            try:
+                candidate = Path(tempfile.mkdtemp(prefix="lu-pytest-", dir=base)).resolve()
+            except OSError:
+                continue
+            if len(os.fsencode(candidate / socket_suffix)) <= 103:
+                root = candidate
+                config.add_cleanup(lambda root=root: shutil.rmtree(root))
+                break
+            shutil.rmtree(candidate)
+        else:
+            raise pytest.UsageError("No writable private scratch root fits the 103-byte Unix socket limit")
+    patch = pytest.MonkeyPatch()
+    config.add_cleanup(patch.undo)
+    patch.setenv("LU_SCRATCH_ROOT", str(root))
+    patch.setenv("LU_SCRATCH_SCAN_ROOT", str(root))
+
+
+def pytest_sessionstart(session: pytest.Session) -> None:
+    config = session.config
+    if hasattr(config, "workerinput"):
+        return
+    setattr(config, _CHECKOUT_CORPUS_DB_SNAPSHOT_KEY, _checkout_corpus_db_snapshot())
+    setattr(config, _CONTENT_TREE_SNAPSHOT_KEY, _content_tree_snapshot(_REPO_ROOT))
+    setattr(
+        config,
+        _LEXICON_FIXTURE_SNAPSHOT_KEY,
+        _git_pathspec_snapshot(_REPO_ROOT, (_LEXICON_FIXTURE_PATHSPEC,)),
+    )
+
+
+def _enforce_content_tree_clean(session: pytest.Session) -> None:
+    before = getattr(session.config, _CONTENT_TREE_SNAPSHOT_KEY, None)
+    added, removed = _content_tree_changes(before, _content_tree_snapshot(_REPO_ROOT))
+    if not added and not removed:
+        return
+    print(
+        "content-tree guard: git status under "
+        f"{', '.join(_CONTENT_TREE_PATHSPECS)} changed during the test session. "
+        "Either a test wrote to (or removed files from) the real checkout — point its "
+        "writer at tmp_path — or another process in the same checkout, such as an "
+        "operator build, wrote concurrently:"
+    )
+    for label, lines in (("added", added), ("removed", removed)):
+        if lines:
+            print(f"  status entries {label} since session start:")
+            for line in lines:
+                print(f"    {line}")
+    if session.exitstatus == pytest.ExitCode.OK:
+        session.exitstatus = pytest.ExitCode.TESTS_FAILED
+
+
+def _enforce_lexicon_fixture_seal(session: pytest.Session) -> None:
+    """Fail the session if tracked lexicon fixtures changed (#9001)."""
+    before = getattr(session.config, _LEXICON_FIXTURE_SNAPSHOT_KEY, None)
+    added, removed = _content_tree_changes(
+        before,
+        _git_pathspec_snapshot(_REPO_ROOT, (_LEXICON_FIXTURE_PATHSPEC,)),
+    )
+    if not added and not removed:
+        return
+    print(
+        "lexicon fixture seal: git status under tests/fixtures/lexicon/ changed during "
+        "the test session. Sealed tracked fixtures must not be rewritten; generate "
+        "gitignored inputs in tmp_path (#9001):"
+    )
+    for label, lines in (("added", added), ("removed", removed)):
+        if lines:
+            print(f"  status entries {label} since session start:")
+            for line in lines:
+                print(f"    {line}")
+    if session.exitstatus == pytest.ExitCode.OK:
+        session.exitstatus = pytest.ExitCode.TESTS_FAILED
+
+
+def _enforce_no_checkout_corpus_db_created(session: pytest.Session) -> None:
+    """Fail the session if it created a corpus database in the checkout (#9158)."""
+    before = getattr(session.config, _CHECKOUT_CORPUS_DB_SNAPSHOT_KEY, None)
+    if before is None:
+        return
+    created = sorted(_checkout_corpus_db_snapshot() - before)
+    if not created:
+        return
+    print(
+        "checkout corpus-db guard: the test session created "
+        f"{', '.join(created)} in {_REPO_ROOT}, which had none at session start. "
+        "A read-write sqlite3.connect creates a missing file: open corpus databases "
+        "read-only (file:...?mode=ro, uri=True) and point tests at tmp_path "
+        "(LU_SOURCES_DB). Delete the stray file before the next run (#9158)."
+    )
+    if session.exitstatus == pytest.ExitCode.OK:
+        session.exitstatus = pytest.ExitCode.TESTS_FAILED
+
+
+def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
+    """Report this session's temp usage and optionally enforce a CI budget."""
+    config = session.config
+    if hasattr(config, "workerinput"):
+        return
+    _enforce_no_checkout_corpus_db_created(session)
+    _enforce_content_tree_clean(session)
+    _enforce_lexicon_fixture_seal(session)
+
+    tmp_path_factory = getattr(config, "_tmp_path_factory", None)
+    if tmp_path_factory is None:
+        return
+    if getattr(tmp_path_factory, "_basetemp", None) is None:
+        return
+    basetemp = tmp_path_factory.getbasetemp()
+    budget_value = os.environ.get("LU_PYTEST_TMP_BUDGET_GB")
+    if budget_value is not None and not budget_value.strip():
+        budget_value = None
+    budget_bytes: int | None = None
+    if budget_value is not None:
+        try:
+            budget_gb = float(budget_value)
+            if not (budget_gb >= 0 and budget_gb < float("inf")):
+                raise ValueError
+            budget_bytes = int(budget_gb * 1024**3)
+        except ValueError:
+            print(f"pytest-tmp: invalid LU_PYTEST_TMP_BUDGET_GB={budget_value!r}")
+            session.exitstatus = pytest.ExitCode.TESTS_FAILED
+            return
+
+    try:
+        size, stopped_early = _pytest_tmp_size(basetemp, budget_bytes)
+    except OSError as error:
+        print(f"pytest-tmp: unable to measure {basetemp}: {error}")
+        session.exitstatus = pytest.ExitCode.TESTS_FAILED
+        return
+
+    size_gb = size / 1024**3
+    reported_size = f"at least {size:,} bytes (walk stopped at budget)" if stopped_early else f"{size_gb:.2f} GB"
+    print(f"pytest-tmp: {reported_size} in {basetemp}")
+    if budget_bytes is not None and size > budget_bytes:
+        print(
+            f"pytest-tmp: session temp size exceeded LU_PYTEST_TMP_BUDGET_GB={budget_value} "
+            f"({budget_bytes / 1024**3:.2f} GB)"
+        )
+        session.exitstatus = pytest.ExitCode.TESTS_FAILED
+
+
+# =============================================================================
+# CI FILE-PLANE SHARD ALLOWLIST (ci-shard-balance-2026-09-07)
+# =============================================================================
+# GitHub Actions collects through one initial `tests` path instead of ~100
+# positional file arguments per shard (collection cost, not test selection);
+# this hook narrows that single-path collection back down to one shard's
+# files. See scripts/ci/split_tests.py and docs/runbooks/ci-gate.md.
+
+LU_PYTEST_SHARD_FILES_ENV_VAR = "LU_PYTEST_SHARD_FILES"
+
+
+@functools.lru_cache(maxsize=1)
+def _load_shard_allowlist() -> frozenset[str] | None:
+    """Load this shard's file allowlist once per session.
+
+    Unset ``LU_PYTEST_SHARD_FILES``: returns ``None`` and every caller treats
+    that as "don't filter" — local/default collection is byte-for-byte
+    unchanged. Set: the file must exist, be readable, and contain at least
+    one non-blank, non-duplicate ``.../test_*.py`` line — anything else is a
+    loud failure raised here at first collection, never a silent full run
+    (allowlist ignored) or silent empty run (everything ignored).
+    """
+    allowlist_path_str = os.environ.get(LU_PYTEST_SHARD_FILES_ENV_VAR)
+    if not allowlist_path_str:
+        return None
+    allowlist_path = Path(allowlist_path_str)
+    if not allowlist_path.is_absolute():
+        allowlist_path = _REPO_ROOT / allowlist_path
+    try:
+        text = allowlist_path.read_text(encoding="utf-8")
+    except OSError as error:
+        raise RuntimeError(
+            f"{LU_PYTEST_SHARD_FILES_ENV_VAR}={allowlist_path_str!r} is set but unreadable: {error}"
+        ) from error
+    entries = [line.strip() for line in text.splitlines() if line.strip()]
+    if not entries:
+        raise RuntimeError(f"{LU_PYTEST_SHARD_FILES_ENV_VAR}={allowlist_path_str!r} is empty")
+    if len(set(entries)) != len(entries):
+        raise RuntimeError(f"{LU_PYTEST_SHARD_FILES_ENV_VAR}={allowlist_path_str!r} contains a duplicate entry")
+    for entry in entries:
+        if not entry.endswith(".py") or not Path(entry).name.startswith("test_"):
+            raise RuntimeError(
+                f"{LU_PYTEST_SHARD_FILES_ENV_VAR}={allowlist_path_str!r} has a malformed entry: {entry!r}"
+            )
+    return frozenset(entries)
+
+
+def pytest_ignore_collect(collection_path: Path, config: pytest.Config) -> bool | None:
+    """Ignore test files this shard's allowlist doesn't include.
+
+    Explicitly admit directories so pytest's default ``norecursedirs``
+    (including ``build``) cannot hide an allowed file. Inactive local
+    collection still defers to pytest's normal traversal rules.
+    """
+    # Generated child suites inherit CI's environment but have their own root.
+    # The repository shard file governs only this checkout's test session.
+    if config is not None and config.rootpath.resolve() != _REPO_ROOT:
+        return None
+    allowlist = _load_shard_allowlist()
+    if allowlist is None:
+        return None
+    if collection_path.is_dir():
+        return False
+    try:
+        relative = collection_path.resolve().relative_to(_REPO_ROOT).as_posix()
+    except ValueError:
+        return True
+    return relative not in allowlist
+
+
+def _get_breadcrumb_file() -> Path | None:
+    breadcrumb_dir_str = os.environ.get("PYTEST_BREADCRUMB_DIR", ".pytest_breadcrumbs")
+    if not breadcrumb_dir_str:
+        return None
+    dir_path = Path(breadcrumb_dir_str)
+    try:
+        dir_path.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        return None
+    worker_id = os.environ.get("PYTEST_XDIST_WORKER", "master")
+    return dir_path / f"breadcrumb_{worker_id}.txt"
+
+
+def _append_breadcrumb(line: str) -> None:
+    try:
+        breadcrumb_file = _get_breadcrumb_file()
+        if breadcrumb_file:
+            with open(breadcrumb_file, "a", encoding="utf-8") as f:
+                f.write(line)
+                f.flush()
+                with contextlib.suppress(OSError):
+                    os.fsync(f.fileno())
+    except OSError:
+        pass
+
+
+def pytest_runtest_logstart(nodeid: str, location: tuple[str, int | None, str]) -> None:
+    _append_breadcrumb(f"START {nodeid}\n")
+
+
+def pytest_runtest_logfinish(nodeid: str, location: tuple[str, int | None, str]) -> None:
+    _append_breadcrumb(f"FINISH {nodeid}\n")
+
+
+def _require_data_artifact(
+    relative_path: str,
+) -> Path:
+    """Return a local data artifact or skip tests that cannot run without it."""
+    artifact = _REPO_ROOT / relative_path
+    if not artifact.is_file():
+        try:
+            from lu_machinery.guardrails.worktree_containment import resolve_main_root
+
+            fallback = resolve_main_root(_REPO_ROOT) / relative_path
+            if fallback.is_file():
+                artifact = fallback
+        except Exception:
+            pass
+    if not artifact.is_file():
+        pytest.skip(f"requires {relative_path} (not provisioned in CI)")
+
+    return artifact
+
+
+@pytest.fixture
+def requires_sources_db(data_store_factory) -> Path:
+    """Skip a test requiring the complete uncommitted sources corpus database."""
+    return data_store_factory(
+        "sources",
+        required_sqlite_tables=(
+            "external_articles",
+            "external_fts",
+            "literary_fts",
+            "literary_texts",
+            "textbook_sections",
+            "textbooks",
+            "textbooks_fts",
+            "ukrainian_wiki",
+            "ukrainian_wiki_fts",
+            "wikipedia",
+            "wikipedia_fts",
+        ),
+    )
+
+
+@pytest.fixture
+def requires_vesum_db(data_store_factory) -> Path:
+    """Skip a test requiring the uncommitted VESUM database."""
+    return data_store_factory("vesum", required_sqlite_tables=("forms",))
+
+
+@pytest.fixture
+def requires_literary_wave12_jsonl() -> Path:
+    """Skip a test requiring the uncommitted Wave 12 literary corpus fixture."""
+    return _require_data_artifact("data/literary_texts/wave12-krupnytsky-orlyk-biohrafiia.jsonl")
+
+
+@pytest.fixture(autouse=True)
+def _isolate_llm_qg_runtime_stores(tmp_path, monkeypatch):
+    """Every test writes llm_qg runtime state (DB + circuit sidecar) to tmp_path.
+
+    Root cause (2026-07-07): llm_qg_store resolves its stores via env-var-or-
+    PROJECT_ROOT-default; tests exercising qg_workflow/store paths without
+    overriding the env minted data/telemetry/llm_qg_live_circuit.json in every
+    checkout/worktree they ran in — one such stray got swept into PR #4743 by
+    git add -A. Hermetic by default; tests that need a specific path still
+    monkeypatch their own.
+    """
+    monkeypatch.setenv("LEARN_UKRAINIAN_LLM_QG_DB", str(tmp_path / "llm_qg.db"))
+    monkeypatch.setenv("LEARN_UKRAINIAN_LLM_QG_CIRCUIT", str(tmp_path / "llm_qg_live_circuit.json"))
+
+
+@pytest.fixture(autouse=True)
+def _isolate_overview_last_good(tmp_path, monkeypatch):
+    """Keep overview last-good on a per-test tmp path (#7024).
+
+    The durable snapshot lives under ``.cache/`` in production so a Monitor
+    bounce can reload it. Tests must not read or overwrite that host file,
+    and in-memory last-good must not leak across cases.
+    """
+    monkeypatch.setenv(
+        "DASHBOARD_OVERVIEW_LAST_GOOD_PATH",
+        str(tmp_path / "dashboard_overview_last_good.json"),
+    )
+    router = _loaded_module("lu_machinery", "api", "dashboard_router")
+    if router is not None:
+        router.reset_overview_state_for_tests()
+    yield
+    router = _loaded_module("lu_machinery", "api", "dashboard_router")
+    if router is not None:
+        router.reset_overview_state_for_tests()
+
+
+@pytest.fixture
+def hermetic_monitor(monkeypatch):
+    """Hook and launcher subprocesses never reach this host's live Monitor API (#9711).
+
+    Hooks, launchers and the thread-handoff helper resolve the Monitor from
+    ``LU_MONITOR_LOOPBACK`` and fall back to port 8765. CI has no Monitor, so a
+    developer host with one (and live stream leases) saw different hook output.
+    Pin the variable to an unreachable loopback port: every Monitor call fails
+    fast into the fail-open path, exactly as in CI. The ``tool-timing.sh`` hook
+    reads its own endpoint variable and would otherwise post fake telemetry to
+    the live Monitor, so that one is pinned too, as is the task store's
+    dispatch-time health probe (``DELEGATE_MONITOR_API``).
+
+    Opt in with ``pytestmark = pytest.mark.usefixtures("hermetic_monitor")`` in a
+    module that spawns hooks or launchers with an inherited environment. It is
+    not autouse: in-process tests that mock ``urlopen`` at the default Monitor
+    URL depend on the unpinned default. A test that needs Monitor responses sets
+    its own value to a local stub server; a subprocess test that builds an
+    explicit environment must pass the variables through itself.
+    """
+    monkeypatch.setenv("LU_MONITOR_LOOPBACK", UNREACHABLE_MONITOR_URL)
+    monkeypatch.setenv("TOOL_TIMING_API_URL", UNREACHABLE_TOOL_TIMING_URL)
+    monkeypatch.setenv("DELEGATE_MONITOR_API", UNREACHABLE_MONITOR_URL)
+
+
+@pytest.fixture(autouse=True)
+def _hermetic_dispatch_admission_host(monkeypatch):
+    """Dispatch admission sees a healthy host and config-default thresholds (#8645).
+
+    Admission reads this host's MemAvailable and load average; a busy CI runner
+    or developer box must not refuse the write dispatches other tests make.
+    Admission tests monkeypatch ``probe_host`` themselves. The shared
+    ``lu.slice`` pool is not read unless a test sets ``LU_SLICE_CGROUP`` to a
+    fake cgroup (#9975), and the host test-slot queue is not read unless a test
+    sets ``LU_TEST_SLOTS_DIR`` to a private pool (#10662). The host disk is not read
+    and no disk alert is published (#10776).
+    """
+    for name in (
+        "DISPATCH_MAX_LIVE_WRITE_WORKERS",
+        "DISPATCH_MIN_MEM_AVAILABLE_GIB",
+        "DISPATCH_MAX_LOAD_PER_CPU",
+        "DISPATCH_WORKER_MEM_RESERVE_GIB",
+        "DISPATCH_MAX_TEST_SLOT_QUEUE",
+        "DISPATCH_DISK_REAP_USED_PERCENT",
+        "DISPATCH_DISK_REFUSE_USED_PERCENT",
+        "DISPATCH_DISK_ALERT_USED_PERCENT",
+        "LU_SLICE_CGROUP",
+    ):
+        monkeypatch.delenv(name, raising=False)
+    # Never read a deployment env file from the machine running the tests.
+    monkeypatch.setenv("DISPATCH_ADMISSION_ENV_FILE", "")
+    monkeypatch.setenv("LU_TEST_DISPATCH_HEALTHY_HOST", "1")
+
+
+@pytest.fixture(autouse=True)
+def _hermetic_credit_lane_snapshot(monkeypatch):
+    """Credit-period state sees no live Monitor snapshot or runtime usage records (#9518).
+
+    The live Monitor on a developer box can report a credit balance and refuse
+    the off-allowlist dispatches other tests make, and the live runtime usage
+    records hold real rate limits. Credit-lane tests monkeypatch both readers
+    themselves.
+    """
+    from lu_machinery.fleet import credit_lane
+
+    monkeypatch.setattr(credit_lane, "read_routing_budget", lambda **_kwargs: None)
+    monkeypatch.setattr(
+        credit_lane,
+        "read_recent_rate_limits",
+        lambda *_args, **_kwargs: {"count": 0, "last_rate_limited_at": None},
+    )
+
+
+# One numbered directory per process. ``mktemp`` lists the base to pick the
+# next number, so a per-test call is quadratic over a long session (#8654).
+_WRITE_OWNERSHIP_SEQ = itertools.count()
+
+
+@pytest.fixture(scope="session")
+def _write_ownership_base(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """One base directory for every per-test ownership ledger in this process."""
+    return tmp_path_factory.mktemp("write-ownership-stores")
+
+
+@pytest.fixture(autouse=True)
+def _isolate_write_ownership_ledger(_write_ownership_base: Path, monkeypatch):
+    """Every test gets its own write-path ownership ledger.
+
+    Root cause (2026-07-25): the ledger path was a module constant baked into
+    default arguments, so the suite admitted against the LIVE fleet ledger in
+    batch_state/. Dispatch tests then saw whatever real dispatches happened to
+    be running: eight of them failed on a busy machine and passed on an idle
+    one, which is indistinguishable from flakiness and silently erodes the
+    pre-push pytest signal. Tests that want the real ledger override this.
+
+    The directory comes from ``tmp_path_factory``, NOT from the test's own
+    ``tmp_path``: an autouse fixture that creates a subdirectory there breaks
+    every test asserting its ``tmp_path`` is empty. Caught in CI by
+    test_grok_envelope_failure_skips_forensics_when_unconfigured after the
+    first version of this fixture did exactly that. The session base is
+    numbered once; each test is ``<base>/<n>`` via ``mkdir``, not another
+    ``mktemp``.
+    """
+    ledger_dir = _write_ownership_base / str(next(_WRITE_OWNERSHIP_SEQ))
+    ledger_dir.mkdir(parents=True)
+    db_file = ledger_dir / "write-ownership.sqlite3"
+    conn = sqlite3.connect(db_file)
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS write_claims (task_id TEXT NOT NULL, claim_json TEXT NOT NULL, pid INTEGER, created_at REAL NOT NULL, PRIMARY KEY (task_id, claim_json))"
+    )
+    conn.commit()
+    conn.close()
+    monkeypatch.setenv("LEARN_UKRAINIAN_OWNERSHIP_LEDGER", str(db_file))
+    monkeypatch.setenv("LEARN_UKRAINIAN_OWNERSHIP_TASK_STATE_DIR", str(ledger_dir))
+    # A dispatch whose paths overlap a holder waits up to 30 min in the
+    # ownership queue (#11281). Tests answer at once; queue tests set a bound.
+    monkeypatch.setenv("DELEGATE_OWNERSHIP_WAIT_S", "0")
+
+
+class _RedirectRefreshSidecarLoader:
+    """Execute the real loader, then point its refresh sidecars at a temp dir."""
+
+    def __init__(self, loader, state: Path, lock: Path) -> None:
+        self._loader = loader
+        self._state = state
+        self._lock = lock
+
+    def create_module(self, spec):
+        create = getattr(self._loader, "create_module", None)
+        if create is None:
+            return None
+        return create(spec)
+
+    def exec_module(self, module) -> None:
+        self._loader.exec_module(module)
+        module.REFRESH_STATE_PATH = self._state
+        module.REFRESH_LOCK_PATH = self._lock
+
+    def __getattr__(self, name: str):
+        return getattr(self._loader, name)
+
+
+class _IssueStreamRefreshImportHook:
+    """Redirect refresh sidecars on the audit module's first import (#10519)."""
+
+    _MODULE = "lu_machinery.orchestration.issue_stream_audit"
+
+    def __init__(self, state: Path, lock: Path) -> None:
+        self._state = state
+        self._lock = lock
+
+    def find_spec(self, fullname, path, target=None):
+        if fullname != self._MODULE:
+            return None
+        spec = importlib.machinery.PathFinder.find_spec(fullname, path, target)
+        if spec is None or spec.loader is None:
+            return None
+        spec.loader = _RedirectRefreshSidecarLoader(spec.loader, self._state, self._lock)
+        return spec
+
+
+@pytest.fixture(autouse=True)
+def _isolate_issue_stream_refresh_state(_write_ownership_base: Path, monkeypatch):
+    """Keep the issue-stream audit's refresh sidecars off the live checkout (#10519).
+
+    The sidecars are anchored at the primary checkout, so a test run from a
+    linked worktree that schedules or reads a refresh would otherwise write into
+    the live primary ``batch_state/`` and take its single-flight lock. Tests that
+    assert the real anchoring compute it with ``refresh_sidecar_paths``.
+
+    Patch an already-imported module in place, and redirect a later import —
+    including one that starts with the module absent from ``sys.modules`` — via
+    a meta-path hook. Importing the module here would load it for every test.
+    """
+    state_dir = _write_ownership_base / f"issue-audit-refresh-{next(_WRITE_OWNERSHIP_SEQ)}"
+    state = state_dir / "issue_stream_audit_refresh.json"
+    lock = state_dir / "issue_stream_audit_refresh.lock"
+    module = sys.modules.get(_IssueStreamRefreshImportHook._MODULE)
+    if module is not None and hasattr(module, "REFRESH_STATE_PATH"):
+        monkeypatch.setattr(module, "REFRESH_STATE_PATH", state)
+        monkeypatch.setattr(module, "REFRESH_LOCK_PATH", lock)
+    hook = _IssueStreamRefreshImportHook(state, lock)
+    sys.meta_path.insert(0, hook)
+    try:
+        yield
+    finally:
+        with contextlib.suppress(ValueError):
+            sys.meta_path.remove(hook)
+
+
+# =============================================================================
+# DISPATCH TASK STORE ISOLATION (#8654)
+# =============================================================================
+# All dispatch task-store consumers resolve ``LU_TASKS_DIR`` at call time.
+# The ownership ledger above is a separate seam (env override).
+
+_REAL_TASKS_DIR = (resolve_repo_root(Path(__file__), 1) / "batch_state" / "tasks").resolve()
+# Legacy task-store paths derived from ``tasks_dir().parent``:
+# - ``tasks_dir().parent / "preflight_fast_fail.jsonl"``
+# - fallback ``tasks_dir().parent / worktree_claims.LOCK_DIR_NAME``
+#   (``lu-worktree-locks``) when the git common dir is unknown.
+# This set is explicit. It does not cover the rest of ``batch_state/``.
+_DERIVED_LIVE_TASK_PATHS = (
+    (_REAL_TASKS_DIR.parent / "preflight_fast_fail.jsonl").resolve(),
+    (_REAL_TASKS_DIR.parent / "lu-worktree-locks").resolve(),
+)
+_REAL_TASKS_DIR_STR = os.fspath(_REAL_TASKS_DIR)
+_REAL_TASKS_DIR_PREFIX = _REAL_TASKS_DIR_STR + os.sep
+_DERIVED_LIVE_TASK_STRS = tuple(os.fspath(path) for path in _DERIVED_LIVE_TASK_PATHS)
+_DERIVED_LIVE_TASK_PREFIXES = tuple(path + os.sep for path in _DERIVED_LIVE_TASK_STRS)
+# Directory realpaths already known not to be a symlink into the live store.
+# One realpath per directory, not one Path.resolve per written file.
+_TASK_STORE_OUTSIDE_PARENTS: set[str] = set()
+_TASK_STORE_WRITE_FLAGS = os.O_WRONLY | os.O_RDWR | os.O_CREAT | os.O_TRUNC | os.O_APPEND
+_TASK_STORE_MUTATION_EVENTS = {
+    "os.chmod": (0,),
+    "os.chown": (0,),
+    "os.link": (0, 1),
+    "os.mkdir": (0,),
+    "os.remove": (0,),
+    "os.rename": (0, 1),
+    "os.rmdir": (0,),
+    "os.symlink": (0, 1),
+    "os.truncate": (0,),
+    "os.unlink": (0,),
+    "os.utime": (0,),
+    "shutil.copyfile": (1,),
+    "shutil.copytree": (1,),
+    "shutil.move": (0, 1),
+    "shutil.rmtree": (0,),
+}
+# One membership test per audit event. Python calls every hook for every
+# event (``import``, ``compile``, ``exec``, ``os.listdir``, ``sys._getframe``,
+# …). The #8640 opsec hook lives in another module and is not installed for
+# this suite, so this hook stays separate and returns before any path work.
+_TASK_STORE_HANDLED_EVENTS = frozenset(("open", "sqlite3.connect", *_TASK_STORE_MUTATION_EVENTS))
+
+
+def _text_under_live_tasks(text: str) -> bool:
+    """True when ``text`` is already a normalized path inside the live store."""
+    if text == _REAL_TASKS_DIR_STR or text.startswith(_REAL_TASKS_DIR_PREFIX):
+        return True
+    for exact, prefix in zip(_DERIVED_LIVE_TASK_STRS, _DERIVED_LIVE_TASK_PREFIXES, strict=True):
+        if text == exact or text.startswith(prefix):
+            return True
+    return False
+
+
+def _path_under_real_tasks(path: object) -> bool:
+    """True for the live task store, a file inside it, or a derived sibling path."""
+    if isinstance(path, int) or path is None:
+        return False
+    try:
+        text = os.fsdecode(path)
+    except (TypeError, ValueError):
+        return False
+    if _text_under_live_tasks(text):
+        return True
+    norm = os.path.normpath(text)
+    if norm != text and _text_under_live_tasks(norm):
+        return True
+    if os.path.isabs(norm) and ".." not in norm:
+        parent = os.path.dirname(norm)
+        if parent not in _TASK_STORE_OUTSIDE_PARENTS:
+            try:
+                real_parent = os.path.realpath(parent)
+            except OSError:
+                return False
+            if real_parent == parent:
+                _TASK_STORE_OUTSIDE_PARENTS.add(parent)
+            elif _text_under_live_tasks(os.path.normpath(os.path.join(real_parent, os.path.basename(norm)))):
+                return True
+        try:
+            if os.path.islink(norm):
+                return _text_under_live_tasks(os.path.normpath(os.path.realpath(norm)))
+        except OSError:
+            return False
+        return False
+    try:
+        return _text_under_live_tasks(os.path.normpath(os.path.realpath(text)))
+    except OSError:
+        return False
+
+
+def _sqlite_path_under_real_tasks(database: object) -> bool:
+    path, read_only = _sqlite_database_path(database)
+    return path is not None and not read_only and _path_under_real_tasks(path)
+
+
+def _refuse_real_task_store_write(kind: str, path: object) -> None:
+    node = os.environ.get("PYTEST_CURRENT_TEST", "<unknown>")
+    pytest.fail(
+        f"{node} attempted to {kind} the real dispatch task store at {path} "
+        f"({_REAL_TASKS_DIR}); set LU_TASKS_DIR for isolation",
+        pytrace=False,
+    )
+
+
+def _task_store_write_hook(event: str, args: tuple[object, ...]) -> None:
+    """Fail a writable open, rename, or sqlite connect under the live task store.
+
+    Installed once with ``sys.addaudithook`` (#8640): a monkeypatch of ``open``
+    misses ``Path.write_text`` aliases and ``os.open`` captured before the
+    fixture ran. The hook cannot be removed, so it stays installed and only
+    refuses paths inside ``_REAL_TASKS_DIR`` and the explicit derived files
+    under ``_REAL_TASKS_DIR.parent`` listed in ``_DERIVED_LIVE_TASK_PATHS``.
+    The first statement rejects every event this hook does not handle.
+    """
+    if event not in _TASK_STORE_HANDLED_EVENTS:
+        return
+    if event == "open" and len(args) >= 3:
+        path, mode, flags = args[0], args[1], args[2]
+        writing = isinstance(mode, str) and any(char in mode for char in "wax+")
+        if (writing or (isinstance(flags, int) and flags & _TASK_STORE_WRITE_FLAGS)) and _path_under_real_tasks(path):
+            _refuse_real_task_store_write("write", path)
+        return
+    indexes = _TASK_STORE_MUTATION_EVENTS.get(event)
+    if indexes is not None:
+        for index in indexes:
+            if index < len(args) and _path_under_real_tasks(args[index]):
+                _refuse_real_task_store_write(event, args[index])
+        return
+    if event == "sqlite3.connect" and args and _sqlite_path_under_real_tasks(args[0]):
+        _refuse_real_task_store_write("open a database in", args[0])
+
+
+sys.addaudithook(_task_store_write_hook)
+
+
+_REAL_SQLITE3_CONNECT = sqlite3.connect
+
+
+@functools.wraps(_REAL_SQLITE3_CONNECT)
+def _checkout_corpus_db_guarded_connect(*args: object, **kwargs: object) -> sqlite3.Connection:
+    """Fail a sqlite connect that created a corpus database in the checkout (#9158).
+
+    The guard judges the connect by its effect, not by its arguments: a corpus
+    database path with no directory entry before the call and one after it
+    fails the test, whatever the path form, URI ``mode`` or flags, and even if
+    the connect raised. Another process may have created the entry meanwhile,
+    so the guard only reports: it never deletes or moves a file, and closes
+    only the connection this call opened. A dangling symlink counts as an
+    existing entry. Installed at conftest import, it also covers module-level
+    probes that run while test modules are collected. ``pytest.fail`` raises a
+    ``BaseException``, so a caller's ``except sqlite3.Error`` / ``except
+    Exception`` cannot swallow the report. Existing entries and every other
+    path pass untouched.
+    """
+    missing = [target for target in _checkout_corpus_db_paths() if not os.path.lexists(target)]
+    connection = None
+    try:
+        connection = _REAL_SQLITE3_CONNECT(*args, **kwargs)
+        return connection
+    finally:
+        created = [target for target in missing if os.path.lexists(target)]
+        if created:
+            if connection is not None:
+                connection.close()
+            node = os.environ.get("PYTEST_CURRENT_TEST") or "test collection or session setup"
+            pytest.fail(
+                f"{node}: {', '.join(map(str, created))} created during this sqlite3.connect call "
+                "(possibly by another process). A file-creating sqlite3.connect creates a missing "
+                "database. Open corpus databases read-only (file:...?mode=ro, uri=True) and point "
+                "tests at tmp_path via LU_SOURCES_DB (#9158)",
+                pytrace=False,
+            )
+
+
+sqlite3.connect = _checkout_corpus_db_guarded_connect
+
+
+def _retarget_api_batch_state(monkeypatch: pytest.MonkeyPatch, batch_state: Path) -> None:
+    """Point Monitor's task-store root at this test's ``batch_state``.
+
+    ``production_context()`` reads ``config.BATCH_STATE_DIR`` when called, so
+    importing Monitor here would only pull in FastAPI during fixture setup in
+    minimal test environments. ``create_app(production_context())`` freezes
+    the root onto ``app.state.ctx`` at import. ``delegate_router._tasks_dir``
+    then writes ``.task_cache.sqlite3`` under that directory. The delegate
+    ``LU_TASKS_DIR`` does not move it, and the audit guard turns that
+    connect into a 500 (``Failed`` is a ``BaseException``, so the orient
+    section handler does not catch it).
+
+    ``git_hygiene_router._active_task_ids`` is not this seam: it reads
+    ``project_root / "batch_state" / "tasks"`` (the checkout, via
+    ``live_repo_root``), and only opens task JSON read-only. It never opens
+    the task-cache database. Pointing ``live_repo_root`` at the temp store
+    would detach git-backed API tests from the repo.
+
+    ``hramatka_router`` binds ``BATCH_STATE_DIR / "hramatka"`` at import. That
+    is the lesson store, not ``tasks/``, and this guard does not watch it.
+    """
+    monkeypatch.setenv("LEARN_UKRAINIAN_BATCH_STATE_DIR", str(batch_state))
+    api_config = _loaded_module("lu_machinery", "api", "config")
+    if api_config is not None:
+        monkeypatch.setattr(api_config, "BATCH_STATE_DIR", batch_state)
+    monitor_context = _loaded_module("lu_machinery", "api", "monitor_context")
+    if monitor_context is not None:
+        monitor_context.production_context.cache_clear()
+    api_main = _loaded_module("lu_machinery", "api", "main")
+    if api_main is None:
+        return
+    app = vars(api_main).get("app")
+    context = getattr(getattr(app, "state", None), "ctx", None)
+    if context is not None:
+        monkeypatch.setattr(app.state, "ctx", context.with_roots(batch_state_dir=batch_state))
+
+
+# Per-process, not per-test: ``mktemp`` scans the base directory for the next
+# number, and that scan grows with every directory already created (#8654 review).
+_DISPATCH_STORE_SEQ = itertools.count()
+
+
+@pytest.fixture(scope="session")
+def _dispatch_task_store_base(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """One numbered base for every per-test task store in this process."""
+    return tmp_path_factory.mktemp("dispatch-stores")
+
+
+@pytest.fixture(autouse=True)
+def _isolate_dispatch_task_store(_dispatch_task_store_base: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """Point the dispatch task store at a per-test directory (#8654).
+
+    The directory is ``<session base>/<n>/tasks``, so ``tasks_dir().parent``
+    (where delegate writes ``preflight_fast_fail.jsonl``) is also per-test.
+    It comes from ``tmp_path_factory``, not the test's ``tmp_path``: an autouse
+    fixture that creates a subdirectory of ``tmp_path`` breaks tests that
+    assert their tmp dir starts empty (see ``_isolate_write_ownership_ledger``).
+    Nothing is copied out of the live store. A test that sets ``LU_TASKS_DIR``
+    itself runs after this autouse fixture, so that override wins.
+    The same directory's parent becomes ``config.BATCH_STATE_DIR`` and
+    ``app.state.ctx.roots.batch_state_dir``, so Monitor requests do not open
+    the live ``.task_cache.sqlite3``.
+    """
+    isolated = _dispatch_task_store_base / str(next(_DISPATCH_STORE_SEQ)) / "tasks"
+    isolated.mkdir(parents=True)
+    monkeypatch.setenv("LU_TASKS_DIR", str(isolated))
+    _retarget_api_batch_state(monkeypatch, isolated.parent)
+    return isolated
+
+
+@pytest.fixture(autouse=True)
+def _isolate_runtime_scratch_root(
+    request: pytest.FixtureRequest,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> Path:
+    """Point fleet scratch at a per-test directory (#9927).
+
+    ``LU_SCRATCH_ROOT`` is the supported creation override in
+    ``scripts.common.scratch``. ``LU_RUNTIME_TMP_BASE_ROOT`` is not: the
+    dispatcher records it for nested cleanup, and honoring it would pull
+    worker scratch back onto tmpfs. Delegate leases are
+    ``ensure_scratch_root() / "learn-ukrainian" / <task-id>``, so an unset
+    override shares ``/var/tmp/lu/learn-ukrainian/<task-id>`` across cases.
+
+    ``LU_SCRATCH_SCAN_ROOT`` is the supported scan confinement. Every test,
+    including default-resolution tests, sets it to ``tmp_path``.
+    ``scratch_scan_roots`` then omits the host default and the legacy temp
+    directory, so an orphan sweep cannot delete leases outside this test.
+    The scan variable is not a creation override. A test that sets either
+    variable itself runs after this fixture, so that value wins.
+
+    The scratch directory is not created here. An autouse mkdir under
+    ``tmp_path`` breaks tests that require an empty tmp dir (see
+    ``_isolate_write_ownership_ledger``). ``ensure_scratch_root`` creates the
+    override when a lease is actually allocated.
+
+    Tests marked ``exercises_default_scratch_root`` keep the creation
+    override unset and resolve the built-in default. Their default is a
+    private directory under ``tmp_path``, not the host's ``/var/tmp/lu``.
+    Scans stay inside ``tmp_path`` for those tests too.
+    """
+    from lu_machinery.common import scratch
+
+    monkeypatch.setenv(scratch.SCRATCH_SCAN_ROOT_ENV_VAR, str(tmp_path))
+
+    if request.node.get_closest_marker("exercises_default_scratch_root"):
+        fake_root = tmp_path / "fake-default-scratch"
+        fake_root.mkdir()
+        monkeypatch.delenv(scratch.SCRATCH_ROOT_ENV_VAR, raising=False)
+        real_default = scratch.DEFAULT_SCRATCH_ROOT
+        monkeypatch.setattr(scratch, "DEFAULT_SCRATCH_ROOT", fake_root)
+        for module in list(sys.modules.values()):
+            if module is None or module is scratch:
+                continue
+            # A self-contained copy of the default (scripts/common/test_slots.py) is an equal path, not the same object.
+            value = getattr(module, "DEFAULT_SCRATCH_ROOT", None)
+            if isinstance(value, Path) and value == real_default:
+                monkeypatch.setattr(module, "DEFAULT_SCRATCH_ROOT", fake_root)
+        return fake_root
+
+    root = tmp_path / "runtime-scratch"
+    monkeypatch.setenv(scratch.SCRATCH_ROOT_ENV_VAR, str(root))
+    return root
+
+
+class SocketBlockedError(RuntimeError):
+    """Raised when a unit test attempts an un-opted outbound network connection (#6968)."""
+
+
+def _is_localhost_host(host: object) -> bool:
+    """Return True if host is loopback or local machine identifier."""
+    if not host:
+        return True
+    if isinstance(host, bytes):
+        try:
+            host = host.decode("utf-8")
+        except UnicodeDecodeError:
+            return False
+    if not isinstance(host, str):
+        return False
+
+    host_lower = host.lower()
+    if host_lower in {"localhost", "127.0.0.1", "::1", "0.0.0.0", "::"}:
+        return True
+    if host_lower.endswith(".localhost"):
+        return True
+    with contextlib.suppress(OSError):
+        if host_lower in {socket.gethostname().lower(), socket.getfqdn().lower()}:
+            return True
+    try:
+        ip = ipaddress.ip_address(host)
+        return ip.is_loopback or ip.is_unspecified
+    except ValueError:
+        return False
+
+
+def _is_localhost_address(address: object) -> bool:
+    """Return True if address is AF_UNIX (str/bytes) or AF_INET(6) pointing to localhost."""
+    if address is None:
+        return True
+    if isinstance(address, (str, bytes)):
+        return True
+    if isinstance(address, tuple) and address:
+        return _is_localhost_host(address[0])
+    return False
+
+
+_ORIG_SOCKET_CONNECT = socket.socket.connect
+_ORIG_SOCKET_CONNECT_EX = socket.socket.connect_ex
+_ORIG_SOCKET_SENDTO = socket.socket.sendto
+_ORIG_SOCKET_SENDMSG = getattr(socket.socket, "sendmsg", None)
+_ORIG_SOCKET_CREATE_CONNECTION = socket.create_connection
+
+_SOCKET_GUARD_TLS = threading.local()
+
+
+def _is_live_network_allowed() -> bool:
+    return getattr(_SOCKET_GUARD_TLS, "live_network_allowed", False)
+
+
+def _set_live_network_allowed(allowed: bool) -> None:
+    _SOCKET_GUARD_TLS.live_network_allowed = allowed
+
+
+def _raise_socket_blocked(address: object) -> None:
+    host = address[0] if isinstance(address, tuple) and address else address
+    raise SocketBlockedError(
+        f"Outbound network connection to '{host}' blocked by socket-guard. "
+        f"Unit tests must be hermetic and not rely on live external services. "
+        f"If this test legitimately requires live network, mark it with @pytest.mark.live_network."
+    )
+
+
+def _guarded_connect(sock_self: socket.socket, address: object) -> object:
+    if _is_live_network_allowed():
+        return _ORIG_SOCKET_CONNECT(sock_self, address)
+    if getattr(sock_self, "family", None) == getattr(socket, "AF_UNIX", None):
+        return _ORIG_SOCKET_CONNECT(sock_self, address)
+    if _is_localhost_address(address):
+        return _ORIG_SOCKET_CONNECT(sock_self, address)
+    _raise_socket_blocked(address)
+
+
+def _guarded_connect_ex(sock_self: socket.socket, address: object) -> int:
+    if _is_live_network_allowed():
+        return _ORIG_SOCKET_CONNECT_EX(sock_self, address)
+    if getattr(sock_self, "family", None) == getattr(socket, "AF_UNIX", None):
+        return _ORIG_SOCKET_CONNECT_EX(sock_self, address)
+    if _is_localhost_address(address):
+        return _ORIG_SOCKET_CONNECT_EX(sock_self, address)
+    _raise_socket_blocked(address)
+    return -1
+
+
+def _guarded_sendto(sock_self: socket.socket, data: bytes, *args: object, **kwargs: object) -> int:
+    if _is_live_network_allowed():
+        return _ORIG_SOCKET_SENDTO(sock_self, data, *args, **kwargs)
+    address = kwargs.get("address") or (args[-1] if args else None)
+    if (
+        address is not None
+        and getattr(sock_self, "family", None) != getattr(socket, "AF_UNIX", None)
+        and not _is_localhost_address(address)
+    ):
+        _raise_socket_blocked(address)
+    return _ORIG_SOCKET_SENDTO(sock_self, data, *args, **kwargs)
+
+
+def _guarded_sendmsg(
+    sock_self: socket.socket,
+    buffers: object,
+    *args: object,
+    **kwargs: object,
+) -> int:
+    if _is_live_network_allowed():
+        assert _ORIG_SOCKET_SENDMSG is not None
+        return _ORIG_SOCKET_SENDMSG(sock_self, buffers, *args, **kwargs)
+    address = kwargs.get("address")
+    if address is None and len(args) >= 3:
+        address = args[2]
+    if (
+        address is not None
+        and getattr(sock_self, "family", None) != getattr(socket, "AF_UNIX", None)
+        and not _is_localhost_address(address)
+    ):
+        _raise_socket_blocked(address)
+    assert _ORIG_SOCKET_SENDMSG is not None
+    return _ORIG_SOCKET_SENDMSG(sock_self, buffers, *args, **kwargs)
+
+
+def _guarded_create_connection(
+    address: object,
+    *args: object,
+    **kwargs: object,
+) -> socket.socket:
+    if _is_live_network_allowed():
+        return _ORIG_SOCKET_CREATE_CONNECTION(address, *args, **kwargs)
+    if not _is_localhost_address(address):
+        _raise_socket_blocked(address)
+    return _ORIG_SOCKET_CREATE_CONNECTION(address, *args, **kwargs)
+
+
+_SOCKET_GUARD_INSTALLED = False
+
+
+def _install_socket_guard() -> None:
+    """Install package-wide socket-guard hooks covering all outbound surfaces (#6968)."""
+    global _SOCKET_GUARD_INSTALLED
+    if _SOCKET_GUARD_INSTALLED:
+        return
+    socket.socket.connect = _guarded_connect
+    socket.socket.connect_ex = _guarded_connect_ex
+    socket.socket.sendto = _guarded_sendto
+    if _ORIG_SOCKET_SENDMSG is not None:
+        socket.socket.sendmsg = _guarded_sendmsg
+    socket.create_connection = _guarded_create_connection
+    _SOCKET_GUARD_INSTALLED = True
+
+
+# Install immediately upon conftest load (earliest hook preceding module/session fixtures)
+_install_socket_guard()
+
+
+# Dispatch worktrees drop these trees by default. Tests that read them skip
+# only while sparse-checkout is on AND the tree is absent. CI (sparse off)
+# always runs them. Needs are derived from the test module (path joins,
+# Path/open arguments, imported path constants, fixtures, and
+# pytest.mark.needs_sparse_tree), not from a hand list. A string that only
+# mentions the tree name is not a read. The tables below cover only the
+# trees handled by this skip mechanism, not every dispatch exclusion.
+# A partially materialized source-inventory tree needs a cone-membership
+# check rather than only a directory existence check. This does not add
+# sparse anchors to dispatch.
+_SPARSE_TREE_DIRS: dict[str, tuple[str, ...]] = {
+    "data/projects": ("tests/projects/open_model_data",),
+    "data/lexicon": ("tests/lexicon",),
+    "data/datasets": (),
+    "data/processed": (),
+    "registry/lexicon/source-inventory-review-decisions": (),
+}
+# Site trees skip only through pytest.mark.needs_sparse_tree. Build and
+# review tests lay out tmp_path/site/src/content as fixtures, so a path match
+# is no evidence of a read: derived needs skipped 400 tests that pass
+# without the trees (#10777).
+# An anchored tree is absent when the sparse cone does not hold all of it
+# (_sparse_cone_holds); its anchors keep the directory. It also skips only
+# through the marker, so tests that read just the anchored files keep running.
+_SPARSE_ANCHORED_TREES = frozenset({"registry/lexicon/source-inventory"})
+_SPARSE_MARKER_ONLY_TREES = frozenset({"site/src/content", "site/src/data"}) | _SPARSE_ANCHORED_TREES
+_SPARSE_TREES = frozenset(_SPARSE_TREE_DIRS) | _SPARSE_MARKER_ONLY_TREES
+_SPARSE_READ_ATTRS = frozenset(
+    {
+        "read_text",
+        "read_bytes",
+        "glob",
+        "rglob",
+        "iterdir",
+        "open",
+        "exists",
+        "stat",
+    }
+)
+
+
+def sparse_missing_tree_skip_reason(
+    rel_path: str,
+    *,
+    sparse_enabled: bool,
+    missing_trees: Collection[str],
+    item_name: str = "",
+) -> str | None:
+    """Skip reason when a sparse worktree is missing a tree the test reads.
+
+    Returns ``None`` when sparse-checkout is off, even if the tree is absent,
+    so CI (full checkout, sparse disabled) never skips these tests.
+    """
+    if not sparse_enabled:
+        return None
+    normalized = rel_path.replace("\\", "/").lstrip("./")
+    needed = _trees_needed_by_test(normalized, item_name)
+    # Declaration order names data/projects before data/lexicon, which is no
+    # longer tracked (#8853), so a test that reads both names the include
+    # that brings files.
+    for tree in (*_SPARSE_TREE_DIRS, *sorted(_SPARSE_MARKER_ONLY_TREES)):
+        if tree in missing_trees and tree in needed:
+            return f"{tree} is absent from this sparse worktree; re-include it with --sparse-include {tree}"
+    return None
+
+
+def _trees_needed_by_test(rel_path: str, item_name: str) -> frozenset[str]:
+    needed: set[str] = set()
+    for tree, prefixes in _SPARSE_TREE_DIRS.items():
+        if any(rel_path == prefix or rel_path.startswith(prefix + "/") for prefix in prefixes):
+            needed.add(tree)
+    analysis = _analyze_test_module(rel_path)
+    if analysis is not None:
+        module_trees, function_pairs = analysis
+        needed.update(module_trees)
+        base_name = item_name.split("[", 1)[0]
+        needed.update(dict(function_pairs).get(base_name, ()))
+    return frozenset(needed)
+
+
+def _path_trees(text: str, *, allow_bare: bool = False) -> set[str]:
+    """Trees named by a path.
+
+    A bare ``data/lexicon`` string is the skip/re-include identifier, not a
+    file read. A path into the tree (``data/lexicon/...``) counts, and so does
+    a path-join whose final path is exactly the tree directory.
+    """
+    normalized = text.replace("\\", "/")
+    found: set[str] = set()
+    for tree in _SPARSE_TREE_DIRS:
+        into_tree = f"{tree}/" in normalized
+        bare_tree = allow_bare and (normalized == tree or normalized.endswith(f"/{tree}"))
+        if into_tree or bare_tree:
+            found.add(tree)
+    return found
+
+
+def _div_parts(node: ast.AST) -> list[str]:
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Div):
+        return _div_parts(node.left) + _div_parts(node.right)
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return [node.value]
+    return []
+
+
+def _resolve_module(dotted: str) -> Path | None:
+    rel = Path(*dotted.split("."))
+    for candidate in (_REPO_ROOT / rel.with_suffix(".py"), _REPO_ROOT / rel / "__init__.py"):
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+_EXPORT_CACHE: dict[str, tuple[tuple[str, frozenset[str]], ...]] = {}
+_EXPORT_STACK: set[str] = set()
+
+
+def _module_exports(abs_path: str) -> tuple[tuple[str, frozenset[str]], ...]:
+    """Module-level names whose values reference a sparse data tree."""
+    cached = _EXPORT_CACHE.get(abs_path)
+    if cached is not None:
+        return cached
+    if abs_path in _EXPORT_STACK:
+        return ()
+    _EXPORT_STACK.add(abs_path)
+    result: tuple[tuple[str, frozenset[str]], ...] = ()
+    try:
+        path = Path(abs_path)
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        except (OSError, SyntaxError, UnicodeError):
+            return ()
+        else:
+            names: dict[str, set[str]] = {}
+            aliases: dict[str, Path] = {}
+            _collect_imports(tree, names, aliases)
+            for stmt in tree.body:
+                targets: list[ast.expr] = []
+                value: ast.expr | None = None
+                if isinstance(stmt, ast.Assign):
+                    targets = list(stmt.targets)
+                    value = stmt.value
+                elif isinstance(stmt, ast.AnnAssign) and stmt.value is not None:
+                    targets = [stmt.target]
+                    value = stmt.value
+                if value is None:
+                    continue
+                trees = _expr_trees(value, names, aliases)
+                for target in targets:
+                    if isinstance(target, ast.Name) and trees:
+                        names[target.id] = set(trees)
+            result = tuple((name, frozenset(bound)) for name, bound in names.items() if bound)
+    finally:
+        _EXPORT_STACK.discard(abs_path)
+    _EXPORT_CACHE[abs_path] = result
+    return result
+
+
+def _export_map(path: Path) -> dict[str, frozenset[str]]:
+    return dict(_module_exports(str(path.resolve())))
+
+
+def _collect_imports(
+    tree: ast.AST,
+    names: dict[str, set[str]],
+    aliases: dict[str, Path],
+) -> None:
+    for stmt in tree.body if isinstance(tree, ast.Module) else []:
+        if isinstance(stmt, ast.Import):
+            for alias in stmt.names:
+                module = _resolve_module(alias.name)
+                if module is not None:
+                    aliases[alias.asname or alias.name.split(".", 1)[0]] = module
+        elif isinstance(stmt, ast.ImportFrom) and stmt.module and stmt.level == 0:
+            for alias in stmt.names:
+                if alias.name == "*":
+                    continue
+                submodule = _resolve_module(f"{stmt.module}.{alias.name}")
+                bound = alias.asname or alias.name
+                if submodule is not None:
+                    aliases[bound] = submodule
+                    continue
+                source = _resolve_module(stmt.module)
+                if source is None:
+                    continue
+                exported = _export_map(source).get(alias.name)
+                if exported:
+                    names[bound] = set(exported)
+
+
+def _string_is_path_operand(node: ast.Constant, parent: ast.AST | None) -> bool:
+    """True when a string is a filesystem path, not prose that mentions one."""
+    if isinstance(parent, ast.BinOp) and isinstance(parent.op, ast.Div):
+        return node is parent.left or node is parent.right
+    if isinstance(parent, ast.Attribute) and parent.attr in _SPARSE_READ_ATTRS:
+        return node is parent.value
+    if not isinstance(parent, ast.Call):
+        return False
+    func = parent.func
+    is_path_call = (isinstance(func, ast.Name) and func.id in {"Path", "open"}) or (
+        isinstance(func, ast.Attribute) and func.attr in _SPARSE_READ_ATTRS
+    )
+    return is_path_call and any(node is arg for arg in parent.args)
+
+
+def _expr_trees(
+    node: ast.AST,
+    names: dict[str, set[str]],
+    aliases: dict[str, Path],
+) -> set[str]:
+    found: set[str] = set()
+    parents: dict[ast.AST, ast.AST] = {}
+    for parent in ast.walk(node):
+        for child in ast.iter_child_nodes(parent):
+            parents[child] = parent
+    for child in ast.walk(node):
+        if isinstance(child, ast.Constant) and isinstance(child.value, str):
+            if _string_is_path_operand(child, parents.get(child)):
+                found.update(_path_trees(child.value))
+        elif isinstance(child, ast.BinOp) and isinstance(child.op, ast.Div):
+            parts = _div_parts(child)
+            if len(parts) >= 2:
+                found.update(_path_trees("/".join(parts), allow_bare=True))
+        elif isinstance(child, ast.Name) and isinstance(child.ctx, ast.Load):
+            found.update(names.get(child.id, ()))
+        elif (
+            isinstance(child, ast.Attribute)
+            and isinstance(child.value, ast.Name)
+            and isinstance(child.value.ctx, ast.Load)
+        ):
+            module = aliases.get(child.value.id)
+            if module is not None:
+                found.update(_export_map(module).get(child.attr, ()))
+    return found
+
+
+def _marker_trees(node: ast.AST) -> set[str]:
+    found: set[str] = set()
+    if isinstance(node, (ast.List, ast.Tuple)):
+        for elt in node.elts:
+            found.update(_marker_trees(elt))
+        return found
+    if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute):
+        return found
+    if node.func.attr != "needs_sparse_tree":
+        return found
+    for arg in node.args:
+        if isinstance(arg, ast.Constant) and arg.value in _SPARSE_TREES:
+            found.add(str(arg.value))
+    return found
+
+
+def _is_fixture(fn: ast.FunctionDef | ast.AsyncFunctionDef) -> tuple[bool, bool]:
+    for dec in fn.decorator_list:
+        call = dec if isinstance(dec, ast.Call) else None
+        func = call.func if call is not None else dec
+        name = func.attr if isinstance(func, ast.Attribute) else (func.id if isinstance(func, ast.Name) else "")
+        if name != "fixture":
+            continue
+        autouse = False
+        if call is not None:
+            for keyword in call.keywords:
+                if keyword.arg == "autouse" and isinstance(keyword.value, ast.Constant) and keyword.value.value is True:
+                    autouse = True
+        return True, autouse
+    return False, False
+
+
+def _function_body(fn: ast.FunctionDef | ast.AsyncFunctionDef) -> list[ast.stmt]:
+    body = list(fn.body)
+    if (
+        body
+        and isinstance(body[0], ast.Expr)
+        and isinstance(body[0].value, ast.Constant)
+        and isinstance(body[0].value.value, str)
+    ):
+        return body[1:]
+    return body
+
+
+def _has_read_call(node: ast.AST) -> bool:
+    for child in ast.walk(node):
+        if not isinstance(child, ast.Call):
+            continue
+        func = child.func
+        if isinstance(func, ast.Name) and func.id == "open":
+            return True
+        if isinstance(func, ast.Attribute) and func.attr in _SPARSE_READ_ATTRS:
+            return True
+    return False
+
+
+def _decorator_trees(fn: ast.FunctionDef | ast.AsyncFunctionDef) -> set[str]:
+    found: set[str] = set()
+    for dec in fn.decorator_list:
+        found.update(_marker_trees(dec))
+    return found
+
+
+def _local_calls(fn: ast.FunctionDef | ast.AsyncFunctionDef) -> set[str]:
+    calls: set[str] = set()
+    for stmt in _function_body(fn):
+        for node in ast.walk(stmt):
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
+                calls.add(node.func.id)
+    return calls
+
+
+def _usefixtures(fn: ast.FunctionDef | ast.AsyncFunctionDef) -> set[str]:
+    names: set[str] = set()
+    for dec in fn.decorator_list:
+        if not isinstance(dec, ast.Call) or not isinstance(dec.func, ast.Attribute):
+            continue
+        if dec.func.attr != "usefixtures":
+            continue
+        for arg in dec.args:
+            if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
+                names.add(arg.value)
+    return names
+
+
+@functools.lru_cache(maxsize=512)
+def _analyze_test_module(
+    rel_path: str,
+) -> tuple[frozenset[str], tuple[tuple[str, frozenset[str]], ...]] | None:
+    path = _REPO_ROOT / rel_path
+    if not path.is_file() or path.suffix != ".py":
+        return None
+    try:
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    except (OSError, SyntaxError, UnicodeError):
+        return None
+    names: dict[str, set[str]] = {}
+    aliases: dict[str, Path] = {}
+    _collect_imports(tree, names, aliases)
+    module_trees: set[str] = set()
+    for stmt in tree.body:
+        if (
+            isinstance(stmt, ast.Assign)
+            and len(stmt.targets) == 1
+            and isinstance(stmt.targets[0], ast.Name)
+            and stmt.targets[0].id == "pytestmark"
+        ):
+            module_trees.update(_marker_trees(stmt.value))
+        if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            continue
+        if _has_read_call(stmt):
+            module_trees.update(_expr_trees(stmt, names, aliases))
+        targets = []
+        value: ast.expr | None = None
+        if isinstance(stmt, ast.Assign):
+            targets = list(stmt.targets)
+            value = stmt.value
+        elif isinstance(stmt, ast.AnnAssign) and stmt.value is not None:
+            targets = [stmt.target]
+            value = stmt.value
+        if value is None:
+            continue
+        trees = _expr_trees(value, names, aliases)
+        for target in targets:
+            if isinstance(target, ast.Name) and trees:
+                names[target.id] = set(trees)
+
+    functions: dict[str, list[ast.FunctionDef | ast.AsyncFunctionDef]] = {}
+
+    def _add_function(fn: ast.FunctionDef | ast.AsyncFunctionDef) -> None:
+        functions.setdefault(fn.name, []).append(fn)
+
+    for stmt in tree.body:
+        if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            _add_function(stmt)
+        elif isinstance(stmt, ast.ClassDef):
+            for child in stmt.body:
+                if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    _add_function(child)
+
+    direct: dict[str, set[str]] = {}
+    calls: dict[str, set[str]] = {}
+    fixtures: dict[str, bool] = {}
+    for name, defs in functions.items():
+        trees: set[str] = set()
+        called: set[str] = set()
+        autouse = False
+        is_fixture = False
+        for fn in defs:
+            for stmt in _function_body(fn):
+                trees.update(_expr_trees(stmt, names, aliases))
+            trees.update(_decorator_trees(fn))
+            called.update(_local_calls(fn))
+            found, fn_autouse = _is_fixture(fn)
+            is_fixture = is_fixture or found
+            autouse = autouse or fn_autouse
+            for arg in (*fn.args.args, *fn.args.kwonlyargs):
+                if arg.arg in functions:
+                    called.add(arg.arg)
+            called.update(_usefixtures(fn))
+        direct[name] = trees
+        calls[name] = called
+        if is_fixture:
+            fixtures[name] = autouse
+
+    changed = True
+    while changed:
+        changed = False
+        for name, called in calls.items():
+            for callee in called:
+                extra = direct.get(callee)
+                if extra and not extra <= direct[name]:
+                    direct[name].update(extra)
+                    changed = True
+    for name, autouse in fixtures.items():
+        if autouse:
+            module_trees.update(direct.get(name, ()))
+
+    function_trees = tuple((name, frozenset(trees)) for name, trees in sorted(direct.items()) if trees)
+    return frozenset(module_trees), function_trees
+
+
+@functools.lru_cache(maxsize=1)
+def _sparse_checkout_enabled() -> bool:
+    try:
+        proc = subprocess.run(
+            ["git", "-C", str(_REPO_ROOT), "config", "--get", "--type=bool", "core.sparseCheckout"],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=30,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return proc.returncode == 0 and proc.stdout.strip().lower() == "true"
+
+
+def _sparse_missing_trees() -> frozenset[str]:
+    forced = sparse_trees.forced_missing_trees() & _SPARSE_TREES
+    if not _sparse_checkout_enabled():
+        return frozenset(forced)
+    missing = set(forced)
+    for rel in _SPARSE_TREES:
+        present = _sparse_cone_holds(rel) if rel in _SPARSE_ANCHORED_TREES else (_REPO_ROOT / rel).is_dir()
+        if not present:
+            missing.add(rel)
+    return frozenset(missing)
+
+
+@functools.lru_cache(maxsize=1)
+def _sparse_cone_dirs() -> tuple[str, ...] | None:
+    """Directories of this checkout's sparse cone; None when it is not in cone mode or git fails."""
+    try:
+        cone_mode = subprocess.run(
+            ["git", "-C", str(_REPO_ROOT), "config", "--get", "--type=bool", "core.sparseCheckoutCone"],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=30,
+        )
+        if cone_mode.stdout.strip().lower() != "true":
+            return None
+        listing = subprocess.run(
+            ["git", "-C", str(_REPO_ROOT), "sparse-checkout", "list"],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=30,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if listing.returncode != 0:
+        return None
+    return tuple(line.strip().strip("/") for line in listing.stdout.splitlines() if line.strip())
+
+
+def _sparse_cone_holds(tree: str) -> bool:
+    """Whether the sparse cone holds all of ``tree``; an unknown cone reads as holding it, so the test runs."""
+    cone = _sparse_cone_dirs()
+    if cone is None:
+        return True
+    return any(tree == entry or tree.startswith(entry + "/") for entry in cone)
+
+
+def _item_repo_rel(item: pytest.Item) -> str:
+    raw = getattr(item, "path", None) or getattr(item, "fspath", "")
+    return _repo_rel(str(raw))
+
+
+# Items of one module share its path: resolve each path once, not per item
+# (19.6k items cost 39k resolve() calls in the repo_wide collection child, #10498).
+@functools.cache
+def _repo_rel(raw: str) -> str:
+    path = Path(raw)
+    try:
+        return path.resolve().relative_to(_REPO_ROOT).as_posix()
+    except ValueError:
+        return path.as_posix()
+
+
+# Test groups that run nightly instead of on every PR (CI review: they caught no
+# bug on a PR in the measured window). They join the ``slow`` lane, which
+# pytest-slow-nightly.yml runs; a failing group gets an owned issue. Tests that
+# CI must prove ran (``needs_artifact``) stay on PRs.
+NIGHTLY_GROUPS = ("tests/projects/", "tests/audit/", "tests/test_open")
+
+
+def _mark_nightly_groups(items: list[pytest.Item]) -> None:
+    """Mark nightly test groups ``slow`` before ``-m`` deselects."""
+    for item in items:
+        if _item_repo_rel(item).startswith(NIGHTLY_GROUPS) and item.get_closest_marker("needs_artifact") is None:
+            item.add_marker(pytest.mark.slow)
+
+
+def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
+    """Mark nightly groups and quarantined flakes; refuse unserved ``rules_core_absent`` tests."""
+    _mark_nightly_groups(items)
+    selected = rerun_node_ids(
+        load_registry(),
+        today=datetime.now(UTC).date(),
+        event_name="schedule"
+        if os.environ.get("LU_FLAKE_DISABLE_RERUN") == "1"
+        else os.environ.get("GITHUB_EVENT_NAME"),
+    )
+    for item in items:
+        if item.nodeid in selected:
+            item.add_marker(pytest.mark.flaky(reruns=1, rerun_except=[TIMEOUT_PATTERN]))
+    # The marker's fixture lives in tests/rules_core_view.py (it links the whole
+    # checkout, so this conftest must not import it); a module that forgets the
+    # import would silently run a marked test with the core.
+    unserved = [
+        item.nodeid
+        for item in items
+        if item.get_closest_marker("rules_core_absent") is not None
+        and "rules_core_absent_when_marked" not in getattr(item, "fixturenames", ())
+    ]
+    if unserved:
+        raise pytest.UsageError(
+            f"rules_core_absent tests whose module does not import the rules_core_absent_when_marked fixture: {unserved}"
+        )
+
+
+def _skip_if_sparse_tree_missing(item: pytest.Item) -> None:
+    """Skip a test whose sparse-excluded tree is not in this worktree.
+
+    Decided when the test runs, before its fixtures, as a skip mark would be.
+    A collect-only child or an xdist worker then analyzes only the modules
+    whose tests it runs, not every collected one (#10498).
+    """
+    missing = _sparse_missing_trees()
+    if not missing:
+        return
+    reason = sparse_missing_tree_skip_reason(
+        _item_repo_rel(item),
+        sparse_enabled=True,
+        missing_trees=missing,
+        item_name=item.name,
+    )
+    if reason:
+        # Report the test's location, as pytest's own skip marks do.
+        raise pytest.skip.Exception(reason, _use_item_location=True)
+
+
+class _SparseTreeSkip:
+    """Own setup hook, so ``pytest_runtest_setup`` below stays self-contained.
+
+    Tests call that hook with marker-only doubles or copy its source into an
+    isolated conftest; neither has to supply what the sparse check reads.
+    ``tryfirst`` keeps the skip ahead of the conftest checks and fixtures,
+    where pytest's skip-mark evaluation ran it before.
+    """
+
+    @pytest.hookimpl(tryfirst=True)
+    def pytest_runtest_setup(self, item: pytest.Item) -> None:
+        _skip_if_sparse_tree_missing(item)
+
+
+class _FlakeRerunReporter:
+    """Keep successful reruns visible in both xunit2 and the Actions summary."""
+
+    def __init__(self, config: pytest.Config) -> None:
+        self.config = config
+        self.first_failures: set[str] = set()
+        self.call_passed: set[str] = set()
+        self.recovered: set[str] = set()
+
+    @pytest.hookimpl(tryfirst=True)
+    def pytest_runtest_logreport(self, report: pytest.TestReport) -> None:
+        if report.outcome == "rerun":
+            self.first_failures.add(report.nodeid)
+            self.call_passed.discard(report.nodeid)
+        elif report.when == "call" and report.passed:
+            self.call_passed.add(report.nodeid)
+        elif (
+            report.when == "teardown"
+            and report.passed
+            and report.nodeid in self.first_failures
+            and report.nodeid in self.call_passed
+        ):
+            self.recovered.add(report.nodeid)
+            from _pytest.junitxml import xml_key
+
+            xml = self.config.stash.get(xml_key, None)
+            if xml is not None:
+                reporter = xml.node_reporter(report)
+                reporter.add_property("flake.reruns", "1")
+
+    def pytest_terminal_summary(self, terminalreporter: pytest.TerminalReporter) -> None:
+        if not self.recovered:
+            return
+        lines = ["### Quarantined tests recovered by one rerun", ""]
+        for node_id in sorted(self.recovered):
+            lines.append(f"- `{node_id}`: first attempt failed, rerun passed")
+        lines.append("")
+        summary = "\n".join(lines)
+        terminalreporter.write_sep("=", "quarantined reruns")
+        terminalreporter.write(summary)
+        summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
+        if summary_path:
+            with open(summary_path, "a", encoding="utf-8") as output:
+                output.write(summary)
+
+
+LU_PYTEST_NEEDS_ARTIFACT_COLLECTED_ENV_VAR = "LU_PYTEST_NEEDS_ARTIFACT_COLLECTED"
+
+
+class _NeedsArtifactCollection:
+    """Write every collected ``needs_artifact`` test before ``-m`` deselects any.
+
+    scripts/ci/pytest_report.py compares this set with
+    registry/artifacts/needs-artifact-expected.txt, independently of the
+    tests that skipped at run time, so a marked test the tier deselects
+    (``slow``) or skips for another reason fails the audit. Under xdist every
+    worker collects the same items and gw0 writes them; the controller
+    collects nothing.
+
+    The path reaches workers through ``workerinput``, never the environment:
+    a test that runs a child pytest would inherit the variable and overwrite
+    this run's list with the child's.
+    """
+
+    def __init__(self, path: Path) -> None:
+        self.path = path
+
+    @pytest.hookimpl(optionalhook=True)
+    def pytest_configure_node(self, node: Any) -> None:
+        node.workerinput[LU_PYTEST_NEEDS_ARTIFACT_COLLECTED_ENV_VAR] = str(self.path)
+
+    @pytest.hookimpl(tryfirst=True)
+    def pytest_collection_modifyitems(self, config: pytest.Config, items: list[pytest.Item]) -> None:
+        if getattr(config, "workerinput", {}).get("workerid", "gw0") != "gw0":
+            return
+        marked = sorted(item.nodeid for item in items if item.get_closest_marker("needs_artifact"))
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.path.write_text("".join(f"{node_id}\n" for node_id in marked), encoding="utf-8")
+
+
+def _restore_published_credentials(config: pytest.Config) -> None:
+    """Put back the controller's suite-published names on an xdist worker.
+
+    Import already removed every credential-shaped name in this process.
+    Names that fail the suffix check are ignored. Values are not logged.
+    """
+    workerinput = getattr(config, "workerinput", None)
+    if not isinstance(workerinput, dict):
+        return
+    # Workers need the controller's import-time snapshot to sanitize before
+    # serialization. It stays in memory and is never restored into os.environ.
+    redaction_secrets = workerinput.get(_XDIST_REDACTION_SECRETS_KEY, {})
+    if isinstance(redaction_secrets, dict):
+        _IMPORT_STRIPPED_SECRETS.update(
+            {
+                name: value
+                for name, value in redaction_secrets.items()
+                if isinstance(name, str) and isinstance(value, str)
+            }
+        )
+    published = workerinput.get(_XDIST_PUBLISHED_CREDENTIALS_KEY)
+    if not isinstance(published, dict):
+        return
+    for name, value in published.items():
+        if isinstance(name, str) and isinstance(value, str) and _is_credential_shaped_env_name(name):
+            os.environ[name] = value
+
+
+@pytest.hookimpl(optionalhook=True)
+def pytest_configure_node(node: Any) -> None:
+    """Copy suite-published credential names into one xdist worker.
+
+    The hookspec argument is ``node``. Ambient names are already gone, so
+    ``os.environ`` holds only names this session published. The worker strips
+    again at import and ``pytest_configure`` puts this copy back.
+    """
+    node.workerinput[_XDIST_PUBLISHED_CREDENTIALS_KEY] = _published_credential_env()
+    node.workerinput[_XDIST_REDACTION_SECRETS_KEY] = dict(_IMPORT_STRIPPED_SECRETS)
+
+
+def pytest_configure(config: pytest.Config) -> None:
+    config.pluginmanager.register(
+        _TelemetryIsolation(
+            tuple(
+                root / "batch_state" / "telemetry" / "events"
+                for root in dict.fromkeys((_REPO_ROOT, main_checkout_root(_REPO_ROOT)))
+            )
+        ),
+        "telemetry-isolation",
+    )
+    _restore_published_credentials(config)
+    if (
+        not hasattr(config, "workerinput")
+        and _IMPORT_HAD_CREDENTIALS
+        and (
+            config.getoption("capture") in {"no", "tee-sys"}
+            or config.getini("log_cli")
+            or config.getoption("log_cli_level") is not None
+        )
+    ):
+        sys.stderr.write(
+            "WARNING: credential redaction cannot protect direct terminal output; "
+            "keep capture enabled and log_cli disabled when credentials are present.\n"
+        )
+    load_registry()
+    if config.getoption("reruns", default=0):
+        raise pytest.UsageError("blanket --reruns is forbidden; use tests/flake_quarantine.yaml")
+    config.pluginmanager.register(_FlakeRerunReporter(config), "flake-rerun-reporter")
+    config.pluginmanager.register(_SparseTreeSkip(), "sparse-tree-skip")
+    if hasattr(config, "workerinput"):
+        collected_path = config.workerinput.get(LU_PYTEST_NEEDS_ARTIFACT_COLLECTED_ENV_VAR)
+    else:
+        collected_path = os.environ.pop(LU_PYTEST_NEEDS_ARTIFACT_COLLECTED_ENV_VAR, None)
+    if collected_path:
+        config.pluginmanager.register(_NeedsArtifactCollection(Path(collected_path)), "needs-artifact-collection")
+    _install_socket_guard()
+    config.addinivalue_line(
+        "markers",
+        "flaky(reruns, rerun_except): quarantine marker; pytest-rerunfailures enforces reruns when installed",
+    )
+    config.addinivalue_line(
+        "markers",
+        "needs_sparse_tree(tree): test reads a default sparse-excluded tree such as data/projects; "
+        "skipped when sparse-checkout omits that tree. A tree with a cone anchor (curriculum) "
+        "cannot be seen as absent and is named so a dispatch that owns the test includes it",
+    )
+    config.addinivalue_line(
+        "markers",
+        "host_dispatch_probe: test runs the real dispatch_isolation probe instead of the not-ready stub",
+    )
+    config.addinivalue_line(
+        "markers",
+        "needs_artifact(group, rel): test requires data/<rel> from artifact group; "
+        "skipped only when the artifact is absent",
+    )
+    config.addinivalue_line(
+        "markers",
+        "exercises_default_scratch_root: test resolves the built-in scratch root with "
+        "LU_SCRATCH_ROOT unset. The isolation fixture points that default at a private "
+        "directory under tmp_path instead of /var/tmp/lu (#9927)",
+    )
+    # The live app's request middleware defaults to 10s. Tests that drive
+    # TestClient(api_main.app) and read the real decision/ADR tree have
+    # exceeded that under xdist and come back as 504 (#8439). The assertions
+    # are about the payload. A test that sets API_REQUEST_TIMEOUT_S itself
+    # still wins, including the 0.05s timeout case.
+    os.environ.setdefault("API_REQUEST_TIMEOUT_S", "60")
+
+
+def pytest_runtest_setup(item: pytest.Item) -> None:
+    if item.get_closest_marker("site_toolchain"):
+        site_modules = Path(__file__).resolve().parents[1] / "site" / "node_modules"
+        if not site_modules.is_dir():
+            pytest.fail(
+                "site_toolchain requires site/node_modules; run npm ci in site/ "
+                "or explicitly deselect with -m 'not site_toolchain'",
+                pytrace=False,
+            )
+    if item.get_closest_marker("live_network"):
+        _set_live_network_allowed(True)
+    marker = item.get_closest_marker("needs_artifact")
+    if marker is not None:
+        if len(marker.args) != 2 or marker.kwargs:
+            raise pytest.UsageError("needs_artifact marker requires exactly (group, rel)")
+        from lu_machinery.storage.paths import DATA_ROOT, MissingArtifactError, find_entry, verify_file
+
+        group, rel = marker.args
+        try:
+            entry = find_entry(group, rel)
+            verify_file(DATA_ROOT / rel, entry, group=group, rel=rel)
+        except MissingArtifactError as error:
+            detail = error.detail.casefold()
+            if detail == "missing" or "manifest missing" in detail or "no unique manifest entry" in detail:
+                pytest.skip(f"needs_artifact: {error}")
+            raise
+
+
+def pytest_runtest_teardown(item: pytest.Item, nextitem: pytest.Item | None) -> None:
+    _set_live_network_allowed(False)
+
+
+@pytest.fixture(autouse=True)
+def _socket_guard(request: pytest.FixtureRequest) -> Generator[None, None, None]:
+    """Ensure per-test live_network marker status is respected and always reset (#6968)."""
+    is_live = bool(request.node.get_closest_marker("live_network"))
+    _set_live_network_allowed(is_live)
+    try:
+        yield
+    finally:
+        _set_live_network_allowed(False)
+
+
+# =============================================================================
+# MODULE TEMPLATES
+# =============================================================================
+
+
+@pytest.fixture
+def minimal_module_b1():
+    """Minimal valid B1 module structure."""
+    return """---
+module: 1
+title: Test Module
+level: B1
+pedagogy: PPP
+cefr: B1.1
+phase: Grammar
+objectives:
+  - Test objective
+---
+
+# Presentation
+
+This is the presentation section with content.
+
+# Practice
+
+Practice content here.
+
+# Production
+
+Production content here.
+
+# Vocabulary
+
+| Слово | Переклад | Примітки |
+|-------|----------|----------|
+| слово | word | noun |
+"""
+
+
+@pytest.fixture
+def minimal_module_a1():
+    """Minimal valid A1 module structure."""
+    return """---
+module: 1
+title: Test Module
+level: A1
+pedagogy: PPP
+cefr: A1.1
+phase: Basics
+objectives:
+  - Test objective
+---
+
+# Presentation
+
+This is the presentation section with content.
+
+# Practice
+
+Practice content here.
+
+# Production
+
+Production content here.
+
+# Vocabulary
+
+| Word | IPA | English | POS | Gender | Note |
+|------|-----|---------|-----|--------|------|
+| слово | /ˈslɔwɔ/ | word | noun | n | - |
+"""
+
+
+# =============================================================================
+# ACTIVITY SNIPPETS
+# =============================================================================
+
+
+@pytest.fixture
+def valid_quiz_b1():
+    """Valid B1 quiz with proper word counts."""
+    return """
+## quiz: Частини мови
+
+1. Яка частина мови в українській граматиці називає предмети та поняття для опису світу?
+   - [x] Іменник
+   - [ ] Дієслово
+   - [ ] Прикметник
+   - [ ] Прислівник
+
+2. Яка частина мови в українській мові позначає дію або стан суб'єкта речення?
+   - [ ] Іменник
+   - [x] Дієслово
+   - [ ] Прикметник
+   - [ ] Прислівник
+"""
+
+
+@pytest.fixture
+def valid_error_correction():
+    """Valid error-correction with all required callouts."""
+    return """
+## error-correction: Виправлення
+
+1. Він ходить до школа.
+   > [!error] школа
+   > [!answer] школи
+   > [!options] школа | школи | школу | школою
+   > [!explanation] Після прийменника "до" вживаємо родовий відмінок.
+
+2. Вона читає книгу на стіл.
+   > [!error] стіл
+   > [!answer] столі
+   > [!options] стіл | столі | столу | столом
+   > [!explanation] Після прийменника "на" (місце) вживаємо місцевий відмінок.
+"""
+
+
+@pytest.fixture
+def valid_unjumble():
+    """Valid unjumble with answer callout."""
+    return """
+## unjumble: Речення
+
+1. я / люблю / Україну / дуже / сильно
+   > [!answer] Я дуже сильно люблю Україну.
+
+2. вона / читає / книгу / цікаву / про / історію
+   > [!answer] Вона читає цікаву книгу про історію.
+"""
+
+
+@pytest.fixture
+def valid_match_up():
+    """Valid match-up with proper pairs."""
+    return """
+## match-up: Терміни
+
+| Термін | Переклад |
+|--------|----------|
+| слово | word |
+| речення | sentence |
+| граматика | grammar |
+| відмінок | case |
+| дієслово | verb |
+| іменник | noun |
+| прикметник | adjective |
+| прислівник | adverb |
+| займенник | pronoun |
+| сполучник | conjunction |
+"""
+
+
+# =============================================================================
+# VOCABULARY FIXTURES
+# =============================================================================
+
+
+@pytest.fixture
+def valid_vocab_table_b1():
+    """Valid B1 vocabulary table (3 columns)."""
+    return """
+# Словник
+
+| Слово | Переклад | Примітки |
+|-------|----------|----------|
+| граматика | grammar | noun |
+| відмінок | case | noun |
+| дієслово | verb | noun |
+| іменник | noun | noun |
+"""
+
+
+@pytest.fixture
+def valid_vocab_table_a1():
+    """Valid A1 vocabulary table (6 columns with IPA)."""
+    return """
+# Vocabulary
+
+| Word | IPA | English | POS | Gender | Note |
+|------|-----|---------|-----|--------|------|
+| слово | /ˈslɔwɔ/ | word | noun | n | - |
+| книга | /ˈknɪɦa/ | book | noun | f | - |
+| читати | /tʃɪˈtatɪ/ | to read | verb | - | impf |
+"""
+
+
+@pytest.fixture
+def invalid_vocab_missing_ipa():
+    """Invalid A1 vocabulary - missing IPA."""
+    return """
+# Vocabulary
+
+| Word | IPA | English | POS | Gender | Note |
+|------|-----|---------|-----|--------|------|
+| слово | | word | noun | n | - |
+| книга | /ˈknɪɦa/ | book | noun | f | - |
+"""
+
+
+# =============================================================================
+# CONTENT WITH ISSUES
+# =============================================================================
+
+
+@pytest.fixture
+def content_with_russian_chars():
+    """Content with Russian-only characters."""
+    return """---
+module: 1
+title: Test
+level: B1
+---
+
+# Test
+
+Прикметник "красивый" не є українським.
+"""
+
+
+@pytest.fixture
+def content_clean_ukrainian():
+    """Clean Ukrainian content without Russian chars."""
+    return """---
+module: 1
+title: Test
+level: B1
+---
+
+# Test
+
+Прикметник "красивий" є українським словом.
+Граматика української мови цікава.
+"""
+
+
+@pytest.fixture
+def quiz_with_short_prompts():
+    """Quiz with prompts that are too short for B1."""
+    return """
+## quiz: Тест
+
+1. Яка це частина мови?
+   - [x] Іменник
+   - [ ] Дієслово
+
+2. Що це таке?
+   - [x] Граматика
+   - [ ] Лексика
+"""
+
+
+# =============================================================================
+# PPP STRUCTURE FIXTURES
+# =============================================================================
+
+
+@pytest.fixture
+def valid_ppp_structure():
+    """Content with valid PPP structure."""
+    return """---
+module: 1
+title: Test
+level: B1
+pedagogy: PPP
+---
+
+# Presentation
+
+Content here.
+
+# Practice
+
+Practice content.
+
+# Production
+
+Production content.
+"""
+
+
+@pytest.fixture
+def invalid_ppp_missing_section():
+    """PPP content missing Production section."""
+    return """---
+module: 1
+title: Test
+level: B1
+pedagogy: PPP
+---
+
+# Presentation
+
+Content here.
+
+# Practice
+
+Practice content.
+"""
+
+
+# Real primary checkout's ``.worktrees/`` — not a ``.worktrees`` directory inside
+# the worker that happens to be running the suite. Dispatch tests that call
+# ``cmd_dispatch`` used to mkdir husks here while git itself was stubbed.
+_REAL_WORKTREES_DIR = ""
+_REAL_WORKTREES_PREFIX = ""
+_WORKTREE_ENTRIES_AT_START: set[str] = set()
+_CREATED_WORKTREE_ENTRIES: set[str] = set()
+# path -> "PYTEST_CURRENT_TEST=... caller=file:line" for each recorded creation.
+_CREATED_WORKTREE_ATTRIBUTION: dict[str, str] = {}
+# How long teardown waits for a still-running ``git worktree add``.
+_POPEN_CLASSIFY_TIMEOUT_SECONDS = 30
+# Bookkeeping bugs are reported once at teardown. They must not raise out of
+# os.mkdir / Popen and change the call the test actually made.
+_GUARD_CLASSIFY_FAILURES: list[str] = []
+_GUARD_CLASSIFY_FAILURE_LIMIT = 8
+
+
+class _PopenWorktreeCall:
+    """One ``git worktree add`` observed at ``Popen`` construction.
+
+    Calls are not merged: each stores that call's own absent-before flag.
+    ``proc`` stays reachable so teardown can poll or wait after the caller
+    drops the object. ``token`` is a weakref so the call is not keyed by a
+    bare ``id()`` a later Popen can reuse.
+    """
+
+    __slots__ = ("absent_before", "attribution", "destination", "proc", "token")
+
+    def __init__(
+        self,
+        proc: subprocess.Popen,
+        destination: str,
+        absent_before: bool,
+        attribution: str,
+    ) -> None:
+        self.token = weakref.ref(proc)
+        self.proc = proc
+        self.destination = destination
+        self.absent_before = absent_before
+        self.attribution = attribution
+
+
+# One record per ``git worktree add`` Popen.
+_POPEN_WORKTREE_CALLS: list[_PopenWorktreeCall] = []
+
+
+def _init_real_worktrees_dir() -> str:
+    """Absolute realpath of the primary checkout's ``.worktrees`` directory."""
+    global _REAL_WORKTREES_DIR, _REAL_WORKTREES_PREFIX
+    if _REAL_WORKTREES_DIR:
+        return _REAL_WORKTREES_DIR
+    from lu_machinery.common.repo_root import main_checkout_root
+
+    worktrees = main_checkout_root(_REPO_ROOT) / ".worktrees"
+    _REAL_WORKTREES_DIR = os.path.realpath(worktrees)
+    _REAL_WORKTREES_PREFIX = _REAL_WORKTREES_DIR + os.sep
+    return _REAL_WORKTREES_DIR
+
+
+def _record_classify_failure(exc: BaseException) -> None:
+    if len(_GUARD_CLASSIFY_FAILURES) >= _GUARD_CLASSIFY_FAILURE_LIMIT:
+        return
+    _GUARD_CLASSIFY_FAILURES.append(f"{type(exc).__name__}: {exc}")
+
+
+def _decode_guard_path(path: object) -> str:
+    """Filesystem text for ``path``.
+
+    ``os.fsdecode(os.fspath(...))`` accepts ``str``, ``bytes``, and path-like
+    objects. A bytes path used to reach ``str.startswith`` and raise
+    ``TypeError`` before the real mkdir ran.
+    """
+    return os.fsdecode(os.fspath(path))  # type: ignore[arg-type]
+
+
+def _worktree_guard_enabled() -> bool:
+    """``LU_WORKTREE_GUARD=0`` turns the hooks off for an overhead measurement."""
+    return os.environ.get("LU_WORKTREE_GUARD", "1") != "0"
+
+
+def _gh_guard_enabled() -> bool:
+    """``LU_GH_GUARD=0`` disables only the real GitHub CLI spawn guard."""
+    return os.environ.get("LU_GH_GUARD", "1") != "0"
+
+
+def _worktree_entry_key(path: object) -> str | None:
+    """Path of a new worktree root, or None for anything nested inside one.
+
+    A dispatch entry is ``.worktrees/dispatch/<agent>/<task>``. A flat entry is
+    a direct child of ``.worktrees``. Deeper paths are files inside a checkout
+    that already exists — including this worker's own worktree — and must not
+    trip the guard. The prefix check is a string compare so ordinary ``/tmp``
+    mkdirs stay cheap.
+
+    The final path component is not resolved. A symlink created as the entry
+    is keyed by the link path, not by the directory it points at.
+    """
+    root = _init_real_worktrees_dir()
+    try:
+        text = os.path.abspath(_decode_guard_path(path))
+    except (TypeError, ValueError):
+        return None
+    if text != root and not text.startswith(_REAL_WORKTREES_PREFIX):
+        return None
+    parent = os.path.realpath(os.path.dirname(text))
+    if parent != root and not parent.startswith(_REAL_WORKTREES_PREFIX):
+        return None
+    name = os.path.basename(text)
+    if not name or name in {".", ".."}:
+        return None
+    candidate = os.path.join(parent, name)
+    if candidate == root:
+        return None
+    parts = [part for part in candidate[len(_REAL_WORKTREES_PREFIX) :].split(os.sep) if part]
+    if len(parts) == 1 or (len(parts) == 3 and parts[0] == "dispatch"):
+        return candidate
+    return None
+
+
+def _missing_worktree_entries(path: object) -> list[str]:
+    """Worktree-root ancestors of ``path`` that do not exist yet."""
+    root = _init_real_worktrees_dir()
+    try:
+        probe = os.path.abspath(_decode_guard_path(path))
+    except (TypeError, ValueError):
+        return []
+    if probe != root and not probe.startswith(_REAL_WORKTREES_PREFIX):
+        return []
+    missing: list[str] = []
+    while probe.startswith(_REAL_WORKTREES_PREFIX) or probe == root:
+        key = _worktree_entry_key(probe)
+        if key and key not in _WORKTREE_ENTRIES_AT_START and not os.path.lexists(key):
+            missing.append(key)
+        parent = os.path.dirname(probe)
+        if parent == probe:
+            break
+        probe = parent
+    return missing
+
+
+def _classify_created_path(path: object) -> list[tuple[str, bool]]:
+    """``(entry, existed immediately before the call)`` for one path."""
+    key = _worktree_entry_key(path)
+    if key is None:
+        return []
+    existed = key in _WORKTREE_ENTRIES_AT_START or os.path.lexists(key)
+    return [(key, existed)]
+
+
+def _classify_makedirs_path(path: object) -> list[tuple[str, bool]]:
+    missing = _missing_worktree_entries(path)
+    classified = [(key, False) for key in missing]
+    key = _worktree_entry_key(path)
+    if key and key not in missing and (key in _WORKTREE_ENTRIES_AT_START or os.path.lexists(key)):
+        classified.append((key, True))
+    return classified
+
+
+def _classify_quietly(classify, path: object) -> list[tuple[str, bool]] | None:
+    try:
+        return classify(path)
+    except Exception as exc:
+        # A guard bug must not replace the original call.
+        _record_classify_failure(exc)
+        return None
+
+
+def _caller_outside_conftest() -> str:
+    """First repo frame above this file, as ``path:line``."""
+    here = Path(__file__).resolve()
+    repo = _REPO_ROOT.resolve()
+    frame = sys._getframe()
+    fallback: str | None = None
+    while frame is not None:
+        frame = frame.f_back
+        if frame is None:
+            break
+        filename = frame.f_code.co_filename
+        if not filename or filename.startswith("<"):
+            continue
+        try:
+            resolved = Path(filename).resolve()
+        except OSError:
+            continue
+        if resolved == here:
+            continue
+        try:
+            relative = resolved.relative_to(repo).as_posix()
+        except ValueError:
+            if fallback is None:
+                fallback = f"{resolved}:{frame.f_lineno}"
+            continue
+        return f"{relative}:{frame.f_lineno}"
+    return fallback or "<no frame outside conftest>"
+
+
+def _creation_attribution() -> str:
+    """Node id plus the creating frame, captured when the entry appears."""
+    node = os.environ.get("PYTEST_CURRENT_TEST", "").strip() or "<no PYTEST_CURRENT_TEST>"
+    return f"PYTEST_CURRENT_TEST={node} caller={_caller_outside_conftest()}"
+
+
+def _remember_if_created(key: str, existed_before: bool) -> None:
+    """Record ``key`` only when this call both found it absent and created it.
+
+    The caller observed ``os.path.lexists`` immediately before the original
+    call and that call returned without raising. This checks again afterwards.
+    A path that already existed — including ``os.makedirs(..., exist_ok=True)``
+    on a directory another process owns — is not recorded. A call that raises
+    records nothing, and an earlier absent observation is not reused.
+
+    A tiny race remains: another process can create the path between the
+    before-check and a successful ``exist_ok=True`` return. We accept that
+    window. Locking the real ``.worktrees`` tree would stall every other
+    agent on the host.
+    """
+    if existed_before or key in _WORKTREE_ENTRIES_AT_START:
+        return
+    if os.path.lexists(key):
+        _CREATED_WORKTREE_ENTRIES.add(key)
+        _CREATED_WORKTREE_ATTRIBUTION.setdefault(key, _creation_attribution())
+
+
+def _remember_quietly(classified: list[tuple[str, bool]] | None) -> None:
+    if not classified:
+        return
+    try:
+        for key, existed_before in classified:
+            _remember_if_created(key, existed_before)
+    except Exception as exc:
+        # A guard bug must not replace the original call.
+        _record_classify_failure(exc)
+
+
+def _guarded_mkdir(path: object, *args: object, **kwargs: object):
+    classified = _classify_quietly(_classify_created_path, path)
+    result = _ORIGINAL_OS_MKDIR(path, *args, **kwargs)
+    # A raised call never reaches here, so a failure records nothing.
+    _remember_quietly(classified)
+    return result
+
+
+def _guarded_makedirs(name: object, *args: object, **kwargs: object):
+    classified = _classify_quietly(_classify_makedirs_path, name)
+    result = _ORIGINAL_OS_MAKEDIRS(name, *args, **kwargs)
+    _remember_quietly(classified)
+    return result
+
+
+def _guarded_symlink(src: object, dst: object, *args: object, **kwargs: object):
+    # The link path is the second argument. The target may live anywhere.
+    classified = _classify_quietly(_classify_created_path, dst)
+    result = _ORIGINAL_OS_SYMLINK(src, dst, *args, **kwargs)
+    _remember_quietly(classified)
+    return result
+
+
+def _decode_argv(argv: list | tuple) -> list[str] | None:
+    try:
+        return [_decode_guard_path(arg) for arg in argv]
+    except (TypeError, ValueError):
+        return None
+
+
+def _resolve_against(base: str, raw: str) -> str:
+    if os.path.isabs(raw):
+        return os.path.abspath(raw)
+    return os.path.abspath(os.path.join(base, raw))
+
+
+def _git_global_option_end(args: list[str], cwd: object) -> tuple[int, str] | None:
+    """Index of the subcommand, and the cwd after any ``-C`` options.
+
+    Git globals that take a value (``-c k=v``, ``-C dir``, ``--git-dir``,
+    ``--work-tree``) are skipped. Anything else that is not an option is the
+    subcommand. Returns None when argv is not a git command.
+    """
+    if os.path.basename(args[0]) != "git":
+        return None
+    if cwd is None:
+        base = os.getcwd()
+    else:
+        try:
+            base = os.path.abspath(_decode_guard_path(cwd))
+        except (TypeError, ValueError):
+            return None
+    index = 1
+    while index < len(args):
+        arg = args[index]
+        if arg == "-C":
+            if index + 1 >= len(args):
+                return None
+            base = _resolve_against(base, args[index + 1])
+            index += 2
+            continue
+        if arg.startswith("-C") and arg != "-C":
+            base = _resolve_against(base, arg[2:])
+            index += 1
+            continue
+        if arg == "-c":
+            if index + 1 >= len(args):
+                return None
+            index += 2
+            continue
+        if arg.startswith("-c") and len(arg) > 2:
+            index += 1
+            continue
+        if arg in {"--git-dir", "--work-tree"}:
+            if index + 1 >= len(args):
+                return None
+            index += 2
+            continue
+        if arg.startswith("--git-dir=") or arg.startswith("--work-tree="):
+            index += 1
+            continue
+        if arg == "worktree" or not arg.startswith("-"):
+            return index, base
+        index += 1
+    return None
+
+
+def _git_worktree_add_destination(argv: object, cwd: object) -> str | None:
+    """Destination of ``git worktree add``, when ``argv`` is that command."""
+    if isinstance(argv, (str, bytes)) or not isinstance(argv, (list, tuple)) or not argv:
+        return None
+    args = _decode_argv(argv)
+    if not args:
+        return None
+    parsed = _git_global_option_end(args, cwd)
+    if parsed is None:
+        return None
+    index, base = parsed
+    if index + 1 >= len(args) or args[index] != "worktree" or args[index + 1] != "add":
+        return None
+    index += 2
+    valued = {"-b", "-B", "--reason"}
+    while index < len(args):
+        arg = args[index]
+        if arg == "--":
+            index += 1
+            if index >= len(args):
+                return None
+            dest = args[index]
+            break
+        if arg in valued:
+            if index + 1 >= len(args):
+                return None
+            index += 2
+            continue
+        if arg.startswith("-"):
+            index += 1
+            continue
+        dest = arg
+        break
+    else:
+        return None
+    if not os.path.isabs(dest):
+        dest = os.path.join(base, dest)
+    return _worktree_entry_key(dest)
+
+
+def _popen_cwd(pos: tuple[object, ...], kwargs: dict[str, object]) -> object:
+    if "cwd" in kwargs:
+        return kwargs["cwd"]
+    # Popen positional order after args: bufsize, executable, stdin, stdout,
+    # stderr, preexec_fn, close_fds, shell, cwd.
+    if len(pos) >= 9:
+        return pos[8]
+    return None
+
+
+def _guarded_popen_init(self, args, *pos, **kwargs):
+    _guard_live_github_spawn(args, kwargs)
+    if not _worktree_guard_enabled():
+        _ORIGINAL_POPEN_INIT(self, args, *pos, **kwargs)
+        return
+    dest: str | None = None
+    absent_before = False
+    try:
+        found = _git_worktree_add_destination(args, _popen_cwd(pos, kwargs))
+        if found is not None:
+            dest = found
+            absent_before = found not in _WORKTREE_ENTRIES_AT_START and not os.path.lexists(found)
+    except Exception as exc:
+        # A guard bug must not replace the original call.
+        _record_classify_failure(exc)
+        dest = None
+    _ORIGINAL_POPEN_INIT(self, args, *pos, **kwargs)
+    # The process may exit without wait or poll. Remember this call only;
+    # teardown decides from its own absent-before flag and its exit status.
+    if dest is None:
+        return
+    try:
+        _POPEN_WORKTREE_CALLS.append(_PopenWorktreeCall(self, dest, absent_before, _creation_attribution()))
+    except Exception as exc:
+        _record_classify_failure(exc)
+
+
+def _guard_live_github_spawn(args: object, kwargs: dict[str, object]) -> None:
+    """Reject a process spawn that resolves to the installed GitHub CLI."""
+    if _LIVE_GITHUB_ALLOWED or not _gh_guard_enabled() or not _REAL_GH_BINARY:
+        return
+    # Limits: a string argv is not inspected, so ``shell=True`` (the command
+    # is a string) is unguarded. A positional ``executable`` is ignored; only
+    # ``kwargs["executable"]`` is read. ``os.system`` and
+    # ``asyncio.create_subprocess_shell`` never reach this hook.
+    if isinstance(args, (str, bytes)) or not isinstance(args, (list, tuple)) or not args:
+        return
+    argv = _decode_argv(args)
+    if not argv:
+        return
+    executable = kwargs.get("executable") or argv[0]
+    if not isinstance(executable, (str, bytes, os.PathLike)):
+        return
+    executable_path = os.fsdecode(executable)
+    env = kwargs.get("env")
+    process_env = env if isinstance(env, dict) else os.environ
+    configured_backend = process_env.get("AGENT_REAL_GH")
+    if not os.path.isabs(executable_path):
+        if os.path.basename(executable_path) != "gh":
+            return
+        search_path = os.fspath(process_env.get("PATH", os.defpath))
+        resolved = shutil.which(executable_path, path=search_path)
+        if resolved is None:
+            return
+        executable_path = resolved
+    is_shim = _is_agent_runtime_shim(executable_path) and os.path.basename(executable_path) == "gh"
+    # The runtime shim is safe only when it has been explicitly wired to a
+    # non-real test backend. Never let AGENT_REAL_GH exempt a direct real-gh
+    # spawn; that environment variable is also present in normal agent runs.
+    if (
+        is_shim
+        and configured_backend
+        and os.path.isfile(os.fspath(configured_backend))
+        and os.path.realpath(os.fspath(configured_backend)) != os.path.realpath(_REAL_GH_BINARY)
+    ):
+        return
+    if not is_shim and os.path.realpath(executable_path) != os.path.realpath(_REAL_GH_BINARY):
+        return
+
+    from lu_machinery.secret_redactor import redact_value
+
+    rendered = redact_value(argv)
+    pytest.fail(
+        f"{os.environ.get('PYTEST_CURRENT_TEST', '<unknown test id>')} spawned real gh: {rendered}; "
+        "@pytest.mark.live_github opts this test into real gh/network access; it does not skip the test in CI",
+        pytrace=False,
+    )
+
+
+def _popen_exit_status(proc: subprocess.Popen) -> int | None:
+    """Exit code of ``proc``, or None when it is still running after the wait."""
+    code = proc.poll()
+    if code is not None:
+        return code
+    try:
+        return proc.wait(timeout=_POPEN_CLASSIFY_TIMEOUT_SECONDS)
+    except subprocess.TimeoutExpired:
+        return None
+
+
+def _snapshot_worktree_entries() -> set[str]:
+    """Task directories plus ``git worktree list`` paths. No recursive walk."""
+    root = Path(_init_real_worktrees_dir())
+    found: set[str] = set()
+    if root.is_dir():
+        try:
+            children = list(root.iterdir())
+        except OSError:
+            children = []
+        for child in children:
+            found.add(os.path.realpath(child))
+            if child.name != "dispatch" or not child.is_dir():
+                continue
+            try:
+                agents = list(child.iterdir())
+            except OSError:
+                continue
+            for agent in agents:
+                if not agent.is_dir():
+                    continue
+                try:
+                    tasks = list(agent.iterdir())
+                except OSError:
+                    continue
+                for task in tasks:
+                    found.add(os.path.realpath(task))
+    try:
+        proc = _ORIGINAL_SUBPROCESS_RUN(
+            ["git", "-C", str(root.parent), "worktree", "list", "--porcelain"],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=30,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return found
+    stdout = getattr(proc, "stdout", "") or ""
+    for line in stdout.splitlines():
+        if line.startswith("worktree "):
+            found.add(os.path.realpath(line[len("worktree ") :].strip()))
+    return found
+
+
+# Bound at import time, before the session fixture installs the hooks.
+_ORIGINAL_OS_MKDIR = os.mkdir
+_ORIGINAL_OS_MAKEDIRS = os.makedirs
+_ORIGINAL_OS_SYMLINK = os.symlink
+_ORIGINAL_SUBPROCESS_RUN = subprocess.run
+_ORIGINAL_POPEN_INIT = subprocess.Popen.__init__
+
+
+def _worktree_guard_teardown_message() -> str | None:
+    """Leftovers and classify failures for this process, or None when clean."""
+    listed = _snapshot_worktree_entries()
+    suspected = set(_CREATED_WORKTREE_ENTRIES)
+    for call in _POPEN_WORKTREE_CALLS:
+        path = call.destination
+        if not call.absent_before or path in _WORKTREE_ENTRIES_AT_START:
+            continue
+        try:
+            code = _popen_exit_status(call.proc)
+        except Exception as exc:
+            _record_classify_failure(exc)
+            continue
+        if code is None:
+            _record_classify_failure(TimeoutError(f"git worktree add {path}: timed out waiting for exit status"))
+            continue
+        if code == 0 and (os.path.lexists(path) or path in listed):
+            suspected.add(path)
+            _CREATED_WORKTREE_ATTRIBUTION.setdefault(path, call.attribution)
+    lines: list[str] = []
+    if _GUARD_CLASSIFY_FAILURES:
+        detail = "; ".join(_GUARD_CLASSIFY_FAILURES)
+        lines.append(f"guard could not classify: {detail}")
+    leftovers = sorted(
+        path
+        for path in suspected
+        if path not in _WORKTREE_ENTRIES_AT_START and (os.path.lexists(path) or path in listed)
+    )
+    if leftovers:
+        rendered: list[str] = []
+        for path in leftovers:
+            rendered.append(f"  {path}")
+            rendered.append(
+                "    "
+                + _CREATED_WORKTREE_ATTRIBUTION.get(
+                    path,
+                    "PYTEST_CURRENT_TEST=<unknown> caller=<unknown>",
+                )
+            )
+        joined = "\n".join(rendered)
+        lines.append(
+            "this pytest process created entries under the real .worktrees/ "
+            f"that are still present:\n{joined}\n"
+            "Concurrent worktrees from other processes are not listed."
+        )
+    if not lines:
+        return None
+    return "\n".join(lines)
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _guard_real_worktree_entries() -> Generator[None, None, None]:
+    """Fail the session if this process created a worktree entry on the real tree.
+
+    Live agents add checkouts under ``.worktrees/`` for the whole time the suite
+    runs, so a before/after listing of that directory false-positives on a busy
+    host. This guard records only creations that pass through this process:
+    ``os.mkdir`` / ``os.makedirs`` / ``os.symlink`` of a worktree root, and a
+    ``git worktree add`` whose destination appears. ``subprocess.run``,
+    ``call``, ``check_call``, and ``check_output`` all construct
+    ``subprocess.Popen``, so the git hook sits on ``Popen`` rather than on
+    ``run`` alone. Directories nested inside an existing checkout (this
+    worker included) are ignored. Paths already present when the worker
+    started are snapshotted and ignored even if a test touches them.
+
+    mkdir, makedirs, and symlink record a path only when that same call saw
+    it absent immediately beforehand and returned without raising. A failed
+    call records nothing. There is no cross-call memory: an earlier absent
+    observation does not attach to a later ``FileExistsError``. ``Popen`` of
+    ``git worktree add`` records that call's destination and whether it was
+    absent beforehand. Teardown obtains the exit status with ``poll`` and,
+    if the process is still running, ``wait``. Creation is attributed only
+    when that call's return code is 0 and the destination exists. A timeout
+    is reported as "guard could not classify", not as a creation. Each
+    record stores ``PYTEST_CURRENT_TEST`` and the first calling frame outside
+    this file (``file:line`` under the repo). Bookkeeping errors are not
+    raised from the hooked call; teardown reports them as "guard could not
+    classify".
+
+    Set ``LU_WORKTREE_GUARD=0`` to skip directory/worktree hooks and
+    ``LU_GH_GUARD=0`` independently to skip the real-GitHub-CLI spawn guard.
+    Under xdist each worker is its own process, so the hooks and the teardown
+    check run once per worker rather than once in the controller.
+    """
+    guard_worktrees = _worktree_guard_enabled()
+    guard_github = _gh_guard_enabled()
+    if not guard_worktrees and not guard_github:
+        yield
+        return
+    if guard_worktrees:
+        _WORKTREE_ENTRIES_AT_START.clear()
+        _CREATED_WORKTREE_ENTRIES.clear()
+        _CREATED_WORKTREE_ATTRIBUTION.clear()
+        _POPEN_WORKTREE_CALLS.clear()
+        _GUARD_CLASSIFY_FAILURES.clear()
+        _WORKTREE_ENTRIES_AT_START.update(_snapshot_worktree_entries())
+    with pytest.MonkeyPatch.context() as patcher:
+        if guard_worktrees:
+            patcher.setattr(os, "mkdir", _guarded_mkdir)
+            patcher.setattr(os, "makedirs", _guarded_makedirs)
+            patcher.setattr(os, "symlink", _guarded_symlink)
+        patcher.setattr(subprocess.Popen, "__init__", _guarded_popen_init)
+        yield
+    if guard_worktrees:
+        message = _worktree_guard_teardown_message()
+        if message:
+            pytest.fail(message)
+
+
+@pytest.fixture(autouse=True)
+def _scope_real_checkout_acp_execution_to_tmp(tmp_path_factory, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep ACP execution off the real primary checkout.
+
+    ``acp_execution_cwd`` on the primary checkout mkdirs
+    ``.worktrees/dispatch/acp`` before ``git worktree add``. That parent
+    stays behind on a CI checkout that had no ``.worktrees`` yet. Redirect
+    only when the resolved cwd is that primary checkout itself.
+
+    ``resolve_main_root`` maps every worktree of this checkout back to the
+    primary, so it must not decide the redirect. A dispatch worktree uses
+    the real helper, which yields that worktree and does not mkdir. Calls
+    aimed at any other repo, including a test's own ``git init`` primary,
+    still run the real helper.
+    """
+    real_checkout = Path(_init_real_worktrees_dir()).parent.resolve()
+    monkeypatch.setenv("LU_TEST_ACP_PRIMARY_ROOT", str(real_checkout))
+    monkeypatch.setenv("LU_TEST_ACP_SCRATCH_ROOT", str(tmp_path_factory.getbasetemp()))
+
+
+# Opt-in synthetic private tooling for tests of public publishing consumers.
+from tests.opsec_fixtures import gh_shim_sandbox, publisher_transport, synthetic_opsec  # noqa: F401
+
+
+@pytest.fixture(autouse=True)
+def _no_operator_model_pause(monkeypatch, tmp_path_factory):
+    """Tests never read the operator's live model-pause policy."""
+    if "LU_MODEL_PAUSE_FILE" not in os.environ:
+        monkeypatch.setenv("LU_MODEL_PAUSE_FILE", str(tmp_path_factory.getbasetemp() / "no-model-pause.json"))
+
+
+@pytest.fixture(autouse=True)
+def _hermetic_agy_claude_window(monkeypatch):
+    """Resolver tests do not read the live AGY Claude window.
+
+    An exhausted or missing window excludes AGY Claude seats. A developer host
+    can be exhausted while CI has no Monitor, and either reading would change
+    which catalog seat those tests select. The default reading is a fresh
+    empty window. A test of the real reader restores ``__wrapped__``.
+    """
+    from lu_machinery.agent_runtime import model_pause as mp
+
+    real = mp.routing_budget_used_pct
+
+    def wrapped(lane, *, account):
+        if lane == mp.AGY_CLAUDE_WINDOW_LANE:
+            return 0.0
+        return real(lane, account=account)
+
+    wrapped.__wrapped__ = real
+    monkeypatch.setattr(mp, "routing_budget_used_pct", wrapped)
+
 
 HEAD = "a" * 40
 BASE = "b" * 40
@@ -18,6 +4066,10 @@ BRANCH = "codex/fixture"
 @pytest.fixture
 def low_review(monkeypatch, tmp_path):
     """Keep real verdict parsing/qualification; replace GitHub and branch facts."""
+    from lu_machinery.orchestration import integration_sweep as sweep
+    from lu_machinery.publish import github as publisher
+    from lu_machinery.review import record_cf_verdict as recorder
+
     tasks = tmp_path / "tasks"
     tasks.mkdir()
     task = {

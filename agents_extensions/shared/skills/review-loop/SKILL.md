@@ -6,8 +6,8 @@ argument-hint: "<branch> [pr <number>]"
 
 # Review loop
 
-Take one pushed change to an exact-head cross-family verdict within the review budget, and
-record that verdict on the PR. This skill owns rounds, the budget and the finding ledger.
+Take one pushed change to an exact-head verdict at the tier the review policy sets, within its
+rounds, and record that verdict on the PR. This skill owns rounds, the budget and the finding ledger.
 The reviewer's own procedure is `local-code-review`; learner-content review procedure stays
 with `track-completion` and `post-build-review`, seated by the `ukrainian` profile below.
 ACP discussion is never review.
@@ -22,7 +22,7 @@ choosing.
 branch, exact pushed head, base and merge-base, author model of every commit, catalog risk,
 the finding ledger and rounds already used.
 
-**Budget, ledger and severity:** [policy](references/policy.md) is the single source. Read it
+**Tiers, findings, rounds and recording:** [policy](references/policy.md) is the single source. Read it
 before round 1 and before every further round.
 
 Recipes run with the primary checkout's interpreter, resolved once
@@ -50,7 +50,7 @@ interpreter does not select the primary checkout's Python modules.
    dispositions. If an optional DeepSeek author pre-check
    (DS-PRECHECK-1101) was run, list its findings and their dispositions as author context only.
    Later rounds reuse the frozen sections unchanged: scope is frozen at round 1, and new code
-   goes in a new PR ([policy](references/policy.md#budget)). **A read-only Codex reviewer cannot read CI logs**, so every
+   goes in a new PR ([policy](references/policy.md#4-convergence)). **A read-only Codex reviewer cannot read CI logs**, so every
    brief for one inlines the CI evidence of the exact head: the head SHA, the run and job ids,
    their conclusions, and the test output or log excerpts the review needs, never conclusions
    alone where the logs matter. A reviewer still blocked by it replies BLOCKED with
@@ -97,7 +97,7 @@ interpreter does not select the primary checkout's Python modules.
    ```
 
    The dispatcher refuses a review past the PR's round budget, counting every review dispatched
-   for the PR whether or not its verdict was recorded ([policy](references/policy.md#budget)).
+   for the PR whether or not its verdict was recorded ([policy](references/policy.md#recording-the-verdict)).
    For a code or infra review, `--require-review-verdict` binds
    `schemas/code-review-findings.v1.schema.json` on a provider that accepts a schema. The
    brief asks for that object ([brief](references/brief.md#reply-format)). A provider that
@@ -119,7 +119,7 @@ interpreter does not select the primary checkout's Python modules.
    Fixes go to the authoring lane (the worker itself when it runs the loop); a driver does not
    patch them in.
 6. **Next round or stop.** The budget is three completed rounds per lineage, and nobody adds
-   one ([policy](references/policy.md#budget)). Start a delta round only if an open blocker, a
+   one ([policy](references/policy.md#4-convergence)). Start a delta round only if an open blocker, a
    `not_applicable` claim the reviewer must confirm, a changed behaviour or a moved head needs
    it, and only after the recorder admits it. Ask the recorder itself before dispatching; it
    applies the clean-merge exemption and the lineage's one repair-verification round:
@@ -132,12 +132,12 @@ interpreter does not select the primary checkout's Python modules.
    class, failed runs or conflicted paths, and `delta_sha256`) into the delta brief, and ask the
    reviewer to APPROVE only with the line `REPAIR_VERIFIED: <delta_sha256>` once it has verified
    that the complete delta is only that repair. Exit 1 is the stop below. A recorded rejection is cleared only at a new
-   head ([policy](references/policy.md#clearing-a-recorded-rejection)). The delta brief carries
+   head ([policy](references/policy.md#recording-the-verdict)). The delta brief carries
    the ledger and the fix diff ([brief](references/brief.md#delta-rounds-round-2-and-later)).
    A BLOCKED with no findings that only a missing capability caused charges no round, once per
    lineage, and admits one same-seat replacement whose brief carries the missing evidence
    inline: the CTO records a capability failure for the unpublished run
-   ([policy](references/policy.md#budget)). A second such reply is charged, and a published
+   ([policy](references/policy.md#recording-the-verdict)). A second such reply is charged, and a published
    one stays charged. Any other failed execution (timeout, error, malformed reply) is rerun
    once at the same head; a second failure escalates.
 7. **Record the verdict on the open PR** (it is open and CI-green at the reviewed head, `full-send` step 4):
@@ -190,9 +190,7 @@ None of them is approval.
 
 Report: exact SHA reviewed, reviewer model, family and harness, verdict, rounds used against
 the budget, the ledger with each disposition, diff size before and after review, who owns
-anything still open, and these review-yield fields
-([policy](references/policy.md#review-yield)): unique verified catches, false positives,
-escaped defects (found after approval), review and repair tokens, elapsed time, risk, and
-task family.
+anything still open, and the review and repair tokens, tier and task family that feed the
+weekly [measures](references/policy.md#6-measures-weekly-cto).
 
 Learned from tstack's `sol-loop` skill (MIT, Theo Browne); the text is our own.
