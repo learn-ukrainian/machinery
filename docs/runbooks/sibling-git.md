@@ -21,7 +21,6 @@ hook process and command receive the variable in the seat being used.
 | Codex | No explicit setting in `lu_machinery/launchers/codex.sh`, `lu_machinery/lib/`, `agents_extensions/codex/config.toml` or `agents_extensions/codex-home/config.toml`. | Unverified |
 | Grok | No explicit setting in `lu_machinery/launchers/grok.sh` or `lu_machinery/lib/`. | Unverified |
 | Gemini/AGY | No explicit setting in `lu_machinery/launchers/gemini.sh`, `lu_machinery/lib/`, `lu_machinery/agent_runtime/` or `gemini_extensions/settings.json`. | Unverified |
-| Kimi | No explicit setting in `lu_machinery/launchers/kimi.sh` or `lu_machinery/lib/`. | Unverified |
 
 The examples below use the project interpreter; replace its spelling with the
 absolute project interpreter path when sending a command through the hook.

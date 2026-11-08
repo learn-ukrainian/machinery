@@ -132,7 +132,6 @@ Near-cap and open-circuit buckets receive no automatic work.
 | cursor | true |
 | gemini | false |
 | grok | true |
-| kimi | false |
 <!-- fleet-roster-projection:end formal_review_eligible -->
 
 Practical seats @ **high** — not Sol on routine PRs:
@@ -214,8 +213,8 @@ not erase routing evidence.
 Do **not** write `laguna-s2`, `laguna.s2`, or `laguna.m1` as IDs — hyphens and the `m.1` minor are load-bearing.
 
 - Resolve-reviewer: use the live `lu_machinery/config/model_catalog.yaml` ladders. **Critical** keeps Sol and Opus 5.5 authority first and excludes Sonnet 5.5; Fable holds no review role at any risk (#9583); **high** holds only Sol and Opus 5.5 (#9538), and returns no reviewer when neither is eligible; **medium/low** walk Sol → Opus 5.5 → Sonnet 5.5 before later practical and volume rungs.
-- Grok uses the proven exact-head source-blind ACP path. Kimi is not a review or ACP seat (web, UI and backend coding only); its adapter is refused by `kimi_admission`. AGY's text-only ACP wrapper cannot consume the parent-owned sealed MCP; legacy native-isolation helpers stay unsupported.
-- Isolation runbooks: `docs/runbooks/agy-formal-cf-isolation.md` · `kimi-formal-cf-isolation.md` · `grok-formal-cf-isolation.md`
+- Grok uses the proven exact-head source-blind ACP path. Kimi is retired and refused by `kimi_admission`. AGY's text-only ACP wrapper cannot consume the parent-owned sealed MCP; legacy native-isolation helpers stay unsupported.
+- Isolation runbooks: `docs/runbooks/agy-formal-cf-isolation.md` · `grok-formal-cf-isolation.md`
 
 ## Closeout checklist
 
@@ -225,12 +224,12 @@ Do **not** write `laguna-s2`, `laguna.s2`, or `laguna.m1` as IDs — hyphens and
 - [x] empty-body process-ask records `transport empty-ask-body` (`tests/test_reply_sidecar.py` asserts raise + status)
 - [x] formal CF model+effort pins + practical ladders (2026-07-21)
 - [x] efficiency CLI: `fleet_comms metrics` / `github-metrics` / `dead-letters` (PR-M on main)
-- [x] isolation runbooks AGY/Kimi/Grok; unsupported legacy native-isolation routes remain fail-closed
+- [x] isolation runbooks AGY/Grok; unsupported legacy native-isolation routes remain fail-closed
 - [x] historical message-plane **shadow** soak after parity (#5666), superseded
   by the operator-approved `authority` cutover in #6159; `dual_write` is now a
   compatibility rollback mode
 - [ ] operator: retention plan dry-run × ≥7 days before scheduled apply (auto-logged by `retention_engine.py plan`; apply still OFF; 3/7 as of 2026-07-23)
-- [x] exact-head ACP sealed review: Claude, Codex, GLM, and Grok eligible; Kimi is out of scope (web, UI and backend coding only, never a reviewer); AGY structurally fail-closed
+- [x] exact-head ACP sealed review: Claude, Codex, GLM, and Grok eligible; Kimi is retired and refused; AGY structurally fail-closed
 - [ ] operator: Claude + Grok + Codex + AGY cold-start stream smoke (launchers dual-aware; live multi-CLI soak optional)
 - [x] planned `dual_write`-default step superseded by #6159 authority cutover
 

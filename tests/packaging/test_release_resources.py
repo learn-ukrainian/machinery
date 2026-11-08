@@ -199,10 +199,9 @@ fi
 case "$3" in
   block|launcher) printf '%s' "$LC_RULES_CORE" ;;
   toml) rules_core_toml "$2" ;;
-  kimi) rules_core_kimi_agent_file "$2" ;;
 esac
 """
-    for rendering in ("block", "toml", "kimi", "launcher"):
+    for rendering in ("block", "toml", "launcher"):
         shell = _run(
             ["bash", "-c", shell_script, "rules-shell", data["shell"], str(executable), rendering, str(helper)],
             cwd=scratch,
@@ -213,10 +212,6 @@ esac
             assert shell.stdout == expected_block
         elif rendering == "toml":
             assert tomllib.loads("value = " + shell.stdout)["value"] == expected_block
-        else:
-            agent = Path(shell.stdout.strip()).read_text()
-            assert "${base_prompt}\n\n" in agent
-            assert agent.endswith(expected_block + "\n")
 
 
 def test_missing_resource_admission_bypass(release):

@@ -86,7 +86,6 @@ STATIC_VALID_AGENTS = (
     "grok",  # canonical native grok CLI seat
     "grok-build",  # PERMANENT alias → grok (trailers, inbox, dispatch)
     "glm",  # Zhipu GLM-5.3 (opencode / ask-glm)
-    "kimi",
     "deepseek",
     "qwen",
     "cursor",
@@ -207,7 +206,7 @@ def _load_empty_slot_areas(assignments_path: Path | None = None, *, provider: st
             if isinstance(area_slots, (list, tuple)):
                 legacy_monitor = (
                     name == "monitor"
-                    and provider in {"claude", "codex", "gemini", "grok", "kimi", "cursor"}
+                    and provider in {"claude", "codex", "gemini", "grok", "cursor"}
                     and all(isinstance(slot, str) and slot.strip() for slot in area_slots)
                 )
                 if not area_slots or legacy_monitor:

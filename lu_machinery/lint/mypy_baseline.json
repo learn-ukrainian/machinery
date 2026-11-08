@@ -7433,11 +7433,6 @@
       "message": "Need type annotation for \"shown\" (hint: \"shown: list[<type>] = ...\")"
     },
     {
-      "path": "lu_machinery/lib/kimi_coding_oauth.py",
-      "code": "no-any-return",
-      "message": "Returning Any from function declared to return \"str\""
-    },
-    {
       "path": "lu_machinery/lib/readonly_sqlite.py",
       "code": "attr-defined",
       "message": "\"Connection\" has no attribute \"_operation_lock\""

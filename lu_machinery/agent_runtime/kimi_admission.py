@@ -1,40 +1,10 @@
-"""Kimi seats admit web, UI and backend coding only.
-
-Kimi: web, UI and backend coding only — no Ukrainian-language content, no
-reviews, consults, design or rules.
-
-Every Kimi seat (``kimi``, ``kimicc``, the ``acpx-kimi*`` ACP seats, and any
-``kimi-code/*`` / ``kimi-k*`` model id) is limited to workspace-write
-implementation of paths on an explicit allowlist. Anything not on the
-allowlist is refused.
-
-``refuse_kimi_if_disallowed`` is the one gate. Entry points reach it through
-``target_admission.resolve_and_admit``, which resolves the effective seats and
-models (attachments, compat names, route pins, slot holders, substitutes) and
-gates them in the same step, before any telemetry, broker message, failure
-record, state write, artifact store or channel write; delivery, insertion,
-wake and launch sinks take the ``AdmittedTarget`` it returns. Execution-time
-re-checks (``refuse_kimi_execution``) gate exactly the seat, model and tree
-being run. A refusal raises ``KimiAdmissionRefused`` to the caller and records
-nothing.
-
-Content is admitted only as plain text: valid UTF-8 with no control
-characters other than tab, LF and CR, and no Cyrillic character (Ukrainian
-content is recognised by content, not by path). Anything else — UTF-16 with or
-without a byte-order mark, another encoding, a binary file — is refused. The
-rule covers every owned file, and every file under an owned directory or glob,
-in the tree the worker starts from (``DirectoryTree`` on disk, ``CommitTree``
-read with git plumbing), and every changed file's post-image
-(``refuse_kimi_changes``). The git hooks and push block around a Kimi worktree
-live in ``kimi_boundary``.
-"""
+"""Retired Kimi input refusal and shared content/tree readers."""
 
 from __future__ import annotations
 
 import fnmatch
 import json
 import os
-import posixpath
 import re
 import subprocess
 from collections.abc import Callable, Iterable, Mapping, Sequence
@@ -45,116 +15,19 @@ from typing import Any, Protocol
 from .deepseek_admission import refuse_deepseek_if_disallowed
 from .redacted_env import RedactedEnv
 
-POLICY_LINE = (
-    "Kimi: web, UI and backend coding only — no Ukrainian-language content, no reviews, consults, design or rules."
-)
 KIMI_AGENT_IDS = frozenset({"kimi", "kimicc"})
-_POLICY = "KIMI CODING-ONLY"
-# The policy's name, for a caller that prints a typed refusal cause in place of the refusal text (#9878).
-POLICY_NAME = _POLICY
-
-# Modes. Only workspace-write implementation is admitted; the other labels
-# name the activity an entry point is about to perform.
-ADMITTED_MODE = "workspace-write"
-# ``tool_config`` key carrying the task's declared owned paths from dispatch to the
-# runner and the adapters, which hand them to the same gate.
-OWNED_PATHS_KEY = "kimi_owned_paths"
+# Activity labels retained by public refusal callers.
 ACP_MODE = "acp"
 REVIEW_MODE = "review"
 BRIDGE_MODE = "bridge"
-_MODE_ACTIVITIES = {
-    ACP_MODE: "ACP asks, consults, discussions, and reviews",
-    REVIEW_MODE: "review dispatches",
-    BRIDGE_MODE: "bridge messages, channel posts and inbox drains (Kimi is not a bridge recipient)",
-}
 
-# The machinery package directory as the checkout names it (unresolved, whatever it is called).
-_MACHINERY_DIR = Path(__file__).absolute().parents[1].name
-
-# Backend/tooling packages verified to hold no Ukrainian-language data,
-# prompts or grammar. Each admits the package and its tests under tests/<same>/.
-_BACKEND_PACKAGES = {
-    "agent_runtime": "agent CLI adapters, runner, routing and telemetry",
-    "api": "monitoring API routers and dashboards",
-    "orchestration": "dispatch, worktree, task-record and merge tooling",
-    "ci": "CI sharding, timing and change-classification helpers",
-    "fleet_comms": "fleet message plane, request executor and artifact store",
-    "hygiene": "repository and session hygiene guards",
-    "storage": "storage topology, artifacts and data-volume guards",
-}
-
-# The allowlist: the only paths a Kimi seat may own. Keys ending in ``/`` are
-# directory roots; other keys are single files. Each carries its reason.
-KIMI_OWNED_ROOTS: dict[str, str] = {
-    "site/src/components/": "site UI components",
-    "site/src/layouts/": "site page layouts",
-    "site/src/pages/": "site routes and page shells",
-    "site/src/styles/": "site stylesheets",
-    "site/src/css/": "site stylesheets",
-    "site/src/assets/": "site static assets",
-    "site/src/lib/a1-archive-routes.ts": "archive route helper; no language data",
-    "site/src/lib/arc.ts": "arc data types and helpers; no language data",
-    "site/src/lib/doc-nav.ts": "docs page route helpers",
-    "site/src/lib/readings.ts": "reading visibility predicate",
-    **{f"{_MACHINERY_DIR}/{name}/": reason for name, reason in _BACKEND_PACKAGES.items()},
-    **{f"tests/{name}/": f"tests of {_MACHINERY_DIR}/{name}/" for name in _BACKEND_PACKAGES},
-    ".github/workflows/": "CI workflows",
-    ".github/actions/": "composite CI actions",
-    ".github/codeql/": "CodeQL configuration",
-    ".github/dependabot.yml": "dependency update configuration",
-    ".dagger/": "Dagger CI module",
-}
-# Site build and test configuration at the site root (astro.config.mjs, vitest.config.ts...).
-SITE_CONFIG_REASON = "site build and test configuration"
-_SITE_CONFIG_FILE = re.compile(r"^site/[^/]+\.config\.[^/]+$")
-
-# Paths inside an allowlisted root that are still refused. Keys match as
-# prefixes, so ``scripts/orchestration/curriculum_`` covers every curriculum lifecycle module.
-# The Monitor's product half (Hramatka, sources lookups, curriculum routers)
-# lives in scripts/project_api/, which is not an allowlisted root (C-4687).
-KIMI_EXCLUDED_PATHS: dict[str, str] = {
-    f"{_MACHINERY_DIR}/agent_runtime/kimi_admission.py": "the Kimi admission gate is routing policy",
-    f"{_MACHINERY_DIR}/agent_runtime/kimi_boundary.py": "the Kimi worktree boundary is routing policy",
-    f"{_MACHINERY_DIR}/agent_runtime/target_admission.py": "target resolution and admission is routing policy",
-    f"{_MACHINERY_DIR}/agent_runtime/kimi_hooks/": "the Kimi worktree boundary is routing policy",
-    f"{_MACHINERY_DIR}/agent_runtime/env_sanitize.py": "the agent credential boundary, including Kimi's push block",
-    f"{_MACHINERY_DIR}/agent_runtime/adapters/kimi.py": "Kimi's own runtime refusal is routing policy",
-    f"{_MACHINERY_DIR}/agent_runtime/adapters/kimicc.py": "Kimi's own runtime refusal is routing policy",
-    f"{_MACHINERY_DIR}/agent_runtime/kimicc_headless.sh": "Kimi's own runtime refusal is routing policy",
-    "tests/agent_runtime/adapters/test_kimi_adapter.py": "tests of Kimi's routing policy",
-    "tests/agent_runtime/adapters/test_kimicc_headless.py": "tests of Kimi's routing policy",
-    f"{_MACHINERY_DIR}/agent_runtime/profiles/": "reviewer prompt profiles",
-    "tests/api/test_hramatka_": "Hramatka lesson generation and grammar quality gates",
-    "tests/api/test_sources_router": "Ukrainian dictionary and corpus lookups",
-    f"{_MACHINERY_DIR}/orchestration/curriculum_": "curriculum lifecycle, readiness and preparation",
-    "tests/orchestration/test_curriculum_": "curriculum lifecycle, readiness and preparation",
-    f"{_MACHINERY_DIR}/orchestration/prompt_contracts.py": "curriculum phase prompt contracts",
-    "tests/orchestration/test_prompt_contracts.py": "curriculum phase prompt contracts",
-    f"{_MACHINERY_DIR}/orchestration/preparation_evidence.py": "curriculum preparation evidence",
-}
-
-# Fleet repository roles a Kimi seat may target (scripts/config/fleet_repos.yaml).
-CODING_REPO_ROLES = frozenset({"public-monorepo"})
-# Research tracks that are always curriculum tracks, in addition to every level
-# key of the curriculum manifest.
-_CURRICULUM_TRACK_NAMES = frozenset({"core", "seminar", "seminars", "hramatka"})
-_CURRICULUM_TRACK_PREFIXES = ("l2-uk",)
-# tool_config keys that mark a review or sealed review attempt.
-_REVIEW_TOOL_CONFIG_KEYS = ("review_verdict_required", "review_isolation", "review_id")
-# Components of a prompt-file path that mark agent-private state.
-_PRIVATE_STATE_COMPONENTS = frozenset({".claude", ".agent", ".codex"})
-# The Cyrillic and Cyrillic Supplement blocks: any such character marks Ukrainian content.
+# Shared mechanical-admission content readers use these character checks.
 CYRILLIC = re.compile("[Ѐ-ӿԀ-ԯ]")
-# Tab, LF, and CR are the only control characters Kimi content may contain.
+# Tab, LF, and CR are the only admitted control characters.
 _KEPT_CONTROLS = frozenset((0x09, 0x0A, 0x0D))
-TEXT_RULE = (
-    "Kimi admits only UTF-8 text without control characters other than tab, LF and CR; "
-    "UTF-16, other encodings and binary files are refused"
-)
 _GLOB_CHARS = frozenset("*?[")
 # Build and dependency output skipped when a directory or glob scope is expanded.
 _SCOPE_SKIPPED_DIRS = frozenset({".git", "node_modules", "__pycache__", ".pytest_cache", ".astro", "dist"})
-_DIFF_SAMPLE_LIMIT = 5
 _GIT_TIMEOUT_S = 60
 _GIT_REDIRECT_ENV = frozenset(
     {
@@ -172,7 +45,7 @@ _GIT_REDIRECT_ENV = frozenset(
 
 
 class KimiAdmissionRefused(ValueError):
-    """A Kimi seat was asked for work outside web, UI and backend coding.
+    """A retired Kimi seat or model was requested.
 
     ``read_errors`` holds the exceptions of tree readers that failed: the
     refusal text names only their class, and a caller that keeps a local
@@ -182,17 +55,6 @@ class KimiAdmissionRefused(ValueError):
     def __init__(self, message: str = "", *, read_errors: Sequence[BaseException] = ()) -> None:
         super().__init__(message)
         self.read_errors = tuple(read_errors)
-
-
-class TreeUnavailable(RuntimeError):
-    """A tree to read is not available, with a message its raiser built from fixed text and the caller's own ref.
-
-    The one reader error a refusal quotes; any other names only its class (#9878).
-    """
-
-
-def _read_error_reason(exc: BaseException) -> str:
-    return str(exc) if isinstance(exc, TreeUnavailable) else type(exc).__name__
 
 
 def is_kimi_model(model: str | None) -> bool:
@@ -216,50 +78,6 @@ def is_kimi_seat(agent: str | None, *, model: str | None = None) -> bool:
     if name in KIMI_AGENT_IDS or name.startswith(("kimi-", "acpx-kimi")):
         return True
     return is_kimi_model(model)
-
-
-def normalize_owned_path(path: str) -> str | None:
-    """The repository-relative POSIX form of ``path``, or None when it is absolute or escapes the repository.
-
-    Separators are unified and collapsed and ``.``/``..`` segments are resolved
-    lexically, so ``site//src/components/x`` and ``./docs/../scripts/x`` reach
-    the allowlist in their canonical form.
-    """
-    text = str(path).strip().replace("\\", "/")
-    if not text or text.startswith(("/", "~")) or re.match(r"^[A-Za-z]:", text):
-        return None
-    normalized = posixpath.normpath(text)
-    if normalized == "." or normalized == ".." or normalized.startswith("../"):
-        return None
-    return normalized
-
-
-def _allowlist_match(normalized: str) -> str | None:
-    for root in KIMI_OWNED_ROOTS:
-        if normalized == root.rstrip("/") or (root.endswith("/") and normalized.startswith(root)):
-            return root
-    if _SITE_CONFIG_FILE.match(normalized):
-        return "site/*.config.*"
-    return None
-
-
-def owned_path_reason(path: str) -> str | None:
-    """Why a Kimi seat may not own ``path``, or None when the allowlist admits it.
-
-    The allowlist matches case-sensitively, so a differently cased path is
-    refused; exclusions match case-insensitively, so a case-insensitive
-    filesystem cannot reach an excluded file through another spelling.
-    """
-    normalized = normalize_owned_path(path)
-    if normalized is None:
-        return f"owned path {path!r} is not a repository-relative path"
-    if _allowlist_match(normalized) is None:
-        return f"owned path {normalized!r} is not on the Kimi allowlist"
-    folded = normalized.casefold()
-    for prefix, reason in KIMI_EXCLUDED_PATHS.items():
-        if folded.startswith(prefix):
-            return f"owned path {normalized!r} is excluded ({reason})"
-    return None
 
 
 def _walk_files(repo_root: Path, base: str) -> Iterable[str]:
@@ -300,7 +118,7 @@ def scope_files(normalized: str, *, repo_root: Path) -> tuple[bool, list[str]]:
 
 
 class ContentTree(Protocol):
-    """A tree of files a Kimi worker starts from."""
+    """A tree of files checked by shared mechanical admission."""
 
     def owned_files(self, normalized: str) -> tuple[bool, dict[str, bytes | None]]:
         """Whether ``normalized`` is a directory or glob scope, and each file it owns with its content.
@@ -396,11 +214,6 @@ class CommitTree:
         return is_scope, {path: blobs.get(oid) if kind == "blob" else None for path, (kind, oid) in entries.items()}
 
 
-def _sample(paths: list[str]) -> str:
-    shown = ", ".join(repr(path) for path in paths[:_DIFF_SAMPLE_LIMIT])
-    return shown + (f" and {len(paths) - _DIFF_SAMPLE_LIMIT} more" if len(paths) > _DIFF_SAMPLE_LIMIT else "")
-
-
 _CYRILLIC_TEXT = "Cyrillic text"
 
 
@@ -415,7 +228,7 @@ def _has_disallowed_control(text: str) -> bool:
 
 
 def content_problem(data: bytes | None, *, allow_cyrillic: bool = False) -> str | None:
-    """Why ``data`` is not admissible Kimi content, or None when it is.
+    """Why ``data`` is not admissible plain text, or None when it is.
 
     Admissible content is UTF-8 text with no control characters other than
     tab, LF and CR, and, by default, no Cyrillic character. Qualified opaque
@@ -431,129 +244,6 @@ def content_problem(data: bytes | None, *, allow_cyrillic: bool = False) -> str 
         return "control characters"
     if not allow_cyrillic and CYRILLIC.search(text):
         return _CYRILLIC_TEXT
-    return None
-
-
-def owned_scope_reasons(path: str, tree: ContentTree, *, read_errors: list[BaseException] | None = None) -> list[str]:
-    """Why an allowlisted owned path is still refused for its content or its descendants in ``tree``.
-
-    Every owned file, and every file under an owned directory or glob, must be
-    plain UTF-8 text without Cyrillic text or a Cyrillic file name. A directory
-    or glob scope that also covers an excluded or off-allowlist file must be
-    narrowed to specific files or clean subdirectories. Fails closed when the
-    tree cannot be read; the reader's exception is appended to ``read_errors``.
-    """
-    normalized = normalize_owned_path(path)
-    if normalized is None:
-        return []
-    try:
-        is_scope, files = tree.owned_files(normalized)
-    except (OSError, RuntimeError, ValueError, subprocess.SubprocessError) as exc:
-        # A reader's message can hold host paths or remote names: only its class, unless typed (#9878).
-        if read_errors is not None:
-            read_errors.append(exc)
-        return [f"owned path {normalized!r} cannot be checked for Ukrainian content {tree} ({_read_error_reason(exc)})"]
-    reasons: list[str] = []
-    if is_scope:
-        blocked = [rel for rel in files if owned_path_reason(rel)]
-        if blocked:
-            reasons.append(
-                f"owned scope {normalized!r} contains excluded or off-allowlist paths ({_sample(blocked)}); "
-                "narrow it to specific files or clean subdirectories"
-            )
-    cyrillic: list[str] = []
-    not_text: list[str] = []
-    for rel, data in files.items():
-        problem = content_problem(data)
-        if CYRILLIC.search(rel) or problem == _CYRILLIC_TEXT:
-            cyrillic.append(rel)
-        elif problem:
-            not_text.append(rel)
-    where = f"owned scope {normalized!r} holds" if is_scope else "owned file holds"
-    if cyrillic:
-        reasons.append(f"{where} Ukrainian content (Cyrillic text in {_sample(cyrillic)}, {tree})")
-    if not_text:
-        reasons.append(f"{where} content that is not plain text ({_sample(not_text)}, {tree}); {TEXT_RULE}")
-    return reasons
-
-
-@dataclass(frozen=True)
-class FileChange:
-    """One changed path and its post-image: None for a deleted file (``deleted``) or an unreadable one."""
-
-    path: str
-    after: bytes | None
-    deleted: bool = False
-
-
-def _first_cyrillic_line(data: bytes) -> str:
-    text = data.decode("utf-8")
-    return next(line.strip()[:80] for line in text.splitlines() if CYRILLIC.search(line))
-
-
-def change_reasons(changes: Iterable[FileChange]) -> list[str]:
-    """Why a Kimi change set is refused: a changed file is not plain UTF-8 text, or holds Cyrillic text or a Cyrillic name."""
-    cyrillic: list[str] = []
-    not_text: list[str] = []
-    for change in changes:
-        if change.deleted:
-            continue
-        if CYRILLIC.search(change.path):
-            cyrillic.append(f"{change.path}: (file name)")
-        problem = content_problem(change.after)
-        if problem == _CYRILLIC_TEXT:
-            cyrillic.append(f"{change.path}: {_first_cyrillic_line(change.after or b'')}")
-        elif problem:
-            not_text.append(change.path)
-    reasons: list[str] = []
-    if cyrillic:
-        shown = "; ".join(cyrillic[:_DIFF_SAMPLE_LIMIT])
-        more = f"; and {len(cyrillic) - _DIFF_SAMPLE_LIMIT} more" if len(cyrillic) > _DIFF_SAMPLE_LIMIT else ""
-        reasons.append(f"the changed files hold Ukrainian content (Cyrillic text: {shown}{more})")
-    if not_text:
-        reasons.append(f"the changed files hold content that is not plain text ({_sample(not_text)}); {TEXT_RULE}")
-    return reasons
-
-
-def refuse_kimi_changes(agent: str, changes: Iterable[FileChange]) -> None:
-    """Raise ``KimiAdmissionRefused`` when a Kimi worker's changed files are not plain text or hold Cyrillic text."""
-    reasons = change_reasons(changes)
-    if reasons:
-        raise KimiAdmissionRefused(format_refusal(agent, reasons))
-
-
-def _curriculum_level_keys(repo_root: Path) -> frozenset[str] | None:
-    manifest = repo_root / "curriculum" / "l2-uk-en" / "curriculum.yaml"
-    try:
-        import yaml
-
-        levels = (yaml.safe_load(manifest.read_text(encoding="utf-8")) or {}).get("levels") or {}
-    except Exception:
-        return None
-    if not isinstance(levels, dict):
-        return None
-    keys = {str(key).strip().casefold() for key in levels}
-    # Versioned level keys (``a1-v1``) name the same track as their base.
-    keys |= {key.rsplit("-v", 1)[0] for key in keys if "-v" in key}
-    return frozenset(keys)
-
-
-def curriculum_track_reason(track: str | None, *, repo_root: Path | None) -> str | None:
-    """Why a research track is a curriculum track, or None when it is not.
-
-    Fails closed: when the curriculum manifest cannot be read, any track is
-    treated as a curriculum track.
-    """
-    text = str(track or "").strip().casefold()
-    if not text:
-        return None
-    if text in _CURRICULUM_TRACK_NAMES or text.startswith(_CURRICULUM_TRACK_PREFIXES):
-        return f"--research-track {track!r} is a curriculum track"
-    levels = _curriculum_level_keys(repo_root) if repo_root is not None else None
-    if levels is None:
-        return f"--research-track {track!r} cannot be proven non-curriculum (curriculum manifest unreadable)"
-    if text in levels:
-        return f"--research-track {track!r} is a curriculum track"
     return None
 
 
@@ -664,56 +354,12 @@ def refuse_kimi_if_disallowed(
     trees: Sequence[ContentTree] | Callable[[], Sequence[ContentTree]] = (),
     declared_paths: Iterable[str] | None = None,
 ) -> None:
-    """Raise ``KimiAdmissionRefused`` when any effective seat or model is Kimi and the work is not admitted.
-
-    ``effective_participants`` and ``effective_models`` are the seats and
-    models after every override, pin and substitution. ``mode`` is the
-    runtime mode (only ``workspace-write`` is admitted) or an activity label
-    (``ACP_MODE``, ``REVIEW_MODE``). ``paths`` are the owned paths, each of
-    which must be on the allowlist; a workspace-write call must declare at
-    least one (``declared_paths``, default ``paths``, is what counts as
-    declared ownership) and empty ownership is refused. ``repo`` is the fleet repository role and
-    ``repo_root`` holds the curriculum manifest read for ``research_track``.
-
-    Only when every one of those checks admits are the owned paths read in
-    ``trees`` — the trees the worker starts from (its worktree on disk, the
-    commit it is checked out or created from). ``trees`` may be a callable,
-    so resolving a base commit never precedes a policy refusal; a callable
-    that raises, or owned paths with no tree to read, refuse. Never writes.
-    DeepSeek input admission runs first; other non-Kimi calls return None.
-    """
+    """Reject every retired Kimi target, after the shared DeepSeek admission check."""
     participants, models = tuple(effective_participants), tuple(effective_models)
     refuse_deepseek_if_disallowed(participants, models, repo=repo, prompt_file=prompt_file)
     seat = _kimi_seat_name(participants, models)
-    if seat is None:
-        return
-    owned = tuple(paths)
-    declared = owned if declared_paths is None else tuple(declared_paths)
-    reasons: list[str] = []
-    if mode != ADMITTED_MODE:
-        reasons.append(_MODE_ACTIVITIES.get(mode) or f"--mode {mode} (only {ADMITTED_MODE} implementation is admitted)")
-    elif not declared:
-        reasons.append(
-            f"{ADMITTED_MODE} without an owned path (declare at least one allowlisted owned file or directory)"
-        )
-    config = tool_config or {}
-    if review or any(config.get(key) for key in _REVIEW_TOOL_CONFIG_KEYS):
-        reasons.append("review dispatches")
-    if language_lane:
-        reasons.append("Ukrainian-language work (--language-lane, a Ukrainian review profile or curriculum path)")
-    track_reason = curriculum_track_reason(research_track, repo_root=repo_root)
-    if track_reason:
-        reasons.append(track_reason)
-    reasons.extend(reason for path in owned if (reason := owned_path_reason(path)))
-    if prompt_file and _PRIVATE_STATE_COMPONENTS.intersection(Path(str(prompt_file)).expanduser().parts):
-        reasons.append(f"--prompt-file {prompt_file!r} lives in agent-private state")
-    if repo is not None and repo not in CODING_REPO_ROLES:
-        reasons.append(f"--repo role {repo!r} is a private repository")
-    read_errors: list[BaseException] = []
-    if not reasons and owned:
-        reasons.extend(_content_reasons(owned, trees, read_errors))
-    if reasons:
-        raise KimiAdmissionRefused(format_refusal(seat, reasons), read_errors=read_errors)
+    if seat is not None:
+        raise KimiAdmissionRefused(format_refusal(seat, ["Kimi models and seats are retired"]))
 
 
 def _git_env() -> dict[str, str]:
@@ -726,7 +372,7 @@ def _git_env() -> dict[str, str]:
 
 
 def worktree_trees(worktree: Path, *, env: Mapping[str, str] | None = None) -> list[ContentTree]:
-    """A worktree as a Kimi worker sees it: its files on disk and the commit checked out there.
+    """A worktree content snapshot: its files on disk and the commit checked out there.
 
     Raises ``RuntimeError`` when the checked-out commit cannot be resolved.
     """
@@ -749,16 +395,6 @@ def worktree_trees(worktree: Path, *, env: Mapping[str, str] | None = None) -> l
     return [DirectoryTree(worktree), CommitTree(worktree, head, env=git_env)]
 
 
-def owned_paths_from_config(tool_config: Mapping[str, Any] | None) -> tuple[str, ...]:
-    """The owned paths dispatch declared in ``tool_config`` (``OWNED_PATHS_KEY``); empty when absent."""
-    raw = (tool_config or {}).get(OWNED_PATHS_KEY)
-    if isinstance(raw, str):
-        raw = [raw]
-    if not isinstance(raw, (list, tuple)):
-        return ()
-    return tuple(str(item) for item in raw if isinstance(item, str) and item.strip())
-
-
 def refuse_kimi_execution(
     participants: Iterable[str | None],
     models: Iterable[str | None] = (),
@@ -767,94 +403,11 @@ def refuse_kimi_execution(
     cwd: Path | None,
     tool_config: Mapping[str, Any] | None,
 ) -> None:
-    """The runtime and adapter form of the gate: ownership from ``tool_config``, content read in ``cwd``.
-
-    Calls ``refuse_kimi_if_disallowed`` with the declared owned paths and the
-    execution tree (``cwd`` on disk and at its checked-out commit); no cwd is
-    a refusal. Runs before any launch plan, attribution or provisioning.
-    """
-
-    def trees() -> list[ContentTree]:
-        if cwd is None:
-            raise RuntimeError("no execution tree (no cwd)")
-        return worktree_trees(Path(cwd))
-
-    refuse_kimi_if_disallowed(
-        participants,
-        models,
-        mode=mode,
-        paths=owned_paths_from_config(tool_config),
-        tool_config=tool_config,
-        trees=trees,
-    )
-
-
-def _content_reasons(
-    owned: Sequence[str],
-    trees: Sequence[ContentTree] | Callable[[], Sequence[ContentTree]],
-    read_errors: list[BaseException],
-) -> list[str]:
-    try:
-        resolved = trees() if callable(trees) else trees
-    except (OSError, RuntimeError, ValueError, subprocess.SubprocessError) as exc:
-        # A reader's message can hold host paths or remote names: only its class, unless typed (#9878).
-        read_errors.append(exc)
-        return [f"the tree the worker starts from cannot be read for Ukrainian content ({_read_error_reason(exc)})"]
-    if not resolved:
-        return ["owned paths cannot be checked for Ukrainian content (no tree to read)"]
-    reasons = [
-        reason
-        for tree in resolved
-        for path in owned
-        for reason in owned_scope_reasons(path, tree, read_errors=read_errors)
-    ]
-    return list(dict.fromkeys(reasons))
+    """Reject retired execution targets without resolving ownership or reading trees."""
+    refuse_kimi_if_disallowed(participants, models, mode=mode, tool_config=tool_config)
 
 
 def format_refusal(agent: str, reasons: Iterable[Any]) -> str:
+    """Format the retained retired-seat refusal without obsolete admission instructions."""
     joined = "; ".join(str(reason) for reason in reasons)
-    return (
-        f"ROUTING REFUSED: {_POLICY}: {POLICY_LINE} {agent} seats take workspace-write implementation of "
-        f"allowlisted UI and backend paths holding plain UTF-8 text without Cyrillic only "
-        f"(KIMI_OWNED_ROOTS in {_MACHINERY_DIR}/agent_runtime/kimi_admission.py). "
-        f"Refused: {joined}. Alternative seats: {_alternative_seats()}."
-    )
-
-
-def _alternative_seats() -> str:
-    """Prefer catalog alternatives; unavailable catalog data must not interrupt a typed refusal."""
-    try:
-        from lu_machinery.review.model_catalog import load_model_catalog
-
-        catalog = load_model_catalog()
-        models = catalog["models"]
-        reviewers = sorted(
-            {
-                entry["route"]
-                for entry in catalog["review_candidates"].values()
-                if models[entry["model_id"]]["family"] in {"anthropic", "openai"}
-                and catalog["review_scheduler"]["endpoints"].get(entry["route"], {}).get("formal_review_eligible")
-                # A multi-model endpoint is formal only for the models it pins.
-                and entry["model_id"] in catalog["review_scheduler"]["endpoints"][entry["route"]].get("models", [])
-            }
-        )
-        consults = sorted(
-            {
-                seat
-                for seat, entry in catalog["orchestrator_seats"].items()
-                if models.get(entry["model_id"], {}).get("family") in {"anthropic", "openai", "xai"}
-            }
-        )
-        if not reviewers or not consults:
-            raise ValueError("alternative seats missing")
-    except ImportError:  # Refusal remains available when the catalog module is unavailable.
-        reviewers, consults = ["claude", "codex"], ["claude", "codex", "grok"]
-    except Exception as exc:
-        # Formatting is also used outside an admission try/except. Keep the
-        # original refusal and expose catalog failure without its private text.
-        return f"MODEL_CATALOG_INVALID: cannot resolve alternative seats ({type(exc).__name__})"
-    return (
-        f"reviews → {', '.join(reviewers)} (per the reviewer resolver); "
-        f"consults and discussions → {', '.join(consults[:-1])}, or {consults[-1]}; "
-        "claude, codex, or agy for Ukrainian-language content"
-    )
+    return f"ROUTING REFUSED: Kimi is retired; {agent} cannot execute. Refused: {joined}."

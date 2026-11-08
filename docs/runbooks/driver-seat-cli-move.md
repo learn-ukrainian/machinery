@@ -36,7 +36,7 @@ stores remain read-only. ACP carries ordinary communication, not durable
 orders, lease authority, or formal review. Source:
 [agents_extensions/shared/rules/core.md:158](../../agents_extensions/shared/rules/core.md#L158).
 
-Preserve the current seat's health protocol. Grok, Gemini, and Kimi mint and
+Preserve the current seat's health protocol. Grok and Gemini mint and
 score their canaries only within `thread-rollover`; stop on FAIL-HANDOFF below
 8/10. Claude and Sonnet use SessionStart/PostCompact and thread-handoff, with
 no model-specific canary lane. Do not run a canary merely to validate this

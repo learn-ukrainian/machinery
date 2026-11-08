@@ -30,8 +30,6 @@ driver_scope_entrypoint() {
     start-codex.sh) row='codex interactive codex' ;;
     start-gemini.sh) row='gemini interactive gemini' ;;
     start-grok.sh) row='grok interactive grok' ;;
-    start-kimi.sh) row='kimi interactive kimi' ;;
-    start-kimicc.sh) row='kimi interactive kimicc' ;;
     start-glm.sh) row='glm interactive glm' ;;
     start-glmcc.sh) row='glm interactive glmcc' ;;
     "$DS_PACKAGE/start-bio-driver.sh") row='claude interactive bio' ;;

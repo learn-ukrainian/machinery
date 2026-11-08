@@ -3,7 +3,7 @@
 <critical>
 
 **Cutover issue:** #6159 · **Stream:** #4707 (infra-harness) · **Operator GO:** 2026-08-01
-**Applies to:** every standalone TUI/UI and epic-driver seat (Claude/Sonnet, Grok, Kimi, Cursor, wrappers; AGY/Gemini only as a standalone TUI seat, never an epic-driver seat) — not only agents that load a skill.
+**Applies to:** every standalone TUI/UI and epic-driver seat (Claude/Sonnet, Grok, Cursor, wrappers; AGY/Gemini only as a standalone TUI seat, never an epic-driver seat) — not only agents that load a skill.
 
 This is the **shared-context SSOT** for coordination after the fleet-comms authority cutover. It is
 served in `GET /api/rules?scope=task:fleet-comms`, `scope=task:driver`, or `scope=full`.
@@ -19,7 +19,7 @@ that skill). Do not reintroduce claims Sol rejected (see §Plane modes).
 | Layer | Role | Where |
 | --- | --- | --- |
 | **This rule** | Binding musts for every TUI/UI cold-start | `/api/rules?scope=task:fleet-comms` (or `scope=task:driver` / `scope=full`) + offline path |
-| **Seat onboarding contract** | Task-oriented ownership matrix (discuss / delegate / fleet-comms / ACPX / Buzz deferred), Kimi routes, smoke | `docs/runbooks/agent-seat-onboarding.md` |
+| **Seat onboarding contract** | Task-oriented ownership matrix (discuss / delegate / fleet-comms / ACPX / Buzz deferred), retired-seat refusal, smoke | `docs/runbooks/agent-seat-onboarding.md` |
 | **`drive-epic` skill** | Method playbook (orient → topology → route → dispatch → settle → CF → merge → handoff) | `agents_extensions/shared/skills/drive-epic/SKILL.md` |
 | **Epic roster runbook** | Operator seat routing (which model drives which epic) | `docs/runbooks/epic-orchestrator-roster.md` |
 | **Live routing data** | Caps, ladders, reviewer seats, **live plane mode** | `/api/rules?scope=task:routing` (or `scope=full`) model-assignment + `lu_machinery/config/model_catalog.yaml` + `lu_machinery/config/fleet_communications.yaml` + `.venv/bin/python -m lu_machinery.fleet_comms plane-status` |

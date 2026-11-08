@@ -16,22 +16,26 @@ from lu_machinery.review.model_catalog import (
     ModelCatalogError,
     catalog_age_days,
     catalog_is_stale,
-    kimi_model_aliases,
     load_model_catalog,
     validate_glm_alias_consumers,
-    validate_kimi_alias_consumers,
 )
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--catalog", type=Path, default=CATALOG_PATH)
-    parser.add_argument("--as-of", type=date.fromisoformat, default=None)
+    parser = argparse.ArgumentParser(
+        description=("Validate catalog structure, alias consumers and freshness.\n"
+                     "Use for the model-catalog gate; provider health is checked separately."),
+        epilog=("Examples: .venv/bin/python -m lu_machinery.lint.lint_model_catalog --as-of 2026-11-08\n"
+                "Outputs: validation JSON on stdout; no writes.\n"
+                "Exit codes: 0 valid and fresh; 1 invalid or stale; 2 invalid arguments.\n"
+                "Related: lu_machinery/config/model_catalog.yaml."),
+    )
+    parser.add_argument("--catalog", type=Path, default=CATALOG_PATH, help="Catalog YAML path, default: canonical machinery catalog.")
+    parser.add_argument("--as-of", type=date.fromisoformat, default=None, help="Freshness date YYYY-MM-DD, default: today.")
     args = parser.parse_args()
     try:
         load_model_catalog.cache_clear()
         catalog = load_model_catalog(args.catalog.resolve())
-        validate_kimi_alias_consumers()
         validate_glm_alias_consumers()
         age_days = catalog_age_days(catalog, as_of=args.as_of)
         stale = catalog_is_stale(catalog, as_of=args.as_of)
@@ -46,10 +50,6 @@ def main() -> int:
         "age_days": age_days,
         "refresh_after_days": catalog["refresh_after_days"],
         "model_count": len(catalog["models"]),
-        "kimi_alias_count": len(kimi_model_aliases(catalog)),
-        "kimi_alias_model_count": len(
-            [model for model in catalog["models"].values() if "native_kimi" in model["transports"]]
-        ),
         "review_candidate_count": len(catalog["review_candidates"]),
     }
     if stale:

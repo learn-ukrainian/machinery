@@ -78,7 +78,6 @@ CODE_LANES: tuple[str, ...] = (
     "gemini",
     "grok",
     "cursor",
-    "kimi",
     "agy",
     "deepseek",
     "glm",
@@ -95,7 +94,6 @@ _CODE_LANE_PRIORITY = {
     "claude": 1,
     "cursor": 2,
     "grok": 3,
-    "kimi": 4,
     "gemini": 5,
     "glm": 6,
     "agy": 7,
@@ -164,12 +162,6 @@ def is_avoid_lane(
     """
     if lane is not None and lane.strip().lower() in RETIRED_AGENT_ALIASES:
         return True
-    if lane == "kimi":
-        from lu_machinery.agent_runtime.registry import AGENTS
-        from lu_machinery.review.model_catalog import retired_model_refusal
-
-        if retired_model_refusal(AGENTS[lane]["default_model"]):
-            return True
     if facts is None:
         facts = credit_lane.routing_facts(lane or "", agent_info, model=None)
     return facts.capacity == credit_lane.CAPACITY_AVOID
@@ -418,16 +410,11 @@ def build_lane_rows(
         pace_deficit = facts.uncovered is True
         # The reserve needs the owner's verified capacity (#9740), so it only ranks Codex first and
         # never lifts an AVOID.
-        retired_default = lane == "kimi" and is_avoid_lane(info, lane=lane, facts=facts)
-        avoid = retired_default or (
-            (bool(retired_target) or facts.capacity == credit_lane.CAPACITY_AVOID) and not credit_relaxes
-        )
+        avoid = (bool(retired_target) or facts.capacity == credit_lane.CAPACITY_AVOID) and not credit_relaxes
         if avoid:
             capacity = {
                 "state": credit_lane.CAPACITY_AVOID,
-                "reason": "catalog-retired default model"
-                if retired_default
-                else f"retired→{retired_target}"
+                "reason": f"retired→{retired_target}"
                 if retired_target
                 else facts.capacity_reason,
             }

@@ -267,7 +267,7 @@ only Grok 4.7. Historical Composer identities retain Moonshot attribution.
 **Designated approval (operator decisions 2026-10-03, #9583, #9616):** a new architecture,
 layout, process or policy decision is approved by the operator, or when two frontier families
 agree through `claude-opus-5-5` and `gpt-6.1-sol`: when one of them authored the proposal, the
-other's approval completes it; a proposal by any other agent (Gemini, Grok, Kimi or another seat)
+other's approval completes it; a proposal by any other agent (Gemini, Grok or another seat)
 needs both; if they disagree, the operator decides. Fable 5.1 is parked: not routed by default, explicit pin only; reintroduction or a successor model is an operator decision. Astra holds no advisory, approval, design or driver role. Its sole review exception is the Sol-authored code red-team seat under #10437, operator decision 2026-10-31 recorded by the CTO, expiring 2026-11-04T00:00Z, with the limits above.
 
 **Claude interactive default: Sonnet 5.5 with Opus 5.5 advisor (#10083):**
@@ -442,18 +442,8 @@ or count as a formal review.
   CLI was the only bus (never OpenRouter). The old split was `kimi-code/k3-256k` for everyday
   coding and `kimi-code/k3` for complex coding. The historical limit was web, UI and backend
   coding only — no Ukrainian-language content, no reviews, consults, design or rules.
-  The historical gate admitted workspace-write implementation of
-  allowlisted paths only (`KIMI_OWNED_ROOTS`: site UI components, layouts, pages, styles and assets,
-  four named `site/src/lib` helpers, `site/*.config.*`, the verified backend packages
-  `scripts/{agent_runtime,api,orchestration,ci,fleet_comms,hygiene,storage}` and their tests, CI
-  workflows and `.dagger/`); anything not on the allowlist is refused, as is an owned scope
-  covering an excluded file. Historically, Kimi content had to be plain UTF-8 text (no control characters but tab,
-  LF, CR) without Cyrillic: an owned file or scope holding anything else (Cyrillic, UTF-16, another
-  encoding, a binary) is refused — read in the tree the worker starts from, a reused worktree on
-  disk and at its commit or a new worktree's base commit via git plumbing — and so is a finalized
-  Kimi diff whose changed files broke the rule, before delegate committed it. The historical gate
-  `refuse_kimi_if_disallowed` (`lu_machinery/agent_runtime/kimi_admission.py`) is not an executable route.
-  The historical bus was the native `kimi` CLI only — never OpenRouter (Wave 1 fold + #7142).
+  `refuse_kimi_if_disallowed` (`lu_machinery/agent_runtime/kimi_admission.py`)
+  rejects every recognized retired seat or model before execution or broker writes.
 * **Retired, not subscribed (operator 2026-10-23):** GLM, Pool/Laguna, Composer,
   Gemini 3.1 Pro, Gemini 4 Argon and Qwen (Gemma is live for hramatka through OpenCode,
   operator 2026-11-07, REMOVE-UNNEEDED-1107). No executable routing, reviewer
@@ -662,7 +652,6 @@ the system until it returns) is broken by ROLE SPLIT, not by a better single dri
   | cursor | true |
   | gemini | false |
   | grok | true |
-  | kimi | false |
   <!-- fleet-roster-projection:end formal_review_eligible -->
 
 * **Advisor = `gpt-6.1-sol` @ `high` (on-demand, NOT a standing worker).** The

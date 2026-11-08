@@ -190,14 +190,6 @@ _PROVIDER_SECRET_ALLOWLIST = {
         "CODEX_API_KEY",
         "OPENAI_API_KEY",
     },
-    "kimi": {
-        # Passed only to the KimiCC wrapper, which resolves the final route at
-        # spawn and exports ANTHROPIC_AUTH_TOKEN solely to its exec child.
-        "KIMICC_AUTH_TOKEN",
-        "MOONSHOT_API_KEY",
-        "KIMI_API_KEY",
-        "ANTHROPIC_AUTH_TOKEN",
-    },
     "cursor": {
         "CURSOR_API_KEY",
     },
@@ -218,7 +210,6 @@ GITHUB_TOKEN_SEATS = {
     "glm",
     "grok",
     "grok-build",
-    "kimi",
 }
 
 _PROVIDER_SAFE_NAME_ALLOWLIST = {
@@ -252,14 +243,6 @@ _PROVIDER_SAFE_NAME_ALLOWLIST = {
         # method. It is not a cached token or credential value. Real XAI
         # API-key selectors remain outside every allowlist and are stripped.
         "ACPX_AUTH_CACHED_TOKEN",
-    },
-    "acpx-kimi-shadow": {
-        # Non-secret acpx auth-method selector for the existing Kimi login.
-        "ACPX_AUTH_LOGIN",
-    },
-    "acpx-kimicc-shadow": {
-        # KimiCC K3 uses the same existing Kimi login through its fixed route.
-        "ACPX_AUTH_LOGIN",
     },
     "acpx-glm-shadow": {
         # Non-secret selector for OpenCode's advertised ACP method ID
@@ -311,27 +294,6 @@ _PROVIDER_SAFE_NAME_ALLOWLIST = {
     # credential; `HOME` already passes the global safe-name allowlist.
     "agy": {
         "AGY_APP_DATA_DIR",
-    },
-    "kimi": {
-        # Native CLI executable override; it is a path, never a credential.
-        "KIMI_CODE_BIN",
-        # KimiCC resolves its route and OAuth token inside the headless wrapper
-        # immediately before it execs Claude Code. These are route selectors or
-        # local credential-file paths, not token values.
-        "KIMICC_ENDPOINT",
-        "KIMICC_MODEL",
-        "KIMICC_BASE_URL",
-        "KIMICC_EFFORT_LEVEL",
-        "KIMICC_CLAUDE_BIN",
-        "KIMI_CODE_CREDENTIALS_PATH",
-        "KIMI_CODE_OAUTH_HOST",
-        "KIMI_CODE_OAUTH_MARGIN",
-        # The KimiCC harness runs headless Claude Code and sets these like the
-        # Claude adapter (#9690, #10083). The provider name is "kimi" for both Kimi
-        # harnesses, so build_agent_env admits them only from adapter overrides:
-        # the native Kimi CLI plan never sets them.
-        "CLAUDE_CODE_DISABLE_BACKGROUND_TASKS",
-        "CLAUDE_CODE_DISABLE_ADVISOR_TOOL",
     },
 }
 
@@ -640,7 +602,7 @@ def child_credential_env(
         route_auth = name.upper() == "ANTHROPIC_AUTH_TOKEN" and seat in {"codex", "glm"} and harness == "claude-code"
         route_counter = (
             name == "CLAUDE_CODE_MAX_CONTEXT_TOKENS"
-            and seat in {"glm", "kimi"}
+            and seat == "glm"
             and harness == "claude-code"
             and value.isascii()
             and value.isdecimal()
@@ -701,12 +663,6 @@ def build_agent_env(
         # AGY_APP_DATA_DIR (#8617); an ambient export must not leak into an
         # ordinary dispatch.
         raw.pop("AGY_APP_DATA_DIR", None)
-    if _normalized_provider(provider) == "kimi":
-        # Only the KimiCC plan sets the Claude headless switches (#9690, #10083); an
-        # ambient export (a dispatch started from a headless Claude worker's
-        # shell) must not reach the native Kimi CLI.
-        raw.pop("CLAUDE_CODE_DISABLE_BACKGROUND_TASKS", None)
-        raw.pop("CLAUDE_CODE_DISABLE_ADVISOR_TOOL", None)
     raw.update(overrides or {})
     raw.pop("LU_OPSEC_OVERRIDE", None)
     # Driver state belongs to the launcher session, never child/consult agents.
@@ -727,7 +683,7 @@ def build_agent_env(
             continue
         if _is_provider_safe_name(name, provider) or (
             name == "ANTHROPIC_BASE_URL"
-            and _normalized_provider(provider) in {"glm", "kimi"}
+            and _normalized_provider(provider) == "glm"
             and harness == "claude-code"
         ):
             if name.upper().startswith("ACPX_AUTH_") and value != "1":
@@ -771,8 +727,7 @@ def build_agent_env(
     # cannot persist a repo-bricking core.bare write into system/global config.
     from .kimi_admission import is_kimi_seat
 
-    # A Kimi seat never publishes: delegate commits and pushes its work after
-    # the content check (kimi_boundary). It gets no GitHub identity, no
+    # Retired Kimi inputs keep the no-push protection. They get no GitHub identity, no
     # credential helper, an empty gh config, and every push URL rewritten below.
     no_push = is_kimi_seat(provider)
     token = credentials.get("GH_TOKEN")
@@ -816,7 +771,7 @@ def build_agent_env(
     ):
         _append_push_rewrite(env, "file:///dev/null/claude-read-only/")
     if no_push:
-        from .kimi_boundary import PUSH_BLOCK_URL
+        PUSH_BLOCK_URL = "kimi-push-disabled://delegate-pushes-after-the-content-check"
 
         _append_push_rewrite(env, f"{PUSH_BLOCK_URL}/")
 

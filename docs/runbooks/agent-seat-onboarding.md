@@ -5,7 +5,7 @@ For an authorized CLI seat move, follow [Move a driver seat to another CLI](driv
 **Audience:** every supported fleet seat on cold-start (interactive TUI, driver
 launcher, headless dispatch).
 **Product epic:** #6027 · **Stream:** #4707 (`infra-harness`).
-**Status:** documentation contract for the structured-ACP + KimiCC rollout.
+**Status:** documentation contract for the structured-ACP rollout.
 **Live routing data:** always re-read `GET /api/rules`,
 `lu_machinery/config/model_catalog.yaml`, and
 `.venv/bin/python -m lu_machinery.fleet_comms plane-status` — never hard-code live
@@ -23,7 +23,7 @@ caps or live modes.
    it probes fleet/plane/stream state so this list starts from live data, not memory.
 1. Operator contract + model assignment via `GET /api/rules` (offline fallbacks
    under `agents_extensions/shared/rules/`).
-2. This runbook — ownership matrix, experimental ACPX boundary, Kimi routes.
+2. This runbook — ownership matrix, experimental ACPX boundary, retired-seat refusal.
 3. Fleet-comms durable-authority rule:
    [`agents_extensions/shared/rules/fleet-comms-coordination.md`](../../agents_extensions/shared/rules/fleet-comms-coordination.md).
 4. Epic seat routing (operator launch reminder only):
@@ -136,7 +136,7 @@ Migration never deletes backup contents, including concurrent writes; modified
 or unverified content and recreated active paths require reconciliation. Never
 hand-edit active deploy copies. Caveman is **style only** — never persisted artifacts (commits, PR/issue
 bodies, curriculum, runbooks, review-of-record text on GitHub) and never a substitute for
-fleet-comms durable state. Cursor, Kimi, GLM, and OpenCode consume it through the **host
+fleet-comms durable state. Cursor, GLM, and OpenCode consume it through the **host
 harness** skill tree of the CLI that actually launches them, not
 a model-named extra copy.
 
@@ -415,7 +415,7 @@ not permanent routing weights and do not override current CodexBar headroom.
   controller).
 - Exactly one read-only/stateless participant per enabled route: Codex, Grok,
   Claude, Cursor, Pool, AGY/Gemini, GLM, Gemma, and DeepSeek. Kimi and KimiCC
-  seats are named in the registry but refused by `kimi_admission`.
+  are retired and refused by `kimi_admission` before participant lookup.
 - Grok fixed effective model/effort: `grok-4.7` / `high` (caller may pass
   only `None` or those exact values; metadata never fabricates otherwise).
   Rotated from `grok-4.5` by operator order 2026-08-16 (#6865).
@@ -889,6 +889,6 @@ quotes the same substitutions):
 | [`fleet-comms-coordination.md`](../../agents_extensions/shared/rules/fleet-comms-coordination.md) | Binding durable-authority musts on `/api/rules` |
 | [`epic-orchestrator-roster.md`](epic-orchestrator-roster.md) | Which seat drives which epic (operator) |
 | [`agent-cooperation.md`](../best-practices/agent-cooperation.md) | Deliberation, V2, review discipline |
-| [`agent-runtime-guide.md`](../agent-runtime-guide.md) | `runner.invoke`, KimiCC headless, session policy |
+| [`agent-runtime-guide.md`](../agent-runtime-guide.md) | `runner.invoke`, headless execution, session policy |
 | [`SCRIPTS.md`](../SCRIPTS.md) | Launcher and bridge command index |
 | [`agent-activity-matrix.md`](../best-practices/agent-activity-matrix.md) | Fleet roster and capacity routing |

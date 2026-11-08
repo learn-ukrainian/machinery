@@ -720,11 +720,6 @@ ALLOWLIST: tuple[tuple[str, str, str], ...] = (
         "3a551725531996d814535301069877e169a7e0f9c86164341e602d1f2efa1b43:1",
     ),
     (
-        _mp("lib/kimi_coding_oauth.py"),
-        "Existing literal or temp producer exposed by expanded lint; migration tracked in #9702.",
-        "3a92568d336a6660762078817766d04a8bfda2a366d3eba2ebf0a3120d1e9dc0:1 e16020d500f2e1ce9c24902d87f88dc43af3a93da51c578d58863650071e7432:1",
-    ),
-    (
         _mp("lib/launcher_core.sh"),
         "Existing literal or temp producer exposed by expanded lint; migration tracked in #9702.",
         "d0f7f69348d794fbcb1386a7000fda2078482a089ebabc1790809c4bbe398ee2:3",

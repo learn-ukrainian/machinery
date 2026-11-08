@@ -1115,6 +1115,7 @@ def assert_frozen_surfaces(actual, *, surfaces):
     assert set(actual) == set(surfaces)
     for surface in surfaces:
         value = approved_dispatcher_spelling(deepcopy(actual[surface]))
+        expected = deepcopy(CURRENT_BASELINE[surface])
         if surface == "catalog":
             # Assert the entire operator-approved exception before comparing every other field.
             if "red_team_only" in value["models"]["gpt-6-astra"]:
@@ -1160,7 +1161,18 @@ def assert_frozen_surfaces(actual, *, surfaces):
                 "agents_extensions/shared/rules/fleet-shared-doctrine.md",
             )
             value["models"]["claude-fable-5-1"]["notes"] = old_notes
-        assert value == CURRENT_BASELINE[surface], f"current surface differs: {surface}"
+            # C-4831 removes execution metadata while preserving the frozen retired identities.
+            for endpoint in ("kimi", "kimicc"):
+                assert endpoint not in value["review_scheduler"]["endpoints"]
+                removed = expected["review_scheduler"]["endpoints"].pop(endpoint)
+                assert removed["models"] == []
+            for model_id in (
+                "kimi-code/k3", "kimi-code/k3-256k", "kimi-k3-max",
+                "kimi-code/kimi-for-coding", "kimi-code/kimi-for-coding-highspeed",
+            ):
+                assert "kimi_routes" not in value["models"][model_id]
+                assert expected["models"][model_id].pop("kimi_routes")
+        assert value == expected, f"current surface differs: {surface}"
 
 
 def refresh_current_baseline():

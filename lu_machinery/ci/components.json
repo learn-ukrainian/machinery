@@ -635,12 +635,6 @@
     "start-grok.sh": [
       "harness"
     ],
-    "start-kimi.sh": [
-      "harness"
-    ],
-    "start-kimicc.sh": [
-      "harness"
-    ],
     "tests/build/test_build_landing_pages.py": [
       "curriculum-generation"
     ],

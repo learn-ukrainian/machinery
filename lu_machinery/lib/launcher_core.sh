@@ -4,7 +4,7 @@
 # uniform public CLI and driver lifecycle.
 
 # Fixed arguments a public wrapper adds to its caller's argv: launcher options
-# (the CTO lane, the kimicc harness) and leading provider arguments (the bio
+# (the CTO lane) and leading provider arguments (the bio
 # agent). A wrapper sets them after sourcing this file. Scope re-entry and
 # supervisory successors replay the caller's argv alone, so the wrapper adds
 # them exactly once (#9624). Sourcing resets them; arrays are never inherited.
@@ -89,7 +89,7 @@ launcher_usage() {
     start-claude-cto.sh|start-codex-cto.sh) name="${0##*/}" ;;
   esac
   case "$LC_PROVIDER" in
-    kimi|glm)
+    glm)
       driver_mode="  driver       No certified ${LC_PROVIDER} driver entrypoint is available."
       ;;
     *)
@@ -112,8 +112,6 @@ launcher_usage() {
     gemini) provider_env='  AGY_*                    AGY-managed Gemini authentication and configuration.' ;;
     grok) provider_env='  GROK_*                   Grok CLI authentication and configuration.' ;;
     cursor) provider_env='  CURSOR_API_KEY           Optional Cursor API key (otherwise CLI login / oauth).' ;;
-    kimi) provider_env='  KIMICC_AUTH_TOKEN, MOONSHOT_API_KEY, KIMI_API_KEY
-                             Explicit Kimi credentials for --harness claude-code.' ;;
     glm) provider_env='  GLMCC_AUTH_TOKEN, ZAI_API_KEY, ZHIPU_API_KEY, GLM_API_KEY
                              Explicit GLM credentials (preferred over the secret file).
   ~/.secret/zai.key        Owner-only fallback (mode 0600/0400) when env is unset.
@@ -121,7 +119,6 @@ launcher_usage() {
   esac
   case "$LC_PROVIDER:$LC_MODE" in
     gemini:interactive) example_three='./start-gemini.sh --model gemini-3.8-flash-high' ;;
-    kimi:interactive) example_three='./start-kimicc.sh --endpoint coding' ;;
     glm:interactive) example_three='./start-glmcc.sh --endpoint coding' ;;
     *:driver) example_three="./${name} --epic devops"$'\n'"  ./${name} --epic infra --force" ;;
     *) example_three="./start-${LC_PROVIDER}-driver.sh --epic devops" ;;
@@ -166,8 +163,8 @@ Options:
                              driver did not hand off. Live drivers must not pass it.
                              CTO wrappers reject it with exit 2.
   --governor SELECTOR        Codex driver only; one lease-free Sol cycle (AUTO allowed).
-  --endpoint NAME            Kimi/GLM route endpoint: coding or platform.
-  --isolate-config           Kimi/GLM Claude-Code config isolation (default).
+  --endpoint NAME            GLM route endpoint: coding or platform.
+  --isolate-config           GLM Claude-Code config isolation (default).
   --no-isolate-config        Use the existing Claude-Code config only when route-safe.
   --                         Pass all remaining arguments verbatim to the provider CLI.
                              Native Grok drivers take prompt words before this separator;
@@ -399,10 +396,6 @@ launcher_defaults() {
       # LAUNCHER_MODEL may choose another certified pin.
       LC_MODEL="${LAUNCHER_MODEL:-$LC_CURSOR_SEAT_PIN}"
       LC_HARNESS="${LAUNCHER_HARNESS:-cursor-agent}"
-      ;;
-    kimi)
-      LC_MODEL="${LAUNCHER_MODEL:-k3-256k}"
-      LC_HARNESS="${LAUNCHER_HARNESS:-kimi-code}"
       ;;
     glm)
       LC_MODEL="${LAUNCHER_MODEL:-glm-5.3}"

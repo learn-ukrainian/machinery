@@ -536,17 +536,10 @@ def seat_default_model(seat: str, harness: str | None = None) -> str | None:
 def _seat_default_model(seat: str, harness: str | None = None) -> str | None:
     """The model a seat runs when the request pins none.
 
-    A harness picks its own default (kimicc runs the first routable kimicc model);
+    A harness may pick its own fixed default;
     otherwise the registry default applies.
     """
-    if harness == "kimicc":
-        try:
-            from .adapters.kimicc import kimicc_default_model
-
-            return kimicc_default_model()
-        except Exception:  # no catalog: fall back to the registry default
-            pass
-    elif harness:
+    if harness:
         try:
             from .adapters.acpx import ACPX_SUPPORTED_PARTICIPANTS
 
