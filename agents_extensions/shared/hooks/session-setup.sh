@@ -280,7 +280,15 @@ if [ -n "${LEARN_UKRAINIAN_CLAUDEX_RUN_ID:-}" ]; then
     ISSUES+=("CLAUDEX SUPERVISOR BIND FAILED: official session identity or runtime helper is unavailable.")
   else
     SUPERVISOR_BIND_CMD=(
-      "$CLAUDEX_SUPERVISOR_PYTHON" -I -c 'import runpy, sys; sys.path.append(sys.argv.pop(1)); runpy.run_module("lu_machinery.orchestration.claudex_supervisor", run_name="__main__", alter_sys=True)'
+      "$CLAUDEX_SUPERVISOR_PYTHON" -I -c '
+import importlib.util, runpy, sys
+pkg = sys.argv.pop(1) + "/lu_machinery"
+if importlib.util.find_spec("lu_machinery") is None:
+    spec = importlib.util.spec_from_file_location("lu_machinery", pkg + "/__init__.py", submodule_search_locations=[pkg])
+    sys.modules["lu_machinery"] = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(sys.modules["lu_machinery"])
+runpy.run_module("lu_machinery.orchestration.claudex_supervisor", run_name="__main__", alter_sys=True)
+'
       "$PROJECT_DIR" bind-session
       --run-id "$LEARN_UKRAINIAN_CLAUDEX_RUN_ID"
       --launch-generation "${LEARN_UKRAINIAN_CLAUDEX_LAUNCH_GENERATION:-}"
@@ -289,9 +297,9 @@ if [ -n "${LEARN_UKRAINIAN_CLAUDEX_RUN_ID:-}" ]; then
     )
     [ -n "$SOURCE" ] && SUPERVISOR_BIND_CMD+=(--source "$SOURCE")
     [ -n "$OBSERVED_MODEL" ] && SUPERVISOR_BIND_CMD+=(--model "$OBSERVED_MODEL")
-    # -I: the bind ignores the caller's PYTHONPATH and cwd. The project is
-    # appended after the stdlib and site-packages for a checkout without the
-    # installed package. The supervised command keeps the caller's PYTHONPATH.
+    # -I: the bind ignores the caller's PYTHONPATH and cwd. Without an installed
+    # package it loads only lu_machinery from the project; the project root is
+    # never on sys.path. The supervised command keeps the caller's PYTHONPATH.
     if ! run_bounded 3 "${SUPERVISOR_BIND_CMD[@]}" >/dev/null 2>&1; then
       ISSUES+=("CLAUDEX SUPERVISOR BIND FAILED: SessionStart did not match the owned child generation.")
     fi
