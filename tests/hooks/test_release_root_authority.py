@@ -11,6 +11,8 @@ from pathlib import Path
 
 import pytest
 
+from lu_machinery.common.repo_root import machinery_root
+
 SOURCE = Path(__file__).resolve().parents[2]
 HOOKS = Path("agents_extensions/shared/hooks")
 
@@ -20,7 +22,7 @@ def release(tmp_path_factory):
     """Separate site-packages layout without a product package or source-path imports."""
     site = tmp_path_factory.mktemp("release") / "site-packages"
     shutil.copytree(
-        SOURCE / "lu_machinery",
+        machinery_root(),
         site / "lu_machinery",
         ignore=shutil.ignore_patterns("__pycache__"),
     )
@@ -366,7 +368,7 @@ def marked_release(tmp_path_factory):
     """A release whose package import is logged, to show the hook ran release code."""
     site = tmp_path_factory.mktemp("marked") / "site-packages"
     shutil.copytree(
-        SOURCE / "lu_machinery",
+        machinery_root(),
         site / "lu_machinery",
         ignore=shutil.ignore_patterns("__pycache__"),
     )
@@ -499,7 +501,7 @@ def test_codex_entry_audit_child_keeps_the_tree_off_sys_path(product, tmp_path):
     """Tree root on sys.path: the audit child imported a stdlib-named file from it (#161 F1)."""
     tree = tmp_path / "tree"
     shutil.copytree(
-        SOURCE / "lu_machinery",
+        machinery_root(),
         tree / "lu_machinery",
         ignore=shutil.ignore_patterns("__pycache__"),
     )

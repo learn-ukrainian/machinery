@@ -15,6 +15,7 @@ from pathlib import Path
 
 import pytest
 
+from lu_machinery.common.repo_root import machinery_path
 from lu_machinery.orchestration import task_identity
 from lu_machinery.orchestration import thread_handoff as th
 
@@ -516,8 +517,8 @@ _REPO = Path(__file__).resolve().parents[2]
 @pytest.mark.parametrize(
     "argv",
     [
-        pytest.param([str(_REPO / "lu_machinery/orchestration/thread_handoff.py")], id="thread_handoff"),
-        pytest.param([str(_REPO / "lu_machinery/orchestration/rollover_registry_cli.py")], id="rollover_registry_cli"),
+        pytest.param([str(machinery_path("orchestration/thread_handoff.py"))], id="thread_handoff"),
+        pytest.param([str(machinery_path("orchestration/rollover_registry_cli.py"))], id="rollover_registry_cli"),
         pytest.param(["-I", "-c", th.CLAUDEX_SUPERVISOR_BOOTSTRAP, str(_REPO)], id="claudex_supervisor"),
     ],
 )

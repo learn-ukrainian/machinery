@@ -460,7 +460,7 @@ def test_packaged_resource_edits_load_without_stale_pins_and_change_identity(tmp
     installed = tmp_path / "installed"
     package = installed / "lu_machinery"
     package.mkdir(parents=True)
-    shutil.copytree(repo / "lu_machinery/agent_deploy", package / "agent_deploy")
+    shutil.copytree(Path(plan.__file__).resolve().parent, package / "agent_deploy")
     fleet = installed / "agents_extensions/shared"
     shutil.copytree(repo / "agents_extensions/shared", fleet)
     locations = {"lu_machinery": package, "lu_machinery.agent_deploy": package / "agent_deploy"}

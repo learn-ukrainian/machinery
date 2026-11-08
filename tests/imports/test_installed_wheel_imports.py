@@ -10,11 +10,11 @@ from __future__ import annotations
 
 import json
 import os
-import shutil
 import subprocess
-import tomllib
 import venv
 from pathlib import Path
+
+from tests.helpers.wheel import release_wheel
 
 REPO = Path(__file__).resolve().parents[2]
 
@@ -102,43 +102,7 @@ def _run(command: list[str], *, cwd: Path, env: dict[str, str] | None = None) ->
 
 def test_installed_wheel_has_no_unprefixed_first_party_imports(tmp_path: Path) -> None:
     """Defect class: a bare first-party import shipped in the wheel."""
-    source = tmp_path / "source"
-    source.mkdir()
-    for name in ("pyproject.toml", "MANIFEST.in"):
-        shutil.copy2(REPO / name, source / name)
-    for name in ("lu_machinery", "agents_extensions"):
-        shutil.copytree(
-            REPO / name,
-            source / name,
-            ignore=shutil.ignore_patterns("__pycache__", "*.pyc"),
-        )
-    builder = tmp_path / "builder"
-    venv.EnvBuilder(with_pip=True).create(builder)
-    build_python = builder / "bin" / "python"
-    requirements = tomllib.loads((source / "pyproject.toml").read_text(encoding="utf-8"))["build-system"]["requires"]
-    prepared = _run(
-        [str(build_python), "-m", "pip", "install", "--disable-pip-version-check", "--only-binary=:all:", *requirements],
-        cwd=tmp_path,
-    )
-    assert prepared.returncode == 0, prepared.stdout + prepared.stderr
-    wheels = tmp_path / "wheels"
-    built = _run(
-        [
-            str(build_python),
-            "-m",
-            "pip",
-            "wheel",
-            "--no-build-isolation",
-            "--disable-pip-version-check",
-            "--no-deps",
-            "--wheel-dir",
-            str(wheels),
-            str(source),
-        ],
-        cwd=tmp_path,
-    )
-    assert built.returncode == 0, built.stdout + built.stderr
-    wheel = next(wheels.glob("lu_machinery-*.whl"))
+    wheel = release_wheel(REPO, tmp_path)
     consumer = tmp_path / "consumer"
     venv.EnvBuilder(with_pip=True).create(consumer)
     executable = consumer / "bin" / "python"
