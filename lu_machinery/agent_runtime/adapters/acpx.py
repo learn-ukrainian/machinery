@@ -653,7 +653,8 @@ ACPX_TOOL_CALL_LIMIT = 2048
 # Leaked provider tool syntax is not an answer. Match complete outer blocks,
 # rather than searching for tokens that legitimate prose may quote. XML-like
 # formats cover DeepSeek DSML, Claude antml, and GLM; special-token
-# formats cover Kimi, Gemma, and DeepSeek's earlier tool-call encoding.
+# formats cover retired Kimi tokens, Gemma tokens, and DeepSeek's earlier
+# tool-call encoding.
 _TOOL_CALL_MARKUP = re.compile(
     r"<(?P<xml_tag>｜DSML｜(?:function_calls|tool_calls|invoke)"
     r"|antml:(?:function_calls|invoke)|function_calls|tool_calls|tool_call)"
@@ -803,8 +804,9 @@ ACPX_EXIT_PERMISSION_DENIED = 5
 #
 # Unmapped — the ACP error payload acpx forwards has no typed rate-limit
 # field, so these stay generic transport failures (owner: claude-infra):
-# - kimi, kimicc: ``provider.rate_limit`` stays inside the turn and the
-#   prompt resolves ``stopReason: end_turn``; only auth becomes an error
+# - retired kimi, kimicc: historical only. ``provider.rate_limit`` stayed
+#   inside the turn and the prompt resolved ``stopReason: end_turn``; only
+#   auth became an error. No live seat.
 # - cursor: connect enums (RATE_LIMITED and siblings) are not copied into
 #   JSON-RPC ``error.data``; the SDK wraps the message as ``details`` text
 # - agy: the text-only agent rejects with an ``Error`` string, no typed data
@@ -1041,7 +1043,7 @@ def _resolve_host_node_binary(*, adapter_label: str = "ACPX") -> Path:
     equal versions keep the earlier candidate so ordering stays deterministic.
 
     Highest matching-major is required because Node 22.14 lacks
-    ``zlib.createZstdDecompress``, which the Kimi ACP CLI imports (#8287).
+    ``zlib.createZstdDecompress``, which the retired Kimi ACP CLI imported (#8287).
     Never invent a Node runtime or consult an unreviewed global acpx install
     as a substitute.
     """
@@ -2451,9 +2453,10 @@ def _confinement_prefix_argv(
         native_allowed_tools = tuple(name.removeprefix("mcp__") for name in allowed_tools)
         permission_policy = json.dumps(
             {
-                # ACP agents do not agree on MCP tool spelling. Claude/Kimi
-                # surface ``mcp__server__tool`` while native Grok reports
-                # ``server__tool`` through its search_tool/use_tool wrapper.
+                # ACP agents do not agree on MCP tool spelling. Claude
+                # surfaces ``mcp__server__tool`` (the retired Kimi CLI used
+                # the same spelling) while native Grok reports ``server__tool``
+                # through its search_tool/use_tool wrapper.
                 # Both spellings still name only the same parent-owned sealed
                 # server; the explicit MCP config replaces ambient servers.
                 "autoApprove": [
@@ -2682,8 +2685,9 @@ _MISSING_BINARY_REMEDIATION: dict[str, str] = {
 }
 
 # Provider executable each ACP participant's catalog transport shells out to.
-# Seats reached through an ACPX built-in (codex/grok/claude/kimi/cursor/pool)
-# resolve no external provider binary here and are not probed by this map.
+# Seats reached through an ACPX built-in (codex/grok/claude/cursor; retired
+# kimi and pool) resolve no external provider binary here and are not probed
+# by this map.
 # DeepSeek rides the same native ``opencode acp --pure`` transport as GLM and
 # Gemma.
 _PARTICIPANT_PROVIDER_BINARIES: dict[str, str] = {

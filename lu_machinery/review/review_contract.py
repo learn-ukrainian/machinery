@@ -87,7 +87,6 @@ class ContractError(RuntimeError):
 
 
 def schema_path(
-    tooling_root: Path | None = None,
     *,
     profile: str | None = None,
     task: Mapping[str, Any] | None = None,
@@ -106,16 +105,15 @@ def schema_path(
         return None
     from lu_machinery.common.repo_root import machinery_path
 
-    return tooling_root / SCHEMA_RELATIVE_PATH if tooling_root is not None else machinery_path(SCHEMA_RELATIVE_PATH)
+    return machinery_path(SCHEMA_RELATIVE_PATH)
 
 
 def load_schema(
-    tooling_root: Path | None = None,
     *,
     profile: str | None = None,
     task: Mapping[str, Any] | None = None,
 ) -> dict[str, Any] | None:
-    path = schema_path(tooling_root, profile=profile, task=task)
+    path = schema_path(profile=profile, task=task)
     if path is None:
         return None
     try:
@@ -442,7 +440,6 @@ def validate_reviewer_payload(
     payload: dict[str, Any],
     *,
     schema: dict[str, Any] | None = None,
-    tooling_root: Path | None = None,
 ) -> dict[str, Any]:
     """Strict JSON Schema validation (Draft 2020-12). Unknown fields fail."""
     try:
@@ -451,7 +448,7 @@ def validate_reviewer_payload(
     except ImportError as exc:  # pragma: no cover - venv always has jsonschema
         raise ContractError("jsonschema_unavailable", exit_code=EXIT_INVALID) from exc
 
-    sch = schema if schema is not None else load_schema(tooling_root)
+    sch = schema if schema is not None else load_schema()
     try:
         Draft202012Validator.check_schema(sch)
     except SchemaError as exc:

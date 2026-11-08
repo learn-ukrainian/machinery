@@ -17,10 +17,10 @@ import sys
 from datetime import UTC, datetime
 from pathlib import Path
 
-if __package__:
-    from .agent_directory import open_agent_directory
-else:  # run by path: this file's directory is first on sys.path
-    from agent_directory import open_agent_directory  # type: ignore[no-redef]
+if __package__ in (None, ""):  # run by path: the install root holds the package
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+    __package__ = "lu_machinery.agent_deploy"
+from .agent_directory import open_agent_directory
 
 STATUS_FILE = "last-deploy-status"
 FAILURE_LOG = "last-deploy-failure.log"

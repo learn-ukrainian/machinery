@@ -115,7 +115,7 @@ def test_consumer_import_order_preserves_package_identity(tmp_path):
     common = consumer / "common"
     (runtime / "adapters").mkdir(parents=True)
     common.mkdir()
-    for name in ("__init__.py", "adapters/__init__.py", "adapters/kimi.py"):
+    for name in ("__init__.py", "adapters/__init__.py"):
         (runtime / name).write_text("")
     (runtime / "redact.py").write_text("CONSUMER = True\n")
     (common / "__init__.py").write_text("")
