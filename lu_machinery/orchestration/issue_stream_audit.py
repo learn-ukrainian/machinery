@@ -1443,6 +1443,7 @@ def run_audit(
 ) -> dict:
     """Audit the selected product using the packaged registry and shared state cache."""
     root = product_root(repo_root)
+    cache_path = state_root() / "batch_state/issue_stream_audit.json"
     repository = "/".join(_repo_owner_name(root))
     registry = load_registry(REGISTRY_PATH, audit_only=True)
     open_issues = fetch_open_issues(root)
@@ -1464,7 +1465,7 @@ def run_audit(
     report["warnings"] = traversal_warnings + hygiene_warnings(
         root, open_issue_numbers, max_confirmed_age_days=max_confirmed_age_days
     )
-    publish_cache(report, registry, state_root() / "batch_state" / "issue_stream_audit.json")
+    publish_cache(report, registry, cache_path)
     return report
 
 

@@ -290,9 +290,10 @@ def write_membership_cache(report: dict, repository: str, registry: dict, *, roo
     if _audit_refusal(report, repository, registry) or audit.membership_root_results(report, registry) is None:
         return False
     checkout = product_root(root)
+    cache_path = state_root() / "batch_state/issue_stream_audit.json"
     warnings = [*(report.get("warnings") or ()), *audit.hygiene_warnings(checkout, set(report["open_issue_numbers"]))]
     audit.publish_cache(
-        {**report, "warnings": warnings}, registry, state_root() / "batch_state/issue_stream_audit.json"
+        {**report, "warnings": warnings}, registry, cache_path
     )
     return True
 
