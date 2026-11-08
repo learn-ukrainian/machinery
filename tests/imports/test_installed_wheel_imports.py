@@ -18,16 +18,6 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
 
-# Follow-up for claude-cto: delete these two lines when agent_deploy no longer
-# imports a sibling by its bare name. Those files are owned by other workers
-# until their PRs merge.
-# lu_machinery/agent_deploy/sync_agent_mirror.py: from agent_directory import open_agent_directory
-# lu_machinery/agent_deploy/update_agent_deploy_status.py: from agent_directory import open_agent_directory
-_ALLOWLIST = {
-    "agent_deploy/sync_agent_mirror.py": "agent_directory",
-    "agent_deploy/update_agent_deploy_status.py": "agent_directory",
-}
-
 # Standalone census. The clean interpreter runs this with python -I; it does
 # not import the checkout or this test module.
 _CENSUS = r"""
@@ -167,7 +157,4 @@ def test_installed_wheel_has_no_unprefixed_first_party_imports(tmp_path: Path) -
     )
     assert census.returncode == 0, census.stdout + census.stderr
     hits = json.loads(census.stdout)
-    # Each allowlisted path may carry only that module. Any other hit is a
-    # regression. An empty remainder is also a pass: the follow-up has landed.
-    unexpected = [hit for hit in hits if _ALLOWLIST.get(hit["path"]) != hit["module"]]
-    assert unexpected == [], json.dumps(unexpected, indent=2)
+    assert hits == [], json.dumps(hits, indent=2)
