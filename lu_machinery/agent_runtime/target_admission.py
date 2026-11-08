@@ -767,7 +767,9 @@ def _resolve_review_target(
     if review_mode == "red_team":
         # Preserve the existing whole-branch precedence probes, rather than resolving a pair here.
         inputs = replace(inputs, author_commits=())
-    author_family = resolve_author_family(author_model or "") if trusted and author_model else UNKNOWN_AUTHOR_FAMILY
+    author_family: str | None = (
+        resolve_author_family(author_model or "") if trusted and author_model else UNKNOWN_AUTHOR_FAMILY
+    )
     if (
         trusted
         and author_model
