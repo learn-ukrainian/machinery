@@ -189,7 +189,9 @@ run_bounded() {
   shift
   clamp_bounded_timeout "$requested_timeout" || return $?
   if [ -x "$BOUNDED_PYTHON" ] && [ -f "$BOUNDED_RUNNER" ]; then
-    "$BOUNDED_PYTHON" "$BOUNDED_RUNNER" \
+    # -I: the runner imports only the stdlib, so the caller's PYTHONPATH and cwd
+    # must not reach it. Its command still gets the full environment.
+    "$BOUNDED_PYTHON" -I "$BOUNDED_RUNNER" \
       --timeout "$CLAMPED_BOUNDED_TIMEOUT_SECONDS" -- "$@"
     return $?
   fi
@@ -278,7 +280,8 @@ if [ -n "${LEARN_UKRAINIAN_CLAUDEX_RUN_ID:-}" ]; then
     ISSUES+=("CLAUDEX SUPERVISOR BIND FAILED: official session identity or runtime helper is unavailable.")
   else
     SUPERVISOR_BIND_CMD=(
-      "$CLAUDEX_SUPERVISOR_PYTHON" "$CLAUDEX_SUPERVISOR_SCRIPT" bind-session
+      "$CLAUDEX_SUPERVISOR_PYTHON" -I -c 'import runpy, sys; sys.path.append(sys.argv.pop(1)); runpy.run_module("lu_machinery.orchestration.claudex_supervisor", run_name="__main__", alter_sys=True)'
+      "$PROJECT_DIR" bind-session
       --run-id "$LEARN_UKRAINIAN_CLAUDEX_RUN_ID"
       --launch-generation "${LEARN_UKRAINIAN_CLAUDEX_LAUNCH_GENERATION:-}"
       --session-id "$SESSION_ID"
@@ -286,6 +289,9 @@ if [ -n "${LEARN_UKRAINIAN_CLAUDEX_RUN_ID:-}" ]; then
     )
     [ -n "$SOURCE" ] && SUPERVISOR_BIND_CMD+=(--source "$SOURCE")
     [ -n "$OBSERVED_MODEL" ] && SUPERVISOR_BIND_CMD+=(--model "$OBSERVED_MODEL")
+    # -I: the bind ignores the caller's PYTHONPATH and cwd. The project is
+    # appended after the stdlib and site-packages for a checkout without the
+    # installed package. The supervised command keeps the caller's PYTHONPATH.
     if ! run_bounded 3 "${SUPERVISOR_BIND_CMD[@]}" >/dev/null 2>&1; then
       ISSUES+=("CLAUDEX SUPERVISOR BIND FAILED: SessionStart did not match the owned child generation.")
     fi
