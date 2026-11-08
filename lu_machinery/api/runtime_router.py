@@ -20,15 +20,6 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
 
-from lu_machinery.common.repo_root import machinery_path
-
-try:
-    from lu_machinery.lib.readonly_sqlite import SQLiteConnection, import_named_module, open_readonly
-except ModuleNotFoundError as exc:
-    if exc.name != Path(os.path.abspath(__file__)).parents[1].name:
-        raise
-    from lib.readonly_sqlite import SQLiteConnection, import_named_module, open_readonly  # type: ignore[no-redef]
-
 from lu_machinery.agent_identity import RETIRED_AGENT_ALIASES
 from lu_machinery.agent_runtime import registry as agent_registry
 from lu_machinery.agent_runtime.accounting import recorded_model_accounting_fields
@@ -50,9 +41,11 @@ from lu_machinery.agent_runtime.adapters.gemini import has_gemini_oauth_credenti
 from lu_machinery.agent_runtime.failure_codes import RUNTIME_FAILURE_CODES
 from lu_machinery.agent_runtime.usage import _iter_usage_records as _iter_usage_file_records
 from lu_machinery.agent_runtime.usage import has_headroom
+from lu_machinery.common.repo_root import machinery_path
 from lu_machinery.control_plane import storage
 from lu_machinery.fleet_comms import message_plane
 from lu_machinery.fleet_comms.message_plane import read_plane_status
+from lu_machinery.lib.readonly_sqlite import SQLiteConnection, import_named_module, open_readonly
 from lu_machinery.orchestration import codex_transport_health
 
 from .monitor_context import MonitorContext, get_ctx, resolve_context

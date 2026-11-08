@@ -9,10 +9,7 @@ from pathlib import Path
 # Dual-flavor import: several consumers load this module as top-level
 # ``path_safety`` with only ``scripts/`` on sys.path (test sys.path-hack,
 # build entrypoints) — a hard ``scripts.*`` import breaks that flavor.
-try:
-    from lu_machinery.common.release_layout import LIVE_DATA_PATHS, MANIFEST_NAME, is_release_root
-except ImportError:  # scripts/ on sys.path (stripped flavor)
-    from common.release_layout import LIVE_DATA_PATHS, MANIFEST_NAME, is_release_root  # type: ignore[no-redef]
+from lu_machinery.common.release_layout import LIVE_DATA_PATHS, MANIFEST_NAME, is_release_root
 
 
 def _validate_component(value: str) -> None:

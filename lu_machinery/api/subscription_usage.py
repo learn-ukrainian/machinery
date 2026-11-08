@@ -25,20 +25,13 @@ from pathlib import Path
 from types import ModuleType
 from typing import Any
 
+from lu_machinery.agent_runtime.adapters.cursor import (
+    probe_cursor_login,
+    probe_cursor_provider_windows,
+)
 from lu_machinery.api.state_helpers import cache_get_with_age, cache_invalidate, cache_set
 from lu_machinery.common.repo_root import state_root
 from lu_machinery.fleet.credit_lane import SUBSCRIPTION_NEAR_CAP_USED_PCT
-
-try:
-    from lu_machinery.agent_runtime.adapters.cursor import (
-        probe_cursor_login,
-        probe_cursor_provider_windows,
-    )
-except ImportError:  # pragma: no cover
-    from agent_runtime.adapters.cursor import (  # type: ignore
-        probe_cursor_login,
-        probe_cursor_provider_windows,
-    )
 
 WEEKLY_WINDOW_MINUTES = 10080
 # Reject monthly/long windows when no exact weekly window exists (e.g. 43200 min).
@@ -53,16 +46,10 @@ SESSION_WINDOW_MAX_MINUTES = 300
 HEADROOM_DELTA_PCT = -15.0
 HEADROOM_SPEED_MULTIPLIER = 1.5
 
-try:
-    from lu_machinery.agent_runtime.codex_accounts import (
-        CODEX_SUBSCRIPTION_ACCOUNTS,
-        DEFAULT_CODEX_ACCOUNT,
-    )
-except ImportError:  # pragma: no cover
-    from agent_runtime.codex_accounts import (  # type: ignore
-        CODEX_SUBSCRIPTION_ACCOUNTS,
-        DEFAULT_CODEX_ACCOUNT,
-    )
+from lu_machinery.agent_runtime.codex_accounts import (
+    CODEX_SUBSCRIPTION_ACCOUNTS,
+    DEFAULT_CODEX_ACCOUNT,
+)
 
 # Live-measured 2026-08-04: `codexbar usage --json --provider claude` took
 # ~17s end-to-end twice in a row (its own dashboard-fetch latency, not a

@@ -544,7 +544,7 @@ def build_dispatch_command(args: argparse.Namespace, prompt_file: Path) -> list[
     command = [
         sys.executable,
         "-m",
-        "lu_machinery.dispatch",
+        f"{_MACHINERY}.dispatch",
         "dispatch",
         "--agent",
         SEAT_PROVIDERS.get(args.agent, args.agent),

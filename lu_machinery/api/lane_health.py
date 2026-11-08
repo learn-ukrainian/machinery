@@ -14,17 +14,9 @@ from pathlib import Path
 from typing import Any
 
 from lu_machinery.agent_identity import normalize_seat, seat_read_aliases
+from lu_machinery.api.lane_health_redaction import REDACTION_PLACEHOLDER_RE, redact_lane_health_diagnostics
 from lu_machinery.orchestration.task_record_store import ARCHIVE_DIR_NAME, iter_task_records, read_task_record
-
-try:
-    from secret_redactor import redact_text
-except ImportError:
-    from lu_machinery.secret_redactor import redact_text
-
-try:
-    from api.lane_health_redaction import REDACTION_PLACEHOLDER_RE, redact_lane_health_diagnostics
-except ImportError:
-    from lu_machinery.api.lane_health_redaction import REDACTION_PLACEHOLDER_RE, redact_lane_health_diagnostics
+from lu_machinery.secret_redactor import redact_text
 
 logger = logging.getLogger("lane_health")
 

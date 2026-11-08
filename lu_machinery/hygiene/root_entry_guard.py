@@ -28,12 +28,8 @@ from pathlib import Path
 
 # Dual-flavor import: delegate workers put only ``scripts/`` on sys.path (see
 # the note in scripts/guardrails/worktree_containment.py).
-try:
-    from lu_machinery.common.git_context import sanitized_git_env
-    from lu_machinery.guardrails.worktree_containment import resolve_main_root
-except ImportError:  # scripts/ on sys.path (stripped flavor)
-    from common.git_context import sanitized_git_env  # type: ignore[no-redef]
-    from guardrails.worktree_containment import resolve_main_root  # type: ignore[no-redef]
+from lu_machinery.common.git_context import sanitized_git_env
+from lu_machinery.guardrails.worktree_containment import resolve_main_root
 
 __all__ = ["UnexpectedEntry", "main", "scan_unexpected_root_entries"]
 

@@ -19,7 +19,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import FileResponse
 
 try:
-    from path_safety import safe_join  # scripts/ on sys.path
+    from lu_machinery.path_safety import safe_join  # scripts/ on sys.path
 except ImportError:
     from ..path_safety import safe_join  # scripts.api package import
 

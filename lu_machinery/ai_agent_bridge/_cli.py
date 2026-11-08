@@ -1676,13 +1676,16 @@ def _handle_acp_compat(args, target: str) -> None:
     if repo is not None:
         if not (review or pr_number is not None or branch is not None):
             raise SystemExit("--repo requires review intent (--review, --type review, --pr or --branch)")
-        from lu_machinery.orchestration.fleet_repos import FleetRepoError, canonical_repo_key
+        from lu_machinery.orchestration.fleet_repos import FleetRepoError, canonical_repo_key, default_repo_key
         from lu_machinery.review.target_resolution import TargetResolutionError, resolve_review_repository
 
         try:
             repo = canonical_repo_key(repo)
+            # As dispatcher.git.resolve_repo: the default key is the product checkout,
+            # other keys are siblings of the shared-state checkout (#100 R24).
+            root = product_root() if repo == default_repo_key() else state_root()
             review_root = resolve_review_repository(
-                state_root(), repo, mode="pr" if pr_number is not None else "branch", branch=branch,
+                root, repo, mode="pr" if pr_number is not None else "branch", branch=branch,
             )
         except (FleetRepoError, TargetResolutionError, MachineryConfigError) as exc:
             raise SystemExit(str(exc)) from None

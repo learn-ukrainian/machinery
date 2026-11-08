@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import errno
 import logging
-import os
 import re
 import sqlite3
 from collections.abc import Callable
@@ -19,19 +18,11 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-try:
-    from lu_machinery.lib.readonly_sqlite import SQLiteConnection
-except ModuleNotFoundError as exc:
-    # Only this package's own absence selects the short spelling; its name comes from this
-    # file's unresolved location (design-v1 amendment 1), never __package__.
-    if exc.name != Path(os.path.abspath(__file__)).parents[1].name:
-        raise
-    from lib.readonly_sqlite import SQLiteConnection  # type: ignore[no-redef]
-
 from lu_machinery.ai_agent_bridge import _channels
 from lu_machinery.ai_agent_bridge._db import get_db
 from lu_machinery.fleet_comms.efficiency_metrics import collect_stream_bottleneck_metrics
 from lu_machinery.fleet_comms.message_plane import default_plane_root
+from lu_machinery.lib.readonly_sqlite import SQLiteConnection
 from lu_machinery.orchestration.task_record_store import read_task_record
 from lu_machinery.session_streams.db import SessionStreamDatabase, default_database_path
 from lu_machinery.session_streams.model import parse_timestamp

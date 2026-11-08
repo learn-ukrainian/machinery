@@ -46,15 +46,9 @@ from pathlib import Path
 from types import ModuleType
 from typing import Any
 
-try:
-    from secret_redactor import redact_text, redact_value
-except ModuleNotFoundError as exc:
-    if exc.name != "secret_redactor":
-        raise
-    from lu_machinery.secret_redactor import redact_text, redact_value
-
 from lu_machinery.agent_identity import RETIRED_AGENT_ALIASES
 from lu_machinery.common.repo_root import state_root
+from lu_machinery.secret_redactor import redact_text, redact_value
 
 # Rate-limit window in seconds. History:
 #   2026-04-09: 5 hours (way too long; one false 429 nuked 5 hours of build)
@@ -109,10 +103,7 @@ _ACCOUNT_RATE_LIMIT_CACHE: dict[tuple[str, str, str], float] = {}
 
 
 def _codex_accounts() -> ModuleType:
-    try:
-        return importlib.import_module("lu_machinery.agent_runtime.codex_accounts")
-    except ImportError:  # pragma: no cover - scripts/ on sys.path
-        return importlib.import_module("agent_runtime.codex_accounts")
+    return importlib.import_module("lu_machinery.agent_runtime.codex_accounts")
 
 
 def _codex_account_label(raw: object) -> str:
@@ -230,10 +221,7 @@ def write_record(record: dict[str, Any]) -> None:
 
 def _utc_timestamp(value: Any) -> datetime | None:
     """Explicit-UTC reading of a record timestamp (the one UTC-only rule of the fleet); None otherwise."""
-    try:
-        from lu_machinery.fleet.reset_reserve import utc_datetime
-    except ImportError:  # pragma: no cover - scripts/ on sys.path
-        from fleet.reset_reserve import utc_datetime
+    from lu_machinery.fleet.reset_reserve import utc_datetime
     return utc_datetime(value)
 
 

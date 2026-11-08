@@ -44,7 +44,7 @@ from lu_machinery.orientation_packet import PACKET_MAX_BYTES, cap_response, json
 from lu_machinery.research import registry as reg
 
 try:
-    from path_safety import safe_join  # scripts/ on sys.path (test sys.path-hack)
+    from lu_machinery.path_safety import safe_join  # scripts/ on sys.path (test sys.path-hack)
 except ImportError:
     from ..path_safety import safe_join  # scripts.api package import (production)
 
@@ -1000,10 +1000,7 @@ def _core_bare_canary(ctx: MonitorContext | None = None) -> bool:
     the canary must not break health collection.
     """
     resolved_ctx = resolve_context(ctx)
-    try:
-        from lu_machinery.hygiene.check_core_bare import check_core_bare  # noqa: PLC0415 — script-path fallback
-    except ImportError:  # path-flavoured import for test/script contexts
-        from hygiene.check_core_bare import check_core_bare  # noqa: PLC0415 — script-path fallback
+    from lu_machinery.hygiene.check_core_bare import check_core_bare  # noqa: PLC0415 — script-path fallback
     try:
         ok, message = check_core_bare(resolved_ctx.roots.project_root, fix=True)
     except Exception:
@@ -1029,10 +1026,7 @@ def _self_symlink_canary(ctx: MonitorContext | None = None) -> bool:
     ``docs/bug-autopsies/node-modules-eloop-symlink.md``.
     """
     resolved_ctx = resolve_context(ctx)
-    try:
-        from lu_machinery.hygiene.check_self_symlinks import check_self_symlinks  # noqa: PLC0415 — script-path fallback
-    except ImportError:  # path-flavoured import for test/script contexts
-        from hygiene.check_self_symlinks import check_self_symlinks  # noqa: PLC0415 — script-path fallback
+    from lu_machinery.hygiene.check_self_symlinks import check_self_symlinks  # noqa: PLC0415 — script-path fallback
     try:
         ok, message = check_self_symlinks(resolved_ctx.roots.project_root, fix=False)
     except Exception:
@@ -1054,12 +1048,9 @@ def _primary_integrity_canary(ctx: MonitorContext | None = None) -> bool:
     Never raises: the canary must not break health collection.
     """
     resolved_ctx = resolve_context(ctx)
-    try:
-        from lu_machinery.hygiene.check_primary_integrity import (  # noqa: PLC0415 — script-path fallback
-            check_primary_integrity,
-        )
-    except ImportError:  # path-flavoured import for test/script contexts
-        from hygiene.check_primary_integrity import check_primary_integrity  # noqa: PLC0415 — script-path fallback
+    from lu_machinery.hygiene.check_primary_integrity import (  # noqa: PLC0415 — script-path fallback
+        check_primary_integrity,
+    )
     try:
         ok, message = check_primary_integrity(
             resolved_ctx.roots.project_root,
@@ -1084,14 +1075,9 @@ def _node_modules_integrity_canary(ctx: MonitorContext | None = None) -> bool:
     raises: the canary must not break health collection.
     """
     resolved_ctx = resolve_context(ctx)
-    try:
-        from lu_machinery.hygiene.check_node_modules_integrity import (  # noqa: PLC0415 — script-path fallback
-            check_node_modules_integrity,
-        )
-    except ImportError:  # path-flavoured import for test/script contexts
-        from hygiene.check_node_modules_integrity import (  # noqa: PLC0415 — script-path fallback
-            check_node_modules_integrity,
-        )
+    from lu_machinery.hygiene.check_node_modules_integrity import (  # noqa: PLC0415 — script-path fallback
+        check_node_modules_integrity,
+    )
     try:
         ok, message = check_node_modules_integrity(
             resolved_ctx.roots.project_root,
@@ -1116,12 +1102,9 @@ def _venv_integrity_canary(ctx: MonitorContext | None = None) -> bool:
     break health collection.
     """
     resolved_ctx = resolve_context(ctx)
-    try:
-        from lu_machinery.hygiene.check_venv_integrity import (  # noqa: PLC0415 — script-path fallback
-            check_venv_integrity,
-        )
-    except ImportError:  # path-flavoured import for test/script contexts
-        from hygiene.check_venv_integrity import check_venv_integrity  # noqa: PLC0415 — script-path fallback
+    from lu_machinery.hygiene.check_venv_integrity import (  # noqa: PLC0415 — script-path fallback
+        check_venv_integrity,
+    )
     try:
         ok, message = check_venv_integrity(
             resolved_ctx.roots.project_root,
@@ -1145,14 +1128,9 @@ def _worktree_cleanup_integrity_canary(ctx: MonitorContext | None = None) -> boo
     health collection.
     """
     resolved_ctx = resolve_context(ctx)
-    try:
-        from lu_machinery.hygiene.check_worktree_cleanup_integrity import (  # noqa: PLC0415 — script-path fallback
-            check_worktree_cleanup_integrity,
-        )
-    except ImportError:  # path-flavoured import for test/script contexts
-        from hygiene.check_worktree_cleanup_integrity import (  # noqa: PLC0415 — script-path fallback
-            check_worktree_cleanup_integrity,
-        )
+    from lu_machinery.hygiene.check_worktree_cleanup_integrity import (  # noqa: PLC0415 — script-path fallback
+        check_worktree_cleanup_integrity,
+    )
     try:
         ok, message = check_worktree_cleanup_integrity(
             resolved_ctx.roots.project_root,
@@ -1174,10 +1152,7 @@ def _tmp_usability_canary() -> dict:
     visible on the health glance instead of masquerading as random crashes.
     Never raises: the canary must not break health collection.
     """
-    try:
-        from lu_machinery.hygiene.check_tmp_usability import probe_tmp_usability  # noqa: PLC0415 — script-path fallback
-    except ImportError:  # path-flavoured import for test/script contexts
-        from hygiene.check_tmp_usability import probe_tmp_usability  # noqa: PLC0415 — script-path fallback
+    from lu_machinery.hygiene.check_tmp_usability import probe_tmp_usability  # noqa: PLC0415 — script-path fallback
     try:
         return probe_tmp_usability()
     except Exception:

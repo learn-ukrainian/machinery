@@ -20,7 +20,6 @@ not seal snapshots.
 from __future__ import annotations
 
 import json
-import os
 import re
 import sqlite3
 import subprocess
@@ -31,15 +30,6 @@ from pathlib import Path
 from typing import Any
 
 from lu_machinery.common import github_client
-
-try:
-    from lu_machinery.lib.readonly_sqlite import SQLiteConnection
-except ModuleNotFoundError as exc:
-    # Only this package's own absence selects the short spelling; its name comes from this
-    # file's unresolved location (design-v1 amendment 1), never __package__.
-    if exc.name != Path(os.path.abspath(__file__)).parents[1].name:
-        raise
-    from lib.readonly_sqlite import SQLiteConnection  # type: ignore[no-redef]
 from lu_machinery.fleet_comms.artifacts import ArtifactStore
 from lu_machinery.fleet_comms.contracts import new_id
 from lu_machinery.fleet_comms.review_publication import (
@@ -52,6 +42,7 @@ from lu_machinery.fleet_comms.review_publication import (
     publication_idempotency_key,
     validate_review_gate_input,
 )
+from lu_machinery.lib.readonly_sqlite import SQLiteConnection
 from lu_machinery.opsec.prepublish import publication_boundary
 from lu_machinery.publish.github import Request, request_run
 

@@ -8,10 +8,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
 
-try:
-    from common.http_status import has_http_status
-except ModuleNotFoundError:
-    from lu_machinery.common.http_status import has_http_status
+from lu_machinery.common.http_status import has_http_status
 
 PRIMARY_GEMINI_MODEL = "gemini-3.8-flash-high"
 AGY_GEMINI_MODEL = "gemini-3.8-flash-high"
@@ -190,8 +187,8 @@ def _run_agy_via_runtime(
     call_start_mono = time.monotonic()
     hard_timeout = timeout_s or 24 * 60 * 60
     try:
-        from agent_runtime import runner as agent_runner
-        from agent_runtime.errors import (
+        from lu_machinery.agent_runtime import runner as agent_runner
+        from lu_machinery.agent_runtime.errors import (
             AgentStalledError,
             AgentTimeoutError,
             AgentUnavailableError,

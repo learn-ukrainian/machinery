@@ -130,14 +130,7 @@ def _resolve_main_root(repo: Path) -> Path:
         try:
             from lu_machinery.guardrails.worktree_containment import resolve_main_root
         except ImportError:
-            try:
-                from guardrails.worktree_containment import (
-                    resolve_main_root as _bare_resolve_main_root,
-                )
-            except ImportError:
-                resolve_main_root = None  # type: ignore[assignment]
-            else:
-                resolve_main_root = _bare_resolve_main_root
+            resolve_main_root = None  # type: ignore[assignment]
     if resolve_main_root is not None:
         try:
             return resolve_main_root(repo)

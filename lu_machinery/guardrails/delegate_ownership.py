@@ -49,22 +49,18 @@ except ModuleNotFoundError as exc:
     # package is absent (exc.name is the package name). Any other import failure
     # must propagate. The package directory and its name come from this file's
     # unresolved location (guardrails/ sits directly in it), never __package__.
-    _scripts_dir = Path(os.path.abspath(__file__)).parents[1]
-    if exc.name != _scripts_dir.name:
+    _package_dir = Path(os.path.abspath(__file__)).parents[1]
+    if exc.name != _package_dir.name:
         raise
-    # lib.readonly_sqlite lives in the package directory, which file execution
-    # does not put on sys.path.
-    if str(_scripts_dir) not in sys.path:
-        sys.path.insert(0, str(_scripts_dir))
-    from lib.readonly_sqlite import SQLiteConnection  # type: ignore[no-redef]
+    # The package's parent (checkout root or site-packages) is the import anchor.
+    _install_root = _package_dir.parent
+    if str(_install_root) not in sys.path:
+        sys.path.insert(0, str(_install_root))
+    from lu_machinery.lib.readonly_sqlite import SQLiteConnection  # type: ignore[no-redef]
 
 # Anchor ledger + task-state to the PRIMARY checkout (not a worktree copy),
 # matching the task-store path encoding.
-try:
-    from lu_machinery.common.repo_root import product_root, state_root
-except ImportError:  # pragma: no cover - flat script path
-    from common.repo_root import product_root, state_root  # type: ignore
-
+from lu_machinery.common.repo_root import product_root, state_root
 from lu_machinery.common.task_store_paths import tasks_dir
 from lu_machinery.control_plane.storage import StoreId
 from lu_machinery.control_plane.storage import connect as cp_connect

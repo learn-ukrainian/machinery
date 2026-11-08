@@ -223,16 +223,6 @@
       "message": "List item 1 has incompatible type \"None | str\"; expected \"str\""
     },
     {
-      "path": "lu_machinery/agent_runtime/adapters/deepseek.py",
-      "code": "no-redef",
-      "message": "Name \"_parse_opencode_stream\" already defined (possibly by an import)"
-    },
-    {
-      "path": "lu_machinery/agent_runtime/adapters/deepseek.py",
-      "code": "no-redef",
-      "message": "Name \"read_opencode_turn_status\" already defined (possibly by an import)"
-    },
-    {
       "path": "lu_machinery/agent_runtime/adapters/gemini.py",
       "code": "arg-type",
       "message": "Argument 2 to \"_extract_session_id\" has incompatible type \"list[dict[str, Any]]\"; expected \"list[Mapping[str, object]]\""
@@ -251,21 +241,6 @@
       "path": "lu_machinery/agent_runtime/adapters/gemini.py",
       "code": "list-item",
       "message": "List item 1 has incompatible type \"None | str\"; expected \"str\""
-    },
-    {
-      "path": "lu_machinery/agent_runtime/adapters/glm.py",
-      "code": "no-redef",
-      "message": "Name \"_parse_opencode_stream\" already defined (possibly by an import)"
-    },
-    {
-      "path": "lu_machinery/agent_runtime/adapters/glm.py",
-      "code": "no-redef",
-      "message": "Name \"assert_model_routing_allowed\" already defined (possibly by an import)"
-    },
-    {
-      "path": "lu_machinery/agent_runtime/adapters/glm.py",
-      "code": "no-redef",
-      "message": "Name \"read_opencode_turn_status\" already defined (possibly by an import)"
     },
     {
       "path": "lu_machinery/agent_runtime/adapters/grok_build.py",
@@ -746,11 +721,6 @@
       "path": "lu_machinery/agent_runtime/trail_isolation.py",
       "code": "arg-type",
       "message": "Argument 1 to \"set\" has incompatible type \"Any | None\"; expected \"Iterable[Any]\""
-    },
-    {
-      "path": "lu_machinery/agent_runtime/usage.py",
-      "code": "no-redef",
-      "message": "Name \"utc_datetime\" already defined (possibly by an import)"
     },
     {
       "path": "lu_machinery/ai_agent_bridge/_acp_compat.py",
@@ -1593,26 +1563,6 @@
       "message": "No overload variant of \"get\" of \"dict\" matches argument type \"dict[str, Any]\""
     },
     {
-      "path": "lu_machinery/api/lane_health.py",
-      "code": "no-any-return",
-      "message": "Returning Any from function declared to return \"str\""
-    },
-    {
-      "path": "lu_machinery/api/lane_health_redaction.py",
-      "code": "no-any-return",
-      "message": "Returning Any from function declared to return \"str\""
-    },
-    {
-      "path": "lu_machinery/api/lane_health_redaction.py",
-      "code": "no-any-return",
-      "message": "Returning Any from function declared to return \"str\""
-    },
-    {
-      "path": "lu_machinery/api/lane_health_redaction.py",
-      "code": "no-any-return",
-      "message": "Returning Any from function declared to return \"str\""
-    },
-    {
       "path": "lu_machinery/api/launchd_supervisor.py",
       "code": "assignment",
       "message": "Incompatible types in assignment (expression has type \"Any | bool | list[Any]\", variable has type \"bool\")"
@@ -1676,46 +1626,6 @@
       "path": "lu_machinery/api/main.py",
       "code": "has-type",
       "message": "Cannot determine type of \"value\""
-    },
-    {
-      "path": "lu_machinery/api/main.py",
-      "code": "no-any-return",
-      "message": "Returning Any from function declared to return \"None | Path\""
-    },
-    {
-      "path": "lu_machinery/api/main.py",
-      "code": "no-redef",
-      "message": "Name \"check_core_bare\" already defined (possibly by an import)"
-    },
-    {
-      "path": "lu_machinery/api/main.py",
-      "code": "no-redef",
-      "message": "Name \"check_node_modules_integrity\" already defined (possibly by an import)"
-    },
-    {
-      "path": "lu_machinery/api/main.py",
-      "code": "no-redef",
-      "message": "Name \"check_primary_integrity\" already defined (possibly by an import)"
-    },
-    {
-      "path": "lu_machinery/api/main.py",
-      "code": "no-redef",
-      "message": "Name \"check_self_symlinks\" already defined (possibly by an import)"
-    },
-    {
-      "path": "lu_machinery/api/main.py",
-      "code": "no-redef",
-      "message": "Name \"check_venv_integrity\" already defined (possibly by an import)"
-    },
-    {
-      "path": "lu_machinery/api/main.py",
-      "code": "no-redef",
-      "message": "Name \"check_worktree_cleanup_integrity\" already defined (possibly by an import)"
-    },
-    {
-      "path": "lu_machinery/api/main.py",
-      "code": "no-redef",
-      "message": "Name \"probe_tmp_usability\" already defined (possibly by an import)"
     },
     {
       "path": "lu_machinery/api/monitor_context.py",
@@ -4043,16 +3953,6 @@
       "message": "Need type annotation for \"result\""
     },
     {
-      "path": "lu_machinery/ci/pytest_dispatch_cap.py",
-      "code": "no-redef",
-      "message": "Name \"THREAD_CAPS\" already defined (possibly by an import)"
-    },
-    {
-      "path": "lu_machinery/ci/pytest_dispatch_cap.py",
-      "code": "no-redef",
-      "message": "Name \"apply_thread_caps\" already defined (possibly by an import)"
-    },
-    {
       "path": "lu_machinery/ci/slot_inventory.py",
       "code": "call-overload",
       "message": "No overload variant of \"get\" of \"Mapping\" matches argument type \"bool\""
@@ -4121,11 +4021,6 @@
       "path": "lu_machinery/common/test_slots.py",
       "code": "misc",
       "message": "Generator has incompatible item type \"float | int | str\"; expected \"bool\""
-    },
-    {
-      "path": "lu_machinery/common/test_slots.py",
-      "code": "no-redef",
-      "message": "Name \"apply\" already defined (possibly by an import)"
     },
     {
       "path": "lu_machinery/common/test_slots.py",
@@ -6788,16 +6683,6 @@
       "message": "All conditional function variants must have identical signatures"
     },
     {
-      "path": "lu_machinery/guardrails/primary_write_guard.py",
-      "code": "no-redef",
-      "message": "Name \"sanitized_git_env\" already defined (possibly by an import)"
-    },
-    {
-      "path": "lu_machinery/guardrails/primary_write_guard.py",
-      "code": "no-redef",
-      "message": "Name \"wc\" already defined (by an import)"
-    },
-    {
       "path": "lu_machinery/hygiene/batch_state_retention.py",
       "code": "union-attr",
       "message": "Item \"None\" of \"None | timedelta\" has no attribute \"total_seconds\""
@@ -7466,11 +7351,6 @@
       "path": "lu_machinery/lib/session_record.py",
       "code": "assignment",
       "message": "Incompatible types in assignment (expression has type \"None | dict[str, Any]\", variable has type \"dict[str, Any]\")"
-    },
-    {
-      "path": "lu_machinery/lib/session_record.py",
-      "code": "no-redef",
-      "message": "Name \"resolve_profile\" already defined (possibly by an import)"
     },
     {
       "path": "lu_machinery/lint/lint_prompts.py",
@@ -8700,11 +8580,6 @@
     {
       "path": "lu_machinery/orchestration/thread_handoff.py",
       "code": "no-redef",
-      "message": "Name \"MonitorClient\" already defined (possibly by an import)"
-    },
-    {
-      "path": "lu_machinery/orchestration/thread_handoff.py",
-      "code": "no-redef",
       "message": "Name \"_lock_timeout_exit\" already defined on line 7501"
     },
     {
@@ -8848,11 +8723,6 @@
       "message": "Returning Any from function declared to return \"None | dict[Any, Any]\""
     },
     {
-      "path": "lu_machinery/research/consumption.py",
-      "code": "no-redef",
-      "message": "Name \"emit_event\" already defined (possibly by an import)"
-    },
-    {
       "path": "lu_machinery/research/observability.py",
       "code": "assignment",
       "message": "Incompatible types in assignment (expression has type \"None\", target has type \"int\")"
@@ -8901,11 +8771,6 @@
       "path": "lu_machinery/research/research_quality.py",
       "code": "dict-item",
       "message": "Dict entry 9 has incompatible type \"str\": \"list[str]\"; expected \"str\": \"None | int\""
-    },
-    {
-      "path": "lu_machinery/research/research_quality.py",
-      "code": "no-any-return",
-      "message": "Returning Any from function declared to return \"None | Path\""
     },
     {
       "path": "lu_machinery/research/research_quality.py",
@@ -9781,11 +9646,6 @@
       "path": "lu_machinery/session_supervisor/__init__.py",
       "code": "assignment",
       "message": "Incompatible types in assignment (expression has type \"tuple[str, ...]\", variable has type \"tuple[()]\")"
-    },
-    {
-      "path": "lu_machinery/session_supervisor/__init__.py",
-      "code": "no-redef",
-      "message": "Name \"resolve_launcher_host_id\" already defined (possibly by an import)"
     },
     {
       "path": "lu_machinery/session_supervisor/__init__.py",

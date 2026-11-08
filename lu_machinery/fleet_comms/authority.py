@@ -14,7 +14,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 import re
 import sqlite3
 from collections.abc import Iterable, Mapping, Sequence
@@ -22,15 +21,6 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, Literal
-
-try:
-    from lu_machinery.lib.readonly_sqlite import SQLiteConnection, open_readonly
-except ModuleNotFoundError as exc:
-    # Only this package's own absence selects the short spelling; its name comes from this
-    # file's unresolved location (design-v1 amendment 1), never __package__.
-    if exc.name != Path(os.path.abspath(__file__)).parents[1].name:
-        raise
-    from lib.readonly_sqlite import SQLiteConnection, open_readonly  # type: ignore[no-redef]
 
 from lu_machinery.agent_runtime.kimi_admission import ACP_MODE, BRIDGE_MODE, KimiAdmissionRefused
 from lu_machinery.agent_runtime.target_admission import (
@@ -60,6 +50,7 @@ from lu_machinery.fleet_comms.formal_review_jobs import (
 )
 from lu_machinery.fleet_comms.migrations import MIGRATIONS, apply_migrations
 from lu_machinery.fleet_comms.review_publication import SealedVerdict, parse_sealed_verdict_payload
+from lu_machinery.lib.readonly_sqlite import SQLiteConnection, open_readonly
 
 AuthorityJobKind = Literal["request", "discussion", "formal_review"]
 AuthorityJobState = Literal[
