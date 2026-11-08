@@ -55,12 +55,12 @@ class ToolTimingIngest(BaseModel):
 
 
 def _tool_timings_path(ctx: MonitorContext | None = None) -> Path:
-    return resolve_context(ctx).roots.project_root / "data" / "telemetry" / "tool_timings.db"
+    return resolve_context(ctx).roots.state_root / "data" / "telemetry" / "tool_timings.db"
 
 
 def _legacy_comms_db_path(ctx: MonitorContext | None = None) -> Path:
     context = resolve_context(ctx)
-    root = context.roots.project_root if context.root is not None else state_root()
+    root = context.roots.state_root if context.root is not None else state_root()
     return legacy_comms_db_path_for_root(root)
 
 

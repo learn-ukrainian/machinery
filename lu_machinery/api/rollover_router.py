@@ -7,10 +7,10 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
+from lu_machinery.common.repo_root import state_root
 from lu_machinery.orchestration import thread_handoff
 from lu_machinery.orchestration.task_family import rollover_registry as registry
 
-from . import config
 from .monitor_context import MonitorContext, get_ctx
 
 router = APIRouter(tags=["rollovers"])
@@ -31,7 +31,7 @@ def _client_registry_errors(errors: list | None) -> list[dict[str, str]]:
 
 def collect_rollover_orient_data(live_repo_root: Path | None = None) -> dict:
     """Compact cold-start projection; full evidence remains on this router."""
-    root = live_repo_root if live_repo_root is not None else Path(config.LIVE_REPO_ROOT)
+    root = live_repo_root if live_repo_root is not None else state_root()
     audit = registry.audit_fleet(root)
     identity_snapshot = thread_handoff.rollover_identity_snapshot(root)
     actionable = [
@@ -71,7 +71,7 @@ def rollover_audit(
         "rollover_id": rollover_id,
     }
     if any(selectors.values()):
-        records, errors = registry.scan_records(ctx.roots.live_repo_root)
+        records, errors = registry.scan_records(ctx.roots.state_root)
         try:
             selected = registry.select_exact(records, agent=agent, **selectors)
         except ValueError as exc:
@@ -91,7 +91,7 @@ def rollover_audit(
                 },
             )
         record = selected[0]
-        selected_errors = registry.record_source_errors(ctx.roots.live_repo_root, record, errors)
+        selected_errors = registry.record_source_errors(ctx.roots.state_root, record, errors)
         if selected_errors:
             raise HTTPException(
                 status_code=409,
@@ -117,7 +117,7 @@ def rollover_audit(
             "terminal_reason": record.get("terminal_reason"),
             "registry_errors": _client_registry_errors(errors),
         }
-    audit = registry.audit_fleet(ctx.roots.live_repo_root, stale_hours=stale_hours)
+    audit = registry.audit_fleet(ctx.roots.state_root, stale_hours=stale_hours)
     if agent is not None:
         try:
             agent = registry.normalize_agent(agent)

@@ -5,11 +5,11 @@ from __future__ import annotations
 import os
 from typing import Any
 
-from lu_machinery.api import config
 from lu_machinery.api.observer_presence import (
     MAC_OPERATOR_HOST_ID,
     fresh_notebook_presence_for_session,
 )
+from lu_machinery.common.repo_root import state_root
 from lu_machinery.lib.session_record import SessionRecordError, validate_session_id
 
 from .footer import PREMIUM_THRESHOLD_TOKENS, render_footer
@@ -59,7 +59,7 @@ def telemetry_dict(telemetry: TranscriptTelemetry, session_id: str | None = None
     )
 
     record = (
-        read_session_record(config.PROJECT_ROOT, session_id)
+        read_session_record(state_root(), session_id)
         if session_id is not None
         else None
     )
@@ -177,7 +177,7 @@ def build_telemetry_payload(
         if not validate_session_id(session_id):
             return _unavailable_session_payload("invalid-session-id")
         try:
-            telemetry = session_context_telemetry(config.PROJECT_ROOT, session_id)
+            telemetry = session_context_telemetry(state_root(), session_id)
             if telemetry is not None:
                 return {
                     **telemetry_dict(telemetry, session_id),
@@ -194,7 +194,7 @@ def build_telemetry_payload(
             return fallback
         return _unavailable_session_payload("session-transcript-not-found")
 
-    newest = current_context_telemetry(config.PROJECT_ROOT)
+    newest = current_context_telemetry(state_root())
     payload: dict[str, Any] = {
         "ctx": None,
         "prev_ctx": None,
@@ -216,9 +216,9 @@ def append_telemetry_footer(text: str, session_id: str | None = None) -> str:
         return text
     try:
         telemetry = (
-            session_context_telemetry(config.PROJECT_ROOT, session_id)
+            session_context_telemetry(state_root(), session_id)
             if session_id
-            else current_context_telemetry(config.PROJECT_ROOT)
+            else current_context_telemetry(state_root())
         )
     except SessionRecordError:
         return text

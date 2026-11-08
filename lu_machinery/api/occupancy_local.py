@@ -22,13 +22,12 @@ from typing import Any
 if __package__ in (None, ""):  # run as a file: put the repository root on sys.path
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from lu_machinery.api import config
 from lu_machinery.api.occupancy_sanitize import occupant as _occupant
 from lu_machinery.api.occupancy_sanitize import opaque_host_id as _opaque_host_id
 from lu_machinery.api.occupancy_sanitize import producer_identity
 from lu_machinery.api.occupancy_sanitize import safe_field as _safe_field
 from lu_machinery.api.product_contribution import atlas_provider
-from lu_machinery.api.repository_authority import preparation_data_root
+from lu_machinery.common.repo_root import state_root
 from lu_machinery.session_streams.db import SessionStreamDatabase
 from lu_machinery.session_streams.model import parse_timestamp
 
@@ -44,15 +43,8 @@ DEFAULT_MARKER_TTL_S = 15 * 60
 _MARKERS_REL = Path(".agent") / "occupancy" / "markers"
 
 
-def _repo_root() -> Path:
-    return preparation_data_root(
-        project_root=Path(config.PROJECT_ROOT),
-        live_repo_root=Path(config.LIVE_REPO_ROOT),
-    )
-
-
 def session_streams_db_path() -> Path:
-    return _repo_root() / ".agent" / "session-streams" / "v1" / "session-streams.sqlite3"
+    return state_root() / ".agent" / "session-streams" / "v1" / "session-streams.sqlite3"
 
 
 @dataclass(frozen=True)
@@ -68,7 +60,7 @@ def markers_root() -> Path:
     raw = os.environ.get(ENV_MARKERS, "").strip()
     if raw:
         return Path(raw)
-    return _repo_root() / _MARKERS_REL
+    return state_root() / _MARKERS_REL
 
 
 def self_host_opaque_ids(mapping: dict[str, str]) -> set[str]:
@@ -464,7 +456,9 @@ def resolve_launcher_host_id() -> str:
         return driver_host_id
 
     try:
-        from lu_machinery.api.occupancy import parse_host_id_map  # noqa: PLC0415 — # lazy-ok: occupancy cycle breaker
+        from lu_machinery.api.occupancy import (
+            parse_host_id_map,  # noqa: PLC0415 — # lazy-ok: occupancy cycle breaker
+        )
 
         mapping = parse_host_id_map()
         claimed = self_host_opaque_ids(mapping)
