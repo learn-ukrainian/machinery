@@ -570,7 +570,7 @@ models:
       effort does not shorten visible output. Keep verification scaffolding —
       the Opus 5 guidance to delete it does not apply. claude-fable-5 is retired
       with no executable routes; historical attribution remains unchanged. Full prose:
-      docs/best-practices/fleet-shared-doctrine.md § Effort.
+      agents_extensions/shared/rules/fleet-shared-doctrine.md § Effort.
     sources:
       - https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/prompting-claude-fable-5-1
   claude-opus-5-5:

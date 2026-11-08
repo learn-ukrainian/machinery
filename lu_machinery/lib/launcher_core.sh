@@ -322,7 +322,7 @@ launcher_load_rules_core() {
   if [ "$LC_MODE" = driver ] && [ "$LC_GOVERNOR" = 0 ]; then
     lane="$LC_EPIC"
   fi
-  rules_core_load "$LC_DURABLE_HELPER_ROOT/.venv/bin/python" "$LC_ROOT" "$lane" "$LC_PROVIDER" || exit 1
+  rules_core_load "$LC_DURABLE_HELPER_ROOT/.venv/bin/python" "$lane" "$LC_PROVIDER" || exit 1
   if [ -n "$LC_RULES_CORE" ] && [ "$LC_DRY_RUN" = 1 ]; then
     printf 'launcher: rules core seat=%s bytes=%s\n' "$LC_RULES_SEAT" "$LC_RULES_CORE_BYTES"
   fi

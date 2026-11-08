@@ -9,7 +9,7 @@ unresolved package directory name alone: no working directory, ancestor, sibling
 directory or ``site-packages`` lookup takes part, so a decoy file cannot change the mode.
 
 - :func:`machinery_root` and :func:`machinery_path`: the package directory, in both
-  modes; never configured, and a path never leaves the package.
+  modes; never configured, and resource paths stay in the package or its shipped shared resource tree.
 - :func:`product_root`: an explicit argument, else ``LU_PRODUCT_ROOT``; with neither,
   lu_machinery refuses, and only the in-tree copy derives the checkout holding it.
 - :func:`state_root` and :func:`primary_root`: ``LEARN_UKRAINIAN_PRIMARY_REPO_ROOT``;
@@ -35,7 +35,7 @@ runtime (machinery code)  none: the checkout this file is in    ``Path(__file__)
 primary checkout          ``LEARN_UKRAINIAN_PRIMARY_REPO_ROOT``  ``main_checkout_root`` of the runtime checkout
 GitHub slug               ``LEARN_UKRAINIAN_GITHUB_SLUG``        ``learn-ukrainian/learn-ukrainian.github.io``
 state root                ``LEARN_UKRAINIAN_STATE_ROOT``         the primary checkout (holds ``batch_state/``)
-rules directory (policy)  ``LEARN_UKRAINIAN_RULES_DIR``          ``<checkout>/agents_extensions/shared/rules``
+rules directory (policy)  none: installed release                ``agents_extensions/shared/rules`` beside the package
 interpreter               ``LEARN_UKRAINIAN_PYTHON``             :func:`project_interpreter`'s resolution order
 ========================  ====================================  =================================================
 
@@ -56,7 +56,7 @@ primary from Git metadata, not from this configuration.
 
 Machinery code finds its own files through :func:`machinery_root` (the package directory
 this module is in, one level below the runtime root) and :func:`machinery_path` (a
-contained, package-relative path under it), never by spelling the package's name.
+contained, package-relative code or shipped resource path), never by spelling the package's name.
 
 Machinery code finds the product's files (curriculum data, product configuration, product
 modules named by product data) through :func:`product_root` (C-4746), never through its
@@ -127,9 +127,13 @@ _MAX_SYMLINK_HOPS = 40
 PRIMARY_ROOT_ENV = "LEARN_UKRAINIAN_PRIMARY_REPO_ROOT"
 GITHUB_SLUG_ENV = "LEARN_UKRAINIAN_GITHUB_SLUG"
 STATE_ROOT_ENV = "LEARN_UKRAINIAN_STATE_ROOT"
-RULES_DIR_ENV = "LEARN_UKRAINIAN_RULES_DIR"
 INTERPRETER_ENV = "LEARN_UKRAINIAN_PYTHON"
-MACHINERY_ENV_VARS = (PRIMARY_ROOT_ENV, GITHUB_SLUG_ENV, STATE_ROOT_ENV, RULES_DIR_ENV, INTERPRETER_ENV)
+MACHINERY_ENV_VARS = (
+    PRIMARY_ROOT_ENV,
+    GITHUB_SLUG_ENV,
+    STATE_ROOT_ENV,
+    INTERPRETER_ENV,
+)
 DEFAULT_GITHUB_SLUG = "learn-ukrainian/learn-ukrainian.github.io"
 RULES_DIR_REL = "agents_extensions/shared/rules"
 RUNTIME_ROOT = Path(__file__).resolve().parents[2]
@@ -285,12 +289,9 @@ def state_root(start: Path | None = None, env: Mapping[str, str] | None = None) 
     return configured
 
 
-def rules_dir(root: Path | None = None, env: Mapping[str, str] | None = None) -> Path:
-    """The configured rules directory, else ``root``'s (default: the runtime's) rules directory."""
-    configured = _configured_path(RULES_DIR_ENV, env)
-    if configured is not None:
-        return configured
-    return (RUNTIME_ROOT if root is None else Path(root)) / RULES_DIR_REL
+def rules_dir() -> Path:
+    """Fleet rules shipped beside this machinery package; never configured."""
+    return machinery_path(RULES_DIR_REL)
 
 
 def configured_interpreter(env: Mapping[str, str] | None = None) -> Path | None:
@@ -322,7 +323,7 @@ def machinery_roots(env: Mapping[str, str] | None = None) -> MachineryRoots:
         primary=primary_root(env=env),
         github_slug=github_slug(env),
         state=state_root(env=env),
-        rules_dir=rules_dir(env=env),
+        rules_dir=rules_dir(),
         interpreter=project_interpreter(env=env),
     )
 
@@ -338,7 +339,7 @@ def machinery_root() -> Path:
 
 
 def machinery_path(relative: str) -> Path:
-    """The machinery file or directory at package-relative ``relative``, which need not exist.
+    """The machinery file or directory at package-relative ``relative``, which need not exist for code; shared resources must exist.
 
     ``relative`` is a trusted, package-relative path such as ``"config/model_catalog.yaml"``.
     The checks are ``path_safety.safe_join``'s, made stricter: an empty, absolute or
@@ -364,6 +365,13 @@ def machinery_path(relative: str) -> Path:
         if component in ("", ".", "..") or ":" in component or "\\" in component:
             raise ValueError(f"machinery path has an invalid component {component!r}: {relative!r}")
     root = machinery_root()
+    if components[:2] == ["agents_extensions", "shared"]:
+        # The wheel preserves this sibling layout. No source/install branch or
+        # import search participates, even when product namespaces overlap.
+        root = root.parent / "agents_extensions" / "shared"
+        if root.resolve() != root:
+            raise ValueError("machinery resource tree must not be a symlink")
+        components = components[2:]
     logical = root.joinpath(*components)
     try:
         resolved = logical.resolve()
@@ -371,6 +379,8 @@ def machinery_path(relative: str) -> Path:
         raise ValueError(f"machinery path {relative!r} cannot be resolved: {exc}") from exc
     if os.path.commonpath([root, resolved]) != str(root):
         raise ValueError(f"machinery path {relative!r} resolves outside the machinery package: {resolved}")
+    if (relative == "agents_extensions/shared" or relative.startswith("agents_extensions/shared/")) and not logical.exists():
+        raise FileNotFoundError(f"machinery release resource unavailable: {relative}")
     return logical
 
 

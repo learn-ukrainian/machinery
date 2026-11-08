@@ -199,7 +199,7 @@ launcher_adapter_exec() {
     # AGENTS.md autoload does not carry the rules core; developer_instructions
     # adds it as a developer message (TOML-encoded so -c never reparses it).
     if [ -n "${LC_RULES_CORE:-}" ]; then
-      if LC_RULES_CORE_TOML="$(rules_core_toml "$LC_DURABLE_HELPER_ROOT/.venv/bin/python" "$LC_ROOT")"; then
+      if LC_RULES_CORE_TOML="$(rules_core_toml "$LC_DURABLE_HELPER_ROOT/.venv/bin/python")"; then
         cmd+=(-c "developer_instructions=$LC_RULES_CORE_TOML")
       else
         rules_core_refuse "TOML encoding failed"

@@ -130,7 +130,6 @@ def _configured(layout: dict[str, Path], repo: str) -> dict[str, str]:
         rr.PRIMARY_ROOT_ENV: str(layout["primary"]),
         rr.GITHUB_SLUG_ENV: CONFIGURED_SLUG,
         rr.STATE_ROOT_ENV: str(layout["primary"]),
-        rr.RULES_DIR_ENV: str(layout["rules"]),
         rr.INTERPRETER_ENV: str(layout["python"]),
         rr.PRODUCT_ROOT_ENV: str(layout["product"]),
     }
@@ -296,13 +295,16 @@ def test_systemd_exec_start_runs_with_the_configured_roots(tmp_path: Path, layou
         tmp_path / "stand-in" / "python",
         f"#!{sys.executable}\nimport json, os, sys\n"
         f"json.dump({{'argv': sys.argv[1:], 'primary': os.environ.get({rr.PRIMARY_ROOT_ENV!r}),"
-        f" 'rules': os.environ.get({rr.RULES_DIR_ENV!r}), 'slug': os.environ.get({rr.GITHUB_SLUG_ENV!r})}},"
+        f" 'slug': os.environ.get({rr.GITHUB_SLUG_ENV!r})}},"
         f" open({str(record)!r}, 'w'))\n",
     )
     configured = {**_configured(layout, repo), rr.INTERPRETER_ENV: str(stand_in)}
     env_file = home / ".config" / "learn-ukrainian" / "machinery.env"
     env_file.parent.mkdir(parents=True)
-    env_file.write_text("".join(f"{key}={value}\n" for key, value in configured.items()), encoding="utf-8")
+    env_file.write_text(
+        "".join(f"{key}={value}\n" for key, value in configured.items()),
+        encoding="utf-8",
+    )
     result = _systemd_exec_start(home)
     assert result.returncode == 0, result.stderr
     ran = json.loads(record.read_text(encoding="utf-8"))
@@ -312,7 +314,6 @@ def test_systemd_exec_start_runs_with_the_configured_roots(tmp_path: Path, layou
     assert ran == {
         "argv": [str(reporter), "report"],
         "primary": str(layout["primary"]),
-        "rules": str(layout["rules"]),
         "slug": CONFIGURED_SLUG,
     }
 
@@ -322,9 +323,13 @@ def test_runtime_target_interpreter_policy_and_state_roots_are_distinct(monkeypa
     for key, value in _configured(layout, repo).items():
         monkeypatch.setenv(key, value)
     roots = rr.machinery_roots()
-    assert (roots.runtime, roots.primary, roots.state) == (rr.RUNTIME_ROOT, layout["primary"], layout["primary"])
+    assert (roots.runtime, roots.primary, roots.state) == (
+        rr.RUNTIME_ROOT,
+        layout["primary"],
+        layout["primary"],
+    )
     assert (roots.rules_dir, roots.interpreter, roots.github_slug) == (
-        layout["rules"],
+        rr.machinery_path(rr.RULES_DIR_REL),
         layout["python"],
         CONFIGURED_SLUG,
     )
@@ -345,13 +350,20 @@ def test_unset_configuration_keeps_todays_roots(clean_env, monkeypatch) -> None:
     primary = rr.main_checkout_root(runtime)
     roots = rr.machinery_roots()
     assert roots.runtime == runtime == REPO
-    assert (roots.primary, roots.state, roots.github_slug) == (primary, primary, DEFAULT_SLUG)
+    assert (roots.primary, roots.state, roots.github_slug) == (
+        primary,
+        primary,
+        DEFAULT_SLUG,
+    )
     assert roots.rules_dir == runtime / "agents_extensions" / "shared" / "rules"
     assert rr.resolve_repo_root(Path(rr.__file__), 2) == primary
     assert worktree_claims.public_primary_root() == primary
-    assert rules_core.core_dir() == rules_core.ROOT / "agents_extensions/shared/rules"
-    assert rules_core.core_dir(Path("/elsewhere")) == Path("/elsewhere/agents_extensions/shared/rules")
-    assert rules_core.source_path("docs/x.md") == rules_core.ROOT / "docs/x.md"
+    assert rr.rules_dir() == rules_core.ROOT / "agents_extensions/shared/rules"
+    with pytest.raises(TypeError):
+        rr.rules_dir(Path("/elsewhere"))
+    assert rules_core.source_path("docs/x.md", REPO) == REPO / "docs/x.md"
+    with pytest.raises(rules_core.RulesCoreMissing, match="LU_PRODUCT_ROOT"):
+        rules_core.source_path("docs/x.md")
 
 
 def test_unset_configuration_refuses_unanchored_dispatch_roots() -> None:

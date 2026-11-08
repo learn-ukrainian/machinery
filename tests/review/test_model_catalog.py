@@ -1153,6 +1153,13 @@ def assert_frozen_surfaces(actual, *, surfaces):
                 if value["policy"]["notes"][index] != CURRENT_BASELINE["catalog"]["policy"]["notes"][index]:
                     assert hashlib.sha256(encode(value["policy"]["notes"][index])).hexdigest() == digest
                     value["policy"]["notes"][index] = CURRENT_BASELINE["catalog"]["policy"]["notes"][index]
+            # Release packaging moves this reference, without changing model behavior.
+            old_notes = CURRENT_BASELINE["catalog"]["models"]["claude-fable-5-1"]["notes"]
+            assert value["models"]["claude-fable-5-1"]["notes"] == old_notes.replace(
+                "docs/best-practices/fleet-shared-doctrine.md",
+                "agents_extensions/shared/rules/fleet-shared-doctrine.md",
+            )
+            value["models"]["claude-fable-5-1"]["notes"] = old_notes
         assert value == CURRENT_BASELINE[surface], f"current surface differs: {surface}"
 
 
