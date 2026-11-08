@@ -18,6 +18,7 @@
 # [held]: source [run] files this repository does not run, with the reason; none is ported.
 #   Each needs the product checkout, which this repository does not hold.
 # [run]
+tests/agent_deploy/test_release_deployer.py
 tests/api/test_state_roots.py
 tests/ai_agent_bridge/test_bridge_state_roots.py
 tests/test_fleet_repos.py
