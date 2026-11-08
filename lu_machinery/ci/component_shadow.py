@@ -21,6 +21,7 @@ from lu_machinery.ci._location import checkout_relative, module_name
 from lu_machinery.ci.deploy_paths import POLICY_REL
 from lu_machinery.ci.junit_results import parse_junit
 from lu_machinery.common import github_client
+from lu_machinery.common.repo_root import machinery_path, product_root
 
 SCHEMA = "component-shadow.v1"
 BASELINE = "2026-10-03T00:00:00Z..2026-10-06T11:14:28Z"
@@ -70,9 +71,15 @@ def write_json(path: Path, value: dict, *, exclusive: bool = False) -> None:
 
 
 def identities(root: Path, graph: dict) -> dict:
+    def tool_bytes(name: str) -> bytes:
+        prefix = checkout_relative().as_posix() + "/"
+        if name.startswith(prefix):
+            return machinery_path(name[len(prefix):]).read_bytes()
+        return (root / name).read_bytes()
+
     return {"graph_hash": digest(graph), "source_hash": digest({
         path: hashlib.sha256(source).hexdigest() for path, source in components.python_sources(root).items()
-    }), "tool_hashes": {name: hashlib.sha256((components.ROOT / name).read_bytes()).hexdigest() for name in TOOLS}}
+    }), "tool_hashes": {name: hashlib.sha256(tool_bytes(name)).hexdigest() for name in TOOLS}}
 
 
 def dependency_input(path: str, patterns: list[str]) -> bool:
@@ -86,8 +93,9 @@ def dependency_input(path: str, patterns: list[str]) -> bool:
             or name in {"gemfile.lock", "pipfile.lock", "yarn.lock"})
 
 
-def select(base: str, head: str, event: str, root: Path = components.ROOT) -> dict:
+def select(base: str, head: str, event: str, root: Path | None = None) -> dict:
     """Use the event head and merge base; all uncertainty selects the full set."""
+    root = root or product_root()
     # Observe historical source checkouts with the registered observer/map,
     # even when those commits predate the component tooling itself.
     manifest = components.load_manifest()
@@ -108,8 +116,8 @@ def select(base: str, head: str, event: str, root: Path = components.ROOT) -> di
                 reason = "empty-diff"
         except (dependency.MergeBaseError, subprocess.SubprocessError, OSError):
             reason = "diff-unavailable"
-    patterns = dependency.load_denominator(components.ROOT / dependency.DENOMINATOR_REL)["paths"]
-    if any(path.startswith((".github/", f"{checkout_relative('ci').as_posix()}/")) or dependency_input(path, patterns) for path in paths):
+    patterns = dependency.load_denominator(root / dependency.DENOMINATOR_REL)["paths"]
+    if any(path.startswith((".github/", "scripts/ci/", f"{checkout_relative('ci').as_posix()}/")) or dependency_input(path, patterns) for path in paths):
         reason = "workflow-tool-or-dependency"
     affected = components.affected(paths, manifest, graph)
     if not reason and (affected["fallback_reasons"] or "shared-core" in affected["components"]):

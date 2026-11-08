@@ -22,7 +22,7 @@ if __package__ in (None, ""):
 
 import yaml
 
-from lu_machinery.ci._location import checkout_relative
+from lu_machinery.common.repo_root import product_root
 
 
 def load_pip_audit_ignores(ignore_file: Path) -> list[str]:
@@ -403,8 +403,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--repo-root",
         type=Path,
-        default=Path(__file__).resolve().parents[2],
-        help="Repository root directory",
+        default=None,
+        help="Repository root (default: the selected product checkout)",
     )
     parser.add_argument(
         "--ignore-file",
@@ -422,17 +422,17 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--skip-node", action="store_true", help="Skip Node.js npm audit")
     args = parser.parse_args(argv)
 
-    repo_root = args.repo_root.resolve()
+    repo_root = (args.repo_root or product_root()).resolve()
     if args.ignore_file:
         ignore_file = args.ignore_file.resolve()
     else:
-        config_path = repo_root / checkout_relative("config", "pip-audit-ignore.yaml")
+        config_path = repo_root / "scripts/config/pip-audit-ignore.yaml"
         ignore_file = config_path if config_path.exists() else repo_root / ".pip-audit-ignore.yaml"
 
     if args.npm_ignore_file:
         npm_ignore_file = args.npm_ignore_file.resolve()
     else:
-        npm_config_path = repo_root / checkout_relative("config", "npm-audit-ignore.yaml")
+        npm_config_path = repo_root / "scripts/config/npm-audit-ignore.yaml"
         npm_ignore_file = npm_config_path if npm_config_path.exists() else repo_root / ".npm-audit-ignore.yaml"
 
     exit_code = 0
