@@ -90,8 +90,8 @@ MembershipResolver = Callable[[int, int], bool]
 # stale-fallback and ``?fresh=true`` paths. Runtime-only state lives in two
 # gitignored sidecars under ``batch_state/``:
 #
-#   REFRESH_STATE_PATH — JSON state machine (phase, outcome, cooldown, …)
-#   REFRESH_LOCK_PATH  — cross-process ``flock`` advisory lock
+#   JSON state machine (phase, outcome, cooldown, …)
+#   cross-process ``flock`` advisory lock
 #
 # Both describe the one live audit, so they are anchored at the PRIMARY
 # checkout (``state_root``), never the invoking linked worktree: a
