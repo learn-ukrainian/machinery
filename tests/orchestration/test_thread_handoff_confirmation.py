@@ -131,7 +131,7 @@ def test_prepare_state_requires_confirmation_before_cleanup(tmp_path: Path):
     state = prepared()
     assert state["active"]["thread_id"] == "old-thread"
     assert state["active"]["automation_id"] == "old-auto"
-    assert state["replacement"]["status"] == "SCRATCH-BREAK-NOT-REAL"
+    assert state["replacement"]["status"] == "pending_start"
     assert state["cleanup"]["old_automation_ready_to_delete"] is False
     resumed = resume_bound(state)
     confirmed = th.confirm_started(
