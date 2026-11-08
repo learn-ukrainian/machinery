@@ -18,15 +18,16 @@ from typing import Any
 import yaml
 from jsonschema import Draft202012Validator, FormatChecker
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
+from lu_machinery.common.repo_root import machinery_path
+
 REGISTRY_SCHEMA_PATH = (
-    PROJECT_ROOT / "agents_extensions/shared/schemas/red-ci-known-failures.v1.schema.json"
+    machinery_path("schemas/red-ci-known-failures.v1.schema.json")
 )
 RECEIPT_SCHEMA_PATH = (
-    PROJECT_ROOT / "agents_extensions/shared/schemas/red-ci-signature-receipt.v1.schema.json"
+    machinery_path("schemas/red-ci-signature-receipt.v1.schema.json")
 )
 LOOKUP_RECEIPT_SCHEMA_PATH = (
-    PROJECT_ROOT / "agents_extensions/shared/schemas/red-ci-lookup-receipt.v1.schema.json"
+    machinery_path("schemas/red-ci-lookup-receipt.v1.schema.json")
 )
 
 HEX_40_RE = re.compile(r"^[0-9a-f]{40}$")
