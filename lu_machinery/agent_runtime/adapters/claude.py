@@ -52,8 +52,8 @@ Mode handling:
   a primary-checkout write in a live probe, so it is not that backstop.
 - ``workspace-write``: ``--permission-mode dontAsk`` plus an allow list of
   every worker tool: all Bash, Read/Edit/Write, Grep/Glob/LS, WebFetch,
-  WebSearch, and one ``mcp__<server>__*`` rule per server in the worker
-  checkout ``.mcp.json`` (the dispatch ``cwd``). An explicit
+  WebSearch, and one ``mcp__<server>__*`` rule per server in the
+  product checkout's ``.mcp.json`` (``product_root()``). An explicit
   ``mcp_config_path`` is read instead. A missing file grants no MCP tools.
   A present file that cannot be read or parsed, or a server name that cannot
   be written into ``--allowedTools``, fails the dispatch. NotebookEdit is
@@ -247,6 +247,8 @@ from collections.abc import Mapping, Sequence
 from functools import cache
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
+
+from lu_machinery.common.repo_root import product_root
 
 from ..env_sanitize import (
     CLAUDE_CONFIG_DIR_ENV,
@@ -507,17 +509,17 @@ REVIEWER_PERMISSION_PROFILE = {
 }
 
 
-def _mcp_config_path(cwd: Path, tool_config: dict[str, Any]) -> Path:
+def _mcp_config_path(tool_config: dict[str, Any]) -> Path:
     """Return the MCP config a write worker's allow list is built from.
 
-    An explicit ``mcp_config_path`` wins. Otherwise the file is the worker
-    checkout's ``.mcp.json`` (the dispatch ``cwd``), not the checkout that
-    imported this adapter.
+    An explicit ``mcp_config_path`` wins. Otherwise the file is the configured
+    product checkout's ``.mcp.json`` (``product_root()``, C-4843), not the
+    worker's task checkout and not the checkout that imported this adapter.
     """
     explicit = tool_config.get("mcp_config_path")
     if isinstance(explicit, str) and explicit:
         return Path(explicit)
-    return Path(cwd) / ".mcp.json"
+    return product_root() / ".mcp.json"
 
 
 def _mcp_server_names(path: Path) -> tuple[str, ...]:
@@ -553,10 +555,10 @@ def _mcp_server_names(path: Path) -> tuple[str, ...]:
     return tuple(names)
 
 
-def _workspace_write_allows(cwd: Path, tool_config: dict[str, Any]) -> tuple[str, ...]:
+def _workspace_write_allows(tool_config: dict[str, Any]) -> tuple[str, ...]:
     """Tools a headless write worker may run without a prompt."""
     names: list[str] = list(_WORKSPACE_WRITE_TOOLS)
-    for server in _mcp_server_names(_mcp_config_path(cwd, tool_config)):
+    for server in _mcp_server_names(_mcp_config_path(tool_config)):
         names.append(f"mcp__{server}__*")
     return tuple(dict.fromkeys(names))
 
@@ -1043,7 +1045,7 @@ class ClaudeAdapter:
         elif mode == "workspace-write" and not review_isolation:
             cmd.extend(["--permission-mode", WORKSPACE_WRITE_PERMISSION_MODE])
             if not explicit_allowed_tools:
-                cmd.extend(["--allowedTools", ",".join(_workspace_write_allows(cwd, tc))])
+                cmd.extend(["--allowedTools", ",".join(_workspace_write_allows(tc))])
 
         # MCP tool restrictions (pipeline reviewers)
         mcp_config_path = tc.get("mcp_config_path")
