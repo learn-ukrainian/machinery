@@ -46,13 +46,16 @@ else
   CANONICAL_ROOT="$CONFIGURED_PROJECT"
 fi
 
-PYTHON_BIN="$CANONICAL_ROOT/.venv/bin/python"
+resolve_root="${payload_cwd:-$CONFIGURED_PROJECT}"
+PYTHON_BIN=""
+if [ -n "$resolve_root" ]; then
+  PYTHON_BIN="$(project_interpreter_resolve "$resolve_root" 2>/dev/null)" || PYTHON_BIN=""
+fi
 
 case "$MODE" in
   pre-tool-use)
-    if [ ! -x "$PYTHON_BIN" ]; then
-      printf 'Codex hook policy cannot run: project interpreter is missing at %s\n' \
-        "$PYTHON_BIN" >&2
+    if [ -z "$PYTHON_BIN" ] || [ ! -x "$PYTHON_BIN" ]; then
+      printf 'Codex hook policy cannot run: project interpreter is missing\n' >&2
       exit 2
     fi
 
@@ -77,11 +80,11 @@ case "$MODE" in
       # Primary-checkout dirt audit (#11253): exit 2 hands the attribution
       # report to the model; Codex runs PostToolUse for non-zero exits too.
       AUDIT_HOOK="$HOOKS_DIR/audit-primary-checkout-dirt.py"
-      if [ -x "$PYTHON_BIN" ]; then
-        printf '%s' "$PAYLOAD" | "$PYTHON_BIN" -I "$AUDIT_HOOK"
-      else
-        printf '%s' "$PAYLOAD" | "$AUDIT_HOOK"
+      if [ -z "$PYTHON_BIN" ] || [ ! -x "$PYTHON_BIN" ]; then
+        printf 'Codex primary-checkout audit cannot run: project interpreter is missing\n' >&2
+        exit 2
       fi
+      printf '%s' "$PAYLOAD" | "$PYTHON_BIN" -I "$AUDIT_HOOK"
       audit_rc=$?
       [ "$audit_rc" -eq 0 ] || exit "$audit_rc"
     fi

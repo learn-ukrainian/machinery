@@ -1,6 +1,6 @@
 #!/bin/bash
 # launchd binds LWCR to ProgramArguments[0]. That must stay /bin/bash
-# (Apple-signed). Never put .venv/bin/python there: a venv rebuild
+# (Apple-signed). Never put the project interpreter there: a venv rebuild
 # replaces the binary and launchd then fails with
 # "Unable to get updated LWCR ... error 0x3 - No such process" (exit 78).
 set -euo pipefail
@@ -19,13 +19,14 @@ if [[ -z "${primary}" ]]; then
   exit 78
 fi
 
-python="${primary}/.venv/bin/python"
-supervisor="$(cd "$(dirname "$0")" && pwd)/launchd_supervisor.py"
-
-if [[ ! -x "${python}" ]]; then
-  echo "monitor-api: missing interpreter: ${python}" >&2
+script_dir="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck disable=SC1091
+source "${script_dir}/../lib/project_interpreter.sh"
+if ! python="$(project_interpreter_resolve "${primary}")"; then
+  echo "monitor-api: missing interpreter" >&2
   exit 78
 fi
+supervisor="${script_dir}/launchd_supervisor.py"
 if [[ ! -f "${supervisor}" ]]; then
   echo "monitor-api: missing script: ${supervisor}" >&2
   exit 78

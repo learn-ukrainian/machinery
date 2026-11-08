@@ -31,16 +31,11 @@ if [ ! -f "$ROOT/lu_machinery/guardrails/assert_primary_on_main.py" ]; then
   exit 0
 fi
 
-PY="${ROOT}/.venv/bin/python"
-if [ ! -x "$PY" ]; then
-  GIT_COMMON="$(git rev-parse --git-common-dir)"
-  if [[ "$GIT_COMMON" != /* ]]; then
-    GIT_COMMON="$ROOT/$GIT_COMMON"
-  fi
-  PY="$(cd "$GIT_COMMON/.." && pwd)/.venv/bin/python"
-fi
-if [ ! -x "$PY" ]; then
-  echo "WARNING: primary-on-main diagnostic skipped; project .venv/bin/python is unavailable." >&2
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck disable=SC1091
+source "$script_dir/../lib/project_interpreter.sh"
+if ! PY="$(project_interpreter_resolve "$ROOT")"; then
+  echo "WARNING: primary-on-main diagnostic skipped; project interpreter is unavailable." >&2
   exit 0
 fi
 
@@ -48,7 +43,7 @@ fi
 # already moved it). Repair remains an explicit operator action.
 DOCTOR=lu_machinery/guardrails/assert_primary_on_main.py
 if ! "$PY" "$ROOT/lu_machinery/guardrails/assert_primary_on_main.py" --cwd "$ROOT" --quiet 2>/dev/null; then
-  echo "WARNING: primary is off main/detached. Inspect it, then run the explicit doctor if appropriate: .venv/bin/python $DOCTOR --heal" >&2
+  echo "WARNING: primary is off main/detached. Inspect it, then run the explicit doctor if appropriate: project interpreter $DOCTOR --heal" >&2
 fi
 
 exit 0

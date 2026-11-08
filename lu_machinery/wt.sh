@@ -52,12 +52,13 @@ check_active_builds() {
     return 0
 }
 
-# The project interpreter lives only in the primary checkout, even when this
-# script runs from a linked worktree.
+# The one project interpreter (R66). The checkout is this script's repository.
 project_python() {
-    local common_dir
-    common_dir=$(git -C "$REPO_ROOT" rev-parse --path-format=absolute --git-common-dir)
-    echo "$(dirname "$common_dir")/.venv/bin/python"
+    local root
+    root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+    # shellcheck disable=SC1091
+    source "$root/lu_machinery/lib/project_interpreter.sh"
+    project_interpreter_resolve "$root"
 }
 
 # Capture build check result — avoids duplicating set +e/set -e pattern
