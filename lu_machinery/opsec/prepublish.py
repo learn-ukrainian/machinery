@@ -21,12 +21,12 @@ from functools import wraps
 from itertools import pairwise
 from pathlib import Path
 
+# The directory holding the package, put on sys.path so a short ``opsec.prepublish`` import can
+# still import ``lu_machinery``; an import bootstrap only, never a root for files or state.
 ROOT = Path(__file__).resolve().parents[2]
-# The machinery package's directory name, which is also its import name and the first component
-# of its files' paths under any checkout. Taken from this file's unresolved location (not from
-# ``__name__``, which a short ``opsec.prepublish`` import shortens, and not by importing
-# ``common/``, which minimal workflow checkouts omit).
-_MACHINERY = Path(os.path.abspath(__file__)).parents[1].name
+# The machinery package directory, found from this file as ``repo_root.machinery_root`` finds it:
+# minimal workflow checkouts omit ``common/``, so this module does not import repo_root at import.
+_PACKAGE = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 POLICY = Path(__file__).with_name("blocking.json")
@@ -81,7 +81,19 @@ def internal_environment(source: Mapping[str, str] | None = None) -> dict[str, s
     return {key: value for key, value in (os.environ if source is None else source).items() if key != OVERRIDE}
 
 
-def primary_root(cwd: Path = ROOT) -> Path:
+def primary_root(cwd: Path | None = None) -> Path:
+    """The primary checkout of ``cwd``'s repository; without ``cwd``, of the state anchor's."""
+    if cwd is None:
+        try:
+            # Imported here: minimal workflow checkouts omit common/.
+            from lu_machinery.common.repo_root import state_root
+
+            cwd = state_root()
+        except (ImportError, ValueError):
+            raise PublishBlocked(
+                "OPSEC: repository context unavailable; set LEARN_UKRAINIAN_PRIMARY_REPO_ROOT "
+                "or use an explicit repository."
+            ) from None
     result = subprocess.run(
         ["git", "rev-parse", "--path-format=absolute", "--git-common-dir"],
         cwd=cwd,
@@ -109,7 +121,7 @@ def catalog() -> dict:
             return super().construct_mapping(node, deep=deep)
 
     try:
-        return yaml.load((ROOT / _MACHINERY / "config" / "fleet_repos.yaml").read_text(), Loader=UniqueLoader)["repos"]
+        return yaml.load((_PACKAGE / "config" / "fleet_repos.yaml").read_text(), Loader=UniqueLoader)["repos"]
     except Exception:
         raise PublishBlocked("OPSEC: repository allowlist unavailable; write refused.") from None
 
@@ -412,8 +424,8 @@ def _override_admitted(
 ) -> bool:
     """Whether the private authority admits these policy hits; its refusal becomes PublishBlocked.
 
-    The audit path is this checkout's primary root, shared by every worktree
-    and publisher, unless the caller names one. Only a literal True admits;
+    The audit path is under the state anchor's primary checkout, shared by every
+    worktree and publisher, unless the caller names one. Only a literal True admits;
     any other failure, resolving that path included, admits nothing.
     """
     import contextlib
@@ -454,17 +466,17 @@ def real_gh(environment: Mapping[str, str]) -> str:
             path.is_absolute()
             and path.is_file()
             and os.access(path, os.X_OK)
-            and path != (ROOT / _MACHINERY / "agent_runtime" / "shims" / "gh").resolve()
+            and path != (_PACKAGE / "agent_runtime" / "shims" / "gh").resolve()
             and path.parts[-3:] != ("agent_runtime", "shims", "gh")
         ):
             return str(path)
     raise PublishBlocked("OPSEC: real gh executable unavailable; write refused.")
 
 
-def publish_environment(source: Mapping[str, str], *, root: Path = ROOT) -> dict[str, str]:
-    """Keep the publishing shim first without propagating command-scoped overrides."""
+def publish_environment(source: Mapping[str, str]) -> dict[str, str]:
+    """Keep the package's publishing shim first without propagating command-scoped overrides."""
     env = internal_environment(source)
-    shim = str(root / _MACHINERY / "agent_runtime" / "shims")
+    shim = str(_PACKAGE / "agent_runtime" / "shims")
     env["PATH"] = os.pathsep.join([shim, *[p for p in env.get("PATH", "").split(os.pathsep) if p and p != shim]])
     try:
         env["AGENT_REAL_GH"] = real_gh(source)

@@ -1282,7 +1282,7 @@
   {
    "path": "lu_machinery/ai_agent_bridge/_model.py",
    "rule": "python.lang.security.audit.dangerous-subprocess-use-audit",
-   "sha256": "5a47b3038e7f72ce872d644bc72280a901d5d2e38d99d243eef0f974379d26b0"
+   "sha256": "83fe3189438b94220c7c55ad667b3bc04dc9ae10d0f576a1dcfaa68aa00ab898"
   },
   {
    "path": "lu_machinery/ai_agent_bridge/_opencode.py",
