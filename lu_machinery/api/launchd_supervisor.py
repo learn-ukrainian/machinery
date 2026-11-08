@@ -159,7 +159,12 @@ def build_plist(*, repo_root: Path) -> dict[str, object]:
         "KeepAlive": {"SuccessfulExit": False},
         # launchd applies this between restarts, preventing a crash-loop spin.
         "ThrottleInterval": THROTTLE_INTERVAL_SECONDS,
-        "EnvironmentVariables": {"PATH": _LAUNCHD_PATH},
+        # The root anchors, as the systemd units set them: launchd passes no other environment.
+        "EnvironmentVariables": {
+            "PATH": _LAUNCHD_PATH,
+            "LEARN_UKRAINIAN_PRIMARY_REPO_ROOT": str(root),
+            "LU_PRODUCT_ROOT": str(root),
+        },
         "StandardOutPath": str(_launchd_stdout_path(root)),
         "StandardErrorPath": str(_launchd_stderr_path(root)),
         "WorkingDirectory": str(root),
@@ -392,7 +397,13 @@ def status(*, home: Path) -> tuple[dict[str, object], int]:
                 and payload.get("Label") == LABEL
                 and payload.get("KeepAlive") == {"SuccessfulExit": False}
                 and payload.get("ThrottleInterval") == THROTTLE_INTERVAL_SECONDS
-                and payload.get("EnvironmentVariables") == {"PATH": _LAUNCHD_PATH}
+                # build_plist anchors both roots at the plist's own working directory.
+                and payload.get("EnvironmentVariables")
+                == {
+                    "PATH": _LAUNCHD_PATH,
+                    "LEARN_UKRAINIAN_PRIMARY_REPO_ROOT": payload.get("WorkingDirectory"),
+                    "LU_PRODUCT_ROOT": payload.get("WorkingDirectory"),
+                }
                 and isinstance(arguments, list)
                 and arguments
                 and arguments[0] == STABLE_PROGRAM

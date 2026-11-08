@@ -227,7 +227,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 Outputs: receipt JSON on stdout; --receipt-path writes a file; --post-comment opts into GitHub posting.
 Exit codes: 0 clean; 1 actionable; 2 invalid; 3 incomplete; 4 stale; 5 unverifiable.
-Related: docs/review-protocol.md; schemas/code-review-findings.v1.schema.json; issue #12338.
+Related: docs/review-protocol.md; lu_machinery/schemas/code-review-findings.v1.schema.json; issue #12338.
 """,
     )
     source = parser.add_mutually_exclusive_group(required=True)
