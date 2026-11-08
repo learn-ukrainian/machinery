@@ -20,6 +20,7 @@ from typing import Any
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
+from lu_machinery.common.repo_root import state_root
 from lu_machinery.common.task_store_paths import tasks_dir as default_tasks_dir
 from lu_machinery.fleet.ignored_task_output import succession_streams
 from lu_machinery.fleet_comms.authority import AuthorityService
@@ -298,7 +299,7 @@ def route(report: dict[str, Any], *, cycle: int, service: AuthorityService) -> l
 
 def run(args, *, now: datetime) -> dict[str, Any]:
     repository = next(repo.github for repo in stale.fleet_repos.load_fleet_repos().values() if repo.default)
-    report = scan(args.tasks_dir, {repository: stale.PROJECT_ROOT}, now=now)
+    report = scan(args.tasks_dir, {repository: state_root()}, now=now)
     if args.route and not report["errors"]:
         with AuthorityService(root=None) as service:
             report["messages"] = route(report, cycle=int(now.timestamp()) // args.cadence_seconds, service=service)

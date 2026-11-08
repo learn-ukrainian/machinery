@@ -15,12 +15,13 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-_ROOT = Path(__file__).resolve().parents[2]
-if str(_ROOT) not in sys.path:
-    sys.path.insert(0, str(_ROOT))
+_IMPORT_ROOT = str(Path(__file__).resolve().parents[2])
+if _IMPORT_ROOT not in sys.path:
+    sys.path.insert(0, _IMPORT_ROOT)
 
 from lu_machinery.agent_runtime.attribution import resolve_invocation_attribution
 from lu_machinery.common import task_store_paths
+from lu_machinery.common.repo_root import state_root
 from lu_machinery.fleet import ignored_task_output as output
 from lu_machinery.orchestration import worktree_artifacts as artifacts
 from lu_machinery.orchestration import worktree_claims as claims
@@ -267,7 +268,7 @@ def record_abandon(
     if not reason.strip():
         raise Refusal("INVALID_INPUT", "reason must be nonempty")
     caller = resolve_invocation_attribution()
-    primary = claims.control_plane_root(Path.cwd()).resolve(strict=True)
+    primary = state_root().resolve(strict=True)
     tasks = task_store_paths.tasks_dir()
     if tasks.absolute() != primary / "batch_state/tasks" or tasks.resolve(strict=True) != tasks.absolute():
         raise Refusal("INVALID_INPUT", "task store must be the canonical control-plane store without symlinks")
