@@ -32,6 +32,9 @@ import shlex
 import sys
 from pathlib import Path
 
+# The shipped hooks and package are siblings in the release. Bootstrap code
+# imports for plain shebang launches; this path never selects product or state.
+sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from tool_names import is_shell_tool
 

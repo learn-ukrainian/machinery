@@ -83,19 +83,8 @@ def run_hook(
         "session_id": "release-root",
         "tool_use_id": tool_id,
     }
-    # The package would be on sys.path via the venv in a wheel install. This fixture
-    # supplies only that separate site-packages directory, never the source checkout.
-    runner = 'import runpy,sys; sys.path.insert(0,sys.argv[1]); runpy.run_path(sys.argv[2],run_name="__main__")'
     return subprocess.run(
-        [
-            sys.executable,
-            "-I",
-            "-B",
-            "-c",
-            runner,
-            str(release),
-            str(release / HOOKS / name),
-        ],
+        [sys.executable, "-I", "-B", str(release / HOOKS / name)],
         input=json.dumps(payload),
         text=True,
         capture_output=True,

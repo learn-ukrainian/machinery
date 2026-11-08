@@ -51,6 +51,9 @@ from pathlib import Path
 _ROOTS_READER_MODULE = "lu_machinery.common.repo_root"
 _MACHINERY = _ROOTS_READER_MODULE.partition(".")[0]
 
+# The shipped hooks and package are siblings in the release. Bootstrap code
+# imports for plain shebang launches; this path never selects product or state.
+sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 # Don't write __pycache__ next to deployed hooks (#9108).
 sys.dont_write_bytecode = True

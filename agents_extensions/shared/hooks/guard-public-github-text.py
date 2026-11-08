@@ -12,6 +12,9 @@ from collections.abc import Iterator
 from pathlib import Path
 
 sys.dont_write_bytecode = True
+# The shipped hooks and package are siblings in the release. Bootstrap code
+# imports for plain shebang launches; this path never selects product or state.
+sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 try:
     from shell_redirects import _split_scopes

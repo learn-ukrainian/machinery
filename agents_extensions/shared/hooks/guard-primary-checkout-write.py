@@ -165,6 +165,9 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Optional
 
+# The shipped hooks and package are siblings in the release. Bootstrap code
+# imports for plain shebang launches; this path never selects product or state.
+sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 # Don't write __pycache__ next to deployed hooks (#9108).
 sys.dont_write_bytecode = True
