@@ -31,8 +31,8 @@ Environment
 Existing path overrides (honored before connect):
 ``FLEET_COMMS_ROOT``, ``LEARN_UKRAINIAN_OWNERSHIP_LEDGER``.
 
-Tests may redirect the primary checkout via ``LEARN_UK_REPO_ROOT`` (same as the
-Monitor API) or the store-specific overrides above.
+The shared-state default uses ``LEARN_UKRAINIAN_PRIMARY_REPO_ROOT``. Tests may
+redirect an individual call with ``repo_root`` or the store-specific overrides above.
 """
 
 from __future__ import annotations
@@ -43,10 +43,8 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
-from lu_machinery.common.repo_root import resolve_repo_root
+from lu_machinery.common.repo_root import state_root
 from lu_machinery.lib.readonly_sqlite import refuse_writable_corpus_database
-
-_MODULE_ROOT = resolve_repo_root(Path(__file__), 2)
 
 _ENV_AUTHORITY = "LEARN_UKRAINIAN_CP_AUTHORITY"
 _ENV_PG_DSN = "LEARN_UKRAINIAN_CP_PG_DSN"
@@ -99,10 +97,7 @@ class ControlPlaneUnsupportedComponentError(ControlPlaneError):
 def _repo_root(repo_root: Path | None) -> Path:
     if repo_root is not None:
         return repo_root
-    configured = (os.environ.get("LEARN_UK_REPO_ROOT") or "").strip()
-    if configured:
-        return Path(configured).expanduser().resolve()
-    return _MODULE_ROOT
+    return state_root()
 
 
 def _parse_authority(raw: str) -> Authority:
@@ -179,13 +174,11 @@ def sqlite_path(store: StoreId, *, repo_root: Path | None = None) -> Path:
 
         plane_root = default_plane_root(
             repo_root=root,
-            allow_non_git=repo_root is not None or bool(os.environ.get("LEARN_UK_REPO_ROOT")),
+            allow_non_git=repo_root is not None,
         )
         return plane_root / "comms.sqlite3"
     if store is StoreId.SESSION_STREAMS:
-        from agents_extensions.shared.session_streams.db import default_database_path
-
-        return default_database_path(root)
+        return root / ".agent" / "session-streams" / "v1" / "session-streams.sqlite3"
     if store is StoreId.WRITE_OWNERSHIP:
         override = (os.environ.get("LEARN_UKRAINIAN_OWNERSHIP_LEDGER") or "").strip()
         if override:

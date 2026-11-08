@@ -1,0 +1,622 @@
+"""Request / delivery executor skeleton (Fleet Comms PR-D / #5512).
+
+One path for foreground and background work: create a durable request, resolve
+endpoint (incl. permanent Gemini→AGY retirement), run adapter conformance on a
+raw capture, store the raw artifact, and advance request state only on proven
+completion.
+
+Bridge defaults remain legacy. Opt-in message plane (PR-E) may shadow/dual_write
+via ``scripts.fleet_comms.message_plane`` without flipping production defaults.
+"""
+
+from __future__ import annotations
+
+import json
+from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
+from typing import Any
+
+from lu_machinery.agent_runtime.kimi_admission import ACP_MODE
+from lu_machinery.agent_runtime.target_admission import resolve_and_admit, stored_kimi_request
+from lu_machinery.control_plane.storage import (
+    Authority,
+    ControlPlaneUnsupportedComponentError,
+    StoreId,
+    assert_component_supported,
+)
+from lu_machinery.fleet_comms.adapter_conformance import CaptureInput, conform, parse_capture_events
+from lu_machinery.fleet_comms.artifacts import ArtifactStore
+from lu_machinery.fleet_comms.contracts import CompletionState, ResponseEnvelope, new_id
+from lu_machinery.fleet_comms.endpoints import EndpointRegistry, load_endpoint_registry
+from lu_machinery.fleet_comms.migrations import apply_migrations
+from lu_machinery.fleet_comms.pg_schema import apply_pg_schema
+
+REQUEST_STATES = frozenset(
+    {"queued", "running", "complete", "incomplete", "failed", "expired", "dead_lettered"}
+)
+
+
+def _utc_now() -> datetime:
+    return datetime.now(UTC)
+
+
+def _iso(dt: datetime) -> str:
+    return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+@dataclass(frozen=True, slots=True)
+class RequestRecord:
+    request_id: str
+    request_message_id: str
+    requested_recipient: str
+    resolved_recipient: str
+    state: str
+    expires_at: str
+    completion_state: str
+    created_at: str
+    updated_at: str
+    envelope: ResponseEnvelope | None = None
+    raw_capture_artifact_id: str | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "request_id": self.request_id,
+            "request_message_id": self.request_message_id,
+            "requested_recipient": self.requested_recipient,
+            "resolved_recipient": self.resolved_recipient,
+            "state": self.state,
+            "expires_at": self.expires_at,
+            "completion_state": self.completion_state,
+            "created_at": self.created_at,
+            "updated_at": self.updated_at,
+            "raw_capture_artifact_id": self.raw_capture_artifact_id,
+        }
+        if self.envelope is not None:
+            payload["envelope"] = self.envelope.to_dict()
+        return payload
+
+
+class RequestExecutorError(RuntimeError):
+    """Request executor refused an operation."""
+
+
+class RequestExecutor:
+    """Durable request lifecycle over communications SQLite + artifact store."""
+
+    def __init__(
+        self,
+        *,
+        store: ArtifactStore | None = None,
+        registry: EndpointRegistry | None = None,
+        root: Path | None = None,
+        default_ttl_seconds: int | None = None,
+    ) -> None:
+        # #7482 interlock, extended by the public #605 slice: pg construction
+        # is now allowed (create_request/get_request are dialect-aware), but
+        # an injected store must match the CURRENTLY resolved authority in
+        # either direction — a store opened under sqlite must not smuggle
+        # sqlite SQL into a pg-configured plane (CF r1 finding, PR #7498),
+        # and a pg store must not be driven under a sqlite-resolved plane.
+        self._authority = assert_component_supported(StoreId.FLEET_COMMS, "request_executor")
+        if store is not None and store.authority is not self._authority:
+            raise ControlPlaneUnsupportedComponentError(
+                "control-plane store 'fleet_comms': injected artifact store "
+                f"authority {store.authority.value!r} does not match resolved "
+                f"authority {self._authority.value!r} for component "
+                "'request_executor' (#7482/#605 mismatch guard)"
+            )
+        self.store = store or ArtifactStore(root=root)
+        self._owns_store = store is None
+        self.registry = registry or load_endpoint_registry()
+        self.default_ttl_seconds = default_ttl_seconds
+        self._conn = self.store.connection
+        if self._owns_store:
+            if self._authority is Authority.PG:
+                apply_pg_schema(self._conn)
+            else:
+                apply_migrations(self._conn)
+
+    @property
+    def authority(self) -> Authority:
+        """Resolved control-plane authority this executor opened with (#605)."""
+        return self._authority
+
+    @property
+    def _is_pg(self) -> bool:
+        return self._authority is Authority.PG
+
+    def _commit(self) -> None:
+        # psycopg pg connections are autocommit (ArtifactStore pg pattern):
+        # bare statements commit on their own and explicit transactions
+        # commit at block exit. Only sqlite needs an explicit commit here.
+        if not self._is_pg:
+            self._conn.commit()
+
+    def close(self) -> None:
+        if self._owns_store:
+            self.store.close()
+
+    def __enter__(self) -> RequestExecutor:
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        self.close()
+
+    def create_request(
+        self,
+        *,
+        recipient: str,
+        body: str,
+        sender: str = "request-executor",
+        ttl_seconds: int | None = None,
+        conversation_id: str | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> RequestRecord:
+        # resolve(): live → (endpoint, endpoint.name); retired → (successor, retired_name).
+        # The endpoint lookup runs inside resolve_and_admit, which gates the requested and resolved
+        # seats and any model or recipient the stored metadata carries.
+        lookup: dict[str, Any] = {}
+
+        def _endpoint_name(name: str) -> str:
+            lookup["endpoint"], lookup["matched"] = self.registry.resolve(name)
+            return lookup["endpoint"].name
+
+        (target,) = resolve_and_admit(
+            (recipient,), mode=ACP_MODE, resolver=_endpoint_name, attachments=(metadata or {},)
+        )
+        endpoint = lookup["endpoint"]
+        requested = lookup["matched"]
+        resolved = target.recipient
+        ttl = ttl_seconds
+        if ttl is None:
+            ttl = self.default_ttl_seconds if self.default_ttl_seconds is not None else endpoint.default_ttl_seconds
+        now = _utc_now()
+        expires = now + timedelta(seconds=int(ttl))
+        conv = conversation_id or new_id("conversation")
+        msg_id = new_id("message")
+        req_id = new_id("request")
+        now_s = _iso(now)
+        expires_s = _iso(expires)
+
+        if self._is_pg:
+            # psycopg connection is autocommit (ArtifactStore pg pattern);
+            # the three inserts share ONE explicit transaction.
+            with self._conn.transaction():
+                self._conn.execute(
+                    "INSERT INTO conversations(conversation_id, created_at, source, title)"
+                    " VALUES (%s, %s, %s, %s) ON CONFLICT (conversation_id) DO NOTHING",
+                    (conv, now_s, "request-executor", None),
+                )
+                self._conn.execute(
+                    """INSERT INTO comms_messages(
+                        message_id, conversation_id, kind, sender, recipient, body_inline,
+                        content_sha256, metadata_json, created_at
+                    ) VALUES (%s, %s, 'request', %s, %s, %s, %s, %s, %s)""",
+                    (
+                        msg_id,
+                        conv,
+                        sender,
+                        resolved,
+                        body,
+                        None,
+                        json.dumps(metadata or {}, sort_keys=True),
+                        now_s,
+                    ),
+                )
+                self._conn.execute(
+                    """INSERT INTO requests(
+                        request_id, request_message_id, requested_recipient, resolved_recipient,
+                        state, expires_at, completion_state, invocation_spec_json, created_at, updated_at
+                    ) VALUES (%s, %s, %s, %s, 'queued', %s, 'unknown', %s, %s, %s)""",
+                    (
+                        req_id,
+                        msg_id,
+                        requested,
+                        resolved,
+                        expires_s,
+                        json.dumps(
+                            {
+                                "recipient": recipient,
+                                "requested_recipient": requested,
+                                "resolved_recipient": resolved,
+                                "ttl_seconds": ttl,
+                            },
+                            sort_keys=True,
+                        ),
+                        now_s,
+                        now_s,
+                    ),
+                )
+            return self.get_request(req_id)
+
+        self._conn.execute(
+            "INSERT OR IGNORE INTO conversations(conversation_id, created_at, source, title) VALUES (?, ?, ?, ?)",
+            (conv, now_s, "request-executor", None),
+        )
+        self._conn.execute(
+            """INSERT INTO comms_messages(
+                message_id, conversation_id, kind, sender, recipient, body_inline,
+                content_sha256, metadata_json, created_at
+            ) VALUES (?, ?, 'request', ?, ?, ?, ?, ?, ?)""",
+            (
+                msg_id,
+                conv,
+                sender,
+                resolved,
+                body,
+                None,
+                json.dumps(metadata or {}, sort_keys=True),
+                now_s,
+            ),
+        )
+        self._conn.execute(
+            """INSERT INTO requests(
+                request_id, request_message_id, requested_recipient, resolved_recipient,
+                state, expires_at, completion_state, invocation_spec_json, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, 'queued', ?, 'unknown', ?, ?, ?)""",
+            (
+                req_id,
+                msg_id,
+                requested,
+                resolved,
+                expires_s,
+                json.dumps(
+                    {
+                        "recipient": recipient,
+                        "requested_recipient": requested,
+                        "resolved_recipient": resolved,
+                        "ttl_seconds": ttl,
+                    },
+                    sort_keys=True,
+                ),
+                now_s,
+                now_s,
+            ),
+        )
+        self._conn.commit()
+        return self.get_request(req_id)
+
+    def get_request(self, request_id: str) -> RequestRecord:
+        placeholder = "%s" if self._is_pg else "?"
+        row = self._conn.execute(
+            f"SELECT * FROM requests WHERE request_id = {placeholder}", (request_id,)
+        ).fetchone()
+        if row is None:
+            raise RequestExecutorError(f"request not found: {request_id}")
+        return RequestRecord(
+            request_id=str(row["request_id"]),
+            request_message_id=str(row["request_message_id"]),
+            requested_recipient=str(row["requested_recipient"]),
+            resolved_recipient=str(row["resolved_recipient"]),
+            state=str(row["state"]),
+            expires_at=str(row["expires_at"]),
+            completion_state=str(row["completion_state"]),
+            created_at=str(row["created_at"]),
+            updated_at=str(row["updated_at"]),
+        )
+
+    def execute_capture(
+        self,
+        request_id: str,
+        *,
+        adapter: str | None = None,
+        stdout: str = "",
+        stderr: str = "",
+        returncode: int | None = 0,
+        events: tuple[dict[str, Any], ...] = (),
+        raw_bytes: bytes | None = None,
+        session_id: str | None = None,
+        reclaim: bool = False,
+        reclaim_stale_after_seconds: int = 7200,
+    ) -> RequestRecord:
+        """Run adapter conformance on a capture and persist the outcome.
+
+        Production adapters will stream into the artifact store then call this
+        with the same bytes. Tests inject fixtures directly.
+
+        #7485 exactly-once: execution starts with an ATOMIC claim — one
+        conditional UPDATE from ``queued`` to ``running``. Two concurrent
+        executors can no longer both observe ``queued`` and both run the
+        capture. A request already ``running`` is claimable only with
+        ``reclaim=True`` (explicit crash recovery by the caller).
+        """
+        ph = "%s" if self._is_pg else "?"
+        req = self.get_request(request_id)
+        now_s = _iso(_utc_now())
+        if req.expires_at < now_s and req.state in {"queued", "running"}:
+            self._set_state(request_id, "expired", CompletionState.UNKNOWN)
+            raise RequestExecutorError(f"request {request_id} expired")
+        if reclaim:
+            # #7485 CF r1: reclaim must never steal an ACTIVELY running
+            # request — only one whose claim has gone stale (crashed
+            # executor). Staleness = updated_at older than the floor.
+            stale_cutoff = _iso(
+                _utc_now() - timedelta(seconds=max(0, reclaim_stale_after_seconds))
+            )
+            cursor = self._conn.execute(
+                f"""UPDATE requests SET state = 'running', completion_state = {ph},
+                   updated_at = {ph}
+                   WHERE request_id = {ph} AND expires_at >= {ph}
+                   AND (state = 'queued'
+                        OR (state = 'running' AND updated_at <= {ph}))""",
+                (CompletionState.UNKNOWN.value, now_s, request_id, now_s, stale_cutoff),
+            )
+        else:
+            cursor = self._conn.execute(
+                f"""UPDATE requests SET state = 'running', completion_state = {ph},
+                   updated_at = {ph}
+                   WHERE request_id = {ph} AND state = 'queued'
+                   AND expires_at >= {ph}""",
+                (CompletionState.UNKNOWN.value, now_s, request_id, now_s),
+            )
+        # Under pg the claim UPDATE is a single autocommit statement — the
+        # same one-atomic-statement claim the sqlite commit provides.
+        self._commit()
+        if cursor.rowcount != 1:
+            current = self.get_request(request_id)
+            if current.state == "running":
+                detail = (
+                    "still fresh — refusing to steal an active claim"
+                    if reclaim
+                    else "pass reclaim=True only for explicit crash recovery"
+                )
+                raise RequestExecutorError(
+                    f"request {request_id} is already claimed by another "
+                    f"executor (state=running); {detail}"
+                )
+            raise RequestExecutorError(
+                f"request {request_id} is not executable (state={current.state})"
+            )
+        adapter_name = (adapter or req.resolved_recipient).lower()
+        capture = CaptureInput(
+            adapter=adapter_name,
+            stdout=stdout,
+            stderr=stderr,
+            returncode=returncode,
+            events=events,
+            raw_bytes=raw_bytes,
+            session_id=session_id,
+            transport_metadata={"request_id": request_id},
+        )
+        raw = raw_bytes
+        if raw is None:
+            raw = "\n".join(
+                [stdout or "", "---stderr---", stderr or "", f"---rc={returncode}---"]
+            ).encode("utf-8")
+        art = self.store.store_bytes(
+            raw,
+            producer=f"adapter:{adapter_name}",
+            retention_class="raw-capture",
+            mime_type="application/x-ndjson" if events or stdout.lstrip().startswith("{") else "text/plain",
+            logical_filename=f"{request_id}.capture",
+        )
+        envelope = conform(capture)
+        # Rebind envelope to the real artifact id/digest from the store.
+        envelope = ResponseEnvelope(
+            segments=envelope.segments,
+            completion_state=envelope.completion_state,
+            provider_stop_reason=envelope.provider_stop_reason,
+            terminal_event_observed=envelope.terminal_event_observed,
+            process_returncode=envelope.process_returncode,
+            transport_metadata={**envelope.transport_metadata, "artifact_store_id": art.artifact_id},
+            raw_capture_artifact_id=art.artifact_id,
+            raw_capture_sha256=art.sha256,
+            session_id=envelope.session_id or session_id,
+            token_metadata=envelope.token_metadata,
+            tool_call_metadata=envelope.tool_call_metadata,
+        )
+        # #7485: finalize atomically. The artifact commit above is the ONLY
+        # separate commit — a crash after it leaves an unreferenced artifact,
+        # which the unreferenced retention rule (#12574) expires. All
+        # state that must agree (references, request state, reply message)
+        # lands in ONE transaction below.
+        request_state = self._map_completion_to_request_state(envelope.completion_state)
+        now_s = _iso(_utc_now())
+        # The same event stream adapter conformance itself read: an explicit
+        # events tuple when the runtime supplied one, otherwise the JSONL the
+        # provider actually wrote to stdout.
+        observed_events = tuple(events) if events else tuple(parse_capture_events(stdout))
+        if self._is_pg:
+            # psycopg autocommit connection: all finalize writes share ONE
+            # explicit transaction (create_request pg pattern).
+            with self._conn.transaction():
+                self._finalize_capture(
+                    req=req,
+                    request_id=request_id,
+                    art=art,
+                    envelope=envelope,
+                    request_state=request_state,
+                    now_s=now_s,
+                    events=observed_events,
+                )
+        else:
+            self._conn.execute("BEGIN IMMEDIATE")
+            try:
+                self._finalize_capture(
+                    req=req,
+                    request_id=request_id,
+                    art=art,
+                    envelope=envelope,
+                    request_state=request_state,
+                    now_s=now_s,
+                    events=observed_events,
+                )
+            except Exception:
+                self._conn.rollback()
+                raise
+            self._conn.commit()
+        record = self.get_request(request_id)
+        return RequestRecord(
+            request_id=record.request_id,
+            request_message_id=record.request_message_id,
+            requested_recipient=record.requested_recipient,
+            resolved_recipient=record.resolved_recipient,
+            state=record.state,
+            expires_at=record.expires_at,
+            completion_state=record.completion_state,
+            created_at=record.created_at,
+            updated_at=record.updated_at,
+            envelope=envelope,
+            raw_capture_artifact_id=art.artifact_id,
+        )
+
+    def _finalize_capture(
+        self,
+        *,
+        req: RequestRecord,
+        request_id: str,
+        art: Any,
+        envelope: ResponseEnvelope,
+        request_state: str,
+        now_s: str,
+        events: tuple[dict[str, Any], ...] = (),
+    ) -> None:
+        """All finalize writes; runs inside the caller's open transaction."""
+        ph = "%s" if self._is_pg else "?"
+        self.store.reference(
+            req.request_message_id, art.artifact_id, relation="raw_capture", commit=False
+        )
+        row = self._conn.execute(
+            f"SELECT invocation_spec_json FROM requests WHERE request_id = {ph}",
+            (request_id,),
+        ).fetchone()
+        spec: dict[str, Any] = {}
+        if row and row["invocation_spec_json"]:
+            try:
+                loaded = json.loads(str(row["invocation_spec_json"]))
+                if isinstance(loaded, dict):
+                    spec = loaded
+            except json.JSONDecodeError:
+                spec = {}
+        spec["raw_capture_artifact_id"] = art.artifact_id
+        spec["completion_state"] = envelope.completion_state.value
+        self._conn.execute(
+            f"""UPDATE requests SET state = {ph}, completion_state = {ph}, updated_at = {ph},
+               invocation_spec_json = {ph}
+               WHERE request_id = {ph}""",
+            (
+                request_state,
+                envelope.completion_state.value,
+                now_s,
+                json.dumps(spec, sort_keys=True),
+                request_id,
+            ),
+        )
+        # Reply message when we have text (even incomplete).
+        if envelope.response_text:
+            reply_id = new_id("message")
+            preview = envelope.response_text[:500]
+            self._conn.execute(
+                f"""INSERT INTO comms_messages(
+                    message_id, conversation_id, in_reply_to, kind, sender, recipient,
+                    body_inline, body_artifact_id, content_sha256, metadata_json, created_at
+                ) VALUES (
+                    {ph},
+                    (SELECT conversation_id FROM comms_messages WHERE message_id = {ph}),
+                    {ph}, 'reply', {ph}, {ph}, {ph}, {ph}, {ph}, {ph}, {ph}
+                )""",
+                (
+                    reply_id,
+                    req.request_message_id,
+                    req.request_message_id,
+                    req.resolved_recipient,
+                    "request-executor",
+                    preview,
+                    art.artifact_id,
+                    art.sha256,
+                    json.dumps({"completion_state": envelope.completion_state.value}, sort_keys=True),
+                    now_s,
+                ),
+            )
+            self.store.reference(reply_id, art.artifact_id, relation="body", commit=False)
+
+    @staticmethod
+    def _map_completion_to_request_state(state: CompletionState) -> str:
+        if state is CompletionState.COMPLETE:
+            return "complete"
+        if state is CompletionState.FAILED:
+            return "failed"
+        if state in {
+            CompletionState.LENGTH_LIMITED,
+            CompletionState.TRANSPORT_INCOMPLETE,
+            CompletionState.UNKNOWN,
+        }:
+            return "incomplete"
+        return "incomplete"
+
+    def requeue_stale_running(self, *, stale_after_seconds: int = 7200) -> list[str]:
+        """Reconcile crashed executors: atomically re-queue running requests
+        whose claim has gone stale (#7485 CF r1 — production reclaim path).
+
+        Returns the re-queued request ids; unexpired requests only. Callers
+        (ops sweeps, ``python -m scripts.fleet_comms requests requeue-stale``)
+        then re-execute them normally.
+
+        The default floor (7200s) sits at the adapter HARD-timeout ceiling, so
+        a slow-but-alive capture inside the runtime's bounds can never be
+        swept (#7504 CF r2); a claimant that legitimately runs longer must
+        heartbeat via ``touch_claim()``.
+
+        A stored request addressed to a Kimi seat or model (legacy: Kimi is
+        refused before a request is recorded) is left as it is: its requested
+        and resolved recipients and its message metadata are read, never written.
+        """
+        now = _utc_now()
+        now_s = _iso(now)
+        cutoff = _iso(now - timedelta(seconds=max(0, stale_after_seconds)))
+        ph = "%s" if self._is_pg else "?"
+        rows = self._conn.execute(
+            f"""SELECT r.request_id, r.requested_recipient, r.resolved_recipient, m.metadata_json
+               FROM requests r LEFT JOIN comms_messages m ON m.message_id = r.request_message_id
+               WHERE r.state = 'running' AND r.updated_at <= {ph} AND r.expires_at >= {ph}
+               ORDER BY r.updated_at""",
+            (cutoff, now_s),
+        ).fetchall()
+        stale_ids = [
+            str(r["request_id"])
+            for r in rows
+            if not stored_kimi_request(
+                (r["requested_recipient"], r["resolved_recipient"]), attachments=(r["metadata_json"] or "{}",)
+            )
+        ]
+        requeued: list[str] = []
+        for request_id in stale_ids:
+            cursor = self._conn.execute(
+                f"""UPDATE requests SET state = 'queued', updated_at = {ph}
+                   WHERE request_id = {ph} AND state = 'running' AND updated_at <= {ph}""",
+                (now_s, request_id, cutoff),
+            )
+            # Each UPDATE is conditional and self-atomic; the rowcount check
+            # absorbs the read-then-update race on either engine.
+            if cursor.rowcount == 1:
+                requeued.append(request_id)
+        self._commit()
+        return requeued
+
+    def touch_claim(self, request_id: str) -> bool:
+        """Heartbeat a running claim (bumps updated_at; #7504 CF r2).
+
+        Long-running claimants call this periodically so neither
+        ``requeue_stale_running`` nor a stale-reclaim can steal them.
+        Returns False when the request is not currently running.
+        """
+        ph = "%s" if self._is_pg else "?"
+        cursor = self._conn.execute(
+            f"UPDATE requests SET updated_at = {ph}"
+            f" WHERE request_id = {ph} AND state = 'running'",
+            (_iso(_utc_now()), request_id),
+        )
+        self._commit()
+        return cursor.rowcount == 1
+
+    def _set_state(self, request_id: str, state: str, completion: CompletionState) -> None:
+        if state not in REQUEST_STATES:
+            raise RequestExecutorError(f"invalid request state: {state}")
+        ph = "%s" if self._is_pg else "?"
+        self._conn.execute(
+            f"UPDATE requests SET state = {ph}, completion_state = {ph},"
+            f" updated_at = {ph} WHERE request_id = {ph}",
+            (state, completion.value, _iso(_utc_now()), request_id),
+        )
+        self._commit()

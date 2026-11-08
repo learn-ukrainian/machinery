@@ -43,7 +43,6 @@ from lu_machinery.guardrails import worktree_containment
 from lu_machinery.orchestration.dead_worker_state import worker_liveness
 from lu_machinery.orchestration.execution_safe_git import SafeGitRunner
 from lu_machinery.orchestration.execution_safe_git import run_git as safe_git
-from lu_machinery.orchestration.fleet_repos import FleetRepoError, load_fleet_repos
 from lu_machinery.orchestration.task_record_store import parse_task_record, task_record_path
 from lu_machinery.path_safety import assert_delete_target
 
@@ -577,15 +576,15 @@ def public_primary_root() -> Path:
     """Return the public primary checkout that owns dispatch state.
 
     This is the machinery state root (:func:`scripts.common.repo_root.state_root`):
-    the configured primary checkout, else the primary of the checkout this code
-    runs from. Sibling checkouts sit beside it. A configured value that cannot be
-    used raises :class:`ControlPlaneError`.
+    the configured primary checkout. The in-tree source copy can derive its own
+    primary; an installed package requires the state anchor. An unusable anchor
+    raises :class:`ControlPlaneError`.
 
     Test seam: tests monkeypatch this to lay out a public primary and sibling
     checkouts under a temporary directory.
     """
     try:
-        return state_root(Path(__file__).resolve().parents[2])
+        return state_root()
     except ValueError as exc:
         raise ControlPlaneError(f"machinery state root unusable: {exc}") from exc
 
@@ -611,26 +610,12 @@ def identity_cache_publication_allowed(worktree: Path, tasks_dir: Path) -> bool:
 def control_plane_root(repo_root: Path) -> Path:
     """Return the checkout whose ``batch_state/`` and lock dir govern ``repo_root``'s worktrees.
 
-    Dispatch keeps every task record and per-worktree lock on the public
-    primary, even for ``--repo infra-private|hramatka`` worktrees (#672 P2.1,
-    :mod:`scripts.orchestration.fleet_repos`). A worktree of an allowlisted
-    sibling checkout therefore resolves to the public primary, so a remover
-    acting on it reads the records and takes the lock dispatch wrote and holds
-    (#8624). Any other repository is its own control plane. Raises
-    :class:`ControlPlaneError` when the fleet catalog cannot be read: a caller
-    that mutates must then refuse, since it cannot tell whether the repository
-    is a sibling.
+    Dispatch keeps task records and removal locks on the configured state
+    primary for every target product. Git operations still use ``repo_root``'s
+    own Git metadata. Never infer a state owner from a sibling directory or
+    the machinery installation.
     """
-    public = public_primary_root().resolve()
-    repo = main_checkout_root(repo_root).resolve()
-    try:
-        catalog = load_fleet_repos()
-    except FleetRepoError as exc:
-        raise ControlPlaneError(f"fleet repository catalog unreadable ({type(exc).__name__}: {exc})") from exc
-    for fleet_repo in catalog.values():
-        if not fleet_repo.default and (public.parent / fleet_repo.local_name).resolve() == repo:
-            return public
-    return repo
+    return public_primary_root().resolve()
 
 
 def owning_repo_root(worktree: Path, *, default: Path) -> Path:

@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from lu_machinery.common.repo_root import resolve_repo_root
+from lu_machinery.common.repo_root import state_root
 
 
 def tasks_dir() -> Path:
@@ -13,4 +13,4 @@ def tasks_dir() -> Path:
     override = os.environ.get("LU_TASKS_DIR")
     if override:
         return Path(override)
-    return resolve_repo_root(Path(__file__), 2) / "batch_state" / "tasks"
+    return state_root() / "batch_state" / "tasks"

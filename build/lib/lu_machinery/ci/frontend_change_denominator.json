@@ -1,0 +1,30 @@
+{
+  "schema_version": "frontend_change_denominator_v1",
+  "version": "1",
+  "description": "Changed-path denominator for full-tier frontend / frontend-e2e cheap-exit (#6917). A first-step path check exits 0 when nothing here changed. Prefixes end with /; other entries are exact paths. Hardening: the hydrate-entrypoint resolver only matches plain `npm run <name>` (not `npm run -s` / `npm run --silent`) and does not expand `npx` invocations — keep hydrate scripts on the covered forms or extend the resolver before adding those.",
+  "paths": [
+    "site/",
+    "schemas/word-card-v1.schema.json",
+    "docs/atlas/word-cards/examples/",
+    "docs/sources/permissions-register.yaml",
+    "curriculum/l2-uk-en/curriculum.yaml",
+    "registry/practice/",
+    "registry/lexicon/synonym_pair_verdicts.yaml",
+    "registry/lexicon/curated_aliases.yaml",
+    "tests/fixtures/atlas/",
+    "scripts/__init__.py",
+    "scripts/atlas/",
+    "scripts/lexicon/",
+    "lu_machinery/storage/__init__.py",
+    "lu_machinery/storage/paths.py",
+    "scripts/etymology/transliterate.py",
+    "scripts/audit/__init__.py",
+    "scripts/audit/generate_search_index.py",
+    "scripts/audit/generate_daily_pool.py",
+    "scripts/audit/lexeme_filter.py",
+    "scripts/audit/daily_cefr.py",
+    ".python-version",
+    ".github/workflows/ci.yml",
+    "packages/activity-kit/"
+  ]
+}

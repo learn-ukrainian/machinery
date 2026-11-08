@@ -61,18 +61,14 @@ except ModuleNotFoundError as exc:
 # Anchor ledger + task-state to the PRIMARY checkout (not a worktree copy),
 # matching the task-store path encoding.
 try:
-    from lu_machinery.common.repo_root import resolve_repo_root
+    from lu_machinery.common.repo_root import product_root, state_root
 except ImportError:  # pragma: no cover - flat script path
-    from common.repo_root import resolve_repo_root  # type: ignore
+    from common.repo_root import product_root, state_root  # type: ignore
 
 from lu_machinery.common.task_store_paths import tasks_dir
 from lu_machinery.control_plane.storage import StoreId
 from lu_machinery.control_plane.storage import connect as cp_connect
 from lu_machinery.orchestration import dispatch_admission
-
-# File lives at scripts/guardrails/… → parents[2] is the checkout root.
-_REPO_ROOT = resolve_repo_root(Path(__file__), 2)
-DEFAULT_LEDGER_PATH = _REPO_ROOT / "batch_state" / "tasks" / "write-ownership.sqlite3"
 
 LEDGER_ENV_VAR = "LEARN_UKRAINIAN_OWNERSHIP_LEDGER"
 TASK_STATE_ENV_VAR = "LEARN_UKRAINIAN_OWNERSHIP_TASK_STATE_DIR"
@@ -88,7 +84,7 @@ def default_ledger_path() -> Path:
     idle machine and failed on a busy one.
     """
     override = (os.environ.get(LEDGER_ENV_VAR) or "").strip()
-    return Path(override) if override else DEFAULT_LEDGER_PATH
+    return Path(override) if override else state_root() / "batch_state" / "tasks" / "write-ownership.sqlite3"
 
 
 def default_task_state_dir() -> Path:
@@ -205,37 +201,35 @@ class AdmissionResult:
 def _repository_identity(cwd: str | Path | None) -> str | None:
     """Read Git's checkout metadata without spawning; unresolved stays ledger-global."""
     try:
-        checkout = (Path(cwd) if cwd is not None else Path.cwd()).resolve(strict=True)
+        checkout = product_root(cwd).resolve(strict=True)
         if not checkout.is_dir():
             return None
-        for parent in (checkout, *checkout.parents):
-            marker = parent / ".git"
-            try:
-                marker.lstat()
-            except FileNotFoundError:
-                continue
-            if marker.is_dir():
-                git_dir = marker.resolve(strict=True)
-            elif marker.is_file():
-                pointer = marker.read_bytes().removesuffix(b"\n").removesuffix(b"\r")
-                if not pointer.startswith(b"gitdir: ") or not pointer[8:]:
-                    return None
-                git_dir = (parent / os.fsdecode(pointer[8:])).resolve(strict=True)
-            else:
+        marker = checkout / ".git"
+        try:
+            marker.lstat()
+        except FileNotFoundError:
+            return None
+        if marker.is_dir():
+            git_dir = marker.resolve(strict=True)
+        elif marker.is_file():
+            pointer = marker.read_bytes().removesuffix(b"\n").removesuffix(b"\r")
+            if not pointer.startswith(b"gitdir: ") or not pointer[8:]:
                 return None
-            if not git_dir.is_dir():
-                return None
-            common_file = git_dir / "commondir"
-            try:
-                common_file.lstat()
-            except FileNotFoundError:
-                return str(git_dir)
-            common = common_file.read_bytes().removesuffix(b"\n").removesuffix(b"\r")
-            if not common:
-                return None
-            resolved = (git_dir / os.fsdecode(common)).resolve(strict=True)
-            return str(resolved) if resolved.is_dir() else None
-        return None
+            git_dir = (checkout / os.fsdecode(pointer[8:])).resolve(strict=True)
+        else:
+            return None
+        if not git_dir.is_dir():
+            return None
+        common_file = git_dir / "commondir"
+        try:
+            common_file.lstat()
+        except FileNotFoundError:
+            return str(git_dir)
+        common = common_file.read_bytes().removesuffix(b"\n").removesuffix(b"\r")
+        if not common:
+            return None
+        resolved = (git_dir / os.fsdecode(common)).resolve(strict=True)
+        return str(resolved) if resolved.is_dir() else None
     except (OSError, ValueError, RuntimeError):
         return None
 
@@ -835,7 +829,7 @@ def publish_requeue_notice(notice: str, *, task_id: str, initiator: str, run_non
         )
 
 
-def _warn_broad_claims(paths: Sequence[str] | None) -> None:
+def _warn_broad_claims(paths: Sequence[str] | None, *, cwd: str | Path | None = None) -> None:
     """Warn once per broad claim; file claims and read-only admission stay quiet."""
     for raw in dict.fromkeys(paths or ()):
         text, body = _claim_text(raw)
@@ -843,7 +837,7 @@ def _warn_broad_claims(paths: Sequence[str] | None) -> None:
         if "**" in text:
             prefix = text.split("*", 1)[0].rstrip("/")
             alternative = f"{prefix}/<file>" if text.endswith("/**") else "specific files"
-        elif claim.kind != ClaimKind.UNKNOWN and (text.endswith("/") or (_REPO_ROOT / body).is_dir()):
+        elif claim.kind != ClaimKind.UNKNOWN and (text.endswith("/") or (product_root(cwd) / body).is_dir()):
             alternative = f"{claim.norm}/<file>"
         else:
             continue
@@ -869,6 +863,7 @@ class OwnershipLedger:
         # Default follows env (REFUSE after #5645 soak). Explicit mode still wins.
         self.mode = mode if mode is not None else env_guard_mode()
         self.process_matches_task = process_matches_task
+        self.cwd = cwd
         self.repository_identity = _repository_identity(cwd)
         self.repository_id = (
             hashlib.sha256(os.fsencode(self.repository_identity)).hexdigest()[:16]
@@ -1098,7 +1093,7 @@ class OwnershipLedger:
                 skipped=True,
             )
 
-        _warn_broad_claims(owned_paths)
+        _warn_broad_claims(owned_paths, cwd=self.cwd)
         notes = [] if self.repository_identity is not None else ["repository_identity_unresolved"]
         sleep = sleep if sleep is not None else _sleep
         clock = clock if clock is not None else _clock

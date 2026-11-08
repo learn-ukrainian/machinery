@@ -14,6 +14,7 @@ import pytest
 
 from lu_machinery.common import repo_root
 from lu_machinery.orchestration import worktree_claims
+from lu_machinery.orchestration.worktree_claims import public_primary_root
 from tests.helpers import machinery_package
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -35,8 +36,9 @@ def configure_state_anchor(anchor: Path, monkeypatch: pytest.MonkeyPatch) -> Pat
 
 
 @pytest.fixture(autouse=True)
-def _state_anchor(tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch) -> Path:
-    return configure_state_anchor(tmp_path_factory.mktemp("state-anchor") / "primary", monkeypatch)
+def _state_anchor(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(repo_root.PRIMARY_ROOT_ENV, str(tmp_path / "primary"))
+    monkeypatch.delenv(repo_root.STATE_ROOT_ENV, raising=False)
 
 
 def _git(cwd: Path, *args: str) -> str:
@@ -122,9 +124,9 @@ def test_refuses_while_an_unfinished_task_claims_the_worktree(tmp_path, capsys):
 
 def test_remove_accepts_helper_creator_record_when_borrowers_terminal(tmp_path, capsys):
     """A helper-created tree with only terminal borrowers must not be retained forever."""
+    primary = _primary(tmp_path)
     from lu_machinery.dispatcher.git import create_worktree
 
-    primary = _primary(tmp_path)
     worktree = primary / ".worktrees/dispatch/claude/helper-created"
     create_worktree(primary, worktree, "claude/helper-created", _git(primary, "rev-parse", "HEAD"))
     for task_id in ("borrower-one", "borrower-two"):
@@ -152,9 +154,9 @@ def test_remove_accepts_helper_creator_record_when_borrowers_terminal(tmp_path, 
 
 def test_remove_refuses_helper_tree_with_live_borrower(tmp_path, capsys):
     """Creator attribution must never release a helper tree with a running borrower."""
+    primary = _primary(tmp_path)
     from lu_machinery.dispatcher.git import create_worktree
 
-    primary = _primary(tmp_path)
     worktree = primary / ".worktrees/dispatch/claude/helper-live"
     create_worktree(primary, worktree, "claude/helper-live", _git(primary, "rev-parse", "HEAD"))
     for task_id, status in (("finished-borrower", "done"), ("live-borrower", "running")):
@@ -187,7 +189,7 @@ def _fleet(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Path, Path]
     return public, sibling
 
 
-def test_control_plane_root_is_the_public_primary_only_for_fleet_siblings(tmp_path, monkeypatch):
+def test_control_plane_root_is_the_configured_primary_for_every_product(tmp_path, monkeypatch):
     public, sibling = _fleet(tmp_path, monkeypatch)
     linked = _linked(sibling, "codex/impl-cp")
     stranger = tmp_path / "stranger"
@@ -197,30 +199,27 @@ def test_control_plane_root_is_the_public_primary_only_for_fleet_siblings(tmp_pa
     assert worktree_claims.control_plane_root(public) == public.resolve()
     assert worktree_claims.control_plane_root(sibling) == public.resolve()
     assert worktree_claims.control_plane_root(linked) == public.resolve()
-    assert worktree_claims.control_plane_root(stranger) == stranger.resolve()
+    assert worktree_claims.control_plane_root(stranger) == public.resolve()
 
 
-def _malformed_catalog(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Point the real loader at a syntactically invalid ``fleet_repos.yaml`` (no mock of the loader)."""
-    from lu_machinery.orchestration import fleet_repos
-
-    bad = tmp_path / "malformed_fleet_repos.yaml"
-    bad.write_text("repos: {infra-private: [unclosed\n", encoding="utf-8")
-    monkeypatch.setattr(fleet_repos, "_CONFIG_PATH", bad)
+def _invalid_state_anchor(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Exercise the real resolver with an anchor that is not a primary checkout."""
+    monkeypatch.setattr(worktree_claims, "public_primary_root", public_primary_root)
+    monkeypatch.setenv(repo_root.PRIMARY_ROOT_ENV, str(tmp_path / "missing-primary"))
 
 
-def test_control_plane_root_raises_control_plane_error_on_malformed_catalog_yaml(tmp_path, monkeypatch):
+def test_control_plane_root_raises_control_plane_error_on_invalid_state_anchor(tmp_path, monkeypatch):
     _fleet(tmp_path, monkeypatch)
-    _malformed_catalog(tmp_path, monkeypatch)
+    _invalid_state_anchor(tmp_path, monkeypatch)
 
-    with pytest.raises(worktree_claims.ControlPlaneError, match="catalog unreadable"):
+    with pytest.raises(worktree_claims.ControlPlaneError, match="machinery state root unusable"):
         worktree_claims.control_plane_root(tmp_path / "learn-ukrainian-infra-private")
 
 
-def test_remove_unclaimed_worktree_never_raises_on_malformed_catalog_yaml(tmp_path, monkeypatch):
+def test_remove_unclaimed_worktree_never_raises_on_invalid_state_anchor(tmp_path, monkeypatch):
     _public, sibling = _fleet(tmp_path, monkeypatch)
     worktree = _linked(sibling, "codex/impl-sib-badyaml")
-    _malformed_catalog(tmp_path, monkeypatch)
+    _invalid_state_anchor(tmp_path, monkeypatch)
 
     result = worktree_claims.remove_unclaimed_worktree(
         worktree, repo_root=sibling, reason="test", owner_task_id=None
@@ -265,14 +264,12 @@ def test_sibling_repo_worktree_is_removed_once_the_public_claim_is_finished(tmp_
     assert _git(sibling, "branch", "--list", "codex/impl-sib-free")
 
 
-def test_unreadable_fleet_catalog_refuses_removal(tmp_path, capsys, monkeypatch):
+def test_missing_state_anchor_refuses_removal(tmp_path, capsys, monkeypatch):
     _public, sibling = _fleet(tmp_path, monkeypatch)
     worktree = _linked(sibling, "codex/impl-sib-nocat")
 
-    def unreadable():
-        raise worktree_claims.FleetRepoError("catalog missing")
-
-    monkeypatch.setattr(worktree_claims, "load_fleet_repos", unreadable)
+    monkeypatch.setattr(worktree_claims, "public_primary_root", public_primary_root)
+    monkeypatch.delenv(repo_root.PRIMARY_ROOT_ENV)
 
     code, _out, err = _remove(capsys, str(worktree))
 
