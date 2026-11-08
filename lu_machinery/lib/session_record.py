@@ -9,7 +9,6 @@ import json
 import os
 import re
 import shlex
-import subprocess
 import sys
 import uuid
 from datetime import UTC, datetime
@@ -21,11 +20,9 @@ if __package__:
 else:
     from context_profiles import resolve_profile
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
+from lu_machinery.common.repo_root import MachineryConfigError, main_checkout_root, state_root as shared_state_root
 SCHEMA_VERSION = 1
 SESSION_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
-_GIT_TIMEOUT_SECONDS = 30
-_TIMEOUT_RETURN_CODE = 124
 ALLOWED_RECORD_KEYS = {
     "schema_version",
     "session_id",
@@ -61,12 +58,6 @@ ALLOWED_RECORD_KEYS = {
 }
 
 
-def _timeout_text(value: str | bytes | None) -> str:
-    if isinstance(value, bytes):
-        return value.decode("utf-8", errors="replace")
-    return value or ""
-
-
 class SessionRecordError(ValueError):
     """A session record or its canonical state location is invalid."""
 
@@ -86,45 +77,9 @@ def validate_transcript_path(path_str: str) -> bool:
     return path.is_absolute() and ".." not in path.parts
 
 
-def canonical_state_root(project_root: Path = PROJECT_ROOT) -> Path:
-    """Return the primary checkout that owns shared per-session runtime state."""
-    env = os.environ.copy()
-    for name in ("GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR"):
-        env.pop(name, None)
-    command = [
-        "git",
-        "-C",
-        os.fspath(project_root),
-        "rev-parse",
-        "--path-format=absolute",
-        "--git-common-dir",
-    ]
-    try:
-        result = subprocess.run(
-            command,
-            check=False,
-            capture_output=True,
-            text=True,
-            env=env,
-            timeout=_GIT_TIMEOUT_SECONDS,
-        )
-    except subprocess.TimeoutExpired as exc:
-        result = subprocess.CompletedProcess(
-            command,
-            _TIMEOUT_RETURN_CODE,
-            stdout=_timeout_text(exc.stdout),
-            stderr=_timeout_text(exc.stderr) or f"TimeoutExpired after {exc.timeout}s",
-        )
-    common_dir_raw = result.stdout.strip()
-    if result.returncode != 0 or not common_dir_raw:
-        detail = result.stderr.strip() or "git did not report a common directory"
-        raise SessionRecordError(f"cannot discover canonical session state root: {detail}")
-    common_dir = Path(common_dir_raw)
-    if not common_dir.is_absolute() or common_dir.name != ".git":
-        raise SessionRecordError(
-            f"cannot derive canonical checkout from Git common directory: {common_dir_raw!r}"
-        )
-    return common_dir.parent.resolve()
+def canonical_state_root(project_root: Path | None = None) -> Path:
+    """Return the configured shared-state root, or an explicitly supplied checkout's primary."""
+    return shared_state_root() if project_root is None else main_checkout_root(project_root)
 
 
 def sessions_dir(*, state_root: Path | None = None) -> Path:
@@ -482,7 +437,7 @@ def main() -> int:
         else:
             print(json.dumps(record, indent=2, sort_keys=True))
         return 0
-    except (OSError, SessionRecordError) as exc:
+    except (OSError, SessionRecordError, MachineryConfigError) as exc:
         print(f"Error: {exc}", file=sys.stderr)
         return 1
 

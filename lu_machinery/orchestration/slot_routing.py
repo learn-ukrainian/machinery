@@ -48,16 +48,12 @@ except ModuleNotFoundError as exc:
         raise
     from lib.readonly_sqlite import open_readonly  # type: ignore[no-redef]
 
-from lu_machinery.common.repo_root import machinery_path
+from lu_machinery.common.repo_root import machinery_path, state_root
 from lu_machinery.orchestration.fleet_taxonomy import (
     UnknownAreaError,
     resolve_area,
 )
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_SESSION_DB_PATH = (
-    PROJECT_ROOT / ".agent" / "session-streams" / "v1" / "session-streams.sqlite3"
-)
 DEFAULT_ASSIGNMENTS_PATH = machinery_path("config/area_assignments.yaml")
 
 
@@ -188,7 +184,11 @@ def resolve_slot_holder(
             reason="unknown-area",
         )
 
-    db_path = (session_db_path or DEFAULT_SESSION_DB_PATH).resolve()
+    db_path = (
+        session_db_path
+        if session_db_path is not None
+        else state_root() / ".agent" / "session-streams" / "v1" / "session-streams.sqlite3"
+    ).resolve()
     if not db_path.is_file():
         return SlotHolderResult(
             has_holder=False,
