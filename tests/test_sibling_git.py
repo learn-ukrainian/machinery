@@ -17,9 +17,9 @@ from threading import Thread
 
 import pytest
 
-from scripts.fleet import sibling_git as sg
-from scripts.orchestration import worktree_claims as wc
-from scripts.orchestration.fleet_repos import FleetRepo
+from lu_machinery.fleet import sibling_git as sg
+from lu_machinery.orchestration import worktree_claims as wc
+from lu_machinery.orchestration.fleet_repos import FleetRepo
 
 ROOT = Path(__file__).resolve().parents[1]
 HOOK = ROOT / "agents_extensions/shared/hooks/guard-primary-checkout-write.py"

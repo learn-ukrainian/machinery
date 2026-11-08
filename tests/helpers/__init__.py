@@ -16,7 +16,7 @@ def machinery_package() -> str:
     names, not paths, so a spelled path would name a directory the extracted layout lacks. The
     name comes from the imported package's unresolved file location (design-v1 amendment 1).
     """
-    from scripts.common import repo_root
+    from lu_machinery.common import repo_root
 
     return Path(os.path.abspath(repo_root.__file__)).parents[1].name
 
@@ -34,6 +34,6 @@ def product_checkout() -> Path:
     read from it through :func:`scripts.common.repo_root.product_root`, never from the machinery
     checkout (C-4746, C-4764).
     """
-    from scripts.common import repo_root
+    from lu_machinery.common import repo_root
 
     return repo_root.product_root()

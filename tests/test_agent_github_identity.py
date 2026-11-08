@@ -23,7 +23,7 @@ def rescue_app(tmp_path, monkeypatch):
     from cryptography.hazmat.primitives import serialization
     from cryptography.hazmat.primitives.asymmetric import rsa
 
-    from scripts.agent_runtime import agent_github_identity as module
+    from lu_machinery.agent_runtime import agent_github_identity as module
 
     directory = tmp_path / "config" / "learn-ukrainian" / "agent-github-app"
     directory.mkdir(parents=True, mode=0o700)
@@ -71,7 +71,7 @@ def rescue_app(tmp_path, monkeypatch):
 
 
 def test_rescue_directory_mints_only_contents_write_without_exporting(rescue_app):
-    from scripts.agent_runtime import agent_github_identity as module
+    from lu_machinery.agent_runtime import agent_github_identity as module
 
     _directory, environment, material, token, requests = rescue_app
     original = environment.copy()
@@ -87,7 +87,7 @@ def test_rescue_directory_mints_only_contents_write_without_exporting(rescue_app
 @pytest.mark.parametrize("item", ["app-directory", "app-id", "installation-id", "private-key.pem"])
 @pytest.mark.parametrize("kind", ["symlink", "wrong_mode", "wrong_owner", "wrong_type", "unreadable", "changed"])
 def test_rescue_directory_rejects_unsafe_items(rescue_app, monkeypatch, item, kind):
-    from scripts.agent_runtime import agent_github_identity as module
+    from lu_machinery.agent_runtime import agent_github_identity as module
 
     directory, environment, material, token, requests = rescue_app
     target = directory if item == "app-directory" else directory / item
@@ -140,7 +140,7 @@ def test_rescue_directory_rejects_unsafe_items(rescue_app, monkeypatch, item, ki
 @pytest.mark.parametrize("item", ["app-id", "installation-id"])
 @pytest.mark.parametrize("value", ["", "123\n456\n", "123 \n", "１２３\n", "secret-shaped-text"])
 def test_rescue_directory_requires_single_line_numeric_ids(rescue_app, item, value):
-    from scripts.agent_runtime import agent_github_identity as module
+    from lu_machinery.agent_runtime import agent_github_identity as module
 
     directory, environment, _material, _token, requests = rescue_app
     (directory / item).write_text(value)
@@ -151,7 +151,7 @@ def test_rescue_directory_requires_single_line_numeric_ids(rescue_app, item, val
 
 
 def test_rescue_directory_refuses_unexpected_items(rescue_app):
-    from scripts.agent_runtime import agent_github_identity as module
+    from lu_machinery.agent_runtime import agent_github_identity as module
 
     directory, environment, _material, token, requests = rescue_app
     (directory / "unapproved").write_text(token)
@@ -162,7 +162,7 @@ def test_rescue_directory_refuses_unexpected_items(rescue_app):
 
 
 def test_other_callers_ignore_rescue_directory(rescue_app, tmp_path):
-    from scripts.agent_runtime import agent_github_identity as module
+    from lu_machinery.agent_runtime import agent_github_identity as module
 
     directory, environment, _material, token, requests = rescue_app
     (directory / "private-key.pem").chmod(0o644)
@@ -172,7 +172,7 @@ def test_other_callers_ignore_rescue_directory(rescue_app, tmp_path):
 
 
 def test_rescue_uses_home_config_and_dedicated_token_when_directory_absent(rescue_app):
-    from scripts.agent_runtime import agent_github_identity as module
+    from lu_machinery.agent_runtime import agent_github_identity as module
 
     directory, environment, _material, token, requests = rescue_app
     environment.pop("XDG_CONFIG_HOME")
@@ -190,7 +190,7 @@ def test_rescue_uses_home_config_and_dedicated_token_when_directory_absent(rescu
 
 
 def test_partial_environment_app_refuses_directory_and_token_fallback(rescue_app):
-    from scripts.agent_runtime import agent_github_identity as module
+    from lu_machinery.agent_runtime import agent_github_identity as module
 
     _directory, environment, _material, token, requests = rescue_app
     with pytest.raises(module.RescueIdentityError) as error:
@@ -208,7 +208,7 @@ def test_partial_environment_app_refuses_directory_and_token_fallback(rescue_app
 
 @pytest.mark.parametrize("failure", ["read", "mint"])
 def test_rescue_discards_credential_bearing_exception_chains(rescue_app, monkeypatch, failure):
-    from scripts.agent_runtime import agent_github_identity as module
+    from lu_machinery.agent_runtime import agent_github_identity as module
 
     _directory, environment, material, token, _requests = rescue_app
     if failure == "mint":
@@ -243,7 +243,7 @@ def test_rescue_discards_credential_bearing_exception_chains(rescue_app, monkeyp
 
 
 def test_rescue_explicit_key_file_uses_private_reader(rescue_app):
-    from scripts.agent_runtime import agent_github_identity as module
+    from lu_machinery.agent_runtime import agent_github_identity as module
 
     directory, environment, _material, token, requests = rescue_app
     environment.update(
@@ -262,7 +262,7 @@ def test_rescue_explicit_key_file_uses_private_reader(rescue_app):
 @pytest.mark.parametrize("item", ["app-directory", "private-key.pem"])
 @pytest.mark.parametrize("changed", ["wrong_mode", "wrong_owner"])
 def test_rescue_revalidates_opened_owner_and_mode(rescue_app, monkeypatch, item, changed):
-    from scripts.agent_runtime import agent_github_identity as module
+    from lu_machinery.agent_runtime import agent_github_identity as module
 
     directory, environment, _material, _token, requests = rescue_app
     target = directory if item == "app-directory" else directory / item
@@ -369,7 +369,7 @@ def restricted_payload():
 def test_restricted_mint_uses_exact_scope_and_verified_tls(tmp_path, monkeypatch):
     import ssl
 
-    from scripts.agent_runtime import agent_github_identity as module
+    from lu_machinery.agent_runtime import agent_github_identity as module
     from tests.test_sibling_git_https import tls_server
 
     payload = restricted_payload()
@@ -398,7 +398,7 @@ def test_configured_key_file_and_existing_inline_call_contract(tmp_path, monkeyp
     from cryptography.hazmat.primitives import serialization
     from cryptography.hazmat.primitives.asymmetric import rsa
 
-    from scripts.agent_runtime import agent_github_identity as module
+    from lu_machinery.agent_runtime import agent_github_identity as module
 
     configured_file = tmp_path / "material"
     key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
@@ -424,7 +424,7 @@ def test_configured_key_file_and_existing_inline_call_contract(tmp_path, monkeyp
 def test_unreadable_configured_key_file_has_safe_error(tmp_path):
     import pytest
 
-    from scripts.agent_runtime import agent_github_identity as module
+    from lu_machinery.agent_runtime import agent_github_identity as module
 
     configured_file = tmp_path / "missing-material"
     with pytest.raises(module.GitHubIdentityError, match="configured key file") as error:
@@ -435,7 +435,7 @@ def test_unreadable_configured_key_file_has_safe_error(tmp_path):
 def test_partial_file_configuration_cannot_fall_back(tmp_path, monkeypatch):
     import pytest
 
-    from scripts.agent_runtime import agent_github_identity as module
+    from lu_machinery.agent_runtime import agent_github_identity as module
 
     configured_file = tmp_path / "material"
     configured_file.write_text("synthetic")
@@ -452,7 +452,7 @@ def test_partial_file_configuration_cannot_fall_back(tmp_path, monkeypatch):
 def test_restricted_mint_refuses_wider_scope_and_invalid_expiry(monkeypatch):
     import pytest
 
-    from scripts.agent_runtime import agent_github_identity as module
+    from lu_machinery.agent_runtime import agent_github_identity as module
 
     class Response:
         status = 200
@@ -519,7 +519,7 @@ def test_mint_redirect_never_delivers_assertion(tmp_path, monkeypatch):
 
     import pytest
 
-    from scripts.agent_runtime import agent_github_identity as module
+    from lu_machinery.agent_runtime import agent_github_identity as module
     from tests.test_sibling_git_https import tls_server
 
     def target(handler):
@@ -554,7 +554,7 @@ def test_mint_redirect_never_delivers_assertion(tmp_path, monkeypatch):
 def test_restricted_mint_excludes_parent_tls_overrides(tmp_path, monkeypatch):
     import pytest
 
-    from scripts.agent_runtime import agent_github_identity as module
+    from lu_machinery.agent_runtime import agent_github_identity as module
     from tests.test_sibling_git_https import tls_server
 
     def respond(handler):
@@ -584,7 +584,7 @@ def test_restricted_mint_excludes_parent_tls_overrides(tmp_path, monkeypatch):
 def test_configured_key_file_refuses_unsafe_type_or_permissions(tmp_path, monkeypatch, capsys, kind):
     import os
 
-    from scripts.agent_runtime import agent_github_identity as module
+    from lu_machinery.agent_runtime import agent_github_identity as module
 
     path = tmp_path / "material"
     if kind == "directory":
@@ -620,7 +620,7 @@ def test_configured_key_file_refuses_unsafe_type_or_permissions(tmp_path, monkey
 def test_configured_key_file_revalidates_opened_descriptor(tmp_path, monkeypatch, changed):
     import os
 
-    from scripts.agent_runtime import agent_github_identity as module
+    from lu_machinery.agent_runtime import agent_github_identity as module
 
     path = tmp_path / "material"
     path.write_text("generated-material")
@@ -649,7 +649,7 @@ def test_configured_key_file_revalidates_opened_descriptor(tmp_path, monkeypatch
 def test_revoke_uses_same_token_and_safe_request_settings(tmp_path, monkeypatch, capsys, status):
     import ssl
 
-    from scripts.agent_runtime import agent_github_identity as module
+    from lu_machinery.agent_runtime import agent_github_identity as module
     from tests.test_sibling_git_https import TOKEN, tls_server
 
     def respond(handler):
@@ -678,7 +678,7 @@ def test_revoke_redirect_never_delivers_token(tmp_path):
     import socket
     import ssl
 
-    from scripts.agent_runtime import agent_github_identity as module
+    from lu_machinery.agent_runtime import agent_github_identity as module
     from tests.test_sibling_git_https import TOKEN, tls_server
 
     def target(handler):
@@ -703,7 +703,7 @@ def test_revoke_redirect_never_delivers_token(tmp_path):
 
 
 def test_revoke_excludes_parent_tls_overrides(tmp_path, monkeypatch):
-    from scripts.agent_runtime import agent_github_identity as module
+    from lu_machinery.agent_runtime import agent_github_identity as module
     from tests.test_sibling_git_https import TOKEN, tls_server
 
     def respond(handler):
