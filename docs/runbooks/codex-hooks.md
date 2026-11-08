@@ -331,9 +331,10 @@ involved; the decision is a pure containment classification.
   `lu_machinery.guardrails.worktree_containment` (`classify_repo_path` +
   `is_protected_branch`). Dispatch worktrees, any other registered worktree, and
   out-of-repo paths all pass; only a primary checkout on `main`/`master` is
-  refused. A cheap in-tree pre-filter (`_RUNNER_REPO_TREE`) skips the git plumbing
-  for cwds outside this checkout's own file tree.
-- **Fails closed.** If the containment predicate cannot be imported, a
+  refused. A cheap pre-filter skips the git plumbing for cwds outside the product
+  checkout's file tree (`product_root()`).
+- **Fails closed.** If the containment predicate cannot be imported, or no
+  product checkout is selected (installed package without `LU_PRODUCT_ROOT`), a
   write-capable spawn is refused rather than allowed — an isolation we cannot
   prove is treated as absent.
 - **Env cannot re-point the child.** `env_sanitize.build_agent_env` uses a strict

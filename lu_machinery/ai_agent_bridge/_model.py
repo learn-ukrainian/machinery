@@ -2,7 +2,6 @@
 
 import os
 import subprocess
-from pathlib import Path
 
 from agent_runtime.adapters.agy import (
     _AGY_MODEL_BY_NORMALIZED,
@@ -11,6 +10,7 @@ from agent_runtime.adapters.agy import (
 )
 from agent_runtime.adapters.kimi import KimiAdapter, resolve_kimi_model
 from common.http_status import has_http_status
+from lu_machinery.common.repo_root import product_root
 
 from ._config import _MODEL_CACHE, _MODEL_CACHE_TTL, _PARENT_ENV, AGY_CLI
 
@@ -21,7 +21,6 @@ DEFAULT_CHECK_MODEL_TIMEOUT = int(os.environ.get("AB_CHECK_MODEL_TIMEOUT", "90")
 
 _AGY_ADAPTER = AgyAdapter()
 _KIMI_ADAPTER = KimiAdapter()
-_REPO_ROOT = Path(__file__).parent.parent.parent
 
 
 def _resolve_requested_agy_model(model: str) -> str | None:
@@ -36,7 +35,7 @@ def _build_agy_probe_plan(model: str, task_id: str = "check-model"):
     return _AGY_ADAPTER.build_invocation(
         prompt="Reply with exactly: MODEL_OK",
         mode="danger",
-        cwd=_REPO_ROOT,
+        cwd=product_root(),
         model=model,
         task_id=task_id,
         session_id=None,
@@ -57,7 +56,7 @@ def _build_kimi_probe_plan(model: str, task_id: str = "check-model"):
     return _KIMI_ADAPTER.build_invocation(
         prompt="Reply with exactly: MODEL_OK",
         mode="read-only",
-        cwd=_REPO_ROOT,
+        cwd=product_root(),
         model=model,
         task_id=task_id,
         session_id=None,
@@ -117,7 +116,7 @@ def check_model(
             capture_output=True,
             text=True,
             timeout=timeout,
-            cwd=str(_REPO_ROOT),
+            cwd=str(product_root()),
             env=env,
         )
         if result.returncode == 0 and "MODEL_OK" in result.stdout:

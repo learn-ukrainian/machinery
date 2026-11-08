@@ -12,7 +12,9 @@ else
 fi
 
 guard_status=0
-run_project_python "$source_root/lu_machinery/guardrails/primary_write_guard.py" apply --hook || guard_status=$?
+# The guard protects this repository's primary checkout, named explicitly (the root contract has
+# no implicit product); with no product selected it fails instead of leaving the primary writable.
+LU_PRODUCT_ROOT="$main_root" run_project_python "$source_root/lu_machinery/guardrails/primary_write_guard.py" apply --hook || guard_status=$?
 if [[ "$guard_status" -ne 0 ]]; then
   exit "$guard_status"
 fi

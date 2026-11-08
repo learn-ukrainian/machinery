@@ -27,10 +27,10 @@ except ImportError:
 
 # The product checkout the guard protects. A direct file-path launch has no package on sys.path.
 try:
-    from lu_machinery.common.repo_root import product_root
+    from lu_machinery.common.repo_root import MachineryConfigError, product_root
 except ImportError:
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-    from lu_machinery.common.repo_root import product_root
+    from lu_machinery.common.repo_root import MachineryConfigError, product_root
 
 # Dual-flavor git environment sanitizer import
 try:
@@ -62,9 +62,19 @@ _HOOK_INSTALL_TIMEOUT_S = 60
 
 
 def check_primary_checkout_root(hook_mode: bool = False) -> Path:
-    """Verify that we are executing from the root of the primary checkout."""
+    """Verify that we are executing from the root of the primary checkout.
+
+    Hook mode exits 0 where the guard does not apply (a worktree, another cwd), but
+    not when no product checkout is selected: then it cannot tell whether it applies,
+    so it fails loudly (exit 1) instead of silently leaving the primary writable.
+    """
     try:
-        main_root = wc.resolve_main_root(product_root())
+        product = product_root()
+    except MachineryConfigError as e:
+        print(f"Error: no product checkout selected for the write guard: {e}", file=sys.stderr)
+        sys.exit(1)
+    try:
+        main_root = wc.resolve_main_root(product)
     except Exception as e:
         if hook_mode:
             sys.exit(0)

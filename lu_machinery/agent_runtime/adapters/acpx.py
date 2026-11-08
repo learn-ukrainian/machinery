@@ -98,9 +98,21 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 try:
-    from lu_machinery.common.repo_root import machinery_path, project_interpreter
+    from lu_machinery.common.repo_root import (
+        RUNTIME_ROOT,
+        MachineryConfigError,
+        machinery_path,
+        product_root,
+        project_interpreter,
+    )
 except ImportError:  # agent_runtime loaded with scripts/ on path
-    from common.repo_root import machinery_path, project_interpreter  # type: ignore[no-redef]
+    from common.repo_root import (  # type: ignore[no-redef]
+        RUNTIME_ROOT,
+        MachineryConfigError,
+        machinery_path,
+        product_root,
+        project_interpreter,
+    )
 
 from ..binary_resolve import resolve_agent_binary
 from ..jsonl import jsonl_lines
@@ -210,15 +222,15 @@ GEMMA_ACP_MODEL = "google-ais/gemma-4-31b-it"
 # non-secret selector; the value is never a credential.
 GLM_AUTH_OPENCODE_LOGIN_ENV = "ACPX_AUTH_OPENCODE_LOGIN"
 
-# Project-local dependency binary. Deliberately NOT `shutil.which("acpx")`:
-# global/PATH resolution would let an unrelated or unreviewed global acpx
-# install silently take over. "No global binary authority" per the approved
-# Stage 0/1 contract.
-_REPO_ROOT = Path(__file__).resolve().parents[3]
-_DEFAULT_ACPX_BINARY = _REPO_ROOT / "node_modules" / ".bin" / "acpx"
-# Keep this separately patchable for hermetic adapter tests.  An explicit
-# override is authoritative and must never silently fall back to another tree.
-_ACPX_BINARY = _DEFAULT_ACPX_BINARY
+# Project-local dependency binary: the product checkout's ``node_modules`` (its
+# package.json pins acpx), resolved through ``product_root()`` at the call.
+# Deliberately NOT `shutil.which("acpx")`: global/PATH resolution would let an
+# unrelated or unreviewed global acpx install silently take over. "No global
+# binary authority" per the approved Stage 0/1 contract.
+# None selects the product's binary. Keep this separately patchable for hermetic
+# adapter tests: an explicit override is authoritative and must never silently
+# fall back to another tree.
+_ACPX_BINARY: Path | None = None
 # Fixed host install locations for Node. Ambient PATH alone is not enough:
 # Cursor sandboxes / review jails often set PATH=/usr/bin:/bin, and the
 # project-local acpx shim is ``#!/usr/bin/env node`` (#6953). Linked
@@ -984,12 +996,15 @@ class AcpxShadowRefusalError(ValueError):
 
 
 def _required_node_major(*, adapter_label: str = "ACPX") -> int:
-    """Return the repo Node major from ``.nvmrc`` (engines pin the same major).
+    """Return the product's Node major from its ``.nvmrc`` (engines pin the same major).
 
-    Read from the adapter source checkout (``Path(__file__)``), not the
-    patchable ``_REPO_ROOT`` used for project-local acpx binary resolution.
+    The Node toolchain pin belongs to the product checkout that holds the
+    ``node_modules`` tree, selected by ``product_root()`` at the call.
     """
-    nvmrc = Path(__file__).resolve().parents[3] / ".nvmrc"
+    try:
+        nvmrc = product_root() / ".nvmrc"
+    except MachineryConfigError as exc:
+        raise AcpxShadowRefusalError(f"{adapter_label}: cannot read the Node major: {exc}") from exc
     try:
         raw = nvmrc.read_text(encoding="utf-8").strip().splitlines()[0].strip()
     except (OSError, IndexError) as exc:
@@ -1396,9 +1411,10 @@ def _resolve_acpx_binary(
 ) -> str:
     """Resolve local ACPX, sharing it with worktrees.
 
-    A source worktree normally has no independent ``node_modules`` tree.  If
-    this module's default local candidate is absent, resolve the canonical
-    primary checkout from the invocation cwd and accept only that checkout's
+    The default candidate is the product checkout's (``product_root()``). A
+    source worktree normally has no independent ``node_modules`` tree. If the
+    default candidate is absent, resolve the canonical primary checkout from the
+    invocation cwd (else the product) and accept only that checkout's
     dependency binary. Never consult PATH or a global install.
 
     Tests may explicitly patch :data:`_ACPX_BINARY`; an override remains
@@ -1407,21 +1423,27 @@ def _resolve_acpx_binary(
     """
     candidate = _ACPX_BINARY
     main_root: Path | None = None
-    if not candidate.is_file() and candidate == _DEFAULT_ACPX_BINARY:
-        for discovery_root in (cwd, _REPO_ROOT):
-            try:
-                main_root = resolve_main_root(discovery_root)
-                break
-            except NotAGitRepositoryError:
-                continue
-        if main_root is not None:
-            primary_candidate = main_root / "node_modules" / ".bin" / "acpx"
-            if primary_candidate.is_file():
-                candidate = primary_candidate
+    if candidate is None:
+        try:
+            product = product_root()
+        except MachineryConfigError as exc:
+            raise AcpxShadowRefusalError(f"{adapter_label}: no product checkout holds acpx: {exc}") from exc
+        candidate = product / "node_modules" / ".bin" / "acpx"
+        if not candidate.is_file():
+            for discovery_root in (cwd, product):
+                try:
+                    main_root = resolve_main_root(discovery_root)
+                    break
+                except NotAGitRepositoryError:
+                    continue
+            if main_root is not None:
+                primary_candidate = main_root / "node_modules" / ".bin" / "acpx"
+                if primary_candidate.is_file():
+                    candidate = primary_candidate
 
     if not candidate.is_file():
         primary_hint = ""
-        if _ACPX_BINARY == _DEFAULT_ACPX_BINARY:
+        if _ACPX_BINARY is None:
             if main_root is not None:
                 primary_hint = f"; canonical primary candidate is {main_root / 'node_modules' / '.bin' / 'acpx'}"
             else:
@@ -1616,7 +1638,7 @@ _CLAUDE_ACP_BACKGROUND_TOOL_ENV = {"CLAUDE_CODE_DISABLE_CRON": "1", "CLAUDE_CODE
 # honest misconfiguration. They do not resist deliberate replacement by a
 # writer running as the same user, who already controls the host binary, the
 # user configuration and the checkout (see docs/agent-runtime-guide.md).
-_CLAUDE_ACP_LAUNCHER_ANCHOR = _REPO_ROOT
+_CLAUDE_ACP_LAUNCHER_ANCHOR = RUNTIME_ROOT
 # Checkout-relative: the machinery package directory as this file was imported from it
 # (unresolved, whatever the package is called), then the launcher.
 _CLAUDE_ACP_LAUNCHER_RELPATH = PurePosixPath(Path(__file__).absolute().parents[2].name, "agent_runtime/claude_acp_exec.sh")
@@ -3006,21 +3028,6 @@ class AcpxAdapter:
             liveness_paths=(),
             metadata=metadata,
         )
-
-    @classmethod
-    def _resolve_acpx_binary(cls) -> str:
-        """Resolve the project-local acpx binary path without probing.
-
-        Kept for callers/tests that only need the path check. Compatibility
-        enforcement lives in :func:`_require_compatible_acpx_binary`.
-        """
-        if not _ACPX_BINARY.is_file():
-            raise AcpxShadowRefusalError(
-                f"AcpxAdapter: project-local acpx binary not found at {_ACPX_BINARY}; run "
-                "`npm install` first. "
-                "A global/PATH acpx binary is never used as a substitute."
-            )
-        return str(_ACPX_BINARY)
 
     def parse_response(
         self,
