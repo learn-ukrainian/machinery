@@ -334,15 +334,15 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         repo_root = (args.repo_root or state_root()).expanduser().resolve()
+        task_dir = args.task_dir.expanduser().resolve() if args.task_dir else default_task_dir(repo_root)
+        # The ownership ledger resolves the state root before any reconciliation writes.
+        report = run_reconcile_sweep(
+            apply=bool(args.apply),
+            repo_root=repo_root,
+            task_dir=task_dir,
+        )
     except MachineryConfigError as exc:
         parser.error(str(exc))
-    task_dir = args.task_dir.expanduser().resolve() if args.task_dir else default_task_dir(repo_root)
-
-    report = run_reconcile_sweep(
-        apply=bool(args.apply),
-        repo_root=repo_root,
-        task_dir=task_dir,
-    )
 
     print(report.summary_line())
     if args.json:
