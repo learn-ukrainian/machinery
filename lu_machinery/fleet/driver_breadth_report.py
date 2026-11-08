@@ -19,7 +19,7 @@ from typing import Any
 if __package__ in (None, ""):  # run as a file: put the repository root on sys.path
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from lu_machinery.common.repo_root import StateRootError, state_root
+from lu_machinery.common.repo_root import MachineryConfigError, state_root
 from lu_machinery.fleet import idle_settle as idle_settle
 from lu_machinery.orchestration.task_record_store import iter_task_records, read_task_record
 
@@ -241,7 +241,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         tasks_dir = args.tasks_dir if args.tasks_dir is not None else state_root() / "batch_state" / "tasks"
         idle_path = args.idle_store if args.idle_store is not None else idle_settle.default_store_path()
-    except StateRootError as exc:
+    except MachineryConfigError as exc:
         parser.error(str(exc))
     since = datetime.now(UTC) - timedelta(hours=args.since_hours)
     tasks = load_tasks(

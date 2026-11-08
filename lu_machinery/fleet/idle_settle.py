@@ -35,7 +35,7 @@ if __package__ in (None, ""):  # run as a file: put the repository root on sys.p
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from lu_machinery.common.jsonl import jsonl_lines
-from lu_machinery.common.repo_root import main_checkout_root, state_root
+from lu_machinery.common.repo_root import state_root
 from lu_machinery.fleet import credit_lane
 
 # The machinery package's import name, which is also the directory its files have in checkout
@@ -83,7 +83,7 @@ ENFORCE_DISHONEST = "DISHONEST"
 
 
 def default_store_path(repo_root: Path | None = None) -> Path:
-    root = main_checkout_root(repo_root) if repo_root is not None else state_root()
+    root = state_root(repo_root)
     return root / "batch_state" / "idle_settle" / "events.jsonl"
 
 

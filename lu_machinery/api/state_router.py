@@ -1067,7 +1067,7 @@ def _compute_dispatch_routing_budget(
         return {
             "generated_at": _isoformat_z(current_time),
             "agents": agents,
-            "reset_reserve": load_reset_reserve(project_root or state_root(), now=current_time),
+            "reset_reserve": load_reset_reserve(state_root(project_root), now=current_time),
             "api_accounts": api_accounts,
             "in_flight": in_flight_by_agent,
             "recommendation": rec,
@@ -1600,7 +1600,7 @@ def _compute_dispatch_routing_budget(
     recommendation_agents = {lane: dict(info) for lane, info in agents.items()}
     codex_info = agents.get("codex", {})
     reset_reserve = load_reset_reserve(
-        project_root or state_root(), now=current_time, codex_info=codex_info
+        state_root(project_root), now=current_time, codex_info=codex_info
     )
     # The reserve ranks Codex first only over capacity the owner verifies (#9740): a reserve whose
     # resets the owner does not count as covering the deficit (e.g. they expire before run-out)
@@ -1976,7 +1976,7 @@ def _codex_subscription_rows(
         b_row["status"] = "hot"
     _attach_credit_states({"codex:b": b_row}, current_time=current_time, snapshot_stale=is_stale, usage_dir=usage_dir)
     _attach_routing_facts({"codex:b": b_row}, current_time=current_time, snapshot_stale=is_stale, usage_dir=usage_dir)
-    root = project_root or state_root()
+    root = state_root(project_root)
     b_row["reset_reserve"] = load_reset_reserve(root, now=current_time, codex_info=b_row, account="b-sub")
     return {"codex:a": a_row, "codex:b": b_row}, b_missing
 

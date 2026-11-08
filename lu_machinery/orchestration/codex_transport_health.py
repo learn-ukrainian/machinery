@@ -31,7 +31,7 @@ from lu_machinery.agent_runtime.errors import (
     RateLimitedError,
 )
 from lu_machinery.agent_runtime.result import Result
-from lu_machinery.common.repo_root import ProductRootError, StateRootError, product_root, state_root
+from lu_machinery.common.repo_root import MachineryConfigError, product_root, state_root
 
 SCHEMA_VERSION = "codex-transport-health.v2"
 HEALTHY = "healthy"
@@ -396,7 +396,7 @@ def main(argv: list[str] | None = None) -> int:
         args.config = args.config or default_config_path()
         if args.receipt is None:
             args.receipt = state_root() / "batch_state" / "runtime" / "codex-transport-health.json"
-    except (ProductRootError, StateRootError) as exc:
+    except MachineryConfigError as exc:
         raise SystemExit(f"codex transport health: {exc}") from None
     if args.command == "status":
         result = current_transport_health(
