@@ -43,6 +43,7 @@ tests/test_record_cf_verdict.py
 tests/test_repo_root.py
 tests/test_claude_review_shell.py
 tests/packaging/test_release_resources.py
+tests/storage/test_paths_product_root.py
 tests/test_merged_delivery.py
 tests/agent_runtime/test_grok_hook_bridge_release.py
 # [support]
@@ -57,6 +58,7 @@ tests/fixtures/routing_baseline/routing-10263.json.gz
 tests/fixtures/routing_baseline/v2-baseline.json.gz
 tests/flake_quarantine.yaml
 tests/githooks/__init__.py
+tests/storage/__init__.py
 tests/helpers/__init__.py
 tests/helpers/checkout_write_defaults.py
 tests/helpers/checkout_write_guard.py
