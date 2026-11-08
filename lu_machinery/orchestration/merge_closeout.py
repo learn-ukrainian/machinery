@@ -8,7 +8,7 @@ closeout a single command instead of a checklist an orchestrator can forget.
 The dispatcher removes each task's worktree when the task settles; a worktree
 it kept is reported here as a residual, never removed.
 
-    .venv/bin/python -m scripts.orchestration.merge_closeout <pr-number> --apply
+    .venv/bin/python -m lu_machinery.orchestration.merge_closeout <pr-number> --repo owner/name --apply
 
 Default is dry-run. See docs/runbooks/worktree-cleanup.md
 § Immediate cleanup after merge.
@@ -34,10 +34,18 @@ if _IMPORT_ROOT not in sys.path:
     sys.path.insert(0, _IMPORT_ROOT)
 
 from lu_machinery.common import github_client
+from lu_machinery.common.repo_root import MachineryConfigError, state_root
 from lu_machinery.orchestration import lifecycle_observation
 from lu_machinery.orchestration import scheduled_worktree_cleanup as swc
 from lu_machinery.orchestration import worktree_git as rw
-from lu_machinery.orchestration.fleet_repos import canonical_repository, pull_request_repository
+from lu_machinery.orchestration.fleet_repos import (
+    FleetRepo,
+    FleetRepoError,
+    canonical_repository,
+    load_fleet_repos,
+    pull_request_repository,
+    resolve_fleet_repo,
+)
 from lu_machinery.publish.github import Request, request_run
 
 # This package's import name, from the unresolved file location: never from __package__, which a
@@ -710,20 +718,26 @@ def build_parser() -> argparse.ArgumentParser:
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=f"""Examples:
-  .venv/bin/python -m {_MODULE} 123 --json
-  .venv/bin/python -m {_MODULE} 123 --apply
+  .venv/bin/python -m {_MODULE} 123 --repo owner/name --json
+  .venv/bin/python -m {_MODULE} 123 --repo-root /path/to/checkout --apply
 Outputs: Cleanup report; apply records lifecycle observations and deletes branches.
-Exit codes: 0 = clean report; 1 = residual; 2 = PR state unavailable.
+Exit codes: 0 = clean report; 1 = residual; 2 = PR state unavailable, or no checkout selected.
 Related: docs/runbooks/worktree-cleanup.md § Immediate cleanup after merge.
 """,
     )
     parser.add_argument("pr_number", type=int, help="Pull request number.")
-    parser.add_argument("--repo", help="owner/name; defaults to the repo in the current directory.")
+    parser.add_argument(
+        "--repo",
+        help=(
+            "owner/name. Without --repo-root, this selects the checkout from the fleet catalog "
+            "(a catalog key is accepted too). Required unless --repo-root is set."
+        ),
+    )
     parser.add_argument(
         "--repo-root",
         type=Path,
         default=None,
-        help="Repository root to operate in (default: the primary checkout).",
+        help="Checkout to operate in. When omitted, --repo selects it from the fleet catalog.",
     )
     parser.add_argument(
         "--apply",
@@ -741,15 +755,40 @@ Related: docs/runbooks/worktree-cleanup.md § Immediate cleanup after merge.
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
-    repo_root = (
-        args.repo_root.resolve()
-        if args.repo_root
-        else rw.primary_checkout_root(rw.resolve_repo_root())
-    )
-
+    # An explicit --repo-root is the checkout, unchanged. Otherwise --repo selects
+    # it with resolve_fleet_repo(..., primary_root=state_root()). The working
+    # directory is not a root.
     try:
+        if args.repo_root is not None:
+            repo_root = args.repo_root.resolve()
+            repo_arg = args.repo
+        else:
+            try:
+                catalog = load_fleet_repos()
+                supplied = args.repo.strip() if isinstance(args.repo, str) else ""
+                spelling = supplied.casefold()
+                selected: FleetRepo | None = next(
+                    (
+                        item
+                        for item in catalog.values()
+                        if spelling and spelling in {item.key.casefold(), item.github.casefold()}
+                    ),
+                    None,
+                )
+                if selected is None:
+                    known = ", ".join(sorted(item.github for item in catalog.values()))
+                    raise FleetRepoError(
+                        f"unknown --repo {supplied!r}; allowlisted: {known}. "
+                        "Pass --repo owner/name or --repo-root; "
+                        "a checkout is not taken from the working directory."
+                    )
+                _, repo_root = resolve_fleet_repo(selected.key, primary_root=state_root())
+                # REST lookup requires owner/name, so the catalog slug is the GitHub argument.
+                repo_arg = selected.github
+            except (FleetRepoError, MachineryConfigError) as exc:
+                raise MergeCloseoutError(str(exc)) from exc
         result = run_merge_closeout(
-            repo_root, args.pr_number, repo=args.repo, apply=args.apply,
+            repo_root, args.pr_number, repo=repo_arg, apply=args.apply,
             **({"no_lifecycle_observation": args.no_lifecycle_observation} if args.no_lifecycle_observation is not None else {}),
         )
     except MergeCloseoutError as exc:

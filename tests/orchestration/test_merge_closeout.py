@@ -1143,3 +1143,177 @@ def test_renamed_repository_open_pr_refuses_branch_deletion(
     assert "PR guard unavailable" in (status.local_error or "")
     assert git(repo, "rev-parse", f"refs/heads/{branch}") == head
     assert git(repo, "ls-remote", "--heads", "origin", branch).split()[0] == head
+
+
+def _forbid_cwd_checkout_discovery(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The defect class is a closeout checkout chosen from the working directory."""
+
+    def discovered(*_args: object, **_kwargs: object) -> Path:
+        raise AssertionError("cwd checkout discovery")
+
+    monkeypatch.setattr(mc.rw, "resolve_repo_root", discovered)
+    monkeypatch.setattr(mc.rw, "primary_checkout_root", discovered)
+
+
+def _capture_closeout(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
+    seen: dict[str, Any] = {}
+
+    def fake_run(repo_root: Path, pr_number: int, **kwargs: Any) -> mc.CloseoutResult:
+        seen["repo_root"] = repo_root
+        seen["pr_number"] = pr_number
+        seen["repo"] = kwargs.get("repo")
+        return mc.CloseoutResult(
+            pr=mc.PullRequestInfo(pr_number, "MERGED", "branch", "abc", "learn-ukrainian/machinery"),
+            apply=False,
+            matched_worktrees=[],
+            branch_status=None,
+            ok=True,
+        )
+
+    monkeypatch.setattr(mc, "run_merge_closeout", fake_run)
+    return seen
+
+
+def test_main_explicit_repo_root_does_not_discover_a_checkout_from_cwd(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Defect class: an explicit --repo-root must stay that path, including when cwd is not a checkout."""
+    explicit = tmp_path / "explicit-checkout"
+    explicit.mkdir()
+    unrelated = tmp_path / "unrelated"
+    unrelated.mkdir()
+    monkeypatch.chdir(unrelated)
+    _forbid_cwd_checkout_discovery(monkeypatch)
+
+    def no_state(*_args: object, **_kwargs: object) -> Path:
+        raise AssertionError("state root consulted")
+
+    monkeypatch.setattr(mc, "state_root", no_state)
+    seen = _capture_closeout(monkeypatch)
+
+    exit_code = mc.main(["9", "--repo-root", str(explicit), "--repo", "not-a-slug", "--json"])
+
+    assert exit_code == 0
+    assert seen["repo_root"] == explicit.resolve()
+    assert seen["repo"] == "not-a-slug"
+    assert json.loads(capsys.readouterr().out)["ok"] is True
+
+
+def test_main_without_repo_root_selects_catalog_checkout_from_unrelated_cwd(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Defect class: without --repo-root, --repo learn-ukrainian/machinery must select the catalog sibling, not cwd."""
+    layout = tmp_path / "layout"
+    primary = layout / "learn-ukrainian"
+    checkout = layout / "machinery"
+    primary.mkdir(parents=True)
+    checkout.mkdir()
+    git(checkout, "init", "--initial-branch=main")
+    unrelated = tmp_path / "unrelated"
+    unrelated.mkdir()
+    monkeypatch.chdir(unrelated)
+    _forbid_cwd_checkout_discovery(monkeypatch)
+    monkeypatch.setattr(mc, "state_root", lambda start=None, env=None: primary)
+    seen = _capture_closeout(monkeypatch)
+
+    exit_code = mc.main(["113", "--repo", "learn-ukrainian/machinery", "--json"])
+
+    assert exit_code == 0
+    assert seen["repo_root"] == checkout.resolve()
+    assert seen["repo"] == "learn-ukrainian/machinery"
+    assert seen["repo_root"] != unrelated.resolve()
+
+    exit_code = mc.main(["113", "--repo", "machinery", "--json"])
+
+    assert exit_code == 0
+    assert seen["repo_root"] == checkout.resolve()
+    assert seen["repo"] == "learn-ukrainian/machinery"
+
+
+def test_main_unknown_or_missing_repo_refuses_exit_2(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Defect class: an unknown or omitted --repo must exit 2 with the allowlist, and must not read cwd."""
+    unrelated = tmp_path / "unrelated"
+    unrelated.mkdir()
+    monkeypatch.chdir(unrelated)
+    _forbid_cwd_checkout_discovery(monkeypatch)
+
+    def no_state(*_args: object, **_kwargs: object) -> Path:
+        raise AssertionError("state root consulted for an unknown repo")
+
+    monkeypatch.setattr(mc, "state_root", no_state)
+
+    unknown = mc.main(["113", "--repo", "no-such/repo", "--json"])
+    unknown_payload = json.loads(capsys.readouterr().out)
+    missing = mc.main(["113", "--json"])
+    missing_payload = json.loads(capsys.readouterr().out)
+
+    assert unknown == 2
+    assert unknown_payload["ok"] is False
+    assert "no-such/repo" in unknown_payload["error"]
+    assert "learn-ukrainian/machinery" in unknown_payload["error"]
+    assert "working directory" in unknown_payload["error"]
+    assert missing == 2
+    assert missing_payload["ok"] is False
+    assert "allowlisted" in missing_payload["error"]
+
+
+def test_main_missing_catalog_checkout_refuses_exit_2(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Defect class: a catalog repo whose sibling checkout is absent exits 2 with the clone remedy."""
+    primary = tmp_path / "layout" / "learn-ukrainian"
+    primary.mkdir(parents=True)
+    unrelated = tmp_path / "unrelated"
+    unrelated.mkdir()
+    monkeypatch.chdir(unrelated)
+    _forbid_cwd_checkout_discovery(monkeypatch)
+    monkeypatch.setattr(mc, "state_root", lambda start=None, env=None: primary)
+
+    exit_code = mc.main(["113", "--repo", "learn-ukrainian/machinery", "--json"])
+    payload = json.loads(capsys.readouterr().out)
+
+    assert exit_code == 2
+    assert payload["ok"] is False
+    assert "sibling checkout" in payload["error"]
+    assert "learn-ukrainian/machinery" in payload["error"]
+
+
+def test_main_known_repo_without_state_anchor_refuses_with_remedy(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Defect class: a known --repo with no state anchor exits 2 and names the anchor to set."""
+    unrelated = tmp_path / "unrelated"
+    unrelated.mkdir()
+    monkeypatch.chdir(unrelated)
+    _forbid_cwd_checkout_discovery(monkeypatch)
+    monkeypatch.delenv("LEARN_UKRAINIAN_PRIMARY_REPO_ROOT", raising=False)
+    monkeypatch.delenv("LEARN_UKRAINIAN_STATE_ROOT", raising=False)
+
+    exit_code = mc.main(["113", "--repo", "learn-ukrainian/machinery"])
+    error = capsys.readouterr().err
+
+    assert exit_code == 2
+    assert "LEARN_UKRAINIAN_PRIMARY_REPO_ROOT" in error
+    assert "merge_closeout:" in error
+
+
+def test_main_help_resolves_no_checkout(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Defect class: --help must succeed with no root configured and must not select a checkout."""
+
+    def no_state(*_args: object, **_kwargs: object) -> Path:
+        raise AssertionError("state root consulted during --help")
+
+    monkeypatch.setattr(mc, "state_root", no_state)
+    _forbid_cwd_checkout_discovery(monkeypatch)
+
+    with pytest.raises(SystemExit) as caught:
+        mc.main(["--help"])
+
+    help_text = capsys.readouterr().out
+    assert caught.value.code == 0
+    assert "fleet catalog" in help_text
+    assert "current directory" not in help_text
