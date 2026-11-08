@@ -234,12 +234,18 @@ launcher_refuse_unclassified_provider_option() {
   launcher_error "unclassified provider option '$1' before '--'; put provider options after -- or attach its value as '$1=VALUE'."
 }
 
-# Project interpreter for helper modules: the .venv of the helper root that
-# launcher_resolve_roots validated (#9118, #9121), so an operator-named Codex
-# primary serves the adapters too. Call after launcher_resolve_roots; callers
-# exit 3.
+# Project interpreter for helper modules. One rule (R66): LEARN_UKRAINIAN_PYTHON
+# when it is an absolute executable file, else the .venv of the helper root
+# launcher_resolve_roots validated (#9118, #9121), else refuse. An invalid
+# override does not fall back. Call after launcher_resolve_roots; callers exit 3.
 launcher_project_python() {
-  local python="${LC_DURABLE_HELPER_ROOT:-}/.venv/bin/python"
+  local configured python
+  configured="$(project_interpreter_configured)" || return 1
+  if [ -n "$configured" ]; then
+    printf '%s\n' "$configured"
+    return 0
+  fi
+  python="${LC_DURABLE_HELPER_ROOT:-}/.venv/bin/python"
   if [ -z "${LC_DURABLE_HELPER_ROOT:-}" ] || [ ! -f "$python" ] || [ ! -x "$python" ]; then
     launcher_error "project interpreter not found: $python"
     return 1
@@ -257,10 +263,7 @@ launcher_drop_unneeded_secrets() {
       LAUNCHER_*=*) LC_CHILD_ENV_COMMAND+=(-u "${variable%%=*}") ;;
     esac
   done < <(/usr/bin/env -0)
-  py="${LC_DURABLE_HELPER_ROOT:-}/.venv/bin/python"
-  if [ -z "${LC_DURABLE_HELPER_ROOT:-}" ] || [ ! -x "$py" ]; then
-    return 0
-  fi
+  py="$(launcher_project_python)" || return 1
   # The sanitizer is this machinery tree's, through the module bootstrap; neither the cwd
   # nor an ambient PYTHONPATH selects it, and no import pin reaches the provider child.
   if ! project_python_run "$py" -m "${LC_MACHINERY_PACKAGE}.agent_runtime.env_sanitize" \
@@ -327,7 +330,9 @@ launcher_load_rules_core() {
   if [ "$LC_MODE" = driver ] && [ "$LC_GOVERNOR" = 0 ]; then
     lane="$LC_EPIC"
   fi
-  rules_core_load "$LC_DURABLE_HELPER_ROOT/.venv/bin/python" "$lane" "$LC_PROVIDER" || exit 1
+  local py
+  py="$(launcher_project_python)" || exit 1
+  rules_core_load "$py" "$lane" "$LC_PROVIDER" || exit 1
   if [ -n "$LC_RULES_CORE" ] && [ "$LC_DRY_RUN" = 1 ]; then
     printf 'launcher: rules core seat=%s bytes=%s\n' "$LC_RULES_SEAT" "$LC_RULES_CORE_BYTES"
   fi

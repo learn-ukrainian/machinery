@@ -48,6 +48,7 @@ tests/imports/test_installed_wheel_imports.py
 tests/test_merged_delivery.py
 tests/agent_runtime/test_grok_hook_bridge_release.py
 tests/hooks/test_session_setup_isolation.py
+tests/hooks/test_interpreter_rule.py
 tests/agent_runtime/test_retired_seat_admission.py
 tests/agent_runtime/test_deepseek_admission.py
 # [support]

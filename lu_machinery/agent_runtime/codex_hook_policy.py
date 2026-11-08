@@ -47,7 +47,7 @@ def run_guard(
     """Run one guard and convert a deadline expiry into a blocking result."""
     try:
         completed = subprocess.run(
-            [str(python_bin), str(guard)],
+            [str(python_bin), "-I", str(guard)],
             input=payload,
             text=True,
             capture_output=True,
@@ -162,7 +162,7 @@ def _snapshot_primary_dirt(python_bin: Path, hooks_dir: Path, payload: str) -> N
     name, timeout = DIRT_AUDIT_SNAPSHOT
     with contextlib.suppress(OSError, subprocess.TimeoutExpired):
         subprocess.run(
-            [str(python_bin), str(hooks_dir / name)],
+            [str(python_bin), "-I", str(hooks_dir / name)],
             input=payload,
             text=True,
             capture_output=True,

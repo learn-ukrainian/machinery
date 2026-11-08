@@ -55,24 +55,47 @@ else
     CANONICAL_ROOT="$PROJECT_DIR"
   fi
 fi
-PYTHON="${THREAD_ROLLOVER_PYTHON:-$CANONICAL_ROOT/.venv/bin/python}"
-
-if [ ! -x "$PYTHON" ]; then
-  # Fail open: never let a missing venv block SessionEnd.
-  exit 0
-fi
-# Code root (machinery #100 R62, R69): run from a machinery tree (a checkout or the
-# installed wheel), this file's own tree supplies the code; a deployed copy takes it
-# from the release the project interpreter imports, never from $PROJECT_DIR. Machinery
-# modules then run through the shared module bootstrap (lib/project_interpreter.sh).
-_hook_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# One interpreter (R66). Fail open: a missing interpreter must not block SessionEnd.
+# In-tree, this file's tree is sourced and the resolver is authoritative. A
+# deployed copy probes the rule only to find the installed release, then the
+# resolver's answer replaces the probe. An invalid override does not fall back.
+_lease_probe_python() {
+  local configured="${LEARN_UKRAINIAN_PYTHON:-}"
+  if [ -n "$configured" ]; then
+    case "$configured" in
+      /*) ;;
+      *) return 1 ;;
+    esac
+    [ -f "$configured" ] && [ -x "$configured" ] || return 1
+    printf '%s\n' "$configured"
+    return 0
+  fi
+  [ -x "$CANONICAL_ROOT/.venv/bin/python" ] || return 1
+  printf '%s\n' "$CANONICAL_ROOT/.venv/bin/python"
+}
+_hook_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)" || exit 0
 case "$_hook_dir" in
-  */agents_extensions/shared/hooks) MACHINERY_DIR="${_hook_dir%/agents_extensions/shared/hooks}" ;;
-  *) MACHINERY_DIR=$("$PYTHON" -I -c 'import os, lu_machinery; print(os.path.dirname(os.path.dirname(os.path.abspath(lu_machinery.__file__))))' 2>/dev/null) || MACHINERY_DIR="" ;;
+  */agents_extensions/shared/hooks)
+    MACHINERY_DIR="${_hook_dir%/agents_extensions/shared/hooks}"
+    # shellcheck source=lu_machinery/lib/project_interpreter.sh
+    source "$MACHINERY_DIR/lu_machinery/lib/project_interpreter.sh" 2>/dev/null || exit 0
+    PYTHON="$(project_interpreter_resolve "$PROJECT_DIR" 2>/dev/null)" || exit 0
+    ;;
+  *)
+    PYTHON="$(_lease_probe_python)" || exit 0
+    MACHINERY_DIR=$("$PYTHON" -I -c 'import os, lu_machinery; print(os.path.dirname(os.path.dirname(os.path.abspath(lu_machinery.__file__))))' 2>/dev/null) || exit 0
+    # shellcheck source=lu_machinery/lib/project_interpreter.sh
+    source "$MACHINERY_DIR/lu_machinery/lib/project_interpreter.sh" 2>/dev/null || exit 0
+    RESOLVED="$(project_interpreter_resolve "$PROJECT_DIR" 2>/dev/null)" || exit 0
+    if [ "$RESOLVED" != "$PYTHON" ]; then
+      MACHINERY_DIR=$("$RESOLVED" -I -c 'import os, lu_machinery; print(os.path.dirname(os.path.dirname(os.path.abspath(lu_machinery.__file__))))' 2>/dev/null) || exit 0
+      # shellcheck source=lu_machinery/lib/project_interpreter.sh
+      source "$MACHINERY_DIR/lu_machinery/lib/project_interpreter.sh" 2>/dev/null || exit 0
+    fi
+    PYTHON="$RESOLVED"
+    ;;
 esac
 unset _hook_dir
-# shellcheck source=lu_machinery/lib/project_interpreter.sh
-source "$MACHINERY_DIR/lu_machinery/lib/project_interpreter.sh" 2>/dev/null || exit 0
 
 cd "$PROJECT_DIR" || exit 0
 

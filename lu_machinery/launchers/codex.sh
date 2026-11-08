@@ -122,8 +122,7 @@ launcher_codex_native_profile_preflight() {
 
   # shellcheck source=scripts/lib/profile_resolver.sh
   source "$LC_ROOT/lu_machinery/lib/profile_resolver.sh"
-  CLAUDE_PROFILE_RESOLVER_PYTHON="$LC_CODEX_CANONICAL_ROOT/.venv/bin/python"
-  export CLAUDE_PROFILE_RESOLVER_PYTHON
+  # The profile resolver uses the one project interpreter (R66).
   if ! resolve_context_profile native_codex "$LC_MODEL"; then
     launcher_error "failed to resolve the native Codex context profile."
     exit 1

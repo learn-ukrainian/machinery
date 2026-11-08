@@ -50,25 +50,53 @@ if [ -n "${CODEX_CANONICAL_REPO_ROOT:-}" ]; then
 else
   CANONICAL_ROOT="${PRIMARY_ROOT:-$PROJECT_DIR}"
 fi
-SHARED_VENV_ROOT="$CANONICAL_ROOT"
-if [ ! -x "$SHARED_VENV_ROOT/.venv/bin/python" ] && [ -n "$PRIMARY_ROOT" ]; then
-  SHARED_VENV_ROOT="$PRIMARY_ROOT"
-fi
-SHARED_PYTHON="$SHARED_VENV_ROOT/.venv/bin/python"
-BOUNDED_PYTHON="${THREAD_ROLLOVER_PYTHON:-$SHARED_PYTHON}"
+# One interpreter (R66). An invalid override does not fall back. A missing
+# interpreter leaves the later bounded calls fail-open (return 127).
+_post_probe_python() {
+  local configured="${LEARN_UKRAINIAN_PYTHON:-}"
+  if [ -n "$configured" ]; then
+    case "$configured" in
+      /*) ;;
+      *) return 1 ;;
+    esac
+    [ -f "$configured" ] && [ -x "$configured" ] || return 1
+    printf '%s\n' "$configured"
+    return 0
+  fi
+  [ -x "$CANONICAL_ROOT/.venv/bin/python" ] || return 1
+  printf '%s\n' "$CANONICAL_ROOT/.venv/bin/python"
+}
+BOUNDED_PYTHON=""
 MACHINERY_DIR=""
-# Code root (machinery #100 R62, R69): run from a machinery tree (a checkout or the
-# installed wheel), this file's own tree supplies the code; a deployed copy takes it
-# from the release the project interpreter imports, never from $PROJECT_DIR. Machinery
-# modules then run through the shared module bootstrap (lib/project_interpreter.sh).
-_hook_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+_hook_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)" || _hook_dir=""
 case "$_hook_dir" in
-  */agents_extensions/shared/hooks) MACHINERY_DIR="${_hook_dir%/agents_extensions/shared/hooks}" ;;
-  *) MACHINERY_DIR=$("$BOUNDED_PYTHON" -I -c 'import os, lu_machinery; print(os.path.dirname(os.path.dirname(os.path.abspath(lu_machinery.__file__))))' 2>/dev/null) || MACHINERY_DIR="" ;;
+  */agents_extensions/shared/hooks)
+    MACHINERY_DIR="${_hook_dir%/agents_extensions/shared/hooks}"
+    # shellcheck source=lu_machinery/lib/project_interpreter.sh
+    source "$MACHINERY_DIR/lu_machinery/lib/project_interpreter.sh" 2>/dev/null || MACHINERY_DIR=""
+    if [ -n "$MACHINERY_DIR" ]; then
+      BOUNDED_PYTHON="$(project_interpreter_resolve "$PROJECT_DIR" 2>/dev/null)" || BOUNDED_PYTHON=""
+    fi
+    ;;
+  *)
+    BOUNDED_PYTHON="$(_post_probe_python 2>/dev/null)" || BOUNDED_PYTHON=""
+    if [ -n "$BOUNDED_PYTHON" ]; then
+      MACHINERY_DIR=$("$BOUNDED_PYTHON" -I -c 'import os, lu_machinery; print(os.path.dirname(os.path.dirname(os.path.abspath(lu_machinery.__file__))))' 2>/dev/null) || MACHINERY_DIR=""
+      # shellcheck source=lu_machinery/lib/project_interpreter.sh
+      source "$MACHINERY_DIR/lu_machinery/lib/project_interpreter.sh" 2>/dev/null || MACHINERY_DIR=""
+      if [ -n "$MACHINERY_DIR" ]; then
+        RESOLVED="$(project_interpreter_resolve "$PROJECT_DIR" 2>/dev/null)" || RESOLVED=""
+        if [ -n "$RESOLVED" ] && [ "$RESOLVED" != "$BOUNDED_PYTHON" ]; then
+          MACHINERY_DIR=$("$RESOLVED" -I -c 'import os, lu_machinery; print(os.path.dirname(os.path.dirname(os.path.abspath(lu_machinery.__file__))))' 2>/dev/null) || MACHINERY_DIR=""
+          # shellcheck source=lu_machinery/lib/project_interpreter.sh
+          source "$MACHINERY_DIR/lu_machinery/lib/project_interpreter.sh" 2>/dev/null || MACHINERY_DIR=""
+        fi
+        [ -n "$RESOLVED" ] && BOUNDED_PYTHON="$RESOLVED"
+      fi
+    fi
+    ;;
 esac
 unset _hook_dir
-# shellcheck source=lu_machinery/lib/project_interpreter.sh
-source "$MACHINERY_DIR/lu_machinery/lib/project_interpreter.sh" 2>/dev/null || MACHINERY_DIR=""
 BOUNDED_RUNNER_DEFAULT="$MACHINERY_DIR/lu_machinery/agent_runtime/bounded_command.py"
 BOUNDED_RUNNER="${SESSION_BOUNDED_RUNNER:-$BOUNDED_RUNNER_DEFAULT}"
 run_bounded() {
@@ -228,7 +256,7 @@ if [ -z "$HANDOFF_AGENT" ]; then
     HANDOFF_AGENT="claude"
   fi
 fi
-ROLLOVER_PYTHON="${THREAD_ROLLOVER_PYTHON:-$SHARED_PYTHON}"  # worktrees carry no venv
+ROLLOVER_PYTHON="$BOUNDED_PYTHON"
 # THREAD_ROLLOVER_SCRIPT names a replacement script (a test seam); the default is
 # this code root's thread_handoff module through the bootstrap.
 if [ -n "${THREAD_ROLLOVER_SCRIPT:-}" ]; then

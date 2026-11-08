@@ -36,22 +36,56 @@ esac
 RECIPIENT_LABEL=$(printf '%s' "$RECIPIENT" | tr '[:lower:]' '[:upper:]')
 
 # The inbox CLI is optional in hook contexts. A missing project interpreter or
-# a CLI failure must never block the provider's prompt submission.
-if [ ! -x "$PROJECT_DIR/.venv/bin/python" ]; then
-  exit 0
-fi
-# Code root (machinery #100 R62, R69): run from a machinery tree (a checkout or the
-# installed wheel), this file's own tree supplies the code; a deployed copy takes it
-# from the release the project interpreter imports, never from $PROJECT_DIR. Machinery
-# modules then run through the shared module bootstrap (lib/project_interpreter.sh).
-_hook_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# a CLI failure must never block the provider's prompt submission. The interpreter
+# is the one rule (R66): an invalid LEARN_UKRAINIAN_PYTHON does not fall back to
+# this checkout's .venv, and a worktree .venv is not the interpreter.
+_inbox_probe_python() {
+  local configured="${LEARN_UKRAINIAN_PYTHON:-}" root=""
+  if [ -n "$configured" ]; then
+    case "$configured" in
+      /*) ;;
+      *) return 1 ;;
+    esac
+    [ -f "$configured" ] && [ -x "$configured" ] || return 1
+    printf '%s\n' "$configured"
+    return 0
+  fi
+  if [ -n "${CODEX_CANONICAL_REPO_ROOT:-}" ]; then
+    root="$CODEX_CANONICAL_REPO_ROOT"
+  else
+    root=$(git -C "$PROJECT_DIR" rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)
+    if [ -n "$root" ] && [ "$(basename "$root")" = ".git" ]; then
+      root=$(dirname "$root")
+    else
+      root="$PROJECT_DIR"
+    fi
+  fi
+  [ -x "$root/.venv/bin/python" ] || return 1
+  printf '%s\n' "$root/.venv/bin/python"
+}
+_hook_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)" || exit 0
 case "$_hook_dir" in
-  */agents_extensions/shared/hooks) MACHINERY_DIR="${_hook_dir%/agents_extensions/shared/hooks}" ;;
-  *) MACHINERY_DIR=$("$PROJECT_DIR/.venv/bin/python" -I -c 'import os, lu_machinery; print(os.path.dirname(os.path.dirname(os.path.abspath(lu_machinery.__file__))))' 2>/dev/null) || MACHINERY_DIR="" ;;
+  */agents_extensions/shared/hooks)
+    MACHINERY_DIR="${_hook_dir%/agents_extensions/shared/hooks}"
+    # shellcheck source=lu_machinery/lib/project_interpreter.sh
+    source "$MACHINERY_DIR/lu_machinery/lib/project_interpreter.sh" 2>/dev/null || exit 0
+    INBOX_PYTHON="$(project_interpreter_resolve "$PROJECT_DIR" 2>/dev/null)" || exit 0
+    ;;
+  *)
+    INBOX_PYTHON="$(_inbox_probe_python 2>/dev/null)" || exit 0
+    MACHINERY_DIR=$("$INBOX_PYTHON" -I -c 'import os, lu_machinery; print(os.path.dirname(os.path.dirname(os.path.abspath(lu_machinery.__file__))))' 2>/dev/null) || exit 0
+    # shellcheck source=lu_machinery/lib/project_interpreter.sh
+    source "$MACHINERY_DIR/lu_machinery/lib/project_interpreter.sh" 2>/dev/null || exit 0
+    RESOLVED="$(project_interpreter_resolve "$PROJECT_DIR" 2>/dev/null)" || exit 0
+    if [ "$RESOLVED" != "$INBOX_PYTHON" ]; then
+      MACHINERY_DIR=$("$RESOLVED" -I -c 'import os, lu_machinery; print(os.path.dirname(os.path.dirname(os.path.abspath(lu_machinery.__file__))))' 2>/dev/null) || exit 0
+      # shellcheck source=lu_machinery/lib/project_interpreter.sh
+      source "$MACHINERY_DIR/lu_machinery/lib/project_interpreter.sh" 2>/dev/null || exit 0
+    fi
+    INBOX_PYTHON="$RESOLVED"
+    ;;
 esac
 unset _hook_dir
-# shellcheck source=lu_machinery/lib/project_interpreter.sh
-source "$MACHINERY_DIR/lu_machinery/lib/project_interpreter.sh" 2>/dev/null || exit 0
 
 # Fast path: probe the same broker DB the bridge CLI reads
 # (scripts/ai_agent_bridge/_config.py DB_PATH → _messaging.py check_inbox)
@@ -85,7 +119,7 @@ if [ -n "$DB_FILE" ] && [ -f "$DB_FILE" ]; then
   else
     # stdlib-only fallback for hosts without the sqlite3 CLI; prints nothing
     # on any error so the live CLI below stays the authority.
-    UNREAD_COUNT=$("$PROJECT_DIR/.venv/bin/python" -I - "$DB_FILE" "$RECIPIENT" <<'PYEOF'
+    UNREAD_COUNT=$("$INBOX_PYTHON" -I - "$DB_FILE" "$RECIPIENT" <<'PYEOF'
 import sqlite3
 import sys
 from pathlib import Path
@@ -118,7 +152,7 @@ fi
 # Ask the live CLI for the recipient's inbox. Keep its existing output as the
 # source of both the count and the bounded preview; the fast path above only
 # ever short-circuits a proven-empty inbox, never replaces this listing.
-INBOX_OUTPUT=$(project_python_run "$PROJECT_DIR/.venv/bin/python" -m lu_machinery.ai_agent_bridge inbox --for "$RECIPIENT" 2>/dev/null) || exit 0
+INBOX_OUTPUT=$(project_python_run "$INBOX_PYTHON" -m lu_machinery.ai_agent_bridge inbox --for "$RECIPIENT" 2>/dev/null) || exit 0
 
 # The legacy human listing emits `N unread`; the live channel listing emits a
 # `pending: N` line. Accept both existing CLI shapes without creating a new

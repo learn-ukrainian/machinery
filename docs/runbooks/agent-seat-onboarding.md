@@ -210,13 +210,16 @@ cross-family verdict must pass before the accountable owner merges.
 
 #### Shared Python environment
 
-The primary checkout's `.venv` is shared project tooling; a dispatch worktree
-must never create, copy, symlink, activate, or use its own `.venv`. Derive the
-primary root from the linked worktree and invoke its interpreter by absolute
-path. Never fall back to `python`, `.venv/bin/python`, or `python -m venv .venv`.
+The interpreter is one rule. `LEARN_UKRAINIAN_PYTHON`, when set, must be an
+absolute path to an executable file and is the interpreter; an invalid value is
+refused and nothing else is tried. Otherwise the interpreter is the validated
+primary checkout's `.venv/bin/python`. Otherwise the command is refused. A
+dispatch worktree must never create, copy, symlink, activate, or use its own
+`.venv` as that interpreter, and `python` on `PATH` is not a fallback.
+`PRIMARY_REPO` is that validated primary checkout. Launchers and hooks resolve
+it; a worker does not point the command at a worktree `.venv`.
 
 ```bash
-PRIMARY_REPO="$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")"
 "$PRIMARY_REPO/.venv/bin/python" lu_machinery/dispatch.py dispatch --model <catalog-model> \
   --agent <lane> --task-id <id> --prompt-file <path> --worktree
 ```

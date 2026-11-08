@@ -3,18 +3,32 @@
 # Sourced, never registered as a hook; executing it directly does nothing.
 # State I/O is delegated to the descriptor-relative Python helper (#9791).
 
-# The machinery code root (#100 R62, R69): run from a machinery tree (a checkout or
-# the installed wheel), this file's own tree; a deployed copy asks the project
-# interpreter (THREAD_ROLLOVER_PYTHON, else the canonical checkout's) for the
-# release it imports. Never <project>/lu_machinery.
+# The machinery code root (#100 R62, R69, R66): run from a machinery tree (a checkout
+# or the installed wheel), this file's own tree; a deployed copy asks the one project
+# interpreter (LEARN_UKRAINIAN_PYTHON when that is an absolute executable file, else
+# the canonical checkout's .venv, else refuse) for the release it imports. Never
+# <project>/lu_machinery. An invalid override does not fall back.
+_context_rule_probe() {
+  local configured="${LEARN_UKRAINIAN_PYTHON:-}" root="$1"
+  if [ -n "$configured" ]; then
+    case "$configured" in
+      /*) ;;
+      *) return 1 ;;
+    esac
+    [ -f "$configured" ] && [ -x "$configured" ] || return 1
+    printf '%s\n' "$configured"
+    return 0
+  fi
+  [ -n "$root" ] && [ -x "$root/.venv/bin/python" ] || return 1
+  printf '%s\n' "$root/.venv/bin/python"
+}
 _context_code_root() {
   local dir probe
   dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)" || return 1
   case "$dir" in
     */agents_extensions/shared/hooks) printf '%s\n' "${dir%/agents_extensions/shared/hooks}" ;;
     *)
-      probe="${THREAD_ROLLOVER_PYTHON:-$(context_canonical_root "$1")/.venv/bin/python}"
-      [ -x "$probe" ] || return 1
+      probe="$(_context_rule_probe "$(context_canonical_root "$1")")" || return 1
       "$probe" -I -c 'import os, lu_machinery; print(os.path.dirname(os.path.dirname(os.path.abspath(lu_machinery.__file__))))' 2>/dev/null
       ;;
   esac
@@ -23,22 +37,30 @@ _context_code_root() {
 # Source the code root's project_interpreter.sh: the interpreter resolver and the
 # shared module bootstrap. Returns 1 when the code root is unavailable.
 _context_source_interpreter_lib() {
-  local root
+  local root resolved found dir
+  dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)" || return 1
   root=$(_context_code_root "$1") && [ -n "$root" ] || return 1
   # shellcheck source=lu_machinery/lib/project_interpreter.sh
-  source "$root/lu_machinery/lib/project_interpreter.sh" 2>/dev/null
+  source "$root/lu_machinery/lib/project_interpreter.sh" 2>/dev/null || return 1
+  # In-tree, the sourced tree is the code. A deployed copy re-sources the
+  # release the resolver actually selected when that differs from the probe.
+  case "$dir" in
+    */agents_extensions/shared/hooks) return 0 ;;
+  esac
+  resolved=$(project_interpreter_resolve "$1" 2>/dev/null) || return 1
+  found=$("$resolved" -I -c 'import os, lu_machinery; print(os.path.dirname(os.path.dirname(os.path.abspath(lu_machinery.__file__))))' 2>/dev/null) || return 0
+  if [ -n "$found" ] && [ "$found" != "$root" ] && [ -f "$found/lu_machinery/lib/project_interpreter.sh" ]; then
+    # shellcheck source=lu_machinery/lib/project_interpreter.sh
+    source "$found/lu_machinery/lib/project_interpreter.sh" 2>/dev/null || return 1
+  fi
 }
 
-# Match the existing rollover hooks' explicit interpreter override; otherwise
-# use the shared project interpreter resolver. Never fall back to PATH Python.
+# The one project interpreter. Never fall back to PATH Python or a component override.
 context_hook_state() {
   local operation="$1" project_dir="$2" session_id="$3" interpreter helper
   shift 3
-  interpreter="${THREAD_ROLLOVER_PYTHON:-}"
-  if [ -z "$interpreter" ]; then
-    _context_source_interpreter_lib "$project_dir" || return 0
-    interpreter=$(project_interpreter_resolve "$project_dir" 2>/dev/null) || return 0
-  fi
+  _context_source_interpreter_lib "$project_dir" || return 0
+  interpreter=$(project_interpreter_resolve "$project_dir" 2>/dev/null) || return 0
   [ -x "$interpreter" ] || return 0
   helper="$(dirname "${BASH_SOURCE[0]}")/context-hook-state.py"
   # The helper is stdlib-only: -I keeps the cwd and PYTHONPATH off its import path.
@@ -132,10 +154,7 @@ context_driver_lane_name() {
   session=$(tmux display-message -p -t "$TMUX_PANE" '#{session_name}' 2>/dev/null) || return 0
   [ -n "$session" ] || return 0
   _context_source_interpreter_lib "$project_dir" || return 0
-  interpreter="${THREAD_ROLLOVER_PYTHON:-}"
-  if [ -z "$interpreter" ]; then
-    interpreter=$(project_interpreter_resolve "$project_dir" 2>/dev/null) || return 0
-  fi
+  interpreter=$(project_interpreter_resolve "$project_dir" 2>/dev/null) || return 0
   [ -x "$interpreter" ] || return 0
   # The registry module runs from the code root through the shared module bootstrap.
   name=$(project_python_run "$interpreter" -c '
