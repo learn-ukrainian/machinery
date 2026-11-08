@@ -39,37 +39,14 @@ def _is_gemini_capacity_error(stderr: str) -> bool:
     """
     return _is_gemini_429_error(stderr)
 
-try:
-    from agent_runtime.errors import (
-        AgentStalledError,
-        AgentTimeoutError,
-        AgentUnavailableError,
-        RateLimitedError,
-    )
-    from agent_runtime.result import Result
-    from agent_runtime.runner import invoke as runtime_invoke
-
-    _HAS_RUNTIME = True
-except ImportError:
-    class RateLimitedError(Exception):
-        """Fallback used when agent_runtime is not importable."""
-
-
-    class AgentStalledError(Exception):
-        """Fallback used when agent_runtime is not importable."""
-
-
-    class AgentTimeoutError(Exception):
-        """Fallback used when agent_runtime is not importable."""
-
-
-    class AgentUnavailableError(Exception):
-        """Fallback used when agent_runtime is not importable."""
-
-
-    runtime_invoke = None
-    Result = Any
-    _HAS_RUNTIME = False
+from lu_machinery.agent_runtime.errors import (
+    AgentStalledError,
+    AgentTimeoutError,
+    AgentUnavailableError,
+    RateLimitedError,
+)
+from lu_machinery.agent_runtime.result import Result
+from lu_machinery.agent_runtime.runner import invoke as runtime_invoke
 
 from . import _channels, _config
 from ._channels_watch import (
@@ -79,7 +56,7 @@ from ._channels_watch import (
     emit_reply_complete,
     emit_reply_started,
 )
-from ._config import CLAUDE_CMD, MACHINERY_PACKAGE
+from ._config import CLAUDE_CMD
 from ._db import get_db
 from ._gemini import (
     _is_gemini_429_error,
@@ -730,8 +707,8 @@ def _invoke_thread(
         requested_model = PRO_MODEL
     # The seat and the model the thread's deliveries pin are admitted together,
     # before any reply telemetry or invocation.
-    from agent_runtime.kimi_admission import ACP_MODE
-    from agent_runtime.target_admission import resolve_and_admit
+    from lu_machinery.agent_runtime.kimi_admission import ACP_MODE
+    from lu_machinery.agent_runtime.target_admission import resolve_and_admit
 
     (target,) = resolve_and_admit((agent,), mode=ACP_MODE, model=requested_model)
     requested_model = target.model
@@ -828,8 +805,8 @@ def _invoke_gemini_thread_with_fallback(
         mode=mode,
     )
 
-    from agent_runtime.kimi_admission import ACP_MODE
-    from agent_runtime.target_admission import resolve_and_admit
+    from lu_machinery.agent_runtime.kimi_admission import ACP_MODE
+    from lu_machinery.agent_runtime.target_admission import resolve_and_admit
 
     while True:
         # Each capacity-cascade hop is a new model: admit it before it is invoked.
@@ -906,16 +883,10 @@ def run_inbox(
     falsely terminal-failing work that would likely succeed once the
     provider recovers. See #1192.
     """
-    if not _HAS_RUNTIME or runtime_invoke is None:
-        raise RuntimeError(
-            "agent_runtime is required for inbox draining. "
-            f"Install it or add {MACHINERY_PACKAGE}/ to PYTHONPATH."
-        )
-
     # Inbox replies are consults and discussions; a Kimi inbox is refused
     # before any claim, lease, telemetry or delivery write.
-    from agent_runtime.kimi_admission import ACP_MODE
-    from agent_runtime.target_admission import resolve_and_admit
+    from lu_machinery.agent_runtime.kimi_admission import ACP_MODE
+    from lu_machinery.agent_runtime.target_admission import resolve_and_admit
 
     resolve_and_admit((agent,), mode=ACP_MODE)
     _validate_agent(agent)

@@ -36,7 +36,7 @@ trap 'rm -f "$OUT_FILE" "$ERR_FILE"' EXIT
 unset GEMINI_API_KEY GOOGLE_API_KEY
 
 if ! printf '%s\n' "$PROMPT" | timeout 180 \
-        .venv/bin/python lu_machinery/ai_agent_bridge/__main__.py ask-agy - \
+        .venv/bin/python -m lu_machinery.ai_agent_bridge ask-agy - \
             --task-id "$TASK_ID" \
             --to-model gemini-3.8-flash-high \
             --stdout-only \

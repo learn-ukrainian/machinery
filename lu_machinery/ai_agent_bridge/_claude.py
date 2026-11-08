@@ -18,18 +18,16 @@ import subprocess
 import sys
 import uuid
 from collections.abc import Callable
-from pathlib import Path
 
-from agent_runtime.errors import (
+from lu_machinery.agent_runtime.errors import (
     AgentStalledError,
     AgentTimeoutError,
     AgentUnavailableError,
     RateLimitedError,
 )
-from agent_runtime.runner import invoke as runtime_invoke
-from common.repo_root import project_interpreter
-from lu_machinery.common.repo_root import state_root
-from secret_redactor import redact_text
+from lu_machinery.agent_runtime.runner import invoke as runtime_invoke
+from lu_machinery.common.repo_root import project_interpreter, state_root
+from lu_machinery.secret_redactor import redact_text
 
 from . import _config
 from ._ask_contract import (
@@ -255,7 +253,7 @@ def _run_claude_sync_via_runtime(
         effort_reason: str | None = None
         effort_to_invoke = effort
         if effort:
-            from utils.claude_version import supports_effort
+            from lu_machinery.utils.claude_version import supports_effort
 
             if not supports_effort(CLAUDE_CMD):
                 effort_to_invoke = None
@@ -498,7 +496,7 @@ def _launch_claude_background(msg, message_id, new_session):
 
     try:
         bridge_cmd = [
-            str(project_interpreter()), str(Path(__file__).parent / "__main__.py"),
+            str(project_interpreter()), "-m", "lu_machinery.ai_agent_bridge",
             "process-claude", str(message_id),
             "--no-timeout"
         ]

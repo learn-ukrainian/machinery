@@ -97,22 +97,19 @@ from dataclasses import dataclass, replace
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-try:
-    from lu_machinery.common.repo_root import (
-        RUNTIME_ROOT,
-        MachineryConfigError,
-        machinery_path,
-        product_root,
-        project_interpreter,
-    )
-except ImportError:  # agent_runtime loaded with scripts/ on path
-    from common.repo_root import (  # type: ignore[no-redef]
-        RUNTIME_ROOT,
-        MachineryConfigError,
-        machinery_path,
-        product_root,
-        project_interpreter,
-    )
+from lu_machinery.common.repo_root import (
+    RUNTIME_ROOT,
+    MachineryConfigError,
+    machinery_path,
+    product_root,
+    project_interpreter,
+)
+from lu_machinery.guardrails import worktree_containment as _worktree_containment
+from lu_machinery.guardrails.worktree_containment import (
+    NotAGitRepositoryError,
+    resolve_main_root,
+    resolve_main_root_without_git,
+)
 
 from ..binary_resolve import resolve_agent_binary
 from ..jsonl import jsonl_lines
@@ -122,21 +119,6 @@ from .base import InvocationPlan
 from .cursor import _load_cursor_api_key_from_env_file
 from .deepseek import DEEPSEEK_OPENCODE_MODEL_ROUTES, DeepSeekAdapter
 from .glm import assert_glm_egress_allowed
-
-try:
-    from lu_machinery.guardrails import worktree_containment as _worktree_containment
-    from lu_machinery.guardrails.worktree_containment import (
-        NotAGitRepositoryError,
-        resolve_main_root,
-        resolve_main_root_without_git,
-    )
-except ImportError:  # pragma: no cover - stripped sys.path flavor
-    from guardrails import worktree_containment as _worktree_containment  # type: ignore[import-not-found, no-redef]
-    from guardrails.worktree_containment import (  # type: ignore[import-not-found, no-redef]
-        NotAGitRepositoryError,
-        resolve_main_root,
-        resolve_main_root_without_git,
-    )
 
 _logger = logging.getLogger(__name__)
 
@@ -2210,22 +2192,13 @@ def _require_claude_acp_launcher(*, adapter_label: str) -> str:
 
 
 def _claude_code_floor(model: str | None) -> tuple[int, int, int]:
-    try:
-        from lu_machinery.review.isolation import CLAUDE_MIN_SUPPORTED_CLI_VERSION
-    except ImportError:  # pragma: no cover - stripped sys.path flavor
-        from review.isolation import CLAUDE_MIN_SUPPORTED_CLI_VERSION  # type: ignore[import-not-found, no-redef]
+    from lu_machinery.review.isolation import CLAUDE_MIN_SUPPORTED_CLI_VERSION
     return max(CLAUDE_MIN_SUPPORTED_CLI_VERSION, CLAUDE_ACP_MIN_CLAUDE_CODE_VERSIONS.get(model or "", (0, 0, 0)))
 
 
 def _probe_pinned_claude_code(executable: Path, *, adapter_label: str) -> tuple[int, int, int]:
     """Run the pinned executable's ``--version`` with a minimal env and parse it."""
-    try:
-        from lu_machinery.utils.claude_version import _parse_claude_semver, run_version_probe
-    except ImportError:  # pragma: no cover - stripped sys.path flavor
-        from utils.claude_version import (  # type: ignore[import-not-found, no-redef]
-            _parse_claude_semver,
-            run_version_probe,
-        )
+    from lu_machinery.utils.claude_version import _parse_claude_semver, run_version_probe
     try:
         proc = run_version_probe(
             [str(executable)],
@@ -2441,10 +2414,7 @@ def _attest_claude_code_child(parsed: ParseResult, *, plan: InvocationPlan | Non
         )
     if not parsed.ok:
         return parsed
-    try:
-        from lu_machinery.utils.claude_version import _parse_claude_semver
-    except ImportError:  # pragma: no cover - stripped sys.path flavor
-        from utils.claude_version import _parse_claude_semver  # type: ignore[import-not-found, no-redef]
+    from lu_machinery.utils.claude_version import _parse_claude_semver
     # The plan metadata is the ask's adapter-owned record; the runner hands the
     # same object to parse and capture, so the post-run attestation lands there.
     attested = _claude_session_transcript_version(stdout)

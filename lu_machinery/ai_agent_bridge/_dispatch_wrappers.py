@@ -23,7 +23,7 @@ from lu_machinery.secret_redactor import redact_text
 from ._config import DISPATCH_ENTRY, MACHINERY_PACKAGE
 
 if TYPE_CHECKING:
-    from agent_runtime.target_admission import AdmittedTarget
+    from lu_machinery.agent_runtime.target_admission import AdmittedTarget
 
 REVIEW_DEEP_INSTRUCTIONS = (
     "Adversarial review. Find logical bugs, security issues, contradictions, "
@@ -317,7 +317,7 @@ def build_ask_review_dispatch_command(
     ``target`` is the ``AdmittedTarget`` ``resolve_and_admit`` produced for
     the review seat; the command carries its seat and model.
     """
-    from agent_runtime.target_admission import require_admitted, seat_default_model
+    from lu_machinery.agent_runtime.target_admission import require_admitted, seat_default_model
 
     target = require_admitted(target)
     model = target.model or seat_default_model(target.recipient)
@@ -443,8 +443,8 @@ def run_ask_review_dispatch(
     guidance before the attachment without interpreting or rewriting either.
     """
     # Kimi seats never review: the seat is admitted before the temporary prompt is written.
-    from agent_runtime.kimi_admission import REVIEW_MODE
-    from agent_runtime.target_admission import resolve_and_admit
+    from lu_machinery.agent_runtime.kimi_admission import REVIEW_MODE
+    from lu_machinery.agent_runtime.target_admission import resolve_and_admit
 
     (target,) = resolve_and_admit((agent,), mode=REVIEW_MODE, model=model, review=True)
     timeout = hard_timeout or _ASK_REVIEW_DEFAULT_TIMEOUT_S

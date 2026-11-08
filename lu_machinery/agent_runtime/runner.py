@@ -47,35 +47,6 @@ from enum import Enum
 from pathlib import Path
 from typing import Any
 
-try:
-    from lu_machinery.lib.readonly_sqlite import import_named_module
-except ModuleNotFoundError as exc:
-    if exc.name != Path(os.path.abspath(__file__)).parents[1].name:
-        raise
-    from lib.readonly_sqlite import import_named_module  # type: ignore[no-redef]
-
-if __package__ == "agent_runtime":  # the historical top-level alias, imported with scripts/ on sys.path
-    from ai_llm.fallback import (
-        AttemptOutcome,
-        CallResult,
-        GeminiRung,
-        resolve_allowed_auth_modes,
-        run_gemini_fallback_ladder,
-    )
-else:
-    from ..ai_llm.fallback import (  # type: ignore[assignment]
-        AttemptOutcome,
-        CallResult,
-        GeminiRung,
-        resolve_allowed_auth_modes,
-        run_gemini_fallback_ladder,
-    )
-
-# Registry adapter paths are canonicalized under ``scripts.agent_runtime``.
-# Import the ACP scope from that same module identity even when this runner is
-# reached through the historical top-level ``agent_runtime`` package alias;
-# otherwise ContextVar provenance is set on one module object and checked on
-# another.
 from lu_machinery.agent_runtime.adapters.acpx import (
     ACPX_PARTICIPANT_CATALOG_TRANSPORTS,
     ACPX_PARTICIPANT_EFFORTS,
@@ -93,8 +64,18 @@ from lu_machinery.agent_runtime.attempt_safe_read import (
     safe_attempt_file_size,
 )
 from lu_machinery.agent_runtime.result import AgyAttempt, AgyTelemetry
+from lu_machinery.ai_llm.fallback import (
+    AttemptOutcome,
+    AuthMode,
+    CallResult,
+    GeminiRung,
+    resolve_allowed_auth_modes,
+    run_gemini_fallback_ladder,
+)
 from lu_machinery.common.repo_root import MachineryConfigError, machinery_path, product_root
+from lu_machinery.lib.readonly_sqlite import import_named_module
 from lu_machinery.secret_redactor import redact_value
+from lu_machinery.telemetry.emit import current_run_id, current_session_id
 
 from .accounting import model_accounting_fields
 from .adapters.base import AgentAdapter
@@ -139,11 +120,6 @@ from .watchdog import (
     stop_watchdog,
     tail_liveness_file_for_debug,
 )
-
-try:
-    from telemetry.emit import current_run_id, current_session_id
-except ImportError:  # pragma: no cover - package import path
-    from lu_machinery.telemetry.emit import current_run_id, current_session_id
 
 # Poll interval while waiting on subprocess + watchdog. 1s is a good balance:
 # fast enough that stall detection fires within 1s of the threshold, slow
@@ -1166,7 +1142,7 @@ def _build_usage_record(
         returncode=returncode,
         explicit_code=failure_code,
     )
-    record = {
+    record: dict[str, Any] = {
         "ts": datetime.now(UTC).isoformat(),
         "agent": agent,
         "entrypoint": entrypoint,
@@ -1327,10 +1303,7 @@ def _emit_substitution_event(
         with contextlib.suppress(Exception):
             event_sink("agent_runtime_substitution", **payload)
     try:
-        try:
-            from telemetry.emit import emit_event
-        except ImportError:  # pragma: no cover - package import path
-            from lu_machinery.telemetry.emit import emit_event
+        from lu_machinery.telemetry.emit import emit_event
 
         emit_event("agent_runtime_substitution", payload)
     except Exception:
@@ -1637,7 +1610,7 @@ def _normalize_gemini_tool_auth_mode(raw: Any) -> str:
     return "auto"
 
 
-def _resolve_gemini_ladder_auth_modes(tool_config: dict | None) -> tuple[str, ...]:
+def _resolve_gemini_ladder_auth_modes(tool_config: dict | None) -> tuple[AuthMode, ...]:
     """Resolve which Gemini auth rungs are allowed for this runtime call."""
     env = dict(os.environ)
     if tool_config and "auth_mode" in tool_config:
@@ -1984,16 +1957,10 @@ def _execute_invocation_once(
             env.pop(key, None)
         env["AGENT_NO_TELEMETRY_FOOTER"] = "1"
     elif tool_config and tool_config.get("review_isolation"):
-        try:
-            from lu_machinery.review.isolation import (
-                ReviewIsolationError,
-                apply_review_isolation_to_invocation,
-            )
-        except ImportError:  # pragma: no cover - package path
-            from review.isolation import (  # type: ignore
-                ReviewIsolationError,
-                apply_review_isolation_to_invocation,
-            )
+        from lu_machinery.review.isolation import (
+            ReviewIsolationError,
+            apply_review_isolation_to_invocation,
+        )
         try:
             prompt_transport = "stdin" if plan.stdin_payload else "prompt-file"
             (

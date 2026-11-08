@@ -23,15 +23,11 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 
+from lu_machinery.agent_runtime.adapters.claude import run_headless_claude
+from lu_machinery.utils.claude_version import run_version_probe
+
 from . import _config
 from ._config import AGY_CLI, CLAUDE_CMD, CODEX_CLI
-
-try:
-    from lu_machinery.agent_runtime.adapters.claude import run_headless_claude
-    from lu_machinery.utils.claude_version import run_version_probe
-except ModuleNotFoundError:  # run as the top-level ai_agent_bridge package
-    from agent_runtime.adapters.claude import run_headless_claude
-    from utils.claude_version import run_version_probe
 
 _DEFAULT_BACKEND_TIMEOUT_S = 120
 
@@ -213,7 +209,7 @@ def _gemini_backend(model: str, messages: list[Message], **kwargs: Any) -> Compl
     # Resolve legacy gemini public name (e.g. gemini-3.1-pro-preview) to AGY display label.
     # Import here to avoid circulars at module load.
     try:
-        from agent_runtime.adapters.agy import _AGY_MODEL_BY_NORMALIZED, _normalize_model
+        from lu_machinery.agent_runtime.adapters.agy import _AGY_MODEL_BY_NORMALIZED, _normalize_model
 
         agy_model = _AGY_MODEL_BY_NORMALIZED.get(_normalize_model(model), model)
     except Exception:

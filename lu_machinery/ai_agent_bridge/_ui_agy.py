@@ -67,9 +67,6 @@ import uuid
 from datetime import UTC, datetime
 from pathlib import Path
 
-if __package__ in {None, ""}:
-    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-
 from lu_machinery.common.jsonl import jsonl_lines as split_jsonl_lines
 
 AGY_APP_DATA_ROOT = Path.home() / ".gemini" / "antigravity-cli"

@@ -25,28 +25,10 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, TextIO
 
-if __package__ in (None, ""):  # run as a file: put the repository root on sys.path
-    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-    # Bare `agent_runtime` lives under scripts/, which a file launch does not add.
-    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-    __package__ = "lu_machinery.ai_agent_bridge"
-
-try:
-    from lu_machinery.lib.readonly_sqlite import SQLiteConnection, open_readonly
-except ModuleNotFoundError as exc:
-    if exc.name != Path(os.path.abspath(__file__)).parents[1].name:
-        raise
-    from lib.readonly_sqlite import SQLiteConnection, open_readonly  # type: ignore[no-redef]
-
-try:
-    from lu_machinery.common.repo_root import machinery_path, product_root, state_root
-except ModuleNotFoundError as exc:
-    if exc.name != Path(os.path.abspath(__file__)).parents[1].name:
-        raise
-    from common.repo_root import machinery_path, product_root, state_root  # type: ignore[no-redef]
-
-from agent_runtime.agent_identity import seat_read_aliases
-from secret_redactor import redact_text
+from lu_machinery.agent_identity import seat_read_aliases
+from lu_machinery.common.repo_root import machinery_path, product_root, state_root
+from lu_machinery.lib.readonly_sqlite import SQLiteConnection, open_readonly
+from lu_machinery.secret_redactor import redact_text
 
 from . import _config
 from ._channels import resolve_recipient_alias

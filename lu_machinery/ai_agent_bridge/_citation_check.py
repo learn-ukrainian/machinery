@@ -56,7 +56,6 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import re
 import sqlite3
 import unicodedata
@@ -67,14 +66,7 @@ from pathlib import Path
 from typing import NamedTuple
 
 from lu_machinery.common.repo_root import product_root
-
-try:
-    from lu_machinery.lib.readonly_sqlite import open_readonly
-except ModuleNotFoundError as exc:
-    if exc.name != Path(os.path.abspath(__file__)).parents[1].name:
-        raise
-    from lib.readonly_sqlite import open_readonly  # type: ignore[no-redef]
-
+from lu_machinery.lib.readonly_sqlite import open_readonly
 
 logger = logging.getLogger(__name__)
 

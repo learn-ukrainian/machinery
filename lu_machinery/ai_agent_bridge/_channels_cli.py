@@ -53,7 +53,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-from agent_runtime.kimi_admission import is_kimi_seat
+from lu_machinery.agent_runtime.kimi_admission import is_kimi_seat
 
 from . import _channels, _config
 from ._channels_watch import watch_channel_events
@@ -74,7 +74,7 @@ _CURSOR_SESSION_ID_RE = re.compile(r'"(?:sessionId|session_id)"\s*:\s*"([^"]+)"'
 def _cli_available_agent(agent: str) -> bool:
     """Return whether the agent can be spawned by the local runtime."""
     try:
-        from agent_runtime.registry import get_agent_entry
+        from lu_machinery.agent_runtime.registry import get_agent_entry
     except ImportError:
         return agent in {
             "agy",
@@ -110,7 +110,7 @@ def _cursor_session_id_from_result(result: Any) -> str | None:
 
 def _cursor_transcript_path(session_id: str, cwd: Path) -> Path | None:
     try:
-        from agent_runtime.adapters.cursor import CursorAdapter
+        from lu_machinery.agent_runtime.adapters.cursor import CursorAdapter
     except ImportError:
         return None
 
@@ -140,7 +140,7 @@ def _recover_cursor_discuss_response_from_session_log(result: Any, cwd: Path) ->
     except OSError:
         return None
 
-    from agent_runtime.adapters.cursor import CursorAdapter
+    from lu_machinery.agent_runtime.adapters.cursor import CursorAdapter
 
     parsed = CursorAdapter().parse_response(
         stdout=transcript,
@@ -1439,8 +1439,8 @@ def _handle_p(args) -> int:
 
 def _handle_inbox_run(args) -> int:
     """Handle `ab inbox run <agent>`."""
-    from agent_runtime.kimi_admission import ACP_MODE, KimiAdmissionRefused
-    from agent_runtime.target_admission import resolve_and_admit
+    from lu_machinery.agent_runtime.kimi_admission import ACP_MODE, KimiAdmissionRefused
+    from lu_machinery.agent_runtime.target_admission import resolve_and_admit
 
     from ._inbox import run_inbox
 
@@ -1667,15 +1667,15 @@ def _handle_discuss(args) -> int:
     try:
         from concurrent.futures import ThreadPoolExecutor, as_completed
 
-        from agent_runtime.attribution import resolve_invocation_attribution
-        from agent_runtime.errors import (
+        from lu_machinery.agent_runtime.attribution import resolve_invocation_attribution
+        from lu_machinery.agent_runtime.errors import (
             AgentStalledError,
             AgentTimeoutError,
             AgentUnavailableError,
             RateLimitedError,
         )
-        from agent_runtime.registry import get_agent_entry
-        from agent_runtime.runner import invoke as runtime_invoke
+        from lu_machinery.agent_runtime.registry import get_agent_entry
+        from lu_machinery.agent_runtime.runner import invoke as runtime_invoke
     except ImportError as e:
         print(f"❌ agent_runtime unavailable: {e}", file=sys.stderr)
         print(
@@ -1706,8 +1706,8 @@ def _handle_discuss(args) -> int:
         )
         return 1
     acp_routine = True
-    from agent_runtime.acpx_discuss import MAX_PARTICIPANTS, MIN_PARTICIPANTS
-    from agent_runtime.adapters.acpx import ACPX_SUPPORTED_PARTICIPANTS
+    from lu_machinery.agent_runtime.acpx_discuss import MAX_PARTICIPANTS, MIN_PARTICIPANTS
+    from lu_machinery.agent_runtime.adapters.acpx import ACPX_SUPPORTED_PARTICIPANTS
 
     acp_participant_routes: dict[str, dict[str, str | None]] = (
         ACPX_SUPPORTED_PARTICIPANTS if acp_routine else {}
@@ -1722,7 +1722,7 @@ def _handle_discuss(args) -> int:
             return 1
     # Kimi seats never join discussions: one gate on the effective seats and
     # models (--models overrides included) before any channel write.
-    from agent_runtime.acpx_discuss import AcpxDiscussionError, refuse_kimi_discussion
+    from lu_machinery.agent_runtime.acpx_discuss import AcpxDiscussionError, refuse_kimi_discussion
 
     try:
         refuse_kimi_discussion(with_agents, agent_models)
@@ -1869,7 +1869,7 @@ def _handle_discuss(args) -> int:
         acp_task_id = f"discuss-{task_channel[:48] or 'channel'}-{task_digest}"
         discussion_budget: dict[str, int] = {}
         if acp_routine:
-            from agent_runtime.acpx_discuss import (
+            from lu_machinery.agent_runtime.acpx_discuss import (
                 CONTENT_BUDGET_BYTES,
                 TOKEN_BUDGET,
             )
@@ -1922,7 +1922,7 @@ def _handle_discuss(args) -> int:
     # would later need to normalize. A refusal, partial result, timeout, or
     # cancellation never replays the provider call over the retired bridge path.
     if acp_routine:
-        from agent_runtime.acpx_discuss import run_discussion
+        from lu_machinery.agent_runtime.acpx_discuss import run_discussion
 
         from ._acp_compat import _discussion_failure_metadata, _failure_metadata
         from ._acp_execution import acp_execution_cwd

@@ -1207,7 +1207,7 @@
   {
    "path": "lu_machinery/ai_agent_bridge/_ask_lifecycle.py",
    "rule": "python.lang.security.audit.dangerous-subprocess-use-audit",
-   "sha256": "a6443ed464501a3cff6592cb3f1ea15c5fe8b55ed82c30aa39fac29c4e0d373c"
+   "sha256": "2166e559687a21ffe1e5c1e03ba1c84c095e1a99cfc81379e7af0fcf26c153c2"
   },
   {
    "path": "lu_machinery/ai_agent_bridge/_channels_cli.py",

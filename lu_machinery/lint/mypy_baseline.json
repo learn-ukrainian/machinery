@@ -194,11 +194,6 @@
     },
     {
       "path": "lu_machinery/agent_runtime/adapters/claude.py",
-      "code": "no-any-return",
-      "message": "Returning Any from function declared to return \"None | tuple[int, int, int]\""
-    },
-    {
-      "path": "lu_machinery/agent_runtime/adapters/claude.py",
       "code": "union-attr",
       "message": "Item \"None\" of \"None | str\" has no attribute \"split\""
     },
@@ -639,11 +634,6 @@
     },
     {
       "path": "lu_machinery/agent_runtime/runner.py",
-      "code": "no-any-return",
-      "message": "Returning Any from function declared to return \"tuple[str, ...]\""
-    },
-    {
-      "path": "lu_machinery/agent_runtime/runner.py",
       "code": "union-attr",
       "message": "Item \"None\" of \"AcpxTransportProvenance | None\" has no attribute \"metadata\""
     },
@@ -764,11 +754,6 @@
     },
     {
       "path": "lu_machinery/ai_agent_bridge/_acp_compat.py",
-      "code": "no-any-return",
-      "message": "Returning Any from function declared to return \"str\""
-    },
-    {
-      "path": "lu_machinery/ai_agent_bridge/_acp_compat.py",
       "code": "type-var",
       "message": "Value of type variable \"_DataclassT\" of \"replace\" cannot be \"object\""
     },
@@ -776,16 +761,6 @@
       "path": "lu_machinery/ai_agent_bridge/_agy.py",
       "code": "arg-type",
       "message": "Argument \"run_nonce\" to \"agy_model_state\" has incompatible type \"object\"; expected \"None | str\""
-    },
-    {
-      "path": "lu_machinery/ai_agent_bridge/_agy.py",
-      "code": "no-any-return",
-      "message": "Returning Any from function declared to return \"None | str\""
-    },
-    {
-      "path": "lu_machinery/ai_agent_bridge/_agy.py",
-      "code": "no-any-return",
-      "message": "Returning Any from function declared to return \"str\""
     },
     {
       "path": "lu_machinery/ai_agent_bridge/_agy.py",
@@ -865,19 +840,9 @@
     {
       "path": "lu_machinery/ai_agent_bridge/_cli.py",
       "code": "no-any-return",
-      "message": "Returning Any from function declared to return \"None | str\""
-    },
-    {
-      "path": "lu_machinery/ai_agent_bridge/_cli.py",
-      "code": "no-any-return",
       "message": "Returning Any from function declared to return \"str\""
     },
     {
-      "path": "lu_machinery/ai_agent_bridge/_codex.py",
-      "code": "no-any-return",
-      "message": "Returning Any from function declared to return \"tuple[bool, str]\""
-    },
-    {
       "path": "lu_machinery/ai_agent_bridge/_cursor.py",
       "code": "no-any-return",
       "message": "Returning Any from function declared to return \"int\""
@@ -896,21 +861,6 @@
       "path": "lu_machinery/ai_agent_bridge/_dispatch_wrappers.py",
       "code": "no-any-return",
       "message": "Returning Any from function declared to return \"dict[str, Any]\""
-    },
-    {
-      "path": "lu_machinery/ai_agent_bridge/_github.py",
-      "code": "no-redef",
-      "message": "Name \"PublishBlocked\" already defined (possibly by an import)"
-    },
-    {
-      "path": "lu_machinery/ai_agent_bridge/_github.py",
-      "code": "no-redef",
-      "message": "Name \"Request\" already defined (possibly by an import)"
-    },
-    {
-      "path": "lu_machinery/ai_agent_bridge/_github.py",
-      "code": "no-redef",
-      "message": "Name \"request_run\" already defined (possibly by an import)"
     },
     {
       "path": "lu_machinery/ai_agent_bridge/_grok_build.py",
@@ -926,26 +876,6 @@
       "path": "lu_machinery/ai_agent_bridge/_inbox.py",
       "code": "attr-defined",
       "message": "\"object\" has no attribute \"__iter__\"; maybe \"__dir__\" or \"__str__\"? (not iterable)"
-    },
-    {
-      "path": "lu_machinery/ai_agent_bridge/_inbox.py",
-      "code": "no-redef",
-      "message": "Name \"AgentStalledError\" already defined (possibly by an import)"
-    },
-    {
-      "path": "lu_machinery/ai_agent_bridge/_inbox.py",
-      "code": "no-redef",
-      "message": "Name \"AgentTimeoutError\" already defined (possibly by an import)"
-    },
-    {
-      "path": "lu_machinery/ai_agent_bridge/_inbox.py",
-      "code": "no-redef",
-      "message": "Name \"AgentUnavailableError\" already defined (possibly by an import)"
-    },
-    {
-      "path": "lu_machinery/ai_agent_bridge/_inbox.py",
-      "code": "no-redef",
-      "message": "Name \"RateLimitedError\" already defined (possibly by an import)"
     },
     {
       "path": "lu_machinery/ai_agent_bridge/_inbox_watch.py",
@@ -1054,11 +984,6 @@
     },
     {
       "path": "lu_machinery/ai_agent_bridge/_inbox_watch.py",
-      "code": "no-any-return",
-      "message": "Returning Any from function declared to return \"tuple[str, ...]\""
-    },
-    {
-      "path": "lu_machinery/ai_agent_bridge/_inbox_watch.py",
       "code": "return-value",
       "message": "Incompatible return value type (got \"Connection\", expected \"SQLiteConnection\")"
     },
@@ -1076,11 +1001,6 @@
       "path": "lu_machinery/ai_agent_bridge/_messaging.py",
       "code": "var-annotated",
       "message": "Need type annotation for \"kept\" (hint: \"kept: list[<type>] = ...\")"
-    },
-    {
-      "path": "lu_machinery/ai_agent_bridge/_model.py",
-      "code": "no-any-return",
-      "message": "Returning Any from function declared to return \"None | str\""
     },
     {
       "path": "lu_machinery/ai_agent_bridge/_opencode.py",
@@ -1291,16 +1211,6 @@
       "path": "lu_machinery/ai_agent_bridge/monitor_client.py",
       "code": "var-annotated",
       "message": "Need type annotation for \"context\""
-    },
-    {
-      "path": "lu_machinery/ai_agent_bridge/openai_proxy.py",
-      "code": "no-redef",
-      "message": "Name \"run_headless_claude\" already defined (possibly by an import)"
-    },
-    {
-      "path": "lu_machinery/ai_agent_bridge/openai_proxy.py",
-      "code": "no-redef",
-      "message": "Name \"run_version_probe\" already defined (possibly by an import)"
     },
     {
       "path": "lu_machinery/api/claude_account_usage.py",

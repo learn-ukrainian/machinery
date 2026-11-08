@@ -45,14 +45,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-try:
-    from lu_machinery.lib.readonly_sqlite import open_readonly
-except ModuleNotFoundError as exc:
-    if exc.name != Path(os.path.abspath(__file__)).parents[1].name:
-        raise
-    from lib.readonly_sqlite import open_readonly  # type: ignore[no-redef]
-
 from lu_machinery.common.jsonl import jsonl_lines as split_jsonl_lines
+from lu_machinery.lib.readonly_sqlite import open_readonly
 
 from . import _config
 from ._ask_contract import (
@@ -1204,10 +1198,6 @@ def _run_opencode(
     pass an out-of-repo directory so a tool-using model's stray relative
     writes land outside the checkout (#4642 second leak path).
     """
-    # Relative import: script-path invocation (python scripts/ai_agent_bridge/
-    # __main__.py, the documented form) puts scripts/ on sys.path, so the
-    # package is `ai_agent_bridge` — an absolute `scripts.` self-import breaks
-    # every opencode-routed lane there (#4473 regression).
     from .routing_guard import assert_model_routing_allowed
 
     assert_model_routing_allowed(model, context="opencode transport (_run_opencode)")

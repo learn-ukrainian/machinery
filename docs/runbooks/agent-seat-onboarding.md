@@ -106,7 +106,7 @@ handoff creates a competing authority.
 The dispatcher removes each task's own worktree when the task settles and records
 `worktree_disposition` in the task record; a retained tree names its reason. After GitHub
 reports an exact-head PR as `MERGED`, run
-`.venv/bin/python -m lu_machinery.orchestration.merge_closeout <PR> --apply` from the primary
+`.venv/bin/python -m lu_machinery.orchestration.merge_closeout <PR> --repo <owner/name> --repo-root <checkout> --apply` from the primary
 checkout. Remove a leftover worktree only with
 `.venv/bin/python -m lu_machinery.orchestration.worktree_claims remove <path> --owner-task-id <id> --reason '<why>'`,
 following [the worktree-cleanup runbook](worktree-cleanup.md); never use raw `git worktree remove`.

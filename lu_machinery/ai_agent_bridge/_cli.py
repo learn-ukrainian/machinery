@@ -9,12 +9,12 @@ import sys
 from datetime import UTC, datetime
 from pathlib import Path
 
-from agent_runtime import usage as runtime_usage
-from agent_runtime.adapters.kimi import KIMI_BRIDGE_DEFAULT_MODEL
-from agent_runtime.attribution import resolve_invocation_attribution
-from agent_runtime.errors import AgentTimeoutError, RateLimitedError
-from agent_runtime.kimi_admission import KimiAdmissionRefused
-from agent_runtime.runner import InterAgentTransportError
+from lu_machinery.agent_runtime import usage as runtime_usage
+from lu_machinery.agent_runtime.adapters.kimi import KIMI_BRIDGE_DEFAULT_MODEL
+from lu_machinery.agent_runtime.attribution import resolve_invocation_attribution
+from lu_machinery.agent_runtime.errors import AgentTimeoutError, RateLimitedError
+from lu_machinery.agent_runtime.kimi_admission import KimiAdmissionRefused
+from lu_machinery.agent_runtime.runner import InterAgentTransportError
 from lu_machinery.common import github_client
 from lu_machinery.common.repo_root import MachineryConfigError, product_root, state_root
 
@@ -517,9 +517,9 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
         epilog=(
             "Examples:\n"
-            f"  .venv/bin/python {BRIDGE_ENTRY} inbox --for gemini\n"
-            f"  .venv/bin/python {BRIDGE_ENTRY} ask-codex - --from claude --task-id query-123 < prompt.md\n"
-            f"  .venv/bin/python {BRIDGE_ENTRY} ask-claude - --type review --task-id review-123 < prompt.md\n\n"
+            f"  .venv/bin/python -m {BRIDGE_ENTRY} inbox --for gemini\n"
+            f"  .venv/bin/python -m {BRIDGE_ENTRY} ask-codex - --from claude --task-id query-123 < prompt.md\n"
+            f"  .venv/bin/python -m {BRIDGE_ENTRY} ask-claude - --type review --task-id review-123 < prompt.md\n\n"
             f"Authoring: {DISPATCH_ENTRY} dispatch --agent <agent> --model <model>\n"
             "  --mode workspace-write --owned-path <path> --prompt-file <brief>.\n\n"
             "Outputs:\n"
@@ -1878,7 +1878,7 @@ def _dispatch_headless_review(
     `dispatch.py wait` blocks for the terminal result — this is the reviewer
     seat other headless reviews already use. Never falls back to ACP.
     """
-    from agent_runtime.target_admission import ReviewAdmissionRefused
+    from lu_machinery.agent_runtime.target_admission import ReviewAdmissionRefused
 
     from ._acp_compat import require_compat_target
     from ._dispatch_wrappers import run_ask_review_dispatch
@@ -1997,7 +1997,7 @@ def _handle_ask_gemini(args):
 
 def _handle_slot_holder(args):
     """Handle slot-holder subcommand (read-only lease facts; nothing is delivered)."""
-    from agent_runtime.target_admission import describe_slot_holder
+    from lu_machinery.agent_runtime.target_admission import describe_slot_holder
 
     res = describe_slot_holder(args.slot)
     if getattr(args, "json", False):
@@ -2055,7 +2055,7 @@ def _kimi_request_error(args) -> str | None:
     ``-wal``/``-shm`` sidecars exactly as they were. A message already
     addressed to a Kimi seat or model is skipped by the drain after its read.
     """
-    from agent_runtime.acpx_discuss import AcpxDiscussionError, refuse_kimi_discussion
+    from lu_machinery.agent_runtime.acpx_discuss import AcpxDiscussionError, refuse_kimi_discussion
 
     from ._acp_compat import refuse_kimi_compat, refuse_kimi_recipients
     from ._channels_cli import _parse_agent_models, _parse_csv

@@ -1,14 +1,10 @@
 """GitHub integration: posting reviews to issues."""
 
-try:
-    from lu_machinery.opsec.prepublish import PublishBlocked
-    from lu_machinery.publish.github import Request, request_run
-except ModuleNotFoundError:
-    from opsec.prepublish import PublishBlocked
-    from publish.github import Request, request_run
 import subprocess
 
-from secret_redactor import redact_text
+from lu_machinery.opsec.prepublish import PublishBlocked
+from lu_machinery.publish.github import Request, request_run
+from lu_machinery.secret_redactor import redact_text
 
 from ._config import GH_CHAR_LIMIT
 

@@ -8,12 +8,12 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from secret_redactor import redact_text, redact_value
+from lu_machinery.secret_redactor import redact_text, redact_value
 
 from ._db import get_db
 
 if TYPE_CHECKING:
-    from agent_runtime.target_admission import AdmittedTarget
+    from lu_machinery.agent_runtime.target_admission import AdmittedTarget
 
 
 def check_inbox(for_llm: str = "gemini"):
@@ -28,7 +28,7 @@ def check_inbox(for_llm: str = "gemini"):
 
     for_llm = resolve_recipient_alias(for_llm)
     try:
-        from agent_runtime.agent_identity import seat_read_aliases
+        from lu_machinery.agent_identity import seat_read_aliases
 
         recipients = seat_read_aliases(for_llm) or (for_llm,)
     except Exception:
@@ -142,8 +142,8 @@ def send_message(content: str, task_id: str | None = None, msg_type: str = "resp
     the ``data`` one), raises ``KimiAdmissionRefused`` before the sidecar or
     any broker connection.
     """
-    from agent_runtime.kimi_admission import BRIDGE_MODE
-    from agent_runtime.target_admission import resolve_and_admit
+    from lu_machinery.agent_runtime.kimi_admission import BRIDGE_MODE
+    from lu_machinery.agent_runtime.target_admission import resolve_and_admit
 
     (target,) = resolve_and_admit((to_llm,), mode=BRIDGE_MODE, model=to_model, attachments=(data,))
     return _insert_message(
@@ -174,8 +174,8 @@ def _insert_message(
     quiet: bool,
 ):
     """Store one bridge message for the admitted ``target`` (sidecar, row, notification)."""
-    from agent_runtime.kimi_admission import attachment_metadata
-    from agent_runtime.target_admission import require_admitted
+    from lu_machinery.agent_runtime.kimi_admission import attachment_metadata
+    from lu_machinery.agent_runtime.target_admission import require_admitted
 
     target = require_admitted(target)
     to_llm, to_model = target.recipient, target.model
@@ -338,7 +338,7 @@ def acknowledge_all(for_llm: str, *, consumed_by_live_driver: bool = False):
 
     for_llm = resolve_recipient_alias(for_llm)
     try:
-        from agent_runtime.agent_identity import seat_read_aliases
+        from lu_machinery.agent_identity import seat_read_aliases
 
         recipients = seat_read_aliases(for_llm) or (for_llm,)
     except Exception:
