@@ -266,14 +266,12 @@ callers on their existing contracts. Historical write-workflow callers require
 the owning track's implementation dispatch before execution; do not reinterpret
 a successful conversation as completed file edits.
 
-Legacy Python provider functions, bare bridge `send`/`ack`/processing commands,
-the old MCP broker server, and `lu_machinery/tools/agent_watcher.py` still contain
-legacy mutation paths. The channel CLI's authority-mode refusal does not prove
+Legacy Python provider functions, bare bridge `send`/`ack`/processing commands
+and the old MCP broker server still contain legacy mutation paths. The channel CLI's authority-mode refusal does not prove
 those other entry points are read-only. They are not a Fleet fallback. Their
 runtime use and migration disposition remain part of the accountable driver's
 caller inventory; do not infer inactivity from HTTP route counts or retire them
-from a source search alone. This task does not authorize starting the watcher,
-enabling the old MCP server, or running retention helpers such as `bin/services`
+from a source search alone. This task does not authorize enabling the old MCP server, or running retention helpers such as `bin/services`
 queue cleanup.
 
 The canonical read-only home for zombie, batch-progress, and broker-health

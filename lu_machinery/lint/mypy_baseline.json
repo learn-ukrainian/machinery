@@ -10093,21 +10093,6 @@
       "message": "Incompatible return value type (got \"dict[str, int]\", expected \"dict[str, None | int]\")"
     },
     {
-      "path": "lu_machinery/tools/agent_watcher.py",
-      "code": "arg-type",
-      "message": "Argument 4 to \"notify_human\" has incompatible type \"None | str\"; expected \"str\""
-    },
-    {
-      "path": "lu_machinery/tools/agent_watcher.py",
-      "code": "no-any-return",
-      "message": "Returning Any from function declared to return \"int\""
-    },
-    {
-      "path": "lu_machinery/tools/agent_watcher.py",
-      "code": "return-value",
-      "message": "Incompatible return value type (got \"None\", expected \"int\")"
-    },
-    {
       "path": "lu_machinery/verify_review.py",
       "code": "arg-type",
       "message": "Argument 1 to \"_run\" has incompatible type \"Request\"; expected \"list[str]\""

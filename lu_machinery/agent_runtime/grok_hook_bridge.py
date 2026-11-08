@@ -104,7 +104,7 @@ def main() -> int:
         translated["tool_input"].setdefault("cwd", payload.get("cwd"))
         result = subprocess.run(argv, input=json.dumps(translated), text=True, check=False, timeout=10)
         return 0 if result.returncode == 0 else 2
-    except (OSError, ValueError, TypeError, subprocess.TimeoutExpired) as exc:
+    except (ImportError, OSError, ValueError, TypeError, subprocess.TimeoutExpired) as exc:
         detail = f": {exc}" if isinstance(exc, GuardInvocationError) else ""
         print(f"BLOCKED by grok reviewer hook bridge: {type(exc).__name__}{detail}.", file=sys.stderr)
         return 2

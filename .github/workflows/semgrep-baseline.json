@@ -370,26 +370,6 @@
    "sha256": "8096e6328afd3c887763bf2e210fd18cb823fa39eb7e8e294d202cf2f572a204"
   },
   {
-   "path": "lu_machinery/tools/agent_watcher.py",
-   "rule": "python.lang.best-practice.arbitrary-sleep",
-   "sha256": "5126d3da0ff3a755d9a5bfca379dd1dd9cd11c5d0342675d4805221b589a08ed"
-  },
-  {
-   "path": "lu_machinery/tools/agent_watcher.py",
-   "rule": "python.lang.best-practice.arbitrary-sleep",
-   "sha256": "5126d3da0ff3a755d9a5bfca379dd1dd9cd11c5d0342675d4805221b589a08ed"
-  },
-  {
-   "path": "lu_machinery/tools/agent_watcher.py",
-   "rule": "python.lang.best-practice.arbitrary-sleep",
-   "sha256": "d35c96985e2b14dcff7faa660d366e576654fc7735b3710ba9a898af4e14820f"
-  },
-  {
-   "path": "lu_machinery/tools/agent_watcher.py",
-   "rule": "python.lang.best-practice.arbitrary-sleep",
-   "sha256": "e6b0ca03beb2841ce4058c932c218635df65e0ebdd27824ff4308eefd6c9f45d"
-  },
-  {
    "path": "lu_machinery/api/preload.py",
    "rule": "python.lang.best-practice.logging-error-without-handling",
    "sha256": "68b058b71e7612ba27a0f2df8d1261ae03b67886a3752c947a37e0b7651595d8"
@@ -418,16 +398,6 @@
    "path": "lu_machinery/dispatcher/store.py",
    "rule": "python.lang.best-practice.unspecified-open-encoding",
    "sha256": "2a642c5c987dc0ca60cd5bebac103ebd6b3a9950c94606c0b4c377f3b062b0ce"
-  },
-  {
-   "path": "lu_machinery/tools/agent_watcher.py",
-   "rule": "python.lang.best-practice.unspecified-open-encoding",
-   "sha256": "41521991beb26293ae5817e72859ba649afb3d0145ea8488cba63b1b619cd39e"
-  },
-  {
-   "path": "lu_machinery/tools/agent_watcher.py",
-   "rule": "python.lang.best-practice.unspecified-open-encoding",
-   "sha256": "96e2a047c9dc301b266d4eed040d08aece6b20ee80c16b76498a6b476ef89790"
   },
   {
    "path": "lu_machinery/tools/analyze_dead_code.py",
@@ -2058,11 +2028,6 @@
    "path": "lu_machinery/storage/cli.py",
    "rule": "python.lang.security.audit.dangerous-subprocess-use-audit",
    "sha256": "579b2a8038e853a069c312e4a07f53302caba968d5c9229b60b5e9f2b7348c07"
-  },
-  {
-   "path": "lu_machinery/tools/agent_watcher.py",
-   "rule": "python.lang.security.audit.dangerous-subprocess-use-audit",
-   "sha256": "71e16cdd6a3e9889ef6653ca881387fe4581afbeee0dcb7ba1f28b682e0c8958"
   },
   {
    "path": "lu_machinery/tools/coverage_report.py",

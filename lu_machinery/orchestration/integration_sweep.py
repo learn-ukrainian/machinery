@@ -57,7 +57,7 @@ from typing import Any
 from lu_machinery.ci.advisory_checks import is_advisory, load_advisory_checks
 from lu_machinery.ci.deploy_paths import load_deploy_paths
 from lu_machinery.common.github_client import GitHubRateLimited, timer
-from lu_machinery.common.repo_root import MachineryConfigError
+from lu_machinery.common.repo_root import MachineryConfigError, product_root
 from lu_machinery.github_check_rollup import group_collapsed_by_name
 from lu_machinery.publish.github import CF_VERDICT_MARKER_PREFIX, Request, request_run
 from lu_machinery.review.language_lane import is_ukrainian_review
@@ -1252,15 +1252,14 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument(
         "--repo-root",
         type=Path,
-        default=Path.cwd(),
-        help="Checkout used for GitHub commands, e.g. . (default: current working directory)",
+        help="Checkout used for GitHub commands, e.g. . (default: the configured product checkout)",
     )
     args = parser.parse_args(argv)
     if args.apply:
         print("integration sweep refused: --apply is retired; this sweep is report-only")
         return 2
     try:
-        rows = run(GitHubAdapter(args.repo_root), args.repo)
+        rows = run(GitHubAdapter(args.repo_root or product_root()), args.repo)
     except (SweepError, MachineryConfigError) as exc:
         print(f"integration sweep refused: {exc}")
         return 1

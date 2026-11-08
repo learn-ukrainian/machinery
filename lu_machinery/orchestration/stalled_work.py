@@ -20,7 +20,7 @@ from typing import Any
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from lu_machinery.common.repo_root import state_root
+from lu_machinery.common.repo_root import MachineryConfigError, state_root
 from lu_machinery.common.task_store_paths import tasks_dir as default_tasks_dir
 from lu_machinery.fleet.ignored_task_output import succession_streams
 from lu_machinery.fleet_comms.authority import AuthorityService
@@ -352,7 +352,6 @@ Related: #11212; docs/runbooks/stalled-work.md; stale_task_records.py
     parser.add_argument(
         "--tasks-dir",
         type=Path,
-        default=default_tasks_dir(),
         help="Task store, default shared batch_state/tasks; example: ./fixture-tasks",
     )
     parser.add_argument(
@@ -372,10 +371,14 @@ Related: #11212; docs/runbooks/stalled-work.md; stale_task_records.py
     parser.add_argument(
         "--state-file",
         type=Path,
-        default=default_tasks_dir().parent / "stalled-work" / "cadence.json",
         help="Tick checkpoint, default shared batch_state/stalled-work/cadence.json; example: ./cadence.json",
     )
     args = parser.parse_args(argv)
+    try:
+        args.tasks_dir = args.tasks_dir or default_tasks_dir()
+        args.state_file = args.state_file or default_tasks_dir().parent / "stalled-work" / "cadence.json"
+    except MachineryConfigError as exc:
+        parser.error(str(exc))
     if args.cadence_minutes <= 0:
         parser.error("cadence must be positive")
     enabled = os.environ.get("LU_STALLED_WORK_ROUTE_ENABLED", "0")
