@@ -24,14 +24,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
-# The machinery package's directory name, which is also its import name and the first component
-# of its files' checkout paths. Taken from this file's unresolved location, so neither a short
-# import spelling nor a symlinked directory changes it.
-_MACHINERY = Path(os.path.abspath(__file__)).parents[1].name
-if str(REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT))
-
+from lu_machinery.common.repo_root import MachineryConfigError, product_root
 from lu_machinery.ops.context_guard import TelemetryUnavailable, Tmux
 from lu_machinery.ops.driver_lanes import (
     EXIT_MARKER,
@@ -45,6 +38,10 @@ from lu_machinery.ops.driver_lanes import (
     load_registry,
     relaunch_order,
 )
+
+# The machinery package's directory name, which is also its import name. Taken from this file's
+# unresolved location, so a short import spelling does not change it.
+_MACHINERY = Path(os.path.abspath(__file__)).parents[1].name
 
 EXIT_RE = re.compile(re.escape(EXIT_MARKER) + r"(\d+)")
 DEFAULT_SETTLE_S = 20
@@ -135,7 +132,7 @@ def main(argv: list[str] | None = None) -> int:
         epilog=(
             "Examples:\n"
             f"  .venv/bin/python -m {_MACHINERY}.ops.lane_relaunch --dry-run\n"
-            f"  .venv/bin/python {_MACHINERY}/ops/lane_relaunch.py\n"
+            f"  .venv/bin/python -m {_MACHINERY}.ops.lane_relaunch\n"
             "Outputs: --dry-run prints the JSON plan (session, command, cwd, env keys without values) and\n"
             "  starts nothing; otherwise creates detached tmux sessions and prints one JSON outcome per lane.\n"
             "Exit codes: 0 every lane exists or started; 1 invalid lane data; 2 invalid arguments;\n"
@@ -162,6 +159,11 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
     try:
+        repo = product_root()
+    except MachineryConfigError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+    try:
         registry = load_registry(args.data)
         local = load_local_config(default_local_config_path())
     except LaneConfigError as exc:
@@ -170,7 +172,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.dry_run:
         entries = [
             {"session": lane.session, "refused": str(plan)} if isinstance(plan, LaneConfigError) else plan.describe()
-            for lane, plan in plans(registry, REPO_ROOT, local)
+            for lane, plan in plans(registry, repo, local)
         ]
         print(json.dumps(entries, indent=1))
         return 0
@@ -180,7 +182,7 @@ def main(argv: list[str] | None = None) -> int:
 
     outcomes = relaunch(
         registry,
-        repo_root=REPO_ROOT,
+        repo_root=repo,
         tmux=Tmux(),
         local=local,
         log=log,

@@ -5,6 +5,8 @@ After=learn-ukrainian-api.socket learn-ukrainian-sources.service learn-ukrainian
 [Service]
 Type=oneshot
 WorkingDirectory=@REPO_ROOT@
+Environment=LEARN_UKRAINIAN_PRIMARY_REPO_ROOT=@REPO_ROOT@
+Environment=LU_PRODUCT_ROOT=@REPO_ROOT@
 Environment=PYTHONUNBUFFERED=1
 Environment=LANG=C.UTF-8
 # The tmux server and every lane inherit this PATH; Codex lanes put the shims first (#10814).
