@@ -192,7 +192,7 @@ _PRODUCT_RULES = frozenset(
 def source_path(rel: str, root: Path | None = None) -> Path:
     """Fleet resources come from the release; product rules use the selected product."""
     try:
-        if rel in _PRODUCT_RULES or not rel.startswith("agents_extensions/shared/"):
+        if rel in _PRODUCT_RULES or not Path(rel).is_relative_to("agents_extensions/shared"):
             return product_root(root) / rel
         return machinery_path(rel)
     except (ProductRootError, OSError, ValueError, RuntimeError) as exc:

@@ -126,7 +126,7 @@ def test_checkout_dependent_resource_resolution(release):
     addendum.parent.mkdir(parents=True)
     addendum.write_text("# Selected product curriculum\n", encoding="utf-8")
     script = """
-import hashlib, json, sys
+import hashlib, json, os, sys
 from lu_machinery.lib import rules_core as r
 scopes = ("core", "task:repo-change", "task:review", "task:driver")
 result = {}
@@ -135,6 +135,12 @@ for scope in scopes:
     result[scope] = {"sha256": hashlib.sha256(r.assemble(sources).encode()).hexdigest(),
                      "origins": [str(r.source_path(s).resolve()) for s in sources]}
 result["content"] = r.core_text("content", root=__import__("pathlib").Path(sys.argv[1]))
+result["shared_without_product"] = str(r.source_path("agents_extensions/shared").resolve())
+os.environ["LU_PRODUCT_ROOT"] = sys.argv[1]
+result["shared_with_product"] = str(r.source_path("agents_extensions/shared").resolve())
+result["core_with_product"] = r.core_text()
+result["shell"] = str(__import__("pathlib").Path(r.__file__).with_suffix(".sh"))
+os.environ.pop("LU_PRODUCT_ROOT")
 try:
     r.core_text("content")
 except r.RulesCoreMissing:
@@ -170,6 +176,47 @@ print(json.dumps(result))
     core = (REPO / SHARED / "rules/core.md").read_text().rstrip() + "\n"
     assert data["content"] == core + "\n\n---\n\n# Selected product curriculum\n"
     assert data["no_product"] == "refused"
+    assert data["shared_with_product"] == data["shared_without_product"]
+    assert Path(data["shared_without_product"]).is_relative_to(executable.parent.parent)
+    assert data["core_with_product"] == core
+    expected_block = (
+        f'<rules-core seat="core" sha256="{hashlib.sha256(core.encode()).hexdigest()}">\n{core}</rules-core>'
+    )
+    shell_env = {**env, "TMPDIR": str(scratch / "shell-tmp")}
+    Path(shell_env["TMPDIR"]).mkdir()
+    helper = scratch / "launcher-helper"
+    helper.mkdir()
+    (helper / ".venv").symlink_to(executable.parent.parent, target_is_directory=True)
+    shell_script = r"""if [ "$3" = launcher ]; then
+  source "${1%rules_core.sh}launcher_core.sh"
+  LC_DURABLE_HELPER_ROOT="$4"
+  LC_MODE=worker LC_PROVIDER=claude LC_DRY_RUN=0
+  launcher_load_rules_core
+else
+  source "$1"
+  rules_core_load "$2" "" claude || exit 1
+fi
+case "$3" in
+  block|launcher) printf '%s' "$LC_RULES_CORE" ;;
+  toml) rules_core_toml "$2" ;;
+  kimi) rules_core_kimi_agent_file "$2" ;;
+esac
+"""
+    for rendering in ("block", "toml", "kimi", "launcher"):
+        shell = _run(
+            ["bash", "-c", shell_script, "rules-shell", data["shell"], str(executable), rendering, str(helper)],
+            cwd=scratch,
+            env=shell_env,
+        )
+        assert shell.returncode == 0, shell.stdout + shell.stderr
+        if rendering in {"block", "launcher"}:
+            assert shell.stdout == expected_block
+        elif rendering == "toml":
+            assert tomllib.loads("value = " + shell.stdout)["value"] == expected_block
+        else:
+            agent = Path(shell.stdout.strip()).read_text()
+            assert "${base_prompt}\n\n" in agent
+            assert agent.endswith(expected_block + "\n")
 
 
 def test_missing_resource_admission_bypass(release):
