@@ -4,14 +4,14 @@
 # check in this source repository.
 #
 # Bootstrap CI for the first push. Branch protection requires one check named
-# "CI Gate", and the merge queue ruleset waits for that check on merge groups,
-# so this workflow runs on pull_request and merge_group for main. Pins and their
+# "CI Gate", and the merge queue ruleset waits for that check on merge groups.
+# Main pushes also run it to seed shared, verified tool archives. Pins and their
 # upstream evidence are recorded in pins.txt beside this file; bump them
 # together there.
 #
 # - Jobs: Ruff over lu_machinery/ with the source repository's Ruff version and
 #   lint settings (the extracted tree has no Ruff configuration yet); compileall
-#   of lu_machinery on the pinned Python; actionlint (with a pinned ShellCheck) and zizmor (offline) over
+#   of lu_machinery on Python 3.12; actionlint (with a pinned ShellCheck) and zizmor (offline) over
 #   .github/workflows/; the TruffleHog secret scan and the Semgrep SAST scan.
 #   The secret-scan and sast jobs below are the only definition of each scan
 #   for the machinery repository.
@@ -43,6 +43,9 @@
 name: CI Gate
 
 on:
+  # Main-scope archives are visible to future PR and merge-queue refs.
+  push:
+    branches: [main]
   pull_request:
     branches: [main]
     types: [opened, synchronize, reopened]
@@ -55,18 +58,26 @@ permissions:
   contents: read
 
 concurrency:
-  group: ci-gate-${{ github.event.pull_request.number || github.ref }}
+  group: ci-gate-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
+# setup-python prefers the runner tool cache with check-latest disabled. The
+# previous patch pins mirrored a source environment, not a patch-specific check.
+# CPython 3.12 wheels and compileall work across 3.12 patch releases.
+# Cache only verified release archives, never venvs or repository build outputs.
+# Fork PRs restore only. No prefix restore keys.
 env:
-  PYTHON_VERSION: "3.12.15"
+  PYTHON_VERSION: "3.12"
   RUFF_VERSION: "0.15.21"
   ZIZMOR_VERSION: "1.31.1"
   ACTIONLINT_VERSION: "1.7.12"
+  ACTIONLINT_RELEASE_ASSET_ID: "384924896"
   ACTIONLINT_LINUX_AMD64_SHA256: 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
   SHELLCHECK_VERSION: "0.11.0"
+  SHELLCHECK_RELEASE_ASSET_ID: "336391469"
   SHELLCHECK_LINUX_X86_64_SHA256: b7af85e41cc99489dcc21d66c6d5f3685138f06d34651e6d34b42ec6d54fe6f6
   TRUFFLEHOG_VERSION: "3.99.0"
+  TRUFFLEHOG_RELEASE_ASSET_ID: "616256576"
   TRUFFLEHOG_LINUX_AMD64_SHA256: e35ae3fd1e4b7a0c1699d0fda1814282bf906d03379bd4337b092b3a84c6740b
   SEMGREP_VERSION: "1.183.0"
   SEMGREP_RULES_COMMIT: 16b9e6d45f10649f6a531ec4838ed9924372c3bc
@@ -83,7 +94,8 @@ jobs:
 
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
-          python-version: "3.12.15"
+          python-version: ${{ env.PYTHON_VERSION }}
+          check-latest: false
 
       - name: Install Ruff (hash-pinned wheel)
         run: |
@@ -146,7 +158,7 @@ jobs:
           "$ruff" check --no-cache --config "$config" --output-format=github lu_machinery
 
   compileall:
-    name: Compile (Python 3.12.15)
+    name: Compile (Python 3.12)
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -156,13 +168,15 @@ jobs:
 
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
-          python-version: "3.12.15"
+          python-version: ${{ env.PYTHON_VERSION }}
+          check-latest: false
 
       - name: Compile lu_machinery
         run: |
           set -euo pipefail
           reported="$(python -I -c 'import platform; print(platform.python_version())')"
-          if [ "$reported" != "$PYTHON_VERSION" ]; then
+          minor="$(python -I -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')"
+          if [ "$minor" != "$PYTHON_VERSION" ]; then
             echo "::error::Expected Python ${PYTHON_VERSION}, got: ${reported}"
             exit 1
           fi
@@ -202,38 +216,45 @@ jobs:
   actionlint:
     name: actionlint
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
-      - name: Install actionlint and ShellCheck (pinned, checksum-verified)
+      - name: Restore verified actionlint
+        uses: ./.github/actions/cached-release-tool # zizmor: ignore[self-repository] -- actionlint 1.7.12 does not support $/ syntax.
+        with:
+          tool: actionlint
+          version: ${{ env.ACTIONLINT_VERSION }}
+          sha256: ${{ env.ACTIONLINT_LINUX_AMD64_SHA256 }}
+          repository: rhysd/actionlint
+          asset-id: ${{ env.ACTIONLINT_RELEASE_ASSET_ID }}
+          token: ${{ github.token }}
+          member: actionlint
+
+      - name: Restore verified ShellCheck
+        uses: ./.github/actions/cached-release-tool # zizmor: ignore[self-repository] -- actionlint 1.7.12 does not support $/ syntax.
+        with:
+          tool: shellcheck
+          version: ${{ env.SHELLCHECK_VERSION }}
+          sha256: ${{ env.SHELLCHECK_LINUX_X86_64_SHA256 }}
+          repository: koalaman/shellcheck
+          asset-id: ${{ env.SHELLCHECK_RELEASE_ASSET_ID }}
+          token: ${{ github.token }}
+          member: shellcheck-v${{ env.SHELLCHECK_VERSION }}/shellcheck
+          strip-components: '1'
+
+      - name: Verify actionlint and ShellCheck versions
         run: |
           set -euo pipefail
           tool="$RUNNER_TEMP/actionlint"
-          rm -rf "$tool"
-          mkdir -p "$tool"
-          fetch() {
-            curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
-              --retry 3 --output "$1" "$2"
-          }
-          tarball="actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
-          fetch "$tool/$tarball" \
-            "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/$tarball"
-          printf '%s  %s\n' "$ACTIONLINT_LINUX_AMD64_SHA256" "$tool/$tarball" | sha256sum --check --strict
-          tar -xzf "$tool/$tarball" -C "$tool" actionlint
-          sc_tarball="shellcheck-v${SHELLCHECK_VERSION}.linux.x86_64.tar.gz"
-          fetch "$tool/$sc_tarball" \
-            "https://github.com/koalaman/shellcheck/releases/download/v${SHELLCHECK_VERSION}/$sc_tarball"
-          printf '%s  %s\n' "$SHELLCHECK_LINUX_X86_64_SHA256" "$tool/$sc_tarball" | sha256sum --check --strict
-          tar -xzf "$tool/$sc_tarball" -C "$tool" --strip-components=1 "shellcheck-v${SHELLCHECK_VERSION}/shellcheck"
           reported="$("$tool/actionlint" -version | head -n 1)"
           if [ "$reported" != "$ACTIONLINT_VERSION" ]; then
             echo "::error::Expected actionlint ${ACTIONLINT_VERSION}, got: ${reported}"
             exit 1
           fi
-          reported="$("$tool/shellcheck" --version | sed -n 's/^version: //p')"
+          reported="$("$RUNNER_TEMP/shellcheck/shellcheck" --version | sed -n 's/^version: //p')"
           if [ "$reported" != "$SHELLCHECK_VERSION" ]; then
             echo "::error::Expected shellcheck ${SHELLCHECK_VERSION}, got: ${reported}"
             exit 1
@@ -257,11 +278,23 @@ jobs:
           printf '  %s\n' "${files[@]}"
           # The pinned ShellCheck lints every run: script; pyflakes is disabled
           # so the result never depends on what the runner image ships.
-          "$tool/actionlint" -shellcheck="$tool/shellcheck" -pyflakes= "${files[@]}"
+          "$tool/actionlint" -shellcheck="$RUNNER_TEMP/shellcheck/shellcheck" -pyflakes= "${files[@]}"
+
+      - name: ShellCheck .github/ shell scripts
+        run: |
+          set -euo pipefail
+          mapfile -t scripts < <(find .github -type f -name '*.sh' | LC_ALL=C sort)
+          echo "ShellCheck inspects ${#scripts[@]} shell script(s)."
+          if [ "${#scripts[@]}" -eq 0 ]; then
+            echo "::error::.github/ holds no shell scripts; nothing would be checked"
+            exit 1
+          fi
+          printf '  %s\n' "${scripts[@]}"
+          "$RUNNER_TEMP/shellcheck/shellcheck" "${scripts[@]}"
 
       - name: Remove tools
         if: always()
-        run: rm -rf "$RUNNER_TEMP/actionlint"
+        run: rm -rf "$RUNNER_TEMP/actionlint" "$RUNNER_TEMP/shellcheck"
 
   zizmor:
     name: zizmor
@@ -274,7 +307,8 @@ jobs:
 
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
-          python-version: "3.12.15"
+          python-version: ${{ env.PYTHON_VERSION }}
+          check-latest: false
 
       - name: Install zizmor (hash-pinned wheel)
         run: |
@@ -296,7 +330,7 @@ jobs:
             exit 1
           fi
 
-      - name: zizmor .github/workflows/
+      - name: zizmor workflows and local actions
         run: |
           set -euo pipefail
           venv="$RUNNER_TEMP/zizmor-venv"
@@ -304,11 +338,11 @@ jobs:
             echo "::error::.github/workflows/ is missing; nothing would be audited"
             exit 1
           fi
-          mapfile -t files < <(find .github/workflows -maxdepth 1 -type f \
+          mapfile -t files < <(find .github/workflows .github/actions -type f \
             \( -name '*.yml' -o -name '*.yaml' \) | LC_ALL=C sort)
-          echo "zizmor audits ${#files[@]} workflow file(s) offline."
+          echo "zizmor audits ${#files[@]} workflow/action file(s) offline."
           if [ "${#files[@]}" -eq 0 ]; then
-            echo "::error::.github/workflows/ holds no workflow files"
+            echo "::error::.github/workflows/ holds no workflow/action files"
             exit 1
           fi
           printf '  %s\n' "${files[@]}"
@@ -324,7 +358,7 @@ jobs:
         run: rm -rf "$RUNNER_TEMP/zizmor" "$RUNNER_TEMP/zizmor-venv" "$RUNNER_TEMP/zizmor-requirements.txt"
 
   # Blocking secret scan with the pinned TruffleHog CLI (pins.txt).
-  # - pull_request and merge_group scan the commits between base and head;
+  # - pull_request, merge_group and main pushes scan the commits between base and head;
   #   workflow_dispatch scans the full history of the dispatched ref.
   # - Verified, unknown and unverified results are reported (pins.txt records
   #   why). Findings fail the job (exit 183), and so do scanner errors
@@ -347,20 +381,24 @@ jobs:
       # For the exclusion coverage check only; the scanner is a Go binary.
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
-          python-version: "3.12.15"
+          python-version: ${{ env.PYTHON_VERSION }}
+          check-latest: false
 
-      - name: Install TruffleHog (pinned, checksum-verified)
+      - name: Restore verified TruffleHog
+        uses: ./.github/actions/cached-release-tool # zizmor: ignore[self-repository] -- actionlint 1.7.12 does not support $/ syntax.
+        with:
+          tool: trufflehog
+          version: ${{ env.TRUFFLEHOG_VERSION }}
+          sha256: ${{ env.TRUFFLEHOG_LINUX_AMD64_SHA256 }}
+          repository: trufflesecurity/trufflehog
+          asset-id: ${{ env.TRUFFLEHOG_RELEASE_ASSET_ID }}
+          token: ${{ github.token }}
+          member: trufflehog
+
+      - name: Verify TruffleHog version
         run: |
           set -euo pipefail
           tool="$RUNNER_TEMP/trufflehog"
-          rm -rf "$tool"
-          mkdir -p "$tool"
-          tarball="trufflehog_${TRUFFLEHOG_VERSION}_linux_amd64.tar.gz"
-          curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
-            --retry 3 --output "$tool/$tarball" \
-            "https://github.com/trufflesecurity/trufflehog/releases/download/v${TRUFFLEHOG_VERSION}/$tarball"
-          printf '%s  %s\n' "$TRUFFLEHOG_LINUX_AMD64_SHA256" "$tool/$tarball" | sha256sum --check --strict
-          tar -xzf "$tool/$tarball" -C "$tool" trufflehog
           reported="$("$tool/trufflehog" --version 2>&1)"
           if [ "$reported" != "trufflehog ${TRUFFLEHOG_VERSION}" ]; then
             echo "::error::Expected trufflehog ${TRUFFLEHOG_VERSION}, got: ${reported}"
@@ -374,11 +412,14 @@ jobs:
           PR_HEAD: ${{ github.event.pull_request.head.sha }}
           MQ_BASE: ${{ github.event.merge_group.base_sha }}
           MQ_HEAD: ${{ github.event.merge_group.head_sha }}
+          PUSH_BASE: ${{ github.event.before }}
+          PUSH_HEAD: ${{ github.event.after }}
         run: |
           set -euo pipefail
           case "$EVENT_NAME" in
             pull_request) base="$PR_BASE"; head="$PR_HEAD" ;;
             merge_group) base="$MQ_BASE"; head="$MQ_HEAD" ;;
+            push) base="$PUSH_BASE"; head="$PUSH_HEAD" ;;
             workflow_dispatch) base=""; head="$(git rev-parse HEAD)" ;;
             *) echo "::error::Unsupported event ${EVENT_NAME}"; exit 1 ;;
           esac
@@ -566,12 +607,16 @@ jobs:
   #   empty rule directory fails the job.
   # - Diff-aware against .github/workflows/semgrep-baseline.json, the reviewed
   #   baseline of the first push (semgrep_baseline.py beside it): a finding not
-  #   in the baseline fails the job, and so does any scan error (parse failure
-  #   or timeout) in a file the change touches or without a path. A missing or
-  #   mismatched baseline or rules checkout, unparsable output, any exit other
-  #   than 0 or 1, and a scan that covered no Python file fail closed. Scan
-  #   errors in untouched files are warnings. --timeout 30 and --jobs 2 are
-  #   explicit; --strict is not used because the checker judges every error.
+  #   in the baseline fails the job, and so does a scan error without a path.
+  #   A scan error in a file the change touches passes only when each of its
+  #   spans lies on lines the PR diff leaves unchanged and the baseline records
+  #   the same error (path, error type, span text hash), at most as many times
+  #   as recorded; a timeout, an error without spans and any span on an added
+  #   or modified line fail. A missing or mismatched baseline or rules
+  #   checkout, unparsable output, any exit other than 0 or 1, and a scan that
+  #   covered no Python file fail closed. Scan errors in untouched files are
+  #   warnings. --timeout 30 and --jobs 2 are explicit; --strict is not used
+  #   because the checker judges every error.
   # - Exclusions: Semgrep's built-in ignore list applies while the repository
   #   has no .semgrepignore (it skips test/, tests/, vendor/, build/, dist/ and
   #   similar), and files over 1 MB are skipped (Semgrep's default
@@ -592,7 +637,8 @@ jobs:
 
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
-          python-version: "3.12.14"
+          python-version: ${{ env.PYTHON_VERSION }}
+          check-latest: false
 
       - name: Install Semgrep (hash-pinned wheels)
         run: |
@@ -778,6 +824,7 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           PR_BASE: ${{ github.event.pull_request.base.sha }}
           MQ_BASE: ${{ github.event.merge_group.base_sha }}
+          PUSH_BASE: ${{ github.event.before }}
         run: |
           set -euo pipefail
           rules="$RUNNER_TEMP/semgrep-rules"
@@ -852,6 +899,7 @@ jobs:
           case "$EVENT_NAME" in
             pull_request) base="$PR_BASE" ;;
             merge_group) base="$MQ_BASE" ;;
+            push) base="$PUSH_BASE" ;;
             workflow_dispatch) base="" ;;
             *) echo "::error::Unsupported event ${EVENT_NAME}"; exit 1 ;;
           esac
@@ -864,7 +912,7 @@ jobs:
             git diff -z --no-renames --name-only "$base" HEAD > "$work/changed"
           fi
           python -I -B "$checker" check --results "$results" --root . --rules-dir "$rules" \
-            --baseline "$baseline" --changed "$work/changed" \
+            --baseline "$baseline" --changed "$work/changed" --base "$base" \
             --semgrep-version "$SEMGREP_VERSION" --rules-commit "$SEMGREP_RULES_COMMIT" \
             --configs "${configs[*]}"
 
