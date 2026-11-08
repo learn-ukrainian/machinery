@@ -32,23 +32,14 @@ see ``resolve_slot_holder`` below for the current algorithm.
 
 from __future__ import annotations
 
-import os
 import sqlite3
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-try:
-    from lu_machinery.lib.readonly_sqlite import open_readonly
-except ModuleNotFoundError as exc:
-    # Only this package's own absence selects the short spelling; its name comes from this
-    # file's unresolved location (design-v1 amendment 1), never __package__.
-    if exc.name != Path(os.path.abspath(__file__)).parents[1].name:
-        raise
-    from lib.readonly_sqlite import open_readonly  # type: ignore[no-redef]
-
 from lu_machinery.common.repo_root import machinery_path, state_root
+from lu_machinery.lib.readonly_sqlite import open_readonly
 from lu_machinery.orchestration.fleet_taxonomy import (
     UnknownAreaError,
     resolve_area,

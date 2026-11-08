@@ -8,7 +8,6 @@ state DB.
 from __future__ import annotations
 
 import contextlib
-import os
 import re
 import sqlite3
 import time
@@ -19,15 +18,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-try:
-    from lu_machinery.lib.readonly_sqlite import SQLiteConnection, open_readonly
-except ModuleNotFoundError as exc:
-    # Only this package's own absence selects the short spelling; its name comes from this
-    # file's unresolved location (design-v1 amendment 1), never __package__.
-    if exc.name != Path(os.path.abspath(__file__)).parents[2].name:
-        raise
-    from lib.readonly_sqlite import SQLiteConnection, open_readonly  # type: ignore[no-redef]
-
+from lu_machinery.lib.readonly_sqlite import SQLiteConnection, open_readonly
 
 THREADS_TABLE = "threads"
 THREADS_REQUIRED_COLUMNS = frozenset({"id", "title", "cwd", "archived", "archived_at"})

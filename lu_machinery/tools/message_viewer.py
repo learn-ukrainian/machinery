@@ -9,7 +9,6 @@ Usage:
 
     Then open: http://localhost:5050
 """
-import os
 import sqlite3
 import sys
 from pathlib import Path
@@ -19,24 +18,9 @@ from flask import Flask, jsonify, render_template_string
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
-try:
-    from lu_machinery.common.bridge_paths import default_bridge_db_path
-    from lu_machinery.common.repo_root import state_root
-    from lu_machinery.lib.readonly_sqlite import open_readonly as _open_readonly
-except ModuleNotFoundError as exc:
-    # Script execution puts the script directory on sys.path, so the
-    # machinery package (named by this file's location) is absent. Any
-    # other import failure must propagate.
-    _scripts_dir = Path(os.path.abspath(__file__)).parents[1]
-    if exc.name != _scripts_dir.name:
-        raise
-    # lib.readonly_sqlite lives in that package directory, which file
-    # execution does not put on sys.path.
-    if str(_scripts_dir) not in sys.path:
-        sys.path.insert(0, str(_scripts_dir))
-    from common.bridge_paths import default_bridge_db_path  # type: ignore[no-redef]
-    from common.repo_root import state_root  # type: ignore[no-redef]
-    from lib.readonly_sqlite import open_readonly as _open_readonly  # type: ignore[no-redef]
+from lu_machinery.common.bridge_paths import default_bridge_db_path
+from lu_machinery.common.repo_root import state_root
+from lu_machinery.lib.readonly_sqlite import open_readonly as _open_readonly
 
 app = Flask(__name__)
 

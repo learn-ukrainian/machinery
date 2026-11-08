@@ -1572,10 +1572,7 @@ def _bundle_client(base_url: str, *, timeout_s: float = 3.0) -> Any:
     _review_worktree -> scripts.review.isolation) imports back from this very
     module — a circular import.
     """
-    try:
-        from lu_machinery.ai_agent_bridge.monitor_client import MonitorClient
-    except ImportError:
-        from ai_agent_bridge.monitor_client import MonitorClient
+    from lu_machinery.ai_agent_bridge.monitor_client import MonitorClient
     return MonitorClient(base_url=_bundle_monitor_url(base_url), timeout_s=timeout_s)
 
 

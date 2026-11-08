@@ -21,11 +21,11 @@ from pathlib import Path
 
 if __package__ and "." in __package__:
     from ..common.repo_root import product_root
-else:  # run by path or imported top-level: the resolver is in the package directory above this file
-    _PACKAGE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    if _PACKAGE_DIR not in sys.path:
-        sys.path.insert(0, _PACKAGE_DIR)
-    from common.repo_root import product_root  # type: ignore[no-redef]
+else:  # run by path: the install root (parent of this package) must be importable
+    _INSTALL_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    if _INSTALL_ROOT not in sys.path:
+        sys.path.insert(0, _INSTALL_ROOT)
+    from lu_machinery.common.repo_root import product_root  # type: ignore[no-redef]
 
 # Every path below is relative to the project a scan runs for: the deploying project
 # named by ``--project-root`` (the deploy gate, #12818), else the product checkout that

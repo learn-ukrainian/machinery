@@ -17,17 +17,9 @@ from typing import Any, Literal
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from lu_machinery.agent_runtime.accounting import recorded_model_accounting_fields
-from lu_machinery.orchestration.task_record_store import parse_task_record
-
-try:
-    from lu_machinery.lib.readonly_sqlite import SQLiteConnection
-except ModuleNotFoundError as exc:
-    if exc.name != Path(os.path.abspath(__file__)).parents[1].name:
-        raise
-    from lib.readonly_sqlite import SQLiteConnection  # type: ignore[no-redef]
-
+from lu_machinery.lib.readonly_sqlite import SQLiteConnection
 from lu_machinery.orchestration.task_record_store import ARCHIVE_DIR_NAME as TASK_ARCHIVE_DIR_NAME
-from lu_machinery.orchestration.task_record_store import iter_task_records
+from lu_machinery.orchestration.task_record_store import iter_task_records, parse_task_record
 from lu_machinery.orchestration.worktree_claims import RELEASED_TASK_STATUSES
 from lu_machinery.work.sources_public import public_repository_id
 

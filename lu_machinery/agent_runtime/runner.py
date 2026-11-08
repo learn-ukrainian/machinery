@@ -1013,23 +1013,14 @@ def _load_adapter(name: str, *, allow_direct_only: bool = False) -> AgentAdapter
         )
     module_path, class_name = dotted_path.split(":", 1)
 
-    # Try the registered dotted path first. If that fails and the path
-    # starts with the machinery package (which requires the repo root on sys.path,
-    # not just `scripts/`), fall back to the path without that prefix.
-    # This lets the runner work whether it's invoked via
-    # `python -m scripts.agent_runtime.runner` (repo root on path) or
-    # `python scripts/build/v6_build.py` (only scripts/ on path).
+    # The registry names the adapter under the machinery package. A short
+    # name would resolve to a consumer tree that happens to be on sys.path.
     module = None
     import_errors: list[str] = []
-    candidates = [module_path]
-    if module_path.startswith(f"{MACHINERY_PACKAGE}."):
-        candidates.append(module_path.removeprefix(f"{MACHINERY_PACKAGE}."))
-    for candidate in candidates:
-        try:
-            module = import_named_module(candidate)
-            break
-        except ImportError as exc:
-            import_errors.append(f"{candidate!r}: {exc}")
+    try:
+        module = import_named_module(module_path)
+    except ImportError as exc:
+        import_errors.append(f"{module_path!r}: {exc}")
     if module is None:
         raise AgentUnavailableError(
             f"Failed to import adapter for agent {name!r}. Tried: "
@@ -3041,21 +3032,14 @@ _WRITE_CWD_HINT = (
 def _load_worktree_containment():
     """Import the shared containment predicate (#4444).
 
-    Mirrors the dual-candidate import in :func:`_load_adapter`: the ``scripts.*``
-    name resolves when the repo root is on ``sys.path`` (``python -m ...`` /
-    pytest), while the delegate worker and build entrypoints put only
-    ``scripts/`` on the path, where the ``scripts.``-stripped name resolves.
-    Returns ``None`` only if neither import succeeds (a broken deployment).
+    The package name is the only candidate. A short name would resolve to a
+    consumer tree that happens to be on sys.path.
+    Returns ``None`` only if the import fails (a broken deployment).
     """
-    for candidate in (
-        "lu_machinery.guardrails.worktree_containment",
-        "guardrails.worktree_containment",
-    ):
-        try:
-            return import_named_module(candidate)
-        except ImportError:
-            continue
-    return None
+    try:
+        return import_named_module("lu_machinery.guardrails.worktree_containment")
+    except ImportError:
+        return None
 
 
 def _ensure_write_cwd_isolated(cwd: Path, *, mode: str, agent_name: str) -> None:

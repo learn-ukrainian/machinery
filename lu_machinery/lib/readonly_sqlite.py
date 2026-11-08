@@ -23,8 +23,13 @@ from urllib.parse import parse_qs, unquote, urlsplit
 
 try:
     from ..common.repo_root import machinery_path, machinery_root
-except ImportError:  # loaded as ``lib.readonly_sqlite``, with the package directory on sys.path
-    from common.repo_root import machinery_path, machinery_root  # type: ignore[no-redef]
+except ImportError:  # loaded by path: the install root, not the package directory, is the import anchor
+    import sys
+
+    _root = str(Path(__file__).resolve().parents[2])
+    if _root not in sys.path:
+        sys.path.insert(0, _root)
+    from lu_machinery.common.repo_root import machinery_path, machinery_root  # type: ignore[no-redef]
 
 
 class SQLiteConnection(Protocol):

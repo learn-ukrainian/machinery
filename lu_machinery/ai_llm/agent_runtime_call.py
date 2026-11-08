@@ -11,8 +11,8 @@ from typing import TypedDict
 from .fallback import AttemptRecord, AttemptStatus, CallResult, visible_sleep
 
 if __package__ == "ai_llm":  # the historical top-level alias, imported with scripts/ on sys.path
-    from agent_runtime import runner
-    from agent_runtime.errors import AgentRuntimeError, AgentTimeoutError, RateLimitedError
+    from lu_machinery.agent_runtime import runner
+    from lu_machinery.agent_runtime.errors import AgentRuntimeError, AgentTimeoutError, RateLimitedError
 else:
     from ..agent_runtime import runner  # type: ignore[no-redef]
     from ..agent_runtime.errors import (  # type: ignore[assignment]

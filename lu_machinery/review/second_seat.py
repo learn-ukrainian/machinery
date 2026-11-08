@@ -27,17 +27,9 @@ from typing import Any
 if __package__ in (None, ""):  # run as a file: put the repository root on sys.path
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-try:
-    from lu_machinery.lib.readonly_sqlite import SQLiteConnection
-except ModuleNotFoundError as exc:
-    # Only this package's own absence selects the short spelling; its name comes from this
-    # file's unresolved location (design-v1 amendment 1), never __package__.
-    if exc.name != Path(os.path.abspath(__file__)).parents[1].name:
-        raise
-    from lib.readonly_sqlite import SQLiteConnection  # type: ignore[no-redef]
-
 import yaml
 
+from lu_machinery.lib.readonly_sqlite import SQLiteConnection
 from lu_machinery.review import findings_db
 from lu_machinery.review.reviewer_resolver import UNRESOLVED_AUTHOR_FAMILIES, resolve_author_family
 

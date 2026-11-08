@@ -26,11 +26,11 @@ try:
     from lu_machinery.common.repo_root import MachineryConfigError, state_root
     from lu_machinery.path_safety import assert_delete_target
 except ImportError:  # pragma: no cover - direct file invocation
-    _SCRIPTS_DIR = Path(__file__).resolve().parents[1]
-    if str(_SCRIPTS_DIR) not in sys.path:
-        sys.path.insert(0, str(_SCRIPTS_DIR))
-    from common.repo_root import MachineryConfigError, state_root  # type: ignore[no-redef]
-    from path_safety import assert_delete_target  # type: ignore[no-redef]
+    _install_root = Path(__file__).resolve().parents[2]
+    if str(_install_root) not in sys.path:
+        sys.path.insert(0, str(_install_root))
+    from lu_machinery.common.repo_root import MachineryConfigError, state_root  # type: ignore[no-redef]
+    from lu_machinery.path_safety import assert_delete_target  # type: ignore[no-redef]
 
 SCHEMA = "codex.rollout-reconcile.v1"
 STATE_PATTERN = re.compile(r"state_[A-Za-z0-9][A-Za-z0-9._-]*\.sqlite\Z")

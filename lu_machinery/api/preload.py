@@ -9,18 +9,12 @@ rules (Monitor split, C-4687).
 from __future__ import annotations
 
 import logging
-import os
 import sqlite3
 import time
 from collections.abc import Sequence
 from pathlib import Path
 
-try:
-    from lu_machinery.lib.readonly_sqlite import import_named_module
-except ModuleNotFoundError as exc:
-    if exc.name != Path(os.path.abspath(__file__)).parents[1].name:
-        raise
-    from lib.readonly_sqlite import import_named_module  # type: ignore[no-redef]
+from lu_machinery.lib.readonly_sqlite import import_named_module
 
 logger = logging.getLogger("api.preload")
 
@@ -51,20 +45,13 @@ PRELOAD_MODULES = [
     "lu_machinery.orchestration",
     "lu_machinery.guardrails",
     "lu_machinery.hygiene.check_core_bare",
-    "hygiene.check_core_bare",
     "lu_machinery.hygiene.check_self_symlinks",
-    "hygiene.check_self_symlinks",
     "lu_machinery.hygiene.check_primary_integrity",
-    "hygiene.check_primary_integrity",
     "lu_machinery.hygiene.check_node_modules_integrity",
-    "hygiene.check_node_modules_integrity",
     "lu_machinery.hygiene.check_venv_integrity",
-    "hygiene.check_venv_integrity",
     "lu_machinery.hygiene.check_worktree_cleanup_integrity",
-    "hygiene.check_worktree_cleanup_integrity",
     "lu_machinery.hygiene.check_tmp_usability",
-    "hygiene.check_tmp_usability",
-    "agent_runtime.adapters.gemini",
+    "lu_machinery.agent_runtime.adapters.gemini",
     "lu_machinery.research.registry",
     "scripts.audit.check_research_registry",
 ]
@@ -102,7 +89,7 @@ def _walk_adapters_strategy() -> tuple[int, int, list[str]]:
         for path in sorted(adapters_dir.glob("*.py")):
             if path.stem in {"__init__", "base"} or path.stem.startswith("_"):
                 continue
-            module_name = f"agent_runtime.adapters.{path.stem}"
+            module_name = f"lu_machinery.agent_runtime.adapters.{path.stem}"
             try:
                 import_named_module(module_name)
                 pinned += 1

@@ -18,8 +18,14 @@ else:
 
     if __package__:
         from .orchestration import fleet_repos as _implementation
-    else:  # imported as a top-level module, with this file's directory on sys.path
-        from orchestration import fleet_repos as _implementation  # type: ignore[no-redef,attr-defined]
+    else:  # imported as a top-level module: the install root holds the package
+        import sys
+        from pathlib import Path
+
+        _root = str(Path(__file__).resolve().parents[1])
+        if _root not in sys.path:
+            sys.path.insert(0, _root)
+        from lu_machinery.orchestration import fleet_repos as _implementation  # type: ignore[no-redef,attr-defined]
 
     def __getattr__(name: str) -> Any:
         return getattr(_implementation, name)
