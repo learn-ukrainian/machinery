@@ -640,10 +640,7 @@ def _add_driver_identity(parser: argparse.ArgumentParser) -> None:
 
 def _resolve_default_host_id() -> str:
     """Return this process's resolved opaque host id, never the raw env string."""
-    try:
-        from lu_machinery.api.occupancy_local import resolve_launcher_host_id
-    except ImportError:
-        from api.occupancy_local import resolve_launcher_host_id
+    from lu_machinery.api.occupancy_local import resolve_launcher_host_id
     return resolve_launcher_host_id()
 
 

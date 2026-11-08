@@ -22,6 +22,7 @@ import signal
 import socket
 import stat
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -31,8 +32,6 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-
-from lu_machinery.common.repo_root import project_interpreter
 
 from .attempt_safe_read import (
     MAX_ATTEMPT_READ_BYTES as MAX_ATTEMPT_READ_BYTES,
@@ -1242,7 +1241,7 @@ def runtime_files(binary: Path) -> list[Path]:
         # Codex resolves an architecture-specific sibling package.
         if package.name == "codex" and package.parent.name == "@openai":
             roots.extend(p for p in package.parent.glob("codex-*") if (p / "package.json").is_file())
-    interpreter = project_interpreter().resolve(strict=True)
+    interpreter = Path(sys.executable).resolve(strict=True)
     roots.extend([interpreter, interpreter.parent.parent / "lib"])
     return roots
 
@@ -1326,7 +1325,7 @@ class AttemptBoundary:
             self.forwarder = self.write_root / "forwarder.py"
             self.forwarder.write_bytes(Path(__file__).with_name("attempt_forwarder.py").read_bytes())
             proxy_server = {
-                "command": str(project_interpreter().resolve(strict=True)),
+                "command": str(Path(sys.executable).resolve(strict=True)),
                 "args": [str(proxy), str(endpoint)],
             }
             proxy_config = self.write_root / "mcp.json"
@@ -1409,7 +1408,7 @@ class AttemptBoundary:
         if self.egress is None or not self.egress.thread.is_alive():
             raise ReviewIsolationError("attempt_egress_unavailable")
         argv = [
-            str(project_interpreter().resolve(strict=True)),
+            str(Path(sys.executable).resolve(strict=True)),
             str(self.forwarder),
             str(self.egress_endpoint),
             str(binary),

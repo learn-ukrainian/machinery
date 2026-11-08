@@ -11,7 +11,6 @@ import asyncio
 import json
 import logging
 import math
-import os
 import re
 import sqlite3
 from collections import Counter
@@ -24,13 +23,6 @@ from typing import Annotated, Any
 import psycopg
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import JSONResponse
-
-try:
-    from lu_machinery.lib.readonly_sqlite import SQLiteConnection, is_sqlite_connection, open_readonly
-except ModuleNotFoundError as exc:
-    if exc.name != Path(os.path.abspath(__file__)).parents[1].name:
-        raise
-    from lib.readonly_sqlite import SQLiteConnection, is_sqlite_connection, open_readonly  # type: ignore[no-redef]
 
 from lu_machinery.agent_runtime.accounting import recorded_model_accounting_fields
 from lu_machinery.common.repo_root import state_root
@@ -50,6 +42,7 @@ from lu_machinery.fleet_comms.legacy_broker_report import build_legacy_broker_re
 from lu_machinery.fleet_comms.message_plane import read_plane_status
 from lu_machinery.fleet_comms.migrations import MIGRATIONS
 from lu_machinery.fleet_comms.opsec_store import COMMS_RESPONSE_SCHEMA_VERSION
+from lu_machinery.lib.readonly_sqlite import SQLiteConnection, is_sqlite_connection, open_readonly
 
 from . import comms_router as legacy_comms
 from .monitor_context import MonitorContext, get_ctx, resolve_context

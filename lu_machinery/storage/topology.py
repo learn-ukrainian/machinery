@@ -626,6 +626,7 @@ def inspect_selector(selector: Path) -> SelectorState:
     return SelectorState("selector", "selector", directory / name)
 
 
+# Machinery binds one product per process (#100 R5): this cache keeps the first product_root().
 @functools.cache
 def live_store_path() -> Path:
     """The primary checkout's store path (selector, or the regular file before the bootstrap)."""

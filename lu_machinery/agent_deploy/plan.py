@@ -424,7 +424,10 @@ def build(tree: Tree) -> Plan:
                     if not any(isinstance(group, dict)
                                and {k: v for k, v in group.items() if k != "hooks"} == requirement["group"]
                                and group.get("enabled", True) is True and group.get("disabled", False) is False
-                               and hook in group.get("hooks", []) for group in groups_for_event):
+                               and any(isinstance(candidate, dict)
+                                       and {k: v for k, v in candidate.items() if k != "statusMessage"}
+                                       == {k: v for k, v in hook.items() if k != "statusMessage"}
+                                       for candidate in group.get("hooks", [])) for group in groups_for_event):
                         raise Invalid("missing mandatory hook delegator: " + config)
 
     # Local project settings can override mandatory hooks even when the file
@@ -509,7 +512,7 @@ def preflight(tree: Tree, plan: Plan, old: dict[str, Any], check: bool) -> list[
             expected = plan.files.get(full)
             if expected is not None:
                 if full not in old["files"] and actual != (expected.blob, expected.mode):
-                    raise Invalid("differing unowned output: " + full)
+                    raise Invalid("differing unowned output: " + full + "; see --help section: Recovery after an interrupted fresh apply followed by source edits")
             elif full not in old["files"]:
                 problems.append("unknown unowned output: " + full)
     for path, out in sorted(plan.files.items()):

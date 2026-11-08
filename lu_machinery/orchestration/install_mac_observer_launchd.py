@@ -74,7 +74,12 @@ def build_plist(
     runtime = state_dir(home)
     return {
         "Label": LABEL,
-        "EnvironmentVariables": {"PATH": LAUNCHD_PATH},
+        # The root anchors, as the systemd units set them: launchd passes no other environment.
+        "EnvironmentVariables": {
+            "PATH": LAUNCHD_PATH,
+            "LEARN_UKRAINIAN_PRIMARY_REPO_ROOT": str(repo_root),
+            "LU_PRODUCT_ROOT": str(repo_root),
+        },
         "LowPriorityIO": True,
         "ProcessType": "Background",
         "ProgramArguments": [

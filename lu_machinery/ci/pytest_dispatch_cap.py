@@ -52,14 +52,8 @@ from types import ModuleType
 import pytest
 
 from lu_machinery.common.repo_root import product_root
-
-try:
-    from lu_machinery.common.test_thread_caps import THREAD_CAPS
-    from lu_machinery.common.test_thread_caps import apply as apply_thread_caps
-except ImportError:
-    from common.test_thread_caps import THREAD_CAPS
-    from common.test_thread_caps import apply as apply_thread_caps
-
+from lu_machinery.common.test_thread_caps import THREAD_CAPS
+from lu_machinery.common.test_thread_caps import apply as apply_thread_caps
 
 DISPATCH_TASK_ENV = "LEARN_UKRAINIAN_DISPATCH_TASK_ID"
 LOCK_ENV = "LU_PYTEST_FULL_SUITE_LOCK"
@@ -315,10 +309,7 @@ def _reject_oversized_tx(early_config: pytest.Config) -> None:
 
 def _test_slots():
     """The host test-slot governor, from the repository root or, like this plugin, from ``scripts/``."""
-    try:
-        from lu_machinery.common import test_slots
-    except ImportError:
-        from common import test_slots  # type: ignore[no-redef]
+    from lu_machinery.common import test_slots
     return test_slots
 
 

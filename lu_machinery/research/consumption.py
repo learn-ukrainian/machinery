@@ -40,10 +40,7 @@ import os
 import re
 from typing import Any
 
-try:  # package-path tolerant, mirrors emit.py's own import guard
-    from lu_machinery.telemetry.emit import emit_event
-except ImportError:  # pragma: no cover - alternate import path
-    from telemetry.emit import emit_event
+from lu_machinery.telemetry.emit import emit_event
 
 # Event types (stable strings; consumers key on these).
 CONSUMED_EVENT = "research_record_consumed"

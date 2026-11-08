@@ -163,6 +163,7 @@ def _normalize_word(word: str) -> str:
 # ──────────────────────────────────────────────────────────────────────
 
 _caller_sources: ContextVar[object | None] = ContextVar("citation_sources_db", default=None)
+# Machinery binds one product per process (#100 R5): this cache keeps the first product_root().
 _REPOSITORY_SOURCES_DB: Path | None = None
 _LIKE_PATTERN_LIMIT = 50_000
 # Same high-confidence markers the product cleaner uses to drop a row.
@@ -303,6 +304,7 @@ def _esum_text_kept(text: object) -> bool:
     return not any(marker in body for marker in _ESUM_MOJIBAKE_MARKERS)
 
 
+# Machinery binds one product per process (#100 R5): this cache keeps the first product_root().
 _GARBLED_ESUM_CATALOG: dict[str, dict] | None = None
 _APOSTROPHE_TRANSLATION = str.maketrans({"’": "'", "ʼ": "'", "`": "'"})
 

@@ -24,10 +24,7 @@ from pathlib import Path
 from typing import Any
 
 # Dual-flavor import: delegate workers put only ``scripts/`` on sys.path.
-try:
-    from lu_machinery.common.git_context import sanitized_git_env
-except ImportError:  # scripts/ on sys.path (stripped flavor)
-    from common.git_context import sanitized_git_env  # type: ignore[no-redef]
+from lu_machinery.common.git_context import sanitized_git_env
 
 CANONICAL_MAIN_BRANCH = "main"
 DEFAULT_REMOTE = "origin"

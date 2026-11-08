@@ -7,6 +7,9 @@ lease, while checkout, title, upload and predecessor safeguards remain.
 from __future__ import annotations
 
 import json
+import os
+import subprocess
+import sys
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -505,3 +508,23 @@ def test_confirm_replacement_stream_uploads_with_parser_monitor_base_url(tmp_pat
     assert payload["bundle_upload"]["status"] == "uploaded"
     assert payload["bundle_upload"]["upload_seq"] == 9
     assert seen_base_urls == ["http://127.0.0.1:8767"]
+
+
+_REPO = Path(__file__).resolve().parents[2]
+
+
+@pytest.mark.parametrize(
+    "argv",
+    [
+        pytest.param([str(_REPO / "lu_machinery/orchestration/thread_handoff.py")], id="thread_handoff"),
+        pytest.param([str(_REPO / "lu_machinery/orchestration/rollover_registry_cli.py")], id="rollover_registry_cli"),
+        pytest.param(["-I", "-c", th.CLAUDEX_SUPERVISOR_BOOTSTRAP, str(_REPO)], id="claudex_supervisor"),
+    ],
+)
+def test_by_file_entrypoint_runs_without_pythonpath(tmp_path: Path, argv: list[str]):
+    """Defect class: a removed import bootstrap breaks the hooks and launchers that run these files by path."""
+    env = {key: value for key, value in os.environ.items() if key != "PYTHONPATH"}
+    result = subprocess.run(
+        [sys.executable, *argv, "--help"], cwd=tmp_path, env=env, capture_output=True, text=True, timeout=60
+    )
+    assert result.returncode == 0, result.stderr

@@ -19,15 +19,6 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-try:
-    from lu_machinery.lib.readonly_sqlite import open_readonly
-except ModuleNotFoundError as exc:
-    # Only this package's own absence selects the short spelling; its name comes from this
-    # file's unresolved location (design-v1 amendment 1), never __package__.
-    if exc.name != Path(os.path.abspath(__file__)).parents[1].name:
-        raise
-    from lib.readonly_sqlite import open_readonly  # type: ignore[no-redef]
-
 from lu_machinery.common import github_client
 from lu_machinery.control_plane.storage import StoreId, assert_component_supported
 from lu_machinery.control_plane.storage import connect as cp_connect
@@ -54,6 +45,7 @@ from lu_machinery.fleet_comms.opsec_store import (
     legacy_broker_store,
     session_streams_store,
 )
+from lu_machinery.lib.readonly_sqlite import open_readonly
 
 try:
     from lu_machinery.session_streams.db import (

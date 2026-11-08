@@ -29,6 +29,7 @@ from fastapi import APIRouter, Depends, Query, Request
 
 from lu_machinery.agent_identity import normalize_seat, seat_read_aliases
 from lu_machinery.agent_runtime.acp_health import probe_acp_health
+from lu_machinery.agent_runtime.usage import summarize_fleet_burn, summarize_lane_runtime
 from lu_machinery.common.repo_root import machinery_path, product_root, state_root
 from lu_machinery.fleet import capacity_pick, credit_lane
 from lu_machinery.fleet.reset_reserve import (
@@ -55,19 +56,10 @@ from .codexbar_usage import (
     trigger_background_refresh,
 )
 from .lane_health import LaneHealthScan, scan_lane_health
-from .project_state_store import REPORT_TTL_SECONDS, get_freshest_lane_usage
-from .runtime_router import summarize_runtime_usage
-from .subscription_usage import (
-    _api_account_cache_ttl_s,
-    compute_usage_pace,
-)
-
-try:
-    from agent_runtime.usage import summarize_fleet_burn, summarize_lane_runtime
-except ImportError:
-    from lu_machinery.agent_runtime.usage import summarize_fleet_burn, summarize_lane_runtime
 from .monitor_context import MonitorContext, get_ctx
+from .project_state_store import REPORT_TTL_SECONDS, get_freshest_lane_usage
 from .rules_router import rules_hash
+from .runtime_router import summarize_runtime_usage
 from .session_router import session_hash
 from .state_helpers import (
     cache_get_or_compute,
@@ -75,6 +67,10 @@ from .state_helpers import (
     cache_get_stored,
     ctx_scoped_ttl_key,
     schedule_cache_refresh,
+)
+from .subscription_usage import (
+    _api_account_cache_ttl_s,
+    compute_usage_pace,
 )
 from .telemetry.response import add_json_telemetry, session_id_from_request
 

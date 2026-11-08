@@ -1372,7 +1372,10 @@ def _run(arguments: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
     if __package__:
         from .test_thread_caps import apply
     else:
-        from test_thread_caps import apply
+        _root = str(Path(__file__).resolve().parents[2])
+        if _root not in sys.path:
+            sys.path.insert(0, _root)
+        from lu_machinery.common.test_thread_caps import apply
 
     env = apply(env)
     env[XDIST_AUTO_ENV] = str(hold.count if auto_cap is None else min(hold.count, auto_cap))
