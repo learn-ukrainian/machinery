@@ -22,8 +22,8 @@ from typing import Any
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from lu_machinery.ci._location import checkout_relative, module_name
-from lu_machinery.common.repo_root import product_root
+from lu_machinery.ci._location import module_name
+from lu_machinery.common.repo_root import machinery_root, product_root
 
 SIZE = 50
 BASELINE_MEMBERSHIP_SHA256 = "83b9115d8f86a96991ef0329d4f68bec2877fb2773b5765b4412e985b42e3272"
@@ -517,9 +517,9 @@ Related: docs/best-practices/pr20-measurement.md. Read the result fields before 
                 raise InputError("invalid premerge observation timestamp")
             product = product_root()
             source = subprocess.check_output(["git", "-C", str(product), "rev-parse", "HEAD"], text=True, timeout=30).strip()
-            for relative, path in ((checkout_relative("ci", "pr20_measurement.py").as_posix(), Path(__file__)),
-                                   (PROTOCOL, product / PROTOCOL)):
-                committed = subprocess.check_output(["git", "-C", str(product), "show", f"HEAD:{relative}"],
+            for repository, relative, path in ((machinery_root(), "./ci/pr20_measurement.py", Path(__file__)),
+                                               (product, PROTOCOL, product / PROTOCOL)):
+                committed = subprocess.check_output(["git", "-C", str(repository), "show", f"HEAD:{relative}"],
                                                     stderr=subprocess.DEVNULL, timeout=30)
                 if committed != path.read_bytes():
                     raise InputError("anchor requires the committed script and protocol")
