@@ -624,7 +624,7 @@ function renderSubscriptions(routing) {
   const inFlight = {...(routing.in_flight || {})};
   inFlight['codex:a'] = inFlight['codex:a'] ?? inFlight.codex;
   // Live subscription lanes only — retired gemini CLI / glm stay off the roster.
-  const subscriptionLanes = ['cursor', 'claude', 'codex:a', 'codex:b', 'grok', 'kimi', 'agy'];
+  const subscriptionLanes = ['cursor', 'claude', 'codex:a', 'codex:b', 'grok', 'agy'];
   const rows = subscriptionLanes
     .map(name => {
       const agent = resolveSubscriptionAgent(agents, name) || {};

@@ -57,7 +57,6 @@ _HANDOFF_SLOT_HELPERS = {
     "cursor": "handoff_identity_for_cursor_epic",
     "gemini": "handoff_identity_for_gemini_epic",
     "grok": "handoff_identity_for_grok_epic",
-    "kimi": "handoff_identity_for_kimi_epic",
 }
 # Print the slot for every launcher selector (registry keys, their infra.<key>
 # form, and the compatibility aliases passed as arguments) that resolves to the

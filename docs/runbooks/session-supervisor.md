@@ -567,4 +567,3 @@ PY
 - `lu_machinery/session_streams/hooks.py`
 - `lu_machinery/lib/session_supervisor.sh`
 - `docs/runbooks/grok-session-canary.md`
-- `docs/runbooks/kimi-orchestrator.md`

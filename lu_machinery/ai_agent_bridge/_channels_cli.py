@@ -86,7 +86,6 @@ def _cli_available_agent(agent: str) -> bool:
             "glm",
             "deepseek",
             "cursor",
-            "kimi",
         }
 
     try:

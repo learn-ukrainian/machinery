@@ -5,12 +5,11 @@ Every real launcher session enters a unique scope in the user manager's
 import or lease acquisition (#9624). That covers every driver route (normal,
 untrusted and governor), every interactive and compatibility wrapper
 (`start-claude.sh`, `start-codex.sh`, `start-gemini.sh`, `start-grok.sh`,
-`start-kimi.sh`, `start-kimicc.sh`, `start-glm.sh`, `start-glmcc.sh`) and
-`lu_machinery/start-bio-driver.sh`. Kimi wrappers refuse retired catalog ids and are
-not a usable lane (OO-58, #11327). Driver units are
+`start-glm.sh`, `start-glmcc.sh`) and
+`lu_machinery/start-bio-driver.sh`. Driver units are
 `lu-driver-<provider>-<lane>-<uuid>.scope`. Interactive units are
 `lu-interactive-<provider>-<label>-<uuid>.scope`, where the label names the
-invoked wrapper (`claude`, `codex`, `gemini`, `grok`, `kimi`, `kimicc`, `glm`,
+invoked wrapper (`claude`, `codex`, `gemini`, `grok`, `glm`,
 `glmcc` or `bio`), so a journal OOM record names the session's route.
 Interactive sessions get the same limits in the same slice as drivers; there is
 no separate sub-slice. Lease claim and renewal, rollover import, adapter
@@ -80,7 +79,7 @@ replays the wrapper the caller invoked, with the caller's arguments byte for
 byte. The wrapper is the invoked script itself, resolved inside the checkout and
 checked against the tracked allowlist in `driver_scope.sh`, never a name derived
 from the provider: `start-glmcc.sh` must not become `start-glm.sh`, which selects
-another route. Arguments a wrapper adds itself (the CTO lane, the kimicc harness,
+another route. Arguments a wrapper adds itself (the CTO lane,
 the bio agent) are kept out of the replayed arguments, so the replayed wrapper
 adds them exactly once.
 

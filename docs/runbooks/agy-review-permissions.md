@@ -283,7 +283,6 @@ Use the dispatch's prescribed shared interpreter as `PROJECT_PYTHON`.
   tests/agent_runtime/test_review_contract.py \
   tests/agent_runtime/test_claude_permissions.py \
   tests/agent_runtime/test_sources_read_only.py \
-  tests/agent_runtime/adapters/test_kimi_adapter.py \
   tests/review/test_template_admission.py \
   tests/review/test_attempt_artifact_binding.py \
   tests/agent_runtime/test_acpx_adapter.py \

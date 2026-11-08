@@ -34,7 +34,6 @@ _DEFAULT_AGENT_TIER = {
     "agy": "practical",
     "gemini": "practical",
     "grok": "practical",
-    "kimi": "practical",
     "deepseek": "heap",
     "glm": "practical",
     "qwen": "heap",

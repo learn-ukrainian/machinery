@@ -155,11 +155,6 @@
    "sha256": "8dba4bf8585a7d9c54e4f45910c2c546a802198656049bc894829ca1a2753cb0"
   },
   {
-   "path": "lu_machinery/lib/kimi_coding_oauth.py",
-   "rule": "generic.secrets.gitleaks.generic-api-key",
-   "sha256": "9a51d8fba526c54bf355205a99c8325ec07a056024515f826987cb2a042a13ac"
-  },
-  {
    "path": "lu_machinery/session_canary/glm_lane.py",
    "rule": "generic.secrets.gitleaks.generic-api-key",
    "sha256": "5ca7b324a5cbf5ce338e18fbf32e0e790da642cdce0c5ae82eca695bab318bd1"
@@ -2153,11 +2148,6 @@
    "path": "lu_machinery/goal_driver/stop_hook.py",
    "rule": "python.lang.security.audit.dynamic-urllib-use-detected",
    "sha256": "984c8905c6391a3b79afb50df6651ea85303b27080427838188e0e6e48b9a06b"
-  },
-  {
-   "path": "lu_machinery/lib/kimi_coding_oauth.py",
-   "rule": "python.lang.security.audit.dynamic-urllib-use-detected",
-   "sha256": "e06206c6ca06712e008b63f2efd54dfbc87252a608c06d98b459b4177036473e"
   },
   {
    "path": "lu_machinery/orchestration/handoff_ready.py",
