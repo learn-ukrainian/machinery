@@ -20,6 +20,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from lu_machinery.common.repo_root import state_root
+
 SCHEMA_VERSION = 1
 ACTIVE_STATUSES = {"planned", "queued", "running", "reviewing", "blocked"}
 TERMINAL_STATUSES = {"done", "closed", "cancelled", "failed", "timeout"}
@@ -55,7 +57,7 @@ class OwnershipConflictError(LedgerError):
 
 
 def repo_root_from_file() -> Path:
-    return Path(__file__).resolve().parents[2]
+    return state_root()
 
 
 def utc_now() -> datetime:
@@ -384,7 +386,7 @@ def _json_arg(raw: str | None) -> dict[str, Any] | None:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--repo-root", default=str(repo_root_from_file()))
+    parser.add_argument("--repo-root", default=None)
     sub = parser.add_subparsers(dest="command", required=True)
 
     upsert = sub.add_parser("upsert-task")
@@ -425,8 +427,8 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-    repo_root = Path(args.repo_root)
     try:
+        repo_root = Path(args.repo_root) if args.repo_root is not None else repo_root_from_file()
         if args.command == "upsert-task":
             payload = upsert_task(
                 repo_root,
@@ -462,7 +464,7 @@ def main(argv: list[str] | None = None) -> int:
     except OwnershipConflictError as exc:
         print(json.dumps({"error": "ownership_conflict", "conflicts": exc.conflicts}, indent=2))
         return 2
-    except LedgerError as exc:
+    except ValueError as exc:
         print(json.dumps({"error": str(exc)}, indent=2))
         return 2
     print(json.dumps(payload, indent=2, sort_keys=True))

@@ -8833,36 +8833,6 @@
       "message": "Name \"_lock_timeout_exit\" already defined on line 7501"
     },
     {
-      "path": "lu_machinery/orchestration/thread_handoff.py",
-      "code": "no-redef",
-      "message": "Name \"project_interpreter\" already defined (possibly by an import)"
-    },
-    {
-      "path": "lu_machinery/orchestration/thread_handoff.py",
-      "code": "no-redef",
-      "message": "Name \"task_family_advisory_lock\" already defined (possibly by an import)"
-    },
-    {
-      "path": "lu_machinery/orchestration/thread_handoff.py",
-      "code": "no-redef",
-      "message": "Name \"task_family_codex_state\" already defined (by an import)"
-    },
-    {
-      "path": "lu_machinery/orchestration/thread_handoff.py",
-      "code": "no-redef",
-      "message": "Name \"task_family_rollover\" already defined (by an import)"
-    },
-    {
-      "path": "lu_machinery/orchestration/thread_handoff.py",
-      "code": "no-redef",
-      "message": "Name \"task_family_rollover_registry\" already defined (by an import)"
-    },
-    {
-      "path": "lu_machinery/orchestration/thread_handoff.py",
-      "code": "no-redef",
-      "message": "Name \"task_identity\" already defined (by an import)"
-    },
-    {
       "path": "lu_machinery/orchestration/trail_runner.py",
       "code": "override",
       "message": "Return type \"None\" of \"error\" incompatible with return type \"Never\" in supertype \"argparse.ArgumentParser\""

@@ -39,44 +39,20 @@ from pathlib import Path
 from typing import Any, BinaryIO
 from urllib.parse import urlencode, urlparse
 
-# Script-by-path execution under the shared primary interpreter can expose the
-# primary checkout through a site-packages ``.pth`` file before this linked
-# worktree.  Prefer the code that is actually being executed without asking
-# callers to mutate PYTHONPATH.
-_LOCAL_REPO_ROOT = str(Path(__file__).resolve().parents[2])
-if _LOCAL_REPO_ROOT not in sys.path:
-    sys.path.insert(0, _LOCAL_REPO_ROOT)
+# Direct file-path callers need this checkout on the import path before installation.
+# This selects code only; product and shared-state roots remain explicitly configured.
+if not __package__:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-try:
-    from lu_machinery.common.repo_root import project_interpreter
-    from lu_machinery.orchestration import task_identity
-    from lu_machinery.orchestration.task_family import codex_state as task_family_codex_state
-    from lu_machinery.orchestration.task_family import rollover as task_family_rollover
-    from lu_machinery.orchestration.task_family import rollover_registry as task_family_rollover_registry
-    from lu_machinery.orchestration.task_family.storage import advisory_lock as task_family_advisory_lock
-except ImportError as exc:
-    # Two fallback-worthy shapes when running script-by-path (issue #6411):
-    #   1. ModuleNotFoundError naming this package (its directory name, from
-    #      this file's unresolved location, design-v1 amendment 1) — repo root
-    #      not on sys.path.
-    #   2. Plain ImportError "cannot import name … from 'scripts'" — a FOREIGN
-    #      `scripts` namespace package (e.g. a stray editable install's raw
-    #      .pth path) shadows this repo's package. The 2026-08-06 incident
-    #      crashed here and the SessionStart hook mislabeled the crash as a
-    #      lease conflict.
-    # A genuine missing submodule/dependency (ModuleNotFoundError for anything
-    # other than this package) still raises; so does any failure when running as a
-    # real package (-m from repo root).
-    if __package__ or (isinstance(exc, ModuleNotFoundError) and exc.name != Path(os.path.abspath(__file__)).parents[1].name):
-        raise
-    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-    import task_identity
-
-    from common.repo_root import project_interpreter
-    from orchestration.task_family import codex_state as task_family_codex_state
-    from orchestration.task_family import rollover as task_family_rollover
-    from orchestration.task_family import rollover_registry as task_family_rollover_registry
-    from orchestration.task_family.storage import advisory_lock as task_family_advisory_lock
+from lu_machinery.common import github_client
+from lu_machinery.common.repo_root import machinery_path, product_root
+from lu_machinery.common.repo_root import state_root as shared_state_root
+from lu_machinery.identity import KNOWN_HARNESS_EXECUTABLES
+from lu_machinery.orchestration import task_identity
+from lu_machinery.orchestration.task_family import codex_state as task_family_codex_state
+from lu_machinery.orchestration.task_family import rollover as task_family_rollover
+from lu_machinery.orchestration.task_family import rollover_registry as task_family_rollover_registry
+from lu_machinery.orchestration.task_family.storage import advisory_lock as task_family_advisory_lock
 
 SCHEMA_VERSION = 2
 DEFAULT_MONITOR_BASE_URL = "http://127.0.0.1:8765"
@@ -126,12 +102,6 @@ ROLLOVER_BUNDLE_DIGEST_FIELDS = (
 # Default warning threshold (percentage of window)
 DEFAULT_CONTEXT_THRESHOLD = 88.0
 THREAD_LEASE_SCHEMA_VERSION = 2
-# Executable basenames trusted as durable agent-driver harness processes. The
-# ancestor walk in _find_harness_ancestor stops at the nearest one of these; a
-# transient hook-launcher subshell is never mistaken for the long-lived owner.
-from lu_machinery.common import github_client
-from lu_machinery.identity import KNOWN_HARNESS_EXECUTABLES as KNOWN_HARNESS_EXECUTABLES
-
 # This package's import name, from the unresolved file location: never from __package__, which a
 # short import spelling (orchestration.x with scripts/ on sys.path) shortens. Its dotted parts
 # are also its directories in checkout-relative paths.
@@ -158,43 +128,25 @@ class CommandResult:
 
 
 def repo_root_from_file() -> Path:
-    return Path(__file__).resolve().parents[2]
+    return product_root()
 
 
 def canonical_state_root(repo_root: Path) -> Path:
-    """Find the primary checkout that owns shared rollover runtime state.
-
-    Linked worktrees have their own working-tree root but share Git's common
-    directory, which lives at ``<primary-checkout>/.git``.  Rollover leases
-    must be visible to every worktree in that repository, so default state is
-    rooted at the primary checkout rather than the invoking worktree.
-    """
-    result = run_command(
-        ["git", "rev-parse", "--path-format=absolute", "--git-common-dir"],
-        cwd=repo_root,
-        env=git_environment(),
-    )
-    if result.returncode != 0 or not result.stdout:
-        detail = result.stderr or result.stdout or "git did not report a common directory"
-        raise ValueError(f"cannot discover canonical Git common directory: {detail}")
-    common_dir = Path(result.stdout)
-    if not common_dir.is_absolute() or common_dir.name != ".git":
-        raise ValueError(f"cannot derive canonical checkout root from Git common directory: {result.stdout!r}")
-    return common_dir.parent.resolve()
+    """Return the configured shared-state root; repo_root is the in-tree start hint."""
+    return shared_state_root(repo_root)
 
 
 def resolve_roots(repo_root_arg: Path | None) -> tuple[Path, Path]:
     """Return the active checkout and the root that owns rollover runtime state.
 
-    An explicit ``--repo-root`` deliberately keeps fixtures and isolated
-    operator invocations self-contained.  The default requires canonical Git
-    discovery and never falls back to a worktree-local ``.agent`` directory.
+    An explicit ``--repo-root`` keeps isolated invocations self-contained.
+    Otherwise the product and shared-state anchors are resolved independently.
     """
     if repo_root_arg is not None:
         repo_root = repo_root_arg.resolve()
         return repo_root, repo_root
     repo_root = repo_root_from_file().resolve()
-    return repo_root, canonical_state_root(repo_root)
+    return repo_root, shared_state_root()
 
 
 def normalize_agent_name(value: str | None) -> str:
@@ -3264,11 +3216,10 @@ def request_claudex_rollover(
     if not isinstance(rollover_id, str):
         raise ValueError("prepared rollover id is malformed")
 
-    supervisor_script = Path(__file__).with_name("claudex_supervisor.py")
     result = run_command(
         [
-            os.fspath(project_interpreter(repo_root)),
-            os.fspath(supervisor_script),
+            sys.executable,
+            os.fspath(machinery_path("orchestration/claudex_supervisor.py")),
             "request-rollover",
             "--state-root",
             os.fspath(state_root),
@@ -3796,10 +3747,6 @@ def resolve_handoff_policy(context_threshold: float) -> tuple[float, int, str, s
     Official statusline observations win over the declared launcher profile. A
     missing or untrusted route has no denominator; it must never inherit 1M.
     """
-    project_root = Path(__file__).resolve().parents[2]
-    if str(project_root) not in sys.path:
-        sys.path.insert(0, str(project_root))
-
     from lu_machinery.lib.context_profiles import resolve_profile
     from lu_machinery.lib.session_record import read_record
 

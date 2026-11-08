@@ -262,8 +262,8 @@ def _matches_release_pin(worktree: Path, relative: Path, pin: tuple[int, str]) -
         os.close(root_fd)
 
 
-# #10519: the issue-stream audit's refresh sidecars (scripts/orchestration/
-# issue_stream_audit.py REFRESH_STATE_PATH / REFRESH_LOCK_PATH) are runtime
+# #10519: the issue-stream audit's refresh_sidecar_paths() returns runtime
+# sidecars in orchestration/issue_stream_audit.py. These are shared runtime
 # state that the next audit run rewrites. Older audit runs wrote them into the
 # invoking checkout; exactly these two root-level names are regenerable. The
 # size bound keeps unrelated output that merely reuses a name from vanishing.
