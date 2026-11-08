@@ -280,13 +280,15 @@ def _guard_agent_definition(
     payload consumed by the existing guards. ``promptMode`` stays at its
     default (extend), so the body is appended to the base system prompt.
     """
-    from lu_machinery.common.repo_root import machinery_path
+    from lu_machinery.common.repo_root import machinery_path, project_interpreter
 
     from .claude import _worker_guard_settings
 
     wrapper = machinery_path("agent_runtime/grok_hook_bridge.py")
     if not wrapper.is_file():
         raise RuntimeError(f"Grok hook bridge unavailable: {wrapper}")
+    # Launched through the interpreter: an installed package has no execute bit on the bridge.
+    launcher = shlex.join([str(project_interpreter(Path(__file__).resolve().parents[3])), str(wrapper)])
     groups = json.loads(_worker_guard_settings(publish_guard=publish_guard))["hooks"]["PreToolUse"]
     lines = [
         "---",
@@ -299,7 +301,7 @@ def _guard_agent_definition(
         matcher = _grok_matcher(str(group["matcher"]), native_aliases=native_aliases)
         lines.extend([f"    - matcher: {json.dumps(matcher)}", "      hooks:"])
         for hook in group["hooks"]:
-            command = f"{shlex.quote(str(wrapper))} {shlex.quote(hook['command'])}"
+            command = f"{launcher} {shlex.quote(hook['command'])}"
             lines.extend(
                 [
                     "        - type: command",
