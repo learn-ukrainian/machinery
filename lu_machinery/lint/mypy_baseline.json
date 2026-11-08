@@ -58,11 +58,6 @@
       "message": "Generator has incompatible item type \"int | str\"; expected \"bool\""
     },
     {
-      "path": "lu_machinery/agent_runtime/acpx_discuss.py",
-      "code": "no-any-return",
-      "message": "Returning Any from function declared to return \"str\""
-    },
-    {
       "path": "lu_machinery/agent_runtime/adapters/_output_schema.py",
       "code": "return-value",
       "message": "Incompatible return value type (got \"object\", expected \"None | dict[str, Any]\")"
@@ -611,11 +606,6 @@
       "path": "lu_machinery/agent_runtime/runner.py",
       "code": "assignment",
       "message": "Incompatible types in assignment (expression has type \"None | int\", variable has type \"int\")"
-    },
-    {
-      "path": "lu_machinery/agent_runtime/runner.py",
-      "code": "assignment",
-      "message": "Incompatible types in assignment (expression has type \"None | str\", variable has type \"str\")"
     },
     {
       "path": "lu_machinery/agent_runtime/runner.py",
@@ -2501,11 +2491,6 @@
       "path": "lu_machinery/api/state_router.py",
       "code": "misc",
       "message": "\"object\" object is not iterable"
-    },
-    {
-      "path": "lu_machinery/api/state_router.py",
-      "code": "no-any-return",
-      "message": "Returning Any from function declared to return \"None | str\""
     },
     {
       "path": "lu_machinery/api/state_router.py",
@@ -6459,21 +6444,6 @@
     },
     {
       "path": "lu_machinery/fleet_comms/artifacts.py",
-      "code": "attr-defined",
-      "message": "Module has no attribute \"record_sources_invocation_from_typed_outcome\""
-    },
-    {
-      "path": "lu_machinery/fleet_comms/artifacts.py",
-      "code": "attr-defined",
-      "message": "Module has no attribute \"resolve_execution_observation\""
-    },
-    {
-      "path": "lu_machinery/fleet_comms/artifacts.py",
-      "code": "attr-defined",
-      "message": "Module has no attribute \"resolve_sources_invocation\""
-    },
-    {
-      "path": "lu_machinery/fleet_comms/artifacts.py",
       "code": "index",
       "message": "Value of type \"None | Row\" is not indexable"
     },
@@ -6491,21 +6461,6 @@
       "path": "lu_machinery/fleet_comms/artifacts.py",
       "code": "no-any-return",
       "message": "Returning Any from function declared to return \"None | Row\""
-    },
-    {
-      "path": "lu_machinery/fleet_comms/artifacts.py",
-      "code": "no-any-return",
-      "message": "Returning Any from function declared to return \"None | dict[str, Any]\""
-    },
-    {
-      "path": "lu_machinery/fleet_comms/artifacts.py",
-      "code": "no-any-return",
-      "message": "Returning Any from function declared to return \"None | dict[str, Any]\""
-    },
-    {
-      "path": "lu_machinery/fleet_comms/artifacts.py",
-      "code": "no-any-return",
-      "message": "Returning Any from function declared to return \"None | dict[str, Any]\""
     },
     {
       "path": "lu_machinery/fleet_comms/artifacts.py",
@@ -6794,148 +6749,8 @@
     },
     {
       "path": "lu_machinery/fleet_comms/request_executor.py",
-      "code": "attr-defined",
-      "message": "Module has no attribute \"AUTHOR_PROMPT_PROFILE\""
-    },
-    {
-      "path": "lu_machinery/fleet_comms/request_executor.py",
-      "code": "attr-defined",
-      "message": "Module has no attribute \"REVIEWER_PROMPT_PROFILE\""
-    },
-    {
-      "path": "lu_machinery/fleet_comms/request_executor.py",
-      "code": "attr-defined",
-      "message": "Module has no attribute \"build_author_prompt\""
-    },
-    {
-      "path": "lu_machinery/fleet_comms/request_executor.py",
-      "code": "attr-defined",
-      "message": "Module has no attribute \"build_author_prompt\""
-    },
-    {
-      "path": "lu_machinery/fleet_comms/request_executor.py",
-      "code": "attr-defined",
-      "message": "Module has no attribute \"build_reviewer_prompt\""
-    },
-    {
-      "path": "lu_machinery/fleet_comms/request_executor.py",
-      "code": "attr-defined",
-      "message": "Module has no attribute \"build_reviewer_prompt\""
-    },
-    {
-      "path": "lu_machinery/fleet_comms/request_executor.py",
-      "code": "attr-defined",
-      "message": "Module has no attribute \"derive_harness\""
-    },
-    {
-      "path": "lu_machinery/fleet_comms/request_executor.py",
-      "code": "attr-defined",
-      "message": "Module has no attribute \"derive_harness\""
-    },
-    {
-      "path": "lu_machinery/fleet_comms/request_executor.py",
-      "code": "attr-defined",
-      "message": "Module has no attribute \"load_a3_packet_commitment\""
-    },
-    {
-      "path": "lu_machinery/fleet_comms/request_executor.py",
-      "code": "attr-defined",
-      "message": "Module has no attribute \"load_a3_packet_commitment\""
-    },
-    {
-      "path": "lu_machinery/fleet_comms/request_executor.py",
-      "code": "attr-defined",
-      "message": "Module has no attribute \"load_frozen_slot\""
-    },
-    {
-      "path": "lu_machinery/fleet_comms/request_executor.py",
-      "code": "attr-defined",
-      "message": "Module has no attribute \"load_review_rubric_sha256\""
-    },
-    {
-      "path": "lu_machinery/fleet_comms/request_executor.py",
-      "code": "attr-defined",
-      "message": "Module has no attribute \"mint_capability_token\""
-    },
-    {
-      "path": "lu_machinery/fleet_comms/request_executor.py",
-      "code": "attr-defined",
-      "message": "Module has no attribute \"new_attempt_id\""
-    },
-    {
-      "path": "lu_machinery/fleet_comms/request_executor.py",
-      "code": "attr-defined",
-      "message": "Module has no attribute \"new_task_run_ids\""
-    },
-    {
-      "path": "lu_machinery/fleet_comms/request_executor.py",
-      "code": "attr-defined",
-      "message": "Module has no attribute \"new_task_run_ids\""
-    },
-    {
-      "path": "lu_machinery/fleet_comms/request_executor.py",
-      "code": "attr-defined",
-      "message": "Module has no attribute \"persist_authorship_receipt\""
-    },
-    {
-      "path": "lu_machinery/fleet_comms/request_executor.py",
-      "code": "attr-defined",
-      "message": "Module has no attribute \"prompt_digest\""
-    },
-    {
-      "path": "lu_machinery/fleet_comms/request_executor.py",
-      "code": "attr-defined",
-      "message": "Module has no attribute \"prompt_digest\""
-    },
-    {
-      "path": "lu_machinery/fleet_comms/request_executor.py",
-      "code": "attr-defined",
-      "message": "Module has no attribute \"prompt_digest\""
-    },
-    {
-      "path": "lu_machinery/fleet_comms/request_executor.py",
-      "code": "attr-defined",
-      "message": "Module has no attribute \"record_execution_attempt\""
-    },
-    {
-      "path": "lu_machinery/fleet_comms/request_executor.py",
-      "code": "attr-defined",
-      "message": "Module has no attribute \"record_execution_dispatch_binding\""
-    },
-    {
-      "path": "lu_machinery/fleet_comms/request_executor.py",
-      "code": "attr-defined",
-      "message": "Module has no attribute \"record_execution_dispatch_binding\""
-    },
-    {
-      "path": "lu_machinery/fleet_comms/request_executor.py",
-      "code": "attr-defined",
-      "message": "Module has no attribute \"resolve_authorship_receipt\""
-    },
-    {
-      "path": "lu_machinery/fleet_comms/request_executor.py",
-      "code": "attr-defined",
-      "message": "Module has no attribute \"resolve_execution_dispatch_binding\""
-    },
-    {
-      "path": "lu_machinery/fleet_comms/request_executor.py",
-      "code": "attr-defined",
-      "message": "Module has no attribute \"resolve_execution_dispatch_binding\""
-    },
-    {
-      "path": "lu_machinery/fleet_comms/request_executor.py",
-      "code": "no-any-return",
-      "message": "Returning Any from function declared to return \"None | dict[str, Any]\""
-    },
-    {
-      "path": "lu_machinery/fleet_comms/request_executor.py",
       "code": "no-any-return",
       "message": "Returning Any from function declared to return \"bool\""
-    },
-    {
-      "path": "lu_machinery/fleet_comms/request_executor.py",
-      "code": "no-any-return",
-      "message": "Returning Any from function declared to return \"str\""
     },
     {
       "path": "lu_machinery/fleet_comms/request_executor.py",
@@ -9640,11 +9455,6 @@
     {
       "path": "lu_machinery/review/record_cf_verdict.py",
       "code": "assignment",
-      "message": "Incompatible types in assignment (expression has type \"tuple[Any | None, ...]\", variable has type \"tuple[()] | tuple[Any, Any, Any | None] | tuple[str]\")"
-    },
-    {
-      "path": "lu_machinery/review/record_cf_verdict.py",
-      "code": "assignment",
       "message": "Incompatible types in assignment (expression has type \"tuple[dict[str, Any], ...]\", variable has type \"tuple[()]\")"
     },
     {
@@ -9710,22 +9520,7 @@
     {
       "path": "lu_machinery/review/record_cf_verdict.py",
       "code": "no-any-return",
-      "message": "Returning Any from function declared to return \"frozenset[str]\""
-    },
-    {
-      "path": "lu_machinery/review/record_cf_verdict.py",
-      "code": "no-any-return",
       "message": "Returning Any from function declared to return \"int\""
-    },
-    {
-      "path": "lu_machinery/review/record_cf_verdict.py",
-      "code": "no-any-return",
-      "message": "Returning Any from function declared to return \"str\""
-    },
-    {
-      "path": "lu_machinery/review/record_cf_verdict.py",
-      "code": "no-any-return",
-      "message": "Returning Any from function declared to return \"str\""
     },
     {
       "path": "lu_machinery/review/record_cf_verdict.py",
@@ -9996,11 +9791,6 @@
       "path": "lu_machinery/review/second_seat.py",
       "code": "no-any-return",
       "message": "Returning Any from function declared to return \"None | Row\""
-    },
-    {
-      "path": "lu_machinery/review/second_seat.py",
-      "code": "no-any-return",
-      "message": "Returning Any from function declared to return \"str\""
     },
     {
       "path": "lu_machinery/review/seeds/manifest.py",
