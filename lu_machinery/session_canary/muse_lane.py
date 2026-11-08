@@ -12,13 +12,13 @@ from pathlib import Path
 
 from agents_extensions.shared.session_streams.inventory import stream_anchor_id
 from lu_machinery.common.epic_selector import validate_epic
+from lu_machinery.common.repo_root import state_root
 from lu_machinery.orchestration.launcher_aliases import load_launcher_aliases
 from lu_machinery.session_canary import grok_lane
 
 # This package's import name, as ``python -m`` names its modules (derived once, in grok_lane).
 _PACKAGE = grok_lane._PACKAGE
 
-ROOT = Path(__file__).resolve().parents[2]
 MODEL = "muse-wonder-full-1.0"
 
 
@@ -35,7 +35,7 @@ def build_parser() -> argparse.ArgumentParser:
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    parser.add_argument("--repo", type=Path, default=ROOT, help="Checkout root; default is this module's checkout")
+    parser.add_argument("--repo", type=Path, default=None, help="State root; default is the shared-state anchor")
     subparsers = parser.add_subparsers(dest="command", required=True)
     mint = subparsers.add_parser("mint", help="Freeze ten durable admitted-stream recall anchors")
     mint.add_argument("--epic", required=True, help="devops or monitor, including their supported launcher aliases")
@@ -69,6 +69,8 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
+        if args.repo is None:
+            args.repo = state_root()
         args.epic = load_launcher_aliases().get(args.epic, args.epic)
         validate_epic(args.epic)
         from lu_machinery.lib.rules_core import resolve_seat
@@ -78,7 +80,7 @@ def main(argv: list[str] | None = None) -> int:
             raise ValueError("MUSE_STREAM_NOT_ADMITTED")
         if resolve_driver_agent_type(args.epic, provider="muse") != "infra-orchestrator":
             raise ValueError("MUSE_LANE_CLASSIFICATION_UNKNOWN")
-        expected = stream_anchor_id(args.epic, ROOT)
+        expected = stream_anchor_id(args.epic, state_root())
         if args.stream not in {None, expected}:
             raise ValueError("MUSE_STREAM_NOT_ADMITTED")
         args.stream = expected
