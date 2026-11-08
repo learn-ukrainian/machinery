@@ -6749,6 +6749,11 @@
     },
     {
       "path": "lu_machinery/fleet_comms/request_executor.py",
+      "code": "attr-defined",
+      "message": "Module has no attribute \"load_frozen_slot\""
+    },
+    {
+      "path": "lu_machinery/fleet_comms/request_executor.py",
       "code": "no-any-return",
       "message": "Returning Any from function declared to return \"bool\""
     },
