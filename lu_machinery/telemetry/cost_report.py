@@ -7,7 +7,6 @@ import argparse
 import json
 import logging
 import re
-import sys
 from collections import Counter, defaultdict
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
@@ -18,16 +17,9 @@ from typing import Any
 
 import yaml
 
-# Keep the standalone script entrypoint able to import the shared runtime reader.
-PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
-if str(PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(PROJECT_ROOT))
-
 from lu_machinery.agent_runtime.usage import _iter_usage_records
-from lu_machinery.common.repo_root import machinery_path
+from lu_machinery.common.repo_root import machinery_path, product_root, state_root
 
-CURRICULUM_ROOT = PROJECT_ROOT / "curriculum" / "l2-uk-en"
-API_USAGE_DIR = PROJECT_ROOT / "batch_state" / "api_usage"
 COST_RATES_PATH = machinery_path("telemetry/cost_rates.yaml")
 DEFAULT_DIVISOR = 3.8
 PROMPT_BLOAT_THRESHOLD = 30_000
@@ -175,7 +167,7 @@ def _iter_dispatch_meta_files(
     level: str | None = None,
     slug: str | None = None,
 ) -> Iterable[Path]:
-    curriculum_root = root or CURRICULUM_ROOT
+    curriculum_root = root or product_root() / "curriculum" / "l2-uk-en"
     level_part = level or "*"
     slug_part = slug or "*"
     pattern = f"{level_part}/orchestration/{slug_part}/dispatch/*-meta.json"
@@ -289,7 +281,7 @@ def count_runtime_calls(
     slight superset of the cost window's exact N*24h mtime cutoff.
     """
     counts = unreadable if unreadable is not None else {"files": 0, "lines": 0, "records": 0}
-    directory = usage_dir or API_USAGE_DIR
+    directory = usage_dir or state_root() / "batch_state" / "api_usage"
     if not directory.exists():
         return 0
     today = (now or datetime.now(UTC)).date()

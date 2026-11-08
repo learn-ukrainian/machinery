@@ -55,10 +55,7 @@ except ModuleNotFoundError as exc:
 
 from lu_machinery.agent_identity import RETIRED_AGENT_ALIASES
 
-try:
-    from lu_machinery.common.repo_root import main_checkout_root
-except ImportError:  # pragma: no cover - package import path
-    from common.repo_root import main_checkout_root
+from lu_machinery.common.repo_root import state_root
 
 # Rate-limit window in seconds. History:
 #   2026-04-09: 5 hours (way too long; one false 429 nuked 5 hours of build)
@@ -152,9 +149,7 @@ def _usage_dir() -> Path:
     # All linked worktrees share the primary checkout's runtime-state plane so
     # the Monitor API sees one fleet-wide usage stream and cross-process pilot
     # locks/idempotency checks cannot split by worktree (#5171, #6063).
-    source_repo_root = Path(__file__).resolve().parents[2]
-    repo_root = main_checkout_root(source_repo_root)
-    path = repo_root / "batch_state" / "api_usage"
+    path = state_root() / "batch_state" / "api_usage"
     path.mkdir(parents=True, exist_ok=True)
     return path
 
