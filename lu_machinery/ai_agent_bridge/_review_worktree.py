@@ -32,11 +32,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-# Bootstrap repo root for scripts.* imports (same pattern as _config.py).
-_REPO_ROOT = Path(__file__).resolve().parents[2]
-if str(_REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(_REPO_ROOT))
-
 from lu_machinery.common import github_client
 from lu_machinery.common.repo_root import project_interpreter
 from lu_machinery.orchestration.task_identity import DEFAULT_REPOSITORY

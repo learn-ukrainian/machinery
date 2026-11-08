@@ -247,23 +247,22 @@ launcher_project_python() {
 # Apply launcher-control and credential cleanup only inside the child process.
 # The supervisor keeps its inputs for scope re-entry and successor replay.
 launcher_drop_unneeded_secrets() {
-  local py sanitizer variable
+  local py variable
   LC_CHILD_ENV_COMMAND=(/usr/bin/env)
   while IFS= read -r -d '' variable; do
     case "$variable" in
       LAUNCHER_*=*) LC_CHILD_ENV_COMMAND+=(-u "${variable%%=*}") ;;
     esac
   done < <(/usr/bin/env -0)
-  sanitizer="$LC_MACHINERY_DIR/agent_runtime/env_sanitize.py"
   py="${LC_DURABLE_HELPER_ROOT:-}/.venv/bin/python"
-  if [ -z "${LC_DURABLE_HELPER_ROOT:-}" ] || [ ! -f "$sanitizer" ] || [ ! -x "$py" ]; then
+  if [ -z "${LC_DURABLE_HELPER_ROOT:-}" ] || [ ! -x "$py" ]; then
     return 0
   fi
-  if ! "$py" "$sanitizer" --provider "$LC_PROVIDER" --check-helper; then
+  if ! "$py" -m lu_machinery.agent_runtime.env_sanitize --provider "$LC_PROVIDER" --check-helper; then
     launcher_error "could not drop unneeded API keys"
     return 1
   fi
-  LC_CHILD_ENV_COMMAND+=("$py" "$sanitizer" --provider "$LC_PROVIDER" --harness "${LC_HARNESS:-}")
+  LC_CHILD_ENV_COMMAND+=("$py" -m lu_machinery.agent_runtime.env_sanitize --provider "$LC_PROVIDER" --harness "${LC_HARNESS:-}")
   if [ "${LC_MODE:-}" = driver ]; then
     LC_CHILD_ENV_COMMAND+=(--driver-launcher)
   fi

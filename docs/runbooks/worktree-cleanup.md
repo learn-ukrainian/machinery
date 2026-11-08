@@ -1081,7 +1081,7 @@ registers, so every one of those comes from the primary checkout via
 
 ```bash
 export PRIMARY_REPO="$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")"
-"$PRIMARY_REPO/.venv/bin/python" lu_machinery/tools/task_scratch.py run --task-id atlas-8307-410k \
+"$PRIMARY_REPO/.venv/bin/python" -m lu_machinery.tools.task_scratch run --task-id atlas-8307-410k \
     --evidence-dir batch_state/tmp/atlas-8307-410k-evidence -- \
     bash -euc '
       "$PRIMARY_REPO/.venv/bin/python" -m scripts.benchmarks.generate_synthetic_atlas \
@@ -1132,10 +1132,10 @@ entirely; migrate each producer by pointing its output flags at
 
 ```bash
 # inventory: every lease with the guard that preserves it (mutation-free)
-"$PRIMARY_REPO/.venv/bin/python" lu_machinery/tools/task_scratch.py recover
+"$PRIMARY_REPO/.venv/bin/python" -m lu_machinery.tools.task_scratch recover
 
 # reclaim proven orphans (what the scheduled runner does)
-"$PRIMARY_REPO/.venv/bin/python" lu_machinery/tools/task_scratch.py recover --apply
+"$PRIMARY_REPO/.venv/bin/python" -m lu_machinery.tools.task_scratch recover --apply
 ```
 
 `scheduled_worktree_cleanup.py` runs the same recovery after the `/tmp` leak sweep.

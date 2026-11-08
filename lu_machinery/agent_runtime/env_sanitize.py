@@ -1088,17 +1088,6 @@ if __name__ == "__main__":
     import argparse
     import sys
 
-    # Launchers execute this file by path. Relative imports below need the
-    # scripts package on sys.path and a package context.
-    if __package__ in {None, ""}:
-        _repo_dir = str(Path(__file__).resolve().parents[2])
-        if _repo_dir not in sys.path:
-            sys.path.insert(0, _repo_dir)
-        _scripts_dir = str(Path(__file__).resolve().parents[1])
-        if _scripts_dir not in sys.path:
-            sys.path.insert(0, _scripts_dir)
-        __package__ = "agent_runtime"
-
     parser = argparse.ArgumentParser(description="Print API-key names a child env must drop.")
     parser.add_argument("--provider", required=True)
     parser.add_argument("--harness", help="Effective child harness, including the Codex Claude Code route.")

@@ -31,12 +31,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-if __package__ in (None, ""):
-    # Allow execution directly as `python scripts/ci/cursor_cloud_pytest_verify.py`
-    repo_root = str(Path(__file__).resolve().parents[2])
-    if repo_root not in sys.path:
-        sys.path.insert(0, repo_root)
-
 from lu_machinery.ci.pytest_shards import SHARD_COUNT, verify_artifacts
 
 REQUIRED_SHARD_COUNT = 4
