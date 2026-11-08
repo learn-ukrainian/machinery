@@ -98,9 +98,9 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 from lu_machinery.common.repo_root import (
-    RUNTIME_ROOT,
     MachineryConfigError,
     machinery_path,
+    machinery_root,
     product_root,
     project_interpreter,
 )
@@ -108,7 +108,6 @@ from lu_machinery.guardrails import worktree_containment as _worktree_containmen
 from lu_machinery.guardrails.worktree_containment import (
     NotAGitRepositoryError,
     resolve_main_root,
-    resolve_main_root_without_git,
 )
 
 from ..binary_resolve import resolve_agent_binary
@@ -1600,29 +1599,19 @@ CLAUDE_CODE_EFFORT_ENV = "CLAUDE_CODE_EFFORT_LEVEL"
 # Claude Code switches that remove CronCreate and Workflow (verified on 2.1.296);
 # defense in depth beside the launcher's deny flags.
 _CLAUDE_ACP_BACKGROUND_TOOL_ENV = {"CLAUDE_CODE_DISABLE_CRON": "1", "CLAUDE_CODE_DISABLE_WORKFLOWS": "1"}
-# The repo-owned launcher CLAUDE_CODE_EXECUTABLE names. ACPX cannot pass a tool
-# deny and --deny-all never covers tools that run without asking, so it execs
-# the pinned host binary with the headless background denies (#9690, #10500).
-# It is read only from the canonical primary checkout, which the adapter's own
-# checkout names through its git links (no git process, so PATH, git
-# configuration and the environment cannot redirect it); a dispatch worktree's
-# copy (group-writable under umask 0002) is never used. The verified bytes run
-# from a private per-launch copy, so a later change to the checkout does not
-# change what executes. Threat model: these checks catch drift, accidents and
-# honest misconfiguration. They do not resist deliberate replacement by a
-# writer running as the same user, who already controls the host binary, the
-# user configuration and the checkout (see docs/agent-runtime-guide.md).
-_CLAUDE_ACP_LAUNCHER_ANCHOR = RUNTIME_ROOT
-# Checkout-relative: the machinery package directory as this file was imported from it
-# (unresolved, whatever the package is called), then the launcher.
-_CLAUDE_ACP_LAUNCHER_RELPATH = PurePosixPath(Path(__file__).absolute().parents[2].name, "agent_runtime/claude_acp_exec.sh")
-# Adapter-launcher compatibility pin: the SHA-256 of every repository file the
-# launcher runs, sources or execs. The launcher is self-contained, so the
-# closure is the launcher alone. Launcher bytes and digest change together.
-_CLAUDE_ACP_LAUNCHER_CLOSURE: Mapping[PurePosixPath, str] = {
-    _CLAUDE_ACP_LAUNCHER_RELPATH: "c56cc9ec0d87294bcbfb89b3ebb9b56a47c83678ccd052058d3c3a1d6fbd67d1",
-}
-# Closure files are short shell scripts; a larger file is refused unhashed.
+# The package-owned launcher CLAUDE_CODE_EXECUTABLE names. ACPX cannot pass a
+# tool deny and --deny-all never covers tools that run without asking, so it
+# execs the pinned host binary with the background denies (#9690, #10500).
+# Checkout and installed-wheel launches read from the running package. Every
+# ancestor through / is checked for ownership, mode and symlinks. Captured bytes
+# execute from a private per-launch copy, so later edits cannot change that run.
+# There is no runtime content-drift detection: wheel hashes bind installation
+# inputs, not subsequent edits. Deliberate same-user replacement is outside the
+# threat model; that user already controls the host binary and configuration.
+_CLAUDE_ACP_LAUNCHER_RELPATH = PurePosixPath("agent_runtime/claude_acp_exec.sh")
+# Package-relative files the self-contained launcher runs, sources or execs.
+_CLAUDE_ACP_LAUNCHER_CLOSURE = (_CLAUDE_ACP_LAUNCHER_RELPATH,)
+# Closure files are short shell scripts; larger files are refused before copying.
 _CLAUDE_ACP_LAUNCHER_MAX_BYTES = 64 * 1024
 # Private copies live under the caller's cache directory, named from the account
 # database rather than HOME. None selects that default; tests use their tree.
@@ -1651,7 +1640,7 @@ class ClaudeCodeExecutableRefusal(AcpxShadowRefusalError):
     """The host Claude Code executable cannot be pinned for an ACP launch.
 
     ``reason`` is one of ``missing``, ``untrusted_path``, ``unreadable``,
-    ``digest_mismatch``, ``copy_failed``, ``vanished``, ``probe_failed``,
+    ``copy_failed``, ``vanished``, ``probe_failed``,
     ``unparseable`` or ``too_old`` (and, for
     :class:`ClaudeAcpLauncherCleanupError`, ``cleanup_busy`` or
     ``cleanup_failed``); ``failure_code`` stays in the runtime's closed
@@ -1803,51 +1792,36 @@ def _read_verified_claude_acp_file(
             opened = os.fstat(handle.fileno())
             if (opened.st_dev, opened.st_ino) != (checked.st_dev, checked.st_ino):
                 raise ClaudeCodeExecutableRefusal(
-                    f"{adapter_label}: {relpath} in the canonical primary checkout changed while it was checked",
+                    f"{adapter_label}: {relpath} in the running machinery package changed while it was checked",
                     reason="untrusted_path",
                 )
             data = handle.read(_CLAUDE_ACP_LAUNCHER_MAX_BYTES + 1)
     except OSError as exc:
         raise ClaudeCodeExecutableRefusal(
-            f"{adapter_label}: cannot read {relpath} in the canonical primary checkout: {exc.strerror}",
+            f"{adapter_label}: cannot read {relpath} in the running machinery package: {exc.strerror}",
             reason="unreadable",
         ) from exc
     if len(data) > _CLAUDE_ACP_LAUNCHER_MAX_BYTES:
         raise ClaudeCodeExecutableRefusal(
-            f"{adapter_label}: {relpath} in the canonical primary checkout exceeds "
+            f"{adapter_label}: {relpath} in the running machinery package exceeds "
             f"{_CLAUDE_ACP_LAUNCHER_MAX_BYTES} bytes",
             reason="untrusted_path",
         )
     return data
 
 
-def _claude_acp_primary_checkout(*, adapter_label: str) -> Path:
-    """Resolve the canonical primary checkout from the adapter's own checkout, without git."""
-    try:
-        return resolve_main_root_without_git(_CLAUDE_ACP_LAUNCHER_ANCHOR)
-    except Exception as exc:  # every resolution failure is a typed refusal, never a fallback
-        raise ClaudeCodeExecutableRefusal(
-            f"{adapter_label}: cannot resolve the canonical primary checkout that holds the Claude ACP launcher "
-            f"({type(exc).__name__})",
-            reason="missing",
-            failure_code="acp_adapter_missing",
-        ) from exc
+def _read_claude_acp_launcher_closure(package: Path, *, adapter_label: str) -> dict[PurePosixPath, bytes]:
+    """Capture every closure file from the running package.
 
-
-def _read_claude_acp_launcher_closure(primary: Path, *, adapter_label: str) -> dict[PurePosixPath, bytes]:
-    """Read and verify every closure file in the primary checkout; return the verified bytes.
-
-    Every file must exist, pass the ownership, mode and no-symlink checks up to
-    the trust root, and hash to its pin. The hash covers exactly the bytes
-    returned, which are the only bytes ever executed.
+    Ownership, mode and no-symlink checks include every ancestor through /.
+    Only the bytes read here are executed; there are no stored content pins.
     """
     verified: dict[PurePosixPath, bytes] = {}
-    for relpath, expected in _CLAUDE_ACP_LAUNCHER_CLOSURE.items():
-        path = primary.joinpath(*relpath.parts)
+    for relpath in _CLAUDE_ACP_LAUNCHER_CLOSURE:
+        path = package.joinpath(*relpath.parts)
         if not os.path.lexists(path):
             raise ClaudeCodeExecutableRefusal(
-                f"{adapter_label}: the canonical primary checkout has no {relpath}; "
-                "pull main there and keep it non-group-writable",
+                f"{adapter_label}: the running machinery package has no {relpath}; reinstall the release",
                 reason="missing",
                 failure_code="acp_adapter_missing",
             )
@@ -1856,16 +1830,9 @@ def _read_claude_acp_launcher_closure(primary: Path, *, adapter_label: str) -> d
             adapter_label=adapter_label,
             subject=f"the Claude ACP launcher closure file {relpath}",
             require_executable=relpath == _CLAUDE_ACP_LAUNCHER_RELPATH,
-            relative_to=primary,
+            relative_to=package,
         )
         data = _read_verified_claude_acp_file(path, checked, relpath, adapter_label=adapter_label)
-        observed = hashlib.sha256(data).hexdigest()
-        if observed != expected:
-            raise ClaudeCodeExecutableRefusal(
-                f"{adapter_label}: {relpath} in the canonical primary checkout has SHA-256 {observed}, "
-                f"not the adapter's pinned {expected}; the primary checkout and this adapter are out of step",
-                reason="digest_mismatch",
-            )
         verified[relpath] = data
     return verified
 
@@ -2120,7 +2087,7 @@ def _private_claude_acp_launcher_copy(closure: Mapping[PurePosixPath, bytes], *,
 
     The directory is created ``0700`` with an unpredictable name and each file
     with ``O_EXCL`` from the verified bytes, so no other account can change
-    what executes, and the checkout is never read again for this launch. The
+    what executes, and the package is never read again for this launch. The
     copy base is checked before the stale-copy sweep touches anything in it.
     """
     base = _claude_acp_launcher_copy_base()
@@ -2179,13 +2146,12 @@ def _private_claude_acp_launcher_copy(closure: Mapping[PurePosixPath, bytes], *,
 
 
 def _require_claude_acp_launcher(*, adapter_label: str) -> str:
-    """Return a private copy of the canonical primary checkout's verified launcher.
+    """Return a private copy of the running package's checked launcher.
 
     Any failure refuses before an ACP message is sent; no other copy is ever
     tried. The caller removes the copy with :func:`_remove_claude_acp_launcher_copy`.
     """
-    primary = _claude_acp_primary_checkout(adapter_label=adapter_label)
-    closure = _read_claude_acp_launcher_closure(primary, adapter_label=adapter_label)
+    closure = _read_claude_acp_launcher_closure(machinery_root(), adapter_label=adapter_label)
     return _private_claude_acp_launcher_copy(closure, adapter_label=adapter_label)
 
 
