@@ -420,7 +420,8 @@ jobs:
           # The same command the source repository's CI and pre-push hook run,
           # with this repository's package name. It imports the ratchet from
           # the checkout, so it does not run isolated (-I).
-          env -u PYTHONPATH -u MYPYPATH "$venv/bin/python" -m lu_machinery.lint.mypy_ratchet
+          LEARN_UKRAINIAN_PYTHON="$venv/bin/python" \
+            env -u PYTHONPATH -u MYPYPATH "$venv/bin/python" -m lu_machinery.lint.mypy_ratchet
 
   actionlint:
     name: actionlint
@@ -1264,6 +1265,7 @@ jobs:
           cd "$work/scratch"
           # No checkout, PYTHONPATH or runner variable reaches the imports.
           env -i PATH=/usr/bin:/bin HOME="$work/scratch/home" TMPDIR="$work/scratch" \
+            LEARN_UKRAINIAN_PYTHON="$work/consumer/bin/python" \
             "$work/consumer/bin/python" -I -B "$work/import_all.py" "$work/consumer"
 
       - name: Remove build files

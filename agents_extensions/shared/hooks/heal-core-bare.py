@@ -10,14 +10,18 @@ Blocks when the configured product cannot be resolved or healed.
 """
 from __future__ import annotations
 
+import importlib.util
 import json
 import shlex
 import sys
 from pathlib import Path
 
-# The shipped hooks and package are siblings in the release. Bootstrap code
-# imports for plain shebang launches; this path never selects product or state.
-sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
+# Package-only loader (#161). A deployed copy must not put the consumer parent on sys.path.
+_loader = Path(__file__).resolve().parent / "load_hook_package.py"
+_spec = importlib.util.spec_from_file_location("_load_hook_package", _loader)
+if _spec is None or _spec.loader is None:
+    raise ImportError(f"hook package loader missing: {_loader}")
+_spec.loader.exec_module(importlib.util.module_from_spec(_spec))
 
 
 def _read_payload() -> dict:

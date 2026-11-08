@@ -1147,12 +1147,12 @@
   {
    "path": "lu_machinery/agent_runtime/codex_hook_policy.py",
    "rule": "python.lang.security.audit.dangerous-subprocess-use-audit",
-   "sha256": "c78da4a47f5077ed79bfb06433ef9129f9b26e520c5e80ebcc61ac6bb4685fb3"
+   "sha256": "418dc34da83d4b85084356935bdaaca141b918f12682414f0675f2ff1527eaf5"
   },
   {
    "path": "lu_machinery/agent_runtime/codex_hook_policy.py",
    "rule": "python.lang.security.audit.dangerous-subprocess-use-audit",
-   "sha256": "cecab2bc5f56bebda1eae2ce12aa175464ccff8bdd2511707c72490d0a8c7aac"
+   "sha256": "b1587275c706ca749822e6099ed0c6bec33af27e166a9c13769262ff8f0d6f30"
   },
   {
    "path": "lu_machinery/agent_runtime/codex_hook_probe.py",

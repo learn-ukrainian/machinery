@@ -294,13 +294,15 @@ def test_deployed_session_setup_runs_installed_release_code(release, product):
         capture_output=True,
         text=True,
     ).stdout.strip()
-    Path(purelib, "release.pth").write_text(f"{release}\n")
+    dependencies = subprocess.run(
+        [sys.executable, "-I", "-c", "import sysconfig; print(sysconfig.get_path('purelib'))"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    Path(purelib, "release.pth").write_text(f"{release}\n{dependencies}\n")
     env = {
         "SESSION_START_BUDGET_SECONDS": "60",
-        "CLAUDE_SESSION_RECORD_PYTHON": sys.executable,
-        "CLAUDE_PROFILE_RESOLVER_PYTHON": sys.executable,
-        "CLAUDEX_SUPERVISOR_PYTHON": sys.executable,
-        "THREAD_ROLLOVER_PYTHON": sys.executable,
         "LEARN_UKRAINIAN_CLAUDEX_RUN_ID": "release-root-run",
         "LEARN_UKRAINIAN_CLAUDEX_LAUNCH_GENERATION": "1",
     }

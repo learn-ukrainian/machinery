@@ -97,9 +97,11 @@ lookups run concurrently; `--auto` branch-protection verification follows only
 after those results identify the exact base.
 
 The entry point resolves the exact tool worktree from structured hook input and
-the canonical checkout from Git's common directory. Python policies use the
-canonical checkout's `.venv/bin/python`, so a linked worktree does not need its
-own `.venv` symlink. Bare `python`/`python3` calls are rejected with one
+the canonical checkout from Git's common directory. Python policies use one
+interpreter: `LEARN_UKRAINIAN_PYTHON` when that variable is an absolute path to
+an executable file, with no fallback when it is set but invalid; otherwise the
+canonical checkout's `.venv/bin/python`. A linked worktree does not need its
+own `.venv`. Bare `python`/`python3` calls are rejected with one
 shell-quoted, copyable command using that absolute project interpreter. If the
 project interpreter is genuinely absent, the policy blocks instead of falling back to a
 system interpreter.
@@ -128,13 +130,15 @@ command, but cannot deliver its stdout as model context. Do not use it for
 Codex hydration; keep the bounded launcher-bound capsule on `SessionStart`
 with matcher `compact`.
 
-The canonical checkout's `.venv/bin/python` must report exactly the version in
-the canonical `.python-version` file (currently `Python 3.12.15`). Linked
-worktrees intentionally have no local `.venv`; `SessionStart` and bare
-`python`/`python3` rewrites use the canonical interpreter. A missing or
-mismatched canonical interpreter blocks a bare-interpreter rewrite instead of
-silently using a system Python. Qualified interpreter commands keep their
-existing behavior.
+The project interpreter must report exactly the version in the canonical
+`.python-version` file (currently `Python 3.12.15`). That interpreter is
+`LEARN_UKRAINIAN_PYTHON` when set to an absolute executable file, and otherwise
+the canonical checkout's `.venv/bin/python`. Linked worktrees intentionally
+have no local `.venv`; `SessionStart` and bare `python`/`python3` rewrites use
+this interpreter and do not switch to a worktree `.venv`. A missing or
+mismatched interpreter blocks a bare-interpreter rewrite instead of silently
+using a system Python. Qualified interpreter commands keep their existing
+behavior.
 
 `UserPromptSubmit` inbox notices are recipient-and-native-session scoped. The
 hook stores only the sorted pending message-ID list under ignored

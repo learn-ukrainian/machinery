@@ -156,8 +156,6 @@ EOF
 
   # shellcheck source=scripts/lib/profile_resolver.sh
   source "$project_dir/lu_machinery/lib/profile_resolver.sh"
-  CLAUDE_PROFILE_RESOLVER_PYTHON="$python_bin"
-  export CLAUDE_PROFILE_RESOLVER_PYTHON
   if ! resolve_context_profile "$profile" "$LEAD_MODEL"; then
     echo "Error: could not resolve GLM profile '$profile' for model '$LEAD_MODEL'." >&2
     return 1

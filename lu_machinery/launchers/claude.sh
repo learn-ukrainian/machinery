@@ -6,10 +6,7 @@ launcher_adapter_validate() {
 launcher_adapter_preflight() {
   # shellcheck source=scripts/lib/profile_resolver.sh
   source "$LC_ROOT/lu_machinery/lib/profile_resolver.sh"
-  # Linked worktrees carry no venv (#6858); resolve through the validated
-  # durable helper root (#9121).
-  CLAUDE_PROFILE_RESOLVER_PYTHON="$LC_DURABLE_HELPER_ROOT/.venv/bin/python"
-  export CLAUDE_PROFILE_RESOLVER_PYTHON
+  # The profile resolver uses the one project interpreter (R66).
   if ! resolve_context_profile native_claude "$LC_MODEL"; then
     launcher_error "could not resolve the native Claude profile for '$LC_MODEL'."
     exit 2
