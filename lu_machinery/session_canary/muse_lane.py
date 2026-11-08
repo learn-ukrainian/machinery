@@ -10,11 +10,11 @@ import argparse
 import sys
 from pathlib import Path
 
-from agents_extensions.shared.session_streams.inventory import stream_anchor_id
 from lu_machinery.common.epic_selector import validate_epic
 from lu_machinery.common.repo_root import state_root
 from lu_machinery.orchestration.launcher_aliases import load_launcher_aliases
 from lu_machinery.session_canary import grok_lane
+from lu_machinery.session_streams.inventory import stream_anchor_id
 
 # This package's import name, as ``python -m`` names its modules (derived once, in grok_lane).
 _PACKAGE = grok_lane._PACKAGE

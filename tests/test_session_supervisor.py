@@ -15,10 +15,10 @@ from pathlib import Path
 import pytest
 import yaml
 
-from agents_extensions.shared.session_streams.db import SessionStreamDatabase
-from agents_extensions.shared.session_streams.model import LeaseHolder
-from agents_extensions.shared.session_streams.store import LeaseConflictError, SessionStreamStore
 from lu_machinery.secret_redactor import REDACTION
+from lu_machinery.session_streams.db import SessionStreamDatabase
+from lu_machinery.session_streams.model import LeaseHolder
+from lu_machinery.session_streams.store import LeaseConflictError, SessionStreamStore
 from lu_machinery.session_supervisor import (
     LaunchRole,
     SessionSupervisor,
@@ -348,7 +348,7 @@ def test_open_driver_auto_recovers_expired_dead_holder(tmp_path: Path) -> None:
     """Launcher open must recover claimable crashed sessions without a manual step."""
     from datetime import timedelta
 
-    from agents_extensions.shared.session_streams.model import utc_now
+    from lu_machinery.session_streams.model import utc_now
 
     supervisor = _supervisor(tmp_path)
     dead_pid = 999_999_001
@@ -389,7 +389,7 @@ def test_open_driver_auto_recovers_unexpired_dead_holder(tmp_path: Path) -> None
     """Dead PID with remaining TTL must not block relaunch for hours (user-visible #5630 gap)."""
     from datetime import timedelta
 
-    from agents_extensions.shared.session_streams.model import utc_now
+    from lu_machinery.session_streams.model import utc_now
 
     supervisor = _supervisor(tmp_path)
     dead_pid = 999_999_003
@@ -453,7 +453,7 @@ def test_open_driver_refuses_live_unexpired_holder(tmp_path: Path) -> None:
 def test_recover_expired_driver_force_closes_claimable(tmp_path: Path) -> None:
     from datetime import timedelta
 
-    from agents_extensions.shared.session_streams.model import utc_now
+    from lu_machinery.session_streams.model import utc_now
 
     supervisor = _supervisor(tmp_path)
     dead_pid = 999_999_002

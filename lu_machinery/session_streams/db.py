@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
+from lu_machinery.common.repo_root import state_root
 from lu_machinery.control_plane.storage import StoreId, assert_component_supported
 from lu_machinery.control_plane.storage import connect as cp_connect
 
@@ -44,7 +45,9 @@ class Migration:
 
 def canonical_state_root(repo_root: Path | None = None) -> Path:
     """Resolve the primary checkout shared by every linked worktree."""
-    active_root = (repo_root or Path.cwd()).resolve()
+    if repo_root is None:
+        return state_root()
+    active_root = repo_root.resolve()
     result = subprocess.run(
         ["git", "rev-parse", "--path-format=absolute", "--git-common-dir"],
         cwd=active_root,

@@ -17,7 +17,7 @@ from functools import lru_cache
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-from lu_machinery.common.repo_root import machinery_path
+from lu_machinery.common.repo_root import machinery_path, primary_root
 
 from .app_lifecycle import VerifiedAppLifecycleProof
 from .db import SessionStreamDatabase
@@ -48,7 +48,6 @@ MAX_ROLLOVER_BUNDLE_BYTES = 4 * 1024 * 1024
 ROLLOVER_BUNDLE_SCHEMA = "rollover-bundle.v1"
 ROLLOVER_BUNDLE_SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 ROLLOVER_BUNDLE_LINEAGE_ROOT = ".agent/thread-rollovers"
-_REPO_ROOT = Path(__file__).resolve().parents[3]
 _HANDOFF_IDENTITY_SH = machinery_path("lib/handoff_identity.sh")
 # Lease holders carry the provider id; each provider mints its handoff slot
 # through its own launcher helper in scripts/lib/handoff_identity.sh.
@@ -2023,7 +2022,7 @@ class SessionStreamStore:
             raise ValueError("rollover bundle manifest has no files")
         # The importer runs this same validation; the archive's embedded
         # manifest, bound to the supplied identity, is what gets stored.
-        embedded, members = verify_rollover_bundle(blob, repo_root=_REPO_ROOT, manifest_override=manifest_value)
+        embedded, members = verify_rollover_bundle(blob, repo_root=primary_root(), manifest_override=manifest_value)
         if files != embedded["files"]:
             raise ValueError("rollover bundle manifest files do not match its archive")
         secret_hits = _bundle_secret_hits(members)

@@ -49,7 +49,7 @@ Cross-family independence checks evaluate either the **attested concrete model f
 - **What serializes today (investigate receipt for #6956):**
   - Epic **stream leases** fail closed on a second live driver:
     `stream {id} already has live session …` in
-    `agents_extensions/shared/session_streams/store.py` (`LifecycleError`).
+    `lu_machinery/session_streams/store.py` (`LifecycleError`).
   - Dispatch v2 does not implement the retired Cursor self-dispatch guard.
     The driver checks lane ownership before launching another worker.
 

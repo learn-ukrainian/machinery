@@ -79,7 +79,7 @@ already enforces today:
 
 - **Stream lease (drivers only):** `SessionStreamStore.open_session` refuses a second
   live driver on the same epic stream with
-  `stream {id} already has live session …` (`agents_extensions/shared/session_streams/store.py`).
+  `stream {id} already has live session …` (`lu_machinery/session_streams/store.py`).
 - **Worker dispatch:** the Cursor self-dispatch refusal and its override are
   retired. Dispatch v2 does not read driver leases for this gate; the driver
   checks lane ownership before launch.

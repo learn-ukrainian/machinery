@@ -21,7 +21,6 @@ except ModuleNotFoundError as exc:
         raise
     from lib.readonly_sqlite import open_readonly  # type: ignore[no-redef]
 
-from agents_extensions.shared.session_streams.model import parse_timestamp
 from lu_machinery.api import delegate_router
 from lu_machinery.api.delegate_router import _derived_task_status
 from lu_machinery.api.fleet_workers_models import (
@@ -57,6 +56,7 @@ from lu_machinery.orchestration.dispatch_admission import (
     ACTIVE_STATUSES as _DELEGATE_ACTIVE_STATUSES,
 )
 from lu_machinery.orchestration.task_record_store import iter_task_records
+from lu_machinery.session_streams.model import parse_timestamp
 
 WORKERS_SCHEMA = "monitor-fleet-workers.v1"
 UNATTRIBUTED_HOST_ID = "unattributed"

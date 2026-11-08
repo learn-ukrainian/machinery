@@ -45,9 +45,9 @@ def build_parser() -> argparse.ArgumentParser:
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""Examples:
-  .venv/bin/python -m agents_extensions.shared.session_streams tail --stream epic:4707 --limit 20
-  .venv/bin/python -m agents_extensions.shared.session_streams dump --stream epic:4707 --format jsonl --output /tmp/stream.jsonl
-  .venv/bin/python -m agents_extensions.shared.session_streams hook heartbeat
+  .venv/bin/python -m lu_machinery.session_streams tail --stream epic:4707 --limit 20
+  .venv/bin/python -m lu_machinery.session_streams dump --stream epic:4707 --format jsonl --output /tmp/stream.jsonl
+  .venv/bin/python -m lu_machinery.session_streams hook heartbeat
 
 Outputs:
   tail writes a bounded pinned-plus-recent view to stdout. dump writes complete stream history

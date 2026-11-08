@@ -69,7 +69,7 @@ On clean exit the launcher (or a wrapper) calls the matching lifecycle action:
 
 `resume` and `heartbeat` also consume that exact supervisor-owned
 `SESSION_STREAM_*` envelope. Fencing is enforced by
-`agents_extensions.shared.session_streams`; a stale envelope is refused.
+`lu_machinery.session_streams`; a stale envelope is refused.
 
 Drivers can render a fresh capsule from their launcher-provided environment
 without renewing the lease:
@@ -142,8 +142,8 @@ hook surface expects:
 The hook CLI consumes the same envelope:
 
 ```bash
-.venv/bin/python -m agents_extensions.shared.session_streams hook heartbeat
-.venv/bin/python -m agents_extensions.shared.session_streams hook close
+.venv/bin/python -m lu_machinery.session_streams hook heartbeat
+.venv/bin/python -m lu_machinery.session_streams hook close
 ```
 
 ## Launcher helper
@@ -564,7 +564,7 @@ PY
 
 - `lu_machinery/session_supervisor/__init__.py`
 - `lu_machinery/session_supervisor/__main__.py`
-- `agents_extensions/shared/session_streams/hooks.py`
+- `lu_machinery/session_streams/hooks.py`
 - `lu_machinery/lib/session_supervisor.sh`
 - `docs/runbooks/grok-session-canary.md`
 - `docs/runbooks/kimi-orchestrator.md`

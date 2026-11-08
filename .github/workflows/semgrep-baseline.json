@@ -445,7 +445,7 @@
    "sha256": "5f696db9e5cfe93ad7d7a9596c1170b1a6dfcfd884408d2cc8b0be2ee03ab384"
   },
   {
-   "path": "agents_extensions/shared/session_streams/store.py",
+   "path": "lu_machinery/session_streams/store.py",
    "rule": "python.lang.correctness.common-mistakes.string-concat-in-list",
    "sha256": "0d492c7383705eac95e959869fbe036c6b8eb96fc3e8171d3fc0115e5be05e5b"
   },
@@ -630,7 +630,7 @@
    "sha256": "60a33e6cf5151f2d52eddae9685cfa270426aa89d8dbc7dfb854606f1d1a40fe"
   },
   {
-   "path": "agents_extensions/shared/session_streams/cli.py",
+   "path": "lu_machinery/session_streams/cli.py",
    "rule": "python.lang.correctness.tempfile.tempfile-without-flush",
    "sha256": "395136be6978424919a600588b723950391450923ca428786cdf027d82d5f6cd"
   },
@@ -2235,7 +2235,7 @@
    "sha256": "f5bd2773e37e4e940a077fdc1dee9dfdd369c4489e521e3b13e68611fdcd988d"
   },
   {
-   "path": "agents_extensions/shared/session_streams/db.py",
+   "path": "lu_machinery/session_streams/db.py",
    "rule": "python.lang.security.audit.formatted-sql-query",
    "sha256": "c1608a91fbd93762a4fff6ab25b560ca43a635e89d00b05a7bad86d24ecf654c"
   },
