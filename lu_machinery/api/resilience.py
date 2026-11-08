@@ -17,6 +17,7 @@ from typing import Any
 from fastapi import Request
 from fastapi.responses import JSONResponse
 
+from lu_machinery.common.repo_root import machinery_root
 from lu_machinery.lib.readonly_sqlite import refuse_writable_corpus_database
 
 logger = logging.getLogger(__name__)
@@ -157,7 +158,7 @@ def _record_slow_sql(query: str, elapsed_ms: float, caller: str) -> None:
     )
 
 
-_REPO_ROOT = Path(__file__).resolve().parents[2]
+_PACKAGE = machinery_root()
 _SELF_SUFFIX = (
     f"{Path(__file__).parents[1].name}/{Path(__file__).parent.name}/{Path(__file__).name}"
 )
@@ -171,16 +172,16 @@ def _caller() -> str:
 
 
 def _sanitize_caller(filename: str, lineno: int) -> str:
-    """Return a repo-relative ``path:line`` caller tag.
+    """Return a package-relative ``path:line`` caller tag.
 
     The tag is published on ``/api/health`` (``recent_slow_sql[*].caller``),
-    so it must never carry an absolute filesystem root. In-repo frames become
-    ``scripts/...:line``; anything outside the repo collapses to a basename.
+    so it must never carry an absolute filesystem root. Frames in this package
+    become ``<package>/...:line``; anything outside it collapses to a basename.
     """
     path = Path(filename)
     try:
-        relative = path.resolve().relative_to(_REPO_ROOT)
-    except ValueError:
+        relative = Path(_PACKAGE.name, path.resolve().relative_to(_PACKAGE))
+    except (OSError, RuntimeError, ValueError):
         relative = Path(path.name)
     return f"{relative.as_posix()}:{lineno}"
 

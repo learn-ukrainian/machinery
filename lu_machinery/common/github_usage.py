@@ -38,11 +38,11 @@ SCHEMA = (
     "CREATE TABLE usage (at REAL, caller TEXT, endpoint TEXT, status INTEGER)",
     "CREATE INDEX usage_at ON usage(at)",
 )
-_REPOSITORY = Path(__file__).resolve().parents[2]
-# The ``gh`` shim's entry script, as the repository-relative name ``_script_name`` reports. The
-# machinery package is this file's parent package directory (``repo_root.machinery_root``);
-# workflows check this module out with a minimal file set, so it does not import repo_root.
-_GH_ENTRY = (Path(__file__).resolve().parents[1] / "opsec" / "gh_entry.py").relative_to(_REPOSITORY).as_posix()
+# This module's package directory. Workflows check this module out with a minimal file set, so it
+# does not import repo_root; labels are relative to the package that is running, nothing else.
+_PACKAGE = Path(__file__).resolve().parents[1]
+# The ``gh`` shim's entry script, as the package-relative name ``_script_name`` reports.
+_GH_ENTRY = f"{_PACKAGE.name}/opsec/gh_entry.py"
 _PYTHON = re.compile(r"python[0-9.]*")
 _SHELL = re.compile(r"bash|dash|sh|zsh")
 _CORRUPT = frozenset({11, 26})
@@ -88,11 +88,14 @@ def set_aside(path, identity):
 
 
 def _script_name(arg):
-    """A script path as the repository-relative path, else as given when relative, else its name."""
+    """A script path as the package-relative path, else as given when relative, else its name."""
     path = Path(arg)
     if not path.is_absolute():
         return arg
-    return path.relative_to(_REPOSITORY).as_posix() if path.is_relative_to(_REPOSITORY) else path.name
+    try:
+        return f"{_PACKAGE.name}/{path.resolve().relative_to(_PACKAGE).as_posix()}"
+    except (OSError, RuntimeError, ValueError):
+        return path.name
 
 
 def _python_target(options, program):

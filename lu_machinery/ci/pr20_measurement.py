@@ -23,10 +23,11 @@ if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from lu_machinery.ci._location import checkout_relative, module_name
+from lu_machinery.common.repo_root import product_root
 
 SIZE = 50
 BASELINE_MEMBERSHIP_SHA256 = "83b9115d8f86a96991ef0329d4f68bec2877fb2773b5765b4412e985b42e3272"
-PROTOCOL = Path(__file__).resolve().parents[2] / "docs/best-practices/pr20-measurement.md"
+PROTOCOL = "docs/best-practices/pr20-measurement.md"
 SHA = re.compile(r"[0-9a-f]{40}")
 QUEUE_PR = re.compile(r"gh-readonly-queue/[^/]+/pr-(\d+)-")
 
@@ -444,7 +445,7 @@ def analyze(root: Path, *, baseline: bool, switch: str | None = None) -> dict:
 
 
 def implementation() -> dict:
-    return {"script_sha256": digest(Path(__file__).read_bytes()), "protocol_sha256": digest(PROTOCOL.read_bytes())}
+    return {"script_sha256": digest(Path(__file__).read_bytes()), "protocol_sha256": digest((product_root() / PROTOCOL).read_bytes())}
 
 
 def write_new(path: Path, value: dict) -> None:
@@ -514,10 +515,12 @@ Related: docs/best-practices/pr20-measurement.md. Read the result fields before 
             at = stamp(args.observed_at)
             if at is None or at < stamp(pr["createdAt"]):
                 raise InputError("invalid premerge observation timestamp")
-            source = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True, timeout=30).strip()
+            product = product_root()
+            source = subprocess.check_output(["git", "-C", str(product), "rev-parse", "HEAD"], text=True, timeout=30).strip()
             for relative, path in ((checkout_relative("ci", "pr20_measurement.py").as_posix(), Path(__file__)),
-                                   ("docs/best-practices/pr20-measurement.md", PROTOCOL)):
-                committed = subprocess.check_output(["git", "show", f"HEAD:{relative}"], stderr=subprocess.DEVNULL, timeout=30)
+                                   (PROTOCOL, product / PROTOCOL)):
+                committed = subprocess.check_output(["git", "-C", str(product), "show", f"HEAD:{relative}"],
+                                                    stderr=subprocess.DEVNULL, timeout=30)
                 if committed != path.read_bytes():
                     raise InputError("anchor requires the committed script and protocol")
             result = {"schema": "pr20-declaration.v1", "captured_at": utc(at), "source_sha": source,
