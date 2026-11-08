@@ -3,6 +3,7 @@
 The descriptor has exactly three fields: providers (names), sources (a mapping
 from shared/provider names to {path, required}), and preserve (relative target
 subtrees). Product enrollment, including legacy migration, is separate work.
+The Python >=3.12 runtime floor guarantees importlib.resources availability.
 """
 from __future__ import annotations
 
@@ -10,7 +11,6 @@ import contextlib
 import errno
 import fcntl
 import hashlib
-# All supported runtimes are Python >=3.12, not the pre-3.7 runtimes this rule targets.
 import importlib.resources as resources  # nosemgrep: python.lang.compatibility.python37-compatibility-importlib2
 import json
 import os
