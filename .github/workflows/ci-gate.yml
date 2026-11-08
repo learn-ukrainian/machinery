@@ -11,13 +11,13 @@
 #
 # - Jobs: Ruff over lu_machinery/ with the source repository's Ruff version and
 #   lint settings (the extracted tree has no Ruff configuration yet); compileall
-#   of lu_machinery on Python 3.12; actionlint (with a pinned ShellCheck) and zizmor (offline) over
+#   of lu_machinery on Python 3.12; the mypy ratchet (lu_machinery.lint.mypy_ratchet:
+#   new errors fail, the baseline only shrinks); actionlint (with a pinned ShellCheck) and zizmor (offline) over
 #   .github/workflows/; the TruffleHog secret scan and the Semgrep SAST scan.
 #   The secret-scan and sast jobs below are the only definition of each scan
 #   for the machinery repository.
-# - NOT in this bootstrap: importing lu_machinery and running its tests. Both
-#   need the step 8 packaging. Step 8 adds those jobs to `needs` of CI Gate and
-#   to the gate's expected job list in the same change.
+# - The mypy job is the only one here that imports lu_machinery: it runs the
+#   ratchet module from the checkout. Tests run in tests.yml.
 # - Every job counts its targets first and fails on zero, because the tools
 #   exit 0 on an empty or missing target. Each job prints what it inspected.
 # - CI Gate needs every other job, runs even when one of them fails, and passes
@@ -29,9 +29,9 @@
 # - Hosted runners only (ubuntu-24.04). Every tool is downloaded at a pinned
 #   version and checked against a pinned SHA-256 before it runs: release
 #   tarballs for actionlint and ShellCheck, hash-pinned PyPI wheels
-#   (pip --require-hashes --only-binary=:all:) for Ruff, zizmor and Semgrep.
+#   (pip --require-hashes --only-binary=:all:) for Ruff, mypy, zizmor and Semgrep.
 #   Install steps run from the job temp directory with isolated interpreters
-#   (python -I), so no Python module in the checkout is imported.
+#   (python -I), so no Python module in the checkout is imported while installing.
 # - Read-only contents permission (none for CI Gate), no kept checkout token,
 #   no secrets. Scanners and zizmor run under `env -i`, so no runner credential
 #   reaches them. zizmor runs offline: its online audits (impostor commits,
@@ -69,6 +69,7 @@ concurrency:
 env:
   PYTHON_VERSION: "3.12"
   RUFF_VERSION: "0.15.21"
+  MYPY_VERSION: "2.1.0"
   ZIZMOR_VERSION: "1.31.1"
   ACTIONLINT_VERSION: "1.7.12"
   ACTIONLINT_RELEASE_ASSET_ID: "384924896"
@@ -212,6 +213,210 @@ jobs:
       - name: Remove bytecode
         if: always()
         run: rm -rf "$RUNNER_TEMP/pycache"
+
+  mypy:
+    name: mypy ratchet
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          # The ratchet's shrink check reads the baseline at HEAD^ as well as
+          # HEAD and origin/main, and silently skips a ref it cannot read.
+          fetch-depth: 2
+
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          check-latest: false
+
+      - name: Fetch origin/main for the shrink check
+        run: |
+          set -euo pipefail
+          # No --depth: on a push to main the checkout is the main tip, and a
+          # depth-1 fetch of it would move the shallow boundary to HEAD and
+          # drop HEAD^. Without it, Git fetches only commits it does not have.
+          git fetch --no-tags --no-recurse-submodules origin \
+            +refs/heads/main:refs/remotes/origin/main
+          # A ref the ratchet cannot read is skipped, not failed, so require all three.
+          for ref in HEAD HEAD^ origin/main; do
+            if ! git rev-parse --verify --quiet "${ref}^{commit}" > /dev/null; then
+              echo "::error::${ref} is not available; the baseline shrink check would be skipped"
+              exit 1
+            fi
+          done
+          if ! git cat-file -e origin/main:lu_machinery/lint/mypy_baseline.json; then
+            echo "::error::origin/main has no lu_machinery/lint/mypy_baseline.json; the shrink check would be skipped"
+            exit 1
+          fi
+
+      - name: Install mypy and the lu_machinery import closure (hash-pinned wheels)
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          venv="$RUNNER_TEMP/mypy-venv"
+          rm -rf "$venv"
+          python -I -m venv "$venv"
+          requirements="$RUNNER_TEMP/mypy-requirements.txt"
+          # mypy and the [project] dependency closure at the source repository's
+          # requirements-lock.txt versions. Typed packages change the error census,
+          # so mypy alone does not reproduce the baseline. See pins.txt.
+          cat > "$requirements" <<'REQUIREMENTS'
+          annotated-doc==0.0.5 \
+              --hash=sha256:117bac03a25ede5df5440e855b32d556049ca169ead221505badf432fed4b101
+          annotated-types==0.8.0 \
+              --hash=sha256:f072f4d804ea359e4eaf198b1af7a8b0943881a87f31bb764f8bf219bb9419e0
+          anyio==4.15.1 \
+              --hash=sha256:6152fdbbf9a77fdec97731721bebf7c4c44f7c29b424b0065826173efc7ed101
+          ast-serialize==0.12.1 \
+              --hash=sha256:50a9eaedf1db4857dad7cc47dd757ed70bfcc40b89d44d516c4a2f0d5033bd76
+          attrs==26.1.0 \
+              --hash=sha256:c647aa4a12dfbad9333ca4e71fe62ddc36f4e63b2d260a37a8b83d2f043ac309
+          blinker==1.9.0 \
+              --hash=sha256:ba0efaa9080b619ff2f3459d1d500c57bddea4a6b424b60a91141db6fd2f08bc
+          cffi==2.1.1 \
+              --hash=sha256:c1453022f490d2459a11819d83ad1d586e9ff65a12ac3e705ffebd46d3685dcf
+          click==8.4.2 \
+              --hash=sha256:e6f9f66136c816745b9d65817da91d61d957fb16e02e4dcd0552553c5a197b76
+          coverage==7.17.0 \
+              --hash=sha256:85932227e9dd38e62cd29c17fefdfecfb919eead6af1e3259522d03cf85de983
+          cryptography==50.0.2 \
+              --hash=sha256:9dab55f57c74c3cad24c323bacbbd04be4705ba6eb0d92e920b1fc4837ed5079
+          execnet==2.1.2 \
+              --hash=sha256:67fba928dd5a544b783f6056f449e5e3931a5c378b128bc18501f7ea79e296ec
+          fastapi==0.139.0 \
+              --hash=sha256:cf15e1e9e667ddb0ad63811e60bd11390d1aac838ca4a7a23f421807b2308189
+          filelock==4.2.1 \
+              --hash=sha256:7be2662e9e826b9bba28afc0f843a123280d799a2ea44bb5d35ccec67905ae44
+          flask==3.1.3 \
+              --hash=sha256:f4bcbefc124291925f1a26446da31a5178f9483862233b23c0c96a20701f670c
+          graphql-core==3.3.1 \
+              --hash=sha256:43ebcd0d9a0662a71b1a2f6562ba863d253057ec11cbc45835b2e2683a0a3770
+          h11==0.16.0 \
+              --hash=sha256:63cf8bbe7522de3bf65932fda1d9c2772064ffb3dae62d55932da54b31cb6c86
+          httpcore2==2.12.0 \
+              --hash=sha256:7e04258ce01013d7d615e5b910a3b27fac937d7a95038227e79652b4ba3b4ceb
+          httpx2==2.12.0 \
+              --hash=sha256:cc8b6eecb8661c146b8f89a60e97456ee086e91a784ed31ac450c3a9e613dd36
+          idna==3.20 \
+              --hash=sha256:ab7ae7122974553370f0bdb919e1a960b2cd1bc1ef0276416d896db81c14582c
+          ijson==3.6.0 \
+              --hash=sha256:c14d568d31a322e8ed7e9735f6e355608a23cc6ff4b5da843515089dae4cbf5f
+          iniconfig==2.3.0 \
+              --hash=sha256:f631c04d2c48c52b84d0d0549c99ff3859c98df65b3101406327ecc7d53fbf12
+          itsdangerous==2.2.0 \
+              --hash=sha256:c6242fc49e35958c8b15141343aa660db5fc54d4f13a1db01a3f5891b98700ef
+          jinja2==3.1.6 \
+              --hash=sha256:85ece4451f492d0c13c5dd7c13a64681a86afae63a5f347908daf103ce6d2f67
+          jsonschema==4.26.0 \
+              --hash=sha256:d489f15263b8d200f8387e64b4c3a75f06629559fb73deb8fdfb525f2dab50ce
+          jsonschema-specifications==2025.9.1 \
+              --hash=sha256:98802fee3a11ee76ecaca44429fda8a41bff98b00a0f2838151b113f210cc6fe
+          librt==0.16.0 \
+              --hash=sha256:36e53948e99bbe3ffea257124cfcae1cfb01831555c9a9c903c9f9a72db7fd07
+          markdown-it-py==4.2.0 \
+              --hash=sha256:9f7ebbcd14fe59494226453aed97c1070d83f8d24b6fc3a3bcf9a38092641c4a
+          markupsafe==3.0.4 \
+              --hash=sha256:8e124f974786f831d6043728e38296969d3579db8896fe004682f5758e613581
+          mcp==2.2.0 \
+              --hash=sha256:bde982589473a060ae145e3406e9a5333fe538c97229ba841f5a7f92be004f81
+          mcp-types==2.2.0 \
+              --hash=sha256:ea476b73ee86709ab5abc9452385ed36cc05907e582355622e294595c9a04f13
+          mdurl==0.1.2 \
+              --hash=sha256:84008a41e51615a49fc9966191ff91509e3c40b939176e643fd50a5c2196b8f8
+          mypy==2.1.0 \
+              --hash=sha256:bf03e12003084a67395184d3eb8cbd6a489dc3655b5664b28c210a9e2403ab0b
+          mypy-extensions==1.1.0 \
+              --hash=sha256:1be4cccdb0f2482337c4743e60421de3a356cd97508abadd57d47403e94f5505
+          opentelemetry-api==1.45.1 \
+              --hash=sha256:b31553efa588ae44bc306f863c785c5333a9ecc091248c6ee68b4b6c87fdedfb
+          packaging==26.3 \
+              --hash=sha256:d7193f7c8e4e93f444fde0262bf90af30e16fa0ad0ad44cb553c87339b23cd1c
+          pathspec==1.1.1 \
+              --hash=sha256:a00ce642f577bf7f473932318056212bc4f8bfdf53128c78bbd5af0b9b20b189
+          pluggy==1.6.0 \
+              --hash=sha256:e920276dd6813095e9377c0bc5566d94c932c33b27a3e3945d8389c374dd4746
+          prometheus-client==0.26.0 \
+              --hash=sha256:fa93d06737aa02bacd05794768508bb97d2fbee28cb3bca04eaae92f0ca953d6
+          psutil==7.2.2 \
+              --hash=sha256:076a2d2f923fd4821644f5ba89f059523da90dc9014e85f8e45a5774ca5bc6f9
+          psycopg==3.3.6 \
+              --hash=sha256:a1db9f7148b06a28606767efaca51fa6f9398c5c0a3810519be69d7000bdb631
+          psycopg-binary==3.3.6 \
+              --hash=sha256:1679a1cb93fbe5a6d1fd58d82cbddcc6fcb8c61446ba7cae6eb2a7b19bc585de
+          pycparser==3.0 \
+              --hash=sha256:b727414169a36b7d524c1c3e31839a521725078d7b2ff038656844266160a992
+          pydantic==2.13.5 \
+              --hash=sha256:346a034f080da3755d8e9cb5e00e8b07de1d39e4f6e2c87d8ab7cafa0b269a73
+          pydantic-core==2.46.5 \
+              --hash=sha256:0fc5be0abd4a407e200d844b404e33639a554e7bd0d448e7b9ae181be4789ac2
+          pygments==2.21.0 \
+              --hash=sha256:2363c69b61c4a97c838da3b130dcd6468f4848992b21a82f2a63ec34377137d9
+          pyjwt==2.15.0 \
+              --hash=sha256:7a3742debf6b879e912dbb9819ceec1594be812452b78c5f2e2dfc56564954f8
+          pytest==9.1.1 \
+              --hash=sha256:37a86b45efb9a47a61a36449063e8e18d0cab3161329fc099eb21783169c4f0c
+          pytest-xdist==3.8.0 \
+              --hash=sha256:202ca578cfeb7370784a8c33d6d05bc6e13b4f25b5053c30a152269fd10f0b88
+          python-multipart==0.0.32 \
+              --hash=sha256:ff6d3f776f16878c894e52e107296ffc890e913c611b1a4ec6c44e2821fe2e23
+          pyyaml==6.0.3 \
+              --hash=sha256:ba1cc08a7ccde2d2ec775841541641e4548226580ab850948cbfda66a1befcdc
+          referencing==0.37.0 \
+              --hash=sha256:381329a9f99628c9069361716891d34ad94af76e461dcb0335825aecc7692231
+          rpds-py==0.30.0 \
+              --hash=sha256:47f236970bccb2233267d89173d3ad2703cd36a0e2a6e92d0560d333871a3d23
+          sse-starlette==3.5.0 \
+              --hash=sha256:3e6e1070df3f0f5d9cea81496de92dbb72f6721871d99748ece67441dd8b7997
+          starlette==1.3.1 \
+              --hash=sha256:c7372aae11c3c3f26a42df7bd626cec2f47d03483d261d369516a615a53714c6
+          truststore==0.10.4 \
+              --hash=sha256:adaeaecf1cbb5f4de3b1959b42d41f6fab57b2b1666adb59e89cb0b53361d981
+          typing-extensions==4.16.0 \
+              --hash=sha256:481caa481374e813c1b176ada14e97f1f67a4539ce9cfeb3f350d78d6370c2e8
+          typing-inspection==0.4.4 \
+              --hash=sha256:65b8397ba37ccbce054456aaccddfc91e6e3083c92824df348d96ca832f3f147
+          uvicorn==0.48.0 \
+              --hash=sha256:48097851328b87ec36117d3d575234519eb58c2b22d79666e9bbc6c49a761dad
+          werkzeug==3.1.9 \
+              --hash=sha256:6392e50c78460ba618e5b21f08a71f59c99ce99cdc6cf6e3dd7e6ccca8754fab
+          REQUIREMENTS
+          "$venv/bin/python" -I -m pip install --no-cache-dir --disable-pip-version-check \
+            --no-input --require-hashes --only-binary=:all: --requirement "$requirements"
+          "$venv/bin/python" -I -m pip check --disable-pip-version-check
+          reported="$("$venv/bin/python" -I -m mypy --version)"
+          case "$reported" in
+            "mypy ${MYPY_VERSION} "*) ;;
+            *)
+              echo "::error::Expected mypy ${MYPY_VERSION}, got: ${reported}"
+              exit 1
+              ;;
+          esac
+          minor="$("$venv/bin/python" -I -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')"
+          if [ "$minor" != "$PYTHON_VERSION" ]; then
+            echo "::error::Expected Python ${PYTHON_VERSION}, got: ${minor}"
+            exit 1
+          fi
+
+      - name: Run the mypy ratchet over lu_machinery/
+        run: |
+          set -euo pipefail
+          venv="$RUNNER_TEMP/mypy-venv"
+          if [ ! -f lu_machinery/lint/mypy_baseline.json ]; then
+            echo "::error::lu_machinery/lint/mypy_baseline.json is missing; nothing would be compared"
+            exit 1
+          fi
+          python_files="$(find lu_machinery -type f -name '*.py' | wc -l)"
+          echo "The ratchet checks lu_machinery/, which holds ${python_files} Python file(s)."
+          if [ "$python_files" -eq 0 ]; then
+            echo "::error::lu_machinery/ holds no Python files; mypy would check nothing"
+            exit 1
+          fi
+          # The same command the source repository's CI and pre-push hook run,
+          # with this repository's package name. It imports the ratchet from
+          # the checkout, so it does not run isolated (-I).
+          env -u PYTHONPATH -u MYPYPATH "$venv/bin/python" -m lu_machinery.lint.mypy_ratchet
 
   actionlint:
     name: actionlint
@@ -927,7 +1132,7 @@ jobs:
     # always(): a job skipped because a dependency failed would otherwise count
     # as a passing required check.
     if: always()
-    needs: [ruff, compileall, actionlint, zizmor, secret-scan, sast]
+    needs: [ruff, compileall, mypy, actionlint, zizmor, secret-scan, sast]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions: {}
@@ -938,7 +1143,7 @@ jobs:
         run: |
           set -euo pipefail
           # Keep this list equal to `needs` above.
-          expected=(actionlint compileall ruff sast secret-scan zizmor)
+          expected=(actionlint compileall mypy ruff sast secret-scan zizmor)
           if ! actual="$(jq -r 'if type == "object" then keys[] else error("not an object") end' \
                 <<< "$NEEDS_JSON" 2> /dev/null)"; then
             echo "::error::Job results are not a JSON object; failing closed"
