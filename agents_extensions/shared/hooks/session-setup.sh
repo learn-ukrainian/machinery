@@ -278,7 +278,7 @@ if [ -n "${LEARN_UKRAINIAN_CLAUDEX_RUN_ID:-}" ]; then
     ISSUES+=("CLAUDEX SUPERVISOR BIND FAILED: official session identity or runtime helper is unavailable.")
   else
     SUPERVISOR_BIND_CMD=(
-      "$CLAUDEX_SUPERVISOR_PYTHON" "$CLAUDEX_SUPERVISOR_SCRIPT" bind-session
+      "$CLAUDEX_SUPERVISOR_PYTHON" -P -m lu_machinery.orchestration.claudex_supervisor bind-session
       --run-id "$LEARN_UKRAINIAN_CLAUDEX_RUN_ID"
       --launch-generation "${LEARN_UKRAINIAN_CLAUDEX_LAUNCH_GENERATION:-}"
       --session-id "$SESSION_ID"
@@ -286,7 +286,7 @@ if [ -n "${LEARN_UKRAINIAN_CLAUDEX_RUN_ID:-}" ]; then
     )
     [ -n "$SOURCE" ] && SUPERVISOR_BIND_CMD+=(--source "$SOURCE")
     [ -n "$OBSERVED_MODEL" ] && SUPERVISOR_BIND_CMD+=(--model "$OBSERVED_MODEL")
-    if ! run_bounded 3 "${SUPERVISOR_BIND_CMD[@]}" >/dev/null 2>&1; then
+    if ! PYTHONPATH="$PROJECT_DIR${PYTHONPATH:+:$PYTHONPATH}" run_bounded 3 "${SUPERVISOR_BIND_CMD[@]}" >/dev/null 2>&1; then
       ISSUES+=("CLAUDEX SUPERVISOR BIND FAILED: SessionStart did not match the owned child generation.")
     fi
     unset SUPERVISOR_BIND_CMD

@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import contextlib
 import hashlib
+import importlib.util
 import json
 import os
 import re
@@ -664,9 +665,20 @@ class ClaudexSupervisor:
                 ),
             }
         )
+        # -P so the child does not import a lu_machinery/ from the caller's cwd.
+        # PYTHONPATH names the tree this process already loaded.
+        spec = importlib.util.find_spec("lu_machinery")
+        origin = getattr(spec, "origin", None) if spec is not None else None
+        if origin and origin != "namespace":
+            loaded_root = os.fspath(Path(origin).resolve().parent.parent)
+            prior_path = launch_env.get("PYTHONPATH")
+            launch_env["PYTHONPATH"] = (
+                loaded_root if not prior_path else loaded_root + os.pathsep + prior_path
+            )
         command = [self.script_path, *self.forward_argv]
         gate_command = [
             sys.executable,
+            "-P",
             "-m",
             "lu_machinery.orchestration.claudex_supervisor",
             "_launch-child",

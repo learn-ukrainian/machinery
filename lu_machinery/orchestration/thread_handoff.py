@@ -16,6 +16,7 @@ import contextlib
 import gzip
 import hashlib
 import http.client
+import importlib.util
 import io
 import json
 import os
@@ -3264,11 +3265,21 @@ def request_claudex_rollover(
     if not isinstance(rollover_id, str):
         raise ValueError("prepared rollover id is malformed")
 
-    supervisor_script = Path(__file__).with_name("claudex_supervisor.py")
+    spec = importlib.util.find_spec("lu_machinery")
+    origin = getattr(spec, "origin", None) if spec is not None else None
+    child_env = os.environ.copy()
+    if origin and origin != "namespace":
+        loaded_root = os.fspath(Path(origin).resolve().parent.parent)
+        prior_path = child_env.get("PYTHONPATH")
+        child_env["PYTHONPATH"] = (
+            loaded_root if not prior_path else loaded_root + os.pathsep + prior_path
+        )
     result = run_command(
         [
             os.fspath(project_interpreter(repo_root)),
-            os.fspath(supervisor_script),
+            "-P",
+            "-m",
+            "lu_machinery.orchestration.claudex_supervisor",
             "request-rollover",
             "--state-root",
             os.fspath(state_root),
@@ -3286,6 +3297,7 @@ def request_claudex_rollover(
             rollover_id,
         ],
         cwd=repo_root,
+        env=child_env,
     )
     if result.returncode != 0:
         detail = result.stderr or result.stdout or "request command failed"
