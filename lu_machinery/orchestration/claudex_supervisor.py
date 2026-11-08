@@ -665,10 +665,9 @@ class ClaudexSupervisor:
                 ),
             }
         )
-        # -I keeps the caller's PYTHONPATH and cwd off the gate's import path;
-        # the gate appends the loaded package root after the stdlib and
-        # site-packages. The environment, PYTHONPATH included, reaches the
-        # supervised command unchanged.
+        # The gate runs isolated from the caller's import path; see
+        # thread_handoff.CLAUDEX_SUPERVISOR_BOOTSTRAP. Its environment,
+        # PYTHONPATH included, reaches the supervised command unchanged.
         spec = importlib.util.find_spec("lu_machinery")
         origin = getattr(spec, "origin", None) if spec is not None else None
         loaded_root = ""
@@ -679,9 +678,7 @@ class ClaudexSupervisor:
             sys.executable,
             "-I",
             "-c",
-            "import runpy, sys; root = sys.argv.pop(1); root and sys.path.append(root); "
-            "runpy.run_module('lu_machinery.orchestration.claudex_supervisor', "
-            "run_name='__main__', alter_sys=True)",
+            thread_handoff.CLAUDEX_SUPERVISOR_BOOTSTRAP,
             loaded_root,
             "_launch-child",
             os.fspath(ready_file),

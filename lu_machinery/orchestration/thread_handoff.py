@@ -3181,6 +3181,24 @@ def active_thread_id_from_env() -> str | None:
     )
 
 
+# Run with ``python -I -c CLAUDEX_SUPERVISOR_BOOTSTRAP <package root> <args>``.
+# -I keeps the caller's PYTHONPATH and cwd off the import path. An installed
+# lu_machinery is used when present; otherwise only lu_machinery is loaded from
+# the given root, which never goes on sys.path, so no other name can resolve
+# there. The environment, PYTHONPATH included, is passed on unchanged.
+CLAUDEX_SUPERVISOR_BOOTSTRAP = (
+    "import importlib.util, runpy, sys\n"
+    "pkg = sys.argv.pop(1) + '/lu_machinery'\n"
+    "if importlib.util.find_spec('lu_machinery') is None:\n"
+    "    spec = importlib.util.spec_from_file_location("
+    "'lu_machinery', pkg + '/__init__.py', submodule_search_locations=[pkg])\n"
+    "    sys.modules['lu_machinery'] = importlib.util.module_from_spec(spec)\n"
+    "    spec.loader.exec_module(sys.modules['lu_machinery'])\n"
+    "runpy.run_module('lu_machinery.orchestration.claudex_supervisor', "
+    "run_name='__main__', alter_sys=True)\n"
+)
+
+
 def request_claudex_rollover(
     *,
     repo_root: Path,
@@ -3217,9 +3235,6 @@ def request_claudex_rollover(
     if not isinstance(rollover_id, str):
         raise ValueError("prepared rollover id is malformed")
 
-    # -I keeps the caller's PYTHONPATH and cwd off the child's import path;
-    # the child appends the loaded package root after the stdlib and
-    # site-packages.
     spec = importlib.util.find_spec("lu_machinery")
     origin = getattr(spec, "origin", None) if spec is not None else None
     loaded_root = ""
@@ -3230,9 +3245,7 @@ def request_claudex_rollover(
             sys.executable,
             "-I",
             "-c",
-            "import runpy, sys; root = sys.argv.pop(1); root and sys.path.append(root); "
-            "runpy.run_module('lu_machinery.orchestration.claudex_supervisor', "
-            "run_name='__main__', alter_sys=True)",
+            CLAUDEX_SUPERVISOR_BOOTSTRAP,
             loaded_root,
             "request-rollover",
             "--state-root",
