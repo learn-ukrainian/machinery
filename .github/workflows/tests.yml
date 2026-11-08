@@ -1,4 +1,4 @@
-# Machinery tests (machinery-move contract v3 step 8, first and second tranches).
+# Machinery tests (machinery-move contract v3 step 8, first to third rounds).
 #
 # One job, `pytest`, runs every [run] file of tests/machinery_tests.txt as a
 # whole file. The manifest is the only list: the job never discovers tests by
