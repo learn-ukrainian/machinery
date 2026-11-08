@@ -971,7 +971,7 @@ def _collect_bridge_pending_orient_data(ctx: MonitorContext | None = None) -> di
 
 def _collect_rollovers_orient_data(ctx: MonitorContext | None = None) -> dict:
     resolved_ctx = resolve_context(ctx)
-    return collect_rollover_orient_data(live_repo_root=resolved_ctx.roots.live_repo_root)
+    return collect_rollover_orient_data(live_repo_root=resolved_ctx.roots.state_root)
 
 
 logger = logging.getLogger(__name__)

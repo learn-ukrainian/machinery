@@ -851,7 +851,7 @@ async def message_plane_status(ctx: MonitorContext = Depends(get_ctx)):
     recent parity telemetry summary when the optional JSONL file is present.
     Never writes or migrates.
     """
-    return read_plane_status(repo_root=ctx.roots.project_root)
+    return read_plane_status(repo_root=ctx.roots.state_root)
 
 
 # ==================== LIVE ACTIVITY ====================
@@ -1707,7 +1707,7 @@ def comms_inbox(
 def _authority_plane_db(ctx: MonitorContext) -> Path:
     # EXACT mirror of fleet_router._plane_db_path (#7505 CF r1: the two
     # surfaces must never resolve the plane differently).
-    return default_plane_root(repo_root=ctx.roots.project_root) / "comms.sqlite3"
+    return default_plane_root(repo_root=ctx.roots.state_root) / "comms.sqlite3"
 
 
 def _authority_metrics_payload(

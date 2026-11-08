@@ -698,7 +698,7 @@ def _routing_plane_status(ctx: MonitorContext | None = None) -> dict[str, Any]:
     """Expose the actual plane posture without inferring authority from rows."""
     resolved_ctx = resolve_context(ctx)
     try:
-        raw = read_plane_status(repo_root=resolved_ctx.roots.project_root, recent_limit=0)
+        raw = read_plane_status(repo_root=resolved_ctx.roots.state_root, recent_limit=0)
     except Exception:
         raw = {"mode": "unavailable", "enabled": False}
     mode = str(raw.get("mode") or "unavailable")
@@ -1047,7 +1047,7 @@ def list_routing_assignments(*, limit: int = 100, ctx: MonitorContext | None = N
         # a bounded event window wide enough to return up to ``limit`` distinct
         # reservations after lifecycle aggregation.
         rows = reader(
-            root=message_plane.default_plane_root(repo_root=resolved_ctx.roots.project_root),
+            root=message_plane.default_plane_root(repo_root=resolved_ctx.roots.state_root),
             limit=record_limit * 10,
         )
     except (ImportError, AttributeError):
@@ -1145,7 +1145,7 @@ def _rounded(value: Any, digits: int = 2) -> float | None:
 
 def _acp_db_path(ctx: MonitorContext) -> Path:
     """Return the configured fleet-comms database without creating it."""
-    return message_plane.default_plane_root(repo_root=ctx.roots.project_root) / "comms.sqlite3"
+    return message_plane.default_plane_root(repo_root=ctx.roots.state_root) / "comms.sqlite3"
 
 
 def _open_acp_db_readonly(ctx: MonitorContext) -> SQLiteConnection | None:
