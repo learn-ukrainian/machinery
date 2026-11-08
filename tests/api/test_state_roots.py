@@ -3,6 +3,8 @@
 import asyncio
 import json
 import subprocess
+import sys
+import types
 
 import pytest
 
@@ -144,3 +146,167 @@ def test_response_telemetry_keeps_product_transcript_identity_and_state_records(
     payload = response.build_telemetry_payload("session-1")
     assert payload["ctx"] == 1234
     assert payload["observed_model"] == "state-model"
+
+
+class _ImportGap(types.ModuleType):
+    """Stand-in for a third-party module the slim pytest job does not install."""
+
+    def __call__(self, *args, **kwargs):
+        return _ImportGap(self.__name__ + "()")
+
+    def __getattr__(self, name):
+        if name.startswith("__"):
+            raise AttributeError(name)
+        child = _ImportGap(f"{self.__name__}.{name}")
+        setattr(self, name, child)
+        return child
+
+    def __iter__(self):
+        return iter(())
+
+    def __or__(self, other):
+        return _ImportGap("union")
+
+    def __ror__(self, other):
+        return _ImportGap("union")
+
+    def __mro_entries__(self, bases):
+        return (object,)
+
+
+_MISSING = object()
+
+
+_OPTIONAL_IMPORTS = ("prometheus_client", "psycopg")
+
+
+def _fill_optional(monkeypatch):
+    """Fill third-party modules the machinery pytest job does not install.
+
+    The orient and plane calls do not use these modules. A later import inside
+    plane status still has to resolve, so the fill stays in place for the test.
+    An installed copy is left untouched.
+    """
+    for name in _OPTIONAL_IMPORTS:
+        current = sys.modules.get(name, _MISSING)
+        if isinstance(current, _ImportGap):
+            continue
+        if current is not _MISSING and current is not None:
+            continue
+        if current is None:
+            monkeypatch.setitem(sys.modules, name, _ImportGap(name))
+            continue
+        try:
+            __import__(name)
+        except ModuleNotFoundError:
+            monkeypatch.setitem(sys.modules, name, _ImportGap(name))
+
+
+def _load_api(name, monkeypatch):
+    """Import an API module, filling any further missing third-party import."""
+    import importlib
+
+    _fill_optional(monkeypatch)
+    for _ in range(40):
+        try:
+            return importlib.import_module(name)
+        except ModuleNotFoundError as exc:
+            missing = exc.name or ""
+            root = missing.split(".", 1)[0]
+            if not missing or root in {"lu_machinery", "tests"}:
+                raise
+            monkeypatch.setitem(sys.modules, missing, _ImportGap(missing))
+    raise ImportError(name)
+
+
+def test_rollover_orient_reads_state_registry_not_the_product_checkout(roots, monkeypatch):
+    """Distinct anchors must not send rollover orient at the product checkout (#100 R40)."""
+    product, state = roots
+    seen = []
+
+    def audit(root, **kwargs):
+        seen.append(root)
+        return {"entries": [], "generated_at": "now", "counts": {}, "errors": []}
+
+    monkeypatch.setattr(rollover_router.registry, "audit_fleet", audit)
+    monkeypatch.setattr(
+        rollover_router.thread_handoff,
+        "rollover_identity_snapshot",
+        lambda root: {"schema_version": 1, "candidate_count": 0, "errors": []},
+    )
+    main = _load_api("lu_machinery.api.main", monkeypatch)
+
+    ctx = monitor_context.production_context()
+    main._collect_rollovers_orient_data(ctx)
+    assert seen == [state]
+    assert product not in seen
+
+
+def test_fleet_plane_reads_state_root_not_the_product_checkout(roots, monkeypatch):
+    """Distinct anchors must not anchor the Fleet plane on the product checkout (#100 R40)."""
+    comms_router = _load_api("lu_machinery.api.comms_router", monkeypatch)
+    fleet_router = _load_api("lu_machinery.api.fleet_router", monkeypatch)
+    runtime_router = _load_api("lu_machinery.api.runtime_router", monkeypatch)
+    from lu_machinery.fleet_comms import cold_start_board, message_plane, routing_reservations
+
+    product, state = roots
+    monkeypatch.delenv("FLEET_COMMS_ROOT", raising=False)
+    ctx = monitor_context.production_context()
+    plane = (state / "batch_state/fleet-comms/v1").resolve()
+    database = plane / "comms.sqlite3"
+
+    assert fleet_router._plane_root(ctx).resolve() == plane
+    assert runtime_router._acp_db_path(ctx).resolve() == database
+    assert comms_router._authority_plane_db(ctx).resolve() == database
+    assert not (product / "batch_state/fleet-comms/v1/comms.sqlite3").exists()
+
+    seen = []
+
+    def spy(*args, repo_root=None, root=None, **kwargs):
+        if repo_root is not None:
+            seen.append(repo_root.resolve())
+        if root is not None:
+            seen.append(root.resolve())
+        return {
+            "mode": "off",
+            "enabled": False,
+            "read_only": True,
+            "response_schema_version": 1,
+            "store": {},
+            "schema": {"db_exists": False, "authority": "sqlite"},
+            "parity_telemetry": {
+                "exists": False,
+                "event_count": 0,
+                "parity_ok_count": 0,
+                "parity_fail_count": 0,
+            },
+        }
+
+    monkeypatch.setattr(message_plane, "read_plane_status", spy)
+    monkeypatch.setattr(fleet_router, "read_plane_status", spy)
+    monkeypatch.setattr(runtime_router, "read_plane_status", spy)
+    monkeypatch.setattr(comms_router, "read_plane_status", spy)
+    monkeypatch.setattr(cold_start_board, "read_plane_status", spy)
+    fleet_router._safe_plane_status(ctx)
+    fleet_router.fleet_facade_status(ctx)
+    routing = runtime_router._routing_plane_status(ctx)
+    asyncio.run(comms_router.message_plane_status(ctx))
+    assert routing["mode"] == "off"
+    assert seen == [state.resolve()] * 4
+
+    roots_seen = []
+
+    def reader(*, root=None, limit=100):
+        roots_seen.append(root.resolve())
+        return []
+
+    monkeypatch.setattr(routing_reservations, "list_routing_decisions", reader)
+    listed = runtime_router.list_routing_assignments(limit=1, ctx=ctx)
+    assert roots_seen == [plane]
+    assert listed["availability"] == "empty"
+
+    board = fleet_router.fleet_facade_board(None, None, None, ctx)
+    assert state.resolve() in seen
+    assert plane in seen
+    assert board["probes"]["plane_status"]["status"] == "ok"
+    assert not (product / "batch_state").exists()

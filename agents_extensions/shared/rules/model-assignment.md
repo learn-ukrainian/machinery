@@ -321,7 +321,7 @@ needs both; if they disagree, the operator decides. Fable 5.1 is parked: not rou
 - **Review, critique, design input and Ukrainian work**: Opus 5.5 / Sol 6.1 (#9583).
   Orchestration alone never confers approval authority.
 - **Effort**: Opus 5.5's API default is `medium`, one level below Opus 5. Orchestrating runs at `high`;
-  see `docs/best-practices/fleet-shared-doctrine.md` § Effort guidance for the full ladder.
+  see `agents_extensions/shared/rules/fleet-shared-doctrine.md` § Effort guidance for the full ladder.
 
 The server-side advisor supplies consultation, not designated approval or the
 independent cross-family review of record. If advisor calls stall, the documented

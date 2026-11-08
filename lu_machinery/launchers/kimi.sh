@@ -102,7 +102,7 @@ launcher_adapter_exec() {
     cmd=(kimi --model "$LC_MODEL")
     # The agent file renders Kimi's default prompt (${base_prompt}) and appends the core.
     if [ -n "${LC_RULES_CORE:-}" ]; then
-      if agent_file="$(rules_core_kimi_agent_file "$LC_DURABLE_HELPER_ROOT/.venv/bin/python" "$LC_ROOT")"; then
+      if agent_file="$(rules_core_kimi_agent_file "$LC_DURABLE_HELPER_ROOT/.venv/bin/python")"; then
         cmd+=(--agent-file "$agent_file")
       else
         rules_core_refuse "Kimi agent file could not be written"

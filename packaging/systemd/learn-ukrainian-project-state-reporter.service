@@ -6,7 +6,7 @@ After=network.target
 Type=oneshot
 Environment=PATH=/usr/local/bin:/usr/bin:/bin
 # Machinery roots (scripts/common/repo_root.py): LEARN_UKRAINIAN_PRIMARY_REPO_ROOT,
-# LEARN_UKRAINIAN_GITHUB_SLUG, LEARN_UKRAINIAN_STATE_ROOT, LEARN_UKRAINIAN_RULES_DIR and
+# LEARN_UKRAINIAN_GITHUB_SLUG, LEARN_UKRAINIAN_STATE_ROOT and
 # LEARN_UKRAINIAN_PYTHON. The wrapper and the reporter read them from this optional file;
 # without it they keep their defaults.
 EnvironmentFile=-%h/.config/learn-ukrainian/machinery.env
