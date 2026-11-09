@@ -593,7 +593,6 @@ tests/fixtures/agy/verify_words_transcript.jsonl
 tests/fixtures/claude_default_account_plan.json
 tests/fixtures/claude_login/credentials-with-plan.template.json
 tests/fixtures/claude_login/credentials-without-plan.template.json
-tests/helpers/read_only_checkout.py
 tests/agent_runtime/fixtures/product_stand_ins/scripts/__init__.py
 tests/agent_runtime/fixtures/product_stand_ins/scripts/curriculum/__init__.py
 tests/agent_runtime/fixtures/product_stand_ins/scripts/curriculum/review_attempt_hooks.py
