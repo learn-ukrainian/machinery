@@ -900,7 +900,8 @@ def _apply_merge_guard(*, mode: str, env: dict[str, str]) -> dict[str, str]:
     else:
         guarded_env.pop("AGENT_REAL_GIT", None)
 
-    guarded_env["LEARN_UKRAINIAN_PYTHON"] = str(project_interpreter(env=env))
+    # build_agent_env strips operator root settings from this child environment.
+    guarded_env["LEARN_UKRAINIAN_PYTHON"] = str(project_interpreter())
 
     shim_path = str(_SHIMS_DIR)
     guarded_env["PATH"] = f"{shim_path}{os.pathsep}{original_path}" if original_path else shim_path

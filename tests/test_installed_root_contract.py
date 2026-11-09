@@ -157,23 +157,31 @@ elif scenario == 'diagnostic':
     assert result == 'batch_state/tasks/root-probe.diag', result
     assert record.with_suffix('.diag').read_text() == 'root proof\n'
 elif scenario in ('gh_shim', 'guarded_gh_shim'):
-    from lu_machinery.opsec.prepublish import publish_environment
+    from lu_machinery.agent_runtime.env_sanitize import build_agent_env
+    from lu_machinery.agent_runtime.runner import _apply_merge_guard
     real = product / 'gh'
     real.write_text('#!/bin/sh\nprintf "gh-root-proof\\n"\n')
     real.chmod(0o755)
-    source = {**os.environ, 'PATH':str(product)+':'+os.defpath, 'AGENT_REAL_GH':str(real)}
-    # Resolve from the configured primary, without any interpreter beside the package.
-    source.pop(rr.INTERPRETER_ENV, None)
+    os.environ['PATH'] = str(product) + ':' + os.defpath
+    home = product / 'home'
+    home.mkdir()
+    os.environ['HOME'] = str(home)
+    os.environ.pop('GH_CONFIG_DIR', None)
+    os.environ.pop('AGENT_ALLOW_MERGE', None)
+    os.environ.pop('AGENT_NO_MERGE', None)
     python = primary / '.venv/bin/python'
     python.parent.mkdir(parents=True)
     python.symlink_to(sys.executable)
+    # Exercise the production sanitizer boundary: these operator settings are
+    # intentionally absent from the child environment, but still select the guard.
     if scenario == 'guarded_gh_shim':
-        from lu_machinery.agent_runtime.runner import _apply_merge_guard
-        source['AGENT_NO_MERGE'] = '1'
-        source.pop('AGENT_ALLOW_MERGE', None)
-        environment = _apply_merge_guard(mode='danger', env=source)
+        os.environ.pop(rr.INTERPRETER_ENV, None)
     else:
-        environment = publish_environment(source)
+        os.environ[rr.INTERPRETER_ENV] = str(python)
+    with patch('lu_machinery.agent_runtime.agent_github_identity.resolve_agent_github_identity', return_value=None):
+        source = build_agent_env(provider='claude', model='claude-opus-5-5')
+    assert rr.PRIMARY_ROOT_ENV not in source and rr.INTERPRETER_ENV not in source
+    environment = _apply_merge_guard(mode='danger' if scenario == 'guarded_gh_shim' else 'safe', env=source)
     assert environment[rr.INTERPRETER_ENV] == str(python)
     result = subprocess.run(['gh', 'auth', 'status'], cwd=product, env=environment,
                             capture_output=True, text=True, timeout=30)

@@ -480,7 +480,8 @@ def publish_environment(source: Mapping[str, str]) -> dict[str, str]:
     env = internal_environment(source)
     from lu_machinery.common.repo_root import project_interpreter
 
-    env["LEARN_UKRAINIAN_PYTHON"] = str(project_interpreter(env=source))
+    # source may already be sanitized; the process owns interpreter configuration.
+    env["LEARN_UKRAINIAN_PYTHON"] = str(project_interpreter())
     shim = str(_PACKAGE / "agent_runtime" / "shims")
     env["PATH"] = os.pathsep.join([shim, *[p for p in env.get("PATH", "").split(os.pathsep) if p and p != shim]])
     try:
