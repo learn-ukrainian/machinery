@@ -163,6 +163,17 @@ POLLUTED_PARENT_TESTS = {
 }
 
 
+_PORTED_LAUNCHER_PATHS = {'tests/test_handoff_slot_registry.py': 'tests/lib/test_handoff_slot_registry.py', 'tests/test_launcher_contract.py': 'tests/lib/test_launcher_contract.py', 'tests/test_launcher_helper_root.py': 'tests/lib/test_launcher_helper_root.py', 'tests/test_launcher_interactive_scope.py': 'tests/lib/test_launcher_interactive_scope.py', 'tests/test_start_cto_wrappers.py': 'tests/lib/test_start_cto_wrappers.py', 'tests/test_start_cursor_launcher.py': 'tests/lib/test_start_cursor_launcher.py', 'tests/test_start_codex_profiles.py': 'tests/lib/test_start_codex_profiles.py', 'tests/test_launcher_driver_scope.py': 'tests/lib/test_launcher_driver_scope.py', 'tests/test_fleet_taxonomy_aliases.py': 'tests/lib/test_fleet_taxonomy_aliases.py', 'tests/test_session_supervisor.py': 'tests/agents_extensions/test_session_supervisor.py', 'tests/test_session_supervisor_shell.py': 'tests/lib/test_session_supervisor_shell.py', 'tests/test_claude_cap_guard.py': 'tests/lib/test_claude_cap_guard.py', 'tests/test_start_claude_profiles.py': 'tests/lib/test_start_claude_profiles.py', 'tests/test_start_codex_claude_code.py': 'tests/lib/test_start_codex_claude_code.py', 'tests/test_rollover_bundles.py': 'tests/agents_extensions/test_rollover_bundles.py'}
+LAUNCHER_TEST_FILES += tuple(
+    _PORTED_LAUNCHER_PATHS[path] for path in LAUNCHER_TEST_FILES if path in _PORTED_LAUNCHER_PATHS
+)
+POLLUTED_PARENT_TESTS.update({
+    _PORTED_LAUNCHER_PATHS[node.split("::", 1)[0]] + "::" + node.split("::", 1)[1]: reason
+    for node, reason in tuple(POLLUTED_PARENT_TESTS.items())
+    if node.split("::", 1)[0] in _PORTED_LAUNCHER_PATHS
+})
+
+
 def launcher_toolchain_path() -> str:
     """Declare executable directories without inheriting provider or seat state.
 

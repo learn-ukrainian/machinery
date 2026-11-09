@@ -695,7 +695,7 @@ def test_claude_refuses_unvalidated_configuration_models(
 
 
 def test_driver_cap_documentation_matches_enforced_policy() -> None:
-    comment = (REPO / "start-claude-driver.sh").read_text()
+    comment = (Path(__file__).resolve().parents[1] / "fixtures/product_tree/start-claude-driver.sh").read_text()
     result = run_launcher("start-claude-driver.sh", "--help")
     assert result.returncode == 0
     runbook = (REPO / "docs/runbooks/epic-orchestrator-roster.md").read_text()

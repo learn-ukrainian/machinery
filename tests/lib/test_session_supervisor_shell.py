@@ -70,6 +70,7 @@ rm -f "$replacement"
 
 def _supervisor_ok_body(capture: Path) -> str:
     return f"""#!/usr/bin/env bash
+if [[ "${{1:-}}" == "-I" && "${{2:-}}" == "-c" && "${{3:-}}" == *"module bootstrap:"* ]]; then shift 5; fi
 if [[ "${{1:-}}" == "-m" && "${{2:-}}" == "lu_machinery.api.occupancy_local" && "${{3:-}}" == "resolve-host-id" ]]; then
   if [[ "${{FAKE_RESOLVER_FAILURE:-0}}" == "1" ]]; then
     echo "resolver unavailable" >&2
@@ -286,11 +287,12 @@ def _live_session_fake_python(capture: Path, counter: Path) -> str:
         '"dual_write":{},"diagnostics":{}}'
     )
     return f"""#!/usr/bin/env bash
+if [[ "${{1:-}}" == "-I" && "${{2:-}}" == "-c" && "${{3:-}}" == *"module bootstrap:"* ]]; then shift 5; fi
 if [[ "${{1:-}}" == "-m" && "${{2:-}}" == "lu_machinery.api.occupancy_local" && "${{3:-}}" == "resolve-host-id" ]]; then
   printf '%s\\n' "host-job"
   exit 0
 fi
-if [[ "${{1:-}}" == "-m" && "${{2:-}}" == "scripts.session_supervisor" ]]; then
+if [[ "${{1:-}}" == "-m" && "${{2:-}}" == "lu_machinery.session_supervisor" ]]; then
   printf '%s\\n' "CMD:$3" >> "{capture}"
   printf '%s\\n' -- "$@" >> "{capture}"
   printf '%s\\n' "---" >> "{capture}"
@@ -449,7 +451,8 @@ def test_claim_fails_closed_on_missing_required_fields(tmp_path: Path) -> None:
     _write_executable(
         project / ".venv" / "bin" / "python",
         """#!/usr/bin/env bash
-if [[ "${1:-}" == "-m" && "${2:-}" == "scripts.session_supervisor" && "${3:-}" == "open" ]]; then
+if [[ "${1:-}" == "-I" && "${2:-}" == "-c" && "${3:-}" == *"module bootstrap:"* ]]; then shift 5; fi
+if [[ "${1:-}" == "-m" && "${2:-}" == "lu_machinery.session_supervisor" && "${3:-}" == "open" ]]; then
   cat <<'JSON'
 {
   "identity": {
@@ -535,7 +538,7 @@ def _run_launcher_wake_scenario(
     root = tmp_path / scenario
     lib = root / "lu_machinery" / "lib"
     lib.mkdir(parents=True)
-    for name in ("launcher_core.sh", "session_supervisor.sh"):
+    for name in ("launcher_core.sh", "session_supervisor.sh", "project_interpreter.sh"):
         body = (machinery_path("lib") / name).read_text()
         if scenario == "wake_file_missing" and name == "session_supervisor.sh":
             body = body.replace("session_supervisor_read_wake()", "session_supervisor_read_wake_original()")
@@ -646,7 +649,7 @@ def _failure_publication_fixture(tmp_path: Path, *, seed_channel: bool) -> dict[
         f"""#!/usr/bin/env bash
 if [ "$1" = -m ]; then
   printf '%s\\n' "$*" >> "$TEST_PUBLISH_ARGS"
-  [ "$2" = scripts.fleet_comms ] || exit 91
+  [ "$2" = lu_machinery.fleet_comms ] || exit 91
   if [ -n "${{TEST_CLOSE_EVENTS:-}}" ]; then
     [ "$(tail -n 1 "$TEST_CLOSE_EVENTS")" = close ] || exit 92
   fi

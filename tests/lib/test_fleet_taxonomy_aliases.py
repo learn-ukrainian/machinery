@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 import sys
@@ -23,7 +24,10 @@ from lu_machinery.session_streams.inventory import (
 )
 from tests.helpers.monitor import UNREACHABLE_MONITOR_URL
 from tests.helpers.product_tree import configured_roots as configured_roots
-from tests.launcher_sandbox import launcher_environment
+from tests.launcher_sandbox import (
+    copy_interactive_launcher_checkout,
+    launcher_environment,
+)
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _HANDOFF_IDENTITY_SH = machinery_path('lib/handoff_identity.sh')
@@ -385,7 +389,9 @@ def _run_session_setup_hook(tmp_path: Path, session_epic: str, driver_state: str
         "SESSION_EPIC": session_epic,
         "CLAUDE_PROFILE_RESOLVER_SH": str(machinery_path('lib/profile_resolver.sh')),
         "CLAUDE_PROFILE_RESOLVER_PY": str(machinery_path('lib/context_profiles.py')),
-        "CLAUDE_PROFILE_RESOLVER_PYTHON": sys.executable,
+        "LEARN_UKRAINIAN_PYTHON": sys.executable,
+        "LEARN_UKRAINIAN_PRIMARY_REPO_ROOT": os.environ["LEARN_UKRAINIAN_PRIMARY_REPO_ROOT"],
+        "LU_PRODUCT_ROOT": os.environ["LU_PRODUCT_ROOT"],
         "CLAUDE_SESSION_RECORD_SCRIPT": str(machinery_path('lib/session_record.py')),
         "CLAUDE_SESSION_RECORD_PYTHON": sys.executable,
         "SESSION_BOUNDED_RUNNER": str(machinery_path('agent_runtime/bounded_command.py')),
@@ -445,6 +451,9 @@ def test_session_setup_hook_names_driver_state_as_authoritative(tmp_path: Path) 
 
 
 @pytest.fixture(autouse=True)
-def _configured_launcher_roots(configured_roots):
+def _configured_launcher_roots(configured_roots, monkeypatch):
     """Use the shared hermetic product and primary trees for launcher calls."""
+    root = configured_roots.primary / "launcher-checkout"
+    copy_interactive_launcher_checkout(root)
+    monkeypatch.setattr(sys.modules[__name__], "_REPO_ROOT", root)
     return configured_roots

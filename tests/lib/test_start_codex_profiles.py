@@ -120,11 +120,11 @@ if [[ "${{1:-}}" == */lu_machinery/orchestration/thread_handoff.py && "$*" == *"
   fi
   exit 0
 fi
-if [[ "${{1:-}}" == "-m" && "${{2:-}}" == "scripts.orchestration.codex_transport_health" ]]; then
+if [[ "${{1:-}}" == "-m" && "${{2:-}}" == "lu_machinery.orchestration.codex_transport_health" ]]; then
   printf '%s\\n' '{{"status":"healthy","fresh":true}}'
   exit 0
 fi
-if [[ "${{1:-}}" == "-m" && "${{2:-}}" == "scripts.session_supervisor" ]]; then
+if [[ "${{1:-}}" == "-m" && "${{2:-}}" == "lu_machinery.session_supervisor" ]]; then
   if [[ -n "${{CODEX_LAUNCHER_TEST_ORDER:-}}" && "$*" == *" open "* ]]; then
     printf '%s\n' 'lease-claim' >> "$CODEX_LAUNCHER_TEST_ORDER"
   fi
@@ -133,10 +133,10 @@ if [[ "${{1:-}}" == "-m" && "${{2:-}}" == "scripts.session_supervisor" ]]; then
 JSON
   exit 0
 fi
-if [[ "${{1:-}}" == "-m" && "${{2:-}}" == "agents_extensions.shared.session_streams" ]]; then
+if [[ "${{1:-}}" == "-m" && "${{2:-}}" == "lu_machinery.session_streams" ]]; then
   exit 0
 fi
-if [[ "${{1:-}}" == "-m" && "${{2:-}}" == "scripts.session_canary.codex_lane" ]]; then
+if [[ "${{1:-}}" == "-m" && "${{2:-}}" == "lu_machinery.session_canary.codex_lane" ]]; then
   exit 0
 fi
 exec {os.fspath(_PROJECT_PYTHON)!r} "$@"

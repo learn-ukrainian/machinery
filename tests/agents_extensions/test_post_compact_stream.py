@@ -72,9 +72,8 @@ def _run_hook(
             source.replace(
                 resolver,
                 (
-                    "    _gl.EPIC_STREAM_DEFAULTS.pop(args.epic, None)\n"
                     "    return (getattr(args, 'stream', None) or os.environ.get('SESSION_STREAM_ID')\n"
-                    "            or _gl.EPIC_STREAM_DEFAULTS.get(args.epic, f'epic:{args.epic}'))"
+                    "            or f'epic:{args.epic}')"
                 ),
             )
         )

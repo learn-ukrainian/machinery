@@ -7,8 +7,7 @@ every launch, dispatch and ask. A launcher test that needs a different core and 
 configuration unset therefore runs the launcher from a different checkout: a view.
 
 Launcher wrappers and machinery are copied so physical root lookup stays in the view.
-Other entries are linked, except paths named in ``overrides``: a file copied from
-another file, written from text, or left out. The view is
+Overrides replace a file from the release, write test text, or leave it out. The view is
 its own fresh git repository (the launcher refuses a symlinked ``.git``) and links the
 running interpreter's venv when the checkout has none (a linked worktree uses the
 primary checkout's).
@@ -23,8 +22,8 @@ Two views are built from this:
   ``rules_core_absent_when_marked``, which also bypasses the in-process loader. Only test
   code reaches the bypass: production has no switch that lets a launch go without the core.
 
-The fixture lives here, not in ``tests/conftest.py``: the view links the whole
-checkout, and the root conftest is in every test's import closure.
+The fixture stays opt-in. Machinery files come from the installed wheel; product
+files come from the shared configured product-tree fixture.
 """
 
 from __future__ import annotations
@@ -39,10 +38,9 @@ import pytest
 
 from lu_machinery.common.repo_root import machinery_path
 from lu_machinery.lib import rules_core
-from tests.helpers import machinery_package, product_checkout
+from tests.helpers import machinery_package
 from tests.launcher_sandbox import copy_launcher_sources, launcher_environment
 
-REPO = Path(__file__).resolve().parents[1]
 CORE_FILES = (Path(rules_core.CORE_REL).name, Path(rules_core.CONTENT_ADDENDUM_REL).name)
 _ABSENT_VIEW = pytest.StashKey[Path]()
 _BYPASS_VIEW = pytest.StashKey[Path]()
@@ -61,60 +59,6 @@ rules_core_load() {{
 
 # A path maps to a file to link, text to write, or None to leave the entry out.
 Overrides = Mapping[tuple[str, ...], "Path | str | None"]
-
-
-def _link_tree(sources: tuple[Path, ...], view: Path, rel: tuple[str, ...], overrides: Overrides) -> None:
-    """Link every entry of ``sources`` into ``view``; the first source holding an entry wins.
-
-    A directory present as a real directory in several sources, or holding an override, is
-    linked entry by entry, so the view is the union of the sources.
-    """
-    view.mkdir(parents=True, exist_ok=True)
-    entries: dict[str, list[Path]] = {}
-    for source in sources:
-        for entry in source.iterdir():
-            if entry.name != ".git":
-                entries.setdefault(entry.name, []).append(entry)
-    for name, found in entries.items():
-        key = (*rel, name)
-        directories = tuple(entry for entry in found if entry.is_dir())
-        merged = len(found) > 1 and len(directories) == len(found) and not any(e.is_symlink() for e in found)
-        if key in overrides:
-            _apply(view / name, overrides[key])
-        elif directories and (key[0] == machinery_package() or merged or any(path[: len(key)] == key for path in overrides)):
-            _link_tree(directories, view / name, key, overrides)
-        elif key[0] == machinery_package() or (len(key) == 1 and name.startswith("start-") and name.endswith(".sh")):
-            shutil.copy2(found[0], view / name)
-        else:
-            (view / name).symlink_to(found[0])
-    missing = {
-        path[len(rel)]
-        for path in overrides
-        if path[: len(rel)] == rel and len(path) > len(rel)
-    } - entries.keys()
-    for name in sorted(missing):
-        key = (*rel, name)
-        if key in overrides:
-            _apply(view / name, overrides[key])
-        else:
-            _link_tree((), view / name, key, overrides)
-
-
-def _view_sources() -> tuple[Path, ...]:
-    """The product checkout, then this machinery checkout: one source when they are the same.
-
-    Once the machinery is extracted, a launcher runs from the product checkout (root wrappers,
-    product data, the linked machinery package) and its machinery-owned files come from here.
-    """
-    product = product_checkout()
-    if product.resolve() == REPO.resolve():
-        return (product,)
-    # Two checkouts only in the extracted layout: the machinery side must be the tested machinery
-    # tree, never an unrenamed source checkout whose scripts/ still holds the machinery.
-    assert machinery_package() != "scripts" and not (REPO / "scripts" / "common" / "repo_root.py").exists(), (
-        f"the machinery side of a checkout view is an unrenamed source checkout: {REPO}"
-    )
-    return (product, REPO)
 
 
 def _apply(target: Path, action: Path | str | None) -> None:
@@ -208,9 +152,9 @@ def rules_core_absent_when_marked(request: pytest.FixtureRequest, monkeypatch: p
     """
     if request.node.get_closest_marker("rules_core_absent") is None:
         return
-    from tests.lib import test_launcher_contract
-
     view = bypass_checkout(request)
     monkeypatch.setattr(rules_core, "require_core", lambda seat=None, root=None: rules_core.resolve_seat(seat))
     monkeypatch.setattr(rules_core, "with_core", lambda prompt, seat=None, root=None: prompt)
-    monkeypatch.setattr(test_launcher_contract, "LAUNCH_ROOT", view)
+    launcher = getattr(request.module, "run_launcher", None)
+    if launcher is not None:
+        monkeypatch.setitem(launcher.__globals__, "LAUNCH_ROOT", view)

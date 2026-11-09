@@ -162,7 +162,7 @@ launcher_adapter_exec() { printf 'PROVIDER_STARTED\\n'; }
     runner = root / ".venv/bin/python"
     module = f"import sys; sys.path.insert(0, {str(REPO)!r}); from lu_machinery.session_supervisor import main; raise SystemExit(main(sys.argv[1:]))"
     runner.write_text(f"""#!/usr/bin/env bash
-if [ "${{1:-}}" = -m ] && [ "${{2:-}}" = scripts.session_supervisor ]; then
+if [ "${{1:-}}" = -m ] && [ "${{2:-}}" = lu_machinery.session_supervisor ]; then
   shift 2
   exec {shlex.quote(sys.executable)} -c {shlex.quote(module)} "$@"
 fi

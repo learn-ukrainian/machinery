@@ -188,7 +188,7 @@ def test_real_launcher_deploy_is_confined_to_temporary_checkout(tmp_path: Path) 
     print(f"Deployment child toolchain: {executed}", flush=True)
     sources = machinery_path("agents_extensions/shared/skills")
     deployed = checkout / ".agents/skills"
-    expected = {path.relative_to(sources) for path in sources.rglob("*") if path.is_file()}
+    expected = {path.relative_to(sources) for path in sources.rglob("*") if path.is_file() and "__pycache__" not in path.parts}
     actual = {path.relative_to(deployed) for path in deployed.rglob("*") if path.is_file()}
     assert actual == expected
     assert any(path.name == "SKILL.md" for path in actual)
@@ -707,12 +707,13 @@ while :; do sleep 0.05; done
         encoding="utf-8",
     )
     cli.chmod(0o755)
+    copy_launcher_sources(tmp_path)
     lib = tmp_path / "lu_machinery/lib"
-    lib.mkdir(parents=True)
-    for name in ("launcher_core.sh", "session_supervisor.sh"):
+    lib.mkdir(parents=True, exist_ok=True)
+    for name in ("launcher_core.sh", "session_supervisor.sh", "project_interpreter.sh"):
         shutil.copy2(machinery_path('lib') / name, lib / name)
     watcher = tmp_path / "lu_machinery/ai_agent_bridge/inbox_watch.sh"
-    watcher.parent.mkdir()
+    watcher.parent.mkdir(exist_ok=True)
     harness = tmp_path / "watcher.py"
     harness.write_text(
         f"""import sys, time
@@ -747,8 +748,8 @@ def tick(*args, **kwargs):
     with polls.open('a') as handle: handle.write('tick\\n')
     return result
 with (
-    patch('agents_extensions.shared.session_streams.hooks.lease_from_environment', return_value=lease),
-    patch('scripts.session_supervisor.SessionSupervisor', return_value=supervisor),
+    patch('lu_machinery.session_streams.hooks.lease_from_environment', return_value=lease),
+    patch('lu_machinery.session_supervisor.SessionSupervisor', return_value=supervisor),
     patch.object(_inbox_watch, 'consume_supervisory_event', side_effect=tick),
 ):
     raise SystemExit(_inbox_watch.run_live_supervisory_watcher(interval_seconds=0.05))
@@ -781,6 +782,9 @@ launcher_exec_command fixture-cli
         "HOME": str(tmp_path / "home"),
         "PATH": f"{cli.parent}{os.pathsep}{launcher_toolchain_path()}",
         "FLEET_COMMS_ROOT": str(plane),
+        "LEARN_UKRAINIAN_PYTHON": sys.executable,
+        "LEARN_UKRAINIAN_PRIMARY_REPO_ROOT": os.environ["LEARN_UKRAINIAN_PRIMARY_REPO_ROOT"],
+        "LU_PRODUCT_ROOT": os.environ["LU_PRODUCT_ROOT"],
     }
     with AuthorityService(root=plane) as service:
         did = service.publish_message(
@@ -1231,7 +1235,7 @@ def test_kimi_never_uses_ambient_anthropic_token(tmp_path: Path) -> None:
         env={"HOME": str(tmp_path / "home"), "ANTHROPIC_AUTH_TOKEN": foreign},
     )
     assert result.returncode == 2, result.stdout
-    assert "is retired in the model catalog" in result.stderr
+    assert "unknown provider 'kimi'" in result.stderr
     assert foreign not in result.stdout + result.stderr
 
 
@@ -1265,8 +1269,8 @@ launcher_close_driver_lease
     result = subprocess.run(["bash", "-c", script], text=True, capture_output=True, check=False, timeout=30, env=launcher_environment())
     assert result.returncode == 0, result.stderr
     body = log.read_text(encoding="utf-8")
-    assert "-m\nscripts.orchestration.observer_heartbeat\n" in body
-    assert "-m\nscripts.session_supervisor\nclose\n--role\ndriver\n" in body
+    assert "-m\nlu_machinery.orchestration.observer_heartbeat\n" in body
+    assert "-m\nlu_machinery.session_supervisor\nclose\n--role\ndriver\n" in body
 
 
 def test_cto_wrapper_start_builds_cto_prompt_not_lane_driver_prompt(tmp_path: Path) -> None:
@@ -1338,7 +1342,7 @@ def test_fleet_cold_clause_keeps_lane_drivers_on_drive_epic() -> None:
 def test_compat_kimicc_rejects_harness_override() -> None:
     result = run_launcher("start-kimicc.sh", "--harness", "kimi-code")
     assert result.returncode == 2
-    assert "unknown provider 'kimi'" in result.stderr
+    assert "always uses Claude Code" in result.stderr
 
 
 @pytest.mark.rules_core_absent
@@ -1465,6 +1469,7 @@ def test_launcher_death_stops_renewal_with_live_provider(tmp_path: Path) -> None
         first
         + "\n"
         + f"""
+if [[ "${{1:-}}" == "-I" && "${{2:-}}" == "-c" && "${{3:-}}" == *"module bootstrap:"* ]]; then shift 5; fi
 if [[ "${{1:-}}" == -m && "${{2:-}}" == lu_machinery.session_supervisor && "${{3:-}}" == heartbeat ]]; then
   printf 'renew\\n' >> {shlex.quote(str(heartbeats))}
   exit 0
@@ -1506,7 +1511,4 @@ fi
 @pytest.fixture(autouse=True)
 def _configured_launcher_roots(configured_roots):
     """Use the shared hermetic product and primary trees for launcher calls."""
-    global LAUNCH_ROOT
-    from tests.rules_core_view import _build_view
-    LAUNCH_ROOT = _build_view(configured_roots.primary / "launcher-view", {})
     return configured_roots

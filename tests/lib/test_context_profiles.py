@@ -110,13 +110,13 @@ def test_kimicc_k3_256k_profile_is_distinct_from_the_1m_k3_profile() -> None:
     alias = resolve_profile("kimicc_k3_256k", "k3-256k")
     mismatch = resolve_profile("kimicc_k3_256k", "kimi-k3[1m]")
 
-    assert trusted["profile_id"] == "kimicc_k3_256k"
-    assert trusted["trusted"]
-    assert trusted["main_context_window_tokens"] == 262_144
-    assert alias["trusted"]
-    assert mismatch["profile_id"] == "fallback"
-    assert mismatch["resolution_reason"] == "model-mismatch"
-    assert mismatch["expected_profile_id"] == "kimicc_k3_256k"
+    # PR #141 retires Kimi profiles. None of these spellings may claim a trusted window.
+    for resolved in (trusted, alias, mismatch):
+        assert resolved["profile_id"] == "fallback"
+        assert not resolved["trusted"]
+        assert resolved["main_context_window_tokens"] == 0
+        assert resolved["resolution_reason"] == "unknown-profile"
+        assert resolved["expected_profile_id"] is None
 
 
 def test_resolution_fails_closed_without_trusted_route_metadata() -> None:
