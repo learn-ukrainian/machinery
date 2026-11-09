@@ -792,6 +792,7 @@ def test_build_invocation_refuses_when_release_pin_is_missing(tmp_path, monkeypa
     "missing-applicable-optional", "omitted-inapplicable-optional",
     "absent-peer", "inapplicable-peer-provider", "misplaced-peer-provider", "provided-peer",
     "exempt-peer-pinned", "exempt-peer-entry-changed", "exempt-peer-identity-missing",
+    "exempt-peer-maps-removed", "exempt-peer-type-changed", "manifest-only-peer",
 ])
 def test_release_prefix_admission_rejects_untrusted_node_dependency(tmp_path, monkeypatch, defect):
     """Granted by claude-cto: release admission must never execute untrusted dependencies."""
@@ -808,7 +809,10 @@ def test_release_prefix_admission_rejects_untrusted_node_dependency(tmp_path, mo
     prefix.mkdir()
     package = prefix / "node_modules" / "acpx"
     (package / "dist").mkdir(parents=True)
-    manifest = json.dumps({"name": "acpx", "version": "0.21.0"}).encode()
+    peer = "react-native-b4a" if defect.startswith("exempt") else "supports-color"
+    # Metadata-only, as debug declares supports-color; the authenticated manifest declares it too.
+    peer_meta = {"peerDependenciesMeta": {peer: {"optional": True}}} if "peer" in defect else {}
+    manifest = json.dumps({"name": "acpx", "version": "0.21.0", **peer_meta}).encode()
     payload = b"#!/usr/bin/env node\nconsole.log('trusted');\n"
     archive_buffer = io.BytesIO()
     with tarfile.open(fileobj=archive_buffer, mode="w:gz") as archive:
@@ -847,7 +851,8 @@ def test_release_prefix_admission_rejects_untrusted_node_dependency(tmp_path, mo
     monkeypatch.setattr(acpx_module, "_ACPX_BINARY", None)
     monkeypatch.setattr(acpx_module.subprocess, "run", lambda *_a, **_k: pytest.fail("dependency executed before admission"))
     monkeypatch.setattr(acpx_module.shutil, "which", lambda *_a, **_k: pytest.fail("global fallback attempted"))
-    assert acpx_module._resolve_acpx_binary(adapter_label="test") == str(binary)
+    if "peer" not in defect:  # a declared peer has no provider until its case adds one
+        assert acpx_module._resolve_acpx_binary(adapter_label="test") == str(binary)
     target = package / "dist" / "cli.js"
     if defect == "missing":
         target.unlink()
@@ -875,16 +880,20 @@ def test_release_prefix_admission_rejects_untrusted_node_dependency(tmp_path, mo
         monkeypatch.setattr(platform, "machine", lambda: "x86_64")
         entry = lock["packages"]["node_modules/acpx"]
         provider_entry = dict(entry)
-        name = "react-native-b4a" if defect.startswith("exempt") else "supports-color"
-        # Metadata-only, as debug declares supports-color.
-        entry["peerDependenciesMeta"] = {name: {"optional": True}}
+        if defect != "manifest-only-peer":  # only the authenticated manifest declares it
+            entry.update(json.loads(json.dumps(peer_meta)))
         if defect.startswith("exempt"):
-            pinned = dict(entry)
+            pinned = json.loads(json.dumps(entry))
             if defect == "exempt-peer-identity-missing":
                 pinned["resolved"] = "https://registry.npmjs.org/acpx/-/acpx-0.21.0.tgz"
-            monkeypatch.setattr(acpx_module, "_NODE_PEER_EXEMPTIONS", {("node_modules/acpx", name): pinned})
+            monkeypatch.setattr(acpx_module, "_NODE_PEER_EXEMPTIONS", {("node_modules/acpx", peer): pinned})
             if defect == "exempt-peer-entry-changed":
                 entry["license"] = "MIT"
+            elif defect == "exempt-peer-maps-removed":
+                # The lock hides the peer; the authenticated manifest still declares it.
+                del entry["peerDependenciesMeta"]
+            elif defect == "exempt-peer-type-changed":
+                entry["peerDependenciesMeta"][peer]["optional"] = 1
         provider = {
             "provided-peer": "node_modules/supports-color",
             "inapplicable-peer-provider": "node_modules/supports-color",
@@ -905,7 +914,7 @@ def test_release_prefix_admission_rejects_untrusted_node_dependency(tmp_path, mo
         if defect == "omitted-inapplicable-optional":
             assert acpx_module._resolve_acpx_binary(adapter_label="test") == str(binary)
             return
-    with pytest.raises(AcpxShadowRefusalError, match="without an applicable provider" if "peer" in defect else None):
+    with pytest.raises(AcpxShadowRefusalError, match="without an applicable provider|reviewed peer exemption" if "peer" in defect else None):
         acpx_module._resolve_acpx_binary(adapter_label="test")
 
 

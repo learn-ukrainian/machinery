@@ -1124,6 +1124,10 @@ _NODE_PEER_EXEMPTIONS: dict[tuple[str, str], dict[str, Any]] = {
 }
 
 
+def _node_canonical(value: Any) -> str:
+    return json.dumps(value, sort_keys=True, separators=(",", ":"))
+
+
 def _node_lookup_locations(importer: str, name: str) -> Iterator[str]:
     """Lock locations Node searches for ``name`` from ``importer``, nearest first.
 
@@ -1143,16 +1147,34 @@ def _check_node_peer_providers(prefix: Path, packages: Mapping[str, Any], host_o
     A peer absent from the prefix makes Node continue into ancestor and global
     module directories, which admission does not authenticate. The nearest lock
     entry on the importer's own lookup path must exist and apply to this host;
-    an entry elsewhere in the lock is not what Node loads.
+    an entry elsewhere in the lock is not what Node loads. Declared peers come
+    from both the lock entry and the package's authenticated manifest, so a lock
+    edit cannot hide one.
     """
+    for (location, _name), pinned in _NODE_PEER_EXEMPTIONS.items():
+        # Type-sensitive whole-entry comparison: True and 1 differ.
+        if location in packages and _node_canonical(packages[location]) != _node_canonical(pinned):
+            raise AcpxShadowRefusalError(
+                f"Node lock entry {location} differs from its reviewed peer exemption",
+                failure_code="acp_adapter_incompatible",
+            )
     for location, package in packages.items():
-        if not location or (not (prefix / location).exists() and not _node_package_applies(package, host_os, host_cpu)):
+        if not location or not (prefix / location).exists():
+            # Validation has already refused an absent package that applies to this host.
             continue
-        for name in sorted({*package.get("peerDependencies", {}), *package.get("peerDependenciesMeta", {})}):
+        manifest = json.loads((prefix / location / "package.json").read_bytes())
+        declared = set()
+        for source in (package, manifest):
+            for field in ("peerDependencies", "peerDependenciesMeta"):
+                names = source.get(field) or {}
+                if not isinstance(names, dict):
+                    raise AcpxShadowRefusalError(f"Invalid Node peer declaration in {location}")
+                declared.update(names)
+        for name in sorted(declared):
             provider = next((path for path in _node_lookup_locations(location, name) if path in packages), None)
             if provider is not None and _node_package_applies(packages[provider], host_os, host_cpu):
                 continue
-            if provider is None and _NODE_PEER_EXEMPTIONS.get((location, name)) == package:
+            if provider is None and (location, name) in _NODE_PEER_EXEMPTIONS:
                 continue
             raise AcpxShadowRefusalError(
                 f"Node lock leaves peer {name} of {location} without an applicable provider in the prefix",
