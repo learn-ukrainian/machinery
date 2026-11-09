@@ -94,7 +94,7 @@ import subprocess
 import sys
 import tarfile
 import time
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, replace
@@ -1107,6 +1107,81 @@ def _node_package_applies(package: Mapping[str, Any], host_os: str, host_cpu: st
     return True
 
 
+# The only peer the lock may leave without a provider (C-4952). b4a selects
+# react-native-b4a solely under the user "react-native" export condition, and
+# every release of that package requires react and react-native as peers. The
+# exemption covers this exact lock entry; any change to it refuses admission
+# until the exemption is reviewed again.
+_NODE_PEER_EXEMPTIONS: dict[tuple[str, str], dict[str, Any]] = {
+    ("node_modules/b4a", "react-native-b4a"): {
+        "version": "1.9.0",
+        "resolved": "https://registry.npmjs.org/b4a/-/b4a-1.9.0.tgz",
+        "integrity": "sha512-dpfcF9fDNR6++cthXR67iyhgqWy9CBouAvIWhIntzBG6cvK/cnIPiZQjBwi/ZqjjBEDGfoNDtmB0kTjroOJ3pQ==",
+        "license": "Apache-2.0",
+        "peerDependencies": {"react-native-b4a": "*"},
+        "peerDependenciesMeta": {"react-native-b4a": {"optional": True}},
+    },
+}
+
+
+def _node_canonical(value: Any) -> str:
+    return json.dumps(value, sort_keys=True, separators=(",", ":"))
+
+
+def _node_lookup_locations(importer: str, name: str) -> Iterator[str]:
+    """Lock locations Node searches for ``name`` from ``importer``, nearest first.
+
+    Node's node_modules walk, confined to the prefix:
+    https://nodejs.org/docs/latest-v22.x/api/modules.html#all-together
+    """
+    parts = importer.split("/")
+    for end in range(len(parts), -1, -1):
+        if end and parts[end - 1] == "node_modules":
+            continue
+        yield "/".join([*parts[:end], "node_modules", name])
+
+
+def _check_node_peer_providers(prefix: Path, packages: Mapping[str, Any], host_os: str, host_cpu: str) -> None:
+    """Every peer a present package declares must resolve inside the prefix.
+
+    A peer absent from the prefix makes Node continue into ancestor and global
+    module directories, which admission does not authenticate. The nearest lock
+    entry on the importer's own lookup path must exist and apply to this host;
+    an entry elsewhere in the lock is not what Node loads. Declared peers come
+    from both the lock entry and the package's authenticated manifest, so a lock
+    edit cannot hide one.
+    """
+    for (location, _name), pinned in _NODE_PEER_EXEMPTIONS.items():
+        # Type-sensitive whole-entry comparison: True and 1 differ.
+        if location in packages and _node_canonical(packages[location]) != _node_canonical(pinned):
+            raise AcpxShadowRefusalError(
+                f"Node lock entry {location} differs from its reviewed peer exemption",
+                failure_code="acp_adapter_incompatible",
+            )
+    for location, package in packages.items():
+        if not location or not (prefix / location).exists():
+            # Validation has already refused an absent package that applies to this host.
+            continue
+        manifest = json.loads((prefix / location / "package.json").read_bytes())
+        declared: set[str] = set()
+        for source in (package, manifest):
+            for field in ("peerDependencies", "peerDependenciesMeta"):
+                names = source.get(field) or {}
+                if not isinstance(names, dict):
+                    raise AcpxShadowRefusalError(f"Invalid Node peer declaration in {location}")
+                declared.update(names)
+        for name in sorted(declared):
+            provider = next((path for path in _node_lookup_locations(location, name) if path in packages), None)
+            if provider is not None and _node_package_applies(packages[provider], host_os, host_cpu):
+                continue
+            if provider is None and (location, name) in _NODE_PEER_EXEMPTIONS:
+                continue
+            raise AcpxShadowRefusalError(
+                f"Node lock leaves peer {name} of {location} without an applicable provider in the prefix",
+                failure_code="acp_adapter_incompatible",
+            )
+
+
 def validate_node_dependencies() -> Path:
     """Verify all installed package bytes against retained, lock-authenticated tarballs.
 
@@ -1146,6 +1221,7 @@ def validate_node_dependencies() -> Path:
         for name, required in direct.items():
             if json.loads((modules / name / "package.json").read_bytes()).get("version") != required:
                 raise AcpxShadowRefusalError(f"Incompatible Node dependency: {name}")
+        _check_node_peer_providers(prefix, lock["packages"], host_os, host_cpu)
         for path in modules.rglob("*"):
             if path.is_symlink():
                 # npm creates only executable shims. Their targets must be verified files.
