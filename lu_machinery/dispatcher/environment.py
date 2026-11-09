@@ -7,7 +7,19 @@ from pathlib import Path
 from lu_machinery.agent_runtime.read_only_tmp import dispatch_lease
 from lu_machinery.common.repo_root import INTERPRETER_ENV, PRODUCT_ROOT_ENV, project_interpreter
 from lu_machinery.common.task_store_paths import tasks_dir
+from lu_machinery.dispatcher import store
 from lu_machinery.dispatcher.types import TaskSpec
+
+# A worker's scratch lives at /var/tmp/<task-id>, exported as LU_TASK_SCRATCH. The worker creates it on
+# demand; settlement removes it together with the task's worktree (worker._settle_task_scratch). Tests
+# replace the base.
+TASK_SCRATCH_BASE = Path("/var/tmp")
+
+
+def task_scratch_path(task_id: str) -> Path:
+    """The task's scratch directory: exactly the base's child named by a valid task id; never created here."""
+    store.record_path(task_id)  # raises ValueError for an id the task store would refuse
+    return TASK_SCRATCH_BASE / task_id
 
 # LU_SENSE_PROOF_DIR is a host path with no secret in the name; pack-verify reads the proofs inside it.
 _CONTEXT = ("PATH", "HOME", "LANG", "TERM", "TMPDIR", "LU_SENSE_PROOF_DIR")
@@ -100,6 +112,7 @@ def child_env(spec: TaskSpec) -> dict[str, str]:
         LEARN_UKRAINIAN_DISPATCH_TASK_ID=spec.task_id,
         LEARN_UKRAINIAN_DISPATCH_AGENT=spec.agent,
         LU_TASKS_DIR=str(tasks_dir().resolve()),
+        LU_TASK_SCRATCH=str(task_scratch_path(spec.task_id)),
         # eslint, tsc and prettier call module.enableCompileCache(), which writes a copy of its cache into
         # os.tmpdir()/node-compile-cache for every new worktree path and is never removed (#12474).
         NODE_DISABLE_COMPILE_CACHE="1",

@@ -22,9 +22,10 @@ from lu_machinery.agent_runtime import bounded_advisory
 from lu_machinery.agent_runtime.read_only_tmp import create_dispatch_lease, discard_dispatch_lease, dispatch_lease
 from lu_machinery.common.repo_root import in_tree_source, machinery_path, primary_root, state_root
 from lu_machinery.common.scratch import ensure_scratch_root
+from lu_machinery.common import task_scratch
 from lu_machinery.common.task_scratch import TaskScratchError
 from lu_machinery.dispatcher import admission, agy_sandbox, git, headroom, ownership, providers, runtime_context, store
-from lu_machinery.dispatcher.environment import child_env
+from lu_machinery.dispatcher.environment import child_env, task_scratch_path
 from lu_machinery.dispatcher.types import ParsedResult, TaskSpec
 from lu_machinery.dispatcher.watchdog import (
     TERMINAL_EXIT_GRACE_S,
@@ -801,7 +802,88 @@ def _end_own_scope(record: dict):
 
 
 def _reap_settled(record: dict, patience: float = 0, salvage: bool = False) -> None:
-    """Record the task worktree's disposition; never changes the task's execution status.
+    """Settle the task's worktree, then its /var/tmp scratch; never changes the task's execution status."""
+    _reap_worktree(record, patience=patience, salvage=salvage)
+    _settle_task_scratch(record)
+
+
+def _settle_task_scratch(record: dict) -> None:
+    """Remove the task's scratch once its worktree is removed; keep it while the worktree stays.
+
+    Records ``task_scratch_disposition`` (removed, absent, retained, refused or failed) with its reason and
+    the bytes found. A refusal or failure is recorded and never fails settlement.
+    """
+    worktree = record.get("worktree_disposition")
+    if worktree != "removed":
+        record.update(task_scratch_disposition="retained", task_scratch_bytes=None,
+                      task_scratch_disposition_reason=f"worktree {worktree or 'unsettled'}: scratch kept with it")
+        return
+    try:
+        disposition, reason, size = _remove_task_scratch(record.get("task_id"))
+    except Exception as exc:  # recorded, never raised: settlement must still publish the record
+        disposition, reason, size = "failed", f"{type(exc).__name__}: {exc}"[:300], None
+    record.update(task_scratch_disposition=disposition, task_scratch_disposition_reason=reason,
+                  task_scratch_bytes=size)
+
+
+def _remove_task_scratch(task_id: object) -> tuple[str, str, int | None]:
+    """Delete exactly ``<base>/<task-id>``; return (disposition, reason, bytes).
+
+    Refuses an invalid task id, a symlink, a non-directory, an entry another user owns, one on another
+    filesystem or with a mount below it. Deletion never follows a symlink, never leaves the entry's device
+    or mount, and gives a read-only directory owner rwx before emptying it (task_scratch's remover).
+    """
+    if not isinstance(task_id, str):
+        return "refused", "task id missing", None
+    try:
+        path = task_scratch_path(task_id)
+    except ValueError:
+        return "refused", "task id fails validation", None
+    base_fd = os.open(path.parent, task_scratch._DIR_OPEN_FLAGS | os.O_CLOEXEC)
+    try:
+        try:
+            info = os.stat(path.name, dir_fd=base_fd, follow_symlinks=False)
+        except FileNotFoundError:
+            return "absent", "no scratch directory", None
+        if stat.S_ISLNK(info.st_mode):
+            return "refused", "scratch path is a symlink", None
+        if not stat.S_ISDIR(info.st_mode):
+            return "refused", "scratch path is not a directory", None
+        if info.st_uid != os.geteuid():
+            return "refused", "scratch directory is owned by another user", None
+        base = os.fstat(base_fd)
+        mount_id = task_scratch.fd_mount_id(base_fd)
+        if info.st_dev != base.st_dev:
+            return "refused", "scratch directory is on another filesystem", None
+        if mount_id is None:
+            return "refused", "mount information unavailable", None
+        size = None
+        try:
+            if stat.S_IMODE(info.st_mode) & stat.S_IRWXU != stat.S_IRWXU:
+                # A read-only top directory would refuse to give up its entries; children are repaired on descent.
+                task_scratch.grant_owner_rwx(base_fd, path.name, info, device=base.st_dev, mount_id=mount_id)
+            scratch_fd = os.open(path.name, task_scratch._DIR_OPEN_FLAGS | os.O_CLOEXEC, dir_fd=base_fd)
+            try:
+                held = os.fstat(scratch_fd)
+                if (held.st_dev, held.st_ino) != (info.st_dev, info.st_ino):
+                    return "refused", "scratch directory changed during settlement", None
+                size, _newest = task_scratch._walk_stats(scratch_fd, device=base.st_dev, mount_id=mount_id,
+                                                         opaque_locked=True)
+            finally:
+                os.close(scratch_fd)
+            task_scratch._remove_invocation_dir(base_fd, path.name, namespace=path.parent,
+                                                expected_dev=info.st_dev, expected_ino=info.st_ino)
+        except task_scratch.ContainmentError as exc:
+            return "refused", str(exc)[:300], size
+        except OSError as exc:
+            return "failed", f"{type(exc).__name__}: {exc.strerror or exc}"[:300], size
+        return "removed", "worktree removed", size
+    finally:
+        os.close(base_fd)
+
+
+def _reap_worktree(record: dict, patience: float = 0, salvage: bool = False) -> None:
+    """Record the task worktree's disposition.
 
     The worktree goes only once the provider's whole process tree is proven gone; liveness that
     cannot be proven either way keeps it. A finished scope launch first ends whatever that scope
