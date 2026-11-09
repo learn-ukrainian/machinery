@@ -7,11 +7,11 @@ Covers:
 - ClaudeAdapter emits ``--effort <level>`` when the CLI supports it, and
   logs a warning + skips the flag when it does not.
 - CodexAdapter emits ``-c model_reasoning_effort=<level>``.
-- GeminiAdapter accepts ``effort`` without crashing, logs at DEBUG, and
-  does not mutate the command.
+- GeminiAdapter refuses the retired CLI and does not leak the effort value.
 
 Issue: #1396
 """
+
 from __future__ import annotations
 
 import logging
@@ -23,6 +23,7 @@ import pytest
 from lu_machinery.agent_runtime.adapters.claude import ClaudeAdapter
 from lu_machinery.agent_runtime.adapters.codex import CodexAdapter
 from lu_machinery.agent_runtime.adapters.gemini import GeminiAdapter
+from lu_machinery.agent_runtime.errors import AgentUnavailableError
 from lu_machinery.agent_runtime.usage import _reset_rate_limit_cache_for_tests
 from tests.helpers.product_tree import configured_roots  # noqa: F401
 
@@ -32,7 +33,10 @@ pytestmark = pytest.mark.usefixtures("configured_roots")
 @pytest.fixture(autouse=True)
 def _isolate_usage_log(tmp_path):
     """Never write to the real batch_state/api_usage/ log during tests."""
-    with patch("lu_machinery.agent_runtime.usage._usage_dir", return_value=tmp_path / "api_usage"):
+    with patch(
+        "lu_machinery.agent_runtime.usage._usage_dir",
+        return_value=tmp_path / "api_usage",
+    ):
         yield
 
 
@@ -76,6 +80,7 @@ def _stub_primary_integrity_sweep(monkeypatch):
 # ---------------------------------------------------------------------------
 # AC5.3 — runner.invoke forwards effort to adapter.build_invocation
 # ---------------------------------------------------------------------------
+
 
 def test_runner_invoke_forwards_effort_to_adapter_build_invocation(tmp_path):
     """runner.invoke(..., effort="xhigh") must pass effort="xhigh" into the
@@ -131,19 +136,29 @@ def test_runner_invoke_forwards_effort_to_adapter_build_invocation(tmp_path):
             return isolation_proc
         return fake_proc
 
-    with patch(
-        "lu_machinery.agent_runtime.runner._load_adapter", return_value=spy_adapter,
-    ), patch(
-        "lu_machinery.agent_runtime.runner.has_headroom", return_value=(True, ""),
-    ), patch(
-        "lu_machinery.agent_runtime.runner.write_record",
-    ), patch(
-        "lu_machinery.agent_runtime.runner.subprocess.Popen", side_effect=_agent_only_popen,
-    ), patch(
-        "lu_machinery.agent_runtime.runner.start_watchdog",
-        return_value=(MagicMock(stdout_lines=[], stderr_lines=[]), []),
-    ), patch(
-        "lu_machinery.agent_runtime.runner.stop_watchdog",
+    with (
+        patch(
+            "lu_machinery.agent_runtime.runner._load_adapter",
+            return_value=spy_adapter,
+        ),
+        patch(
+            "lu_machinery.agent_runtime.runner.has_headroom",
+            return_value=(True, ""),
+        ),
+        patch(
+            "lu_machinery.agent_runtime.runner.write_record",
+        ),
+        patch(
+            "lu_machinery.agent_runtime.runner.subprocess.Popen",
+            side_effect=_agent_only_popen,
+        ),
+        patch(
+            "lu_machinery.agent_runtime.runner.start_watchdog",
+            return_value=(MagicMock(stdout_lines=[], stderr_lines=[]), []),
+        ),
+        patch(
+            "lu_machinery.agent_runtime.runner.stop_watchdog",
+        ),
     ):
         runner_mod.invoke(
             "claude",
@@ -158,8 +173,7 @@ def test_runner_invoke_forwards_effort_to_adapter_build_invocation(tmp_path):
     assert spy_adapter.build_invocation.called
     build_kwargs = spy_adapter.build_invocation.call_args.kwargs
     assert build_kwargs["effort"] == "xhigh", (
-        f"runner.invoke must forward effort='xhigh' to adapter; "
-        f"kwargs={build_kwargs}"
+        f"runner.invoke must forward effort='xhigh' to adapter; kwargs={build_kwargs}"
     )
 
 
@@ -178,13 +192,18 @@ def claude_on_path(tmp_path, monkeypatch):
 # AC5.4 — ClaudeAdapter emits --effort when supported
 # ---------------------------------------------------------------------------
 
+
 def test_claude_adapter_emits_effort_when_supported(tmp_path, claude_on_path):
     adapter = ClaudeAdapter()
-    with patch(
-        "lu_machinery.utils.claude_version.supports_effort", return_value=True,
-    ), patch(
-        "lu_machinery.utils.claude_version.supports_exclude_dynamic_system_prompt_sections",
-        return_value=False,  # keep the OTHER gated flag off so we isolate --effort
+    with (
+        patch(
+            "lu_machinery.utils.claude_version.supports_effort",
+            return_value=True,
+        ),
+        patch(
+            "lu_machinery.utils.claude_version.supports_exclude_dynamic_system_prompt_sections",
+            return_value=False,  # keep the OTHER gated flag off so we isolate --effort
+        ),
     ):
         plan = adapter.build_invocation(
             prompt="hi",
@@ -207,14 +226,22 @@ def test_claude_adapter_emits_effort_when_supported(tmp_path, claude_on_path):
 # AC5.5 — ClaudeAdapter skips + warns when unsupported
 # ---------------------------------------------------------------------------
 
+
 def test_claude_adapter_skips_effort_when_unsupported(tmp_path, caplog, claude_on_path):
     adapter = ClaudeAdapter()
-    with patch(
-        "lu_machinery.utils.claude_version.supports_effort", return_value=False,
-    ), patch(
-        "lu_machinery.utils.claude_version.supports_exclude_dynamic_system_prompt_sections",
-        return_value=False,
-    ), caplog.at_level(logging.WARNING, logger="lu_machinery.agent_runtime.adapters.claude"):
+    with (
+        patch(
+            "lu_machinery.utils.claude_version.supports_effort",
+            return_value=False,
+        ),
+        patch(
+            "lu_machinery.utils.claude_version.supports_exclude_dynamic_system_prompt_sections",
+            return_value=False,
+        ),
+        caplog.at_level(
+            logging.WARNING, logger="lu_machinery.agent_runtime.adapters.claude"
+        ),
+    ):
         plan = adapter.build_invocation(
             prompt="hi",
             mode="read-only",
@@ -230,10 +257,13 @@ def test_claude_adapter_skips_effort_when_unsupported(tmp_path, caplog, claude_o
         f"plan.cmd={plan.cmd}"
     )
     assert any(
-        rec.getMessage() == (
+        rec.getMessage()
+        == (
             "Claude CLI does not support effort selection; "
             "ignoring requested effort and using CLI default (#1396)"
-        ) and rec.args == () for rec in caplog.records
+        )
+        and rec.args == ()
+        for rec in caplog.records
     ), (
         f"expected a WARNING log about effort being unsupported; "
         f"records={[r.message for r in caplog.records]}"
@@ -245,7 +275,8 @@ def test_claude_adapter_no_effort_arg_means_default_high(tmp_path, claude_on_pat
     when the CLI supports it (operator 2026-08-13)."""
     adapter = ClaudeAdapter()
     with patch(
-        "lu_machinery.utils.claude_version.supports_effort", return_value=True,
+        "lu_machinery.utils.claude_version.supports_effort",
+        return_value=True,
     ):
         plan = adapter.build_invocation(
             prompt="hi",
@@ -264,6 +295,7 @@ def test_claude_adapter_no_effort_arg_means_default_high(tmp_path, claude_on_pat
 # ---------------------------------------------------------------------------
 # AC5.6 — CodexAdapter emits -c model_reasoning_effort=<level>
 # ---------------------------------------------------------------------------
+
 
 def test_codex_adapter_emits_effort_as_config_override(tmp_path):
     adapter = CodexAdapter()
@@ -317,13 +349,17 @@ def test_codex_adapter_no_effort_means_default_high_override(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# AC5.7 — GeminiAdapter accepts effort, logs debug, no cmd mutation
+# AC5.7 — GeminiAdapter refuses the retired CLI and does not leak effort
 # ---------------------------------------------------------------------------
 
-def test_gemini_adapter_accepts_effort_without_crashing(tmp_path, caplog):
+
+def test_gemini_adapter_refuses_retired_cli_without_leaking_effort(tmp_path):
+    """The retired CLI refuses before an argv exists, and the effort value stays out of the error."""
     adapter = GeminiAdapter()
-    with caplog.at_level(logging.DEBUG, logger="lu_machinery.agent_runtime.adapters.gemini"):
-        plan = adapter.build_invocation(
+    with pytest.raises(
+        AgentUnavailableError, match="The gemini CLI is retired"
+    ) as refused:
+        adapter.build_invocation(
             prompt="hi",
             mode="read-only",
             cwd=tmp_path,
@@ -333,22 +369,14 @@ def test_gemini_adapter_accepts_effort_without_crashing(tmp_path, caplog):
             tool_config=None,
             effort="xhigh",
         )
-    # No --effort in cmd (gemini-cli doesn't expose one).
-    assert "--effort" not in plan.cmd
-    assert "xhigh" not in plan.cmd
-    # A constant DEBUG note referencing the follow-up issue was logged, and the
-    # requested effort value never reaches any log record (#10751).
-    assert any(
-        rec.message == "gemini effort not yet wired through CLI — using adapter default (#1396 follow-up)"
-        for rec in caplog.records
-    ), f"expected the constant gemini effort DEBUG note; records={[r.message for r in caplog.records]}"
-    assert not any("xhigh" in rec.getMessage() for rec in caplog.records)
+    assert "xhigh" not in str(refused.value)
 
 
 # ---------------------------------------------------------------------------
 # Gemini fallback ladder path propagates effort on every rung
 # (Codex adversarial review 2026-04-22 finding #2.)
 # ---------------------------------------------------------------------------
+
 
 def test_gemini_fallback_ladder_forwards_effort_to_every_rung(tmp_path):
     """When invoke() routes to _invoke_gemini_with_fallback, each rung's
@@ -374,6 +402,7 @@ def test_gemini_fallback_ladder_forwards_effort_to_every_rung(tmp_path):
 
     # Drive the ladder: rung 1 → rate_limited, rung 2 → success.
     from lu_machinery.ai_llm.fallback import CallResult
+
     fake_call_result = CallResult(
         response_text="pong",
         model_used="gemini-fixture-native",
@@ -381,26 +410,39 @@ def test_gemini_fallback_ladder_forwards_effort_to_every_rung(tmp_path):
         elapsed_s=0.1,
     )
 
-    with patch(
-        "lu_machinery.agent_runtime.runner._load_adapter", return_value=spy_adapter,
-    ), patch(
-        "lu_machinery.agent_runtime.runner.has_headroom", return_value=(True, ""),
-    ), patch(
-        "lu_machinery.agent_runtime.runner.write_record",
-    ), patch(
-        "lu_machinery.agent_runtime.runner.run_gemini_fallback_ladder",
-    ) as mock_ladder:
+    with (
+        patch(
+            "lu_machinery.agent_runtime.runner._load_adapter",
+            return_value=spy_adapter,
+        ),
+        patch(
+            "lu_machinery.agent_runtime.runner.has_headroom",
+            return_value=(True, ""),
+        ),
+        patch(
+            "lu_machinery.agent_runtime.runner.write_record",
+        ),
+        patch(
+            "lu_machinery.agent_runtime.runner.run_gemini_fallback_ladder",
+        ) as mock_ladder,
+    ):
+
         def _run_ladder(*, attempt_runner, **_kwargs):
             # Invoke the runner's attempt callback twice with different rungs
             # to prove effort gets forwarded on each call.
             from lu_machinery.ai_llm.fallback import GeminiRung
+
             rung_a = GeminiRung(
-                index=0, total=2,
-                model="gemini-fixture-native", auth_mode="oauth",
+                index=0,
+                total=2,
+                model="gemini-fixture-native",
+                auth_mode="oauth",
             )
             rung_b = GeminiRung(
-                index=1, total=2,
-                model="gemini-fixture-secondary", auth_mode="api",
+                index=1,
+                total=2,
+                model="gemini-fixture-secondary",
+                auth_mode="api",
             )
             # The runner's _attempt_runner internally calls adapter.build_invocation.
             # We patch _execute_invocation_plan to a no-op success so the runner
@@ -447,6 +489,5 @@ def test_gemini_fallback_ladder_forwards_effort_to_every_rung(tmp_path):
     )
     for call in spy_adapter.build_invocation.call_args_list:
         assert call.kwargs.get("effort") == "xhigh", (
-            f"every rung must propagate effort='xhigh'; "
-            f"kwargs={call.kwargs}"
+            f"every rung must propagate effort='xhigh'; kwargs={call.kwargs}"
         )
