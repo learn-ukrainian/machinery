@@ -9,6 +9,7 @@ import stat
 import subprocess
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -295,8 +296,45 @@ def test_wrapper_exits_78_when_interpreter_missing(tmp_path: Path, monkeypatch: 
 
 
 def test_wrapper_execs_primary_interpreter(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Mutation-check: the wrapper must exec primary .venv python, not PATH python."""
+    """The wrapper execs the checkout interpreter, and its path is the installed package.
+
+    R77: a product checkout that does not contain the package tree must still
+    validate. The cleanup script and the bash wrapper come from machinery_path,
+    which is the installed package, not ``<checkout>/lu_machinery``.
+    """
     monkeypatch.delenv("LEARN_UKRAINIAN_PYTHON", raising=False)
+    assert launchd.wrapper_path() == WRAPPER
+    assert WRAPPER.is_file()
+    cleanup_script = machinery_path("orchestration/scheduled_worktree_cleanup.py")
+    assert cleanup_script.is_file()
+    checkout = tmp_path / "checkout"
+    (checkout / ".git").mkdir(parents=True)
+    checkout_python = checkout / ".venv" / "bin" / "python"
+    checkout_python.parent.mkdir(parents=True)
+    checkout_python.write_text("#!/bin/sh\n", encoding="utf-8")
+    checkout_python.chmod(0o755)
+    original_run = launchd.subprocess.run
+
+    def fake_git(cmd, **kwargs):
+        if isinstance(cmd, list) and cmd[:2] == ["git", "branch"]:
+            return SimpleNamespace(returncode=0, stdout="main\n", stderr="")
+        return original_run(cmd, **kwargs)
+
+    monkeypatch.setattr(launchd.subprocess, "run", fake_git)
+    launchd._validate_primary(checkout, require_interpreter=True)
+    monkeypatch.setattr(launchd.subprocess, "run", original_run)
+    rendered = plistlib.loads(
+        launchd.render_plist(
+            public_repo=checkout,
+            private_repo=checkout,
+            home=tmp_path / "home",
+            interval_minutes=240,
+        )
+    )
+    assert rendered["ProgramArguments"][3] == str(WRAPPER)
+    assert str(checkout) not in rendered["ProgramArguments"][3]
+    assert not (checkout / "lu_machinery").exists()
+
     primary = tmp_path / "primary"
     python = primary / ".venv" / "bin" / "python"
     python.parent.mkdir(parents=True)
