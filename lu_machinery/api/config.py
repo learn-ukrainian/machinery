@@ -29,8 +29,13 @@ def __getattr__(name: str) -> Path:
     stores belong to the configured live checkout and shared state respectively.
     """
     if name in {"PROJECT_ROOT", "PRODUCT_ROOT"}:
-        selected = globals().get("PRODUCT_ROOT") or product_root()
-        globals()["PROJECT_ROOT"] = globals()["PRODUCT_ROOT"] = selected
+        # The two names are one root. _live_repo_root and the derived paths call
+        # this directly, so a set alias is returned as is and never replaced; an
+        # unset one takes the other's value before falling back to product_root().
+        cached = globals()
+        selected = cached.get(name) or cached.get("PRODUCT_ROOT") or cached.get("PROJECT_ROOT") or product_root()
+        cached.setdefault("PROJECT_ROOT", selected)
+        cached.setdefault("PRODUCT_ROOT", selected)
     elif name == "LIVE_REPO_ROOT":
         selected = _live_repo_root()
     elif name == "CURRICULUM_ROOT":

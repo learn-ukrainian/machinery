@@ -16,9 +16,12 @@
 #   (--history /dev/null), because every shard has the same shallow checkout.
 #   Weights change only the balance, never which files run.
 # - Shard count: in merge-group run 42600042639 the single job's pytest step
-#   took 35m43s, and setup took under a minute. Six shards are about 6 minutes
-#   each. That leaves room under the 20-minute shard limit for imbalance and
-#   suite growth. Add shards when the slowest shard nears 12 minutes.
+#   took 35m43s, and setup took under a minute. PR run 42621177146 measured
+#   8,647 test-seconds over the 685 [run] files (the committed weights). That
+#   is 1,441 s per shard over six shards. A shard there ran 1,458 s in 8m24s
+#   of wall time, so each shard should take about 8.5 minutes, under the
+#   20-minute shard limit with room for suite growth. Add shards when the
+#   slowest shard nears 12 minutes.
 # - Each shard prints its per-file seconds (`split_tests durations` over its
 #   JUnit report). To refresh the weights, merge the six objects from one
 #   successful merge-group run into pytest-file-durations.json.
