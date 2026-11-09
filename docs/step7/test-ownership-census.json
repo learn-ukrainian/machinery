@@ -19940,7 +19940,7 @@
     "scripts.common.safe_unit_install [present: present on machinery main as lu_machinery/common/safe_unit_install.py]",
     "scripts.hygiene.check_primary_integrity [present: present on machinery main as lu_machinery/hygiene/check_primary_integrity.py]"
    ],
-   "ported_to": "tests/repo_contracts/test_check_primary_integrity.py"
+   "ported_to": "tests/common/test_check_primary_integrity.py"
   },
   "tests/test_check_promote_quality_changed.py": {
    "disposition": "keep",
@@ -27083,7 +27083,7 @@
     "scripts/launchers [present: present on machinery main as lu_machinery/launchers]",
     "scripts/lib/launcher_core.sh [present: present on machinery main as lu_machinery/lib/launcher_core.sh]"
    ],
-   "ported_to": "tests/repo_contracts/test_launcher_canary_honesty.py",
+   "ported_to": "tests/common/test_launcher_canary_honesty.py",
    "port_note": "disposition (c), machinery PR #141: removed only the four Kimi launcher parameter cases; lu_machinery/launchers/kimi.sh and executable callers are absent; historical identities and refusals remain covered"
   },
   "tests/test_launcher_contract.py": {
@@ -27498,7 +27498,7 @@
     "scripts.session_supervisor [present: present on machinery main as lu_machinery/session_supervisor/__init__.py]",
     "scripts/lib/launcher_core.sh [present: present on machinery main as lu_machinery/lib/launcher_core.sh]"
    ],
-   "ported_to": "tests/repo_contracts/test_launcher_remote_renew.py"
+   "ported_to": "tests/common/test_launcher_remote_renew.py"
   },
   "tests/test_launcher_sandbox_closure.py": {
    "residual_id": "T7-launcher-sandbox-closure",
