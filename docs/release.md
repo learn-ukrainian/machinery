@@ -138,8 +138,13 @@ in `pyproject.toml` and `$SHA` the full commit:
    `@modelcontextprotocol/sdk/validation/cfworker` in both CommonJS and ESM.
    Also run `b4a`, `bare-events`, `bare-stream` and `express`. Run the
    prefix's ACPX shim with `--version` under `PATH=/usr/bin:/bin`. It must
-   succeed. Each route and each lazy site must execute zero markers. Remove
-   the markers and confirm the prefix still validates.
+   succeed. Each route and each lazy site must execute zero markers. Repeat
+   the routes with `NODE_OPTIONS=--conditions=react-native` and `NODE_PATH`
+   set in the caller's environment. ACP Node processes never receive either
+   variable, so the markers stay at zero, while a direct `node` run with that
+   `NODE_OPTIONS` loading `b4a` must execute the `react-native-b4a` marker as
+   the positive control. Remove the markers and confirm the prefix still
+   validates.
 
    Then check that every packaged resource resolves from the installed wheel
    and exercise lazy runtime paths. Running the agent deployer's plan and apply

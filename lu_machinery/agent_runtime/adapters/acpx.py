@@ -279,6 +279,11 @@ _GROK_XAI_API_KEY_ENV_UNSETS: tuple[str, ...] = (
     "ACPX_AUTH_API_KEY",
 )
 
+# Node module-resolution controls never reach an ACP Node process, whether
+# inherited or seat-supplied (C-4952, R95): NODE_OPTIONS can preload code or
+# add export conditions, and NODE_PATH adds unauthenticated module folders.
+_ACP_NODE_ENV_UNSETS: tuple[str, ...] = ("NODE_OPTIONS", "NODE_PATH")
+
 # tool_config allowlist. Anything outside this set is rejected before spawn
 # — this is the enforcement point for "unsupported permission/tool config"
 # in the approved reject-before-spawn list. No key here can loosen
@@ -1462,11 +1467,17 @@ def _acpx_runtime_env_overrides(
     *,
     adapter_label: str = "ACPX",
 ) -> dict[str, str]:
-    """Merge seat env overrides with a Node-bearing PATH for ACPX children."""
+    """Merge seat env overrides with a Node-bearing PATH for ACPX children.
+
+    Seat-supplied Node resolution controls are dropped; plans also unset the
+    inherited ones (``_ACP_NODE_ENV_UNSETS``).
+    """
     node = _resolve_host_node_binary(adapter_label=adapter_label)
     env: dict[str, str] = {"PATH": _acpx_path_with_node(node)}
     if extra:
         for key, value in extra.items():
+            if key in _ACP_NODE_ENV_UNSETS:
+                continue
             if key == "PATH":
                 env["PATH"] = _acpx_path_with_node(node, value)
             else:
@@ -3254,6 +3265,7 @@ class AcpxAdapter:
                 {"ACPX_AUTH_CHAT_GPT": "1", "CODEX_PATH": codex_binary},
                 adapter_label="AcpxAdapter",
             ),
+            env_unsets=_ACP_NODE_ENV_UNSETS,
             liveness_paths=(),
             metadata=metadata,
         )
@@ -3641,7 +3653,7 @@ class _AcpxDiscussionAdapter:
         return _acpx_runtime_env_overrides(seat, adapter_label=type(self).__name__)
 
     def _env_unsets(self) -> tuple[str, ...]:
-        return ()
+        return _ACP_NODE_ENV_UNSETS
 
     def _extra_metadata(self) -> dict[str, Any]:
         return {}
@@ -4272,7 +4284,7 @@ class AcpxGrokShadowAdapter:
                 {GROK_AUTH_CACHED_TOKEN_ENV: "1"},
                 adapter_label="AcpxGrokShadowAdapter",
             ),
-            env_unsets=_GROK_XAI_API_KEY_ENV_UNSETS,
+            env_unsets=(*_GROK_XAI_API_KEY_ENV_UNSETS, *_ACP_NODE_ENV_UNSETS),
             liveness_paths=(),
             metadata=metadata,
         )

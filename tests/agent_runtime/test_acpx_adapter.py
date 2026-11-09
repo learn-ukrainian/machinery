@@ -1957,6 +1957,38 @@ def test_cursor_acp_uses_existing_key_without_interactive_auth(tmp_path, monkeyp
     assert env["CURSOR_API_KEY"] == "fixture-cursor-key"
 
 
+@pytest.mark.parametrize("route", ["codex", "grok", "cursor"])
+def test_acp_node_spawn_env_drops_node_resolution_controls(tmp_path, monkeypatch, route):
+    """R95 (C-4952): NODE_OPTIONS/NODE_PATH leaking into ACP Node processes would load unauthenticated modules."""
+    hostile = {"NODE_OPTIONS": "--conditions=react-native", "NODE_PATH": str(tmp_path / "planted")}
+    for name, value in hostile.items():
+        monkeypatch.setenv(name, value)
+    seat = acpx_module._acpx_runtime_env_overrides({**hostile, "CURSOR_API_KEY": "fixture-key"}, adapter_label="test")
+    assert not set(hostile) & set(seat)
+    assert seat["CURSOR_API_KEY"] == "fixture-key"
+    _stub_binary(monkeypatch, tmp_path)
+    if route == "codex":
+        _shadow_env(monkeypatch)
+        plan = _build(AcpxAdapter(), cwd=tmp_path)
+    elif route == "grok":
+        _shadow_env(monkeypatch)
+        _stub_grok(monkeypatch, tmp_path)
+        plan = _build_grok(AcpxGrokShadowAdapter(), cwd=tmp_path)
+    else:
+        monkeypatch.setenv(acpx_module.TRANSPORT_ENV, "active")
+        with acpx_module.active_discussion_scope():
+            plan = AcpxCursorShadowAdapter().build_invocation(
+                prompt="ping", mode="read-only", cwd=tmp_path, model=None, task_id="t-1", session_id=None,
+                tool_config={"acpx_discussion": True, "target_agent": "cursor",
+                             "correlation_id": "corr-1", "idempotency_key": "idem-1"},
+            )
+    # Every runner branch merges overrides, then removes env_unsets; hostile seat values get no carrier.
+    env = {**os.environ, **plan.env_overrides, **hostile}
+    for name in plan.env_unsets:
+        env.pop(name, None)
+    assert not set(hostile) & set(env)
+
+
 def _cursor_acp_plan(tmp_path, monkeypatch, model):
     _stub_binary(monkeypatch, tmp_path)
     monkeypatch.setenv(acpx_module.TRANSPORT_ENV, "active")
