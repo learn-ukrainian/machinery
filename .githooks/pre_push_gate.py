@@ -1729,7 +1729,9 @@ def main(argv: list[str] | None = None, stdin: str | None = None) -> int:
         "Exit codes: 0 green; 1 refused; 75 validation incomplete.\n"
         "Related: docs/runbooks/pre-push-gate.md.",
     )
-    parser.add_argument("--launcher", required=True, help="project interpreter launcher path")
+    parser.add_argument(
+        "--launcher", required=True, help="the project interpreter selector, lu_machinery/lib/project_interpreter.sh"
+    )
     parser.add_argument("--config", required=True, help="unused stage input kept for existing callers")
     parser.add_argument("remote", nargs="*", help="Git-supplied remote arguments; default: none")
     arguments = parser.parse_args(argv)

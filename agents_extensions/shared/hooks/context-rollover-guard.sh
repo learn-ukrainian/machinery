@@ -30,7 +30,8 @@ fi
 
 command -v jq >/dev/null 2>&1 || exit 0
 # shellcheck source=agents_extensions/shared/hooks/context-rollover-lib.sh
-source "$(dirname "${BASH_SOURCE[0]}")/context-rollover-lib.sh" 2>/dev/null || exit 0
+source "$(dirname "${BASH_SOURCE[0]}")/context-rollover-lib.sh" \
+  || { echo "context-rollover-guard.sh: context-rollover-lib.sh is missing beside this hook" >&2; exit 1; }
 
 INPUT=$(cat)
 EVENT=$(printf '%s' "$INPUT" | jq -r '.hook_event_name // empty' 2>/dev/null)
@@ -54,6 +55,10 @@ ROLLOVER_MODE=$(jq -r --arg sid "$SESSION_ID" \
 [ "$(context_effective_rollover_mode "$ROLLOVER_MODE")" = "operator_restart" ] || exit 0
 
 [ "$EVENT" = "UserPromptSubmit" ] || exit 0
+# Code root (machinery #100 R51, R62, R69, R66): the release the one project
+# interpreter imports, never this file's location. Fails closed: refuse, with the
+# reason on stderr, rather than run code from anywhere else.
+context_machinery_bootstrap "$PROJECT_DIR" || exit 1
 LAST_TIER=0
 LAST_TOKENS=0
 read -r LAST_TIER LAST_TOKENS <<< "$(context_hook_state read "$PROJECT_DIR" "$SESSION_ID")"

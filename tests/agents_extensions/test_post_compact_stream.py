@@ -86,6 +86,7 @@ def _run_hook(
         target_is_directory=True,
     )
     shutil.copy2(machinery_path(HOOK.as_posix()), hook)
+    shutil.copy2(machinery_path(HOOK.as_posix()).with_name("context-rollover-lib.sh"), hook.with_name("context-rollover-lib.sh"))
     if baseline:
         source = hook.read_text()
         stream_argument = ' --stream "$HYDRATION_STREAM"'
@@ -95,6 +96,19 @@ def _run_hook(
     diary.parent.mkdir(parents=True)
     diary.write_text("# Driver handoff\n## Next Drive\n- Reconcile queue.\n")
 
+    # The hook takes its code from the release the project interpreter imports (#100 R51), so that
+    # interpreter imports this repo's capsule first, then the test's dependencies.
+    venv = tmp_path / "venv"
+    subprocess.run([sys.executable, "-I", "-m", "venv", "--without-pip", str(venv)], check=True)
+    purelib = subprocess.run(
+        [str(venv / "bin/python"), "-I", "-c", "import sysconfig; print(sysconfig.get_path('purelib'))"],
+        check=True, capture_output=True, text=True,
+    ).stdout.strip()
+    dependencies = subprocess.run(
+        [sys.executable, "-I", "-c", "import sysconfig; print(sysconfig.get_path('purelib'))"],
+        check=True, capture_output=True, text=True,
+    ).stdout.strip()
+    Path(purelib, "repo.pth").write_text(f"{repo}\n{dependencies}\n")
     args_log = tmp_path / "hydrate-args"
     calls_log = tmp_path / "interpreter-calls"
     wrapper = tmp_path / "interpreter-recorder"
@@ -110,7 +124,7 @@ def _run_hook(
         '  shift\n'
         'done\n'
         'set -- "${original[@]}"\n'
-        f'exec {shlex.quote(sys.executable)} "$@"\n'
+        f'exec {shlex.quote(str(venv / "bin/python"))} "$@"\n'
     )
     wrapper.chmod(0o755)
     environment = {

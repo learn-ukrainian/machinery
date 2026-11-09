@@ -11,20 +11,17 @@ case "$PROJECT_ROOT" in
   /*) [ -d "$PROJECT_ROOT" ] || { echo "stamp-pytest.sh: project root $PROJECT_ROOT is not a directory" >&2; exit 1; } ;;
   *) echo "stamp-pytest.sh: no project root: set CLAUDE_PROJECT_DIR or LU_PRODUCT_ROOT to an absolute checkout path" >&2; exit 1 ;;
 esac
-PYTHON="$PROJECT_ROOT/.venv/bin/python"
 HELPER="$PROJECT_ROOT/.githooks/pytest_stamp.py"
-
-if [ ! -x "$PYTHON" ]; then
-  COMMON_DIR=$(git -C "$PROJECT_ROOT" rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || exit 0
-  PRIMARY_ROOT="$(dirname "$COMMON_DIR")"
-  PYTHON="$PRIMARY_ROOT/.venv/bin/python"
-fi
-
-# Do not fall back to python/python3 from PATH. Repository commands require the
-# project venv, and a system interpreter can belong to another checkout or lack
-# pinned dependencies (#5134). Stamping is observational: no proven project
-# interpreter means no marker, and the later pre-push guard remains fail-closed.
-[ -x "$PYTHON" ] || exit 0
 [ -f "$HELPER" ] || exit 0
+
+# The one project interpreter rule (R66, machinery #100 R74): LEARN_UKRAINIAN_PYTHON,
+# else the primary checkout's .venv; never a worktree .venv and never python or
+# python3 from PATH, which can belong to another checkout or lack pinned
+# dependencies (#5134). The helper is the product's, so no machinery release is
+# needed. Stamping is observational: no proven project interpreter means no
+# marker, and the later pre-push guard remains fail-closed.
+# shellcheck source=agents_extensions/shared/hooks/context-rollover-lib.sh
+source "$(dirname "${BASH_SOURCE[0]}")/context-rollover-lib.sh" 2>/dev/null || exit 0
+PYTHON="$(_context_rule_probe "$(context_canonical_root "$PROJECT_ROOT")" "$PROJECT_ROOT" 2>/dev/null)" || exit 0
 
 exec "$PYTHON" "$HELPER"

@@ -111,8 +111,8 @@ MAX_INPUT_BYTES = 8 << 20
 # Native Claude's shell (shell_main). providers/claude.py sets these variables on the Claude process;
 # Claude Code passes its environment to the prefix, and the boundary passes none of it inside.
 SHELL_PREFIX = machinery_path("dispatcher/claude_review_shell")
-SHELL_ENV_PYTHON, SHELL_ENV_TASK, SHELL_ENV_WORKTREE, SHELL_ENV_LOG = (
-    "LU_REVIEW_SHELL_PYTHON", "LU_REVIEW_SHELL_TASK", "LU_REVIEW_SHELL_WORKTREE", "LU_REVIEW_SHELL_LOG",
+SHELL_ENV_TASK, SHELL_ENV_WORKTREE, SHELL_ENV_LOG = (
+    "LU_REVIEW_SHELL_TASK", "LU_REVIEW_SHELL_WORKTREE", "LU_REVIEW_SHELL_LOG",
 )
 # The wrapper Claude Code puts around each command ends with ``pwd -P >| <tmp>/claude-<hex>-cwd``.
 _CLAUDE_CWD_FILE = re.compile(r"claude-[0-9a-f]{1,32}-cwd")

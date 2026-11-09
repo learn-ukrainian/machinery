@@ -24,23 +24,14 @@ glmcc_default_base_url() {
 
 glmcc_route_python() {
   local project_dir="$1"
-  local git_common
 
   if [ -n "${GLMCC_ROUTE_PYTHON:-}" ] && [ -x "${GLMCC_ROUTE_PYTHON}" ]; then
     printf '%s\n' "$GLMCC_ROUTE_PYTHON"
     return 0
   fi
-  if [ -x "$project_dir/.venv/bin/python" ]; then
-    printf '%s\n' "$project_dir/.venv/bin/python"
-    return 0
-  fi
-  git_common="$(env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR \
-    git -C "$project_dir" rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)"
-  if [ -n "$git_common" ] && [ -x "$(dirname "$git_common")/.venv/bin/python" ]; then
-    printf '%s\n' "$(dirname "$git_common")/.venv/bin/python"
-    return 0
-  fi
-  return 1
+  # The one project interpreter (R66): never a worktree .venv.
+  declare -F project_interpreter_resolve >/dev/null || return 1
+  project_interpreter_resolve "$project_dir" 2>/dev/null
 }
 
 glmcc_resolve_explicit_auth_token() {

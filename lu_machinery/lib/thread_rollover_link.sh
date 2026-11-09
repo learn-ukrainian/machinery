@@ -78,7 +78,10 @@ resolve_codex_pending_rollover() {
   local project_dir="$1"
   local handoff_agent="$2"
   local stream_id="${3-${SESSION_STREAM_ID:-}}"
-  local python_bin="$project_dir/.venv/bin/python"
+  # The one project interpreter (R66): never a worktree .venv. Unresolved, the
+  # executable check below fails open as before.
+  local python_bin
+  python_bin="$(project_interpreter_resolve "$project_dir" 2>/dev/null)" || python_bin=""
   local handoff_script="$PROJECT_CODE_ROOT/$PROJECT_PACKAGE/orchestration/thread_handoff.py"
   # Every Python child starts with -I, so the caller's PYTHONPATH and cwd stay
   # off its import path; thread_handoff runs through the shared module bootstrap

@@ -12,18 +12,24 @@ fi
 main_root="$(cd "$git_common_dir/.." && pwd -P)"
 
 source_root="$worktree_root"
-if [[ ! -x "$source_root/lu_machinery/pre_commit/project_python.sh" || ! -f "$source_root/.pre-commit-config.yaml" ]]; then
+if [[ ! -f "$source_root/lu_machinery/lib/project_interpreter.sh" || ! -f "$source_root/.pre-commit-config.yaml" ]]; then
   source_root="$main_root"
 fi
 
-project_python="$source_root/lu_machinery/pre_commit/project_python.sh"
-if [[ ! -x "$project_python" ]]; then
-  echo "Git hook error: project Python launcher not found at $project_python" >&2
+# The one interpreter rule (R66, machinery #100 R79): lib/project_interpreter.sh selects,
+# for this worktree, LEARN_UKRAINIAN_PYTHON or the primary checkout's .venv, else refuses.
+project_interpreter="$source_root/lu_machinery/lib/project_interpreter.sh"
+if [[ ! -f "$project_interpreter" ]]; then
+  echo "Git hook error: project interpreter selector not found at $project_interpreter" >&2
   exit 127
 fi
+# shellcheck source=lu_machinery/lib/project_interpreter.sh
+source "$project_interpreter"
 
 run_project_python() {
-  bash "$project_python" "$@"
+  local python
+  python="$(project_interpreter_resolve "$worktree_root")" || return 127
+  "$python" "$@"
 }
 
 run_pre_commit() {

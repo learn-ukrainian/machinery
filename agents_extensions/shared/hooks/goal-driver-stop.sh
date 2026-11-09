@@ -41,65 +41,18 @@ case "$PROJECT_DIR" in
   /*) [ -d "$PROJECT_DIR" ] || { echo "goal-driver-stop.sh: project root $PROJECT_DIR is not a directory" >&2; exit 1; } ;;
   *) echo "goal-driver-stop.sh: no project root: set CLAUDE_PROJECT_DIR or LU_PRODUCT_ROOT to an absolute checkout path" >&2; exit 1 ;;
 esac
-# Canonical checkout owns the shared venv — linked worktrees have none
+# shellcheck source=agents_extensions/shared/hooks/context-rollover-lib.sh
+source "$(dirname "${BASH_SOURCE[0]}")/context-rollover-lib.sh" \
+  || { echo "goal-driver-stop.sh: context-rollover-lib.sh is missing beside this hook" >&2; exit 1; }
+# Canonical checkout owns the shared state: linked worktrees share the primary's
 # (F001 r5 on #5896: the PROJECT_DIR default silently skipped this hook in
-# every worktree session). Derivation must run BEFORE the interpreter pick.
-if [ -n "${CODEX_CANONICAL_REPO_ROOT:-}" ]; then
-  CANONICAL_ROOT="$CODEX_CANONICAL_REPO_ROOT"
-else
-  GIT_COMMON_DIR=$(git -C "$PROJECT_DIR" rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)
-  if [ -n "$GIT_COMMON_DIR" ] && [ "$(basename "$GIT_COMMON_DIR")" = ".git" ]; then
-    CANONICAL_ROOT=$(dirname "$GIT_COMMON_DIR")
-  else
-    CANONICAL_ROOT="$PROJECT_DIR"
-  fi
-fi
-# One interpreter (R66). Fail open: a missing interpreter must not kill Stop.
-# In-tree, this file's tree is sourced and the resolver is authoritative. A
-# deployed copy probes the rule only to find the installed release, then the
-# resolver's answer replaces the probe. An invalid override does not fall back.
-_goal_probe_python() {
-  local configured="${LEARN_UKRAINIAN_PYTHON:-}"
-  if [ -n "$configured" ]; then
-    case "$configured" in
-      /*) ;;
-      *) return 1 ;;
-    esac
-    [ -f "$configured" ] && [ -x "$configured" ] || return 1
-    printf '%s\n' "$configured"
-    return 0
-  fi
-  # Git could not name the primary, so CANONICAL_ROOT is this directory.
-  # A linked worktree's .git is a file; its .venv is not the interpreter.
-  if [ -f "${PROJECT_DIR:-}/.git" ] && [ "$CANONICAL_ROOT" = "${PROJECT_DIR:-}" ]; then
-    return 1
-  fi
-  [ -x "$CANONICAL_ROOT/.venv/bin/python" ] || return 1
-  printf '%s\n' "$CANONICAL_ROOT/.venv/bin/python"
-}
-_hook_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)" || exit 0
-case "$_hook_dir" in
-  */agents_extensions/shared/hooks)
-    MACHINERY_DIR="${_hook_dir%/agents_extensions/shared/hooks}"
-    # shellcheck source=lu_machinery/lib/project_interpreter.sh
-    source "$MACHINERY_DIR/lu_machinery/lib/project_interpreter.sh" 2>/dev/null || exit 0
-    PYTHON="$(project_interpreter_resolve "$PROJECT_DIR" 2>/dev/null)" || exit 0
-    ;;
-  *)
-    PYTHON="$(_goal_probe_python)" || exit 0
-    MACHINERY_DIR=$("$PYTHON" -I -c 'import os, lu_machinery; print(os.path.dirname(os.path.dirname(os.path.abspath(lu_machinery.__file__))))' 2>/dev/null) || exit 0
-    # shellcheck source=lu_machinery/lib/project_interpreter.sh
-    source "$MACHINERY_DIR/lu_machinery/lib/project_interpreter.sh" 2>/dev/null || exit 0
-    RESOLVED="$(project_interpreter_resolve "$PROJECT_DIR" 2>/dev/null)" || exit 0
-    if [ "$RESOLVED" != "$PYTHON" ]; then
-      MACHINERY_DIR=$("$RESOLVED" -I -c 'import os, lu_machinery; print(os.path.dirname(os.path.dirname(os.path.abspath(lu_machinery.__file__))))' 2>/dev/null) || exit 0
-      # shellcheck source=lu_machinery/lib/project_interpreter.sh
-      source "$MACHINERY_DIR/lu_machinery/lib/project_interpreter.sh" 2>/dev/null || exit 0
-    fi
-    PYTHON="$RESOLVED"
-    ;;
-esac
-unset _hook_dir
+# every worktree session).
+CANONICAL_ROOT=$(context_canonical_root "$PROJECT_DIR")
+# One interpreter (R66) and code root (machinery #100 R51, R62, R69): the release the
+# one project interpreter imports, never this file's location. Fails closed: refuse,
+# with the reason on stderr, rather than run code from anywhere else. Exit 1 does not block Stop.
+context_machinery_bootstrap "$PROJECT_DIR" || exit 1
+PYTHON="$CONTEXT_PROJECT_PYTHON"
 
 # The modules run from the code root above, never the cwd; the project root stays
 # the working directory the stop hook reports against (cwd-drift family: #4912/#4899).

@@ -424,12 +424,21 @@ def consumer_with_decoy(product, release):
 def test_deployed_hook_runs_release_code_not_the_project_copy(
     marked_release, product, tmp_path, name
 ):
-    """Code taken from $PROJECT_DIR/lu_machinery: a deployed hook ran the consumer's copy (R69)."""
+    """Code taken from $PROJECT_DIR/lu_machinery: a deployed hook ran the consumer's copy (R69).
+
+    The consumer's own agents_extensions/shared/hooks copy has the machinery tree's path suffix,
+    so a hook that took its code from beside itself sourced the decoy there (R51).
+    """
     consumer_with_decoy(product, marked_release)
-    hooks = product / ".claude/hooks"
-    hooks.mkdir(parents=True)
-    for helper in (name, "context-rollover-lib.sh", "context-hook-state.py"):
-        shutil.copy2(SOURCE / HOOKS / helper, hooks / helper)
+    for hooks in (product / ".claude/hooks", product / HOOKS):
+        hooks.mkdir(parents=True)
+        for helper in (name, "context-rollover-lib.sh", "context-hook-state.py"):
+            shutil.copy2(SOURCE / HOOKS / helper, hooks / helper)
+        _run_code_hook(hooks, product, tmp_path / hooks.parent.name, name)
+
+
+def _run_code_hook(hooks, product, tmp_path, name):
+    tmp_path.mkdir()
     transcript = tmp_path / "transcript.jsonl"
     transcript.write_text(
         "x" * 700

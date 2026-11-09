@@ -1,75 +1,70 @@
 #!/bin/bash
-# Shared helpers for context-monitor.sh and context-rollover-guard.sh (#8511).
+# Shared helpers for the shell hooks that run machinery code (#8511, #100 R51).
 # Sourced, never registered as a hook; executing it directly does nothing.
 # State I/O is delegated to the descriptor-relative Python helper (#9791).
 
-# The machinery code root (#100 R62, R69, R66): run from a machinery tree (a checkout
-# or the installed wheel), this file's own tree; a deployed copy asks the one project
-# interpreter (LEARN_UKRAINIAN_PYTHON when that is an absolute executable file, else
-# the canonical checkout's .venv, else refuse) for the release it imports. Never
-# <project>/lu_machinery. An invalid override does not fall back.
+# The machinery code root (#100 R51, R62, R69, R66): the release the one project
+# interpreter imports, never this file's location and never <project>/lu_machinery.
+# The rule is lib/project_interpreter.sh, which lives inside the release it has to
+# find, so the first probe writes the same rule out: LEARN_UKRAINIAN_PYTHON when it
+# is an absolute executable file, else the canonical checkout's .venv, else refuse.
+# An invalid override does not fall back.
 _context_rule_probe() {
-  local configured="${LEARN_UKRAINIAN_PYTHON:-}" root="$1"
+  local configured="${LEARN_UKRAINIAN_PYTHON:-}" root="$1" project_dir="$2"
   if [ -n "$configured" ]; then
     case "$configured" in
       /*) ;;
-      *) return 1 ;;
+      *) echo "${0##*/}: LEARN_UKRAINIAN_PYTHON must be an absolute path, got $configured" >&2; return 1 ;;
     esac
-    [ -f "$configured" ] && [ -x "$configured" ] || return 1
+    [ -f "$configured" ] && [ -x "$configured" ] \
+      || { echo "${0##*/}: LEARN_UKRAINIAN_PYTHON=$configured is not an executable file" >&2; return 1; }
     printf '%s\n' "$configured"
     return 0
   fi
   # Git could not name the primary, so the probe root is this directory.
   # A linked worktree's .git is a file; its .venv is not the interpreter.
-  if [ -f "${PROJECT_DIR:-}/.git" ] && [ "$root" = "${PROJECT_DIR:-}" ]; then
+  if [ -f "$project_dir/.git" ] && [ "$root" = "$project_dir" ]; then
+    echo "${0##*/}: project interpreter not found: a linked worktree .venv is not used; set LEARN_UKRAINIAN_PYTHON" >&2
     return 1
   fi
-  [ -n "$root" ] && [ -x "$root/.venv/bin/python" ] || return 1
+  [ -n "$root" ] && [ -x "$root/.venv/bin/python" ] \
+    || { echo "${0##*/}: project interpreter not found: ${root:-<unset>}/.venv/bin/python; set LEARN_UKRAINIAN_PYTHON" >&2; return 1; }
   printf '%s\n' "$root/.venv/bin/python"
 }
-_context_code_root() {
-  local dir probe
-  dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)" || return 1
-  case "$dir" in
-    */agents_extensions/shared/hooks) printf '%s\n' "${dir%/agents_extensions/shared/hooks}" ;;
-    *)
-      probe="$(_context_rule_probe "$(context_canonical_root "$1")")" || return 1
-      "$probe" -I -c 'import os, lu_machinery; print(os.path.dirname(os.path.dirname(os.path.abspath(lu_machinery.__file__))))' 2>/dev/null
-      ;;
-  esac
+_context_import_release() {
+  local found
+  found="$("$1" -I -c 'import os, lu_machinery; print(os.path.dirname(os.path.dirname(os.path.abspath(lu_machinery.__file__))))' 2>/dev/null)" \
+    && [ -f "$found/lu_machinery/lib/project_interpreter.sh" ] \
+    && source "$found/lu_machinery/lib/project_interpreter.sh" 2>/dev/null \
+    || { echo "${0##*/}: no installed lu_machinery release: the project interpreter $1 cannot import lu_machinery" >&2; return 1; }
+  MACHINERY_DIR="$found"
 }
 
-# Source the code root's project_interpreter.sh: the interpreter resolver and the
-# shared module bootstrap. Returns 1 when the code root is unavailable.
-_context_source_interpreter_lib() {
-  local root resolved found dir
-  dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)" || return 1
-  root=$(_context_code_root "$1") && [ -n "$root" ] || return 1
-  # shellcheck source=lu_machinery/lib/project_interpreter.sh
-  source "$root/lu_machinery/lib/project_interpreter.sh" 2>/dev/null || return 1
-  # In-tree, the sourced tree is the code. A deployed copy re-sources the
-  # release the resolver actually selected when that differs from the probe.
-  case "$dir" in
-    */agents_extensions/shared/hooks) return 0 ;;
-  esac
-  resolved=$(project_interpreter_resolve "$1" 2>/dev/null) || return 1
-  found=$("$resolved" -I -c 'import os, lu_machinery; print(os.path.dirname(os.path.dirname(os.path.abspath(lu_machinery.__file__))))' 2>/dev/null) || return 0
-  if [ -n "$found" ] && [ "$found" != "$root" ] && [ -f "$found/lu_machinery/lib/project_interpreter.sh" ]; then
-    # shellcheck source=lu_machinery/lib/project_interpreter.sh
-    source "$found/lu_machinery/lib/project_interpreter.sh" 2>/dev/null || return 1
+# Set MACHINERY_DIR (the installed release) and CONTEXT_PROJECT_PYTHON (the one
+# project interpreter) and source the release's project_interpreter.sh. The probe
+# only finds the release; the release's resolver then decides, and its release is
+# sourced when it differs. Fails closed: on any doubt it says why on stderr and
+# returns 1, and the hook refuses instead of running code from anywhere else.
+context_machinery_bootstrap() {
+  local project_dir="$1" probe resolved
+  MACHINERY_DIR="" CONTEXT_PROJECT_PYTHON=""
+  probe="$(_context_rule_probe "$(context_canonical_root "$project_dir")" "$project_dir")" || return 1
+  _context_import_release "$probe" || return 1
+  resolved="$(project_interpreter_resolve "$project_dir")" || { MACHINERY_DIR=""; return 1; }
+  if [ "$resolved" != "$probe" ]; then
+    _context_import_release "$resolved" || { MACHINERY_DIR=""; return 1; }
   fi
+  CONTEXT_PROJECT_PYTHON="$resolved"
 }
 
 # The one project interpreter. Never fall back to PATH Python or a component override.
 context_hook_state() {
-  local operation="$1" project_dir="$2" session_id="$3" interpreter helper
+  local operation="$1" project_dir="$2" session_id="$3" helper
   shift 3
-  _context_source_interpreter_lib "$project_dir" || return 0
-  interpreter=$(project_interpreter_resolve "$project_dir" 2>/dev/null) || return 0
-  [ -x "$interpreter" ] || return 0
+  [ -n "${CONTEXT_PROJECT_PYTHON:-}" ] || context_machinery_bootstrap "$project_dir" 2>/dev/null || return 0
   helper="$(dirname "${BASH_SOURCE[0]}")/context-hook-state.py"
   # The helper is stdlib-only: -I keeps the cwd and PYTHONPATH off its import path.
-  "$interpreter" -I "$helper" "$operation" "$project_dir" "$session_id" "$@" 2>/dev/null || true
+  "$CONTEXT_PROJECT_PYTHON" -I "$helper" "$operation" "$project_dir" "$session_id" "$@" 2>/dev/null || true
 }
 
 # Latest assistant input/cache usage from a Claude Code transcript, or 0.
@@ -158,9 +153,8 @@ context_driver_lane_name() {
   command -v tmux >/dev/null 2>&1 || return 0
   session=$(tmux display-message -p -t "$TMUX_PANE" '#{session_name}' 2>/dev/null) || return 0
   [ -n "$session" ] || return 0
-  _context_source_interpreter_lib "$project_dir" || return 0
-  interpreter=$(project_interpreter_resolve "$project_dir" 2>/dev/null) || return 0
-  [ -x "$interpreter" ] || return 0
+  [ -n "${CONTEXT_PROJECT_PYTHON:-}" ] || context_machinery_bootstrap "$project_dir" 2>/dev/null || return 0
+  interpreter="$CONTEXT_PROJECT_PYTHON"
   # The registry module runs from the code root through the shared module bootstrap.
   name=$(project_python_run "$interpreter" -c '
 import importlib
