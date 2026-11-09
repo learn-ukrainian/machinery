@@ -1,4 +1,4 @@
-"""Exit snapshot of tracked changes that git status hides (machinery #122).
+"""Exit snapshot and removal check of tracked changes that git status hides (Refs #100).
 
 Defect class: ``snapshot_delivery`` read only ``git status --porcelain``, which trusts the assume-unchanged and
 skip-worktree index flags and the submodule ignore settings, so a worker that exited with such uncommitted
@@ -30,7 +30,11 @@ def _repo(path):
 
 def _dirty(work):
     record = {"worktree_base_sha": _git(work, "rev-parse", "HEAD")}
-    return git.snapshot_delivery(SimpleNamespace(worktree=work, mode="read-only"), record)["worktree_dirty_on_exit"]
+    dirty = git.snapshot_delivery(SimpleNamespace(worktree=work, mode="read-only"), record)["worktree_dirty_on_exit"]
+    changed, untracked = git._tree_changes(work)
+    assert bool(changed) is dirty
+    assert untracked == []
+    return dirty
 
 
 @pytest.fixture
@@ -64,6 +68,9 @@ def test_clean_tree_reads_clean(work):
     """A clean tree stays clean, also as a dispatch tree: sparse-excluded entries and unedited flagged ones,
     including one converted on checkout whose name a cat-file batch request or a text read would alter."""
     assert _dirty(work) is False
+    (work / "tracked.txt").write_text("plain edit\n")
+    assert _dirty(work) is True
+    (work / "tracked.txt").write_text("committed\n")
     _git(work, "sparse-checkout", "set", "--no-cone", "--", "/*", "!/excluded/")
     assert not (work / "excluded").exists()
     _git(work, "update-index", "--assume-unchanged", "tracked.txt", ENCODED)
@@ -75,6 +82,11 @@ def test_skip_worktree_deletion_reads_dirty(work):
     (work / "tracked.txt").unlink()
     assert _git(work, "status", "--porcelain") == ""
     assert _dirty(work) is True
+    # An absent skip-worktree entry still counts when the sparse rules include it.
+    _git(work, "sparse-checkout", "set", "--no-cone", "--", "/*", "!/excluded/")
+    _git(work, "update-index", "--skip-worktree", "tracked.txt")
+    (work / "tracked.txt").unlink(missing_ok=True)
+    assert _dirty(work) is True
 
 
 def test_skip_worktree_edit_reads_dirty(work):
@@ -82,6 +94,8 @@ def test_skip_worktree_edit_reads_dirty(work):
     (work / "tracked.txt").write_text("hidden edit\n")
     assert _git(work, "status", "--porcelain") == ""
     assert _dirty(work) is True
+    (work / "tracked.txt").write_text("committed\n")
+    assert _dirty(work) is False
 
 
 def test_assume_unchanged_edit_reads_dirty(work):
