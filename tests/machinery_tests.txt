@@ -144,7 +144,6 @@ tests/agents_extensions/test_session_streams_cli.py
 tests/agents_extensions/test_session_streams_dual_write_status.py
 tests/agents_extensions/test_session_streams_inventory_receipts.py
 tests/agents_extensions/test_session_streams_projection.py
-tests/agents_extensions/test_session_supervisor.py
 tests/agents_extensions/test_shell_redirects.py
 tests/agents_extensions/test_skill_instruction_routes.py
 tests/agents_extensions/test_tool_timing_hook.py

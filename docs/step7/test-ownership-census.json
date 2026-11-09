@@ -32310,7 +32310,6 @@
     "test_workers_cannot_acquire_or_receive_driver_lease (machinery replacement tests/test_session_supervisor.py::test_workers_cannot_acquire_or_receive_driver_lease collection error on installed v0.1.0; source checkout: passed)"
    ],
    "ownership": "machinery",
-   "ported_to": "tests/agents_extensions/test_session_supervisor.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     ".gemini/config.yaml [present: product-owned in LU]",
