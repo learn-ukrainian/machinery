@@ -23,6 +23,12 @@ set -euo pipefail
 
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$PROJECT_ROOT"
+# shellcheck disable=SC1091
+source "$PROJECT_ROOT/lu_machinery/lib/project_interpreter.sh"
+if ! py="$(project_interpreter_resolve "$PROJECT_ROOT")"; then
+  echo "FAIL: project interpreter is unavailable." >&2
+  exit 1
+fi
 
 PROMPT='Reply with EXACTLY this single line and nothing else: PARSER_TEST_OK 9.5/10'
 TASK_ID="bridge-stdout-only-smoketest-$(date +%s)"
@@ -36,7 +42,7 @@ trap 'rm -f "$OUT_FILE" "$ERR_FILE"' EXIT
 unset GEMINI_API_KEY GOOGLE_API_KEY
 
 if ! printf '%s\n' "$PROMPT" | timeout 180 \
-        .venv/bin/python -m lu_machinery.ai_agent_bridge ask-agy - \
+        "$py" -m lu_machinery.ai_agent_bridge ask-agy - \
             --task-id "$TASK_ID" \
             --to-model gemini-3.8-flash-high \
             --stdout-only \

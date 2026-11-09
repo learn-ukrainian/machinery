@@ -574,6 +574,12 @@ def _wt_sh_fixture(tmp_path: Path) -> tuple[Path, Path]:
     primary = _primary(tmp_path)
     (primary / machinery_package()).mkdir()
     shutil.copy2(repo_root.machinery_path("wt.sh"), primary / machinery_package() / "wt.sh")
+    library = primary / machinery_package() / "lib"
+    library.mkdir()
+    shutil.copy2(
+        repo_root.machinery_path("lib/project_interpreter.sh"),
+        library / "project_interpreter.sh",
+    )
     python = primary / ".venv" / "bin" / "python"
     python.parent.mkdir(parents=True)
     python.write_text(f'#!/bin/sh\nPYTHONPATH="{PROJECT_ROOT}" exec "{sys.executable}" "$@"\n', encoding="utf-8")

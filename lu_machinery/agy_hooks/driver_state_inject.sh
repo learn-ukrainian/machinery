@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/usr/bin/env bash
 # Harness hook entry point for the pinned driver state (scripts/driver_state.py).
 #   driver_state_inject.sh [agy-hook|agy-stop-hook|agy-pretool-hook|claude-hook|claude-stop-hook]
 # AGY runs hooks from the directory that holds hooks.json (.agents/), and
@@ -29,17 +29,16 @@ if [ -z "${LU_DRIVER_STATE_FILE:-}" ] || [ -z "${SESSION_HANDOFF_AGENT:-}" ]; th
   echo "$fallback"
   exit 0
 fi
-py="${LU_DRIVER_STATE_PYTHON:-$root/.venv/bin/python}"
-if [ ! -x "$py" ]; then
-  echo "$fallback"
-  exit 0
-fi
+# shellcheck disable=SC1091
+source "$root/lu_machinery/lib/project_interpreter.sh" || { echo "$fallback"; exit 0; }
+py="$(project_interpreter_resolve "$root")" || { echo "$fallback"; exit 0; }
 # Validate output without storing its bytes in a shell variable.
 output_file=$(mktemp --tmpdir="$TMPDIR" agy-out.XXXXXX) || { echo "$fallback"; exit 0; }
-if (cd "$root" && "$py" -m lu_machinery.driver_state "$mode" <"$input_file" >"$output_file" 2>/dev/null); then
+project_python_command "$py" || { echo "$fallback"; exit 0; }
+if (cd "$root" && "${PROJECT_PYTHON_COMMAND[@]}" -m lu_machinery.driver_state "$mode" <"$input_file" >"$output_file" 2>/dev/null); then
   # A successful child must produce exactly one strict JSON object. Keep the
   # validator's output private too: a broken interpreter is not validation.
-  if validation=$("$py" -c '
+  if validation=$("$py" -I -c '
 import json
 import sys
 

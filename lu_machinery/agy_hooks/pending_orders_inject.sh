@@ -1,28 +1,20 @@
-#!/bin/sh
+#!/usr/bin/env bash
 # Read-only AGY PreInvocation announcement. Never persist stdin or probe output.
 fleet_module=lu_machinery.fleet_comms
-fallback='{"injectSteps":[{"ephemeralMessage":"PENDING ORDERS: unknown; legacy: ai_agent_bridge inbox for the registered handoff slot; authority: .venv/bin/python -m '"$fleet_module"' deliveries --help"}]}'
+fallback='{"injectSteps":[{"ephemeralMessage":"PENDING ORDERS: unknown; legacy: ai_agent_bridge inbox for the registered handoff slot; authority: project interpreter -m '"$fleet_module"' deliveries --help"}]}'
 root=$(cd "$(dirname "$0")/../.." 2>/dev/null && pwd) || { cat >/dev/null; printf '%s\n' "$fallback"; exit 0; }
-# Resolve the shared interpreter for linked worktrees without a worktree venv.
-primary=$root
-if [ -f "$root/.git" ]; then
-    common=$(git -C "$root" rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || common=
-    [ -z "$common" ] || primary=$(dirname "$common")
-fi
-py="${LU_DRIVER_STATE_PYTHON:-$primary/.venv/bin/python}"
-if [ ! -x "$py" ]; then
-    cat >/dev/null
-    printf '%s\n' "$fallback"
-    exit 0
-fi
+# shellcheck disable=SC1091
+source "$root/lu_machinery/lib/project_interpreter.sh" || { cat >/dev/null; printf '%s\n' "$fallback"; exit 0; }
+py="$(project_interpreter_resolve "$root")" || { cat >/dev/null; printf '%s\n' "$fallback"; exit 0; }
 # The child drains stdin; on early import/exec failure the parent drains the rest.
-if output=$(cd "$root" && "$py" -m lu_machinery.inbox_pending --agy-hook 2>/dev/null); then
+project_python_command "$py" || { cat >/dev/null; printf '%s\n' "$fallback"; exit 0; }
+if output=$(cd "$root" && "${PROJECT_PYTHON_COMMAND[@]}" -m lu_machinery.inbox_pending --agy-hook 2>/dev/null); then
     child_ok=1
 else
     child_ok=0
 fi
 cat >/dev/null
-if [ "$child_ok" = 1 ] && validated=$(printf '%s' "$output" | "$py" -c '
+if [ "$child_ok" = 1 ] && validated=$(printf '%s' "$output" | "$py" -I -c '
 import json, sys
 value = json.load(sys.stdin)
 if value != {}:

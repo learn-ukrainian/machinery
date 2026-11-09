@@ -1,0 +1,4717 @@
+#!/usr/bin/env python3
+"""
+MCP Sources Server — Ukrainian curriculum knowledge base
+
+Serves SQLite FTS5 search over textbook chunks, literary sources
+(chronicles / poetry / legal texts), Ukrainian Wikipedia articles, and
+a stack of dictionaries (VESUM, СУМ, Грінченко, Балла, Антоненко-Давидович,
+Фразеологічний, Правопис 2019). Used by the build pipeline for knowledge
+packet assembly and by agents during writing / review.
+
+Historically this was called the "RAG server" — the current implementation
+is FTS5, not vector-based retrieval. Renamed for clarity (#1024 follow-up).
+The Python backing package is still `scripts/rag/` for backwards compat
+with imports; rename there is a follow-up.
+
+Tools:
+    - search_sources, search_text, search_literary, search_external, get_chunk_context
+    - verify_word, verify_words, verify_lemma, vet_vocabulary (VESUM)
+    - verify_stress, verify_stresses (stress oracle: checked ULIF forms + labelled trie fallback + overrides)
+    - check_text (single-call verification of text or exercise items)
+    - query_wikipedia, query_pravopys, query_e2u, query_r2u, query_ulif
+    - search_definitions, search_grinchenko_1907, search_esum, search_idioms, search_synonyms
+    - search_slovnyk_me, search_heritage
+    - search_style_guide (Антоненко-Давидович)
+    - translate_en_uk (Балла)
+    - word_card (current word card, labelled certified or candidate)
+"""
+
+import asyncio
+import contextvars
+import functools
+import hashlib
+import ipaddress
+import json
+import re
+import sqlite3
+import sys
+import threading
+import time
+import unicodedata
+from difflib import SequenceMatcher
+from pathlib import Path
+from typing import Any
+
+import requests
+
+# Add repo root and scripts/ to path so both scripts.* and legacy top-level
+# packages are importable.
+PROJECT_ROOT = Path(__file__).resolve().parents[2].parent
+SCRIPTS_DIR = PROJECT_ROOT / "scripts"
+for _path in (PROJECT_ROOT, SCRIPTS_DIR):
+    if str(_path) not in sys.path:
+        sys.path.insert(0, str(_path))
+
+# Sibling modules of this file import by plain name, after scripts/ and the repository root, which is the
+# order the review digest (scripts/review/render_contract.server_code) traces them in.
+SERVER_DIR = Path(__file__).resolve().parent
+if str(SERVER_DIR) not in sys.path:
+    sys.path.append(str(SERVER_DIR))
+
+import word_card
+
+import scripts.wiki.sources_db as sources_db_full_name
+import wiki.sources_db as sources_db_short_name
+from scripts.lib.readonly_sqlite import SerializedConnection, SerializedCursor
+from scripts.rag.call_governor import CallGovernor, CallRefused, GovernorLimits
+from scripts.rag.metrics import ToolMetrics
+from scripts.storage.generations import one_generation as one_sources_generation
+from scripts.verification.check_ru_morph import is_russian_pattern
+from wiki.textbook_subjects import CANONICAL_TEXTBOOK_SUBJECTS
+
+if Path(word_card.__file__).resolve() != SERVER_DIR / "word_card.py":
+    # Any other module of that name would run code the review digest never hashed.
+    raise ImportError(f"word_card resolved outside the sources server directory: {word_card.__file__}")
+
+try:
+    from mcp.server import Server
+    from mcp.server.stdio import stdio_server
+    from mcp.types import (
+        CallToolRequestParams,
+        CallToolResult,
+        ListToolsResult,
+        TextContent,
+        Tool,
+        ToolAnnotations,
+    )
+except ImportError:
+    print("MCP package not installed. Run: pip install mcp", file=sys.stderr)
+    sys.exit(1)
+
+
+# Server ID published to MCP clients. Matches the key in .mcp.json
+# ("sources"). Agent tool prefixes become mcp__sources__*.
+server: Server
+
+# Codex exec treats a tool with no readOnlyHint as approval-required.
+# Under approval_policy=never that call is cancelled instead of run.
+# A sources tool is read-only unless a lookup persists what it fetched.
+_READ_ONLY_TOOL = ToolAnnotations(readOnlyHint=True, destructiveHint=False)
+# Persists a live fetch: query_wikipedia writes data/wiki_cache.db (creates its table,
+# evicts expired rows, inserts results). Additive cache writes, so not destructive,
+# but not read-only (#9551). The ULIF tools read the local DictUA copy and write nothing.
+# tests/mcp/test_sources_tool_side_effects.py checks this against observed writes.
+_PERSISTING_LOOKUP_TOOL = ToolAnnotations(readOnlyHint=False, destructiveHint=False)
+SUM11_AUTHORITY_NOTICE = (
+    "Soviet-occupation СУМ-11 (1970–1980) is for Sovietization contrast only; "
+    "NEVER use it for meaning, stress, part of speech, or word validity. "
+    "Use query_sum20 / ВТС / query_ulif / VESUM / Грінченко."
+)
+
+
+def _tool(**kwargs: Any) -> Tool:
+    kwargs.setdefault("annotations", _READ_ONLY_TOOL)
+    return Tool(**kwargs)
+
+
+VERIFY_SOURCE_ATTRIBUTION_SOURCES = (
+    "grinchenko_1907",
+    "esum",
+    "sum11",
+    "antonenko_davydovych",
+    "literary",
+    "heritage",
+    "wikipedia",
+    "style_guide",
+)
+
+COMPLETENESS_NOTES = {
+    "antonenko_davydovych": (
+        "Антоненко-Давидович «Як ми говоримо»: 342 structured entries in style_guide; "
+        "full 169-section book text in textbooks (source_file='antonenko-davydovych-yak-my-hovorymo', searchable via search_text)."
+    ),
+    "sum11": (
+        "СУМ-11: contrast only, verification_authority=false; "
+        "Soviet-era political/ideological coverage flagged via sovietization_risk metadata."
+    ),
+    "grinchenko_1907": "Грінченко 1907: 67K entries; lexicographic snapshot circa 1907, NOT etymology.",
+    "esum": "ЕСУМ: etymological dictionary; coverage skewed toward inherited vocabulary.",
+    "wikipedia": "Live source; results reflect current uk.wikipedia.org state.",
+}
+
+
+async def list_tools() -> list[Tool]:
+    """List available sources tools.
+
+    Kept as a module-level callable for unit tests and backward compat.
+    The registered MCP 2.0 handler is ``_on_list_tools``.
+    """
+    return [
+        _tool(
+            name="search_sources",
+            description=(
+                "Unified Ukrainian source search across textbooks, literary corpora, "
+                "Wikipedia, external articles, AND the ukrainian_wiki corpus "
+                "(compiled Ukrainian textbook pedagogy). Use this for general retrieval "
+                "when you want all relevant Ukrainian-source content in one query. "
+                "Use the corpus-specific tools (search_text, search_literary, etc.) "
+                "only when you need to scope to a single source. The structured result "
+                "envelope may include top-level `ranking` for a shared hit ranking, "
+                "`mixed` for different hit rankings, or omit it when hits have no ranking metadata."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Search query in Ukrainian (e.g., 'голосні звуки', 'як утворюється минулий час')",
+                    },
+                    "track": {
+                        "type": "string",
+                        "description": "Optional curriculum track for retrieval prep and reranking (e.g., 'a1'). Defaults to empty string.",
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Max results to return (default 10, max 20)",
+                        "default": 10,
+                    },
+                },
+                "required": ["query"],
+            },
+        ),
+        _tool(
+            name="search_text",
+            description=(
+                "FTS5 keyword search across Ukrainian school textbooks. "
+                "Returns relevant text chunks with metadata (section, source, grade, author, subject)."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Search query in Ukrainian (e.g., 'як утворюється минулий час')",
+                    },
+                    "subject": {
+                        "type": "string",
+                        "description": (
+                            "Optional canonical textbook subject slug. "
+                            "Examples: 'ukrmova', 'ukrlit', 'istoriya', 'bukvar'."
+                        ),
+                        "enum": list(CANONICAL_TEXTBOOK_SUBJECTS),
+                    },
+                    "include_superseded": {
+                        "type": "boolean", "default": False,
+                        "description": "Explicitly include retained superseded transcriptions (default false).",
+                    },
+                    "source_file": {
+                        "type": "string",
+                        "description": "Optional exact textbook source file to scope the search.",
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Max results to return (default 5, max 20)",
+                        "default": 5,
+                    },
+                },
+                "required": ["query"],
+            },
+        ),
+        _tool(
+            name="search_literary",
+            description=(
+                "FTS5 search across Ukrainian literary primary sources (chronicles, poetry, prose, legal texts). "
+                "Returns text chunks with author, source file, chunk ID, and text."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Search query in Ukrainian (e.g., 'хрещення Русі', 'повстання козаків')",
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Max results to return (default 5, max 20)",
+                        "default": 5,
+                    },
+                },
+                "required": ["query"],
+            },
+        ),
+        _tool(
+            name="search_resources",
+            description=(
+                "Search curated podcast, video, article and reference catalogues by topic or words. "
+                "Indexes catalogue metadata and linked existing article/transcript text, not audio verification. "
+                "Includes ulp-alphabet.yaml; letters and letter_evidence record publisher-evidenced pairings. "
+                "Default text mode uses full-text search even for one-letter words; mode=letter uses only the index. "
+                "Free resource access requires access_evidence. "
+                "ULP audio is free; lesson notes are premium. Link-check status is separate from access; "
+                "use live_only to require a successful recorded HTTP check."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Literal Ukrainian or English keywords; empty to browse.",
+                        "default": "",
+                    },
+                    "mode": {
+                        "type": "string",
+                        "enum": ["text", "letter"],
+                        "default": "text",
+                        "description": "Full-text search by default; letter mode requires a single letter and uses only the evidenced index.",
+                    },
+                    "kind": {
+                        "type": "string",
+                        "enum": ["podcast", "video", "article", "reference"],
+                        "description": "Optional resource kind.",
+                    },
+                    "level": {"type": "string", "description": "Optional exact CEFR level, e.g. A1."},
+                    "module": {
+                        "type": "string",
+                        "description": "Optional exact catalogue module ID, e.g. a1-greetings-and-politeness.",
+                    },
+                    "free_only": {
+                        "type": "boolean",
+                        "default": False,
+                        "description": "Require a recorded free resource or free audio fact; premium notes remain premium.",
+                    },
+                    "live_only": {
+                        "type": "boolean",
+                        "default": False,
+                        "description": "Require a recorded successful HTTP status; excludes unchecked/network-error links.",
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "default": 10,
+                        "minimum": 1,
+                        "maximum": 20,
+                        "description": "Maximum results (default 10, maximum 20).",
+                    },
+                },
+            },
+        ),
+        _tool(
+            name="search_external",
+            description=(
+                "Search the external articles corpus (YouTube transcripts + blogs: "
+                "Realna Istoriia, Ukrainian Lessons, Istoriia Movy, and related sources). "
+                "Supports channel/register/decolonization filters and optional "
+                "track-aware reranking for curriculum use."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "FTS5 search query in Ukrainian or English"},
+                    "track": {
+                        "type": "string",
+                        "description": "Optional curriculum track for channel-affinity reranking",
+                    },
+                    "channel": {"type": "string", "description": "Optional channel filter (e.g. 'realna_istoria')"},
+                    "register": {
+                        "type": "string",
+                        "enum": ["spoken", "scripted", "interview", "mixed"],
+                    },
+                    "decolonization": {
+                        "type": "string",
+                        "enum": ["strong", "moderate", "none", "neutral"],
+                    },
+                    "min_quality_tier": {
+                        "type": "integer",
+                        "default": 2,
+                        "description": "1=highest quality only, 3=include background corpus",
+                    },
+                    "max_results": {
+                        "type": "integer",
+                        "default": 10,
+                        "description": "Max results to return (default 10, max 20)",
+                    },
+                },
+                "required": ["query"],
+            },
+        ),
+        _tool(
+            name="get_full_text",
+            description=(
+                "Load text chunks of a literary work from the sources database. "
+                "Returns matching chunks concatenated in order. Best for short works under ~20 pages. "
+                "Caps at max_chars (default 50,000 characters)."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "work": {
+                        "type": "string",
+                        "description": "Work title (e.g., 'Слово о полку Ігоревім', 'Літопис Самовидця')",
+                    },
+                    "max_chars": {
+                        "type": "integer",
+                        "description": "Max characters to return (default 50000)",
+                        "default": 50000,
+                    },
+                },
+                "required": ["work"],
+            },
+        ),
+        _tool(
+            name="get_chunk_context",
+            description=("Get text chunk by chunk_id from textbooks or literary_texts collections."),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "include_superseded": {
+                        "type": "boolean", "default": False,
+                        "description": "Explicitly retrieve a superseded historical chunk (default false).",
+                    },
+                    "chunk_id": {"type": "string", "description": "Chunk ID from search results"},
+                },
+                "required": ["chunk_id"],
+            },
+        ),
+        _tool(
+            name="collection_stats",
+            description="Get row counts for all available content tables in the sources database.",
+            inputSchema={
+                "type": "object",
+                "properties": {},
+            },
+        ),
+        _tool(
+            name="mcp_server_identity",
+            description=(
+                "Return public-safe identities for the running server.py, sources.db, and vesum.db. "
+                "By default sources_db_meta_identity is a file-meta-v1 state identity (size, "
+                "mtime, journal mode, and WAL metadata), not a content hash and never a database-body read. "
+                "Set include_sources_db_sha256=true to request a fresh full content hash of sources.db. "
+                "No filesystem paths are returned."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "include_sources_db_sha256": {
+                        "type": "boolean",
+                        "description": "Compute and return a fresh full content hash for sources.db.",
+                    },
+                },
+            },
+        ),
+        _tool(
+            name="check_modern_form",
+            description=(
+                "Check if a Ukrainian word form is a currently-codified modern form or an archaic/historical form. "
+                "This is metadata extraction from VESUM tags, not a separate diachronic analysis. "
+                "Returns JSON with 'is_modern_codified', 'has_archaic_form', and 'has_only_archaic_form' flags."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "word": {"type": "string", "description": "Ukrainian word form to check (e.g., 'звір', 'Сибір')"},
+                },
+                "required": ["word"],
+            },
+        ),
+        _tool(
+            name="verify_word",
+            description=(
+                "Check if a Ukrainian word form exists in the VESUM morphological dictionary "
+                "(415K lemmas, ~6M inflected forms). Returns lemma, POS, and morphological tags "
+                "for each match. Use this to verify that a Ukrainian word form is real "
+                "(not a hallucination). Empty result = word does not exist."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "word": {
+                        "type": "string",
+                        "description": "Ukrainian word form to verify (e.g., 'берізонька', 'горонька')",
+                    },
+                    "pos_filter": {
+                        "type": "string",
+                        "description": "Optional POS filter (e.g., 'noun', 'verb', 'adj', 'adv'). "
+                        "Only returns matches with this POS.",
+                    },
+                },
+                "required": ["word"],
+            },
+        ),
+        _tool(
+            name="verify_quote",
+            description=(
+                "Verify whether a Ukrainian literary quote is genuinely attested in the corpus for a given author. "
+                "Returns boolean verdict + matched line(s) with work/year provenance + confidence score. "
+                "Use INSTEAD of search_literary + grep + manual line reading when checking a quotation."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "author": {
+                        "type": "string",
+                        "description": "Author name in Ukrainian (e.g., 'Шевченко', 'Леся Українка'). Matched against the literary corpus author column with normalization.",
+                    },
+                    "text": {
+                        "type": "string",
+                        "description": "The quoted text to verify, in Ukrainian. Accents/stress marks and punctuation differences tolerated.",
+                    },
+                    "min_confidence": {
+                        "type": "number",
+                        "description": "Minimum fuzzy-match confidence to count as 'matched' (0.0-1.0). Default 0.80.",
+                        "default": 0.80,
+                    },
+                },
+                "required": ["author", "text"],
+            },
+        ),
+        _tool(
+            name="verify_source_attribution",
+            description=(
+                "Check whether a named source discusses a given claim/topic/headword. "
+                "The `sum11` option is Sovietization contrast only and always returns "
+                "verification_authority=false and discusses=false; contrast_match reports a historical match. "
+                "Other sources return boolean verdict + supporting evidence chunks with provenance. "
+                "Use INSTEAD of dispatching sub-agents or composing multiple search tools manually."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "source": {
+                        "type": "string",
+                        "description": "Source identifier. Must be one of the allowed values.",
+                        "enum": list(VERIFY_SOURCE_ATTRIBUTION_SOURCES),
+                    },
+                    "claim": {
+                        "type": "string",
+                        "description": (
+                            "The headword, claim, or topic in Ukrainian (e.g., 'Сибір', 'давноминулий час')."
+                        ),
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Max evidence chunks to return (default 5).",
+                        "default": 5,
+                    },
+                },
+                "required": ["source", "claim"],
+            },
+        ),
+        _tool(
+            name="verify_words",
+            description=(
+                "Batch-verify multiple Ukrainian word forms against VESUM in a single call. "
+                "Much faster than multiple verify_word calls — one SQL query instead of N round-trips. "
+                "Returns per-word results: found/not-found with lemma, POS, and tags."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "words": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "List of Ukrainian word forms to verify (e.g., ['кращий', 'гірший', 'більший'])",
+                    },
+                    "pos_filter": {
+                        "type": "string",
+                        "description": "Optional POS filter applied to all words (e.g., 'adj', 'noun').",
+                    },
+                },
+                "required": ["words"],
+            },
+        ),
+        _tool(
+            name="vet_vocabulary",
+            description=(
+                "Vet up to 500 Ukrainian vocabulary items in one compact report. "
+                "Batches VESUM validity, PULS CEFR lookup, and Russian-shadow "
+                "suspicion checks; optional СУМ-11 text is contrast only, "
+                "verification_authority=false, never a verified gloss. "
+                "A Russian-shadow result is a suspicion signal, not a verdict."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "words": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Ukrainian words to vet. Requests over 500 are truncated with a response note.",
+                    },
+                    "include_definitions": {
+                        "type": "boolean",
+                        "default": False,
+                        "description": "Include a СУМ-11 contrast-only excerpt, never a verified gloss.",
+                    },
+                },
+                "required": ["words"],
+            },
+        ),
+        _tool(
+            name="verify_lemma",
+            description=(
+                "Get all inflected forms of a Ukrainian lemma from the VESUM morphological dictionary. "
+                "Returns every word form with its POS and morphological tags. "
+                "Use this to find the correct declension/conjugation of a word."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "lemma": {
+                        "type": "string",
+                        "description": "Ukrainian lemma (dictionary form) to look up (e.g., 'коза', 'писати')",
+                    },
+                },
+                "required": ["lemma"],
+            },
+        ),
+        _tool(
+            name="inspect_word",
+            description=(
+                "Inspect a Ukrainian word form with full marker awareness in the VESUM morphological dictionary. "
+                "Returns closed InspectionStatus (CLEAN, KNOWN_INVALID, NONSTANDARD, SLANG, "
+                "ARCH_OR_DIALECT_UNRESOLVED, ORTHOGRAPHIC_VARIANT, VULGAR, MIXED, NOT_FOUND, UNAVAILABLE), "
+                "separated clean_analyses and marked_analyses, and effective markers."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "word": {
+                        "type": "string",
+                        "description": "Ukrainian word form to inspect (e.g., 'берізонька', 'дзига', 'бабло')",
+                    },
+                    "pos_filter": {
+                        "type": "string",
+                        "description": "Optional POS filter (e.g., 'noun', 'verb', 'adj', 'adv')",
+                    },
+                },
+                "required": ["word"],
+            },
+        ),
+        _tool(
+            name="inspect_words",
+            description=(
+                "Batch-inspect multiple Ukrainian word forms with full marker awareness against VESUM. "
+                "Returns per-word InspectionStatus, clean_analyses, marked_analyses, and effective markers."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "words": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "List of Ukrainian word forms to inspect",
+                    },
+                    "pos_filter": {
+                        "type": "string",
+                        "description": "Optional POS filter applied to all words",
+                    },
+                },
+                "required": ["words"],
+            },
+        ),
+        _tool(
+            name="inspect_lemma",
+            description=(
+                "Inspect an entire Ukrainian lemma paradigm with full marker awareness in VESUM. "
+                "Returns complete paradigm forms, clean/marked analysis breakdown, effective markers, and status."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "lemma": {
+                        "type": "string",
+                        "description": "Ukrainian lemma to inspect (e.g., 'коза', 'писати')",
+                    },
+                },
+                "required": ["lemma"],
+            },
+        ),
+        _tool(
+            name="verify_stress",
+            description=(
+                "Stress oracle: look up the stressed form + stressed-vowel index for a Ukrainian word "
+                "from homonym-checked ULIF per-form rows first, then a labelled offline trie fallback, with "
+                "exact-form overrides applied and a VESUM identity join. Duals retain both variants and the teaching choice. "
+                "vowel_index is the 0-based codepoint index of the stressed vowel in the NFC-normalized "
+                "unstressed form (same convention as generate_practice_deck.py / PracticeStress.tsx). "
+                "status is 'ok' (agreeing readings), 'ambiguous' (pass lemma/pos/tags to disambiguate; "
+                "see each match's tags and evidence), 'pending' (no trusted reading), or "
+                "'invalid_input' (empty/multi-word/non-Cyrillic/single-syllable). The text channel is a "
+                "one-line summary; the structured result keeps the full oracle payload."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "word": {
+                        "type": "string",
+                        "description": "Ukrainian word to check: bare lemma, inflected form, or U+0301/U+0300-marked form (e.g., 'замок', 'любов'ю', 'за́мок')",
+                    },
+                    "lemma": {
+                        "type": "string",
+                        "description": "Optional lemma; a source-stressed lemma distinguishes lexical homographs.",
+                    },
+                    "pos": {
+                        "type": "string",
+                        "description": "Optional POS to help disambiguate a heteronym (e.g. 'NOUN' or 'upos=NOUN').",
+                    },
+                    "tags": {
+                        "type": "string",
+                        "description": "Optional additional dictionary tags to help disambiguate, comma-separated (e.g. 'Case=Nom,Gender=Masc') — same vocabulary as each match's required_tags.",
+                    },
+                },
+                "required": ["word"],
+            },
+        ),
+        _tool(
+            name="verify_stresses",
+            description=(
+                "Batch stress oracle. One compact record per word (input, status, readings with "
+                "stressed_form, vowel_indices, required_tags, vesum when joined, override_applied) "
+                "and a single source envelope for the whole response. Hard cap: 500 words; a longer "
+                "list is truncated to the first 500 and the response includes a note saying so. "
+                "Optional lemma, pos and tags apply to every word. Each row and reading labels its source; "
+                "the source envelope names both dictionary digests."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "words": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": (
+                            "Ukrainian words to check (bare, inflected, or stress-marked). "
+                            "At most 500 are processed; extra words are dropped with a response note."
+                        ),
+                    },
+                    "lemma": {"type": "string", "description": "Optional lemma applied to every form."},
+                    "tags": {"type": "string", "description": "Optional UD or VESUM tags applied to every form."},
+                    "pos": {
+                        "type": "string",
+                        "description": "Optional POS applied to every word (e.g. 'NOUN' or 'upos=NOUN').",
+                    },
+                },
+                "required": ["words"],
+            },
+        ),
+        _tool(
+            name="check_text",
+            description="check a lesson, a passage or a set of exercise items in one call; problems are sourced, suspicions are labelled",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "text": {
+                        "type": "string",
+                        "description": "Ukrainian text to verify (mutually exclusive with items).",
+                    },
+                    "items": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "id": {"type": ["string", "integer"]},
+                                "text": {"type": "string"},
+                            },
+                            "required": ["id", "text"],
+                        },
+                        "description": "List of exercise items with id and text (max 200 items; mutually exclusive with text).",
+                    },
+                    "checks": {
+                        "type": "array",
+                        "items": {
+                            "type": "string",
+                            "enum": ["vesum", "stress", "russian_shadow", "ua_gec"],
+                        },
+                        "description": "Subset of checks to run: vesum, stress, russian_shadow, ua_gec (default: all four).",
+                    },
+                    "stress_forms": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Optional list of forms with asserted stress positions, matched against token.lookup after accent stripping.",
+                    },
+                    "max_findings": {
+                        "type": "integer",
+                        "description": "Maximum number of findings to return (default 200).",
+                        "default": 200,
+                    },
+                    "ua_gec_tags": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "UA-GEC error tags to check (default: ['F/Calque', 'F/Collocation']).",
+                    },
+                },
+            },
+        ),
+        # ── Live source query tools ──────────────────────────────
+        _tool(
+            name="query_wikipedia_cached",
+            description=(
+                "Read Ukrainian Wikipedia evidence from existing caches only. Never fetches, refreshes or writes. "
+                "Returns hit/miss/stale/negative/unavailable, retrieval time, cache key and response digest. "
+                "Extract also reads curated articles, with matched title and URL. A miss is not evidence of absence. "
+                "fetched_at is Unix seconds for wiki_cache.db or the original ISO timestamp for sources.db. "
+                "Wikipedia is factual context, not a lexical authority."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string"},
+                    "mode": {"type": "string", "enum": ["summary", "search", "extract", "sections", "section"], "default": "summary"},
+                    "limit": {"type": "integer", "minimum": 1, "default": 5},
+                    "section": {"type": "integer", "minimum": 0},
+                    "offset": {"type": "integer", "minimum": 0, "default": 0},
+                    "max_chars": {"type": "integer", "default": 6000},
+                },
+                "required": ["query"],
+            },
+        ),
+        _tool(
+            name="query_wikipedia",
+            annotations=_PERSISTING_LOOKUP_TOOL,
+            description=(
+                "Query Ukrainian Wikipedia (uk.wikipedia.org). Modes: "
+                "'summary' — article intro paragraph; "
+                "'extract' — full article plaintext; long articles are returned in pages; "
+                "request the next page with offset=<Next offset>. "
+                "offset (default 0) and max_chars (default 6000, clamped to 1000–20000) select the page; "
+                "'sections' — list section headings with indices; "
+                "'section' — read a specific section (requires section parameter); "
+                "'search' — keyword search returning titles and snippets. "
+                "Results are cached locally (30-day TTL) to avoid redundant API calls."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Article title (for summary/extract/sections/section) or search query (for search)",
+                    },
+                    "mode": {
+                        "type": "string",
+                        "description": "Query mode",
+                        "enum": ["summary", "extract", "sections", "section", "search"],
+                        "default": "summary",
+                    },
+                    "section": {
+                        "type": "integer",
+                        "description": "Section index (required for mode='section', get indices from mode='sections')",
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Max search results (default 5, only for search mode)",
+                        "default": 5,
+                    },
+                    "force_refresh": {
+                        "type": "boolean",
+                        "description": "Bypass cache and fetch fresh data from Wikipedia",
+                        "default": False,
+                    },
+                    "offset": {
+                        "type": "integer",
+                        "description": (
+                            "Character offset into the full extract (default 0, must be ≥ 0). "
+                            "Used by mode='extract'. Long articles are returned in pages; "
+                            "request the next page with offset=<Next offset>."
+                        ),
+                        "default": 0,
+                        "minimum": 0,
+                    },
+                    "max_chars": {
+                        "type": "integer",
+                        "description": (
+                            "Maximum characters of article text on one extract page "
+                            "(default 6000, clamped to 1000–20000). Used by mode='extract'."
+                        ),
+                        "default": 6000,
+                    },
+                },
+                "required": ["query"],
+            },
+        ),
+        _tool(
+            name="query_grac",
+            description=(
+                "Query the GRAC corpus (2 billion tokens of Ukrainian text) for word frequency, "
+                "lemma form distribution, concordance examples, or collocations. "
+                "Use mode='frequency' for word/lemma frequency, 'concordance' for usage examples, "
+                "'collocations' for common word combinations."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "Ukrainian word or lemma to look up"},
+                    "mode": {
+                        "type": "string",
+                        "description": (
+                            "Query mode: 'frequency' (word frequency + IPM), "
+                            "'lemma_forms' (all forms of a lemma with frequencies), "
+                            "'concordance' (KWIC usage examples), "
+                            "'collocations' (common word combinations)"
+                        ),
+                        "enum": ["frequency", "lemma_forms", "concordance", "collocations"],
+                        "default": "frequency",
+                    },
+                    "limit": {"type": "integer", "description": "Max results (default 10)", "default": 10},
+                    "cache_only": {
+                        "type": "boolean",
+                        "default": False,
+                        "description": (
+                            "Never make a live GRAC fetch — answer only from a local frequency "
+                            "cache. Returns JSON {status: attested|not_found|unavailable, entry}. "
+                            "Snapshot misses and modes without local data return 'unavailable'; "
+                            "a miss is not evidence of zero frequency."
+                        ),
+                    },
+                },
+                "required": ["query"],
+            },
+        ),
+        _tool(
+            name="query_ulif",
+            description=(
+                "Query official DictUA data from the complete local ULIF copy (never the network). "
+                "Omit sections for the legacy plain paradigm table or miss text; pass sections "
+                "explicitly for structured source-attributed JSON. A miss is an authoritative "
+                "not_found that cites the forms build receipt and lists the headwords the word "
+                "is an inflected form of."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "word": {"type": "string", "description": "Ukrainian word to look up (e.g., 'стіл', 'писати')"},
+                    "sections": {
+                        "type": "array",
+                        "items": {
+                            "type": "string",
+                            "enum": ["paradigm", "synonyms", "antonyms", "phraseology"],
+                        },
+                        "description": (
+                            "Requested DictUA sections. When supplied, including ['paradigm'], "
+                            "the response is structured source-attributed JSON."
+                        ),
+                    },
+                },
+                "required": ["word"],
+            },
+        ),
+        _tool(
+            name="query_ulif_synonyms",
+            description=(
+                "Return official DictUA synonym groups from the local ULIF copy as structured, "
+                "source-attributed JSON."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {"word": {"type": "string"}},
+                "required": ["word"],
+            },
+        ),
+        _tool(
+            name="query_ulif_antonyms",
+            description=(
+                "Return official DictUA antonym groups from the local ULIF copy as structured, "
+                "source-attributed JSON."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {"word": {"type": "string"}},
+                "required": ["word"],
+            },
+        ),
+        _tool(
+            name="query_ulif_phraseology",
+            description=(
+                "Return official DictUA phraseology groups from the local ULIF copy as structured, "
+                "source-attributed JSON."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {"word": {"type": "string"}},
+                "required": ["word"],
+            },
+        ),
+        _tool(
+            name="query_ulif_records",
+            description=(
+                "Query complete ULIF source word records for one or more Ukrainian words from the local "
+                "ULIF copy. Exposes all harvested homonyms, grammatical labels, complete sense glosses, "
+                "every paradigm/form/stress alternative, every synonym group, every antonym group, and every "
+                "phraseology group with its full text/examples/labels/source ordering and provenance. "
+                "Never fetches live; a miss on a complete copy is marked authoritative."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "words": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "List of Ukrainian words to look up (max 200 words).",
+                    },
+                    "detail": {
+                        "type": "string",
+                        "enum": ["full", "compact"],
+                        "default": "full",
+                        "description": (
+                            "Detail level: 'full' returns complete payloads including raw_html; "
+                            "'compact' drops only raw_html keys to reduce payload size."
+                        ),
+                    },
+                },
+                "required": ["words"],
+            },
+        ),
+        _tool(
+            name="query_r2u",
+            description=(
+                "Look up Russian→Ukrainian translations on r2u.org.ua. "
+                "Useful for checking Russianisms — finds proper Ukrainian equivalents for Russian words."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "word": {
+                        "type": "string",
+                        "description": "Russian word to find Ukrainian equivalent for (e.g., 'хорошо', 'кот')",
+                    },
+                },
+                "required": ["word"],
+            },
+        ),
+        _tool(
+            name="query_pravopys",
+            description=(
+                "Look up Ukrainian orthography rules in the official 2019 Pravopys (authorized edition, "
+                "Наукова думка 2019), answered offline from sources.db with a § locator; an unofficial "
+                "live site is used only when the offline copy is missing. Query by topic keyword "
+                "(e.g., 'апостроф', 'м’який знак', 'у-в', 'кличний відмінок') or by § number (1-168)."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "topic": {
+                        "type": "string",
+                        "description": (
+                            "Topic keyword (e.g., 'апостроф', 'м’який знак', 'у-в', 'подвоєння', "
+                            "'велика буква', 'префікси') or § number as string (e.g., '7' or '§ 82')"
+                        ),
+                    },
+                },
+                "required": ["topic"],
+            },
+        ),
+        # ── Dictionary / reference collections (#1022) ──
+        _tool(
+            name="search_ua_gec_errors",
+            description=(
+                "Search UA-GEC (Ukrainian Grammatical Error Corpus, Grammarly UA team, MIT). "
+                "Returns human-annotated error→correction pairs, filtered to russianism-relevant "
+                "tags (F/Calque, F/Collocation, G/Case, G/Gender). Highest-signal evidence for "
+                "register/phraseological calques that aren't in Antonenko. Pair with search_style_guide "
+                "for the complete russianism evidence layer."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "FTS search query (e.g. 'повістка дня')"},
+                    "tag_filter": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Optional list of tags to filter by (e.g. ['F/Calque'])",
+                    },
+                    "limit": {"type": "integer", "description": "Max results (default 10)", "default": 10},
+                    "require_native_author": {
+                        "type": "boolean",
+                        "description": "If true, only return errors from native speakers",
+                        "default": False,
+                    },
+                },
+                "required": ["query"],
+            },
+        ),
+        _tool(
+            name="search_style_guide",
+            description=(
+                "Search Антоненко-Давидович «Як ми говоримо» style guide. "
+                "Contains 342 structured discussion entries in style_guide table. "
+                "The full 169-section book text is also indexed in textbooks table "
+                "(source_file='antonenko-davydovych-yak-my-hovorymo', searchable via search_text). "
+                "Identifies calques, Russianisms, and unnatural Ukrainian phrasing. "
+                "HIGH PRIORITY for quality — use when unsure if a phrase is natural "
+                "Ukrainian or a Russian calque. Query in Ukrainian (e.g., 'приймати "
+                "участь', 'вірний')."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Ukrainian phrase or word to check for calques/Russianisms",
+                    },
+                    "limit": {"type": "integer", "description": "Max results (default 3)", "default": 3},
+                },
+                "required": ["query"],
+            },
+        ),
+        _tool(
+            name="query_cefr_level",
+            description=(
+                "Look up CEFR level (A1-C1) for a Ukrainian word from the PULS "
+                "vocabulary database (puls.peremova.org). Coverage: 5,939 words "
+                "indexed. **Vocabulary list, not pedagogy** — tells you the CEFR "
+                "level a word belongs to but does not tell you how to teach it. "
+                "C2 not covered. Use to verify vocabulary is level-appropriate "
+                "for the module being written. Query with a single Ukrainian word."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "Ukrainian word to check CEFR level"},
+                    "limit": {"type": "integer", "description": "Max results (default 3)", "default": 3},
+                },
+                "required": ["query"],
+            },
+        ),
+        _tool(
+            name="search_definitions",
+            description=(
+                "Soviet-occupation СУМ-11 (1970–1980) — for Sovietization contrast only; "
+                "NEVER a source for meaning, stress, part of speech or word validity; "
+                "use query_sum20 / ВТС / query_ulif / VESUM / Грінченко. "
+                "Search its historical entries with verification_authority=false. "
+                "Coverage: 127,069 of canonical 127K entries (~100% indexed). "
+                "**Systematic exclusion: proper nouns** — toponyms (Київ, Львів, "
+                "Дніпро, Сибір) and personal names (Шевченко) are NOT covered; "
+                "absence of those is expected, not informative. Returns definitions, "
+                "usage examples, and citations in Ukrainian. "
+                "**WARNING: partially Sovietized for ideologically loaded headwords** "
+                "(ленін*, більшовик*, радянськ*, національний, соціалістичн*, etc.). "
+                "Each result carries `sovietization_risk` (0=clean, 1=keyword-match, "
+                "2=high) and `sovietization_keywords`. When `sovietization_risk > 0`, "
+                "treat as potentially Soviet-framed: do not reproduce verbatim, prefer "
+                "СУМ-20 (#1667, license-blocked) or Грінченко for the same headword, "
+                "or omit and route to neutral phrasing. ~5.6% of corpus (7,152 "
+                "entries) is flagged. Issue: #1659."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "Ukrainian word or phrase to look up"},
+                    "limit": {"type": "integer", "description": "Max results (default 3)", "default": 3},
+                },
+                "required": ["query"],
+            },
+        ),
+        _tool(
+            name="search_grinchenko_1907",
+            description=(
+                "Search Грінченко «Словарь української мови» (1907) — historical "
+                "Ukrainian lexicographic dictionary. Coverage: 67,275 of canonical "
+                "~67K entries (~100% indexed). **NOT etymology** — this is "
+                "lexicographic (definitions + usage citations), not diachronic "
+                "word-origin analysis. True "
+                "etymology lives in `search_esum` (ЕСУМ, all 6 volumes А–Я live, "
+                "~36K entries). **Systematic exclusion: proper nouns** — toponyms "
+                "(Київ, Львів, Дніпро, Сибір) and personal names (Шевченко) are NOT "
+                "covered. Use for pre-Soviet Ukrainian usage attestation: helps "
+                "verify a word is genuinely Ukrainian, not a Soviet-era import."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "Ukrainian word to look up historical form/usage"},
+                    "limit": {"type": "integer", "description": "Max results (default 3)", "default": 3},
+                },
+                "required": ["query"],
+            },
+        ),
+        _tool(
+            name="search_esum",
+            description=(
+                "Search ЕСУМ (Етимологічний словник української мови) etymology entries. "
+                "Coverage: all 6 volumes (А–Я), ~36K entries (vols 1–6 fully ingested). "
+                "Use for Ukrainian word-origin checks and cognate evidence."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "Ukrainian word or etymology term to search"},
+                    "volume": {
+                        "type": "integer",
+                        "description": "Optional ЕСУМ volume filter (1–6). Omit to search all volumes.",
+                    },
+                    "limit": {"type": "integer", "description": "Max results (default 5)", "default": 5},
+                },
+                "required": ["query"],
+            },
+        ),
+        _tool(
+            name="search_idioms",
+            description=(
+                "Search Ukrainian phraseological dictionary (Фразеологічний). "
+                "Coverage: 24,683 of canonical ~25K entries (~99% indexed). "
+                "Find Ukrainian idioms, set expressions, and collocations. "
+                "Use to make dialogues and examples more natural. Single-source "
+                "dictionary — for cross-validation against another phraseology "
+                "authority, fall back to corpus search via `search_literary`."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "Topic or word to find related Ukrainian idioms"},
+                    "limit": {"type": "integer", "description": "Max results (default 5)", "default": 5},
+                },
+                "required": ["query"],
+            },
+        ),
+        _tool(
+            name="search_synonyms",
+            description=(
+                "Search Ukrajinet Ukrainian WordNet. Coverage: 122,441 synsets "
+                "(matches upstream README). **QUALITY CAVEAT: synsets are largely "
+                "auto-translated from Open English WordNet** — not natively curated "
+                "Ukrainian lexicography. Quality audit pending under EPIC #1657 "
+                "Tier 3. Use for vocabulary variety and rough synonym/antonym "
+                "discovery, but **DO NOT cite as authoritative**: cross-validate "
+                "against `query_sum20` (СУМ-20), ВТС, or `search_grinchenko_1907` "
+                "(Грінченко for historical usage) before treating a synonym as established Ukrainian. "
+                "The 3,360-synset version cited in older docs is the 2023 paper's "
+                "initial release; current production is the auto-MT-expanded set."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "Ukrainian word to find synonyms/antonyms for"},
+                    "limit": {"type": "integer", "description": "Max results (default 5)", "default": 5},
+                },
+                "required": ["query"],
+            },
+        ),
+        _tool(
+            name="translate_en_uk",
+            description=(
+                "Search Балла English→Ukrainian dictionary. Coverage: 78,704 of "
+                "canonical ~79K entries (~100% indexed). **One-way only** — UK→EN "
+                "reverse not built. For broader coverage of specialized/modern "
+                "vocabulary, fall back to `query_e2u` (live e2u.org.ua, 331K "
+                "entries). Find Ukrainian translations for English words with "
+                "context."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "English word or phrase to translate to Ukrainian"},
+                    "limit": {"type": "integer", "description": "Max results (default 3)", "default": 3},
+                },
+                "required": ["query"],
+            },
+        ),
+        _tool(
+            name="query_e2u",
+            description=(
+                "Live query e2u.org.ua English→Ukrainian dictionary (331K entries). "
+                "Broader coverage than Балла. Use when translate_en_uk has no results, "
+                "or for specialized/modern vocabulary. Returns headword + full translation."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "word": {"type": "string", "description": "English word to translate to Ukrainian"},
+                },
+                "required": ["word"],
+            },
+        ),
+        _tool(
+            name="query_sum20",
+            description=(
+                "Query the offline official СУМ-20 (Словник української мови у 20 томах) "
+                "collection built from sum20ua.com sequential wordid articles. "
+                "Coverage: volumes 1–16 (А–Р); vols 17–20 (С–Я) not yet "
+                "published online. Results are exact offline matches only: this tool never "
+                "performs a live lookup or falls back to another dictionary. Each official article "
+                "includes its official URL, retrieval time, content hash, and parser version. "
+                "Imported slovnyk.me СУМ-20 mirror articles follow the official ones, marked "
+                "source role mirror with their mirror URL, retrieval time and relation to the "
+                "official rows (sum20-mirror-rule-v1); a mirror article that agrees with a live "
+                "official article is not repeated, and a mirror article is never official verification."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "word": {
+                        "type": "string",
+                        "description": "Ukrainian headword to look up in СУМ-20 (official coverage А–Р; mirror rows may cover more)",
+                    },
+                },
+                "required": ["word"],
+            },
+        ),
+        _tool(
+            name="query_slovnyk_me",
+            description=(
+                "Live query slovnyk.me — Ukrainian dictionary aggregator with "
+                "clean per-word URLs. One tool, many dictionaries. Use this "
+                "instead of `query_sum20` when you need access beyond just "
+                "СУМ-20. Per-query live fetch with citation, no bulk crawl, "
+                "no DB caching.\n\n"
+                "Available `dict` values:\n"
+                "- `sum` — СУМ-11 (Sovietized, 1970–80) — contrast only; never verification\n"
+                "- `davydov` (`antonenko` alias) — Antonenko-Davydovych «Як ми говоримо»\n"
+                "- `synonyms_karavansky` (`karavansky` alias) — Karavansky synonyms\n"
+                "- `franko` — dictionary from Ivan Franko's works\n"
+                "- `slang_lviv` — Lviv regional lexicon\n"
+                "- `holoskevych` — Holoskevych 1929 orthographic dictionary\n"
+                "- `phraseology` — Фразеологічний словник\n"
+                "- `orthography` — Орфографічний словник\n"
+                "- `orthoepy` — Орфоепічний словник\n"
+                "- `vts` — Великий тлумачний словник сучасної мови (alternate modern)\n"
+                "- `foreign_melnychuk` — foreign-words dictionary (Мельничук)\n"
+                "- `ukrrus` / `rusukr` / `engukr` — bilinguals\n\n"
+                "For official СУМ-20, use `query_sum20`, not this live tool.\n\n"
+                "License posture: slovnyk.me © notice plus third-party source "
+                "rights; per-query lookup with attribution only, no bulk crawl "
+                "and no DB caching. Issue: #1667."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "word": {"type": "string", "description": "Ukrainian word to look up"},
+                    "dict": {
+                        "type": "string",
+                        "description": "Dictionary slug (sum, davydov, synonyms_karavansky, franko, slang_lviv, holoskevych, phraseology, orthography, orthoepy, vts, foreign_melnychuk, ukrrus, rusukr, engukr). Backward aliases antonenko, karavansky, ukr_rus, rus_ukr, eng_ukr are accepted.",
+                        "default": "vts",
+                    },
+                },
+                "required": ["word"],
+            },
+        ),
+        _tool(
+            name="search_slovnyk_me",
+            description=(
+                "Search slovnyk.me as a single-source dictionary aggregator. "
+                "Uses curated rows in data/sources.db when present, with optional "
+                "live direct-entry fallback to /dict/{slug}/{word}. Does NOT crawl "
+                "slovnyk.me /search, /terms, or sitemap. Returns dictionary slug, "
+                "source URL, bounded text/snippet, `is_modern`, `is_dialect`, "
+                "`is_russianism`, `sovietization_risk`, and ranking score. Use this "
+                "when a prompt needs a supported regional dictionary specifically. "
+                "Dictionaries already indexed locally "
+                "(СУМ-11, Грінченко, Антоненко-Давидович, phraseology, EN→UK) "
+                "are blocked here; use their canonical tools for their permitted roles. "
+                "СУМ-11 is contrast only. For heritage-defense "
+                "decisions, prefer `search_heritage`."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "Ukrainian headword to look up"},
+                    "dictionaries": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Optional dictionary slugs. Default: curated modern + heritage set.",
+                    },
+                    "limit": {"type": "integer", "description": "Max results (default 5, max 20)", "default": 5},
+                    "live": {
+                        "type": "boolean",
+                        "description": "Allow live direct-entry fallback if local rows are absent. Default: true.",
+                        "default": True,
+                    },
+                },
+                "required": ["query"],
+            },
+        ),
+        _tool(
+            name="search_heritage",
+            description=(
+                "Canonical heritage-defense lookup for distinguishing authentic "
+                "Ukrainian archaisms, historisms, dialectisms, and inherited words "
+                "from Russianisms/surzhyk. Merges existing tools/sources: "
+                "Грінченко 1907, ЕСУМ, slovnyk.me modern/regional dictionaries, "
+                "and Антоненко-Давидович style warnings. Ranks pre-Soviet and "
+                "etymological attestations above modern-only rows, and demotes "
+                "style-guide Russianism warnings rather than dropping them."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "Ukrainian headword to verify"},
+                    "limit": {"type": "integer", "description": "Max merged results (default 8, max 20)", "default": 8},
+                    "include_live_slovnyk": {
+                        "type": "boolean",
+                        "description": "Allow live slovnyk.me direct-entry fallback. Default: true.",
+                        "default": True,
+                    },
+                },
+                "required": ["query"],
+            },
+        ),
+        _tool(
+            name="check_russian_shadow",
+            description=(
+                "Detects Russian-pattern morphology in Ukrainian text. No Russian text ingested "
+                "— uses pymorphy3 morphological model only."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "word": {
+                        "type": "string",
+                        "description": "The Ukrainian word to check for Russian morphological patterns.",
+                    },
+                    "threshold": {
+                        "type": "number",
+                        "description": "Confidence threshold (0.0 to 1.0). Default is 0.7.",
+                        "default": 0.7,
+                    },
+                },
+                "required": ["word"],
+            },
+        ),
+        _tool(
+            name="word_card",
+            description=(
+                "Everything the current word-card build knows about a Ukrainian word in one call: identity "
+                "(spelling, stress, POS, paradigm), CEFR, senses, relations, Russianism and heritage fields when "
+                "present, each value with its source citations and evidence ids, known gaps per field, and the "
+                "card version. Matches the card spelling or the word's VESUM lemma; homographs return several "
+                "cards. status is recomputed on every call from the review ledger: 'certified' only for an "
+                "exact certified card version; 'candidate' cards are cited source assertions, NOT accepted "
+                "facts. 'no_card' names the per-facet tools to call instead. Reads the host card build named "
+                "by LU_WORD_CARDS_DIR."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "word": {
+                        "type": "string",
+                        "description": "Ukrainian word, form or multiword expression (e.g., 'баран', 'вряди-годи')",
+                    },
+                },
+                "required": ["word"],
+            },
+        ),
+    ]
+
+
+def _log_tool_call(
+    name: str,
+    arguments: dict[str, Any],
+    response_chars: int = 0,
+    duration_s: float = 0.0,
+    error: str = "",
+    *,
+    response_text: str = "",
+    privacy_mode: bool = False,
+    self_heal: dict[str, Any] | None = None,
+) -> None:
+    """Log MCP tool call to JSONL for build analytics (#1095).
+
+    ``self_heal`` (#11115) records a database self-heal attempt on this call:
+    the database name, the SQLite error class, whether a cached connection was
+    discarded, and whether the retry recovered. It carries no message text or
+    path, so it is written in both modes.
+
+    ``privacy_mode`` (Cycle 007 amendment, "internal hash-only privacy
+    mode"): the log entry never contains argument values or response text —
+    only the tool name, argument names/count/hash, response length/hash,
+    duration, and error *class* (never the error message, which can embed a
+    private argument). Default (non-privacy) behavior is unchanged.
+    """
+    import os
+    from datetime import datetime as _dt
+
+    override = os.environ.get("LU_MCP_SOURCES_LOG_DIR")
+    log_dir = Path(override) if override else Path(__file__).resolve().parents[2].parent / "logs"
+    log_dir.mkdir(exist_ok=True)
+    log_path = log_dir / "mcp-sources-requests.jsonl"
+
+    if privacy_mode:
+        args_canonical = json.dumps(arguments, ensure_ascii=False, sort_keys=True, default=str)
+        entry: dict[str, Any] = {
+            "ts": _dt.now().isoformat(),
+            "tool": name,
+            "privacy_mode": True,
+            "arg_names": sorted(arguments.keys()),
+            "arg_count": len(arguments),
+            "arg_sha256": hashlib.sha256(args_canonical.encode("utf-8")).hexdigest(),
+            "response_length": response_chars,
+            "response_sha256": hashlib.sha256(response_text.encode("utf-8")).hexdigest() if response_text else None,
+            "duration_s": round(duration_s, 2),
+        }
+        if error:
+            entry["error_class"] = error.split(":", 1)[0][:120]
+    else:
+        entry = {
+            "ts": _dt.now().isoformat(),
+            "tool": name,
+            "args": {k: str(v)[:200] for k, v in arguments.items()},
+            "response_chars": response_chars,
+            "duration_s": round(duration_s, 2),
+        }
+        if error:
+            entry["error"] = error[:500]
+    if self_heal:
+        entry["self_heal"] = self_heal
+
+    try:
+        with open(log_path, "a", encoding="utf-8") as f:
+            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    except Exception:
+        pass  # Logging must never break tool calls
+
+
+async def handle_check_russian_shadow(args: dict):
+    word = args.get("word", "")
+    threshold = args.get("threshold", 0.7)
+    result = await asyncio.to_thread(is_russian_pattern, word, threshold)
+    return [TextContent(type="text", text=json.dumps(result, indent=2, ensure_ascii=False))]
+
+
+async def handle_word_card(args: dict):
+    result = await asyncio.to_thread(word_card.lookup_word_card, args.get("word"))
+    return [TextContent(type="text", text=json.dumps(result, indent=1, ensure_ascii=False))]
+
+
+def _normalize_quote_text(value: str) -> str:
+    text = "".join(ch for ch in unicodedata.normalize("NFKD", str(value).lower()) if not "\u0300" <= ch <= "\u036f")
+    text = text.translate(str.maketrans({ch: " " for ch in "«»“”„\"'`"}))
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def _normalize_author_name(value: str) -> str:
+    text = _normalize_quote_text(str(value).replace(".", " "))
+    tokens = [t for t in text.split() if len(t) > 1]
+    patronymics = ("ович", "евич", "ич", "івна", "ївна", "овна", "евна")
+    tokens = [t for t in tokens if not t.endswith(patronymics)]
+    return tokens[-1] if tokens else text
+
+
+def _best_quote_excerpt(text_query: str, chunk_text: str) -> str:
+    from rapidfuzz import fuzz
+
+    lines = [line.strip() for line in str(chunk_text).splitlines() if line.strip()]
+    windows = [" ".join(lines[i : i + width]) for i in range(len(lines)) for width in range(1, 5)]
+    if not windows:
+        windows = [str(chunk_text)]
+    return max(windows, key=lambda line: fuzz.partial_ratio(text_query, _normalize_quote_text(line)))
+
+
+async def handle_verify_quote(args: dict) -> list[TextContent]:
+    author_query = _normalize_author_name(args.get("author", ""))
+    text_query = _normalize_quote_text(args.get("text", ""))
+    if not author_query:
+        raise ValueError("author is required")
+    if not text_query:
+        raise ValueError("text is required")
+
+    min_confidence = max(0.0, min(float(args.get("min_confidence", 0.80)), 1.0))
+    keywords = {word for word in text_query.split() if len(word) >= 3}
+
+    from wiki.sources_db import search_literary
+
+    hits = await asyncio.to_thread(search_literary, keywords, 20)
+    candidates = []
+    from rapidfuzz import fuzz
+
+    for hit in hits:
+        if _normalize_author_name(hit.get("author", "")) != author_query:
+            continue
+        chunk_text = hit.get("text", "")
+        line = _best_quote_excerpt(text_query, chunk_text)
+        confidence = fuzz.partial_ratio(text_query, _normalize_quote_text(chunk_text)) / 100
+        candidates.append(
+            {
+                "line": line,
+                "work": hit.get("title") or hit.get("source_file") or "",
+                "year": hit.get("year"),
+                "confidence": round(confidence, 4),
+                "context_chunk_id": hit.get("chunk_id"),
+            }
+        )
+
+    candidates.sort(key=lambda item: item["confidence"], reverse=True)
+    matched = bool(candidates and candidates[0]["confidence"] >= min_confidence)
+    result = {
+        "matched": matched,
+        "best_confidence": candidates[0]["confidence"] if candidates else 0.0,
+        "matched_lines": [item for item in candidates if item["confidence"] >= min_confidence][:3]
+        if matched
+        else candidates[:3],
+        "search_normalized": {
+            "author_query": author_query,
+            "text_query": text_query,
+        },
+    }
+    return [TextContent(type="text", text=json.dumps(result, indent=2, ensure_ascii=False))]
+
+
+def _normalize_attribution_text(value: str) -> str:
+    decomposed = unicodedata.normalize("NFKD", value.casefold())
+    without_marks = "".join(ch for ch in decomposed if not unicodedata.combining(ch))
+    return re.sub(r"[^\w]+", " ", without_marks, flags=re.UNICODE).strip()
+
+
+def _attribution_chunk(hit: dict[str, Any]) -> str:
+    for key in ("definition", "definitions", "etymology_text", "snippet", "text"):
+        value = hit.get(key)
+        if value:
+            return str(value)
+    title = hit.get("title") or hit.get("word") or hit.get("lemma") or ""
+    return str(title)
+
+
+def _attribution_confidence(claim: str, hit: dict[str, Any]) -> float:
+    claim_norm = _normalize_attribution_text(claim)
+    if not claim_norm:
+        return 0.0
+
+    haystack_parts = [
+        str(hit.get(key, ""))
+        for key in ("word", "lemma", "title", "definition", "definitions", "etymology_text", "snippet", "text")
+        if hit.get(key)
+    ]
+    haystack_norm = _normalize_attribution_text(" ".join(haystack_parts))
+    if not haystack_norm:
+        return 0.0
+    if claim_norm in haystack_norm:
+        return 1.0
+
+    claim_token_count = max(1, len(claim_norm.split()))
+    tokens = haystack_norm.split()
+    candidates = tokens[:]
+    if claim_token_count > 1:
+        candidates.extend(
+            " ".join(tokens[i : i + claim_token_count]) for i in range(0, max(0, len(tokens) - claim_token_count + 1))
+        )
+    return max((SequenceMatcher(None, claim_norm, candidate).ratio() for candidate in candidates), default=0.0)
+
+
+def _attribution_evidence(hit: dict[str, Any], confidence: float) -> dict[str, Any]:
+    section = (
+        hit.get("section")
+        or hit.get("source")
+        or hit.get("source_family")
+        or hit.get("title")
+        or hit.get("work")
+        or None
+    )
+    return {
+        "chunk": _attribution_chunk(hit),
+        "section": section,
+        "page": hit.get("page"),
+        "confidence": round(confidence, 3),
+    }
+
+
+def _parse_wikipedia_search_hits(text: str) -> list[dict[str, Any]]:
+    if text.startswith("No Wikipedia results"):
+        return []
+    hits = []
+    for line in text.splitlines():
+        match = re.match(r"\d+\.\s+\*\*(.*?)\*\*\s+—\s+(.*)", line)
+        if match:
+            title, snippet = match.groups()
+            hits.append(
+                {
+                    "title": title,
+                    "snippet": snippet,
+                    "text": f"{title} — {snippet}",
+                    "source": "uk.wikipedia.org",
+                }
+            )
+    return hits
+
+
+def _looks_like_wikipedia_search_response(text: str) -> bool:
+    return text.startswith(("Wikipedia search:", "No Wikipedia results"))
+
+
+async def handle_verify_source_attribution(args: dict) -> list[TextContent]:
+    source = str(args.get("source", ""))
+    claim = str(args.get("claim", "")).strip()
+    limit = max(1, min(int(args.get("limit", 5)), 20))
+
+    if source not in VERIFY_SOURCE_ATTRIBUTION_SOURCES:
+        allowed = ", ".join(VERIFY_SOURCE_ATTRIBUTION_SOURCES)
+        raise ValueError(f"Invalid source '{source}'. Expected one of: {allowed}")
+    if not claim:
+        raise ValueError("claim must be a non-empty string")
+
+    from wiki import sources_db as sdb
+
+    completeness_note = None
+    if source == "grinchenko_1907":
+        hits = await asyncio.to_thread(sdb.search_grinchenko_1907, claim, limit)
+    elif source == "esum":
+        hits = await asyncio.to_thread(sdb.search_esum, claim, None, limit)
+    elif source == "sum11":
+        hits = await asyncio.to_thread(sdb.search_definitions, claim, limit)
+    elif source == "antonenko_davydovych":
+        hits = await asyncio.to_thread(sdb.search_style_guide, claim, limit)
+    elif source == "literary":
+        keywords = {word for word in claim.lower().split() if len(word) >= 3}
+        hits = await asyncio.to_thread(sdb.search_literary, keywords, limit)
+    elif source == "heritage":
+        heritage_outages: list[dict] = []
+        hits = await asyncio.to_thread(
+            sdb.search_heritage, claim, limit, include_live_slovnyk=True, outages=heritage_outages
+        )
+        if heritage_outages:
+            completeness_note = _slovnyk_outage_note(heritage_outages)
+    elif source == "wikipedia":
+        try:
+            wiki_result = await handle_query_wikipedia({"query": claim, "mode": "search", "limit": limit})
+            wiki_text = wiki_result[0].text if wiki_result else ""
+            hits = _parse_wikipedia_search_hits(wiki_text)
+            if wiki_text.startswith(WIKIPEDIA_UNAVAILABLE_PREFIX):
+                completeness_note = f"Wikipedia unavailable; not a negative result: {wiki_text}"
+            elif not hits and not _looks_like_wikipedia_search_response(wiki_text):
+                completeness_note = "Wikipedia returned unexpected response format"
+        except requests.RequestException as exc:
+            hits = []
+            completeness_note = f"Wikipedia query failed: {exc}"
+        except TimeoutError as exc:
+            hits = []
+            completeness_note = f"Wikipedia query failed: {exc}"
+        except Exception as exc:
+            hits = []
+            completeness_note = f"Wikipedia query failed: {exc}"
+    else:
+        hits = await asyncio.to_thread(sdb.search_style_guide, claim, limit)
+
+    scored = [(hit, _attribution_confidence(claim, hit)) for hit in hits]
+    scored.sort(key=lambda item: item[1], reverse=True)
+    evidence = [_attribution_evidence(hit, confidence) for hit, confidence in scored[:limit]]
+    if source == "sum11":
+        evidence = [{**item, "verification_authority": False, "notice": SUM11_AUTHORITY_NOTICE} for item in evidence]
+    payload: dict[str, Any] = {
+        "discusses": source != "sum11" and any(confidence >= 0.85 for _, confidence in scored),
+        "source": source,
+        "evidence_count": len(evidence),
+        "evidence": evidence,
+    }
+    if source == "sum11":
+        payload["verification_authority"] = False
+        payload["notice"] = SUM11_AUTHORITY_NOTICE
+        payload["contrast_match"] = any(confidence >= 0.85 for _, confidence in scored)
+    if completeness_note:
+        payload["completeness_note"] = completeness_note
+    elif source in COMPLETENESS_NOTES:
+        payload["completeness_note"] = COMPLETENESS_NOTES[source]
+
+    return [TextContent(type="text", text=json.dumps(payload, indent=2, ensure_ascii=False))]
+
+
+# --- V4 canonical Sources-invocation recording (PR #7662 repair 8) ---------
+#
+# Authenticated per-attempt capability arrives through the existing MCP HTTP
+# Authorization header. Ordinary curriculum calls without a Bearer token
+# never record. Caller ``_v4_evidence_*`` correlation arguments are ignored
+# and discarded so they cannot mint authority.
+
+from learn_ukrainian_v4_runtime.sources_transport import (
+    ACTIVE_ATTEMPT as _V4_ACTIVE_ATTEMPT,
+)
+from learn_ukrainian_v4_runtime.sources_transport import (
+    AttemptAuthMiddleware as _V4AttemptAuthMiddleware,
+)
+from learn_ukrainian_v4_runtime.sources_transport import (
+    record_typed_invocation as _record_v4_typed_invocation,
+)
+from learn_ukrainian_v4_runtime.tool_result_envelope import (
+    build_search_envelope,
+    dropped_tokens_diagnostics,
+    split_fts_keywords,
+)
+
+
+def _vesum_source_version() -> str:
+    """SHA-256 of vesum.db. Cached by ``_sha256_of_file``.
+
+    The cache key is the resolved path, size, and mtime_ns, plus ctime and
+    inode so an atomic replace still changes the version. An unchanged
+    database returns the same digest, so evidence identifiers stay
+    byte-identical to a fresh hash of that file.
+    """
+    try:
+        from scripts.rag.config import VESUM_DB_PATH
+
+        path = Path(VESUM_DB_PATH)
+        if path.is_file():
+            return _sha256_of_file(path)
+    except Exception:
+        pass
+    return "vesum-source-unversioned"
+
+
+def _discard_retired_v4_evidence_args(arguments: dict[str, Any]) -> None:
+    if not isinstance(arguments, dict):
+        return
+    for key in (
+        "_v4_evidence_request_id",
+        "_v4_evidence_row_content_sha256",
+        "_v4_evidence_lookup_ids",
+        "_v4_evidence_identifier",
+    ):
+        arguments.pop(key, None)
+
+
+def _typed_identifier(namespace: str, typed_result: dict[str, Any]) -> str:
+    from scripts.fleet_comms import v4_canonical_authority_store as v4_store
+
+    return v4_store.immutable_evidence_identifier(
+        namespace=namespace,
+        source_version=_vesum_source_version(),
+        typed_result=typed_result,
+    )
+
+
+_REVIEW_ENV_KEYS = (
+    "LU_REVIEW_ATTEMPT_ID",
+    "LU_REVIEW_MANIFEST_SHA256",
+    "LU_REVIEW_LEDGER_PATH",
+    "LU_REVIEW_ACCESS",
+)
+
+_HTTP_MODE = False
+_HTTP_RECORDING_ERROR_LOGGED = False
+
+
+def _set_http_mode(enabled: bool = True) -> None:
+    global _HTTP_MODE, _HTTP_RECORDING_ERROR_LOGGED
+    _HTTP_MODE = enabled
+    if not enabled:
+        _HTTP_RECORDING_ERROR_LOGGED = False
+
+
+def _detect_git_commit() -> str:
+    try:
+        import subprocess
+
+        res = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            capture_output=True,
+            text=True,
+            cwd=str(PROJECT_ROOT),
+            timeout=2,
+        )
+        if res.returncode == 0 and res.stdout.strip():
+            return res.stdout.strip()
+    except Exception:
+        pass
+    return "unknown"
+
+
+# Cached once at import. /health reports this process-start commit and does
+# not re-run git, so a checkout that moves later stays invisible until the
+# process restarts. Failure is "unknown". Two readers: /health commit_sha
+# and the server identity in _review_server_version.
+_SERVER_GIT_COMMIT: str = _detect_git_commit()
+
+
+def _review_server_version() -> str:
+    server_sha = _sha256_of_file(Path(__file__).resolve())
+    return f"{server_sha}+{_SERVER_GIT_COMMIT}"
+
+
+def _review_env_engaged() -> bool:
+    """True when the dispatch set any review-recording variable on this process."""
+    import os
+
+    has_env = any(os.environ.get(key) for key in _REVIEW_ENV_KEYS) or "LU_REVIEW_ACCESS" in os.environ
+    if not has_env:
+        return False
+    if _HTTP_MODE:
+        global _HTTP_RECORDING_ERROR_LOGGED
+        if not _HTTP_RECORDING_ERROR_LOGGED:
+            import logging
+
+            logging.getLogger("sources_server").error(
+                "Review recording is disabled in standalone/HTTP mode; ignoring LU_REVIEW_* variables."
+            )
+            _HTTP_RECORDING_ERROR_LOGGED = True
+        return False
+    return True
+
+
+def _review_recorder():
+    """The local review ledger session, or None when recording is fully off.
+
+    All recording variables unset keeps every tool result byte-identical to a
+    server without this mode. A partial set is an incomplete session: the
+    call is refused and nothing is written. This is not the V4 recorder.
+    """
+    if not _review_env_engaged():
+        return None
+    from scripts.review.receipts.ledger import session_from_environ
+
+    return session_from_environ()
+
+
+def _review_result_text(content: list[TextContent]) -> str:
+    return "\n".join(block.text for block in content) if content else ""
+
+
+def _with_receipt(content: list[TextContent], receipt_id: str, outcome: str | None = None) -> list[TextContent]:
+    line = f"receipt: {receipt_id}" if outcome is None else f"receipt: {receipt_id} (outcome: {outcome})"
+    if not content:
+        return [TextContent(type="text", text=line)]
+    updated = list(content)
+    text = updated[-1].text
+    suffix = line if text.endswith("\n") or text == "" else "\n" + line
+    updated[-1] = TextContent(type="text", text=text + suffix)
+    return updated
+
+
+def _review_record(
+    recorder: Any, name: str, arguments: dict[str, Any], content: list[TextContent], *, status: str
+) -> tuple[list[TextContent], bool, str | None, str | None]:
+    """Append the full tool result and return (content, recording_error, receipt_id, outcome).
+
+    ``receipt_id`` is None exactly when recording failed. ``outcome`` is the
+    search-outcome name the validator accepts for the stored record; the facts
+    are classified once, stored, and mapped to that name, so the seat copies
+    it instead of deriving it. None when no outcome name applies (refused call).
+    """
+    from scripts.review.receipts.ledger import freeze_arguments
+    from scripts.review.receipts.outcomes import classify_outcome, search_outcome
+
+    try:
+        result_text = _review_result_text(content)
+        facts = classify_outcome(name, status, result_text)
+        receipt_id = recorder.record(
+            tool=name,
+            arguments=freeze_arguments(arguments),
+            status=status,
+            result=result_text,
+            server_version=_review_server_version(),
+            outcome_facts=facts,
+        )
+        outcome = search_outcome(status, facts)
+    except Exception as exc:
+        return (
+            [TextContent(type="text", text=f"Review receipt recording failed: {type(exc).__name__}")],
+            True,
+            None,
+            None,
+        )
+    return _with_receipt(content, receipt_id, outcome), False, receipt_id, outcome
+
+
+def _outcome_with_receipt(
+    typed_outcome: dict[str, Any] | None, receipt_id: str | None, outcome: str | None = None
+) -> dict[str, Any] | None:
+    """Copy the typed outcome with a top-level ``receipt`` (and ``receipt_outcome``) so the structured channel carries them.
+
+    MCP clients present ``structuredContent`` to the model when it is set, so
+    the text-only ``receipt:`` line would never reach the seat. The recorded
+    ledger result and the V4 typed invocation keep the untouched original.
+    """
+    if typed_outcome is None or not isinstance(typed_outcome, dict) or receipt_id is None:
+        return typed_outcome
+    carried = {"receipt": receipt_id}
+    if outcome is not None:
+        carried["receipt_outcome"] = outcome
+    return {**typed_outcome, **carried}
+
+
+def _review_before_handler(
+    recorder: Any, name: str, arguments: dict[str, Any]
+) -> tuple[list[TextContent], bool] | None:
+    """Refuse a call that must not run. None means the handler may run."""
+    if recorder is None:
+        return None
+    from scripts.review.receipts.ledger import review_tools
+
+    if recorder.mode != "on":
+        text = f"Review receipt recording is misconfigured: {recorder.error}"
+        return [TextContent(type="text", text=text)], True
+    if name not in review_tools(recorder.review_access):
+        text = f"Tool {name} is not in the review tool list."
+        content, _rec_err, _receipt, _outcome = _review_record(
+            recorder, name, arguments, [TextContent(type="text", text=text)], status="refused"
+        )
+        return content, True
+    return None
+
+
+# --- Database self-heal (#11115) -------------------------------------------
+#
+# This long-lived server keeps process-wide SQLite read connections. When the
+# database file is rewritten under one, every later call on it can raise
+# ``DatabaseError: database disk image is malformed`` until the service is
+# restarted, while a fresh connection reads the file fine. A call that fails
+# that way discards the cached connections of the failing database, reopens
+# and runs once more. The same module can be loaded under two names
+# (``wiki.…`` and ``scripts.wiki.…``), each holding its own connection, so
+# both names are covered.
+#
+# Many dictionary helpers in ``wiki.sources_db`` catch ``sqlite3.Error`` and
+# return an empty result, which would turn a damaged database into a false
+# "no results" (and a false recovery). Every connection that module opens is
+# therefore an observed one, from its first open: the server installs
+# ``_ObservedConnection`` through ``set_connection_factory`` at import. It
+# reports stale-connection errors it raises, swallowed or not, to the attempt
+# that is running (``_ATTEMPT_DAMAGE``); an attempt that saw one counts as
+# failed. A missing table alone on the first attempt is only an optional table
+# and never starts a heal; on the retry the reopened connection must answer
+# every query, so a missing table (a schema change) fails it too.
+
+_STALE_CONNECTION_MARKERS = (
+    "malformed",
+    "disk i/o error",
+    "no such table",
+    "no such column",
+    "schema has changed",
+    "file is not a database",
+    "unable to open database file",
+    "closed database",
+)
+# What a first attempt must not have swallowed. "no such table" is left out:
+# helpers treat an absent optional table as a normal empty result.
+_FIRST_ATTEMPT_MARKERS = tuple(marker for marker in _STALE_CONNECTION_MARKERS if marker != "no such table")
+_DATABASE_UNAVAILABLE_CODE = "database_unavailable"
+_UNATTRIBUTED_DATABASE = "unattributed"
+# One lock covers every replacement of a cached connection and the generation
+# counters that stop simultaneous heals from each reopening the same database.
+_SQLITE_CACHE_LOCK = threading.RLock()
+_SQLITE_GENERATION: dict[str, int] = {}
+
+
+class _AttemptDamage:
+    """Database errors one attempt saw, swallowed or not, that make it a failed attempt."""
+
+    def __init__(self, markers: tuple[str, ...]) -> None:
+        self.markers = markers
+        self.errors: list[sqlite3.DatabaseError] = []
+        self.lock = threading.Lock()
+
+
+_ATTEMPT_DAMAGE: contextvars.ContextVar[_AttemptDamage | None] = contextvars.ContextVar(
+    "sources_attempt_database_damage", default=None
+)
+
+
+def _note_database_damage(exc: sqlite3.DatabaseError) -> None:
+    attempt = _ATTEMPT_DAMAGE.get()
+    if attempt is not None and _has_marker(exc, attempt.markers):
+        with attempt.lock:
+            attempt.errors.append(exc)
+
+
+def _observe(method: Any) -> Any:
+    """Wrap a cursor method so damage-class database errors reach the running attempt."""
+
+    @functools.wraps(method)
+    def observed(self: Any, *args: Any, **kwargs: Any) -> Any:
+        try:
+            return method(self, *args, **kwargs)
+        except sqlite3.DatabaseError as exc:
+            _note_database_damage(exc)
+            raise
+
+    return observed
+
+
+class _ObservedCursor(SerializedCursor):
+    execute = _observe(SerializedCursor.execute)
+    executemany = _observe(SerializedCursor.executemany)
+    executescript = _observe(SerializedCursor.executescript)
+    fetchone = _observe(SerializedCursor.fetchone)
+    fetchmany = _observe(SerializedCursor.fetchmany)
+    fetchall = _observe(SerializedCursor.fetchall)
+    __next__ = _observe(SerializedCursor.__next__)
+
+
+class _ObservedConnection(SerializedConnection):
+    """A read connection whose cursors report damage-class errors (see ``_observe``)."""
+
+    def cursor(self, factory: Any = _ObservedCursor) -> Any:
+        return super().cursor(factory)
+
+    # ``Connection.execute*`` build their own plain cursor, bypassing ``cursor``.
+    def execute(self, sql: str, parameters: Any = (), /) -> Any:
+        return self.cursor().execute(sql, parameters)
+
+    def executemany(self, sql: str, parameters: Any, /) -> Any:
+        return self.cursor().executemany(sql, parameters)
+
+    def executescript(self, script: str, /) -> Any:
+        return self.cursor().executescript(script)
+
+
+class _UnavailableConnection(sqlite3.Connection):
+    """Stands in for a cached connection that could not be replaced; every query on it fails.
+
+    Clearing the cache instead would let a lock-free ``_get_conn`` reader that
+    already saw it set return ``None``, and a retry that opens the database
+    lazily would see a helper swallow ``FileNotFoundError`` as "no results".
+    """
+
+    def _unavailable(self) -> sqlite3.OperationalError:
+        exc = sqlite3.OperationalError("unable to open database file")
+        _note_database_damage(exc)
+        return exc
+
+    def cursor(self, factory: Any = None) -> Any:
+        raise self._unavailable()
+
+    def execute(self, sql: str, parameters: Any = (), /) -> Any:
+        raise self._unavailable()
+
+    def executemany(self, sql: str, parameters: Any, /) -> Any:
+        raise self._unavailable()
+
+    def executescript(self, script: str, /) -> Any:
+        raise self._unavailable()
+
+
+def _discard_sources_conn(module: Any) -> bool:
+    """Swap the cached connection for a freshly opened one; never keep the failed one.
+
+    ``_get_conn`` reads ``_conn`` without a lock, so the swap is one attribute
+    store: a reader gets the old or the new connection, never nothing. The old
+    one is not closed here (a call in another thread may still be reading it).
+    If the reopen fails the failed connection is still replaced, by one that
+    fails every query (``_UnavailableConnection``): the retry reports the
+    failure instead of reusing the damaged object, and the next call heals
+    again once the file can be opened.
+    """
+    if getattr(module, "_conn", None) is None:
+        return False
+    try:
+        fresh = module._open_conn(module._read_db_path(), read_only=True)
+    except Exception:  # any reason the file cannot be opened leaves the failed connection unusable
+        module._conn = sqlite3.connect(":memory:", check_same_thread=False, factory=_UnavailableConnection)
+        return False
+    module._conn = fresh
+    return True
+
+
+def _discard_vesum_conn(module: Any) -> bool:
+    if getattr(module, "_vesum_conn", None) is None:
+        return False
+    module.close_vesum_conn()  # keeps the connection open while readers hold it
+    return True
+
+
+# database name -> (module names it can be loaded under, cache discarder)
+_SQLITE_CONNECTION_CACHES: dict[str, tuple[tuple[str, ...], Any]] = {
+    "sources.db": (("wiki.sources_db", "scripts.wiki.sources_db"), _discard_sources_conn),
+    "vesum.db": (("verification.vesum", "scripts.verification.vesum"), _discard_vesum_conn),
+}
+
+
+def _install_observed_connections() -> None:
+    """Make every connection ``wiki.sources_db`` opens, in either import name, an observed one."""
+    for module in (sources_db_short_name, sources_db_full_name):
+        module.set_connection_factory(_ObservedConnection)
+
+
+_install_observed_connections()
+
+
+class SourcesDatabaseUnavailable(Exception):
+    """A tool's database call still failed after one connection reopen."""
+
+    def __init__(self, database: str, error_class: str, reopened: bool) -> None:
+        super().__init__(f"{database} unavailable after reopen ({error_class})")
+        self.database = database
+        self.error_class = error_class
+        self.reopened = reopened
+
+
+def _has_marker(exc: BaseException, markers: tuple[str, ...]) -> bool:
+    text = str(exc).lower()
+    return any(marker in text for marker in markers)
+
+
+def _is_stale_connection_error(exc: BaseException) -> bool:
+    return isinstance(exc, sqlite3.DatabaseError) and _has_marker(exc, _STALE_CONNECTION_MARKERS)
+
+
+def _failing_database(exc: BaseException) -> str | None:
+    """Name the database whose store module raised ``exc``, from its traceback."""
+    owner_by_module = {module: db for db, (modules, _) in _SQLITE_CONNECTION_CACHES.items() for module in modules}
+    found: str | None = None
+    tb = exc.__traceback__
+    while tb is not None:
+        found = owner_by_module.get(tb.tb_frame.f_globals.get("__name__", ""), found)
+        tb = tb.tb_next
+    return found
+
+
+def _connection_generations() -> dict[str, int]:
+    with _SQLITE_CACHE_LOCK:
+        return dict(_SQLITE_GENERATION)
+
+
+def _discard_cached_connections(database: str | None, seen: dict[str, int] | None = None) -> bool:
+    """Replace the cached connections of ``database`` (all when unattributed).
+
+    ``seen`` holds the generations the caller read before its failed attempt.
+    A database another call has replaced since is not replaced again, so
+    simultaneous heals of one stale connection reopen it once. Returns whether
+    a replacement connection is now in place for any targeted database.
+    """
+    refreshed = False
+    with _SQLITE_CACHE_LOCK:
+        for db, (module_names, discard) in _SQLITE_CONNECTION_CACHES.items():
+            if database is not None and db != database:
+                continue
+            if seen is not None and _SQLITE_GENERATION.get(db, 0) != seen.get(db, 0):
+                refreshed = True
+                continue
+            replaced = False
+            for module_name in module_names:
+                module = sys.modules.get(module_name)
+                if module is not None and discard(module):
+                    replaced = True
+            if replaced:
+                _SQLITE_GENERATION[db] = _SQLITE_GENERATION.get(db, 0) + 1
+                refreshed = True
+    return refreshed
+
+
+async def _run_attempt(handler: Any, markers: tuple[str, ...]) -> Any:
+    """Run ``handler`` once; an error in ``markers`` a helper swallowed fails the attempt."""
+    attempt = _AttemptDamage(markers)
+    token = _ATTEMPT_DAMAGE.set(attempt)
+    try:
+        # One attempt reads one Sources generation, through either import name of
+        # sources_db and in every worker thread; a retry after a heal is a new
+        # attempt and may read a newer one.
+        with one_sources_generation():
+            result = await handler()
+    except Exception as exc:
+        if attempt.errors and not isinstance(exc, sqlite3.DatabaseError):
+            raise attempt.errors[0] from exc  # the swallowed damage is the cause of whatever broke next
+        raise
+    finally:
+        _ATTEMPT_DAMAGE.reset(token)
+    if attempt.errors:
+        raise attempt.errors[0]
+    return result
+
+
+async def _call_with_database_self_heal(handler: Any, heal: dict[str, Any]) -> Any:
+    """Run ``handler``; on a stale-connection error reopen and retry exactly once.
+
+    ``heal`` is filled in when a heal was attempted so the caller can log it.
+    A failure of the retry raises ``SourcesDatabaseUnavailable``; the heal is
+    recorded as recovered only when the retry itself saw no stale-connection
+    error, including a swallowed ``no such table`` from a rebuilt database.
+    """
+    seen = _connection_generations()
+    try:
+        return await _run_attempt(handler, _FIRST_ATTEMPT_MARKERS)
+    except sqlite3.DatabaseError as first:
+        if not _is_stale_connection_error(first):
+            raise
+        database = _failing_database(first)
+        reopened = _discard_cached_connections(database, seen)
+        heal.update(
+            database=database or _UNATTRIBUTED_DATABASE,
+            error_class=type(first).__name__,
+            reopened=reopened,
+            recovered=False,
+        )
+        try:
+            result = await _run_attempt(handler, _STALE_CONNECTION_MARKERS)
+        except sqlite3.DatabaseError as second:
+            database = _failing_database(second) or database
+            heal["database"] = database or _UNATTRIBUTED_DATABASE
+            raise SourcesDatabaseUnavailable(
+                database or _UNATTRIBUTED_DATABASE, type(second).__name__, reopened
+            ) from second
+        heal["recovered"] = True
+        return result
+
+
+def _database_unavailable_outcome(name: str, unavailable: SourcesDatabaseUnavailable) -> dict[str, Any]:
+    """Typed, path-free and message-free error that is safe to send over the wire."""
+    return {
+        "tool": name,
+        "status": "error",
+        "error_code": _DATABASE_UNAVAILABLE_CODE,
+        "database": unavailable.database,
+        "error_class": unavailable.error_class,
+        "retried": True,
+        "reopened": unavailable.reopened,
+        "error": (
+            f"{_DATABASE_UNAVAILABLE_CODE}: {unavailable.database} failed with {unavailable.error_class} "
+            "again after one connection reopen. The database may be mid-rebuild or damaged; "
+            "retry later or report it to the operators."
+        ),
+    }
+
+
+async def _dispatch_tool_call(
+    name: str, arguments: dict[str, Any]
+) -> tuple[list[TextContent], bool, dict[str, Any] | None]:
+    """Core tool-call dispatch. Returns ``(content, is_error, typed_outcome)``; never raises.
+
+    This is the one place that turns a handler exception or an unknown tool
+    name into a result — both ``call_tool`` (the legacy module-level
+    callable kept for unit tests/backward compat) and ``_on_call_tool`` (the
+    actual MCP-wire ``tools/call`` handler) build on top of it, so the two
+    can never silently disagree about whether a given call failed.
+    """
+    import time as _time
+
+    _t0 = _time.monotonic()
+    privacy_mode = bool(arguments.pop("_privacy_mode", False)) if isinstance(arguments, dict) else False
+    _discard_retired_v4_evidence_args(arguments)
+    if _V4_ACTIVE_ATTEMPT.get() is not None and name not in {
+        "verify_word",
+        "verify_words",
+        "verify_lemma",
+        "verify_stress",
+        "check_modern_form",
+        "inspect_word",
+        "inspect_words",
+        "inspect_lemma",
+    }:
+        return [TextContent(type="text", text="V4 tool capability refused")], True, None
+    recorder = _review_recorder()
+    review_arguments = arguments if isinstance(arguments, dict) else {}
+    refused = _review_before_handler(recorder, name, review_arguments)
+    if refused is not None:
+        content, is_err = refused
+        return content, is_err, None
+    heal: dict[str, Any] = {}
+    try:
+        # Dispatch to handler
+        _handlers = {
+            "search_sources": lambda: handle_search_sources(arguments),
+            "search_text": lambda: handle_search_text(arguments),
+            "search_literary": lambda: handle_search_literary(arguments),
+            "search_external": lambda: handle_search_external(arguments),
+            "search_resources": lambda: handle_search_resources(arguments),
+            "get_full_text": lambda: handle_get_full_text(arguments),
+            "get_chunk_context": lambda: handle_get_chunk_context(arguments),
+            "collection_stats": lambda: handle_collection_stats(arguments),
+            "mcp_server_identity": lambda: handle_mcp_server_identity(arguments),
+            "check_russian_shadow": lambda: handle_check_russian_shadow(arguments),
+            "check_modern_form": lambda: handle_check_modern_form(arguments),
+            "verify_quote": lambda: handle_verify_quote(arguments),
+            "verify_word": lambda: handle_verify_word(arguments),
+            "verify_source_attribution": lambda: handle_verify_source_attribution(arguments),
+            "verify_words": lambda: handle_verify_words(arguments),
+            "vet_vocabulary": lambda: handle_vet_vocabulary(arguments),
+            "verify_lemma": lambda: handle_verify_lemma(arguments),
+            "inspect_word": lambda: handle_inspect_word(arguments),
+            "inspect_words": lambda: handle_inspect_words(arguments),
+            "inspect_lemma": lambda: handle_inspect_lemma(arguments),
+            "verify_stress": lambda: handle_verify_stress(arguments),
+            "verify_stresses": lambda: handle_verify_stresses(arguments),
+            "check_text": lambda: handle_check_text(arguments),
+            "query_wikipedia": lambda: handle_query_wikipedia(arguments),
+            "query_wikipedia_cached": lambda: handle_query_wikipedia_cached(arguments),
+            "query_grac": lambda: handle_query_grac(arguments),
+            "query_ulif": lambda: handle_query_ulif(arguments),
+            "query_ulif_synonyms": lambda: handle_query_ulif_synonyms(arguments),
+            "query_ulif_antonyms": lambda: handle_query_ulif_antonyms(arguments),
+            "query_ulif_phraseology": lambda: handle_query_ulif_phraseology(arguments),
+            "query_ulif_records": lambda: handle_query_ulif_records(arguments),
+            "query_r2u": lambda: handle_query_r2u(arguments),
+            "query_e2u": lambda: handle_query_e2u(arguments),
+            "query_sum20": lambda: handle_query_sum20(arguments),
+            "query_slovnyk_me": lambda: handle_query_slovnyk_me(arguments),
+            "query_pravopys": lambda: handle_query_pravopys(arguments),
+            "search_slovnyk_me": lambda: handle_search_slovnyk_me(arguments),
+            "search_heritage": lambda: handle_search_heritage(arguments),
+            "search_ua_gec_errors": lambda: handle_search_ua_gec_errors(arguments),
+            "search_style_guide": lambda: handle_dict_search(arguments, "style_guide", "Антоненко-Давидович"),
+            "query_cefr_level": lambda: handle_dict_search(arguments, "puls_cefr", "PULS CEFR"),
+            "search_definitions": lambda: handle_dict_search(arguments, "sum11", "СУМ-11"),
+            "search_grinchenko_1907": lambda: handle_dict_search(arguments, "grinchenko_dict", "Грінченко"),
+            "search_esum": lambda: handle_search_esum(arguments),
+            "search_idioms": lambda: handle_dict_search(arguments, "frazeolohichnyi", "Фразеологічний"),
+            "search_synonyms": lambda: handle_dict_search(arguments, "ukrajinet", "Ukrajinet WordNet"),
+            "translate_en_uk": lambda: handle_dict_search(arguments, "balla_en_uk", "Балла EN→UK"),
+            "word_card": lambda: handle_word_card(arguments),
+        }
+        handler = _handlers.get(name)
+        if handler:
+            result = await _call_with_database_self_heal(handler, heal)
+        else:
+            result = [TextContent(type="text", text=f"Unknown tool: {name}")]
+            _log_tool_call(name, arguments, error="unknown tool", privacy_mode=privacy_mode)
+            return result, True, None
+
+        typed_outcome = None
+        if isinstance(result, tuple) and len(result) == 2:
+            result, typed_outcome = result
+        # Log successful call
+        _elapsed = _time.monotonic() - _t0
+        _resp_text = "\n".join(t.text for t in result) if result else ""
+        _log_tool_call(
+            name,
+            arguments,
+            response_chars=len(_resp_text),
+            duration_s=_elapsed,
+            response_text=_resp_text,
+            privacy_mode=privacy_mode,
+            self_heal=heal,
+        )
+        if typed_outcome is not None and isinstance(typed_outcome, dict) and "disposition" in typed_outcome:
+            _record_v4_typed_invocation(name=name, typed_outcome=typed_outcome)
+        if recorder is not None and recorder.mode == "on":
+            result, rec_err, receipt_id, receipt_outcome = _review_record(
+                recorder, name, review_arguments, result, status="ok"
+            )
+            if rec_err:
+                return result, True, None
+            typed_outcome = _outcome_with_receipt(typed_outcome, receipt_id, receipt_outcome)
+        return result, False, typed_outcome
+    except SourcesDatabaseUnavailable as unavailable:
+        _log_tool_call(
+            name,
+            arguments,
+            duration_s=_time.monotonic() - _t0,
+            error=f"{type(unavailable).__name__}: {unavailable}",
+            privacy_mode=privacy_mode,
+            self_heal=heal,
+        )
+        failure = _database_unavailable_outcome(name, unavailable)
+        content = [TextContent(type="text", text=json.dumps(failure, ensure_ascii=False))]
+        if recorder is not None and recorder.mode == "on":
+            content, _rec_err, _receipt, _outcome = _review_record(
+                recorder, name, review_arguments, content, status="error"
+            )
+        return content, True, failure
+    except Exception as e:
+        _elapsed = _time.monotonic() - _t0
+        _log_tool_call(
+            name,
+            arguments,
+            duration_s=_elapsed,
+            error=f"{type(e).__name__}: {e}",
+            privacy_mode=privacy_mode,
+            self_heal=heal,
+        )
+        content = [TextContent(type="text", text=f"Error in {name}: {type(e).__name__}: {e}")]
+        if recorder is not None and recorder.mode == "on":
+            content, _rec_err, _receipt, _outcome = _review_record(
+                recorder, name, review_arguments, content, status="error"
+            )
+        return content, True, None
+
+
+async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
+    """Legacy module-level entry point — kept for unit tests/backward compat.
+
+    Returns exactly the content ``_dispatch_tool_call`` produced, including
+    the "Error in ..."/"Unknown tool: ..." prose marker on failure. This is
+    NOT the actual MCP wire path (that's ``_on_call_tool`` below) — nothing
+    here ever leaves the process over the real transport, so preserving the
+    legacy diagnostic text (exception class/message) for direct callers/unit
+    tests is safe. ``RealMcpToolTransport`` on the compiler side additionally
+    refuses to trust this exact prose marker defensively, in case a legacy
+    or downgraded server ever puts it on the wire.
+    """
+    content, _is_error, _typed = await _dispatch_tool_call(name, arguments)
+    return content
+
+
+async def _on_list_tools(_ctx: Any, _params: Any) -> ListToolsResult:
+    """MCP 2.0 registered handler for tools/list."""
+    tools = await list_tools()
+    recorder = _review_recorder()
+    if recorder is not None:
+        from scripts.review.receipts.ledger import review_tools
+
+        allowed = review_tools(recorder.review_access) if recorder.mode == "on" else frozenset()
+        tools = [tool for tool in tools if tool.name in allowed]
+    return ListToolsResult(tools=tools)
+
+
+_CALL_GOVERNOR: CallGovernor | None = None
+_TOOL_METRICS = ToolMetrics()
+_METRIC_TOOL_NAMES: frozenset[str] | None = None
+
+
+def _call_governor() -> CallGovernor:
+    """The process-wide bound on concurrent tool calls (#10674).
+
+    Slow-call stack dumps are written only by the standalone HTTP service;
+    a per-agent stdio server keeps the bound and the logging.
+    """
+    global _CALL_GOVERNOR
+    if _CALL_GOVERNOR is None:
+        from scripts.rag.hang_diagnostics import resolve_dump_dir
+
+        _CALL_GOVERNOR = CallGovernor(
+            GovernorLimits.from_environ(),
+            dump_dir=resolve_dump_dir(PROJECT_ROOT) if _HTTP_MODE else None,
+        )
+    return _CALL_GOVERNOR
+
+
+async def _on_call_tool(_ctx: Any, params: CallToolRequestParams) -> CallToolResult:
+    """Measure every wire call, including governor refusals and failures."""
+    global _METRIC_TOOL_NAMES
+    if _METRIC_TOOL_NAMES is None:
+        _METRIC_TOOL_NAMES = frozenset(tool.name for tool in await list_tools())
+    # Unknown names are client-controlled; they must share one label value.
+    tool = params.name if params.name in _METRIC_TOOL_NAMES else "unknown"
+    started = time.monotonic()
+    status_class = "error"
+    try:
+        result = await _execute_tool_call(_ctx, params)
+        status_class = "error" if result.is_error else "success"
+        return result
+    finally:
+        _TOOL_METRICS.observe(tool, status_class, time.monotonic() - started)
+
+
+async def _execute_tool_call(_ctx: Any, params: CallToolRequestParams) -> CallToolResult:
+    """Run one governed tool call and build its MCP result.
+
+    Fails closed: any handler exception or unknown-tool name becomes a
+    safe, generic ``isError=True`` result. The raw exception message and
+    argument values never reach this result's text — those stay
+    server-side only, in the hash-only privacy log (``_log_tool_call``).
+    Review recording is the exception: when its environment is set, the
+    wire result is the recorded text plus the receipt line, so the seat
+    can cite the call. With that environment unset this stays generic.
+    """
+    arguments = dict(params.arguments or {})
+    try:
+        _content, is_error, typed_outcome = await _call_governor().run(
+            params.name, lambda: _dispatch_tool_call(params.name, arguments)
+        )
+    except CallRefused as refusal:
+        # Typed and argument-free (#10674): server_busy (queue wait exceeded),
+        # call_timeout (no result within the per-call limit) or
+        # server_overloaded (every slot held by timed-out work still running).
+        return CallToolResult(
+            content=[
+                TextContent(type="text", text=f"Tool call failed: {params.name} ({refusal.code}: {refusal.detail}).")
+            ],
+            isError=True,
+        )
+    except Exception:
+        return CallToolResult(content=[TextContent(type="text", text="Tool call failed.")], isError=True)
+    if is_error and isinstance(typed_outcome, dict) and typed_outcome.get("error_code") == _DATABASE_UNAVAILABLE_CODE:
+        # Typed and free of paths and exception text (#11115): the caller learns which database failed.
+        return CallToolResult(content=_content, structured_content=typed_outcome, isError=True)
+    if is_error and not _review_env_engaged():
+        return CallToolResult(
+            content=[TextContent(type="text", text=f"Tool call failed: {params.name}.")], isError=True
+        )
+    if is_error:
+        return CallToolResult(content=_content, isError=True)
+    return CallToolResult(content=_content, structured_content=typed_outcome, isError=False)
+
+
+server = Server("sources", on_list_tools=_on_list_tools, on_call_tool=_on_call_tool)
+
+
+async def handle_search_text(args: dict):
+    query = args["query"]
+    limit = min(args.get("limit", 5), 20)
+    subject = args.get("subject")
+    source_file = args.get("source_file")
+    include_superseded = args.get("include_superseded", False) is True
+    query_obj = {"query": query, "limit": limit, "subject": subject, "source_file": source_file, "include_superseded": include_superseded}
+
+    from wiki.sources_db import search_textbooks
+
+    keywords, dropped = split_fts_keywords(query)
+    hits = await asyncio.to_thread(search_textbooks, keywords, limit, subject=subject, source_file=source_file, include_superseded=include_superseded)
+
+    if not hits:
+        prose = "No results found."
+        envelope = build_search_envelope(
+            tool="search_text",
+            query=query_obj,
+            hits=[],
+            summary_prose=prose,
+            diagnostics=dropped_tokens_diagnostics(dropped),
+        )
+        return [TextContent(type="text", text=prose)], envelope
+
+    lines = [f'Found {len(hits)} results for: "{query}"\n']
+    for i, hit in enumerate(hits, 1):
+        lines.append(f"### Result {i}")
+        lines.append(f"- **Section**: {hit.get('section_title', hit.get('title', ''))}")
+        lines.append(f"- **Source**: Grade {hit.get('grade', '?')}, {hit.get('author', '?')}")
+        lines.append(f"- **Subject**: {hit.get('subject', '')}")
+        lines.append(f"- **Source file**: `{hit.get('source_file', '')}`")
+        lines.append(f"- **Chunk ID**: `{hit.get('chunk_id', '')}`")
+        lines.append(f"- **Text**:\n{hit.get('text', '')}")
+        lines.append("")
+
+    prose = "\n".join(lines)
+    envelope = build_search_envelope(tool="search_text", query=query_obj, hits=list(hits), summary_prose=prose)
+    return [TextContent(type="text", text=prose)], envelope
+
+
+async def handle_search_sources(args: dict):
+    query = args["query"]
+    # Empty-string track is intentional: `_prepare_query()` handles ad-hoc
+    # string queries without needing a concrete curriculum track.
+    track = str(args.get("track", "") or "")
+    limit = min(args.get("limit", 10), 20)
+    query_obj = {"query": query, "track": track, "limit": limit}
+
+    from wiki.sources_db import search_sources
+
+    hits = await asyncio.to_thread(search_sources, query, track=track, limit=limit)
+
+    if not hits:
+        prose = "No results found."
+        envelope = build_search_envelope(tool="search_sources", query=query_obj, hits=[], summary_prose=prose)
+        return [TextContent(type="text", text=prose)], envelope
+
+    # Keep source bodies in the structured hits only. Neither the summary
+    # nor an equal full_text alias should serialize those bodies again.
+    compact_hits = []
+    for hit in hits:
+        compact_hit = dict(hit)
+        if "text" in compact_hit and compact_hit.get("full_text") == compact_hit["text"]:
+            compact_hit.pop("full_text", None)
+        compact_hits.append(compact_hit)
+    lines = [f"Found {len(hits)} results (returned ranking order):"]
+    for rank, hit in enumerate(hits[:5], 1):
+        source_id = hit.get("chunk_id") or hit.get("section_id") or hit.get("source_file") or hit.get("id") or "unknown"
+        title = " ".join(str(hit.get("title") or "Untitled").split())[:80]
+        source_id = " ".join(str(source_id).split())[:80]
+        ranking = " ".join(str(hit.get("ranking") or "unspecified").split())[:40]
+        lines.append(f"{rank}. {source_id} — {title} ({ranking})")
+    if len(hits) > 5:
+        lines.append(f"{len(hits) - 5} more results in structured hits.")
+    prose = "\n".join(lines)
+    envelope = build_search_envelope(tool="search_sources", query=query_obj, hits=compact_hits, summary_prose=prose)
+    hit_rankings = {hit["ranking"] for hit in hits if isinstance(hit, dict) and isinstance(hit.get("ranking"), str)}
+    if hit_rankings:
+        envelope["ranking"] = next(iter(hit_rankings)) if len(hit_rankings) == 1 else "mixed"
+    return [TextContent(type="text", text=prose)], envelope
+
+
+async def handle_search_literary(args: dict):
+    query = args["query"]
+    limit = min(args.get("limit", 5), 20)
+    query_obj = {"query": query, "limit": limit}
+
+    from wiki.sources_db import search_literary
+
+    keywords, dropped = split_fts_keywords(query)
+    hits = await asyncio.to_thread(search_literary, keywords, limit)
+
+    if not hits:
+        prose = "No literary results found."
+        envelope = build_search_envelope(
+            tool="search_literary",
+            query=query_obj,
+            hits=[],
+            summary_prose=prose,
+            diagnostics=dropped_tokens_diagnostics(dropped),
+        )
+        return [TextContent(type="text", text=prose)], envelope
+
+    lines = [f'Found {len(hits)} results for: "{query}"\n']
+    for i, hit in enumerate(hits, 1):
+        lines.append(f"### Result {i}")
+        lines.append(f"- **Author**: {hit.get('author', '?')}")
+        lines.append(f"- **Source**: {hit.get('source_file', '?')}")
+        lines.append(f"- **Chunk ID**: `{hit.get('chunk_id', '')}`")
+        lines.append(f"- **Text**:\n{hit.get('text', '')}")
+        lines.append("")
+
+    prose = "\n".join(lines)
+    envelope = build_search_envelope(tool="search_literary", query=query_obj, hits=list(hits), summary_prose=prose)
+    return [TextContent(type="text", text=prose)], envelope
+
+
+async def handle_search_resources(args: dict):
+    from scripts.ingest.resource_catalogue_ingest import ResourceCatalogueMissingError, search_resources
+    from wiki.sources_db import _get_conn
+
+    query = {
+        "query": args.get("query", ""),
+        "mode": args.get("mode", "text"),
+        "kind": args.get("kind"),
+        "level": args.get("level"),
+        "module": args.get("module"),
+        "free_only": args.get("free_only", False),
+        "live_only": args.get("live_only", False),
+        "limit": min(max(int(args.get("limit", 10)), 1), 20),
+    }
+    try:
+        hits = await asyncio.to_thread(lambda: search_resources(_get_conn(), **query))
+    except ResourceCatalogueMissingError:
+        prose = "Resource catalogue ingestion is required before searching resources."
+        envelope = build_search_envelope(
+            tool="search_resources",
+            query=query,
+            hits=[],
+            summary_prose=prose,
+            status="error",
+            error_code="resource_catalogue_missing",
+        )
+        return [TextContent(type="text", text=prose)], envelope
+    lines = [f"Found {len(hits)} catalogue resources (returned ranking order):"] if hits else []
+    for rank, hit in enumerate(hits[:5], 1):
+        title = " ".join(hit["title"].split())[:80]
+        lines.append(f"{rank}. {hit['id']} — {title} (access: {hit['access']})")
+    if len(hits) > 5:
+        lines.append(f"{len(hits) - 5} more resources in structured hits.")
+    prose = "\n".join(lines) if hits else "No catalogue resources found."
+    envelope = build_search_envelope(tool="search_resources", query=query, hits=hits, summary_prose=prose)
+    return [TextContent(type="text", text=prose)], envelope
+
+
+async def handle_search_external(args: dict) -> list[TextContent]:
+    query = args["query"]
+    limit = min(args.get("max_results", 10), 20)
+
+    from wiki.sources_db import search_external
+
+    keywords = {w for w in query.lower().split() if len(w) >= 3}
+    hits = await asyncio.to_thread(
+        search_external,
+        keywords,
+        max_total=limit,
+        channel=args.get("channel"),
+        register=args.get("register"),
+        decolonization=args.get("decolonization"),
+        min_quality_tier=args.get("min_quality_tier", 2),
+        track=args.get("track"),
+    )
+
+    if not hits:
+        return [TextContent(type="text", text="[]")]
+
+    payload = [
+        {
+            "chunk_id": hit.get("chunk_id", ""),
+            "title": hit.get("title", ""),
+            "text": hit.get("text", ""),
+            "url": hit.get("url", ""),
+            "channel_id": hit.get("channel_id", ""),
+            "channel_name": hit.get("source_name", hit.get("channel_id", "")),
+            "speaker": hit.get("speaker", ""),
+            "register_tag": hit.get("register_tag", ""),
+            "decolonization_tag": hit.get("decolonization_tag", ""),
+            "quality_tier": hit.get("quality_tier"),
+            "publish_date": hit.get("publish_date", ""),
+            "duration_s": hit.get("duration_s"),
+            "chunk_start_ts": hit.get("chunk_start_ts"),
+            "chunk_end_ts": hit.get("chunk_end_ts"),
+            "video_id": hit.get("video_id", ""),
+            "fts_score": hit.get("fts_score", hit.get("rank")),
+            "adjusted_score": hit.get("adjusted_score", hit.get("rank")),
+        }
+        for hit in hits
+    ]
+    return [TextContent(type="text", text=json.dumps(payload, ensure_ascii=False, indent=2))]
+
+
+async def handle_search_ua_gec_errors(args: dict) -> list[TextContent]:
+    """Handle UA-GEC error pair search."""
+    query = args["query"]
+    limit = min(args.get("limit", 10), 20)
+    tag_filter = args.get("tag_filter")
+    require_native_author = args.get("require_native_author", False)
+
+    from wiki.sources_db import search_ua_gec_errors
+
+    hits = await asyncio.to_thread(
+        search_ua_gec_errors, query, tag_filter=tag_filter, limit=limit, require_native_author=require_native_author
+    )
+
+    if not hits:
+        return [TextContent(type="text", text=f'No UA-GEC results found for: "{query}"')]
+
+    lines = [f'Found {len(hits)} human-annotated error pairs for: "{query}"\n']
+    for i, hit in enumerate(hits, 1):
+        native_flag = " (native author)" if hit.get("is_native") else ""
+        lines.append(f"### Result {i}{native_flag}")
+        lines.append(f"- **Error**: {hit.get('error')}")
+        lines.append(f"- **Correction**: {hit.get('correct')}")
+        lines.append(f"- **Type**: {hit.get('error_type')}")
+        lines.append(f"- **Source**: `{hit.get('doc_id')}` ({hit.get('source_lang', 'uk')})")
+        lines.append("")
+
+    return [TextContent(type="text", text="\n".join(lines))]
+
+
+async def handle_get_full_text(args: dict) -> list[TextContent]:
+    work = args["work"]
+    max_chars = args.get("max_chars", 50000)
+
+    from wiki.sources_db import search_literary
+
+    keywords = {w for w in work.lower().split() if len(w) >= 3}
+    hits = await asyncio.to_thread(search_literary, keywords, 100)
+
+    if not hits:
+        return [TextContent(type="text", text=f"No literary text found for: '{work}'")]
+
+    # Concatenate all matching chunks up to max_chars
+    text_parts = []
+    total = 0
+    for h in hits:
+        chunk_text = h.get("text", "")
+        if total + len(chunk_text) > max_chars:
+            break
+        text_parts.append(chunk_text)
+        total += len(chunk_text)
+
+    return [TextContent(type="text", text="\n\n---\n\n".join(text_parts))]
+
+
+async def handle_get_chunk_context(args: dict):
+    chunk_id = args["chunk_id"]
+    include_superseded = args.get("include_superseded", False) is True
+    query_obj = {"chunk_id": chunk_id, "include_superseded": include_superseded}
+
+    from scripts.storage.topology import ActiveDatabaseNetworkError
+    from wiki.sources_db import _get_conn, _transcription_filter
+
+    try:
+        conn = _get_conn()
+    except (FileNotFoundError, ActiveDatabaseNetworkError):
+        prose = "Sources database not found."
+        envelope = build_search_envelope(
+            tool="get_chunk_context",
+            query=query_obj,
+            hits=[],
+            summary_prose=prose,
+            status="error",
+            error_code="sources_db_missing",
+        )
+        return [TextContent(type="text", text=prose)], envelope
+
+    # Search all tables for the chunk_id
+    for table in ("textbooks", "literary_texts"):
+        status_filter = _transcription_filter(conn, table, alias=table, include_superseded=include_superseded)
+        row = conn.execute(f"SELECT * FROM {table} WHERE chunk_id = ? {status_filter}", (chunk_id,)).fetchone()
+        if row:
+            row_dict = dict(row)
+            prose = f"**[{chunk_id}]** — {row_dict.get('title', '')}\n\n{row_dict.get('text', '')}"
+            envelope = build_search_envelope(
+                tool="get_chunk_context",
+                query=query_obj,
+                hits=[row_dict],
+                summary_prose=prose,
+            )
+            return [TextContent(type="text", text=prose)], envelope
+
+    prose = f"No context found for chunk: {chunk_id}"
+    envelope = build_search_envelope(tool="get_chunk_context", query=query_obj, hits=[], summary_prose=prose)
+    return [TextContent(type="text", text=prose)], envelope
+
+
+async def handle_collection_stats(args: dict) -> list[TextContent]:
+    from wiki.sources_db import list_tables
+
+    stats = await asyncio.to_thread(list_tables)
+    return [TextContent(type="text", text=json.dumps(stats, indent=2))]
+
+
+# Cache key: (resolved path, mtime_ns, ctime_ns, size, inode).
+# The required identity is (resolved path, st_size, st_mtime_ns); ctime and
+# inode are included so a same-size, same-mtime replace still recomputes.
+# ``mcp_server_identity`` hashes server code and vesum.db through this cache.
+# The multi-gigabyte sources.db content hash is opt-in and always fresh.
+_FILE_HASH_CACHE: dict[tuple[str, int, int, int, int], str] = {}
+_FILE_HASH_LOCK = threading.Lock()
+
+
+def _sha256_of_file(path: Path) -> str:
+    resolved = path.resolve()
+    try:
+        st = resolved.stat()
+        cache_key = (str(resolved), st.st_mtime_ns, st.st_ctime_ns, st.st_size, st.st_ino)
+        cached = _FILE_HASH_CACHE.get(cache_key)
+        if cached is not None:
+            return cached
+    except OSError:
+        cache_key = None
+
+    with _FILE_HASH_LOCK:
+        # Re-stat inside the lock so waiting callers check against the freshest file metadata
+        try:
+            st = resolved.stat()
+            cache_key = (str(resolved), st.st_mtime_ns, st.st_ctime_ns, st.st_size, st.st_ino)
+            cached = _FILE_HASH_CACHE.get(cache_key)
+            if cached is not None:
+                return cached
+        except OSError:
+            cache_key = None
+
+        digest = hashlib.sha256()
+        with open(resolved, "rb") as handle:
+            for block in iter(lambda: handle.read(1024 * 1024), b""):
+                digest.update(block)
+        result = digest.hexdigest()
+
+        if cache_key is not None:
+            try:
+                st_post = resolved.stat()
+                post_key = (str(resolved), st_post.st_mtime_ns, st_post.st_ctime_ns, st_post.st_size, st_post.st_ino)
+                if post_key == cache_key:
+                    _FILE_HASH_CACHE[cache_key] = result
+            except OSError:
+                pass
+        return result
+
+
+async def handle_mcp_server_identity(args: dict) -> list[TextContent]:
+    """Endpoint identity attestation (Cycle 007 evidence-foundation fixes v3, item 1).
+
+    The default sources.db identity is file metadata, not content. A caller
+    must explicitly request its full content hash; that hash bypasses cache.
+    """
+    if "include_sources_db_sha256" in args and not isinstance(args["include_sources_db_sha256"], bool):
+        payload = {
+            "status": "error",
+            "error_code": "invalid_input",
+            "error": "invalid_input: include_sources_db_sha256 must be a boolean.",
+            "expected_arguments": ["include_sources_db_sha256"],
+        }
+        return [TextContent(type="text", text=json.dumps(payload, ensure_ascii=False))]
+
+    server_path = Path(__file__).resolve()
+    from scripts.rag.config import VESUM_DB_PATH
+    from wiki.sources_db import _read_db_path
+
+    sources_db_path = _read_db_path()
+    vesum_db_path = Path(VESUM_DB_PATH).resolve()
+
+    def _identity() -> dict[str, Any]:
+        from scripts.curriculum.evidence.db_identity import sources_db_meta_identity
+
+        meta_digest, meta = sources_db_meta_identity(sources_db_path)
+        return {
+            "server_code_sha256": _sha256_of_file(server_path),
+            "sources_db_meta_identity": {"scheme": meta["scheme"], "sha256": meta_digest},
+            "sources_db_bytes": sources_db_path.stat().st_size,
+            "vesum_db_sha256": _sha256_of_file(vesum_db_path),
+            "vesum_db_bytes": vesum_db_path.stat().st_size,
+            **(
+                {"sources_db_sha256": _sha256_of_file_fresh(sources_db_path)}
+                if args.get("include_sources_db_sha256") is True
+                else {}
+            ),
+        }
+
+    payload = await asyncio.to_thread(_identity)
+    return [TextContent(type="text", text=json.dumps(payload, ensure_ascii=False))]
+
+
+def _sha256_of_file_fresh(path: Path) -> str:
+    """Hash a file body without consulting or populating the shared hash cache."""
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for block in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def _is_archaic(tags):
+    return v4_handlers._is_archaic(tags)
+
+
+from learn_ukrainian_v4_runtime import sources_handlers as v4_handlers
+
+
+class _V4VerificationResources:
+    def source_version(self):
+        return _vesum_source_version()
+
+    def verify_word(self, *args):
+        from scripts.verification.vesum import verify_word
+
+        return verify_word(*args)
+
+    def verify_words(self, *args):
+        from scripts.verification.vesum import verify_words
+
+        return verify_words(*args)
+
+    def verify_lemma(self, *args):
+        from scripts.verification.vesum import verify_lemma
+
+        return verify_lemma(*args)
+
+    def verify_stress(self, *args):
+        from scripts.verification.stress import verify_stress
+
+        return verify_stress(*args)
+
+
+v4_handlers.configure_backend(_V4VerificationResources())
+
+
+async def handle_check_modern_form(args: dict):
+    return await v4_handlers.handle_check_modern_form(args)
+
+
+async def handle_verify_word(args: dict):
+    return await v4_handlers.handle_verify_word(args)
+
+
+async def handle_verify_words(args: dict):
+    return await v4_handlers.handle_verify_words(args)
+
+
+def _compact_vocabulary_value(value: object, *, max_chars: int | None = None) -> str:
+    """Keep a vocabulary-vetting field on one safe, parser-friendly line."""
+    text = re.sub(r"\s+", " ", str(value)).strip()
+    if max_chars is not None and len(text) > max_chars:
+        text = f"{text[: max_chars - 1].rstrip()}…"
+    return text.replace("\\", "\\\\").replace("|", "\\|").replace("`", "\\`")
+
+
+def _preferred_vocabulary_lookup(word: str, matches: list[dict]) -> str:
+    """Prefer the submitted form, then its matching VESUM lemma for dictionaries."""
+    for match in matches:
+        lemma = str(match.get("lemma") or "")
+        if lemma == word:
+            return word
+    for match in matches:
+        lemma = str(match.get("lemma") or "")
+        if lemma:
+            return lemma
+    return word
+
+
+def _format_vocabulary_vesum(matches: list[dict]) -> str:
+    if not matches:
+        return "not found"
+    details = "; ".join(
+        "lemma={lemma}, pos={pos}, tags={tags}".format(
+            lemma=_compact_vocabulary_value(match.get("lemma") or ""),
+            pos=_compact_vocabulary_value(match.get("pos") or ""),
+            tags=_compact_vocabulary_value(match.get("tags") or ""),
+        )
+        for match in matches
+    )
+    return f"valid ({details})"
+
+
+def _format_vocabulary_shadow(result: dict) -> str:
+    if not result.get("matches_russian"):
+        return "not flagged (suspicion only, not a verdict)"
+    lemma = result.get("russian_lemma") or "unknown"
+    confidence = float(result.get("confidence") or 0.0)
+    return (
+        "suspected (suspicion only, not a verdict; "
+        f"russian_lemma={_compact_vocabulary_value(lemma)}, confidence={confidence:.2f})"
+    )
+
+
+async def handle_vet_vocabulary(args: dict) -> list[TextContent]:
+    """Combine the existing vocabulary checks without per-word SQL round trips."""
+    submitted_words = args["words"]
+    words = submitted_words[:500]
+    include_definitions = bool(args.get("include_definitions", False))
+
+    import wiki.sources_db as sdb
+    from scripts.verification.check_ru_morph import check_russian_patterns_batch
+    from scripts.verification.vesum import verify_words
+
+    vesum_results = await asyncio.to_thread(verify_words, words)
+    lookup_terms = list(
+        dict.fromkeys(_preferred_vocabulary_lookup(word, vesum_results.get(word, [])) for word in words)
+    )
+    cefr_results = await asyncio.to_thread(sdb.query_cefr_levels, lookup_terms)
+    definition_results = (
+        await asyncio.to_thread(sdb.search_definitions_batch, lookup_terms) if include_definitions else {}
+    )
+    verified_words = {word for word in words if vesum_results.get(word)}
+    shadow_results = await asyncio.to_thread(
+        check_russian_patterns_batch,
+        words,
+        verified_words=verified_words,
+    )
+
+    lines = []
+    if include_definitions:
+        lines.append(f"verification_authority: false (СУМ-11 excerpts only). {SUM11_AUTHORITY_NOTICE}")
+    if len(submitted_words) > len(words):
+        lines.append(f"Note: received {len(submitted_words)} words; processed the first 500 (hard cap).")
+
+    for word in words:
+        matches = vesum_results.get(word, [])
+        lookup_term = _preferred_vocabulary_lookup(word, matches)
+        cefr_hit = (cefr_results.get(lookup_term) or [{}])[0]
+        fields = [
+            f"**{_compact_vocabulary_value(word)}**",
+            f"VESUM: {_format_vocabulary_vesum(matches)}",
+            f"CEFR: {_compact_vocabulary_value(cefr_hit.get('level') or 'not listed')}",
+            f"Russian-shadow: {_format_vocabulary_shadow(shadow_results.get(word, {}))}",
+        ]
+        if include_definitions:
+            definition_hit = (definition_results.get(lookup_term) or [{}])[0]
+            gloss = definition_hit.get("definition") or "not found"
+            fields.append(
+                "СУМ-11 contrast excerpt (verification_authority: false): "
+                f"{_compact_vocabulary_value(gloss, max_chars=240)}"
+            )
+        lines.append("- " + " | ".join(fields))
+
+    return [TextContent(type="text", text="\n".join(lines))]
+
+
+async def handle_verify_lemma(args: dict):
+    return await v4_handlers.handle_verify_lemma(args)
+
+
+async def handle_inspect_word(args: dict):
+    from scripts.verification.vesum import inspect_word
+
+    word = args.get("word") if isinstance(args, dict) else None
+    pos_filter = args.get("pos_filter") if isinstance(args, dict) else None
+    if not isinstance(word, str) or not word.strip():
+        return [TextContent(type="text", text="invalid_input: word is required")]
+    result = await asyncio.to_thread(inspect_word, word.strip(), pos_filter=pos_filter)
+    res_dict = result.as_dict()
+    prose = (
+        f"'{result.word}' — Status: {result.status.value}\n"
+        f"- Effective markers: {', '.join(result.effective_markers) or 'none'}\n"
+        f"- Clean analyses: {len(result.clean_analyses)}\n"
+        f"- Marked analyses: {len(result.marked_analyses)}\n"
+        f"- Raw payload: {json.dumps(res_dict, ensure_ascii=False)}"
+    )
+    return [TextContent(type="text", text=prose)]
+
+
+def _compact_inspect_words_payload(results: dict) -> dict[str, Any]:
+    """Hoist shared provenance out of every per-word inspection record."""
+    words_out: dict[str, Any] = {}
+    versions: list[Any] = []
+    identities: list[Any] = []
+    for word, inspection in results.items():
+        record = inspection.as_dict()
+        versions.append(record.pop("source_version", None))
+        identities.append(record.pop("pipeline_identity", None))
+        words_out[word] = record
+    payload: dict[str, Any] = {"words": words_out}
+    uniform = bool(versions) and all(item == versions[0] for item in versions)
+    uniform = uniform and bool(identities) and all(item == identities[0] for item in identities)
+    if uniform:
+        payload["source_version"] = versions[0]
+        payload["pipeline_identity"] = identities[0]
+        return payload
+    for word, inspection in results.items():
+        raw = inspection.as_dict()
+        words_out[word]["source_version"] = raw.get("source_version")
+        words_out[word]["pipeline_identity"] = raw.get("pipeline_identity")
+    return payload
+
+
+_INSPECT_WORDS_CAP = 500
+
+
+async def handle_inspect_words(args: dict):
+    from scripts.verification.vesum import inspect_words
+
+    words = args.get("words") if isinstance(args, dict) else None
+    pos_filter = args.get("pos_filter") if isinstance(args, dict) else None
+    if not isinstance(words, list) or not words or not all(isinstance(w, str) and w.strip() for w in words):
+        return [TextContent(type="text", text="invalid_input: words must be a nonempty list")]
+    submitted = len(words)
+    checked_words = words[:_INSPECT_WORDS_CAP]
+    results = await asyncio.to_thread(inspect_words, checked_words, pos_filter=pos_filter)
+    lines = []
+    if submitted > len(checked_words):
+        lines.append(f"Note: received {submitted} words; processed the first {_INSPECT_WORDS_CAP} (hard cap).")
+    lines.append(f"Batch inspection: {len(checked_words)} words\n")
+    for w in checked_words:
+        r = results.get(w)
+        if r:
+            markers_str = f" [{', '.join(r.effective_markers)}]" if r.effective_markers else ""
+            lines.append(
+                f"- **{w}** — {r.status.value}{markers_str} (clean={len(r.clean_analyses)}, marked={len(r.marked_analyses)})"
+            )
+        else:
+            lines.append(f"- **{w}** — NOT FOUND")
+    payload = _compact_inspect_words_payload(results)
+    if submitted > len(checked_words):
+        payload["submitted"] = submitted
+        payload["checked"] = len(checked_words)
+    lines.append(f"\nRaw payload:\n{json.dumps(payload, ensure_ascii=False, indent=2)}")
+    return [TextContent(type="text", text="\n".join(lines))]
+
+
+async def handle_inspect_lemma(args: dict):
+    from scripts.verification.vesum import inspect_lemma
+
+    lemma = args.get("lemma") if isinstance(args, dict) else None
+    if not isinstance(lemma, str) or not lemma.strip():
+        return [TextContent(type="text", text="invalid_input: lemma is required")]
+    result = await asyncio.to_thread(inspect_lemma, lemma.strip())
+    res_dict = result.as_dict()
+    prose = (
+        f"Lemma '{result.lemma}' — Status: {result.status.value}\n"
+        f"- Total paradigm forms: {len(result.forms)}\n"
+        f"- Clean analyses: {len(result.clean_analyses)}, Marked: {len(result.marked_analyses)}\n"
+        f"- Effective markers: {', '.join(result.effective_markers) or 'none'}\n"
+        f"- Raw payload: {json.dumps(res_dict, ensure_ascii=False)}"
+    )
+    return [TextContent(type="text", text=prose)]
+
+
+async def handle_verify_stress(args: dict):
+    from scripts.verification.stress import stress_call_summary
+
+    if args.get("lemma") is None:
+        content_outcome = await v4_handlers.handle_verify_stress(args)
+    else:
+        from scripts.verification.stress import verify_stress
+
+        if not isinstance(args.get("word"), str) or not isinstance(args["lemma"], str):
+            return await v4_handlers.handle_verify_stress({"word": None})
+        payload = await asyncio.to_thread(verify_stress, args["word"], args.get("pos"), args.get("tags"), args["lemma"])
+        success = payload["status"] == "ok"
+        outcome = {
+            "tool": "verify_stress",
+            "disposition": "supported" if success else payload["status"],
+            "success": success,
+            "result": payload,
+            "evidence_identifiers": [v4_handlers._typed_identifier("sources", payload)] if success else [],
+        }
+        v4_handlers.enrich_typed_outcome(
+            outcome,
+            query=args,
+            match_count=len(payload["matches"]),
+            hits=payload["matches"],
+            summary_prose=stress_call_summary(payload),
+        )
+        content_outcome = ([TextContent(type="text", text=stress_call_summary(payload))], outcome)
+    if not (isinstance(content_outcome, tuple) and len(content_outcome) == 2):
+        return content_outcome
+    _content, outcome = content_outcome
+    word = args.get("word") if isinstance(args, dict) else None
+    payload = outcome.get("result") if isinstance(outcome, dict) else None
+    prose = stress_call_summary(
+        payload if isinstance(payload, dict) else None,
+        word=word if isinstance(word, str) else None,
+    )
+    if isinstance(outcome, dict):
+        outcome["summary_prose"] = prose
+    return [TextContent(type="text", text=prose)], outcome
+
+
+async def handle_verify_stresses(args: dict) -> list[TextContent]:
+    """Batch stress. Compact records, one source envelope, 500-word cap."""
+    from scripts.verification.stress import verify_stresses
+
+    words = args.get("words") if isinstance(args, dict) else None
+    pos = args.get("pos") if isinstance(args, dict) else None
+    if not isinstance(words, list) or not words or not all(isinstance(word, str) for word in words):
+        payload = {
+            "status": "error",
+            "error_code": "invalid_input",
+            "error": "invalid_input: words must be a nonempty list of strings. Expected arguments: words.",
+            "expected_arguments": ["words"],
+        }
+        return [TextContent(type="text", text=json.dumps(payload, ensure_ascii=False))]
+    if pos is not None and not isinstance(pos, str):
+        payload = {
+            "status": "error",
+            "error_code": "invalid_input",
+            "error": "invalid_input: pos must be a string. Expected arguments: words, pos.",
+            "expected_arguments": ["words", "pos"],
+        }
+        return [TextContent(type="text", text=json.dumps(payload, ensure_ascii=False))]
+    # Validate contextual selectors before invoking the oracle.
+    for key in ("lemma", "tags"):
+        if args.get(key) is not None and not isinstance(args[key], str):
+            return [
+                TextContent(
+                    type="text",
+                    text=json.dumps(
+                        {
+                            "status": "error",
+                            "error_code": "invalid_input",
+                            "error": f"invalid_input: {key} must be a string.",
+                        }
+                    ),
+                )
+            ]
+    result = await asyncio.to_thread(verify_stresses, words, pos if pos else None, args.get("tags"), args.get("lemma"))
+    return [TextContent(type="text", text=json.dumps(result, ensure_ascii=False))]
+
+
+async def handle_check_text(args: dict) -> list[TextContent]:
+    from scripts.verification.check_text import check_text
+
+    result = await asyncio.to_thread(
+        check_text,
+        text=args.get("text"),
+        items=args.get("items"),
+        checks=args.get("checks"),
+        stress_forms=args.get("stress_forms"),
+        max_findings=args.get("max_findings", 200),
+        ua_gec_tags=args.get("ua_gec_tags"),
+    )
+    return [TextContent(type="text", text=json.dumps(result, ensure_ascii=False))]
+
+
+def _lookup_wikipedia_in_db(query: str, *, include_provenance: bool = False) -> dict | None:
+    """Serve the pre-ingested wikipedia table in sources.db as a persistent
+    cache (#1170). Matches by exact title first, then by FTS5 title match.
+    Returns None if the query isn't in the DB — callers must then fall back
+    to the live API. Database errors propagate to the heal boundary before
+    the caller can cache a miss.
+    """
+    import contextlib
+    import sqlite3
+
+    from scripts.storage.topology import ActiveDatabaseNetworkError
+    from wiki.sources_db import _open_conn, _read_db_path
+
+    try:
+        db = _read_db_path()
+    except ActiveDatabaseNetworkError:
+        return None
+    if not db.exists():
+        return None
+    conn: sqlite3.Connection | None = None
+    columns = "title, url, text, fetched_at" if include_provenance else "title, url, text"
+    try:
+        conn = _open_conn(db, read_only=True)
+        # 1. Exact title match (case-insensitive) — the common case after
+        #    fetch_wikipedia.py has ingested a batch from plan topics.
+        row = conn.execute(
+            f"SELECT {columns} FROM wikipedia WHERE LOWER(title) = LOWER(?) LIMIT 1",
+            (query,),
+        ).fetchone()
+        if row:
+            return dict(row)
+        # 2. FTS5 title search — tolerates minor variations (e.g. caller
+        #    passes "Тарас Шевченко" when DB has "Шевченко Тарас Григорович").
+        #    Use MATCH on the title column only to avoid pulling large
+        #    body-text hits for short queries.
+        row = conn.execute(
+            f"""SELECT {', '.join('w.' + c.strip() for c in columns.split(','))}
+               FROM wikipedia w
+               JOIN wikipedia_fts fts ON fts.rowid = w.id
+               WHERE wikipedia_fts MATCH ?
+               ORDER BY rank, w.id LIMIT 1""",
+            ('title:"' + query.replace('"', '""') + '"',),
+        ).fetchone()
+        if row:
+            return dict(row)
+    finally:
+        if conn is not None:
+            with contextlib.suppress(Exception):
+                conn.close()
+    return None
+
+
+_WIKIPEDIA_EXTRACT_PAGE_DEFAULT = 6000
+_WIKIPEDIA_EXTRACT_PAGE_MIN = 1000
+_WIKIPEDIA_EXTRACT_PAGE_MAX = 20000
+_WIKIPEDIA_SENTENCE_ENDINGS = frozenset(".!?…")
+_WIKIPEDIA_CLOSING_QUOTES = frozenset("»\"'”")
+
+
+def _wikipedia_extract_offset(value: object) -> int | None:
+    """Return a character offset ≥ 0, or None when the argument is not one."""
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        return None
+    return value
+
+
+def _clamp_wikipedia_extract_max_chars(value: object) -> int:
+    """Clamp a page size to 1000–20000. Missing or non-integer values use 6000."""
+    number = _WIKIPEDIA_EXTRACT_PAGE_DEFAULT if isinstance(value, bool) or not isinstance(value, int) else value
+    if number < _WIKIPEDIA_EXTRACT_PAGE_MIN:
+        return _WIKIPEDIA_EXTRACT_PAGE_MIN
+    if number > _WIKIPEDIA_EXTRACT_PAGE_MAX:
+        return _WIKIPEDIA_EXTRACT_PAGE_MAX
+    return number
+
+
+def _wikipedia_full_extract_text(title: str, url: str, body: str) -> str:
+    """Cache the whole article. Paging is applied when the cache is read."""
+    article = body if isinstance(body, str) else ""
+    return "\n".join((f"# {title}", f"**URL**: {url}", "", article))
+
+
+def _split_cached_wikipedia_extract(text: str) -> tuple[str, str, str]:
+    """Split a cached extract into title, URL, and the full article body.
+
+    Entries written before paging are ``# title``, ``**URL**: ...``, a blank
+    line, then the whole article. The body is everything after that header.
+    """
+    if not isinstance(text, str):
+        text = ""
+    lines = text.split("\n")
+    index = 0
+    title = ""
+    url = ""
+    if index < len(lines) and lines[index].startswith("# "):
+        title = lines[index][2:]
+        index += 1
+    if index < len(lines) and lines[index].startswith("**URL**: "):
+        url = lines[index][len("**URL**: ") :]
+        index += 1
+    if index < len(lines) and lines[index] == "":
+        index += 1
+    return title, url, "\n".join(lines[index:])
+
+
+def _wikipedia_extract_is_break(article: str, cut: int) -> bool:
+    """True when ``cut`` ends a paragraph or a sentence (exclusive end index)."""
+    if cut <= 0 or cut > len(article):
+        return False
+    previous = article[cut - 1]
+    if previous == "\n":
+        return True
+    if not previous.isspace():
+        return False
+    if cut >= 2 and article[cut - 2] in _WIKIPEDIA_SENTENCE_ENDINGS:
+        return True
+    return (
+        cut >= 3 and article[cut - 2] in _WIKIPEDIA_CLOSING_QUOTES and article[cut - 3] in _WIKIPEDIA_SENTENCE_ENDINGS
+    )
+
+
+def _wikipedia_extract_structural_cut(article: str, offset: int, hard_end: int) -> int | None:
+    """Latest paragraph or sentence cut in the last 20% of the nominal page."""
+    span = hard_end - offset
+    tail = max(1, (span * 20) // 100)
+    window_start = hard_end - tail
+    for cut in range(hard_end, window_start, -1):
+        if _wikipedia_extract_is_break(article, cut):
+            return cut
+    return None
+
+
+def _wikipedia_extract_word_cut(article: str, offset: int, hard_end: int) -> int:
+    """Move a mid-word page end back to the start of that word.
+
+    A word longer than the whole page has no earlier boundary. The page then
+    ends at ``hard_end`` so the next offset still advances.
+    """
+    if hard_end >= len(article) or hard_end <= offset:
+        return hard_end
+    if article[hard_end - 1].isspace() or article[hard_end].isspace():
+        return hard_end
+    cut = hard_end
+    while cut > offset and not article[cut - 1].isspace():
+        cut -= 1
+    if cut == offset:
+        return hard_end
+    return cut
+
+
+def _wikipedia_extract_page_end(article: str, offset: int, max_chars: int) -> int:
+    """Exclusive end index of the page that starts at ``offset``.
+
+    The next page starts at this index, so concatenating every page reproduces
+    the article. A paragraph or sentence boundary in the last 20% of the
+    nominal page wins; otherwise the cut stays on a word boundary.
+    """
+    total = len(article)
+    hard_end = min(offset + max_chars, total)
+    if hard_end >= total:
+        return total
+    structural = _wikipedia_extract_structural_cut(article, offset, hard_end)
+    if structural is not None and structural > offset:
+        return structural
+    return _wikipedia_extract_word_cut(article, offset, hard_end)
+
+
+def _format_wikipedia_extract_page(
+    title: str,
+    url: str,
+    article: str,
+    offset: int,
+    max_chars: int,
+) -> str:
+    """Render one page of an extract. ``article`` is the full plaintext."""
+    total = len(article)
+    if offset >= total and not (offset == 0 and total == 0):
+        header = "\n".join(
+            (
+                f"# {title}",
+                f"**URL**: {url}",
+                f"**Chars**: {total}–{total} of {total}",
+                "**Next offset**: end",
+            )
+        )
+        message = f"This page is empty: offset {offset} is past the end of the article ({total} characters)."
+        return f"{header}\n\n{message}"
+    end = _wikipedia_extract_page_end(article, offset, max_chars)
+    next_offset = "end" if end >= total else str(end)
+    header = "\n".join(
+        (
+            f"# {title}",
+            f"**URL**: {url}",
+            f"**Chars**: {offset}–{end} of {total}",
+            f"**Next offset**: {next_offset}",
+        )
+    )
+    return f"{header}\n\n{article[offset:end]}"
+
+
+WIKIPEDIA_UNAVAILABLE_PREFIX = "Wikipedia UNAVAILABLE"
+
+
+async def handle_query_wikipedia_cached(args: dict) -> list[TextContent]:
+    from rag.wiki_cache import read_cached
+
+    query, mode = args.get("query"), args.get("mode", "summary")
+    limit, section = args.get("limit", 5), args.get("section")
+    offset = _wikipedia_extract_offset(args.get("offset", 0))
+    if (
+        not isinstance(query, str) or not query.strip()
+        or mode not in {"summary", "search", "extract", "sections", "section"}
+        or type(limit) is not int or limit < 1 or offset is None
+        or (mode == "section" and (type(section) is not int or section < 0))
+    ):
+        return [TextContent(type="text", text=json.dumps({"status": "invalid_input"}))]
+    key_section = f"q={query}&limit={limit}" if mode == "search" else str(section) if mode == "section" else ""
+    result = await asyncio.to_thread(read_cached, mode, query, key_section)
+    if mode == "extract" and result["status"] == "hit":
+        title, url, body = _split_cached_wikipedia_extract(result["response"])
+        if not title or not url or not body.strip():
+            result.update(status="unavailable", response=None)
+    if mode == "extract" and result["status"] not in {"hit", "negative"}:
+        import sqlite3
+
+        try:
+            article = await asyncio.to_thread(_lookup_wikipedia_in_db, query, include_provenance=True)
+        except (OSError, sqlite3.Error):
+            result["status"] = "unavailable"
+        else:
+            if article is not None:
+                if not all(isinstance(article.get(k), str) and article[k].strip() for k in ("title", "url", "text", "fetched_at")):
+                    result["status"] = "unavailable"
+                else:
+                    response = _wikipedia_full_extract_text(article["title"], article["url"], article["text"])
+                    result.update(
+                        status="hit", store="sources.db", matched_title=article["title"],
+                        source_url=article["url"], fetched_at=article["fetched_at"], expires_at=None,
+                        response=response, response_sha256=hashlib.sha256(response.encode()).hexdigest(),
+                    )
+    if mode == "extract" and result["status"] == "hit":
+        title, url, body = _split_cached_wikipedia_extract(result["response"])
+        if offset >= len(body) or not body[offset:].strip():
+            result.update(status="unavailable", response=None)
+        else:
+            response = _format_wikipedia_extract_page(title, url, body, offset, _clamp_wikipedia_extract_max_chars(args.get("max_chars", 6000)))
+            result.update(
+                matched_title=title, source_url=url, response=response,
+                cache_response_sha256=result["response_sha256"], response_sha256=hashlib.sha256(response.encode()).hexdigest(),
+            )
+    return [TextContent(type="text", text=json.dumps(result, ensure_ascii=False))]
+
+
+async def handle_query_wikipedia(args: dict) -> list[TextContent]:
+    """Wikipedia lookup; an outage is reported as unavailable and never cached as a miss (#9005)."""
+    from rag.source_query import WikipediaUnavailableError
+
+    try:
+        return await _query_wikipedia(args)
+    except WikipediaUnavailableError as exc:
+        return [
+            TextContent(
+                type="text",
+                text=f"{WIKIPEDIA_UNAVAILABLE_PREFIX} for: '{args.get('query', '')}' ({exc}) — Wikipedia could "
+                "not be reached; this is not a negative result and was not cached (#9005).",
+            )
+        ]
+
+
+async def _query_wikipedia(args: dict) -> list[TextContent]:
+    from rag.wiki_cache import WikiCache
+
+    cache = WikiCache()
+    try:
+        return await _query_wikipedia_cached(args, cache)
+    finally:
+        cache.close()
+
+
+async def _query_wikipedia_cached(args: dict, cache: Any) -> list[TextContent]:
+    mode = args.get("mode", "summary")
+    query = args["query"]
+    limit = args.get("limit", 5)
+    section_idx = args.get("section")
+    force_refresh = args.get("force_refresh", False)
+
+    from functools import partial
+
+    from rag import source_query as _sq
+
+    # Every live fetch raises on an outage, so no negative-cache write below can record one (#9005).
+    wikipedia_extract = partial(_sq.wikipedia_extract, raise_unavailable=True)
+    wikipedia_search = partial(_sq.wikipedia_search, raise_unavailable=True)
+    wikipedia_section_text = partial(_sq.wikipedia_section_text, raise_unavailable=True)
+    wikipedia_sections = partial(_sq.wikipedia_sections, raise_unavailable=True)
+    wikipedia_summary = partial(_sq.wikipedia_summary, raise_unavailable=True)
+
+    if mode == "search":
+        # Search results use short TTL (24h) — cached separately
+        cache_key_section = f"q={query}&limit={limit}"
+        if not force_refresh:
+            cached = cache.get("search", query, cache_key_section)
+            if cached is not None:
+                if cache.is_negative(cached):
+                    return [TextContent(type="text", text=f"No Wikipedia results for: '{query}' (cached)")]
+                return [TextContent(type="text", text=cached)]
+
+        results = await asyncio.to_thread(wikipedia_search, query, limit)
+        if not results:
+            cache.put_negative("search", query, cache_key_section)
+            return [TextContent(type="text", text=f"No Wikipedia results for: '{query}'")]
+        lines = [f"Wikipedia search: '{query}' — {len(results)} results\n"]
+        for i, r in enumerate(results, 1):
+            lines.append(f"{i}. **{r['title']}** — {r['snippet']}")
+        text = "\n".join(lines)
+        cache.put("search", query, text, cache_key_section)
+        return [TextContent(type="text", text=text)]
+
+    elif mode == "extract":
+        offset = _wikipedia_extract_offset(args.get("offset", 0))
+        if offset is None:
+            return [TextContent(type="text", text="offset must be an integer ≥ 0.")]
+        max_chars = _clamp_wikipedia_extract_max_chars(args.get("max_chars", _WIKIPEDIA_EXTRACT_PAGE_DEFAULT))
+
+        def _page(title: str, url: str, article: str) -> list[TextContent]:
+            return [
+                TextContent(
+                    type="text",
+                    text=_format_wikipedia_extract_page(title, url, article, offset, max_chars),
+                )
+            ]
+
+        if not force_refresh:
+            cached = cache.get("extract", query)
+            if cached is not None:
+                if cache.is_negative(cached):
+                    return [TextContent(type="text", text=f"Wikipedia article not found: '{query}' (cached)")]
+                title, url, article = _split_cached_wikipedia_extract(cached)
+                return _page(title, url, article)
+
+            # Persistent DB cache hit (#1170): pre-ingested wikipedia table in
+            # sources.db serves as a long-lived, curated cache. If the query
+            # maps to an already-fetched article we return it without an API
+            # round trip AND without touching the file cache — the DB is the
+            # source of truth for batch-ingested entries.
+            db_hit = _lookup_wikipedia_in_db(query)
+            if db_hit is not None:
+                article = db_hit["text"] if isinstance(db_hit["text"], str) else ""
+                cache.put(
+                    "extract",
+                    query,
+                    _wikipedia_full_extract_text(db_hit["title"], db_hit["url"], article),
+                )
+                return _page(db_hit["title"], db_hit["url"], article)
+
+        result = await asyncio.to_thread(wikipedia_extract, query)
+        if not result:
+            cache.put_negative("extract", query)
+            return [TextContent(type="text", text=f"Wikipedia article not found: '{query}'")]
+        article = result["extract"] if isinstance(result["extract"], str) else ""
+        cache.put(
+            "extract",
+            query,
+            _wikipedia_full_extract_text(result["title"], result["url"], article),
+        )
+        return _page(result["title"], result["url"], article)
+
+    elif mode == "sections":
+        if not force_refresh:
+            cached = cache.get("sections", query)
+            if cached is not None:
+                if cache.is_negative(cached):
+                    return [TextContent(type="text", text=f"Wikipedia article not found: '{query}' (cached)")]
+                return [TextContent(type="text", text=cached)]
+
+        result = await asyncio.to_thread(wikipedia_sections, query)
+        if not result:
+            cache.put_negative("sections", query)
+            return [TextContent(type="text", text=f"Wikipedia article not found or has no sections: '{query}'")]
+        lines = [f"Sections of '{query}':\n"]
+        for s in result:
+            indent = "  " * (int(s.get("toclevel", 1)) - 1)
+            lines.append(f"{indent}{s.get('number', '')} {s.get('line', '')} (index={s.get('index', '')})")
+        text = "\n".join(lines)
+        cache.put("sections", query, text)
+        return [TextContent(type="text", text=text)]
+
+    elif mode == "section":
+        if section_idx is None:
+            return [
+                TextContent(
+                    type="text",
+                    text="Error: 'section' parameter required for mode='section'. Use mode='sections' to get indices.",
+                )
+            ]
+
+        sec_str = str(section_idx)
+        if not force_refresh:
+            cached = cache.get("section", query, sec_str)
+            if cached is not None:
+                if cache.is_negative(cached):
+                    return [TextContent(type="text", text=f"Section {section_idx} not found in '{query}' (cached)")]
+                return [TextContent(type="text", text=cached)]
+
+        result = await asyncio.to_thread(wikipedia_section_text, query, section_idx)
+        if not result:
+            cache.put_negative("section", query, sec_str)
+            return [TextContent(type="text", text=f"Section {section_idx} not found in '{query}'")]
+        lines = [
+            f"# {result['title']} — Section {section_idx}",
+            "",
+            result["text"],
+        ]
+        text = "\n".join(lines)
+        cache.put("section", query, text, sec_str)
+        return [TextContent(type="text", text=text)]
+
+    else:  # summary (default)
+        if not force_refresh:
+            cached = cache.get("summary", query)
+            if cached is not None:
+                if cache.is_negative(cached):
+                    return [TextContent(type="text", text=f"Wikipedia article not found: '{query}' (cached)")]
+                return [TextContent(type="text", text=cached)]
+
+        result = await asyncio.to_thread(wikipedia_summary, query)
+        if not result:
+            cache.put_negative("summary", query)
+            return [TextContent(type="text", text=f"Wikipedia article not found: '{query}'")]
+        lines = [
+            f"# {result['title']}",
+            f"**Description**: {result['description']}",
+            f"**URL**: {result['url']}",
+            "",
+            result["extract"],
+        ]
+        text = "\n".join(lines)
+        cache.put("summary", query, text)
+        return [TextContent(type="text", text=text)]
+
+
+async def handle_query_grac(args: dict) -> list[TextContent]:
+    query = args["query"]
+    mode = args.get("mode", "frequency")
+    limit = args.get("limit", 10)
+
+    from rag.source_query import (
+        grac_collocations,
+        grac_concordance,
+        grac_frequency,
+        grac_lemma_frequency,
+    )
+
+    cache_only = bool(args.get("cache_only"))
+    if cache_only:
+        # Concordance/collocations have no local snapshot. Frequency misses
+        # may be below the floor or outside a partial ingest: never report zero.
+        query_fn = {"frequency": grac_frequency, "lemma_forms": grac_lemma_frequency}.get(mode)
+        result = await asyncio.to_thread(query_fn, query, cache_only=True) if query_fn else None
+        payload = {"status": "attested" if result is not None else "unavailable", "entry": result}
+        if result is None:
+            payload["note"] = "No local snapshot entry for this mode/query; frequency absence is not zero."
+        return [TextContent(type="text", text=json.dumps(payload, ensure_ascii=False))]
+
+    def source_note(result: dict) -> str:
+        if result.get("source") == "local_snapshot":
+            return (
+                f"Source: local GRAC snapshot, corpus {result['corpus']}, "
+                f"retrieved {result['retrieved_at']}, API {result['api_version']}, "
+                f"Manatee {result['manatee_version']}, minimum frequency {result['min_freq']}"
+            )
+        return "Source: live GRAC"
+
+    grac_unavailable_text = (
+        f"GRAC (uacorpus.org) is unavailable for '{query}' (network/HTTP failure "
+        "or no exact frequency entry returned). Treat as unknown, not a negative — do not cite this "
+        "as a zero-frequency or no-results finding."
+    )
+
+    if mode == "frequency":
+        result = await asyncio.to_thread(grac_frequency, query)
+        if result is None:
+            return [TextContent(type="text", text=grac_unavailable_text)]
+        return [
+            TextContent(
+                type="text",
+                text=(
+                    f"**{result['word']}**: frequency = {result['freq']:,}, "
+                    f"relative = {result['rel_freq']:.2f} per million\n{source_note(result)}"
+                ),
+            )
+        ]
+
+    elif mode == "lemma_forms":
+        result = await asyncio.to_thread(grac_lemma_frequency, query)
+        if result is None:
+            return [TextContent(type="text", text=grac_unavailable_text)]
+        lines = [f"Lemma '{result['lemma']}' — total frequency: {result['total_freq']:,}\n"]
+        lines.append(source_note(result))
+        if result.get("forms_available") is False:
+            lines.append("Form breakdown unavailable in the local frequency snapshot.")
+        for form in result["forms"][:limit]:
+            lines.append(f"- {form['word']}: {form['freq']:,} ({form['pct']:.1f}%)")
+        return [TextContent(type="text", text="\n".join(lines))]
+
+    elif mode == "concordance":
+        results = await asyncio.to_thread(grac_concordance, query, limit)
+        if results is None:
+            return [TextContent(type="text", text=grac_unavailable_text)]
+        if not results:
+            return [TextContent(type="text", text=f"No concordance results for: '{query}'")]
+        lines = [f"Concordance for '{query}' — {len(results)} lines\n"]
+        for r in results:
+            lines.append(f"...{r['left']} **{r['kwic']}** {r['right']}...")
+        return [TextContent(type="text", text="\n".join(lines))]
+
+    else:  # collocations
+        results = await asyncio.to_thread(grac_collocations, query, limit=limit)
+        if results is None:
+            return [TextContent(type="text", text=grac_unavailable_text)]
+        if not results:
+            return [TextContent(type="text", text=f"No collocations found for: '{query}'")]
+        lines = [f"Collocations for '{query}' — {len(results)} results\n"]
+        for r in results:
+            lines.append(f"- **{r['word']}**: freq={r['freq']:,}, score={r['score']:.2f}")
+        return [TextContent(type="text", text="\n".join(lines))]
+
+
+def _ulif_local_copy_line(local_copy: dict) -> str:
+    """One-line citation of the forms build receipt behind a ULIF answer."""
+    return (
+        f"Local ULIF copy: forms build {local_copy.get('state')}, finished_at "
+        f"{local_copy.get('finished_at') or '-'}, parser_version {local_copy.get('parser_version') or '-'}, "
+        f"source_fingerprint {local_copy.get('source_fingerprint') or '-'}, entries "
+        f"{local_copy.get('entries_done', 0):,}/{local_copy.get('total_entries', 0):,} built, "
+        f"{local_copy.get('entries_failed', 0):,} recorded build failures."
+    )
+
+
+def _ulif_failure_note(failure: dict | None) -> str:
+    if not failure:
+        return "not one of the recorded forms build failures"
+    return f"a recorded forms build failure ({failure.get('reason')}, {failure.get('locator')})"
+
+
+def _ulif_miss_text(word: str, result: dict) -> str:
+    """Plain-text rendering of a ULIF miss: authoritative, or an incomplete local copy."""
+    local_copy = result.get("local_copy") or {}
+    if result.get("status") == "unavailable":
+        return (
+            f"ULIF local copy cannot decide '{word}' ({result.get('reason')}). Treat as unknown, "
+            "not a negative.\n" + (_ulif_local_copy_line(local_copy) if local_copy else "")
+        ).rstrip()
+    lines = [
+        f"No ULIF entry found for: '{word}'. Authoritative miss: the word is not a headword of "
+        f"the complete local DictUA copy and is {_ulif_failure_note(None)}.",
+    ]
+    owners = result.get("inflected_form_of") or []
+    if owners:
+        heads = ", ".join(
+            f"{owner.get('canonical_headword')} (entry {owner.get('entry_id')})" for owner in owners
+        )
+        lines.append(f"'{word}' is an inflected form of: {heads}.")
+    lines.append(_ulif_local_copy_line(local_copy))
+    return "\n".join(lines)
+
+
+async def _query_ulif_local(word: str, sections) -> dict | list[TextContent]:
+    """Run the local ULIF lookup, or return the missing-database reply."""
+    from scripts.storage.topology import ActiveDatabaseNetworkError
+    from wiki.sources_db import _read_db_path, query_ulif_local
+
+    try:
+        _read_db_path()
+    except ActiveDatabaseNetworkError:
+        return [TextContent(type="text", text="Sources database not found.")]
+    return await asyncio.to_thread(query_ulif_local, word, sections)
+
+
+async def handle_query_ulif(args: dict) -> list[TextContent]:
+    word = args["word"]
+    if "sections" in args:
+        result = await _query_ulif_local(word, args["sections"])
+        if isinstance(result, list):
+            return result
+        return [TextContent(type="text", text=json.dumps(result, ensure_ascii=False, indent=2))]
+
+    result = await _query_ulif_local(word, ("paradigm",))
+    if isinstance(result, list):
+        return result
+    status = result.get("status")
+    if status == "ambiguous":
+        lines = [f"Ambiguous ULIF spelling '{word}':"]
+        for item in result.get("entries", []):
+            gloss = item.get("sense_gloss") or ""
+            label = item.get("grammatical_label") or ""
+            detail = " ".join(part for part in (label, gloss) if part)
+            failure = item.get("forms_build_failure")
+            lines.append(
+                f"- {item.get('homonym_index')}: {item.get('canonical_headword', '')}"
+                + (f" {detail}" if detail else "")
+                + (f" [{_ulif_failure_note(failure)}]" if failure else "")
+            )
+        return [TextContent(type="text", text="\n".join(lines))]
+    if status in {"not_found", "unavailable"}:
+        return [TextContent(type="text", text=_ulif_miss_text(word, result))]
+
+    paradigm = result.get("sections", {}).get("paradigm")
+    rows = paradigm.get("rows") if isinstance(paradigm, dict) else None
+    if not isinstance(rows, list) or not rows:
+        headword = result.get("canonical_headword") or word
+        return [TextContent(type="text", text=(
+            f"No ULIF paradigm found for: '{word}'. The headword {headword} exists in the local "
+            f"DictUA copy (status {status}) without a paradigm table; it is "
+            f"{_ulif_failure_note(result.get('forms_build_failure'))}."
+        ))]
+    lines = [f"Paradigm for '{word}':\n"]
+    for row in rows:
+        lines.append(" | ".join(cell for cell in row))
+    return [TextContent(type="text", text="\n".join(lines))]
+
+
+def _render_ulif_relation_records(records: list[dict], kind: str) -> str:
+    """Label each homonym and keep its nested relation groups."""
+    blocks: list[str] = []
+    for record in records:
+        head = str(record.get("canonical_headword") or record.get("word") or "")
+        gloss = str(record.get("sense_gloss") or "").strip()
+        index = record.get("homonym_index")
+        title = f"{index}: {head}" if index else head
+        if gloss:
+            title = f"{title} {gloss}"
+        sections = record.get("sections")
+        payload = sections.get(kind) if isinstance(sections, dict) else None
+        blocks.append(f"{title}\n{json.dumps(payload, ensure_ascii=False, indent=2)}")
+    return "\n\n".join(blocks)
+
+
+async def _handle_ulif_relation(word: str, kind: str) -> list[TextContent]:
+    """Render every checked homonym that has *kind*, or the single local record."""
+    result = await _query_ulif_local(word, (kind,))
+    if isinstance(result, list):
+        return result
+    if result.get("status") == "ambiguous":
+        from wiki.sources_db import search_ulif_dictua_sections
+
+        records = await asyncio.to_thread(search_ulif_dictua_sections, result["normalized_query"], kind)
+        records = [record for record in records if record.get("homonym_checked") == 1]
+        if records:
+            return [TextContent(type="text", text=_render_ulif_relation_records(records, kind))]
+    return [TextContent(type="text", text=json.dumps(result, ensure_ascii=False, indent=2))]
+
+
+async def handle_query_ulif_synonyms(args: dict) -> list[TextContent]:
+    return await _handle_ulif_relation(args["word"], "synonyms")
+
+
+async def handle_query_ulif_antonyms(args: dict) -> list[TextContent]:
+    return await _handle_ulif_relation(args["word"], "antonyms")
+
+
+async def handle_query_ulif_phraseology(args: dict) -> list[TextContent]:
+    return await _handle_ulif_relation(args["word"], "phraseology")
+
+
+async def handle_query_ulif_records(args: dict) -> list[TextContent]:
+    from scripts.lexicon.runner.ulif_dictua_parse import strip_raw_html
+    from scripts.storage.topology import ActiveDatabaseNetworkError
+    from wiki.sources_db import (
+        ULIF_DICTUA_ATTRIBUTION_LABEL,
+        ULIF_DICTUA_OFFICIAL_URL,
+        ULIF_DICTUA_SOURCE_ID,
+        _read_db_path,
+        get_ulif_word_records,
+        read_ulif_local_copy,
+    )
+
+    try:
+        _read_db_path()
+    except ActiveDatabaseNetworkError:
+        return [TextContent(type="text", text="Sources database not found.")]
+
+    words = args.get("words") if isinstance(args, dict) else None
+    if isinstance(words, str):
+        words = [words]
+    if not isinstance(words, list) or not words or not all(isinstance(w, str) for w in words):
+        payload = {
+            "status": "error",
+            "error_code": "invalid_input",
+            "error": "invalid_input: words must be a nonempty list of strings. Expected arguments: words.",
+            "expected_arguments": ["words"],
+        }
+        return [TextContent(type="text", text=json.dumps(payload, ensure_ascii=False))]
+
+    detail = str(args.get("detail") or "full").lower()
+    if detail not in {"full", "compact"}:
+        payload = {
+            "status": "error",
+            "error_code": "invalid_input",
+            "error": f"invalid_input: detail must be 'full' or 'compact', got {detail!r}.",
+            "expected_arguments": ["words", "detail"],
+        }
+        return [TextContent(type="text", text=json.dumps(payload, ensure_ascii=False))]
+
+    warning = None
+    if len(words) > 200:
+        warning = f"Requested {len(words)} words; truncated to maximum 200 words."
+        words = words[:200]
+
+    records = await asyncio.to_thread(get_ulif_word_records, words)
+    if detail == "compact":
+        records = strip_raw_html(records)
+
+    response: dict[str, Any] = {
+        "source": {
+            "source_id": ULIF_DICTUA_SOURCE_ID,
+            "official_url": ULIF_DICTUA_OFFICIAL_URL,
+            "attribution_label": ULIF_DICTUA_ATTRIBUTION_LABEL,
+        },
+        "local_copy": await asyncio.to_thread(read_ulif_local_copy),
+        "detail": detail,
+        "record_count": len(records),
+        "records": records,
+    }
+    if detail == "compact":
+        response["detail_note"] = "Compact detail drops only raw_html keys from section payloads."
+    if warning:
+        response["warning"] = warning
+
+    return [TextContent(type="text", text=json.dumps(response, ensure_ascii=False))]
+
+
+async def handle_query_r2u(args: dict) -> list[TextContent]:
+    word = args["word"]
+
+    from rag.source_query import R2ULookupStatus, r2u_translate_with_status
+
+    status, results = await asyncio.to_thread(r2u_translate_with_status, word)
+
+    if status == R2ULookupStatus.SOURCE_UNAVAILABLE:
+        return [
+            TextContent(
+                type="text",
+                text=(
+                    f"r2u.org.ua is unavailable for '{word}' (network error or HTTP "
+                    "failure). Treat as unknown, not a negative — do not cite this "
+                    "as 'no translation'."
+                ),
+            )
+        ]
+
+    if not results:
+        return [TextContent(type="text", text=f"No r2u translation found for: '{word}'")]
+
+    lines = [f"Russian→Ukrainian translations for '{word}':\n"]
+    for entry in results[:10]:
+        lines.append(f"- **{entry['headword']}**: {entry['translation'][:200]}")
+    return [TextContent(type="text", text="\n".join(lines))]
+
+
+async def handle_query_e2u(args: dict) -> list[TextContent]:
+    word = args["word"]
+
+    from rag.source_query import E2ULookupStatus, e2u_translate_with_status
+
+    status, results = await asyncio.to_thread(e2u_translate_with_status, word)
+
+    if status == E2ULookupStatus.SOURCE_UNAVAILABLE:
+        return [
+            TextContent(
+                type="text",
+                text=(
+                    f"e2u.org.ua is unavailable for '{word}' (network error or HTTP "
+                    "failure). Treat as unknown, not a negative — do not cite this "
+                    "as 'no translation'."
+                ),
+            )
+        ]
+
+    if not results:
+        return [TextContent(type="text", text=f"No e2u translation found for: '{word}'")]
+
+    lines = [f"English→Ukrainian translations for '{word}' (e2u.org.ua):\n"]
+    for entry in results[:10]:
+        lines.append(f"- **{entry['headword']}**: {entry['translation'][:200]}")
+    return [TextContent(type="text", text="\n".join(lines))]
+
+
+async def handle_query_sum20(args: dict) -> list[TextContent]:
+    """Read every exact-match СУМ-20 article from sources.db: official, then served mirror rows."""
+    word = args.get("word") if isinstance(args, dict) else None
+    if not isinstance(word, str) or not word.strip():
+        payload = {
+            "tool": "query_sum20",
+            "status": "error",
+            "error_code": "invalid_input",
+            "error": "invalid_input: word is required. Expected arguments: word.",
+            "expected_arguments": ["word"],
+        }
+        return [TextContent(type="text", text=json.dumps(payload, ensure_ascii=False))]
+    word = word.strip()
+
+    from wiki import sources_db as sdb
+
+    records = await asyncio.to_thread(sdb.query_sum20, word)
+    if not records:
+        return [
+            TextContent(
+                type="text",
+                text=(
+                    f"No official offline СУМ-20 entry is currently ingested for '{word}'. "
+                    "This tool does not make a live request or use a fallback source."
+                ),
+            )
+        ]
+
+    if records[0].get("source_role") == "mirror":
+        lines = [f"**СУМ-20 mirror entries for '{word}'** (slovnyk.me copy; no official record is served)"]
+    else:
+        lines = [f"**Official СУМ-20 entries for '{word}'**"]
+    for record in records:
+        if record.get("source_role") == "mirror":
+            # Imported mirror rows (sum20-mirror-rule-v1): provenance first, then the verbatim article.
+            lines.extend(
+                [
+                    "",
+                    f"**{record['stressed_headword'] or record['headword']}** — mirror · {record['official_relation']}",
+                    f"**Source**: {record['attribution_label']}",
+                    f"**URL**: {record['source_url']}",
+                    (
+                        f"**Record**: {record['mirror']} · retrieved {record['retrieved_at']} · "
+                        f"sha256 {record['content_sha256']} · {record['rule_version']}"
+                    ),
+                    record["article_text"],
+                ]
+            )
+            continue
+        lines.extend(
+            [
+                "",
+                f"**{record['stressed_headword']}** ({record['pos'] or record['grammar']})",
+                f"**Source**: {record['attribution_label']}",
+                f"**URL**: {record['official_url']}",
+                (
+                    f"**Record**: {record['source_record_id']} · retrieved "
+                    f"{record['retrieved_at']} · sha256 {record['content_sha256']} · "
+                    f"{record['parser_version']} · {record['status']}"
+                ),
+            ]
+        )
+        for sense in record["senses"]:
+            labels = ", ".join(sense["register_labels"])
+            prefix = f"{labels} " if labels else ""
+            lines.append(f"{sense['sense_order']}. {prefix}{sense['definition']}")
+        for citation in record["citations"]:
+            fields = citation["parsed_bib_fields"]
+            source = fields.get("author") or fields.get("source")
+            suffix = f" ({source})" if source else ""
+            lines.append(f"— {citation['citation_text']}{suffix}")
+    return [TextContent(type="text", text="\n".join(lines))]
+
+
+async def handle_query_slovnyk_me(args: dict) -> list[TextContent]:
+    """Live single-query lookup against slovnyk.me — multi-dictionary.
+
+    Per-query live fetch with citation. NO bulk crawl, NO DB persist.
+    License posture: slovnyk.me © notice plus third-party source rights;
+    per-query lookup with attribution only. Issue: #1667.
+    """
+    word = args["word"]
+    dict_slug = args.get("dict", "vts")
+
+    from rag.source_query import SLOVNYK_ME_DICTS, resolve_slovnyk_me_dict_slug, slovnyk_me_lookup
+
+    canonical_slug = resolve_slovnyk_me_dict_slug(dict_slug)
+    if canonical_slug == "newsum":
+        return await handle_query_sum20(args)
+    if canonical_slug not in SLOVNYK_ME_DICTS:
+        valid = ", ".join(sorted(SLOVNYK_ME_DICTS.keys()))
+        return [
+            TextContent(
+                type="text",
+                text=(f"Unknown dictionary slug '{dict_slug}'. Valid options: {valid}"),
+            )
+        ]
+
+    result = await asyncio.to_thread(slovnyk_me_lookup, word, canonical_slug)
+    status = result.get("status", "found") if isinstance(result, dict) else "not_found"
+
+    if status == "unavailable":
+        detail_bits = []
+        if result.get("challenge"):
+            detail_bits.append("Cloudflare challenge detected")
+        if result.get("http_status") is not None:
+            detail_bits.append(f"HTTP {result['http_status']}")
+        if result.get("reason") and not result.get("challenge"):
+            detail_bits.append(result["reason"])
+        detail = f" ({'; '.join(detail_bits)})" if detail_bits else ""
+        payload = {
+            "status": "unavailable",
+            "word": word,
+            "dict": canonical_slug,
+            "http_status": result.get("http_status"),
+            "challenge": bool(result.get("challenge")),
+        }
+        return [
+            TextContent(
+                type="text",
+                text=(
+                    f"slovnyk.me/{canonical_slug} ({SLOVNYK_ME_DICTS[canonical_slug]}) is "
+                    f"unavailable for '{word}'{detail}. Treat as unknown, not a negative — "
+                    "do not cite this as 'no entry'.\n"
+                    f"{json.dumps(payload, ensure_ascii=False)}"
+                ),
+            )
+        ]
+
+    if status != "found" or "text" not in result:
+        return [
+            TextContent(
+                type="text",
+                text=(
+                    f"No entry found for '{word}' in slovnyk.me/{canonical_slug} ({SLOVNYK_ME_DICTS[canonical_slug]})."
+                ),
+            )
+        ]
+
+    notice = f"verification_authority: false. {SUM11_AUTHORITY_NOTICE}\n" if canonical_slug == "sum" else ""
+    return [
+        TextContent(
+            type="text",
+            text=(
+                f"**{result['dict_label']} — entry for '{word}'**\n"
+                f"{notice}"
+                f"**URL**: {result['url']}\n"
+                f"**Source**: slovnyk.me (per-query live fetch, © Slovnyk.me)\n\n"
+                f"{result['text'][:3000]}"
+            ),
+        )
+    ]
+
+
+async def handle_query_pravopys(args: dict):
+    topic = args.get("topic") if isinstance(args, dict) else None
+    if not isinstance(topic, str) or not topic.strip():
+        prose = "invalid_input: topic is required. Expected arguments: topic."
+        envelope = build_search_envelope(
+            tool="query_pravopys",
+            query={"topic": topic},
+            hits=[],
+            summary_prose=prose,
+            status="error",
+            error_code="invalid_input",
+        )
+        return [TextContent(type="text", text=prose)], envelope
+    topic = topic.strip()
+    query_obj = {"topic": topic}
+
+    from rag.source_query import pravopys_lookup, pravopys_offline, pravopys_section
+
+    # #9610: the official authorized text stored in sources.db answers first; the
+    # unofficial live site is only a fallback when no complete official copy is stored.
+    offline = await asyncio.to_thread(pravopys_offline, topic)
+    if offline is None or offline.get("status") == "ok":
+        return _pravopys_offline_response(topic, query_obj, offline)
+    fallback_reason = offline.get("reason", "unknown")
+
+    number = topic.lstrip("§").strip()
+    if number.isdigit():
+        result = await asyncio.to_thread(pravopys_section, int(number), report_unavailable=True)
+    else:
+        result = await asyncio.to_thread(pravopys_lookup, topic, report_unavailable=True)
+
+    if isinstance(result, dict) and result.get("status") == "unavailable":
+        prose = (
+            f"Pravopys UNAVAILABLE for: '{topic}' (section {result.get('section')}, {result.get('reason')}) — "
+            "the site could not be reached; this is not a negative result (#9005)."
+        )
+        envelope = build_search_envelope(
+            tool="query_pravopys",
+            query=query_obj,
+            hits=[],
+            summary_prose=prose,
+            status="error",
+            error_code="source_unavailable",
+        )
+        return [TextContent(type="text", text=prose)], envelope
+
+    if not result:
+        prose = f"No pravopys section found for: '{topic}'"
+        envelope = build_search_envelope(tool="query_pravopys", query=query_obj, hits=[], summary_prose=prose)
+        return [TextContent(type="text", text=prose)], envelope
+
+    lines = [
+        f"**Pravopys section {result['section']}**",
+        f"**URL**: {result['url']}",
+        "**Source**: 2019.pravopys.net — unofficial copy, live fallback "
+        f"(the official text is not stored offline: {fallback_reason})",
+        "",
+        result["text"][:3000],
+    ]
+    prose = "\n".join(lines)
+    envelope = build_search_envelope(tool="query_pravopys", query=query_obj, hits=[result], summary_prose=prose)
+    return [TextContent(type="text", text=prose)], envelope
+
+
+_PRAVOPYS_OFFLINE_MAX_CHARS = 6000
+
+
+def _pravopys_offline_response(topic: str, query_obj: dict, result: dict | None):
+    """Render a § of the official 2019 text read from sources.db (#9610)."""
+    if result is None:
+        prose = f"No pravopys section found for: '{topic}'"
+        envelope = build_search_envelope(tool="query_pravopys", query=query_obj, hits=[], summary_prose=prose)
+        return [TextContent(type="text", text=prose)], envelope
+    text = result["text"]
+    shown = text[:_PRAVOPYS_OFFLINE_MAX_CHARS]
+    title = f". {result['title']}" if result["title"] else ""
+    lines = [
+        f"**Український правопис (2019), § {result['section']}{title}**",
+        f"**Locator**: {result['locator']}",
+        "**Source**: official authorized edition (Наукова думка, 2019), stored offline in sources.db — "
+        f"{result['url']} (sha256 {result['file_sha256'][:12]}…, retrieved {result['retrieved_at']})",
+    ]
+    if result["section_path"]:
+        lines.append(f"**Section**: {' › '.join(result['section_path'])}")
+    others = result.get("other_matches") or []
+    if others:
+        lines.append(
+            "**Other matches**: " + "; ".join(f"§ {m['section']} {m['title']}".strip() for m in others)
+        )
+    lines += ["", shown]
+    if len(shown) < len(text):
+        lines.append(f"\n… [truncated: {len(shown)} of {len(text)} characters of § {result['section']}]")
+    prose = "\n".join(lines)
+    hit = {key: value for key, value in result.items() if key != "text_normalized"}
+    envelope = build_search_envelope(tool="query_pravopys", query=query_obj, hits=[hit], summary_prose=prose)
+    return [TextContent(type="text", text=prose)], envelope
+
+
+def _quote_balanced_clip(text: str, max_chars: int = 500) -> str:
+    """Clip text to approximately max_chars without splitting Ukrainian guillemets (« »)."""
+    if len(text) <= max_chars:
+        return text
+
+    prefix = text[:max_chars]
+    clipped = prefix.rstrip()
+
+    if prefix.count("«") > prefix.count("»"):
+        # We are inside an unclosed « quote. Look ahead for the closing »
+        close_pos = text.find("»", max_chars)
+        if close_pos != -1 and (close_pos - max_chars) <= 120:
+            clipped = text[: close_pos + 1].rstrip()
+
+        # If lookahead was not possible or still left unclosed quotes,
+        # iteratively trim from the last « until quotes are balanced.
+        while clipped.count("«") > clipped.count("»"):
+            last_open = clipped.rfind("«")
+            if last_open == -1:
+                break
+            clipped = clipped[:last_open].rstrip()
+
+    if len(clipped) < len(text) and not clipped.endswith(("…", "...")):
+        clipped = clipped + "…"
+    return clipped
+
+
+async def handle_dict_search(args: dict, collection: str, label: str):
+    """Generic handler for dictionary/reference collection searches — uses SQLite."""
+    query = args.get("query", args.get("word", ""))
+    limit = min(args.get("limit", 3), 10)
+    tool_name = {
+        "style_guide": "search_style_guide",
+        "sum11": "search_definitions",
+        "frazeolohichnyi": "search_idioms",
+        "ukrajinet": "search_synonyms",
+    }.get(collection, f"dict:{collection}")
+    query_obj = {"query": query, "limit": limit, "collection": collection, "label": label}
+
+    # Map old Qdrant collection names to sources_db functions
+    from wiki import sources_db as sdb
+
+    _LOOKUP = {
+        "style_guide": sdb.search_style_guide,
+        "puls_cefr": sdb.query_cefr_level,
+        "sum11": sdb.search_definitions,
+        "grinchenko_dict": sdb.search_grinchenko_1907,
+        "frazeolohichnyi": sdb.search_idioms,
+        "ukrajinet": sdb.search_synonyms,
+        "balla_en_uk": sdb.translate_en_uk,
+    }
+
+    func = _LOOKUP.get(collection)
+    if not func:
+        prose = f"Unknown collection: {collection}"
+        envelope = build_search_envelope(
+            tool=tool_name,
+            query=query_obj,
+            hits=[],
+            summary_prose=prose,
+            status="error",
+            error_code="unknown_collection",
+        )
+        return [TextContent(type="text", text=prose)], envelope
+
+    hits = await asyncio.to_thread(func, query, limit)
+
+    if not hits:
+        prose = f'No results in {label} for: "{query}"'
+        if collection == "sum11":
+            prose = f"{SUM11_AUTHORITY_NOTICE}\n{prose}"
+        envelope = build_search_envelope(tool=tool_name, query=query_obj, hits=[], summary_prose=prose)
+        return [TextContent(type="text", text=prose)], envelope
+
+    lines = [f'Found {len(hits)} results in **{label}** for: "{query}"\n']
+    if collection == "sum11":
+        lines.append(f"verification_authority: false. {SUM11_AUTHORITY_NOTICE}\n")
+        hits = [{**hit, "verification_authority": False, "notice": SUM11_AUTHORITY_NOTICE} for hit in hits]
+    for i, hit in enumerate(hits, 1):
+        lines.append(f"### Result {i}")
+        if collection == "sum11":
+            lines.append(f"- verification_authority: false. {SUM11_AUTHORITY_NOTICE}")
+        word = hit.get("word", hit.get("words", ""))
+        if word:
+            lines.append(f"- **Headword**: {word}")
+        gloss = hit.get("sense_gloss")
+        if isinstance(gloss, str) and gloss.strip():
+            lines.append(f"- **Sense**: {gloss.strip()}")
+        if hit.get("source"):
+            lines.append(f"- **Source**: {hit['source']}")
+        # Sovietization flag (СУМ-11 only — issue #1659). Surfaced prominently
+        # so reviewer can decide before reading the definition.
+        risk = hit.get("sovietization_risk")
+        if risk is not None and risk > 0:
+            keywords = hit.get("sovietization_keywords", "")
+            risk_label = "HIGH" if risk == 2 else "present"
+            lines.append(
+                f"- **⚠️ Sovietization risk**: {risk_label} "
+                f"(matched: {keywords or 'unknown'}). "
+                f"Treat definition as potentially Soviet-framed — see #1659."
+            )
+        definition = hit.get("definition", hit.get("definitions", ""))
+        if definition:
+            field = "Contrast excerpt" if collection == "sum11" else "Definition"
+            lines.append(f"- **{field}**: {_quote_balanced_clip(str(definition), 500)}")
+        text = hit.get("text", "")
+        if text and text != definition:
+            lines.append(f"- **Text**: {_quote_balanced_clip(text, 500)}")
+        lines.append("")
+
+    prose = "\n".join(lines)
+    envelope = build_search_envelope(tool=tool_name, query=query_obj, hits=list(hits), summary_prose=prose)
+    return [TextContent(type="text", text=prose)], envelope
+
+
+_SLOVNYK_USE_ROLE_NOTES = {
+    "candidate-discovery": "mirror copy: use to find candidates only; confirm against the official СУМ-20 (query_sum20)",
+    "contrast": "Soviet-era contrast context only; never a norm, gloss or proof of meaning",
+}
+
+
+def _slovnyk_outage_note(outages: list[dict]) -> str:
+    """One line naming the failed live slovnyk.me lookups (#9005)."""
+    failed = sorted({f"{o.get('dictionary_slug', '?')} ({o.get('error', '?')})" for o in outages})
+    return (
+        f"slovnyk.me unavailable for {len(failed)} live lookup(s): {', '.join(failed)}. "
+        "An unavailable source is not a negative result (#9005)."
+    )
+
+
+async def handle_search_slovnyk_me(args: dict) -> list[TextContent]:
+    """Search slovnyk.me curated rows plus optional live direct-entry fallback."""
+    query = args.get("query", args.get("word", ""))
+    dictionaries = args.get("dictionaries")
+    if dictionaries is not None and not isinstance(dictionaries, list):
+        dictionaries = [str(dictionaries)]
+    limit = min(args.get("limit", 5), 20)
+    live = bool(args.get("live", True))
+
+    from wiki import sources_db as sdb
+
+    hits, outages = await asyncio.to_thread(
+        sdb.search_slovnyk_me_with_status,
+        query,
+        limit,
+        dictionaries,
+        live=live,
+    )
+    outage_note = _slovnyk_outage_note(outages) if outages else ""
+    if not hits:
+        if outages:
+            return [
+                TextContent(
+                    type="text",
+                    text=f'slovnyk.me UNAVAILABLE for: "{query}" — no result could be confirmed '
+                    f"or ruled out.\n{outage_note}",
+                )
+            ]
+        return [TextContent(type="text", text=f'No slovnyk.me results for: "{query}"')]
+
+    lines = [f'Found {len(hits)} slovnyk.me result(s) for: "{query}"\n']
+    if outage_note:
+        lines.append(f"Partial results: {outage_note}\n")
+    for i, hit in enumerate(hits, 1):
+        lines.append(f"### Result {i}")
+        lines.append(f"- **Headword**: {hit.get('word', '')}")
+        lines.append(f"- **Dictionary**: {hit.get('dictionary_label', hit.get('dictionary_slug', ''))}")
+        role_note = _SLOVNYK_USE_ROLE_NOTES.get(str(hit.get("use_role") or ""))
+        if role_note:
+            lines.append(f"- **Use role**: {hit['use_role']} — {role_note}")
+        if hit.get("source_url"):
+            lines.append(f"- **URL**: {hit['source_url']}")
+        flags = []
+        if hit.get("is_modern"):
+            flags.append("modern")
+        if hit.get("is_dialect"):
+            flags.append("heritage/regional")
+        if hit.get("is_russianism"):
+            flags.append("possible Russianism/calque")
+        if flags:
+            lines.append(f"- **Flags**: {', '.join(flags)}")
+        risk = int(hit.get("sovietization_risk") or 0)
+        if risk > 0:
+            lines.append(
+                f"- **Sovietization risk**: {risk} ({hit.get('sovietization_keywords', '') or 'keywords unknown'})"
+            )
+        snippet = str(hit.get("snippet") or hit.get("text") or "")
+        if snippet:
+            lines.append(f"- **Snippet**: {snippet[:700]}")
+        lines.append(f"- **Score**: {float(hit.get('score', 0.0)):.1f}")
+        lines.append("")
+    return [TextContent(type="text", text="\n".join(lines))]
+
+
+async def handle_search_heritage(args: dict) -> list[TextContent]:
+    """Merge heritage-defense sources for a headword."""
+    query = args.get("query", args.get("word", ""))
+    limit = min(args.get("limit", 8), 20)
+    include_live_slovnyk = bool(args.get("include_live_slovnyk", True))
+
+    from wiki import sources_db as sdb
+
+    outages: list[dict] = []
+    hits = await asyncio.to_thread(
+        sdb.search_heritage,
+        query,
+        limit,
+        include_live_slovnyk=include_live_slovnyk,
+        outages=outages,
+    )
+    outage_note = _slovnyk_outage_note(outages) if outages else ""
+    if not hits:
+        if outages:
+            return [
+                TextContent(
+                    type="text",
+                    text=f'Heritage evidence UNAVAILABLE for: "{query}" — no offline row matched and the '
+                    f"live slovnyk.me lookup failed.\n{outage_note}",
+                )
+            ]
+        return [TextContent(type="text", text=f'No heritage evidence found for: "{query}"')]
+
+    lines = [f'Found {len(hits)} heritage evidence row(s) for: "{query}"\n']
+    if outage_note:
+        lines.append(f"Partial results: {outage_note}\n")
+    for i, hit in enumerate(hits, 1):
+        lines.append(f"### Evidence {i}")
+        lines.append(f"- **Source family**: {hit.get('source_family', '')}")
+        lines.append(f"- **Source**: {hit.get('source', '')}")
+        lines.append(f"- **Headword**: {hit.get('word', '')}")
+        lines.append(f"- **Classification**: {hit.get('classification', '')}")
+        lines.append(f"- **Authentic Ukrainian**: {bool(hit.get('is_authentic_ukrainian'))}")
+        lines.append(f"- **Russianism/calque warning**: {bool(hit.get('is_russianism'))}")
+        if hit.get("url"):
+            lines.append(f"- **URL**: {hit['url']}")
+        tags = hit.get("evidence_tags") or []
+        if tags:
+            lines.append(f"- **Evidence tags**: {', '.join(tags)}")
+        risk = int(hit.get("sovietization_risk") or 0)
+        if risk > 0:
+            lines.append(
+                f"- **Sovietization risk**: {risk} ({hit.get('sovietization_keywords', '') or 'keywords unknown'})"
+            )
+        text = str(hit.get("text") or "")
+        if text:
+            lines.append(f"- **Text**: {text[:700]}")
+        lines.append(f"- **Score**: {float(hit.get('score', 0.0)):.1f}")
+        lines.append("")
+    return [TextContent(type="text", text="\n".join(lines))]
+
+
+async def handle_search_esum(args: dict) -> list[TextContent]:
+    """Search ЕСУМ entries in sources.db."""
+    query = args.get("query", "")
+    volume = args.get("volume")
+    limit = min(args.get("limit", 5), 10)
+
+    from wiki import sources_db as sdb
+
+    hits = await asyncio.to_thread(sdb.search_esum, query, volume, limit)
+    if not hits:
+        # Placeholder / hint for unimplemented volumes or missing entries (#1658)
+        hint = {"status": "not_implemented", "hint": f"Tier 2 WebFetch goroh.pp.ua/Етимологія/{query}"}
+        return [TextContent(type="text", text=json.dumps(hint, ensure_ascii=False))]
+
+    lines = [f'Found {len(hits)} results in **ЕСУМ** for: "{query}"\n']
+    for i, hit in enumerate(hits, 1):
+        lines.append(f"### Result {i}")
+        lines.append(f"- **Lemma**: {hit.get('lemma', '')}")
+        lines.append(f"- **Volume**: {hit.get('vol', '')}")
+        lines.append(f"- **Page**: {hit.get('page', '')}")
+        text = str(hit.get("etymology_text", ""))
+        if text:
+            lines.append(f"- **Etymology**: {text[:800]}")
+        lines.append("")
+
+    return [TextContent(type="text", text="\n".join(lines))]
+
+
+async def main_stdio():
+    """Run the MCP sources server via stdio (spawned by Claude Code)."""
+    async with stdio_server() as (read_stream, write_stream):
+        await server.run(read_stream, write_stream, server.create_initialization_options())
+
+
+class _RejectUnsupportedStatelessMcpMethods:
+    """ASGI wrapper: 405 GET/DELETE on ``/mcp`` in stateless JSON mode.
+
+    The Python MCP SDK's 2025-06-18 Streamable HTTP path still opens an empty
+    SSE stream on GET when ``stateless_http=True`` (python-sdk#2474). Cursor
+    waits on that stream during ``mcp.createClient`` and times out, marking
+    the sources server disabled. The Streamable HTTP spec says a server that
+    does not offer a standalone SSE stream MUST return 405 Method Not Allowed
+    (with ``Allow: POST``). That is the correct POST-only signal for this app.
+    """
+
+    _MCP_PATHS = frozenset({"/mcp", "/mcp/"})
+    _REJECTED_METHODS = frozenset({"GET", "DELETE"})
+
+    def __init__(self, app: Any) -> None:
+        self.app = app
+
+    async def __call__(self, scope: dict[str, Any], receive: Any, send: Any) -> None:
+        if (
+            scope.get("type") == "http"
+            and scope.get("method") in self._REJECTED_METHODS
+            and scope.get("path") in self._MCP_PATHS
+        ):
+            from starlette.responses import Response
+
+            await Response(status_code=405, headers={"Allow": "POST"})(scope, receive, send)
+            return
+        await self.app(scope, receive, send)
+
+
+def create_http_app():
+    """Create the standalone HTTP app with Streamable HTTP transport.
+
+    Uses MCP 2.0's built-in ``Server.streamable_http_app`` for the
+    streamable-HTTP endpoint, with ``stateless_http=True`` and
+    ``json_response=True`` so each request is independent and answered with a
+    single JSON body. Routes are ``/mcp``, ``/health`` and loopback-only
+    ``/metrics``. Legacy SSE (``/sse``, ``/messages/``) is not advertised. GET/DELETE on ``/mcp``
+    are rejected with 405 so Streamable HTTP clients do not hang on an empty
+    SSE notification stream.
+    """
+    _set_http_mode(True)
+    from starlette.responses import Response
+    from starlette.routing import Route
+
+    async def handle_metrics(request):
+        from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
+
+        # Keep metrics local even if the listener's host is overridden.
+        try:
+            loopback = request.client is not None and ipaddress.ip_address(request.client.host).is_loopback
+        except ValueError:
+            loopback = False
+        if not loopback:
+            return Response(status_code=403)
+        return Response(generate_latest(_TOOL_METRICS.registry), headers={"Content-Type": CONTENT_TYPE_LATEST})
+
+    async def handle_health(request):
+        from wiki.sources_db import SOURCES_DB_PATH
+
+        payload = {
+            "status": "ok",
+            "commit_sha": _SERVER_GIT_COMMIT,
+            "db_path": str(SOURCES_DB_PATH),
+        }
+        return Response(json.dumps(payload), media_type="application/json")
+
+    custom_routes = [
+        Route("/health", endpoint=handle_health),
+        Route("/metrics", endpoint=handle_metrics),
+    ]
+
+    app = server.streamable_http_app(
+        streamable_http_path="/mcp",
+        json_response=True,
+        stateless_http=True,
+        custom_starlette_routes=custom_routes,
+    )
+    return _V4AttemptAuthMiddleware(_RejectUnsupportedStatelessMcpMethods(app))
+
+
+async def main_sse(host: str = "127.0.0.1", port: int = 8766):
+    """Run the MCP sources server as a standalone Streamable HTTP daemon."""
+    _set_http_mode(True)
+    import uvicorn
+
+    # All-thread stack dump on SIGUSR1 for the hang watchdog (#10674).
+    from scripts.rag.hang_diagnostics import install_signal_dump, resolve_dump_dir
+
+    try:
+        print(f"Thread dump on SIGUSR1: {install_signal_dump(resolve_dump_dir(PROJECT_ROOT))}")
+    except OSError as error:
+        print(f"⚠️  Thread dump handler not installed: {type(error).__name__}: {error}")
+
+    # Verify SQLite sources database exists
+    from wiki.sources_db import source_count
+
+    try:
+        total = source_count()
+        print(f"SQLite sources database: {total:,} entries ✅")
+    except FileNotFoundError:
+        print("⚠️  Sources database not found. Run: .venv/bin/python scripts/wiki/build_sources_db.py")
+
+    # create_http_app wires the HTTP transports without stateless=True
+    # (MCP 2.0's Server.run no longer accepts that parameter).
+    app = create_http_app()
+
+    print(f"MCP Sources Server running on http://{host}:{port}")
+    print(f"  Streamable HTTP endpoint: http://{host}:{port}/mcp")
+    print(f"  Health: http://{host}:{port}/health")
+    sys.stdout.flush()
+
+    limits = _call_governor().limits
+    print(
+        f"  Call limits: {limits.max_concurrent} concurrent, queue {limits.queue_timeout:.0f}s, "
+        f"timeout {limits.call_timeout:.0f}s, slow-call dump {limits.slow_dump_after:.0f}s"
+    )
+    sys.stdout.flush()
+    # Idle keep-alive connections close after 5 s (uvicorn's default, pinned).
+    config = uvicorn.Config(app, host=host, port=port, log_level="warning", timeout_keep_alive=5)
+    srv = uvicorn.Server(config)
+    await srv.serve()
+
+
+if __name__ == "__main__":
+    if "--standalone" in sys.argv:
+        _set_http_mode(True)
+        host = "127.0.0.1"
+        port = 8766
+        for i, arg in enumerate(sys.argv):
+            if arg == "--host" and i + 1 < len(sys.argv):
+                host = sys.argv[i + 1]
+            elif arg == "--port" and i + 1 < len(sys.argv):
+                port = int(sys.argv[i + 1])
+        asyncio.run(main_sse(host=host, port=port))
+
+    else:
+        asyncio.run(main_stdio())
