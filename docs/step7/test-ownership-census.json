@@ -6696,7 +6696,6 @@
     "test_worker_git_transport_restricts_network_only_in_read_only_mode"
    ],
    "ownership": "machinery",
-   "residual": "deferred: product-kept test-helper dependencies; retained in LU pending helper port (owner: claude-cto)",
    "residual_id": "PORT-1108-T5-R1",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
@@ -18471,7 +18470,6 @@
     "test_write_guard_rejects_primary_checkout_on_protected_branch"
    ],
    "ownership": "machinery",
-   "residual": "deferred: imports tests/agent_runtime/adapters/test_agy_claude_routes.py, owned by T3a",
    "residual_id": "T3B-R01",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
@@ -18752,7 +18750,6 @@
     "test_sibling_invocation_logs_constant_message"
    ],
    "ownership": "machinery",
-   "residual": "deferred: imports tests/agent_runtime/test_acpx_adapter.py, owned by T3a",
    "residual_id": "T3B-R02",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
@@ -21198,7 +21195,6 @@
     "test_claude_oauth_keychain_works_with_sanitized_env"
    ],
    "ownership": "machinery",
-   "residual": "not portable to the Linux wheel job: its only test needs macOS and a logged-in Claude CLI, so it can never pass in CI",
    "residual_id": "T3B-R09",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
