@@ -15,6 +15,7 @@ from lu_machinery.ai_agent_bridge import (
     _gemini,
     _reply_sidecar,
 )
+from lu_machinery.common.repo_root import StateRootError
 
 
 @pytest.fixture
@@ -180,3 +181,27 @@ print("PASS", sys.argv[3])
         if result.returncode != 0 or result.stdout.strip() != f"PASS {order}":
             failures.append(f"{order}: {result.stdout}{result.stderr}")
     assert not failures, "\n".join(failures)
+
+
+def test_exit_cleanup_removes_written_pid_file_without_state_root(tmp_path, monkeypatch):
+    """Exit cleanup must not re-resolve a state root that is gone at interpreter exit."""
+    pid_dir = tmp_path / "pids"
+    monkeypatch.setenv("AB_PID_DIR", str(pid_dir))
+    _broker._write_pid_file("claude", "exit-task", {"task": "exit-task"})
+    pid_file = pid_dir / "claude-exit-task.json"
+    assert pid_file.exists()
+
+    for name in (
+        "AB_PID_DIR",
+        "LEARN_UKRAINIAN_PRIMARY_REPO_ROOT",
+        "LEARN_UKRAINIAN_STATE_ROOT",
+        "AB_REPO_ROOT",
+        "LU_PRODUCT_ROOT",
+    ):
+        monkeypatch.delenv(name, raising=False)
+    with pytest.raises(StateRootError):
+        _config.PID_DIR  # noqa: B018 - resolution is the point: no anchor remains
+
+    _broker._remove_pid_file("claude", "exit-task")
+
+    assert not pid_file.exists()
