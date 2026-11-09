@@ -75,6 +75,7 @@ Issues: #6027, #6043, #6078, #6130, #6158.
 
 from __future__ import annotations
 
+import base64
 import contextlib
 import errno
 import grp
@@ -82,6 +83,7 @@ import hashlib
 import json
 import logging
 import os
+import platform
 import pwd
 import re
 import secrets
@@ -89,26 +91,24 @@ import shlex
 import shutil
 import stat
 import subprocess
+import sys
+import tarfile
 import time
 from collections.abc import Mapping
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, replace
+from functools import lru_cache
+from importlib.metadata import version as distribution_version
 from pathlib import Path, PurePosixPath
 from typing import Any
 
 from lu_machinery.common.repo_root import (
-    MachineryConfigError,
     machinery_path,
     machinery_root,
-    product_root,
     project_interpreter,
 )
 from lu_machinery.guardrails import worktree_containment as _worktree_containment
-from lu_machinery.guardrails.worktree_containment import (
-    NotAGitRepositoryError,
-    resolve_main_root,
-)
 
 from ..binary_resolve import resolve_agent_binary
 from ..jsonl import jsonl_lines
@@ -203,15 +203,11 @@ GEMMA_ACP_MODEL = "google-ais/gemma-4-31b-it"
 # non-secret selector; the value is never a credential.
 GLM_AUTH_OPENCODE_LOGIN_ENV = "ACPX_AUTH_OPENCODE_LOGIN"
 
-# Project-local dependency binary: the product checkout's ``node_modules`` (its
-# package.json pins acpx), resolved through ``product_root()`` at the call.
-# Deliberately NOT `shutil.which("acpx")`: global/PATH resolution would let an
-# unrelated or unreviewed global acpx install silently take over. "No global
-# binary authority" per the approved Stage 0/1 contract.
-# None selects the product's binary. Keep this separately patchable for hermetic
-# adapter tests: an explicit override is authoritative and must never silently
-# fall back to another tree.
+# Private overrides for hermetic tests, never environment configuration.
 _ACPX_BINARY: Path | None = None
+_NODE_PREFIX: Path | None = None
+_NODE_CONTRACT: Path | None = None
+
 # Fixed host install locations for Node. Ambient PATH alone is not enough:
 # Cursor sandboxes / review jails often set PATH=/usr/bin:/bin, and the
 # project-local acpx shim is ``#!/usr/bin/env node`` (#6953). Linked
@@ -229,7 +225,7 @@ _CLAUDE_ACP_MAX_VERSION = (1, 0, 0)
 _CLAUDE_ACP_MANIFEST_LIMIT_BYTES = 64 * 1024
 _STRICT_SEMVER_RE = re.compile(r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$")
 _TEXT_AGENT_PATH = machinery_path("agent_runtime/acp_text_agent.mjs")
-_TEXT_AGENT_SHA256 = "9e594e4fc448198f696a6b51162533d30929e70ed0b5e36a21313f0fe3360ced"
+_TEXT_AGENT_SHA256 = "f2d37082f30f7d53e1064c54e4469378ad731703b8915408d311947ed98b1b01"
 _OPENCODE_DENY_ALL_CONFIG = json.dumps(
     {"permission": {"*": "deny"}, "tools": {"*": False}},
     separators=(",", ":"),
@@ -974,29 +970,272 @@ class AcpxShadowRefusalError(ValueError):
         self.failure_code = failure_code
 
 
-def _required_node_major(*, adapter_label: str = "ACPX") -> int:
-    """Return the product's Node major from its ``.nvmrc`` (engines pin the same major).
+def _node_contract() -> Path:
+    """Read only the running release's contract, never a product checkout."""
+    if _NODE_CONTRACT is not None:
+        return _NODE_CONTRACT
+    source = Path(__file__).parents[3]
+    if (source / ".git").exists() and (source / "pyproject.toml").is_file():
+        return source
+    return Path(sys.prefix) / "share" / "lu-machinery" / "node-contract"
 
-    The Node toolchain pin belongs to the product checkout that holds the
-    ``node_modules`` tree, selected by ``product_root()`` at the call.
+
+def node_prefix() -> Path:
+    """One prefix per wheel version and exact lock; no runtime install fallback."""
+    if _NODE_PREFIX is not None:
+        return _NODE_PREFIX
+    contract = _node_contract()
+    lock_digest = hashlib.sha256((contract / "package-lock.json").read_bytes()).hexdigest()
+    release = json.loads((contract / "package.json").read_bytes())["version"]
+    if (
+        contract == Path(sys.prefix) / "share" / "lu-machinery" / "node-contract"
+        and release != distribution_version("lu-machinery")
+    ):
+        raise AcpxShadowRefusalError("Node contract does not match the installed wheel version")
+    return Path(sys.prefix) / "share" / "lu-machinery" / "node" / f"{release}-{lock_digest}"
+
+
+def _check_node_artifact(path: Path, *, directory: bool = False) -> None:
+    info = path.lstat()
+    correct_type = stat.S_ISDIR(info.st_mode) if directory else stat.S_ISREG(info.st_mode)
+    if not correct_type or info.st_uid != os.getuid() or info.st_mode & 0o022:
+        raise AcpxShadowRefusalError(f"Unsafe Node dependency artifact: {path}", failure_code="acp_adapter_incompatible")
+
+
+def _node_file_signature(path: Path) -> tuple[int, ...]:
+    info = path.stat(follow_symlinks=False)
+    return (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, info.st_ctime_ns, info.st_mode, info.st_uid)
+
+
+@lru_cache(maxsize=16384)
+def _node_file_digest(path: Path, signature: tuple[int, ...]) -> bytes:
+    # ctime binds cache reuse to unchanged bytes/metadata, even if mtime is restored.
+    with path.open("rb") as stream:
+        digest = hashlib.file_digest(stream, "sha256").digest()
+    if _node_file_signature(path) != signature:
+        raise AcpxShadowRefusalError(f"Node dependency changed during admission: {path}")
+    return digest
+
+
+@lru_cache(maxsize=512)
+def _node_archive_hashes(archive_path: Path, integrity: str, signature: tuple[int, ...]) -> dict[str, bytes]:
+    """Authenticate expected file hashes from the lock's retained archive."""
+    algorithm, encoded = integrity.split("-", 1)
+    if algorithm != "sha512":
+        raise AcpxShadowRefusalError("Node lock requires sha512 integrity")
+    with archive_path.open("rb") as stream:
+        if hashlib.file_digest(stream, "sha512").digest() != base64.b64decode(encoded, validate=True):
+            raise AcpxShadowRefusalError("Node dependency archive integrity mismatch", failure_code="acp_adapter_incompatible")
+    expected = {}
+    with tarfile.open(archive_path, mode="r:gz") as archive:
+        for member in archive:
+            relative = PurePosixPath(member.name)
+            if not relative.parts or relative.parts[0] != "package" or ".." in relative.parts or relative.is_absolute():
+                raise AcpxShadowRefusalError("Unsafe dependency archive path")
+            if member.isdir():
+                continue
+            if not member.isfile():
+                raise AcpxShadowRefusalError("Unsupported dependency archive entry")
+            content = archive.extractfile(member)
+            assert content is not None
+            digest = hashlib.sha256()
+            while chunk := content.read(1024 * 1024):
+                digest.update(chunk)
+            expected[PurePosixPath(*relative.parts[1:]).as_posix()] = digest.digest()
+    if _node_file_signature(archive_path) != signature:
+        raise AcpxShadowRefusalError("Node dependency archive changed during admission")
+    return expected
+
+
+def _check_node_prefix_contract(prefix: Path) -> None:
+    _check_node_artifact(prefix, directory=True)
+    for name in ("package.json", "package-lock.json", ".nvmrc"):
+        path = prefix / name
+        _check_node_artifact(path)
+        if path.read_bytes() != (_node_contract() / name).read_bytes():
+            raise AcpxShadowRefusalError(f"Node dependency contract mismatch: {name}")
+
+
+def _node_host_target() -> tuple[str, str]:
+    # npm filters: https://docs.npmjs.com/cli/v10/configuring-npm/package-json#os
+    # Names: https://nodejs.org/docs/latest-v22.x/api/process.html#processarch
+    # and https://nodejs.org/docs/latest-v22.x/api/process.html#processplatform
+    systems = {
+        "Linux": "linux", "Darwin": "darwin", "Windows": "win32", "AIX": "aix",
+        "FreeBSD": "freebsd", "OpenBSD": "openbsd", "SunOS": "sunos", "Android": "android",
+    }
+    architectures = {
+        "x86_64": "x64", "amd64": "x64", "x64": "x64",
+        "i386": "ia32", "i486": "ia32", "i586": "ia32", "i686": "ia32", "x86": "ia32",
+        "aarch64": "arm64", "arm64": "arm64",
+        "arm": "arm", "armv6l": "arm", "armv7l": "arm", "armv8l": "arm",
+        "ppc": "ppc", "ppc64": "ppc64", "ppc64le": "ppc64",
+        "s390": "s390", "s390x": "s390x", "riscv64": "riscv64",
+        "loongarch64": "loong64", "loong64": "loong64", "mips": "mips", "mipsel": "mipsel",
+    }
+    try:
+        return systems[platform.system()], architectures[platform.machine().lower()]
+    except KeyError as exc:
+        raise AcpxShadowRefusalError(
+            "Unknown Node dependency host platform or architecture", failure_code="acp_adapter_incompatible",
+        ) from exc
+
+
+def _node_target_allows(constraints: Any, target: str) -> bool:
+    """npm-install-checks checkList: explicit negatives win; positives must match."""
+    if constraints is None:
+        return True
+    entries = [constraints] if isinstance(constraints, str) else constraints
+    if not isinstance(entries, list) or any(not isinstance(entry, str) for entry in entries):
+        raise AcpxShadowRefusalError("Invalid Node dependency platform constraint")
+    if entries == ["any"]:
+        return True
+    if "!" + target in entries:
+        return False
+    positives = [entry for entry in entries if not entry.startswith("!")]
+    return not positives or target in positives
+
+
+def _node_package_applies(package: Mapping[str, Any], host_os: str, host_cpu: str) -> bool:
+    if not _node_target_allows(package.get("os"), host_os) or not _node_target_allows(package.get("cpu"), host_cpu):
+        return False
+    if package.get("libc") is not None:
+        libc = {"glibc": "glibc", "musl": "musl"}.get(platform.libc_ver()[0].lower())
+        if libc is None:
+            raise AcpxShadowRefusalError("Unknown Node dependency host libc", failure_code="acp_adapter_incompatible")
+        return _node_target_allows(package["libc"], libc)
+    return True
+
+
+def validate_node_dependencies() -> Path:
+    """Verify all installed package bytes against retained, lock-authenticated tarballs.
+
+    This does no network or subprocess work. Extra files, symlinks in packages,
+    foreign owners and group/other writable files are refused before CLI probes.
     """
     try:
-        nvmrc = product_root() / ".nvmrc"
-    except MachineryConfigError as exc:
-        raise AcpxShadowRefusalError(f"{adapter_label}: cannot read the Node major: {exc}") from exc
-    try:
-        raw = nvmrc.read_text(encoding="utf-8").strip().splitlines()[0].strip()
-    except (OSError, IndexError) as exc:
+        prefix = node_prefix()
+        _check_node_prefix_contract(prefix)
+        modules = prefix / "node_modules"
+        _check_node_artifact(modules, directory=True)
+        _check_node_artifact(prefix / "archives", directory=True)
+        lock = json.loads((prefix / "package-lock.json").read_bytes())
+        direct = json.loads((prefix / "package.json").read_bytes())["dependencies"]
+        host_os, host_cpu = _node_host_target()
+        expected: set[Path] = set()
+        for location, package in lock["packages"].items():
+            if not location:
+                continue
+            root = prefix / location
+            if not root.exists() and package.get("optional") and not _node_package_applies(package, host_os, host_cpu):
+                continue
+            _check_node_artifact(root, directory=True)
+            digest = base64.b64decode(package["integrity"].removeprefix("sha512-"), validate=True).hex()
+            archive_path = prefix / "archives" / (digest + ".tgz")
+            _check_node_artifact(archive_path)
+            hashes = _node_archive_hashes(archive_path, package["integrity"], _node_file_signature(archive_path))
+            for relative, expected_digest in hashes.items():
+                target = root / relative
+                _check_node_artifact(target)
+                expected.add(target)
+                if _node_file_digest(target, _node_file_signature(target)) != expected_digest:
+                    raise AcpxShadowRefusalError(f"Node dependency integrity mismatch: {target}", failure_code="acp_adapter_incompatible")
+            manifest = json.loads((root / "package.json").read_bytes())
+            if manifest.get("version") != package["version"]:
+                raise AcpxShadowRefusalError(f"Node dependency version mismatch: {location}")
+        for name, required in direct.items():
+            if json.loads((modules / name / "package.json").read_bytes()).get("version") != required:
+                raise AcpxShadowRefusalError(f"Incompatible Node dependency: {name}")
+        for path in modules.rglob("*"):
+            if path.is_symlink():
+                # npm creates only executable shims. Their targets must be verified files.
+                if path.parent.name != ".bin" or path.resolve(strict=True) not in expected:
+                    raise AcpxShadowRefusalError(f"Unsafe Node dependency link: {path}")
+            elif path.is_dir():
+                _check_node_artifact(path, directory=True)
+            elif path not in expected and path != modules / ".package-lock.json":
+                raise AcpxShadowRefusalError(f"Unexpected Node dependency artifact: {path}")
+        return prefix
+    except (OSError, ValueError, KeyError, tarfile.TarError) as exc:
         raise AcpxShadowRefusalError(
-            f"{adapter_label}: cannot read Node major from {nvmrc}",
+            f"Machinery Node dependency admission refused: {exc}; "
+            "run the Node dependency install and seal commands in docs/release.md",
+            failure_code=exc.failure_code if isinstance(exc, AcpxShadowRefusalError) else "acp_adapter_missing",
         ) from exc
-    raw = raw.lstrip("vV").strip()
-    major_token = raw.split(".", 1)[0]
-    if not major_token.isdigit():
+
+
+def prepare_node_dependencies() -> Path | None:
+    """Prepare a new release prefix, or validate/reuse an intact existing one.
+
+    None means the existing prefix is complete: the release command must not
+    run npm against it. A partial prefix refuses rather than being repaired.
+    """
+    prefix = node_prefix()
+    if prefix.exists():
+        validate_node_dependencies()
+        return None
+    prefix.parent.mkdir(parents=True, exist_ok=True)
+    prefix.mkdir(mode=0o755)
+    for name in ("package.json", "package-lock.json", ".nvmrc"):
+        shutil.copyfile(_node_contract() / name, prefix / name)
+    return prefix
+
+
+def node_toolchain() -> tuple[Path, Path]:
+    """The prefix-pinned host Node and its own contained npm CLI, for release install."""
+    node = _resolve_host_node_binary(adapter_label="Node provisioning")
+    try:
+        npm = (node.parent / "npm").resolve(strict=True)
+        if not npm.is_file() or not npm.is_relative_to(node.parent.parent):
+            raise ValueError("npm does not belong to the selected Node installation")
+    except (OSError, RuntimeError, ValueError) as exc:
         raise AcpxShadowRefusalError(
-            f"{adapter_label}: .nvmrc Node major is not an integer: {raw!r}",
-        )
-    return int(major_token)
+            "Install npm beside the selected Node binary, then run the Node dependency install step in docs/release.md"
+        ) from exc
+    return node, npm
+
+
+def seal_node_dependencies(*, cache: Path) -> Path:
+    """Retain lock-authenticated npm archives after the explicit shell install.
+
+    This never runs npm or any other dependency. An existing seal is validated,
+    never overwritten, including when it is incomplete or tampered.
+    """
+    prefix = node_prefix()
+    _check_node_prefix_contract(prefix)
+    archives = prefix / "archives"
+    if archives.exists():
+        return validate_node_dependencies()
+    cache = cache.resolve(strict=True)
+    archives.mkdir(mode=0o755)
+    lock = json.loads((prefix / "package-lock.json").read_bytes())
+    for location, package in lock["packages"].items():
+        if not location or not (prefix / location).exists():
+            continue
+        digest = base64.b64decode(package["integrity"].removeprefix("sha512-"), validate=True).hex()
+        source = cache / "_cacache" / "content-v2" / "sha512" / digest[:2] / digest[2:4] / digest[4:]
+        shutil.copyfile(source, archives / (digest + ".tgz"))
+    return validate_node_dependencies()
+
+
+def _required_node_major(*, adapter_label: str = "ACPX") -> int:
+    """Read the release prefix's Node pin, requiring equality to the shipped contract."""
+    try:
+        contract = _node_contract() / ".nvmrc"
+        pin = node_prefix() / ".nvmrc"
+        _check_node_artifact(pin)
+        data = pin.read_bytes()
+        if data != contract.read_bytes():
+            raise ValueError("prefix Node pin differs from the release contract")
+        raw = data.decode("ascii").strip()
+        if not raw.isdigit():
+            raise ValueError("expected an integer Node major")
+        return int(raw)
+    except (OSError, ValueError) as exc:
+        raise AcpxShadowRefusalError(
+            f"{adapter_label}: cannot read machinery Node major: {exc}; "
+            "run the Node dependency install and seal commands in docs/release.md"
+        ) from exc
 
 
 def _versioned_node_keg_dirs(required_major: int) -> tuple[Path, ...]:
@@ -1387,47 +1626,28 @@ def _resolve_acpx_binary(
     *,
     adapter_label: str,
 ) -> str:
-    """Resolve local ACPX, sharing it with worktrees.
-
-    The default candidate is the selected product checkout's (``product_root()``).
-    A product worktree normally has no independent ``node_modules`` tree. If the
-    default candidate is absent, resolve that product's canonical primary checkout
-    and accept only its dependency binary. The invocation cwd never selects the
-    binary, and PATH or a global install is never consulted.
-
-    Tests may explicitly patch :data:`_ACPX_BINARY`; an override remains
-    authoritative so an isolated test cannot accidentally borrow a developer
-    checkout's installation.
-    """
+    """Resolve ACPX only from the validated machinery release prefix."""
     candidate = _ACPX_BINARY
-    main_root: Path | None = None
     if candidate is None:
-        try:
-            product = product_root()
-        except MachineryConfigError as exc:
-            raise AcpxShadowRefusalError(f"{adapter_label}: no product checkout holds acpx: {exc}") from exc
-        candidate = product / "node_modules" / ".bin" / "acpx"
-        if not candidate.is_file():
-            with contextlib.suppress(NotAGitRepositoryError):
-                main_root = resolve_main_root(product)
-            if main_root is not None:
-                primary_candidate = main_root / "node_modules" / ".bin" / "acpx"
-                if primary_candidate.is_file():
-                    candidate = primary_candidate
-
+        prefix = validate_node_dependencies()
+        candidate = prefix / "node_modules" / ".bin" / "acpx"
+        if candidate.is_file() and candidate.resolve(strict=True) != prefix / "node_modules" / "acpx" / "dist" / "cli.js":
+            raise AcpxShadowRefusalError(f"{adapter_label}: ACPX shim does not target its locked package")
     if not candidate.is_file():
-        primary_hint = ""
-        if _ACPX_BINARY is None:
-            if main_root is not None:
-                primary_hint = f"; canonical primary candidate is {main_root / 'node_modules' / '.bin' / 'acpx'}"
-            else:
-                primary_hint = "; the product is not inside a Git checkout, so no canonical primary install is available"
-        raise AcpxShadowRefusalError(
-            f"{adapter_label}: project-local acpx binary not found at {candidate}{primary_hint}; run "
-            "`npm install` in the canonical primary checkout. "
-            "A global/PATH acpx binary is never used as a substitute."
-        )
+        raise AcpxShadowRefusalError(f"{adapter_label}: project-local acpx binary not found at {candidate}; provision machinery dependencies")
     return str(candidate)
+
+
+def _node_adapter_command(participant: str) -> str:
+    prefix = validate_node_dependencies()
+    package = prefix / "node_modules" / "@agentclientprotocol" / f"{participant}-agent-acp"
+    if participant == "codex":
+        package = prefix / "node_modules" / "@agentclientprotocol" / "codex-acp"
+    manifest = json.loads((package / "package.json").read_bytes())
+    executable = package / manifest["bin"]["codex-acp" if participant == "codex" else "claude-agent-acp"]
+    if not executable.resolve(strict=True).is_relative_to(package):
+        raise AcpxShadowRefusalError("ACP adapter escapes its locked package")
+    return shlex.join([str(_resolve_host_node_binary()), str(executable)])
 
 
 def _require_compatible_acpx_binary(
@@ -1458,11 +1678,10 @@ def _require_local_claude_acp_adapter(
 ) -> dict[str, str]:
     """Require ACPX to resolve Claude from its installed dependency tree.
 
-    ACPX otherwise falls back to ``npm exec --package=...`` for every Claude
-    launch. The adapter is a direct project dependency so normal worktree
-    calls borrow the canonical primary ``node_modules`` tree together with
-    ACPX. Validate the exact package/bin surface before prompt delivery; never
-    consult PATH or a package-exec cache as a substitute.
+    The adapter is a direct machinery dependency in the validated prefix
+    alongside ACPX. Its absolute launch command bypasses ACPX's npm-exec
+    fallback. Retain the package ownership and writable-mode checks before
+    prompt delivery.
     """
     binary_path = Path(acpx_binary)
     if binary_path.parent.name != ".bin" or binary_path.parent.parent.name != "node_modules":
@@ -2753,6 +2972,8 @@ def _build_text_agent_command(
         [
             str(node_path),
             _require_text_agent(adapter_label=adapter_label),
+            "--sdk-url",
+            (validate_node_dependencies() / "node_modules" / "@agentclientprotocol" / "sdk" / "dist" / "acp.js").as_uri(),
             "--provider",
             provider,
             "--model",
@@ -2926,7 +3147,10 @@ class AcpxAdapter:
                 "the ACPX one-shot exec interface has no reasoning-effort flag"
             )
         codex_binary, codex_version = _require_codex_cli()
-        cmd.extend(["codex", "exec", "-f", "-"])
+        if _ACPX_BINARY is None:
+            cmd.extend(["--agent", _node_adapter_command("codex"), "exec", "-f", "-"])
+        else:
+            cmd.extend(["codex", "exec", "-f", "-"])
 
         metadata: dict[str, Any] = {
             "acpx_shadow": tc.get("acpx_transport") is not True,
@@ -3411,6 +3635,8 @@ class _AcpxDiscussionAdapter:
             "idempotency_key", tc.get("idempotency_key"), adapter_label=type(self).__name__
         )
         _require_non_primary_worktree(cwd, adapter_label=type(self).__name__)
+        if _ACPX_BINARY is None:
+            validate_node_dependencies()
         custom_agent = self._custom_agent_command(cwd)
         builtin_agent = self.target_agent if custom_agent is None else None
         binary, acpx_version = _require_compatible_acpx_binary(
@@ -3435,7 +3661,10 @@ class _AcpxDiscussionAdapter:
             cmd_model = model or self.default_model
             cmd.extend(["--model", cmd_model])
         if custom_agent is None:
-            cmd.extend([self.target_agent, "exec", "-f", "-"])
+            if self.target_agent in {"claude", "codex"} and _ACPX_BINARY is None:
+                cmd.extend(["--agent", _node_adapter_command(self.target_agent), "exec", "-f", "-"])
+            else:
+                cmd.extend([self.target_agent, "exec", "-f", "-"])
             custom_metadata: dict[str, Any] = {}
         else:
             custom_command, custom_metadata = custom_agent

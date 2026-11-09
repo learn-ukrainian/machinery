@@ -65,3 +65,6 @@ files = [
     "lu_machinery/review/closeout_cli.py",
     "lu_machinery/lib/claude_weekly_used.py",
 ]
+
+[tool.setuptools.data-files]
+"share/lu-machinery/node-contract" = ["package.json", "package-lock.json", ".nvmrc"]

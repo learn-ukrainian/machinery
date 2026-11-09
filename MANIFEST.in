@@ -103,3 +103,7 @@ include agents_extensions/shared/skills/thread-rollover/references/health.md
 include agents_extensions/shared/skills/thread-rollover/references/prepare.md
 include agents_extensions/shared/skills/thread-rollover/references/resume.md
 global-exclude *.py[cod]
+
+include package.json
+include package-lock.json
+include .nvmrc

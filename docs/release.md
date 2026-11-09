@@ -21,6 +21,11 @@ release is fixed by a new version, never by rebuilding or replacing assets.
   holds the same wheel bytes plus every wheel named in this commit's
   `requirements-machinery.lock`. It keeps the previous release's wheel and
   dependencies, so a consumer can roll back offline.
+- The machinery-owned `package.json`, `package-lock.json` and `.nvmrc` ship
+  with the wheel at `share/lu-machinery/node-contract` under its environment.
+  Retain the release's npm cache and provisioned Node prefix alongside its
+  wheelhouse, with the same current/previous-release retention policy. The
+  prefix includes lock-verified package archives for offline integrity checks.
 
 ## Dependency lock
 
@@ -68,6 +73,53 @@ in `pyproject.toml` and `$SHA` the full commit:
    env -u PYTHONPATH "$P" -I -c 'import importlib.metadata as m, lu_machinery; print(m.version("lu-machinery")); print(lu_machinery.__file__)'
    ```
 
+   Provision the wheel's Node dependencies under the runtime user and umask
+   022. Set `$NPM_CACHE` to an absolute, empty release-owned cache for the
+   first install. The release prepares its version-and-lock-derived prefix,
+   selects Node matching that prefix's `.nvmrc`, and resolves the npm CLI
+   inside that Node installation. Python never executes npm. Run this exact
+   block after the wheel install:
+
+   ```bash
+   set -eu
+   umask 022
+   PREFIX="$(env -u PYTHONPATH "$P" -I -c 'from lu_machinery.agent_runtime.adapters.acpx import prepare_node_dependencies; print(prepare_node_dependencies() or "")')"
+   if [ -n "$PREFIX" ]; then
+     NODE="$(env -u PYTHONPATH "$P" -I -c 'from lu_machinery.agent_runtime.adapters.acpx import node_toolchain; print(node_toolchain()[0])')"
+     NPM="$(env -u PYTHONPATH "$P" -I -c 'from lu_machinery.agent_runtime.adapters.acpx import node_toolchain; print(node_toolchain()[1])')"
+     PATH="$(dirname "$NODE"):$PATH" "$NODE" "$NPM" ci --ignore-scripts --no-audit --no-fund --prefix="$PREFIX" --cache="$NPM_CACHE"
+     env -u PYTHONPATH "$P" -I -c 'from pathlib import Path; import sys; from lu_machinery.agent_runtime.adapters.acpx import seal_node_dependencies; print(seal_node_dependencies(cache=Path(sys.argv[1])))' "$NPM_CACHE"
+   fi
+   ```
+
+   The prefix is `$VENV/share/lu-machinery/node/<version>-<lock-sha256>`.
+   Its version must match the wheel, and the full lock digest distinguishes
+   dependency sets. Sealing retains integrity-addressed archives from npm's
+   cache. Runtime admission verifies the copied contract, package versions,
+   archive integrity, installed bytes, executable targets, owners and writable
+   modes before any provider is spawned. Every applicable optional package is
+   required: only lock OS/CPU/libc constraints excluding this host permit an
+   optional package to be absent. Unknown host targets refuse admission.
+   Python and Node must use the same host architecture. A missing, mismatched or unsealed
+   prefix refuses and names this install-and-seal step. An ACP request never
+   installs or repairs dependencies.
+
+   An intact existing prefix is validated and reused: preparation prints an
+   empty value, so the block skips npm. A failed or partial installation is
+   retained for diagnosis and refuses reuse. Restore it from the retained
+   release set before retrying; never run npm against an active prefix.
+
+   Accept Node provisioning in a clean environment with no product checkout,
+   ancestor `node_modules`, global ACP packages or npm cache. Record the wheel
+   SHA-256, lock SHA-256, Node version and resolved prefix/module/executable
+   paths. For every enabled ACP route, including the text server, complete
+   initialization, session creation, a known-answer prompt and a terminal
+   response with deterministic peers, then run a bounded authenticated canary
+   for each enabled provider. With registry access disabled, remove a package,
+   introduce an incompatible version and tamper with an executable in separate
+   restored copies. Each must refuse before prompt delivery. Import success
+   is insufficient.
+
    Then check that every packaged resource resolves from the installed wheel
    and exercise lazy runtime paths. Running the agent deployer's plan and apply
    against a scratch consumer is one such path. Import alone is not
@@ -98,7 +150,8 @@ consumers install from the host wheelhouse with the step 3 command. In CI, a
 consumer downloads the exact release asset into a temporary wheelhouse,
 downloads the locked dependencies into the same directory, and installs with
 the same command. Rolling back restores the previous lock, wheel,
-configuration and generated deployments, then verifies behaviour; reverting
+configuration, the matching Node prefix and generated deployments, then
+verifies behaviour, including the ACP known-answer checks; reverting
 the lock alone is not a rollback.
 
 A consumer Codex session sets `LU_PRODUCT_ROOT` to the absolute product checkout.
@@ -109,3 +162,24 @@ file, and a refusal with no fallback when it is set to anything else; otherwise
 the validated primary checkout's `.venv/bin/python`; otherwise a refusal. A
 worktree-local `.venv` is not the interpreter, and nothing is discovered on
 `PATH`.
+
+Offline reinstall uses the retained wheelhouse and npm cache. Restore the
+wheel first, set `$P` to its absolute interpreter and `$NPM_CACHE` to the
+retained absolute cache path, then run this offline variant:
+
+```bash
+set -eu
+umask 022
+PREFIX="$(env -u PYTHONPATH "$P" -I -c 'from lu_machinery.agent_runtime.adapters.acpx import prepare_node_dependencies; print(prepare_node_dependencies() or "")')"
+if [ -n "$PREFIX" ]; then
+  NODE="$(env -u PYTHONPATH "$P" -I -c 'from lu_machinery.agent_runtime.adapters.acpx import node_toolchain; print(node_toolchain()[0])')"
+  NPM="$(env -u PYTHONPATH "$P" -I -c 'from lu_machinery.agent_runtime.adapters.acpx import node_toolchain; print(node_toolchain()[1])')"
+  PATH="$(dirname "$NODE"):$PATH" "$NODE" "$NPM" ci --ignore-scripts --no-audit --no-fund --offline --prefix="$PREFIX" --cache="$NPM_CACHE"
+  env -u PYTHONPATH "$P" -I -c 'from pathlib import Path; import sys; from lu_machinery.agent_runtime.adapters.acpx import seal_node_dependencies; print(seal_node_dependencies(cache=Path(sys.argv[1])))' "$NPM_CACHE"
+fi
+```
+
+An intact retained prefix is validated and reused without npm or network
+access. Never mix a previous wheel with the current release's prefix. Product
+dependency removal is residual `R83-product`, owned by claude-cto for v0.2.0
+after the release drill; this release does not remove product packages.
