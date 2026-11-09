@@ -8,9 +8,11 @@ faking ``.git`` files, because the module deliberately relies on git plumbing
 
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 import threading
 from collections.abc import Iterator
@@ -454,6 +456,46 @@ def test_module_is_robust_to_hostile_git_env(layout: Layout, monkeypatch):
         False,
         "tracked_primary_checkout",
     )
+
+
+def test_foreign_git_dir_with_primary_work_tree_from_dispatch_worktree_blocked(layout: Layout, tmp_path: Path):
+    """#29 defect class: the write guard classified Git's cwd, not the work tree Git mutates.
+
+    From a dispatch worktree, ``--git-dir=<other repo> --work-tree=<primary>``
+    keeps Git's cwd inside the dispatch worktree while Git rewrites the
+    primary; a foreign work tree that contains the primary reaches it too.
+    """
+    hook = Path(__file__).resolve().parents[2] / "agents_extensions/shared/hooks/guard-primary-checkout-write.py"
+    foreign = tmp_path / "foreign"
+    subprocess.run(
+        ["git", "init", "-q", "-b", "main", str(foreign)], check=True, capture_output=True, env=_clean_env(), timeout=30
+    )
+    env = {k: v for k, v in _clean_env().items() if k != "LEARN_UK_ALLOW_PRIMARY_GIT_WRITE"}
+    env["LU_PRODUCT_ROOT"] = str(layout.main)
+
+    def decision(cwd: Path, command: str) -> int:
+        payload = {"tool_name": "Bash", "cwd": str(cwd), "tool_input": {"command": command}}
+        result = subprocess.run(
+            [sys.executable, str(hook)],
+            input=json.dumps(payload),
+            cwd=str(cwd),
+            capture_output=True,
+            text=True,
+            env=env,
+            timeout=60,
+        )
+        return result.returncode
+
+    to_primary = f"git --git-dir={foreign}/.git --work-tree={layout.main}"
+    to_ancestor = f"git --git-dir={foreign}/.git --work-tree={tmp_path}"
+    assert decision(layout.dispatch_wt, f"{to_primary} reset --hard") == 2
+    assert decision(layout.dispatch_wt, f"{to_primary} merge --ff-only main") == 2
+    assert decision(layout.dispatch_wt, f"{to_primary}/pkg merge --ff-only main") == 2
+    assert decision(foreign, f"{to_ancestor} merge --ff-only main") == 2
+    # Pathspecs still resolve against Git's cwd: into the primary blocks,
+    # inside the dispatch worktree stays allowed.
+    assert decision(layout.dispatch_wt, f"{to_primary} checkout -- ../../../../tracked.txt") == 2
+    assert decision(layout.dispatch_wt, f"{to_primary} add -- tracked.txt") == 0
 
 
 def test_relative_gitignored_path_resolved_against_cwd(layout: Layout):
