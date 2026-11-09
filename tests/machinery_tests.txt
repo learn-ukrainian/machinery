@@ -12,6 +12,29 @@
 # Native tests added after the second tranche are included below; markdown parsing uses
 # the hosted job's pinned markdown-it-py dependency and its mdurl dependency.
 # [run]: test files the pytest job runs, as whole files.
+
+# PORT-1108 T10: installed-wheel repository contracts.
+tests/repo_contracts/test_catalog_retirement_11327.py
+tests/repo_contracts/test_check_primary_integrity.py
+tests/repo_contracts/test_dashboard_empty_states.py
+tests/repo_contracts/test_digest_codex_rollout.py
+tests/repo_contracts/test_epics_dashboard_contract.py
+tests/repo_contracts/test_epics_map_dashboard_contract.py
+tests/repo_contracts/test_fleet_comms_launcher_awareness.py
+tests/repo_contracts/test_fleet_hramatka_hygiene_check.py
+tests/repo_contracts/test_fleet_occupancy_idle_contract.py
+tests/repo_contracts/test_git_identity.py
+tests/repo_contracts/test_guard_admin_merge.py
+tests/repo_contracts/test_guard_branch_switch_in_main.py
+tests/repo_contracts/test_launcher_canary_honesty.py
+tests/repo_contracts/test_launcher_remote_renew.py
+tests/repo_contracts/test_migrate_to_html.py
+tests/repo_contracts/test_red_ci_registry_file.py
+tests/repo_contracts/test_session_streams.py
+tests/repo_contracts/test_shell_shlex.py
+tests/repo_contracts/test_store_resolver.py
+tests/repo_contracts/test_work_dashboard.py
+
 # [support]: their fixture and helper closure: every tests/ file imported or opened while the
 #   [run] files ran (import and open audit hook, the source manifest's method). A [support]
 #   file named test_*.py is imported by a [run] file and is not run itself.
