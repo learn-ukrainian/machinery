@@ -23,6 +23,11 @@ tests/agent_runtime/test_claude_acp_trust_root.py
 tests/hygiene/test_tmp_sweep.py
 tests/hygiene/test_pytest_retention.py
 tests/agent_deploy/test_release_deployer.py
+tests/agent_runtime/adapters/test_acpx_claude_adapter_modes.py
+tests/agent_runtime/adapters/test_cursor_adapter.py
+tests/agent_runtime/adapters/test_deepseek_adapter.py
+tests/agent_runtime/adapters/test_glm_adapter.py
+tests/agent_runtime/adapters/test_kimi_adapter.py
 tests/hooks/test_release_root_authority.py
 tests/agent_runtime/test_release_guard_settings.py
 tests/api/test_runtime_router_import.py
@@ -280,6 +285,7 @@ tests/storage/test_paths_product_root.py
 tests/imports/test_installed_wheel_imports.py
 tests/test_merged_delivery.py
 tests/agent_runtime/test_grok_hook_bridge_release.py
+tests/agent_runtime/test_grok_message_boundaries.py
 tests/hooks/test_session_setup_isolation.py
 tests/hooks/test_interpreter_rule.py
 tests/agent_runtime/test_retired_seat_admission.py
@@ -330,6 +336,13 @@ tests/fleet_comms/test_inbox_pending.py
 tests/fleet_comms/test_kimi_sealed_review_refuse.py
 tests/fleet_comms/test_request_executor_exactly_once.py
 tests/agent_runtime/test_ab_discuss_read_only.py
+tests/agent_runtime/test_acp_health.py
+tests/agent_runtime/test_acpx_adapter.py
+tests/agent_runtime/test_acpx_claude_host_executable.py
+tests/agent_runtime/test_acpx_discuss.py
+tests/agent_runtime/test_acpx_markup_replies.py
+tests/agent_runtime/test_acpx_pilot.py
+tests/agent_runtime/test_acpx_provider_failures.py
 tests/agent_runtime/test_agent_runtime_acp_transport_cutover.py
 tests/agent_runtime/test_agent_runtime_cursor_env.py
 tests/agent_runtime/test_agent_runtime_effort.py
@@ -345,11 +358,18 @@ tests/agent_runtime/test_agent_runtime_redacted_env.py
 tests/agent_runtime/test_agent_runtime_tool_config.py
 tests/agent_runtime/test_agent_settings.py
 tests/agent_runtime/test_ask_cursor.py
+tests/agent_runtime/test_attempt_network.py
 tests/agent_runtime/test_authoring_review_feasibility.py
+tests/agent_runtime/test_binary_resolve.py
 tests/agent_runtime/test_channels_discuss_resume.py
 tests/agent_runtime/test_claude_project_key.py
+tests/agent_runtime/test_codex_adapter.py
 tests/agent_runtime/test_codex_bridge.py
+tests/agent_runtime/test_codex_exec_stream.py
+tests/agent_runtime/test_codex_hook_probe.py
 tests/agent_runtime/test_codex_review_tmp.py
+tests/agent_runtime/test_codex_sources_config_layers.py
+tests/agent_runtime/test_cursor_adapter_resume.py
 tests/agent_runtime/test_cursor_probe_login_honesty.py
 tests/agent_runtime/test_cursor_provider_windows.py
 tests/agent_runtime/test_cursor_routing_pins.py
@@ -364,16 +384,27 @@ tests/agent_runtime/test_git_shim_guard.py
 tests/agent_runtime/test_glm_lane_session_canary.py
 tests/agent_runtime/test_grok_build_adapter.py
 tests/agent_runtime/test_grok_prompt_limit.py
+tests/agent_runtime/test_grok_reviewer_tools.py
+tests/agent_runtime/test_grok_stop_reasons.py
 tests/agent_runtime/test_identity_eval_timeouts.py
+tests/agent_runtime/test_jsonl_lines.py
+tests/agent_runtime/test_lane_probe.py
 tests/agent_runtime/test_lane_runtime_usage.py
 tests/agent_runtime/test_livenessprobe.py
 tests/agent_runtime/test_model_pause.py
 tests/agent_runtime/test_primary_tree_watch.py
+tests/agent_runtime/test_provider_diagnostic_regressions.py
+tests/agent_runtime/test_pty_subprocess_wrap.py
 tests/agent_runtime/test_review_closeout_cli.py
 tests/agent_runtime/test_root_model_catalog.py
 tests/agent_runtime/test_runner_tool_calls.py
+tests/agent_runtime/test_runtime_rules_core_delivery.py
+tests/agent_runtime/test_sibling_provider_signals.py
+tests/agent_runtime/test_stdin_tempfile_spawn.py
+tests/agent_runtime/test_target_admission.py
 tests/agent_runtime/test_trace_capture_no_contamination.py
 tests/agent_runtime/test_trail_isolation.py
+tests/agent_runtime/test_usage_headroom_corrupt.py
 # [support]
 tests/__init__.py
 tests/conftest.py
@@ -434,6 +465,9 @@ tests/ai_agent_bridge/review_target_git.py
 tests/api/conftest.py
 tests/_host_path_guard.py
 tests/epics_monitor_stub.py
+tests/fixtures/grok/invalid-model-streaming-messages.jsonl
+tests/fixtures/grok/invalid-model.json
+tests/fixtures/grok/streaming-messages-multi.jsonl
 tests/common/github_cache_isolation.py
 tests/claude_route_accounts.py
 tests/api/fixtures/fleet/agent_success.json
@@ -458,6 +492,15 @@ tests/fixtures/product_tree/.nvmrc
 
 # PORT-1108 T1, from LU 5aba2adb.
 tests/_worktree_artifact_links.py
+tests/agent_runtime/adapters/fixtures/cursor_v2026_05_27_session_transcript.jsonl
+tests/agent_runtime/fixtures/product_stand_ins/scripts/__init__.py
+tests/agent_runtime/fixtures/product_stand_ins/scripts/curriculum/__init__.py
+tests/agent_runtime/fixtures/product_stand_ins/scripts/curriculum/review_attempt_hooks.py
+tests/agent_runtime/fixtures/product_stand_ins/scripts/review/__init__.py
+tests/agent_runtime/fixtures/product_stand_ins/scripts/review/receipts/__init__.py
+tests/agent_runtime/fixtures/product_stand_ins/scripts/review/receipts/ledger.py
+tests/agent_runtime/product_roots.py
+tests/agent_runtime/review_roots_support.py
 tests/helpers/interrupted_checkout.py
 tests/orchestration/closeout_fixtures.py
 tests/orchestration/fixtures/certification/case-matrix.v1.yaml
