@@ -543,6 +543,27 @@ models:
       agents_extensions/shared/rules/fleet-shared-doctrine.md § Effort.
     sources:
       - https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/prompting-claude-fable-5-1
+  claude-fable-5-2:
+    family: anthropic
+    tier: frontier_authority
+    lifecycle: active
+    # #9583: no architecture/advisory or review role; launchable model only.
+    # Explicit pin only (C-4965); no resolver, ladder or default routes it.
+    roles: [long_horizon_coding, orchestration]
+    transports: [native_claude]
+    strengths: [long_horizon_work, always_on_thinking]
+    weaknesses: [no_zero_data_retention, forced_tool_choice_unsupported]
+    notes: >-
+      Operator order C-4965 (2026-11-09): Fable 5.2 is prepared for use by explicit
+      pin only and is not routed by default until the operator decides after
+      evaluation. Probe 2026-11-09 (Claude Code 2.1.321, account a):
+      claude -p --model claude-fable-5-2 succeeded with modelUsage key
+      claude-fable-5-2. Like claude-fable-5-1 (#9583) it holds no advisory,
+      approval, review or critique role and is not a last resort for any of them.
+      claude-fable-5-1 stays active alongside it. Thinking is always on and the
+      API default effort is high; it requires 30-day data retention (no ZDR).
+    sources:
+      - https://platform.claude.com/docs/en/models/fable-5-2/overview
   claude-opus-5-5:
     routing_wire_ids:
       native_claude: claude-opus-5-5
@@ -796,11 +817,13 @@ models:
     tier: frontier_practical
     lifecycle: active
     # Dispatch v2 uses Cursor at grok-4.7-high; native Grok dispatch is retired.
-    # grok-4.7-build-fast is not an alias. grok-4.6 is not admitted.
+    # grok-4.7-build is this holder's exact runtime-id alias. grok-4.7-build-fast is not.
+    # grok-4.6 is not admitted.
     # The retained ukrainian_review role confers no language route.
     # Ukrainian seats are Gemini and Sol (scripts/review/ukrainian_seats.py).
     # Review routes list only code and infra profiles; the resolver refuses xAI.
     roles: [coding, strong_review, adversarial_review, critical_review, debugging, ukrainian_review]
+    aliases: [grok-4.7-build]
     runtime_model_ids: [grok-4.7-build]
     transports: [native_grok, cursor]
     strengths: [strong_coding, sharp_review, agentic_work, residual_positional_review]

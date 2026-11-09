@@ -16,9 +16,12 @@ from lu_machinery.dispatcher.types import TaskSpec
 from lu_machinery.review.model_catalog import (
     advisory_role_policy,
     canonical_model_id,
+    is_cursor_auto_selector,
     load_model_catalog,
     retired_model_refusal,
 )
+
+_NATIVE_CLAUDE_ALIASES = frozenset({"haiku", "opus", "sonnet", "fable"})
 
 CATALOG = Path(__file__).resolve().parents[1] / "config" / "model_catalog.yaml"
 
@@ -127,10 +130,35 @@ def check_trial_shadow(agent: str, model: str, record: dict) -> dict:
     return {"trial_label": "trial", "trial_qualified_nonce": qualified["run_nonce"]}
 
 
+def _normalize_native_claude_alias(agent: str, model: str) -> str:
+    """The catalog id a bare Claude alias names; every other pin is unchanged.
+
+    ``opus``, ``sonnet``, ``haiku`` and ``fable``, with an optional ``[1m]``, are not
+    catalog ids. Admission resolves them before an unresolved pin is unknown.
+    """
+    alias = model.strip().casefold().split("[", 1)[0]
+    if agent != "claude" or alias not in _NATIVE_CLAUDE_ALIASES:
+        return model
+    from lu_machinery.agent_runtime.model_pause import _newest_claude
+
+    resolved = _newest_claude(alias)
+    if resolved is None:
+        raise ValueError("cannot resolve native Claude model alias for bounded admission")
+    return resolved
+
+
 def check_model_admission(agent: str, model: str, mode: str, options: dict, prompt: bytes) -> None:
-    """Keep the temporary reviewer exception closed at admission and again at spawn."""
+    """Keep the temporary reviewer exception closed at admission and again at spawn.
+
+    An explicit pin with no catalog id is refused after native Claude alias
+    normalization and before the red-team exemption. Cursor's ``auto`` selector
+    has no catalog id and keeps its own gate. The refusal text is the catalog's
+    unknown-model sentence; transport and lifecycle stay on the execution gate.
+    """
     catalog = load_model_catalog()
-    identity = canonical_model_id(model, catalog)
+    identity = canonical_model_id(_normalize_native_claude_alias(agent, model), catalog)
+    if identity is None and not (agent == "cursor" and is_cursor_auto_selector(model)):
+        raise ValueError(f"model {model!r} is not in the model catalog")
     if not catalog["models"].get(identity, {}).get("red_team_only"):
         return
     context = {key: options.get(key) for key in ("review_mode", "review_profile", "requested_role")}
@@ -162,14 +190,7 @@ def advisory_binding(args, prompt: bytes) -> tuple[dict, str, str]:
 def check_bounded_advisory(args, model: str, repo: Path, prompt: bytes) -> dict:
     """Apply the legacy bounded-worker policy before creating a worktree or starting a provider."""
     try:
-        alias = model.strip().casefold().split("[", 1)[0]
-        if args.agent == "claude" and alias in {"haiku", "opus", "sonnet", "fable"}:
-            from lu_machinery.agent_runtime.model_pause import _newest_claude
-
-            model = _newest_claude(alias)
-            if model is None:
-                raise ValueError("cannot resolve native Claude model alias for bounded admission")
-        model = canonical_model_id(model)
+        model = canonical_model_id(_normalize_native_claude_alias(args.agent, model))
         requirement = advisory.bounded_requirement(
             model, mode=args.mode, task_family=args.research_task_family, review_profile=args.review_profile,
             owned_paths=[*args.owned_path, *args.research_owned_path], repo_root=repo,

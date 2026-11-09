@@ -1132,6 +1132,17 @@ def assert_frozen_surfaces(actual, *, surfaces):
             # The coder-only Terra addition leaves every frozen seat and review route intact.
             terra = value["models"].pop("gpt-6.1-terra")
             assert hashlib.sha256(encode(terra)).hexdigest() == "5f22691f96e42246fb4cca6a474c8d9dab1465a75ba720ed7bc153f2c47b3f9d"
+            # C-4965: Fable 5.2 is an explicit-pin model with no review or advisory role, so it
+            # joins no seat, review route, ladder or ranking; every other field stays frozen.
+            fable52 = value["models"].pop("claude-fable-5-2")
+            assert hashlib.sha256(encode(fable52)).hexdigest() == "04ee0a6324bb7c8afa5259b2a9fe503a1673854df2dc0844209bd11120c08d84"
+            # grok-4.7-build is the exact runtime-id alias of its holder. No other grok field moves.
+            grok = value["models"]["grok-4.7"]
+            assert grok.get("aliases") == ["grok-4.7-build"]
+            restored_grok = deepcopy(grok)
+            del restored_grok["aliases"]
+            assert restored_grok == expected["models"]["grok-4.7"]
+            value["models"]["grok-4.7"] = deepcopy(expected["models"]["grok-4.7"])
             # The advisory_roles section moves no seat, route or review ranking.
             _pop_advisory_roles(value)
             # Muse operator decision 2026-11-01: low/medium review ladders and contributor mode off
@@ -1188,6 +1199,9 @@ def refresh_current_baseline():
     catalog = plain(expanded_legacy_view())
     catalog["models"].pop("gemini-4-carbon")
     catalog["models"].pop("gpt-6.1-terra")
+    catalog["models"].pop("claude-fable-5-2")
+    grok = catalog["models"]["grok-4.7"]
+    assert grok.pop("aliases") == ["grok-4.7-build"]
     _pop_advisory_roles(catalog)
     # Keep the previously approved overlays outside this current-baseline refresh.
     catalog["review_candidates"].pop("openai_red_team_exception")
