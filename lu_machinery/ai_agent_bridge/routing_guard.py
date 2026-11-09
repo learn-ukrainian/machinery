@@ -80,7 +80,7 @@ def assert_model_routing_allowed(model: str | None, *, context: str) -> None:
 
     ``context`` names the call site for the error message (and telemetry).
     """
-    from lu_machinery.review.model_catalog import retired_model_refusal
+    from lu_machinery.review.model_catalog import canonical_model_id, retired_model_refusal
 
     if refusal := retired_model_refusal(model):
         raise RoutingGuardError(f"{context}: {refusal}")
@@ -152,6 +152,10 @@ def assert_model_routing_allowed(model: str | None, *, context: str) -> None:
             "the agy subscription seat). "
             f"Set {_OVERRIDE_ENV}=1 only with explicit user authorization."
         )
+    # A gemma spelling that does not name the catalog id is not the free lane.
+    # Refuse it without inheriting the retired catalog row.
+    if ais_prefix and canonical_model_id(text) is None:
+        raise RoutingGuardError(f"{context}: {text!r} is not in the model catalog")
 
 
 def assert_agent_routing_allowed(agent: str | None, *, context: str) -> None:

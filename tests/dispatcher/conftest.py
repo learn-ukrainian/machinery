@@ -99,8 +99,24 @@ STUB_MODELS = (
     "echo", "blocked", "tree", "governed", "escape", "pushed", "unpushed", "dirty",
     "pushed-dirty", "pushed-nested", "capacity", "capacity-dirty", "file", "crash",
     "error", "empty", "fail", "cancel", "vendor/model",
-    "requested-model-is-not-proof",
+    "requested-model-is-not-proof", "explicit-model", "stub", "approved-model",
+    "unknown-model",
 )
+
+
+@pytest.fixture(autouse=True)
+def admit_stub_models(monkeypatch):
+    """Fixture model strings are not catalog ids. Waive only the unknown-pin guard."""
+    from lu_machinery.dispatcher import checks
+
+    real_admission = checks.check_model_admission
+
+    def admission(agent, model, mode, options, prompt):
+        if str(model or "").strip().split("[", 1)[0] in STUB_MODELS:
+            return None
+        return real_admission(agent, model, mode, options, prompt)
+
+    monkeypatch.setattr(checks, "check_model_admission", admission)
 
 
 def run_git(repo, *args):
@@ -110,7 +126,7 @@ def run_git(repo, *args):
 
 
 @pytest.fixture
-def sandbox(tmp_path, hermetic_monitor, configured_roots, sources_product_root, monkeypatch):
+def sandbox(tmp_path, hermetic_monitor, configured_roots, sources_product_root):
     repo, tasks = tmp_path / "public", tmp_path / "tasks"
     remote = tmp_path / "remote.git"
     repo.mkdir()
@@ -148,18 +164,6 @@ def sandbox(tmp_path, hermetic_monitor, configured_roots, sources_product_root, 
     sol = catalog_copy["models"]["gpt-6.1-sol"]
     sol["aliases"] = [*(sol.get("aliases") or []), *STUB_MODELS]
     (config / "model_catalog.yaml").write_text(yaml.safe_dump(catalog_copy, sort_keys=False))
-    from lu_machinery.dispatcher import checks
-
-    # In-process dispatch uses the production catalog. Waive only the unknown-pin
-    # guard for a stub name; every later gate still sees that name, not a real model.
-    real_admission = checks.check_model_admission
-
-    def admission(agent, model, mode, options, prompt):
-        if str(model or "").strip().split("[", 1)[0] in STUB_MODELS:
-            return None
-        return real_admission(agent, model, mode, options, prompt)
-
-    monkeypatch.setattr(checks, "check_model_admission", admission)
     shutil.copy(SOURCE / "lu_machinery/config/credit_lanes.yaml", config / "credit_lanes.yaml")
     # This checkout is the product checkout of the copied machinery (product_root, C-4746): it
     # carries the product marker, and the product files the dispatcher reads come from it, with
