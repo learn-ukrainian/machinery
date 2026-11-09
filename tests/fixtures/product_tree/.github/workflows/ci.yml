@@ -1,0 +1,756 @@
+name: CI
+
+# A PR runs Frontend, the admission checks and the affected tests (pr-affected: changed
+# tests, tests that import or read changed files, the guard list and repository
+# invariants), not the pytest shards. merge_group runs the full supported suite on the
+# queue candidate before it lands; nightly and opt-in workflow_dispatch run it too.
+# Every merge candidate must pass the same required "CI Gate" context.
+
+concurrency:
+  # A push cancels the stale pull_request run; other events are never cancelled.
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event_name == 'workflow_dispatch' && github.run_id || github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+env:
+  UV_HTTP_RETRIES: '6'
+  UV_HTTP_TIMEOUT: '60'
+  PIP_RETRIES: '6'
+  PIP_TIMEOUT: '60'
+
+on:
+  pull_request:
+    # No `edited`: a title or body edit would restart the whole suite on an
+    # unchanged head. pr-publication-scan.yml scans publication fields on edits.
+    types: [opened, synchronize, reopened]
+  merge_group:
+  workflow_dispatch:
+    inputs:
+      secret_scan_mode:
+        description: Secret scan coverage (full-history-audit scans all history)
+        type: choice
+        default: bounded
+        options:
+          - bounded
+          - full-history-audit
+  schedule:  # nightly full run on main; also saves main's uv cache
+    - cron: '30 3 * * *'
+
+jobs:
+  queue-metadata-scan:
+    # The queue writes PR-derived text into its commit's message, so the
+    # commit's metadata needs its own scan. Scans message, author
+    # and committer only (an empty-diff commit carrying that metadata).
+    name: Queue commit metadata scan
+    if: github.event_name == 'merge_group'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          # Commits and trees, and only the job's own scripts (FR-58): the ancestry
+          # check and the empty-diff metadata commit read no file content.
+          fetch-depth: 0  # verify the original group base is an ancestor of the candidate
+          filter: blob:none
+          sparse-checkout: |
+            scripts/
+            .python-version
+          sparse-checkout-cone-mode: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version-file: '.python-version'
+      - name: Record original queue candidate
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          QUEUE_RECORD: ${{ runner.temp }}/queue-candidate.json
+        run: python3 -m scripts.ci.gate --record-queue
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ci-queue-candidate
+          path: ${{ runner.temp }}/queue-candidate.json
+          if-no-files-found: error
+          retention-days: 14
+      - id: metadata
+        run: python3 -m scripts.ci.metadata_commit --commit HEAD >> "$GITHUB_OUTPUT"
+      - name: Fetch and verify the blobs the scan reads
+        env:
+          SCAN_BASE: ${{ steps.metadata.outputs.parent }}
+          SCAN_HEAD: ${{ steps.metadata.outputs.commit }}
+        run: python3 -m scripts.ci.secret_scan_scope materialize
+      # `version` is the scanner image tag. The uses SHA pins this action's
+      # script only; omitting version pulls :latest. Bump: set both TruffleHog
+      # steps to the newest trufflesecurity/trufflehog release (3.99.0 or
+      # newer — never an older tag to clear a finding) and re-scan with
+      # scripts/audit/secret_scan_local.py tree.
+      - uses: trufflesecurity/trufflehog@31ce31ee1abbcc7dc8eee5764c17121c3044c8b2 # action v3.99.7
+        with:
+          version: "3.99.0"
+          base: ${{ steps.metadata.outputs.parent }}
+          head: ${{ steps.metadata.outputs.commit }}
+          # Scan the blobless checkout in place; TruffleHog's own clone of a partial clone
+          # fails. In place, a git config go-git cannot read is a scan error, not a pass.
+          extra_args: --results=verified,unknown --exclude-detectors=Lob --trust-local-git-config --fail-on-scan-errors
+
+  secret-scan:
+    permissions:
+      contents: read
+      actions: read
+    name: Secret scan
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    # Only a deliberate manual audit gets the full-history budget.
+    timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && inputs.secret_scan_mode == 'full-history-audit' && 60 || 5 }}
+    steps:
+      # Full history, blobless (FR-58): the step after the scope fetches the blobs
+      # of the scanned range. The full-history audit reads every blob, so it keeps
+      # a full clone.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+          filter: ${{ !(github.event_name == 'workflow_dispatch' && inputs.secret_scan_mode == 'full-history-audit') && 'blob:none' || '' }}
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version-file: '.python-version'
+      - name: Scan publication fields
+        if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/audit/lint_opsec_leaks.py --event-file "$GITHUB_EVENT_PATH"
+      # Schedule scans at least the ancestry window, widening to the last
+      # successfully scanned head. Unknown coverage or git failures fail.
+      # Manual dispatches use the default-branch merge-base through github.sha;
+      # main refs or equal heads reuse the schedule window. The full-history
+      # checkout above fetches all branch refs, including origin/main. Resolution errors fail.
+      # Only secret_scan_mode=full-history-audit selects the explicit audit scope.
+      - name: Resolve secret scan commit scope
+        id: secret-scan-scope
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          MERGE_GROUP_BASE_SHA: ${{ github.event.merge_group.base_sha || '' }}
+          MERGE_GROUP_HEAD_SHA: ${{ github.event.merge_group.head_sha || '' }}
+          PUSH_BEFORE_SHA: ${{ github.event.before || '' }}
+          PUSH_AFTER_SHA: ${{ github.event.after || '' }}
+          DISPATCH_HEAD_SHA: ${{ github.sha }}
+          DISPATCH_SCAN_MODE: ${{ inputs.secret_scan_mode }}
+          DISPATCH_REF: ${{ github.ref }}
+          DEFAULT_BRANCH_REF: refs/heads/${{ github.event.repository.default_branch }}
+          GH_TOKEN: ${{ github.event_name == 'schedule' && github.token || '' }}
+        run: python3 -m scripts.ci.secret_scan_scope
+      # The range TruffleHog scans: the scope above, or the action's own
+      # pull_request base and head. Fails unless every blob it reads is local.
+      - name: Fetch and verify the blobs the scan reads
+        env:
+          SCAN_BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || steps.secret-scan-scope.outputs.trufflehog_base }}
+          SCAN_HEAD: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || steps.secret-scan-scope.outputs.trufflehog_head }}
+        run: python3 -m scripts.ci.secret_scan_scope materialize
+      - name: Gate scrubbed public identifiers
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          OPSEC_RANGE: ${{ steps.secret-scan-scope.outputs.opsec_range }}
+        run: |
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            python3 scripts/audit/lint_opsec_leaks.py "${PR_BASE_SHA}...${PR_HEAD_SHA}" --public-identifiers
+          elif [ -n "$OPSEC_RANGE" ]; then
+            python3 scripts/audit/lint_opsec_leaks.py --commit-range "$OPSEC_RANGE" --public-identifiers
+          else
+            python3 scripts/audit/lint_opsec_leaks.py --public-identifiers
+          fi
+      - run: python3 scripts/audit/check_no_internal_ids.py --changed-vs-base origin/main
+      # Same scanner pin as the queue-metadata step. Bump both together:
+      # newest trufflesecurity/trufflehog release, never an older tag to clear
+      # a finding, then re-scan with scripts/audit/secret_scan_local.py tree.
+      - uses: trufflesecurity/trufflehog@31ce31ee1abbcc7dc8eee5764c17121c3044c8b2 # action v3.99.7
+        with:
+          version: "3.99.0"
+          base: ${{ steps.secret-scan-scope.outputs.trufflehog_base }}
+          head: ${{ steps.secret-scan-scope.outputs.trufflehog_head }}
+          extra_args: >-
+            --results=verified,unknown --exclude-paths=.trufflehogignore --exclude-detectors=Lob
+            --trust-local-git-config --fail-on-scan-errors
+
+      - name: Record successfully scanned head
+        if: >-
+          success() && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) &&
+          (github.event_name == 'schedule' ||
+          (github.event_name == 'workflow_dispatch' && inputs.secret_scan_mode == 'full-history-audit'))
+        env:
+          SCANNED_HEAD: ${{ steps.secret-scan-scope.outputs.trufflehog_head }}
+          LAST_SCANNED_HEAD_FILE: ${{ runner.temp }}/secret-scan-covered-head
+        run: |
+          scanned_head="$(git rev-parse "$SCANNED_HEAD^{commit}")"
+          test "$scanned_head" = "$GITHUB_SHA"
+          printf '%s\n' "$scanned_head" > "$LAST_SCANNED_HEAD_FILE"
+      - name: Save successfully scanned head
+        if: >-
+          success() && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) &&
+          (github.event_name == 'schedule' ||
+          (github.event_name == 'workflow_dispatch' && inputs.secret_scan_mode == 'full-history-audit'))
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: secret-scan-covered-head-v1
+          path: ${{ runner.temp }}/secret-scan-covered-head
+          if-no-files-found: error
+          retention-days: 90
+
+  checks:
+    name: Checks
+    if: ${{ !cancelled() }}
+    permissions:
+      contents: read
+      actions: read
+      issues: read
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0  # origin/main merge-base diffs
+          filter: blob:none  # git fetches the few old blobs the checks read
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version-file: '.python-version'
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: '.nvmrc'
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - name: Python CI environment
+        uses: ./.github/actions/python-ci-env
+      # mypy ratchet (#12642). One cache key, saved on main only: a pull_request
+      # save is visible only to that PR and the scripts/ cache is large.
+      # A miss rechecks scripts/ inside this job; a hit reuses incremental results.
+      - name: Restore mypy cache
+        id: mypy-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .mypy_cache
+          key: mypy-scripts-v1-${{ runner.os }}-${{ hashFiles('.python-version', 'requirements-lock.txt', 'pyproject.toml') }}
+      - name: Mypy ratchet
+        run: .venv/bin/python -m scripts.lint.mypy_ratchet
+      - name: Save mypy cache
+        if: github.ref == 'refs/heads/main' && steps.mypy-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .mypy_cache
+          key: mypy-scripts-v1-${{ runner.os }}-${{ hashFiles('.python-version', 'requirements-lock.txt', 'pyproject.toml') }}
+      - name: Package boundary ratchet
+        run: .venv/bin/python -m scripts.lint.boundary_ratchet
+      - name: Collect pytest for PR admission
+        if: github.event_name == 'pull_request'
+        # Report per-file counts instead of potentially oversized parameter IDs.
+        run: >-
+          .venv/bin/python -m pytest tests --collect-only --strict-markers
+          --override-ini addopts=-qq --override-ini 'norecursedirs=.* node_modules'
+      - name: Verify flake quarantine admissions
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || 'origin/main' }}
+        run: .venv/bin/python -m scripts.common.flake_quarantine --base-ref "$BASE_SHA"
+      - name: Lint and content contracts
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha || github.sha }}
+        run: |
+          npm ci --prefer-offline --no-audit --no-fund
+          PATH="$PWD/.venv/bin:$PATH" bash scripts/ci/checks.sh
+
+  frontend:
+    # Builds only when the diff touches scripts/ci/frontend_change_denominator.json
+    # (site/ plus the backend inputs hydrate reads) or the base is unknown.
+    name: Frontend
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+          filter: blob:none
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version-file: '.python-version'
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: '.nvmrc'
+          cache: npm
+          cache-dependency-path: site/package-lock.json
+      - name: Python CI environment
+        uses: ./.github/actions/python-ci-env
+      - name: Install site toolchain
+        working-directory: site
+        run: npm ci --prefer-offline --no-audit --no-fund
+      # Browser-backed tests launch the runner's installed Google Chrome with its
+      # sandbox on, through site/e2e/support/hardened-browser.mjs (#12689). Nothing
+      # downloads Playwright's bundled browsers; a launch without a usable sandbox fails.
+      - name: Installed Google Chrome for browser-backed unit tests
+        run: |
+          set -euo pipefail
+          if [ ! -x /opt/google/chrome/chrome ]; then
+            echo "::error::Google Chrome is not installed on this runner" >&2
+            exit 1
+          fi
+          /opt/google/chrome/chrome --version
+      # Required even when the full frontend build is outside the changed-path scope.
+      # Include tests/build/, normally excluded by pytest default traversal.
+      - name: Real MDX compiler regressions
+        run: |
+          .venv/bin/python -m pytest tests -m site_toolchain --strict-markers --override-ini addopts=-q \
+            --override-ini 'norecursedirs=.* node_modules' --timeout=120
+      - id: scope
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha || github.sha }}
+        run: python3 scripts/ci/frontend_change_scope.py --event "$EVENT_NAME" --base "$BASE_SHA" --head "$HEAD_SHA"
+      # Hydrate and build once (#9718). The record binds the build's log, exit code and
+      # dist/ to the hydrated inputs; test:unit:ci, the verify below and build-renders
+      # fail closed unless that exact build and those inputs are still current.
+      # The drift check stays directly after the build (#7673).
+      - if: steps.scope.outputs.run == 'true'
+        name: Build, drift check, unit and built-output tests
+        working-directory: site
+        env:
+          FRONTEND_BUILD_RECORD: ${{ runner.temp }}/frontend-build/record.json
+        run: |
+          set -euo pipefail
+          npm run hydrate
+          node --experimental-strip-types tests/helpers/ci-build-artifact.ts \
+            record --record "$FRONTEND_BUILD_RECORD" -- npm run astro -- build
+          git diff --exit-code -- src/data/lexicon-teacher-lesson-keys.json src/data/practice-zno-meta.json
+          npm run test:unit:ci
+          node --experimental-strip-types tests/helpers/ci-build-artifact.ts verify --record "$FRONTEND_BUILD_RECORD"
+          npm run test:built-output
+
+  # One snapshot per run, then every shard downloads that same artifact (#11040).
+  # Lookup failure keeps the committed weights and exits 0; it must not fail CI.
+  refresh-pytest-durations:
+    name: Refresh pytest durations
+    if: ${{ !cancelled() && github.event_name != 'pull_request' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+          sparse-checkout: |
+            scripts/ci/
+            scripts/__init__.py
+            scripts/common/__init__.py
+            scripts/common/github_client.py
+            scripts/common/github_usage.py
+            scripts/common/scratch.py
+            scripts/opsec/__init__.py
+            scripts/opsec/gh_snapshot.py
+            scripts/opsec/prepublish.py
+            .python-version
+          sparse-checkout-cone-mode: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version-file: '.python-version'
+      - name: Refresh pytest duration snapshot
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          mkdir -p ci-artifacts
+          out=ci-artifacts/pytest-file-durations.json
+          set +e
+          log=$(python3 -m scripts.ci.split_tests refresh --repo "$REPO" --output "$out" 2>&1)
+          status=$?
+          set -e
+          printf '%s\n' "$log"
+          if [ "$status" -ne 0 ] || ! python3 -m scripts.ci.split_tests validate "$out"; then
+            echo "::notice::duration refresh failed; retaining committed weights"
+            cp scripts/ci/pytest-file-durations.json "$out"
+          elif printf '%s\n' "$log" | grep -q "retaining committed fallback"; then
+            echo "::notice::duration lookup unavailable; retaining committed weights"
+          fi
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: pytest-duration-input
+          path: ci-artifacts/pytest-file-durations.json
+          if-no-files-found: error
+          retention-days: 1
+
+  pytest:
+    name: pytest (${{ matrix.shard }})
+    needs: [refresh-pytest-durations]
+    if: ${{ !cancelled() && github.event_name != 'pull_request' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # The same-run snapshot comes from actions/download-artifact, which needs no
+    # token scope, so the job holds only contents:read.
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24]
+    env:
+      LEARN_UKRAINIAN_CP_PG_DSN: postgresql://postgres:postgres@localhost:5432/lu
+      LU_PYTEST_TMP_BUDGET_GB: "5"
+      PYTEST_BREADCRUMB_DIR: ci-artifacts/pytest-shard-${{ matrix.shard }}-breadcrumbs
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          # Shard 1 alone gets full history for the files in
+          # scripts/ci/history-tests.txt (split_tests.py pins them there);
+          # every other shard is shallow. Never fetched lazily (#9062): one
+          # history test sizes ~1 GB of old data/ blobs, one fetch per blob
+          # in a blobless clone (FR-58).
+          fetch-depth: ${{ matrix.shard != 1 && 1 || 0 }}
+      # PostgreSQL 16/bubblewrap and npm ci run in the background during the Python install.
+      - run: bash scripts/ci/test_env.sh start postgres
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version-file: '.python-version'
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: '.nvmrc'
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - run: bash scripts/ci/test_env.sh start npm
+      - name: Python CI environment
+        uses: ./.github/actions/python-ci-env
+      - run: bash scripts/ci/test_env.sh wait
+        timeout-minutes: 5
+      # The refresh-job result is the same on every shard. Success always uploaded
+      # one validated snapshot: fetch it through actions/download-artifact, which for a
+      # same-run artifact talks to the Actions artifact service with the runtime token
+      # and spends none of the REST API core quota that 24 shards x `gh run download`
+      # exhausted. A missing or invalid snapshot fails the shard. Any other result means
+      # every shard uses the committed weights. A shard never switches inputs on its
+      # own (#11040). continue-on-error is forbidden here.
+      - name: Decide pytest duration source
+        id: duration-source
+        env:
+          REFRESH_RESULT: ${{ needs.refresh-pytest-durations.result }}
+        run: |
+          set -euo pipefail
+          decision=$(python3 -m scripts.ci.split_tests duration-source --refresh-result "$REFRESH_RESULT" --decide)
+          case "$decision" in
+            committed) echo "::notice::duration refresh did not succeed; using committed weights" ;;
+            snapshot) ;;
+            *)
+              echo "::error::unexpected duration source decision"
+              exit 1
+              ;;
+          esac
+          echo "decision=$decision" >> "$GITHUB_OUTPUT"
+      - name: Download pytest duration snapshot
+        if: steps.duration-source.outputs.decision == 'snapshot'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: pytest-duration-input
+          path: ci-artifacts/pytest-duration-input
+      - name: Validate pytest duration snapshot
+        if: steps.duration-source.outputs.decision == 'snapshot'
+        env:
+          REFRESH_RESULT: ${{ needs.refresh-pytest-durations.result }}
+        run: |
+          set -euo pipefail
+          snapshot=ci-artifacts/pytest-file-durations.json
+          mv ci-artifacts/pytest-duration-input/pytest-file-durations.json "$snapshot"
+          if ! python3 -m scripts.ci.split_tests duration-source --refresh-result "$REFRESH_RESULT" --snapshot "$snapshot" >/dev/null; then
+            echo "::error::shared duration snapshot is invalid"
+            exit 1
+          fi
+      - name: Run pytest
+        env:
+          SHARD: ${{ matrix.shard }}
+          SHARDS: ${{ strategy.job-total }}
+          REFRESH_RESULT: ${{ needs.refresh-pytest-durations.result }}
+        run: |
+          set -euo pipefail
+          mkdir -p ci-artifacts
+          export LU_PYTEST_SHARD_FILES="ci-artifacts/pytest-shard-${SHARD}-files.txt"
+          # Every collected needs_artifact test, before -m deselects (pytest report audits it).
+          export LU_PYTEST_NEEDS_ARTIFACT_COLLECTED="ci-artifacts/pytest-shard-${SHARD}-needs-artifact.txt"
+          # Shallow shards: a test that fetches from GitHub fails instead of
+          # quietly downloading history (scripts/ci/history-tests.txt).
+          [ "$SHARD" = 1 ] || export GIT_ALLOW_PROTOCOL=file
+          snapshot=ci-artifacts/pytest-file-durations.json
+          durations=$(python3 -m scripts.ci.split_tests duration-source \
+            --refresh-result "$REFRESH_RESULT" --snapshot "$snapshot")
+          # The shard's weights go into its artifact: pytest report divides out this
+          # runner's speed before recording durations (hosted runners differ ~1.6x).
+          git ls-files -- tests | grep -E '/test_[^/]+\.py$' \
+            | python3 -m scripts.ci.split_tests split --shard "$SHARD" --of "$SHARDS" \
+              --durations "$durations" --weights-out "ci-artifacts/pytest-shard-${SHARD}-weights.json" \
+              > "$LU_PYTEST_SHARD_FILES"
+          .venv/bin/python -m pytest tests -n logical --dist=worksteal --max-worker-restart=0 \
+            --timeout=120 --timeout-method=thread -m 'not atlas_release and not slow and not site_toolchain' --strict-markers \
+            --override-ini addopts=-q --durations=25 --junitxml="ci-artifacts/pytest-shard-${SHARD}.xml"
+          # Postgres tests self-skip on an unusable DSN; a green run of skips fails here.
+          .venv/bin/python -m scripts.ci.pg_skip_guard "ci-artifacts/pytest-shard-${SHARD}.xml" \
+            --title "pytest (${SHARD})" | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: List failing tests in job summary
+        if: failure()
+        env:
+          SHARD: ${{ matrix.shard }}
+        run: python3 -m scripts.ci.junit_results ci-artifacts/pytest-shard-*.xml --title "pytest (${SHARD})" >> "$GITHUB_STEP_SUMMARY"
+      - name: Show pytest cancellation diagnostics
+        if: ${{ failure() || cancelled() }}
+        timeout-minutes: 1
+        run: |
+          # Breadcrumbs are flushed during each test, even if JUnit never finishes.
+          # A final START without FINISH names the test interrupted on that worker.
+          shopt -s nullglob
+          for breadcrumb in "$PYTEST_BREADCRUMB_DIR"/breadcrumb_*.txt; do
+            printf '%s: ' "${breadcrumb##*/}"
+            tail -n 1 "$breadcrumb"
+          done
+      - name: Upload pytest JUnit report
+        if: ${{ always() }}
+        timeout-minutes: 2
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: pytest-junit-shard-${{ matrix.shard }}
+          # A retry replaces the cancelled attempt's incomplete shard artifact.
+          overwrite: true
+          path: |
+            ci-artifacts/pytest-shard-*.xml
+            ci-artifacts/pytest-shard-*-files.txt
+            ci-artifacts/pytest-shard-*-needs-artifact.txt
+            ci-artifacts/pytest-shard-*-weights.json
+            ci-artifacts/pytest-shard-*-breadcrumbs/
+          if-no-files-found: error
+          retention-days: 14
+
+  pytest-report:
+    name: pytest report
+    needs: [pytest]
+    if: ${{ !cancelled() && needs.pytest.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            tests/
+            scripts/
+            registry/artifacts/needs-artifact-expected.txt
+            .python-version
+          sparse-checkout-cone-mode: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version-file: '.python-version'
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: pytest-junit-shard-*
+          path: ci-artifacts/shards
+      - env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: python3 -m scripts.ci.pytest_report --results ci-artifacts/shards --record ci-artifacts/tested-tree.json
+      # Future runs learn only from a full, successful partition. The refresher
+      # further requires the entire merge-group workflow to have passed.
+      # Seconds are divided by each shard's runner speed; files that ran no test record 0.
+      - name: Record pytest durations
+        run: python3 -m scripts.ci.split_tests durations --shards ci-artifacts/shards > ci-artifacts/pytest-file-durations.json
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: pytest-file-durations
+          path: ci-artifacts/pytest-file-durations.json
+          if-no-files-found: error
+          retention-days: 14
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ci-tested-tree
+          path: ci-artifacts/tested-tree.json
+          if-no-files-found: error
+          retention-days: 14
+
+  pr-affected:
+    name: PR changed tests and guards
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    # PR #11922 measured supported selection at 402s/567s and a 660s superset
+    # with two workers. The 1,500s invariant subprocess ceiling plus 480s changed
+    # tests and setup fit this job budget.
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+          # Changed test files may be history tests (scripts/ci/history-tests.txt),
+          # which read old blobs, so PR runs keep a full clone. Other events run no
+          # tests here and fetch commits and trees only (FR-58).
+          filter: ${{ github.event_name != 'pull_request' && 'blob:none' || '' }}
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version-file: '.python-version'
+      # Changed tests run with the same root node_modules as the pytest shards
+      # (tests that spawn `node` with require('typescript') resolve it from the repo
+      # root); npm ci runs in the background during the Python install.
+      - if: github.event_name == 'pull_request'
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: '.nvmrc'
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - if: github.event_name == 'pull_request'
+        run: bash scripts/ci/test_env.sh start npm
+      - name: Python CI environment
+        if: github.event_name == 'pull_request'
+        uses: ./.github/actions/python-ci-env
+      - name: Set up bubblewrap
+        if: github.event_name == 'pull_request'
+        run: bash scripts/ci/setup_bubblewrap.sh
+      - if: github.event_name == 'pull_request'
+        run: bash scripts/ci/test_env.sh wait
+        timeout-minutes: 5
+      - name: Run changed test files and guards
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          if [ "$EVENT_NAME" = pull_request ]; then
+            .venv/bin/python -m scripts.ci.pr_affected_tests
+          else
+            echo 'Full tier: full pytest jobs remain required.'
+          fi
+      - name: Run repository invariants
+        if: ${{ !cancelled() && github.event_name == 'pull_request' }}
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        run: .venv/bin/python -m scripts.ci.pr_affected_tests --repo-wide
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: ${{ always() && github.event_name == 'pull_request' }}
+        with:
+          name: pr-affected-proof
+          path: |
+            ci-artifacts/pr-affected.*
+            ci-artifacts/pr-repo-wide.*
+          if-no-files-found: error
+          retention-days: 14
+
+  dependency-audit:
+    name: Dependency audit
+    if: ${{ !cancelled() }}
+    # Runs the full audit only when the diff touches a dependency input
+    # (scripts/ci/dependency_change_denominator.json) or the base is unknown;
+    # otherwise the scope step cheap-exits and the job still ends success (#9871).
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+          filter: blob:none
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version-file: '.python-version'
+      - id: scope
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha || github.sha }}
+        run: python3 scripts/ci/dependency_change_scope.py --event "$EVENT_NAME" --base "$BASE_SHA" --head "$HEAD_SHA"
+      - if: steps.scope.outputs.run == 'true'
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: '.nvmrc'
+      - if: steps.scope.outputs.run == 'true'
+        name: Run dependency vulnerability audit
+        run: |
+          python -m pip install --upgrade pip pip-audit PyYAML
+          python scripts/ci/audit_dependencies.py
+
+  ci-gate:
+    name: CI Gate
+    # always(): a skipped required check would count as passing on GitHub.
+    if: always()
+    # Every dependency must finish with the result required by its event tier.
+    needs: [queue-metadata-scan, secret-scan, checks, frontend, dependency-audit, pr-affected, refresh-pytest-durations, pytest, pytest-report]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      # Full history, but sparse: checkout then implies filter blob:none, so only the
+      # commits, trees and the gate's own scripts are downloaded, not the 700 MB tree.
+      # check_large_files fetches the changed blobs it sizes in one request.
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event_name == 'merge_group' && github.event.merge_group.head_sha || '' }}
+          persist-credentials: false
+          fetch-depth: 0
+          sparse-checkout: |
+            scripts/
+            .python-version
+          sparse-checkout-cone-mode: false
+      - name: Set up Python
+        id: setup-python-gate
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version-file: '.python-version'
+      - name: Check large files guard
+        if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event_name == 'merge_group' && github.event.merge_group.base_sha || github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event_name == 'merge_group' && github.event.merge_group.head_sha || '' }}
+          PYTHON_BIN: ${{ steps.setup-python-gate.outputs.python-path }}
+        run: |
+          if [ "$EVENT_NAME" = "merge_group" ] && [ -z "$HEAD_SHA" ]; then
+            echo "::error::Missing merge_group head_sha"
+            exit 1
+          fi
+          if [ -z "$BASE_SHA" ]; then
+            echo "::error::Missing base SHA for large file guard in $EVENT_NAME"
+            exit 1
+          fi
+          "$PYTHON_BIN" scripts/ci/check_large_files.py --changed-vs-base "$BASE_SHA"
+      - name: Require every job
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          NEEDS_JSON: ${{ toJSON(needs) }}
+          PYTHON_BIN: ${{ steps.setup-python-gate.outputs.python-path }}
+        run: '"$PYTHON_BIN" -m scripts.ci.gate'
+      # Attribution retains the repository's existing enforcement mode.
+      - name: Check agent attribution
+        if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event_name == 'merge_group' && github.event.merge_group.base_sha || github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event_name == 'merge_group' && github.event.merge_group.head_sha || github.event.pull_request.head.sha }}
+          PYTHON_BIN: ${{ steps.setup-python-gate.outputs.python-path }}
+          GITHUB_TOKEN: ${{ github.token }}
+          ATTRIBUTION_ENFORCE: ${{ vars.ATTRIBUTION_ENFORCE }}
+        run: |
+          set -euo pipefail
+          if [ -z "$BASE_SHA" ] || [ -z "$HEAD_SHA" ]; then
+            echo "::error::Missing base or head SHA for agent attribution in $EVENT_NAME"
+            exit 1
+          fi
+          # The parser pins from requirements-lock.txt; this job has no project environment.
+          "$PYTHON_BIN" -m pip install --disable-pip-version-check --quiet --no-deps --only-binary=:all: \
+            markdown-it-py==4.2.0 mdurl==0.1.2
+          mode=--pr
+          [ "$EVENT_NAME" != merge_group ] || mode=--merge-group
+          "$PYTHON_BIN" scripts/ci/check_agent_attribution.py "$mode" "$BASE_SHA" "$HEAD_SHA"
+      # Secret scan read the queue's PR metadata when this run started. A title or
+      # body edit made since then would otherwise reach the merge unscanned, so
+      # re-read every member's current metadata as the gate's last step.
+      - name: Re-scan queue publication fields
+        if: github.event_name == 'merge_group'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PYTHON_BIN: ${{ steps.setup-python-gate.outputs.python-path }}
+        run: '"$PYTHON_BIN" scripts/audit/lint_opsec_leaks.py --event-file "$GITHUB_EVENT_PATH"'

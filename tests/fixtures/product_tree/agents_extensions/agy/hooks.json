@@ -1,0 +1,57 @@
+{
+  "pending-orders-announce": {
+    "PreInvocation": [
+      {
+        "type": "command",
+        "command": "sh ../scripts/agy_hooks/pending_orders_inject.sh",
+        "timeout": 10
+      }
+    ]
+  },
+  "driver-state-pin": {
+    "PreInvocation": [
+      {
+        "type": "command",
+        "command": "sh ../scripts/agy_hooks/driver_state_inject.sh agy-hook",
+        "timeout": 10
+      }
+    ]
+  },
+  "driver-keep-driving": {
+    "Stop": [
+      {
+        "type": "command",
+        "command": "sh ../scripts/agy_hooks/driver_state_inject.sh agy-stop-hook",
+        "timeout": 20
+      }
+    ]
+  },
+  "driver-no-ask-question": {
+    "PreToolUse": [
+      {
+        "matcher": "ask_question",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh ../scripts/agy_hooks/driver_state_inject.sh agy-pretool-hook",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  },
+  "shell-secret-print-guard": {
+    "PreToolUse": [
+      {
+        "matcher": "run_command",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "../.venv/bin/python ../scripts/agent_runtime/secret_print_hook.py --harness agy",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}
