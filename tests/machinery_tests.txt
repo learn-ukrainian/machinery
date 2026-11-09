@@ -203,6 +203,29 @@ tests/test_session_supervisor.py
 tests/review/test_routing_consumers.py
 tests/orchestration/test_thread_handoff_confirmation.py
 tests/publish/test_pr_merge_squash_scan.py
+tests/repo_contracts/test_catalog_retirement_11327.py
+tests/repo_contracts/test_check_primary_integrity.py
+tests/repo_contracts/test_dashboard_empty_states.py
+tests/repo_contracts/test_deploy_codex_home.py
+tests/repo_contracts/test_digest_codex_rollout.py
+tests/repo_contracts/test_epics_dashboard_contract.py
+tests/repo_contracts/test_epics_map_dashboard_contract.py
+tests/repo_contracts/test_fleet_comms_launcher_awareness.py
+tests/repo_contracts/test_fleet_hramatka_hygiene_check.py
+tests/repo_contracts/test_fleet_occupancy_idle_contract.py
+tests/repo_contracts/test_git_identity.py
+tests/repo_contracts/test_guard_admin_merge.py
+tests/repo_contracts/test_guard_branch_switch_in_main.py
+tests/repo_contracts/test_launcher_canary_honesty.py
+tests/repo_contracts/test_launcher_remote_renew.py
+tests/repo_contracts/test_launcher_sandbox_closure.py
+tests/repo_contracts/test_migrate_to_html.py
+tests/repo_contracts/test_red_ci_registry_file.py
+tests/repo_contracts/test_secret_redactor_urls.py
+tests/repo_contracts/test_session_streams.py
+tests/repo_contracts/test_shell_shlex.py
+tests/repo_contracts/test_store_resolver.py
+tests/repo_contracts/test_work_dashboard.py
 tests/ci/test_semgrep_baseline.py
 tests/ci/test_component_shadow.py
 tests/orchestration/test_distinct_roots.py
@@ -268,30 +291,6 @@ tests/agent_runtime/test_root_model_catalog.py
 tests/agent_runtime/test_runner_tool_calls.py
 tests/agent_runtime/test_trace_capture_no_contamination.py
 tests/agent_runtime/test_trail_isolation.py
-# PORT-1108 T10: installed-wheel repository contracts.
-tests/repo_contracts/test_catalog_retirement_11327.py
-tests/repo_contracts/test_check_primary_integrity.py
-tests/repo_contracts/test_dashboard_empty_states.py
-tests/repo_contracts/test_deploy_codex_home.py
-tests/repo_contracts/test_digest_codex_rollout.py
-tests/repo_contracts/test_epics_dashboard_contract.py
-tests/repo_contracts/test_epics_map_dashboard_contract.py
-tests/repo_contracts/test_fleet_comms_launcher_awareness.py
-tests/repo_contracts/test_fleet_hramatka_hygiene_check.py
-tests/repo_contracts/test_fleet_occupancy_idle_contract.py
-tests/repo_contracts/test_git_identity.py
-tests/repo_contracts/test_guard_admin_merge.py
-tests/repo_contracts/test_guard_branch_switch_in_main.py
-tests/repo_contracts/test_launcher_canary_honesty.py
-tests/repo_contracts/test_launcher_remote_renew.py
-tests/repo_contracts/test_launcher_sandbox_closure.py
-tests/repo_contracts/test_migrate_to_html.py
-tests/repo_contracts/test_red_ci_registry_file.py
-tests/repo_contracts/test_secret_redactor_urls.py
-tests/repo_contracts/test_session_streams.py
-tests/repo_contracts/test_shell_shlex.py
-tests/repo_contracts/test_store_resolver.py
-tests/repo_contracts/test_work_dashboard.py
 
 # [support]
 tests/__init__.py
@@ -365,6 +364,16 @@ tests/fixtures/product_tree/scripts/curriculum/deploy_paths.v1.json
 tests/fixtures/product_tree/scripts/curriculum/admission_policy.v1.json
 tests/fixtures/product_tree/scripts/curriculum/review_hooks.v1.json
 tests/fixtures/product_tree/agents_extensions/agy/hooks.json
+tests/fixtures/product_tree/agents_extensions/codex-home/AGENTS.md
+tests/fixtures/product_tree/agents_extensions/codex-home/agents/luna_coder_high.toml
+tests/fixtures/product_tree/agents_extensions/codex-home/agents/luna_explorer_high.toml
+tests/fixtures/product_tree/agents_extensions/codex-home/agents/luna_explorer_medium.toml
+tests/fixtures/product_tree/agents_extensions/codex-home/agents/sol_advisor_high.toml
+tests/fixtures/product_tree/agents_extensions/codex-home/agents/sol_coder_high.toml
+tests/fixtures/product_tree/agents_extensions/codex-home/agents/sol_red_team_high.toml
+tests/fixtures/product_tree/agents_extensions/codex-home/agents/sol_ukrainian_content_high.toml
+tests/fixtures/product_tree/agents_extensions/codex-home/agents/terra_coder_high.toml
+tests/fixtures/product_tree/agents_extensions/codex-home/config.toml
 tests/fixtures/product_tree/agents_extensions/shared/rules/core-curriculum.md
 tests/fixtures/product_tree/.nvmrc
 
@@ -380,17 +389,6 @@ tests/orchestration/fixtures/pr_8264_status_check_rollup.json
 tests/orchestration/worker_leftovers_fakes.py
 tests/wait_helpers.py
 tests/worktree_prep_helpers.py
-# PORT-1108 T10: frozen Codex-home product data.
-tests/fixtures/product_tree/agents_extensions/codex-home/AGENTS.md
-tests/fixtures/product_tree/agents_extensions/codex-home/agents/luna_coder_high.toml
-tests/fixtures/product_tree/agents_extensions/codex-home/agents/luna_explorer_high.toml
-tests/fixtures/product_tree/agents_extensions/codex-home/agents/luna_explorer_medium.toml
-tests/fixtures/product_tree/agents_extensions/codex-home/agents/sol_advisor_high.toml
-tests/fixtures/product_tree/agents_extensions/codex-home/agents/sol_coder_high.toml
-tests/fixtures/product_tree/agents_extensions/codex-home/agents/sol_red_team_high.toml
-tests/fixtures/product_tree/agents_extensions/codex-home/agents/sol_ukrainian_content_high.toml
-tests/fixtures/product_tree/agents_extensions/codex-home/agents/terra_coder_high.toml
-tests/fixtures/product_tree/agents_extensions/codex-home/config.toml
 
 # [held]
 # tests/test_launcher_interactive_scope.py: 101 tests list the product's root start-*.sh wrappers through product_root(), which needs the product checkout (ProductRootError: no product is configured; LU_PRODUCT_ROOT names none).
