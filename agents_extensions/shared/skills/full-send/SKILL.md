@@ -67,7 +67,7 @@ dispatch. After one denial, retry once in a literal form before you stop; a seco
 3. **Prove it** ([delivery](references/delivery.md#proof)): reproduce, fix, the same check
    passes; behaviour proof for a user-visible surface. Add a test only with the CTO's approval
    of that specific test.
-4. **Open or update the PR and get green CI first** ([pr-body](references/pr-body.md)).
+4. **Open or update the PR after pushing the head** ([pr-body](references/pr-body.md)).
    Push the branch and open a non-draft PR so CI runs on the exact head. PR CI runs
    Frontend and the affected tests (changed tests, tests that import or read changed files,
    the guards and the repository invariants); the full pytest suite runs only in merge-group,
@@ -78,32 +78,37 @@ dispatch. After one denial, retry once in a literal form before you stop; a seco
      --base main --head "$BRANCH"
    ```
 
-   Wait for the `CI Gate` check on that head to finish (`gh pr checks "$PR"`; see
-   [pr-watch](references/pr-watch.md)). Fix a red gate through the authoring lane first;
-   every fix is a new head and restarts the wait. **No budgeted review round starts until
-   the `CI Gate` is green on the head to be reviewed**: a round spent on a head that then
-   changes for a CI failure is wasted budget.
+   Do not wait for the `CI Gate`: start step 5 right away on that immutable head, and let CI
+   run in parallel (`gh pr checks "$PR"`; see [pr-watch](references/pr-watch.md)). Pending CI is
+   not successful CI. Fix a red gate through the authoring lane; every fix is a new head, and
+   both the review and the CI start over on it.
    Before step 5, the author may optionally run the DeepSeek author pre-check
-   ([below](#optional-deepseek-author-pre-check-ds-precheck-1101)) on the pinned green head.
-5. **Review with `review-loop`**, which you run yourself, at that green head. It resolves
-   the reviewer live (never from a family that authored the branch, except any qualified
-   non-author reviewer at the review policy's Low tier), dispatches it at the
-   exact pushed head, keeps the budget and the ledger, and records the verdict. A fix that
-   moves the head returns to step 4 for green CI before the next round.
+   ([below](#optional-deepseek-author-pre-check-ds-precheck-1101)) on the pinned pushed head.
+5. **Review with `review-loop`**, which you run yourself, at that pushed head, in parallel with
+   its PR CI. It resolves the reviewer live (never from a family that authored the branch,
+   except any qualified non-author reviewer at the review policy's Low tier), dispatches it at
+   the exact pushed head, keeps the budget and the ledger, and records the verdict. A fix that
+   moves the head returns to step 4: push, then run the next round on the new head while its
+   CI runs. The reviewer withholds APPROVE when evidence it needs to resolve a material
+   finding, such as CI results still pending, is not yet available.
    Include the author task's `owned_path_grants` and `owned_path_grants_used` entries in the
    review-of-record brief, reading the current task record even when the author is still
    running. The reviewer checks each grant's paths against its reason and approval reference;
    a running author has no settlement usage list yet, so include all grants.
 6. **Watch it** ([pr-watch](references/pr-watch.md)): fix real findings and CI failures
    through the authoring lane, prove each fix, and run a `review-loop` delta for every new
-   head once its CI Gate is green. One evidenced rerun for an unrelated CI failure, never more.
+   head. One evidenced rerun for an unrelated CI failure, never more.
 7. **Check the gate on the live head** ([delivery](references/delivery.md#the-gate)):
 
    ```bash
    gh pr view "$PR" --json state,isDraft,headRefOid,mergeable,mergeStateStatus,autoMergeRequest
    ```
 
-   `headRefOid` must equal the head of the recorded APPROVE and of the green PR CI Gate.
+   `headRefOid` must equal the head of the recorded APPROVE and of the green PR CI Gate; a
+   pending, red or cancelled gate is not green. If CI evidence that arrived after the verdict
+   materially undermines it (for example a failure in code the review relied on), get the
+   reviewer's disposition before enqueue, through a round `budget-check` admits; a fix that
+   moves the head returns to step 4.
    Send follow-ups to the CTO through Fleet Comms
    (`"$PY" -m lu_machinery.fleet_comms channel publish … --recipient claude-cto`; the CTO's one durable recipient, never a `claude-cto-<id>` name).
 8. **Drain the inbox, then enqueue** at the approved head. The merge-queue keeper may already
