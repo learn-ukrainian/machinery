@@ -21,6 +21,11 @@ release is fixed by a new version, never by rebuilding or replacing assets.
   holds the same wheel bytes plus every wheel named in this commit's
   `requirements-machinery.lock`. It keeps the previous release's wheel and
   dependencies, so a consumer can roll back offline.
+- The machinery-owned `package.json`, `package-lock.json` and `.nvmrc` ship
+  with the wheel at `share/lu-machinery/node-contract` under its environment.
+  Retain the release's npm cache and provisioned Node prefix alongside its
+  wheelhouse, with the same current/previous-release retention policy. The
+  prefix includes lock-verified package archives for offline integrity checks.
 
 ## Dependency lock
 
@@ -68,6 +73,39 @@ in `pyproject.toml` and `$SHA` the full commit:
    env -u PYTHONPATH "$P" -I -c 'import importlib.metadata as m, lu_machinery; print(m.version("lu-machinery")); print(lu_machinery.__file__)'
    ```
 
+   Provision the wheel's Node dependencies under the runtime user and umask
+   022. Install Node matching the major in the shipped `.nvmrc`, with npm
+   beside that Node executable. The runtime admits no product dependency
+   tree, global ACP package or package-exec fallback. Set `$NPM_CACHE` to an
+   empty release-owned cache for the first install:
+
+   ```bash
+   umask 022
+   env -u PYTHONPATH "$P" -I -c 'from pathlib import Path; import sys; from lu_machinery.agent_runtime.adapters.acpx import provision_node_dependencies; print(provision_node_dependencies(cache=Path(sys.argv[1])))' "$NPM_CACHE"
+   ```
+
+   This explicit install runs `npm ci --ignore-scripts --no-audit --no-fund`
+   into `$VENV/share/lu-machinery/node/<version>-<lock-sha256>`. The version
+   must match the wheel, and the full lock digest distinguishes dependency
+   sets. It retains the installed packages' integrity-addressed archives.
+   Runtime admission verifies the copied contract, package versions, archive
+   integrity, installed file bytes, contained executable links, owners and
+   writable modes before any dependency is executed. An ACP request never
+   installs or repairs dependencies. A failed provisioning attempt leaves a
+   refusing prefix for diagnosis; restore it from the retained release set
+   before retrying. Do not run `npm ci` against an active prefix.
+
+   Accept Node provisioning in a clean environment with no product checkout,
+   ancestor `node_modules`, global ACP packages or npm cache. Record the wheel
+   SHA-256, lock SHA-256, Node version and resolved prefix/module/executable
+   paths. For every enabled ACP route, including the text server, complete
+   initialization, session creation, a known-answer prompt and a terminal
+   response with deterministic peers, then run a bounded authenticated canary
+   for each enabled provider. With registry access disabled, remove a package,
+   introduce an incompatible version and tamper with an executable in separate
+   restored copies. Each must refuse before prompt delivery. Import success
+   is insufficient.
+
    Then check that every packaged resource resolves from the installed wheel
    and exercise lazy runtime paths. Running the agent deployer's plan and apply
    against a scratch consumer is one such path. Import alone is not
@@ -98,7 +136,8 @@ consumers install from the host wheelhouse with the step 3 command. In CI, a
 consumer downloads the exact release asset into a temporary wheelhouse,
 downloads the locked dependencies into the same directory, and installs with
 the same command. Rolling back restores the previous lock, wheel,
-configuration and generated deployments, then verifies behaviour; reverting
+configuration, the matching Node prefix and generated deployments, then
+verifies behaviour, including the ACP known-answer checks; reverting
 the lock alone is not a rollback.
 
 A consumer Codex session sets `LU_PRODUCT_ROOT` to the absolute product checkout.
@@ -109,3 +148,11 @@ file, and a refusal with no fallback when it is set to anything else; otherwise
 the validated primary checkout's `.venv/bin/python`; otherwise a refusal. A
 worktree-local `.venv` is not the interpreter, and nothing is discovered on
 `PATH`.
+
+Offline reinstall uses the retained wheelhouse and npm cache. Invoke
+`provision_node_dependencies(cache=Path(...), offline=True)` from the restored
+wheel's interpreter to run `npm ci --ignore-scripts --offline`. An intact
+retained prefix is validated and reused without npm or network access. Never
+mix a previous wheel with the current release's prefix. Product dependency
+removal is residual `R83-product`, owned by claude-cto for v0.2.0 after the
+release drill; this release does not remove product packages.
