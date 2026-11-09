@@ -51,6 +51,25 @@ for _trace_name in ${!GIT_TRACE@}; do
 done
 export GIT_TRACE=0 GIT_TRACE2=0 GIT_TRACE2_EVENT=0 GIT_TRACE2_PERF=0
 
+# Git setup can re-read relative metadata paths after entering a worktree.
+# Require absolute inputs before even the first discovery probe. Alternates
+# are a colon-separated list; reject ambiguous/quoted entries fail-closed.
+for _metadata_name in GIT_INDEX_FILE GIT_OBJECT_DIRECTORY GIT_COMMON_DIR GIT_ALTERNATE_OBJECT_DIRECTORIES; do
+  _metadata_rest="${!_metadata_name-}"
+  while :; do
+    _metadata_entry="$_metadata_rest"
+    if [[ "$_metadata_name" == GIT_ALTERNATE_OBJECT_DIRECTORIES ]]; then
+      _metadata_entry="${_metadata_rest%%:*}"
+    fi
+    if [[ -n "$_metadata_entry" && "$_metadata_entry" != /* ]]; then
+      echo "error: primary Git policy refused [relative_git_metadata_refused]." >&2
+      exit 1
+    fi
+    [[ "$_metadata_name" == GIT_ALTERNATE_OBJECT_DIRECTORIES && "$_metadata_rest" == *:* ]] || break
+    _metadata_rest="${_metadata_rest#*:}"
+  done
+done
+
 # The one project interpreter (R66).
 # A runner that must pin an interpreter sets LEARN_UKRAINIAN_PYTHON.
 # Sourced in this shell: a later command substitution must not be the only source,

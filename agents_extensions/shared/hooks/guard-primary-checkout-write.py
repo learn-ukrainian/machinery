@@ -2124,25 +2124,17 @@ def _git_shim_bypass(command: str, depth: int = 0) -> bool:
         "LC_DURABLE_HELPER_ROOT", "CODEX_CANONICAL_REPO_ROOT", "LU_PRODUCT_ROOT",
         "LEARN_UKRAINIAN_PYTHON", "LC_SESSION_ROOT", "AGENT_GIT_SHIM_GUARD_ACTIVE",
     }
-    for segment in segments:
-        cmd, idx = _command_word(segment)
-        bindings = segment[:idx]
-        if cmd in {"export", "readonly", "declare", "typeset", "local", "unset"}:
-            bindings = [*bindings, *segment[idx + 1:]]
-            if any(word in trust_inputs for word in bindings):
-                return True
-        if any((match := _ASSIGN_RE.match(word)) and match.group(1) in trust_inputs for word in bindings):
-            return True
-        # env's unset options are wrappers before the real command word.
-        for i, word in enumerate(segment[:idx + 1]):
-            if word in {"-u", "--unset"} and i + 1 < len(segment) and segment[i + 1] in trust_inputs:
-                return True
-            if word.startswith("--unset=") and word.partition("=")[2] in trust_inputs:
-                return True
-            if word.startswith("-u") and word[2:] in trust_inputs:
-                return True
-    return any(re.match(r"(?:PATH|GIT_EXEC_PATH|AGENT_REAL_GIT|AGENT_ORIGINAL_PATH)=", word) for word in words) or any(
-        words[i:i + 2] in (["command", "-p"], ["unset", "PATH"], ["-u", "PATH"], ["env", "-i"], ["env", "--ignore-environment"])
+    # Literal trust-input names can be binding targets of many Bash builtins,
+    # not just assignment/export. Plain parameter reads retain inherited values.
+    names = "|".join(re.escape(name) for name in sorted(trust_inputs))
+    if any(
+        not word[:match.start()].endswith(("$", "${"))
+        for word in words
+        for match in re.finditer(r"(?:" + names + r")\b", word)
+    ):
+        return True
+    return any(
+        words[i:i + 2] in (["command", "-p"], ["env", "-i"], ["env", "--ignore-environment"])
         for i in range(len(words) - 1)
     )
 

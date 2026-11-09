@@ -94,7 +94,8 @@ def test_git_target_repository_controls_write_decision(repositories, operation, 
 @pytest.mark.parametrize("operation", ["merge --ff-only origin/main", "pull --ff-only", "add -- file",
                                        "apply change.patch", "checkout HEAD -- file"])
 @pytest.mark.parametrize("shape", ["true && {git}", "{git}; true", "cd {b} && git {operation}",
-                                   "git -C {a} status && {git}"])
+                                   "git -C {a} status && {git}", "printf '%s' \"$PATH\" >/dev/null; {git}",
+                                   "printf '%s' \"${{GIT_EXEC_PATH}}\" >/dev/null; {git}"])
 def test_compound_foreign_write_does_not_require_plain_command(repositories, operation, shape):
     """#29 reproducer: a resolved foreign write must not inherit the payload cwd's repository."""
     a, b = (shlex.quote(str(repositories[name])) for name in ("A", "B"))
@@ -149,12 +150,21 @@ def test_foreign_write_does_not_exempt_other_primary_writes(repositories, tail):
                                    "PATH=/usr/bin:/bin git -C {a} reset --hard", "env -i git -C {a} reset --hard",
                                    "sh -c '/usr/bin/git reset --hard'"] + [
     pattern.format(name=name, a="{a}", b="{b}")
-    for name in ("LC_DURABLE_HELPER_ROOT", "CODEX_CANONICAL_REPO_ROOT", "LU_PRODUCT_ROOT",
+    for name in ("PATH", "GIT_EXEC_PATH", "AGENT_REAL_GIT", "AGENT_ORIGINAL_PATH",
+                 "LC_DURABLE_HELPER_ROOT", "CODEX_CANONICAL_REPO_ROOT", "LU_PRODUCT_ROOT",
                  "LEARN_UKRAINIAN_PYTHON", "LC_SESSION_ROOT", "AGENT_GIT_SHIM_GUARD_ACTIVE")
     for pattern in ("{name}={b} git -C {a} reset --hard", "export {name}={b}; git -C {a} reset --hard",
                     "env {name}={b} git -C {a} reset --hard", "unset -v {name}; git -C {a} reset --hard",
                     "env -u {name} git -C {a} reset --hard", "env --unset={name} git -C {a} reset --hard",
-                    "env -u{name} git -C {a} reset --hard")
+                    "env -u{name} git -C {a} reset --hard",
+                    "for {name} in {b}; do git -C {a} reset --hard; done",
+                    "read {name} <<< {b}; git -C {a} reset --hard",
+                    "printf -v {name} %s {b}; git -C {a} reset --hard",
+                    "declare -n r={name}; r={b}; git -C {a} reset --hard",
+                    "mapfile {name} <<< {b}; git -C {a} reset --hard",
+                    "getopts a {name} -a; git -C {a} reset --hard",
+                    "read '{name}' <<< {b}; git -C {a} reset --hard",
+                    'printf -v "{name}" %s {b}; git -C {a} reset --hard')
 ])
 def test_visible_git_shim_bypasses_are_refused_before_execution(repositories, shape):
     """The hook keeps explicit bypass refusals while the shim owns normal expanded argv."""

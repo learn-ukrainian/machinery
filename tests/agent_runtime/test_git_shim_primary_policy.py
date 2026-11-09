@@ -148,17 +148,18 @@ def test_foreign_configuration_reader_cannot_run_against_primary(repositories, t
 
 
 @pytest.mark.parametrize("index_path", [".git/index", "victim-index"])
-@pytest.mark.parametrize("key", ["GIT_INDEX_FILE", "GIT_OBJECT_DIRECTORY", "GIT_COMMON_DIR"])
+@pytest.mark.parametrize("key", ["GIT_INDEX_FILE", "GIT_OBJECT_DIRECTORY", "GIT_COMMON_DIR", "GIT_ALTERNATE_OBJECT_DIRECTORIES"])
 @pytest.mark.parametrize("relative", [False, True])
-def test_metadata_environment_cannot_redirect_foreign_add_to_primary_index(repositories, tmp_path, index_path, key, relative):
-    """Git's post--C metadata paths must not overwrite primary files or metadata."""
+@pytest.mark.parametrize("route", ["C", "argv-worktree", "env-worktree"])
+def test_metadata_environment_cannot_redirect_foreign_add_to_primary_index(repositories, tmp_path, index_path, key, relative, route):
+    """Git setup must not reinterpret metadata paths to overwrite primary bytes."""
     a, b = repositories["A"], repositories["B"]
     if key == "GIT_INDEX_FILE":
         destination = a / index_path
         destination.write_bytes((a / ".git/index").read_bytes())
     else:
-        source = a / (".git/objects" if key == "GIT_OBJECT_DIRECTORY" else ".git")
-        suffix = "-relative" if relative else "-absolute"
+        source = a / (".git/objects" if key in {"GIT_OBJECT_DIRECTORY", "GIT_ALTERNATE_OBJECT_DIRECTORIES"} else ".git")
+        suffix = ("-relative-" if relative else "-absolute-") + route
         destination = source if index_path.startswith(".git") else a / ("victim-" + key.lower() + suffix)
         if destination != source:
             shutil.copytree(source, destination)
@@ -166,8 +167,18 @@ def test_metadata_environment_cannot_redirect_foreign_add_to_primary_index(repos
     outside.mkdir(parents=True)
     value = os.path.relpath(destination, b) if relative else str(destination)
     before = {str(path.relative_to(a)): path.read_bytes() for path in a.rglob("*") if path.is_file()}
-    result = _run(repositories, outside, ["-C", str(b), "add", "file"], {key: value})
-    assert result.returncode != 0
+    env = {key: value}
+    prefix = ["-C", str(b)]
+    if route == "argv-worktree":
+        prefix = [f"--git-dir={b / '.git'}", f"--work-tree={b}"]
+    elif route == "env-worktree":
+        prefix = []
+        env.update(GIT_DIR=str(b / ".git"), GIT_WORK_TREE=str(b))
+    result = _run(repositories, outside, [*prefix, "add", "file"], env)
+    if key == "GIT_ALTERNATE_OBJECT_DIRECTORIES" and not relative:
+        assert result.returncode == 0, result.stderr  # Absolute alternates are read-only.
+    else:
+        assert result.returncode != 0
     after = {str(path.relative_to(a)): path.read_bytes() for path in a.rglob("*") if path.is_file()}
     assert after == before
 
