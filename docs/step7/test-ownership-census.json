@@ -2068,6 +2068,7 @@
     "test_only_registered_agy_pin_alias_resolves_and_other_gemini_fails"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/ai_agent_bridge/test_ab_discuss_bugs.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.agent_runtime.acpx_discuss [present: present on machinery main as lu_machinery/agent_runtime/acpx_discuss.py]",
@@ -2097,6 +2098,7 @@
     "test_transport_fragment_task_id_is_rejected_before_directory_creation"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/ai_agent_bridge/test_acp_execution.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     ".gitignore [present: product-owned in LU]",
@@ -2138,6 +2140,7 @@
     "test_unrelated_error_named_rate_limited_does_not_substitute"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/ai_agent_bridge/test_acp_quota_substitution.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.agent_runtime.adapters.acpx [present: present on machinery main as lu_machinery/agent_runtime/adapters/acpx.py]",
@@ -2167,6 +2170,7 @@
     "test_ukrainian_content_review_can_still_route_to_agy"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/ai_agent_bridge/test_agy_model_selection.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.agent_runtime.adapters.agy [present: present on machinery main as lu_machinery/agent_runtime/adapters/agy.py]",
@@ -2209,6 +2213,7 @@
     "test_unsupported_effort_emits_note_and_stamps_null"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/ai_agent_bridge/test_ask_contract.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "docs/runbooks/agent-seat-onboarding.md [present: present on machinery main as docs/runbooks/agent-seat-onboarding.md]",
@@ -2264,6 +2269,7 @@
     "test_watchdog_stale_beyond_own_window_not_eligible"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/ai_agent_bridge/test_ask_lifecycle.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.ai_agent_bridge._agy [present: present on machinery main as lu_machinery/ai_agent_bridge/_agy.py]",
@@ -2295,6 +2301,7 @@
     "test_selected_repository_refusals_preserve_private_boundary"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/ai_agent_bridge/test_ask_pr_lightweight_route.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.agent_runtime.env_sanitize [present: present on machinery main as lu_machinery/agent_runtime/env_sanitize.py]",
@@ -2326,6 +2333,7 @@
     "test_zero_exit_without_a_recorded_result_still_fails"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/ai_agent_bridge/test_ask_worker_startup.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.ai_agent_bridge._ask_lifecycle [present: present on machinery main as lu_machinery/ai_agent_bridge/_ask_lifecycle.py]",
@@ -2341,6 +2349,7 @@
     "test_advisory_rejects_sonnet_substitution"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/ai_agent_bridge/test_claude_advisory_routing.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.ai_agent_bridge._claude [present: present on machinery main as lu_machinery/ai_agent_bridge/_claude.py]"
@@ -2354,6 +2363,7 @@
     "test_claude_branch_review_invokes_from_provisioned_checkout"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/ai_agent_bridge/test_claude_review_worktree.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.agent_runtime.result [present: present on machinery main as lu_machinery/agent_runtime/result.py]",
@@ -2385,6 +2395,7 @@
     "test_unterminated_utf8_and_poisoned_history_remain_busy"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/ai_agent_bridge/test_codex_rollout_readiness.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.ai_agent_bridge._ui_codex [present: present on machinery main as lu_machinery/ai_agent_bridge/_ui_codex.py]"
@@ -2399,6 +2410,7 @@
     "test_bridge_upgrades_legacy_copy_without_mutating_legacy_rows"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/ai_agent_bridge/test_fleet_comms_migration.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.ai_agent_bridge._db [present: present on machinery main as lu_machinery/ai_agent_bridge/_db.py]",
@@ -2432,6 +2444,7 @@
     "test_watcher_survives_any_wake_exception_and_repolls_unread"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/ai_agent_bridge/test_idle_driver_wake.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.ai_agent_bridge._ask_lifecycle [present: present on machinery main as lu_machinery/ai_agent_bridge/_ask_lifecycle.py]",
@@ -2464,6 +2477,7 @@
     "test_recipients_for_registered_grok_monitor_slot_is_dedicated"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/ai_agent_bridge/test_inbox_watch.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "agents_extensions.shared.session_streams.hooks [present: moved: agents_extensions/shared/session_streams/hooks.py -> lu_machinery/session_streams/hooks.py (00d92c9); git log --follow --diff-filter=R: 00d92c9]",
@@ -2479,29 +2493,9 @@
    ]
   },
   "tests/ai_agent_bridge/test_measure_cold_start.py": {
-   "disposition": "port-first",
-   "evidence": "machinery-only subject references; subjects scripts.ai_agent_bridge.measure_cold_start, scripts.api.telemetry.transcript_tokens; pkg3 isolation-only failures 1; 11 of 11 test IDs lack a machinery v0.1.0 replacement",
-   "lu_test_ids": 11,
-   "missing_behaviours": [
-    "test_advisor_incident_reports_last_message_iteration",
-    "test_compact_and_full_budgets_are_enforced",
-    "test_delegated_model_cannot_change_lead_startup_contract",
-    "test_estimate_stays_the_gate_when_larger_than_corrected_observation",
-    "test_failed_source_makes_measurement_incomplete",
-    "test_first_turn_shapes_equal_usage_input_tokens",
-    "test_gateway_token_counter_wins_when_available",
-    "test_later_row_never_replaces_positive_first_row",
-    "test_message_iteration_without_input_fields_is_zero_and_skipped",
-    "test_missing_route_fails_closed_even_when_payload_is_small",
-    "test_observed_first_turn_is_gate_when_larger_and_excludes_output"
-   ],
-   "ownership": "machinery",
-   "subject_status": "SUBJECT-PRESENT",
-   "subjects": [
-    "agents_extensions/shared/hooks/context-rollover-lib.sh [present: present on machinery main as agents_extensions/shared/hooks/context-rollover-lib.sh]",
-    "scripts.ai_agent_bridge.measure_cold_start [present: product-retained (aaba253): #108 keeps product reporting and deployment tools in product; LU retains its copies]",
-    "scripts.api.telemetry.transcript_tokens [present: present on machinery main as lu_machinery/api/telemetry/transcript_tokens.py]"
-   ]
+   "disposition": "keep",
+   "evidence": "reclassified product by PORT-1108 T4 (CTO ruling): its subject scripts/ai_agent_bridge/measure_cold_start.py stays in the product; machinery #108 (aaba253) deleted the machinery copy and learn-ukrainian retains its own. Was: machinery-only subject references; subjects scripts.ai_agent_bridge.measure_cold_start, scripts.api.telemetry.transcript_tokens; pkg3 isolation-only failures 1; 11 of 11 test IDs lack a machinery v0.1.0 replacement",
+   "ownership": "product"
   },
   "tests/ai_agent_bridge/test_module_identity.py": {
    "disposition": "port-first",
@@ -2511,6 +2505,7 @@
     "test_no_noncanonical_bridge_imports_in_test_suite"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/ai_agent_bridge/test_module_identity.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.ai_agent_bridge [present: present on machinery main as lu_machinery/ai_agent_bridge/__init__.py]",
@@ -2536,6 +2531,7 @@
     "test_models_endpoint_lists_routable_models"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/ai_agent_bridge/test_openai_proxy.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.agent_runtime.adapters.claude [present: present on machinery main as lu_machinery/agent_runtime/adapters/claude.py]",
@@ -2550,6 +2546,7 @@
     "test_large_prompt_is_passed_via_stdin"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/ai_agent_bridge/test_openai_proxy_arg_max.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.ai_agent_bridge.openai_proxy [present: present on machinery main as lu_machinery/ai_agent_bridge/openai_proxy.py]"
@@ -2563,6 +2560,7 @@
     "test_healthz_concurrent_first_request"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/ai_agent_bridge/test_openai_proxy_healthz.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.ai_agent_bridge.openai_proxy [present: present on machinery main as lu_machinery/ai_agent_bridge/openai_proxy.py]"
@@ -2576,6 +2574,7 @@
     "test_large_prepared_prompt_avoids_e2big_and_reaches_non_tty_stdin"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/ai_agent_bridge/test_opencode_stdin_transport.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.ai_agent_bridge._opencode [present: present on machinery main as lu_machinery/ai_agent_bridge/_opencode.py]",
@@ -2622,6 +2621,7 @@
     "test_send_refuses_a_kimi_recipient"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/ai_agent_bridge/test_process_routing.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.agent_runtime.adapters.acpx [present: present on machinery main as lu_machinery/agent_runtime/adapters/acpx.py]",
@@ -2653,6 +2653,7 @@
     "test_prompt_directory_uses_runtime_tmp_lease"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/ai_agent_bridge/test_prompt_directory.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.ai_agent_bridge._dispatch_wrappers [present: present on machinery main as lu_machinery/ai_agent_bridge/_dispatch_wrappers.py]"
@@ -2668,6 +2669,7 @@
     "test_review_contract_preamble_states_exact_accepted_tokens_without_own_verdict"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/ai_agent_bridge/test_review_ask_caps.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.ai_agent_bridge._claude [present: present on machinery main as lu_machinery/ai_agent_bridge/_claude.py]",
@@ -2686,6 +2688,7 @@
     "test_real_builders_preserve_baseline_budget_and_reject_overflow"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/ai_agent_bridge/test_review_deep_pointer_only.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.ai_agent_bridge._dispatch_wrappers [present: present on machinery main as lu_machinery/ai_agent_bridge/_dispatch_wrappers.py]",
@@ -2700,6 +2703,7 @@
     "test_assert_pr_cf_review_warns_without_target"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/ai_agent_bridge/test_review_pr_required.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.ai_agent_bridge._review_safety [present: present on machinery main as lu_machinery/ai_agent_bridge/_review_safety.py]"
@@ -2715,6 +2719,7 @@
     "test_primary_checkout_root_worktree_list_timeout_returns_root"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/ai_agent_bridge/test_review_safety_timeouts.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.ai_agent_bridge._review_safety [present: present on machinery main as lu_machinery/ai_agent_bridge/_review_safety.py]"
@@ -2776,6 +2781,7 @@
     "test_validate_code_review_response_normalizes_endpoint_only_mismatch"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/ai_agent_bridge/test_review_worktree.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "README.md [present: product-owned in LU]",
@@ -2800,6 +2806,7 @@
     "test_serve_requires_openai"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/ai_agent_bridge/test_serve_security.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.ai_agent_bridge._cli [present: present on machinery main as lu_machinery/ai_agent_bridge/_cli.py]"
@@ -2817,6 +2824,7 @@
     "test_send_with_mocked_subprocess_parses_stdout_event_stream"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/ai_agent_bridge/test_ui_agy.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.ai_agent_bridge._ui_agy [present: present on machinery main as lu_machinery/ai_agent_bridge/_ui_agy.py]"
@@ -2835,6 +2843,7 @@
     "test_send_with_mocked_subprocess_parses_stdout_event_stream"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/ai_agent_bridge/test_ui_codex.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.ai_agent_bridge._ui_codex [present: present on machinery main as lu_machinery/ai_agent_bridge/_ui_codex.py]"
@@ -2876,6 +2885,7 @@
     "test_unreadable_watcher_state_refuses_before_resume"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/ai_agent_bridge/test_wake_overlap_detection.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.ai_agent_bridge._ask_lifecycle [present: present on machinery main as lu_machinery/ai_agent_bridge/_ask_lifecycle.py]",
@@ -8982,6 +8992,7 @@
     "test data for port-first file tests/test_opencode_stream_parse.py"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/ai_agent_bridge/fixtures/opencode/gemma_reviewer_run.ndjson",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "tests/test_opencode_stream_parse.py [user: SUBJECT-PRESENT]"
@@ -12561,6 +12572,7 @@
     "test_reconcile_title_rejects_rename_digest_drift_and_persists_failure"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/orchestration/task_family/test_cli.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "README.md [present: product-owned in LU]",
@@ -12591,6 +12603,7 @@
     "test_runtime_without_eligibility_or_proof_is_preserved_and_blocks"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/orchestration/task_family/test_executor.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     ".gitignore [present: product-owned in LU]",
@@ -12628,6 +12641,7 @@
     "test_unselected_shared_resource_blocks_planning"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/orchestration/task_family/test_graph_planner.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.orchestration.task_family.graph [present: present on machinery main as lu_machinery/orchestration/task_family/graph.py]",
@@ -12659,6 +12673,7 @@
     "test_unconfirmed_predecessor_is_preserved"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/orchestration/task_family/test_rollover.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.orchestration.task_family.codex_state [present: present on machinery main as lu_machinery/orchestration/task_family/codex_state.py]",
@@ -12718,6 +12733,7 @@
     "test_wrong_lineage_rollover_pairing_finds_no_record"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/orchestration/task_family/test_rollover_registry.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.orchestration.rollover_registry_cli [present: present on machinery main as lu_machinery/orchestration/rollover_registry_cli.py]",
@@ -12751,6 +12767,7 @@
     "test_unknown_breaks_recovery"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/orchestration/test_admission_shadow.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.orchestration.admission_shadow [present: present on machinery main as lu_machinery/orchestration/admission_shadow.py]",
@@ -12778,6 +12795,7 @@
     "test_second_unchanged_observation_deletes_through_exact_cli"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/orchestration/test_archived_thread_cleanup.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.orchestration.archived_thread_cleanup [present: present on machinery main as lu_machinery/orchestration/archived_thread_cleanup.py]",
@@ -12806,6 +12824,7 @@
     "test_unreadable_state_does_not_silence_a_failure"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/orchestration/test_backup_failure_alert.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.fleet_comms [present: present on machinery main as lu_machinery/fleet_comms/__init__.py]",
@@ -12832,6 +12851,7 @@
     "test_valid_rollover_relaunches_exact_route_once"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/orchestration/test_claudex_supervisor.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "agents_extensions/shared/schemas/rollover-registry.v1.schema.json [present: moved: agents_extensions/shared/schemas/rollover-registry.v1.schema.json -> lu_machinery/schemas/rollover-registry.v1.schema.json (8aacc52); git log --follow --diff-filter=R: 8aacc52]",
@@ -12883,6 +12903,7 @@
     "test_pending_packet_older_than_lane_handoff_is_not_bound"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/orchestration/test_codex_driver_rollover_recovery.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     ".gemini/config.yaml [present: product-owned in LU]",
@@ -12933,6 +12954,7 @@
     "test_valid_cache_does_not_invoke"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/orchestration/test_codex_transport_health.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.agent_runtime.errors [present: present on machinery main as lu_machinery/agent_runtime/errors.py]",
@@ -12987,6 +13009,7 @@
     "test_zombie_supervisor_unreadable_stat_fails_closed"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/orchestration/test_dead_worker_state.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.dispatcher.store [present: present on machinery main as lu_machinery/dispatcher/store.py]",
@@ -13009,6 +13032,7 @@
     "test_scheduled_dry_run_never_alerts"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/orchestration/test_disk_watermark_alert.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.fleet_comms.authority [present: present on machinery main as lu_machinery/fleet_comms/authority.py]",
@@ -13055,6 +13079,9 @@
     "test_write_dispatch_boundaries_refuse_only_at_90"
    ],
    "ownership": "machinery",
+   "residual_id": "PORT-T1-B02",
+   "residual_owner": "claude-cto",
+   "residual_reason": "Observed before machinery #177: R78 disk-alert publication used the package installation as its state root. The production fix merged in #177; this LU file stays port-first for the CTO-owned follow-up port.",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.fleet_comms [present: present on machinery main as lu_machinery/fleet_comms/__init__.py]",
@@ -13085,6 +13112,10 @@
     "tests/orchestration/test_distinct_roots.py::test_unset_configuration_keeps_todays_systemd_exec_start",
     "tests/orchestration/test_distinct_roots.py::test_unset_configuration_reexecs_with_this_interpreter"
    ],
+   "ported_to": "tests/orchestration/test_distinct_roots_ported.py",
+   "residual_id": "PORT-T1-PRODUCT-01",
+   "residual_owner": "claude-cto",
+   "residual_reason": "The product assertion on scripts.review.integration_check.DISPATCH_ENTRY stays in LU for the mixed-file split in LU PR #12863. ported_to covers machinery assertions and does not authorize whole-file deletion.",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "agents_extensions/shared/rules [present: mixed-owned in LU]",
@@ -13138,6 +13169,7 @@
     "test_transport_config_toctou_never_delivers_credential"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/orchestration/test_execution_safe_git.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     ".gitattributes [present: product-owned in LU]",
@@ -13189,6 +13221,7 @@
     "test_worktree_git_text_and_artifact_binary_inventory_callers"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/orchestration/test_execution_safe_git_contract.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     ".gitattributes [present: product-owned in LU]",
@@ -13214,6 +13247,7 @@
     "test_partial_clone_origin_fetch_imports_without_lazy_fetch"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/orchestration/test_execution_safe_git_partial_clone.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.orchestration.execution_safe_git [present: present on machinery main as lu_machinery/orchestration/execution_safe_git.py]"
@@ -13246,6 +13280,7 @@
     "test_retry_recovers_crash_without_duplicate_transition"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/orchestration/test_exited_successor_registry.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     ".gemini/config.yaml [present: product-owned in LU]",
@@ -13287,6 +13322,9 @@
     "test_imported_pending_packet_launcher_binding"
    ],
    "ownership": "machinery",
+   "residual_id": "PORT-T1-DEFER-01",
+   "residual_owner": "claude-cto",
+   "residual_reason": "Deferred: imports tests/test_rollover_bundles.py, dominant agents_extensions, owned by T8. LU test stays port-first until that dependency lands.",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     ".gemini/config.yaml [present: product-owned in LU]",
@@ -13341,6 +13379,7 @@
     "test_wrapper_exits_78_when_interpreter_missing"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/orchestration/test_install_archived_thread_cleanup_launchd.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.orchestration.install_archived_thread_cleanup_launchd [present: present on machinery main as lu_machinery/orchestration/install_archived_thread_cleanup_launchd.py]",
@@ -13359,6 +13398,7 @@
     "test_uninstall_removes_plist"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/orchestration/test_install_mac_observer_launchd.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.orchestration.install_mac_observer_launchd [present: present on machinery main as lu_machinery/orchestration/install_mac_observer_launchd.py]"
@@ -13376,6 +13416,9 @@
     "test_uninstall_preserves_receipts"
    ],
    "ownership": "machinery",
+   "residual_id": "PORT-T1-B01",
+   "residual_owner": "claude-cto",
+   "residual_reason": "Machinery #100 R77: launchd installer requires machinery code in the product checkout; LU test stays port-first.",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.orchestration.install_worktree_cleanup_launchd [present: present on machinery main as lu_machinery/orchestration/install_worktree_cleanup_launchd.py]"
@@ -13396,6 +13439,7 @@
     "test_missing_tree_caller_matrix"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/orchestration/test_interrupted_caller_matrix.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     ".gitignore [present: product-owned in LU]",
@@ -13438,6 +13482,9 @@
     "test_visibility_fails_closed_for_unknown_role"
    ],
    "ownership": "machinery",
+   "residual_id": "PORT-T1-DEFER-02",
+   "residual_owner": "claude-cto",
+   "residual_reason": "Deferred: imports tests/test_check_issue_task_quality.py, owned by task-quality tranche. LU test stays port-first until that dependency lands.",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "docs/WORKSTREAMS.md [present: product-owned in LU]",
@@ -13481,6 +13528,7 @@
     "test_unreadable_heartbeat_refuses_legacy_disposition"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/orchestration/test_legacy_resumed_registry.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.orchestration.rollover_registry_cli [present: present on machinery main as lu_machinery/orchestration/rollover_registry_cli.py]",
@@ -13505,6 +13553,7 @@
     "test_later_child_recovery_and_replay_preserve_author"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/orchestration/test_lifecycle_child_recovery.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     ".gitignore [present: product-owned in LU]",
@@ -13560,6 +13609,7 @@
     "test_task_commit_range_refuses_ambiguous_absorbed_merge"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/orchestration/test_lifecycle_observation.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     ".gitignore [present: product-owned in LU]",
@@ -13776,6 +13826,7 @@
     "tests/orchestration/test_merge_queue_keeper.py::test_queued_with_cf_at_head_is_kept",
     "tests/orchestration/test_merge_queue_keeper.py::test_queued_without_cf_at_head_is_revoked"
    ],
+   "ported_to": "tests/orchestration/test_merge_queue_keeper_ported.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     ".github/workflows/ci.yml [present: product-owned in LU]",
@@ -13800,6 +13851,7 @@
     "test_marker_sweep_posts_working_telemetry_without_local_details"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/orchestration/test_notebook_observer_heartbeat.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.api.telemetry.transcript_tokens [present: present on machinery main as lu_machinery/api/telemetry/transcript_tokens.py]",
@@ -13822,6 +13874,7 @@
     "test_sweep_mac_gui_presence"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/orchestration/test_observer_heartbeat.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.orchestration.observer_heartbeat [present: present on machinery main as lu_machinery/orchestration/observer_heartbeat.py]",
@@ -13843,6 +13896,7 @@
     "test_task_closeout_default_runner_timeout"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/orchestration/test_orchestration_timeouts.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.orchestration.curriculum_lifecycle_pilot [present: present on machinery main as lu_machinery/orchestration/curriculum_lifecycle_pilot.py]",
@@ -13873,6 +13927,7 @@
     "test_write_dispatch_without_owned_paths_refuses_before_any_prompt_or_delegate"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/orchestration/test_orchestrator_control.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "archive [present: product-owned in LU]",
@@ -13893,6 +13948,7 @@
     "test_unreachable_is_degraded_not_refused"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/orchestration/test_plane_tunnel_gate.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.orchestration.plane_tunnel_gate [present: present on machinery main as lu_machinery/orchestration/plane_tunnel_gate.py]"
@@ -13913,6 +13969,7 @@
     "test_use_excludes_reclaimable_file_cache"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/orchestration/test_pool_headroom.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.orchestration.pool_headroom [present: present on machinery main as lu_machinery/orchestration/pool_headroom.py]"
@@ -13943,6 +14000,7 @@
     "test_write_failure_reported"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/orchestration/test_postmerge_criteria.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.fleet_comms.authority [present: present on machinery main as lu_machinery/fleet_comms/authority.py]",
@@ -13989,6 +14047,7 @@
     "test_unreadable_source_is_unknown_and_never_counts_toward_grace"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/orchestration/test_pr_ownership.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.common.github_client [present: present on machinery main as lu_machinery/common/github_client.py]",
@@ -14026,6 +14085,9 @@
     "test_worker_git_pointer_cannot_choose_primary_proof_root"
    ],
    "ownership": "machinery",
+   "residual_id": "PORT-T1-DEFER-03",
+   "residual_owner": "claude-cto",
+   "residual_reason": "Deferred: imports tests/fleet/test_reaper_regenerable_cap.py, owned by T6. LU test stays port-first until that dependency lands.",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     ".gitignore [present: product-owned in LU]",
@@ -14080,6 +14142,7 @@
     "test_restore_refuses_other_filter_programs"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/orchestration/test_reaper_restore_safe_git.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     ".gitattributes [present: product-owned in LU]",
@@ -14124,6 +14187,7 @@
     "test_unsafe_shell_env_file_fails_closed_and_records_failure"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/orchestration/test_run_scheduled_backup.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts/orchestration/run_scheduled_backup.sh [present: present on machinery main as lu_machinery/orchestration/run_scheduled_backup.sh]"
@@ -14148,6 +14212,7 @@
     "test_working_attributes_cannot_hide_a_named_filter_from_the_captured_tree"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/orchestration/test_safe_git_context.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.orchestration.fleet_repos [present: present on machinery main as lu_machinery/orchestration/fleet_repos.py]",
@@ -14221,6 +14286,7 @@
     "test_worktree_prune_failure_stops_repository_run"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/orchestration/test_scheduled_worktree_cleanup.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     ".gitignore [present: product-owned in LU]",
@@ -14246,6 +14312,7 @@
     "test_marker_write_read_and_pid_fenced_remove"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/orchestration/test_session_markers.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.orchestration.session_markers [present: present on machinery main as lu_machinery/orchestration/session_markers.py]"
@@ -14305,6 +14372,7 @@
     "test_zero_commit_final_head_is_not_work"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/orchestration/test_stale_task_records.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "archive [present: product-owned in LU]",
@@ -14346,6 +14414,7 @@
     "test_untrusted_copy_cannot_delay_a_trusted_rejection"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/orchestration/test_stalled_work.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "archive [present: product-owned in LU]",
@@ -14432,6 +14501,7 @@
     "test_verified_merge_permits_one_explicit_close"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/orchestration/test_task_closeout.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     ".github/workflows/ci.yml [present: product-owned in LU]",
@@ -14479,6 +14549,7 @@
     "test_unsupported_adapter_records_honest_carrier_fallback"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/orchestration/test_task_identity.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.orchestration.task_identity [present: present on machinery main as lu_machinery/orchestration/task_identity.py]"
@@ -14498,6 +14569,7 @@
     "test_orchestrator_forwards_and_retains_lifecycle_carrier"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/orchestration/test_task_lifecycle_carriers.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.api.coordination_router [present: present on machinery main as lu_machinery/api/coordination_router.py]",
@@ -14520,6 +14592,7 @@
     "test_relocated_result_file_points_at_the_moved_sidecar"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/orchestration/test_task_record_store.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.orchestration.task_record_store [present: present on machinery main as lu_machinery/orchestration/task_record_store.py]"
@@ -14674,6 +14747,7 @@
     "test_zombie_owner_is_reclaimed_not_treated_as_live"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/orchestration/test_thread_handoff.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "README.md [present: product-owned in LU]",
@@ -14728,6 +14802,9 @@
     "test_typed_checks_hold_under_optimize"
    ],
    "ownership": "machinery",
+   "residual_id": "PORT-T1-DEFER-04",
+   "residual_owner": "claude-cto",
+   "residual_reason": "Deferred: imports tests/test_rollover_bundles.py, dominant agents_extensions, owned by T8. LU test stays port-first until that dependency lands.",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     ".agent [present: product-owned in LU]",
@@ -14792,6 +14869,7 @@
     "test_zombie_process_holds_nothing"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/orchestration/test_tmp_leak_sweep.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     ".gitignore [present: product-owned in LU]",
@@ -14818,6 +14896,9 @@
     "test_symlinked_unit_file_is_refused"
    ],
    "ownership": "machinery",
+   "residual_id": "PORT-T1-B01",
+   "residual_owner": "claude-cto",
+   "residual_reason": "Machinery #100 R77: launchd installer requires machinery code in the product checkout; LU test stays port-first.",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.common.safe_unit_install [present: present on machinery main as lu_machinery/common/safe_unit_install.py]",
@@ -14895,6 +14976,7 @@
     "test_worker_scope_records_the_cgroup_only_when_it_is_this_launch_unit"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/orchestration/test_worker_leftovers.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.orchestration.dispatch_isolation [present: present on machinery main as lu_machinery/orchestration/dispatch_isolation.py]",
@@ -14968,6 +15050,7 @@
     "test_walk_reports_descriptor_type_not_a_byte_prefix"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/orchestration/test_worktree_artifacts.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     ".gitignore [present: product-owned in LU]",
@@ -15021,6 +15104,7 @@
     "tests/orchestration/test_worktree_claims_cli.py::test_unfinished_owner_record_without_proven_identity_still_claims_worktree",
     "tests/orchestration/test_worktree_claims_cli.py::test_unreadable_fleet_catalog_refuses_removal"
    ],
+   "ported_to": "tests/orchestration/test_worktree_claims_cli_ported.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     ".gitignore [present: product-owned in LU]",
@@ -15075,6 +15159,7 @@
     "test_write_claims_query_error_fails_closed_without_empty_skip"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/orchestration/test_worktree_git.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     ".gitignore [present: product-owned in LU]",
@@ -15130,6 +15215,7 @@
     "test_untrusted_creation_inventory_never_shrinks_preservation"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/orchestration/test_worktree_output_chokepoint.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     ".gitignore [present: product-owned in LU]",
@@ -15179,6 +15265,7 @@
     "test_scanner_ignores_hints_and_the_guarded_entry_points"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/orchestration/test_worktree_removal_invariant.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     ".gitignore [present: product-owned in LU]",
@@ -17636,6 +17723,7 @@
     "test_run_inbox_emits_watch_events_with_heartbeat"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/ai_agent_bridge/test_ab_channel_watch.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.agent_runtime.result [present: present on machinery main as lu_machinery/agent_runtime/result.py]",
@@ -17688,6 +17776,7 @@
     "test_run_ask_review_dispatch_without_verdict_fails_with_reason"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/ai_agent_bridge/test_ab_dispatch_wrappers.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.agent_runtime.kimi_admission [present: moved: lu_machinery/agent_runtime/kimi_admission.py -> lu_machinery/agent_runtime/retired_seat_admission.py (a75a9dc); git log --follow --diff-filter=R: a75a9dc]",
@@ -17720,6 +17809,7 @@
     "test_run_inbox_gemini_timeout_without_session_keeps_delivery_pending"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/ai_agent_bridge/test_ab_gemini_session_link.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.agent_runtime.errors [present: present on machinery main as lu_machinery/agent_runtime/errors.py]",
@@ -17743,6 +17833,7 @@
     "test_run_inbox_timeout_recovery_marks_delivery_delivered"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/ai_agent_bridge/test_ab_orphan_recovery.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "README.md [present: product-owned in LU]",
@@ -17771,6 +17862,7 @@
     "test_reconcile_marks_workspace_write_delivery_delivered_when_recovery_commit_found"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/ai_agent_bridge/test_ab_reconcile.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.ai_agent_bridge._channels [present: present on machinery main as lu_machinery/ai_agent_bridge/_channels.py]",
@@ -17884,6 +17976,7 @@
     "test_is_secret_env_key_matches_common_secret_names"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/ai_agent_bridge/test_agent_env.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.ai_agent_bridge._env [present: present on machinery main as lu_machinery/ai_agent_bridge/_env.py]"
@@ -18564,6 +18657,7 @@
     "test_delegate_dispatch_accepts_agy_agent"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/ai_agent_bridge/test_agy_integration.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.agent_runtime.acpx_discuss [present: present on machinery main as lu_machinery/agent_runtime/acpx_discuss.py]",
@@ -18591,6 +18685,7 @@
     "test_ask_agy_refuses_review_pr_number"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/ai_agent_bridge/test_agy_sealed_review_refuse.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.ai_agent_bridge._agy [present: present on machinery main as lu_machinery/ai_agent_bridge/_agy.py]",
@@ -18822,6 +18917,7 @@
     "test_retired_gemma_remains_refused_under_ci"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/ai_agent_bridge/test_ask_gemma.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.ai_agent_bridge._opencode [present: present on machinery main as lu_machinery/ai_agent_bridge/_opencode.py]"
@@ -18840,6 +18936,7 @@
     "test_strip_gemma_thought_never_returns_empty"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/ai_agent_bridge/test_ask_opencode.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.ai_agent_bridge._opencode [present: present on machinery main as lu_machinery/ai_agent_bridge/_opencode.py]",
@@ -18871,6 +18968,7 @@
     "test_retired_pool_override_is_refused_before_message_creation"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/ai_agent_bridge/test_ask_pool.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.ai_agent_bridge._opencode [present: present on machinery main as lu_machinery/ai_agent_bridge/_opencode.py]",
@@ -19339,6 +19437,7 @@
     "test_truncate_history_by_budget_keeps_at_least_one"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/ai_agent_bridge/test_bridge_channels.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.ai_agent_bridge._channels [present: present on machinery main as lu_machinery/ai_agent_bridge/_channels.py]",
@@ -19386,6 +19485,7 @@
     "test_resolve_recipient_alias_rejects_typos_and_unknown_providers"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/ai_agent_bridge/test_bridge_inbox_cli.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.agent_runtime.kimi_admission [present: moved: lu_machinery/agent_runtime/kimi_admission.py -> lu_machinery/agent_runtime/retired_seat_admission.py (a75a9dc); git log --follow --diff-filter=R: a75a9dc]",
@@ -19411,6 +19511,7 @@
     "test_set_session_persists_resumable_agent"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/ai_agent_bridge/test_bridge_set_session.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.ai_agent_bridge._db [present: present on machinery main as lu_machinery/ai_agent_bridge/_db.py]"
@@ -19432,6 +19533,7 @@
     "test_post_review_flag_implies_action_required_priority"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/ai_agent_bridge/test_bridge_wave2_cli.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.ai_agent_bridge._acp_compat [present: present on machinery main as lu_machinery/ai_agent_bridge/_acp_compat.py]",
@@ -19599,6 +19701,7 @@
     "test_same_channel_replay_dedupes_root"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/ai_agent_bridge/test_channels_discuss_idempotency.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.agent_runtime.acpx_discuss [present: present on machinery main as lu_machinery/agent_runtime/acpx_discuss.py]",
@@ -19845,6 +19948,7 @@
     "test_wrapper_exits_78_without_repo_root"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/orchestration/test_check_worktree_cleanup_integrity.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.hygiene.check_worktree_cleanup_integrity [present: present on machinery main as lu_machinery/hygiene/check_worktree_cleanup_integrity.py]",
@@ -20041,6 +20145,7 @@
     "test_vesum_and_shevelov_soft_skip"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/ai_agent_bridge/test_citation_check.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.ai_agent_bridge._channels [present: present on machinery main as lu_machinery/ai_agent_bridge/_channels.py]",
@@ -21190,6 +21295,7 @@
     "test_sweep_is_noop_when_channel_tables_missing"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/ai_agent_bridge/test_comms_router_expiry_sweep.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.ai_agent_bridge._channels [present: present on machinery main as lu_machinery/ai_agent_bridge/_channels.py]",
@@ -21632,6 +21738,7 @@
     "test_unproven_archive_stays_ambiguous"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/orchestration/test_continuation_worktree_reap.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     ".gitignore [present: product-owned in LU]",
@@ -22640,6 +22747,7 @@
     "test_fabricated_worker_pid_cannot_alias_a_live_process"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/orchestration/test_delegate_readonly_branch_snapshot.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.orchestration.dead_worker_state [present: present on machinery main as lu_machinery/orchestration/dead_worker_state.py]"
@@ -22690,6 +22798,7 @@
     "test_worktree_prep_and_leftover_report_never_remove_a_registered_worktree"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/orchestration/test_delegate_worktree_add_undo.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.orchestration.worktree_prep [present: present on machinery main as lu_machinery/orchestration/worktree_prep.py]"
@@ -22896,6 +23005,7 @@
     "test_worker_reserve_env_override_changes_the_pool_decision"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/orchestration/test_dispatch_admission.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.common.test_slots [present: present on machinery main as lu_machinery/common/test_slots.py]",
@@ -22954,6 +23064,7 @@
     "test_worker_that_starts_and_exits_is_not_relaunched"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/orchestration/test_dispatch_isolation.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.orchestration.dispatch_isolation [present: present on machinery main as lu_machinery/orchestration/dispatch_isolation.py]"
@@ -22983,6 +23094,7 @@
     "test_settle_task_worktree_present_path_unchanged"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/orchestration/test_dispatch_settle.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.common.task_store_paths [present: present on machinery main as lu_machinery/common/task_store_paths.py]",
@@ -23167,6 +23279,7 @@
     "test_unreadable_file_returns_none"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/orchestration/test_driver_agent_type.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.orchestration.driver_agent_type [present: present on machinery main as lu_machinery/orchestration/driver_agent_type.py]"
@@ -23625,6 +23738,7 @@
     "test_persistent_breach_rearms_at_next_threshold_multiple"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/ai_agent_bridge/test_fleet_comms_bottleneck_alerts.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "agents_extensions.shared.session_streams [present: moved: agents_extensions/shared/session_streams/__init__.py -> lu_machinery/session_streams/__init__.py (00d92c9); git log --follow --diff-filter=R: 00d92c9]",
@@ -24013,6 +24127,7 @@
     "test_schema_v2_contains_rollout_contract_tables_and_columns"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/ai_agent_bridge/test_fleet_comms_rollout_acceptance.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.ai_agent_bridge._ask_lifecycle [present: present on machinery main as lu_machinery/ai_agent_bridge/_ask_lifecycle.py]",
@@ -24320,6 +24435,7 @@
     "test_unknown_slot_rejected_naming_valids"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/ai_agent_bridge/test_fleet_taxonomy_slot_addressing.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "agents_extensions.shared.session_streams [present: moved: agents_extensions/shared/session_streams/__init__.py -> lu_machinery/session_streams/__init__.py (00d92c9); git log --follow --diff-filter=R: 00d92c9]",
@@ -24723,6 +24839,7 @@
     "test_variable_alone_decides_whether_status_rewrites_the_index"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/orchestration/test_git_optional_locks_entry_points.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.api.main [present: present on machinery main as lu_machinery/api/main.py]",
@@ -25205,6 +25322,7 @@
     "test_process_grok_build_invokes_native_registry_key"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/ai_agent_bridge/test_grok_build_bridge.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.ai_agent_bridge._acp_compat [present: present on machinery main as lu_machinery/ai_agent_bridge/_acp_compat.py]",
@@ -25894,6 +26012,7 @@
     "test_unknown_blocks_ready"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/orchestration/test_handoff_ready.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.orchestration.handoff_ready [present: present on machinery main as lu_machinery/orchestration/handoff_ready.py]"
@@ -26462,6 +26581,7 @@
     "test_worker_lost_reconciles_and_persists_failure"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/orchestration/test_issue_stream_audit.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.orchestration.issue_stream_audit [present: present on machinery main as lu_machinery/orchestration/issue_stream_audit.py]",
@@ -26478,6 +26598,7 @@
     "test_cold_import_redirects_refresh_sidecars"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/orchestration/test_issue_stream_refresh_isolation.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.orchestration [present: present on machinery main as lu_machinery/orchestration]",
@@ -26499,6 +26620,7 @@
     "test_registry_lists_both_epics_in_one_stream_and_no_epic_in_two_streams"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/orchestration/test_issue_streams_nested_program.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.orchestration.issue_stream_audit [present: present on machinery main as lu_machinery/orchestration/issue_stream_audit.py]",
@@ -26615,6 +26737,7 @@
     "test_kimi_background_worker_refuses_before_any_processor"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/ai_agent_bridge/test_kimi_integration.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.ai_agent_bridge._ask_lifecycle [present: present on machinery main as lu_machinery/ai_agent_bridge/_ask_lifecycle.py]",
@@ -27632,6 +27755,7 @@
     "test_live_driver_ack_is_distinct_from_plain_one_shot_ack"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/ai_agent_bridge/test_live_driver_message_consumption.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.ai_agent_bridge._ask_lifecycle [present: present on machinery main as lu_machinery/ai_agent_bridge/_ask_lifecycle.py]",
@@ -28104,6 +28228,7 @@
     "test_roundtrip_put_then_get"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/ai_agent_bridge/test_monitor_cache.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.ai_agent_bridge._monitor_cache [present: present on machinery main as lu_machinery/ai_agent_bridge/_monitor_cache.py]"
@@ -28163,6 +28288,7 @@
     "test_sdk_survives_session_404"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/ai_agent_bridge/test_monitor_client_sdk.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.ai_agent_bridge._monitor_cache [present: present on machinery main as lu_machinery/ai_agent_bridge/_monitor_cache.py]",
@@ -28809,6 +28935,7 @@
     "test_run_opencode_attaches_standing_notice_when_agent_chat"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/ai_agent_bridge/test_opencode_abort.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.agent_runtime.adapters.glm [present: present on machinery main as lu_machinery/agent_runtime/adapters/glm.py]",
@@ -28830,6 +28957,7 @@
     "test_opencode_retention_wal_only_reclaim_succeeds"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/orchestration/test_opencode_retention.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts/orchestration/opencode_session_retention.py [present: present on machinery main as lu_machinery/orchestration/opencode_session_retention.py]"
@@ -28849,6 +28977,7 @@
     "test_real_fixture_extracts_seven_tool_events"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/ai_agent_bridge/test_opencode_stream_parse.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.ai_agent_bridge._opencode [present: present on machinery main as lu_machinery/ai_agent_bridge/_opencode.py]"
@@ -29863,6 +29992,7 @@
     "test_reconcile_sweep_uses_worker_identity"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/orchestration/test_reconcile_sweep.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.guardrails.delegate_ownership [present: present on machinery main as lu_machinery/guardrails/delegate_ownership.py]",
@@ -29923,6 +30053,7 @@
     "test_yaml_unquoted_timestamps_validate"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/orchestration/test_red_ci_known_failures.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.orchestration.red_ci_known_failures [present: present on machinery main as lu_machinery/orchestration/red_ci_known_failures.py]",
@@ -30079,6 +30210,7 @@
     "test_small_response_stays_inline"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/ai_agent_bridge/test_reply_sidecar.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.ai_agent_bridge._ask_lifecycle [present: present on machinery main as lu_machinery/ai_agent_bridge/_ask_lifecycle.py]",
@@ -30115,6 +30247,8 @@
     "tests/test_repo_root.py::test_project_interpreter_rejects_when_parent_resolution_names_another_checkout",
     "tests/test_repo_root.py::test_project_interpreter_uses_the_primary_venv_when_the_checkout_has_none"
    ],
+   "port_note": "not copied: the machinery file already holds the 4 LU tests whose behaviour survives (same names, pass on the wheel); the other 14 LU tests assert the interpreter rule #166 replaced (a) or its removed symlink-classification helpers (c), see machinery PR for T4",
+   "ported_to": "tests/test_repo_root.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "bin [present: product-owned in LU]",
@@ -30289,6 +30423,7 @@
     "test_successor_keep_intent_retains_creator"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/orchestration/test_reused_worktree_retention.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     ".gitignore [present: product-owned in LU]",
@@ -30915,6 +31050,7 @@
     "test_qwen_agent_refused_and_override_env_allows"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/ai_agent_bridge/test_routing_guard.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.ai_agent_bridge._opencode [present: present on machinery main as lu_machinery/ai_agent_bridge/_opencode.py]",
@@ -31000,6 +31136,7 @@
     "test_with_core_prepends_once"
    ],
    "ownership": "machinery",
+   "residual": "PORT-T4-R1: stays in learn-ukrainian; every test needs the product checkout (root start-*.sh launchers, delegate.py, /api/rules with the product API stack); tests/machinery_tests.txt already holds it [held] for that reason",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     ".gemini/config.yaml [present: product-owned in LU]",
@@ -31426,6 +31563,7 @@
     "test_yaml_key_value_secret_masked_quoted_and_unquoted"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/ai_agent_bridge/test_secret_redactor.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.ai_agent_bridge._github [present: present on machinery main as lu_machinery/ai_agent_bridge/_github.py]",
@@ -32070,6 +32208,7 @@
     "test_settle_default_writers_cannot_bypass_the_public_cause_sink"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/orchestration/test_settle_public_causes.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.dispatcher.store [present: present on machinery main as lu_machinery/dispatcher/store.py]",
@@ -32691,6 +32830,9 @@
     "test_unclassified_provider_option_refused_before_caller"
    ],
    "ownership": "machinery",
+   "residual_id": "PORT-T1-DEFER-05",
+   "residual_owner": "claude-cto",
+   "residual_reason": "Deferred: imports tests/test_launcher_contract.py and tests/test_launcher_driver_scope.py, owned by T8. LU test stays port-first until that dependency lands.",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     ".gemini/config.yaml [present: product-owned in LU]",
@@ -33629,6 +33771,7 @@
     "test_unapproved_issuer_is_a_mutation_honest_refusal"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/orchestration/test_trail_authority.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.orchestration.trails.authority [present: present on machinery main as lu_machinery/orchestration/trails/authority.py]",
@@ -33654,6 +33797,7 @@
     "test_trail_hash_drift_between_p3_and_submitted_spec_is_refused"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/orchestration/test_trail_certification.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.orchestration.trails.models [present: present on machinery main as lu_machinery/orchestration/trails/models.py]",
@@ -33674,6 +33818,7 @@
     "test_stale_lease_parks_closure_atomically_without_changing_terminal_state"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/orchestration/test_trail_closure.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.orchestration.trails.closure [present: present on machinery main as lu_machinery/orchestration/trails/closure.py]",
@@ -33729,6 +33874,7 @@
     "test_zero_matching_rows_park"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/orchestration/test_trail_predicates.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.orchestration.trail_predicates [present: present on machinery main as lu_machinery/orchestration/trail_predicates.py]"
@@ -33758,6 +33904,7 @@
     "test_zero_and_multiple_predicate_matches_park_stop_unknown"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/orchestration/test_trail_runner.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "agents_extensions/shared/schemas/trail-run-result.v1.schema.json [present: present on machinery main as agents_extensions/shared/schemas/trail-run-result.v1.schema.json]",
@@ -34067,6 +34214,7 @@
     "test_negative_epic_in_two_areas"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/orchestration/test_validate_fleet_taxonomy.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.orchestration.validate_fleet_taxonomy [present: present on machinery main as lu_machinery/orchestration/validate_fleet_taxonomy.py]"
@@ -34120,6 +34268,7 @@
     "test_v1_table_reference_integrity_uses_the_typed_document"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/orchestration/test_validate_trailspec.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.orchestration.validate_trailspec [present: present on machinery main as lu_machinery/orchestration/validate_trailspec.py]"
@@ -34850,6 +34999,7 @@
     "test_write_worktree_brief_writes_expected_yaml"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/ai_agent_bridge/test_worktree_brief.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.ai_agent_bridge._worktree_brief [present: present on machinery main as lu_machinery/ai_agent_bridge/_worktree_brief.py]"
@@ -34955,6 +35105,7 @@
     "test_valid_cached_record_becoming_corrupt_is_not_hidden"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/orchestration/test_worktree_record_lookup.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     ".gitignore [present: product-owned in LU]",
@@ -35496,6 +35647,7 @@
     "support closure for port-first file tests/orchestration/test_worker_leftovers.py"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/orchestration/worker_leftovers_fakes.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.orchestration.dispatch_isolation [present: present on machinery main as lu_machinery/orchestration/dispatch_isolation.py]",
