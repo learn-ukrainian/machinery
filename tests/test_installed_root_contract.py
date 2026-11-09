@@ -34,9 +34,11 @@ from lu_machinery.dispatcher import worker, git, primary as dispatcher_primary
 from lu_machinery.orchestration import dispatch_admission as admission
 
 if scenario == 'text':
-    with patch.object(subprocess, 'run', return_value=SimpleNamespace(stdout='expected')) as run:
-        assert wrappers._run_text_command(['probe']) == 'expected'
-    assert run.call_args.kwargs['cwd'] == primary
+    # This generic helper has no repository operation; the caller owns its cwd.
+    for key in (*rr.MACHINERY_ENV_VARS, rr.PRODUCT_ROOT_ENV):
+        os.environ.pop(key, None)
+    output = wrappers._run_text_command([sys.executable, '-c', 'from pathlib import Path; print(Path.cwd())'])
+    assert output.strip() == str(product.parent), output
 elif scenario == 'dispatch':
     with patch.object(wrappers.github_client, 'run', return_value=SimpleNamespace(returncode=0)) as run:
         assert wrappers._run_dispatch(['probe', '--task-id', 'root-probe'], False, product / 'prompt') == 0

@@ -89,7 +89,6 @@ def _run_text_command(
 ) -> str:
     proc = subprocess.run(
         cmd,
-        cwd=state_root(),
         check=True,
         capture_output=True,
         text=True,

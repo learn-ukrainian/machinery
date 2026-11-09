@@ -1222,7 +1222,7 @@
   {
    "path": "lu_machinery/ai_agent_bridge/_dispatch_wrappers.py",
    "rule": "python.lang.security.audit.dangerous-subprocess-use-audit",
-   "sha256": "1ffb260527c38b110a5206a1388ee25a40c209125b1bc72596c2cedfe4801253"
+   "sha256": "fe772e32bd40d55338004711e1aac8f4cda4a655e27a664a140a6f022fe70999"
   },
   {
    "path": "lu_machinery/ai_agent_bridge/_dispatch_wrappers.py",
