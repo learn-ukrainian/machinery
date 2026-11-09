@@ -10526,7 +10526,7 @@
    "subjects": [
     "scripts.fleet_comms.artifacts [present: present on machinery main as lu_machinery/fleet_comms/artifacts.py]"
    ],
-   "residual_id": "PORT-1108-T6-R1"
+   "ported_to": "tests/fleet_comms/test_artifacts_pg_byte_plane.py"
   },
   "tests/fleet_comms/test_artifacts_pg_transactions.py": {
    "disposition": "port-first",
@@ -10546,7 +10546,7 @@
    "subjects": [
     "scripts.fleet_comms.artifacts [present: present on machinery main as lu_machinery/fleet_comms/artifacts.py]"
    ],
-   "residual_id": "PORT-1108-T6-R2"
+   "ported_to": "tests/fleet_comms/test_artifacts_pg_transactions.py"
   },
   "tests/fleet_comms/test_cold_start_board.py": {
    "disposition": "port-first",
@@ -10668,9 +10668,16 @@
    "ported_to": "tests/fleet_comms/test_efficiency_metrics_authority.py"
   },
   "tests/fleet_comms/test_pg_schema_ledger.py": {
-   "disposition": "keep",
-   "evidence": "product subject reference; subjects learn_ukrainian_v4_runtime.pg_schema",
-   "ownership": "product"
+   "disposition": "port-first",
+   "evidence": "ported with PORT-T8-D03: tests/test_pg_skip_guard.py asserts this file is a Postgres test file; its product reference learn_ukrainian_v4_runtime.pg_schema is the canonical lu_machinery.pg_schema on machinery main",
+   "ownership": "machinery",
+   "subject_status": "SUBJECT-PRESENT",
+   "subjects": [
+    "lu_machinery.pg_schema [present: present on machinery main as lu_machinery/pg_schema.py]",
+    "scripts.fleet_comms.artifacts [present: present on machinery main as lu_machinery/fleet_comms/artifacts.py]",
+    "scripts.fleet_comms.pg_schema [present: present on machinery main as lu_machinery/fleet_comms/pg_schema.py]"
+   ],
+   "ported_to": "tests/fleet_comms/test_pg_schema_ledger.py"
   },
   "tests/fleet_comms/test_request_executor_exactly_once.py": {
    "disposition": "port-first",
@@ -10712,7 +10719,7 @@
     "scripts.fleet_comms.message_plane [present: present on machinery main as lu_machinery/fleet_comms/message_plane.py]",
     "scripts.fleet_comms.request_executor [present: present on machinery main as lu_machinery/fleet_comms/request_executor.py]"
    ],
-   "residual_id": "PORT-1108-T6-R3"
+   "ported_to": "tests/fleet_comms/test_request_executor_pg.py"
   },
   "tests/gemini-mmlu-generator-prompt.md": {
    "disposition": "keep",
@@ -29484,12 +29491,12 @@
     "test_postgres_files_are_found_in_the_repo"
    ],
    "ownership": "machinery",
-   "residual_id": "PORT-T8-D03",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.ci.junit_results [present: present on machinery main as lu_machinery/ci/junit_results.py]",
     "scripts.ci.pg_skip_guard [present: present on machinery main as lu_machinery/ci/pg_skip_guard.py]"
-   ]
+   ],
+   "ported_to": "tests/test_pg_skip_guard.py"
   },
   "tests/test_phase3_cycle007_evidence_compile_throughput.py": {
    "disposition": "keep",
