@@ -246,10 +246,16 @@ def tmp_path(tmp_path, _acpx_worktree):
 def installed_codex_cli(monkeypatch, tmp_path):
     # Unit tests isolate the host CLI and the release prefix's Node pin.
     monkeypatch.setattr(acpx_module, "_require_codex_cli", lambda: ("/installed/codex", "0.159.2"))
+    _stub_node_prefix(monkeypatch, tmp_path)
+
+
+def _stub_node_prefix(monkeypatch, tmp_path) -> Path:
+    """Supply the release Node pin for fixtures that stub package admission."""
     prefix = tmp_path / "node-prefix"
-    prefix.mkdir()
+    prefix.mkdir(exist_ok=True)
     (prefix / ".nvmrc").write_bytes((acpx_module._node_contract() / ".nvmrc").read_bytes())
     monkeypatch.setattr(acpx_module, "_NODE_PREFIX", prefix)
+    return prefix
 
 
 def _stub_binary(
@@ -264,6 +270,7 @@ def _stub_binary(
     Avoids depending on the real npm-installed ``node_modules/.bin/acpx``
     being present in whatever environment runs this suite.
     """
+    _stub_node_prefix(monkeypatch, tmp_path)
     binary = tmp_path / "fake-acpx-bin"
     binary.write_text("#!/bin/sh\necho stub\n", encoding="utf-8")
     binary.chmod(0o755)
