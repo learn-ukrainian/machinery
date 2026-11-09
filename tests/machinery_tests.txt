@@ -728,6 +728,12 @@ tests/test_verify_review.py
 
 tests/ci/test_pytest_test_slots.py
 
+# PORT-1108 T6 and T8 Postgres residuals (C-4890), from LU 5aba2adb.
+tests/fleet_comms/test_artifacts_pg_byte_plane.py
+tests/fleet_comms/test_artifacts_pg_transactions.py
+tests/fleet_comms/test_pg_schema_ledger.py
+tests/fleet_comms/test_request_executor_pg.py
+tests/test_pg_skip_guard.py
 # [support]
 tests/fixtures/product_tree/agents_extensions/codex-home/AGENTS.md
 tests/fixtures/product_tree/agents_extensions/codex-home/agents/luna_coder_high.toml
