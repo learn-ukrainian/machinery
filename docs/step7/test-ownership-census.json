@@ -16255,7 +16255,7 @@
     "test_head_without_a_recorded_verdict_is_refused_only_where_the_recorder_is_used (machinery body differs, similarity 0.46)"
    ],
    "ownership": "machinery",
-   "port_note": "existing replacement coverage: tests/publish/test_pr_merge_squash_scan.py::test_head_without_a_recorded_verdict_is_refused_only_where_the_recorder_is_used; remaining cases ported separately; retired test_direct_merge_sends_explicit_text_instead_of_defaults: direct merge implementation removed by PR #80, issue #75",
+   "port_note": "Missing live cases are in tests/publish/test_pr_merge_squash_scan_ported.py. Existing main tests the recorder policy helper, but not its publisher boundary; the frozen LU boundary case is retained in the new file. The direct-merge transport test is retired under PR #80 / issue #75; see PR disposition (c).",
    "ported_to": "tests/publish/test_pr_merge_squash_scan_ported.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [

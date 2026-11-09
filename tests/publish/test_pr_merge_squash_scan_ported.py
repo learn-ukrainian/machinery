@@ -102,6 +102,30 @@ def test_merge_queue_defaults_are_scanned_even_with_explicit_text(synthetic_opse
 
 
 
+@pytest.mark.parametrize("recorder", [True, False])
+def test_head_without_a_recorded_verdict_is_refused_only_where_the_recorder_is_used(
+    synthetic_opsec, monkeypatch, recorder
+):
+    # #12031: zero verdict comments; the registry's per-repository setting decides.
+    row = {**CATALOG["public"], "verdict_recorder": recorder}
+    monkeypatch.setattr(gate, "catalog", lambda: {**CATALOG, "public": row})
+    calls = []
+    base = transport(calls)
+
+    def send(args, **kwargs):
+        if args[:4] == ["gh", "api", "--method", "GET"] and "/issues/1/comments" in args[4]:
+            return subprocess.CompletedProcess(args, 0, "[[]]", "")
+        return base(args, **kwargs)
+
+    if recorder:
+        with pytest.raises(gate.PublishBlocked, match=f"no cross-family APPROVE from .* is recorded at {HEAD}"):
+            pub.publish("pr-merge", repo="unit/public", number=1, runner=send)
+        assert not calls
+    else:
+        pub.publish("pr-merge", repo="unit/public", number=1, runner=send)
+        assert len(calls) == 1
+
+
 @pytest.mark.parametrize(
     "overrides",
     [{"head": "b" * 40}, {"subject": None}, {"body": 7}, {"queue": "yes"}],
