@@ -284,6 +284,14 @@ _GROK_XAI_API_KEY_ENV_UNSETS: tuple[str, ...] = (
 # add export conditions, and NODE_PATH adds unauthenticated module folders.
 _ACP_NODE_ENV_UNSETS: tuple[str, ...] = ("NODE_OPTIONS", "NODE_PATH")
 
+
+def _acp_probe_env() -> dict[str, str]:
+    """The caller's environment without Node resolution controls, for direct preparation probes.
+
+    Version probes run before any plan exists, so plan ``env_unsets`` cannot cover them.
+    """
+    return {name: value for name, value in os.environ.items() if name not in _ACP_NODE_ENV_UNSETS}
+
 # tool_config allowlist. Anything outside this set is rejected before spawn
 # — this is the enforcement point for "unsupported permission/tool config"
 # in the approved reject-before-spawn list. No key here can loosen
@@ -883,7 +891,9 @@ def _require_codex_cli() -> tuple[str, str]:
     if not binary:
         raise AcpxShadowRefusalError("AcpxAdapter: installed codex CLI unavailable; install the current Codex CLI")
     try:
-        probe = subprocess.run([binary, "--version"], capture_output=True, text=True, timeout=5, check=False)
+        probe = subprocess.run(
+            [binary, "--version"], capture_output=True, text=True, timeout=5, check=False, env=_acp_probe_env(),
+        )
     except (OSError, subprocess.TimeoutExpired) as exc:
         raise AcpxShadowRefusalError("AcpxAdapter: installed codex CLI version probe failed") from exc
     match = re.fullmatch(r"codex-cli ([0-9]+\.[0-9]+\.[0-9]+(?:[-+][\w.-]+)?)", probe.stdout.strip())
@@ -1336,6 +1346,7 @@ def _probe_node_semver(candidate: Path) -> tuple[int, int, int] | None:
             text=True,
             timeout=5,
             check=False,
+            env=_acp_probe_env(),
         )
     except (OSError, subprocess.TimeoutExpired):
         return None
@@ -2785,6 +2796,7 @@ def _probe_grok_version(binary: str) -> str:
             text=True,
             timeout=10,
             check=False,
+            env=_acp_probe_env(),
         )
     except (OSError, subprocess.TimeoutExpired):
         return ""
@@ -2900,6 +2912,7 @@ def _probe_participant_cli_version(binary: str, executable: str) -> str:
             text=True,
             timeout=10,
             check=False,
+            env=_acp_probe_env(),
         )
     except (OSError, subprocess.TimeoutExpired):
         return ""

@@ -242,6 +242,10 @@ def tmp_path(tmp_path, _acpx_worktree):
         yield Path(directory)
 
 
+# The real probe, before the autouse stub below replaces it.
+_REAL_REQUIRE_CODEX_CLI = acpx_module._require_codex_cli
+
+
 @pytest.fixture(autouse=True)
 def installed_codex_cli(monkeypatch, tmp_path):
     # Unit tests isolate the host CLI and the release prefix's Node pin.
@@ -1987,6 +1991,35 @@ def test_acp_node_spawn_env_drops_node_resolution_controls(tmp_path, monkeypatch
     for name in plan.env_unsets:
         env.pop(name, None)
     assert not set(hostile) & set(env)
+
+
+@pytest.mark.parametrize("probe", ["codex-cli", "node-semver", "grok-version", "participant-version"])
+def test_acp_preparation_probes_drop_node_resolution_controls(tmp_path, monkeypatch, probe):
+    """R95 (C-4952): version probes run before any plan exists; an inherited NODE_OPTIONS would preload code."""
+    hostile = {"NODE_OPTIONS": "--import=data:text/javascript,process.exit(9)", "NODE_PATH": str(tmp_path / "planted")}
+    for name, value in hostile.items():
+        monkeypatch.setenv(name, value)
+    monkeypatch.setenv("R95_KEPT", "1")
+    spawned: list[dict[str, str]] = []
+
+    def fake_run(cmd, **kwargs):
+        spawned.append(kwargs.get("env") or dict(os.environ))
+        return subprocess.CompletedProcess(cmd, 0, stdout="codex-cli 0.159.2\n", stderr="")
+
+    monkeypatch.setattr(acpx_module.subprocess, "run", fake_run)
+    if probe == "codex-cli":
+        monkeypatch.setattr(acpx_module, "resolve_agent_binary", lambda _name: "/installed/codex")
+        assert _REAL_REQUIRE_CODEX_CLI() == ("/installed/codex", "0.159.2")
+    elif probe == "node-semver":
+        acpx_module._probe_node_semver(tmp_path / "node")
+    elif probe == "grok-version":
+        acpx_module._probe_grok_version("/installed/grok")
+    else:
+        acpx_module._probe_participant_cli_version("/installed/opencode", "opencode")
+    assert spawned
+    for env in spawned:
+        assert not set(hostile) & set(env)
+        assert env["R95_KEPT"] == "1"
 
 
 def _cursor_acp_plan(tmp_path, monkeypatch, model):
