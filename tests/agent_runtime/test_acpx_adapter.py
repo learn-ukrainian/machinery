@@ -243,9 +243,19 @@ def tmp_path(tmp_path, _acpx_worktree):
 
 
 @pytest.fixture(autouse=True)
-def installed_codex_cli(monkeypatch):
-    # Unit tests never depend on an npm adapter's bundled Codex or a host CLI.
+def installed_codex_cli(monkeypatch, tmp_path):
+    # Unit tests isolate the host CLI and the release prefix's Node pin.
     monkeypatch.setattr(acpx_module, "_require_codex_cli", lambda: ("/installed/codex", "0.159.2"))
+    _stub_node_prefix(monkeypatch, tmp_path)
+
+
+def _stub_node_prefix(monkeypatch, tmp_path) -> Path:
+    """Supply the release Node pin for fixtures that stub package admission."""
+    prefix = tmp_path / "node-prefix"
+    prefix.mkdir(exist_ok=True)
+    (prefix / ".nvmrc").write_bytes((acpx_module._node_contract() / ".nvmrc").read_bytes())
+    monkeypatch.setattr(acpx_module, "_NODE_PREFIX", prefix)
+    return prefix
 
 
 def _stub_binary(
@@ -260,6 +270,7 @@ def _stub_binary(
     Avoids depending on the real npm-installed ``node_modules/.bin/acpx``
     being present in whatever environment runs this suite.
     """
+    _stub_node_prefix(monkeypatch, tmp_path)
     binary = tmp_path / "fake-acpx-bin"
     binary.write_text("#!/bin/sh\necho stub\n", encoding="utf-8")
     binary.chmod(0o755)
@@ -432,9 +443,9 @@ def test_acpx_spawn_argv_pins_absolute_node_when_shebang_uses_env(tmp_path, monk
     assert argv == [str(node.resolve()), str(script.resolve())]
 
     _isolate_node_fallbacks(monkeypatch, host_node.parent, path_dirs=(host_node.parent,))
-    primary = Path(__file__).resolve().parents[2] / "node_modules" / ".bin" / "acpx"
+    primary = acpx_module.node_prefix() / "node_modules" / ".bin" / "acpx"
     if not primary.is_file():
-        pytest.skip("project-local acpx not installed")
+        pytest.skip("machinery release prefix not provisioned in the hermetic unit fixture")
     jail_env = acpx_module._acpx_runtime_env_overrides(adapter_label="test-host")
     spawn = acpx_module._acpx_spawn_argv(str(primary), adapter_label="test-host")
     assert Path(spawn[0]).resolve() == host_node.resolve()
@@ -721,99 +732,167 @@ def test_build_invocation_rejects_missing_binary(tmp_path, monkeypatch):
         _build(adapter, cwd=tmp_path)
 
 
-def _select_product(monkeypatch, product: Path) -> None:
-    """Select the product checkout whose ``node_modules`` holds the default acpx candidate (#109)."""
-    product.mkdir(parents=True, exist_ok=True)
-    (product / ".nvmrc").write_text("22.23.4\n", encoding="utf-8")
-    monkeypatch.setenv("LU_PRODUCT_ROOT", str(product))
+def _select_prefix(monkeypatch, prefix: Path) -> Path:
+    """The validated machinery prefix is independent of product and cwd."""
+    prefix.mkdir(parents=True, exist_ok=True)
+    (prefix / ".nvmrc").write_bytes((acpx_module._node_contract() / ".nvmrc").read_bytes())
     monkeypatch.setattr(acpx_module, "_ACPX_BINARY", None)
+    monkeypatch.setattr(acpx_module, "_NODE_PREFIX", prefix)
+    monkeypatch.setattr(acpx_module, "validate_node_dependencies", lambda: prefix)
+    return prefix / "node_modules" / ".bin" / "acpx"
 
 
-def test_build_invocation_resolves_primary_pin_from_linked_worktree(tmp_path, monkeypatch):
+def test_build_invocation_resolves_release_prefix_from_linked_worktree(tmp_path, monkeypatch):
     _shadow_env(monkeypatch)
-    primary = tmp_path / "primary"
-    worktree = primary / ".worktrees" / "dispatch" / "codex" / "acp"
-    worktree.mkdir(parents=True)
-    _select_product(monkeypatch, worktree)
-    primary_binary = primary / "node_modules" / ".bin" / "acpx"
-    primary_binary.parent.mkdir(parents=True)
-    primary_binary.write_text("#!/bin/sh\n", encoding="utf-8")
-    primary_binary.chmod(0o755)
-    monkeypatch.setattr(acpx_module, "resolve_main_root", lambda cwd: primary)
-    monkeypatch.setattr(
-        acpx_module,
-        "_probe_acpx_cli_compatibility",
-        lambda _binary, *, builtin_agent: ("0.13.0", ()),
-    )
+    binary = _select_prefix(monkeypatch, tmp_path / "release")
+    binary.parent.mkdir(parents=True)
+    target = binary.parent.parent / "acpx" / "dist" / "cli.js"
+    target.parent.mkdir(parents=True)
+    target.write_text("#!/bin/sh\n", encoding="utf-8")
+    target.chmod(0o755)
+    binary.symlink_to("../acpx/dist/cli.js")
+    monkeypatch.setattr(acpx_module, "_probe_acpx_cli_compatibility", lambda _binary, *, builtin_agent: ("0.21.0", ()))
+    monkeypatch.setattr(acpx_module, "_node_adapter_command", lambda participant: "/release/codex-acp")
+    monkeypatch.setenv("LU_PRODUCT_ROOT", str(tmp_path / "unrelated-product"))
 
-    plan = _build(AcpxAdapter(), cwd=worktree)
+    plan = _build(AcpxAdapter(), cwd=tmp_path)
 
-    assert plan.cmd[0] == str(primary_binary)
+    assert plan.cmd[0] == str(binary.resolve())
+    assert plan.cmd[plan.cmd.index("--agent") + 1] == "/release/codex-acp"
 
 
-def test_build_invocation_explicit_binary_override_never_uses_primary(tmp_path, monkeypatch):
+def test_build_invocation_explicit_binary_override_never_uses_prefix(tmp_path, monkeypatch):
     _shadow_env(monkeypatch)
     override = _stub_binary(monkeypatch, tmp_path)
-    monkeypatch.setattr(
-        acpx_module,
-        "resolve_main_root",
-        lambda _cwd: pytest.fail("explicit binary override must remain authoritative"),
-    )
+    monkeypatch.setattr(acpx_module, "validate_node_dependencies", lambda: pytest.fail("test override must remain authoritative"))
 
     plan = _build(AcpxAdapter(), cwd=tmp_path)
 
     assert plan.cmd[0] == str(override)
 
 
-def test_build_invocation_non_git_cwd_refuses_without_global_fallback(tmp_path, monkeypatch):
+def test_build_invocation_missing_prefix_refuses_without_global_fallback(tmp_path, monkeypatch):
     _shadow_env(monkeypatch)
-    _select_product(monkeypatch, tmp_path / "worktree")
-    monkeypatch.setattr(
-        acpx_module,
-        "resolve_main_root",
-        lambda cwd: (_ for _ in ()).throw(acpx_module.NotAGitRepositoryError(str(cwd))),
-    )
+    _select_prefix(monkeypatch, tmp_path / "release")
+    monkeypatch.setattr(acpx_module.shutil, "which", lambda *_args: pytest.fail("no global ACPX lookup"))
 
-    with pytest.raises(AcpxShadowRefusalError, match="no canonical primary install is available"):
+    with pytest.raises(AcpxShadowRefusalError, match="acpx binary not found"):
         _build(AcpxAdapter(), cwd=tmp_path)
 
 
-def test_build_invocation_non_git_cwd_still_uses_the_selected_products_primary(tmp_path, monkeypatch):
-    """The cwd never selects the binary: a non-Git cwd resolves the selected product's primary (#109)."""
+def test_build_invocation_non_git_cwd_uses_release_prefix(tmp_path, monkeypatch):
+    """A foreign product dependency cannot supply the release executable."""
     _shadow_env(monkeypatch)
-    snapshot = tmp_path / "snapshot"
-    snapshot.mkdir()
-    product = tmp_path / "primary" / ".worktrees" / "dispatch" / "codex" / "acp"
-    _select_product(monkeypatch, product)
-    primary = tmp_path / "primary"
-    primary_binary = primary / "node_modules" / ".bin" / "acpx"
-    primary_binary.parent.mkdir(parents=True)
-    primary_binary.write_text("#!/bin/sh\n", encoding="utf-8")
-    primary_binary.chmod(0o755)
+    binary = _select_prefix(monkeypatch, tmp_path / "release")
+    binary.parent.mkdir(parents=True)
+    target = binary.parent.parent / "acpx" / "dist" / "cli.js"
+    target.parent.mkdir(parents=True)
+    target.write_text("#!/bin/sh\n", encoding="utf-8")
+    target.chmod(0o755)
+    binary.symlink_to("../acpx/dist/cli.js")
+    monkeypatch.setattr(acpx_module, "_probe_acpx_cli_compatibility", lambda _binary, *, builtin_agent: ("0.21.0", ()))
+    monkeypatch.setattr(acpx_module, "_node_adapter_command", lambda participant: "/release/codex-acp")
+    monkeypatch.delenv("LU_PRODUCT_ROOT", raising=False)
 
-    def resolve(root: Path) -> Path:
-        assert root == product
-        return primary
+    plan = _build(AcpxAdapter(), cwd=tmp_path)
 
-    monkeypatch.setattr(acpx_module, "resolve_main_root", resolve)
-    monkeypatch.setattr(
-        acpx_module,
-        "_probe_acpx_cli_compatibility",
-        lambda _binary, *, builtin_agent: ("0.13.0", ()),
-    )
-
-    plan = _build(AcpxAdapter(), cwd=snapshot)
-    assert plan.cmd[0] == str(primary_binary)
+    assert plan.cmd[0] == str(binary.resolve())
 
 
-def test_build_invocation_refuses_when_primary_pin_is_missing(tmp_path, monkeypatch):
+def test_build_invocation_refuses_when_release_pin_is_missing(tmp_path, monkeypatch):
     _shadow_env(monkeypatch)
-    primary = tmp_path / "primary"
-    _select_product(monkeypatch, tmp_path / "worktree")
-    monkeypatch.setattr(acpx_module, "resolve_main_root", lambda _cwd: primary)
-
-    with pytest.raises(AcpxShadowRefusalError, match=str(primary / "node_modules" / ".bin" / "acpx")):
+    binary = _select_prefix(monkeypatch, tmp_path / "release")
+    with pytest.raises(AcpxShadowRefusalError, match=str(binary)):
         _build(AcpxAdapter(), cwd=tmp_path)
+
+
+@pytest.mark.parametrize("defect", [
+    "missing", "version", "bytes", "archive", "symlink", "owner", "writable",
+    "missing-applicable-optional", "omitted-inapplicable-optional",
+])
+def test_release_prefix_admission_rejects_untrusted_node_dependency(tmp_path, monkeypatch, defect):
+    """Granted by claude-cto: release admission must never execute untrusted dependencies."""
+    import base64
+    import hashlib
+    import io
+    import platform
+    import shutil
+    import tarfile
+
+    contract = tmp_path / "contract"
+    prefix = tmp_path / "release"
+    contract.mkdir()
+    prefix.mkdir()
+    package = prefix / "node_modules" / "acpx"
+    (package / "dist").mkdir(parents=True)
+    manifest = json.dumps({"name": "acpx", "version": "0.21.0"}).encode()
+    payload = b"#!/usr/bin/env node\nconsole.log('trusted');\n"
+    archive_buffer = io.BytesIO()
+    with tarfile.open(fileobj=archive_buffer, mode="w:gz") as archive:
+        for name, data in [("package.json", manifest), ("dist/cli.js", payload)]:
+            member = tarfile.TarInfo("package/" + name)
+            member.size = len(data)
+            archive.addfile(member, io.BytesIO(data))
+            (package / name).write_bytes(data)
+    archive_data = archive_buffer.getvalue()
+    digest = hashlib.sha512(archive_data).digest()
+    (prefix / "archives").mkdir()
+    archive_path = prefix / "archives" / (digest.hex() + ".tgz")
+    archive_path.write_bytes(archive_data)
+    lock = {"packages": {"": {}, "node_modules/acpx": {"version": "0.21.0", "integrity": "sha512-" + base64.b64encode(digest).decode()}}}
+    optional = prefix / "node_modules" / "optional-platform"
+    if defect.endswith("optional"):
+        # CTO's two additional cases pin both positive and negated npm constraints.
+        monkeypatch.setattr(platform, "system", lambda: "Linux")
+        monkeypatch.setattr(platform, "machine", lambda: "x86_64")
+        shutil.copytree(package, optional)
+        lock["packages"]["node_modules/optional-platform"] = {
+            **lock["packages"]["node_modules/acpx"], "optional": True,
+            "os": ["!linux"] if defect.startswith("omitted") else ["linux"], "cpu": ["x64"],
+        }
+    for name, data in {
+        "package.json": json.dumps({"version": "0.1.0", "dependencies": {"acpx": "0.21.0"}}),
+        "package-lock.json": json.dumps(lock), ".nvmrc": "22\n",
+    }.items():
+        (contract / name).write_text(data)
+        (prefix / name).write_text(data)
+    binary = prefix / "node_modules" / ".bin" / "acpx"
+    binary.parent.mkdir()
+    binary.symlink_to("../acpx/dist/cli.js")
+    monkeypatch.setattr(acpx_module, "_NODE_CONTRACT", contract)
+    monkeypatch.setattr(acpx_module, "_NODE_PREFIX", prefix)
+    monkeypatch.setattr(acpx_module, "_ACPX_BINARY", None)
+    monkeypatch.setattr(acpx_module.subprocess, "run", lambda *_a, **_k: pytest.fail("dependency executed before admission"))
+    monkeypatch.setattr(acpx_module.shutil, "which", lambda *_a, **_k: pytest.fail("global fallback attempted"))
+    assert acpx_module._resolve_acpx_binary(adapter_label="test") == str(binary)
+    target = package / "dist" / "cli.js"
+    if defect == "missing":
+        target.unlink()
+    elif defect == "version":
+        (package / "package.json").write_text('{"name":"acpx","version":"99.0.0"}')
+    elif defect == "bytes":
+        original = target.stat()
+        target.write_bytes(payload.replace(b"trusted", b"changed"))
+        os.utime(target, ns=(original.st_atime_ns, original.st_mtime_ns))
+    elif defect == "archive":
+        archive_path.write_bytes(b"tampered archive")
+    elif defect == "symlink":
+        outside = tmp_path / "outside.js"
+        outside.write_bytes(payload)
+        target.unlink()
+        target.symlink_to(outside)
+    elif defect == "owner":
+        uid = os.getuid()
+        monkeypatch.setattr(acpx_module.os, "getuid", lambda: uid + 1)
+    elif defect == "writable":
+        target.chmod(0o664)
+    else:
+        shutil.rmtree(optional)
+        if defect == "omitted-inapplicable-optional":
+            assert acpx_module._resolve_acpx_binary(adapter_label="test") == str(binary)
+            return
+    with pytest.raises(AcpxShadowRefusalError):
+        acpx_module._resolve_acpx_binary(adapter_label="test")
 
 
 # ---------------------------------------------------------------------------
@@ -2185,6 +2264,7 @@ def test_new_fleet_discussion_seats_use_fixed_confined_commands(
     tmp_path, monkeypatch, adapter_class, participant, provider_binary, version, model
 ):
     _stub_binary(monkeypatch, tmp_path)
+    monkeypatch.setattr(acpx_module, "validate_node_dependencies", lambda: tmp_path / "release")
     binaries = {}
     required = acpx_module._required_node_major(adapter_label="test")
     for name in ("node", provider_binary):

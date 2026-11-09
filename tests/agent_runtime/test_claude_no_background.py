@@ -231,7 +231,11 @@ def _acpx_claude_launch(tmp_path: Path, mode: str, monkeypatch: pytest.MonkeyPat
     ScheduleWakeup (#10500).
     """
     from lu_machinery.agent_runtime.adapters import acpx
+    from tests.agent_runtime.test_acpx_adapter import _stub_node_prefix
 
+    prefix = _stub_node_prefix(monkeypatch, tmp_path)
+    monkeypatch.setattr(acpx, "validate_node_dependencies", lambda: prefix)
+    monkeypatch.setattr(acpx, "_node_adapter_command", lambda _participant: "/installed/claude-agent-acp")
     script = tmp_path / "fake_claude.py"
     script.write_text(_FAKE_CLAUDE, encoding="utf-8")
     host = tmp_path / "claude"
