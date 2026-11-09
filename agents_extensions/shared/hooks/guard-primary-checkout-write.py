@@ -2178,7 +2178,13 @@ def bash_git_write_intents(
         for word in words
     )
 
+    pathspec_from_file = False
+
     def record(intent: dict[str, object]) -> None:
+        if pathspec_from_file:
+            # Paths read from a file are unknown here: treat the write as whole-tree.
+            intent["paths"] = []
+            intent["allowlisted"] = False
         intent["segment_cwd"] = effective_cwd
         intent["git_options"] = git_options
         intent["git_environment"] = git_environment
@@ -2186,6 +2192,7 @@ def bash_git_write_intents(
         intents.append(intent)
 
     for segment, effective_cwd, _shell_cwd in segments:
+        pathspec_from_file = False
         segment = _without_redirects(segment)
         cmd, idx = _command_word(segment)
         if cmd == "eval" and depth < _MAX_SHELL_DEPTH:
@@ -2215,6 +2222,7 @@ def bash_git_write_intents(
             continue
         sub_args = rest[1:]
         option_args = sub_args[: sub_args.index("--")] if "--" in sub_args else sub_args
+        pathspec_from_file = any(tok.startswith("--pathspec-from-file") for tok in option_args)
 
         if sub in {"apply", "am"}:
             record(
@@ -2331,6 +2339,17 @@ def bash_git_write_intents(
             # form `git checkout <tree-ish> <path>…` (#5517).
             # Branch-only checkouts are primary worktree mutations too; the
             # rescue targets below remain available.
+            if pathspec_from_file:
+                record(
+                    {
+                        "kind": "path_checkout",
+                        "c_path": c_path,
+                        "paths": [],
+                        "summary": "git checkout --pathspec-from-file",
+                        "allowlisted": False,
+                    }
+                )
+                continue
             if any(
                 tok == "--force" or (tok.startswith("-") and not tok.startswith("--") and "f" in tok[1:])
                 for tok in option_args
@@ -2827,10 +2846,11 @@ def _main() -> int:
                         return _block_uncertain("foreign_git_target_requires_plain_git_write")
                     continue
                 # Primary Git metadata stays protected even with a foreign worktree.
-                if not reaches_primary:
+                if wc.classify_repo_path(git_cwd, cwd=intent_root) != "primary_checkout":
                     if target.git_dir == protected.common_dir:
                         return _block_git_mediated(summary, intent_root, reason="git_mediated_primary_worktree")
-                    continue
+                    if not reaches_primary:
+                        continue
                 # Rescue forms restore the primary from its own index, never another one.
                 if intent.get("allowlisted") and target.git_dir == protected.common_dir:
                     continue
@@ -2840,6 +2860,9 @@ def _main() -> int:
                     return _block_git_mediated(summary, intent_root, reason="git_mediated_primary_worktree")
                 # Path-scoped mutators: block if any path is a protected primary write.
                 for raw in paths:
+                    # Magic pathspecs (`:/`, `:(top)`, `:!`) select from the work-tree root, not Git's cwd.
+                    if raw.startswith(":"):
+                        return _block_git_mediated(summary, intent_root, reason="git_pathspec_magic")
                     decision = _bash_path_decision(raw, str(git_cwd), wc, intent_root)
                     if not decision.allowed:
                         return _block_git_mediated(summary, intent_root, reason=decision.reason)
