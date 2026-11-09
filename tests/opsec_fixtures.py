@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+import importlib.util
 import json
 import os
 import shutil
@@ -186,15 +187,16 @@ def gh_shim_sandbox(tmp_path):
     root.mkdir()
     scripts = root / machinery_package()
     scripts.mkdir()
-    copy_publisher_scripts(ROOT / machinery_package(), scripts)
+    package_dir = Path(importlib.util.find_spec(machinery_package()).origin).parent
+    copy_publisher_scripts(package_dir, scripts)
     # The advisory classifier reads workflow policy as well as importing code.
     workflow = root / ".github/workflows/ci.yml"
     workflow.parent.mkdir(parents=True)
-    shutil.copy2(ROOT / ".github/workflows/ci.yml", workflow)
-    # The merge gate's learner-content check reads the deploy path policy data, a product file
-    # that stays under the product checkout's scripts/ when the machinery package moves.
     from lu_machinery.common.repo_root import product_root
 
+    shutil.copy2(product_root() / ".github/workflows/ci.yml", workflow)
+    # The merge gate's learner-content check reads the deploy path policy data, a product file
+    # that stays under the product checkout's scripts/ when the machinery package moves.
     deploy_paths = root / "scripts/curriculum/deploy_paths.v1.json"
     deploy_paths.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(product_root() / "scripts/curriculum/deploy_paths.v1.json", deploy_paths)
@@ -204,7 +206,11 @@ def gh_shim_sandbox(tmp_path):
     marker.write_text("")
     shim = scripts / "agent_runtime/shims/gh"
     shim.parent.mkdir(parents=True)
-    shutil.copy2(ROOT / machinery_package() / "agent_runtime/shims/gh", shim)
+    shutil.copy2(package_dir / "agent_runtime/shims/gh", shim)
+    # The shim sources its interpreter library from ``<shim dir>/../../lib`` (#171).
+    library = scripts / "lib/project_interpreter.sh"
+    library.parent.mkdir(exist_ok=True)
+    shutil.copy2(package_dir / "lib/project_interpreter.sh", library)
     (scripts / "config").mkdir()
     (scripts / "config/fleet_repos.yaml").write_text(json.dumps({"repos": CATALOG}))
     (root / ".venv").symlink_to(Path(sys.executable).parent.parent, target_is_directory=True)
