@@ -1,0 +1,183 @@
+name: Pytest slow nightly
+
+# Advisory slow lane for @pytest.mark.slow tests excluded from the required
+# CI Gate selection (`not atlas_release and not slow`). Never a required
+# check name; never listed in CI Gate `needs`. A silent red nightly is the
+# named rot mode — failures must open or update a labeled infra issue.
+
+on:
+  schedule:
+    - cron: '17 5 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: pytest-slow-nightly
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  pytest-slow:
+    name: Pytest slow (nightly)
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      # Same native services as the PR pytest job (nightly runs the groups moved off PRs).
+      LEARN_UKRAINIAN_CP_PG_DSN: postgresql://postgres:postgres@localhost:5432/lu
+    # Job-scoped (zizmor excessive-permissions): only this job files/updates
+    # the failure-tracking issue.
+    permissions:
+      actions: read
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - run: bash scripts/ci/test_env.sh start postgres
+
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version-file: '.python-version'
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: '.nvmrc'
+          cache: 'npm'
+          cache-dependency-path: package-lock.json
+
+      - name: Restore Atlas lexicon manifest cache
+        id: atlas-manifest-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: site/src/data/lexicon-manifest.json
+          key: lexicon-manifest-${{ hashFiles('site/src/data/lexicon-manifest.pointer.json') }}
+
+      - name: Restore pip wheel cache
+        id: pip-wheel-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/pip
+          key: pip-wheels-${{ runner.os }}-py3.12-${{ hashFiles('requirements-lock.txt') }}-torch-cpu
+
+      - name: Install dependencies
+        run: |
+          python -m venv .venv
+          .venv/bin/python -m pip install --upgrade pip
+          grep -viE '^(torch|torchvision|open_clip_torch)==' requirements-lock.txt \
+            > "${RUNNER_TEMP}/requirements-ci.txt"
+          .venv/bin/python -m pip install --no-deps -r "${RUNNER_TEMP}/requirements-ci.txt"
+          .venv/bin/python -m pip install --no-deps --index-url https://download.pytorch.org/whl/cpu \
+            torch==2.13.0
+          .venv/bin/python -m pip install --no-deps multiprocess==0.70.18 huggingface-hub==1.24.0
+
+      # The loader imports locked project dependencies (jsonschema), so it runs
+      # in the project venv after Install dependencies, never the setup interpreter.
+      - name: Verify Atlas manifest matches pointer (rehydrate if stale)
+        run: |
+          .venv/bin/python - <<'PY'
+          import sys
+          sys.path.insert(0, 'scripts')
+          from lexicon.manifest_io import load_manifest
+          load_manifest()
+          print('Atlas manifest verified against pointer')
+          PY
+
+      - name: Set Stanza resources directory
+        run: echo "STANZA_RESOURCES_DIR=${STANZA_RESOURCES_DIR:-${HOME}/stanza_resources}" >> "$GITHUB_ENV"
+
+      - name: Restore Stanza Ukrainian model cache
+        id: stanza-model-cache
+        continue-on-error: true
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ env.STANZA_RESOURCES_DIR }}
+          key: stanza-uk-model-v2-${{ runner.os }}-${{ hashFiles('requirements-lock.txt') }}
+
+      - name: Provision and verify Stanza Ukrainian model
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3; do
+            echo "stanza provision attempt ${attempt}/3"
+            if .venv/bin/python - <<'PY'
+          import os
+          from pathlib import Path
+
+          import stanza
+
+          resources = Path(os.environ["STANZA_RESOURCES_DIR"])
+          stanza.download("uk", model_dir=str(resources))
+          assert resources.is_dir() and any(resources.iterdir()), "Stanza resources missing or empty"
+          stanza.Pipeline("uk", dir=str(resources), download_method=None, use_gpu=False)
+          print("Stanza Ukrainian resources exist, are non-empty, and load offline")
+          PY
+            then
+              exit 0
+            fi
+            case "${attempt}" in
+              1) sleep 10 ;;
+              2) sleep 30 ;;
+            esac
+          done
+          echo "::error::Provision and verify Stanza Ukrainian model failed after 3 attempts" >&2
+          exit 1
+
+      - name: Save Stanza Ukrainian model cache
+        if: steps.stanza-model-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ env.STANZA_RESOURCES_DIR }}
+          key: stanza-uk-model-v2-${{ runner.os }}-${{ hashFiles('requirements-lock.txt') }}
+
+      - run: bash scripts/ci/test_env.sh wait
+        timeout-minutes: 5
+
+      - name: Run slow pytest selection
+        id: pytest-slow
+        run: |
+          set -euo pipefail
+          mkdir -p ci-artifacts
+          .venv/bin/python -m pytest tests/ \
+            --strict-markers --timeout=120 --timeout-method=thread --durations=20 \
+            -m 'slow and not atlas_release' \
+            --junitxml=ci-artifacts/slow-junit.xml \
+            2>&1 | tee ci-artifacts/slow.log
+
+      - name: Exercise quarantined tests without reruns
+        if: always()
+        env:
+          LU_FLAKE_DISABLE_RERUN: '1'
+        run: |
+          set -euo pipefail
+          mapfile -t nodeids < <(.venv/bin/python -c 'from scripts.common.flake_quarantine import load_registry; print("".join(entry["node_id"] + "\n" for entry in load_registry()), end="")')
+          if (( ${#nodeids[@]} )); then
+            mkdir -p ci-artifacts
+            .venv/bin/python -m pytest "${nodeids[@]}" --strict-markers \
+              --timeout=120 --timeout-method=thread \
+              --junitxml=ci-artifacts/quarantine-junit.xml
+          fi
+
+      - name: Build flake ledger and update expired fix issues
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          reports=(--nightly-junit ci-artifacts/slow-junit.xml)
+          if [[ -f ci-artifacts/quarantine-junit.xml ]]; then
+            reports+=(--nightly-junit ci-artifacts/quarantine-junit.xml)
+          fi
+          .venv/bin/python scripts/ci/flake_ledger.py "${reports[@]}" \
+            --fetch-queue --output ci-artifacts/flake-ledger.json
+
+      - name: Upload slow pytest evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: pytest-slow-nightly
+          path: ci-artifacts/
+          if-no-files-found: ignore
+          retention-days: 14
