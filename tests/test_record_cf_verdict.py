@@ -115,23 +115,54 @@ def test_ci_fix_uses_the_repository_required_workflow(monkeypatch, tmp_path):
     row = {"github": REPOSITORY.upper(), "required_workflow": gate}
     monkeypatch.setattr(repair_round.prepublish, "catalog", lambda: {"unit": row})
     kwargs = dict(number=42, repo_root=repo, github=reads)
-    assert repair_round.failed_runs_for(approved, **kwargs, workflow=repair_round.required_workflow(REPOSITORY)) == []
+    assert repair_round.failed_runs_for(approved, **kwargs, workflows=repair_round.required_workflows(REPOSITORY)) == []
     gate_queue = [{**item, "path": gate} for item in queue]
     found = repair_round.failed_runs_for(
-        approved, **{**kwargs, "github": fake_github_reads(queue=gate_queue, trees={"c" * 40: tree})}, workflow=gate
+        approved, **{**kwargs, "github": fake_github_reads(queue=gate_queue, trees={"c" * 40: tree})}, workflows=(gate,)
     )
     assert found == [{"run_id": 8, "event": "merge_group", "conclusion": "failure"}]
-    for bad in ({"github": REPOSITORY, "required_workflow": "ci.yml"}, {"github": REPOSITORY, "required_workflow": 1}):
+    # A list normalizes to the same collection; each listed workflow's failure is evidence on its own.
+    other = ".github/workflows/other.yml"
+    monkeypatch.setattr(
+        repair_round.prepublish, "catalog", lambda: {"unit": {"github": REPOSITORY, "required_workflow": [gate, other]}}
+    )
+    listed = repair_round.required_workflows(REPOSITORY)
+    assert listed == (gate, other)
+    for index, workflow in enumerate(listed):
+        both = [{**item, "path": workflow} for item in queue]
+        found = repair_round.failed_runs_for(
+            approved, **{**kwargs, "github": fake_github_reads(queue=both, trees={"c" * 40: tree})}, workflows=listed
+        )
+        assert found == [{"run_id": 8, "event": "merge_group", "conclusion": "failure"}], index
+    unrelated = [{**item, "path": ".github/workflows/unrelated.yml"} for item in queue]
+    unrelated_reads = fake_github_reads(queue=unrelated, trees={"c" * 40: tree})
+    assert repair_round.failed_runs_for(approved, **{**kwargs, "github": unrelated_reads}, workflows=listed) == []
+    bad_rows = (
+        "ci.yml",
+        1,
+        [],
+        [gate, 1],
+        [gate, "ci.yml"],
+        [gate, gate],
+        [[gate]],
+        {"path": gate},
+    )
+    for bad_value in bad_rows:
+        bad = {"github": REPOSITORY, "required_workflow": bad_value}
         monkeypatch.setattr(repair_round.prepublish, "catalog", lambda bad=bad: {"unit": bad})
         with pytest.raises(repair_round.RepairRefused, match=r"\[evidence\].*required_workflow"):
-            repair_round.required_workflow(REPOSITORY)
+            repair_round.required_workflows(REPOSITORY)
     monkeypatch.setattr(repair_round.prepublish, "catalog", lambda: {"a": row, "b": row})
     with pytest.raises(repair_round.RepairRefused, match=r"\[evidence\].*registered more than once"):
-        repair_round.required_workflow(REPOSITORY)
-    # Every registered repository without the key keeps ci.yml; machinery's row names ci-gate.yml.
+        repair_round.required_workflows(REPOSITORY)
+    # Every registered repository without the key keeps ci.yml; machinery names ci-gate.yml and kube-dojo its four.
     monkeypatch.undo()
-    workflows = {key: repair_round.required_workflow(repo.github) for key, repo in recorder.load_fleet_repos().items()}
-    assert workflows.pop("machinery") == gate and set(workflows.values()) == {repair_round.DEFAULT_REQUIRED_WORKFLOW}
+    workflows = {key: repair_round.required_workflows(repo.github) for key, repo in recorder.load_fleet_repos().items()}
+    assert workflows.pop("machinery") == (gate,)
+    assert workflows.pop("kube-dojo") == tuple(
+        f".github/workflows/{name}.yml" for name in ("incident-dedup", "link-check", "build-check", "vitest-check")
+    )
+    assert set(workflows.values()) == {(repair_round.DEFAULT_REQUIRED_WORKFLOW,)}
 
 
 def _misnamed_copy(tasks, name, **updates):

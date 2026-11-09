@@ -16,8 +16,9 @@
 # exact-head cross-family APPROVE; when false, a head with no recorded verdict
 # keeps the publisher's older behaviour.
 #
-# `required_workflow` (optional) is the workflow file whose failed PR or merge-queue run is the CI
-# evidence for a repair-verification review round (scripts/review/repair_round.py); default
+# `required_workflow` (optional) is the workflow file, or a non-empty list of distinct workflow files,
+# whose failed PR or merge-queue run is the CI evidence for a repair-verification review round
+# (lu_machinery/review/repair_round.py); a failure of any one listed workflow is evidence. Default
 # `.github/workflows/ci.yml`.
 
 version: 1
@@ -51,6 +52,12 @@ repos:
     transport: https
     role: public-content
     verdict_recorder: true
+    # The four workflows kube-dojo's main branch requires; a failure of any one is repair evidence.
+    required_workflow:
+      - .github/workflows/incident-dedup.yml
+      - .github/workflows/link-check.yml
+      - .github/workflows/build-check.yml
+      - .github/workflows/vitest-check.yml
     # Ignored registry in the repository's primary checkout, written by the dispatcher for every worktree
     # it creates or removes (kube-dojo docs/ops/workspace-hygiene.md); a path relative to that checkout.
     worktree_registry: .agent/workspace-hygiene.json
