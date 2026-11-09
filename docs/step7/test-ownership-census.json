@@ -30,7 +30,8 @@
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "tests/agent_runtime/adapters/test_cursor_adapter.py [user: SUBJECT-PRESENT]"
-   ]
+   ],
+   "ported_to": "tests/agent_runtime/adapters/fixtures/cursor_v2026_05_27_session_transcript.jsonl"
   },
   "tests/agent_runtime/adapters/fixtures/headless_denial.jsonl": {
    "disposition": "port-first",
@@ -67,7 +68,8 @@
     "scripts.agent_runtime.routes [present: present on machinery main as lu_machinery/agent_runtime/routes.py]",
     "scripts.agent_runtime.runner [present: present on machinery main as lu_machinery/agent_runtime/runner.py]",
     "scripts.common.git_context [present: present on machinery main as lu_machinery/common/git_context.py]"
-   ]
+   ],
+   "ported_to": "tests/agent_runtime/adapters/test_acpx_claude_adapter_modes.py"
   },
   "tests/agent_runtime/adapters/test_agy_adapter.py": {
    "disposition": "keep",
@@ -312,7 +314,8 @@
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.agent_runtime.adapters.cursor [present: present on machinery main as lu_machinery/agent_runtime/adapters/cursor.py]"
-   ]
+   ],
+   "ported_to": "tests/agent_runtime/adapters/test_cursor_adapter.py"
   },
   "tests/agent_runtime/adapters/test_deepseek_adapter.py": {
    "disposition": "port-first",
@@ -338,7 +341,8 @@
     "scripts.agent_runtime.runner [present: present on machinery main as lu_machinery/agent_runtime/runner.py]",
     "scripts.agent_runtime.trail_isolation [present: present on machinery main as lu_machinery/agent_runtime/trail_isolation.py]",
     "scripts.lib.rules_core [present: present on machinery main as lu_machinery/lib/rules_core.py]"
-   ]
+   ],
+   "ported_to": "tests/agent_runtime/adapters/test_deepseek_adapter.py"
   },
   "tests/agent_runtime/adapters/test_glm_adapter.py": {
    "disposition": "port-first",
@@ -353,7 +357,8 @@
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.agent_runtime.adapters.glm [present: present on machinery main as lu_machinery/agent_runtime/adapters/glm.py]"
-   ]
+   ],
+   "ported_to": "tests/agent_runtime/adapters/test_glm_adapter.py"
   },
   "tests/agent_runtime/adapters/test_kimi_adapter.py": {
    "disposition": "port-first",
@@ -395,7 +400,9 @@
     "scripts.review.model_catalog [present: present on machinery main as lu_machinery/review/model_catalog.py]",
     "scripts/review/model_catalog.py [present: present on machinery main as lu_machinery/review/model_catalog.py]",
     "unresolved: non-literal import_module(name)"
-   ]
+   ],
+   "ported_to": "tests/agent_runtime/adapters/test_kimi_adapter.py",
+   "retired": "disposition c for 20 of 21 test functions: they test the Kimi adapters removed by machinery #141 (adapters/kimi.py, adapters/kimicc.py, kimicc_headless.sh); retired-input refusal stays covered by tests/agent_runtime/test_retired_seat_admission.py (#160). test_kimi_mcp_request_fails_closed_without_per_call_selector tests build_mcp_tool_config, which is live, and is ported."
   },
   "tests/agent_runtime/adapters/test_kimicc_headless.py": {
    "disposition": "port-first",
@@ -483,7 +490,8 @@
    "subjects": [
     "scripts.agent_runtime.acp_health [present: present on machinery main as lu_machinery/agent_runtime/acp_health.py]",
     "scripts.agent_runtime.adapters.acpx [present: present on machinery main as lu_machinery/agent_runtime/adapters/acpx.py]"
-   ]
+   ],
+   "ported_to": "tests/agent_runtime/test_acp_health.py"
   },
   "tests/agent_runtime/test_acp_text_agent.py": {
    "disposition": "port-first",
@@ -609,7 +617,8 @@
     "scripts.agent_runtime.routes [present: present on machinery main as lu_machinery/agent_runtime/routes.py]",
     "scripts.agent_runtime.runner [present: present on machinery main as lu_machinery/agent_runtime/runner.py]",
     "scripts.common.git_context [present: present on machinery main as lu_machinery/common/git_context.py]"
-   ]
+   ],
+   "ported_to": "tests/agent_runtime/test_acpx_adapter.py"
   },
   "tests/agent_runtime/test_acpx_claude_host_executable.py": {
    "disposition": "port-first",
@@ -712,7 +721,8 @@
     "scripts.utils.claude_version [present: present on machinery main as lu_machinery/utils/claude_version.py]",
     "scripts/agent_runtime [present: present on machinery main as lu_machinery/agent_runtime]",
     "scripts/agent_runtime/claude_acp_exec.sh [present: present on machinery main as lu_machinery/agent_runtime/claude_acp_exec.sh]"
-   ]
+   ],
+   "ported_to": "tests/agent_runtime/test_acpx_claude_host_executable.py"
   },
   "tests/agent_runtime/test_acpx_discuss.py": {
    "disposition": "port-first",
@@ -760,7 +770,8 @@
     "scripts.fleet_comms.authority [present: present on machinery main as lu_machinery/fleet_comms/authority.py]",
     "scripts.fleet_comms.message_plane [present: present on machinery main as lu_machinery/fleet_comms/message_plane.py]",
     "scripts.fleet_comms.migrations [present: present on machinery main as lu_machinery/fleet_comms/migrations.py]"
-   ]
+   ],
+   "ported_to": "tests/agent_runtime/test_acpx_discuss.py"
   },
   "tests/agent_runtime/test_acpx_markup_replies.py": {
    "disposition": "port-first",
@@ -783,7 +794,8 @@
     "scripts.ai_agent_bridge._acp_compat [present: present on machinery main as lu_machinery/ai_agent_bridge/_acp_compat.py]",
     "scripts.ai_agent_bridge._acp_execution [present: present on machinery main as lu_machinery/ai_agent_bridge/_acp_execution.py]",
     "scripts.fleet_comms.authority [present: present on machinery main as lu_machinery/fleet_comms/authority.py]"
-   ]
+   ],
+   "ported_to": "tests/agent_runtime/test_acpx_markup_replies.py"
   },
   "tests/agent_runtime/test_acpx_pilot.py": {
    "disposition": "port-first",
@@ -808,7 +820,8 @@
     "scripts.agent_runtime.errors [present: present on machinery main as lu_machinery/agent_runtime/errors.py]",
     "scripts.agent_runtime.result [present: present on machinery main as lu_machinery/agent_runtime/result.py]",
     "scripts.agent_runtime.runner [present: present on machinery main as lu_machinery/agent_runtime/runner.py]"
-   ]
+   ],
+   "ported_to": "tests/agent_runtime/test_acpx_pilot.py"
   },
   "tests/agent_runtime/test_acpx_provider_failures.py": {
    "disposition": "port-first",
@@ -839,7 +852,8 @@
     "scripts.ai_agent_bridge._acp_execution [present: present on machinery main as lu_machinery/ai_agent_bridge/_acp_execution.py]",
     "scripts.ai_agent_bridge._cli [present: present on machinery main as lu_machinery/ai_agent_bridge/_cli.py]",
     "scripts.fleet_comms.authority [present: present on machinery main as lu_machinery/fleet_comms/authority.py]"
-   ]
+   ],
+   "ported_to": "tests/agent_runtime/test_acpx_provider_failures.py"
   },
   "tests/agent_runtime/test_agy_hook_config.py": {
    "disposition": "keep",
@@ -996,7 +1010,8 @@
     "scripts.agent_runtime.attempt_network [present: present on machinery main as lu_machinery/agent_runtime/attempt_network.py]",
     "scripts.review.isolation [present: present on machinery main as lu_machinery/review/isolation.py]",
     "scripts/agent_runtime/attempt_forwarder.py [present: present on machinery main as lu_machinery/agent_runtime/attempt_forwarder.py]"
-   ]
+   ],
+   "ported_to": "tests/agent_runtime/test_attempt_network.py"
   },
   "tests/agent_runtime/test_attempt_safe_read.py": {
    "disposition": "port-first",
@@ -1062,7 +1077,8 @@
    "subjects": [
     "scripts.agent_runtime.binary_resolve [present: present on machinery main as lu_machinery/agent_runtime/binary_resolve.py]",
     "scripts.agent_runtime.runner [present: present on machinery main as lu_machinery/agent_runtime/runner.py]"
-   ]
+   ],
+   "ported_to": "tests/agent_runtime/test_binary_resolve.py"
   },
   "tests/agent_runtime/test_claude_account_worker.py": {
    "disposition": "port-first",
@@ -1504,7 +1520,8 @@
    "subjects": [
     "scripts.agent_runtime.adapters.base [present: present on machinery main as lu_machinery/agent_runtime/adapters/base.py]",
     "scripts.agent_runtime.adapters.codex [present: present on machinery main as lu_machinery/agent_runtime/adapters/codex.py]"
-   ]
+   ],
+   "ported_to": "tests/agent_runtime/test_codex_adapter.py"
   },
   "tests/agent_runtime/test_codex_exec_stream.py": {
    "disposition": "port-first",
@@ -1540,7 +1557,8 @@
     "scripts.agent_runtime.adapters.codex [present: present on machinery main as lu_machinery/agent_runtime/adapters/codex.py]",
     "scripts.agent_runtime.adapters.codex_events [present: present on machinery main as lu_machinery/agent_runtime/adapters/codex_events.py]",
     "scripts.agent_runtime.failover [present: present on machinery main as lu_machinery/agent_runtime/failover.py]"
-   ]
+   ],
+   "ported_to": "tests/agent_runtime/test_codex_exec_stream.py"
   },
   "tests/agent_runtime/test_codex_hook_probe.py": {
    "disposition": "port-first",
@@ -1555,7 +1573,8 @@
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.agent_runtime.codex_hook_probe [present: present on machinery main as lu_machinery/agent_runtime/codex_hook_probe.py]"
-   ]
+   ],
+   "ported_to": "tests/agent_runtime/test_codex_hook_probe.py"
   },
   "tests/agent_runtime/test_codex_sources_config_layers.py": {
    "disposition": "port-first",
@@ -1594,7 +1613,8 @@
     "scripts.ai_agent_bridge._review_worktree [present: present on machinery main as lu_machinery/ai_agent_bridge/_review_worktree.py]",
     "scripts.review.isolation [present: present on machinery main as lu_machinery/review/isolation.py]",
     "scripts.review.snapshot [present: present on machinery main as lu_machinery/review/snapshot.py]"
-   ]
+   ],
+   "ported_to": "tests/agent_runtime/test_codex_sources_config_layers.py"
   },
   "tests/agent_runtime/test_cursor_adapter_resume.py": {
    "disposition": "port-first",
@@ -1614,7 +1634,8 @@
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.agent_runtime.adapters.cursor [present: present on machinery main as lu_machinery/agent_runtime/adapters/cursor.py]"
-   ]
+   ],
+   "ported_to": "tests/agent_runtime/test_cursor_adapter_resume.py"
   },
   "tests/agent_runtime/test_deepseek_admission.py": {
    "disposition": "port-first",
@@ -1688,7 +1709,8 @@
     "scripts.agent_runtime.adapters.acpx [present: present on machinery main as lu_machinery/agent_runtime/adapters/acpx.py]",
     "scripts.agent_runtime.adapters.grok_build [present: present on machinery main as lu_machinery/agent_runtime/adapters/grok_build.py]",
     "scripts.review.verdict_parser [present: present on machinery main as lu_machinery/review/verdict_parser.py]"
-   ]
+   ],
+   "ported_to": "tests/agent_runtime/test_grok_message_boundaries.py"
   },
   "tests/agent_runtime/test_grok_reviewer_tools.py": {
    "disposition": "port-first",
@@ -1741,7 +1763,8 @@
     "scripts.publish [present: present on machinery main as lu_machinery/publish/__init__.py]",
     "scripts/agent_runtime/grok_hook_bridge.py [present: present on machinery main as lu_machinery/agent_runtime/grok_hook_bridge.py]",
     "scripts/agent_runtime/grok_reviewer_permissions.py [present: present on machinery main as lu_machinery/agent_runtime/grok_reviewer_permissions.py]"
-   ]
+   ],
+   "ported_to": "tests/agent_runtime/test_grok_reviewer_tools.py"
   },
   "tests/agent_runtime/test_grok_stop_reasons.py": {
    "disposition": "port-first",
@@ -1776,7 +1799,8 @@
     "scripts.agent_runtime.adapters.grok_build [present: present on machinery main as lu_machinery/agent_runtime/adapters/grok_build.py]",
     "scripts.agent_runtime.failure_codes [present: present on machinery main as lu_machinery/agent_runtime/failure_codes.py]",
     "scripts.agent_runtime.runner [present: present on machinery main as lu_machinery/agent_runtime/runner.py]"
-   ]
+   ],
+   "ported_to": "tests/agent_runtime/test_grok_stop_reasons.py"
   },
   "tests/agent_runtime/test_jsonl_lines.py": {
    "disposition": "port-first",
@@ -1804,7 +1828,8 @@
     "scripts.agent_runtime.codex_hook_probe [present: present on machinery main as lu_machinery/agent_runtime/codex_hook_probe.py]",
     "scripts.agent_runtime.jsonl [present: present on machinery main as lu_machinery/agent_runtime/jsonl.py]",
     "scripts.agent_runtime.tool_calls [present: present on machinery main as lu_machinery/agent_runtime/tool_calls.py]"
-   ]
+   ],
+   "ported_to": "tests/agent_runtime/test_jsonl_lines.py"
   },
   "tests/agent_runtime/test_lane_probe.py": {
    "disposition": "port-first",
@@ -1829,7 +1854,8 @@
     "scripts.agent_runtime.lane_probe [present: present on machinery main as lu_machinery/agent_runtime/lane_probe.py]",
     "scripts.orchestration.handoff_slot_registry [present: present on machinery main as lu_machinery/orchestration/handoff_slot_registry.py]",
     "scripts/config/area_assignments.yaml [present: present on machinery main as lu_machinery/config/area_assignments.yaml]"
-   ]
+   ],
+   "ported_to": "tests/agent_runtime/test_lane_probe.py"
   },
   "tests/agent_runtime/test_mechanical_admission.py": {
    "disposition": "keep",
@@ -1881,7 +1907,8 @@
     "scripts.agent_runtime.failure_codes [present: present on machinery main as lu_machinery/agent_runtime/failure_codes.py]",
     "scripts.agent_runtime.result [present: present on machinery main as lu_machinery/agent_runtime/result.py]",
     "scripts.ai_llm.cooldown [present: present on machinery main as lu_machinery/ai_llm/cooldown.py]"
-   ]
+   ],
+   "ported_to": "tests/agent_runtime/test_provider_diagnostic_regressions.py"
   },
   "tests/agent_runtime/test_pty_subprocess_wrap.py": {
    "disposition": "port-first",
@@ -1903,7 +1930,8 @@
    "subjects": [
     "scripts.agent_runtime.runner [present: present on machinery main as lu_machinery/agent_runtime/runner.py]",
     "scripts.agent_runtime.watchdog [present: present on machinery main as lu_machinery/agent_runtime/watchdog.py]"
-   ]
+   ],
+   "ported_to": "tests/agent_runtime/test_pty_subprocess_wrap.py"
   },
   "tests/agent_runtime/test_review_contract.py": {
    "disposition": "keep",
@@ -1952,7 +1980,8 @@
     "scripts.fleet_comms.migrations [present: present on machinery main as lu_machinery/fleet_comms/migrations.py]",
     "scripts.lib.rules_core [present: present on machinery main as lu_machinery/lib/rules_core.py]",
     "scripts.review.render_contract [present: present on machinery main as lu_machinery/review/render_contract.py]"
-   ]
+   ],
+   "ported_to": "tests/agent_runtime/test_runtime_rules_core_delivery.py"
   },
   "tests/agent_runtime/test_sibling_provider_signals.py": {
    "disposition": "port-first",
@@ -1988,7 +2017,8 @@
     "scripts.agent_runtime.failover [present: present on machinery main as lu_machinery/agent_runtime/failover.py]",
     "scripts.agent_runtime.failure_codes [present: present on machinery main as lu_machinery/agent_runtime/failure_codes.py]",
     "scripts.agent_runtime.result [present: present on machinery main as lu_machinery/agent_runtime/result.py]"
-   ]
+   ],
+   "ported_to": "tests/agent_runtime/test_sibling_provider_signals.py"
   },
   "tests/agent_runtime/test_sources_read_only.py": {
    "disposition": "keep",
@@ -2006,7 +2036,8 @@
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.agent_runtime.runner [present: present on machinery main as lu_machinery/agent_runtime/runner.py]"
-   ]
+   ],
+   "ported_to": "tests/agent_runtime/test_stdin_tempfile_spawn.py"
   },
   "tests/agent_runtime/test_target_admission.py": {
    "disposition": "port-first",
@@ -2028,7 +2059,8 @@
    "subjects": [
     "scripts.agent_runtime.mechanical_admission [present: present on machinery main as lu_machinery/agent_runtime/mechanical_admission.py]",
     "scripts.agent_runtime.target_admission [present: present on machinery main as lu_machinery/agent_runtime/target_admission.py]"
-   ]
+   ],
+   "ported_to": "tests/agent_runtime/test_target_admission.py"
   },
   "tests/agent_runtime/test_usage_headroom_corrupt.py": {
    "disposition": "port-first",
@@ -2044,7 +2076,8 @@
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.agent_runtime.usage [present: present on machinery main as lu_machinery/agent_runtime/usage.py]"
-   ]
+   ],
+   "ported_to": "tests/agent_runtime/test_usage_headroom_corrupt.py"
   },
   "tests/agent_runtime/test_usage_record_readers.py": {
    "disposition": "keep",
@@ -8837,7 +8870,8 @@
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "tests/agent_runtime/test_grok_stop_reasons.py [user: SUBJECT-PRESENT]"
-   ]
+   ],
+   "ported_to": "tests/fixtures/grok/invalid-model-streaming-messages.jsonl"
   },
   "tests/fixtures/grok/invalid-model.json": {
    "disposition": "port-first",
@@ -8849,7 +8883,8 @@
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "tests/agent_runtime/test_grok_stop_reasons.py [user: SUBJECT-PRESENT]"
-   ]
+   ],
+   "ported_to": "tests/fixtures/grok/invalid-model.json"
   },
   "tests/fixtures/grok/streaming-messages-multi.jsonl": {
    "disposition": "port-first",
@@ -8861,7 +8896,8 @@
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "tests/agent_runtime/test_grok_message_boundaries.py [user: SUBJECT-PRESENT]"
-   ]
+   ],
+   "ported_to": "tests/fixtures/grok/streaming-messages-multi.jsonl"
   },
   "tests/fixtures/guard_9115_baseline.json": {
    "disposition": "port-first",
