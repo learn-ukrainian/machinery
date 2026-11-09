@@ -869,7 +869,10 @@ def _merged_delivery_candidates(record: dict, repo: str) -> Iterator[int]:
     """Try recorded PRs first, then canonical merged PRs whose final head equals the exit snapshot."""
     yield from _delivery_prs(record, repo)
     head = record.get("head_sha")
-    if head and re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", head):
+    # A task that added no commit of its own has nothing to attribute: its head is where it started, which another
+    # task's merged pull request can share.
+    commits = record.get("commits_ahead")
+    if head and isinstance(commits, int) and commits > 0 and re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", head):
         listed = json.loads(_gh("pr", "list", "--repo", repo, "--search", head, "--state", "merged",
                                 "--json", "number,isCrossRepository,headRefOid"))
         yield from (pr["number"] for pr in listed if pr["headRefOid"] == head and not pr["isCrossRepository"])
@@ -904,7 +907,7 @@ def merged_delivery(record: dict) -> dict | None:
                 tip, merged = _canonical_publication(
                     record, f"refs/heads/{record.get('publish_branch') or record['worktree_branch']}", record["head_sha"])
                 if not (merged or tip == record["head_sha"]):
-                    return None
+                    continue  # this candidate does not prove the push; a later one may
             # One JSON string per line keeps a name with a newline or quote whole.
             changed = _gh("api", "--paginate", f"repos/{repo}/pulls/{number}/files",
                           "--jq", ".[] | (.filename, (.previous_filename // empty)) | @json")
@@ -1030,18 +1033,21 @@ def _snapshot_tree(tree: Path, task_id: str) -> str:
 def _salvage_hold(tree: Path, primary: Path, untracked: list[str]) -> tuple[str, str] | None:
     """Why the hourly run keeps a tree whatever its publication: a reason and detail, or None.
 
-    Neither salvage nor removal keeps the content of a nested repository (Git stages it as a bare
-    commit pointer), so one with commits that are on none of its remotes, or with uncommitted work,
-    keeps the tree. So does meaningful ignored output past SALVAGE_IGNORED_LIMIT.
+    Neither salvage nor removal keeps the content of a nested repository, tracked submodule or not (Git
+    stages it as a bare commit pointer), so one with commits that are on none of its remotes, or with
+    uncommitted work, keeps the tree. So does meaningful ignored output past SALVAGE_IGNORED_LIMIT.
     """
     from lu_machinery.fleet.regenerable_output import committed_release_pins, is_regenerable_ignored_path
     from lu_machinery.orchestration.worktree_artifacts import is_disposable_path
 
     ignored = [name for name in _git(tree, "ls-files", "-z", "--others", "--ignored", "--exclude-standard",
                                      isolate=True, strip=False).split("\0") if name]
-    for name in (*untracked, *ignored):
+    # Tracked submodules (mode 160000) are staged as a bare commit pointer too, so they are held the same way.
+    gitlinks = [entry.partition("\t")[2] for entry in _git(tree, "ls-files", "--stage", "-z", isolate=True,
+                                                          strip=False).split("\0") if entry.startswith("160000 ")]
+    for name in (*(n for n in (*untracked, *ignored) if n.endswith("/")), *gitlinks):
         nested = tree / name
-        if name.endswith("/") and os.path.lexists(nested / ".git") and (
+        if os.path.lexists(nested / ".git") and (
                 _git(nested, "status", "--porcelain", isolate=True)
                 or _git(nested, "rev-list", "-n1", "--all", "--not", "--remotes", isolate=True)):
             return "nested_repository_unpushed", name
@@ -1275,7 +1281,7 @@ def settle_worktree(record: dict, borrowed=lambda: False, salvage: bool = False)
         hold = _salvage_hold(tree, repo, untracked) if salvage else None
     except GitHubRefused:
         return disposition("retained", "github_deferred")
-    except (OSError, ValueError, KeyError, subprocess.SubprocessError):
+    except (OSError, ValueError, KeyError, RecursionError, subprocess.SubprocessError):
         return disposition("retained", "unknown")
     published = head == remote or merged
     unpublished = not changed and record["mode"] != "read-only" and committed and not published
@@ -1303,7 +1309,7 @@ def settle_worktree(record: dict, borrowed=lambda: False, salvage: bool = False)
     salvage_detail = f"{SALVAGE_PREFIX}{record['task_id']} {salvaged[0]}" if salvaged else None
 
     def changed_since_inventory(path: Path) -> bool | None:
-        with suppress(OSError, ValueError, subprocess.SubprocessError):
+        with suppress(OSError, ValueError, RecursionError, subprocess.SubprocessError):
             now_changed, now_untracked = _tree_changes(path)
             if _git(path, "rev-parse", "HEAD", isolate=True) != head:
                 return True

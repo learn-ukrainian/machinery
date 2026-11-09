@@ -46,10 +46,19 @@ def create_dispatch_lease(task_id: str, cwd: Path) -> Path:
     )
 
 
-def discard_dispatch_lease(task_id: str) -> str | None:
-    """Remove the task's lease; never raises, so cleanup cannot stop the worker publishing the task."""
+def discard_dispatch_lease(task_id: str, created: str | None = None) -> str | None:
+    """Remove the task's lease; never raises, so cleanup cannot stop the worker publishing the task.
+
+    ``created`` is the path recorded when the lease was created: the scratch root can resolve elsewhere
+    by now (another ``TMPDIR`` or a recovered default), so the recorded path wins when it names this task's lease.
+    """
     try:
         lease = dispatch_lease(task_id)
+        if created is not None:
+            recorded = Path(created)
+            if recorded.name != lease.name or recorded.parent.name != lease.parent.name:
+                return "lease left in place: the recorded path is not this task's lease"
+            lease = recorded
         if lease.parent.is_symlink():
             return "lease left in place: the runtime tmp namespace is a symlink"  # never delete through it
         if lease.is_symlink():
