@@ -123,6 +123,7 @@ _GIT_TIMEOUT_S = 30
 
 def _run_git(
     cwd: Path, *args: str, environment: dict[str, str] | None = None, executable: str = "git",
+    inherit_fds: bool = False,
 ) -> subprocess.CompletedProcess[str]:
     """Run a read-only git command scoped to ``cwd`` with sanitized env."""
     argv = [executable, "-C", str(cwd), *args]
@@ -133,6 +134,10 @@ def _run_git(
             text=True,
             check=False,
             env=sanitized_git_env() if environment is None else environment,
+            # Explicit execution-context probes must see the same inherited
+            # descriptors as the final exec (for example -C /proc/self/fd/N).
+            # Ordinary sanitized probes retain subprocess's closed-fd default.
+            close_fds=not inherit_fds,
             timeout=_GIT_TIMEOUT_S,
         )
     except subprocess.TimeoutExpired as exc:
@@ -167,6 +172,7 @@ class GitWriteTarget:
 
 def resolve_git_worktree(
     cwd: Path | str, options: list[str], *, environment: dict[str, str] | None = None, executable: str = "git",
+    inherit_fds: bool = False,
 ) -> GitWriteTarget:
     """Resolve Git target options without executing a working-tree mutation.
 
@@ -179,7 +185,7 @@ def resolve_git_worktree(
     proc = _run_git(
         Path(cwd), *options, "rev-parse", "--path-format=absolute",
         "--git-common-dir", "--absolute-git-dir", "--show-toplevel", "--show-prefix",
-        environment=probe_env, executable=executable,
+        environment=probe_env, executable=executable, inherit_fds=inherit_fds,
     )
     lines = proc.stdout.splitlines()
     if proc.returncode or len(lines) != 4:
@@ -231,7 +237,7 @@ def evaluate_git_invocation(
         if protected.git_dir != protected.common_dir:
             return False, "undecidable_primary_worktree"
         worktrees[0] = primary
-        target = resolve_git_worktree(cwd, options, environment=environment, executable=executable)
+        target = resolve_git_worktree(cwd, options, environment=environment, executable=executable, inherit_fds=True)
         branch = _run_git(
             primary, "symbolic-ref", "--quiet", "--short", "HEAD", environment=trusted_env, executable=executable,
         )
@@ -249,7 +255,11 @@ def evaluate_git_invocation(
         for key in ("GIT_INDEX_FILE", "GIT_OBJECT_DIRECTORY", "GIT_COMMON_DIR"):
             if environment.get(key):
                 location = absolute_path(environment[key], cwd=cwd)
-                reaches_primary |= location.is_relative_to(protected.common_dir)
+                reaches_primary |= (
+                    location.is_relative_to(protected.common_dir)
+                    or _classify_with_worktrees(location, primary, worktrees) == "primary_checkout"
+                    or primary.is_relative_to(location)
+                )
         form = ("read", []) if sub in _GIT_INFO_GLOBALS else git_invocation_form(sub, args)
         # Worktree maintenance names a separate filesystem destination. A
         # foreign repository does not exempt that destination from protection.

@@ -27,10 +27,10 @@ def _environment(repositories):
     return env
 
 
-def _run(repositories, cwd, args, extra_env=None):
+def _run(repositories, cwd, args, extra_env=None, *, pass_fds=()):
     env = _environment(repositories)
     env.update(extra_env or {})
-    return subprocess.run([str(SHIM), *args], cwd=cwd, env=env, capture_output=True, text=True, timeout=30)
+    return subprocess.run([str(SHIM), *args], cwd=cwd, env=env, capture_output=True, text=True, timeout=30, pass_fds=pass_fds)
 
 
 @pytest.mark.parametrize("argv", [["stash"], ["stash", "push"], ["checkout-index", "-a", "-f"],
@@ -98,10 +98,19 @@ def test_compound_foreign_repository_executes_successfully(repositories, operati
 
 @pytest.mark.parametrize("args", [["status", "--porcelain"], ["log", "--oneline", "-1"], ["diff", "--stat"],
                                   ["clean", "-n", "-e", "build"], ["checkout", "--", "file"], ["restore", "file"]])
-def test_enumerated_readers_and_rescue_forms_execute(repositories, args):
+@pytest.mark.parametrize("inherited_root_fd", [False, True])
+def test_enumerated_readers_and_rescue_forms_execute(repositories, args, inherited_root_fd):
+    """Closing an inherited root descriptor must not break allowed Git execution."""
     a = repositories["A"]
     (a / "file").write_text("dirty\n")
-    result = _run(repositories, a, args)
+    if inherited_root_fd:
+        fd = os.open(a, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            result = _run(repositories, a, ["-C", f"/proc/self/fd/{fd}", *args], pass_fds=(fd,))
+        finally:
+            os.close(fd)
+    else:
+        result = _run(repositories, a, args)
     assert result.returncode == 0, result.stderr
     expected = "tracked\n" if args[0] in {"checkout", "restore"} else "dirty\n"
     assert (a / "file").read_text() == expected
@@ -117,12 +126,16 @@ def test_foreign_configuration_reader_cannot_run_against_primary(repositories, t
     assert not marker.exists()
 
 
-def test_metadata_environment_cannot_redirect_foreign_add_to_primary_index(repositories):
+@pytest.mark.parametrize("index_path", [".git/index", "victim-index"])
+def test_metadata_environment_cannot_redirect_foreign_add_to_primary_index(repositories, index_path):
+    """A redirected index must not overwrite either metadata or primary worktree files."""
     a, b = repositories["A"], repositories["B"]
-    before = (a / ".git/index").read_bytes()
-    result = _run(repositories, b, ["add", "file"], {"GIT_INDEX_FILE": str(a / ".git/index")})
+    index = a / index_path
+    index.write_bytes((a / ".git/index").read_bytes())
+    before = index.read_bytes()
+    result = _run(repositories, b, ["add", "file"], {"GIT_INDEX_FILE": str(index)})
     assert result.returncode != 0
-    assert (a / ".git/index").read_bytes() == before
+    assert index.read_bytes() == before
 
 
 def test_missing_target_fails_closed_and_dispatch_stays_writable(repositories):

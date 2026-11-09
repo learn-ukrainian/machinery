@@ -232,6 +232,14 @@ project_interpreter_configured() {
     printf '%s\n' "$configured"
 }
 
+# Only after the caller has validated the canonical primary's Git identity.
+# Keep path construction and executable validation in this shared selector.
+project_interpreter_from_validated_primary() {
+    [ -z "${LEARN_UKRAINIAN_PYTHON+set}" ] || return 1
+    LEARN_UKRAINIAN_PYTHON="${1:?validated primary required}/.venv/bin/python" \
+        project_interpreter_resolve "$1"
+}
+
 project_interpreter_resolve() {
     local root primary primary_python tried configured
 

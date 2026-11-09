@@ -69,7 +69,7 @@ _shim_project_python() {
         case "$recorded" in /*) ;; *) recorded="$common/$recorded" ;; esac
         [[ "$(cd -P "$recorded" 2>/dev/null && pwd)" == "$anchor" ]] || exit 1
       fi
-      LEARN_UKRAINIAN_PYTHON="$anchor/.venv/bin/python" project_interpreter_resolve "$_shim_root"
+      project_interpreter_from_validated_primary "$anchor"
     )
   else
     project_interpreter_resolve "$_shim_root"
