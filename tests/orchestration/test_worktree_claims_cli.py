@@ -690,6 +690,67 @@ def test_namespace_owner_exemption_does_not_release_unknown_worker(tmp_path):
     ) == "worktree claimed by active task worker"
 
 
+
+def _claim_record(target, **updates):
+    return {"schema_version": 2, "task_id": "worker", "status": "running", "run_nonce": "run",
+            "worktree_path": str(target), **updates}
+
+
+def test_exact_copy_of_a_task_record_does_not_block_the_claim_scan(tmp_path):
+    """Defect class: a worker's saved copy of a task record made every worktree removal refuse."""
+    target = tmp_path / "checkout"
+    target.mkdir()
+    tasks = tmp_path / "tasks"
+    tasks.mkdir()
+    record = json.dumps(_claim_record(target, status="done"))
+    (tasks / "worker.json").write_text(record)
+    (tasks / "worker.wait.json").write_text(record)
+    assert worktree_claims.active_worktree_claim_refusal(target, tasks_dir=tasks, repo_root=tmp_path) is None
+    # The correctly named record still claims what it claims.
+    (tasks / "worker.json").write_text(json.dumps(_claim_record(target)))
+    (tasks / "worker.wait.json").write_text(json.dumps(_claim_record(target)))
+    assert worktree_claims.active_worktree_claim_refusal(
+        target, tasks_dir=tasks, repo_root=tmp_path
+    ) == "worktree claimed by active task worker"
+
+
+def _copy_refusal(target, tasks):
+    refusal = worktree_claims.active_worktree_claim_refusal(target, tasks_dir=tasks, repo_root=tasks.parent)
+    assert refusal is not None and "refusing worktree removal" in refusal
+    assert "move it out of the task directory (for example into <task-id>.artifacts/)" in refusal
+    return refusal
+
+
+def test_any_other_misnamed_task_record_blocks_the_claim_scan(tmp_path):
+    """Defect class: a divergent, mid-run, orphaned or forged copy is skipped and its live claim is lost."""
+    target = tmp_path / "checkout"
+    target.mkdir()
+    tasks = tmp_path / "tasks"
+    tasks.mkdir()
+    named = _claim_record(target, status="done", review_mode="independent", retried=False)
+    divergent = {
+        "forged": {**named, "run_nonce": "other"},
+        "status_nulled": {**named, "status": None},
+        "review_mode_omitted": {key: value for key, value in named.items() if key != "review_mode"},
+        "mid_run": {**named, "status": "running"},
+        "false_as_zero": {**named, "retried": 0},
+        "claim_added": {**named, "worktree_path": str(target / "elsewhere")},
+    }
+    for name, copy in divergent.items():
+        (tasks / "worker.json").write_text(json.dumps(named))
+        (tasks / f"worker.{name}.json").write_text(json.dumps(copy))
+        assert f"worker.{name}.json" in _copy_refusal(target, tasks)
+        (tasks / f"worker.{name}.json").unlink()
+    # No correctly named record: a renamed or orphaned record refuses.
+    (tasks / "worker.json").rename(tasks / "worker.renamed.json")
+    assert "worker.renamed.json" in _copy_refusal(target, tasks)
+    # A named record only in the archive is no witness.
+    (tasks / "archive").mkdir()
+    (tasks / "worker.renamed.json").rename(tasks / "archive" / "worker.json")
+    (tasks / "worker.copy.json").write_text(json.dumps(named))
+    assert "worker.copy.json" in _copy_refusal(target, tasks)
+
+
 # The kernel's initial PID namespace (fixed inode PROC_PID_INIT_INO), read from /proc, never configured.
 _INITIAL_PID_NAMESPACE = f"pid:[{0xEFFFFFFC}]"
 

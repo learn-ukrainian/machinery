@@ -137,7 +137,37 @@ class TaskIdentityMismatch(ValueError):
 
     def __init__(self, path: Path, record: dict[str, Any]) -> None:
         super().__init__(f"task record {path} has invalid task identity")
+        self.path = path
         self.record = record
+
+
+def is_identical_copy(mismatch: TaskIdentityMismatch) -> bool:
+    """Whether a misnamed record is exactly the record dispatch names for its task, in the same directory.
+
+    True only when the correctly named record in that directory decodes to the same JSON as the
+    misnamed file, key order aside; true and false never equal 1 and 0. A saved copy then adds no claim
+    any reader scans for. There is no tolerance for a null, omitted or earlier field, so a copy saved
+    mid-run, a forged or edited one, an orphan and a renamed record are all False and their reader
+    refuses them.
+    """
+    record = mismatch.record
+    named = task_record_path(mismatch.path.parent, record["task_id"])
+    if named == mismatch.path:
+        return False
+    try:
+        other = read_task_record(named)
+    except (OSError, ValueError):
+        return False
+    # Compare the JSON texts: dict equality would equate true with 1 and false with 0.
+    return isinstance(other, dict) and json.dumps(other, sort_keys=True) == json.dumps(record, sort_keys=True)
+
+
+def misnamed_record_refusal(path: Path) -> str:
+    """Name a refused misnamed task file and say how to clear it."""
+    return (
+        f"misnamed file {path} in the task directory is not an exact copy of its named record; "
+        "move it out of the task directory (for example into <task-id>.artifacts/)"
+    )
 
 
 def read_task_record(path: Path) -> dict[str, Any] | None:

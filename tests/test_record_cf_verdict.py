@@ -141,12 +141,16 @@ def _misnamed_copy(tasks, name, **updates):
 
 def test_saved_wait_output_beside_its_record_neither_blocks_nor_counts(tmp_path):
     """Defect class: a worker's saved `dispatch.py wait` stdout stopped every review fleet-wide."""
-    from lu_machinery.review.review_lineage import review_records
+    from lu_machinery.review.review_lineage import LineageRefused, review_records
 
     tasks = tmp_path / "tasks"
     write_task(tasks, schema_version=2, pr=42, run_nonce="nonce-1")
-    _misnamed_copy(tasks, "review-one.review-wait.json", status="running")
+    _misnamed_copy(tasks, "review-one.review-wait.json")
     assert [path.name for path, _ in review_records(tasks, repository="owner/repo")] == ["review-one.json"]
+    # A copy saved mid-run differs from its named record, so it refuses rather than being skipped.
+    _misnamed_copy(tasks, "review-one.review-wait.json", status="running")
+    with pytest.raises(LineageRefused, match=r"review-one\.review-wait\.json has invalid task identity.*move it out"):
+        review_records(tasks, repository="owner/repo")
 
 
 def test_renamed_review_record_with_no_correctly_named_record_refuses(tmp_path):
@@ -156,11 +160,11 @@ def test_renamed_review_record_with_no_correctly_named_record_refuses(tmp_path):
     tasks = tmp_path / "tasks"
     write_task(tasks, schema_version=2, pr=42, run_nonce="nonce-1")
     _misnamed_copy(tasks, "review-one.saved.json", run_nonce="nonce-2")
-    with pytest.raises(LineageRefused, match=r"review-one\.saved\.json has invalid task identity and no correctly named record"):
+    with pytest.raises(LineageRefused, match=r"review-one\.saved\.json has invalid task identity"):
         review_records(tasks, repository="owner/repo")
     (tasks / "review-one.saved.json").unlink()
     (tasks / "review-one.json").rename(tasks / "review-one.saved.json")
-    with pytest.raises(LineageRefused, match=r"review-one\.saved\.json has invalid task identity and no correctly named record"):
+    with pytest.raises(LineageRefused, match=r"review-one\.saved\.json has invalid task identity"):
         review_records(tasks, repository="owner/repo")
     # A legacy or schema-1 record under another name never vouches for the copy (round-1 F1).
     for anchor in ({}, {"schema_version": 1}):

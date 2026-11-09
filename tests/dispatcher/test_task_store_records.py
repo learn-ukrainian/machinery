@@ -1,6 +1,7 @@
 """Approved #12192 admission and mid-run record-damage defect classes."""
 
 import json
+import re
 import signal
 from types import SimpleNamespace
 import pytest
@@ -52,6 +53,73 @@ def test_foreign_sidecar_does_not_block_review_admission(tmp_path, monkeypatch, 
     assert admission_readers(tmp_path)[3]() is None
     store.check_review_attempt(dict(review_id="unused", attempt_id="unused", manifest_sha256="b" * 64))
     assert str(sidecar) in caplog.text
+
+
+def _plant_record_and_copy(root, copy_name, **copy_updates):
+    """Plant ``worker.json`` and a misnamed copy; a None update omits the field from the copy."""
+    record = dict(task_id="worker", schema_version=2, run_nonce="n1", repository="org/repo", status="done",
+                  review_mode="independent", review=True, retried=False)
+    (root / "worker.json").write_text(json.dumps(record))
+    copy = {**record, **copy_updates}
+    (root / copy_name).write_text(json.dumps({key: value for key, value in copy.items() if value != "__omit__"}))
+
+
+def test_exact_copy_of_a_named_record_does_not_block_admission(tmp_path, monkeypatch):
+    """Defect class: a worker's saved copy of a task record refused every review admission read."""
+    monkeypatch.setenv("LU_TASKS_DIR", str(tmp_path))
+    _plant_record_and_copy(tmp_path, "worker.copy.json")
+    readers = admission_readers(tmp_path)
+    assert [path.name for path, _ in readers[0]()] in ([], ["worker.json"])
+    assert [record["task_id"] for record in readers[1]()] == ["worker"]
+    assert readers[2]() == ()
+    assert readers[3]() is None
+
+
+_READERS = [
+    (0, "task record worker.COPY.json has invalid task identity"),
+    (1, "unreadable task record .*worker.COPY"),
+    (2, "task record .*worker.COPY.* unreadable"),
+    (3, "RED_TEAM_REFUSED: task ledger unavailable"),
+]
+_READER_IDS = ["review_records", "list_tasks_strict", "admitted_unknown_history", "in_flight_guard"]
+_MOVE_OUT = r"move it out of the task directory \(for example into <task-id>\.artifacts/\)"
+
+
+@pytest.mark.parametrize("reader, message", _READERS, ids=_READER_IDS)
+@pytest.mark.parametrize("copy_name, updates", [
+    ("forged", {"run_nonce": "n2"}),
+    ("claims", {"worktree_path": "/virtual/checkout", "review_profile": "infra", "review_head": HEAD,
+                "review_attempt": 1}),
+    ("status_nulled", {"status": None}),
+    ("review_mode_omitted", {"review_mode": "__omit__"}),
+    ("mid_run", {"status": "running"}),
+    ("true_as_one", {"review": 1}),
+    ("false_as_zero", {"retried": 0}),
+])
+def test_divergent_copy_still_blocks_admission(tmp_path, monkeypatch, reader, message, copy_name, updates):
+    """Defect class: a copy differing from its named record in any field is skipped as if it were identical."""
+    monkeypatch.setenv("LU_TASKS_DIR", str(tmp_path))
+    errors = (ValueError, recorder.BranchFactsError, recorder.RecordError)
+    _plant_record_and_copy(tmp_path, f"worker.{copy_name}.json", **updates)
+    with pytest.raises(errors, match=message.replace("COPY", copy_name)) as caught:
+        admission_readers(tmp_path)[reader]()
+    assert re.search(_MOVE_OUT, str(caught.value))
+
+
+@pytest.mark.parametrize("reader, message", _READERS, ids=_READER_IDS)
+def test_orphaned_or_renamed_record_still_blocks_admission(tmp_path, monkeypatch, reader, message):
+    """Defect class: a record with no correctly named twin (or an archived-only one) is skipped as a copy."""
+    monkeypatch.setenv("LU_TASKS_DIR", str(tmp_path))
+    errors = (ValueError, recorder.BranchFactsError, recorder.RecordError)
+    _plant_record_and_copy(tmp_path, "worker.copy.json")
+    (tmp_path / "worker.json").rename(tmp_path / "worker.renamed.json")
+    with pytest.raises(errors, match=message.replace("COPY", "(copy|renamed)")):
+        admission_readers(tmp_path)[reader]()
+    (tmp_path / "worker.renamed.json").unlink()
+    (tmp_path / "archive").mkdir()
+    (tmp_path / "archive" / "worker.json").write_text((tmp_path / "worker.copy.json").read_text())
+    with pytest.raises(errors, match=message.replace("COPY", "copy")):
+        admission_readers(tmp_path)[reader]()
 
 
 def test_receipt_marker_cannot_hide_legacy_review_claim(tmp_path, monkeypatch):
