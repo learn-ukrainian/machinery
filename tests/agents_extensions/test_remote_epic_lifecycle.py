@@ -17,6 +17,9 @@ from lu_machinery.session_streams.store import (
     LeaseConflictError,
     SessionStreamStore,
 )
+from tests.epics_monitor_stub import isolated_monitor_state as isolated_monitor_state
+
+pytestmark = pytest.mark.usefixtures("isolated_monitor_state")
 
 
 def _store(tmp_path: Path) -> SessionStreamStore:

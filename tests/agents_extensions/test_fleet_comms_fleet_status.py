@@ -29,9 +29,10 @@ from lu_machinery.session_streams.db import SessionStreamDatabase
 from lu_machinery.session_streams.model import LeaseHolder
 from lu_machinery.session_streams.store import SessionStreamStore
 from tests.epics_monitor_stub import epics_monitor_stub
+from tests.epics_monitor_stub import isolated_monitor_state as isolated_monitor_state
 
 
-pytestmark = pytest.mark.usefixtures("configured_roots")
+pytestmark = [pytest.mark.usefixtures("configured_roots"), pytest.mark.usefixtures("isolated_monitor_state")]
 
 
 def _init_session_db(root: Path) -> Path:

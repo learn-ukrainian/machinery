@@ -305,7 +305,6 @@ tests/lib/test_job_memory_scope.py
 tests/lib/test_launcher_contract.py
 tests/lib/test_launcher_driver_scope.py
 tests/lib/test_launcher_helper_root.py
-tests/lib/test_launcher_interactive_scope.py
 tests/lib/test_redacted_environ.py
 tests/lib/test_session_record.py
 tests/lib/test_session_supervisor_shell.py
@@ -422,6 +421,7 @@ tests/helpers/reviewer_routing.py
 tests/helpers/source_db_write_guard.py
 tests/helpers/stress_fixtures.py
 tests/launcher_sandbox.py
+tests/lib/launcher_interactive_support.py
 tests/opsec_fixtures.py
 tests/orchestration/test_task_lifecycle.py
 tests/review/__init__.py

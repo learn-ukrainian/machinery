@@ -185,7 +185,7 @@ def _launch(
 ) -> tuple[dict[str, str], list[str], subprocess.CompletedProcess[str], Path, Path]:
     primary, linked = _prepare_repo(tmp_path, separate_git_dir=separate_git_dir)
     if stale_native_profile:
-        profile_path = primary / "lu_machinery/config/context_profiles.yaml"
+        profile_path = linked / "lu_machinery/config/context_profiles.yaml"
         profile_path.write_text(profile_path.read_text().replace("'^(gpt-6\\.1-sol|gpt-6-luna)$'", "'^gpt-stale$'"))
     home_bin = tmp_path / "home" / ".local" / "bin"
     capture = tmp_path / "capture.txt"

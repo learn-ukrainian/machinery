@@ -46,7 +46,7 @@ def test_forwarder_finishes_close_and_reaps_children_after_repeated_signal(
     tmp_path: Path, name: str, expected: int, delivery: str
 ) -> None:
     """Check the core's own status without the outer scope's status translation."""
-    from tests.lib.test_launcher_interactive_scope import (
+    from tests.lib.launcher_interactive_support import (
         DEADLINE_S,
         _assert_no_test_processes,
         _test_processes,
@@ -686,7 +686,7 @@ if driver_scope_child_running "$2"; then echo running; else echo exited; fi
 @pytest.mark.parametrize("provider_exit", ["exit 42", "kill -KILL $$"])
 def test_late_term_preserves_the_collected_provider_status(tmp_path: Path, provider_exit: str, phase: str) -> None:
     """Deliver TERM both after wait and during the final journal write."""
-    from tests.lib.test_launcher_interactive_scope import (
+    from tests.lib.launcher_interactive_support import (
         DEADLINE_S,
         _checkout,
         _lines,
@@ -948,7 +948,7 @@ def test_entry_owner_observes_verified_after_path_unlinked(tmp_path: Path) -> No
 
 def test_failed_scope_start_publishes_only_for_a_driver_successor(tmp_path: Path) -> None:
     """The full driver wrapper still publishes only its captured start failure."""
-    from tests.lib.test_launcher_interactive_scope import (
+    from tests.lib.launcher_interactive_support import (
         _SUPERVISOR,
         _checkout,
         _events,

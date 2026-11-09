@@ -284,7 +284,7 @@ def _run_interactive(tmp_path: Path, *args: str, env: dict[str, str] | None = No
     launch_env.update(
         {
             "LAUNCHER_DRY_RUN": "1" if dry_run else "0",
-            "LC_TEST_REPO": str(REPO),
+            "LC_TEST_REPO": str(machinery_path(".").parent),
             "LU_SKIP_PLANE_TUNNEL_CHECK": "1",
             "LU_TEST_REAL_MANAGER_CONTACT": str(contact),
             "PATH": f"{bin_dir}{os.pathsep}{guard}{os.pathsep}{launch_env['PATH']}",

@@ -27269,7 +27269,7 @@
     "test_unreadable_caller_cgroup_is_refused"
    ],
    "ownership": "machinery",
-   "ported_to": "tests/lib/test_launcher_interactive_scope.py",
+   "residual_id": "PORT-T8-B02",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     ".gemini/config.yaml [present: product-owned in LU]",

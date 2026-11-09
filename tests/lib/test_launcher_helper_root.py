@@ -24,7 +24,7 @@ import pytest
 
 from lu_machinery.common.repo_root import machinery_path
 from tests.helpers.product_tree import configured_roots as configured_roots
-from tests.launcher_sandbox import launcher_environment
+from tests.launcher_sandbox import launcher_environment, launcher_wrapper_source
 
 REPO = Path(__file__).resolve().parents[2]
 
@@ -36,11 +36,9 @@ _COPIED = (
     "lu_machinery/lib/project_interpreter.sh",
     "lu_machinery/lib/handoff_identity.sh",
     "lu_machinery/lib/session_supervisor.sh",
-    "lu_machinery/lib/kimicc_route.sh",
     "lu_machinery/lib/claude_route_guard.sh",
     "lu_machinery/lib/profile_resolver.sh",
     "lu_machinery/launchers/claude.sh",
-    "lu_machinery/launchers/kimi.sh",
     "lu_machinery/launchers/codex.sh",
     "lu_machinery/config/issue_streams.yaml",
     "lu_machinery/config/launcher_stream_aliases.tsv",
@@ -48,9 +46,7 @@ _COPIED = (
 # Helper scripts the sites name by path; the stub interpreters never run them.
 _PLACEHOLDERS = (
     "lu_machinery/orchestration/thread_handoff.py",
-    "lu_machinery/lib/kimi_coding_oauth.py",
     "lu_machinery/lib/context_profiles.py",
-    "lu_machinery/review/model_catalog.py",
 )
 _SITES = (
     "import_bundle",
@@ -60,17 +56,15 @@ _SITES = (
     "driver_agent_type",
     "slot_registry",
     "claude_profile",
-    "kimi_route",
 )
 _EXPECTED_HONEST = {
-    "import_bundle": "lu_machinery/orchestration/thread_handoff.py",
+    "import_bundle": "lu_machinery.orchestration.thread_handoff",
     "observer_heartbeat": "lu_machinery.orchestration.observer_heartbeat",
     "renew_heartbeat": "lu_machinery.session_supervisor heartbeat",
     "lease_close": "lu_machinery.session_supervisor close",
     "driver_agent_type": "lu_machinery.orchestration.driver_agent_type",
     "slot_registry": "lu_machinery.orchestration.handoff_slot_registry",
     "claude_profile": "lu_machinery/lib/context_profiles.py",
-    "kimi_route": "lu_machinery/lib/kimi_coding_oauth.py",
 }
 
 
@@ -101,10 +95,8 @@ def _stub_python(root: Path, owner: str, log: Path) -> None:
     python.parent.mkdir(parents=True, exist_ok=True)
     python.write_text(
         "#!/usr/bin/env bash\n"
+        'if [[ "${1:-}:${2:-}" == -I:-c && "${3:-}" == *"module bootstrap:"* ]]; then shift 5; fi\n'
         f"printf '%s %s\\n' {owner} \"$*\" >> {str(log)!r}\n"
-        # The Kimi route asks the catalog for a route before reaching its
-        # OAuth helper; answer that one call so the helper line is reached.
-        'case "$1" in *model_catalog.py) printf \'k3\\tplat\\tcoding\\tkimicc_k3\\n\' ;; esac\n'
         "exit 0\n",
         encoding="utf-8",
     )
@@ -142,7 +134,9 @@ def layout(tmp_path: Path) -> Layout:
     for relative in _COPIED:
         destination = primary / relative
         destination.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(REPO / relative, destination)
+        shutil.copy2(launcher_wrapper_source(relative), destination)
+        if relative.startswith("start-"):
+            destination.write_text(destination.read_text().replace("/scripts/", "/lu_machinery/"))
     _place_helper_scripts(primary)
     (primary / ".gitignore").write_text(".venv/\n", encoding="utf-8")
     _git(primary, "init", "-q", "-b", "main")
@@ -199,12 +193,6 @@ site slot_registry
 ( launcher_require_registered_slot claude devops ) >/dev/null 2>&1
 site claude_profile
 ( LC_MODEL=claude-opus-5-5 source "$LC_ROOT/lu_machinery/launchers/claude.sh"; launcher_adapter_preflight ) >/dev/null 2>&1
-site kimi_route
-(
-  LC_HARNESS=claude-code LC_ENDPOINT=coding LC_MODEL=k3 LC_ISOLATE_CONFIG=0
-  source "$LC_ROOT/lu_machinery/launchers/kimi.sh"
-  launcher_adapter_preflight
-) >/dev/null 2>&1
 exit 0
 """
 
@@ -248,11 +236,9 @@ def _assert_every_site_ran_the_primary(
     for line in layout.lines():
         assert str(layout.attacker) not in line, line
         assert str(layout.worktree / ".venv") not in line, line
-    # Helper scripts named by path come from the validated primary.
+    # The validated primary interpreter invokes the installed module (#161).
     joined = "\n".join(layout.lines())
-    assert f"{layout.primary}/lu_machinery/orchestration/thread_handoff.py" in joined
-    if "kimi_route" in sites:
-        assert f"{layout.primary}/lu_machinery/lib/kimi_coding_oauth.py" in joined
+    assert "-m lu_machinery.orchestration.thread_handoff" in joined
 
 
 def _assert_refused_before_any_site(layout: Layout, result: subprocess.CompletedProcess[str]) -> None:
@@ -294,7 +280,7 @@ def test_ambient_git_dir_does_not_redirect_any_site(layout: Layout) -> None:
 
 
 def test_worktree_local_venv_never_runs(layout: Layout) -> None:
-    """The driver-agent and Kimi sites used to try the worktree's own .venv first."""
+    """The driver-agent site used to try the worktree's own .venv first."""
     _stub_python(layout.worktree, "WORKTREE", layout.log)
     result = _run_sites(layout, **_hostile_env(layout))
     _assert_every_site_ran_the_primary(layout, result)
@@ -502,7 +488,9 @@ def _separate_git_dir_layout(layout: Layout) -> Layout:
     for relative in _COPIED:
         destination = primary / relative
         destination.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(REPO / relative, destination)
+        shutil.copy2(launcher_wrapper_source(relative), destination)
+        if relative.startswith("start-"):
+            destination.write_text(destination.read_text().replace("/scripts/", "/lu_machinery/"))
     _place_helper_scripts(primary)
     (primary / ".gitignore").write_text(".venv/\n", encoding="utf-8")
     _git(primary, "init", "-q", "-b", "main", "--separate-git-dir", str(layout.tmp / "sgd-git"))
@@ -527,8 +515,8 @@ def _assert_override_refused(layout: Layout, result: subprocess.CompletedProcess
     assert layout.lines() == [], layout.lines()
 
 
-# The Kimi route belongs to Kimi launches, which never read the override.
-_CODEX_REACHABLE_SITES = tuple(name for name in _SITES if name != "kimi_route")
+# Every surviving helper site participates in the canonical-root check.
+_CODEX_REACHABLE_SITES = _SITES
 
 
 def test_override_names_a_separate_git_dir_primary(layout: Layout) -> None:
@@ -701,7 +689,8 @@ def test_machinery_dir_is_the_physical_package_when_reached_through_a_symlink(tm
     """
     real = (tmp_path / "real").resolve()
     (real / "lu_machinery" / "lib").mkdir(parents=True)
-    shutil.copy2(machinery_path('lib/launcher_core.sh'), real / "lu_machinery/lib/launcher_core.sh")
+    for name in ("launcher_core.sh", "project_interpreter.sh"):
+        shutil.copy2(machinery_path("lib/" + name), real / "lu_machinery/lib" / name)
     if via == "symlinked-checkout":
         (tmp_path / "alias").symlink_to(real)
     else:

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import socket
+import sys
 import time
 from collections.abc import Iterator
 from contextlib import asynccontextmanager, contextmanager
@@ -11,6 +12,7 @@ from pathlib import Path
 from threading import Thread
 from urllib.request import urlopen
 
+import pytest
 import uvicorn
 from fastapi import FastAPI
 
@@ -86,3 +88,24 @@ def epics_monitor_stub(store: SessionStreamStore) -> Iterator[str]:
     finally:
         server.should_exit = True
         thread.join(timeout=5)
+
+
+@pytest.fixture
+def isolated_monitor_state(monkeypatch):
+    """Restore Monitor providers and cached roots after an explicitly opted-in test."""
+    from lu_machinery.api import monitor_context, product_contribution
+
+    with monkeypatch.context() as patch:
+        for name in ("_atlas", "_fleet_batches", "_product"):
+            patch.setattr(product_contribution, name, getattr(product_contribution, name))
+        try:
+            yield
+        finally:
+            config = sys.modules.get("lu_machinery.api.config")
+            if config is not None:
+                for name in (
+                    "PROJECT_ROOT", "PRODUCT_ROOT", "LIVE_REPO_ROOT", "CURRICULUM_ROOT",
+                    "DASHBOARDS_DIR", "BATCH_STATE_DIR", "MESSAGE_DB",
+                ):
+                    vars(config).pop(name, None)
+            monitor_context._cached_production_context.cache_clear()

@@ -17,7 +17,7 @@ from lu_machinery.common.repo_root import machinery_path
 from lu_machinery.fleet_comms.authority import AuthorityService
 from lu_machinery.session_canary import codex_lane, gemini_lane
 from tests.helpers.product_tree import configured_roots as configured_roots
-from tests.launcher_sandbox import launcher_environment
+from tests.launcher_sandbox import copy_launcher_sources, launcher_environment
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -34,9 +34,10 @@ def test_wake_owner_reads_delivery_after_path_unlinked(tmp_path: Path) -> None:
     """The watcher writes to an open file after a sibling removes its name."""
     lib = tmp_path / "lu_machinery/lib"
     lib.mkdir(parents=True)
-    (lib / "session_supervisor.sh").write_text((machinery_path('lib/session_supervisor.sh')).read_text())
+    for name in ("session_supervisor.sh", "project_interpreter.sh"):
+        (lib / name).write_text(machinery_path("lib/" + name).read_text())
     watcher = tmp_path / "lu_machinery/ai_agent_bridge/inbox_watch.sh"
-    watcher.parent.mkdir()
+    watcher.parent.mkdir(exist_ok=True)
     _write_executable(watcher, '#!/usr/bin/env bash\nread -r _ < "$TEST_GATE"\nprintf "delivery-test\\n"\nexit 75\n')
     script = f"""
 set -euo pipefail
@@ -71,6 +72,7 @@ rm -f "$replacement"
 def _supervisor_ok_body(capture: Path) -> str:
     return f"""#!/usr/bin/env bash
 if [[ "${{1:-}}" == "-I" && "${{2:-}}" == "-c" && "${{3:-}}" == *"module bootstrap:"* ]]; then shift 5; fi
+if [ "$1" = -I ]; then shift; fi
 if [[ "${{1:-}}" == "-m" && "${{2:-}}" == "lu_machinery.api.occupancy_local" && "${{3:-}}" == "resolve-host-id" ]]; then
   if [[ "${{FAKE_RESOLVER_FAILURE:-0}}" == "1" ]]; then
     echo "resolver unavailable" >&2
@@ -288,6 +290,7 @@ def _live_session_fake_python(capture: Path, counter: Path) -> str:
     )
     return f"""#!/usr/bin/env bash
 if [[ "${{1:-}}" == "-I" && "${{2:-}}" == "-c" && "${{3:-}}" == *"module bootstrap:"* ]]; then shift 5; fi
+if [ "$1" = -I ]; then shift; fi
 if [[ "${{1:-}}" == "-m" && "${{2:-}}" == "lu_machinery.api.occupancy_local" && "${{3:-}}" == "resolve-host-id" ]]; then
   printf '%s\\n' "host-job"
   exit 0
@@ -426,7 +429,7 @@ claim_session_supervisor_env "epic:9999" "test-agent" "test-harness" "test-task"
 def test_launcher_drops_force_from_successor_args() -> None:
     script = f"""
 set -euo pipefail
-source "{_REPO_ROOT}/lu_machinery/lib/launcher_core.sh"
+source "{machinery_path('lib/launcher_core.sh')}"
 LC_DRIVER_ORIGINAL_ARGS=(--epic infra --force --model grok-4.7 -- --force)
 launcher_drop_force_from_successor_args
 printf 'COUNT=%s\\n' "${{#LC_DRIVER_ORIGINAL_ARGS[@]}}"
@@ -452,6 +455,7 @@ def test_claim_fails_closed_on_missing_required_fields(tmp_path: Path) -> None:
         project / ".venv" / "bin" / "python",
         """#!/usr/bin/env bash
 if [[ "${1:-}" == "-I" && "${2:-}" == "-c" && "${3:-}" == *"module bootstrap:"* ]]; then shift 5; fi
+if [ "$1" = -I ]; then shift; fi
 if [[ "${1:-}" == "-m" && "${2:-}" == "lu_machinery.session_supervisor" && "${3:-}" == "open" ]]; then
   cat <<'JSON'
 {
@@ -536,15 +540,16 @@ def _run_launcher_wake_scenario(
     import time
 
     root = tmp_path / scenario
+    copy_launcher_sources(root)
     lib = root / "lu_machinery" / "lib"
-    lib.mkdir(parents=True)
+    lib.mkdir(parents=True, exist_ok=True)
     for name in ("launcher_core.sh", "session_supervisor.sh", "project_interpreter.sh"):
         body = (machinery_path("lib") / name).read_text()
         if scenario == "wake_file_missing" and name == "session_supervisor.sh":
             body = body.replace("session_supervisor_read_wake()", "session_supervisor_read_wake_original()")
         (lib / name).write_text(body)
     watcher = root / "lu_machinery" / "ai_agent_bridge" / "inbox_watch.sh"
-    watcher.parent.mkdir()
+    watcher.parent.mkdir(exist_ok=True)
     log = root / "events"
     provider_pid = root / "provider-pid"
     wait_window = root / "wait-window"
@@ -594,6 +599,8 @@ source {shlex.quote(str(lib / "launcher_core.sh"))}
 source {shlex.quote(str(lib / "session_supervisor.sh"))}
 LC_ROOT={shlex.quote(str(root))}
 LC_MODE=driver LC_PROVIDER=codex LC_DRIVER_LEASE_CLAIMED=1 LC_DRY_RUN=0
+LC_DURABLE_HELPER_ROOT="${{LC_DURABLE_HELPER_ROOT:-{shlex.quote(str(root))}}}"
+export LEARN_UKRAINIAN_PYTHON={shlex.quote(sys.executable)}
 LC_DRIVER_ORIGINAL_ARGS=(--fixture 'two words')
 export SESSION_STREAM_ID=epic:9999 SESSION_STREAM_LEASE_ID=lease-test SESSION_STREAM_GENERATION=30
 launcher_driver_renew_loop() {{ :; }}
@@ -632,6 +639,7 @@ launcher_exec_command {shlex.quote(sys.executable)} {shlex.quote(str(provider))}
             stdout, stderr = process.communicate()
             raise subprocess.TimeoutExpired(process.args, timeout, output=stdout, stderr=stderr) from None
     result = subprocess.CompletedProcess(process.args, process.returncode, stdout, stderr)
+    assert log.exists(), (result.returncode, result.stdout, result.stderr)
     return result, log.read_text().splitlines(), time.monotonic() - started
 
 
@@ -648,6 +656,7 @@ def _failure_publication_fixture(tmp_path: Path, *, seed_channel: bool) -> dict[
         bindir / "python",
         f"""#!/usr/bin/env bash
 if [[ "${{1:-}}" == "-I" && "${{2:-}}" == "-c" && "${{3:-}}" == *"module bootstrap:"* ]]; then shift 5; fi
+if [ "$1" = -I ]; then shift; fi
 if [ "$1" = -m ]; then
   printf '%s\\n' "$*" >> "$TEST_PUBLISH_ARGS"
   [ "$2" = lu_machinery.fleet_comms ] || exit 91

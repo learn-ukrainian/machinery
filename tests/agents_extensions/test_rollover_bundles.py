@@ -25,6 +25,9 @@ from lu_machinery.session_streams.inventory import stream_anchor_id
 from lu_machinery.session_streams.store import ContentRejectedError, validate_entry_body
 from tests.helpers.product_tree import configured_roots as configured_roots
 from tests.launcher_sandbox import launcher_environment
+from tests.epics_monitor_stub import isolated_monitor_state as isolated_monitor_state
+
+pytestmark = pytest.mark.usefixtures("isolated_monitor_state")
 
 HANDOFF_PATH = ".claude/infra-epic/CLAUDE-DRIVER-HANDOFF.md"
 AGENT = "claude-infra"

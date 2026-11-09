@@ -24,6 +24,7 @@ from lu_machinery.session_streams.db import SessionStreamDatabase
 from lu_machinery.session_streams.model import LeaseHolder, utc_now
 from lu_machinery.session_streams.store import SessionStreamStore
 from lu_machinery.session_supervisor import LaunchRole, SessionSupervisor
+from tests.epics_monitor_stub import isolated_monitor_state as isolated_monitor_state
 from tests.epics_monitor_stub import epics_monitor_stub
 from tests.helpers.product_tree import configured_roots as configured_roots
 from tests.launcher_sandbox import (
@@ -40,7 +41,7 @@ from tests.rules_core_view import (
     rules_core_absent_when_marked,  # noqa: F401  (autouse: serves @rules_core_absent)
 )
 
-pytestmark = pytest.mark.usefixtures("hermetic_monitor")
+pytestmark = [pytest.mark.usefixtures("hermetic_monitor"), pytest.mark.usefixtures("isolated_monitor_state")]
 
 REPO = Path(__file__).resolve().parents[2]
 # The checkout run_launcher starts launchers from; rules_core_absent tests get a

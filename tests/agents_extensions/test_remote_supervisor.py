@@ -15,6 +15,9 @@ from lu_machinery.session_supervisor.remote import (
     RemoteSupervisorError,
     RemoteUnreachableError,
 )
+from tests.epics_monitor_stub import isolated_monitor_state as isolated_monitor_state
+
+pytestmark = pytest.mark.usefixtures("isolated_monitor_state")
 
 
 class _Response:

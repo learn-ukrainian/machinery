@@ -17,6 +17,7 @@ from lu_machinery.common.repo_root import machinery_path
 from lu_machinery.session_streams.db import SessionStreamDatabase
 from lu_machinery.session_streams.model import LeaseHolder
 from lu_machinery.session_streams.store import NotFoundError, SessionStreamStore
+from tests.epics_monitor_stub import isolated_monitor_state as isolated_monitor_state
 from tests.epics_monitor_stub import epics_monitor_stub
 from tests.helpers.product_tree import configured_roots as configured_roots
 from tests.launcher_sandbox import launcher_environment
@@ -29,7 +30,7 @@ from tests.lib.test_launcher_contract import (
 from tests.lib.test_launcher_driver_scope import scope_sandbox
 from tests.rules_core_view import _build_view
 
-pytestmark = pytest.mark.usefixtures("hermetic_monitor")
+pytestmark = [pytest.mark.usefixtures("hermetic_monitor"), pytest.mark.usefixtures("isolated_monitor_state")]
 WRAPPERS = ("start-claude-cto.sh", "start-codex-cto.sh")
 launch_with_usage = _usage_fixture
 # The epics stream id comes from the registry, so a re-rooted epic needs no test edit.
