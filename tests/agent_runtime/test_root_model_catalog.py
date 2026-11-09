@@ -310,6 +310,30 @@ def test_unknown_activity_and_unknown_model():
         check_model_admission("codex", "auto", "read-only", {}, b"")
 
 
+def test_unknown_google_ais_gemma_stays_refused_under_the_routing_override(monkeypatch):
+    """An unknown google-ais Gemma spelling stays refused when the spend override is set.
+
+    The retired catalog row is refused before that override. A spelling the catalog
+    does not name must be too, or the override would admit it.
+    """
+    from lu_machinery.ai_agent_bridge.routing_guard import RoutingGuardError, assert_model_routing_allowed
+
+    spelling = "google-ais/gemma-4-26b-a4b-it"
+    with pytest.raises(RoutingGuardError, match="is not in the model catalog"):
+        assert_model_routing_allowed(spelling, context="probe")
+    monkeypatch.setenv("LU_ROUTING_GUARD_OVERRIDE", "1")
+    with pytest.raises(RoutingGuardError, match="is not in the model catalog"):
+        assert_model_routing_allowed(spelling, context="probe")
+    for still_retired in (
+        "google-ais/gemma-4-31b-it",
+        "gemma-4-31b-it",
+        "gemma",
+        "openrouter/google/gemma-4-31b-it",
+    ):
+        with pytest.raises(RoutingGuardError, match="retired in the model catalog"):
+            assert_model_routing_allowed(still_retired, context="probe")
+
+
 @pytest.mark.parametrize(
     "mutate,message",
     [

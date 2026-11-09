@@ -84,9 +84,20 @@ def assert_model_routing_allowed(model: str | None, *, context: str) -> None:
 
     if refusal := retired_model_refusal(model):
         raise RoutingGuardError(f"{context}: {refusal}")
+    text = str(model or "").strip()
+    ais_prefix = _GOOGLE_AIS_PREFIX_RE.match(text) if text else None
+    # An unknown google-ais Gemma spelling is not the free lane. Refuse it
+    # before the spend override, as a retired catalog id is refused above,
+    # without inheriting that row. A spelling the catalog names is not this
+    # branch, so a later catalog row needs no edit here.
+    if (
+        ais_prefix
+        and _GEMMA_FAMILY_MODEL_RE.match(text[ais_prefix.end() :])
+        and canonical_model_id(text) is None
+    ):
+        raise RoutingGuardError(f"{context}: {text!r} is not in the model catalog")
     if os.environ.get(_OVERRIDE_ENV) == "1":
         return
-    text = str(model or "").strip()
     if not text:
         return
     if _OX_ALPHA_RETIRED_RE.search(text):
@@ -152,10 +163,6 @@ def assert_model_routing_allowed(model: str | None, *, context: str) -> None:
             "the agy subscription seat). "
             f"Set {_OVERRIDE_ENV}=1 only with explicit user authorization."
         )
-    # A gemma spelling that does not name the catalog id is not the free lane.
-    # Refuse it without inheriting the retired catalog row.
-    if ais_prefix and canonical_model_id(text) is None:
-        raise RoutingGuardError(f"{context}: {text!r} is not in the model catalog")
 
 
 def assert_agent_routing_allowed(agent: str | None, *, context: str) -> None:
