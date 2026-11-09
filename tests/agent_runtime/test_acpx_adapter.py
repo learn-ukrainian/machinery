@@ -21,6 +21,7 @@ build-invocation tests mock binary resolution and version probes only.
 from __future__ import annotations
 
 import contextlib
+import ctypes
 import errno
 import fcntl
 import json
@@ -3407,3 +3408,127 @@ def test_r75_runner_spawn_failure_releases_the_copy(leased_copies, tmp_path, mon
     assert plan.metadata["claude_code_launcher_cleanup"] == "removed"
     assert not launcher.parents[1].exists()
     assert acpx_module._CLAUDE_ACP_COPY_LEASES == {}
+
+
+# Deterministic interleaving for the launcher (review F1): ptrace stops the
+# launch at the exec of util-linux flock, after the launcher opened fd 9 and
+# before the lock is taken, so a removal can complete in exactly that window.
+_PTRACE_TRACEME, _PTRACE_CONT, _PTRACE_SETOPTIONS = 0, 7, 0x4200
+_PTRACE_OPTIONS = 0x2 | 0x4 | 0x8 | 0x10  # trace fork, vfork, clone and exec
+_PTRACE_EVENT_EXEC = 4
+_WAIT_ALL = 0x40000000  # __WALL: also report traced processes that are not our children
+
+
+def _ptrace(request: int, pid: int, data: int = 0) -> None:
+    libc = ctypes.CDLL(None, use_errno=True)
+    libc.ptrace.restype = ctypes.c_long
+    libc.ptrace.argtypes = (ctypes.c_long, ctypes.c_int, ctypes.c_void_p, ctypes.c_void_p)
+    if libc.ptrace(request, pid, None, ctypes.c_void_p(data)) == -1:
+        code = ctypes.get_errno()
+        raise OSError(code, os.strerror(code))
+
+
+def _launch_pausing_at_flock(argv: list[str], env: dict[str, str], tmp_path: Path, at_flock) -> tuple[int, str]:
+    """Run ``argv`` traced; call ``at_flock()`` once /usr/bin/flock is exec'd, before it runs."""
+    flock_binary = os.path.realpath(acpx_module._CLAUDE_ACP_FLOCK)
+    stderr_path = tmp_path / "launcher.stderr"
+    with stderr_path.open("wb") as stderr:
+        proc = subprocess.Popen(
+            argv, env=env, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=stderr,
+            preexec_fn=lambda: _ptrace(_PTRACE_TRACEME, 0),
+        )
+    _pid, status = os.waitpid(proc.pid, _WAIT_ALL)
+    assert os.WIFSTOPPED(status), status  # stopped at its own exec
+    _ptrace(_PTRACE_SETOPTIONS, proc.pid, _PTRACE_OPTIONS)
+    _ptrace(_PTRACE_CONT, proc.pid)
+    paused = False
+    while True:
+        pid, status = os.waitpid(-1, _WAIT_ALL)
+        if os.WIFEXITED(status) or os.WIFSIGNALED(status):
+            if pid == proc.pid:
+                proc.returncode = os.waitstatus_to_exitcode(status)
+                break
+            continue
+        signal_number, event = os.WSTOPSIG(status), status >> 16
+        if event == _PTRACE_EVENT_EXEC and not paused and os.path.realpath(f"/proc/{pid}/exe") == flock_binary:
+            paused = True
+            at_flock()
+        deliver = 0 if event or signal_number in (signal.SIGTRAP, signal.SIGSTOP) else signal_number
+        _ptrace(_PTRACE_CONT, pid, deliver)
+    assert paused, "the launcher never ran util-linux flock"
+    return proc.returncode, stderr_path.read_text(encoding="utf-8")
+
+
+def test_r75_a_launch_whose_lease_is_removed_before_it_locks_refuses(leased_copies, tmp_path):
+    """Review F1: the launcher opened fd 9, then the copy was released and removed before flock ran.
+
+    flock then succeeds on the unlinked inode; the launcher must see that fd 9 is no longer the
+    lease and refuse before Claude runs.
+    """
+    launcher = _leased_copy()
+    marker = tmp_path / "host-ran"
+    host = _fake_host(tmp_path / "host", f": > '{marker}'\n")
+    outcomes: list[str] = []
+
+    def remove_now() -> None:
+        outcomes.append(_release(launcher))
+
+    returncode, stderr = _launch_pausing_at_flock([str(launcher)], _launch_env(host), tmp_path, remove_now)
+    assert outcomes == ["removed"]
+    assert not launcher.parents[1].exists()
+    assert returncode == 126, stderr
+    assert "removed while this launch started" in stderr
+    assert not marker.exists(), "Claude ran from a copy that was already removed"
+
+
+def test_r75_an_undisturbed_traced_launch_still_runs_claude(leased_copies, tmp_path):
+    """Control for the interleaving test: the same tracing without a removal launches Claude."""
+    launcher = _leased_copy()
+    marker = tmp_path / "host-ran"
+    host = _fake_host(tmp_path / "host", f": > '{marker}'\n")
+    returncode, stderr = _launch_pausing_at_flock([str(launcher)], _launch_env(host), tmp_path, lambda: None)
+    assert returncode == 0, stderr
+    assert marker.exists()
+
+
+@pytest.mark.parametrize("target", ["directory", "lease"])
+def test_r75_a_metadata_error_during_cleanup_keeps_the_answer(leased_copies, tmp_path, monkeypatch, caplog, target):
+    """Review F2: an fstat error inside removal is a recorded ``failed``, never a lost answer."""
+    launcher = _leased_copy()
+    plan = _claude_plan(launcher, _fake_host(tmp_path / "host", "exit 0\n"))
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    real_fstat = os.fstat
+
+    victim = (launcher.parents[1] / _LEASE if target == "lease" else launcher.parents[1]).stat()
+
+    def failing_fstat(fd):
+        result = real_fstat(fd)
+        if (result.st_dev, result.st_ino) == (victim.st_dev, victim.st_ino):
+            raise OSError(errno.EIO, os.strerror(errno.EIO))
+        return result
+
+    monkeypatch.setattr(acpx_module.os, "fstat", failing_fstat)
+    parsed = _claude_parse(plan, _SUCCESS_NDJSON)
+    monkeypatch.setattr(acpx_module.os, "fstat", real_fstat)
+    assert (parsed.ok, parsed.response) == (True, "Hello world.")
+    assert plan.metadata["claude_code_launcher_cleanup"] == "failed"
+    assert launcher.exists() and (launcher.parents[1] / _LEASE).exists()
+    assert acpx_module._CLAUDE_ACP_COPY_LEASES == {}
+    assert "could not remove the private launcher copy" in caplog.text
+
+
+def test_r75_an_unexpected_cleanup_exception_keeps_the_answer(leased_copies, tmp_path, monkeypatch, caplog):
+    launcher = _leased_copy()
+    plan = _claude_plan(launcher, _fake_host(tmp_path / "host", "exit 0\n"))
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+
+    def broken(*_args, **_kwargs):
+        raise RuntimeError("fixture")
+
+    monkeypatch.setattr(acpx_module, "_remove_claude_acp_launcher_copy", broken)
+    parsed = _claude_parse(plan, _SUCCESS_NDJSON)
+    assert (parsed.ok, parsed.response) == (True, "Hello world.")
+    assert plan.metadata["claude_code_launcher_cleanup"] == "failed"
+    AcpxClaudeShadowAdapter().cleanup_invocation(plan)
+    assert plan.metadata["claude_code_launcher_cleanup"] == "failed"
+    assert "cleanup raised" in caplog.text

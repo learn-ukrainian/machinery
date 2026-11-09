@@ -2279,11 +2279,20 @@ def _remove_leased_claude_acp_copy(base_fd: int, name: str) -> str:
     still holds the lease; ``refused`` when it is not provably a leased copy
     this adapter made (not a ``0700`` directory the caller owns; a missing,
     symlinked, unreadable or foreign lease; a lock error; a directory or lease
-    replaced while checked); ``failed`` when removal under the lock raised.
-    A missing lease is never recreated, so copies made before leases existed
-    stay untouched. The lease goes last, so a failed removal keeps it for a
-    later sweep, and the exclusive lock is held until the copy is gone.
+    replaced while checked); ``failed`` when any other call raised, removal
+    included. Nothing here raises an ``OSError``. A missing lease is never
+    recreated, so copies made before leases existed stay untouched. The lease
+    goes last, so a failed removal keeps it for a later sweep, and the
+    exclusive lock is held until the copy is gone.
     """
+    try:
+        return _remove_locked_claude_acp_copy(base_fd, name)
+    except OSError:
+        return "failed"
+
+
+def _remove_locked_claude_acp_copy(base_fd: int, name: str) -> str:
+    """The body of :func:`_remove_leased_claude_acp_copy`; an unexpected ``OSError`` propagates to it."""
     try:
         entry_stat = os.stat(name, dir_fd=base_fd, follow_symlinks=False)
     except FileNotFoundError:
@@ -2343,9 +2352,11 @@ def _remove_leased_claude_acp_copy(base_fd: int, name: str) -> str:
                 return "failed"
             return "removed"
         finally:
-            os.close(lease_fd)
+            with contextlib.suppress(OSError):
+                os.close(lease_fd)
     finally:
-        os.close(dir_fd)
+        with contextlib.suppress(OSError):
+            os.close(dir_fd)
 
 
 # Constant log messages: copy names and OS error text are caller-controlled (#10751).
@@ -2397,23 +2408,25 @@ def _remove_claude_acp_copy_dir(name: str, *, adapter_label: str) -> str:
     """Close this process's lease on copy ``name``, then remove the copy unless a launch holds it.
 
     Returns the cleanup outcome (see :func:`_remove_leased_claude_acp_copy`)
-    and logs every outcome other than ``removed`` and ``absent``.
+    and logs every outcome other than ``removed`` and ``absent``. Nothing
+    here raises an ``OSError``.
     """
     _drop_claude_acp_copy_lease(name)
-    base = _claude_acp_launcher_copy_base()
-    if not os.path.lexists(base):
-        return "absent"  # no base, so no copy is left
     try:
+        base = _claude_acp_launcher_copy_base()
+        if not os.path.lexists(base):
+            return "absent"  # no base, so no copy is left
         base_fd = _open_claude_acp_copy_base(base, adapter_label=adapter_label)
     except ClaudeCodeExecutableRefusal:
         outcome = "refused"
-    except OSError:
+    except (OSError, KeyError):  # KeyError: the caller's uid has no account entry
         outcome = "failed"
     else:
         try:
             outcome = _remove_leased_claude_acp_copy(base_fd, name)
         finally:
-            os.close(base_fd)
+            with contextlib.suppress(OSError):
+                os.close(base_fd)
     if outcome in _CLAUDE_ACP_CLEANUP_LOG:
         level, message = _CLAUDE_ACP_CLEANUP_LOG[outcome]
         _logger.log(level, message)
@@ -2693,6 +2706,15 @@ def _redact_claude_acp_paths(text: str | None, metadata: Mapping[str, object]) -
     return text
 
 
+def _release_claude_acp_launcher(launcher: object, *, adapter_label: str = "AcpxClaudeShadowAdapter") -> str:
+    """Release one launch's copy and return its cleanup outcome; never raises (``failed`` instead)."""
+    try:
+        return _remove_claude_acp_launcher_copy(launcher, adapter_label=adapter_label)
+    except Exception:  # cleanup must never cost the ask its parsed result
+        _logger.error("Claude ACP launcher cleanup raised; the private launcher copy is kept")
+        return "failed"
+
+
 def _release_claude_acp_launcher_copy(parsed: ParseResult, *, plan: InvocationPlan | None) -> ParseResult:
     """Release the ask's launcher copy once its result is parsed; record the cleanup outcome.
 
@@ -2706,7 +2728,7 @@ def _release_claude_acp_launcher_copy(parsed: ParseResult, *, plan: InvocationPl
     metadata = getattr(plan, "metadata", None)
     if not isinstance(metadata, dict) or not isinstance(metadata.get("claude_code_launcher"), str):
         return parsed
-    metadata["claude_code_launcher_cleanup"] = _remove_claude_acp_launcher_copy(metadata["claude_code_launcher"])
+    metadata["claude_code_launcher_cleanup"] = _release_claude_acp_launcher(metadata["claude_code_launcher"])
     return parsed
 
 
@@ -3976,7 +3998,7 @@ class AcpxClaudeShadowAdapter(_AcpxDiscussionAdapter):
             plan.metadata.get("claude_code_launcher"), str
         ):
             return
-        plan.metadata["claude_code_launcher_cleanup"] = _remove_claude_acp_launcher_copy(
+        plan.metadata["claude_code_launcher_cleanup"] = _release_claude_acp_launcher(
             plan.metadata["claude_code_launcher"], adapter_label=type(self).__name__
         )
 
