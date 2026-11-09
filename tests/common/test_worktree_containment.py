@@ -458,7 +458,7 @@ def test_module_is_robust_to_hostile_git_env(layout: Layout, monkeypatch):
     )
 
 
-def test_foreign_git_dir_with_primary_work_tree_from_dispatch_worktree_blocked(layout: Layout, tmp_path: Path):
+def test_git_write_classified_by_mutated_work_tree_not_cwd(layout: Layout, tmp_path: Path):
     """#29 defect class: the write guard classified Git's cwd, not the work tree Git mutates.
 
     From a dispatch worktree, ``--git-dir=<other repo> --work-tree=<primary>``
