@@ -58,7 +58,12 @@ Covered write surfaces
   ``--no-optional-locks`` is admitted to avoid it. Command strings a wrapper
   runs (``flock -c``, ``watch '...'``, ``find -exec sh -c``) are parsed too;
   arguments ``xargs`` or a ``find`` ``{}`` supplies at run time leave a Git
-  form unproven.
+  form unproven. Uncertainty fails closed: an unknown expansion or a glob
+  before ``--`` proves no form; an unknown cwd or target refuses every Git
+  invocation; on the protected route an unresolved command word, a dashed
+  ``git-<name>`` command and a shell script the guard cannot see
+  (``bash <<EOF``, ``bash file``, ``source``) count as unclassified Git; a
+  wrapper option word that names Git or is unknown is refused everywhere.
   The bounded maintenance forms admitted there are ``git pull --ff-only``
   (the monitor-pull timer and ``assert_primary_on_main``'s heal),
   ``git fetch`` without refspec destinations, ``git branch -d|-D`` of a
@@ -2712,26 +2717,66 @@ def _binds_git_environment(segments) -> bool:
 _EXEC_WRAPPERS = frozenset(
     {"watch", "flock", "ionice", "chrt", "taskset", "setsid", "unbuffer", "chronic", "systemd-run", "strace",
      "ltrace", "nsenter", "unshare", "runuser", "su", "sg", "doas", "xvfb-run", "proxychains", "proxychains4",
-     "torsocks", "script", "ssh", "tmux", "screen", "entr", "chroot", "firejail", "bwrap", "dbus-run-session"}
+     "torsocks", "script", "ssh", "tmux", "screen", "entr", "chroot", "firejail", "bwrap", "dbus-run-session",
+     "coproc"}
 )
 _SHELLS = frozenset({"sh", "bash", "zsh", "dash"})
 _COMMAND_RUNNERS = _SHELLS | _EXEC_WRAPPERS | {"eval", "xargs", "parallel", "find"}
 
 
-def _commands_run_by(argv: list[str], cwd: str | None, open_ended: bool = False):
-    """Yield ``(argv, cwd, open_ended)`` for a segment and every command its arguments run.
+def _word_uncertain(word: str) -> bool:
+    """Whether the shell may turn ``word`` into other words, so its Git meaning is unknown.
+
+    An unknown expansion can be any option. The parser does not keep quoting,
+    so a glob or brace character counts too unless the literal text before it
+    already fixes a complete ``--name=`` option (a glob there only varies the value).
+    """
+    if getattr(word, "unresolved_at", None) is not None:
+        return True
+    text = str(word)
+    match = re.search(r"[*?\[{]", text)
+    if match is None:
+        return False
+    prefix = text[: match.start()]
+    return not prefix or (prefix.startswith("-") and "=" not in prefix)
+
+
+def _replace_string(argv: list[str]) -> str | None:
+    """The placeholder ``xargs -I``/``-i``/``--replace`` or ``parallel`` substitutes into a template."""
+    cmd, idx = _command_word(argv)
+    if cmd == "parallel":
+        return "{"
+    if cmd != "xargs":
+        return None
+    args = [str(word) for word in argv[idx + 1 :]]
+    for i, word in enumerate(args):
+        if not word.startswith("-"):
+            break
+        if word == "-I" and i + 1 < len(args):
+            return args[i + 1]
+        if word.startswith("-I") and len(word) > 2:
+            return word[2:]
+        if word.startswith("-i") or word.startswith("--replace"):
+            return word.partition("=")[2] or (word[2:] if word.startswith("-i") and len(word) > 2 else "{}")
+    return None
+
+
+def _commands_run_by(argv: list[str], cwd: str | None, open_ended: bool = False, placeholder: str | None = None):
+    """Yield ``(argv, cwd, open_ended, placeholder)`` for a segment and every command its arguments run.
 
     ``xargs``/``parallel`` templates and ``find -exec`` templates holding
-    ``{}`` receive arguments at run time (``open_ended``); ``-execdir``/``-okdir`` run from each match's
-    directory, which is unknown (``cwd`` None). An exec wrapper runs the words
-    from its first Git, shell or runner word on.
+    ``{}`` receive arguments at run time (``open_ended``; ``placeholder`` is
+    the text replaced inside words). ``-execdir``/``-okdir`` run from each
+    match's directory, which is unknown (``cwd`` None). An exec wrapper runs
+    the words from its first Git, shell or runner word on. ``env -C`` in a
+    nested command changes its cwd.
     """
-    yield argv, cwd, open_ended
+    yield argv, cwd, open_ended, placeholder
     cmd, idx = _command_word(argv)
     if cmd in {"xargs", "parallel"}:
         template = _xargs_template(argv)
         if template:
-            yield from _commands_run_by(template, cwd, True)
+            yield from _commands_run_by(template, _env_command_cwd(template, cwd), True, _replace_string(argv))
     elif cmd == "find":
         args = argv[idx + 1 :]
         for i, word in enumerate(args):
@@ -2743,14 +2788,30 @@ def _commands_run_by(argv: list[str], cwd: str | None, open_ended: bool = False)
                     template.append(arg)
                 if template:
                     # Only a `{}` placeholder passes the matches to the command.
-                    run_cwd = None if word.endswith("dir") else cwd
-                    yield from _commands_run_by(template, run_cwd, open_ended or "{}" in template)
-    elif cmd in _EXEC_WRAPPERS:
-        for i in range(idx + 1, len(argv)):
-            name = Path(str(argv[i])).name
-            if _is_git_binary(name) or name in _COMMAND_RUNNERS:
-                yield from _commands_run_by(list(argv[i:]), cwd, open_ended)
-                break
+                    run_cwd = None if word.endswith("dir") else _env_command_cwd(template, cwd)
+                    found = any("{}" in str(arg) for arg in template)
+                    yield from _commands_run_by(template, run_cwd, open_ended or found, "{}" if found else placeholder)
+    elif cmd in _EXEC_WRAPPERS or cmd.startswith("-"):
+        # An option in command position belongs to a prefix command this parser
+        # does not read (`exec -a name git ...`): the command follows later.
+        start = _wrapper_tail(argv)
+        if start is not None:
+            tail = list(argv[start:])
+            yield from _commands_run_by(tail, _env_command_cwd(tail, cwd), open_ended, placeholder)
+
+
+# Prefix commands `_command_word` reads through; they can change the cwd (`env -C`).
+_PREFIX_COMMANDS = frozenset({"env", "sudo", "nice", "timeout", "stdbuf", "nohup", "time", "command", "exec", "builtin"})
+
+
+def _wrapper_tail(argv: list[str]) -> int | None:
+    """Index of the first Git, shell, runner or prefix word an exec wrapper runs, if any."""
+    _, idx = _command_word(argv)
+    for i in range(idx + 1, len(argv)):
+        name = Path(str(argv[i])).name
+        if _is_git_binary(name) or name.startswith("git-") or name in _COMMAND_RUNNERS or name in _PREFIX_COMMANDS:
+            return i
+    return None
 
 
 def bash_git_write_intents(
@@ -2798,30 +2859,59 @@ def bash_git_write_intents(
                 binds_environment=binds_environment,
             ))
 
+    def unclassified(run_cwd: str | None, summary: str) -> None:
+        # A Git invocation the guard cannot read: no proven form, so the protected
+        # route refuses it; with an unknown cwd every route refuses it.
+        intents.append({
+            "sub": "", "form": None, "strict": False, "foreign_write": False, "paths": [], "summary": summary,
+            "c_path": None, "segment_cwd": run_cwd, "git_options": [], "git_environment": git_environment,
+            "git_config_redirected": config_redirected,
+        })
+
     for segment, effective_cwd, _shell_cwd in segments:
-        for argv, run_cwd, open_ended in _commands_run_by(_without_redirects(segment), effective_cwd):
+        for argv, run_cwd, open_ended, placeholder in _commands_run_by(_without_redirects(segment), effective_cwd):
             cmd, idx = _command_word(argv)
+            if idx >= len(argv):
+                continue
             args = argv[idx + 1 :]
+            if getattr(argv[idx], "unresolved_at", None) is not None:
+                # A command word the guard cannot resolve may be Git.
+                unclassified(run_cwd, f"{argv[idx].raw} (unresolved command)")
+                continue
+            if open_ended and (cmd in _SHELLS or cmd in _EXEC_WRAPPERS or cmd == "eval"):
+                # A runner fed at run time: the command or script it runs comes from input.
+                script = _shell_command_script(args) if cmd in _SHELLS else None
+                if script is None or (placeholder and placeholder in str(script)):
+                    unclassified(run_cwd, f"{cmd} (command supplied at run time)")
+                    continue
             if cmd == "eval":
                 if all(getattr(arg, "unresolved_at", None) is None for arg in args):
                     nested(" ".join(args), run_cwd)
                 continue
-            if cmd in _SHELLS:
-                script = _shell_command_script(args)
+            if cmd in _SHELLS or cmd in {"source", "."}:
+                script = _shell_command_script(args) if cmd in _SHELLS else None
                 if script is not None and getattr(script, "unresolved_at", None) is None:
                     nested(str(script), run_cwd)
+                elif script is None:
+                    # A script read from a file, stdin or a here-document is not visible here.
+                    unclassified(run_cwd, f"{cmd} (script not visible to the guard)")
                 continue
             if cmd in _EXEC_WRAPPERS:
-                # A wrapper's command string (`flock -c '...'`, `watch '...'`) is a script;
-                # an unknown one may run Git, so it is an unclassified Git invocation.
-                for word in args:
-                    if getattr(word, "unresolved_at", None) is not None:
-                        args, open_ended = [], True
-                        break
-                    if re.search(r"\s", str(word)):
-                        nested(str(word), run_cwd)
-                else:
-                    continue
+                # Words before the command a wrapper runs are its options and command
+                # strings (`flock -c '...'`, `script --command=...`, `watch '...'`): one
+                # that is unknown or names Git is refused, and each is also parsed.
+                tail = _wrapper_tail(argv)
+                for word in argv[idx + 1 : tail]:
+                    text = str(word)
+                    if getattr(word, "unresolved_at", None) is not None or re.search(r"\bgit\b", text):
+                        unclassified(None, f"{cmd} {text}")
+                    for candidate in {text, text.partition("=")[2], text[2:] if text.startswith("-") else ""}:
+                        if re.search(r"\s", candidate):
+                            nested(candidate, run_cwd)
+                continue
+            if cmd.startswith("git-") and len(cmd) > 4:
+                # A dashed Git command (`/usr/lib/git-core/git-stash`) is `git <name>`.
+                args = [ShellWord(cmd[4:]), *args]
             elif not _is_git_binary(cmd):
                 continue
             c_path, git_options, rest = _git_global_prefix(args)
@@ -2835,8 +2925,11 @@ def bash_git_write_intents(
                     "summary": f"git {sub}", "unparsed_option": True,
                 })
             else:
-                # Arguments supplied at run time are unknown: no form is proven.
-                found = None if open_ended else git_invocation_form(sub, list(rest[1:]))
+                # Arguments supplied at run time, unknown expansions and globs before
+                # `--` can become any option: no form is proven.
+                head = rest[: rest.index("--")] if "--" in rest else rest
+                uncertain = open_ended or any(_word_uncertain(word) for word in head)
+                found = None if uncertain else git_invocation_form(sub, list(rest[1:]))
                 strict = _git_strict_globals(args[: len(args) - len(rest)]) and not binds_environment
                 intents.append({
                     "sub": sub,
@@ -3213,33 +3306,33 @@ def _main() -> int:
                 summary = str(intent.get("summary") or "git")
                 options = intent.get("git_options") or []
                 environment = intent.get("git_environment") or frozenset()
-                # A strict read changes nothing wherever it runs; only the
-                # configuration it runs under can matter (decided below).
+                # A strict read changes nothing itself; the configuration it runs
+                # under is decided below.
                 strict_read = intent.get("form") == "read" and bool(intent.get("strict"))
                 unresolved = any(getattr(option, "unresolved_at", None) is not None for option in options)
                 segment_cwd = intent.get("segment_cwd", cwd)
-                if not strict_read:
-                    if (
-                        redirects.intersection(environment) or redirects.intersection(os.environ)
-                        or any(name.startswith("GIT_CONFIG") for name in environment)
-                        or intent.get("git_config_redirected")
-                    ):
-                        return _block_uncertain("undecidable_git_environment")
-                    if intent.get("unparsed_option"):
-                        return _block_uncertain("undecidable_git_global_option")
-                    if unresolved:
-                        return _block_git_mediated(summary, intent_root, reason="unresolved_shell_variable")
-                    if not isinstance(segment_cwd, str):
-                        return _block_uncertain("undecidable_git_cwd_after_cd")
+                # A strict read binds no Git environment, so a variable merely named
+                # elsewhere in the command (`rg GIT_DIR`) does not refuse it.
+                if not strict_read and (
+                    redirects.intersection(environment) or redirects.intersection(os.environ)
+                    or any(name.startswith("GIT_CONFIG") for name in environment)
+                    or intent.get("git_config_redirected")
+                ):
+                    return _block_uncertain("undecidable_git_environment")
+                if intent.get("unparsed_option"):
+                    return _block_uncertain("undecidable_git_global_option")
+                # An unknown target or cwd may be the primary under foreign configuration.
+                if unresolved:
+                    return _block_git_mediated(summary, intent_root, reason="unresolved_shell_variable")
+                if not isinstance(segment_cwd, str):
+                    return _block_uncertain("undecidable_git_cwd_after_cd")
                 # The hook's own repository is protected, regardless of the
                 # payload cwd or the repository selected by Git's options.
                 protected = wc.resolve_git_worktree(intent_root, [])
-                target = None
-                if isinstance(segment_cwd, str) and not unresolved:
-                    try:
-                        target = wc.resolve_git_worktree(segment_cwd, options)
-                    except wc.NotAGitRepositoryError:
-                        pass  # e.g. a repository an earlier command creates
+                try:
+                    target = wc.resolve_git_worktree(segment_cwd, options)
+                except wc.NotAGitRepositoryError:
+                    target = None  # e.g. a repository an earlier command creates
                 if not wc.is_protected_branch(intent_root):
                     continue
                 # Worktrees a maintenance form creates or removes stay out of the primary.

@@ -614,9 +614,29 @@ def test_git_reaching_the_primary_admits_only_the_read_only_allowlist(
         (main, "find . -maxdepth 0 -exec sh -c 'git stash' \\;", 2),
         (main, "printf stash | xargs git", 2),
         (dispatch, f"find {main}/tracked.txt -execdir git stash \\;", 2),
-        (dispatch, "find . -maxdepth 0 -execdir git status \\;", 0),
-        (main, 'cd "$(git rev-parse --show-toplevel)" && git status', 0),
-        (dispatch, 'cd "$(git rev-parse --show-toplevel)" && git diff --stat', 0),
+        # An unknown cwd may be the primary under another repository's configuration (round 2, F3).
+        (dispatch, "find . -maxdepth 0 -execdir git status \\;", 2),
+        (main, 'cd "$(git rev-parse --show-toplevel)" && git status', 2),
+        (dispatch, 'cd "$(git rev-parse --show-toplevel)" && git diff --stat', 2),
+        (dispatch, "find . -maxdepth 0 -exec sh -c 'wc -c \"$1\"' _ {} \\;", 0),
+        (dispatch, "printf a | xargs -n1 echo", 0),
+        # Round 2, F2: wrapper option values, run-time command strings, nested env -C.
+        (main, "script --quiet --return --command='git stash' /dev/null", 2),
+        (main, "printf 'git stash' | xargs -I{} flock /tmp/i208.lock -c '{}'", 2),
+        (dispatch, f"flock /tmp/i208.lock env -C {main} git stash", 2),
+        (main, "$(printf gi)t stash", 2),
+        (main, "coproc git stash", 2),
+        (main, "exec -a name git stash", 2),
+        (main, "/usr/lib/git-core/git-stash", 2),
+        (main, "bash <<'EOF'\ngit stash\nEOF", 2),
+        (main, "bash <(printf 'git stash')", 2),
+        (main, "source ./x.sh", 2),
+        (dispatch, "bash <<'EOF'\ngit stash\nEOF", 0),
+        # Round 2, F1: unknown expansions and globs before `--` prove no form.
+        (main, 'true && OPT=-e; git clean -f "$OPT" -n', 2),
+        (main, 'true && OPT=--exclude; git clean -f "$OPT" --dry-run', 2),
+        (main, "git log *", 2),
+        (main, "git ls-files -- '*.py'", 0),
         # Round 1, F1: option values are consumed the way Git consumes them.
         (main, "git clean -fen", 2),
         (main, "git clean -f -e -n", 2),
@@ -636,6 +656,13 @@ def test_git_reaching_the_primary_admits_only_the_read_only_allowlist(
             2,
         ),
         (dispatch, f"git --git-dir=$UNKNOWN --work-tree={main} diff", 2),
+        (
+            main,
+            f"git -C {foreign} config diff.external 'touch {main}/marker'; "
+            + f'cd "$(pwd)" && git --git-dir={foreign}/.git diff',
+            2,
+        ),
+        (dispatch, f"find {main}/tracked.txt -execdir git --git-dir={foreign}/.git diff \\;", 2),
         (main, "rg GIT_DIR pkg; git status", 0),
         (main, "git --version", 0),
         # Worktree maintenance never creates or removes a worktree inside the primary.
