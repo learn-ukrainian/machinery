@@ -12,18 +12,6 @@
 # Native tests added after the second tranche are included below; markdown parsing uses
 # the hosted job's pinned markdown-it-py dependency and its mdurl dependency.
 # [run]: test files the pytest job runs, as whole files.
-tests/tools/test_detach_session_task.py
-tests/trails/test_rb1_rb6_v11.py
-tests/trails/test_rb2_rb5_v11.py
-tests/trails/test_rb3_rb4_v11.py
-tests/utils/test_claude_version.py
-tests/work/test_github_rest_cache.py
-tests/work/test_merged_pr_history.py
-tests/work/test_work_actionable_honesty.py
-tests/work/test_work_api.py
-tests/work/test_work_contract.py
-tests/work/test_work_ownership_contract.py
-tests/work/test_work_pr_snapshot.py
 # [support]: their fixture and helper closure: every tests/ file imported or opened while the
 #   [run] files ran (import and open audit hook, the source manifest's method). A [support]
 #   file named test_*.py is imported by a [run] file and is not run itself.
