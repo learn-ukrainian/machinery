@@ -54,6 +54,10 @@
 #   credential or user configuration reaches them, and with isolated
 #   interpreters (python -I -B). PATH is /usr/bin:/bin plus a directory that
 #   holds only node and npm symlinks, the launcher fixture's toolchain.
+# - Every shard starts its own runner PostgreSQL 16 cluster for the Postgres-marked tests
+#   (lu_machinery/ci/test_env.sh start postgres, then wait). Its DSN is passed
+#   through `env -i`; lu_machinery.ci.pg_skip_guard then fails the job when a
+#   test skipped on the DSN or a Postgres test file has no passing test.
 # - Hosted runner only (ubuntu-24.04). ci-gate.yml calls this workflow as its
 #   `pytest` job, so it runs on that workflow's events under its concurrency,
 #   and the required CI Gate check fails unless `pytest` succeeds.
@@ -76,6 +80,11 @@ jobs:
     timeout-minutes: 20
     permissions:
       contents: read
+    env:
+      # The runner's PostgreSQL 16 cluster, started below. Fleet Comms tests
+      # marked `postgres` self-skip without a usable DSN; the guard step fails
+      # the job if any did.
+      LEARN_UKRAINIAN_CP_PG_DSN: postgresql://postgres:postgres@localhost:5432/lu
     strategy:
       # Every shard reports, so one failure does not hide another's.
       fail-fast: false
@@ -85,6 +94,10 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+
+      # PostgreSQL 16 and bubblewrap start in the background during the Python
+      # installs below; `wait` blocks until the server answers on the DSN.
+      - run: bash lu_machinery/ci/test_env.sh start postgres
 
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
@@ -322,6 +335,8 @@ jobs:
               print(f"  {path}")
           PY
 
+      - run: bash lu_machinery/ci/test_env.sh wait
+
       - name: Select this shard's [run] files
         env:
           SHARD: ${{ matrix.shard }}
@@ -534,6 +549,7 @@ jobs:
           done
           set +e
           env -i PATH="/usr/bin:/bin:$toolchain" HOME="$work/home" TMPDIR="$work/tmp" LU_TEST_WHEEL="$LU_TEST_WHEEL" \
+            LEARN_UKRAINIAN_CP_PG_DSN="$LEARN_UKRAINIAN_CP_PG_DSN" \
             LEARN_UKRAINIAN_PYTHON="$venv/bin/python" \
             "$venv/bin/python" -I -B "$runner" "$work/record.json" \
             -n logical --max-worker-restart=0 -p no:cacheprovider --rootdir="$PWD" \
@@ -601,6 +617,13 @@ jobs:
               print(f"::error::{problem}")
           sys.exit(1 if problems else 0)
           PY
+
+      - name: Postgres tests must not skip
+        run: |
+          set -euo pipefail
+          work="$RUNNER_TEMP/pytest"
+          "$RUNNER_TEMP/test-venv/bin/python" -I -B -m lu_machinery.ci.pg_skip_guard "$work/pytest.xml" \
+            --title pytest | tee -a "$GITHUB_STEP_SUMMARY"
 
       # Input for refreshing lu_machinery/ci/pytest-file-durations.json (see the header).
       # It also runs after a failed test, so a slow failing shard is still measured.
