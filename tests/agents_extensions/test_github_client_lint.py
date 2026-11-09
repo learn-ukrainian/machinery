@@ -9,12 +9,12 @@ from urllib.parse import urlsplit
 
 import pytest
 
-from lu_machinery.common.repo_root import machinery_path
+from lu_machinery.common.repo_root import machinery_path, machinery_root
 
 ROOT = Path(__file__).resolve().parents[2]
 EXCLUSIONS = {
 }
-CLIENT = "scripts/common/github_client.py"
+CLIENT = "common/github_client.py"
 # Exact API and upload hosts, compared as parsed hostnames.
 _GITHUB_API_HOSTS = frozenset({"api.github.com", "uploads.github.com"})
 # Shell text is split on whitespace and on quotes so each URL is its own token.
@@ -321,11 +321,11 @@ _SCAN_MARKERS = (
 )
 
 
-def inventory_violations(root):
+def inventory_violations(root, source_dir="scripts"):
     violations = []
-    for path in (root / "scripts").rglob("*.py"):
+    for path in (root / source_dir).rglob("*.py"):
         relative = path.relative_to(root).as_posix()
-        if relative == CLIENT:
+        if path.relative_to(root / source_dir).as_posix() == CLIENT:
             continue
         source = path.read_text(encoding="utf-8")
         # The walker only matches these modules and URL literals. Skipping the
@@ -344,7 +344,7 @@ def inventory_violations(root):
 
 @pytest.mark.repo_wide
 def test_scripts_have_one_github_client():
-    found = inventory_violations(ROOT)
+    found = inventory_violations(machinery_root().parent, source_dir=machinery_root().name)
     assert not found, "\n".join(found)
 
 

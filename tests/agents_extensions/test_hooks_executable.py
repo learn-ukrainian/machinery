@@ -29,7 +29,11 @@ def test_hooks_are_executable_in_git():
         if len(parts) >= 4:
             mode = parts[0]
             path = parts[3]
-            # Mode must be 100755 for executable files in git
+            # PR #166 adds an import-only module, not an executable hook.
+            if path == "agents_extensions/shared/hooks/load_hook_package.py":
+                assert mode == "100644", (path, mode)
+                continue
+            # Every executable hook retains its Git entrypoint mode.
             if mode != "100755":
                 non_executable.append((path, mode))
 
