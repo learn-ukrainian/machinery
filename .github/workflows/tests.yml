@@ -292,6 +292,9 @@ jobs:
           # PYTHONPATH. Both serial and parallel runs use the same hooks.
           site_packages="$("$venv/bin/python" -I -c 'import sysconfig; print(sysconfig.get_path("purelib"))')"
           cat > "$site_packages/machinery_ci_recorder.py" <<'PY'
+          import shlex
+          import sys
+
           import pytest
 
 
@@ -305,6 +308,13 @@ jobs:
                   self.repeated_reports = []
                   self.workers = {}
                   self.worker_problems = []
+
+              @pytest.hookimpl(optionalhook=True)
+              def pytest_xdist_setupnodes(self, config, specs):
+                  # execnet otherwise starts workers without the controller's
+                  # isolated/no-bytecode flags. Pin the same venv interpreter.
+                  for spec in specs:
+                      spec.python = shlex.join([sys.executable, "-I", "-B"])
 
               def pytest_itemcollected(self, item):
                   self.collected.append(item.nodeid)
