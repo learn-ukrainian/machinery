@@ -1148,7 +1148,6 @@
  "scripts/ci/metadata_commit.py": "machinery",
  "scripts/ci/pg_skip_guard.py": "machinery",
  "scripts/ci/pr-affected-guards.txt": "machinery",
- "scripts/ci/pr20_measurement.py": "machinery",
  "scripts/ci/pr_affected_tests.py": "machinery",
  "scripts/ci/pr_size_warning.py": "machinery",
  "scripts/ci/pytest-file-durations.json": "machinery",
