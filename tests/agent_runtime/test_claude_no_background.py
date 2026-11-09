@@ -256,9 +256,14 @@ def _acpx_claude_launch(tmp_path: Path, mode: str, monkeypatch: pytest.MonkeyPat
             "claude_code_version": "2.1.289",
         },
     )
-    # Run the tracked launcher bytes; where production loads them from and their
-    # trust and digest checks are covered in test_acpx_claude_host_executable.
-    tracked_launcher = Path(acpx.__file__).resolve().parents[1] / "claude_acp_exec.sh"
+    # Run the tracked launcher bytes from a private copy layout beside its lease,
+    # as the adapter writes it; where production loads them from and their trust
+    # and digest checks are covered in test_acpx_claude_host_executable.
+    tracked_launcher = tmp_path / "copy" / "agent_runtime" / "claude_acp_exec.sh"
+    tracked_launcher.parent.mkdir(parents=True)
+    tracked_launcher.write_bytes((Path(acpx.__file__).resolve().parents[1] / "claude_acp_exec.sh").read_bytes())
+    tracked_launcher.chmod(0o500)
+    (tmp_path / "copy" / acpx._CLAUDE_ACP_LAUNCHER_COPY_LEASE).touch(mode=0o600)
     monkeypatch.setattr(acpx, "_require_claude_acp_launcher", lambda **_kw: str(tracked_launcher))
     with acpx.active_discussion_scope():
         plan = acpx.AcpxClaudeShadowAdapter().build_invocation(

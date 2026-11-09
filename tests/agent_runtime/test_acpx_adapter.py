@@ -3355,14 +3355,13 @@ def test_r75_runner_timeout_releases_the_copy_and_keeps_the_failure(leased_copie
 
 
 def test_r75_runner_cancellation_releases_the_copy(leased_copies, tmp_path, monkeypatch):
-    runner, kwargs, launcher, plan, _state = _run_chain(leased_copies, tmp_path, monkeypatch, hang=True)
-
+    runner, kwargs, launcher, plan, state = _run_chain(leased_copies, tmp_path, monkeypatch, hang=True)
     real_sleep = time.sleep
     cancelled: list[bool] = []
 
     def cancel(seconds):
-        """One interrupt, as from a single Ctrl-C, during the runner's wait for the child."""
-        if not cancelled and threading.current_thread() is threading.main_thread():
+        """One interrupt, as from a single Ctrl-C, once the runner waits on a launched child."""
+        if not cancelled and threading.current_thread() is threading.main_thread() and (state / "during").exists():
             cancelled.append(True)
             raise KeyboardInterrupt
         real_sleep(seconds)
@@ -3370,14 +3369,10 @@ def test_r75_runner_cancellation_releases_the_copy(leased_copies, tmp_path, monk
     with monkeypatch.context() as patch, pytest.raises(KeyboardInterrupt):
         patch.setattr(runner.time, "sleep", cancel)
         runner._execute_invocation_once(**kwargs)
-    assert plan.metadata["claude_code_launcher_cleanup"] in {"removed", "busy"}
-    wait_until(
-        lambda: acpx_module._remove_claude_acp_copy_dir(launcher.parents[1].name, adapter_label="X")
-        in {"removed", "absent"},
-        timeout=30,
-        message="the killed launch to free its lease",
-    )
+    assert cancelled == [True]
+    assert plan.metadata["claude_code_launcher_cleanup"] == "removed"
     assert not launcher.parents[1].exists()
+    assert acpx_module._CLAUDE_ACP_COPY_LEASES == {}
 
 
 def test_r75_runner_spawn_failure_releases_the_copy(leased_copies, tmp_path, monkeypatch):
