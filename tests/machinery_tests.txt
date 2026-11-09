@@ -12,6 +12,18 @@
 # Native tests added after the second tranche are included below; markdown parsing uses
 # the hosted job's pinned markdown-it-py dependency and its mdurl dependency.
 # [run]: test files the pytest job runs, as whole files.
+tests/tools/test_detach_session_task.py
+tests/trails/test_rb1_rb6_v11.py
+tests/trails/test_rb2_rb5_v11.py
+tests/trails/test_rb3_rb4_v11.py
+tests/utils/test_claude_version.py
+tests/work/test_github_rest_cache.py
+tests/work/test_merged_pr_history.py
+tests/work/test_work_actionable_honesty.py
+tests/work/test_work_api.py
+tests/work/test_work_contract.py
+tests/work/test_work_ownership_contract.py
+tests/work/test_work_pr_snapshot.py
 # [support]: their fixture and helper closure: every tests/ file imported or opened while the
 #   [run] files ran (import and open audit hook, the source manifest's method). A [support]
 #   file named test_*.py is imported by a [run] file and is not run itself.
@@ -243,6 +255,8 @@ tests/test_worktree_claims_lock_identity.py
 tests/githooks/test_owned_paths_hook.py
 tests/orchestration/test_merge_closeout.py
 tests/orchestration/test_worktree_claims_cli.py
+
+# PORT-1108 T1, from LU 5aba2adb.
 tests/orchestration/task_family/test_cli.py
 tests/orchestration/task_family/test_executor.py
 tests/orchestration/task_family/test_graph_planner.py
@@ -472,8 +486,6 @@ tests/work/test_work_api.py
 tests/work/test_work_contract.py
 tests/work/test_work_ownership_contract.py
 tests/work/test_work_pr_snapshot.py
-
-# PORT-1108 T1, from LU 5aba2adb.
 # [support]
 tests/__init__.py
 tests/conftest.py
@@ -562,6 +574,8 @@ tests/fixtures/product_tree/scripts/curriculum/review_hooks.v1.json
 tests/fixtures/product_tree/agents_extensions/agy/hooks.json
 tests/fixtures/product_tree/agents_extensions/shared/rules/core-curriculum.md
 tests/fixtures/product_tree/.nvmrc
+
+# PORT-1108 T1, from LU 5aba2adb.
 tests/_worktree_artifact_links.py
 tests/agent_runtime/adapters/fixtures/cursor_v2026_05_27_session_transcript.jsonl
 tests/agent_runtime/fixtures/product_stand_ins/scripts/__init__.py
@@ -587,8 +601,6 @@ tests/trails/fixtures/certification/seats.yaml
 tests/wait_helpers.py
 tests/work/conftest.py
 tests/worktree_prep_helpers.py
-
-# PORT-1108 T1, from LU 5aba2adb.
 # [held]
 # tests/test_launcher_interactive_scope.py: 101 tests list the product's root start-*.sh wrappers through product_root(), which needs the product checkout (ProductRootError: no product is configured; LU_PRODUCT_ROOT names none).
 # tests/test_handoff_slot_registry.py: collection calls product_checkout() (line 35) for the product's root start-*-driver.sh wrappers; product_root() raises ProductRootError without the product checkout.
