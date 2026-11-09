@@ -589,7 +589,9 @@ launcher_normalize_model() {
     claude:opus-5) LC_MODEL='claude-opus-5' ;;
   esac
   if [ -n "$LC_MODEL" ]; then
-    project_python_run "$LC_DURABLE_HELPER_ROOT/.venv/bin/python" -m "$LC_MACHINERY_PACKAGE.review.model_catalog" \
+    local py
+    py="$(launcher_project_python)" || exit 2
+    project_python_run "$py" -m "$LC_MACHINERY_PACKAGE.review.model_catalog" \
       --check-retired-model "$LC_MODEL" || exit 2
   fi
 }

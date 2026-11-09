@@ -116,12 +116,12 @@ def managed_policy(env: Mapping[str, str]) -> str | None:
 
 def review_shell_env(spec: TaskSpec) -> dict[str, str]:
     """The variables that send every read-only Bash command into the boundary (agy_sandbox.shell_main)."""
-    from lu_machinery.common.repo_root import project_interpreter
+    from lu_machinery.common.repo_root import INTERPRETER_ENV, project_interpreter
     from lu_machinery.dispatcher import agy_sandbox
 
     return {
         "CLAUDE_CODE_SHELL_PREFIX": str(agy_sandbox.SHELL_PREFIX),
-        agy_sandbox.SHELL_ENV_PYTHON: str(project_interpreter()),
+        INTERPRETER_ENV: str(project_interpreter()),
         agy_sandbox.SHELL_ENV_TASK: spec.task_id,
         agy_sandbox.SHELL_ENV_WORKTREE: str(spec.worktree),
         agy_sandbox.SHELL_ENV_LOG: str(spec.final_file.with_suffix(".shell.jsonl")),
