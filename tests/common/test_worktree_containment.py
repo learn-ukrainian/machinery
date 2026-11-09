@@ -458,6 +458,42 @@ def test_module_is_robust_to_hostile_git_env(layout: Layout, monkeypatch):
     )
 
 
+_HOOK = Path(__file__).resolve().parents[2] / "agents_extensions/shared/hooks/guard-primary-checkout-write.py"
+
+
+def _foreign_repo(path: Path) -> Path:
+    subprocess.run(
+        ["git", "init", "-q", "-b", "main", str(path)], check=True, capture_output=True, env=_clean_env(), timeout=30
+    )
+    return path
+
+
+def _hook_run(primary: Path, cwd: Path, command: str) -> subprocess.CompletedProcess[str]:
+    """Run the real hook entry point on one Bash payload, protecting ``primary``."""
+    env = {k: v for k, v in _clean_env().items() if k != "LEARN_UK_ALLOW_PRIMARY_GIT_WRITE"}
+    env["LU_PRODUCT_ROOT"] = str(primary)
+    payload = {"tool_name": "Bash", "cwd": str(cwd), "tool_input": {"command": command}}
+    return subprocess.run(
+        [sys.executable, str(_HOOK)],
+        input=json.dumps(payload),
+        cwd=str(cwd),
+        capture_output=True,
+        text=True,
+        env=env,
+        timeout=60,
+    )
+
+
+def _misdecided(primary: Path, cases: list[tuple[Path, str, int]]) -> list[str]:
+    """Cases whose hook exit code differs from the expected one, with the hook's reason."""
+    wrong = []
+    for cwd, command, expected in cases:
+        result = _hook_run(primary, cwd, command)
+        if result.returncode != expected:
+            wrong.append(f"{cwd.name}: {command!r} -> {result.returncode}, expected {expected}: {result.stderr[:160]}")
+    return wrong
+
+
 def test_git_write_classified_by_mutated_work_tree_not_cwd(layout: Layout, tmp_path: Path):
     """#29 defect class: the write guard classified Git's cwd, not the work tree Git mutates.
 
@@ -465,26 +501,10 @@ def test_git_write_classified_by_mutated_work_tree_not_cwd(layout: Layout, tmp_p
     keeps Git's cwd inside the dispatch worktree while Git rewrites the
     primary; a foreign work tree that contains the primary reaches it too.
     """
-    hook = Path(__file__).resolve().parents[2] / "agents_extensions/shared/hooks/guard-primary-checkout-write.py"
-    foreign = tmp_path / "foreign"
-    subprocess.run(
-        ["git", "init", "-q", "-b", "main", str(foreign)], check=True, capture_output=True, env=_clean_env(), timeout=30
-    )
-    env = {k: v for k, v in _clean_env().items() if k != "LEARN_UK_ALLOW_PRIMARY_GIT_WRITE"}
-    env["LU_PRODUCT_ROOT"] = str(layout.main)
+    foreign = _foreign_repo(tmp_path / "foreign")
 
     def decision(cwd: Path, command: str) -> int:
-        payload = {"tool_name": "Bash", "cwd": str(cwd), "tool_input": {"command": command}}
-        result = subprocess.run(
-            [sys.executable, str(hook)],
-            input=json.dumps(payload),
-            cwd=str(cwd),
-            capture_output=True,
-            text=True,
-            env=env,
-            timeout=60,
-        )
-        return result.returncode
+        return _hook_run(layout.main, cwd, command).returncode
 
     to_primary = f"git --git-dir={foreign}/.git --work-tree={layout.main}"
     to_ancestor = f"git --git-dir={foreign}/.git --work-tree={tmp_path}"
@@ -492,16 +512,191 @@ def test_git_write_classified_by_mutated_work_tree_not_cwd(layout: Layout, tmp_p
     assert decision(layout.dispatch_wt, f"{to_primary} merge --ff-only main") == 2
     assert decision(layout.dispatch_wt, f"{to_primary}/pkg merge --ff-only main") == 2
     assert decision(foreign, f"{to_ancestor} merge --ff-only main") == 2
-    # Pathspecs still resolve against Git's cwd: into the primary blocks,
-    # inside the dispatch worktree stays allowed.
     assert decision(layout.dispatch_wt, f"{to_primary} checkout -- ../../../../tracked.txt") == 2
-    assert decision(layout.dispatch_wt, f"{to_primary} add -- tracked.txt") == 0
+    # #208: a work tree that is the primary admits only the read-only allowlist,
+    # whatever the pathspec, so an add into a foreign index is refused too.
+    assert decision(layout.dispatch_wt, f"{to_primary} add -- tracked.txt") == 2
     # Paths Git selects that the hook resolves against the wrong base or cannot see.
     assert decision(layout.dispatch_wt, f"{to_primary} checkout -- :/tracked.txt") == 2
     own_metadata = f"git --git-dir={layout.main}/.git --work-tree={layout.main}"
     assert decision(layout.dispatch_wt, f"{own_metadata} add -- tracked.txt") == 2
     assert decision(layout.dispatch_wt, f"{to_primary} checkout --pathspec-from-file=f HEAD") == 2
     assert decision(layout.dispatch_wt, f"{to_primary} checkout --pathspec-from-fil=f HEAD") == 2
+
+
+
+def test_git_reaching_the_primary_admits_only_the_read_only_allowlist(
+    layout: Layout, tmp_path: Path, outside_any_repo: Path
+):
+    """#208 defect class: a denylist of Git writers admitted every writer it had not modelled.
+
+    ``git stash``, ``checkout-index -a -f`` and ``submodule update --force``
+    rewrote the primary from its own cwd and through ``--git-dir/--work-tree``.
+    Every route that reaches the primary (its cwd, ``-C``, a work tree that is,
+    contains or is inside it, the primary's own Git directory) now admits only
+    enumerated read-only, maintenance and rescue forms.
+    """
+    main, dispatch = layout.main, layout.dispatch_wt
+    foreign = _foreign_repo(tmp_path / "foreign")
+    routes = {
+        "primary cwd": (main, "git"),
+        "-C primary": (dispatch, f"git -C {main}"),
+        "foreign index on the primary": (dispatch, f"git --git-dir={foreign}/.git --work-tree={main}"),
+        "protected descendant": (dispatch, f"git --git-dir={foreign}/.git --work-tree={main}/pkg"),
+        "ancestor work tree": (foreign, f"git --git-dir={foreign}/.git --work-tree={tmp_path}"),
+        "primary Git directory": (dispatch, f"git --git-dir={main}/.git --work-tree={outside_any_repo}"),
+    }
+    writers = [
+        "stash", "stash push -m x", "checkout-index -a -f", "submodule update --force", "commit -m x",
+        "push origin HEAD", "reset", "reset --hard", "clean -f", "add -A", "apply /tmp/x.diff", "merge --ff-only main",
+        "checkout main -- tracked.txt", "restore --source=HEAD tracked.txt", "update-index --refresh", "gc",
+        "branch new-branch", "tag v1", "notes add -m x", "reflog expire --all", "config user.name X",
+        "config --unset user.name", "diff --output=out.txt", "diff --outp=out.txt", "log -p --ext-diff",
+        "log --textconv", "show --show-signature", "grep -O x", "co", "lfs pull", "pull", "pull --rebase origin main",
+        "pull --ff-only --upload-pack=x origin main", "fetch origin main:main", "branch -D main",
+        "worktree add pkg/new", "worktree prune", "stash list --output=x",
+    ]
+    readers = [
+        "status", "status --short --branch", "--no-pager log --oneline -5", "log -n 5 --format=%H -- tracked.txt",
+        "diff --stat HEAD", "diff --cached --name-only", "show HEAD:tracked.txt", "rev-parse --show-toplevel",
+        "branch --show-current", "branch -a", "branch -vv", "branch --merged main", "tag --list", "remote -v",
+        "config --get user.name", "config user.name", "config --list --show-origin", "stash list",
+        "stash show -p stash@{0}", "worktree list --porcelain", "ls-files -m", "grep -n tracked", "blame tracked.txt",
+        "--no-optional-locks status", "clean -nd", "symbolic-ref --short HEAD", "reflog -5", "describe --always",
+        "cat-file -p HEAD", "merge-base HEAD main", "for-each-ref --format=%(refname)", "submodule status",
+    ]
+    maintenance = [
+        "pull --ff-only", "pull --ff-only origin main", "fetch", "fetch --prune origin main",
+        "branch -D -- claude/task-1", "worktree add .worktrees/dispatch/claude/task-2 -b claude/task-2",
+        "worktree remove --force .worktrees/dispatch/claude/task-1", "worktree unlock .worktrees/legacy",
+    ]
+    # Every form from the primary's cwd; on the other routes the #208 writers and a few readers.
+    cases = [(main, f"git {argv}", 2) for argv in writers] + [(main, f"git {argv}", 0) for argv in readers]
+    for cwd, git in list(routes.values())[1:]:
+        cases += [(cwd, f"{git} {argv}", 2) for argv in writers[:5]]
+        cases += [(cwd, f"{git} {argv}", 0) for argv in ("status", "log --oneline -1", "diff --stat")]
+    # Maintenance forms resolve their paths from the primary's own cwd.
+    cases += [(main, f"git {argv}", 0) for argv in maintenance]
+    cases += [(dispatch, f"git -C {main} {argv}", 0) for argv in ("pull --ff-only", "fetch origin")]
+    # The maintenance tools run Git as their own subprocesses; the hook sees only the tool command.
+    cases += [
+        (main, ".venv/bin/python -m lu_machinery.orchestration.merge_closeout 1 --repo-root . --apply --json", 0),
+        (main, ".venv/bin/python lu_machinery/guardrails/assert_primary_on_main.py --heal", 0),
+        (main, ".venv/bin/python scripts/dispatch.py dispatch --worktree .worktrees/dispatch/claude/task-4", 0),
+    ]
+    cases += [
+        # Rescue forms discard dirt from the primary's own index, never a foreign one.
+        (main, "git checkout -- tracked.txt", 0),
+        (main, "git restore tracked.txt", 0),
+        (dispatch, f"git -C {main} restore -- tracked.txt", 0),
+        (dispatch, f"git --git-dir={foreign}/.git --work-tree={main} restore tracked.txt", 2),
+        (dispatch, f"git --git-dir={foreign}/.git --work-tree={main} pull --ff-only", 2),
+        (dispatch, f"git --git-dir={main}/.git --work-tree={tmp_path} pull --ff-only", 2),
+        # Execution-capable options and bindings, aliases and wrappers.
+        (main, "git -c alias.x='!touch f' x", 2),
+        (main, "git -c core.pager=less log", 2),
+        (main, "git -p log", 2),
+        (main, "GIT_PAGER=cat git log", 2),
+        (main, "export GIT_EXTERNAL_DIFF=x; git diff", 2),
+        (main, "git --config-env=core.pager=X log", 2),
+        (main, "sh -c 'git stash'", 2),
+        (main, "eval git checkout-index -a -f", 2),
+        (main, "echo tracked.txt | xargs git stash push --", 2),
+        (main, "find . -maxdepth 0 -exec git checkout-index -a -f \\;", 2),
+        (main, 'echo "$(git stash)"', 2),
+        (main, "flock /tmp/i208.lock git stash", 2),
+        (main, "watch -n 1 git status", 0),
+        (main, "rg GIT_DIR pkg; git status", 0),
+        (main, "git --version", 0),
+        # Worktree maintenance never creates or removes a worktree inside the primary.
+        (main, "git worktree add newdir -b x", 2),
+        (main, "git worktree add -b main .worktrees/dispatch/claude/task-3", 2),
+        # An unresolved target that names the primary fails closed; one away from it does not.
+        (outside_any_repo, f"git init r && git --git-dir=r/.git --work-tree={main} checkout-index -a -f", 2),
+        (outside_any_repo, "git init r && git --git-dir=r/.git --work-tree=r stash", 0),
+    ]
+    wrong = _misdecided(main, cases)
+    assert wrong == [], "\n".join(wrong)
+
+
+def test_git_outside_the_primary_keeps_its_decisions(layout: Layout, tmp_path: Path):
+    """#208 AC-1: isolated worktrees keep the exemption and foreign repositories keep the #11381 rule.
+
+    The defect class this guards is an allowlist that also refuses ordinary
+    dispatch work, or that loosens the foreign-repository rule.
+    """
+    main, dispatch = layout.main, layout.dispatch_wt
+    foreign = _foreign_repo(tmp_path / "foreign")
+    ordinary_writes = [
+        "git stash", "git checkout-index -a -f", "git commit -m x", "git add -A", "git reset --hard",
+        "git -c user.name=x commit -m x", "git co", "git push origin HEAD", "GIT_PAGER=cat git log",
+        "git worktree add ../task-9 -b claude/task-9",
+    ]
+    cases = [(dispatch, command, 0) for command in ordinary_writes]
+    cases += [(layout.external_wt, "git stash", 0), (layout.flat_wt, "git checkout-index -a -f", 0)]
+    cases += [
+        (dispatch, f"git -C {layout.external_wt} stash", 0),
+        (main, f"git -C {dispatch} stash", 0),
+        (main, f"git -C {dispatch} reset --hard", 0),
+        # Foreign repository: plain writes and unmodelled forms as before, reviewed writes refused.
+        (dispatch, f"git -C {foreign} merge --ff-only main", 0),
+        (dispatch, f"git -C {foreign} stash", 0),
+        (dispatch, f"git -C {foreign} reset --hard", 2),
+        (dispatch, f"git -C {foreign} merge --ff-only -s ours main", 2),
+    ]
+    wrong = _misdecided(main, cases)
+    assert wrong == [], "\n".join(wrong)
+
+
+def _hook_module():
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("guard_primary_checkout_write_208", _HOOK)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+# `git help -a` of Git 2.53 (commands; the guide and external sections excluded).
+_GIT_SUBCOMMANDS = """
+add am archive backfill bisect branch bundle checkout cherry-pick citool clean clone commit describe diff fetch
+format-patch gc gitk grep gui init log maintenance merge mv notes pull push range-diff rebase reset restore revert rm
+scalar shortlog show sparse-checkout stash status submodule switch tag worktree config fast-export fast-import
+filter-branch mergetool pack-refs prune reflog refs remote repack replace annotate blame bugreport count-objects
+diagnose difftool fsck gitweb help instaweb merge-tree rerere show-branch verify-commit verify-tag version whatchanged
+archimport cvsexportcommit cvsimport cvsserver imap-send p4 quiltimport request-pull send-email svn apply
+checkout-index commit-graph commit-tree hash-object index-pack merge-file merge-index mktag mktree multi-pack-index
+pack-objects prune-packed read-tree replay symbolic-ref unpack-objects update-index update-ref write-tree cat-file
+cherry diff-files diff-index diff-pairs diff-tree for-each-ref for-each-repo get-tar-commit-id last-modified ls-files
+ls-remote ls-tree merge-base name-rev pack-redundant repo rev-list rev-parse show-index show-ref unpack-file var
+verify-pack daemon fetch-pack http-backend send-pack update-server-info check-attr check-ignore check-mailmap
+check-ref-format column credential credential-cache credential-store fmt-merge-msg hook interpret-trailers mailinfo
+mailsplit merge-one-file patch-id sh-i18n sh-setup stripspace
+""".split()
+# Bare `git <sub>` forms that read; every other subcommand is refused bare on the primary.
+_BARE_READERS = set(
+    """
+    annotate blame branch cat-file check-attr check-ignore check-ref-format cherry count-objects describe diff
+    diff-files diff-index diff-tree for-each-ref grep help log ls-files ls-remote ls-tree merge-base name-rev notes
+    range-diff reflog remote rev-list rev-parse shortlog show show-branch show-ref status submodule tag var version
+    whatchanged
+    """.split()
+)
+
+
+def test_git_invocation_form_classifies_every_git_subcommand():
+    """#208 denominator: each subcommand of `git help -a` is a bare reader or refused bare.
+
+    A new reader must be added to the allowlist deliberately; the defect class
+    is a writer slipping onto the protected route by default.
+    """
+    form = _hook_module().git_invocation_form
+    readers = {sub for sub in _GIT_SUBCOMMANDS if form(sub, []) == ("read", [])}
+    assert readers == _BARE_READERS
+    others = {sub: form(sub, []) for sub in set(_GIT_SUBCOMMANDS) - readers}
+    # Bare `git fetch` is the one bounded maintenance form; it updates refs only.
+    assert {sub: found for sub, found in others.items() if found is not None} == {"fetch": ("fetch", [])}
 
 
 def test_relative_gitignored_path_resolved_against_cwd(layout: Layout):

@@ -40,14 +40,28 @@ Covered write surfaces
   feed the same writer parser. Decidable ``eval`` strings are parsed
   recursively; undecidable ones always block. ``xargs`` / ``parallel`` writers block when their
   generated arguments can supply a primary target.
-* ``Bash`` / Cursor ``Shell`` git-mediated working-tree writes (issues #5396 / #5517) — ``git apply`` /
-  ``git am``, ``git add``, ``git stash pop|apply``, ``git mv`` / ``git rm``,
-  ``git checkout <ref> -- <path>``, ``git checkout <ref> <path>`` (no ``--``),
-  ``git clean`` / destructive ``reset`` / ``read-tree -u`` / forced ``checkout``,
-  and ``git restore --source=…`` when the effective git worktree (payload cwd
-  or ``git -C``) is the protected primary checkout. Rescue clean forms
-  ``git checkout -- <path>`` and plain ``git restore <path>`` (no ``--source``)
-  remain allowed so operators can discard accidental dirt.
+* ``Bash`` / Cursor ``Shell`` Git commands (issues #5396, #29, #208) — every Git
+  invocation, including those inside ``eval``, ``sh -c``, ``xargs``/``parallel``,
+  ``find -exec`` and exec wrappers (``watch``, ``flock`` ...), is classified by
+  the work tree it resolves to (cwd, ``-C``, ``--git-dir``, ``--work-tree``), not
+  by Git's cwd. When that work tree
+  is, contains or is inside the protected primary checkout, or the command uses
+  the primary's own Git directory, only the read-only allowlist
+  (``git_invocation_form``) runs: enumerated subcommands, actions, global
+  options and command options. Unknown aliases, external subcommands,
+  unlisted or abbreviated options, ``-c``/``--config-env``, and GIT_* / PAGER
+  bindings are refused there. Read-only admits Git's incidental index stat
+  refresh (``git status``); ``--no-optional-locks`` is admitted to avoid it.
+  The bounded maintenance forms admitted there are ``git pull --ff-only``
+  (the monitor-pull timer and ``assert_primary_on_main``'s heal),
+  ``git fetch`` without refspec destinations, ``git branch -d|-D`` of a
+  non-main branch (merge closeout), ``git worktree add|remove|unlock`` whose
+  path is outside the primary (the dispatcher), and the rescue forms
+  ``git checkout -- <path>`` / ``git restore <path>`` from the primary's own
+  index. Those Python tools run Git as a subprocess, outside this hook; the
+  forms are admitted for an agent typing them. Work trees that do not reach the
+  primary keep the earlier decisions: dispatch and other worktrees are exempt,
+  and a foreign repository receives only plain writes (#11381).
 * Precise transfer parsing for rsync and git archive; conservative positional
   classification for long-tail writers (curl, wget, sort, SQLite, tar, unzip,
   patch, tee, truncate, split, csplit, ffmpeg, convert). Known short-option
@@ -2152,27 +2166,554 @@ def _is_plain_foreign_git_write(command: str) -> bool:
     return all(word in _PLAIN_FOREIGN_GIT_WRITES[rest[0]] for word in options if word.startswith("-"))
 
 
-def bash_git_write_intents(
-    command: str, *, cwd: str | None = None, depth: int = 0, git_environment: frozenset[str] = frozenset()
-) -> list[dict[str, object]]:
-    """Parse Bash for git-mediated working-tree mutations (issue #5396).
+# ---------------------------------------------------------------------------
+# Git read-only allowlist for the protected primary (issue #208)
+# ---------------------------------------------------------------------------
+#
+# When the work tree a Git command resolves to is, contains or is contained by
+# the protected primary checkout (or the command uses the primary's own Git
+# directory), only the forms enumerated here are admitted: every subcommand,
+# action, global option and command option must be listed. Everything else,
+# including aliases, external `git-<name>` commands and any option missing
+# from a table, is refused. An option is matched by its exact name, so an
+# abbreviation (`--outp` for `--output`) is unlisted and refused.
+#
+# "Read-only" means the command changes no tracked or untracked file, no
+# staged content and no ref in the primary. It may refresh the index's cached
+# stat data or untracked cache, as `git status` and `git diff` do; that never
+# changes content. `--no-optional-locks` is admitted for callers that want
+# no index write at all.
+#
+# Readers never take output destinations (`--output`, `-O`), external diff or
+# text conversion (`--ext-diff`, `--textconv`), signature programs
+# (`--show-signature`), editors or pager overrides (`-p`/`--paginate`, `-c`,
+# GIT_PAGER/PAGER). Configuration is read, never written. A `-c`,
+# `--config-env`, `--exec-path=` or other unlisted global option, or a GIT_* /
+# PAGER variable the command binds, refuses every form on this route.
 
-    Each intent is a dict::
+
+def _names(text: str) -> frozenset[str]:
+    return frozenset(text.split())
+
+
+_GIT_SAFE_GLOBAL_FLAGS = _names(
+    "--no-pager -P --no-optional-locks --literal-pathspecs --glob-pathspecs --noglob-pathspecs "
+    "--icase-pathspecs --no-replace-objects"
+)
+_GIT_TARGET_GLOBALS = ("-C", "--git-dir", "--work-tree")
+# Informational invocations without a subcommand.
+_GIT_INFO_GLOBALS = _names("--version -v --help -h --exec-path --html-path --man-path --info-path")
+
+# Revision, history and diff options shared by the history readers.
+_GIT_HISTORY_LONG = _names(
+    """
+    oneline format pretty abbrev-commit no-abbrev-commit abbrev no-abbrev graph all decorate no-decorate
+    decorate-refs decorate-refs-exclude clear-decorations source stat shortstat numstat dirstat dirstat-by-file
+    cumulative compact-summary summary name-only name-status raw patch no-patch patch-with-stat patch-with-raw
+    unified minimal patience histogram diff-algorithm anchored word-diff word-diff-regex color-words color
+    no-color color-moved no-color-moved color-moved-ws no-color-moved-ws no-renames renames find-renames
+    find-copies find-copies-harder break-rewrites irreversible-delete diff-filter check full-index binary
+    relative no-relative text ignore-space-at-eol ignore-space-change ignore-all-space ignore-blank-lines
+    ignore-cr-at-eol ignore-matching-lines inter-hunk-context function-context exit-code quiet no-ext-diff
+    no-textconv ignore-submodules submodule src-prefix dst-prefix no-prefix default-prefix line-prefix
+    ita-invisible-in-index ita-visible-in-index cached staged merge-base no-index indent-heuristic
+    no-indent-heuristic ws-error-highlight stat-width stat-name-width stat-graph-width stat-count skip-to
+    rotate-to follow no-follow max-count skip since after until before since-as-filter author committer grep
+    all-match invert-grep regexp-ignore-case basic-regexp extended-regexp fixed-strings perl-regexp remove-empty
+    merges no-merges min-parents max-parents no-min-parents no-max-parents first-parent exclude-first-parent-only
+    not branches tags remotes glob exclude reflog single-worktree ignore-missing cherry-mark cherry-pick
+    left-only right-only cherry walk-reflogs merge boundary simplify-by-decoration show-pulls full-history dense
+    sparse simplify-merges ancestry-path date-order author-date-order topo-order reverse no-walk do-walk date
+    relative-date parents children left-right cc dd diff-merges no-diff-merges combined-all-paths remerge-diff
+    show-linear-break encoding expand-tabs no-expand-tabs notes no-notes show-notes standard-notes
+    no-standard-notes log-size mailmap use-mailmap no-mailmap no-use-mailmap full-diff count objects objects-edge
+    no-object-names timestamp pickaxe-all pickaxe-regex find-object base ours theirs creation-factor dual-color
+    no-dual-color numbered email group include-untracked only-untracked i-still-use-this
+    """
+)
+_GIT_HISTORY_SHORT = "pusczwbRaWtrmvqiEFPgeD"
+_GIT_HISTORY_VALUED = "nUMCBlSGLI"
+
+# (long options, short flags, short options whose remainder is a value, numeric `-<n>`)
+_GitSpec = tuple[frozenset[str], str, str, bool]
+_GIT_HISTORY: _GitSpec = (_GIT_HISTORY_LONG, _GIT_HISTORY_SHORT, _GIT_HISTORY_VALUED, True)
+_GIT_READERS: dict[str, _GitSpec] = {
+    **dict.fromkeys(
+        ("log", "show", "diff", "diff-tree", "diff-index", "diff-files", "whatchanged", "shortlog", "rev-list",
+         "range-diff", "cherry"),
+        _GIT_HISTORY,
+    ),
+    "status": (
+        _names(
+            "short branch porcelain long verbose untracked-files ignored ignore-submodules null column no-column "
+            "ahead-behind no-ahead-behind renames no-renames find-renames show-stash"
+        ),
+        "sbvz",
+        "u",
+        False,
+    ),
+    "grep": (
+        _names(
+            "cached untracked no-index exclude-standard no-exclude-standard recurse-submodules text ignore-case "
+            "word-regexp invert-match full-name extended-regexp basic-regexp perl-regexp fixed-strings line-number "
+            "column files-with-matches name-only files-without-match null count color no-color break heading "
+            "show-function function-context after-context before-context context threads max-depth only-matching "
+            "quiet all-match and or not max-count recursive no-recursive"
+        ),
+        "aiIvwhHEGPFnlLzcoqWpr",
+        "ABCemf",
+        True,
+    ),
+    **dict.fromkeys(
+        ("blame", "annotate"),
+        (
+            _names(
+                "porcelain line-porcelain incremental root show-stats score-debug show-name show-number show-email "
+                "abbrev date reverse first-parent encoding progress no-progress ignore-rev ignore-revs-file "
+                "color-lines color-by-age minimal"
+            ),
+            "bclfnpstwe",
+            "LMC",
+            False,
+        ),
+    ),
+    "ls-files": (
+        _names(
+            "cached deleted modified others ignored stage directory no-empty-directory unmerged killed exclude "
+            "exclude-from exclude-per-directory exclude-standard error-unmatch with-tree full-name "
+            "recurse-submodules abbrev debug eol deduplicate sparse format resolve-undo"
+        ),
+        "cdmoiskuzvtf",
+        "xX",
+        False,
+    ),
+    "ls-tree": (_names("long name-only name-status object-only full-name full-tree abbrev format"), "dlrtz", "", False),
+    "cat-file": (
+        _names(
+            "batch batch-check batch-command batch-all-objects buffer unordered follow-symlinks allow-unknown-type "
+            "use-mailmap mailmap no-mailmap no-use-mailmap"
+        ),
+        "tspe",
+        "",
+        False,
+    ),
+    "rev-parse": (
+        _names(
+            "abbrev-ref short verify quiet show-toplevel show-prefix show-cdup git-dir git-common-dir "
+            "absolute-git-dir is-inside-work-tree is-inside-git-dir is-bare-repository is-shallow-repository "
+            "symbolic symbolic-full-name path-format git-path show-object-format show-ref-format default revs-only "
+            "no-revs flags no-flags sq sq-quote local-env-vars all branches tags remotes glob exclude disambiguate "
+            "since after until before resolve-git-dir show-superproject-working-tree shared-index-path"
+        ),
+        "q",
+        "",
+        False,
+    ),
+    "merge-base": (_names("all octopus independent is-ancestor fork-point"), "a", "", False),
+    "for-each-ref": (
+        _names(
+            "count sort format color shell perl python tcl points-at merged no-merged contains no-contains "
+            "ignore-case omit-empty exclude include-root-refs"
+        ),
+        "sp",
+        "",
+        False,
+    ),
+    "show-ref": (_names("head heads tags branches verify dereference hash abbrev quiet exists"), "dsq", "", False),
+    "name-rev": (_names("tags refs exclude all name-only no-undefined always"), "", "", False),
+    "describe": (
+        _names(
+            "dirty broken all tags contains abbrev candidates exact-match debug long match exclude always first-parent"
+        ),
+        "",
+        "",
+        False,
+    ),
+    "check-ignore": (_names("quiet verbose null non-matching no-index"), "qvzn", "", False),
+    "check-attr": (_names("all cached null source"), "az", "", False),
+    "check-ref-format": (_names("normalize allow-onelevel no-allow-onelevel refspec-pattern branch"), "", "", False),
+    "count-objects": (_names("verbose human-readable"), "vH", "", False),
+    "var": (frozenset(), "l", "", False),
+    "version": (_names("build-options"), "", "", False),
+    "ls-remote": (_names("heads tags refs branches quiet exit-code get-url symref sort"), "htqb", "", False),
+    "show-branch": (
+        _names(
+            "all remotes topo-order date-order current sparse more list merge-base independent no-name sha1-name "
+            "topics reflog color no-color"
+        ),
+        "ar",
+        "",
+        False,
+    ),
+    "help": (
+        _names("all guides config user-interfaces developer-interfaces verbose no-verbose external-commands aliases"),
+        "agc",
+        "",
+        False,
+    ),
+}
+# Forms whose action words decide whether they read; the rest of each form
+# uses the option tables below.
+_GIT_BRANCH_LIST: _GitSpec = (
+    _names(
+        "list show-current all remotes verbose abbrev no-abbrev column no-column sort format color no-color "
+        "contains no-contains merged no-merged points-at ignore-case omit-empty"
+    ),
+    "larvi",
+    "",
+    False,
+)
+_GIT_BRANCH_LIST_MODE = _names("-l --list --contains --no-contains --merged --no-merged --points-at")
+_GIT_TAG_LIST: _GitSpec = (
+    _names(
+        "list contains no-contains merged no-merged points-at sort format color column no-column ignore-case "
+        "omit-empty"
+    ),
+    "li",
+    "n",
+    False,
+)
+_GIT_CONFIG_READ: _GitSpec = (
+    _names(
+        "get get-all get-regexp get-urlmatch list global system local worktree file blob show-origin show-scope "
+        "name-only null bool int bool-or-int path expiry-date type default includes no-includes all regexp url "
+        "fixed-value value"
+    ),
+    "lz",
+    "f",
+    False,
+)
+_GIT_CONFIG_ACTIONS = _names("--get --get-all --get-regexp --get-urlmatch --list -l")
+_GIT_CONFIG_WRITE_WORDS = _names("set unset rename-section remove-section edit get list")
+
+# Bounded maintenance and rescue forms on the protected route (issue #208 AC-5).
+_GIT_PULL: _GitSpec = (_names("ff-only quiet verbose no-rebase no-edit stat no-stat"), "qv", "", False)
+_GIT_FETCH: _GitSpec = (
+    _names("quiet verbose prune prune-tags tags no-tags all dry-run no-recurse-submodules"),
+    "qvpPtn",
+    "",
+    False,
+)
+_GIT_PROTECTED_BRANCHES = _names("main master HEAD")
+
+
+def _git_option_words(args: list[str]) -> tuple[list[str], list[str]]:
+    """Split Git arguments into option words and operands (``--`` ends options)."""
+    head, tail = (args[: args.index("--")], args[args.index("--") + 1 :]) if "--" in args else (args, [])
+    options = [word for word in head if word.startswith("-") and word != "-"]
+    operands = [word for word in head if not word.startswith("-") or word == "-"]
+    return options, operands + list(tail)
+
+
+def _git_options_listed(options: list[str], spec: _GitSpec) -> bool:
+    """Whether every option word is an exact listed form of ``spec``.
+
+    Values are never skipped: a separate value word that starts with ``-`` is
+    checked as an option too, so an unlisted word is refused, never guessed.
+    """
+    longs, shorts, valued, numeric = spec
+    for word in options:
+        if word.startswith("--"):
+            if word.split("=", 1)[0][2:] not in longs:
+                return False
+            continue
+        body = word[1:]
+        if numeric and body.isdigit():
+            continue
+        for char in body:
+            if char in valued:
+                break
+            if char not in shorts:
+                return False
+    return True
+
+
+def _git_short_flag(options: list[str], letter: str) -> bool:
+    return any(not word.startswith("--") and letter in word[1:] for word in options)
+
+
+def _git_worktree_add(args: list[str]) -> tuple[str, list[str]] | None:
+    """Parse ``worktree add [-b|-B <branch>] [flags] [--] <path> [<commit-ish>]``."""
+    flags = _names("--detach -d -q --quiet --lock --checkout --no-checkout --track --no-track --guess-remote "
+                   "--no-guess-remote")
+    operands: list[str] = []
+    i = 0
+    while i < len(args):
+        word = args[i]
+        if word == "--":
+            operands.extend(args[i + 1 :])
+            break
+        if word in {"-b", "-B"}:
+            if i + 1 >= len(args) or args[i + 1].startswith("-") or args[i + 1] in _GIT_PROTECTED_BRANCHES:
+                return None
+            i += 2
+            continue
+        if word.startswith("-"):
+            if word not in flags:
+                return None
+        else:
+            operands.append(word)
+        i += 1
+    if len(operands) not in (1, 2) or any(word.startswith("-") for word in operands):
+        return None
+    return "worktree", operands[:1]
+
+
+def git_invocation_form(sub: str, args: list[str]) -> tuple[str, list[str]] | None:
+    """Classify one Git subcommand and its arguments against the allowlist (#208).
+
+    Returns ``("read", [])`` for an enumerated read-only form, a maintenance
+    or rescue kind with the paths it creates or removes, or ``None`` when the
+    form is not enumerated (refused on the protected route).
+    """
+    options, operands = _git_option_words(args)
+    spec = _GIT_READERS.get(sub)
+    if spec is not None:
+        return ("read", []) if _git_options_listed(options, spec) else None
+    action = args[0] if args else ""
+    if sub == "branch":
+        if any(_git_short_flag([word], "d") or _git_short_flag([word], "D") or word == "--delete"
+               for word in options):
+            names = [word for word in operands if word != "-"]
+            if (
+                _git_options_listed(options, (_names("delete quiet"), "dDq", "", False))
+                and names
+                and not any(word.startswith("-") or word in _GIT_PROTECTED_BRANCHES for word in names)
+            ):
+                return "branch_delete", []
+            return None
+        listing = bool(set(options) & _GIT_BRANCH_LIST_MODE) or _git_short_flag(options, "l")
+        return ("read", []) if _git_options_listed(options, _GIT_BRANCH_LIST) and (listing or not operands) else None
+    if sub == "tag":
+        listing = (
+            bool(set(options) & _GIT_BRANCH_LIST_MODE)
+            or _git_short_flag(options, "l")
+            or _git_short_flag(options, "n")
+        )
+        return ("read", []) if _git_options_listed(options, _GIT_TAG_LIST) and (listing or not operands) else None
+    if sub == "remote":
+        if not operands:
+            return ("read", []) if _git_options_listed(options, (_names("verbose"), "v", "", False)) else None
+        if operands[0] == "get-url" and len(operands) == 2:
+            return ("read", []) if _git_options_listed(options, (_names("push all"), "", "", False)) else None
+        if operands[0] == "show" and len(operands) >= 2:
+            return ("read", []) if _git_options_listed(options, (frozenset(), "n", "", False)) else None
+        return None
+    if sub == "config":
+        if not _git_options_listed(options, _GIT_CONFIG_READ):
+            return None
+        if operands[:1] in (["get"], ["list"]):
+            return "read", []
+        if set(options) & _GIT_CONFIG_ACTIONS or _git_short_flag(options, "l"):
+            return ("read", []) if len(operands) <= 2 else None
+        if len(operands) == 1 and operands[0] not in _GIT_CONFIG_WRITE_WORDS:
+            return "read", []
+        return None
+    if sub == "stash":
+        if action == "list":
+            return ("read", []) if _git_options_listed(options, _GIT_HISTORY) else None
+        if action == "show":
+            return ("read", []) if _git_options_listed(options, _GIT_HISTORY) and len(operands) <= 2 else None
+        return None
+    if sub == "worktree":
+        rest = args[1:]
+        rest_options, rest_operands = _git_option_words(rest)
+        if action == "list":
+            listed = _git_options_listed(rest_options, (_names("porcelain verbose expire"), "vz", "", False))
+            return ("read", []) if listed and not rest_operands else None
+        if action == "add":
+            return _git_worktree_add(rest)
+        if action == "remove":
+            listed = _git_options_listed(rest_options, (_names("force"), "f", "", False))
+            return ("worktree", rest_operands) if listed and len(rest_operands) == 1 else None
+        if action == "unlock":
+            return ("worktree", rest_operands) if not rest_options and len(rest_operands) == 1 else None
+        return None
+    if sub == "symbolic-ref":
+        listed = _git_options_listed(options, (_names("quiet short no-recurse recurse"), "q", "", False))
+        return ("read", []) if listed and len(operands) == 1 else None
+    if sub == "reflog":
+        if not operands or action in {"show", "list", "exists"}:
+            return ("read", []) if _git_options_listed(options, _GIT_HISTORY) else None
+        return None
+    if sub == "notes":
+        return ("read", []) if not options and (not args or (action in {"list", "show"})) else None
+    if sub == "submodule":
+        if not args or action == "status":
+            listed = _git_options_listed(options, (_names("cached recursive quiet"), "q", "", False))
+            return ("read", []) if listed else None
+        return None
+    if sub == "sparse-checkout":
+        return ("read", []) if args == ["list"] else None
+    if sub == "clean":
+        dry_run = "--dry-run" in options or _git_short_flag(options, "n")
+        listed = _git_options_listed(options, (_names("dry-run force quiet exclude"), "ndxXqf", "e", False))
+        return ("read", []) if dry_run and listed else None
+    if sub == "pull":
+        listed = _git_options_listed(options, _GIT_PULL) and "--ff-only" in options and "--" not in args
+        return ("pull", []) if listed and len(operands) <= 2 and not any(":" in word for word in operands) else None
+    if sub == "fetch":
+        listed = _git_options_listed(options, _GIT_FETCH) and "--" not in args
+        return ("fetch", []) if listed and not any(":" in word for word in operands) else None
+    if sub == "checkout":
+        # Rescue: discard dirt from the primary's own index.
+        return ("rescue", []) if args[:1] == ["--"] and len(args) > 1 else None
+    if sub == "restore":
+        paths = args[1:] if args[:1] == ["--"] else args
+        return ("rescue", []) if paths and not any(word.startswith("-") for word in paths) else None
+    return None
+
+
+_GIT_FOREIGN_WRITERS = _names("apply am merge pull rebase cherry-pick revert switch add restore mv rm")
+
+
+def _foreign_write(sub: str, args: list[str]) -> bool:
+    """Git forms reviewed by the foreign-repository rule (issue #11381).
+
+    A target that neither is nor reaches the primary keeps the pre-#208
+    decision: only these forms need the plain-command check there.
+    """
+    options = args[: args.index("--")] if "--" in args else args
+    short = [word for word in options if word.startswith("-") and not word.startswith("--")]
+    if sub in _GIT_FOREIGN_WRITERS:
+        return True
+    if sub == "stash":
+        return args[:1] in (["pop"], ["apply"])
+    if sub == "reset":
+        return any(_long_option(word, name) for word in options for name in ("--hard", "--merge", "--keep"))
+    if sub == "read-tree":
+        return any(_long_option(word, "--update") for word in options) or any("u" in word[1:] for word in short)
+    if sub == "clean":
+        dry_run = False
+        i = 0
+        while i < len(options):
+            word = options[i]
+            if _long_option(word, "--exclude") and "=" not in word:
+                i += 2  # the following exclude pattern may itself be "-n"
+                continue
+            if word == "--dry-run":
+                dry_run = True
+            elif word.startswith("-") and not word.startswith("--"):
+                # In a short cluster, everything after `e` is the exclude pattern.
+                flags, has_exclude, pattern = word[1:].partition("e")
+                dry_run = dry_run or "n" in flags
+                if has_exclude and not pattern:
+                    i += 2
+                    continue
+            i += 1
+        return not dry_run
+    if sub == "checkout":
+        if "--" in args or any(
+            _long_option(word, "--pathspec-from-file") or _long_option(word, "--force") for word in options
+        ) or any("f" in word[1:] for word in short):
+            return True
+        positionals = [word for word in args if not word.startswith("-")]
+        return len(positionals) >= 2 or (len(positionals) == 1 and positionals[0] not in {"main", "master", "HEAD"})
+    return False
+
+
+def _git_strict_globals(words: list[str]) -> bool:
+    """Whether every global option word is an enumerated safe form."""
+    i = 0
+    while i < len(words):
+        word = words[i]
+        if word in _GIT_TARGET_GLOBALS:
+            i += 2
+            continue
+        if word in _GIT_SAFE_GLOBAL_FLAGS or (word.startswith("-C") and len(word) > 2):
+            i += 1
+            continue
+        if word.startswith(("--git-dir=", "--work-tree=")):
+            i += 1
+            continue
+        return False
+    return True
+
+
+_ENV_BINDERS = frozenset(
+    {"export", "declare", "typeset", "readonly", "local", "unset", "read", "mapfile", "readarray", "printf", "env",
+     "getopts", "let"}
+)
+# HOME and XDG_CONFIG_HOME select the global Git configuration.
+_GIT_ENV_NAME_RE = re.compile(r"\b(?:GIT_[A-Za-z0-9_]*|PAGER|HOME|XDG_CONFIG_HOME)\b")
+
+
+def _binds_git_environment(segments) -> bool:
+    """Whether the command may bind a GIT_*, PAGER or configuration-home variable for a later Git.
+
+    Counts prefix assignments, every argument of an environment-binding
+    builtin or ``env``, and ``source``/``.`` (which can bind anything). A
+    variable merely named in another command's arguments (``rg GIT_DIR``) does
+    not count.
+    """
+    for segment, _, _ in segments:
+        argv = _without_redirects(segment)
+        cmd, idx = _command_word(argv)
+        if cmd in {"source", "."}:
+            return True
+        bound = list(argv[:idx]) + (list(argv[idx + 1 :]) if cmd in _ENV_BINDERS else [])
+        if any(_GIT_ENV_NAME_RE.search(str(word)) for word in bound):
+            return True
+    return False
+
+
+# Programs that run their remaining arguments as a command.
+_EXEC_WRAPPERS = frozenset(
+    {"watch", "flock", "ionice", "chrt", "taskset", "setsid", "unbuffer", "chronic", "systemd-run", "strace",
+     "ltrace", "nsenter", "unshare", "runuser", "doas", "xvfb-run", "proxychains", "proxychains4", "torsocks"}
+)
+
+
+def _wrapped_git(argv: list[str]) -> list[str]:
+    """Git argv an exec wrapper (``watch``, ``flock`` ...) runs, from its first Git word."""
+    cmd, idx = _command_word(argv)
+    if cmd not in _EXEC_WRAPPERS:
+        return []
+    start = next((i for i in range(idx + 1, len(argv)) if _is_git_binary(Path(argv[i]).name)), None)
+    return list(argv[start:]) if start is not None else []
+
+
+def _git_templates(argv: list[str]) -> list[list[str]]:
+    """Git argv run by an ``xargs``/``parallel`` or ``find -exec`` template; their trailing arguments are unknown."""
+    cmd, idx = _command_word(argv)
+    templates: list[list[str]] = []
+    if cmd in {"xargs", "parallel"}:
+        templates.append(_xargs_template(argv))
+    elif cmd == "find":
+        args = argv[idx + 1 :]
+        for i, word in enumerate(args):
+            if word in {"-exec", "-execdir", "-ok", "-okdir"}:
+                template: list[str] = []
+                for arg in args[i + 1 :]:
+                    if arg in {";", "+"}:
+                        break
+                    template.append(arg)
+                templates.append(template)
+    return [template for template in templates if _is_git_binary(_command_word(template)[0])]
+
+
+def bash_git_write_intents(
+    command: str, *, cwd: str | None = None, depth: int = 0, git_environment: frozenset[str] = frozenset(),
+    binds_environment: bool = False,
+) -> list[dict[str, object]]:
+    """Every Git invocation in a Bash command that is not a proven read (issue #208).
+
+    A strict read-only form (``git_invocation_form`` returns ``read``, only
+    enumerated global options, no GIT_*/PAGER binding in the command) is safe
+    against any target and yields no intent. Every other invocation yields::
 
         {
-          "kind": "apply"|"add"|"stash_apply"|"path_checkout"|"restore_source",
-          "c_path": str|None,          # from git -C
+          "sub": str,                  # subcommand ("" for an unparsed global option)
+          "form": str|None,            # git_invocation_form kind, or None
+          "strict": bool,              # enumerated globals and no environment binding
+          "foreign_write": bool,       # reviewed by the foreign-repository rule
+          "paths": list[str],          # worktree paths a maintenance form creates or removes
           "git_options": list[str],    # -C/--git-dir/--work-tree
-          "git_environment": set[str], # GIT_* names the command binds
+          "git_environment": set[str], # GIT_* names the command mentions
           "git_config_redirected": bool,
           "segment_cwd": str|None,     # after literal cd/pushd
-          "paths": list[str],          # pathspecs when known (may be empty)
           "summary": str,              # human-readable for the block message
-          "allowlisted": bool,         # True → never block (rescue clean)
         }
-
-    Allowlisted: ``git checkout -- <paths>`` and ``git restore <paths>`` without
-    ``--source`` (discard dirt / restore from index — rescue pattern).
     """
     _refuse_nested_ansi_c_quoting(command, depth)
     intents: list[dict[str, object]] = []
@@ -2187,336 +2728,105 @@ def bash_git_write_intents(
         re.match(r"(?i)(?:-c|--config-env=)?(?:core\.(?:worktree|bare)|include(?:if\.[^=]+)?\.path)(?:=|$)", word)
         for word in words
     )
-
-    pathspec_from_file = False
-
-    def record(intent: dict[str, object]) -> None:
-        if pathspec_from_file:
-            # Paths read from a file are unknown here: treat the write as whole-tree.
-            intent["paths"] = []
-            intent["allowlisted"] = False
-        intent["segment_cwd"] = effective_cwd
-        intent["git_options"] = git_options
-        intent["git_environment"] = git_environment
-        intent["git_config_redirected"] = config_redirected
-        intents.append(intent)
+    binds_environment = binds_environment or _binds_git_environment(segments)
 
     for segment, effective_cwd, _shell_cwd in segments:
-        pathspec_from_file = False
         segment = _without_redirects(segment)
         cmd, idx = _command_word(segment)
         if cmd == "eval" and depth < _MAX_SHELL_DEPTH:
             args = segment[idx + 1 :]
             if all(getattr(arg, "unresolved_at", None) is None for arg in args):
                 intents.extend(bash_git_write_intents(
-                    " ".join(args), cwd=effective_cwd, depth=depth + 1, git_environment=git_environment
+                    " ".join(args), cwd=effective_cwd, depth=depth + 1, git_environment=git_environment,
+                    binds_environment=binds_environment,
                 ))
             continue
         if cmd in {"sh", "bash", "zsh", "dash"} and depth < _MAX_SHELL_DEPTH:
             script = _shell_command_script(segment[idx + 1 :])
             if script is not None and getattr(script, "unresolved_at", None) is None:
                 intents.extend(bash_git_write_intents(
-                    str(script), cwd=effective_cwd, depth=depth + 1, git_environment=git_environment
+                    str(script), cwd=effective_cwd, depth=depth + 1, git_environment=git_environment,
+                    binds_environment=binds_environment,
                 ))
             continue
-        if not _is_git_binary(cmd):
-            continue
-        c_path, git_options, rest = _git_global_prefix(segment[idx + 1 :])
-        if not rest:
-            continue
-        sub = rest[0]
-        if sub.startswith("-"):
-            # An unmodeled global option hides the subcommand and the target.
-            if sub not in {"--version", "-v", "--help", "-h", "--exec-path", "--html-path", "--man-path", "--info-path"}:
-                record({"kind": "unparsed_option", "paths": [], "summary": f"git {sub}", "allowlisted": False})
-            continue
-        sub_args = rest[1:]
-        option_args = sub_args[: sub_args.index("--")] if "--" in sub_args else sub_args
-        pathspec_from_file = any(_long_option(tok, "--pathspec-from-file") for tok in option_args)
-
-        if sub in {"apply", "am"}:
-            record(
-                {
-                    "kind": "apply" if sub == "apply" else "am",
-                    "c_path": c_path,
-                    "paths": [],
-                    "summary": f"git {sub}",
-                    "allowlisted": False,
-                }
-            )
-            continue
-
-        if sub in {"merge", "pull", "rebase", "cherry-pick", "revert"}:
-            record({"kind": sub, "c_path": c_path, "paths": [], "summary": f"git {sub}", "allowlisted": False})
-            continue
-
-        # This hook owns git mutations targeted at the protected worktree via
-        # effective cwd or -C. The branch-switch hook retains its separate
-        # direct-command policy for all primary checkouts.
-        if sub == "switch":
-            record({"kind": "switch", "c_path": c_path, "paths": [], "summary": "git switch", "allowlisted": False})
-            continue
-
-        if sub == "worktree" and sub_args[:1] == ["remove"]:
-            paths = [arg for arg in sub_args[1:] if not arg.startswith("-")]
-            record(
-                {
-                    "kind": "worktree_remove",
-                    "c_path": c_path,
-                    "paths": paths,
-                    "summary": "git worktree remove",
-                    "allowlisted": False,
-                }
-            )
-            continue
-
-        if sub == "add":
-            # Drop flags; remaining positionals are pathspecs (may be empty = all).
-            paths: list[str] = []
-            i = 0
-            while i < len(sub_args):
-                tok = sub_args[i]
-                if tok == "--":
-                    paths.extend(sub_args[i + 1 :])
-                    break
-                if tok.startswith("-"):
-                    # Value-taking short options we care about: -u is flag-only.
-                    if tok in {"-C"}:  # not expected after subcommand
-                        i += 2
-                        continue
-                    i += 1
-                    continue
-                paths.append(tok)
-                i += 1
-            record(
-                {
-                    "kind": "add",
-                    "c_path": c_path,
-                    "paths": paths,
-                    "summary": "git add" + (f" {' '.join(paths)}" if paths else ""),
-                    "allowlisted": False,
-                }
-            )
-            continue
-
-        if sub == "stash":
-            if not sub_args:
+        invocations = [(segment[idx + 1 :], False)] if _is_git_binary(cmd) else []
+        wrapped = _wrapped_git(segment)
+        invocations += [(wrapped[1:], False)] if wrapped else []
+        invocations += [(template[_command_word(template)[1] + 1 :], True) for template in _git_templates(segment)]
+        for git_args, open_ended in invocations:
+            c_path, git_options, rest = _git_global_prefix(git_args)
+            if not rest or (rest[0].startswith("-") and rest[0] in _GIT_INFO_GLOBALS):
                 continue
-            action = sub_args[0]
-            if action in {"pop", "apply"}:
-                record(
-                    {
-                        "kind": "stash_apply",
-                        "c_path": c_path,
-                        "paths": [],
-                        "summary": f"git stash {action}",
-                        "allowlisted": False,
-                    }
-                )
-            continue
-
-        if sub == "clean":
-            dry_run = False
-            i = 0
-            while i < len(option_args):
-                tok = option_args[i]
-                if _long_option(tok, "--exclude") and "=" not in tok:
-                    i += 2  # the following exclude pattern may itself be "-n"
-                    continue
-                if tok == "--dry-run":
-                    dry_run = True
-                elif tok.startswith("-") and not tok.startswith("--"):
-                    # In a short cluster, everything after `e` is the exclude pattern.
-                    flags, has_exclude, pattern = tok[1:].partition("e")
-                    dry_run = dry_run or "n" in flags
-                    if has_exclude and not pattern:
-                        i += 2
-                        continue
-                i += 1
-            if not dry_run:
-                record({"kind": "clean", "c_path": c_path, "paths": [], "summary": "git clean", "allowlisted": False})
-            continue
-
-        if sub == "reset" and any(
-            _long_option(tok, name) for tok in option_args for name in ("--hard", "--merge", "--keep")
-        ):
-            record({"kind": "reset", "c_path": c_path, "paths": [], "summary": "git reset", "allowlisted": False})
-            continue
-
-        if sub == "read-tree" and any(
-            _long_option(tok, "--update") or (tok.startswith("-") and not tok.startswith("--") and "u" in tok[1:])
-            for tok in option_args
-        ):
-            record(
-                {"kind": "read-tree", "c_path": c_path, "paths": [], "summary": "git read-tree", "allowlisted": False}
-            )
-            continue
-
-        if sub == "checkout":
-            # Allowlist: `git checkout -- <paths>` (restore from index/HEAD).
-            # Block: `git checkout <tree-ish> -- <paths>` and the no-dashdash
-            # form `git checkout <tree-ish> <path>…` (#5517).
-            # Branch-only checkouts are primary worktree mutations too; the
-            # rescue targets below remain available.
-            if pathspec_from_file:
-                record(
-                    {
-                        "kind": "path_checkout",
-                        "c_path": c_path,
-                        "paths": [],
-                        "summary": "git checkout --pathspec-from-file",
-                        "allowlisted": False,
-                    }
-                )
-                continue
-            if any(
-                _long_option(tok, "--force") or (tok.startswith("-") and not tok.startswith("--") and "f" in tok[1:])
-                for tok in option_args
-            ):
-                record(
-                    {
-                        "kind": "forced_checkout",
-                        "c_path": c_path,
-                        "paths": [],
-                        "summary": "git checkout -f",
-                        "allowlisted": False,
-                    }
-                )
-                continue
-            if "--" in sub_args:
-                dd = sub_args.index("--")
-                before = sub_args[:dd]
-                after = sub_args[dd + 1 :]
-                treeish = [t for t in before if not t.startswith("-")]
-                if not treeish and not before:
-                    record(
-                        {
-                            "kind": "path_checkout",
-                            "c_path": c_path,
-                            "paths": after,
-                            "summary": "git checkout -- " + " ".join(after),
-                            "allowlisted": True,
-                        }
-                    )
-                else:
-                    record(
-                        {
-                            "kind": "path_checkout",
-                            "c_path": c_path,
-                            "paths": after,
-                            "summary": f"git checkout {treeish[0]} -- " + " ".join(after),
-                            "allowlisted": False,
-                        }
-                    )
+            sub = rest[0]
+            if sub.startswith("-"):
+                # An unmodeled global option hides the subcommand and the target.
+                intents.append({
+                    "sub": "", "form": None, "strict": False, "foreign_write": True, "paths": [],
+                    "summary": f"git {sub}", "unparsed_option": True,
+                })
             else:
-                positionals = [t for t in sub_args if not t.startswith("-")]
-                if len(positionals) >= 2:
-                    # tree-ish + one or more pathspecs (no `--` separator).
-                    record(
-                        {
-                            "kind": "path_checkout",
-                            "c_path": c_path,
-                            "paths": positionals[1:],
-                            "summary": (f"git checkout {positionals[0]} " + " ".join(positionals[1:])),
-                            "allowlisted": False,
-                        }
-                    )
-                elif len(positionals) == 1 and positionals[0] not in {"main", "master", "HEAD", "-"}:
-                    record(
-                        {
-                            "kind": "branch_checkout",
-                            "c_path": c_path,
-                            "paths": [],
-                            "summary": "git checkout " + str(positionals[0]),
-                            "allowlisted": False,
-                        }
-                    )
-            continue
-
-        if sub == "restore":
-            source = None
-            paths: list[str] = []
-            i = 0
-            while i < len(sub_args):
-                tok = sub_args[i]
-                if tok == "--":
-                    paths.extend(sub_args[i + 1 :])
-                    break
-                if _long_option(tok, "--source") and "=" in tok:
-                    source = tok.split("=", 1)[1]
-                    i += 1
+                # Arguments a template appends at run time are unknown: no form is proven.
+                found = None if open_ended else git_invocation_form(sub, list(rest[1:]))
+                strict = _git_strict_globals(git_args[: len(git_args) - len(rest)]) and not binds_environment
+                if found is not None and found[0] == "read" and strict:
                     continue
-                if _long_option(tok, "--source") and i + 1 < len(sub_args):
-                    source = sub_args[i + 1]
-                    # An abbreviation keeps its value among the checked paths: matching may only add blocks.
-                    i += 2 if tok == "--source" else 1
-                    continue
-                if tok.startswith("-"):
-                    i += 1
-                    continue
-                paths.append(tok)
-                i += 1
-            if source is None and paths and all(not tok.startswith("-") for tok in sub_args):
-                record(
-                    {
-                        "kind": "restore_source",
-                        "c_path": c_path,
-                        "paths": paths,
-                        "summary": "git restore " + " ".join(paths),
-                        "allowlisted": True,
-                    }
-                )
-            else:
-                record(
-                    {
-                        "kind": "restore_source",
-                        "c_path": c_path,
-                        "paths": paths,
-                        "summary": f"git restore --source={source} " + " ".join(paths),
-                        "allowlisted": False,
-                    }
-                )
-            continue
-
-        if sub in {"mv", "rm"}:
-            # Both mutate the index and the working tree (#5517).
-            paths: list[str] = []
-            i = 0
-            while i < len(sub_args):
-                tok = sub_args[i]
-                if tok == "--":
-                    paths.extend(sub_args[i + 1 :])
-                    break
-                if tok.startswith("-"):
-                    i += 1
-                    continue
-                paths.append(tok)
-                i += 1
-            record(
-                {
-                    "kind": "mv" if sub == "mv" else "rm",
-                    "c_path": c_path,
-                    "paths": paths,
-                    "summary": f"git {sub}" + (f" {' '.join(paths)}" if paths else ""),
-                    "allowlisted": False,
-                }
-            )
-            continue
+                intents.append({
+                    "sub": sub,
+                    "form": found[0] if found else None,
+                    "strict": strict,
+                    "foreign_write": _foreign_write(sub, list(rest[1:])),
+                    # A removed worktree path is checked on every route, as before #208.
+                    "paths": found[1] if found else (
+                        _git_option_words(list(rest[2:]))[1] if sub == "worktree" and rest[1:2] == ["remove"] else []
+                    ),
+                    "summary": "git " + " ".join(str(word) for word in rest[:3]),
+                })
+            intents[-1].update({
+                "c_path": c_path,
+                "segment_cwd": effective_cwd,
+                "git_options": git_options,
+                "git_environment": git_environment,
+                "git_config_redirected": config_redirected,
+            })
 
     return intents
 
 
+def _git_literal_locations(cwd: str, options: list[str]) -> list[Path]:
+    """Directories a Git invocation names: its cwd and each -C/--git-dir/--work-tree value."""
+    base = Path(cwd)
+    locations = [base]
+    i = 0
+    while i < len(options):
+        word = str(options[i])
+        if word in _GIT_TARGET_GLOBALS and i + 1 < len(options):
+            name, value = word, str(options[i + 1])
+            i += 2
+        elif word.startswith("-C"):
+            name, value = "-C", word[2:]
+            i += 1
+        else:
+            name, value = word.split("=", 1)
+            i += 1
+        path = _resolve(value, str(base), expand_user=False).resolve()
+        if name == "-C":
+            base = path
+        locations.append(path)
+    return locations
+
+
 def _block_git_mediated(summary: str, main_root: Path, reason: str) -> int:
     sys.stderr.write(
-        f"BLOCKED by guard-primary-checkout-write: git-mediated write "
-        f"'{summary}' would mutate the protected primary checkout "
-        f"({main_root}) [{reason}] (issue #5396).\n\n"
-        "Silent shell cwd resets have applied worker patches into primary "
-        "before — never run git apply/add/stash-pop or path-checkout against "
-        "the primary tree. Use an explicit worktree:\n\n"
+        f"BLOCKED by guard-primary-checkout-write: '{summary}' reaches the protected primary checkout "
+        f"({main_root}) [{reason}] (issues #5396, #208).\n\n"
+        "Where the Git work tree is, contains or is inside the primary, only enumerated read-only forms "
+        "(status, log, diff, show, grep, branch/tag/config/stash/worktree listing, ...) and these "
+        "maintenance forms run: git pull --ff-only, git fetch, git branch -d|-D <merged branch>, "
+        "git worktree add|remove|unlock outside the primary, and the rescue forms "
+        "git checkout -- <path> and git restore <path>. Unlisted options, -c, GIT_* or PAGER "
+        "bindings, aliases and external commands are refused there. Do write work in a worktree:\n\n"
         "  git -C .worktrees/dispatch/<agent>/<task> apply /tmp/worker.diff\n"
-        "  # or: cd .worktrees/dispatch/<agent>/<task> && git apply …\n\n"
-        "Rescue clean (allowed): git checkout -- <path>  or  git restore <path>\n"
+        "  # or: cd .worktrees/dispatch/<agent>/<task> && git stash …\n\n"
         "Emergency override (one-shot): LEARN_UK_ALLOW_PRIMARY_GIT_WRITE=1\n\n"
         "Hook source: agents_extensions/shared/hooks/"
         "guard-primary-checkout-write.py\n"
@@ -2821,11 +3131,11 @@ def _main() -> int:
     allow_primary_git = os.environ.get("LEARN_UK_ALLOW_PRIMARY_GIT_WRITE", "") == "1"
     if is_shell_tool(tool_name) and command and not allow_primary_git:
         try:
+            intent_root = wc.resolve_main_root(protected_anchor)
+            redirects = set(wc.GIT_REDIRECT_ENV_KEYS)
             for intent in git_intents:
-                summary = str(intent.get("summary") or "git write")
-                intent_root = wc.resolve_main_root(protected_anchor)
+                summary = str(intent.get("summary") or "git")
                 options = intent.get("git_options") or []
-                redirects = set(wc.GIT_REDIRECT_ENV_KEYS)
                 environment = intent.get("git_environment") or frozenset()
                 if (
                     redirects.intersection(environment) or redirects.intersection(os.environ)
@@ -2833,7 +3143,7 @@ def _main() -> int:
                     or intent.get("git_config_redirected")
                 ):
                     return _block_uncertain("undecidable_git_environment")
-                if intent.get("kind") == "unparsed_option":
+                if intent.get("unparsed_option"):
                     return _block_uncertain("undecidable_git_global_option")
                 if any(getattr(option, "unresolved_at", None) is not None for option in options):
                     return _block_git_mediated(summary, intent_root, reason="unresolved_shell_variable")
@@ -2843,49 +3153,54 @@ def _main() -> int:
                 # The hook's own repository is protected, regardless of the
                 # payload cwd or the repository selected by Git's options.
                 protected = wc.resolve_git_worktree(intent_root, [])
-                target = wc.resolve_git_worktree(segment_cwd, options)
-                git_cwd = target.cwd
+                try:
+                    target = wc.resolve_git_worktree(segment_cwd, options)
+                except wc.NotAGitRepositoryError:
+                    target = None  # e.g. a repository an earlier command creates
                 if not wc.is_protected_branch(intent_root):
                     continue
-                if intent.get("kind") == "worktree_remove":
-                    for raw in intent.get("paths") or []:
-                        decision = _bash_path_decision(raw, str(git_cwd), wc, intent_root)
-                        if not decision.allowed:
-                            return _block_git_mediated(summary, intent_root, reason=decision.reason)
+                # Worktrees a maintenance form creates or removes stay out of the primary.
+                for raw in intent.get("paths") or []:
+                    decision = _bash_path_decision(raw, str(target.cwd if target else segment_cwd), wc, intent_root)
+                    if not decision.allowed:
+                        return _block_git_mediated(summary, intent_root, reason=decision.reason)
+                if target is None:
+                    # Unresolved: fail closed when any named location is or contains the primary.
+                    if any(
+                        wc.classify_repo_path(location, cwd=intent_root) == "primary_checkout"
+                        or protected.worktree.is_relative_to(location)
+                        for location in _git_literal_locations(segment_cwd, options)
+                    ):
+                        return _block_uncertain("undecidable_git_target")
                     continue
                 # Git mutates the work tree, not its cwd: a cwd inside a dispatch
-                # worktree can still select the primary (`--work-tree`), and a
-                # work tree that contains the primary reaches it too (#29).
+                # worktree can still select the primary (`--work-tree`), a work
+                # tree that contains the primary reaches it too (#29), and the
+                # primary's own Git directory holds its index and HEAD.
                 reaches_primary = (
                     wc.classify_repo_path(target.worktree, cwd=intent_root) == "primary_checkout"
                     or protected.worktree.is_relative_to(target.worktree)
+                    or target.git_dir == protected.common_dir
                 )
-                # A foreign index can still explicitly target our primary.
-                if target.common_dir != protected.common_dir and not reaches_primary:
-                    if not _is_plain_foreign_git_write(command):
-                        return _block_uncertain("foreign_git_target_requires_plain_git_write")
+                if reaches_primary:
+                    # #208: only enumerated read-only, maintenance and rescue forms.
+                    form = intent.get("form")
+                    if not intent.get("strict") or form is None:
+                        return _block_git_mediated(summary, intent_root, reason="git_not_on_read_only_allowlist")
+                    # Maintenance and rescue forms run only in the primary's own
+                    # repository and work tree: a foreign index or HEAD would
+                    # rewrite primary files from another history.
+                    if form != "read" and (
+                        target.git_dir != protected.common_dir or target.worktree != protected.worktree
+                    ):
+                        return _block_git_mediated(summary, intent_root, reason="git_maintenance_outside_primary_repo")
                     continue
-                # Primary Git metadata stays protected even with a foreign worktree.
-                if wc.classify_repo_path(git_cwd, cwd=intent_root) != "primary_checkout":
-                    if target.git_dir == protected.common_dir:
-                        return _block_git_mediated(summary, intent_root, reason="git_mediated_primary_worktree")
-                    if not reaches_primary:
-                        continue
-                # Rescue forms restore the primary from its own index, never another one.
-                if intent.get("allowlisted") and target.git_dir == protected.common_dir:
-                    continue
-                paths = list(intent.get("paths") or [])
-                if not paths:
-                    # Whole-tree mutator (apply / am / stash pop|apply / bare add).
-                    return _block_git_mediated(summary, intent_root, reason="git_mediated_primary_worktree")
-                # Path-scoped mutators: block if any path is a protected primary write.
-                for raw in paths:
-                    # Magic pathspecs (`:/`, `:(top)`, `:!`) select from the work-tree root, not Git's cwd.
-                    if raw.startswith(":"):
-                        return _block_git_mediated(summary, intent_root, reason="git_pathspec_magic")
-                    decision = _bash_path_decision(raw, str(git_cwd), wc, intent_root)
-                    if not decision.allowed:
-                        return _block_git_mediated(summary, intent_root, reason=decision.reason)
+                if (
+                    target.common_dir != protected.common_dir
+                    and intent.get("foreign_write")
+                    and not _is_plain_foreign_git_write(command)
+                ):
+                    return _block_uncertain("foreign_git_target_requires_plain_git_write")
         except Exception:
             return _block_uncertain("undecidable_git_target")
 
