@@ -431,70 +431,26 @@ def test_legacy_gemini_error_handler_never_acks(bridge_db):
     assert _replies(message_id)[0][2] == "error"
 
 
-@pytest.mark.parametrize("seat", ["claude", "codex", "grok", "agy"])
-def test_native_error_handlers_never_ack(bridge_db, seat):
-    """Mutation check: removing the no-ack guard turns every one of these red."""
-    from lu_machinery.ai_agent_bridge import _agy, _claude, _codex, _grok_build
+def test_agy_error_handler_never_acks(bridge_db):
+    """Mutation check: removing the no-ack guard turns this red."""
+    from lu_machinery.ai_agent_bridge import _agy
 
-    message_id = _send(seat)
+    message_id = _send("agy")
     msg = {
         "id": message_id,
         "task_id": "task-6915",
         "from": "qa-engineer",
-        "to": seat,
+        "to": "agy",
         "type": "advisory",
         "content": "x",
         "data": None,
     }
-    if seat == "claude":
-        _claude._handle_claude_error(msg, message_id, "boom")
-    elif seat == "codex":
-        _codex._handle_codex_error(msg, message_id, "boom")
-    elif seat == "grok":
-        _grok_build._handle_grok_build_error(msg, message_id, "boom")
-    elif seat == "agy":
-        _agy._handle_agy_error(msg, message_id, "boom")
+    _agy._handle_agy_error(msg, message_id, "boom")
 
     acked, status = _row(message_id)
-    assert acked == 0, f"{seat} error handler consumed a failed message"
+    assert acked == 0, "agy error handler consumed a failed message"
     assert status.startswith("failed:")
     assert _replies(message_id)[0][2] == "error"
-
-
-def test_claude_fallback_error_never_acks(bridge_db):
-    from lu_machinery.ai_agent_bridge import _claude
-
-    message_id = _send("claude")
-    _claude._send_claude_fallback_error({"task_id": "task-6915", "from": "qa-engineer"}, message_id)
-    acked, status = _row(message_id)
-    assert acked == 0
-    assert status.startswith("failed:")
-
-
-def test_grok_incomplete_turn_never_acks(bridge_db):
-    from lu_machinery.ai_agent_bridge import _grok_build
-
-    message_id = _send("grok")
-    msg = {
-        "id": message_id,
-        "task_id": "task-6915",
-        "from": "qa-engineer",
-        "to": "grok",
-        "type": "advisory",
-        "content": "x",
-        "data": None,
-    }
-    _grok_build._handle_grok_build_incomplete_turn(
-        msg,
-        message_id,
-        "partial text",
-        {"outcome": "cancelled", "cancellation_category": "timeout"},
-        actual_model="grok-4.6",
-        effort="high",
-    )
-    acked, status = _row(message_id)
-    assert acked == 0
-    assert status.startswith("failed:")
 
 
 def test_opencode_incomplete_turn_never_acks(bridge_db):
@@ -547,10 +503,7 @@ def forbid_legacy_processors(monkeypatch):
     from unittest.mock import Mock
 
     for module, name in [
-        ("_claude", "process_for_claude"),
-        ("_codex", "process_for_codex"),
         ("_agy", "process_for_agy"),
-        ("_grok_build", "process_for_grok_build"),
         ("_opencode", "process_for_opencode"),
     ]:
         monkeypatch.setattr(
@@ -654,28 +607,27 @@ def test_detached_ordinary_worker_uses_acp_without_provider_fallback(
     assert _replies(message_id)[0][2] == "error"
 
 
+@pytest.mark.parametrize("target", ["claude", "codex", "grok", "grok-build", "cursor"])
 @pytest.mark.parametrize("review_intent", ["flag", "type", "target"])
-def test_queued_review_keeps_toolful_processor(bridge_db, monkeypatch, review_intent):
+def test_removed_seat_review_is_unsupported_and_stays_out_of_acp(bridge_db, monkeypatch, target, review_intent):
     from unittest.mock import Mock
 
-    from lu_machinery.ai_agent_bridge import _ask_lifecycle, _claude
+    from lu_machinery.ai_agent_bridge import _ask_lifecycle
 
     message_id = send_message(
         "Review the exact branch head.",
         task_id="review-6106",
-        from_llm="codex",
-        to_llm="claude",
+        from_llm="agy",
+        to_llm=target,
         quiet=True,
         msg_type="review" if review_intent == "type" else "query",
         review_target={"pr": 6106} if review_intent == "target" else None,
     )
-    native = Mock()
     acp = Mock(side_effect=AssertionError("review must not enter ACP"))
-    monkeypatch.setattr(_claude, "process_for_claude", native)
     monkeypatch.setattr(_process, "run_compat_ask", acp)
-    _ask_lifecycle._process_target(message_id, "claude", {"review": review_intent == "flag"})
+    with pytest.raises(ValueError, match="unsupported background ask target"):
+        _ask_lifecycle._process_target(message_id, target, {"review": review_intent == "flag"})
 
-    native.assert_called_once_with(message_id, False, no_timeout=False, review=True)
     acp.assert_not_called()
 
 
@@ -704,12 +656,12 @@ def test_batch_ordinary_drains_use_acp_and_report_failures(
 ):
     from unittest.mock import Mock
 
-    from lu_machinery.ai_agent_bridge import _cli, _codex
+    from lu_machinery.ai_agent_bridge import _cli
 
     message_id = _send(target, sender="agy")
     acp = Mock(return_value=_ok_result(response=""))
     monkeypatch.setattr(_process, "run_compat_ask", acp)
-    batch = _cli.process_all_claude if target == "claude" else _codex.process_all_codex
+    batch = _cli.process_all_claude if target == "claude" else _cli.process_all_codex
     batch()
     acp.assert_called_once()
     assert _row(message_id)[0] == 0
@@ -742,91 +694,3 @@ def test_ordinary_async_process_refuses_before_acp(bridge_db, monkeypatch):
         _cli._dispatch_command(args)
     acp.assert_not_called()
     assert _row(message_id)[0] == 0
-
-
-# ── #9274: the legacy Cursor review drain never runs Auto ───────────────
-
-
-def _cursor_review(to_model: str | None) -> int:
-    return send_message(
-        "Review the exact branch head.",
-        task_id="review-9274",
-        msg_type="review",
-        from_llm="codex",
-        to_llm="cursor",
-        to_model=to_model,
-        quiet=True,
-    )
-
-
-@pytest.fixture
-def cursor_provider(monkeypatch):
-    """Spy on the Cursor bridge's provider spawn; ACP must never see a review."""
-    import subprocess
-    from unittest.mock import Mock
-
-    from lu_machinery.ai_agent_bridge import _cursor
-
-    run = Mock(return_value=subprocess.CompletedProcess(args=[], returncode=0, stdout="LGTM\n", stderr=""))
-    # Scoped to the Cursor bridge: the broker's own notifications also use subprocess.
-    monkeypatch.setattr(_cursor, "subprocess", SimpleNamespace(run=run, TimeoutExpired=subprocess.TimeoutExpired))
-    # Binary lookup is the shared resolver on the bridge module.
-    monkeypatch.setattr(_cursor, "resolve_cursor_agent_binary", lambda: "/stub/cursor-agent")
-    monkeypatch.setattr(_process, "run_compat_ask", Mock(side_effect=AssertionError("review must not enter ACP")))
-    return run
-
-
-@pytest.mark.parametrize(
-    ("to_model", "code"),
-    [
-        (None, "cursor_model_unpinned"),
-        ("auto", "cursor_auto_outside_coding_task"),
-        ("cursor:auto", "cursor_auto_outside_coding_task"),
-        ("default", "cursor_auto_outside_coding_task"),
-        ("composer-2.5-fast", "cursor_model_not_approved"),
-    ],
-)
-def test_cursor_review_drain_refuses_auto_or_unpinned_before_spawn(bridge_db, cursor_provider, to_model, code):
-    from lu_machinery.ai_agent_bridge import _ask_lifecycle
-
-    message_id = _cursor_review(to_model)
-    expected = (
-        r"ask-cursor: refused: CURSOR_MODEL_NOT_APPROVED: model 'composer-2\.5-fast' is not an approved Cursor pin"
-        if code == "cursor_model_not_approved"
-        else rf"ask-cursor: refused: .*\({code}\); pin grok-4\.7"
-    )
-    with pytest.raises(SystemExit, match=expected):
-        _ask_lifecycle._process_target(message_id, "cursor", {"no_timeout": True})
-
-    cursor_provider.assert_not_called()
-    assert _row(message_id)[0] == 0
-    assert _replies(message_id, task_id="review-9274") == []
-
-
-def test_detached_cursor_review_records_the_typed_refusal(bridge_db, cursor_provider, monkeypatch, tmp_path):
-    from lu_machinery.ai_agent_bridge import _ask_lifecycle
-
-    message_id = _cursor_review(None)
-    monkeypatch.setenv("AB_REPO_ROOT", str(tmp_path))
-    monkeypatch.setattr(_ask_lifecycle, "_background_options", lambda *_args: {"no_timeout": True})
-
-    _ask_lifecycle.process_background_ask(message_id, "cursor")
-
-    cursor_provider.assert_not_called()
-    status = _ask_lifecycle._ask_status(message_id)
-    assert status.startswith("failed:ask-cursor: refused: no concrete Cursor model is pinned (cursor_model_unpinned)")
-
-
-@pytest.mark.parametrize("to_model", ["grok-4.7", "grok-4.7-high"])
-def test_cursor_review_drain_runs_a_concrete_pin(bridge_db, cursor_provider, to_model):
-    from lu_machinery.ai_agent_bridge import _ask_lifecycle
-
-    message_id = _cursor_review(to_model)
-    _ask_lifecycle._process_target(message_id, "cursor", {"no_timeout": True})
-
-    cursor_provider.assert_called_once()
-    argv = cursor_provider.call_args.args[0]
-    assert argv[argv.index("--model") + 1] == ("grok-4.7-high" if to_model == "grok-4.7" else to_model)
-    assert _row(message_id)[0] == 1
-    replies = _replies(message_id, task_id="review-9274")
-    assert [(sender, kind, content) for sender, _to, kind, content in replies] == [("cursor", "response", "LGTM")]

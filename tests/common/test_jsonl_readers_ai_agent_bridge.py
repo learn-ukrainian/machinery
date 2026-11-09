@@ -7,7 +7,6 @@ from jsonl_reader_cases import reader_case
 @pytest.mark.parametrize(
     "module, function, site",
     [
-        ("lu_machinery.ai_agent_bridge._grok_build", "_native_grok_turn_status", 449),
         ("lu_machinery.ai_agent_bridge._opencode", "read_opencode_turn_status", 263),
         ("lu_machinery.ai_agent_bridge._opencode", "_parse_opencode_stream", 1419),
         ("lu_machinery.ai_agent_bridge._ui_agy", "_read_transcript_events", 118),

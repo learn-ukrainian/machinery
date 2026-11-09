@@ -26,9 +26,7 @@ from ._broker import (
     bridge_status,
     broker_cleanup,
 )
-from ._claude import ask_claude, process_for_claude
-from ._cli import interactive_mode, main, process_all_claude, process_all_gemini
-from ._codex import ask_codex, process_all_codex, process_for_codex
+from ._cli import interactive_mode, main, process_all_claude, process_all_codex, process_all_gemini
 from ._config import (
     _MODEL_CACHE,
     _MODEL_CACHE_TTL,
@@ -47,7 +45,6 @@ from ._github import (
     _post_review_to_github,
     _split_content,
 )
-from ._grok_build import ask_grok_build, process_for_grok_build
 from ._messaging import (
     _extract_issue_number,
     acknowledge,
@@ -89,10 +86,7 @@ __all__ = [
     "_write_pid_file",
     "acknowledge",
     "acknowledge_all",
-    "ask_claude",
-    "ask_codex",
     "ask_gemini",
-    "ask_grok_build",
     "bridge_status",
     "broker_cleanup",
     "build_claude_prompt",
@@ -112,9 +106,6 @@ __all__ = [
     "process_all_codex",
     "process_all_gemini",
     "process_and_respond",
-    "process_for_claude",
-    "process_for_codex",
-    "process_for_grok_build",
     "read_message",
     "send_message",
     "send_to_codex",
