@@ -36,6 +36,35 @@ def test_branch_reset_or_deleted_after_merge_is_delivered(merged_delivery_world)
     assert world.record["delivery_pr"] == "org/repo#78"
 
 
+def test_exact_head_search_never_credits_a_task_with_no_commits_of_its_own(merged_delivery_world):
+    """Defect class: a task that added nothing (its head is where it started, such as a fix round's branch tip)
+    was credited with whichever merged pull request ended on that same head (#100 R93-a)."""
+    world = merged_delivery_world
+    world.record["commits_ahead"] = 0
+    world.listed = [{"number": 90, "isCrossRepository": False, "headRefName": "other/task",
+                     "headRefOid": world.record["head_sha"]}]
+    world.prs[90], world.files[90] = {**MERGED, "headRefOid": world.record["head_sha"]}, ["docs/owned.md"]
+    worker._enforce_delivery(world.record)
+    assert "delivery_pr" not in world.record
+    assert world.record["status"] == "no_deliverable"
+
+
+def test_a_recorded_pr_with_another_head_does_not_hide_a_later_matching_candidate(merged_delivery_world):
+    """Defect class: an accepted merged PR whose head differs from the snapshot ended the search, so the
+    exact-head candidate after it was never tried (#100 R93-b)."""
+    world = merged_delivery_world
+    head = world.record["head_sha"]
+    world.record["commits_ahead"] = 2
+    world.published = (None, False)
+    world.accept(81)
+    world.listed = [{"number": 82, "isCrossRepository": False, "headRefName": "other/task", "headRefOid": head}]
+    world.prs[81], world.files[81] = {**MERGED, "headRefOid": "b" * 40}, ["docs/owned.md"]
+    world.prs[82], world.files[82] = {**MERGED, "headRefOid": head}, ["docs/owned.md"]
+    worker._enforce_delivery(world.record)
+    assert (world.record["status"], world.record["error"]) == ("done", None)
+    assert world.record["delivery_pr"] == "org/repo#82"
+
+
 def test_merged_pr_outside_owned_paths_is_still_refused(merged_delivery_world):
     """Control: a merged PR is no licence to change paths outside the task's ownership."""
     world = merged_delivery_world

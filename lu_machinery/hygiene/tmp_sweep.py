@@ -302,14 +302,15 @@ def registered_worktrees(repo_root: Path) -> set[Path] | None:
         return None
 
 
-def tree_facts(path: Path, *, disposable_git: bool = False) -> tuple[int, float, float, str | None]:
+def tree_facts(path: Path, *, run_contents: bool = False) -> tuple[int, float, float, str | None]:
     """Allocated bytes, latest write and latest change; refuse Git metadata, foreign owners and mounts.
 
     Never follow symlinks or cross devices. In-tree Git metadata also protects
-    worktrees registered with a repository other than this checkout. Only a
-    managed pytest run's proven dead owner permits arbitrary fixture metadata.
-    General scratch and ledger purges retain the default Git protection. A file
+    worktrees registered with a repository other than this checkout. A file
     can be a bind-mount target, so every node is checked against the mounts.
+    ``run_contents`` marks a managed pytest run whose owner is proven dead: its
+    contents are pytest's own scratch, so Git metadata, hard links and special
+    files inside it keep nothing; foreign owners and mounts still do.
     """
     allocated = 0
     newest = 0.0
@@ -333,9 +334,11 @@ def tree_facts(path: Path, *, disposable_git: bool = False) -> tuple[int, float,
             if identity not in seen:
                 allocated += info.st_blocks * 512
                 seen.add(identity)
-            if not stat.S_ISDIR(info.st_mode) and info.st_nlink > 1:
+            if not run_contents and not stat.S_ISDIR(info.st_mode) and info.st_nlink > 1:
                 reason = reason or "hardlinked_content"
-            if not (stat.S_ISDIR(info.st_mode) or stat.S_ISREG(info.st_mode) or stat.S_ISLNK(info.st_mode)):
+            if not run_contents and not (
+                stat.S_ISDIR(info.st_mode) or stat.S_ISREG(info.st_mode) or stat.S_ISLNK(info.st_mode)
+            ):
                 # Socket descriptors name kernel inodes, not filesystem paths;
                 # a cwd/FD-path scan cannot prove such an endpoint unused. Every
                 # special file keeps the tree, but a socket bound by a live
@@ -348,7 +351,7 @@ def tree_facts(path: Path, *, disposable_git: bool = False) -> tuple[int, float,
                 reason = reason or "special_file"
             if info.st_uid != os.geteuid():
                 reason = reason or "foreign_tree_owner"
-            if node.name == ".git" and not disposable_git:
+            if not run_contents and node.name == ".git":
                 reason = reason or "git_metadata"
             if info.st_dev != device or str(node) in mounts:
                 reason = reason or "mount_point"

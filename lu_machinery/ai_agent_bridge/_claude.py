@@ -217,7 +217,7 @@ def _run_claude_sync_via_runtime(
         "task_id": msg.get('task_id'),
         "mode": mode_label,
     })
-    atexit.register(_remove_pid_file, "claude", task_key)
+    atexit.register(_remove_pid_file, "claude", task_key, _config.PID_DIR)
 
     # Decide session handling
     session_id_to_pass: str | None = None

@@ -205,3 +205,17 @@ def test_exit_cleanup_removes_written_pid_file_without_state_root(tmp_path, monk
     _broker._remove_pid_file("claude", "exit-task")
 
     assert not pid_file.exists()
+
+
+def test_exit_cleanup_of_a_pid_file_never_written_uses_the_directory_fixed_at_registration(tmp_path, monkeypatch):
+    """Defect class: the atexit hook resolved the state root at interpreter exit, where it is gone, and raised
+    StateRootError ("Exception ignored in atexit callback") for a PID file this process never wrote (#100 R93-c)."""
+    pid_dir = tmp_path / "pids"
+    pid_dir.mkdir()
+    pid_file = pid_dir / "gemini-unwritten.json"
+    pid_file.write_text("{}")
+    for name in ("AB_PID_DIR", "LEARN_UKRAINIAN_PRIMARY_REPO_ROOT", "LEARN_UKRAINIAN_STATE_ROOT", "AB_REPO_ROOT",
+                 "LU_PRODUCT_ROOT"):
+        monkeypatch.delenv(name, raising=False)
+    _broker._remove_pid_file("gemini", "unwritten", pid_dir)
+    assert not pid_file.exists()
