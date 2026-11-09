@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from lu_machinery.ai_agent_bridge import _claude, _codex, _opencode
+from lu_machinery.ai_agent_bridge import _opencode
 from lu_machinery.ai_agent_bridge import _review_safety as safety
 
 
@@ -22,8 +22,6 @@ def test_review_contract_preamble_states_exact_accepted_tokens_without_own_verdi
 @pytest.mark.parametrize(
     ("ask", "kwargs"),
     (
-        (_codex.ask_codex, {"from_llm": "test"}),
-        (_claude.ask_claude, {"from_llm": "test"}),
         (_opencode.ask_glm, {"from_llm": "test"}),
     ),
 )
@@ -42,8 +40,6 @@ def test_named_transports_reject_fat_formal_review_body(ask, kwargs: dict[str, s
 @pytest.mark.parametrize(
     ("ask", "kwargs"),
     (
-        (_codex.ask_codex, {"from_llm": "test"}),
-        (_claude.ask_claude, {"from_llm": "test"}),
         (_opencode.ask_glm, {"from_llm": "test"}),
     ),
 )

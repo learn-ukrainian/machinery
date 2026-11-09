@@ -1567,10 +1567,10 @@ def _bundle_client(base_url: str, *, timeout_s: float = 3.0) -> Any:
     failover provably cannot hop hosts for bundle traffic (GH #7489 keeps this
     stricter constraint as an acceptance test).
 
-    Deferred import: a top-level import of scripts.ai_agent_bridge.monitor_client
-    would run the ai_agent_bridge package __init__, which (via _claude ->
-    _review_worktree -> scripts.review.isolation) imports back from this very
-    module — a circular import.
+    Deferred import: a top-level import of the bridge package from this module
+    would run package init while this module is still loading. The deleted
+    Claude bridge processor used to close that cycle through review isolation.
+    The import stays local so a later bridge import cannot recreate it.
     """
     from lu_machinery.ai_agent_bridge.monitor_client import MonitorClient
     return MonitorClient(base_url=_bundle_monitor_url(base_url), timeout_s=timeout_s)

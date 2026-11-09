@@ -375,11 +375,6 @@
    "sha256": "4fae900dc5e1a8cd39296c401e220ba1e078abf368ca87204e04009b213532ef"
   },
   {
-   "path": "lu_machinery/ai_agent_bridge/_claude.py",
-   "rule": "python.lang.best-practice.unspecified-open-encoding",
-   "sha256": "fc2043aaa3ffdf8e272c9cd846f0491ea7a01d1446093408b0a085b5011e8147"
-  },
-  {
    "path": "lu_machinery/ai_agent_bridge/_gemini.py",
    "rule": "python.lang.best-practice.unspecified-open-encoding",
    "sha256": "fc2043aaa3ffdf8e272c9cd846f0491ea7a01d1446093408b0a085b5011e8147"
@@ -1208,16 +1203,6 @@
    "path": "lu_machinery/ai_agent_bridge/_channels_cli.py",
    "rule": "python.lang.security.audit.dangerous-subprocess-use-audit",
    "sha256": "1a85b5222b6d93daad3ac93ba44a7fabc26895e213ccda913c45e99d255655ac"
-  },
-  {
-   "path": "lu_machinery/ai_agent_bridge/_claude.py",
-   "rule": "python.lang.security.audit.dangerous-subprocess-use-audit",
-   "sha256": "40df3946e840ff069ee93d7b0204750a9506567c490a7cf71467de05b3d759bd"
-  },
-  {
-   "path": "lu_machinery/ai_agent_bridge/_cursor.py",
-   "rule": "python.lang.security.audit.dangerous-subprocess-use-audit",
-   "sha256": "3f1653be4970296bf6168cd542a698a5661d67d0ff88508cf7f5f04e2e8320e1"
   },
   {
    "path": "lu_machinery/ai_agent_bridge/_dispatch_wrappers.py",

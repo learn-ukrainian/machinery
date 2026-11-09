@@ -27,10 +27,6 @@ from ._ask_lifecycle import (
     skip_stored_kimi_row,
 )
 from ._broker import bridge_status, broker_cleanup
-from ._codex import (
-    has_codex_headroom,
-    process_all_codex,
-)
 from ._config import BRIDGE_ENTRY, DISPATCH_ENTRY, MACHINERY_PACKAGE
 from ._db import get_db
 from ._dispatch_wrappers import (
@@ -38,9 +34,6 @@ from ._dispatch_wrappers import (
     handle_review_deep,
 )
 from ._gemini import converse_gemini
-from ._grok_build import (
-    GROK_BUILD_DEFAULT_MODEL,
-)
 from ._messaging import (
     acknowledge,
     acknowledge_all,
@@ -50,7 +43,7 @@ from ._messaging import (
     resolve_thread,
     send_message,
 )
-from ._model import check_model
+from ._model import GROK_BUILD_DEFAULT_MODEL, check_model
 from ._opencode import (
     GEMMA_MODEL,
     GLM_MODEL,
@@ -290,6 +283,54 @@ def process_all_claude(new_session: bool = False):
     print(f"📊 Results: {success} succeeded, {failed} failed, {skipped} skipped out of {len(rows)} total")
 
 
+def process_all_codex(new_session: bool = False):
+    """Process ALL unread messages for Codex in batch (ordinary rows via ACP)."""
+    conn = get_db()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT id, task_id, from_llm, message_type, substr(content, 1, 50), to_llm, data
+        FROM messages
+        WHERE to_llm = 'codex' AND acknowledged = 0
+        ORDER BY id ASC
+    """)
+
+    rows = cursor.fetchall()
+    conn.close()
+
+    if not rows:
+        print("📭 No unread messages for Codex to process")
+        return
+
+    print(f"📬 Processing {len(rows)} unread message(s) for Codex...\n")
+
+    success = 0
+    failed = 0
+    skipped = 0
+
+    for row in rows:
+        msg_id, _task_id, from_llm, _msg_type, preview, to_llm, data = row
+        preview = preview.replace("\n", " ")[:40]
+        print(f"━━━ Processing [{msg_id}] from {from_llm}: {preview}...")
+        if skip_stored_kimi_row({"to": to_llm, "data": data}, msg_id):
+            skipped += 1
+            continue
+
+        try:
+            if _process_target(msg_id, "codex", {"new_session": new_session}) is False:
+                failed += 1
+                print("    ❌ Failed (message left unconsumed)\n")
+                continue
+            success += 1
+            print("    ✅ Done\n")
+        except Exception as e:
+            failed += 1
+            print(f"    ❌ Failed: {e}\n")
+
+    print(f"\n{'═' * 50}")
+    print(f"📊 Results: {success} succeeded, {failed} failed, {skipped} skipped out of {len(rows)} total")
+
+
 def _parse_usage_window(window: str) -> int:
     """Return the reporting window in seconds."""
     windows = {
@@ -384,7 +425,16 @@ def _build_codex_usage_report(window: str, entrypoint: str) -> dict:
         bucket["avg_duration_s"] = round(float(bucket["total_duration_s"]) / count, 1) if count else 0.0
         bucket["total_duration_s"] = round(float(bucket["total_duration_s"]), 1)
 
-    has_room, headroom_reason = has_codex_headroom("gpt-6.1-sol")
+    from lu_machinery.agent_runtime.usage import has_headroom
+
+    unreadable_headroom = {"files": 0, "lines": 0, "records": 0}
+    has_room, headroom_reason = has_headroom("codex", "gpt-6.1-sol", unreadable=unreadable_headroom)
+    if any(unreadable_headroom.values()):
+        logging.getLogger(__name__).warning(
+            "Codex headroom check for %s: unreadable usage records %s",
+            "gpt-6.1-sol",
+            unreadable_headroom,
+        )
     return {
         "window": window,
         "entrypoint": entrypoint,

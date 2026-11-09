@@ -813,16 +813,6 @@
       "message": "Returning Any from function declared to return \"str\""
     },
     {
-      "path": "lu_machinery/ai_agent_bridge/_cursor.py",
-      "code": "no-any-return",
-      "message": "Returning Any from function declared to return \"int\""
-    },
-    {
-      "path": "lu_machinery/ai_agent_bridge/_cursor.py",
-      "code": "no-any-return",
-      "message": "Returning Any from function declared to return \"int\""
-    },
-    {
       "path": "lu_machinery/ai_agent_bridge/_dispatch_wrappers.py",
       "code": "no-any-return",
       "message": "Returning Any from function declared to return \"dict[str, Any]\""
@@ -831,16 +821,6 @@
       "path": "lu_machinery/ai_agent_bridge/_dispatch_wrappers.py",
       "code": "no-any-return",
       "message": "Returning Any from function declared to return \"dict[str, Any]\""
-    },
-    {
-      "path": "lu_machinery/ai_agent_bridge/_grok_build.py",
-      "code": "no-any-return",
-      "message": "Returning Any from function declared to return \"int\""
-    },
-    {
-      "path": "lu_machinery/ai_agent_bridge/_grok_build.py",
-      "code": "no-any-return",
-      "message": "Returning Any from function declared to return \"int\""
     },
     {
       "path": "lu_machinery/ai_agent_bridge/_inbox.py",

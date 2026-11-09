@@ -1008,15 +1008,14 @@ def test_sol_defaults_and_escalations_use_high_across_catalog():
 
 
 def test_live_claude_caller_defaults_are_active_catalog_models():
-    from lu_machinery.ai_agent_bridge._claude import (
-        CLAUDE_ADVISORY_MODEL,
-        CLAUDE_DEFAULT_ASK_MODEL,
-    )
+    from lu_machinery.agent_runtime.adapters.acpx import CLAUDE_ACP_MODEL, CLAUDE_ACP_OPUS_MODEL
+    from lu_machinery.agent_runtime.adapters.claude import ClaudeAdapter
     from lu_machinery.ai_llm.claude_call import CLAUDE_MODEL_LADDER
     catalog = load_model_catalog()
-    for model in (CLAUDE_DEFAULT_ASK_MODEL, CLAUDE_ADVISORY_MODEL, *CLAUDE_MODEL_LADDER):
+    for model in (CLAUDE_ACP_MODEL, CLAUDE_ACP_OPUS_MODEL, ClaudeAdapter.default_model, *CLAUDE_MODEL_LADDER):
         assert catalog["models"][model]["lifecycle"] == "active"
-    assert CLAUDE_ADVISORY_MODEL == "claude-opus-5-5"
+    assert CLAUDE_ACP_MODEL == ClaudeAdapter.default_model == "claude-sonnet-5-5"
+    assert CLAUDE_ACP_OPUS_MODEL == "claude-opus-5-5"
 
 
 def test_primary_cannot_follow_last_resort_even_if_quality_is_equal():

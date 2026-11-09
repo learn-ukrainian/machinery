@@ -2388,37 +2388,6 @@
     "scripts/ai_agent_bridge/_ask_lifecycle.py [present: present on machinery main as lu_machinery/ai_agent_bridge/_ask_lifecycle.py]"
    ]
   },
-  "tests/ai_agent_bridge/test_claude_advisory_routing.py": {
-   "disposition": "port-first",
-   "evidence": "machinery-only subject references; subjects scripts.ai_agent_bridge._claude; 2 of 2 test IDs lack a machinery v0.1.0 replacement",
-   "lu_test_ids": 2,
-   "missing_behaviours": [
-    "test_advisory_defaults_to_opus",
-    "test_advisory_rejects_sonnet_substitution"
-   ],
-   "ownership": "machinery",
-   "ported_to": "tests/ai_agent_bridge/test_claude_advisory_routing.py",
-   "subject_status": "SUBJECT-PRESENT",
-   "subjects": [
-    "scripts.ai_agent_bridge._claude [present: present on machinery main as lu_machinery/ai_agent_bridge/_claude.py]"
-   ]
-  },
-  "tests/ai_agent_bridge/test_claude_review_worktree.py": {
-   "disposition": "port-first",
-   "evidence": "machinery-only subject references; subjects scripts.agent_runtime.result, scripts.ai_agent_bridge._claude, scripts.ai_agent_bridge._review_worktree; 1 of 1 test IDs lack a machinery v0.1.0 replacement",
-   "lu_test_ids": 1,
-   "missing_behaviours": [
-    "test_claude_branch_review_invokes_from_provisioned_checkout"
-   ],
-   "ownership": "machinery",
-   "ported_to": "tests/ai_agent_bridge/test_claude_review_worktree.py",
-   "subject_status": "SUBJECT-PRESENT",
-   "subjects": [
-    "scripts.agent_runtime.result [present: present on machinery main as lu_machinery/agent_runtime/result.py]",
-    "scripts.ai_agent_bridge._claude [present: present on machinery main as lu_machinery/ai_agent_bridge/_claude.py]",
-    "scripts.ai_agent_bridge._review_worktree [present: present on machinery main as lu_machinery/ai_agent_bridge/_review_worktree.py]"
-   ]
-  },
   "tests/ai_agent_bridge/test_codex_rollout_readiness.py": {
    "disposition": "port-first",
    "evidence": "machinery-only subject references; subjects scripts.ai_agent_bridge._ui_codex; 17 of 17 test IDs lack a machinery v0.1.0 replacement",
@@ -19180,30 +19149,6 @@
    "evidence": "product subject reference; subjects scripts.project_api.artifacts_router, scripts.project_api.site_router",
    "ownership": "product"
   },
-  "tests/test_ask_cursor.py": {
-   "disposition": "port-first",
-   "evidence": "machinery-only subject references; subjects scripts.agent_runtime.adapters.claude._default_claude_bin, scripts.agent_runtime.adapters.cursor, scripts.ai_agent_bridge._cursor (+3); pkg3 switch regressions 7; 8 of 8 test IDs lack a machinery v0.1.0 replacement",
-   "lu_test_ids": 8,
-   "missing_behaviours": [
-    "test_ask_cursor_refuses_explicit_auto_before_any_send",
-    "test_ask_cursor_regression_wire_normalization",
-    "test_invoke_cursor_attaches_data_file",
-    "test_invoke_cursor_constructs_correct_argv",
-    "test_invoke_cursor_raises_on_nonzero_exit",
-    "test_invoke_cursor_raises_when_binary_missing",
-    "test_invoke_cursor_refuses_non_pinned_models_before_spawn",
-    "test_large_prepared_prompt_avoids_e2big_and_reaches_non_tty_stdin"
-   ],
-   "ownership": "machinery",
-   "ported_to": "tests/agent_runtime/test_ask_cursor.py",
-   "subject_status": "SUBJECT-PRESENT",
-   "subjects": [
-    "scripts.agent_runtime.adapters.claude [present: present on machinery main as lu_machinery/agent_runtime/adapters/claude.py]",
-    "scripts.agent_runtime.adapters.cursor [present: present on machinery main as lu_machinery/agent_runtime/adapters/cursor.py]",
-    "scripts.ai_agent_bridge._cursor [present: present on machinery main as lu_machinery/ai_agent_bridge/_cursor.py]",
-    "scripts.lib.rules_core [present: present on machinery main as lu_machinery/lib/rules_core.py]"
-   ]
-  },
   "tests/test_ask_gemma.py": {
    "disposition": "port-first",
    "evidence": "machinery-only subject references; subjects scripts.ai_agent_bridge._opencode, scripts.ai_agent_bridge._opencode.send_message, scripts.ai_agent_bridge._opencode.subprocess.run; pkg3 switch regressions 2; 2 of 2 test IDs lack a machinery v0.1.0 replacement",
@@ -21303,39 +21248,6 @@
     "scripts.bench.writer_matrix [present: present on machinery main as lu_machinery/bench/writer_matrix.py]"
    ],
    "ported_to": "tests/bench/test_cli_tail_timeouts.py"
-  },
-  "tests/test_codex_bridge.py": {
-   "disposition": "port-first",
-   "evidence": "machinery-only subject references; subjects scripts.agent_runtime.adapters.codex, scripts.agent_runtime.errors, scripts.agent_runtime.result (+18); pkg3 switch regressions 10; pkg3 isolation-only failures 1; 11 of 11 test IDs lack a machinery v0.1.0 replacement",
-   "lu_test_ids": 11,
-   "missing_behaviours": [
-    "test_codex_adapter_reads_session_id_from_its_event_stream",
-    "test_codex_branch_review_invokes_from_provisioned_checkout",
-    "test_codex_bridge_runtime_mode_invalid_mode_falls_back_read_only",
-    "test_codex_usage_cli_reports_counts",
-    "test_legacy_callable_rejects_old_model_before_message_creation",
-    "test_other_errors_leave_inbound_unconsumed",
-    "test_process_for_codex_invokes_runtime_with_bridge_shape",
-    "test_process_for_codex_new_session_starts_cold_even_when_session_exists",
-    "test_process_for_codex_short_circuits_when_no_headroom",
-    "test_rate_limit_error_defers_message",
-    "test_stale_queued_model_returns_error_before_headroom_or_invoke"
-   ],
-   "ownership": "machinery",
-   "ported_to": "tests/agent_runtime/test_codex_bridge.py",
-   "subject_status": "SUBJECT-PRESENT",
-   "subjects": [
-    "scripts.agent_runtime.adapters.codex [present: present on machinery main as lu_machinery/agent_runtime/adapters/codex.py]",
-    "scripts.agent_runtime.errors [present: present on machinery main as lu_machinery/agent_runtime/errors.py]",
-    "scripts.agent_runtime.result [present: present on machinery main as lu_machinery/agent_runtime/result.py]",
-    "scripts.agent_runtime.runner [present: present on machinery main as lu_machinery/agent_runtime/runner.py]",
-    "scripts.agent_runtime.usage [present: present on machinery main as lu_machinery/agent_runtime/usage.py]",
-    "scripts.ai_agent_bridge._cli [present: present on machinery main as lu_machinery/ai_agent_bridge/_cli.py]",
-    "scripts.ai_agent_bridge._codex [present: present on machinery main as lu_machinery/ai_agent_bridge/_codex.py]",
-    "scripts.ai_agent_bridge._db [present: present on machinery main as lu_machinery/ai_agent_bridge/_db.py]",
-    "scripts.ai_agent_bridge._messaging [present: present on machinery main as lu_machinery/ai_agent_bridge/_messaging.py]",
-    "scripts.ai_agent_bridge._review_worktree [present: present on machinery main as lu_machinery/ai_agent_bridge/_review_worktree.py]"
-   ]
   },
   "tests/test_codex_hooks_contract.py": {
    "disposition": "keep",
@@ -25712,29 +25624,6 @@
     "scripts.agent_runtime.failover [present: present on machinery main as lu_machinery/agent_runtime/failover.py]",
     "scripts.agent_runtime.registry [present: present on machinery main as lu_machinery/agent_runtime/registry.py]",
     "scripts.review.isolation [present: present on machinery main as lu_machinery/review/isolation.py]"
-   ]
-  },
-  "tests/test_grok_build_bridge.py": {
-   "disposition": "port-first",
-   "evidence": "machinery-only subject references; subjects scripts.ai_agent_bridge._acp_compat, scripts.ai_agent_bridge._cli, scripts.ai_agent_bridge._grok_build (+1); pkg3 switch regressions 5; 7 of 7 test IDs lack a machinery v0.1.0 replacement",
-   "lu_test_ids": 7,
-   "missing_behaviours": [
-    "test_ask_grok_build_parser_accepts_first_class_args",
-    "test_ask_grok_build_review_flag_runs_as_normal_ask",
-    "test_grok_build_branch_review_uses_provisioned_checkout",
-    "test_grok_cancelled_turn_is_typed_error_with_banner",
-    "test_grok_completed_turn_keeps_normal_response",
-    "test_grok_missing_trace_is_typed_error_with_banner",
-    "test_process_grok_build_invokes_native_registry_key"
-   ],
-   "ownership": "machinery",
-   "ported_to": "tests/ai_agent_bridge/test_grok_build_bridge.py",
-   "subject_status": "SUBJECT-PRESENT",
-   "subjects": [
-    "scripts.ai_agent_bridge._acp_compat [present: present on machinery main as lu_machinery/ai_agent_bridge/_acp_compat.py]",
-    "scripts.ai_agent_bridge._cli [present: present on machinery main as lu_machinery/ai_agent_bridge/_cli.py]",
-    "scripts.ai_agent_bridge._grok_build [present: present on machinery main as lu_machinery/ai_agent_bridge/_grok_build.py]",
-    "scripts.ai_agent_bridge._review_worktree [present: present on machinery main as lu_machinery/ai_agent_bridge/_review_worktree.py]"
    ]
   },
   "tests/test_grok_integration.py": {
@@ -36288,14 +36177,14 @@
  "summary": {
   "all_files": {
    "machinery/delete-at-switch": 3,
-   "machinery/port-first": 733,
+   "machinery/port-first": 728,
    "product/keep": 1944
   },
   "delete_at_switch_replacement_ids": 56,
-  "port_first_python_test_names": 9977,
+  "port_first_python_test_names": 9948,
   "python_files": {
    "machinery/delete-at-switch": 3,
-   "machinery/port-first": 712,
+   "machinery/port-first": 707,
    "product/keep": 1511
   }
  }

@@ -10,7 +10,6 @@ import pytest
 from lu_machinery.ai_agent_bridge import (
     _ask_lifecycle,
     _broker,
-    _claude,
     _config,
     _gemini,
     _reply_sidecar,
@@ -62,7 +61,7 @@ def test_reply_and_ask_files_are_written_only_to_state(roots, monkeypatch):
     assert (product / same_root.sidecar_path).is_file()
 
 
-@pytest.mark.parametrize("kind", ["ask", "claude", "gemini"])
+@pytest.mark.parametrize("kind", ["ask", "gemini"])
 def test_background_logs_use_state_but_child_cwd_stays_product(roots, monkeypatch, kind):
     product, state = roots
     captured = []
@@ -76,16 +75,12 @@ def test_background_logs_use_state_but_child_cwd_stays_product(roots, monkeypatc
     monkeypatch.setattr(subprocess, "Popen", popen)
     monkeypatch.setenv("LEARN_UKRAINIAN_PYTHON", sys.executable)
     monkeypatch.setattr(_config, "_PARENT_ENV", {})
-    for module in (_claude, _gemini):
-        monkeypatch.setattr(module, "_is_task_locked", lambda *args: False)
+    monkeypatch.setattr(_gemini, "_is_task_locked", lambda *args: False)
     monkeypatch.setattr(_ask_lifecycle, "_load_ask_row", lambda message_id: None)
     monkeypatch.setattr(_ask_lifecycle, "_confirm_worker_started", lambda *args: True)
     if kind == "ask":
         _ask_lifecycle.launch_background_ask(42, "claude", {})
         log_name = "ask-42.log"
-    elif kind == "claude":
-        _claude._launch_claude_background({"task_id": "root-proof"}, 42, False)
-        log_name = "claude-root-proof.log"
     else:
         _gemini._launch_gemini_background({"task_id": "root-proof"}, 42, "test-model", "test", auth_mode=None)
         log_name = "gemini-root-proof.log"
@@ -139,13 +134,12 @@ for name in modules:
         importlib.import_module("lu_machinery.agent_runtime.acpx_discuss")
         importlib.import_module("lu_machinery.agent_runtime.lane_probe")
         importlib.import_module("lu_machinery.agent_runtime.trail_isolation")
-from lu_machinery.ai_agent_bridge import _claude, _gemini
+from lu_machinery.ai_agent_bridge import _gemini
 from lu_machinery.agent_runtime import runner
 from lu_machinery.agent_runtime.adapters.claude import ClaudeAdapter
 from lu_machinery.agent_runtime.errors import AgentTimeoutError
-assert _claude.runtime_invoke is runner.invoke
 assert _gemini.runtime_invoke is runner.invoke
-assert _claude.AgentTimeoutError is AgentTimeoutError
+assert _gemini.AgentTimeoutError is AgentTimeoutError
 assert importlib.import_module("agent_runtime.redact").CONSUMER is True
 assert "common.repo_root" not in sys.modules
 assert sys.path == before

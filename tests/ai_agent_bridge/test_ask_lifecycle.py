@@ -341,51 +341,6 @@ def test_message_plane_import_error_fail_open(bridge_db, monkeypatch, tmp_path):
     assert _status(message_id) == f"replied:{reply_id}"
 
 
-def test_ask_reply_remains_unacked_for_requester(bridge_db, monkeypatch):
-    """Ask reply message must remain unacknowledged (acknowledged=0) for the requester (#5773)."""
-    ask_id = send_message(
-        "Please review this PR",
-        task_id="task-5773",
-        msg_type="query",
-        from_llm="codex",
-        to_llm="claude",
-        quiet=True,
-    )
-    lifecycle.register_ask(ask_id)
-
-    mock_result = Mock(
-        ok=True,
-        response="VERDICT: APPROVED\n\nLooks good.",
-        model="claude-sonnet-5",
-        effort=None,
-    )
-    mock_invoke = Mock(return_value=mock_result)
-    monkeypatch.setattr("lu_machinery.ai_agent_bridge._claude.runtime_invoke", mock_invoke)
-
-    from lu_machinery.ai_agent_bridge._claude import process_for_claude
-
-    process_for_claude(ask_id)
-    assert mock_invoke.call_args.kwargs["tool_config"]["reviewer_tools"] is True
-
-    conn = get_db()
-    try:
-        # Outbound ask message TO claude IS acknowledged by worker
-        ask_row = conn.execute("SELECT acknowledged FROM messages WHERE id = ?", (ask_id,)).fetchone()
-        assert ask_row is not None
-        assert ask_row[0] == 1
-
-        # Inbound reply message TO codex IS NOT acknowledged (acknowledged=0)
-        reply_row = conn.execute(
-            "SELECT id, acknowledged, from_llm, to_llm FROM messages WHERE to_llm = 'codex' AND task_id = 'task-5773'"
-        ).fetchone()
-        assert reply_row is not None
-        assert reply_row[1] == 0
-        assert reply_row[2] == "claude"
-        assert reply_row[3] == "codex"
-    finally:
-        conn.close()
-
-
 def test_watchdog_refires_dead_worker_without_clean_terminal_once(bridge_db, monkeypatch, tmp_path, configured_roots):
     """A dead background ask worker with no reply and no clean terminal gets auto-retried once (#5893)."""
     message_id = _send_ask("task-watchdog-1", target="grok")
@@ -629,54 +584,8 @@ def test_atomic_retry_claim_prevents_concurrent_refire(bridge_db, monkeypatch, t
     assert lifecycle._re_fire_ask(message_id) is False
 
 
-def test_cancel_and_retell_native_grok_permission_cancelled(bridge_db, monkeypatch, tmp_path, configured_roots):
-    """A native Grok turn ending in permission_cancelled auto-retries once with refusal reason (#5893)."""
-    from lu_machinery.ai_agent_bridge import _grok_build
-
-    monkeypatch.setenv("AB_REPO_ROOT", str(tmp_path))
-
-    message_id = _send_ask("task-cancel-retell", target="grok")
-
-    mock_invoke_1 = Mock(ok=True, response="I tried running a shell command.", model="grok-3", effort="medium", session_id="session-123")
-    mock_invoke_2 = Mock(ok=True, response="Answer based on file content only.", model="grok-3", effort="medium", session_id="session-123")
-
-    invokes = [mock_invoke_1, mock_invoke_2]
-    prompts_captured = []
-
-    def fake_invoke(*args, **kwargs):
-        prompts_captured.append(args[1])
-        return invokes.pop(0)
-
-    monkeypatch.setattr(_grok_build.agent_runner, "invoke", fake_invoke)
-    monkeypatch.setattr(
-        _grok_build,
-        "_native_grok_turn_status",
-        Mock(
-            side_effect=[
-                {"outcome": "cancelled", "cancellation_category": "permission_cancelled"},
-                {"outcome": "completed", "cancellation_category": None},
-            ]
-        ),
-    )
-
-    _grok_build.process_for_grok_build(message_id)
-
-    assert len(prompts_captured) == 2
-    assert "[Previous turn cancelled by permission policy]: Tool call permission cancelled" in prompts_captured[1]
-
-    conn = get_db()
-    try:
-        row = conn.execute("SELECT data FROM messages WHERE message_type = 'response' AND task_id = 'task-cancel-retell'").fetchone()
-        assert row is not None
-        meta = json.loads(row[0])
-        assert meta.get("cancel_retried") is True
-    finally:
-        conn.close()
-
-
 def test_cancel_and_retell_composes_with_watchdog_within_bound(bridge_db, monkeypatch, tmp_path):
     """Total automatic re-fires for one ask never exceed MAX_TOTAL_ASK_RETRIES = 2 (#5893)."""
-    from lu_machinery.ai_agent_bridge import _grok_build
     from lu_machinery.ai_agent_bridge._ask_contract import MAX_TOTAL_ASK_RETRIES
 
     assert MAX_TOTAL_ASK_RETRIES == 2
@@ -694,9 +603,6 @@ def test_cancel_and_retell_composes_with_watchdog_within_bound(bridge_db, monkey
         conn.close()
 
     assert lifecycle.should_auto_retry_ask(message_id) is False
-
-    msg = lifecycle.fetch_ask_message(message_id, "grok")
-    assert _grok_build._can_cancel_retry(msg) is False
 
 
 def test_re_fire_ask_inner_claim_admits_exactly_one_caller(bridge_db, monkeypatch, tmp_path, configured_roots):
