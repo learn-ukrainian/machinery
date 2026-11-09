@@ -255,6 +255,11 @@ def test_lock_hash_matches_hashfiles(tmp_path) -> None:
     lock.write_bytes(b"pytest==9.1.1\n")
     # hashFiles(): SHA-256 of the file's SHA-256 digest, not of the content itself.
     assert lock_hash(lock) == "40a2641f12d28fada89c7c544883666ff71a12f955f2776295959fdf98124d4e"
+    second = tmp_path / "requirements-machinery.lock"
+    second.write_bytes(b"httpx2==2.16.0\n")
+    # Match order is the composite: requirements-lock.txt, then requirements-machinery.lock.
+    assert lock_hash(lock, second) == "9bb2c6241a3fb9f7f222c6c265c0e71f21c1edeb2044facbaeaeda2b3b27e358"
+    assert lock_hash(second, lock) == "34d7b5e2da5a2b8fba0d91dd8f466ec18865aa84a1532f6f5b7b0f5ae2456c13"
 
 
 def test_delete_entries_tolerates_already_gone_and_reports_failures() -> None:
