@@ -436,7 +436,7 @@ jobs:
           env -i PATH="/usr/bin:/bin:$toolchain" HOME="$work/home" TMPDIR="$work/tmp" LU_TEST_WHEEL="$LU_TEST_WHEEL" \
             LEARN_UKRAINIAN_PYTHON="$venv/bin/python" \
             "$venv/bin/python" -I -B "$runner" "$work/record.json" \
-            -n auto --max-worker-restart=0 -p no:cacheprovider --rootdir="$PWD" \
+            -n logical --max-worker-restart=0 -p no:cacheprovider --rootdir="$PWD" \
             -o addopts= -o timeout=120 -o timeout_method=thread -o faulthandler_timeout=0 \
             -W ignore::DeprecationWarning -rfEs --tb=short "${files[@]}"
           rc=$?
