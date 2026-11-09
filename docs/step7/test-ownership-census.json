@@ -9799,7 +9799,8 @@
     "scripts.fleet.agy_failure_tally [present: present on machinery main as lu_machinery/fleet/agy_failure_tally.py]",
     "scripts.review.review_contract [present: present on machinery main as lu_machinery/review/review_contract.py]",
     "scripts/agent_runtime/secret_print_hook.py [present: present on machinery main as lu_machinery/agent_runtime/secret_print_hook.py]"
-   ]
+   ],
+   "residual_id": "PORT-1108-T6-R4"
   },
   "tests/fleet/test_capacity_pick.py": {
    "disposition": "port-first",
@@ -9815,7 +9816,8 @@
     "scripts.api.subscription_usage [present: present on machinery main as lu_machinery/api/subscription_usage.py]",
     "scripts.fleet.capacity_pick [present: present on machinery main as lu_machinery/fleet/capacity_pick.py]",
     "scripts.fleet.usage [present: present on machinery main as lu_machinery/fleet/usage.py]"
-   ]
+   ],
+   "ported_to": "tests/fleet/test_capacity_pick.py"
   },
   "tests/fleet/test_capacity_pick_resource_policy.py": {
    "disposition": "port-first",
@@ -9829,7 +9831,8 @@
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.fleet.capacity_pick [present: present on machinery main as lu_machinery/fleet/capacity_pick.py]"
-   ]
+   ],
+   "ported_to": "tests/fleet/test_capacity_pick_resource_policy.py"
   },
   "tests/fleet/test_grok_product_usage.py": {
    "disposition": "port-first",
@@ -9848,7 +9851,8 @@
     "scripts.api.state_router [present: present on machinery main as lu_machinery/api/state_router.py]",
     "scripts.api.subscription_usage [present: present on machinery main as lu_machinery/api/subscription_usage.py]",
     "scripts.fleet.usage [present: present on machinery main as lu_machinery/fleet/usage.py]"
-   ]
+   ],
+   "ported_to": "tests/fleet/test_grok_product_usage.py"
   },
   "tests/fleet/test_ignored_task_output.py": {
    "disposition": "port-first",
@@ -9891,7 +9895,8 @@
     "scripts/deploy/prepare_atlas_runtime_release.py [present: product-owned in LU]",
     "site/src/data/lexicon-manifest.fingerprint.json [present: product-owned in LU]",
     "tasks [present: product-owned in LU]"
-   ]
+   ],
+   "residual_id": "PORT-1108-T6-R5"
   },
   "tests/fleet/test_pr_owner_check.py": {
    "disposition": "port-first",
@@ -9924,7 +9929,8 @@
     "scripts.dispatcher.worker [present: present on machinery main as lu_machinery/dispatcher/worker.py]",
     "scripts.fleet.pr_owner_check [present: present on machinery main as lu_machinery/fleet/pr_owner_check.py]",
     "scripts.orchestration.fleet_repos [present: present on machinery main as lu_machinery/orchestration/fleet_repos.py]"
-   ]
+   ],
+   "ported_to": "tests/fleet/test_pr_owner_check.py"
   },
   "tests/fleet/test_quota_history.py": {
    "disposition": "port-first",
@@ -9981,7 +9987,8 @@
     "scripts.api.state_router [present: present on machinery main as lu_machinery/api/state_router.py]",
     "scripts.fleet [present: present on machinery main as lu_machinery/fleet/__init__.py]",
     "scripts.fleet.quota_history [present: present on machinery main as lu_machinery/fleet/quota_history.py]"
-   ]
+   ],
+   "ported_to": "tests/fleet/test_quota_history.py"
   },
   "tests/fleet/test_reaper_regenerable_cap.py": {
    "disposition": "port-first",
@@ -10028,7 +10035,8 @@
     "scripts/deploy/prepare_atlas_runtime_release.py [present: product-owned in LU]",
     "site/src/data/lexicon-manifest.fingerprint.json [present: product-owned in LU]",
     "tasks [present: product-owned in LU]"
-   ]
+   ],
+   "residual_id": "PORT-1108-T6-R6"
   },
   "tests/fleet/test_regenerable_output.py": {
    "disposition": "port-first",
@@ -10086,7 +10094,8 @@
     "scripts/deploy/prepare_atlas_runtime_release.py [present: product-owned in LU]",
     "site/src/data/lexicon-manifest.fingerprint.json [present: product-owned in LU]",
     "tasks [present: product-owned in LU]"
-   ]
+   ],
+   "residual_id": "PORT-1108-T6-R7"
   },
   "tests/fleet/test_regenerable_release_output.py": {
    "disposition": "keep",
@@ -10107,7 +10116,8 @@
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.fleet.routing_policy [present: present on machinery main as lu_machinery/fleet/routing_policy.py]"
-   ]
+   ],
+   "ported_to": "tests/fleet/test_routing_policy.py"
   },
   "tests/fleet/test_terminal_abandon.py": {
    "disposition": "port-first",
@@ -10172,7 +10182,8 @@
     "scripts/deploy/prepare_atlas_runtime_release.py [present: product-owned in LU]",
     "site/src/data/lexicon-manifest.fingerprint.json [present: product-owned in LU]",
     "tasks [present: product-owned in LU]"
-   ]
+   ],
+   "residual_id": "PORT-1108-T6-R8"
   },
   "tests/fleet/test_terminal_abandon_10624.py": {
    "disposition": "port-first",
@@ -10238,7 +10249,8 @@
     "scripts/deploy/prepare_atlas_runtime_release.py [present: product-owned in LU]",
     "site/src/data/lexicon-manifest.fingerprint.json [present: product-owned in LU]",
     "tasks [present: product-owned in LU]"
-   ]
+   ],
+   "residual_id": "PORT-1108-T6-R9"
   },
   "tests/fleet/test_terminal_abandon_bundle.py": {
    "disposition": "port-first",
@@ -10295,7 +10307,8 @@
     "scripts/deploy/prepare_atlas_runtime_release.py [present: product-owned in LU]",
     "site/src/data/lexicon-manifest.fingerprint.json [present: product-owned in LU]",
     "tasks [present: product-owned in LU]"
-   ]
+   ],
+   "residual_id": "PORT-1108-T6-R10"
   },
   "tests/fleet/test_usage_cli.py": {
    "disposition": "port-first",
@@ -10330,7 +10343,8 @@
     "scripts.api.subscription_usage [present: present on machinery main as lu_machinery/api/subscription_usage.py]",
     "scripts.fleet.prepaid_status [present: present on machinery main as lu_machinery/fleet/prepaid_status.py]",
     "scripts.fleet.usage [present: present on machinery main as lu_machinery/fleet/usage.py]"
-   ]
+   ],
+   "ported_to": "tests/fleet/test_usage_cli.py"
   },
   "tests/fleet_board_home.test.cjs": {
    "disposition": "keep",
@@ -10370,7 +10384,8 @@
     "scripts.fleet_comms.artifacts [present: present on machinery main as lu_machinery/fleet_comms/artifacts.py]",
     "scripts.fleet_comms.authority [present: present on machinery main as lu_machinery/fleet_comms/authority.py]",
     "scripts.fleet_comms.cli [present: present on machinery main as lu_machinery/fleet_comms/cli.py]"
-   ]
+   ],
+   "ported_to": "tests/fleet_comms/test_artifacts_byteplane_integrity.py"
   },
   "tests/fleet_comms/test_artifacts_pg_byte_plane.py": {
    "disposition": "port-first",
@@ -10389,7 +10404,8 @@
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.fleet_comms.artifacts [present: present on machinery main as lu_machinery/fleet_comms/artifacts.py]"
-   ]
+   ],
+   "residual_id": "PORT-1108-T6-R1"
   },
   "tests/fleet_comms/test_artifacts_pg_transactions.py": {
    "disposition": "port-first",
@@ -10408,7 +10424,8 @@
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.fleet_comms.artifacts [present: present on machinery main as lu_machinery/fleet_comms/artifacts.py]"
-   ]
+   ],
+   "residual_id": "PORT-1108-T6-R2"
   },
   "tests/fleet_comms/test_cold_start_board.py": {
    "disposition": "port-first",
@@ -10442,7 +10459,8 @@
     "agents_extensions.shared.session_streams.handoff [present: moved: agents_extensions/shared/session_streams/handoff.py -> lu_machinery/session_streams/handoff.py (00d92c9); git log --follow --diff-filter=R: 00d92c9]",
     "scripts.fleet_comms.cli [present: present on machinery main as lu_machinery/fleet_comms/cli.py]",
     "scripts.fleet_comms.cold_start_board [present: present on machinery main as lu_machinery/fleet_comms/cold_start_board.py]"
-   ]
+   ],
+   "ported_to": "tests/fleet_comms/test_cold_start_board.py"
   },
   "tests/fleet_comms/test_cto_recipient.py": {
    "disposition": "port-first",
@@ -10459,7 +10477,8 @@
    "subjects": [
     "scripts.fleet_comms.authority [present: present on machinery main as lu_machinery/fleet_comms/authority.py]",
     "scripts.fleet_comms.cli [present: present on machinery main as lu_machinery/fleet_comms/cli.py]"
-   ]
+   ],
+   "ported_to": "tests/fleet_comms/test_cto_recipient.py"
   },
   "tests/fleet_comms/test_delivery_cli.py": {
    "disposition": "port-first",
@@ -10494,7 +10513,8 @@
     "scripts.fleet_comms [present: present on machinery main as lu_machinery/fleet_comms/__init__.py]",
     "scripts.fleet_comms.authority [present: present on machinery main as lu_machinery/fleet_comms/authority.py]",
     "scripts.fleet_comms.cli [present: present on machinery main as lu_machinery/fleet_comms/cli.py]"
-   ]
+   ],
+   "ported_to": "tests/fleet_comms/test_delivery_cli.py"
   },
   "tests/fleet_comms/test_efficiency_metrics_authority.py": {
    "disposition": "port-first",
@@ -10523,7 +10543,8 @@
     "scripts.fleet_comms.cli [present: present on machinery main as lu_machinery/fleet_comms/cli.py]",
     "scripts.fleet_comms.efficiency_metrics [present: present on machinery main as lu_machinery/fleet_comms/efficiency_metrics.py]",
     "scripts.fleet_comms.opsec_store [present: present on machinery main as lu_machinery/fleet_comms/opsec_store.py]"
-   ]
+   ],
+   "ported_to": "tests/fleet_comms/test_efficiency_metrics_authority.py"
   },
   "tests/fleet_comms/test_pg_schema_ledger.py": {
    "disposition": "keep",
@@ -10545,7 +10566,8 @@
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.fleet_comms.request_executor [present: present on machinery main as lu_machinery/fleet_comms/request_executor.py]"
-   ]
+   ],
+   "ported_to": "tests/fleet_comms/test_request_executor_exactly_once.py"
   },
   "tests/fleet_comms/test_request_executor_pg.py": {
    "disposition": "port-first",
@@ -10568,7 +10590,8 @@
     "scripts.fleet_comms.artifacts [present: present on machinery main as lu_machinery/fleet_comms/artifacts.py]",
     "scripts.fleet_comms.message_plane [present: present on machinery main as lu_machinery/fleet_comms/message_plane.py]",
     "scripts.fleet_comms.request_executor [present: present on machinery main as lu_machinery/fleet_comms/request_executor.py]"
-   ]
+   ],
+   "residual_id": "PORT-1108-T6-R3"
   },
   "tests/gemini-mmlu-generator-prompt.md": {
    "disposition": "keep",
@@ -17911,7 +17934,8 @@
     "scripts/fleet/sibling_git.py [present: present on machinery main as lu_machinery/fleet/sibling_git.py]",
     "scripts/guardrails/worktree_containment.py [present: present on machinery main as lu_machinery/guardrails/worktree_containment.py]",
     "tasks [present: product-owned in LU]"
-   ]
+   ],
+   "ported_to": "tests/fleet/test_agent_github_identity.py"
   },
   "tests/test_agent_monitor_router.py": {
    "disposition": "port-first",
@@ -19488,7 +19512,8 @@
     "scripts.fleet.usage [present: present on machinery main as lu_machinery/fleet/usage.py]",
     "scripts.orchestration.admission_shadow [present: present on machinery main as lu_machinery/orchestration/admission_shadow.py]",
     "scripts.orchestration.dispatch_admission [present: present on machinery main as lu_machinery/orchestration/dispatch_admission.py]"
-   ]
+   ],
+   "ported_to": "tests/fleet/test_capacity_pick_root.py"
   },
   "tests/test_catalog_retirement_11327.py": {
    "disposition": "port-first",
@@ -21879,7 +21904,8 @@
     "scripts/fleet/idle_settle.py [present: present on machinery main as lu_machinery/fleet/idle_settle.py]",
     "scripts/orchestration/curriculum_coordinator.py [present: present on machinery main as lu_machinery/orchestration/curriculum_coordinator.py]",
     "scripts/review/reviewer_scheduler.py [present: present on machinery main as lu_machinery/review/reviewer_scheduler.py]"
-   ]
+   ],
+   "ported_to": "tests/fleet/test_credit_lane.py"
   },
   "tests/test_curated_membership.py": {
    "disposition": "keep",
@@ -21953,7 +21979,8 @@
    "subjects": [
     "scripts.fleet.claude_account_lane [present: present on machinery main as lu_machinery/fleet/claude_account_lane.py]",
     "scripts.review.reviewer_resolver [present: present on machinery main as lu_machinery/review/reviewer_resolver.py]"
-   ]
+   ],
+   "ported_to": "tests/fleet/test_cursor_cf_identity.py"
   },
   "tests/test_cursor_cold_start.py": {
    "disposition": "port-first",
@@ -22110,7 +22137,8 @@
     "scripts.fleet.capacity_pick [present: present on machinery main as lu_machinery/fleet/capacity_pick.py]",
     "scripts.fleet.usage [present: present on machinery main as lu_machinery/fleet/usage.py]",
     "scripts.orchestration.dispatch_admission [present: present on machinery main as lu_machinery/orchestration/dispatch_admission.py]"
-   ]
+   ],
+   "ported_to": "tests/fleet/test_delegate_admission.py"
   },
   "tests/test_delegate_api.py": {
    "disposition": "port-first",
@@ -23134,7 +23162,8 @@
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.fleet.driver_breadth_report [present: present on machinery main as lu_machinery/fleet/driver_breadth_report.py]"
-   ]
+   ],
+   "ported_to": "tests/fleet/test_driver_breadth_report.py"
   },
   "tests/test_driver_state.py": {
    "disposition": "keep",
@@ -23490,7 +23519,8 @@
     "scripts.fleet_comms.migrations [present: present on machinery main as lu_machinery/fleet_comms/migrations.py]",
     "scripts.fleet_comms.review_publisher [present: present on machinery main as lu_machinery/fleet_comms/review_publisher.py]",
     "scripts.fleet_comms.routing_reservations [present: present on machinery main as lu_machinery/fleet_comms/routing_reservations.py]"
-   ]
+   ],
+   "ported_to": "tests/fleet_comms/test_fleet_comms_authority_cutover.py"
   },
   "tests/test_fleet_comms_b2.py": {
    "disposition": "port-first",
@@ -23525,7 +23555,8 @@
    "subjects": [
     "scripts.fleet_comms.adapter_conformance [present: present on machinery main as lu_machinery/fleet_comms/adapter_conformance.py]",
     "scripts.fleet_comms.contracts [present: present on machinery main as lu_machinery/fleet_comms/contracts.py]"
-   ]
+   ],
+   "ported_to": "tests/fleet_comms/test_fleet_comms_b2.py"
   },
   "tests/test_fleet_comms_bottleneck_alerts.py": {
    "disposition": "port-first",
@@ -23583,7 +23614,8 @@
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.fleet_comms.efficiency_metrics [present: present on machinery main as lu_machinery/fleet_comms/efficiency_metrics.py]"
-   ]
+   ],
+   "ported_to": "tests/fleet_comms/test_fleet_comms_bottleneck_metrics.py"
   },
   "tests/test_fleet_comms_cli.py": {
    "disposition": "port-first",
@@ -23618,7 +23650,8 @@
     "scripts.fleet_comms.migrations [present: present on machinery main as lu_machinery/fleet_comms/migrations.py]",
     "scripts.fleet_comms.paths [present: present on machinery main as lu_machinery/fleet_comms/paths.py]",
     "unresolved: computed setattr target f'scripts.fleet_comms.cli.{handler_name}'"
-   ]
+   ],
+   "ported_to": "tests/fleet_comms/test_fleet_comms_cli.py"
   },
   "tests/test_fleet_comms_contracts.py": {
    "disposition": "port-first",
@@ -23638,7 +23671,8 @@
     "scripts.fleet_comms.contracts [present: present on machinery main as lu_machinery/fleet_comms/contracts.py]",
     "scripts.fleet_comms.endpoints [present: present on machinery main as lu_machinery/fleet_comms/endpoints.py]",
     "scripts.fleet_comms.migrations [present: present on machinery main as lu_machinery/fleet_comms/migrations.py]"
-   ]
+   ],
+   "ported_to": "tests/fleet_comms/test_fleet_comms_contracts.py"
   },
   "tests/test_fleet_comms_fleet_progress.py": {
    "disposition": "port-first",
@@ -23652,7 +23686,8 @@
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.fleet_comms.cli [present: present on machinery main as lu_machinery/fleet_comms/cli.py]"
-   ]
+   ],
+   "ported_to": "tests/fleet_comms/test_fleet_comms_fleet_progress.py"
   },
   "tests/test_fleet_comms_fleet_status.py": {
    "disposition": "port-first",
@@ -23701,7 +23736,8 @@
     "scripts.fleet_comms.formal_review_finalize [present: present on machinery main as lu_machinery/fleet_comms/formal_review_finalize.py]",
     "scripts.fleet_comms.formal_review_jobs [present: present on machinery main as lu_machinery/fleet_comms/formal_review_jobs.py]",
     "scripts.opsec.prepublish [present: present on machinery main as lu_machinery/opsec/prepublish.py]"
-   ]
+   ],
+   "ported_to": "tests/fleet_comms/test_fleet_comms_formal_finalize.py"
   },
   "tests/test_fleet_comms_formal_review_jobs.py": {
    "disposition": "port-first",
@@ -23729,7 +23765,8 @@
     "scripts.fleet_comms.contracts [present: present on machinery main as lu_machinery/fleet_comms/contracts.py]",
     "scripts.fleet_comms.formal_review_jobs [present: present on machinery main as lu_machinery/fleet_comms/formal_review_jobs.py]",
     "scripts.fleet_comms.migrations [present: present on machinery main as lu_machinery/fleet_comms/migrations.py]"
-   ]
+   ],
+   "ported_to": "tests/fleet_comms/test_fleet_comms_formal_review_jobs.py"
   },
   "tests/test_fleet_comms_launcher_awareness.py": {
    "disposition": "port-first",
@@ -23769,7 +23806,8 @@
    "subjects": [
     "scripts.fleet_comms.cli [present: present on machinery main as lu_machinery/fleet_comms/cli.py]",
     "scripts.fleet_comms.legacy_broker_report [present: present on machinery main as lu_machinery/fleet_comms/legacy_broker_report.py]"
-   ]
+   ],
+   "ported_to": "tests/fleet_comms/test_fleet_comms_legacy_broker_report.py"
   },
   "tests/test_fleet_comms_message_plane.py": {
    "disposition": "port-first",
@@ -23797,7 +23835,8 @@
     "scripts.fleet_comms.contracts [present: present on machinery main as lu_machinery/fleet_comms/contracts.py]",
     "scripts.fleet_comms.message_plane [present: present on machinery main as lu_machinery/fleet_comms/message_plane.py]",
     "scripts.fleet_comms.paths [present: present on machinery main as lu_machinery/fleet_comms/paths.py]"
-   ]
+   ],
+   "ported_to": "tests/fleet_comms/test_fleet_comms_message_plane.py"
   },
   "tests/test_fleet_comms_message_plane_e2e.py": {
    "disposition": "port-first",
@@ -23815,7 +23854,8 @@
     "scripts.fleet_comms.contracts [present: present on machinery main as lu_machinery/fleet_comms/contracts.py]",
     "scripts.fleet_comms.message_plane [present: present on machinery main as lu_machinery/fleet_comms/message_plane.py]",
     "scripts.fleet_comms.request_executor [present: present on machinery main as lu_machinery/fleet_comms/request_executor.py]"
-   ]
+   ],
+   "ported_to": "tests/fleet_comms/test_fleet_comms_message_plane_e2e.py"
   },
   "tests/test_fleet_comms_metrics_merge_cache.py": {
    "disposition": "port-first",
@@ -23859,7 +23899,8 @@
     "scripts.fleet_comms.review_ground_truth [present: present on machinery main as lu_machinery/fleet_comms/review_ground_truth.py]",
     "scripts.fleet_comms.review_publication [present: present on machinery main as lu_machinery/fleet_comms/review_publication.py]",
     "scripts/fleet_comms/review_publication.py [present: present on machinery main as lu_machinery/fleet_comms/review_publication.py]"
-   ]
+   ],
+   "ported_to": "tests/fleet_comms/test_fleet_comms_review_ground_truth.py"
   },
   "tests/test_fleet_comms_review_publication.py": {
    "disposition": "port-first",
@@ -23892,7 +23933,8 @@
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.fleet_comms.review_publication [present: present on machinery main as lu_machinery/fleet_comms/review_publication.py]"
-   ]
+   ],
+   "ported_to": "tests/fleet_comms/test_fleet_comms_review_publication.py"
   },
   "tests/test_fleet_comms_review_publisher.py": {
    "disposition": "port-first",
@@ -23917,7 +23959,8 @@
     "scripts.fleet_comms.formal_review_jobs [present: present on machinery main as lu_machinery/fleet_comms/formal_review_jobs.py]",
     "scripts.fleet_comms.review_publication [present: present on machinery main as lu_machinery/fleet_comms/review_publication.py]",
     "scripts.fleet_comms.review_publisher [present: present on machinery main as lu_machinery/fleet_comms/review_publisher.py]"
-   ]
+   ],
+   "ported_to": "tests/fleet_comms/test_fleet_comms_review_publisher.py"
   },
   "tests/test_fleet_comms_rollout_acceptance.py": {
    "disposition": "port-first",
@@ -23983,7 +24026,8 @@
    "subjects": [
     "scripts.fleet_comms.migrations [present: present on machinery main as lu_machinery/fleet_comms/migrations.py]",
     "scripts.fleet_comms.routing_reservations [present: present on machinery main as lu_machinery/fleet_comms/routing_reservations.py]"
-   ]
+   ],
+   "ported_to": "tests/fleet_comms/test_fleet_comms_routing_reservations.py"
   },
   "tests/test_fleet_comms_wave1.py": {
    "disposition": "port-first",
@@ -24020,7 +24064,8 @@
     "scripts.fleet_comms.contracts [present: present on machinery main as lu_machinery/fleet_comms/contracts.py]",
     "scripts.fleet_comms.paths [present: present on machinery main as lu_machinery/fleet_comms/paths.py]",
     "scripts.fleet_comms.request_executor [present: present on machinery main as lu_machinery/fleet_comms/request_executor.py]"
-   ]
+   ],
+   "ported_to": "tests/fleet_comms/test_fleet_comms_wave1.py"
   },
   "tests/test_fleet_dashboard_contract.py": {
    "disposition": "port-first",
@@ -24146,7 +24191,8 @@
    "subjects": [
     "scripts.fleet.hramatka_hygiene_check [present: present on machinery main as lu_machinery/fleet/hramatka_hygiene_check.py]",
     "scripts.fleet.pr_identity [present: present on machinery main as lu_machinery/fleet/pr_identity.py]"
-   ]
+   ],
+   "ported_to": "tests/fleet/test_fleet_pr_identity.py"
   },
   "tests/test_fleet_repos.py": {
    "disposition": "delete-at-switch",
@@ -24803,7 +24849,8 @@
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.fleet_comms.github_pr_metrics [present: present on machinery main as lu_machinery/fleet_comms/github_pr_metrics.py]"
-   ]
+   ],
+   "ported_to": "tests/fleet_comms/test_github_pr_metrics.py"
   },
   "tests/test_github_request_normalizer.py": {
    "disposition": "port-first",
@@ -25179,7 +25226,8 @@
    "subjects": [
     "scripts.fleet_comms.endpoints [present: present on machinery main as lu_machinery/fleet_comms/endpoints.py]",
     "scripts.review.isolation [present: present on machinery main as lu_machinery/review/isolation.py]"
-   ]
+   ],
+   "ported_to": "tests/fleet_comms/test_grok_sealed_review_refuse.py"
   },
   "tests/test_grok_seat_identity.py": {
    "disposition": "keep",
@@ -26162,7 +26210,8 @@
     "scripts.fleet.capacity_pick [present: present on machinery main as lu_machinery/fleet/capacity_pick.py]",
     "scripts.fleet.idle_settle [present: present on machinery main as lu_machinery/fleet/idle_settle.py]",
     "scripts.fleet.reset_reserve [present: present on machinery main as lu_machinery/fleet/reset_reserve.py]"
-   ]
+   ],
+   "ported_to": "tests/fleet/test_idle_settle.py"
   },
   "tests/test_ignored_task_output.py": {
    "disposition": "keep",
@@ -26225,7 +26274,8 @@
     "scripts.fleet_comms.migrations [present: present on machinery main as lu_machinery/fleet_comms/migrations.py]",
     "scripts.inbox_pending [present: present on machinery main as lu_machinery/inbox_pending.py]",
     "scripts/agy_hooks/pending_orders_inject.sh [present: present on machinery main as lu_machinery/agy_hooks/pending_orders_inject.sh]"
-   ]
+   ],
+   "ported_to": "tests/fleet_comms/test_inbox_pending.py"
   },
   "tests/test_incremental_dmklinger_ingest.py": {
    "disposition": "keep",
@@ -26638,7 +26688,8 @@
    "subjects": [
     "scripts.fleet_comms.endpoints [present: present on machinery main as lu_machinery/fleet_comms/endpoints.py]",
     "scripts.review.isolation [present: present on machinery main as lu_machinery/review/isolation.py]"
-   ]
+   ],
+   "ported_to": "tests/fleet_comms/test_kimi_sealed_review_refuse.py"
   },
   "tests/test_kimi_stored_row_writes.py": {
    "disposition": "port-first",
@@ -30094,7 +30145,8 @@
    "subjects": [
     "scripts.fleet.credit_lane [present: present on machinery main as lu_machinery/fleet/credit_lane.py]",
     "scripts.fleet.reset_reserve [present: present on machinery main as lu_machinery/fleet/reset_reserve.py]"
-   ]
+   ],
+   "ported_to": "tests/fleet/test_reset_reserve.py"
   },
   "tests/test_residual_teacher_lists.py": {
    "disposition": "keep",
@@ -30606,7 +30658,8 @@
    "subjects": [
     "scripts.fleet.credit_lane [present: present on machinery main as lu_machinery/fleet/credit_lane.py]",
     "scripts.review.reviewer_scheduler [present: present on machinery main as lu_machinery/review/reviewer_scheduler.py]"
-   ]
+   ],
+   "ported_to": "tests/fleet/test_reviewer_scheduler.py"
   },
   "tests/test_rights_classifier.py": {
    "disposition": "keep",
@@ -32126,7 +32179,8 @@
     "scripts/fleet/sibling_git.py [present: present on machinery main as lu_machinery/fleet/sibling_git.py]",
     "scripts/guardrails/worktree_containment.py [present: present on machinery main as lu_machinery/guardrails/worktree_containment.py]",
     "tasks [present: product-owned in LU]"
-   ]
+   ],
+   "ported_to": "tests/fleet/test_sibling_git.py"
   },
   "tests/test_sibling_git_https.py": {
    "disposition": "port-first",
@@ -32173,7 +32227,9 @@
     "scripts/fleet/sibling_git.py [present: present on machinery main as lu_machinery/fleet/sibling_git.py]",
     "scripts/guardrails/worktree_containment.py [present: present on machinery main as lu_machinery/guardrails/worktree_containment.py]",
     "tasks [present: product-owned in LU]"
-   ]
+   ],
+   "ported_to": "tests/test_sibling_git_https.py",
+   "ported_note": "existing replacement coverage: machinery main tests/test_sibling_git_https.py [run] has all 18 LU test names (same bodies) plus one native test"
   },
   "tests/test_site_links.py": {
    "disposition": "keep",
