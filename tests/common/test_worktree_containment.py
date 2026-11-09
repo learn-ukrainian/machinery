@@ -572,9 +572,11 @@ def test_git_reaching_the_primary_admits_only_the_read_only_allowlist(
     ]
     # Every form from the primary's cwd; on the other routes the #208 writers and a few readers.
     cases = [(main, f"git {argv}", 2) for argv in writers] + [(main, f"git {argv}", 0) for argv in readers]
-    for cwd, git in list(routes.values())[1:]:
+    for name, (cwd, git) in list(routes.items())[1:]:
         cases += [(cwd, f"{git} {argv}", 2) for argv in writers[:5]]
-        cases += [(cwd, f"{git} {argv}", 0) for argv in ("status", "log --oneline -1", "diff --stat")]
+        # Readers run only under the protected repository's own configuration (round 1, F3).
+        own_config = name in {"-C primary", "primary Git directory"}
+        cases += [(cwd, f"{git} {argv}", 0 if own_config else 2) for argv in ("status", "log --oneline -1", "diff")]
     # Maintenance forms resolve their paths from the primary's own cwd.
     cases += [(main, f"git {argv}", 0) for argv in maintenance]
     cases += [(dispatch, f"git -C {main} {argv}", 0) for argv in ("pull --ff-only", "fetch origin")]
@@ -606,6 +608,34 @@ def test_git_reaching_the_primary_admits_only_the_read_only_allowlist(
         (main, 'echo "$(git stash)"', 2),
         (main, "flock /tmp/i208.lock git stash", 2),
         (main, "watch -n 1 git status", 0),
+        # Round 1, F2: command strings and templates that wrappers run.
+        (main, "flock /tmp/i208.lock -c 'git stash'", 2),
+        (main, "watch 'git stash'", 2),
+        (main, "find . -maxdepth 0 -exec sh -c 'git stash' \\;", 2),
+        (main, "printf stash | xargs git", 2),
+        (dispatch, f"find {main}/tracked.txt -execdir git stash \\;", 2),
+        (dispatch, "find . -maxdepth 0 -execdir git status \\;", 0),
+        (main, 'cd "$(git rev-parse --show-toplevel)" && git status', 0),
+        (dispatch, 'cd "$(git rev-parse --show-toplevel)" && git diff --stat', 0),
+        # Round 1, F1: option values are consumed the way Git consumes them.
+        (main, "git clean -fen", 2),
+        (main, "git clean -f -e -n", 2),
+        (main, "git clean -f --exclude -n", 2),
+        (main, "git clean -n -e build", 0),
+        (main, "git config -f -l user.name X", 2),
+        (main, "git config --file --list user.name X", 2),
+        (main, "git config --file --get user.name X", 2),
+        (main, "git config --file .git/config --get user.name", 0),
+        (main, "git branch --contains HEAD", 0),
+        (main, "git tag -n5", 0),
+        # Round 1, F3: another repository's configuration never runs against the primary.
+        (
+            dispatch,
+            f"git -C {foreign} config diff.external 'touch {main}/marker'; "
+            + f"git --git-dir={foreign}/.git --work-tree={main} diff",
+            2,
+        ),
+        (dispatch, f"git --git-dir=$UNKNOWN --work-tree={main} diff", 2),
         (main, "rg GIT_DIR pkg; git status", 0),
         (main, "git --version", 0),
         # Worktree maintenance never creates or removes a worktree inside the primary.
@@ -642,6 +672,8 @@ def test_git_outside_the_primary_keeps_its_decisions(layout: Layout, tmp_path: P
         # Foreign repository: plain writes and unmodelled forms as before, reviewed writes refused.
         (dispatch, f"git -C {foreign} merge --ff-only main", 0),
         (dispatch, f"git -C {foreign} stash", 0),
+        (dispatch, f"git -C {foreign} diff", 0),
+        (dispatch, "printf tracked.txt | xargs git add", 0),
         (dispatch, f"git -C {foreign} reset --hard", 2),
         (dispatch, f"git -C {foreign} merge --ff-only -s ours main", 2),
     ]
