@@ -91,6 +91,33 @@ def install_claude_doctor_stub(bin_dir, monkeypatch):
 
 SOURCE = machinery_root().parent
 
+# The stub provider switches behavior on the model string. These names are not
+# catalog ids. The sandbox copy aliases them to the sol seat so the unknown-pin
+# guard admits the fixture and the provider still receives the original string.
+# The production catalog does not gain them.
+STUB_MODELS = (
+    "echo", "blocked", "tree", "governed", "escape", "pushed", "unpushed", "dirty",
+    "pushed-dirty", "pushed-nested", "capacity", "capacity-dirty", "file", "crash",
+    "error", "empty", "fail", "cancel", "vendor/model",
+    "requested-model-is-not-proof", "explicit-model", "stub", "approved-model",
+    "unknown-model",
+)
+
+
+@pytest.fixture(autouse=True)
+def admit_stub_models(monkeypatch):
+    """Fixture model strings are not catalog ids. Waive only the unknown-pin guard."""
+    from lu_machinery.dispatcher import checks
+
+    real_admission = checks.check_model_admission
+
+    def admission(agent, model, mode, options, prompt):
+        if str(model or "").strip().split("[", 1)[0] in STUB_MODELS:
+            return None
+        return real_admission(agent, model, mode, options, prompt)
+
+    monkeypatch.setattr(checks, "check_model_admission", admission)
+
 
 def run_git(repo, *args):
     return subprocess.run(
@@ -133,6 +160,10 @@ def sandbox(tmp_path, hermetic_monitor, configured_roots, sources_product_root):
         )
     )
     shutil.copy(SOURCE / "lu_machinery/config/model_catalog.yaml", config / "model_catalog.yaml")
+    catalog_copy = yaml.safe_load((config / "model_catalog.yaml").read_text())
+    sol = catalog_copy["models"]["gpt-6.1-sol"]
+    sol["aliases"] = [*(sol.get("aliases") or []), *STUB_MODELS]
+    (config / "model_catalog.yaml").write_text(yaml.safe_dump(catalog_copy, sort_keys=False))
     shutil.copy(SOURCE / "lu_machinery/config/credit_lanes.yaml", config / "credit_lanes.yaml")
     # This checkout is the product checkout of the copied machinery (product_root, C-4746): it
     # carries the product marker, and the product files the dispatcher reads come from it, with

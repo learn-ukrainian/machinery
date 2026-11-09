@@ -204,27 +204,59 @@ def test_runtime_registry_defaults_resolve_to_catalog_model_or_alias():
         if entry["default_model"] not in {None, "auto"} and entry["default_model"] not in known
     }
     assert unresolved == {}
+    for model_id, model in catalog["models"].items():
+        assert canonical_model_id(model_id) == model_id
+        for alias in model.get("aliases") or []:
+            assert canonical_model_id(alias) == model_id, alias
+        for wire in (model.get("routing_wire_ids") or {}).values():
+            if isinstance(wire, str):
+                assert canonical_model_id(wire) == model_id, wire
+    # Census of every distinct resolved_model in batch_state task records on 2026-11-09:
+    # 1827 fields, 14 values, zero identity changes. Display names stay unresolved.
+    recorded = {
+        "Grok 4.7 256K High": None,
+        "gemini-3.8-flash-high": "gemini-3.8-flash-high",
+        "grok-4.7-build": "grok-4.7",
+        "claude-sonnet-5-5": "claude-sonnet-5-5",
+        "deepseek-v4.1-flash": "deepseek-v4.1-flash",
+        "unattested-harness": None,
+        "unknown": None,
+        "claude-opus-5-5-high": "claude-opus-5-5",
+        "Composer 2.5": None,
+        "claude-sonnet-5-5-high": "claude-sonnet-5-5",
+        "Claude Opus 5.5 300K High": None,
+        "Grok 4.7  High": None,
+        "Claude Fable 5.1 300K High": None,
+        "Claude Fable 5.1 300K Medium": None,
+    }
+    assert {value: canonical_model_id(value) for value in recorded} == recorded
+    assert "echo" not in model_aliases()
+    assert "blocked" not in model_aliases()
 
 
 def test_fable_holds_no_review_or_advisory_role():
-    """#9583 roles still bar review/advice while OO-58 parks the active model."""
+    """#9583 roles still bar review/advice while OO-58 parks the active model.
+
+    C-4965 adds Fable 5.2 under the same roles as an explicit pin only.
+    """
     catalog = load_model_catalog()
-    fable = catalog["models"]["claude-fable-5-1"]
-    assert fable["lifecycle"] == "active"
-    assert fable["transports"] == ["native_claude"]
-    assert "replaced_by" not in fable
-    assert not {"architecture", "critical_review", "consequential_advisory", "bounded_advisory_envelope"} & set(
-        fable["roles"]
-    )
-    assert all(c["model_id"] != "claude-fable-5-1" for c in catalog["review_candidates"].values())
+    for model_id in ("claude-fable-5-1", "claude-fable-5-2"):
+        fable = catalog["models"][model_id]
+        assert fable["lifecycle"] == "active"
+        assert fable["transports"] == ["native_claude"]
+        assert "replaced_by" not in fable
+        assert fable["roles"] == ["long_horizon_coding", "orchestration"]
+        assert all(c["model_id"] != model_id for c in catalog["review_candidates"].values())
+        assert model_id not in catalog["review_scheduler"]["endpoints"]["claude"]["models"]
+        assert model_id not in catalog["formal_cf_defaults"]["claude"]["family_models"]
+        assert model_id not in catalog["budget_substitution_models"]["cursor"]
     for risk, ladder in catalog["review_ladders"].items():
         assert not any(name.startswith("claude-fable") for rung in ladder for name in rung), risk
-    assert "claude-fable-5-1" not in catalog["review_scheduler"]["endpoints"]["claude"]["models"]
-    assert "claude-fable-5-1" not in catalog["formal_cf_defaults"]["claude"]["family_models"]
-    assert "claude-fable-5-1" not in catalog["budget_substitution_models"]["cursor"]
 
 
-@pytest.mark.parametrize("model", ["claude-fable-5-1", "claude-fable-5-1[1m]", "claude-fable-5-1-thinking-high"])
+@pytest.mark.parametrize(
+    "model", ["claude-fable-5-1", "claude-fable-5-1[1m]", "claude-fable-5-1-thinking-high", "claude-fable-5-2"]
+)
 @pytest.mark.parametrize("activity", ["review", "consult"])
 def test_fable_is_refused_every_review_and_consult_activity(model, activity):
     """#9583: activity admission reads the catalog roles, so every Fable spelling is refused."""
@@ -255,10 +287,51 @@ def test_recon_models_consult_but_never_review():
 
 
 def test_unknown_activity_and_unknown_model():
+    """An unknown id still has no activity refusal, and dispatch refuses it before any exemption.
+
+    Cursor ``auto`` is a selector with no catalog id. A bare Claude alias is normalized
+    first, so ``opus`` stays admitted. A newer minor version is not an effort suffix.
+    """
+    from lu_machinery.dispatcher.checks import check_model_admission
 
     assert activity_role_refusal("not-a-catalog-model", "review") is None
     with pytest.raises(ValueError, match="unknown activity"):
         activity_role_refusal("claude-opus-5-5", "approve")
+    check_model_admission("cursor", "auto", "workspace-write", {}, b"")
+    check_model_admission("claude", "opus", "read-only", {}, b"")
+    check_model_admission("claude", "fable", "read-only", {}, b"")
+    check_model_admission("codex", "gpt-6.1-sol-high", "read-only", {}, b"")
+    check_model_admission("cursor", "grok-4.7-build", "read-only", {}, b"")
+    check_model_admission("agy", "claude-opus-5-5-high", "read-only", {}, b"")
+    for pin in ("claude-opus-5-6", "claude-sonnet-5-6", "claude-fable-5-3", "gpt-6-luna-garbage", "grok-4.7-build-fast"):
+        with pytest.raises(ValueError, match=rf"model '{pin}' is not in the model catalog"):
+            check_model_admission("codex", pin, "read-only", {}, b"")
+    with pytest.raises(ValueError, match="is not in the model catalog"):
+        check_model_admission("codex", "auto", "read-only", {}, b"")
+
+
+def test_unknown_google_ais_gemma_stays_refused_under_the_routing_override(monkeypatch):
+    """An unknown google-ais Gemma spelling stays refused when the spend override is set.
+
+    The retired catalog row is refused before that override. A spelling the catalog
+    does not name must be too, or the override would admit it.
+    """
+    from lu_machinery.ai_agent_bridge.routing_guard import RoutingGuardError, assert_model_routing_allowed
+
+    spelling = "google-ais/gemma-4-26b-a4b-it"
+    with pytest.raises(RoutingGuardError, match="is not in the model catalog"):
+        assert_model_routing_allowed(spelling, context="probe")
+    monkeypatch.setenv("LU_ROUTING_GUARD_OVERRIDE", "1")
+    with pytest.raises(RoutingGuardError, match="is not in the model catalog"):
+        assert_model_routing_allowed(spelling, context="probe")
+    for still_retired in (
+        "google-ais/gemma-4-31b-it",
+        "gemma-4-31b-it",
+        "gemma",
+        "openrouter/google/gemma-4-31b-it",
+    ):
+        with pytest.raises(RoutingGuardError, match="retired in the model catalog"):
+            assert_model_routing_allowed(still_retired, context="probe")
 
 
 @pytest.mark.parametrize(
@@ -717,6 +790,19 @@ def test_catalog_refuses_a_direct_bounded_worker_route():
         ("gemini-3.8-flash", "gemini-3.8-flash-high"),
         ("gemini-3.8-flash-low", "gemini-3.8-flash-high"),
         ("claude-opus-5-5[1m]", "claude-opus-5-5"),
+        ("claude-opus-5-6", None),
+        ("claude-sonnet-5-6", None),
+        ("claude-fable-5-3", None),
+        ("grok-4.7-build", "grok-4.7"),
+        ("grok-4.7-build-fast", None),
+        ("grok-4.7-cursor-fallback", None),
+        ("claude-opus-5-5-agy", None),
+        ("claude-sonnet-5-5-agy", None),
+        ("gpt-6.1-sol-high", "gpt-6.1-sol"),
+        ("claude-fable-5-1-thinking-high", "claude-fable-5-1"),
+        ("claude-opus-5-5-high", "claude-opus-5-5"),
+        ("claude-fable-5-2", "claude-fable-5-2"),
+        ("claude-fable-5-2[1m]", "claude-fable-5-2"),
         ("not-a-model", None),
         (None, None),
     ],

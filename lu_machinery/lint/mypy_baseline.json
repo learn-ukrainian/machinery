@@ -3829,11 +3829,6 @@
     },
     {
       "path": "lu_machinery/dispatcher/checks.py",
-      "code": "assignment",
-      "message": "Incompatible types in assignment (expression has type \"None | str\", variable has type \"str\")"
-    },
-    {
-      "path": "lu_machinery/dispatcher/checks.py",
       "code": "index",
       "message": "Value of type \"None | dict[Any, Any]\" is not indexable"
     },

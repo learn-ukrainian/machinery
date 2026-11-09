@@ -1062,13 +1062,24 @@ def _model_id_candidates(model: str) -> list[str]:
     return candidates
 
 
+# The whole remainder after a catalog id, not a prefix of it. A new minor
+# version such as ``claude-opus-5-6`` is not an effort variant of ``claude-opus-5``.
+_EFFORT_SUFFIXES = frozenset({
+    "low", "medium", "high", "xhigh", "max", "minimal", "thinking",
+    "thinking-low", "thinking-medium", "thinking-high", "thinking-xhigh", "thinking-max",
+})
+
+
 def canonical_model_id(model: Any, catalog: dict[str, Any] | None = None) -> str | None:
     """The catalog id ``model`` names, or None when it names no catalog model.
 
     Matches case-insensitively through catalog aliases and harness prefixes
     (``codex:gpt-6-luna``, ``openai/gpt-6-luna``), drops a bracketed context
     suffix (``claude-opus-5-5[1m]``), and resolves a provider variant such as
-    ``gpt-6-luna-high`` to the longest catalog id it extends.
+    ``gpt-6-luna-high`` to the longest catalog id it extends. The entire
+    remainder must be one effort suffix (``high``, ``thinking-high``, and the
+    rest of ``_EFFORT_SUFFIXES``). Any other remainder, including a newer minor
+    version, names nothing.
     """
     text = str(model or "").strip().split("[", 1)[0].strip()
     if not text:
@@ -1082,7 +1093,7 @@ def canonical_model_id(model: Any, catalog: dict[str, Any] | None = None) -> str
             (len(alias), owner)
             for candidate in candidates
             for alias, owner in lookup.items()
-            if candidate.startswith(f"{alias}-")
+            if candidate.startswith(f"{alias}-") and candidate[len(alias) + 1:] in _EFFORT_SUFFIXES
         ]
         model_id = max(extended)[1] if extended else None
     return model_id
