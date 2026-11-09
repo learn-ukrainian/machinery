@@ -18,19 +18,25 @@
 #   for the machinery repository. installed-wheel builds the release wheel
 #   from the tracked tree, installs it offline with requirements-machinery.lock
 #   (pip --require-hashes) into a clean venv and imports every lu_machinery
-#   module from it; pytest calls tests.yml (the machinery test manifest).
+#   module from it. pytest calls tests.yml for the full six-shard suite on
+#   merge_group, push and workflow_dispatch. pull_request calls that workflow
+#   as pr-affected and does not run the full suite.
 # - The mypy job imports lu_machinery from the checkout: it runs the ratchet
 #   module. installed-wheel imports only the installed wheel.
 # - Every job counts its targets first and fails on zero, because the tools
 #   exit 0 on an empty or missing target. Each job prints what it inspected.
 # - CI Gate needs every other job, runs even when one of them fails, and passes
-#   only when every expected job reports `success`. A failed, cancelled or
-#   skipped job, a missing result or an unexpected job fails it, because GitHub
-#   counts a skipped required check as passing. Each check name is the job
+#   only when each job reports the result its event requires. On pull_request,
+#   pr-affected must succeed and pytest must be skipped. On merge_group, push
+#   and workflow_dispatch, pytest (the full suite) must succeed and pr-affected
+#   must be skipped. A failed, cancelled, skipped or missing required job fails
+#   the gate, because GitHub counts a skipped required check as passing. Each check name is the job
 #   name. The called tests.yml reports its shards as "pytest / pytest (N)"
 #   and their always() aggregate as "pytest / pytest shards"; `pytest` here
-#   succeeds only if all of them do. A new job must be added to both `needs` and the
-#   gate's expected list; nothing else catches a job left out of both.
+#   succeeds only if all of them do. On pull_request that job is skipped and
+#   `pr-affected` is required instead. A failed, cancelled, skipped or missing
+#   required job fails the gate on every event. A new job must be added to both
+#   `needs` and the gate's expected list; nothing else catches a job left out of both.
 # - Hosted runners only (ubuntu-24.04). Every tool is downloaded at a pinned
 #   version and checked against a pinned SHA-256 before it runs: release
 #   tarballs for actionlint and ShellCheck, hash-pinned PyPI wheels
@@ -1273,8 +1279,20 @@ jobs:
         if: always()
         run: rm -rf "$RUNNER_TEMP/installed-wheel"
 
+  # Full six-shard suite. Skipped on pull_request; CI Gate then requires that
+  # skip, and requires pr-affected instead. A skip on merge_group fails the gate.
   pytest:
     name: pytest
+    if: github.event_name != 'pull_request'
+    permissions:
+      contents: read
+    uses: ./.github/workflows/tests.yml # zizmor: ignore[self-repository] -- actionlint 1.7.12 does not support $/ syntax.
+
+  # Changed tests, importers, text readers, guards and repo_wide invariants.
+  # The workflow run shows this job's time. merge_group does not run it.
+  pr-affected:
+    name: PR changed tests and guards
+    if: github.event_name == 'pull_request'
     permissions:
       contents: read
     uses: ./.github/workflows/tests.yml # zizmor: ignore[self-repository] -- actionlint 1.7.12 does not support $/ syntax.
@@ -1284,7 +1302,7 @@ jobs:
     # always(): a job skipped because a dependency failed would otherwise count
     # as a passing required check.
     if: always()
-    needs: [ruff, compileall, mypy, actionlint, zizmor, secret-scan, sast, installed-wheel, pytest]
+    needs: [ruff, compileall, mypy, actionlint, zizmor, secret-scan, sast, installed-wheel, pytest, pr-affected]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions: {}
@@ -1292,26 +1310,56 @@ jobs:
       - name: Require every job to succeed
         env:
           NEEDS_JSON: ${{ toJSON(needs) }}
+          EVENT_NAME: ${{ github.event_name }}
         run: |
           set -euo pipefail
-          # Keep this list equal to `needs` above.
-          expected=(actionlint compileall installed-wheel mypy pytest ruff sast secret-scan zizmor)
+          # Keep the two lists together equal to `needs` above. On merge_group,
+          # push and workflow_dispatch, pytest is tests.yml's full six-shard
+          # suite and must succeed; pr-affected must be skipped. On pull_request
+          # the reverse holds. Failed, cancelled, skipped and missing required
+          # results all fail this gate.
+          common=(actionlint compileall installed-wheel mypy ruff sast secret-scan zizmor)
+          case "$EVENT_NAME" in
+            pull_request)
+              must_succeed=(pr-affected "${common[@]}")
+              must_skip=(pytest)
+              ;;
+            merge_group|push|workflow_dispatch)
+              must_succeed=(pytest "${common[@]}")
+              must_skip=(pr-affected)
+              ;;
+            *)
+              echo "::error::Unsupported event ${EVENT_NAME}"
+              exit 1
+              ;;
+          esac
           if ! actual="$(jq -r 'if type == "object" then keys[] else error("not an object") end' \
                 <<< "$NEEDS_JSON" 2> /dev/null)"; then
             echo "::error::Job results are not a JSON object; failing closed"
             exit 1
           fi
           failed=0
-          for job in "${expected[@]}"; do
+          for job in "${must_succeed[@]}"; do
             result="$(jq -r --arg job "$job" \
               '.[$job].result // "missing" | if type == "string" then . else "invalid" end' \
               <<< "$NEEDS_JSON")"
-            echo "${job}: ${result}"
+            echo "${job}: ${result} (required success)"
             if [ "$result" != "success" ]; then
               echo "::error::Required job ${job} finished with result ${result}"
               failed=1
             fi
           done
+          for job in "${must_skip[@]}"; do
+            result="$(jq -r --arg job "$job" \
+              '.[$job].result // "missing" | if type == "string" then . else "invalid" end' \
+              <<< "$NEEDS_JSON")"
+            echo "${job}: ${result} (required skipped)"
+            if [ "$result" != "skipped" ]; then
+              echo "::error::Job ${job} finished with result ${result}; this event must not run it"
+              failed=1
+            fi
+          done
+          expected=("${must_succeed[@]}" "${must_skip[@]}")
           while IFS= read -r job; do
             [ -n "$job" ] || continue
             if ! printf '%s\n' "${expected[@]}" | grep -qxF -- "$job"; then
@@ -1322,4 +1370,4 @@ jobs:
           if [ "$failed" -ne 0 ]; then
             exit 1
           fi
-          echo "CI Gate green: ${#expected[@]} of ${#expected[@]} jobs succeeded."
+          echo "CI Gate green: ${#must_succeed[@]} required job(s) succeeded on ${EVENT_NAME}."

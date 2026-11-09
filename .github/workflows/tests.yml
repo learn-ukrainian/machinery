@@ -1,10 +1,19 @@
 # Machinery tests (machinery-move contract v3 step 8, first and second tranches).
 #
-# The `pytest` job runs every [run] file of tests/machinery_tests.txt as a
-# whole file. The manifest is the only list: the job never discovers tests by
-# itself, and it fails when the manifest is malformed, names anything but a
-# tracked regular file under tests/ (a symlink or gitlink is refused), or
-# lists no [run] file.
+# On merge_group, push and workflow_dispatch, the `pytest` job runs every
+# [run] file of tests/machinery_tests.txt as a whole file, six shards. The
+# manifest is the only list for that full suite: the job never discovers
+# tests by itself, and it fails when the manifest is malformed, names anything
+# but a tracked regular file under tests/ (a symlink or gitlink is refused),
+# or lists no [run] file.
+#
+# On pull_request the same job runs one shard. That shard replaces the manifest
+# with the file list from lu_machinery.ci.pr_affected_tests (changed tests,
+# tests that import or name a changed file, and the guard list) and then runs
+# the repo_wide invariants. It refuses to fall through to one shard of the full
+# manifest. The matrix is one shard on pull_request and six shards otherwise.
+# CI Gate requires the narrower run on pull_request and the six-shard suite
+# on merge_group.
 #
 # - The job is a matrix of shards. Each shard gives the validated [run] list
 #   to lu_machinery.ci.split_tests (the source repository's ci.yml pattern):
@@ -58,9 +67,9 @@
 #   (lu_machinery/ci/test_env.sh start postgres, then wait). Its DSN is passed
 #   through `env -i`; lu_machinery.ci.pg_skip_guard then fails the job when a
 #   test skipped on the DSN or a Postgres test file has no passing test.
-# - Hosted runner only (ubuntu-24.04). ci-gate.yml calls this workflow as its
-#   `pytest` job, so it runs on that workflow's events under its concurrency,
-#   and the required CI Gate check fails unless `pytest` succeeds.
+# - Hosted runner only (ubuntu-24.04). ci-gate.yml calls this workflow as
+#   `pytest` on merge_group, push and workflow_dispatch, and as `pr-affected`
+#   on pull_request. CI Gate fails unless the job for that event succeeds.
 name: Tests
 
 on:
@@ -74,10 +83,11 @@ env:
 
 jobs:
   pytest:
-    name: pytest (${{ matrix.shard }})
+    name: ${{ github.event_name == 'pull_request' && 'PR changed tests and guards' || format('pytest ({0})', matrix.shard) }}
     runs-on: ubuntu-24.04
     # About 6 minutes per shard at the measured suite (see the header).
-    timeout-minutes: 20
+    # The pull_request shard also collects repository invariants.
+    timeout-minutes: ${{ github.event_name == 'pull_request' && 40 || 20 }}
     permissions:
       contents: read
     env:
@@ -89,11 +99,17 @@ jobs:
       # Every shard reports, so one failure does not hide another's.
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4, 5, 6]
+        # actionlint 1.7.12 rejects the matrix context in a job `if`, so the
+        # pull_request run is one shard instead of six shards of which five
+        # are skipped. merge_group, push and workflow_dispatch stay six shards.
+        shard: ${{ fromJSON(github.event_name == 'pull_request' && '[1]' || '[1, 2, 3, 4, 5, 6]') }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          # The affected-test plan diffs the pull_request merge commit against
+          # its first parent. '0' is truthy, so a falsy numeric 0 cannot be used.
+          fetch-depth: ${{ github.event_name == 'pull_request' && '0' || '1' }}
 
       # PostgreSQL 16 and bubblewrap start in the background during the Python
       # installs below; `wait` blocks until the server answers on the DSN.
@@ -337,13 +353,93 @@ jobs:
 
       - run: bash lu_machinery/ci/test_env.sh wait
 
+      - name: Select pull request tests
+        if: github.event_name == 'pull_request'
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          # An explicit root skips the product-marker check. This repository is
+          # not the curriculum checkout the scanner otherwise demands.
+          LU_PRODUCT_ROOT: ${{ github.workspace }}
+          OUT: ${{ runner.temp }}/pytest/pr-selection
+        run: |
+          set -euo pipefail
+          "$RUNNER_TEMP/test-venv/bin/python" -I -B - <<'PY'
+          import json
+          import os
+          import subprocess
+          import sys
+          from pathlib import Path
+
+          from lu_machinery.ci.gate import event_tier
+          from lu_machinery.ci.pr_affected_tests import plan
+
+          def fail(message):
+              print(f"::error::{message}", file=sys.stderr)
+              sys.exit(1)
+
+          try:
+              actual = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True, timeout=30).strip()
+              payload = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text(encoding="utf-8"))
+              tier = event_tier(
+                  os.environ["EVENT_NAME"], payload,
+                  os.environ["GITHUB_SHA"], os.environ["GITHUB_REF"], actual,
+              )
+          except (KeyError, OSError, UnicodeError, json.JSONDecodeError, subprocess.SubprocessError, ValueError) as exc:
+              detail = f": {exc}" if type(exc) is ValueError else ""
+              fail(f"PR identity check failed: {type(exc).__name__}{detail}")
+          if tier != "admission":
+              fail(f"pull_request must be the admission tier, got {tier}")
+          try:
+              pr = payload["pull_request"]
+              parents = subprocess.check_output(
+                  ["git", "show", "-s", "--format=%P", actual], text=True, timeout=30,
+              ).split()
+              if len(parents) != 2 or parents[1] != pr["head"]["sha"]:
+                  fail("PR merge candidate must have two parents and match the event head")
+              subprocess.run(["git", "diff", "--quiet", actual, "--"], check=True, timeout=30)
+              record = plan(parents[0], actual)
+          except (KeyError, OSError, UnicodeError, subprocess.SubprocessError, ValueError) as exc:
+              detail = f": {exc}" if type(exc) is ValueError else ""
+              fail(f"affected-test plan failed: {type(exc).__name__}{detail}")
+          if record["guards_exceed_safe_budget"]:
+              fail("guards exceed the safe budget; the full suite still runs on merge_group")
+          paths = record["run_files"]
+          if not paths:
+              fail("selector returned no tests")
+          Path(os.environ["OUT"]).write_text("".join(f"{path}\n" for path in paths), encoding="utf-8")
+          summary = (
+              f"PR affected selection: {len(paths)} path(s); "
+              f"deferred {len(record['deferred_files'])}; "
+              f"estimate {record['estimate_seconds']:.0f}s; "
+              f"reason {record['reason'] or 'none'}. "
+              "The full six-shard suite runs on merge_group.\n"
+          )
+          print(summary)
+          for path in paths:
+              print(f"  {path}")
+          if os.environ.get("GITHUB_STEP_SUMMARY"):
+              with Path(os.environ["GITHUB_STEP_SUMMARY"]).open("a", encoding="utf-8") as stream:
+                  stream.write(summary)
+          PY
+
       - name: Select this shard's [run] files
         env:
+          EVENT_NAME: ${{ github.event_name }}
           SHARD: ${{ matrix.shard }}
           SHARDS: ${{ strategy.job-total }}
         run: |
           set -euo pipefail
           work="$RUNNER_TEMP/pytest"
+          if [ "$EVENT_NAME" = pull_request ]; then
+            if [ ! -s "$work/pr-selection" ]; then
+              echo "::error::PR affected selection is missing; refusing to run a shard of the full suite"
+              exit 1
+            fi
+            cp "$work/pr-selection" "$work/run-files"
+            echo "This pull request runs the affected-test selection, not a shard of the full suite:"
+            cat "$work/run-files"
+            exit 0
+          fi
           # The installed wheel's splitter (-I keeps the checkout off sys.path)
           # reads the committed weights. Every slice is computed here, so this
           # shard can prove they partition the [run] list.
@@ -604,8 +700,14 @@ jobs:
           for outcome in ("failed", "errors", "xpassed"):
               if outcomes.get(outcome):
                   problems.append(f"{outcomes[outcome]} test(s) {outcome}")
-          owners = {path: [node for node in collected if node.startswith(path + "::")] for path in files}
-          stray = [node for node in collected if not any(node.startswith(path + "::") for path in files)]
+          def owned(spec, node):
+              # A guard may pin one test. A whole file still owns only its node ids.
+              if "::" in spec:
+                  return node == spec or node.startswith(spec + "[")
+              return node.startswith(spec + "::")
+
+          owners = {path: [node for node in collected if owned(path, node)] for path in files}
+          stray = [node for node in collected if not any(owned(path, node) for path in files)]
           if stray:
               problems.append(f"{len(stray)} collected test(s) belong to no [run] file: {stray[:10]}")
           for path, nodes in owners.items():
@@ -618,11 +720,82 @@ jobs:
           sys.exit(1 if problems else 0)
           PY
 
-      - name: Postgres tests must not skip
+      - name: Repository invariants
+        if: ${{ !cancelled() && github.event_name == 'pull_request' }}
         run: |
           set -euo pipefail
           work="$RUNNER_TEMP/pytest"
-          "$RUNNER_TEMP/test-venv/bin/python" -I -B -m lu_machinery.ci.pg_skip_guard "$work/pytest.xml" \
+          venv="$RUNNER_TEMP/test-venv"
+          # The selected-file step removes the checkout package so imports come
+          # from the wheel. Remove it here too when that step stopped first.
+          rm -rf lu_machinery "$RUNNER_TEMP/installed-wheel/src"
+          LU_TEST_WHEEL="$(find "$RUNNER_TEMP/installed-wheel/dist" -name '*.whl')"
+          toolchain="$work/toolchain"
+          if [ ! -x "$toolchain/node" ]; then
+            mkdir -p "$toolchain"
+            for tool in node npm; do
+              if ! found="$(command -v "$tool")"; then
+                echo "::error::${tool} is not on the runner PATH; the launcher fixture needs it"
+                exit 1
+              fi
+              ln -s "$found" "$toolchain/$tool"
+            done
+          fi
+          set +e
+          env -i PATH="/usr/bin:/bin:$toolchain" HOME="$work/home" TMPDIR="$work/tmp" LU_TEST_WHEEL="$LU_TEST_WHEEL" \
+            LEARN_UKRAINIAN_CP_PG_DSN="$LEARN_UKRAINIAN_CP_PG_DSN" \
+            LEARN_UKRAINIAN_PYTHON="$venv/bin/python" \
+            "$venv/bin/python" -I -B -m pytest tests \
+            -n logical --max-worker-restart=0 -p no:cacheprovider --rootdir="$PWD" \
+            -o addopts= -o timeout=120 -o timeout_method=thread -o faulthandler_timeout=0 \
+            -W ignore::DeprecationWarning --tb=short \
+            --override-ini="norecursedirs=.* node_modules" \
+            --strict-markers \
+            -m "repo_wide and not atlas_release and not slow and not site_toolchain" \
+            --junitxml="$work/repo-wide.xml"
+          rc=$?
+          set -e
+          "$venv/bin/python" -I -B - "$work/repo-wide.xml" "$rc" <<'PY'
+          import sys
+          import xml.etree.ElementTree as ET
+
+          path, rc = sys.argv[1:]
+          try:
+              cases = list(ET.parse(path).getroot().iter("testcase"))
+          except (OSError, ET.ParseError) as exc:
+              print(f"::error::repository invariants (exit {rc}) wrote no readable report: {exc}")
+              sys.exit(1)
+          failed = sum(case.find("failure") is not None or case.find("error") is not None for case in cases)
+          print(f"repository invariants exit {rc}; cases {len(cases)}; failed {failed}")
+          problems = []
+          if rc != "0":
+              problems.append(f"pytest exited {rc}")
+          if not cases:
+              problems.append("repository invariants collected no test")
+          if failed:
+              problems.append(f"{failed} repository invariant(s) failed")
+          for problem in problems:
+              print(f"::error::{problem}")
+          sys.exit(1 if problems else 0)
+          PY
+
+      - name: Postgres tests must not skip
+        if: ${{ !cancelled() }}
+        run: |
+          set -euo pipefail
+          work="$RUNNER_TEMP/pytest"
+          args=()
+          if [ -f "$work/pytest.xml" ]; then
+            args+=("$work/pytest.xml")
+          fi
+          if [ -f "$work/repo-wide.xml" ]; then
+            args+=("$work/repo-wide.xml")
+          fi
+          if [ "${#args[@]}" -eq 0 ]; then
+            echo "::error::no JUnit report to check for Postgres skips"
+            exit 1
+          fi
+          "$RUNNER_TEMP/test-venv/bin/python" -I -B -m lu_machinery.ci.pg_skip_guard "${args[@]}" \
             --title pytest | tee -a "$GITHUB_STEP_SUMMARY"
 
       # Input for refreshing lu_machinery/ci/pytest-file-durations.json (see the header).
