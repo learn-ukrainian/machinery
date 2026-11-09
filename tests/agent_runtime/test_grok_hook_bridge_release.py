@@ -31,11 +31,13 @@ def test_bridge_accepts_release_guards_and_refuses_the_rest(tmp_path, monkeypatc
     # The plain, parser-guard and reviewer-publish forms the release settings builder emits.
     for command in (
         shlex.quote(str(RELEASE_HOOKS / "enforce-venv.sh")),
-        shlex.join([sys.executable, str(RELEASE_HOOKS / "guard-pr-merge.py")]),
         shlex.quote(str(RELEASE_HOOKS / "guard-reviewer-publish.py")),
     ):
-        assert guard_argv(command) == shlex.split(command)
+        argv = shlex.split(command)
+        expected = [sys.executable, "-I", *argv] if len(argv) == 1 and argv[0].endswith(".py") else argv
+        assert guard_argv(command) == expected
     for command in (
+        shlex.join([sys.executable, "-I", str(RELEASE_HOOKS / "guard-pr-merge.py")]),
         shlex.join([str(RELEASE_HOOKS / "enforce-venv.sh"), "extra"]),
         shlex.join(["/untrusted/python", str(RELEASE_HOOKS / "guard-pr-merge.py")]),
         shlex.join([sys.executable, str(RELEASE_HOOKS / "enforce-venv.sh")]),
@@ -45,7 +47,6 @@ def test_bridge_accepts_release_guards_and_refuses_the_rest(tmp_path, monkeypatc
             guard_argv(command)
     for command in (
         shlex.quote(str(product_hooks / "enforce-venv.sh")),
-        shlex.join([sys.executable, str(product_hooks / "guard-pr-merge.py")]),
     ):
         with pytest.raises(GuardInvocationError, match="only tracked"):
             guard_argv(command)

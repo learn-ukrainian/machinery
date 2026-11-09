@@ -26,20 +26,13 @@ Threat model and cost: ``scripts/guardrails/primary_dirt_audit.py``.
 
 from __future__ import annotations
 
-import importlib.util
 import json
 import os
 import shlex
 import sys
 from pathlib import Path
 
-# Package-only loader (#161). Executing the sibling keeps its sys.path edit; runpy would undo it.
-_loader = Path(__file__).resolve().parent / "load_hook_package.py"
-_spec = importlib.util.spec_from_file_location("_load_hook_package", _loader)
-if _spec is None or _spec.loader is None:
-    raise ImportError(f"hook package loader missing: {_loader}")
-_spec.loader.exec_module(importlib.util.module_from_spec(_spec))
-from tool_names import is_shell_tool
+from agents_extensions.shared.hooks.tool_names import is_shell_tool
 
 # Don't write __pycache__ next to deployed hooks (#9108).
 sys.dont_write_bytecode = True

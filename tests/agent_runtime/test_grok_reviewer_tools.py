@@ -59,7 +59,7 @@ def test_reviewer_opt_in_denies_bash_and_guards_all_tracked_reads(tmp_path: Path
             "guard-reviewer-publish.py",
         ):
             assert str(machinery_path("agents_extensions/shared/hooks") / name) in definition
-        assert str(machinery_path("agent_runtime/grok_hook_bridge.py")) in definition
+        assert "-I -m lu_machinery.agent_runtime.grok_hook_bridge" in definition
         assert reviewer.cmd[reviewer.cmd.index("--permission-mode") + 1] == "auto"
         assert "--always-approve" not in reviewer.cmd
         allows = [reviewer.cmd[i + 1] for i, arg in enumerate(reviewer.cmd) if arg == "--allow"]
@@ -115,7 +115,7 @@ def test_grok_hook_bridge_runs_publish_guard(command: str, blocked: bool) -> Non
     result = subprocess.run(
         [
             sys.executable,
-            str(machinery_path("agent_runtime/grok_hook_bridge.py")),
+            "-I", "-m", "lu_machinery.agent_runtime.grok_hook_bridge",
             str(machinery_path("agents_extensions/shared/hooks/guard-reviewer-publish.py")),
         ],
         input=json.dumps(event),
@@ -130,7 +130,7 @@ def test_grok_hook_bridge_denies_unreadable_event() -> None:
     result = subprocess.run(
         [
             sys.executable,
-            str(machinery_path("agent_runtime/grok_hook_bridge.py")),
+            "-I", "-m", "lu_machinery.agent_runtime.grok_hook_bridge",
             str(machinery_path("agents_extensions/shared/hooks/guard-reviewer-publish.py")),
         ],
         input="{}",
@@ -146,11 +146,7 @@ _HOOKS = machinery_path("agents_extensions/shared/hooks")
 
 
 def _pinned(name: str) -> str:
-    from lu_machinery.agent_runtime.adapters.claude import _worker_guard_invocation
-
-    command = _worker_guard_invocation(f'bash "$CLAUDE_PROJECT_DIR/.claude/hooks/run-project-python-hook.sh" {name}')
-    assert command is not None
-    return command
+    return shlex.quote(str(_HOOKS / name))
 
 
 def _bridge(guard_command: str, shell_command: str) -> subprocess.CompletedProcess[str]:
@@ -161,7 +157,7 @@ def _bridge(guard_command: str, shell_command: str) -> subprocess.CompletedProce
         "cwd": str(ROOT),
     }
     return subprocess.run(
-        [sys.executable, str(machinery_path("agent_runtime/grok_hook_bridge.py")), guard_command],
+        [sys.executable, "-I", "-m", "lu_machinery.agent_runtime.grok_hook_bridge", guard_command],
         input=json.dumps(event),
         capture_output=True,
         text=True,
@@ -173,7 +169,7 @@ def _bridge(guard_command: str, shell_command: str) -> subprocess.CompletedProce
 def test_grok_bridge_runs_the_adapters_pinned_invocation(name: str) -> None:
     from lu_machinery.agent_runtime.grok_hook_bridge import guard_argv
     command = _pinned(name)
-    assert guard_argv(command) == [sys.executable, str(_HOOKS / name)]
+    assert guard_argv(command) == [sys.executable, "-I", str(_HOOKS / name)]
     allowed = _bridge(command, "echo 'git checkout -b fixture; gh pr merge 5 --admin'")
     assert allowed.returncode == 0, allowed.stderr
 
@@ -188,37 +184,37 @@ def test_grok_bridge_keeps_the_plain_guard_path(name: str) -> None:
     from lu_machinery.agent_runtime.grok_hook_bridge import guard_argv
 
     guard = str(_HOOKS / name)
-    assert guard_argv(guard) == [guard]
+    assert guard_argv(guard) == ([sys.executable, "-I", guard] if name.endswith(".py") else [guard])
 
 
 @pytest.mark.parametrize(
     "command",
     [
-        "{python} '{hooks}/guard-pr-'merge.py",
-        '"{python}" "{hooks}/guard-pr-merge.py"',
-        "{python} {hooks}/guard\\-pr-merge.py",
+        "'{hooks}/guard-pr-'merge.py",
+        '"{hooks}/guard-pr-merge.py"',
+        "{hooks}/guard\\-pr-merge.py",
     ],
 )
 def test_grok_bridge_classifies_the_pinned_invocation_after_tokenization(command: str) -> None:
     from lu_machinery.agent_runtime.grok_hook_bridge import guard_argv
     python = sys.executable
-    assert guard_argv(command.format(python=python, hooks=_HOOKS)) == [str(python), str(_HOOKS / "guard-pr-merge.py")]
+    assert guard_argv(command.format(python=python, hooks=_HOOKS)) == [str(python), "-I", str(_HOOKS / "guard-pr-merge.py")]
 
 
 @pytest.mark.parametrize(
     ("command", "reason"),
     [
         # Extra arguments, behind split quoting and backslash spellings too.
-        ("{python} '{hooks}/guard-pr-'merge.py --extra", "pinned interpreter invocation required"),
-        ("{python} {hooks}/guard\\-pr-merge.py extra", "pinned interpreter invocation required"),
-        ("'{hooks}/guard-secret-'print.py --extra", "only tracked parser guards"),
+        ("{python} '{hooks}/guard-pr-'merge.py --extra", "one tracked fleet guard path required"),
+        ("{python} {hooks}/guard\\-pr-merge.py extra", "one tracked fleet guard path required"),
+        ("'{hooks}/guard-secret-'print.py --extra", "one tracked fleet guard path required"),
         # Missing arguments: the interpreter or nothing at all.
         ("{python}", "only tracked fleet guards may run"),
         ("'{python}'", "only tracked fleet guards may run"),
-        ("", "pinned interpreter invocation required"),
+        ("", "one tracked fleet guard path required"),
         # The wrapper, an untracked path, or a tracked path in another spelling of the directory.
         ("{hooks}/run-project-python-hook.sh", "only tracked fleet guards may run"),
-        ("{python} '{hooks}/run-project-python-'hook.sh", "only tracked parser guards"),
+        ("{python} '{hooks}/run-project-python-'hook.sh", "one tracked fleet guard path required"),
         ("/bin/true", "only tracked fleet guards may run"),
         ("{hooks}/../hooks/guard-secret-print.py", "only tracked fleet guards may run"),
     ],
@@ -239,11 +235,11 @@ def test_grok_bridge_refuses_noncanonical_spellings(command: str, reason: str) -
 @pytest.mark.parametrize(
     ("argv", "reason"),
     [
-        (["/usr/bin/python3", "{hooks}/guard-pr-merge.py"], "not this process's interpreter"),
-        (["{python}", "{hooks}/guard-secret-print.py"], "only tracked parser guards"),
-        (["{python}", "/tmp/elsewhere/guard-pr-merge.py"], "only tracked parser guards"),
-        (["{python}", "{hooks}/guard-pr-merge.py", "--extra"], "pinned interpreter invocation required"),
-        (["{python}", "-I", "{hooks}/guard-pr-merge.py"], "pinned interpreter invocation required"),
+        (["/usr/bin/python3", "-I", "{hooks}/guard-pr-merge.py"], "one tracked fleet guard path required"),
+        (["{python}", "{hooks}/guard-secret-print.py"], "one tracked fleet guard path required"),
+        (["{python}", "/tmp/elsewhere/guard-pr-merge.py"], "one tracked fleet guard path required"),
+        (["{python}", "{hooks}/guard-pr-merge.py", "--extra"], "one tracked fleet guard path required"),
+        (["{python}", "-E", "{hooks}/guard-pr-merge.py"], "one tracked fleet guard path required"),
         (["/tmp/elsewhere/guard-pr-merge.py"], "only tracked fleet guards may run"),
     ],
 )
@@ -270,14 +266,13 @@ def test_grok_bridge_refuses_an_unreadable_invocation() -> None:
         guard_argv(f"python '{_HOOKS / 'guard-pr-merge.py'}")
 
 
-@pytest.mark.parametrize("pinned", [True, False])
-def test_grok_bridge_refuses_a_missing_guard(monkeypatch, pinned: bool) -> None:
+@pytest.mark.parametrize("quoted", [True, False])
+def test_grok_bridge_refuses_a_missing_guard(quoted: bool) -> None:
     from lu_machinery.agent_runtime import grok_hook_bridge
 
     vanished = "guard-vanished.py"
-    monkeypatch.setattr(grok_hook_bridge, "PROJECT_PYTHON_GUARDS", grok_hook_bridge.PROJECT_PYTHON_GUARDS | {vanished})
     guard = str(_HOOKS / vanished)
-    command = shlex.join([sys.executable, guard] if pinned else [guard])
+    command = shlex.quote(guard) if quoted else guard
     with pytest.raises(grok_hook_bridge.GuardInvocationError, match="fleet guard unavailable"):
         grok_hook_bridge.guard_argv(command)
 
@@ -333,7 +328,7 @@ def test_write_mode_installs_fleet_guards_without_reviewer_publish_or_push_rewri
         assert "guard-reviewer-publish.py" not in definition
         assert "run_terminal_command" in definition
         assert "search_replace" in definition
-        assert str(machinery_path("agent_runtime/grok_hook_bridge.py")) in definition
+        assert "-I -m lu_machinery.agent_runtime.grok_hook_bridge" in definition
         assert write_plan.env_overrides == {}
         env = build_agent_env(provider="grok", overrides=write_plan.env_overrides)
         assert not any(
@@ -355,7 +350,7 @@ def test_write_mode_installs_fleet_guards_without_reviewer_publish_or_push_rewri
     result = subprocess.run(
         [
             sys.executable,
-            str(machinery_path("agent_runtime/grok_hook_bridge.py")),
+            "-I", "-m", "lu_machinery.agent_runtime.grok_hook_bridge",
             str(machinery_path("agents_extensions/shared/hooks/guard-reviewer-publish.py")),
         ],
         input=json.dumps(event),
@@ -404,7 +399,7 @@ def test_grok_hook_bridge_primary_checkout_write_guard(agent_runtime_roots, monk
         result = subprocess.run(
             [
                 sys.executable,
-                str(machinery_path("agent_runtime/grok_hook_bridge.py")),
+                "-I", "-m", "lu_machinery.agent_runtime.grok_hook_bridge",
                 str(machinery_path("agents_extensions/shared/hooks/guard-primary-checkout-write.py")),
             ],
             input=json.dumps(event),

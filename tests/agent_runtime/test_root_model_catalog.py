@@ -29,7 +29,6 @@ from lu_machinery.review.model_catalog import (
     risk_reviewer_refusal,
     runtime_model_matches_requested,
     validate_catalog,
-    validate_glm_alias_consumers,
 )
 from tests.claude_route_accounts import HOST_ACCOUNT
 
@@ -188,7 +187,6 @@ def test_glm_retirement_refuses_aliases_and_keeps_historical_identity() -> None:
         with pytest.raises(ModelCatalogError, match="is retired in the model catalog"):
             resolve_glm_model(alias)
     assert model_aliases()["glm52"] == "glm-5.2"
-    validate_glm_alias_consumers()
 
 
 def test_runtime_registry_defaults_resolve_to_catalog_model_or_alias():

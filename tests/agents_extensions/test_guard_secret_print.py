@@ -631,7 +631,7 @@ def test_issue_9088_missing_shell_helper_blocks(tmp_path):
     guard_copy = tmp_path / HOOK_PATH.name
     shutil.copy2(HOOK_PATH, guard_copy)
     result = subprocess.run(
-        [sys.executable, str(guard_copy)],
+        [sys.executable, "-I", "-S", str(guard_copy)],
         input=json.dumps({"tool_input": {"command": "cat .env"}}),
         text=True,
         capture_output=True,

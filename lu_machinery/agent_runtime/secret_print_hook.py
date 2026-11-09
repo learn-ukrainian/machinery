@@ -59,12 +59,7 @@ def run_guard(command: str, *, timeout: float = DEFAULT_TIMEOUT, harness: str = 
     if not math.isfinite(timeout) or not 0 < timeout <= DEFAULT_TIMEOUT:
         return False, BLOCK_PREFIX + "invalid guard deadline.\n"
     try:
-        try:
-            from lu_machinery.common.repo_root import product_root
-        except ModuleNotFoundError:
-            # File launch from a checkout: the package is not installed on this interpreter.
-            sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-            from lu_machinery.common.repo_root import product_root
+        from lu_machinery.common.repo_root import product_root
         from lu_machinery.agent_runtime.codex_hook_policy import run_guard as run_guard_process
 
         guard_path = product_root() / "agents_extensions/shared/hooks/guard-secret-print.py"
@@ -76,7 +71,7 @@ def run_guard(command: str, *, timeout: float = DEFAULT_TIMEOUT, harness: str = 
             env.pop("LEARN_UK_SECRETS_OK", None)
             # This process's interpreter and the resolved guard path; argv is a list and no shell runs.
             result = subprocess.run(  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit
-                [sys.executable, str(guard_path)],
+                [sys.executable, "-I", str(guard_path)],
                 input=payload,
                 text=True,
                 capture_output=True,
@@ -116,7 +111,7 @@ def emit_decision(harness: str, allowed: bool, message: str) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     # Named canonically, by its checkout path under the unresolved package directory name.
-    entry = f"{Path(__file__).absolute().parents[1].name}/agent_runtime/secret_print_hook.py"
+    entry = "-I -m lu_machinery.agent_runtime.secret_print_hook"
     parser = HookParser(
         description="Check one native shell event with the shared no-print guard.\n"
         "Use as a pre-tool hook; this command does not install harness wiring.",

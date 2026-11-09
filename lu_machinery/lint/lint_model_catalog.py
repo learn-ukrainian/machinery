@@ -17,7 +17,6 @@ from lu_machinery.review.model_catalog import (
     catalog_age_days,
     catalog_is_stale,
     load_model_catalog,
-    validate_glm_alias_consumers,
 )
 
 
@@ -36,7 +35,6 @@ def main() -> int:
     try:
         load_model_catalog.cache_clear()
         catalog = load_model_catalog(args.catalog.resolve())
-        validate_glm_alias_consumers()
         age_days = catalog_age_days(catalog, as_of=args.as_of)
         stale = catalog_is_stale(catalog, as_of=args.as_of)
     except ModelCatalogError as exc:

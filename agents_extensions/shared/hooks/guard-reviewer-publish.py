@@ -15,12 +15,13 @@ import sys
 from pathlib import Path
 
 sys.dont_write_bytecode = True
-sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 
 def _shell_parser():
     """Load the existing Bash parser without adding another tokenizer."""
-    source = Path(__file__).with_name("guard-primary-checkout-write.py")
+    from lu_machinery.common.repo_root import machinery_path
+
+    source = machinery_path("agents_extensions/shared/hooks/guard-primary-checkout-write.py")
     spec = importlib.util.spec_from_file_location("primary_checkout_guard_parser", source)
     if spec is None or spec.loader is None:
         raise RuntimeError("reviewer publish guard parser unavailable")
@@ -122,7 +123,7 @@ def blocked(command: str, parser=None, depth: int = 0) -> str | None:
 def main() -> int:
     try:
         payload = json.loads(sys.stdin.read() or "{}")
-        from tool_names import is_shell_tool
+        from agents_extensions.shared.hooks.tool_names import is_shell_tool
 
         if not is_shell_tool(payload.get("tool_name")):
             return 0

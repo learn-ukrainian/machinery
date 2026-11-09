@@ -156,18 +156,17 @@ def test_issue_9479_literal_redirect_target(monkeypatch, target):
 def test_issue_9479_missing_shared_helper_fails_closed(tmp_path, hook):
     hook_path = HOOK_PATH.parent / hook
     shutil.copy2(hook_path, tmp_path / hook)
-    shutil.copy2(HOOK_PATH.parent / "load_hook_package.py", tmp_path / "load_hook_package.py")
     shutil.copy2(HOOK_PATH.parent / "shell_shlex.py", tmp_path / "shell_shlex.py")
     command = "git switch -c fixture" if "branch" in hook else "gh pr merge 5 --admin"
     result = subprocess.run(
-        [sys.executable, str(tmp_path / hook)],
+        [sys.executable, "-I", "-S", str(tmp_path / hook)],
         input=json.dumps({"tool_input": {"command": command}}),
         capture_output=True,
         text=True,
         timeout=10,
     )
     assert result.returncode == 2
-    assert "guard dependency unavailable: shell_redirects" in result.stderr
+    assert "guard dependency unavailable: shell_shlex" in result.stderr
 
 
 @pytest.mark.parametrize(
@@ -308,7 +307,7 @@ def test_issue_9088_missing_shell_helper_blocks(tmp_path):
     guard_copy = tmp_path / HOOK_PATH.name
     shutil.copy2(HOOK_PATH, guard_copy)
     result = subprocess.run(
-        [sys.executable, str(guard_copy)],
+        [sys.executable, "-I", "-S", str(guard_copy)],
         input=json.dumps({"tool_input": {"command": "gh pr merge 1 --admin"}}),
         text=True,
         capture_output=True,

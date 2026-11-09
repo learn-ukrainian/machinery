@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import shlex
 import subprocess
 import sys
 from pathlib import Path
@@ -29,6 +30,15 @@ def release(tmp_path_factory):
     shutil.copytree(
         SOURCE / HOOKS, site / HOOKS, ignore=shutil.ignore_patterns("__pycache__")
     )
+    interpreter = site.parent / "venv/bin/python"
+    subprocess.run(
+        [sys.executable, "-I", "-m", "venv", "--without-pip", str(interpreter.parent.parent)], check=True
+    )
+    purelib = subprocess.check_output(
+        [str(interpreter), "-I", "-c", "import sysconfig; print(sysconfig.get_path('purelib'))"], text=True
+    ).strip()
+    dependencies = "\n".join(path for path in sys.path if path.endswith("site-packages"))
+    Path(purelib, "release.pth").write_text(f"{site}\n{dependencies}\n")
     return site
 
 
@@ -86,7 +96,7 @@ def run_hook(
         "tool_use_id": tool_id,
     }
     return subprocess.run(
-        [sys.executable, "-I", "-B", str(release / HOOKS / name)],
+        [str(release.parent / "venv/bin/python"), "-I", "-B", str(release / HOOKS / name)],
         input=json.dumps(payload),
         text=True,
         capture_output=True,
@@ -296,12 +306,7 @@ def test_deployed_session_setup_runs_installed_release_code(release, product):
         capture_output=True,
         text=True,
     ).stdout.strip()
-    dependencies = subprocess.run(
-        [sys.executable, "-I", "-c", "import sysconfig; print(sysconfig.get_path('purelib'))"],
-        check=True,
-        capture_output=True,
-        text=True,
-    ).stdout.strip()
+    dependencies = "\n".join(path for path in sys.path if path.endswith("site-packages"))
     Path(purelib, "release.pth").write_text(f"{release}\n{dependencies}\n")
     env = {
         "SESSION_START_BUDGET_SECONDS": "60",
@@ -514,7 +519,9 @@ def test_codex_entry_audit_child_keeps_the_tree_off_sys_path(product, tmp_path):
         f"open({str(marker)!r}, 'w').write('loaded')\nraise ImportError('plant')\n"
     )
     (product / ".venv/bin").mkdir(parents=True)
-    (product / ".venv/bin/python").symlink_to(sys.executable)
+    interpreter = product / ".venv/bin/python"
+    interpreter.write_text(f'#!/bin/sh\nexec {shlex.quote(sys.executable)} "$@"\n')
+    interpreter.chmod(0o755)
     (product / ".git/info/exclude").write_text(
         ".venv/\n"
     )  # a clean product: no dirt to report

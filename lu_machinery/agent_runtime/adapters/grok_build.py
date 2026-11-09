@@ -289,7 +289,7 @@ def _guard_agent_definition(
     if not wrapper.is_file():
         raise RuntimeError(f"Grok hook bridge unavailable: {wrapper}")
     # Launched through this process's interpreter: an installed package has no execute bit on the bridge.
-    launcher = shlex.join([sys.executable, str(wrapper)])
+    launcher = shlex.join([sys.executable, "-I", "-m", "lu_machinery.agent_runtime.grok_hook_bridge"])
     groups = json.loads(_worker_guard_settings(publish_guard=publish_guard))["hooks"]["PreToolUse"]
     lines = [
         "---",
@@ -302,7 +302,8 @@ def _guard_agent_definition(
         matcher = _grok_matcher(str(group["matcher"]), native_aliases=native_aliases)
         lines.extend([f"    - matcher: {json.dumps(matcher)}", "      hooks:"])
         for hook in group["hooks"]:
-            command = f"{launcher} {shlex.quote(hook['command'])}"
+            guard_path = shlex.split(hook["command"])[-1]
+            command = f"{launcher} {shlex.quote(guard_path)}"
             lines.extend(
                 [
                     "        - type: command",

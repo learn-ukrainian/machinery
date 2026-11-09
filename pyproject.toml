@@ -42,8 +42,8 @@ debug = ["pymorphy2>=0.9.1", "pymorphy2-dicts-uk", "stanza>=1.13.0"]
 include-package-data = true
 
 [tool.setuptools.packages.find]
-# A data-only namespace preserves the source layout beside lu_machinery.
-# Runtime readers use machinery_path, never namespace imports.
+# Shared hook modules use the installed namespace beside lu_machinery.
+# Other resource readers use machinery_path.
 include = ["lu_machinery*", "agents_extensions.shared"]
 
 [tool.mypy]

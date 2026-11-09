@@ -30,11 +30,10 @@ import re
 import subprocess
 import sys
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 # Don't write __pycache__ next to deployed hooks (#9108).
 sys.dont_write_bytecode = True
 try:
-    from shell_shlex import (
+    from agents_extensions.shared.hooks.shell_shlex import (
         ShellPreprocessLimit,
         skippable_heredoc_delimiters,
         strip_skippable_heredoc_bodies,
@@ -44,7 +43,7 @@ except Exception as exc:
     raise SystemExit(2) from exc
 
 try:
-    from shell_redirects import segments_with_following_operator
+    from agents_extensions.shared.hooks.shell_redirects import segments_with_following_operator
 except Exception as exc:
     print(f"guard dependency unavailable: shell_redirects ({exc})", file=sys.stderr)
     raise SystemExit(2) from exc

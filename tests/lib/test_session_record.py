@@ -9,7 +9,6 @@ from pathlib import Path
 
 import pytest
 
-from lu_machinery.common.repo_root import machinery_path
 from lu_machinery.lib.session_record import (
     SCHEMA_VERSION,
     SessionRecordError,
@@ -205,11 +204,12 @@ def test_env_file_exports_are_shell_safe_and_project_private(tmp_path: Path) -> 
 
 
 def test_cli_round_trip_uses_explicit_state_root(tmp_path: Path) -> None:
-    script = machinery_path('lib/session_record.py')
     update = subprocess.run(
         [
             sys.executable,
-            os.fspath(script),
+            "-I",
+            "-m",
+            "lu_machinery.lib.session_record",
             "--state-root",
             os.fspath(tmp_path),
             "update",
@@ -228,7 +228,9 @@ def test_cli_round_trip_uses_explicit_state_root(tmp_path: Path) -> None:
     get = subprocess.run(
         [
             sys.executable,
-            os.fspath(script),
+            "-I",
+            "-m",
+            "lu_machinery.lib.session_record",
             "--state-root",
             os.fspath(tmp_path),
             "get",

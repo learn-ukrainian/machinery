@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import contextlib
-import importlib.util
 import json
 import os
 import shlex
@@ -13,15 +12,9 @@ from collections.abc import Iterator
 from pathlib import Path
 
 sys.dont_write_bytecode = True
-# Package-only loader (#161). A deployed copy must not put the consumer parent on sys.path.
-_loader = Path(__file__).resolve().parent / "load_hook_package.py"
-_spec = importlib.util.spec_from_file_location("_load_hook_package", _loader)
-if _spec is None or _spec.loader is None:
-    raise ImportError(f"hook package loader missing: {_loader}")
-_spec.loader.exec_module(importlib.util.module_from_spec(_spec))
 try:
-    from shell_redirects import _split_scopes
-    from shell_shlex import preprocess_shell_command
+    from agents_extensions.shared.hooks.shell_redirects import _split_scopes
+    from agents_extensions.shared.hooks.shell_shlex import preprocess_shell_command
 except Exception:
     print("OPSEC: Bash publishing dependencies unavailable.", file=sys.stderr)
     raise SystemExit(2) from None
@@ -114,7 +107,7 @@ def invokes_gh(command: str) -> bool:
 def main() -> int:
     try:
         payload = json.load(sys.stdin)
-        from tool_names import is_shell_tool
+        from agents_extensions.shared.hooks.tool_names import is_shell_tool
 
         if not is_shell_tool(payload.get("tool_name")):
             return 0
