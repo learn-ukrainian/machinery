@@ -12,7 +12,7 @@ from lu_machinery.ai_agent_bridge import _inbox_watch as watch
 from lu_machinery.ai_agent_bridge import _ui_codex as ui
 from tests.helpers.product_tree import configured_roots  # noqa: F401
 
-pytestmark = pytest.mark.usefixtures("configured_roots")
+pytestmark = pytest.mark.usefixtures("configured_roots", "bridge_wake_dir")
 
 THREAD = "019e6063-c3da-78d1-acaa-4cd684a08786"
 ARGS = ["codex", "--wake-driver", "codex", "--epic", "fixture", "--once"]

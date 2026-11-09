@@ -16,7 +16,7 @@ from lu_machinery.ai_agent_bridge import _cli
 from lu_machinery.ai_agent_bridge import _dispatch_wrappers as wrappers
 from tests.helpers.product_tree import configured_roots  # noqa: F401
 
-pytestmark = pytest.mark.usefixtures("configured_roots")
+pytestmark = pytest.mark.usefixtures("configured_roots", "bridge_wake_dir")
 
 
 def _option(command: list[str], name: str) -> str:

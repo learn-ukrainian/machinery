@@ -10,7 +10,7 @@ from lu_machinery.ai_agent_bridge._review_worktree import ProvisionedReviewWorkt
 import pytest
 from tests.helpers.product_tree import configured_roots  # noqa: F401
 
-pytestmark = pytest.mark.usefixtures("configured_roots")
+pytestmark = pytest.mark.usefixtures("configured_roots", "bridge_wake_dir")
 
 
 def test_claude_branch_review_invokes_from_provisioned_checkout(monkeypatch, tmp_path):

@@ -25,19 +25,7 @@ from lu_machinery.ai_agent_bridge._review_worktree import (
 )
 from tests.helpers.product_tree import configured_roots  # noqa: F401
 
-pytestmark = pytest.mark.usefixtures("configured_roots")
-
-
-def _product_with(configured_roots, tmp_path, monkeypatch, relative):
-    """The shared product tree plus one more product file (learn-ukrainian 5aba2adb), as the product."""
-    import shutil
-
-    product = tmp_path / "product-with-file"
-    shutil.copytree(configured_roots.product, product)
-    (product / relative).parent.mkdir(parents=True, exist_ok=True)
-    shutil.copyfile(Path(__file__).resolve().parent / "fixtures" / "product" / relative, product / relative)
-    monkeypatch.setenv("LU_PRODUCT_ROOT", str(product))
-    return product
+pytestmark = pytest.mark.usefixtures("configured_roots", "bridge_wake_dir")
 
 
 def test_pro_slug_round_trips_from_data_blob():
@@ -86,9 +74,7 @@ def test_malformed_json_returns_none_not_raise():
     assert _extract_target_model({"id": 7, "data": "{not json"}) is None
 
 
-def test_agy_bridge_records_unsandboxed_repo_read_mode(monkeypatch, configured_roots, tmp_path):
-    # The AGY guard overlay is product configuration (agy_hook_config.guard_registration).
-    _product_with(configured_roots, tmp_path, monkeypatch, "agents_extensions/agy/hooks.json")
+def test_agy_bridge_records_unsandboxed_repo_read_mode(monkeypatch):
     """#4837: AGY has opt-in ``--sandbox`` only, so bridge Q&A is danger mode."""
     msg = {
         "id": 8,

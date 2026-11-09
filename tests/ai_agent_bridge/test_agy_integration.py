@@ -16,19 +16,7 @@ from types import SimpleNamespace
 import pytest
 from tests.helpers.product_tree import configured_roots  # noqa: F401
 
-pytestmark = pytest.mark.usefixtures("configured_roots", "acp_runs_in_product")
-
-def _product_with(configured_roots, tmp_path, monkeypatch, relative):
-    """The shared product tree plus one more product file (learn-ukrainian 5aba2adb), as the product."""
-    import shutil
-
-    product = tmp_path / "product-with-file"
-    shutil.copytree(configured_roots.product, product)
-    (product / relative).parent.mkdir(parents=True, exist_ok=True)
-    shutil.copyfile(Path(__file__).resolve().parent / "fixtures" / "product" / relative, product / relative)
-    monkeypatch.setenv("LU_PRODUCT_ROOT", str(product))
-    return product
-
+pytestmark = pytest.mark.usefixtures("configured_roots", "bridge_wake_dir", "acp_runs_in_product")
 
 @pytest.fixture(autouse=True)
 def _isolate_bridge_db_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
@@ -68,10 +56,8 @@ def discuss_bridge(monkeypatch: pytest.MonkeyPatch) -> None:
     _channels.create_channel("agy-topic", exist_ok=True)
 
 
-def test_delegate_dispatch_accepts_agy_agent(tmp_path, monkeypatch, capsys, configured_roots):
+def test_delegate_dispatch_accepts_agy_agent(tmp_path, monkeypatch, capsys):
     """The v2 parser and dry-run accept AGY regardless of checkout refs."""
-    # Dispatch admission reads the product's admission policy (#12680).
-    _product_with(configured_roots, tmp_path, monkeypatch, "scripts/curriculum/admission_policy.v1.json")
     from lu_machinery.dispatcher import cli, git
 
     task_id = f"test-agy-argparse-probe-{uuid.uuid4().hex}"

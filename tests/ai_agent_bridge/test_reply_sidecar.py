@@ -11,7 +11,7 @@ from lu_machinery.ai_agent_bridge import _reply_sidecar
 from lu_machinery.ai_agent_bridge._ask_lifecycle import assert_ask_content_present
 from tests.helpers.product_tree import configured_roots  # noqa: F401
 
-pytestmark = pytest.mark.usefixtures("configured_roots")
+pytestmark = pytest.mark.usefixtures("configured_roots", "bridge_wake_dir")
 
 
 def test_looks_truncated_detects_mid_diff_tail():

@@ -20,7 +20,7 @@ import pytest
 from lu_machinery.ai_agent_bridge import _ask_lifecycle as lifecycle
 from tests.helpers.product_tree import configured_roots  # noqa: F401
 
-pytestmark = pytest.mark.usefixtures("isolated_bridge_db", "configured_roots")
+pytestmark = pytest.mark.usefixtures("isolated_bridge_db", "configured_roots", "bridge_wake_dir")
 
 
 class _FakeProc:

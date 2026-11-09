@@ -33,6 +33,7 @@ tests/ai_agent_bridge/test_ab_dispatch_wrappers.py
 tests/ai_agent_bridge/test_ab_gemini_session_link.py
 tests/ai_agent_bridge/test_ab_orphan_recovery.py
 tests/ai_agent_bridge/test_ab_reconcile.py
+tests/ai_agent_bridge/test_acp_execution.py
 tests/ai_agent_bridge/test_acp_quota_substitution.py
 tests/ai_agent_bridge/test_agent_env.py
 tests/ai_agent_bridge/test_agy_integration.py
@@ -43,6 +44,7 @@ tests/ai_agent_bridge/test_ask_gemma.py
 tests/ai_agent_bridge/test_ask_lifecycle.py
 tests/ai_agent_bridge/test_ask_opencode.py
 tests/ai_agent_bridge/test_ask_pool.py
+tests/ai_agent_bridge/test_ask_pr_lightweight_route.py
 tests/ai_agent_bridge/test_ask_worker_startup.py
 tests/ai_agent_bridge/test_bridge_channels.py
 tests/ai_agent_bridge/test_bridge_inbox_cli.py
@@ -170,8 +172,7 @@ tests/test_sibling_git.py
 tests/ai_agent_bridge/__init__.py
 tests/ai_agent_bridge/conftest.py
 tests/ai_agent_bridge/fixtures/opencode/gemma_reviewer_run.ndjson
-tests/ai_agent_bridge/fixtures/product/agents_extensions/agy/hooks.json
-tests/ai_agent_bridge/fixtures/product/scripts/curriculum/admission_policy.v1.json
+tests/ai_agent_bridge/review_target_git.py
 tests/helpers/product_tree.py
 tests/fixtures/product_tree/agents_extensions/shared/settings.json
 tests/fixtures/product_tree/.mcp/servers/sources/server.py

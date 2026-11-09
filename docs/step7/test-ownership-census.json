@@ -2098,7 +2098,7 @@
     "test_transport_fragment_task_id_is_rejected_before_directory_creation"
    ],
    "ownership": "machinery",
-   "residual": "PORT-T4-D1: deferred: imports tests/orchestration/test_worktree_artifacts.py, owned by tranche T1 (orchestration); port after that file lands (CTO shared-test-support ruling, 2026-11-08)",
+   "ported_to": "tests/ai_agent_bridge/test_acp_execution.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     ".gitignore [present: product-owned in LU]",
@@ -2301,7 +2301,7 @@
     "test_selected_repository_refusals_preserve_private_boundary"
    ],
    "ownership": "machinery",
-   "residual": "PORT-T4-D2: deferred: imports tests/test_review_target_resolution.py, owned by the review root tranche (dominant subject package review; not yet scheduled); port after that file lands (CTO shared-test-support ruling, 2026-11-08)",
+   "ported_to": "tests/ai_agent_bridge/test_ask_pr_lightweight_route.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.agent_runtime.env_sanitize [present: present on machinery main as lu_machinery/agent_runtime/env_sanitize.py]",
@@ -2493,30 +2493,9 @@
    ]
   },
   "tests/ai_agent_bridge/test_measure_cold_start.py": {
-   "disposition": "port-first",
-   "evidence": "machinery-only subject references; subjects scripts.ai_agent_bridge.measure_cold_start, scripts.api.telemetry.transcript_tokens; pkg3 isolation-only failures 1; 11 of 11 test IDs lack a machinery v0.1.0 replacement",
-   "lu_test_ids": 11,
-   "missing_behaviours": [
-    "test_advisor_incident_reports_last_message_iteration",
-    "test_compact_and_full_budgets_are_enforced",
-    "test_delegated_model_cannot_change_lead_startup_contract",
-    "test_estimate_stays_the_gate_when_larger_than_corrected_observation",
-    "test_failed_source_makes_measurement_incomplete",
-    "test_first_turn_shapes_equal_usage_input_tokens",
-    "test_gateway_token_counter_wins_when_available",
-    "test_later_row_never_replaces_positive_first_row",
-    "test_message_iteration_without_input_fields_is_zero_and_skipped",
-    "test_missing_route_fails_closed_even_when_payload_is_small",
-    "test_observed_first_turn_is_gate_when_larger_and_excludes_output"
-   ],
-   "ownership": "machinery",
-   "residual": "PORT-T4-R2: stays in learn-ukrainian; its subject scripts/ai_agent_bridge/measure_cold_start.py is product-retained (machinery #108 deleted the machinery copy), so the file is product-owned and its ownership needs reclassification",
-   "subject_status": "SUBJECT-PRESENT",
-   "subjects": [
-    "agents_extensions/shared/hooks/context-rollover-lib.sh [present: present on machinery main as agents_extensions/shared/hooks/context-rollover-lib.sh]",
-    "scripts.ai_agent_bridge.measure_cold_start [present: product-retained (aaba253): #108 keeps product reporting and deployment tools in product; LU retains its copies]",
-    "scripts.api.telemetry.transcript_tokens [present: present on machinery main as lu_machinery/api/telemetry/transcript_tokens.py]"
-   ]
+   "disposition": "keep",
+   "evidence": "reclassified product by PORT-1108 T4 (CTO ruling): its subject scripts/ai_agent_bridge/measure_cold_start.py stays in the product; machinery #108 (aaba253) deleted the machinery copy and learn-ukrainian retains its own. Was: machinery-only subject references; subjects scripts.ai_agent_bridge.measure_cold_start, scripts.api.telemetry.transcript_tokens; pkg3 isolation-only failures 1; 11 of 11 test IDs lack a machinery v0.1.0 replacement",
+   "ownership": "product"
   },
   "tests/ai_agent_bridge/test_module_identity.py": {
    "disposition": "port-first",
@@ -8951,6 +8930,7 @@
     "test data for port-first file tests/test_opencode_stream_parse.py"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/ai_agent_bridge/fixtures/opencode/gemma_reviewer_run.ndjson",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "tests/test_opencode_stream_parse.py [user: SUBJECT-PRESENT]"

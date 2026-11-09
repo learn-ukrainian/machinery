@@ -29,7 +29,7 @@ from lu_machinery.review.snapshot import (
 )
 from tests.helpers.product_tree import configured_roots  # noqa: F401
 
-pytestmark = pytest.mark.usefixtures("configured_roots")
+pytestmark = pytest.mark.usefixtures("configured_roots", "bridge_wake_dir")
 
 GIT_TIMEOUT_SECONDS = 10
 

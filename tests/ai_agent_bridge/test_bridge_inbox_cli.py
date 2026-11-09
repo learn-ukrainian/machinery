@@ -14,7 +14,7 @@ from lu_machinery.agent_runtime.result import Result
 from lu_machinery.ai_agent_bridge import _acp_compat, _channels, _cli, _db, _inbox_watch, _messaging
 from tests.helpers.product_tree import configured_roots  # noqa: F401
 
-pytestmark = pytest.mark.usefixtures("configured_roots")
+pytestmark = pytest.mark.usefixtures("configured_roots", "bridge_wake_dir")
 
 
 @pytest.fixture(autouse=True)

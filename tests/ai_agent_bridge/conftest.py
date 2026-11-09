@@ -1,7 +1,8 @@
 """Opt-in fixtures for the bridge tests.
 
 Roots come from the shared ``tests.helpers.product_tree.configured_roots`` fixture (CTO
-ruling 4, PORT-1108); this module selects no product or primary root.
+ruling 4, PORT-1108); this module selects no product or primary root. Its fixtures only set
+bridge overrides on top of ``configured_roots``, for the modules that opt in.
 """
 
 from __future__ import annotations
@@ -11,8 +12,10 @@ from types import SimpleNamespace
 import pytest
 
 
-@pytest.fixture(autouse=True)
-def _wake_files_in_tmp(tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.fixture
+def bridge_wake_dir(
+    configured_roots: SimpleNamespace, tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Keep channel wake files out of the shared product tree.
 
     A post touches each recipient's wake file under ``AB_WAKE_DIR``, by default

@@ -15,7 +15,7 @@ from lu_machinery.fleet_comms.bottleneck_alerts import scan_bottlenecks_at_inbox
 from lu_machinery.session_streams import LeaseHolder, SessionStreamDatabase, SessionStreamStore
 from tests.helpers.product_tree import configured_roots  # noqa: F401
 
-pytestmark = pytest.mark.usefixtures("configured_roots")
+pytestmark = pytest.mark.usefixtures("configured_roots", "bridge_wake_dir")
 
 NOW = datetime(2026, 7, 22, 12, 0, tzinfo=UTC)
 

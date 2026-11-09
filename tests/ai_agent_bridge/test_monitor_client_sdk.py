@@ -21,7 +21,7 @@ from lu_machinery.api.monitor_context import fixture_context, production_context
 from lu_machinery.lib import rules_core
 from tests.helpers.product_tree import configured_roots  # noqa: F401
 
-pytestmark = pytest.mark.usefixtures("configured_roots")
+pytestmark = pytest.mark.usefixtures("configured_roots", "bridge_wake_dir")
 
 app: Any
 client: TestClient
