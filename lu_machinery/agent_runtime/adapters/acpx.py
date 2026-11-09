@@ -891,7 +891,8 @@ def _require_codex_cli() -> tuple[str, str]:
     if not binary:
         raise AcpxShadowRefusalError("AcpxAdapter: installed codex CLI unavailable; install the current Codex CLI")
     try:
-        probe = subprocess.run(
+        # A resolved CLI path and a literal flag in an argv list; no shell runs.
+        probe = subprocess.run(  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit
             [binary, "--version"], capture_output=True, text=True, timeout=5, check=False, env=_acp_probe_env(),
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
@@ -1340,7 +1341,8 @@ def _versioned_node_keg_dirs(required_major: int) -> tuple[Path, ...]:
 def _probe_node_semver(candidate: Path) -> tuple[int, int, int] | None:
     """Run ``<candidate> --version`` once; return semver if it is Node-shaped."""
     try:
-        proc = subprocess.run(
+        # A resolved Node candidate and a literal flag in an argv list; no shell runs.
+        proc = subprocess.run(  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit
             [str(candidate), "--version"],
             capture_output=True,
             text=True,
@@ -2790,7 +2792,8 @@ def _probe_grok_version(binary: str) -> str:
     string, controls whether the adapter may spawn the CLI.
     """
     try:
-        proc = subprocess.run(
+        # A resolved CLI path and a literal flag in an argv list; no shell runs.
+        proc = subprocess.run(  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit
             [binary, "--version"],
             capture_output=True,
             text=True,
@@ -2906,7 +2909,8 @@ _PROVIDER_VERSION_PATTERNS = {
 def _probe_participant_cli_version(binary: str, executable: str) -> str:
     """Return a version anchored to the reviewed provider output format."""
     try:
-        proc = subprocess.run(
+        # A resolved CLI path and a literal flag in an argv list; no shell runs.
+        proc = subprocess.run(  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit
             [binary, "--version"],
             capture_output=True,
             text=True,
