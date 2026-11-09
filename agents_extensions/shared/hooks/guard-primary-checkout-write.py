@@ -2814,13 +2814,20 @@ def _main() -> int:
                         if not decision.allowed:
                             return _block_git_mediated(summary, intent_root, reason=decision.reason)
                     continue
+                # Git mutates the work tree, not its cwd: a cwd inside a dispatch
+                # worktree can still select the primary (`--work-tree`), and a
+                # work tree that contains the primary reaches it too (#29).
+                reaches_primary = (
+                    wc.classify_repo_path(target.worktree, cwd=intent_root) == "primary_checkout"
+                    or protected.worktree.is_relative_to(target.worktree)
+                )
                 # A foreign index can still explicitly target our primary.
-                if target.common_dir != protected.common_dir and wc.classify_repo_path(target.worktree, cwd=intent_root) != "primary_checkout":
+                if target.common_dir != protected.common_dir and not reaches_primary:
                     if not _is_plain_foreign_git_write(command):
                         return _block_uncertain("foreign_git_target_requires_plain_git_write")
                     continue
                 # Primary Git metadata stays protected even with a foreign worktree.
-                if wc.classify_repo_path(git_cwd, cwd=intent_root) != "primary_checkout":
+                if not reaches_primary:
                     if target.git_dir == protected.common_dir:
                         return _block_git_mediated(summary, intent_root, reason="git_mediated_primary_worktree")
                     continue
