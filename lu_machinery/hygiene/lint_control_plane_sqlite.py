@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Ratchet: direct ``sqlite3.connect`` opens of control-plane stores (#7365).
 
-Scans ``scripts/`` and ``lu_machinery/session_streams/`` for
+Scans ``lu_machinery/`` (session streams included), and ``scripts/`` in a product root, for
 ``sqlite3.connect`` calls that target the four control-plane sqlite files.
-New opens outside ``scripts/control_plane/`` fail; existing call sites are
+New opens outside ``lu_machinery/control_plane/`` fail; existing call sites are
 allowlisted by ``(path, snippet, max_occurrences)`` so later slices can shrink
 the list.
 """
@@ -39,8 +39,11 @@ def _mod(*parts: str) -> str:
     return ".".join((_machinery_top(), *parts))
 
 
-# The machinery package directory and the product scripts tree (one directory
-# in this checkout), including the packaged session streams.
+# Scan roots: the machinery package directory (this repository's only root, packaged
+# session streams included) plus ``scripts``, the product tree kept for the product
+# repository's invocation. ``scripts`` is absent from this repository; the linter
+# reads the product root (LU_PRODUCT_ROOT). The product's own roots are residual
+# I10-product (#10).
 _SCAN_ROOTS: tuple[str, ...] = tuple(dict.fromkeys((_machinery_top(), "scripts")))
 _CONTROL_PLANE_PACKAGE = _mp("control_plane")
 _SKIP_PATH_PREFIXES: tuple[str, ...] = ("tests/",)
