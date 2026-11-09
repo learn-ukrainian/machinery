@@ -1163,7 +1163,7 @@ def _check_node_peer_providers(prefix: Path, packages: Mapping[str, Any], host_o
             # Validation has already refused an absent package that applies to this host.
             continue
         manifest = json.loads((prefix / location / "package.json").read_bytes())
-        declared = set()
+        declared: set[str] = set()
         for source in (package, manifest):
             for field in ("peerDependencies", "peerDependenciesMeta"):
                 names = source.get(field) or {}
