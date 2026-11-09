@@ -148,7 +148,10 @@ interpreter does not select the primary checkout's Python modules.
    ([policy](references/policy.md#recording-the-verdict)). A second such reply is charged, and a published
    one stays charged. Any other failed execution (timeout, error, malformed reply) is rerun
    once at the same head; a second failure escalates.
-7. **Record the verdict on the open PR** (it is open at the reviewed head, `full-send` step 4; its CI may still be running):
+7. **Record the verdict on the open PR** (it is open at the reviewed head, `full-send` step 4; its CI may still be running).
+   Do not record a `BLOCKED` reply whose only reason is a check still pending on the head: wait
+   for that check to finish, then rerun once at the same head with its result inlined
+   ([policy](references/policy.md#recording-the-verdict)).
 
    ```bash
    "$PY" "$PRIMARY_REPO/lu_machinery/review/record_cf_verdict.py" --task-id "$REVIEW_TASK" --pr "$PR"

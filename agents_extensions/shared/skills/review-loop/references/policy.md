@@ -69,6 +69,12 @@ The recorder implements the rounds above. Resolve `PRIMARY_REPO` and `PY` as in 
   P0-P2 are blocking defects; a reply whose open findings are all P3 is recorded as an approval.
 - **A recorded rejection** (`CHANGES_REQUESTED` or `BLOCKED`) is cleared only by an APPROVE at
   a new head.
+- **Pending CI is not a verdict.** Review runs in parallel with PR CI. A `BLOCKED` reply with no
+  findings whose only reason is a named check still pending on the reviewed head is never
+  recorded: a recorded `BLOCKED` could not be cleared at that head. Wait for those checks to
+  finish on the head (`gh pr checks`), then use the one same-head rerun below, with the finished
+  CI evidence inlined in the brief. The dispatcher still counts the dispatched review against
+  the round budget. A second such reply escalates to the CTO.
 - **A failed execution** (timeout, error, malformed reply, `BLOCKED`) is never approval. Rerun
   it once at the same head; a second failure escalates to the CTO. When a `BLOCKED` reply has
   zero findings and only a missing capability caused it, the CTO may record a capability

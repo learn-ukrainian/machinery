@@ -90,7 +90,8 @@ dispatch. After one denial, retry once in a literal form before you stop; a seco
    the exact pushed head, keeps the budget and the ledger, and records the verdict. A fix that
    moves the head returns to step 4: push, then run the next round on the new head while its
    CI runs. The reviewer withholds APPROVE when evidence it needs to resolve a material
-   finding, such as CI results still pending, is not yet available.
+   finding, such as CI results still pending, is not yet available; `review-loop` step 7 then
+   leaves that reply unrecorded and reruns once the evidence exists.
    Include the author task's `owned_path_grants` and `owned_path_grants_used` entries in the
    review-of-record brief, reading the current task record even when the author is still
    running. The reviewer checks each grant's paths against its reason and approval reference;

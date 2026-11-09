@@ -41,8 +41,10 @@ improvised or malformed findings block is refused even beside a valid verdict li
 
 A reviewer withholds APPROVE when evidence necessary to resolve a material finding remains
 unavailable, such as a pending check that finding depends on: it replies `uncertain`
-(`BLOCKED`) and names the missing evidence. A pending check does not change a verdict that the
-diff and the available evidence already settle. The capability-only `BLOCKED` below covers a
+(`BLOCKED`), names the missing evidence and the pending check, and lists no other finding as
+a reason. A pending check does not change a verdict that the diff and the available evidence
+already settle. The driver or worker does not record that reply
+([policy](policy.md#recording-the-verdict)). The capability-only `BLOCKED` below covers a
 missing reviewer capability, never pending CI.
 
 A capability-only `BLOCKED` uses `uncertain`, no findings, and `missing_capabilities`.
