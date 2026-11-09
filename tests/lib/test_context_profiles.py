@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import shlex
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -16,6 +17,7 @@ from lu_machinery.lib.context_profiles import (
     load_registry,
     resolve_profile,
 )
+from tests.helpers.product_tree import configured_roots as configured_roots
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 RESOLVER = machinery_path('lib/context_profiles.py')
@@ -215,7 +217,7 @@ def test_shell_resolver_exports_only_project_private_fields() -> None:
     command = f"""
         set -euo pipefail
         PROJECT_DIR={shlex.quote(os.fspath(PROJECT_ROOT))}
-        CLAUDE_PROFILE_RESOLVER_PYTHON={shlex.quote(sys.executable)}
+        LEARN_UKRAINIAN_PYTHON={shlex.quote(sys.executable)}
         env | LC_ALL=C sort
         printf '%s\n' '__AFTER_PROFILE_RESOLUTION__'
         source {shlex.quote(os.fspath(SHELL_RESOLVER))}
@@ -266,10 +268,19 @@ def _run_with_old_resolver(
     omitted: str,
     profile_id: str = "native_claude",
     model_id: str = "claude-opus-5-5",
-    project_dir: Path = PROJECT_ROOT,
+    contract_missing: bool = False,
 ) -> subprocess.CompletedProcess[str]:
     """Pair this parser with a resolver that predates a field, as a launcher
     pointing CLAUDE_PROFILE_RESOLVER_PY at another checkout can (#8511)."""
+    project_dir = Path(os.environ["LU_PRODUCT_ROOT"])
+    shell = SHELL_RESOLVER
+    if contract_missing:
+        # A release with its shell and interpreter library, but no profile contract.
+        lib = tmp_path / "incomplete-release/lu_machinery/lib"
+        lib.mkdir(parents=True)
+        shell = lib / "profile_resolver.sh"
+        shutil.copy2(SHELL_RESOLVER, shell)
+        shutil.copy2(machinery_path("lib/project_interpreter.sh"), lib / "project_interpreter.sh")
     old_resolver = tmp_path / "old_context_profiles.py"
     fields = {key: "x" for key in EXPECTED_ENV0_KEYS if key != omitted}
     fields["PROFILE_ID"] = profile_id
@@ -282,9 +293,9 @@ def _run_with_old_resolver(
     command = f"""
         set -uo pipefail
         PROJECT_DIR={shlex.quote(os.fspath(project_dir))}
-        CLAUDE_PROFILE_RESOLVER_PYTHON={shlex.quote(sys.executable)}
+        LEARN_UKRAINIAN_PYTHON={shlex.quote(sys.executable)}
         CLAUDE_PROFILE_RESOLVER_PY={shlex.quote(os.fspath(old_resolver))}
-        source {shlex.quote(os.fspath(SHELL_RESOLVER))}
+        source {shlex.quote(os.fspath(shell))}
         resolve_context_profile native_claude {shlex.quote(model_id)} || exit 7
         printf '%s|%s\\n' "$LEARN_UKRAINIAN_PROFILE_ID" "$LEARN_UKRAINIAN_ROLLOVER_MODE"
     """
@@ -314,7 +325,7 @@ def test_old_resolver_without_rollover_mode_fails_loudly_when_contract_cannot_an
     if case == "profile_disagrees":
         result = _run_with_old_resolver(tmp_path, omitted="ROLLOVER_MODE", profile_id="sol_lead")
     else:
-        result = _run_with_old_resolver(tmp_path, omitted="ROLLOVER_MODE", project_dir=tmp_path / "no-checkout")
+        result = _run_with_old_resolver(tmp_path, omitted="ROLLOVER_MODE", contract_missing=True)
 
     assert result.returncode == 7
     assert result.stdout == ""
@@ -326,3 +337,9 @@ def test_shell_resolver_rejects_any_other_missing_field(tmp_path: Path) -> None:
 
     assert result.returncode == 7
     assert "invalid field stream" in result.stderr
+
+
+@pytest.fixture(autouse=True)
+def _configured_profile_product(configured_roots, monkeypatch):
+    """Use the shared empty product tree, with the profile contract in the wheel."""
+    monkeypatch.setattr(sys.modules[__name__], "PROJECT_ROOT", configured_roots.product)

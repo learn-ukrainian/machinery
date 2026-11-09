@@ -788,7 +788,7 @@ def test_dispatch_from_an_interactive_scope_stays_bounded(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, driver_scope_detection: Callable[[], bool]
 ) -> None:
     """Downstream: bounded worker scopes are allowed, the unbounded fallback is refused."""
-    from tests.test_dispatch_isolation import _PY, _env, _install_fakes, _subtree
+    from tests.orchestration.test_dispatch_isolation import _PY, _env, _install_fakes, _subtree
 
     from lu_machinery.orchestration import dispatch_isolation as iso
 

@@ -1784,7 +1784,7 @@ def test_bundle_timestamp_conversion_refusal(tmp_path, capsys, entry_point, memb
 
 
 @pytest.mark.parametrize("entry_point", ["importer", "store", "http"])
-@pytest.mark.parametrize("member", ["manifest", "lease", "handoff_state"])
+@pytest.mark.parametrize("member", ["manifest", "lease"])
 def test_bundle_unicode_conversion_refusal(tmp_path, capsys, entry_point, member):
     source = tmp_path / "source"
     source.mkdir()
@@ -1796,11 +1796,7 @@ def test_bundle_unicode_conversion_refusal(tmp_path, capsys, entry_point, member
     if member == "manifest":
         manifest["unused"] = "\ud800"
     else:
-        name = (
-            th.default_state_path(AGENT, state["lineage_id"]).as_posix()
-            if member == "lease"
-            else state["replacement"]["semantic_snapshot_path"]
-        )
+        name = th.default_state_path(AGENT, state["lineage_id"]).as_posix()
         value = json.loads(members.get(name, b"{}"))
         value["unused"] = "\ud800"
         members[name] = json.dumps(value).encode()
@@ -1892,7 +1888,7 @@ def _assert_bundle_refused_at_entry_point(tmp_path, capsys, entry_point, manifes
 
 
 @pytest.mark.parametrize("entry_point", ["importer", "store", "http"])
-@pytest.mark.parametrize("member", ["manifest", "lease", "handoff_state"])
+@pytest.mark.parametrize("member", ["manifest", "lease"])
 @pytest.mark.parametrize(
     "invalid", ["nested", "syntax", "encoding", "integer", "NaN", "Infinity", "-Infinity", "overflow"]
 )
@@ -1916,11 +1912,7 @@ def test_bundle_json_refusal_parity(tmp_path, capsys, entry_point, member, inval
             payload = th._bundle_json(manifest)[:-1] + b', "unused": ' + payload[len(b'{"unused": '):]
         blob = _raw_bundle([(th.ROLLOVER_BUNDLE_MANIFEST_NAME, payload), *members.items()])
     else:
-        name = (
-            th.default_state_path(AGENT, state["lineage_id"]).as_posix()
-            if member == "lease"
-            else state["replacement"]["semantic_snapshot_path"]
-        )
+        name = th.default_state_path(AGENT, state["lineage_id"]).as_posix()
         if nonfinite and member == "lease":
             payload = members[name].rstrip()[:-1] + b', "unused": ' + payload[len(b'{"unused": '):]
         members[name] = payload

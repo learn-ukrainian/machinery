@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import ast
 import hashlib
 import json
 import os
@@ -314,13 +313,9 @@ def test_corrupt_worker_file_cannot_discard_healthy_data_in_the_same_shard(measu
 )
 def test_import_audit_keeps_child_arcs_without_allowing_source_writes(tmp_path, operation):
     """Coverage's atexit storage must coexist with the actual import-smoke guard."""
-    guard_tree = ast.parse((ROOT / "tests/test_source_ingest_entrypoints.py").read_text())
-    guard = next(
-        ast.literal_eval(node.value)
-        for node in guard_tree.body
-        if isinstance(node, ast.Assign)
-        and any(isinstance(target, ast.Name) and target.id == "OFFLINE_GUARD" for target in node.targets)
-    )
+    from tests.ci.source_ingest_guard import OFFLINE_GUARD
+
+    guard = OFFLINE_GUARD
     (tmp_path / "private").mkdir()
     (tmp_path / "raw").mkdir()
     (tmp_path / "scripts").mkdir()

@@ -108,6 +108,14 @@ tests/launcher_libraries.py
 tests/rules_core_view.py
 tests/wait_helpers.py
 
+tests/ci/source_ingest_guard.py
+tests/fixtures/gh_merge_queue_status/queued_in_progress.json
+tests/fixtures/gh_merge_queue_status/queued_no_run_yet.json
+tests/fixtures/gh_merge_queue_status/queued_position_unknown.json
+tests/fixtures/gh_merge_queue_status/not_queued_clean.json
+tests/fixtures/gh_merge_queue_status/merged.json
+tests/fixtures/gh_merge_queue_status/pr_not_found.json
+
 # [held]: source [run] files this repository does not run, with the reason; none is ported.
 #   Each needs the product checkout, which this repository does not hold.
 # [run]
