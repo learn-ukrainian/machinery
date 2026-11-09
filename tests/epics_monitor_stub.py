@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import socket
+import sys
 import time
 from collections.abc import Iterator
 from contextlib import asynccontextmanager, contextmanager
@@ -11,10 +12,13 @@ from pathlib import Path
 from threading import Thread
 from urllib.request import urlopen
 
+import pytest
 import uvicorn
 from fastapi import FastAPI
+
 from lu_machinery.api.main import create_app
 from lu_machinery.api.monitor_context import fixture_context
+from lu_machinery.api.product_contribution import ProductContribution
 from lu_machinery.session_streams.store import SessionStreamStore
 
 
@@ -40,7 +44,7 @@ def epics_app_for_store(
     if live_repo_root is not None:
         ctx = ctx.with_roots(live_repo_root=Path(live_repo_root))
     ctx = replace(ctx, stores=replace(ctx.stores, epics_store=store))
-    return create_app(ctx, lifespan=_stub_lifespan)
+    return create_app(ctx, lifespan=_stub_lifespan, product=ProductContribution())
 
 
 @contextmanager
@@ -84,3 +88,24 @@ def epics_monitor_stub(store: SessionStreamStore) -> Iterator[str]:
     finally:
         server.should_exit = True
         thread.join(timeout=5)
+
+
+@pytest.fixture
+def isolated_monitor_state(monkeypatch):
+    """Restore Monitor providers and cached roots after an explicitly opted-in test."""
+    from lu_machinery.api import monitor_context, product_contribution
+
+    with monkeypatch.context() as patch:
+        for name in ("_atlas", "_fleet_batches", "_product"):
+            patch.setattr(product_contribution, name, getattr(product_contribution, name))
+        try:
+            yield
+        finally:
+            config = sys.modules.get("lu_machinery.api.config")
+            if config is not None:
+                for name in (
+                    "PROJECT_ROOT", "PRODUCT_ROOT", "LIVE_REPO_ROOT", "CURRICULUM_ROOT",
+                    "DASHBOARDS_DIR", "BATCH_STATE_DIR", "MESSAGE_DB",
+                ):
+                    vars(config).pop(name, None)
+            monitor_context._cached_production_context.cache_clear()
