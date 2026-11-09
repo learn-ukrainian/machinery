@@ -385,9 +385,12 @@ tests/fixtures/routing_baseline/inputs.json
 tests/fixtures/routing_baseline/routing-10263.json.gz
 tests/fixtures/routing_baseline/v2-baseline.json.gz
 tests/flake_quarantine.yaml
+tests/fleet/__init__.py
+tests/fleet_comms/conftest.py
 tests/githooks/__init__.py
 tests/storage/__init__.py
 tests/helpers/__init__.py
+tests/helpers/agy_inbox_fixtures.py
 tests/helpers/checkout_write_defaults.py
 tests/helpers/checkout_write_guard.py
 tests/helpers/github_command_boundary.py
@@ -452,9 +455,6 @@ tests/fixtures/product_tree/scripts/curriculum/review_hooks.v1.json
 tests/fixtures/product_tree/agents_extensions/agy/hooks.json
 tests/fixtures/product_tree/agents_extensions/shared/rules/core-curriculum.md
 tests/fixtures/product_tree/.nvmrc
-tests/fleet/__init__.py
-tests/fleet_comms/conftest.py
-tests/helpers/agy_inbox_fixtures.py
 
 # PORT-1108 T1, from LU 5aba2adb.
 tests/_worktree_artifact_links.py
