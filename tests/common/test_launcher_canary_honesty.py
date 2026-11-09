@@ -19,6 +19,8 @@ PROVIDERS = ("gemini", "cursor", "grok", "claude", "kimi", "glm", "codex")
 def _canary_binding_probe(
     provider: str, dry_run: str, tmp_path: Path, *, inherited: bool = False,
 ) -> subprocess.CompletedProcess[str]:
+    if provider not in ("codex", "kimi"):
+        assert (REPO / "launchers" / f"{provider}.sh").is_file(), f"missing supported launcher adapter: {provider}"
     anchor = tmp_path / "state-anchor"
     if not (anchor / ".git").is_dir():
         anchor.mkdir(exist_ok=True)
