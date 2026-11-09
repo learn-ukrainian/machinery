@@ -27,6 +27,9 @@ from lu_machinery.ai_agent_bridge import _db as ab_db
 from lu_machinery.api import comms_router
 from lu_machinery.api.monitor_context import MonitorContext, fixture_context
 from lu_machinery.api.state_helpers import cache_invalidate
+from tests.helpers.product_tree import configured_roots  # noqa: F401
+
+pytestmark = pytest.mark.usefixtures("configured_roots")
 
 
 def _message_ctx(root: Path, message_db: Path) -> MonitorContext:

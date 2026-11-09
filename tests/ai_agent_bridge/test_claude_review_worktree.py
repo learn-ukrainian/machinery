@@ -7,9 +7,13 @@ from contextlib import contextmanager
 from lu_machinery.agent_runtime.result import Result
 from lu_machinery.ai_agent_bridge import _claude
 from lu_machinery.ai_agent_bridge._review_worktree import ProvisionedReviewWorktree
+import pytest
+from tests.helpers.product_tree import configured_roots  # noqa: F401
+
+pytestmark = pytest.mark.usefixtures("configured_roots")
 
 
-def test_claude_branch_review_invokes_from_provisioned_checkout(monkeypatch, tmp_path, product_files):
+def test_claude_branch_review_invokes_from_provisioned_checkout(monkeypatch, tmp_path):
     checkout = ProvisionedReviewWorktree(
         path=tmp_path / "review-checkout",
         branch="feature/review",

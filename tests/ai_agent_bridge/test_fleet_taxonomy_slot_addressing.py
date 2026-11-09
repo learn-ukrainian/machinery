@@ -11,6 +11,9 @@ import pytest
 from lu_machinery.ai_agent_bridge import _channels, _inbox
 from lu_machinery.common.repo_root import machinery_path
 from lu_machinery.orchestration.slot_routing import resolve_slot_holder
+from tests.helpers.product_tree import configured_roots  # noqa: F401
+
+pytestmark = pytest.mark.usefixtures("configured_roots")
 
 _AREA_ASSIGNMENTS_YAML = machinery_path("config/area_assignments.yaml")
 

@@ -15,6 +15,9 @@ from types import SimpleNamespace
 
 import pytest
 from lu_machinery.ai_agent_bridge import _channels, _channels_cli
+from tests.helpers.product_tree import configured_roots  # noqa: F401
+
+pytestmark = pytest.mark.usefixtures("configured_roots", "acp_runs_in_product")
 
 
 @pytest.fixture

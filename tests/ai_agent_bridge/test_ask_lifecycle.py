@@ -12,6 +12,9 @@ from lu_machinery.ai_agent_bridge import _ask_lifecycle as lifecycle
 from lu_machinery.ai_agent_bridge._agy import ask_agy
 from lu_machinery.ai_agent_bridge._db import get_db, init_db
 from lu_machinery.ai_agent_bridge._messaging import send_message
+from tests.helpers.product_tree import configured_roots  # noqa: F401
+
+pytestmark = pytest.mark.usefixtures("configured_roots")
 
 
 def _bridge_primary(path, monkeypatch):

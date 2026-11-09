@@ -16,6 +16,9 @@ from lu_machinery.ai_agent_bridge._channels_watch import (
     emit_reply_started,
     read_channel_events,
 )
+from tests.helpers.product_tree import configured_roots  # noqa: F401
+
+pytestmark = pytest.mark.usefixtures("configured_roots")
 
 
 @pytest.fixture(autouse=True)

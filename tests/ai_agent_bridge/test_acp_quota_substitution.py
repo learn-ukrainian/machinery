@@ -30,6 +30,9 @@ from lu_machinery.agent_runtime.errors import RateLimitedError
 from lu_machinery.agent_runtime.result import ParseResult, Result
 from lu_machinery.agent_runtime.runner import _SAFE_ACP_FAILURE_CODES
 from lu_machinery.ai_agent_bridge import _acp_compat, _cli
+from tests.helpers.product_tree import configured_roots  # noqa: F401
+
+pytestmark = pytest.mark.usefixtures("configured_roots")
 
 _FALLBACKS_YAML = """\
 dispatch_fallbacks:

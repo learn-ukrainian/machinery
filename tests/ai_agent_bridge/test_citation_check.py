@@ -25,6 +25,9 @@ import pytest
 
 
 from lu_machinery.ai_agent_bridge import _citation_check as cc
+from tests.helpers.product_tree import configured_roots  # noqa: F401
+
+pytestmark = pytest.mark.usefixtures("configured_roots")
 
 # ─────────────────────────────────────────────────────────────────────
 # Detection

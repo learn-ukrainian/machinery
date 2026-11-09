@@ -9,6 +9,9 @@ from unittest.mock import patch
 import pytest
 from lu_machinery.ai_agent_bridge import _reply_sidecar
 from lu_machinery.ai_agent_bridge._ask_lifecycle import assert_ask_content_present
+from tests.helpers.product_tree import configured_roots  # noqa: F401
+
+pytestmark = pytest.mark.usefixtures("configured_roots")
 
 
 def test_looks_truncated_detects_mid_diff_tail():
@@ -29,7 +32,7 @@ def test_small_response_stays_inline(tmp_path, monkeypatch):
     assert result.content == "short ok"
 
 
-def test_large_response_writes_sidecar_and_truncated_footer(bridge_roots, monkeypatch):
+def test_large_response_writes_sidecar_and_truncated_footer(configured_roots, monkeypatch):
     monkeypatch.setenv("AB_REPLY_INLINE_MAX_BYTES", "200")
     monkeypatch.setenv("AB_REPLY_INLINE_HEAD_BYTES", "80")
     body = "A" * 500 + "\n## VERDICT: APPROVED\n"
@@ -45,7 +48,7 @@ def test_large_response_writes_sidecar_and_truncated_footer(bridge_roots, monkey
     assert f"bytes: {result.full_bytes}" in result.content
     assert result.full_sha256 in result.content
     # Sidecars live under the shared state root (#99).
-    candidates = list((bridge_roots.state / "batch_state" / "asks").rglob("reply-*.md"))
+    candidates = list((configured_roots.primary / "batch_state" / "asks").rglob("reply-*.md"))
     assert len(candidates) == 1
     assert candidates[0].read_text(encoding="utf-8") == body
 

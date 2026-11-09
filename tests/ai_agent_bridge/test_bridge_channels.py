@@ -13,6 +13,9 @@ import pytest
 
 
 from lu_machinery.ai_agent_bridge import _channels, _db
+from tests.helpers.product_tree import configured_roots  # noqa: F401
+
+pytestmark = pytest.mark.usefixtures("configured_roots")
 
 
 @pytest.fixture(autouse=True)
@@ -256,10 +259,10 @@ def test_mark_delivery_dispatched_sets_timestamp():
     assert dlvs[0]["dispatched_at"] is not None
 
 
-def test_post_to_slots_with_shared_live_holder_delivers_once(bridge_roots, monkeypatch: pytest.MonkeyPatch):
+def test_post_to_slots_with_shared_live_holder_delivers_once(configured_roots, monkeypatch: pytest.MonkeyPatch):
     """Live slots sharing a holder create one delivery row in that holder's inbox."""
     # The session-stream database is the default one under the shared state root (#106).
-    session_db_path = bridge_roots.state / ".agent" / "session-streams" / "v1" / "session-streams.sqlite3"
+    session_db_path = configured_roots.primary / ".agent" / "session-streams" / "v1" / "session-streams.sqlite3"
     session_db_path.parent.mkdir(parents=True)
     conn = sqlite3.connect(session_db_path)
     try:

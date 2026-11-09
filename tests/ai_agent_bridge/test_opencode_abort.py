@@ -11,6 +11,9 @@ from lu_machinery.ai_agent_bridge._opencode import (
     ask_opencode,
     read_opencode_turn_status,
 )
+from tests.helpers.product_tree import configured_roots  # noqa: F401
+
+pytestmark = pytest.mark.usefixtures("configured_roots")
 
 
 def test_read_opencode_turn_status_completed():

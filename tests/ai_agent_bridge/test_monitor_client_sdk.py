@@ -19,13 +19,16 @@ from lu_machinery.ai_agent_bridge import _monitor_cache as cache
 from lu_machinery.ai_agent_bridge import monitor_client
 from lu_machinery.api.monitor_context import fixture_context, production_context
 from lu_machinery.lib import rules_core
+from tests.helpers.product_tree import configured_roots  # noqa: F401
+
+pytestmark = pytest.mark.usefixtures("configured_roots")
 
 app: Any
 client: TestClient
 
 
 @pytest.fixture(autouse=True)
-def _client(bridge_roots):
+def _client(configured_roots):
     """A Monitor app over this test's configured roots, with no product contribution.
 
     The installed package derives no root and has no implicit product (#99, C-4746), so the

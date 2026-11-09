@@ -6,6 +6,10 @@ from types import SimpleNamespace
 
 from lu_machinery.ai_agent_bridge import _cli, _grok_build
 from lu_machinery.ai_agent_bridge._review_worktree import ProvisionedReviewWorktree
+import pytest
+from tests.helpers.product_tree import configured_roots  # noqa: F401
+
+pytestmark = pytest.mark.usefixtures("configured_roots")
 
 
 def _grok_bridge_message() -> dict[str, str]:
@@ -184,7 +188,7 @@ def test_process_grok_build_invokes_native_registry_key(monkeypatch):
     assert kwargs["entrypoint"] == "bridge"
 
 
-def test_grok_build_branch_review_uses_provisioned_checkout(monkeypatch, tmp_path, product_files):
+def test_grok_build_branch_review_uses_provisioned_checkout(monkeypatch, tmp_path):
     checkout = ProvisionedReviewWorktree(
         path=tmp_path / "review-checkout",
         branch="feature/review",

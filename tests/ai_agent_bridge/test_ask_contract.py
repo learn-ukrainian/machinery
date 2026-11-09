@@ -19,6 +19,9 @@ from lu_machinery.ai_agent_bridge._ask_contract import (
     response_provenance,
     unsupported_effort_note,
 )
+from tests.helpers.product_tree import configured_roots  # noqa: F401
+
+pytestmark = pytest.mark.usefixtures("configured_roots", "acp_runs_in_product")
 
 ASK_SEATS = (
     ("ask-claude", "_handle_ask_claude", "claude"),

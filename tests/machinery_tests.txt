@@ -170,7 +170,6 @@ tests/test_sibling_git.py
 tests/ai_agent_bridge/__init__.py
 tests/ai_agent_bridge/conftest.py
 tests/ai_agent_bridge/fixtures/opencode/gemma_reviewer_run.ndjson
-tests/ai_agent_bridge/fixtures/product/.mcp/servers/sources/server.py
 tests/ai_agent_bridge/fixtures/product/agents_extensions/agy/hooks.json
 tests/ai_agent_bridge/fixtures/product/scripts/curriculum/admission_policy.v1.json
 tests/helpers/product_tree.py

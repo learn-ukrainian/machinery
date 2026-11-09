@@ -27,6 +27,9 @@ from lu_machinery.review.snapshot import (
     cleanup_snapshot_state,
     materialize_review_snapshot,
 )
+from tests.helpers.product_tree import configured_roots  # noqa: F401
+
+pytestmark = pytest.mark.usefixtures("configured_roots")
 
 GIT_TIMEOUT_SECONDS = 10
 
