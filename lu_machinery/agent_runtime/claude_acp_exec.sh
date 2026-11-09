@@ -8,6 +8,14 @@
 # ACPX cannot pass a tool deny and --deny-all never covers
 # tools that run without asking, so the headless background denies (#9690) are
 # added here; the SDK's own --disallowedTools follows in "$@" and accumulates.
+# Copy lease (R75): before anything else, hold a shared lock on this copy's
+# lease on fd 9, which the exec below hands to Claude and every descendant that
+# keeps it. The adapter removes a copy only under an exclusive lock, so it stays
+# while any of them runs. The lease is opened read-only and never created: a
+# missing lease means the copy is being removed, and the launch refuses.
+case $0 in /*/agent_runtime/claude_acp_exec.sh) ;; *) echo "claude_acp_exec: not run from a private launcher copy" >&2; exit 126 ;; esac
+{ command exec 9<"${0%/agent_runtime/claude_acp_exec.sh}/lease.lock"; } 2>/dev/null || { echo "claude_acp_exec: the launcher copy lease is missing" >&2; exit 126; }
+/usr/bin/flock -s -n 9 || { echo "claude_acp_exec: the launcher copy is being removed, or this host lacks util-linux flock" >&2; exit 126; }
 host=${LU_CLAUDE_ACP_HOST-}
 identity=${LU_CLAUDE_ACP_HOST_IDENTITY-}
 unset LU_CLAUDE_ACP_HOST LU_CLAUDE_ACP_HOST_IDENTITY
