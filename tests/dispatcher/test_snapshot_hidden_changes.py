@@ -7,6 +7,7 @@ tracked work was reported clean (``worktree_dirty_on_exit=False``) and passed th
 
 import subprocess
 from types import SimpleNamespace
+from unittest.mock import Mock
 
 import pytest
 
@@ -137,3 +138,40 @@ def test_new_submodule_commit_with_ignore_all_reads_dirty(tmp_path, work):
     assert _git(work, "status", "--porcelain") == ""
     assert _dirty(work) is True
 
+
+
+def test_salvage_hold_keeps_a_tree_with_an_unpushed_commit_in_a_tracked_submodule(tmp_path, work):
+    """Defect class: _salvage_hold looked only at untracked or ignored nested repositories, so salvage could
+    drop a local commit inside a tracked (mode 160000) submodule (#100 R88 F2)."""
+    sub = _submodule(tmp_path, work, "none")
+    assert git._salvage_hold(work, work, []) is None
+    _git(work / "sub", "config", "user.name", "t")
+    _git(work / "sub", "config", "user.email", "t@example.invalid")
+    _git(work / "sub", "commit", "-q", "--allow-empty", "-m", "local only")
+    assert git._salvage_hold(work, work, []) == ("nested_repository_unpushed", "sub")
+    assert sub.is_dir()
+
+
+def test_salvage_hold_never_runs_a_submodules_own_configured_command(tmp_path, work):
+    """Defect class: the hold's nested status ran the worker-controlled submodule's core.fsmonitor command
+    in the supervisor (#100 R88 F2, review F1)."""
+    _submodule(tmp_path, work, "none")
+    marker = tmp_path / "ran"
+    hook = tmp_path / "hook.sh"
+    hook.write_text(f"#!/bin/sh\ntouch {marker}\n")
+    hook.chmod(0o755)
+    _git(work / "sub", "config", "core.fsmonitor", str(hook))
+    assert git._salvage_hold(work, work, []) is None
+    assert not marker.exists()
+
+
+def test_removal_reports_a_recursion_error_as_unknown_not_error(tmp_path, monkeypatch):
+    """Defect class: nested submodules deeper than the recursion limit raised RecursionError out of
+    settle_worktree instead of retaining the tree as unknown (#100 R88 F1)."""
+    monkeypatch.setattr(git, "_retention_held", lambda _record: False)
+    monkeypatch.setattr(git, "resolve_repo", lambda _repo: (tmp_path, None))
+    monkeypatch.setattr(git, "_tree_changes", Mock(side_effect=RecursionError))
+    record = {"task_id": "deep", "mode": "workspace-write", "worktree_path": str(tmp_path),
+              "worktree_branch": "claude/deep", "worktree_base_sha": "0" * 40}
+    disposition = git.settle_worktree(record)
+    assert (disposition["worktree_disposition"], disposition["worktree_disposition_reason"]) == ("retained", "unknown")

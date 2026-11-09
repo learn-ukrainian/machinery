@@ -419,7 +419,7 @@ def _run_gemini_sync(
             "mode": mode_label,
         },
     )
-    atexit.register(_remove_pid_file, "gemini", task_key)
+    atexit.register(_remove_pid_file, "gemini", task_key, _config.PID_DIR)
 
     max_retries = 5
     base_delay = 30

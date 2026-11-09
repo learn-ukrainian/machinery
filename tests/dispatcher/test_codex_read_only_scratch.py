@@ -68,6 +68,21 @@ def test_scratch_is_present_private_and_outside_the_checkout(worktree):
     assert (survivor / "keep.txt").read_text() == "kept"
 
 
+def test_discard_removes_the_lease_where_it_was_created_after_the_scratch_root_moves(worktree, tmp_path, monkeypatch):
+    """Defect class: settlement resolved the lease root again, so a changed scratch root made it look in another
+    directory, report nothing and leak the lease (#100 R80)."""
+    created = dispatch_lease(TASK_ID)
+    create_dispatch_lease(TASK_ID, worktree)
+    monkeypatch.setenv("LU_RUNTIME_TMP_BASE_ROOT", str(tmp_path / "elsewhere"))
+    assert discard_dispatch_lease(TASK_ID, str(created)) is None
+    assert not created.exists()
+    # A recorded path that is not this task's lease is refused, never deleted.
+    other = created.parent / "codex-read-only-other"
+    other.mkdir(parents=True)
+    assert "not this task's lease" in discard_dispatch_lease(TASK_ID, str(other))
+    assert other.is_dir()
+
+
 def test_checkout_stays_read_only_and_only_the_scratch_is_writable(worktree):
     spec = spec_for(worktree)
     lease = dispatch_lease(TASK_ID)

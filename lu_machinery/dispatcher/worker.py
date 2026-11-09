@@ -19,7 +19,7 @@ from pathlib import Path
 import psutil
 
 from lu_machinery.agent_runtime import bounded_advisory
-from lu_machinery.agent_runtime.read_only_tmp import create_dispatch_lease, discard_dispatch_lease
+from lu_machinery.agent_runtime.read_only_tmp import create_dispatch_lease, discard_dispatch_lease, dispatch_lease
 from lu_machinery.common.repo_root import in_tree_source, machinery_path, primary_root, state_root
 from lu_machinery.common.scratch import ensure_scratch_root
 from lu_machinery.common.task_scratch import TaskScratchError
@@ -130,7 +130,7 @@ def _dispatcher_code() -> dict:
 def _discard_read_only_scratch(record: dict) -> None:
     """Remove a dispatched Codex read-only task's scratch; residue is recorded, never raised."""
     if record["agent"] == "codex" and record["mode"] == "read-only" and (
-        residue := discard_dispatch_lease(record["task_id"])
+        residue := discard_dispatch_lease(record["task_id"], record.get("read_only_scratch"))
     ):
         record["read_only_scratch_cleanup"] = residue
 
@@ -1131,6 +1131,9 @@ def supervise(path: Path, options: dict | None = None, hard_timeout: float | Non
             return
         if spec.agent == "codex" and spec.mode == "read-only":
             try:
+                # Persisted before the lease exists, so crash recovery under another scratch root still finds it.
+                record["read_only_scratch"] = str(dispatch_lease(spec.task_id))
+                store.replace(record, path, require_existing=True)
                 create_dispatch_lease(spec.task_id, spec.worktree)
             except (OSError, ValueError) as exc:
                 status, error = "failed", f"read_only_scratch_unavailable: {exc}"

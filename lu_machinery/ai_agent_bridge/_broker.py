@@ -140,17 +140,18 @@ def _check_stale_lock(data: dict, pid: int, pid_file: Path) -> bool:
         return False
 
 
-def _remove_pid_file(agent: str, task_id: str):
+def _remove_pid_file(agent: str, task_id: str, pid_dir: Path | None = None):
     """Remove PID file when process finishes.
 
     Removes the path recorded by ``_write_pid_file`` when this process wrote
     one (the record is kept so a repeat call, such as the atexit hook after an
     explicit cleanup, stays a no-op); only a PID file this process never wrote
-    is resolved from the state root.
+    is resolved, from ``pid_dir`` when the caller fixed it at registration
+    (the state root may be gone by the time an atexit hook runs), else from the state root.
     """
     pid_file = _WRITTEN_PID_FILES.get((agent, task_id))
     if pid_file is None:
-        pid_file = _config.PID_DIR / f"{agent}-{task_id}.json"
+        pid_file = (pid_dir if pid_dir is not None else _config.PID_DIR) / f"{agent}-{task_id}.json"
     pid_file.unlink(missing_ok=True)
 
 
