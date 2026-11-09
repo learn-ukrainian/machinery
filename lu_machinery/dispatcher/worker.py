@@ -20,9 +20,9 @@ import psutil
 
 from lu_machinery.agent_runtime import bounded_advisory
 from lu_machinery.agent_runtime.read_only_tmp import create_dispatch_lease, discard_dispatch_lease, dispatch_lease
+from lu_machinery.common import task_scratch
 from lu_machinery.common.repo_root import in_tree_source, machinery_path, primary_root, state_root
 from lu_machinery.common.scratch import ensure_scratch_root
-from lu_machinery.common import task_scratch
 from lu_machinery.common.task_scratch import TaskScratchError
 from lu_machinery.dispatcher import admission, agy_sandbox, git, headroom, ownership, providers, runtime_context, store
 from lu_machinery.dispatcher.environment import child_env, task_scratch_path
