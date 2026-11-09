@@ -27082,7 +27082,7 @@
     "scripts/lib/launcher_core.sh [present: present on machinery main as lu_machinery/lib/launcher_core.sh]"
    ],
    "ported_to": "tests/common/test_launcher_canary_honesty.py",
-   "port_note": "disposition (c), machinery PR #141: removed only the four Kimi launcher parameter cases; lu_machinery/launchers/kimi.sh and executable callers are absent; historical identities and refusals remain covered"
+   "port_note": "existing replacement coverage in tests/common/test_launcher_canary_honesty.py (T7 #180): 31 cases including four historical Kimi core-noop cases; the Kimi executable launcher is absent per machinery PR #141"
   },
   "tests/test_launcher_contract.py": {
    "disposition": "port-first",
@@ -27498,7 +27498,6 @@
    "ported_to": "tests/common/test_launcher_remote_renew.py"
   },
   "tests/test_launcher_sandbox_closure.py": {
-   "residual_id": "T7-launcher-sandbox-closure",
    "disposition": "port-first",
    "evidence": "machinery-only subject references; subjects scripts/fleet_comms/contracts.py; 1 of 1 test IDs lack a machinery v0.1.0 replacement",
    "lu_test_ids": 1,
