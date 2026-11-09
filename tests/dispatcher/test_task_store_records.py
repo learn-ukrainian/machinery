@@ -1,6 +1,7 @@
 """Approved #12192 admission and mid-run record-damage defect classes."""
 
 import json
+import re
 import signal
 from types import SimpleNamespace
 import pytest
@@ -55,65 +56,67 @@ def test_foreign_sidecar_does_not_block_review_admission(tmp_path, monkeypatch, 
 
 
 def _plant_record_and_copy(root, copy_name, **copy_updates):
-    record = dict(task_id="worker", schema_version=2, run_nonce="n1", repository="org/repo", status="done")
+    """Plant ``worker.json`` and a misnamed copy; a None update omits the field from the copy."""
+    record = dict(task_id="worker", schema_version=2, run_nonce="n1", repository="org/repo", status="done",
+                  review_mode="independent")
     (root / "worker.json").write_text(json.dumps(record))
-    (root / copy_name).write_text(json.dumps({**record, **copy_updates}))
+    copy = {**record, **copy_updates}
+    (root / copy_name).write_text(json.dumps({key: value for key, value in copy.items() if value != "__omit__"}))
 
 
-def test_stray_copy_of_a_named_record_does_not_block_admission(tmp_path, monkeypatch):
+def test_exact_copy_of_a_named_record_does_not_block_admission(tmp_path, monkeypatch):
     """Defect class: a worker's saved copy of a task record refused every review admission read."""
     monkeypatch.setenv("LU_TASKS_DIR", str(tmp_path))
     _plant_record_and_copy(tmp_path, "worker.copy.json")
     readers = admission_readers(tmp_path)
+    assert [path.name for path, _ in readers[0]()] in ([], ["worker.json"])
     assert [record["task_id"] for record in readers[1]()] == ["worker"]
     assert readers[2]() == ()
     assert readers[3]() is None
 
 
-@pytest.mark.parametrize("reader, message", [
-    (1, "unreadable task record .*worker.forged.json"),
-    (2, "task record .*worker.forged.json unreadable"),
+_READERS = [
+    (0, "task record worker.COPY.json has invalid task identity"),
+    (1, "unreadable task record .*worker.COPY"),
+    (2, "task record .*worker.COPY.* unreadable"),
     (3, "RED_TEAM_REFUSED: task ledger unavailable"),
-], ids=["list_tasks_strict", "admitted_unknown_history", "in_flight_guard"])
-def test_orphaned_or_forged_copy_still_blocks_admission(tmp_path, monkeypatch, reader, message):
-    """Defect class: a renamed or forged record under another name is skipped as if it were a copy."""
+]
+_READER_IDS = ["review_records", "list_tasks_strict", "admitted_unknown_history", "in_flight_guard"]
+_MOVE_OUT = r"move it out of the task directory \(for example into <task-id>\.artifacts/\)"
+
+
+@pytest.mark.parametrize("reader, message", _READERS, ids=_READER_IDS)
+@pytest.mark.parametrize("copy_name, updates", [
+    ("forged", {"run_nonce": "n2"}),
+    ("claims", {"worktree_path": "/virtual/checkout", "review_profile": "infra", "review_head": HEAD,
+                "review_attempt": 1}),
+    ("status_nulled", {"status": None}),
+    ("review_mode_omitted", {"review_mode": "__omit__"}),
+    ("mid_run", {"status": "running"}),
+])
+def test_divergent_copy_still_blocks_admission(tmp_path, monkeypatch, reader, message, copy_name, updates):
+    """Defect class: a copy differing from its named record in any field is skipped as if it were identical."""
     monkeypatch.setenv("LU_TASKS_DIR", str(tmp_path))
     errors = (ValueError, recorder.BranchFactsError, recorder.RecordError)
-    _plant_record_and_copy(tmp_path, "worker.forged.json", run_nonce="n2")
-    with pytest.raises(errors, match=message):
+    _plant_record_and_copy(tmp_path, f"worker.{copy_name}.json", **updates)
+    with pytest.raises(errors, match=message.replace("COPY", copy_name)) as caught:
         admission_readers(tmp_path)[reader]()
-    (tmp_path / "worker.forged.json").unlink()
+    assert re.search(_MOVE_OUT, str(caught.value))
+
+
+@pytest.mark.parametrize("reader, message", _READERS, ids=_READER_IDS)
+def test_orphaned_or_renamed_record_still_blocks_admission(tmp_path, monkeypatch, reader, message):
+    """Defect class: a record with no correctly named twin (or an archived-only one) is skipped as a copy."""
+    monkeypatch.setenv("LU_TASKS_DIR", str(tmp_path))
+    errors = (ValueError, recorder.BranchFactsError, recorder.RecordError)
+    _plant_record_and_copy(tmp_path, "worker.copy.json")
     (tmp_path / "worker.json").rename(tmp_path / "worker.renamed.json")
-    with pytest.raises(errors, match=message.replace("forged", "renamed")):
+    with pytest.raises(errors, match=message.replace("COPY", "(copy|renamed)")):
         admission_readers(tmp_path)[reader]()
-
-
-@pytest.mark.parametrize("reader, message", [
-    (1, "unreadable task record .*worker.copy.json"),
-    (2, "task record .*worker.copy.json unreadable"),
-    (3, "RED_TEAM_REFUSED: task ledger unavailable"),
-], ids=["list_tasks_strict", "admitted_unknown_history", "in_flight_guard"])
-def test_copy_that_adds_a_claim_or_has_only_an_archived_witness_still_blocks_admission(
-    tmp_path, monkeypatch, reader, message
-):
-    """Defect class: a same-run copy carrying a claim its named record lacks is dropped unread."""
-    monkeypatch.setenv("LU_TASKS_DIR", str(tmp_path))
-    errors = (ValueError, recorder.BranchFactsError, recorder.RecordError)
-    claims = dict(worktree_path="/virtual/checkout", review_profile="infra", review_head=HEAD, review_attempt=1)
-    _plant_record_and_copy(tmp_path, "worker.copy.json", **claims)
-    with pytest.raises(errors, match=message):
-        admission_readers(tmp_path)[reader]()
-    # A status-only difference activates the same claims once the copy is read as a record.
-    named = json.loads((tmp_path / "worker.json").read_text())
-    (tmp_path / "worker.json").write_text(json.dumps({**named, **claims}))
-    (tmp_path / "worker.copy.json").write_text(json.dumps({**named, **claims, "status": "running"}))
-    with pytest.raises(errors, match=message):
-        admission_readers(tmp_path)[reader]()
-    (tmp_path / "worker.json").write_text(json.dumps(named))
+    (tmp_path / "worker.renamed.json").unlink()
     (tmp_path / "archive").mkdir()
-    (tmp_path / "worker.json").rename(tmp_path / "archive" / "worker.json")
-    (tmp_path / "worker.copy.json").write_text(json.dumps(named))
-    with pytest.raises(errors, match=message):
+    (tmp_path / "archive" / "worker.json").write_text((tmp_path / "worker.copy.json").read_text())
+    with pytest.raises(errors, match=message.replace("COPY", "copy")):
         admission_readers(tmp_path)[reader]()
 
 

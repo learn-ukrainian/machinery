@@ -141,46 +141,30 @@ class TaskIdentityMismatch(ValueError):
         self.record = record
 
 
-def named_run_identity(path: Path, record: dict[str, Any]) -> tuple[str, str] | None:
-    """``(task_id, run_nonce)`` of a record that sits under the name dispatch gives its task_id.
+def is_identical_copy(mismatch: TaskIdentityMismatch) -> bool:
+    """Whether a misnamed record is exactly the record dispatch names for its task, in the same directory.
 
-    Only such a record can vouch for a copy: a legacy or schema-1 record under another name never does.
-    """
-    task_id, nonce = record.get("task_id"), record.get("run_nonce")
-    if isinstance(task_id, str) and isinstance(nonce, str) and nonce and candidate_task_record_names(
-        task_id, (path.name,)
-    ):
-        return task_id, nonce
-    return None
-
-
-def is_stray_copy(mismatch: TaskIdentityMismatch) -> bool:
-    """Whether a misnamed record is a worker's copy of the named record of the same run, claiming nothing more.
-
-    True only when the record dispatch names for the task, in the same directory, carries the same
-    task_id and run_nonce, and every field the copy carries is null or equals the named record's. The
-    named record is the one the reader scans for the run's claims, so the copy adds none. A renamed,
-    orphaned or forged record, one that adds or changes any field (a snapshot with an earlier status
-    included), or one whose witness sits only in another directory is False, so its reader refuses it
-    exactly as before.
+    True only when the correctly named record in that directory decodes to JSON equal to the
+    misnamed file's: a byte-for-byte saved copy adds no claim any reader scans for. There is no
+    tolerance for a null, omitted or earlier field, so a copy saved mid-run, a forged or edited
+    one, an orphan and a renamed record are all False and their reader refuses them.
     """
     record = mismatch.record
-    nonce = record.get("run_nonce")
-    if not isinstance(nonce, str) or not nonce:
-        return False
-    task_id = record["task_id"]
-    named = task_record_path(mismatch.path.parent, task_id)
+    named = task_record_path(mismatch.path.parent, record["task_id"])
     if named == mismatch.path:
         return False
     try:
         other = read_task_record(named)
     except (OSError, ValueError):
         return False
-    if not isinstance(other, dict) or named_run_identity(named, other) != (task_id, nonce):
-        return False
-    return all(
-        value is None or (key in other and other[key] == value)
-        for key, value in record.items()
+    return isinstance(other, dict) and other == record
+
+
+def misnamed_record_refusal(path: Path) -> str:
+    """Name a refused misnamed task file and say how to clear it."""
+    return (
+        f"misnamed file {path} in the task directory is not an exact copy of its named record; "
+        "move it out of the task directory (for example into <task-id>.artifacts/)"
     )
 
 

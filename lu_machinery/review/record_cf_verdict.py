@@ -83,7 +83,8 @@ from lu_machinery.orchestration.integration_sweep import (
 from lu_machinery.orchestration.task_record_store import (
     ARCHIVE_DIR_NAME,
     TaskIdentityMismatch,
-    is_stray_copy,
+    is_identical_copy,
+    misnamed_record_refusal,
     read_task_record,
 )
 from lu_machinery.publish.github import CfVerdictRecord, Request, request_run
@@ -1528,10 +1529,12 @@ def admitted_unknown_history(
         try:
             task = read_task_record(path)
         except TaskIdentityMismatch as exc:
-            # A worker's copy of a record read here under its own name adds nothing.
-            if is_stray_copy(exc):
+            # An exact copy of the named record adds nothing; any other misnamed file refuses.
+            if is_identical_copy(exc):
                 continue
-            raise BranchFactsError(FACTS_AUTHORSHIP_UNKNOWN, f"task record {path} unreadable") from exc
+            raise BranchFactsError(
+                FACTS_AUTHORSHIP_UNKNOWN, f"task record {path} unreadable; {misnamed_record_refusal(path)}"
+            ) from exc
         except (OSError, ValueError) as exc:
             raise BranchFactsError(FACTS_AUTHORSHIP_UNKNOWN, f"task record {path} unreadable") from exc
         if not isinstance(task, dict) or task.get("status") == "dry_run":
@@ -2549,10 +2552,12 @@ def require_no_outside_review_in_flight(task_root: Path, repository: str, sha: s
             try:
                 task = read_task_record(path)
             except TaskIdentityMismatch as exc:
-                # A worker's copy of a record read here under its own name adds nothing.
-                if is_stray_copy(exc):
+                # An exact copy of the named record adds nothing; any other misnamed file refuses.
+                if is_identical_copy(exc):
                     continue
-                raise
+                raise RecordError(
+                    f"RED_TEAM_REFUSED: task ledger unavailable; {misnamed_record_refusal(path)}"
+                ) from exc
             if task is None:
                 continue
             if any(task.get(key) for key in ("trial_label", "trial_role", "trial_qualified_task")):
