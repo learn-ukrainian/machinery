@@ -455,4 +455,3 @@ class _Terminal:
                 os.killpg(group, signal.SIGKILL)
         os.close(self.master)
         self.closed = True
-
