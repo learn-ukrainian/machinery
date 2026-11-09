@@ -127,13 +127,19 @@ def _run_git(
 ) -> subprocess.CompletedProcess[str]:
     """Run a read-only git command scoped to ``cwd`` with sanitized env."""
     argv = [executable, "-C", str(cwd), *args]
+    probe_env = {
+        key: value for key, value in (sanitized_git_env() if environment is None else environment).items()
+        if not key.startswith("GIT_TRACE")
+    }
+    # Trace2 can also be configured globally. Probes must never open its sinks.
+    probe_env.update(GIT_TRACE="0", GIT_TRACE2="0", GIT_TRACE2_EVENT="0", GIT_TRACE2_PERF="0")
     try:
         return subprocess.run(
             argv,
             capture_output=True,
             text=True,
             check=False,
-            env=sanitized_git_env() if environment is None else environment,
+            env=probe_env,
             # Explicit execution-context probes must see the same inherited
             # descriptors as the final exec (for example -C /proc/self/fd/N).
             # Ordinary sanitized probes retain subprocess's closed-fd default.
@@ -168,6 +174,8 @@ class GitWriteTarget:
     git_dir: Path
     worktree: Path
     cwd: Path
+    index_path: Path
+    object_dir: Path
 
 
 def resolve_git_worktree(
@@ -185,18 +193,22 @@ def resolve_git_worktree(
     proc = _run_git(
         Path(cwd), *options, "rev-parse", "--path-format=absolute",
         "--git-common-dir", "--absolute-git-dir", "--show-toplevel", "--show-prefix",
+        "--git-path", "index", "--git-path", "objects",
         environment=probe_env, executable=executable, inherit_fds=inherit_fds,
     )
     lines = proc.stdout.splitlines()
-    if proc.returncode or len(lines) != 4:
+    if proc.returncode or len(lines) != 6:
         raise NotAGitRepositoryError("Cannot resolve Git write target")
-    common, gitdir, top, prefix = lines
+    common, gitdir, top, prefix, index, objects = lines
     common_dir = Path(common).resolve(strict=True)
     git_dir = Path(gitdir).resolve(strict=True)
     worktree = Path(top).resolve(strict=True)
     if not all(path.is_dir() for path in (common_dir, git_dir, worktree)):
         raise NotAGitRepositoryError("Cannot resolve Git write target")
-    return GitWriteTarget(common_dir, git_dir, worktree, (worktree / prefix).resolve(strict=True))
+    return GitWriteTarget(
+        common_dir, git_dir, worktree, (worktree / prefix).resolve(strict=True),
+        Path(index).resolve(), Path(objects).resolve(),
+    )
 
 
 def evaluate_git_invocation(
@@ -212,6 +224,11 @@ def evaluate_git_invocation(
     from lu_machinery.guardrails.git_primary_policy import _GIT_INFO_GLOBALS, git_invocation_form, split_invocation
 
     try:
+        if any(
+            name.startswith("GIT_TRACE") and value.lower() not in {"", "0", "1", "true", "false"}
+            for name, value in environment.items()
+        ):
+            return False, "git_trace_destination_refused"
         options, sub, args, strict = split_invocation(argv)
         if sub in _GIT_INFO_GLOBALS and not options:
             return True, "informational"
@@ -220,10 +237,12 @@ def evaluate_git_invocation(
             if key not in GIT_REDIRECT_ENV_KEYS and not key.startswith("GIT_CONFIG")
         }
         trusted_env.update(GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_SYSTEM=os.devnull, AGENT_GIT_SHIM_GUARD_ACTIVE="1")
-        protected = resolve_git_worktree(protected_anchor, [], environment=trusted_env, executable=executable)
+        anchor = protected_anchor.resolve(strict=True)
+        protected = resolve_git_worktree(anchor, [], environment=trusted_env, executable=executable)
+        anchor_common = protected.common_dir
         # Git lists the primary first. Its common directory need not be
         # <primary>/.git (a valid --separate-git-dir checkout has another store).
-        listing = _run_git(protected.worktree, "worktree", "list", "--porcelain", environment=trusted_env, executable=executable)
+        listing = _run_git(anchor, "worktree", "list", "--porcelain", environment=trusted_env, executable=executable)
         if listing.returncode:
             return False, "undecidable_registered_worktrees"
         worktrees = [Path(line[9:]).resolve(strict=True) for line in listing.stdout.splitlines() if line.startswith("worktree ")]
@@ -232,9 +251,16 @@ def evaluate_git_invocation(
         # The trusted anchor may already name the primary, including a
         # separate Git store for which `worktree list` guesses another path.
         # Its own Git directory equals the common directory only on that route.
-        primary = protected.worktree if protected.git_dir == protected.common_dir else worktrees[0]
+        if protected.git_dir == protected.common_dir:
+            # The checkout entry on the trusted physical ancestry fixes its
+            # file root. Local core.worktree cannot redirect that authority.
+            primary = next((path for path in (anchor, *anchor.parents) if (path / ".git").exists()), None)
+            if primary is None:
+                return False, "undecidable_primary_worktree"
+        else:
+            primary = worktrees[0]
         protected = resolve_git_worktree(primary, [], environment=trusted_env, executable=executable)
-        if protected.git_dir != protected.common_dir:
+        if protected.git_dir != protected.common_dir or protected.common_dir != anchor_common or protected.worktree != primary:
             return False, "undecidable_primary_worktree"
         worktrees[0] = primary
         target = resolve_git_worktree(cwd, options, environment=environment, executable=executable, inherit_fds=True)
@@ -252,19 +278,23 @@ def evaluate_git_invocation(
         )
         # Explicit metadata redirection can touch the primary even when both
         # the repository and the working-tree probe name another checkout.
-        for key in ("GIT_INDEX_FILE", "GIT_OBJECT_DIRECTORY", "GIT_COMMON_DIR"):
-            if environment.get(key):
-                location = absolute_path(environment[key], cwd=cwd)
-                reaches_primary |= (
-                    location.is_relative_to(protected.common_dir)
-                    or _classify_with_worktrees(location, primary, worktrees) == "primary_checkout"
-                    or primary.is_relative_to(location)
-                )
+        for key, location in (
+            ("GIT_INDEX_FILE", target.index_path),
+            ("GIT_OBJECT_DIRECTORY", target.object_dir),
+            ("GIT_COMMON_DIR", target.common_dir),
+        ):
+            if not environment.get(key):
+                continue
+            reaches_primary |= (
+                location.is_relative_to(protected.common_dir)
+                or _classify_with_worktrees(location, primary, worktrees) == "primary_checkout"
+                or primary.is_relative_to(location)
+            )
         form = ("read", []) if sub in _GIT_INFO_GLOBALS else git_invocation_form(sub, args)
         # Worktree maintenance names a separate filesystem destination. A
         # foreign repository does not exempt that destination from protection.
         for raw in form[1] if form is not None else []:
-            location = absolute_path(raw, cwd=target.cwd)
+            location = (target.cwd / raw).resolve()
             if _classify_with_worktrees(location, primary, worktrees) == "primary_checkout" or primary.is_relative_to(location):
                 return False, "git_worktree_path_reaches_primary"
         if not reaches_primary:

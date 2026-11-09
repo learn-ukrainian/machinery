@@ -147,10 +147,18 @@ def test_foreign_write_does_not_exempt_other_primary_writes(repositories, tail):
 
 @pytest.mark.parametrize("shape", ["/usr/bin/git -C {a} reset --hard", "command -p git -C {a} reset --hard",
                                    "PATH=/usr/bin:/bin git -C {a} reset --hard", "env -i git -C {a} reset --hard",
-                                   "sh -c '/usr/bin/git reset --hard'"])
+                                   "sh -c '/usr/bin/git reset --hard'"] + [
+    pattern.format(name=name, a="{a}", b="{b}")
+    for name in ("LC_DURABLE_HELPER_ROOT", "CODEX_CANONICAL_REPO_ROOT", "LU_PRODUCT_ROOT",
+                 "LEARN_UKRAINIAN_PYTHON", "LC_SESSION_ROOT", "AGENT_GIT_SHIM_GUARD_ACTIVE")
+    for pattern in ("{name}={b} git -C {a} reset --hard", "export {name}={b}; git -C {a} reset --hard",
+                    "env {name}={b} git -C {a} reset --hard", "unset -v {name}; git -C {a} reset --hard",
+                    "env -u {name} git -C {a} reset --hard", "env --unset={name} git -C {a} reset --hard",
+                    "env -u{name} git -C {a} reset --hard")
+])
 def test_visible_git_shim_bypasses_are_refused_before_execution(repositories, shape):
     """The hook keeps explicit bypass refusals while the shim owns normal expanded argv."""
-    command = shape.format(a=shlex.quote(str(repositories["A"])))
+    command = shape.format(a=shlex.quote(str(repositories["A"])), b=shlex.quote(str(repositories["B"])))
     result = _decision(repositories, repositories["B"], command)
     assert result.returncode == 2
     assert "explicit_git_shim_bypass" in result.stderr

@@ -32,6 +32,25 @@ _opsec_restore_override() {
   fi
 }
 
+# Trace destinations can write before Git runs its requested command. Refuse
+# file/fd destinations before any probe, and keep permitted boolean tracing
+# only for the final exec. Trace2's config targets are disabled during probes.
+_trace_names=()
+_trace_values=()
+for _trace_name in ${!GIT_TRACE@}; do
+  case "${!_trace_name}" in
+    '' | 0 | 1 | [Tt][Rr][Uu][Ee] | [Ff][Aa][Ll][Ss][Ee]) ;;
+    *)
+      echo "error: primary Git policy refused [git_trace_destination_refused]." >&2
+      exit 1
+      ;;
+  esac
+  _trace_names+=("$_trace_name")
+  _trace_values+=("${!_trace_name}")
+  unset "$_trace_name"
+done
+export GIT_TRACE=0 GIT_TRACE2=0 GIT_TRACE2_EVENT=0 GIT_TRACE2_PERF=0
+
 # The one project interpreter (R66).
 # A runner that must pin an interpreter sets LEARN_UKRAINIAN_PYTHON.
 # Sourced in this shell: a later command substitution must not be the only source,
@@ -460,4 +479,8 @@ if [[ "$_guard_out" == GUARD_ALLOW_NO_PAGER ]]; then
   _git_exec_args=("$real_git" "${_opsec_globals[@]}" --no-pager "${@:_opsec_index+1}")
 fi
 _opsec_restore_override
+unset GIT_TRACE GIT_TRACE2 GIT_TRACE2_EVENT GIT_TRACE2_PERF
+for ((_trace_index=0; _trace_index<${#_trace_names[@]}; _trace_index++)); do
+  export "${_trace_names[_trace_index]}=${_trace_values[_trace_index]}"
+done
 _exec_git "${_git_exec_args[@]}"

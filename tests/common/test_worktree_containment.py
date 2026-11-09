@@ -431,13 +431,25 @@ def test_branch_helpers(layout: Layout):
 # ---------------------------------------------------------------------------
 
 
-def test_read_only_operations_do_not_dirty_the_checkout(layout: Layout):
+@pytest.mark.parametrize("trace", [None, "GIT_TRACE", "GIT_TRACE2_EVENT", "config"])
+def test_read_only_operations_do_not_dirty_the_checkout(layout: Layout, tmp_path: Path, monkeypatch, trace):
+    """Discovery probes must not write environment- or config-selected trace sinks."""
     before = _git(layout.main, "status", "--porcelain").stdout
+    protected = layout.main / "tracked.txt"
+    original = protected.read_bytes()
     # Exercise the full surface from the repo root.
-    wc.classify_repo_path(layout.main / "tracked.txt", cwd=layout.main)
-    wc.is_write_allowed(layout.main / "tracked.txt", cwd=layout.main)
-    wc.is_primary_checkout(layout.main)
-    wc.registered_worktrees(layout.main)
+    with monkeypatch.context() as context:
+        if trace == "config":
+            config = tmp_path / "trace-config"
+            _git(layout.main, "config", "--file", str(config), "trace2.eventTarget", str(protected))
+            context.setenv("GIT_CONFIG_GLOBAL", str(config))
+        elif trace:
+            context.setenv(trace, str(protected))
+        wc.classify_repo_path(protected, cwd=layout.main)
+        wc.is_write_allowed(protected, cwd=layout.main)
+        wc.is_primary_checkout(layout.main)
+        wc.registered_worktrees(layout.main)
+        assert protected.read_bytes() == original
     after = _git(layout.main, "status", "--porcelain").stdout
     assert before == after
 

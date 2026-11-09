@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import shlex
+import shutil
 import subprocess
 import sys
 
@@ -36,7 +37,7 @@ def _run(repositories, cwd, args, extra_env=None, *, pass_fds=()):
 @pytest.mark.parametrize("argv", [["stash"], ["stash", "push"], ["checkout-index", "-a", "-f"],
                                   ["submodule", "update", "--force"], ["reset", "--hard"], ["add", "--", "file"],
                                   ["clean", "-f", "-e", "--", "-e", "-n"]])
-@pytest.mark.parametrize("route", ["primary", "foreign_worktree", "primary_metadata", "environment", "symlink", "relative"])
+@pytest.mark.parametrize("route", ["primary", "foreign_worktree", "primary_metadata", "environment", "symlink", "relative", "poisoned_anchor"])
 def test_writers_cannot_change_primary_files_or_index(repositories, tmp_path, argv, route):
     """Every route is resolved before choosing the read-only policy, independent of AGENT_NO_MERGE."""
     a, b = repositories["A"], repositories["B"]
@@ -57,7 +58,14 @@ def test_writers_cannot_change_primary_files_or_index(repositories, tmp_path, ar
         cwd, prefix = b, ["-C", str(repositories["link"])]
     elif route == "relative":
         cwd, prefix = b, ["-C", os.path.relpath(a, b)]
-    result = _run(repositories, cwd, [*prefix, *argv], env)
+    elif route == "poisoned_anchor":
+        _git(a, "config", "core.worktree", str(b))
+        prefix = [f"--git-dir={a / '.git'}", f"--work-tree={a}"]
+    try:
+        result = _run(repositories, cwd, [*prefix, *argv], env)
+    finally:
+        if route == "poisoned_anchor":
+            _git(a, "config", "--unset", "core.worktree")
     assert result.returncode != 0, (result.stdout, result.stderr)
     assert "primary Git policy" in result.stderr, result.stderr
     assert (a / "file").read_text() == "dirty\n"
@@ -99,18 +107,31 @@ def test_compound_foreign_repository_executes_successfully(repositories, operati
 @pytest.mark.parametrize("args", [["status", "--porcelain"], ["log", "--oneline", "-1"], ["diff", "--stat"],
                                   ["clean", "-n", "-e", "build"], ["checkout", "--", "file"], ["restore", "file"]])
 @pytest.mark.parametrize("inherited_root_fd", [False, True])
-def test_enumerated_readers_and_rescue_forms_execute(repositories, args, inherited_root_fd):
-    """Closing an inherited root descriptor must not break allowed Git execution."""
+@pytest.mark.parametrize("trace", [None, ("GIT_TRACE", "1"), ("GIT_TRACE", "primary"),
+                                  ("GIT_TRACE2_EVENT", "primary"), ("GIT_TRACE", "outside")])
+def test_enumerated_readers_and_rescue_forms_execute(repositories, tmp_path, args, inherited_root_fd, trace):
+    """Inherited-root discovery works; trace environment sinks are refused before Git runs."""
     a = repositories["A"]
     (a / "file").write_text("dirty\n")
+    extra_env = {}
+    if trace is not None:
+        name, value = trace
+        value = str(a / "file") if value == "primary" else str(tmp_path / "trace") if value == "outside" else value
+        extra_env[name] = value
     if inherited_root_fd:
         fd = os.open(a, os.O_RDONLY | os.O_DIRECTORY)
         try:
-            result = _run(repositories, a, ["-C", f"/proc/self/fd/{fd}", *args], pass_fds=(fd,))
+            result = _run(repositories, a, ["-C", f"/proc/self/fd/{fd}", *args], extra_env, pass_fds=(fd,))
         finally:
             os.close(fd)
     else:
-        result = _run(repositories, a, args)
+        result = _run(repositories, a, args, extra_env)
+    if trace is not None and trace[1] in {"primary", "outside"}:
+        assert result.returncode != 0
+        assert "git_trace_destination_refused" in result.stderr
+        assert (a / "file").read_text() == "dirty\n"
+        assert not (tmp_path / "trace").exists()
+        return
     assert result.returncode == 0, result.stderr
     expected = "tracked\n" if args[0] in {"checkout", "restore"} else "dirty\n"
     assert (a / "file").read_text() == expected
@@ -127,15 +148,28 @@ def test_foreign_configuration_reader_cannot_run_against_primary(repositories, t
 
 
 @pytest.mark.parametrize("index_path", [".git/index", "victim-index"])
-def test_metadata_environment_cannot_redirect_foreign_add_to_primary_index(repositories, index_path):
-    """A redirected index must not overwrite either metadata or primary worktree files."""
+@pytest.mark.parametrize("key", ["GIT_INDEX_FILE", "GIT_OBJECT_DIRECTORY", "GIT_COMMON_DIR"])
+@pytest.mark.parametrize("relative", [False, True])
+def test_metadata_environment_cannot_redirect_foreign_add_to_primary_index(repositories, tmp_path, index_path, key, relative):
+    """Git's post--C metadata paths must not overwrite primary files or metadata."""
     a, b = repositories["A"], repositories["B"]
-    index = a / index_path
-    index.write_bytes((a / ".git/index").read_bytes())
-    before = index.read_bytes()
-    result = _run(repositories, b, ["add", "file"], {"GIT_INDEX_FILE": str(index)})
+    if key == "GIT_INDEX_FILE":
+        destination = a / index_path
+        destination.write_bytes((a / ".git/index").read_bytes())
+    else:
+        source = a / (".git/objects" if key == "GIT_OBJECT_DIRECTORY" else ".git")
+        suffix = "-relative" if relative else "-absolute"
+        destination = source if index_path.startswith(".git") else a / ("victim-" + key.lower() + suffix)
+        if destination != source:
+            shutil.copytree(source, destination)
+    outside = tmp_path / "outside/deep"
+    outside.mkdir(parents=True)
+    value = os.path.relpath(destination, b) if relative else str(destination)
+    before = {str(path.relative_to(a)): path.read_bytes() for path in a.rglob("*") if path.is_file()}
+    result = _run(repositories, outside, ["-C", str(b), "add", "file"], {key: value})
     assert result.returncode != 0
-    assert index.read_bytes() == before
+    after = {str(path.relative_to(a)): path.read_bytes() for path in a.rglob("*") if path.is_file()}
+    assert after == before
 
 
 def test_missing_target_fails_closed_and_dispatch_stays_writable(repositories):
@@ -170,6 +204,9 @@ def test_bounded_maintenance_preserves_primary_content(repositories, tmp_path):
     result = _run(repositories, a, ["worktree", "add", str(a / "intruder"), "--detach", "main"])
     assert result.returncode != 0
     assert not (a / "intruder").exists()
+    result = _run(repositories, a, ["worktree", "add", "--detach", "~/wt", "main"])
+    assert result.returncode != 0
+    assert not (a / "~").exists()
 
 
 # `git help -a` of Git 2.53 (commands; the guide and external sections excluded).

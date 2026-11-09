@@ -1502,7 +1502,7 @@
   {
    "path": "lu_machinery/guardrails/worktree_containment.py",
    "rule": "python.lang.security.audit.dangerous-subprocess-use-audit",
-   "sha256": "101ea807d8eb4dfb77fb77fd69d6cc19cc57eabf9e9a161338ca1951163fedf3"
+   "sha256": "d4f39e39f1bd7cc01000866681b0999b21b061ca98bb9f788d1f0901066593c7"
   },
   {
    "path": "lu_machinery/guardrails/worktree_containment.py",
