@@ -57,7 +57,7 @@ def test_foreign_sidecar_does_not_block_review_admission(tmp_path, monkeypatch, 
 def _plant_record_and_copy(root, copy_name, **copy_updates):
     record = dict(task_id="worker", schema_version=2, run_nonce="n1", repository="org/repo", status="done")
     (root / "worker.json").write_text(json.dumps(record))
-    (root / copy_name).write_text(json.dumps({**record, "status": "running", **copy_updates}))
+    (root / copy_name).write_text(json.dumps({**record, **copy_updates}))
 
 
 def test_stray_copy_of_a_named_record_does_not_block_admission(tmp_path, monkeypatch):
@@ -103,10 +103,16 @@ def test_copy_that_adds_a_claim_or_has_only_an_archived_witness_still_blocks_adm
     _plant_record_and_copy(tmp_path, "worker.copy.json", **claims)
     with pytest.raises(errors, match=message):
         admission_readers(tmp_path)[reader]()
+    # A status-only difference activates the same claims once the copy is read as a record.
+    named = json.loads((tmp_path / "worker.json").read_text())
+    (tmp_path / "worker.json").write_text(json.dumps({**named, **claims}))
+    (tmp_path / "worker.copy.json").write_text(json.dumps({**named, **claims, "status": "running"}))
+    with pytest.raises(errors, match=message):
+        admission_readers(tmp_path)[reader]()
+    (tmp_path / "worker.json").write_text(json.dumps(named))
     (tmp_path / "archive").mkdir()
     (tmp_path / "worker.json").rename(tmp_path / "archive" / "worker.json")
-    (tmp_path / "worker.copy.json").write_text(json.dumps(dict(
-        task_id="worker", schema_version=2, run_nonce="n1", repository="org/repo", status="running")))
+    (tmp_path / "worker.copy.json").write_text(json.dumps(named))
     with pytest.raises(errors, match=message):
         admission_readers(tmp_path)[reader]()
 

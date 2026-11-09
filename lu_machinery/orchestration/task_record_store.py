@@ -154,21 +154,15 @@ def named_run_identity(path: Path, record: dict[str, Any]) -> tuple[str, str] | 
     return None
 
 
-# Fields a copy saved earlier in a run may carry with another value than the final record's.
-_COPY_PROGRESS_FIELDS = frozenset({
-    "status", "finished_at", "duration_s", "returncode", "result_sha256", "usage", "error",
-    "worktree_dirty_on_exit", "commits_ahead", "settling_at",
-})
-
-
 def is_stray_copy(mismatch: TaskIdentityMismatch) -> bool:
     """Whether a misnamed record is a worker's copy of the named record of the same run, claiming nothing more.
 
     True only when the record dispatch names for the task, in the same directory, carries the same
-    task_id and run_nonce, and every field the copy carries other than run progress is null or equals
-    the named record's. The named record is the one the reader scans for the run's claims, so the copy
-    adds none. A renamed, orphaned or forged record, one that adds or changes a claim, or one whose
-    witness sits only in another directory is False, so its reader refuses it exactly as before.
+    task_id and run_nonce, and every field the copy carries is null or equals the named record's. The
+    named record is the one the reader scans for the run's claims, so the copy adds none. A renamed,
+    orphaned or forged record, one that adds or changes any field (a snapshot with an earlier status
+    included), or one whose witness sits only in another directory is False, so its reader refuses it
+    exactly as before.
     """
     record = mismatch.record
     nonce = record.get("run_nonce")
@@ -185,7 +179,7 @@ def is_stray_copy(mismatch: TaskIdentityMismatch) -> bool:
     if not isinstance(other, dict) or named_run_identity(named, other) != (task_id, nonce):
         return False
     return all(
-        value is None or key in _COPY_PROGRESS_FIELDS or (key in other and other[key] == value)
+        value is None or (key in other and other[key] == value)
         for key, value in record.items()
     )
 

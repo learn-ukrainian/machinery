@@ -727,8 +727,13 @@ def test_orphaned_or_forged_task_record_still_blocks_the_claim_scan(tmp_path):
     (tasks / "worker.json").rename(tasks / "worker.renamed.json")
     refusal = worktree_claims.active_worktree_claim_refusal(target, tasks_dir=tasks, repo_root=tmp_path)
     assert refusal is not None and "worker.renamed.json" in refusal and "refusing worktree removal" in refusal
-    # A same-run copy that claims a worktree its named record does not still refuses.
+    # A same-run snapshot with an earlier status would claim again if read as a record, so it refuses.
     (tasks / "worker.renamed.json").rename(tasks / "worker.json")
+    (tasks / "worker.copy.json").write_text(json.dumps(_claim_record(target, status="running")))
+    (tasks / "worker.json").write_text(json.dumps(_claim_record(target, status="done")))
+    refusal = worktree_claims.active_worktree_claim_refusal(target, tasks_dir=tasks, repo_root=tmp_path)
+    assert refusal is not None and "worker.copy.json" in refusal and "refusing worktree removal" in refusal
+    # A same-run copy that claims a worktree its named record does not still refuses.
     other = tmp_path / "other"
     other.mkdir()
     (tasks / "worker.json").write_text(json.dumps(_claim_record(other, status="done")))
