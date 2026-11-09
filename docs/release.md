@@ -78,13 +78,13 @@ in `pyproject.toml` and `$SHA` the full commit:
    first install. The release prepares its version-and-lock-derived prefix,
    selects Node matching that prefix's `.nvmrc`, and resolves the npm CLI
    inside that Node installation. Python never executes npm. Selection takes
-   the highest matching-major Node among `PATH` and the fixed host install
-   directories, so a distro Node of the same major can win over the host's
-   pinned one. Put the pinned Node's directory first on `PATH` before the
-   block, and check that `node --version` prints the pinned version. The block
-   resolves `$NODE` and `$NPM`; confirm `"$NODE" --version` and
-   `"$NPM" --version` before trusting the install. Run this exact block after
-   the wheel install:
+   the highest matching-major Node among `PATH`, `/opt/homebrew/bin` and
+   `/usr/local/bin`; `PATH` order breaks only ties. A minimal `PATH` that omits
+   the host's pinned Node selects a distro Node of the same major. Put the
+   pinned Node's directory on `PATH` and confirm it is the highest matching-major
+   there: run the `NODE` and `NPM` assignments of the block below on their own
+   and check that `"$NODE" --version` and `"$NPM" --version` print the pinned
+   versions before `npm ci`. Run this exact block after the wheel install:
 
    ```bash
    set -eu
@@ -133,8 +133,11 @@ in `pyproject.toml` and `$SHA` the full commit:
    not a synthetic-root one, while the caller has same-account processes whose
    `/proc` entries it cannot read; it must return the known answer with `ok`
    true and leave no new launcher copy. Agent CLI lookup
-   searches only `$HOME/.local/bin` and `$HOME/.opencode/bin`, not `PATH`, so a
-   drill's scratch `$HOME` needs links to the provider executables there. The
+   without an explicit search path (such as codex and grok) uses only
+   `$HOME/.local/bin` and `$HOME/.opencode/bin`, not `PATH`, so a drill's
+   scratch `$HOME` needs links to those executables there. Claude is looked up
+   on `PATH` first, then `$HOME/.local/bin/claude`; control `PATH` so the
+   intended Claude is the one tested. The
    Claude launcher refuses any world-writable ancestor, so the canary venv and
    scratch `$HOME` must live outside `/tmp`. With registry access disabled, remove
    a package, introduce an incompatible version and tamper with an executable
