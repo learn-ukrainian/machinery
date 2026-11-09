@@ -18,6 +18,7 @@
 # [held]: source [run] files this repository does not run, with the reason; none is ported.
 #   Each needs the product checkout, which this repository does not hold.
 # [run]
+tests/test_installed_root_contract.py
 tests/agent_runtime/test_claude_acp_trust_root.py
 tests/hygiene/test_tmp_sweep.py
 tests/hygiene/test_pytest_retention.py

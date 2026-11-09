@@ -22,11 +22,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from lu_machinery.common.repo_root import resolve_repo_root
+from lu_machinery.common.repo_root import state_root
 from lu_machinery.secret_redactor import redact_text
-
-_REPO_ROOT = resolve_repo_root(Path(__file__), 2)
-
 
 _NO_DELIVERABLE_UNKNOWN_COMMIT_COUNT_REASON = "commit_count_unknown"
 
@@ -621,7 +618,7 @@ def _append_diagnostics(record_path: Path, causes: Sequence[tuple[str, _TypedCau
         os.close(directory_fd)
     path = record_path.with_suffix(".diag")
     try:
-        return path.resolve().relative_to(_REPO_ROOT.resolve()).as_posix()
+        return path.resolve().relative_to(state_root().resolve()).as_posix()
     except ValueError:
         return f"{path.parent.name}/{path.name}"
 

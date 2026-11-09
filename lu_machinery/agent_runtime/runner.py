@@ -37,7 +37,6 @@ import re
 import shutil
 import signal
 import subprocess
-import sys
 import tempfile
 import time
 from collections.abc import Callable, Mapping, Sequence
@@ -72,7 +71,7 @@ from lu_machinery.ai_llm.fallback import (
     resolve_allowed_auth_modes,
     run_gemini_fallback_ladder,
 )
-from lu_machinery.common.repo_root import MachineryConfigError, machinery_path, product_root
+from lu_machinery.common.repo_root import MachineryConfigError, machinery_path, product_root, project_interpreter
 from lu_machinery.lib.readonly_sqlite import import_named_module
 from lu_machinery.secret_redactor import redact_value
 from lu_machinery.telemetry.emit import current_run_id, current_session_id
@@ -901,7 +900,8 @@ def _apply_merge_guard(*, mode: str, env: dict[str, str]) -> dict[str, str]:
     else:
         guarded_env.pop("AGENT_REAL_GIT", None)
 
-    guarded_env["AGENT_GIT_SHIM_PYTHON"] = sys.executable
+    # build_agent_env strips operator root settings from this child environment.
+    guarded_env["LEARN_UKRAINIAN_PYTHON"] = str(project_interpreter())
 
     shim_path = str(_SHIMS_DIR)
     guarded_env["PATH"] = f"{shim_path}{os.pathsep}{original_path}" if original_path else shim_path
