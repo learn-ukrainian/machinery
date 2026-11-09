@@ -2128,7 +2128,10 @@ def _git_shim_bypass(command: str, depth: int = 0) -> bool:
     # not just assignment/export. Plain parameter reads retain inherited values.
     names = "|".join(re.escape(name) for name in sorted(trust_inputs))
     if any(
-        not word[:match.start()].endswith(("$", "${"))
+        not (
+            word[:match.start()].endswith("$")
+            or word[:match.start()].endswith("${") and word[match.end():].startswith("}")
+        )
         for word in words
         for match in re.finditer(r"(?:" + names + r")\b", word)
     ):

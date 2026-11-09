@@ -165,6 +165,12 @@ def test_foreign_write_does_not_exempt_other_primary_writes(repositories, tail):
                     "getopts a {name} -a; git -C {a} reset --hard",
                     "read '{name}' <<< {b}; git -C {a} reset --hard",
                     'printf -v "{name}" %s {b}; git -C {a} reset --hard')
+] + [
+    ': "${{' + name + operator + '{b}}}"; git -C {a} reset --hard'
+    for name in ("PATH", "GIT_EXEC_PATH", "AGENT_REAL_GIT", "AGENT_ORIGINAL_PATH",
+                 "LC_DURABLE_HELPER_ROOT", "CODEX_CANONICAL_REPO_ROOT", "LU_PRODUCT_ROOT",
+                 "LEARN_UKRAINIAN_PYTHON", "LC_SESSION_ROOT", "AGENT_GIT_SHIM_GUARD_ACTIVE")
+    for operator in ("=", ":=", "-", ":-", "+", "?", "#", "%", "/", "^", ",", "@", ":0:", "[0]:=")
 ])
 def test_visible_git_shim_bypasses_are_refused_before_execution(repositories, shape):
     """The hook keeps explicit bypass refusals while the shim owns normal expanded argv."""
