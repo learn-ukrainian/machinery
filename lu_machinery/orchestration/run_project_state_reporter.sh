@@ -7,15 +7,10 @@ set -euo pipefail
 export GIT_OPTIONAL_LOCKS="${GIT_OPTIONAL_LOCKS:-0}"
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-if [[ -n "${LEARN_UKRAINIAN_PYTHON:-}" ]]; then
-  PYTHON="$LEARN_UKRAINIAN_PYTHON"
-elif [[ -n "${LEARN_UKRAINIAN_PRIMARY_REPO_ROOT:-}" ]]; then
-  PYTHON="${LEARN_UKRAINIAN_PRIMARY_REPO_ROOT}/.venv/bin/python"
-else
-  PYTHON="$REPO_ROOT/.venv/bin/python"
-fi
-if [[ ! -x "$PYTHON" ]]; then
-  echo "project interpreter missing: $PYTHON (set LEARN_UKRAINIAN_PYTHON or LEARN_UKRAINIAN_PRIMARY_REPO_ROOT)" >&2
+# shellcheck disable=SC1091
+source "$REPO_ROOT/lu_machinery/lib/project_interpreter.sh"
+if ! PYTHON="$(project_interpreter_resolve "$REPO_ROOT")"; then
+  echo "project interpreter missing" >&2
   exit 1
 fi
 exec "$PYTHON" "$REPO_ROOT/lu_machinery/api/project_state_local.py" report

@@ -1448,8 +1448,7 @@
       "consumer": "curriculum-generation",
       "kind": "schema",
       "anchors": [
-        "scripts/build/generate_lesson_schema.py:19",
-        "scripts/ci/checks.sh:69"
+        "scripts/build/generate_lesson_schema.py:19"
       ],
       "resolved": true
     },
@@ -1459,8 +1458,7 @@
       "consumer": "curriculum-generation",
       "kind": "schema",
       "anchors": [
-        "scripts/build/generate_lesson_schema.py:19",
-        "scripts/ci/checks.sh:69"
+        "scripts/build/generate_lesson_schema.py:19"
       ],
       "resolved": true
     },
@@ -1470,8 +1468,7 @@
       "consumer": "curriculum-generation",
       "kind": "schema",
       "anchors": [
-        "scripts/build/generate_lesson_schema.py:19",
-        "scripts/ci/checks.sh:69"
+        "scripts/build/generate_lesson_schema.py:19"
       ],
       "resolved": true
     },

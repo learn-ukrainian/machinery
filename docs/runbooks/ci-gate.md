@@ -138,7 +138,7 @@ Direct regression tests cover arbitrary module names and resolved-path boundarie
 | --- | --- |
 | Queue commit metadata scan | `merge_group` only. TruffleHog over the queue commit's message, author and committer (below). |
 | Secret scan | Event-aware TruffleHog range, OPSEC public-identifier lint, internal-ID check. |
-| Checks | PR pytest collection, quarantine admission verification, and `lu_machinery/ci/checks.sh` for every lint and content-contract gate on every tier; fails if any failed. |
+| Checks | PR pytest collection and quarantine admission verification; fails if any failed. |
 | PR changed tests and guards | PRs execute changed test files, tests that import changed files, tests that name a changed file as text, all explicit guards, and marker-only repository invariants; full tiers exit without duplicate execution. |
 | Frontend | Every event. Always runs the real MDX compiler regressions (`-m site_toolchain`); builds and tests the site only when the diff touches the frontend denominator. |
 | Refresh pytest durations | Full tier only. Freezes one file-weight snapshot for every shard (below). |
@@ -167,18 +167,7 @@ that chose *which* tests or checks a change ran is gone.
 | Read-only token (`permissions: contents: read`) | workflow | workflow; pytest duration refresh adds `actions: read` |
 | Credential-free checkout (`persist-credentials: false`) | every checkout | every checkout (tested) |
 | SHA-pinned actions | every `uses:` | every `uses:` (tested; actionlint + zizmor) |
-| Ruff lint (`ruff check` of the machinery package plus scripts/, tests/, agents_extensions/ and dashboards/; see `lu_machinery/ci/checks.sh`) | Fast checks, not docs-only | checks.sh, every run. `ruff format --check` stays off (~2,050 files differ). |
-| Strict v2 plan validation | Fast checks | checks.sh (same PR path scoping) |
-| Arc landing drift (`build_arc_landing a1 --check`) | Fast checks | checks.sh |
-| Word Atlas sense-lint ratchet | Contracts | checks.sh |
-| Lesson-schema drift | Contracts | checks.sh |
-| MDX source/forward parity, generation drift | Contracts | checks.sh |
-| Teacher cloze content | Contracts | checks.sh |
-| Locked module not published | Contracts | checks.sh |
-| Atlas manifest freshness and enrichment | Contracts | checks.sh (the manifest load itself is in `python-ci-env`) |
-| Static practice assets | Contracts | checks.sh |
-| Dossier word counts | Contracts | checks.sh |
-| BIO preparation capsules and holds | Contracts (inline Python) | checks.sh → `lu_machinery/ci/bio_preparation_gate.py` |
+| Ruff lint (`ruff check` of `lu_machinery/`) | Fast checks, not docs-only | `Ruff` job in `.github/workflows/ci-gate.yml`, every run. `ruff format --check` stays off (~2,050 files differ). |
 | Frontend build, generated-artifact drift (directly after the build), unit and built-output tests | Frontend, when the denominator matched | Frontend (same denominator, same order); one hydrate and one recorded build, reused only after verification (below) |
 | Frontend change denominator incl. backend hydrate inputs | Changes (`classify_changes`) | Frontend scope step (`frontend_change_scope.py`); completeness kept by `tests/test_frontend_denominator_invariant.py` |
 | Full non-slow pytest, strict markers, `--timeout=120` | pytest shards (full/selected/docs/content tiers) | pytest shards, full suite on merge-group, nightly and opt-in manual events |

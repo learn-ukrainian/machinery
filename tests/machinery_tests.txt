@@ -141,6 +141,7 @@ tests/hooks/test_session_setup_isolation.py
 tests/hooks/test_interpreter_rule.py
 tests/agent_runtime/test_retired_seat_admission.py
 tests/agent_runtime/test_deepseek_admission.py
+tests/dispatcher/test_snapshot_hidden_changes.py
 # [support]
 tests/__init__.py
 tests/conftest.py
@@ -203,6 +204,10 @@ tests/api/fixtures/usage_9270/agy.json
 tests/api/fixtures/usage_9270/claude.json
 tests/api/fixtures/usage_9270/codex.json
 tests/api/fixtures/usage_9270/codex_resets.json
+tests/helpers/product_tree.py
+tests/fixtures/product_tree/agents_extensions/shared/settings.json
+tests/fixtures/product_tree/.mcp/servers/sources/server.py
+tests/fixtures/product_tree/docs/review-protocol.md
 # [held]
 # tests/test_launcher_interactive_scope.py: 101 tests list the product's root start-*.sh wrappers through product_root(), which needs the product checkout (ProductRootError: no product is configured; LU_PRODUCT_ROOT names none).
 # tests/test_handoff_slot_registry.py: collection calls product_checkout() (line 35) for the product's root start-*-driver.sh wrappers; product_root() raises ProductRootError without the product checkout.

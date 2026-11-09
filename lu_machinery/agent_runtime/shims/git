@@ -32,6 +32,18 @@ _opsec_restore_override() {
   fi
 }
 
+# The one project interpreter (R66). AGENT_GIT_SHIM_PYTHON is not a selector:
+# a runner that must pin an interpreter sets LEARN_UKRAINIAN_PYTHON.
+# Sourced in this shell: a later command substitution must not be the only source,
+# or project_python_run would be missing when the guard runs.
+_shim_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+_shim_root="$(cd "$_shim_dir/../../.." && pwd)"
+# shellcheck disable=SC1091
+source "$_shim_dir/../../lib/project_interpreter.sh"
+_shim_project_python() {
+  project_interpreter_resolve "$_shim_root"
+}
+
 _deny() {
   cat >&2 <<'EOF'
 error: agent invoked with AGENT_NO_MERGE=1 cannot push directly to main.
@@ -97,38 +109,16 @@ fi
 _blocks_branch_switch() {
   local shim_dir
   shim_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-  local shim_repo
-  shim_repo="$(cd "$shim_dir/../../.." && pwd)"
   # The machinery package directory, named by the shim's unresolved location (design-v1 amendment 1).
   local package="${shim_dir%/*/*}"
   package="${package##*/}"
 
-  local real_git_bin
-  real_git_bin="$(_real_git 2>/dev/null || true)"
-
-  # The shim itself might reside in a linked worktree (e.g. .worktrees/dispatch/...)
-  # Resolve the main checkout that owns the virtual environment and scripts.
-  local shim_main_root="$shim_repo"
-  if [[ -n "$real_git_bin" && -x "$real_git_bin" ]]; then
-    local shim_common_dir
-    shim_common_dir="$(_exec_git "$real_git_bin" -C "$shim_repo" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" || shim_common_dir=""
-    if [[ -n "$shim_common_dir" ]]; then
-      shim_main_root="$(dirname "$shim_common_dir")"
-    fi
-  fi
-
-  local guard_python="${AGENT_GIT_SHIM_PYTHON:-}"
-  if [[ -z "$guard_python" ]]; then
-    if [[ -x "$shim_main_root/.venv/bin/python" ]]; then
-      guard_python="$shim_main_root/.venv/bin/python"
-    elif [[ -x "$shim_repo/.venv/bin/python" ]]; then
-      guard_python="$shim_repo/.venv/bin/python"
-    fi
-  fi
+  local guard_python=""
+  guard_python="$(_shim_project_python)" || true
 
   if [[ -z "$guard_python" || ! -x "$guard_python" ]]; then
     cat >&2 <<EOF
-error: git shim guard interpreter unavailable (${guard_python:-$shim_main_root/.venv/bin/python}).
+error: git shim guard interpreter unavailable.
        Cannot verify branch containment; failing closed.
 EOF
     return 125
@@ -136,7 +126,7 @@ EOF
 
   local guard_status=0
   local guard_out
-  guard_out="$("$guard_python" -c '
+  guard_out="$(project_python_run "$guard_python" -c '
 import sys
 import subprocess
 from pathlib import Path
@@ -150,13 +140,10 @@ try:
     import importlib
 
     machinery_package = sys.argv[1]
-    shim_main_root = sys.argv[2]
-    git_args = sys.argv[3:]
+    git_args = sys.argv[2:]
 
     if not machinery_package.isidentifier():
         raise ValueError(f"machinery package name {machinery_package!r} is not a Python identifier")
-    if shim_main_root and shim_main_root not in sys.path:
-        sys.path.insert(0, shim_main_root)
 
     containment = importlib.import_module(machinery_package + ".guardrails.worktree_containment")
     is_primary_checkout = containment.is_primary_checkout
@@ -228,7 +215,7 @@ except SystemExit:
 except Exception as exc:
     print(f"error: branch containment check failed: {exc}", file=sys.stderr)
     sys.exit(3)
-' "$package" "$shim_main_root" "$@")" || guard_status=$?
+' "$package" "$@")" || guard_status=$?
 
   if [[ "$guard_status" -ne 0 ]]; then
     return "$guard_status"
@@ -534,24 +521,18 @@ if [[ "$_opsec_push" == 1 ]]; then
   if [[ "$_opsec_shallow" == 1 ]]; then
     _opsec_refuse "--shallow-file is not supported for a scanned push"
   fi
-  _opsec_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd -P)"
   # The scanner is the one in this shim's own machinery package directory.
   _opsec_machinery="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
   _opsec_hooks="$_opsec_machinery/opsec/push_hooks"
-  # The interpreter the runner stamps, as the branch guard above uses, else this checkout's .venv.
-  _opsec_python="${AGENT_GIT_SHIM_PYTHON:-$_opsec_root/.venv/bin/python}"
-  if [[ -z "${AGENT_GIT_SHIM_PYTHON:-}" && ! -x "$_opsec_python" ]]; then
-    # A linked worktree has no interpreter of its own: use the main checkout's.
-    _opsec_common="$(_exec_git env -u GIT_DIR -u GIT_COMMON_DIR -u GIT_WORK_TREE "$real_git" -C "$_opsec_root" \
-      rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" || _opsec_common=""
-    _opsec_python="${_opsec_common:+$(dirname "$_opsec_common")/.venv/bin/python}"
-  fi
+  # The hook resolves the same interpreter itself. This preflight refuses a push
+  # that the hook would refuse, without handing it a second interpreter.
+  _opsec_python="$(_shim_project_python)" || true
   for _opsec_hook in pre-push reference-transaction chain; do
     [[ -f "$_opsec_hooks/$_opsec_hook" && -x "$_opsec_hooks/$_opsec_hook" ]] || _opsec_refuse "push scanner hooks unavailable"
   done
   [[ -f "$_opsec_machinery/opsec/git_push.py" ]] || _opsec_refuse "push scanner unavailable"
   [[ -n "$_opsec_python" && -x "$_opsec_python" ]] || _opsec_refuse "project interpreter unavailable"
-  export LU_OPSEC_PUSH_PYTHON="$_opsec_python" LU_OPSEC_REAL_GIT="$real_git"
+  export LU_OPSEC_REAL_GIT="$real_git"
   _opsec_restore_override
   _exec_git "$real_git" "${_opsec_globals[@]}" -c "core.hooksPath=$_opsec_hooks" "${@:_opsec_index+1}"
 fi

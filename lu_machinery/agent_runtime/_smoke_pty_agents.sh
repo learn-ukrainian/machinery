@@ -28,19 +28,10 @@ set -uo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 cd "${ROOT}" || exit 1
-
-VENV_PY="${ROOT}/.venv/bin/python"
-if [[ ! -x "${VENV_PY}" ]]; then
-    COMMON_DIR="$(git rev-parse --git-common-dir 2>/dev/null || true)"
-    if [[ -n "${COMMON_DIR}" ]]; then
-        CANDIDATE="$(cd "${COMMON_DIR}/.." 2>/dev/null && pwd)/.venv/bin/python"
-        if [[ -x "${CANDIDATE}" ]]; then
-            VENV_PY="${CANDIDATE}"
-        fi
-    fi
-fi
-if [[ ! -x "${VENV_PY}" ]]; then
-    echo "ERROR: cannot locate .venv/bin/python (worktree or main checkout)" >&2
+# shellcheck disable=SC1091
+source "${ROOT}/lu_machinery/lib/project_interpreter.sh"
+if ! VENV_PY="$(project_interpreter_resolve "${ROOT}")"; then
+    echo "ERROR: project interpreter is unavailable" >&2
     exit 99
 fi
 
@@ -119,7 +110,8 @@ FAILED=0
 export LU_ROOT="${ROOT}"
 
 # Fail here, not as a PTY regression, when the runner is not this checkout.
-if ! "${VENV_PY}" -c 'import os, sys
+# The package loads from this tree; the checkout is not put on sys.path.
+if ! project_python_run "${VENV_PY}" -c 'import os, sys
 from pathlib import Path
 import lu_machinery.agent_runtime.runner as runner
 module = Path(runner.__file__).resolve()
@@ -134,7 +126,7 @@ fi
 
 for AGENT in "${AGENTS[@]}"; do
     echo "=== smoke: ${AGENT} ==="
-    if "${VENV_PY}" - "${AGENT}" < "${DRIVER}"; then
+    if project_python_run "${VENV_PY}" -c "$(cat "${DRIVER}")" "${AGENT}"; then
         echo "  OK"
     else
         echo "  AGENT FAILED (exit $?)"

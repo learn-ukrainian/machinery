@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/usr/bin/env bash
 # CLAUDE_CODE_SHELL_PREFIX of read-only native Claude dispatches (#12378, decision REVIEW-BOUNDARY-1101).
 # Claude Code runs "<this file> '<command script>'" for every Bash call; shell_main in
 # <package>/dispatcher/agy_sandbox.py runs the script inside the read-only boundary. The code comes
@@ -24,5 +24,8 @@ installed() {
 [ -e "$root/.git" ] || installed || refuse claude_review_shell_root_not_checkout
 worktree=$(readlink -f -- "${LU_REVIEW_SHELL_WORKTREE:-/}") || refuse claude_review_shell_worktree_unresolved
 case "$root/" in "$worktree"/*) refuse claude_review_shell_root_is_reviewed_worktree ;; esac
-[ -x "${LU_REVIEW_SHELL_PYTHON:-}" ] || refuse claude_review_shell_interpreter_missing
-exec "$LU_REVIEW_SHELL_PYTHON" -I -c 'import importlib, sys; sys.path.insert(0, sys.argv[1]); sandbox = importlib.import_module(sys.argv[2] + ".dispatcher.agy_sandbox"); raise SystemExit(sandbox.shell_main(sys.argv[3:]))' "$root" "$package" "$@"
+# shellcheck disable=SC1091
+source "$package_dir/lib/project_interpreter.sh" || refuse claude_review_shell_interpreter_missing
+python="$(project_interpreter_resolve "$root")" || refuse claude_review_shell_interpreter_missing
+project_python_command "$python" || refuse claude_review_shell_interpreter_missing
+exec "${PROJECT_PYTHON_COMMAND[@]}" -c "import sys; from ${package}.dispatcher.agy_sandbox import shell_main; raise SystemExit(shell_main(sys.argv[1:]))" "$@"
