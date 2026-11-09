@@ -8,13 +8,14 @@ nothing leaves the machine.
 
 from __future__ import annotations
 
+import sys
 from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
 
 import lu_machinery.api.main as api_main
-from lu_machinery.api import product_contribution
+from lu_machinery.api import monitor_context, product_contribution
 from lu_machinery.ai_agent_bridge import _monitor_cache as cache
 from lu_machinery.ai_agent_bridge import monitor_client
 from lu_machinery.api.monitor_context import fixture_context, production_context
@@ -27,16 +28,34 @@ app: Any
 client: TestClient
 
 
+# The API config caches these roots on first use (``lu_machinery.api.config.__getattr__``).
+_CONFIG_ROOT_CACHES = (
+    "PROJECT_ROOT", "PRODUCT_ROOT", "LIVE_REPO_ROOT", "CURRICULUM_ROOT", "DASHBOARDS_DIR", "BATCH_STATE_DIR",
+    "MESSAGE_DB",
+)
+
+
 @pytest.fixture(autouse=True)
-def _client(configured_roots):
+def _client(configured_roots, monkeypatch):
     """A Monitor app over this test's configured roots, with no product contribution.
 
     The installed package derives no root and has no implicit product (#99, C-4746), so the
     product's production app is not available here; these SDK contracts are machinery routes.
+    Building the app installs process-wide product providers and caches this test's roots in
+    the API config and the production context; all three are undone after the test, so later
+    tests see what they would have seen without this one.
     """
     global app, client
+    for name in ("_atlas", "_fleet_batches", "_product"):
+        monkeypatch.setattr(product_contribution, name, getattr(product_contribution, name))
     app = api_main.create_app(production_context(), product=product_contribution.EMPTY)
     client = TestClient(app, raise_server_exceptions=False)
+    yield
+    config = sys.modules.get("lu_machinery.api.config")
+    if config is not None:
+        for name in _CONFIG_ROOT_CACHES:
+            vars(config).pop(name, None)
+    monitor_context._cached_production_context.cache_clear()
 
 
 # ---------------------------------------------------------------------
