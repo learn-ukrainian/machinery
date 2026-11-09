@@ -88,6 +88,29 @@ def test_orphaned_or_forged_copy_still_blocks_admission(tmp_path, monkeypatch, r
         admission_readers(tmp_path)[reader]()
 
 
+@pytest.mark.parametrize("reader, message", [
+    (1, "unreadable task record .*worker.copy.json"),
+    (2, "task record .*worker.copy.json unreadable"),
+    (3, "RED_TEAM_REFUSED: task ledger unavailable"),
+], ids=["list_tasks_strict", "admitted_unknown_history", "in_flight_guard"])
+def test_copy_that_adds_a_claim_or_has_only_an_archived_witness_still_blocks_admission(
+    tmp_path, monkeypatch, reader, message
+):
+    """Defect class: a same-run copy carrying a claim its named record lacks is dropped unread."""
+    monkeypatch.setenv("LU_TASKS_DIR", str(tmp_path))
+    errors = (ValueError, recorder.BranchFactsError, recorder.RecordError)
+    claims = dict(worktree_path="/virtual/checkout", review_profile="infra", review_head=HEAD, review_attempt=1)
+    _plant_record_and_copy(tmp_path, "worker.copy.json", **claims)
+    with pytest.raises(errors, match=message):
+        admission_readers(tmp_path)[reader]()
+    (tmp_path / "archive").mkdir()
+    (tmp_path / "worker.json").rename(tmp_path / "archive" / "worker.json")
+    (tmp_path / "worker.copy.json").write_text(json.dumps(dict(
+        task_id="worker", schema_version=2, run_nonce="n1", repository="org/repo", status="running")))
+    with pytest.raises(errors, match=message):
+        admission_readers(tmp_path)[reader]()
+
+
 def test_receipt_marker_cannot_hide_legacy_review_claim(tmp_path, monkeypatch):
     """A receipt marker cannot remove a lifecycle claim from admission's inventory."""
     monkeypatch.setenv("LU_TASKS_DIR", str(tmp_path))

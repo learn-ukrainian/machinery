@@ -727,6 +727,14 @@ def test_orphaned_or_forged_task_record_still_blocks_the_claim_scan(tmp_path):
     (tasks / "worker.json").rename(tasks / "worker.renamed.json")
     refusal = worktree_claims.active_worktree_claim_refusal(target, tasks_dir=tasks, repo_root=tmp_path)
     assert refusal is not None and "worker.renamed.json" in refusal and "refusing worktree removal" in refusal
+    # A same-run copy that claims a worktree its named record does not still refuses.
+    (tasks / "worker.renamed.json").rename(tasks / "worker.json")
+    other = tmp_path / "other"
+    other.mkdir()
+    (tasks / "worker.json").write_text(json.dumps(_claim_record(other, status="done")))
+    (tasks / "worker.copy.json").write_text(json.dumps(_claim_record(target)))
+    refusal = worktree_claims.active_worktree_claim_refusal(target, tasks_dir=tasks, repo_root=tmp_path)
+    assert refusal is not None and "worker.copy.json" in refusal and "refusing worktree removal" in refusal
 
 
 # The kernel's initial PID namespace (fixed inode PROC_PID_INIT_INO), read from /proc, never configured.
