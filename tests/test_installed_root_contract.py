@@ -15,6 +15,8 @@ from pathlib import Path
 
 import pytest
 
+from lu_machinery.common.repo_root import machinery_root
+
 _PROBE = r'''
 import importlib, json, os, subprocess, sys
 from pathlib import Path
@@ -206,7 +208,7 @@ print('root contract verified: ' + scenario)
 @pytest.fixture(scope="module")
 def installed_site(tmp_path_factory: pytest.TempPathFactory) -> Path:
     site = tmp_path_factory.mktemp("installed-root") / "site-packages"
-    package = Path(__file__).resolve().parents[1] / "lu_machinery"
+    package = machinery_root()
     shutil.copytree(package, site / "lu_machinery", ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
     return site
 
