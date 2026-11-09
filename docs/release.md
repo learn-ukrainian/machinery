@@ -74,26 +74,37 @@ in `pyproject.toml` and `$SHA` the full commit:
    ```
 
    Provision the wheel's Node dependencies under the runtime user and umask
-   022. Install Node matching the major in the shipped `.nvmrc`, with npm
-   beside that Node executable. The runtime admits no product dependency
-   tree, global ACP package or package-exec fallback. Set `$NPM_CACHE` to an
-   empty release-owned cache for the first install:
+   022. Set `$NPM_CACHE` to an absolute, empty release-owned cache for the
+   first install. The release prepares its version-and-lock-derived prefix,
+   selects Node matching that prefix's `.nvmrc`, and resolves the npm CLI
+   inside that Node installation. Python never executes npm. Run this exact
+   block after the wheel install:
 
    ```bash
+   set -eu
    umask 022
-   env -u PYTHONPATH "$P" -I -c 'from pathlib import Path; import sys; from lu_machinery.agent_runtime.adapters.acpx import provision_node_dependencies; print(provision_node_dependencies(cache=Path(sys.argv[1])))' "$NPM_CACHE"
+   PREFIX="$(env -u PYTHONPATH "$P" -I -c 'from lu_machinery.agent_runtime.adapters.acpx import prepare_node_dependencies; print(prepare_node_dependencies() or "")')"
+   if [ -n "$PREFIX" ]; then
+     NODE="$(env -u PYTHONPATH "$P" -I -c 'from lu_machinery.agent_runtime.adapters.acpx import node_toolchain; print(node_toolchain()[0])')"
+     NPM="$(env -u PYTHONPATH "$P" -I -c 'from lu_machinery.agent_runtime.adapters.acpx import node_toolchain; print(node_toolchain()[1])')"
+     PATH="$(dirname "$NODE"):$PATH" "$NODE" "$NPM" ci --ignore-scripts --no-audit --no-fund --prefix="$PREFIX" --cache="$NPM_CACHE"
+     env -u PYTHONPATH "$P" -I -c 'from pathlib import Path; import sys; from lu_machinery.agent_runtime.adapters.acpx import seal_node_dependencies; print(seal_node_dependencies(cache=Path(sys.argv[1])))' "$NPM_CACHE"
+   fi
    ```
 
-   This explicit install runs `npm ci --ignore-scripts --no-audit --no-fund`
-   into `$VENV/share/lu-machinery/node/<version>-<lock-sha256>`. The version
-   must match the wheel, and the full lock digest distinguishes dependency
-   sets. It retains the installed packages' integrity-addressed archives.
-   Runtime admission verifies the copied contract, package versions, archive
-   integrity, installed file bytes, contained executable links, owners and
-   writable modes before any dependency is executed. An ACP request never
-   installs or repairs dependencies. A failed provisioning attempt leaves a
-   refusing prefix for diagnosis; restore it from the retained release set
-   before retrying. Do not run `npm ci` against an active prefix.
+   The prefix is `$VENV/share/lu-machinery/node/<version>-<lock-sha256>`.
+   Its version must match the wheel, and the full lock digest distinguishes
+   dependency sets. Sealing retains integrity-addressed archives from npm's
+   cache. Runtime admission verifies the copied contract, package versions,
+   archive integrity, installed bytes, executable targets, owners and writable
+   modes before any provider is spawned. A missing, mismatched or unsealed
+   prefix refuses and names this install-and-seal step. An ACP request never
+   installs or repairs dependencies.
+
+   An intact existing prefix is validated and reused: preparation prints an
+   empty value, so the block skips npm. A failed or partial installation is
+   retained for diagnosis and refuses reuse. Restore it from the retained
+   release set before retrying; never run npm against an active prefix.
 
    Accept Node provisioning in a clean environment with no product checkout,
    ancestor `node_modules`, global ACP packages or npm cache. Record the wheel
@@ -149,10 +160,23 @@ the validated primary checkout's `.venv/bin/python`; otherwise a refusal. A
 worktree-local `.venv` is not the interpreter, and nothing is discovered on
 `PATH`.
 
-Offline reinstall uses the retained wheelhouse and npm cache. Invoke
-`provision_node_dependencies(cache=Path(...), offline=True)` from the restored
-wheel's interpreter to run `npm ci --ignore-scripts --offline`. An intact
-retained prefix is validated and reused without npm or network access. Never
-mix a previous wheel with the current release's prefix. Product dependency
-removal is residual `R83-product`, owned by claude-cto for v0.2.0 after the
-release drill; this release does not remove product packages.
+Offline reinstall uses the retained wheelhouse and npm cache. Restore the
+wheel first, set `$P` to its absolute interpreter and `$NPM_CACHE` to the
+retained absolute cache path, then run this offline variant:
+
+```bash
+set -eu
+umask 022
+PREFIX="$(env -u PYTHONPATH "$P" -I -c 'from lu_machinery.agent_runtime.adapters.acpx import prepare_node_dependencies; print(prepare_node_dependencies() or "")')"
+if [ -n "$PREFIX" ]; then
+  NODE="$(env -u PYTHONPATH "$P" -I -c 'from lu_machinery.agent_runtime.adapters.acpx import node_toolchain; print(node_toolchain()[0])')"
+  NPM="$(env -u PYTHONPATH "$P" -I -c 'from lu_machinery.agent_runtime.adapters.acpx import node_toolchain; print(node_toolchain()[1])')"
+  PATH="$(dirname "$NODE"):$PATH" "$NODE" "$NPM" ci --ignore-scripts --no-audit --no-fund --offline --prefix="$PREFIX" --cache="$NPM_CACHE"
+  env -u PYTHONPATH "$P" -I -c 'from pathlib import Path; import sys; from lu_machinery.agent_runtime.adapters.acpx import seal_node_dependencies; print(seal_node_dependencies(cache=Path(sys.argv[1])))' "$NPM_CACHE"
+fi
+```
+
+An intact retained prefix is validated and reused without npm or network
+access. Never mix a previous wheel with the current release's prefix. Product
+dependency removal is residual `R83-product`, owned by claude-cto for v0.2.0
+after the release drill; this release does not remove product packages.

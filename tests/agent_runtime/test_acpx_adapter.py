@@ -731,7 +731,7 @@ def _select_prefix(monkeypatch, prefix: Path) -> Path:
     (prefix / ".nvmrc").write_bytes((acpx_module._node_contract() / ".nvmrc").read_bytes())
     monkeypatch.setattr(acpx_module, "_ACPX_BINARY", None)
     monkeypatch.setattr(acpx_module, "_NODE_PREFIX", prefix)
-    monkeypatch.setattr(acpx_module, "_validate_node_prefix", lambda: prefix)
+    monkeypatch.setattr(acpx_module, "validate_node_dependencies", lambda: prefix)
     return prefix / "node_modules" / ".bin" / "acpx"
 
 
@@ -757,7 +757,7 @@ def test_build_invocation_resolves_release_prefix_from_linked_worktree(tmp_path,
 def test_build_invocation_explicit_binary_override_never_uses_prefix(tmp_path, monkeypatch):
     _shadow_env(monkeypatch)
     override = _stub_binary(monkeypatch, tmp_path)
-    monkeypatch.setattr(acpx_module, "_validate_node_prefix", lambda: pytest.fail("test override must remain authoritative"))
+    monkeypatch.setattr(acpx_module, "validate_node_dependencies", lambda: pytest.fail("test override must remain authoritative"))
 
     plan = _build(AcpxAdapter(), cwd=tmp_path)
 
@@ -2237,7 +2237,7 @@ def test_new_fleet_discussion_seats_use_fixed_confined_commands(
     tmp_path, monkeypatch, adapter_class, participant, provider_binary, version, model
 ):
     _stub_binary(monkeypatch, tmp_path)
-    monkeypatch.setattr(acpx_module, "_validate_node_prefix", lambda: tmp_path / "release")
+    monkeypatch.setattr(acpx_module, "validate_node_dependencies", lambda: tmp_path / "release")
     binaries = {}
     required = acpx_module._required_node_major(adapter_label="test")
     for name in ("node", provider_binary):
