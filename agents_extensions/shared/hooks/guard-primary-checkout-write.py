@@ -2090,6 +2090,16 @@ def _git_global_prefix(
     return c_path, target_options, args[i:]
 
 
+def _long_option(tok: str, name: str) -> bool:
+    """Whether ``tok`` names the Git long option ``name``, abbreviations included.
+
+    Git's option parser accepts any unique prefix (``--har`` for ``--hard``).
+    Any prefix matches here, so use this only where a match blocks a write.
+    """
+    word = tok.split("=", 1)[0]
+    return len(word) > 2 and word.startswith("--") and name.startswith(word)
+
+
 def _is_git_binary(cmd: str) -> bool:
     return cmd in {"git", "git.exe"} or cmd.endswith("/git")
 
@@ -2178,7 +2188,13 @@ def bash_git_write_intents(
         for word in words
     )
 
+    pathspec_from_file = False
+
     def record(intent: dict[str, object]) -> None:
+        if pathspec_from_file:
+            # Paths read from a file are unknown here: treat the write as whole-tree.
+            intent["paths"] = []
+            intent["allowlisted"] = False
         intent["segment_cwd"] = effective_cwd
         intent["git_options"] = git_options
         intent["git_environment"] = git_environment
@@ -2186,6 +2202,7 @@ def bash_git_write_intents(
         intents.append(intent)
 
     for segment, effective_cwd, _shell_cwd in segments:
+        pathspec_from_file = False
         segment = _without_redirects(segment)
         cmd, idx = _command_word(segment)
         if cmd == "eval" and depth < _MAX_SHELL_DEPTH:
@@ -2215,6 +2232,7 @@ def bash_git_write_intents(
             continue
         sub_args = rest[1:]
         option_args = sub_args[: sub_args.index("--")] if "--" in sub_args else sub_args
+        pathspec_from_file = any(_long_option(tok, "--pathspec-from-file") for tok in option_args)
 
         if sub in {"apply", "am"}:
             record(
@@ -2302,22 +2320,31 @@ def bash_git_write_intents(
             i = 0
             while i < len(option_args):
                 tok = option_args[i]
-                if tok in {"-e", "--exclude"}:
+                if _long_option(tok, "--exclude") and "=" not in tok:
                     i += 2  # the following exclude pattern may itself be "-n"
                     continue
-                if tok == "--dry-run" or (tok.startswith("-") and not tok.startswith("--") and "n" in tok[1:]):
+                if tok == "--dry-run":
                     dry_run = True
+                elif tok.startswith("-") and not tok.startswith("--"):
+                    # In a short cluster, everything after `e` is the exclude pattern.
+                    flags, has_exclude, pattern = tok[1:].partition("e")
+                    dry_run = dry_run or "n" in flags
+                    if has_exclude and not pattern:
+                        i += 2
+                        continue
                 i += 1
             if not dry_run:
                 record({"kind": "clean", "c_path": c_path, "paths": [], "summary": "git clean", "allowlisted": False})
             continue
 
-        if sub == "reset" and any(tok in {"--hard", "--merge", "--keep"} for tok in option_args):
+        if sub == "reset" and any(
+            _long_option(tok, name) for tok in option_args for name in ("--hard", "--merge", "--keep")
+        ):
             record({"kind": "reset", "c_path": c_path, "paths": [], "summary": "git reset", "allowlisted": False})
             continue
 
         if sub == "read-tree" and any(
-            tok == "--update" or (tok.startswith("-") and not tok.startswith("--") and "u" in tok[1:])
+            _long_option(tok, "--update") or (tok.startswith("-") and not tok.startswith("--") and "u" in tok[1:])
             for tok in option_args
         ):
             record(
@@ -2331,8 +2358,19 @@ def bash_git_write_intents(
             # form `git checkout <tree-ish> <path>…` (#5517).
             # Branch-only checkouts are primary worktree mutations too; the
             # rescue targets below remain available.
+            if pathspec_from_file:
+                record(
+                    {
+                        "kind": "path_checkout",
+                        "c_path": c_path,
+                        "paths": [],
+                        "summary": "git checkout --pathspec-from-file",
+                        "allowlisted": False,
+                    }
+                )
+                continue
             if any(
-                tok == "--force" or (tok.startswith("-") and not tok.startswith("--") and "f" in tok[1:])
+                _long_option(tok, "--force") or (tok.startswith("-") and not tok.startswith("--") and "f" in tok[1:])
                 for tok in option_args
             ):
                 record(
@@ -2404,13 +2442,14 @@ def bash_git_write_intents(
                 if tok == "--":
                     paths.extend(sub_args[i + 1 :])
                     break
-                if tok.startswith("--source="):
+                if _long_option(tok, "--source") and "=" in tok:
                     source = tok.split("=", 1)[1]
                     i += 1
                     continue
-                if tok == "--source" and i + 1 < len(sub_args):
+                if _long_option(tok, "--source") and i + 1 < len(sub_args):
                     source = sub_args[i + 1]
-                    i += 2
+                    # An abbreviation keeps its value among the checked paths: matching may only add blocks.
+                    i += 2 if tok == "--source" else 1
                     continue
                 if tok.startswith("-"):
                     i += 1
@@ -2814,8 +2853,15 @@ def _main() -> int:
                         if not decision.allowed:
                             return _block_git_mediated(summary, intent_root, reason=decision.reason)
                     continue
+                # Git mutates the work tree, not its cwd: a cwd inside a dispatch
+                # worktree can still select the primary (`--work-tree`), and a
+                # work tree that contains the primary reaches it too (#29).
+                reaches_primary = (
+                    wc.classify_repo_path(target.worktree, cwd=intent_root) == "primary_checkout"
+                    or protected.worktree.is_relative_to(target.worktree)
+                )
                 # A foreign index can still explicitly target our primary.
-                if target.common_dir != protected.common_dir and wc.classify_repo_path(target.worktree, cwd=intent_root) != "primary_checkout":
+                if target.common_dir != protected.common_dir and not reaches_primary:
                     if not _is_plain_foreign_git_write(command):
                         return _block_uncertain("foreign_git_target_requires_plain_git_write")
                     continue
@@ -2823,7 +2869,8 @@ def _main() -> int:
                 if wc.classify_repo_path(git_cwd, cwd=intent_root) != "primary_checkout":
                     if target.git_dir == protected.common_dir:
                         return _block_git_mediated(summary, intent_root, reason="git_mediated_primary_worktree")
-                    continue
+                    if not reaches_primary:
+                        continue
                 # Rescue forms restore the primary from its own index, never another one.
                 if intent.get("allowlisted") and target.git_dir == protected.common_dir:
                     continue
@@ -2833,6 +2880,9 @@ def _main() -> int:
                     return _block_git_mediated(summary, intent_root, reason="git_mediated_primary_worktree")
                 # Path-scoped mutators: block if any path is a protected primary write.
                 for raw in paths:
+                    # Magic pathspecs (`:/`, `:(top)`, `:!`) select from the work-tree root, not Git's cwd.
+                    if raw.startswith(":"):
+                        return _block_git_mediated(summary, intent_root, reason="git_pathspec_magic")
                     decision = _bash_path_decision(raw, str(git_cwd), wc, intent_root)
                     if not decision.allowed:
                         return _block_git_mediated(summary, intent_root, reason=decision.reason)
