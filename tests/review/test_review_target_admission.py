@@ -8,7 +8,6 @@ reach their sinks unchanged.
 from __future__ import annotations
 
 import dataclasses
-from pathlib import Path
 import pytest
 from lu_machinery.agent_runtime import retired_seat_admission as kimi_admission
 from lu_machinery.agent_runtime import target_admission
@@ -223,23 +222,29 @@ def test_a_launch_route_gets_the_retired_successor_and_the_fallback_table(tmp_pa
     assert (target.recipient, target.model, target.reason) == ("claude", None, "explicit")
 
 
-def test_the_gate_runs_once_when_resolution_adds_no_name(monkeypatch):
-    """PRs #141/#160 retire Kimi before any owned-tree read, including unchanged routes."""
+def test_the_gate_runs_once_when_resolution_adds_no_name(monkeypatch, tmp_path):
+    """An unchanged route must not repeat the mechanical model's owned-tree gate."""
+    owned = tmp_path / "lu_machinery/lint/__init__.py"
+    owned.parent.mkdir(parents=True)
+    owned.write_text("# mechanical fixture\n", encoding="utf-8")
     reads: list[str] = []
 
     def trees():
         reads.append("read")
-        return [kimi_admission.DirectoryTree(Path(__file__).resolve().parent.parent)]
+        return [kimi_admission.DirectoryTree(tmp_path)]
 
-    with pytest.raises(KimiAdmissionRefused, match=_TOKEN):
-        resolve_and_admit(
-            ("kimi",),
-            mode="workspace-write",
-            paths=["lu_machinery/agent_runtime/runner.py"],
-            route=lambda request: (request.seat, request.model, "explicit"),
-            trees=trees,
-        )
-    assert reads == []
+    (target,) = resolve_and_admit(
+        ("claude",),
+        model="claude-haiku-5-5",
+        mode="workspace-write",
+        task_family="routine_mechanical",
+        task_role="implementation",
+        paths=["lu_machinery/lint/__init__.py"],
+        route=lambda request: (request.seat, request.model, "explicit"),
+        trees=trees,
+    )
+    assert (target.recipient, target.model) == ("claude", "claude-haiku-5-5")
+    assert reads == ["read"]
 
 
 def test_attached_models_and_recipients_are_gated_and_an_explicit_model_wins():
