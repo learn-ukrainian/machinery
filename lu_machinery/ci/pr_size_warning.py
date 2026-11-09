@@ -11,10 +11,9 @@ from pathlib import Path
 
 from lu_machinery.ci._location import module_name
 from lu_machinery.common.git_context import sanitized_git_env
-from lu_machinery.common.repo_root import rules_dir
+from lu_machinery.common.repo_root import machinery_root, rules_dir
 from lu_machinery.review.target_resolution import is_test_path
 
-POLICY = rules_dir() / "workflow.md"
 SHA = re.compile(r"[0-9a-fA-F]{40}")
 
 
@@ -108,7 +107,20 @@ def measure(repo: Path, base: str, head: str) -> dict:
     }
 
 
-def report(args: argparse.Namespace) -> dict:
+def _policy_source(policy_path: Path) -> str:
+    """Name the rules directory the command actually read, without a host prefix."""
+    try:
+        named = policy_path.relative_to(machinery_root().parent).as_posix()
+    except ValueError:
+        named = f"{policy_path.parent.name}/{policy_path.name}"
+    return f"{named}#merge-policy"
+
+
+def report(
+    args: argparse.Namespace,
+    policy_path: Path | None,
+    lookup_error: Exception | None = None,
+) -> dict:
     result = {
         "status": "unknown",
         "eligible_files": None,
@@ -117,11 +129,16 @@ def report(args: argparse.Namespace) -> dict:
         "over_limit": None,
         "justification_present": None,
         "diagnostics": [],
-        "policy_source": "agents_extensions/shared/rules/workflow.md#merge-policy",
+        "policy_source": None,
     }
     try:
+        if lookup_error is not None:
+            raise lookup_error
+        if policy_path is None:
+            raise ValueError("small-batches size signal unavailable")
+        result["policy_source"] = _policy_source(policy_path)
         # Read the size signal's number, rather than maintaining another policy source. Files are data only.
-        policy = POLICY.read_text(encoding="utf-8").split("**Small batches (", 1)[1].split("**Revert first", 1)[0]
+        policy = policy_path.read_text(encoding="utf-8").split("**Small batches (", 1)[1].split("**Revert first", 1)[0]
         limits = re.search(r"About (\d+)\s+changed\s+lines,\s+excluding\s+tests", policy)
         if limits is None:
             raise ValueError("small-batches size signal unavailable")
@@ -245,7 +262,13 @@ Related: #11470; agents_extensions/shared/rules/workflow.md, Small batches.
         help="Append Markdown summary here (default: GITHUB_STEP_SUMMARY, otherwise absent; example: summary.md).",
     )
     args = parser.parse_args()
-    emit(report(args), args.summary)
+    policy_path = None
+    lookup_error = None
+    try:
+        policy_path = rules_dir() / "workflow.md"
+    except (OSError, ValueError) as exc:
+        lookup_error = exc
+    emit(report(args, policy_path, lookup_error), args.summary)
     return 0
 
 

@@ -21,11 +21,10 @@ exceptions, which match exactly:
   path outside them is unknown, and unknown is drift.
 
 The content prefixes are evaluated before the site-code prefixes, so the
-denylist wins. The file is product data at :data:`POLICY_REL`. The default
-read is that path under the product checkout that
-``scripts.common.repo_root.product_root`` selects (C-4746); pass
-``product_root`` to name another product checkout. The
-``path`` argument exists for tests. :func:`load_deploy_paths` raises
+denylist wins. The file is product data at :data:`POLICY_REL`. Callers pass
+the product checkout :func:`lu_machinery.common.repo_root.product_root` selects
+(C-4843); ``product_root`` names another product checkout. The ``path``
+argument exists for tests. :func:`load_deploy_paths` raises
 :class:`DeployPathsError` when the file is missing, not strict JSON, of another
 schema or version (the version must be the integer 1, not ``true`` or ``1.0``),
 missing a field, carrying an unknown one, or holding a list that is empty or
@@ -119,8 +118,9 @@ def load_deploy_paths(path: Path | None = None, *, product_root: Path | None = N
 
     ``path`` names the file. When it is omitted, the file is :data:`POLICY_REL`
     under ``product_root``, an absolute product checkout, by default the one
-    ``scripts.common.repo_root.product_root`` selects. The file is chosen before
-    the cache is consulted, so the cache is keyed by the file actually read.
+    :func:`lu_machinery.common.repo_root.product_root` selects (C-4843). The
+    file is chosen before the cache is consulted, so the cache is keyed by the
+    file actually read.
     """
     if path is not None and product_root is not None:
         raise DeployPathsError("pass path or product_root, not both")
@@ -153,7 +153,11 @@ def decide_auto_deploy(changed_paths: Iterable[str], policy: DeployPaths | None 
     if not paths:
         return AutoDeployDecision(deploy=False, reason="no_changed_paths", offending_paths=())
     if policy is None:
-        policy = load_deploy_paths()
+        try:
+            root = resolve_product_root()
+        except ProductRootError as exc:
+            raise DeployPathsError(f"deploy path policy unreadable: {exc}") from None
+        policy = load_deploy_paths(product_root=root)
 
     content_drift_paths: list[str] = []
     unknown_paths: list[str] = []

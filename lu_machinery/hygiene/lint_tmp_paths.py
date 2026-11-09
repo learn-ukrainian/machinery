@@ -2488,8 +2488,9 @@ def scan_shell(source: str, path: str) -> list[Finding]:
     return sorted(set(findings))
 
 
-# The machinery package directory, the product scripts tree and tests; in this
-# checkout the first two are one directory.
+# This repository's roots: the machinery package directory and tests. ``scripts`` is
+# the product tree, kept for the product's invocation and absent here, so it matches
+# nothing (residual I10-product, #10).
 SCAN_DIRECTORIES = tuple(dict.fromkeys((_machinery_top(), "scripts", "tests")))
 SCAN_SUFFIXES = {".py", ".sh", ".bash"}
 

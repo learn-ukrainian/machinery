@@ -63,7 +63,8 @@ def _machinery_top() -> str:
     return Path(os.path.abspath(__file__)).parents[1].name
 
 
-# The product scripts tree keeps this name after the machinery package moves.
+# The product scripts tree keeps this name after the machinery package moves. It is
+# absent from this repository and matches nothing here (residual I10-product, #10).
 _PRODUCT_TREE = "scripts"
 
 
