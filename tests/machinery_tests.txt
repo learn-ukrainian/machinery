@@ -22,7 +22,11 @@
 
 # PORT-1108 T1, from LU 5aba2adb.
 
+tests/agent_deploy/test_deploy_extensions.py
+tests/agent_deploy/test_reap_agent_mirrors.py
 tests/agent_deploy/test_release_deployer.py
+tests/agent_deploy/test_retire_codex_skills.py
+tests/agent_deploy/test_update_agent_deploy_status.py
 tests/agent_runtime/adapters/test_acpx_claude_adapter_modes.py
 tests/agent_runtime/adapters/test_agy_cancel_recovery.py
 tests/agent_runtime/adapters/test_agy_claude_routes.py
@@ -181,6 +185,9 @@ tests/ai_agent_bridge/test_ui_agy.py
 tests/ai_agent_bridge/test_ui_codex.py
 tests/ai_agent_bridge/test_wake_overlap_detection.py
 tests/ai_agent_bridge/test_worktree_brief.py
+tests/ai_llm/test_ai_llm_claude_call.py
+tests/ai_llm/test_ai_llm_codex_call.py
+tests/ai_llm/test_ai_llm_fallback.py
 tests/api/opsec_sweep/test_opsec_sanitize.py
 tests/api/opsec_sweep/test_opsec_scan.py
 tests/api/test_acp_routing_budget.py
@@ -268,6 +275,8 @@ tests/api/test_state_roots.py
 tests/api/test_test_slots_route.py
 tests/api/test_transcript_tokens_usage.py
 tests/api/test_usage_probe_extras.py
+tests/audit/test_check_tmp_usability.py
+tests/bench/test_cli_tail_timeouts.py
 tests/ci/test_component_shadow.py
 tests/ci/test_semgrep_baseline.py
 tests/common/test_check_primary_integrity.py
@@ -301,7 +310,17 @@ tests/common/test_source_db_presence_checks_readonly.py
 tests/common/test_test_slots.py
 tests/common/test_test_slots_review_hold.py
 tests/common/test_worktree_containment.py
+tests/context_canary/test_context_canary.py
+tests/control_plane/test_authority_health.py
+tests/control_plane/test_authority_health_postgres.py
+tests/control_plane/test_component_interlock.py
+tests/control_plane/test_storage.py
+tests/control_plane/test_storage_contract.py
+tests/curriculum/test_claude_account_route_key.py
+tests/curriculum/test_delegate_check_budget.py
 tests/dispatcher/test_snapshot_hidden_changes.py
+tests/driver_blockers/test_driver_blockers.py
+tests/evidence/test_agent_pitfall_census.py
 tests/fleet/test_agent_github_identity.py
 tests/fleet/test_capacity_pick.py
 tests/fleet/test_capacity_pick_resource_policy.py
@@ -353,6 +372,14 @@ tests/fleet_comms/test_inbox_pending.py
 tests/fleet_comms/test_kimi_sealed_review_refuse.py
 tests/fleet_comms/test_request_executor_exactly_once.py
 tests/githooks/test_owned_paths_hook.py
+tests/goal_driver/test_goal_driver_status_lines.py
+tests/goal_driver/test_goal_driver_stop_hook.py
+tests/guardrails/test_assert_primary_on_main.py
+tests/guardrails/test_delegate_ownership_identity.py
+tests/guardrails/test_guardrails_timeouts.py
+tests/guardrails/test_worktree_containment_bare.py
+tests/helpers/test_github_helper_import_boundary.py
+tests/hooks/test_hook_timing_and_profile.py
 tests/hooks/test_interpreter_rule.py
 tests/hooks/test_release_root_authority.py
 tests/hooks/test_session_setup_isolation.py
@@ -385,6 +412,18 @@ tests/hygiene/test_tmp_sweep_scratch.py
 tests/hygiene/test_tmp_sweep_timer_units.py
 tests/hygiene/test_uv_cache_status.py
 tests/imports/test_installed_wheel_imports.py
+tests/maintenance/test_batch_state_retention.py
+tests/maintenance/test_claude_session_scratch.py
+tests/maintenance/test_github_cache.py
+tests/ops/test_clear_stale_git_lock.py
+tests/ops/test_context_cost_report.py
+tests/ops/test_context_guard.py
+tests/ops/test_context_guard_anchors.py
+tests/ops/test_driver_lanes.py
+tests/ops/test_host_stack_drift.py
+tests/ops/test_lane_relaunch.py
+tests/ops/test_lu_slice_apply.py
+tests/ops/test_product_entry_confinement.py
 tests/orchestration/task_family/test_cli.py
 tests/orchestration/task_family/test_executor.py
 tests/orchestration/task_family/test_graph_planner.py
@@ -469,11 +508,27 @@ tests/orchestration/test_worktree_git.py
 tests/orchestration/test_worktree_output_chokepoint.py
 tests/orchestration/test_worktree_record_lookup.py
 tests/orchestration/test_worktree_removal_invariant.py
+tests/packaging/test_backup_timer_units.py
+tests/packaging/test_data_tier_timer_units.py
+tests/packaging/test_driver_lane_units.py
+tests/packaging/test_issue_quality_report_timer_units.py
 tests/packaging/test_release_resources.py
+tests/packaging/test_systemd_templates.py
 tests/publish/test_pr_merge_squash_scan.py
+tests/research/test_research_quality.py
 tests/review/test_review_tiers.py
 tests/review/test_routing_consumers.py
 tests/review/test_scope_expansion.py
+tests/safe_env/test_safe_env.py
+tests/session_canary/test_codex_lane_canary.py
+tests/session_canary/test_gemini_lane_session_canary.py
+tests/session_canary/test_git_probe_timeouts.py
+tests/session_canary/test_grok_lane_session_canary.py
+tests/session_canary/test_session_canary_diary.py
+tests/session_canary/test_session_canary_handoff_select.py
+tests/session_canary/test_session_canary_muse_lane.py
+tests/session_canary/test_session_canary_stream_resolution.py
+tests/session_canary/test_shared_hydration.py
 tests/storage/test_needs_artifact_hook.py
 tests/storage/test_paths_product_root.py
 tests/storage/test_reactivation.py
@@ -483,6 +538,8 @@ tests/storage_callers/test_agy_store_layout.py
 tests/storage_callers/test_store_scanner.py
 tests/storage_callers/test_write_contract.py
 tests/storage_callers/test_writer_lock.py
+tests/telemetry/test_cost_report.py
+tests/telemetry/test_telemetry_emit.py
 tests/test_claude_review_shell.py
 tests/test_fleet_repos.py
 tests/test_installed_root_contract.py
@@ -492,6 +549,18 @@ tests/test_repo_root.py
 tests/test_session_supervisor.py
 tests/test_sibling_git_https.py
 tests/test_worktree_claims_lock_identity.py
+tests/tools/test_detach_session_task.py
+tests/trails/test_rb1_rb6_v11.py
+tests/trails/test_rb2_rb5_v11.py
+tests/trails/test_rb3_rb4_v11.py
+tests/utils/test_claude_version.py
+tests/work/test_github_rest_cache.py
+tests/work/test_merged_pr_history.py
+tests/work/test_work_actionable_honesty.py
+tests/work/test_work_api.py
+tests/work/test_work_contract.py
+tests/work/test_work_ownership_contract.py
+tests/work/test_work_pr_snapshot.py
 
 # [support]
 
@@ -534,6 +603,7 @@ tests/common/jsonl_reader_cases.py
 tests/common/thread_cap_expected.py
 tests/common/wait_helpers.py
 tests/conftest.py
+tests/control_plane/conftest.py
 tests/cursor_exec_tripwire.py
 tests/cursor_process_guard.py
 tests/data_store_fixtures.py
@@ -574,6 +644,7 @@ tests/helpers/__init__.py
 tests/helpers/agy_inbox_fixtures.py
 tests/helpers/checkout_write_defaults.py
 tests/helpers/checkout_write_guard.py
+tests/helpers/claude_account_fixtures.py
 tests/helpers/codex_exec_stream.py
 tests/helpers/github_command_boundary.py
 tests/helpers/github_transport.py
@@ -589,6 +660,7 @@ tests/helpers/stress_fixtures.py
 tests/helpers/wheel.py
 tests/hygiene/conftest.py
 tests/launcher_sandbox.py
+tests/ops/_fake_tmux.py
 tests/opsec_fixtures.py
 tests/orchestration/closeout_fixtures.py
 tests/orchestration/fixtures/certification/case-matrix.v1.yaml
@@ -621,7 +693,12 @@ tests/sparse_trees.py
 tests/storage/__init__.py
 tests/test_agent_github_identity.py
 tests/test_sibling_git.py
+tests/trails/__init__.py
+tests/trails/fixtures/certification/executable.trail.yaml
+tests/trails/fixtures/certification/legacy.trail.yaml
+tests/trails/fixtures/certification/seats.yaml
 tests/wait_helpers.py
+tests/work/conftest.py
 tests/worktree_prep_helpers.py
 
 # [held]
