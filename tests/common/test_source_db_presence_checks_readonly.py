@@ -18,6 +18,9 @@ import pytest
 from lu_machinery.lib.readonly_sqlite import open_readonly
 from lu_machinery.storage.topology import StoreBinding
 from tests.helpers import source_db_write_guard as guard
+from tests.helpers.product_tree import configured_roots  # noqa: F401
+
+pytestmark = pytest.mark.usefixtures("configured_roots")
 
 
 def _write_source_shaped_db(path: Path) -> None:
