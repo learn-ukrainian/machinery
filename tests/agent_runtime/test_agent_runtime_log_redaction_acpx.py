@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import contextlib
 import errno
+import fcntl
 import logging
 import os
 import time
@@ -24,6 +26,8 @@ def copy_base(tmp_path, monkeypatch):
     base = tmp_path / "copies"
     base.mkdir(mode=0o700)
     (base / _SECRET_COPY).mkdir(mode=0o700)
+    lease = os.open(base / _SECRET_COPY / acpx_module._CLAUDE_ACP_LAUNCHER_COPY_LEASE, os.O_CREAT | os.O_WRONLY, 0o600)
+    os.close(lease)
     monkeypatch.setattr(acpx_module, "_CLAUDE_ACP_LAUNCHER_COPY_BASE", base)
     # The ancestor-trust walk is covered elsewhere; these tests exercise the log calls after it.
     monkeypatch.setattr(
@@ -53,10 +57,9 @@ def _assert_constant(record, expected_message):
         assert value not in repr(vars(record))
 
 
-def _cleanup_error(copy_base, caplog):
-    with caplog.at_level(logging.DEBUG), pytest.raises(acpx_module.ClaudeAcpLauncherCleanupError) as raised:
-        acpx_module._remove_claude_acp_copy_dir(_SECRET_COPY, adapter_label=_SECRET_LABEL)
-    return raised.value
+def _cleanup(copy_base, caplog):
+    with caplog.at_level(logging.DEBUG):
+        return acpx_module._remove_claude_acp_copy_dir(_SECRET_COPY, adapter_label=_SECRET_LABEL)
 
 
 def _sweep(copy_base):
@@ -64,34 +67,59 @@ def _sweep(copy_base):
     os.utime(copy_base / _SECRET_COPY, (old, old))
     base_fd = os.open(copy_base, os.O_RDONLY | os.O_DIRECTORY)
     try:
-        acpx_module._sweep_stale_claude_acp_launcher_copies(base_fd, copy_base)
+        acpx_module._sweep_stale_claude_acp_launcher_copies(base_fd)
     finally:
         os.close(base_fd)
 
 
-def test_sweep_keeping_a_held_copy_logs_a_constant_message(copy_base, monkeypatch, caplog):
-    monkeypatch.setattr(acpx_module, "_claude_acp_copies_in_use", lambda _base: {_SECRET_COPY})
-    with caplog.at_level(logging.DEBUG):
+@contextlib.contextmanager
+def _leased(copy_base):
+    """Another launch holds the secret copy's lease shared."""
+    fd = os.open(copy_base / _SECRET_COPY / acpx_module._CLAUDE_ACP_LAUNCHER_COPY_LEASE, os.O_RDONLY)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_SH)
+        yield
+    finally:
+        os.close(fd)
+
+
+def _fail_removal(monkeypatch):
+    def refuse(_fd, _name):
+        raise OSError(errno.EACCES, _SECRET_ERRNO_TEXT)
+
+    monkeypatch.setattr(acpx_module, "_remove_claude_acp_copy_entry", refuse)
+
+
+def test_sweep_keeping_a_leased_copy_logs_a_constant_message(copy_base, caplog):
+    with _leased(copy_base), caplog.at_level(logging.DEBUG):
         _sweep(copy_base)
     _assert_constant(
         _only_record(caplog, logging.INFO),
-        "Claude ACP launcher sweep kept a stale copy: a live process holds it",
+        "Claude ACP launcher sweep kept a stale copy: a launch still holds its lease",
     )
     assert (copy_base / _SECRET_COPY).exists()
 
 
 def test_sweep_failing_to_remove_a_copy_logs_a_constant_message(copy_base, monkeypatch, caplog):
-    def refuse(_fd, _name):
-        raise OSError(errno.EACCES, _SECRET_ERRNO_TEXT)
-
-    monkeypatch.setattr(acpx_module, "_claude_acp_copies_in_use", lambda _base: set())
-    monkeypatch.setattr(acpx_module, "_remove_claude_acp_copy_entry", refuse)
+    (copy_base / _SECRET_COPY / "agent_runtime").mkdir(mode=0o700)
+    _fail_removal(monkeypatch)
     with caplog.at_level(logging.DEBUG):
         _sweep(copy_base)
     _assert_constant(
-        _only_record(caplog, logging.WARNING),
-        "Claude ACP launcher sweep could not remove a stale copy",
+        _only_record(caplog, logging.INFO),
+        "Claude ACP launcher sweep could not remove a stale copy under its lease",
     )
+
+
+_BUSY = (
+    "Claude ACP launcher cleanup kept the private launcher copy: a launch still holds its lease; "
+    "a later sweep removes it once the lease is free"
+)
+_REFUSED = (
+    "Claude ACP launcher cleanup refused the private launcher copy: it is not provably a leased copy "
+    "this adapter made, or its lease could not be locked"
+)
+_FAILED = "Claude ACP launcher cleanup could not remove the private launcher copy under its lease"
 
 
 def test_cleanup_refusing_the_copy_base_logs_a_constant_message(copy_base, monkeypatch, caplog):
@@ -101,13 +129,9 @@ def test_cleanup_refusing_the_copy_base_logs_a_constant_message(copy_base, monke
         )
 
     monkeypatch.setattr(acpx_module, "_open_claude_acp_copy_base", refuse)
-    error = _cleanup_error(copy_base, caplog)
-    # The typed error still names the copy for the caller; only the log is constant.
-    assert _SECRET_COPY in str(error)
-    _assert_constant(
-        _only_record(caplog, logging.ERROR),
-        "Claude ACP launcher cleanup refused the private copy base",
-    )
+    assert _cleanup(copy_base, caplog) == "refused"
+    _assert_constant(_only_record(caplog, logging.ERROR), _REFUSED)
+    assert (copy_base / _SECRET_COPY).exists()
 
 
 def test_cleanup_failing_to_open_the_copy_base_logs_a_constant_message(copy_base, monkeypatch, caplog):
@@ -115,58 +139,26 @@ def test_cleanup_failing_to_open_the_copy_base_logs_a_constant_message(copy_base
         raise OSError(errno.EACCES, _SECRET_ERRNO_TEXT)
 
     monkeypatch.setattr(acpx_module, "_open_claude_acp_copy_base", refuse)
-    error = _cleanup_error(copy_base, caplog)
-    assert _SECRET_COPY in str(error)
-    _assert_constant(
-        _only_record(caplog, logging.ERROR),
-        "Claude ACP launcher cleanup could not open the private copy base",
-    )
+    assert _cleanup(copy_base, caplog) == "failed"
+    _assert_constant(_only_record(caplog, logging.ERROR), _FAILED)
 
 
-_BUSY = (
-    "Claude ACP launcher cleanup left the private launcher copy in place: "
-    "a live process still holds it, or the process table is unreadable"
-)
-_FAILED = (
-    "Claude ACP launcher cleanup failed: cannot remove private launcher copy "
-    "(it is not removable, or not a 0700 directory the caller owns)"
-)
-
-
-@pytest.mark.parametrize(
-    ("held", "reason", "expected_message"),
-    [
-        ({_SECRET_COPY}, "cleanup_busy", _BUSY),
-        (None, "cleanup_busy", _BUSY),
-    ],
-)
-def test_cleanup_leaving_a_copy_in_place_logs_a_constant_message(
-    copy_base, monkeypatch, caplog, held, reason, expected_message
-):
-    monkeypatch.setattr(acpx_module, "_claude_acp_copies_in_use", lambda _base: held)
-    error = _cleanup_error(copy_base, caplog)
-    assert error.reason == reason
-    assert _SECRET_COPY in str(error)
-    _assert_constant(_only_record(caplog, logging.ERROR), expected_message)
+def test_cleanup_leaving_a_leased_copy_in_place_logs_a_constant_message(copy_base, caplog):
+    with _leased(copy_base):
+        assert _cleanup(copy_base, caplog) == "busy"
+    _assert_constant(_only_record(caplog, logging.WARNING), _BUSY)
     assert (copy_base / _SECRET_COPY).exists()
 
 
 def test_cleanup_of_a_copy_the_caller_does_not_own_logs_a_constant_message(copy_base, monkeypatch, caplog):
     monkeypatch.setattr(acpx_module, "_claude_acp_copy_owned", lambda _stat: False)
-    error = _cleanup_error(copy_base, caplog)
-    assert error.reason == "cleanup_failed"
-    assert _SECRET_COPY in str(error)
-    _assert_constant(_only_record(caplog, logging.ERROR), _FAILED)
+    assert _cleanup(copy_base, caplog) == "refused"
+    _assert_constant(_only_record(caplog, logging.ERROR), _REFUSED)
 
 
 def test_cleanup_failing_to_remove_a_copy_logs_a_constant_message(copy_base, monkeypatch, caplog):
-    def refuse(_fd, _name):
-        raise OSError(errno.EACCES, _SECRET_ERRNO_TEXT)
-
-    monkeypatch.setattr(acpx_module, "_claude_acp_copies_in_use", lambda _base: set())
-    monkeypatch.setattr(acpx_module, "_remove_claude_acp_copy_entry", refuse)
-    error = _cleanup_error(copy_base, caplog)
-    assert error.reason == "cleanup_failed"
-    assert _SECRET_COPY in str(error)
-    assert _SECRET_ERRNO_TEXT in str(error)
+    (copy_base / _SECRET_COPY / "agent_runtime").mkdir(mode=0o700)
+    _fail_removal(monkeypatch)
+    assert _cleanup(copy_base, caplog) == "failed"
     _assert_constant(_only_record(caplog, logging.ERROR), _FAILED)
+    assert (copy_base / _SECRET_COPY / acpx_module._CLAUDE_ACP_LAUNCHER_COPY_LEASE).exists()

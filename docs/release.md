@@ -123,9 +123,12 @@ in `pyproject.toml` and `$SHA` the full commit:
    paths. For every enabled ACP route, including the text server, complete
    initialization, session creation, a known-answer prompt and a terminal
    response with deterministic peers, then run a bounded authenticated canary
-   for each enabled provider. With registry access disabled, remove a package,
-   introduce an incompatible version and tamper with an executable in separate
-   restored copies. Each must refuse before prompt delivery. Import success
+   for each enabled provider. Run the Claude canary in the host PID namespace,
+   not a synthetic-root one, while the caller has same-account processes whose
+   `/proc` entries it cannot read; it must return the known answer with `ok`
+   true and leave no new launcher copy. With registry access disabled, remove
+   a package, introduce an incompatible version and tamper with an executable
+   in separate restored copies. Each must refuse before prompt delivery. Import success
    is insufficient.
 
    Prove the prefix is the only module source. Plant a marker package, which
@@ -138,8 +141,13 @@ in `pyproject.toml` and `$SHA` the full commit:
    `@modelcontextprotocol/sdk/validation/cfworker` in both CommonJS and ESM.
    Also run `b4a`, `bare-events`, `bare-stream` and `express`. Run the
    prefix's ACPX shim with `--version` under `PATH=/usr/bin:/bin`. It must
-   succeed. Each route and each lazy site must execute zero markers. Remove
-   the markers and confirm the prefix still validates.
+   succeed. Each route and each lazy site must execute zero markers. Repeat
+   the routes with `NODE_OPTIONS=--conditions=react-native` and `NODE_PATH`
+   set in the caller's environment. ACP Node processes never receive either
+   variable, so the markers stay at zero, while a direct `node` run with that
+   `NODE_OPTIONS` loading `b4a` must execute the `react-native-b4a` marker as
+   the positive control. Remove the markers and confirm the prefix still
+   validates.
 
    Then check that every packaged resource resolves from the installed wheel
    and exercise lazy runtime paths. Running the agent deployer's plan and apply

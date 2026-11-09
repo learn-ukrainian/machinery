@@ -23,7 +23,7 @@ _IMPORT_ROOT = str(Path(__file__).resolve().parents[2])
 if _IMPORT_ROOT not in sys.path:
     sys.path.insert(0, _IMPORT_ROOT)
 
-from lu_machinery.common.repo_root import MachineryConfigError
+from lu_machinery.common.repo_root import MachineryConfigError, machinery_path
 from lu_machinery.common.safe_unit_install import (
     InstallError,
     check_unit_dir,
@@ -33,12 +33,6 @@ from lu_machinery.common.safe_unit_install import (
     remove_unit,
 )
 from lu_machinery.orchestration import scheduled_worktree_cleanup
-
-# This package's import name, from the unresolved file location: never from __package__, which a
-# short import spelling (orchestration.x with scripts/ on sys.path) shortens. Its dotted parts
-# are also its directories in checkout-relative paths.
-_PACKAGE = f"{Path(os.path.abspath(__file__)).parents[1].name}.{Path(os.path.abspath(__file__)).parent.name}"
-_PACKAGE_DIR = _PACKAGE.replace(".", "/")
 
 LABEL = "com.learn-ukrainian.worktree-cleanup"
 DEFAULT_INTERVAL_MINUTES = 240
@@ -68,8 +62,9 @@ def state_dir(home: Path) -> Path:
     return home / ".codex" / "worktree-cleanup"
 
 
-def wrapper_path(public_repo: Path) -> Path:
-    return public_repo / _PACKAGE_DIR / WRAPPER_NAME
+def wrapper_path() -> Path:
+    """Return the stable bash wrapper launchd executes: a packaged machinery file."""
+    return machinery_path(f"orchestration/{WRAPPER_NAME}")
 
 
 def build_plist(
@@ -89,7 +84,7 @@ def build_plist(
             STABLE_PROGRAM,
             "--noprofile",
             "--norc",
-            str(wrapper_path(public_repo)),
+            str(wrapper_path()),
             "--apply",
             "--repo-root",
             str(public_repo),
@@ -178,10 +173,10 @@ def _validate_primary(repo_root: Path, *, require_interpreter: bool = False) -> 
         interpreter = repo_root / ".venv" / "bin" / "python"
         if not interpreter.is_file() or not os.access(interpreter, os.X_OK):
             raise LaunchdError(f"required interpreter is missing: {interpreter}")
-        cleanup_script = repo_root / _PACKAGE_DIR / "scheduled_worktree_cleanup.py"
+        cleanup_script = machinery_path("orchestration/scheduled_worktree_cleanup.py")
         if not cleanup_script.is_file():
             raise LaunchdError(f"cleanup script is missing: {cleanup_script}")
-        wrapper = wrapper_path(repo_root)
+        wrapper = wrapper_path()
         if not wrapper.is_file():
             raise LaunchdError(f"cleanup wrapper is missing: {wrapper}")
         if not os.access(STABLE_PROGRAM, os.X_OK):
