@@ -1,12 +1,12 @@
 """Validate the exact outgoing commit before any push leaves the checkout (#10033).
 
 Git calls ``.githooks/pre-push`` for a worker's own ``git push`` and for the
-auto-finalize push alike, so this gate sits on the one path both share.  For
-each pushed branch it refuses a dirty tree and untracked or ignored files that
-could change the run, then runs the pre-commit ``pre-push`` stage over the
-explicit committed range, with the per-commit OPSEC scan and the learner-surface
-internal-ID scan.  The pre-commit stage runs the hooks ``.pre-commit-config.yaml``
-places at the ``pre-push`` stage, unchanged.
+auto-finalize push alike.  The hook scans that push with machinery's publication
+scanner (``lu_machinery.opsec.git_push``) over the Git-supplied outgoing range.
+This module still holds the commit-message and push-message entry points that
+scanner uses.  Its old product push stage is not run: this repository has no
+pre-commit configuration and no product leak linter, and a push must not depend
+on either.
 
 No push path runs pytest: no pytest stage, pytest hook, host test slots
 or affected-test selector. PR CI Gate runs admission checks and pytest collection.
@@ -85,8 +85,7 @@ OUTPUT_TAIL_BYTES = 8192
 ZERO_SHA = "0" * 40
 EXIT_REFUSED = 1
 EXIT_INCOMPLETE = 75  # EX_TEMPFAIL: the push was not validated, not judged bad
-PRE_COMMIT_FAILED_RE = re.compile(r"^(.+?)\.{3,}.*Failed$", re.MULTILINE)
-# Files outside the commit that can change what the stage's Python hooks import or how they are configured.
+# Files outside the commit that can change what a Python hook imports or how it is configured.
 # The receipt binds only committed inputs, so any such file, untracked or ignored, makes the run unrepeatable.
 OVERLAY_PATHSPECS = (
     "*.py",
@@ -1361,67 +1360,15 @@ def run_bounded(
 def run_pre_commit_stage(
     plan: Plan, root: Path, launcher: str, config: str, deadline: float, *, diagnostics: dict[str, object] | None = None
 ) -> None:
-    code, output = run_bounded(
-        [
-            "bash",
-            launcher,
-            "-m",
-            "pre_commit",
-            "run",
-            "--hook-stage",
-            "pre-push",
-            "-c",
-            config,
-            "--from-ref",
-            plan.base,
-            "--to-ref",
-            plan.head,
-        ],
-        cwd=root,
-        deadline=deadline,
-        label="pre-commit pre-push stage",
-        diagnostics=diagnostics,
+    """Refuse. The publication scanner is the push scan; this stage has nothing to run."""
+    del plan, root, deadline, diagnostics
+    if not launcher or not config:
+        raise GateOutcome("validation_incomplete", "push stage inputs are missing", incomplete=True)
+    raise GateOutcome(
+        "validation_incomplete",
+        "this repository has no product push stage; the publication scanner is the push scan",
+        incomplete=True,
     )
-    if code != 0:
-        hooks = tuple(dict.fromkeys(name.strip() for name in PRE_COMMIT_FAILED_RE.findall(output)))
-        raise GateOutcome("pre_commit_failed", tail(output), failing=hooks)
-    # pre-commit's net-diff filename selection may skip OPSEC entirely when
-    # intermediate changes cancel out. Always inspect the outgoing history.
-    code, output = run_bounded(
-        ["bash", launcher, "scripts/audit/lint_opsec_leaks.py", "--commit-range", f"{plan.base}..{plan.head}"],
-        cwd=root,
-        deadline=deadline,
-        label="per-commit OPSEC scan",
-        diagnostics=diagnostics,
-    )
-    if code != 0:
-        raise GateOutcome("pre_commit_failed", tail(output), failing=("lint-opsec-leaks",))
-    # Select the existing hook explicitly at its installed stage so its exact
-    # learner-surface filter and scanner remain the source of truth.
-    code, output = run_bounded(
-        [
-            "bash",
-            launcher,
-            "-m",
-            "pre_commit",
-            "run",
-            "check-no-internal-ids",
-            "--hook-stage",
-            "pre-commit",
-            "-c",
-            config,
-            "--from-ref",
-            plan.base,
-            "--to-ref",
-            plan.head,
-        ],
-        cwd=root,
-        deadline=deadline,
-        label="learner-surface internal-ID scan",
-        diagnostics=diagnostics,
-    )
-    if code != 0:
-        raise GateOutcome("pre_commit_failed", tail(output), failing=("check-no-internal-ids",))
 
 
 def bounded(name: str, ceiling: float) -> float:
@@ -1525,7 +1472,7 @@ def execute_stages(
     stage_budget_s: float,
     persist_receipt: bool = True,
 ) -> None:
-    """The pre-commit stage, then the green receipt; the gate runs no tests (#11276)."""
+    """The retired product stage, which refuses, then a receipt only if it returned."""
     with stage_measurement(event, "pre_commit") as diagnostics:
         run_pre_commit_stage(
             plan, root, launcher, config, stage_deadline(deadline, stage_budget_s, diagnostics), diagnostics=diagnostics
@@ -1777,14 +1724,13 @@ def main(argv: list[str] | None = None, stdin: str | None = None) -> int:
     parser = argparse.ArgumentParser(
         description=__doc__.splitlines()[0] + "\nInvoked by the tracked pre-push hook, with Git ref updates on stdin.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog=f"Example:\n  pre_push_gate.py --launcher {_MACHINERY}/pre_commit/project_python.sh "
-        "--config .pre-commit-config.yaml < ref-updates.txt\n"
+        epilog="Example:\n  pre_push_gate.py --push-messages <remote> <url> < ref-updates.txt\n"
         "Outputs: private gate receipts and measurements; refusal diagnostics on stderr.\n"
         "Exit codes: 0 green; 1 refused; 75 validation incomplete.\n"
         "Related: docs/runbooks/pre-push-gate.md.",
     )
-    parser.add_argument("--launcher", required=True, help="project_python.sh path")
-    parser.add_argument("--config", required=True, help=".pre-commit-config.yaml path")
+    parser.add_argument("--launcher", required=True, help="project interpreter launcher path")
+    parser.add_argument("--config", required=True, help="unused stage input kept for existing callers")
     parser.add_argument("remote", nargs="*", help="Git-supplied remote arguments; default: none")
     arguments = parser.parse_args(argv)
 
