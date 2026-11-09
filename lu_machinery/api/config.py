@@ -32,10 +32,11 @@ def __getattr__(name: str) -> Path:
         # The two names are one root. _live_repo_root and the derived paths call
         # this directly, so a set alias is returned as is and never replaced; an
         # unset one takes the other's value before falling back to product_root().
-        cached = globals()
-        selected = cached.get(name) or cached.get("PRODUCT_ROOT") or cached.get("PROJECT_ROOT") or product_root()
-        cached.setdefault("PROJECT_ROOT", selected)
-        cached.setdefault("PRODUCT_ROOT", selected)
+        project, product = globals().get("PROJECT_ROOT"), globals().get("PRODUCT_ROOT")
+        own = project if name == "PROJECT_ROOT" else product
+        selected = own or product or project or product_root()
+        globals().setdefault("PROJECT_ROOT", selected)
+        globals().setdefault("PRODUCT_ROOT", selected)
     elif name == "LIVE_REPO_ROOT":
         selected = _live_repo_root()
     elif name == "CURRICULUM_ROOT":
