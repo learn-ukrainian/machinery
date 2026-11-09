@@ -150,7 +150,7 @@ def test_foreign_configuration_reader_cannot_run_against_primary(repositories, t
 @pytest.mark.parametrize("index_path", [".git/index", "victim-index"])
 @pytest.mark.parametrize("key", ["GIT_INDEX_FILE", "GIT_OBJECT_DIRECTORY", "GIT_COMMON_DIR", "GIT_ALTERNATE_OBJECT_DIRECTORIES"])
 @pytest.mark.parametrize("relative", [False, True])
-@pytest.mark.parametrize("route", ["C", "argv-worktree", "env-worktree"])
+@pytest.mark.parametrize("route", ["C", "argv-worktree", "env-worktree", "cwd-toplevel", "cwd-subdir-explicit"])
 def test_metadata_environment_cannot_redirect_foreign_add_to_primary_index(repositories, tmp_path, index_path, key, relative, route):
     """Git setup must not reinterpret metadata paths to overwrite primary bytes."""
     a, b = repositories["A"], repositories["B"]
@@ -174,8 +174,14 @@ def test_metadata_environment_cannot_redirect_foreign_add_to_primary_index(repos
     elif route == "env-worktree":
         prefix = []
         env.update(GIT_DIR=str(b / ".git"), GIT_WORK_TREE=str(b))
-    result = _run(repositories, outside, [*prefix, "add", "file"], env)
-    if key == "GIT_ALTERNATE_OBJECT_DIRECTORIES" and not relative:
+    elif route == "cwd-toplevel":
+        outside, prefix = b, []
+    elif route == "cwd-subdir-explicit":
+        outside = b / "subdir"
+        outside.mkdir(exist_ok=True)
+        prefix = [f"--git-dir={b / '.git'}", f"--work-tree={b}"]
+    result = _run(repositories, outside, [*prefix, "add", str(b / "file")], env)
+    if key == "GIT_ALTERNATE_OBJECT_DIRECTORIES" and (not relative or route in {"C", "cwd-toplevel"}):
         assert result.returncode == 0, result.stderr  # Absolute alternates are read-only.
     else:
         assert result.returncode != 0
@@ -189,6 +195,8 @@ def test_missing_target_fails_closed_and_dispatch_stays_writable(repositories):
     assert "undecidable_git_target" in result.stderr or "could not list Git's commands" in result.stderr
     result = _run(repositories, repositories["dispatch"], ["add", "file"])
     assert result.returncode == 0, result.stderr
+    result = _run(repositories, repositories["B"], ["status", "--porcelain"], {"GIT_INDEX_FILE": ".git/index"})
+    assert result.returncode == 0, result.stderr  # Hook-style cwd and worktree bases agree.
 
 
 def test_bounded_maintenance_preserves_primary_content(repositories, tmp_path):

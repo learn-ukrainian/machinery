@@ -239,6 +239,14 @@ def evaluate_git_invocation(
         for directory in directories:
             if directory:
                 execution_cwd = (execution_cwd / directory).resolve(strict=True)
+        metadata_paths = []
+        for key in ("GIT_INDEX_FILE", "GIT_OBJECT_DIRECTORY", "GIT_COMMON_DIR", "GIT_ALTERNATE_OBJECT_DIRECTORIES"):
+            value = environment.get(key, "")
+            for raw in value.split(":") if key == "GIT_ALTERNATE_OBJECT_DIRECTORIES" else [value]:
+                if raw.startswith(("~", '"')):
+                    return False, "undecidable_git_metadata_path"
+                if raw:
+                    metadata_paths.append(Path(raw))
         trusted_env = {
             key: value for key, value in environment.items()
             if key not in GIT_REDIRECT_ENV_KEYS and not key.startswith("GIT_CONFIG")
@@ -271,6 +279,11 @@ def evaluate_git_invocation(
             return False, "undecidable_primary_worktree"
         worktrees[0] = primary
         target = resolve_git_worktree(cwd, options, environment=environment, executable=executable, inherit_fds=True)
+        # Git may consume metadata paths before or after setup_work_tree.
+        # Admit relative inputs only when both possible bases name one path.
+        # This preserves Git's own hook environment, whose cwd is the top level.
+        if execution_cwd != target.worktree and any(not path.is_absolute() for path in metadata_paths):
+            return False, "relative_git_metadata_refused"
         branch = _run_git(
             primary, "symbolic-ref", "--quiet", "--short", "HEAD", environment=trusted_env, executable=executable,
         )
