@@ -89,16 +89,16 @@ import secrets
 import shlex
 import shutil
 import stat
+import subprocess
 import sys
 import tarfile
-from importlib.metadata import version as distribution_version
-from functools import lru_cache
-import subprocess
 import time
 from collections.abc import Mapping
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, replace
+from functools import lru_cache
+from importlib.metadata import version as distribution_version
 from pathlib import Path, PurePosixPath
 from typing import Any
 
@@ -986,9 +986,11 @@ def node_prefix() -> Path:
     contract = _node_contract()
     lock_digest = hashlib.sha256((contract / "package-lock.json").read_bytes()).hexdigest()
     release = json.loads((contract / "package.json").read_bytes())["version"]
-    if contract == Path(sys.prefix) / "share" / "lu-machinery" / "node-contract":
-        if release != distribution_version("lu-machinery"):
-            raise AcpxShadowRefusalError("Node contract does not match the installed wheel version")
+    if (
+        contract == Path(sys.prefix) / "share" / "lu-machinery" / "node-contract"
+        and release != distribution_version("lu-machinery")
+    ):
+        raise AcpxShadowRefusalError("Node contract does not match the installed wheel version")
     return Path(sys.prefix) / "share" / "lu-machinery" / "node" / f"{release}-{lock_digest}"
 
 
@@ -1036,7 +1038,7 @@ def _node_archive_hashes(archive_path: Path, integrity: str, signature: tuple[in
             content = archive.extractfile(member)
             assert content is not None
             digest = hashlib.sha256()
-            for chunk in iter(lambda: content.read(1024 * 1024), b""):
+            while chunk := content.read(1024 * 1024):
                 digest.update(chunk)
             expected[PurePosixPath(*relative.parts[1:]).as_posix()] = digest.digest()
     if _node_file_signature(archive_path) != signature:
