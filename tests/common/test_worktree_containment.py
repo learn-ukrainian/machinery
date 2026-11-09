@@ -501,6 +501,7 @@ def test_git_write_classified_by_mutated_work_tree_not_cwd(layout: Layout, tmp_p
     own_metadata = f"git --git-dir={layout.main}/.git --work-tree={layout.main}"
     assert decision(layout.dispatch_wt, f"{own_metadata} add -- tracked.txt") == 2
     assert decision(layout.dispatch_wt, f"{to_primary} checkout --pathspec-from-file=f HEAD") == 2
+    assert decision(layout.dispatch_wt, f"{to_primary} checkout --pathspec-from-fil=f HEAD") == 2
 
 
 def test_relative_gitignored_path_resolved_against_cwd(layout: Layout):

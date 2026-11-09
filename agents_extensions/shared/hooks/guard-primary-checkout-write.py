@@ -2090,6 +2090,16 @@ def _git_global_prefix(
     return c_path, target_options, args[i:]
 
 
+def _long_option(tok: str, name: str) -> bool:
+    """Whether ``tok`` names the Git long option ``name``, abbreviations included.
+
+    Git's option parser accepts any unique prefix (``--har`` for ``--hard``).
+    Any prefix matches here, so use this only where a match blocks a write.
+    """
+    word = tok.split("=", 1)[0]
+    return len(word) > 2 and word.startswith("--") and name.startswith(word)
+
+
 def _is_git_binary(cmd: str) -> bool:
     return cmd in {"git", "git.exe"} or cmd.endswith("/git")
 
@@ -2222,7 +2232,7 @@ def bash_git_write_intents(
             continue
         sub_args = rest[1:]
         option_args = sub_args[: sub_args.index("--")] if "--" in sub_args else sub_args
-        pathspec_from_file = any(tok.startswith("--pathspec-from-file") for tok in option_args)
+        pathspec_from_file = any(_long_option(tok, "--pathspec-from-file") for tok in option_args)
 
         if sub in {"apply", "am"}:
             record(
@@ -2310,22 +2320,31 @@ def bash_git_write_intents(
             i = 0
             while i < len(option_args):
                 tok = option_args[i]
-                if tok in {"-e", "--exclude"}:
+                if _long_option(tok, "--exclude") and "=" not in tok:
                     i += 2  # the following exclude pattern may itself be "-n"
                     continue
-                if tok == "--dry-run" or (tok.startswith("-") and not tok.startswith("--") and "n" in tok[1:]):
+                if tok == "--dry-run":
                     dry_run = True
+                elif tok.startswith("-") and not tok.startswith("--"):
+                    # In a short cluster, everything after `e` is the exclude pattern.
+                    flags, has_exclude, pattern = tok[1:].partition("e")
+                    dry_run = dry_run or "n" in flags
+                    if has_exclude and not pattern:
+                        i += 2
+                        continue
                 i += 1
             if not dry_run:
                 record({"kind": "clean", "c_path": c_path, "paths": [], "summary": "git clean", "allowlisted": False})
             continue
 
-        if sub == "reset" and any(tok in {"--hard", "--merge", "--keep"} for tok in option_args):
+        if sub == "reset" and any(
+            _long_option(tok, name) for tok in option_args for name in ("--hard", "--merge", "--keep")
+        ):
             record({"kind": "reset", "c_path": c_path, "paths": [], "summary": "git reset", "allowlisted": False})
             continue
 
         if sub == "read-tree" and any(
-            tok == "--update" or (tok.startswith("-") and not tok.startswith("--") and "u" in tok[1:])
+            _long_option(tok, "--update") or (tok.startswith("-") and not tok.startswith("--") and "u" in tok[1:])
             for tok in option_args
         ):
             record(
@@ -2351,7 +2370,7 @@ def bash_git_write_intents(
                 )
                 continue
             if any(
-                tok == "--force" or (tok.startswith("-") and not tok.startswith("--") and "f" in tok[1:])
+                _long_option(tok, "--force") or (tok.startswith("-") and not tok.startswith("--") and "f" in tok[1:])
                 for tok in option_args
             ):
                 record(
@@ -2423,13 +2442,14 @@ def bash_git_write_intents(
                 if tok == "--":
                     paths.extend(sub_args[i + 1 :])
                     break
-                if tok.startswith("--source="):
+                if _long_option(tok, "--source") and "=" in tok:
                     source = tok.split("=", 1)[1]
                     i += 1
                     continue
-                if tok == "--source" and i + 1 < len(sub_args):
+                if _long_option(tok, "--source") and i + 1 < len(sub_args):
                     source = sub_args[i + 1]
-                    i += 2
+                    # An abbreviation keeps its value among the checked paths: matching may only add blocks.
+                    i += 2 if tok == "--source" else 1
                     continue
                 if tok.startswith("-"):
                     i += 1
