@@ -20,13 +20,26 @@ build-invocation tests mock binary resolution and version probes only.
 
 from __future__ import annotations
 
+import contextlib
+import ctypes
+import errno
+import fcntl
 import json
 import os
+import pwd
 import re
 import shlex
+import signal
+import socket
+import stat
 import subprocess
+import sys
+import threading
+import time
+from dataclasses import replace
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from types import SimpleNamespace
 
 import pytest
 
@@ -45,6 +58,7 @@ from lu_machinery.agent_runtime.adapters.acpx import (
     AcpxPoolShadowAdapter,
     AcpxShadowRefusalError,
 )
+from lu_machinery.agent_runtime.adapters.base import InvocationPlan
 from lu_machinery.agent_runtime.env_sanitize import build_agent_env
 from lu_machinery.agent_runtime.routes import DEEPSEEK_FIRST_PARTY_FORBIDDEN_MARKER
 from lu_machinery.common.git_context import sanitized_git_env
@@ -52,6 +66,7 @@ from tests.agent_runtime.product_roots import (  # noqa: F401
     agent_runtime_roots,
     configured_roots,
 )
+from tests.wait_helpers import wait_for_line, wait_until
 
 pytestmark = pytest.mark.usefixtures("agent_runtime_roots")
 
@@ -2724,3 +2739,861 @@ def test_codex_rejects_unapproved_model_before_binary_probe(tmp_path, monkeypatc
     monkeypatch.setattr(acpx_module, "_require_compatible_acpx_binary", unexpected_probe)
     with pytest.raises(AcpxShadowRefusalError, match=r"model=.*rejected"):
         _build(AcpxAdapter(), cwd=tmp_path, model=model)
+
+
+# --- R75: Claude ACP launcher copy leases ------------------------------------
+# Each launch holds a shared flock on its copy's lease: the runner from before
+# the copy is exposed until release, the launcher on fd 9 for Claude and every
+# descendant that keeps it. Removal needs an exclusive lock on a separate
+# descriptor; no /proc scan decides anything.
+
+_LEASE = acpx_module._CLAUDE_ACP_LAUNCHER_COPY_LEASE
+_PACKAGED_LAUNCHER = Path(acpx_module.__file__).resolve().parents[1] / "claude_acp_exec.sh"
+_UNIX_CHKPWD = Path("/usr/sbin/unix_chkpwd")
+
+
+@pytest.fixture
+def leased_copies(tmp_path, monkeypatch):
+    """A running-package stand-in and a private copy base under one trusted test root."""
+    root = tmp_path.resolve()
+    root.chmod(0o700)
+    package = root / "package"
+    launcher = package / "agent_runtime" / "claude_acp_exec.sh"
+    launcher.parent.mkdir(parents=True)
+    launcher.write_bytes(_PACKAGED_LAUNCHER.read_bytes())
+    for path in (package, launcher.parent, launcher):
+        path.chmod(0o755)
+    monkeypatch.setattr(acpx_module, "machinery_root", lambda: package)
+    monkeypatch.setattr(acpx_module, "_CLAUDE_CODE_TRUST_ROOT", root)
+    monkeypatch.setattr(acpx_module, "_CLAUDE_ACP_LAUNCHER_COPY_BASE", root / "copies")
+    children: list[subprocess.Popen] = []
+    yield SimpleNamespace(root=root, copies=root / "copies", children=children)
+    for child in children:
+        if child.poll() is None:
+            child.kill()
+            child.wait(timeout=30)
+    for name in list(acpx_module._CLAUDE_ACP_COPY_LEASES):
+        acpx_module._drop_claude_acp_copy_lease(name)
+
+
+def _leased_copy() -> Path:
+    return Path(acpx_module._require_claude_acp_launcher(adapter_label="X"))
+
+
+def _release(launcher: Path) -> str:
+    return acpx_module._remove_claude_acp_launcher_copy(str(launcher))
+
+
+def _exclusive_free(lease: Path) -> bool:
+    """Whether a separate description could take the lease exclusively now (released at once)."""
+    fd = os.open(lease, os.O_RDWR)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        return False
+    finally:
+        os.close(fd)
+    return True
+
+
+def _age(entry: Path) -> None:
+    old = time.time() - acpx_module._CLAUDE_ACP_LAUNCHER_COPY_MAX_AGE_S - 60
+    os.utime(entry, (old, old))
+
+
+def _fake_host(directory: Path, body: str) -> Path:
+    directory.mkdir(parents=True, exist_ok=True)
+    host = directory / "claude"
+    host.write_text("#!/bin/sh\n" + body, encoding="utf-8")
+    host.chmod(0o755)
+    return host
+
+
+def _launch_env(host: Path, **extra: str) -> dict[str, str]:
+    return {
+        "PATH": "/usr/bin:/bin",
+        acpx_module.CLAUDE_ACP_HOST_ENV: str(host),
+        acpx_module.CLAUDE_ACP_HOST_IDENTITY_ENV: acpx_module._claude_code_launch_identity(host.stat()),
+        **extra,
+    }
+
+
+def _process_gone(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+        return Path(f"/proc/{pid}/stat").read_text(encoding="ascii").split(") ", 1)[1].startswith("Z")
+    except (ProcessLookupError, FileNotFoundError):
+        return True
+
+
+def _kill_orphan(pid: int) -> None:
+    with contextlib.suppress(ProcessLookupError):
+        os.kill(pid, signal.SIGKILL)
+    wait_until(lambda: _process_gone(pid), timeout=30, message=f"process {pid} to exit")
+
+
+def test_r75_lease_is_held_shared_before_any_launcher_file_exists(leased_copies, monkeypatch):
+    """Condition 2: no launchable copy is ever exposed without the runner's shared lease."""
+    real_open = os.open
+    checked: list[bool] = []
+
+    def watching_open(path, flags, mode=0o777, *, dir_fd=None):
+        if str(path).endswith("claude_acp_exec.sh") and flags & os.O_CREAT:
+            copy_dir = Path(path).parents[1]
+            assert copy_dir.name in acpx_module._CLAUDE_ACP_COPY_LEASES
+            checked.append(_exclusive_free(copy_dir / _LEASE))
+        return real_open(path, flags, mode, dir_fd=dir_fd)
+
+    monkeypatch.setattr(acpx_module.os, "open", watching_open)
+    launcher = _leased_copy()
+    assert checked == [False]
+    lease = launcher.parents[1] / _LEASE
+    assert stat.S_IMODE(lease.stat().st_mode) == 0o600
+    assert lease.stat().st_nlink == 1
+
+
+def test_r75_release_closes_only_its_own_reference_and_never_unlocks(leased_copies, monkeypatch):
+    """Condition 2: shared on creation, exclusive non-blocking on a separate descriptor; no LOCK_UN."""
+    real_flock = fcntl.flock
+    calls: list[tuple[int, int]] = []
+
+    def recording_flock(fd, operation):
+        calls.append((fd, operation))
+        return real_flock(fd, operation)
+
+    monkeypatch.setattr(acpx_module.fcntl, "flock", recording_flock)
+    launcher = _leased_copy()
+    runner_fd = acpx_module._CLAUDE_ACP_COPY_LEASES[launcher.parents[1].name]
+    assert _release(launcher) == "removed"
+    operations = [operation for _fd, operation in calls]
+    assert operations == [
+        fcntl.LOCK_SH | fcntl.LOCK_NB,  # the runner's lease
+        fcntl.LOCK_EX | fcntl.LOCK_NB,  # the contention proof, refused
+        fcntl.LOCK_EX | fcntl.LOCK_NB,  # the remover, on its own descriptor
+    ]
+    assert not any(operation & fcntl.LOCK_UN for operation in operations)
+    assert calls[0][0] == runner_fd
+    assert acpx_module._CLAUDE_ACP_COPY_LEASES == {}
+    with pytest.raises(OSError):
+        os.fstat(runner_fd)  # closed, not unlocked
+
+
+def test_r75_launcher_lease_survives_fork_exec_and_parent_exit(leased_copies, tmp_path):
+    """Condition 1: the launcher's fd 9 reaches Claude's grandchild after Claude and the launcher exit."""
+    launcher = _leased_copy()
+    pidfile = tmp_path / "grandchild.pid"
+    host = _fake_host(tmp_path / "host", f"(exec sleep 300) </dev/null >/dev/null 2>&1 &\necho $! > '{pidfile}'\n")
+    proc = subprocess.run([str(launcher)], env=_launch_env(host), capture_output=True, text=True, timeout=30)
+    assert proc.returncode == 0, proc.stderr
+    grandchild = int(wait_for_line(pidfile))
+    try:
+        assert _release(launcher) == "busy"
+        assert launcher.exists()
+    finally:
+        _kill_orphan(grandchild)
+    assert acpx_module._remove_claude_acp_copy_dir(launcher.parents[1].name, adapter_label="X") == "removed"
+    assert not launcher.parents[1].exists()
+
+
+@pytest.mark.skipif(
+    not _UNIX_CHKPWD.exists() or not _UNIX_CHKPWD.stat().st_mode & stat.S_ISGID or os.geteuid() == 0,
+    reason="needs the setgid unix_chkpwd helper and a non-root caller",
+)
+def test_r75_lease_survives_a_credential_transition(leased_copies, tmp_path):
+    """Condition 1: Claude execs a setgid helper; the lease stays with the changed credentials."""
+    launcher = _leased_copy()
+    user = pwd.getpwuid(os.getuid()).pw_name
+    host = _fake_host(tmp_path / "host", f"exec {_UNIX_CHKPWD} '{user}' nullok\n")
+    child = subprocess.Popen(
+        [str(launcher)], env=_launch_env(host), stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE
+    )
+    leased_copies.children.append(child)
+
+    def transitioned() -> bool:
+        assert child.poll() is None, child.stderr.read().decode()
+        gids = Path(f"/proc/{child.pid}/status").read_text(encoding="ascii").split("\nGid:\t", 1)[1].split()[:4]
+        return int(gids[1]) != os.getgid()
+
+    wait_until(transitioned, timeout=30, message="the setgid helper to run")
+    # Non-dumpable after the transition: the old /proc scan could not read it.
+    with pytest.raises(PermissionError):
+        os.listdir(f"/proc/{child.pid}/fd")
+    assert _release(launcher) == "busy"
+    child.kill()
+    child.wait(timeout=30)
+    assert acpx_module._remove_claude_acp_copy_dir(launcher.parents[1].name, adapter_label="X") == "removed"
+
+
+_NON_DUMPABLE_SLEEPER = (
+    "import ctypes, sys, time\n"
+    "assert ctypes.CDLL(None, use_errno=True).prctl(4, 0, 0, 0, 0) == 0\n"  # PR_SET_DUMPABLE, 0
+    "print('ready', flush=True)\n"
+    "time.sleep(300)\n"
+)
+
+
+def _non_dumpable(leased_copies, *, pass_fds=()) -> subprocess.Popen:
+    child = subprocess.Popen(
+        [sys.executable, "-c", _NON_DUMPABLE_SLEEPER], stdout=subprocess.PIPE, text=True, pass_fds=pass_fds
+    )
+    leased_copies.children.append(child)
+    assert child.stdout.readline() == "ready\n"
+    with pytest.raises(PermissionError):
+        os.listdir(f"/proc/{child.pid}/fd")
+    return child
+
+
+def test_r75_unrelated_unreadable_processes_do_not_block_release(leased_copies):
+    """R75 regression: a same-account non-dumpable process unrelated to the copy no longer fails release."""
+    _non_dumpable(leased_copies)
+    launcher = _leased_copy()
+    assert _release(launcher) == "removed"
+    assert not launcher.parents[1].exists()
+
+
+def test_r75_a_non_dumpable_lease_holder_still_blocks_release(leased_copies):
+    launcher = _leased_copy()
+    fd = os.open(launcher.parents[1] / _LEASE, os.O_RDONLY)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_SH)
+        holder = _non_dumpable(leased_copies, pass_fds=(fd,))
+    finally:
+        os.close(fd)
+    assert _release(launcher) == "busy"
+    holder.kill()
+    holder.wait(timeout=30)
+    assert acpx_module._remove_claude_acp_copy_dir(launcher.parents[1].name, adapter_label="X") == "removed"
+
+
+_FD_RECEIVER = (
+    "import os, socket, sys, time\n"
+    "sock = socket.socket(fileno=int(sys.argv[1]))\n"
+    "_msg, fds, _flags, _addr = socket.recv_fds(sock, 16, 1)\n"
+    "sock.close()\n"
+    "print(len(fds), flush=True)\n"
+    "time.sleep(300)\n"
+)
+
+
+def test_r75_lease_descriptor_passed_over_scm_rights_keeps_the_lease(leased_copies):
+    """Condition 1: the lease descriptor itself, passed with SCM_RIGHTS, carries the lease."""
+    launcher = _leased_copy()
+    lease = launcher.parents[1] / _LEASE
+    ours, theirs = socket.socketpair(socket.AF_UNIX, socket.SOCK_STREAM)
+    receiver = subprocess.Popen(
+        [sys.executable, "-c", _FD_RECEIVER, str(theirs.fileno())],
+        stdout=subprocess.PIPE,
+        text=True,
+        pass_fds=(theirs.fileno(),),
+    )
+    leased_copies.children.append(receiver)
+    theirs.close()
+    fd = os.open(lease, os.O_RDONLY)
+    fcntl.flock(fd, fcntl.LOCK_SH)
+    socket.send_fds(ours, [b"x"], [fd])
+    os.close(fd)
+    ours.close()
+    assert receiver.stdout.readline() == "1\n"
+    # The sender's descriptor and the runner's lease are closed; only the receiver holds it.
+    assert _release(launcher) == "busy"
+    receiver.kill()
+    receiver.wait(timeout=30)
+    assert acpx_module._remove_claude_acp_copy_dir(launcher.parents[1].name, adapter_label="X") == "removed"
+
+
+def test_r75_the_launcher_refuses_while_a_remover_holds_the_lease(leased_copies, tmp_path):
+    """Launch versus removal: an exclusive holder makes the launcher refuse before Claude runs."""
+    launcher = _leased_copy()
+    marker = tmp_path / "host-ran"
+    host = _fake_host(tmp_path / "host", f": > '{marker}'\n")
+    acpx_module._drop_claude_acp_copy_lease(launcher.parents[1].name)
+    fd = os.open(launcher.parents[1] / _LEASE, os.O_RDWR)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        proc = subprocess.run([str(launcher)], env=_launch_env(host), capture_output=True, text=True, timeout=30)
+    finally:
+        os.close(fd)
+    assert proc.returncode == 126
+    assert "being removed" in proc.stderr
+    assert not marker.exists()
+    (launcher.parents[1] / _LEASE).unlink()
+    proc = subprocess.run([str(launcher)], env=_launch_env(host), capture_output=True, text=True, timeout=30)
+    assert proc.returncode == 126
+    assert "lease is missing" in proc.stderr
+    assert not marker.exists()
+    assert not (launcher.parents[1] / _LEASE).exists(), "the launcher must never create the lease"
+
+
+def test_r75_a_fresh_aged_copy_is_kept_by_a_concurrent_sweep(leased_copies):
+    """Launch versus sweep: a copy whose runner still holds the lease survives the sweep at any age."""
+    launcher = _leased_copy()
+    _age(launcher.parents[1])
+    _leased_copy()
+    assert launcher.exists()
+
+
+def _lease_variant(copy_dir: Path, variant: str) -> None:
+    lease = copy_dir / _LEASE
+    if variant == "missing":
+        lease.unlink()
+    elif variant == "symlink":
+        target = copy_dir / "elsewhere.lock"
+        target.touch(mode=0o600)
+        lease.unlink()
+        lease.symlink_to(target)
+    elif variant == "fifo":
+        lease.unlink()
+        os.mkfifo(lease, 0o600)
+    elif variant == "directory":
+        lease.unlink()
+        lease.mkdir(mode=0o700)
+    elif variant == "mode":
+        lease.chmod(0o644)
+    elif variant == "hardlink":
+        os.link(lease, copy_dir / "second-name")
+    elif variant == "unreadable":
+        lease.chmod(0o000)
+
+
+@pytest.mark.parametrize(
+    "variant", ["missing", "symlink", "fifo", "directory", "mode", "hardlink", "unreadable"]
+)
+def test_r75_a_copy_without_a_provable_lease_is_refused_and_untouched(leased_copies, variant, caplog):
+    """Condition 3: no lease, or one that is not this adapter's, never authorizes removal."""
+    if variant == "unreadable" and os.geteuid() == 0:
+        pytest.skip("root opens any file")
+    launcher = _leased_copy()
+    copy_dir = launcher.parents[1]
+    acpx_module._drop_claude_acp_copy_lease(copy_dir.name)
+    _lease_variant(copy_dir, variant)
+    before = sorted(path.name for path in copy_dir.iterdir())
+    assert _release(launcher) == "refused"
+    assert sorted(path.name for path in copy_dir.iterdir()) == before
+    assert launcher.exists()
+    assert "refused the private launcher copy" in caplog.text
+    if variant == "missing":
+        assert not (copy_dir / _LEASE).exists(), "a missing lease is never recreated"
+    _age(copy_dir)
+    _leased_copy()
+    assert launcher.exists(), "the sweep refuses it too"
+
+
+def test_r75_a_lease_owned_by_another_account_is_not_this_adapters(tmp_path):
+    lease = tmp_path / "lease"
+    lease.touch(mode=0o600)
+    real = lease.stat()
+    assert acpx_module._claude_acp_lease_owned(real)
+    fields = list(real)
+    fields[stat.ST_UID] = real.st_uid + 1
+    assert not acpx_module._claude_acp_lease_owned(os.stat_result(fields))
+
+
+def test_r75_a_lock_error_refuses_removal(leased_copies, monkeypatch):
+    launcher = _leased_copy()
+    real_flock = fcntl.flock
+
+    def failing_flock(fd, operation):
+        if operation & fcntl.LOCK_EX:
+            raise OSError(errno.ENOLCK, os.strerror(errno.ENOLCK))
+        return real_flock(fd, operation)
+
+    monkeypatch.setattr(acpx_module.fcntl, "flock", failing_flock)
+    assert _release(launcher) == "refused"
+    assert launcher.exists() and (launcher.parents[1] / _LEASE).exists()
+
+
+def _after_exclusive_lock(monkeypatch, action) -> None:
+    """Run ``action`` once, right after the remover's exclusive lock is granted."""
+    real_flock = fcntl.flock
+    fired: list[bool] = []
+
+    def hooked_flock(fd, operation):
+        result = real_flock(fd, operation)
+        if operation == fcntl.LOCK_EX | fcntl.LOCK_NB and not fired:
+            fired.append(True)
+            action()
+        return result
+
+    monkeypatch.setattr(acpx_module.fcntl, "flock", hooked_flock)
+
+
+def test_r75_concurrent_sweep_and_release_remove_a_copy_once(leased_copies, monkeypatch):
+    """Condition 3: a sweep racing a release sees the lease held and leaves the copy to the release."""
+    launcher = _leased_copy()
+    copy_dir = launcher.parents[1]
+    _age(copy_dir)
+    seen: list[str] = []
+
+    def sweep() -> None:
+        base_fd = os.open(leased_copies.copies, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            seen.append(acpx_module._remove_leased_claude_acp_copy(base_fd, copy_dir.name))
+        finally:
+            os.close(base_fd)
+
+    _after_exclusive_lock(monkeypatch, sweep)
+    assert _release(launcher) == "removed"
+    assert seen == ["busy"]
+    assert not copy_dir.exists()
+    assert _release(launcher) == "absent"
+
+
+def test_r75_a_directory_replaced_under_the_lock_is_refused(leased_copies, monkeypatch, tmp_path):
+    launcher = _leased_copy()
+    copy_dir = launcher.parents[1]
+    moved = leased_copies.root / "moved-copy"
+
+    def replace_directory() -> None:
+        copy_dir.rename(moved)
+        copy_dir.mkdir(mode=0o700)
+        (copy_dir / "payload").write_text("keep", encoding="utf-8")
+
+    _after_exclusive_lock(monkeypatch, replace_directory)
+    assert _release(launcher) == "refused"
+    assert (copy_dir / "payload").read_text(encoding="utf-8") == "keep"
+    assert (moved / "agent_runtime" / "claude_acp_exec.sh").exists() and (moved / _LEASE).exists()
+
+
+def test_r75_a_lease_replaced_under_the_lock_is_refused(leased_copies, monkeypatch):
+    launcher = _leased_copy()
+    copy_dir = launcher.parents[1]
+
+    def replace_lease() -> None:
+        replacement = copy_dir / "replacement"
+        replacement.touch(mode=0o600)
+        os.replace(replacement, copy_dir / _LEASE)
+
+    _after_exclusive_lock(monkeypatch, replace_lease)
+    assert _release(launcher) == "refused"
+    assert launcher.exists() and (copy_dir / _LEASE).exists()
+
+
+def test_r75_the_exclusive_lock_is_held_until_the_copy_is_gone(leased_copies, monkeypatch):
+    """Condition 3: removal runs under the remover's exclusive lock, lease removed last."""
+    launcher = _leased_copy()
+    copy_dir = launcher.parents[1]
+    real_rmdir = os.rmdir
+    observed: list[tuple[bool, bool]] = []
+
+    def watching_rmdir(path, *, dir_fd=None):
+        if path == copy_dir.name:
+            observed.append((launcher.exists(), (copy_dir / _LEASE).exists()))
+        return real_rmdir(path, dir_fd=dir_fd)
+
+    lease_fd = os.open(copy_dir / _LEASE, os.O_RDONLY)
+    real_unlink = os.unlink
+    contended: list[bool] = []
+
+    def watching_unlink(path, *, dir_fd=None):
+        if path == _LEASE:
+            try:
+                fcntl.flock(lease_fd, fcntl.LOCK_SH | fcntl.LOCK_NB)
+            except BlockingIOError:
+                contended.append(True)
+        return real_unlink(path, dir_fd=dir_fd)
+
+    monkeypatch.setattr(acpx_module.os, "rmdir", watching_rmdir)
+    monkeypatch.setattr(acpx_module.os, "unlink", watching_unlink)
+    try:
+        assert _release(launcher) == "removed"
+    finally:
+        os.close(lease_fd)
+    assert contended == [True]
+    assert observed == [(False, False)]
+
+
+def test_r75_a_filesystem_without_lock_contention_refuses_the_launch(leased_copies, monkeypatch):
+    """Condition 4: where a second description is granted the lease, the launch is refused."""
+    real_flock = fcntl.flock
+
+    def non_contending_flock(fd, operation):
+        try:
+            return real_flock(fd, operation)
+        except BlockingIOError:
+            return None
+
+    monkeypatch.setattr(acpx_module.fcntl, "flock", non_contending_flock)
+    with pytest.raises(acpx_module.ClaudeCodeExecutableRefusal) as raised:
+        acpx_module._require_claude_acp_launcher(adapter_label="X")
+    assert (raised.value.reason, raised.value.failure_code) == ("lock_unsupported", "acp_adapter_incompatible")
+    assert not list(leased_copies.copies.iterdir())
+    assert acpx_module._CLAUDE_ACP_COPY_LEASES == {}
+
+
+def test_r75_a_lock_failure_on_creation_refuses_the_launch(leased_copies, monkeypatch):
+    def no_locks(_fd, _operation):
+        raise OSError(errno.ENOLCK, os.strerror(errno.ENOLCK))
+
+    monkeypatch.setattr(acpx_module.fcntl, "flock", no_locks)
+    with pytest.raises(acpx_module.ClaudeCodeExecutableRefusal) as raised:
+        acpx_module._require_claude_acp_launcher(adapter_label="X")
+    assert raised.value.reason == "lock_unsupported"
+    assert acpx_module._CLAUDE_ACP_COPY_LEASES == {}
+    # The unexposed copy's lease cannot be locked, so it is kept and reported rather than force-removed.
+    assert [path.name for path in leased_copies.copies.iterdir()] != []
+
+
+def test_r75_a_host_without_util_linux_flock_is_refused_before_a_copy(leased_copies, monkeypatch, tmp_path):
+    monkeypatch.setattr(acpx_module, "_CLAUDE_ACP_FLOCK", tmp_path / "no-flock")
+    with pytest.raises(acpx_module.ClaudeCodeExecutableRefusal) as raised:
+        acpx_module._require_claude_acp_launcher(adapter_label="X")
+    assert raised.value.reason == "lock_unsupported"
+    assert not leased_copies.copies.exists()
+
+
+def test_r75_the_lease_contends_on_the_test_filesystem(leased_copies):
+    """Condition 4: flock contends between descriptions where these tests run."""
+    launcher = _leased_copy()
+    lease = launcher.parents[1] / _LEASE
+    assert not _exclusive_free(lease)
+    acpx_module._drop_claude_acp_copy_lease(launcher.parents[1].name)
+    assert _exclusive_free(lease)
+
+
+def _claude_plan(launcher: Path, host: Path, **env: str) -> InvocationPlan:
+    return InvocationPlan(
+        cmd=["acpx"],
+        cwd=launcher.parent,
+        stdin_payload="ping",
+        output_file=None,
+        env_overrides={
+            "CLAUDE_CODE_EXECUTABLE": str(launcher),
+            acpx_module.CLAUDE_ACP_HOST_ENV: str(host),
+            acpx_module.CLAUDE_ACP_HOST_IDENTITY_ENV: acpx_module._claude_code_launch_identity(host.stat()),
+            **env,
+        },
+        env_unsets=(),
+        liveness_paths=(),
+        metadata={
+            "claude_code_launcher": str(launcher),
+            "claude_code_executable": str(host),
+            "claude_code_executable_identity": acpx_module._claude_code_identity(host.stat()),
+        },
+    )
+
+
+def _claude_parse(plan: InvocationPlan, stdout: str, *, returncode: int = 0):
+    return AcpxClaudeShadowAdapter().parse_response(
+        stdout=stdout, stderr="", returncode=returncode, output_file=None, plan=plan
+    )
+
+
+def _held(launcher: Path):
+    fd = os.open(launcher.parents[1] / _LEASE, os.O_RDONLY)
+    fcntl.flock(fd, fcntl.LOCK_SH)
+    return fd
+
+
+@pytest.mark.parametrize("cleanup", ["busy", "refused", "failed"])
+@pytest.mark.parametrize("stream", ["success", "failure", "host_changed"])
+def test_r75_cleanup_never_changes_the_answer_status_or_attestation(
+    leased_copies, monkeypatch, tmp_path, cleanup, stream
+):
+    """Condition 5: busy, refused and failed cleanup are recorded; the parsed result is untouched."""
+    launcher = _leased_copy()
+    host = _fake_host(tmp_path / "host", "exit 0\n")
+    plan = _claude_plan(launcher, host)
+    if stream == "host_changed":
+        host.write_text("#!/bin/sh\nexit 1\n", encoding="utf-8")
+    stdout = _TIMEOUT_NDJSON if stream == "failure" else _SUCCESS_NDJSON
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    acpx_module._drop_claude_acp_copy_lease(launcher.parents[1].name)
+    clean = acpx_module._attest_claude_code_child(
+        AcpxAdapter().parse_response(stdout=stdout, stderr="", returncode=0, output_file=None, plan=plan),
+        plan=plan,
+        stdout=stdout,
+    )
+    attestation = plan.metadata.get("claude_code_child_attestation")
+    held = None
+    if cleanup == "busy":
+        held = _held(launcher)
+    elif cleanup == "refused":
+        (launcher.parents[1] / _LEASE).chmod(0o644)
+    else:
+        monkeypatch.setattr(
+            acpx_module, "_remove_claude_acp_copy_entry", lambda *_a: (_ for _ in ()).throw(OSError(errno.EIO, "x"))
+        )
+    try:
+        parsed = _claude_parse(plan, stdout)
+    finally:
+        if held is not None:
+            os.close(held)
+    assert parsed == clean
+    assert plan.metadata.get("claude_code_child_attestation") == attestation
+    assert plan.metadata["claude_code_launcher_cleanup"] == cleanup
+    assert launcher.exists()
+    if stream == "success":
+        assert (parsed.ok, parsed.response) == (True, "Hello world.")
+    else:
+        assert parsed.ok is False and parsed.failure_code
+    if stream == "host_changed":
+        assert attestation == "host_changed"
+
+
+def test_r75_repeated_cleanup_releases_once(leased_copies, tmp_path):
+    launcher = _leased_copy()
+    plan = _claude_plan(launcher, _fake_host(tmp_path / "host", "exit 0\n"))
+    adapter = AcpxClaudeShadowAdapter()
+    adapter.cleanup_invocation(plan)
+    assert plan.metadata["claude_code_launcher_cleanup"] == "removed"
+    adapter.cleanup_invocation(plan)
+    assert plan.metadata["claude_code_launcher_cleanup"] == "removed"
+    assert _release(launcher) == "absent"
+    assert acpx_module._CLAUDE_ACP_COPY_LEASES == {}
+
+
+# ACPX stand-in for the runner chain: it runs the adapter's launcher copy the way
+# the Claude ACP adapter's SDK does (CLAUDE_CODE_EXECUTABLE), then prints the ACP
+# stream. The host stand-in leaves a grandchild that outlives Claude and ACPX.
+_CHAIN_ACPX = """#!/bin/sh
+"$CLAUDE_CODE_EXECUTABLE" --output-format stream-json </dev/null >/dev/null 2>"$LU_TEST_STATE/launcher.err" || exit 3
+lease="${CLAUDE_CODE_EXECUTABLE%/agent_runtime/claude_acp_exec.sh}/lease.lock"
+/usr/bin/flock -x -n "$lease" true && echo free > "$LU_TEST_STATE/during" || echo held > "$LU_TEST_STATE/during"
+cat "$LU_TEST_STATE/stream.ndjson"
+[ -z "$LU_TEST_HANG" ] || exec sleep 300
+"""
+_CHAIN_HOST = """case $LU_TEST_GRANDCHILD in
+keep) (exec sleep 300) </dev/null >/dev/null 2>&1 & echo $! > "$LU_TEST_STATE/grandchild.pid" ;;
+close) (exec 9<&-; exec sleep 300) </dev/null >/dev/null 2>&1 & echo $! > "$LU_TEST_STATE/grandchild.pid" ;;
+esac
+"""
+
+
+def _run_chain(leased_copies, tmp_path, monkeypatch, *, grandchild="", hang=False, cmd=None, hard_timeout=60):
+    from lu_machinery.agent_runtime import runner
+
+    state = tmp_path / "state"
+    state.mkdir()
+    (state / "stream.ndjson").write_text(_SUCCESS_NDJSON, encoding="utf-8")
+    acpx = tmp_path / "fake-acpx"
+    acpx.write_text(_CHAIN_ACPX, encoding="utf-8")
+    acpx.chmod(0o755)
+    host = _fake_host(tmp_path / "host", _CHAIN_HOST)
+    launcher = _leased_copy()
+    plan = _claude_plan(
+        launcher,
+        host,
+        LU_TEST_STATE=str(state),
+        LU_TEST_GRANDCHILD=grandchild,
+        LU_TEST_HANG="1" if hang else "",
+    )
+    plan = replace(plan, cmd=cmd or [str(acpx)], cwd=tmp_path)
+    monkeypatch.setattr(runner, "write_record", lambda _record: None)
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("LEARN_UKRAINIAN_PYTHON", sys.executable)
+    kwargs = dict(
+        agent_name="acpx-claude-shadow",
+        adapter=AcpxClaudeShadowAdapter(),
+        plan=plan,
+        prompt="ping",
+        mode="read-only",
+        cwd=tmp_path,
+        model="claude-opus-5-5",
+        task_id="t-r75-chain",
+        session_id=None,
+        entrypoint="delegate",
+        hard_timeout=hard_timeout,
+        stall_timeout=hard_timeout,
+    )
+    return runner, kwargs, launcher, plan, state
+
+
+@pytest.mark.parametrize("grandchild", ["keep", "close"])
+def test_r75_runner_chain_keeps_the_answer_and_the_lease(leased_copies, tmp_path, monkeypatch, grandchild):
+    """Conditions 1 and 5 through the runner: ACPX -> launcher -> Claude -> surviving grandchild.
+
+    ``keep``: the grandchild keeps fd 9 after Claude, the launcher and ACPX exit, so release is busy
+    and the answer stands. ``close``: the grandchild drops fd 9; the runner's own lease held the
+    copy for the whole ask, and release then removes it.
+    """
+    runner, kwargs, launcher, plan, state = _run_chain(leased_copies, tmp_path, monkeypatch, grandchild=grandchild)
+    outcome = runner._execute_invocation_once(**kwargs)
+    grandchild_pid = int(wait_for_line(state / "grandchild.pid"))
+    try:
+        assert (outcome.parse.ok, outcome.parse.response) == (True, "Hello world."), (
+            state / "launcher.err"
+        ).read_text(encoding="utf-8")
+        assert (state / "during").read_text(encoding="utf-8") == "held\n"
+        if grandchild == "keep":
+            assert plan.metadata["claude_code_launcher_cleanup"] == "busy"
+            assert launcher.exists()
+        else:
+            assert plan.metadata["claude_code_launcher_cleanup"] == "removed"
+            assert not launcher.parents[1].exists()
+    finally:
+        _kill_orphan(grandchild_pid)
+    if grandchild == "keep":
+        _age(launcher.parents[1])
+        _leased_copy()
+        assert not launcher.parents[1].exists()
+
+
+def test_r75_runner_timeout_releases_the_copy_and_keeps_the_failure(leased_copies, tmp_path, monkeypatch):
+    runner, kwargs, launcher, plan, _state = _run_chain(leased_copies, tmp_path, monkeypatch, hang=True)
+    kwargs.update(hard_timeout=2, stall_timeout=2)
+    outcome = runner._execute_invocation_once(**kwargs)
+    assert outcome.kill_reason == "hard_timeout"
+    # The timeout's own failure stands: the copy's release did not rewrite it.
+    unreleased = AcpxAdapter().parse_response(
+        stdout=outcome.stdout_text, stderr=outcome.stderr_text, returncode=outcome.returncode, output_file=None, plan=plan
+    )
+    assert (outcome.parse.ok, outcome.parse.failure_code) == (unreleased.ok, unreleased.failure_code)
+    assert outcome.parse.ok is False
+    assert plan.metadata["claude_code_launcher_cleanup"] == "removed"
+    assert not launcher.parents[1].exists()
+
+
+def test_r75_runner_cancellation_releases_the_copy(leased_copies, tmp_path, monkeypatch):
+    runner, kwargs, launcher, plan, state = _run_chain(leased_copies, tmp_path, monkeypatch, hang=True)
+    real_sleep = time.sleep
+    cancelled: list[bool] = []
+
+    def cancel(seconds):
+        """One interrupt, as from a single Ctrl-C, once the runner waits on a launched child."""
+        if not cancelled and threading.current_thread() is threading.main_thread() and (state / "during").exists():
+            cancelled.append(True)
+            raise KeyboardInterrupt
+        real_sleep(seconds)
+
+    with monkeypatch.context() as patch, pytest.raises(KeyboardInterrupt):
+        patch.setattr(runner.time, "sleep", cancel)
+        runner._execute_invocation_once(**kwargs)
+    assert cancelled == [True]
+    assert plan.metadata["claude_code_launcher_cleanup"] == "removed"
+    assert not launcher.parents[1].exists()
+    assert acpx_module._CLAUDE_ACP_COPY_LEASES == {}
+
+
+def test_r75_runner_spawn_failure_releases_the_copy(leased_copies, tmp_path, monkeypatch):
+    runner, kwargs, launcher, plan, _state = _run_chain(
+        leased_copies, tmp_path, monkeypatch, cmd=[str(tmp_path / "no-such-acpx")]
+    )
+    with pytest.raises(runner.AgentUnavailableError):
+        runner._execute_invocation_once(**kwargs)
+    assert plan.metadata["claude_code_launcher_cleanup"] == "removed"
+    assert not launcher.parents[1].exists()
+    assert acpx_module._CLAUDE_ACP_COPY_LEASES == {}
+
+
+# Deterministic interleaving for the launcher (review F1): ptrace stops the
+# launch at the exec of util-linux flock, after the launcher opened fd 9 and
+# before the lock is taken, so a removal can complete in exactly that window.
+_PTRACE_TRACEME, _PTRACE_CONT, _PTRACE_SETOPTIONS = 0, 7, 0x4200
+_PTRACE_OPTIONS = 0x2 | 0x4 | 0x8 | 0x10  # trace fork, vfork, clone and exec
+_PTRACE_EVENT_EXEC = 4
+_WAIT_ALL = 0x40000000  # __WALL: also report traced processes that are not our children
+
+
+def _ptrace(request: int, pid: int, data: int = 0) -> None:
+    libc = ctypes.CDLL(None, use_errno=True)
+    libc.ptrace.restype = ctypes.c_long
+    libc.ptrace.argtypes = (ctypes.c_long, ctypes.c_int, ctypes.c_void_p, ctypes.c_void_p)
+    if libc.ptrace(request, pid, None, ctypes.c_void_p(data)) == -1:
+        code = ctypes.get_errno()
+        raise OSError(code, os.strerror(code))
+
+
+def _launch_pausing_at_flock(argv: list[str], env: dict[str, str], tmp_path: Path, at_flock) -> tuple[int, str]:
+    """Run ``argv`` traced; call ``at_flock()`` once /usr/bin/flock is exec'd, before it runs."""
+    flock_binary = os.path.realpath(acpx_module._CLAUDE_ACP_FLOCK)
+    stderr_path = tmp_path / "launcher.stderr"
+    with stderr_path.open("wb") as stderr:
+        proc = subprocess.Popen(
+            argv, env=env, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=stderr,
+            preexec_fn=lambda: _ptrace(_PTRACE_TRACEME, 0),
+        )
+    _pid, status = os.waitpid(proc.pid, _WAIT_ALL)
+    assert os.WIFSTOPPED(status), status  # stopped at its own exec
+    _ptrace(_PTRACE_SETOPTIONS, proc.pid, _PTRACE_OPTIONS)
+    _ptrace(_PTRACE_CONT, proc.pid)
+    paused = False
+    while True:
+        pid, status = os.waitpid(-1, _WAIT_ALL)
+        if os.WIFEXITED(status) or os.WIFSIGNALED(status):
+            if pid == proc.pid:
+                proc.returncode = os.waitstatus_to_exitcode(status)
+                break
+            continue
+        signal_number, event = os.WSTOPSIG(status), status >> 16
+        if event == _PTRACE_EVENT_EXEC and not paused and os.path.realpath(f"/proc/{pid}/exe") == flock_binary:
+            paused = True
+            at_flock()
+        deliver = 0 if event or signal_number in (signal.SIGTRAP, signal.SIGSTOP) else signal_number
+        _ptrace(_PTRACE_CONT, pid, deliver)
+    assert paused, "the launcher never ran util-linux flock"
+    return proc.returncode, stderr_path.read_text(encoding="utf-8")
+
+
+def test_r75_a_launch_whose_lease_is_removed_before_it_locks_refuses(leased_copies, tmp_path):
+    """Review F1: the launcher opened fd 9, then the copy was released and removed before flock ran.
+
+    flock then succeeds on the unlinked inode; the launcher must see that fd 9 is no longer the
+    lease and refuse before Claude runs.
+    """
+    launcher = _leased_copy()
+    marker = tmp_path / "host-ran"
+    host = _fake_host(tmp_path / "host", f": > '{marker}'\n")
+    outcomes: list[str] = []
+
+    def remove_now() -> None:
+        outcomes.append(_release(launcher))
+
+    returncode, stderr = _launch_pausing_at_flock([str(launcher)], _launch_env(host), tmp_path, remove_now)
+    assert outcomes == ["removed"]
+    assert not launcher.parents[1].exists()
+    assert returncode == 126, stderr
+    assert "removed while this launch started" in stderr
+    assert not marker.exists(), "Claude ran from a copy that was already removed"
+
+
+def test_r75_an_undisturbed_traced_launch_still_runs_claude(leased_copies, tmp_path):
+    """Control for the interleaving test: the same tracing without a removal launches Claude."""
+    launcher = _leased_copy()
+    marker = tmp_path / "host-ran"
+    host = _fake_host(tmp_path / "host", f": > '{marker}'\n")
+    returncode, stderr = _launch_pausing_at_flock([str(launcher)], _launch_env(host), tmp_path, lambda: None)
+    assert returncode == 0, stderr
+    assert marker.exists()
+
+
+@pytest.mark.parametrize("target", ["directory", "lease"])
+def test_r75_a_metadata_error_during_cleanup_keeps_the_answer(leased_copies, tmp_path, monkeypatch, caplog, target):
+    """Review F2: an fstat error inside removal is a recorded ``failed``, never a lost answer."""
+    launcher = _leased_copy()
+    plan = _claude_plan(launcher, _fake_host(tmp_path / "host", "exit 0\n"))
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    real_fstat = os.fstat
+
+    victim = (launcher.parents[1] / _LEASE if target == "lease" else launcher.parents[1]).stat()
+
+    def failing_fstat(fd):
+        result = real_fstat(fd)
+        if (result.st_dev, result.st_ino) == (victim.st_dev, victim.st_ino):
+            raise OSError(errno.EIO, os.strerror(errno.EIO))
+        return result
+
+    monkeypatch.setattr(acpx_module.os, "fstat", failing_fstat)
+    parsed = _claude_parse(plan, _SUCCESS_NDJSON)
+    monkeypatch.setattr(acpx_module.os, "fstat", real_fstat)
+    assert (parsed.ok, parsed.response) == (True, "Hello world.")
+    assert plan.metadata["claude_code_launcher_cleanup"] == "failed"
+    assert launcher.exists() and (launcher.parents[1] / _LEASE).exists()
+    assert acpx_module._CLAUDE_ACP_COPY_LEASES == {}
+    assert "could not remove the private launcher copy" in caplog.text
+
+
+def test_r75_an_unexpected_cleanup_exception_keeps_the_answer(leased_copies, tmp_path, monkeypatch, caplog):
+    launcher = _leased_copy()
+    plan = _claude_plan(launcher, _fake_host(tmp_path / "host", "exit 0\n"))
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+
+    def broken(*_args, **_kwargs):
+        raise RuntimeError("fixture")
+
+    monkeypatch.setattr(acpx_module, "_remove_claude_acp_launcher_copy", broken)
+    parsed = _claude_parse(plan, _SUCCESS_NDJSON)
+    assert (parsed.ok, parsed.response) == (True, "Hello world.")
+    assert plan.metadata["claude_code_launcher_cleanup"] == "failed"
+    AcpxClaudeShadowAdapter().cleanup_invocation(plan)
+    assert plan.metadata["claude_code_launcher_cleanup"] == "failed"
+    assert "cleanup raised" in caplog.text

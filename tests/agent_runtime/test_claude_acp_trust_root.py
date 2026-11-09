@@ -57,8 +57,8 @@ _PREPARE = '''
 from pathlib import Path
 from lu_machinery.agent_runtime.adapters import acpx
 from lu_machinery.common.repo_root import machinery_root
-# Preparation only: production cleanup deliberately refuses when /proc is
-# unreadable. The owning TemporaryDirectory removes these fixture copies.
+# Preparation only: no release runs here, so this process holds each copy's
+# lease until exit. The owning TemporaryDirectory removes these fixture copies.
 acpx._CLAUDE_ACP_LAUNCHER_COPY_BASE = Path.cwd() / "copies"
 launcher = Path(acpx._require_claude_acp_launcher(adapter_label="test"))
 assert launcher.read_bytes() == (machinery_root() / "agent_runtime/claude_acp_exec.sh").read_bytes()

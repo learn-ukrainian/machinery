@@ -123,9 +123,12 @@ in `pyproject.toml` and `$SHA` the full commit:
    paths. For every enabled ACP route, including the text server, complete
    initialization, session creation, a known-answer prompt and a terminal
    response with deterministic peers, then run a bounded authenticated canary
-   for each enabled provider. With registry access disabled, remove a package,
-   introduce an incompatible version and tamper with an executable in separate
-   restored copies. Each must refuse before prompt delivery. Import success
+   for each enabled provider. Run the Claude canary in the host PID namespace,
+   not a synthetic-root one, while the caller has same-account processes whose
+   `/proc` entries it cannot read; it must return the known answer with `ok`
+   true and leave no new launcher copy. With registry access disabled, remove
+   a package, introduce an incompatible version and tamper with an executable
+   in separate restored copies. Each must refuse before prompt delivery. Import success
    is insufficient.
 
    Prove the prefix is the only module source. Plant a marker package, which
