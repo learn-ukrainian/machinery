@@ -9966,7 +9966,8 @@
     "site/src/data/lexicon-manifest.fingerprint.json [present: product-owned in LU]",
     "tasks [present: product-owned in LU]"
    ],
-   "residual_id": "PORT-1108-T6-R5"
+   "residual_id": "PORT-1108-T6-R5",
+   "ported_to": "tests/fleet/test_ignored_task_output.py"
   },
   "tests/fleet/test_pr_owner_check.py": {
    "disposition": "port-first",
@@ -10106,7 +10107,8 @@
     "site/src/data/lexicon-manifest.fingerprint.json [present: product-owned in LU]",
     "tasks [present: product-owned in LU]"
    ],
-   "residual_id": "PORT-1108-T6-R6"
+   "residual_id": "PORT-1108-T6-R6",
+   "ported_to": "tests/fleet/test_reaper_regenerable_cap.py"
   },
   "tests/fleet/test_regenerable_output.py": {
    "disposition": "port-first",
@@ -10165,7 +10167,8 @@
     "site/src/data/lexicon-manifest.fingerprint.json [present: product-owned in LU]",
     "tasks [present: product-owned in LU]"
    ],
-   "residual_id": "PORT-1108-T6-R7"
+   "residual_id": "PORT-1108-T6-R7",
+   "ported_to": "tests/fleet/test_regenerable_output.py"
   },
   "tests/fleet/test_regenerable_release_output.py": {
    "disposition": "keep",
@@ -10253,7 +10256,8 @@
     "site/src/data/lexicon-manifest.fingerprint.json [present: product-owned in LU]",
     "tasks [present: product-owned in LU]"
    ],
-   "residual_id": "PORT-1108-T6-R8"
+   "residual_id": "PORT-1108-T6-R8",
+   "ported_to": "tests/fleet/test_terminal_abandon.py"
   },
   "tests/fleet/test_terminal_abandon_10624.py": {
    "disposition": "port-first",
@@ -10320,7 +10324,8 @@
     "site/src/data/lexicon-manifest.fingerprint.json [present: product-owned in LU]",
     "tasks [present: product-owned in LU]"
    ],
-   "residual_id": "PORT-1108-T6-R9"
+   "residual_id": "PORT-1108-T6-R9",
+   "ported_to": "tests/fleet/test_terminal_abandon_10624.py"
   },
   "tests/fleet/test_terminal_abandon_bundle.py": {
    "disposition": "port-first",
@@ -10378,7 +10383,8 @@
     "site/src/data/lexicon-manifest.fingerprint.json [present: product-owned in LU]",
     "tasks [present: product-owned in LU]"
    ],
-   "residual_id": "PORT-1108-T6-R10"
+   "residual_id": "PORT-1108-T6-R10",
+   "ported_to": "tests/fleet/test_terminal_abandon_bundle.py"
   },
   "tests/fleet/test_usage_cli.py": {
    "disposition": "port-first",
