@@ -4,13 +4,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
 from fastapi.testclient import TestClient
 
 import lu_machinery.api.main as api_main
 from lu_machinery.api.monitor_context import fixture_context
-
-pytestmark = pytest.mark.repo_invariant
 
 
 def test_fixture_app_orient_git_is_not_production(tmp_path: Path) -> None:

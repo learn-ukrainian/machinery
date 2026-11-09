@@ -22,7 +22,7 @@ from lu_machinery.fleet_comms.pg_schema import (
     verify_pg_schema,
 )
 
-pytestmark = [pytest.mark.repo_invariant, pytest.mark.postgres]
+pytestmark = pytest.mark.postgres
 
 _PG_DSN_ENV = "LEARN_UKRAINIAN_CP_PG_DSN"
 

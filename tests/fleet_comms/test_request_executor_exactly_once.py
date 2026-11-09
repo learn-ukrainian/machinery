@@ -11,7 +11,6 @@ from lu_machinery.fleet_comms.request_executor import (
     RequestExecutorError,
 )
 
-pytestmark = pytest.mark.repo_invariant
 
 
 @pytest.fixture

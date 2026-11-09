@@ -8,9 +8,6 @@ from datetime import datetime
 from pathlib import Path
 
 import lu_machinery.telemetry.cost_report as cost_report
-import pytest
-
-pytestmark = pytest.mark.reads_content
 
 
 def _write_meta(

@@ -25,7 +25,7 @@ from psycopg.conninfo import make_conninfo
 
 from tests.epics_monitor_stub import epics_monitor_stub
 
-pytestmark = [pytest.mark.repo_invariant, pytest.mark.usefixtures("monitor_roots")]
+pytestmark = pytest.mark.usefixtures("monitor_roots")
 
 
 def _fixture_command(args, log=None):

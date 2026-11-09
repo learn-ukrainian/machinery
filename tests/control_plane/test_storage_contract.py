@@ -16,7 +16,6 @@ from lu_machinery.control_plane.storage import (
 _PG_DSN_ENV = "LEARN_UKRAINIAN_CP_PG_DSN"
 _PROBE_TABLE = "cp_contract_probe"
 
-pytestmark = pytest.mark.repo_invariant
 
 
 def _pg_dsn_or_skip() -> str:

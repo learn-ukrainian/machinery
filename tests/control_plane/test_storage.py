@@ -22,7 +22,7 @@ from lu_machinery.lib.readonly_sqlite import CorpusDatabaseWriteRefused
 from lu_machinery.session_streams.db import SessionStreamDatabase
 from tests.helpers.product_tree import configured_roots  # noqa: F401
 
-pytestmark = [pytest.mark.repo_invariant, pytest.mark.usefixtures("configured_roots")]
+pytestmark = pytest.mark.usefixtures("configured_roots")
 
 # Unreachable local port — fails closed quickly without DNS (no example.invalid).
 _UNREACHABLE_DSN = "postgresql://cp_ci:cp_ci@127.0.0.1:1/postgres"

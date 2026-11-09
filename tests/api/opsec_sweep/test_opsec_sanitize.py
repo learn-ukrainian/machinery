@@ -24,7 +24,6 @@ from lu_machinery.api.opsec_sanitize import (
 )
 from lu_machinery.api.opsec_scan import scan_body, scan_text
 
-pytestmark = pytest.mark.repo_invariant
 
 PLANTED_ROOT = "/tmp/opsec-canary-root"
 PLANTED_PATH = f"{PLANTED_ROOT}/repo"

@@ -28,7 +28,6 @@ from lu_machinery.fleet_comms.artifacts import (
     _unreferenced_candidate_sql,
 )
 
-pytestmark = pytest.mark.repo_invariant
 
 _PG_DSN_ENV = "LEARN_UKRAINIAN_CP_PG_DSN"
 

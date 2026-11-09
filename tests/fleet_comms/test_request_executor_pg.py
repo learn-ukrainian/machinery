@@ -24,7 +24,6 @@ from lu_machinery.fleet_comms.request_executor import (
     RequestExecutorError,
 )
 
-pytestmark = pytest.mark.repo_invariant
 
 _PG_DSN_ENV = "LEARN_UKRAINIAN_CP_PG_DSN"
 _AUTHORITY_ENV = "LEARN_UKRAINIAN_CP_AUTHORITY_FLEET_COMMS"

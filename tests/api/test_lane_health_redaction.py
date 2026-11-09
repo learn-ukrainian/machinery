@@ -124,7 +124,6 @@ def test_sanitize_error_excerpt_never_splits_any_placeholder(marker):
     assert sanitize_error_excerpt(prefix + marker + " tail") == prefix + redacted
 
 
-@pytest.mark.repo_invariant
 @pytest.mark.parametrize(
     ("text", "token", "placeholder"),
     [

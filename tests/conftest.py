@@ -3035,6 +3035,30 @@ def pytest_configure(config: pytest.Config) -> None:
         "LU_SCRATCH_ROOT unset. The isolation fixture points that default at a private "
         "directory under tmp_path instead of /var/tmp/lu (#9927)",
     )
+    config.addinivalue_line(
+        "markers",
+        "postgres: needs LEARN_UKRAINIAN_CP_PG_DSN; the skip guard and the per-worker database fixture read this mark",
+    )
+    config.addinivalue_line(
+        "markers",
+        "rules_core_absent: run without the rules-core loader; refused unless the serving fixture is imported",
+    )
+    config.addinivalue_line(
+        "markers",
+        "repo_wide: repository-wide invariant selected by -m repo_wide",
+    )
+    config.addinivalue_line(
+        "markers",
+        "slow: nightly group excluded from the required suite by -m 'not slow'",
+    )
+    config.addinivalue_line(
+        "markers",
+        "live_github: opt this test into real gh and network access",
+    )
+    config.addinivalue_line(
+        "markers",
+        "real_claude_cli_gate: keep the real Claude CLI version probe; the shared stub does not apply",
+    )
     # The live app's request middleware defaults to 10s. Tests that drive
     # TestClient(api_main.app) and read the real decision/ADR tree have
     # exceeded that under xdist and come back as 504 (#8439). The assertions

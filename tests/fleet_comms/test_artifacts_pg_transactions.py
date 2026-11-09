@@ -15,7 +15,7 @@ from lu_machinery.fleet_comms.artifacts import ArtifactStore, ArtifactStoreError
 
 _PG_DSN_ENV = "LEARN_UKRAINIAN_CP_PG_DSN"
 
-pytestmark = [pytest.mark.repo_invariant, pytest.mark.postgres]
+pytestmark = pytest.mark.postgres
 
 
 @pytest.fixture

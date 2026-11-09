@@ -21,7 +21,7 @@ from pathlib import Path
 import lu_machinery.api
 import pytest
 
-pytestmark = [pytest.mark.repo_invariant, pytest.mark.repo_wide]
+pytestmark = pytest.mark.repo_wide
 
 _TESTS_ROOT = Path(__file__).resolve().parents[1]
 _SELF = Path(__file__).resolve()
