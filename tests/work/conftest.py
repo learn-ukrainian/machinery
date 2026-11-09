@@ -52,11 +52,21 @@ def _write_product(root: Path) -> None:
     (package / "entry.py").write_text(_ENTRY_SOURCE, encoding="utf-8")
 
 
-def _forget(product: Path) -> None:
-    for name, module in tuple(sys.modules.items()):
-        origin = getattr(module, "__file__", None) or ""
-        if (name == "scripts" or name.startswith("scripts.")) and origin.startswith(str(product)):
+def _drop_scripts() -> None:
+    """Drop any cached product ``scripts`` package.
+
+    The pytest job runs every tranche in one process. An earlier product test
+    leaves ``scripts`` imported from its own temporary checkout, and the next
+    product load then refuses that file. Each opt-in starts clean.
+    """
+    for name in list(sys.modules):
+        if name == "scripts" or name.startswith("scripts."):
             del sys.modules[name]
+
+
+def _forget(product: Path) -> None:
+    _drop_scripts()
+    del product
     config = sys.modules.get("lu_machinery.api.config")
     if config is not None:
         for name in _CONFIG_ROOT_CACHES:

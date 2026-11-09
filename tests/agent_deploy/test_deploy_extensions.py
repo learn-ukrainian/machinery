@@ -97,6 +97,9 @@ def _run_deploy(
     npm.write_text("#!/usr/bin/env bash\nexit 0\n")
     npm.chmod(0o755)
     env = {k: v for k, v in os.environ.items() if k not in _GIT_ENV_KEYS}
+    # The pytest job sets LEARN_UKRAINIAN_PYTHON. These tests cover the checkout
+    # rules, which apply only when that override is unset.
+    env.pop("LEARN_UKRAINIAN_PYTHON", None)
     env["PATH"] = f"{fake_bin}{os.pathsep}{env['PATH']}"
     env.update(extra_env or {})
     script = (
