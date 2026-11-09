@@ -2,13 +2,10 @@ import os
 import subprocess
 from pathlib import Path
 
-import pytest
 from fastapi.testclient import TestClient
 
 from lu_machinery.api import git_hygiene_router
 from lu_machinery.api.main import app
-
-pytestmark = pytest.mark.reads_content
 
 client = TestClient(app, raise_server_exceptions=False)
 

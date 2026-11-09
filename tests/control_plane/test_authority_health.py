@@ -11,7 +11,6 @@ import pytest
 from lu_machinery.fleet_comms import message_plane, migrations, pg_schema
 from lu_machinery.fleet_comms.cli import _short_plane_health
 
-pytestmark = pytest.mark.repo_invariant
 
 
 @pytest.fixture(autouse=True)

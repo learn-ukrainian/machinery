@@ -6,7 +6,7 @@ import pytest
 from lu_machinery.ai_agent_bridge._opencode import _invoke_opencode
 from lu_machinery.lib import rules_core
 
-pytestmark = [pytest.mark.repo_invariant, pytest.mark.repo_wide]
+pytestmark = pytest.mark.repo_wide
 
 
 def test_invoke_opencode_constructs_correct_argv():

@@ -20,7 +20,6 @@ from lu_machinery.api.monitor_context import fixture_context
 from lu_machinery.api.route_contracts import ROUTE_CONTRACTS
 from tests.epics_monitor_stub import epics_app_for_store
 
-pytestmark = pytest.mark.repo_invariant
 
 
 class _FakeResponse:

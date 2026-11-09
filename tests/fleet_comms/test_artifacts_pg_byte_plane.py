@@ -19,7 +19,6 @@ import pytest
 
 from lu_machinery.fleet_comms.artifacts import _PG_BLOB_TABLE, ArtifactStore, ArtifactStoreError
 
-pytestmark = pytest.mark.repo_invariant
 
 _PG_DSN_ENV = "LEARN_UKRAINIAN_CP_PG_DSN"
 

@@ -2,11 +2,6 @@
 import sys
 from pathlib import Path
 
-import pytest
-
-pytestmark = pytest.mark.reads_content
-
-
 from lu_machinery.research.research_quality import (
     _parse_discovery,
     find_research_path,

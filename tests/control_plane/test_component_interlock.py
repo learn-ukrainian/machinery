@@ -18,7 +18,6 @@ from lu_machinery.control_plane.storage import (
     assert_component_supported,
 )
 
-pytestmark = pytest.mark.repo_invariant
 
 _ENV = "LEARN_UKRAINIAN_CP_AUTHORITY_FLEET_COMMS"
 

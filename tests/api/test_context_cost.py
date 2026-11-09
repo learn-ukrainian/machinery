@@ -8,14 +8,11 @@ import time
 from pathlib import Path
 from unittest.mock import AsyncMock, Mock
 
-import pytest
 from fastapi.testclient import TestClient
 
 from lu_machinery.api import main as api_main
 from lu_machinery.api import work_router
 from lu_machinery.api.monitor_context import fixture_context
-
-pytestmark = pytest.mark.reads_content
 
 
 def test_lifespan_closes_context_resources_for_repeated_apps(monkeypatch, tmp_path: Path) -> None:

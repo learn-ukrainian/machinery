@@ -5,7 +5,6 @@ from __future__ import annotations
 from pathlib import Path
 from typing import get_args
 
-import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -14,8 +13,6 @@ from lu_machinery.api.route_contracts import (
     RouteLocality,
     router,
 )
-
-pytestmark = pytest.mark.repo_invariant
 
 VALID_LOCALITIES = set(get_args(RouteLocality))
 

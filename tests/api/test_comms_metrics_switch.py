@@ -10,7 +10,6 @@ from fastapi.testclient import TestClient
 from lu_machinery.api import main as api_main
 from lu_machinery.api.monitor_context import fixture_context
 
-pytestmark = pytest.mark.repo_invariant
 
 _ROUTES = ("/api/comms/v1/metrics", "/api/comms/v1/backlog", "/api/comms/v1/dead-letters")
 

@@ -19,7 +19,6 @@ from lu_machinery.api.project_state_store import reset_project_state_store
 from lu_machinery.api.state_helpers import cache_get, cache_invalidate, cache_set, ctx_cache_scope
 from tests.epics_monitor_stub import epics_app_for_store
 
-pytestmark = pytest.mark.repo_invariant
 
 PLANTED_PATH = "/srv/opsec-canary-root/repo"
 _HEARTBEAT = {

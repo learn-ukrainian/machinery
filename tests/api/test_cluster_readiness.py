@@ -26,7 +26,6 @@ from lu_machinery.api.monitor_context import fixture_context
 from lu_machinery.control_plane import storage
 from lu_machinery.control_plane.storage import StoreId
 
-pytestmark = pytest.mark.repo_invariant
 
 # Unreachable local port — fails closed quickly without DNS (no example.invalid).
 _UNREACHABLE_DSN = "postgresql://cp_ci:cp_ci@127.0.0.1:1/postgres"

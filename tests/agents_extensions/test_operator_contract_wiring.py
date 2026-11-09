@@ -20,7 +20,7 @@ import pytest
 from lu_machinery.common.repo_root import machinery_path
 from tests.helpers.product_tree import configured_roots as configured_roots
 
-pytestmark = [pytest.mark.docs_skills, pytest.mark.usefixtures("configured_roots")]
+pytestmark = pytest.mark.usefixtures("configured_roots")
 
 REPO = Path(__file__).resolve().parents[2]
 def test_deploy_lock_step_lists_include_contract() -> None:
