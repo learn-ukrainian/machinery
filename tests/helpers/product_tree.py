@@ -5,7 +5,7 @@ product's own files by checkout layout. The installed package derives no product
 (``repo_root.product_root`` needs ``LU_PRODUCT_ROOT``) and no primary checkout
 (``LEARN_UKRAINIAN_PRIMARY_REPO_ROOT``), and machinery holds none of the product files
 that its adapters read through those roots. ``tests/fixtures/product_tree/`` holds byte
-copies of three of them from learn-ukrainian at commit
+copies of the product files that the ported tests read, from learn-ukrainian at commit
 5aba2adb96e13b3f4a5dc2abbe5ed71b7fb81d00 (the frozen source of the port):
 
 - ``agents_extensions/shared/settings.json``: the Claude worker hook list that
@@ -13,6 +13,11 @@ copies of three of them from learn-ukrainian at commit
 - ``.mcp/servers/sources/server.py``: the Sources server whose tool declarations
   ``sources_read_only.sources_tool_sets`` partitions.
 - ``docs/review-protocol.md``: the review protocol the bridge prepends to review prompts.
+- ``.github/workflows/ci.yml``, ``scripts/curriculum/deploy_paths.v1.json``,
+  ``scripts/curriculum/admission_policy.v1.json``, ``scripts/curriculum/review_hooks.v1.json``,
+  ``agents_extensions/agy/hooks.json``, ``agents_extensions/shared/rules/core-curriculum.md``
+  and ``.nvmrc``: the workflow policy, curriculum policy data, hook lists, rules text and
+  Node version that the publisher, admission and review code read.
 
 A test opts in, by fixture argument or by ``pytestmark``::
 
