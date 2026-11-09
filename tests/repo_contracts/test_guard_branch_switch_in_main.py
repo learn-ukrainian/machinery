@@ -11,8 +11,8 @@ Exercises the pure decision logic in
     not a grep one-liner.
 
 The hook filename has hyphens, so it is loaded by path via importlib.
-Only module-level defs/constants run on load (``main`` is guarded by
-``__name__ == "__main__"``), so importing it has no side effects.
+The installed hook bootstraps its package while loading; restore the caller's
+package binding so collection preserves previously imported child modules.
 """
 
 from __future__ import annotations
@@ -29,6 +29,7 @@ from pathlib import Path
 import pytest
 
 from lu_machinery.common.repo_root import machinery_path
+from tests.helpers.restore_import_state import restore_import_state
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 HOOK_PATH = machinery_path("agents_extensions/shared/hooks/guard-branch-switch-in-main.py")
@@ -38,11 +39,19 @@ def _load_hook():
     spec = importlib.util.spec_from_file_location("guard_branch_switch_in_main", HOOK_PATH)
     assert spec and spec.loader, f"could not load hook at {HOOK_PATH}"
     module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
+    with restore_import_state("lu_machinery"):
+        spec.loader.exec_module(module)
     return module
 
 
-guard = _load_hook()
+guard = None
+
+
+@pytest.fixture(scope="module", autouse=True)
+def loaded_guard():
+    with pytest.MonkeyPatch.context() as patches:
+        patches.setitem(globals(), "guard", _load_hook())
+        yield
 
 REDIRECTS_9479 = ["", "2>&1", ">file", "2>/dev/null", "&>file", "<file", "| cat"]
 
