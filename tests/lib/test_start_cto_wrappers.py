@@ -496,9 +496,9 @@ export FIXTURE_WATCHER_PARENT=$BASHPID
 # Reap the small producer before exec, reproducing Bash's pre-exec race
 # deterministically. The large payload partition must drain in Python first.
 set -T
-trap 'if [[ $BASH_COMMAND == exec\ \"\$capture_python\"* || $BASH_COMMAND == exec\ \"\$watcher\"* ]]; then
+trap 'if [[ $BASH_COMMAND == exec\ \"\$\{PROJECT_PYTHON_COMMAND\[\@\]\}\"* || $BASH_COMMAND == exec\ \"\$watcher\"* ]]; then
   export FIXTURE_WATCHER_PID=$BASHPID
-  if [[ $BASH_COMMAND == exec\ \"\$capture_python\"* && $FIXTURE_REAP_CAPTURE = 1 ]]; then
+  if [[ $BASH_COMMAND == exec\ \"\$\{PROJECT_PYTHON_COMMAND\[\@\]\}\"* && $FIXTURE_REAP_CAPTURE = 1 ]]; then
     wait "$!"
     printf "CAPTURE_PRODUCER_REAPED\\n" >&2
   fi
