@@ -30,9 +30,17 @@ class _Lazy:
 
 
 def _load_app():
-    from lu_machinery.api.main import app as real
+    """Build the app for this product, not the process-global import-time app.
 
-    return real
+    An earlier file can import ``lu_machinery.api.main`` while its own product
+    is configured, which binds ``app`` once and defines no ``__getattr__``.
+    The cache key is scoped to the app's project root, so a request on that
+    leftover app misses the entry this test just wrote for the current product.
+    """
+    from lu_machinery.api.main import create_app
+    from lu_machinery.api.monitor_context import production_context
+
+    return create_app(production_context())
 
 
 app = _Lazy(_load_app)

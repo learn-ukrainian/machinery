@@ -200,7 +200,8 @@ def test_saved_view_rejects_free_text_and_private_keys():
 def test_public_repository_identity_ignores_env_override(monkeypatch):
     """WORK_PUBLIC_REPOSITORY must not repoint source, query, cache, or projection."""
     from fastapi.testclient import TestClient
-    from lu_machinery.api.main import app
+    from lu_machinery.api.main import create_app
+    from lu_machinery.api.monitor_context import production_context
     from lu_machinery.api.state_helpers import cache_invalidate
     from lu_machinery.api.work_router import projection_cache_key
     from lu_machinery.work.sources_public import (
@@ -301,7 +302,7 @@ def test_public_repository_identity_ignores_env_override(monkeypatch):
 
     # Capabilities surface remains pinned to the closed identity under env poison.
     cache_invalidate("work:v1:projection")
-    client = TestClient(app, raise_server_exceptions=False)
+    client = TestClient(create_app(production_context()), raise_server_exceptions=False)
     caps = client.get("/api/work/v1/capabilities")
     assert caps.status_code == 200
     assert caps.json()["public_repository_id"] == REPO
@@ -1472,10 +1473,12 @@ def test_work_projection_single_flight_under_concurrent_load(monkeypatch):
     import lu_machinery.api.main as api_main
     import lu_machinery.api.work_router as work_router
     from httpx2 import ASGITransport, AsyncClient
+    from lu_machinery.api.monitor_context import production_context
     from lu_machinery.api.state_helpers import cache_invalidate
 
     cache_invalidate(work_router.CACHE_KEY)
-    api_main.app.state.ctx.stores.work_in_flight.clear()
+    app = api_main.create_app(production_context())
+    app.state.ctx.stores.work_in_flight.clear()
 
     build_calls = 0
     real_build_sync = work_router._build_sync
@@ -1489,7 +1492,7 @@ def test_work_projection_single_flight_under_concurrent_load(monkeypatch):
     monkeypatch.setattr(work_router, "_build_sync", slow_build)
 
     async def run_concurrent():
-        async with AsyncClient(transport=ASGITransport(app=api_main.app), base_url="http://test") as ac:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
             tasks = [ac.get("/api/work/v1/projection?stream=infra-harness") for _ in range(8)]
             responses = await asyncio.gather(*tasks)
             return responses

@@ -43,9 +43,11 @@ class _Lazy:
 
 
 def _load_app():
-    from lu_machinery.api.main import app as real
+    """Build the app for this product. See tests/work/test_work_api.py."""
+    from lu_machinery.api.main import create_app
+    from lu_machinery.api.monitor_context import production_context
 
-    return real
+    return create_app(production_context())
 
 
 client = _Lazy(lambda: TestClient(_load_app(), raise_server_exceptions=False))
