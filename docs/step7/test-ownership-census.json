@@ -4639,7 +4639,8 @@
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.hygiene.check_tmp_usability [present: present on machinery main as lu_machinery/hygiene/check_tmp_usability.py]"
-   ]
+   ],
+   "ported_to": "tests/audit/test_check_tmp_usability.py"
   },
   "tests/audit/test_classify_grounding_failures.py": {
    "disposition": "keep",
@@ -4956,7 +4957,8 @@
     "scripts.storage [present: present on machinery main as lu_machinery/storage/__init__.py]",
     "scripts.storage.generations [present: present on machinery main as lu_machinery/storage/generations.py]",
     "scripts/backup-data.sh [present: product-owned in LU]"
-   ]
+   ],
+   "residual_id": "PORT-1108-T9-R1"
   },
   "tests/backup_data_script/test_sqlite_file_root_wal.py": {
    "disposition": "keep",
@@ -6159,7 +6161,8 @@
     "scripts.fleet_comms.message_plane [present: present on machinery main as lu_machinery/fleet_comms/message_plane.py]",
     "scripts.fleet_comms.migrations [present: present on machinery main as lu_machinery/fleet_comms/migrations.py]",
     "scripts.fleet_comms.pg_schema [present: present on machinery main as lu_machinery/fleet_comms/pg_schema.py]"
-   ]
+   ],
+   "ported_to": "tests/control_plane/test_authority_health.py"
   },
   "tests/control_plane/test_authority_health_postgres.py": {
    "disposition": "port-first",
@@ -6181,7 +6184,8 @@
     "scripts.fleet_comms.cli [present: present on machinery main as lu_machinery/fleet_comms/cli.py]",
     "scripts.fleet_comms.message_plane [present: present on machinery main as lu_machinery/fleet_comms/message_plane.py]",
     "scripts.fleet_comms.pg_schema [present: present on machinery main as lu_machinery/fleet_comms/pg_schema.py]"
-   ]
+   ],
+   "ported_to": "tests/control_plane/test_authority_health_postgres.py"
   },
   "tests/control_plane/test_component_interlock.py": {
    "disposition": "port-first",
@@ -6208,7 +6212,8 @@
     "scripts.fleet_comms.message_plane [present: present on machinery main as lu_machinery/fleet_comms/message_plane.py]",
     "scripts.fleet_comms.migrations [present: present on machinery main as lu_machinery/fleet_comms/migrations.py]",
     "scripts.fleet_comms.request_executor [present: present on machinery main as lu_machinery/fleet_comms/request_executor.py]"
-   ]
+   ],
+   "ported_to": "tests/control_plane/test_component_interlock.py"
   },
   "tests/control_plane/test_storage.py": {
    "disposition": "port-first",
@@ -6236,7 +6241,8 @@
     "scripts.guardrails.delegate_ownership [present: present on machinery main as lu_machinery/guardrails/delegate_ownership.py]",
     "scripts.hygiene.lint_control_plane_sqlite [present: present on machinery main as lu_machinery/hygiene/lint_control_plane_sqlite.py]",
     "scripts.lib.readonly_sqlite [present: present on machinery main as lu_machinery/lib/readonly_sqlite.py]"
-   ]
+   ],
+   "ported_to": "tests/control_plane/test_storage.py"
   },
   "tests/control_plane/test_storage_contract.py": {
    "disposition": "port-first",
@@ -6249,7 +6255,8 @@
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.control_plane.storage [present: present on machinery main as lu_machinery/control_plane/storage.py]"
-   ]
+   ],
+   "ported_to": "tests/control_plane/test_storage_contract.py"
   },
   "tests/curriculum/arc/test_arc.py": {
    "disposition": "keep",
@@ -8092,7 +8099,8 @@
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.evidence.agent_pitfall_census [present: present on machinery main as lu_machinery/evidence/agent_pitfall_census.py]"
-   ]
+   ],
+   "ported_to": "tests/evidence/test_agent_pitfall_census.py"
   },
   "tests/fixtures/a1_five_lemmas_request.yaml": {
    "disposition": "keep",
@@ -10889,7 +10897,8 @@
     "site/src/data/arc-a1.json [present: product-owned in LU]",
     "tasks [present: product-owned in LU]",
     "unresolved: non-literal spec_from_file_location path SERVER_PATH"
-   ]
+   ],
+   "ported_to": "tests/helpers/claude_account_fixtures.py"
   },
   "tests/helpers/codex_exec_stream.py": {
    "disposition": "keep",
@@ -10929,7 +10938,8 @@
    "subjects": [
     "scripts.common.task_store_paths [present: present on machinery main as lu_machinery/common/task_store_paths.py]",
     "scripts.orchestration.worktree_git [present: present on machinery main as lu_machinery/orchestration/worktree_git.py]"
-   ]
+   ],
+   "ported_to": "tests/helpers/interrupted_checkout.py"
   },
   "tests/helpers/lexicon_runner_fixtures.py": {
    "disposition": "keep",
@@ -10961,7 +10971,8 @@
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     ".gitignore [present: product-owned in LU]"
-   ]
+   ],
+   "ported_to": "tests/helpers/read_only_checkout.py"
   },
   "tests/helpers/restore_import_state.py": {
    "disposition": "keep",
@@ -11005,7 +11016,8 @@
    "subjects": [
     "scripts.common.github_client [present: present on machinery main as lu_machinery/common/github_client.py]",
     "unresolved: non-literal import_module(name)"
-   ]
+   ],
+   "ported_to": "tests/helpers/test_github_helper_import_boundary.py"
   },
   "tests/hygiene/conftest.py": {
    "disposition": "keep",
@@ -11827,7 +11839,8 @@
     "scripts.orchestration.stale_task_records [present: present on machinery main as lu_machinery/orchestration/stale_task_records.py]",
     "scripts/maintenance/batch_state_retention.py [present: present on machinery main as lu_machinery/maintenance/batch_state_retention.py]",
     "tasks [present: product-owned in LU]"
-   ]
+   ],
+   "ported_to": "tests/maintenance/test_batch_state_retention.py"
   },
   "tests/maintenance/test_claude_session_scratch.py": {
    "disposition": "port-first",
@@ -11869,7 +11882,8 @@
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.maintenance.claude_session_scratch [present: present on machinery main as lu_machinery/maintenance/claude_session_scratch.py]"
-   ]
+   ],
+   "ported_to": "tests/maintenance/test_claude_session_scratch.py"
   },
   "tests/maintenance/test_github_cache.py": {
    "disposition": "port-first",
@@ -11909,7 +11923,8 @@
     "scripts.hygiene.lint_source_db_writable_connects [present: present on machinery main as lu_machinery/hygiene/lint_source_db_writable_connects.py]",
     "scripts.maintenance.github_cache [present: present on machinery main as lu_machinery/maintenance/github_cache.py]",
     "scripts/maintenance/github_cache.py [present: present on machinery main as lu_machinery/maintenance/github_cache.py]"
-   ]
+   ],
+   "ported_to": "tests/maintenance/test_github_cache.py"
   },
   "tests/mcp/__init__.py": {
    "disposition": "keep",
@@ -11992,7 +12007,8 @@
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "unresolved: empty subject set"
-   ]
+   ],
+   "ported_to": "tests/ops/_fake_tmux.py"
   },
   "tests/ops/test_context_guard.py": {
    "disposition": "port-first",
@@ -12085,7 +12101,8 @@
     "scripts/ops/lane_relaunch.py [present: present on machinery main as lu_machinery/ops/lane_relaunch.py]",
     "start-claude-cto.sh [present: product-owned in LU]",
     "start-codex-driver.sh [present: product-owned in LU]"
-   ]
+   ],
+   "ported_to": "tests/ops/test_context_guard.py"
   },
   "tests/ops/test_context_guard_anchors.py": {
    "disposition": "port-first",
@@ -12126,7 +12143,8 @@
     "scripts/ops/lane_relaunch.py [present: present on machinery main as lu_machinery/ops/lane_relaunch.py]",
     "start-claude-cto.sh [present: product-owned in LU]",
     "start-codex-driver.sh [present: product-owned in LU]"
-   ]
+   ],
+   "ported_to": "tests/ops/test_context_guard_anchors.py"
   },
   "tests/ops/test_driver_lanes.py": {
    "disposition": "port-first",
@@ -12161,7 +12179,8 @@
     "scripts/ops/driver_lanes.py [present: present on machinery main as lu_machinery/ops/driver_lanes.py]",
     "start-claude-driver.sh [present: product-owned in LU]",
     "start-codex-driver.sh [present: product-owned in LU]"
-   ]
+   ],
+   "ported_to": "tests/ops/test_driver_lanes.py"
   },
   "tests/ops/test_host_stack_drift.py": {
    "disposition": "port-first",
@@ -12190,7 +12209,8 @@
     "scripts.api.occupancy_sanitize [present: present on machinery main as lu_machinery/api/occupancy_sanitize.py]",
     "scripts.ops.host_stack_drift [present: present on machinery main as lu_machinery/ops/host_stack_drift.py]",
     "scripts.opsec.needles [present: present on machinery main as lu_machinery/opsec/needles.py]"
-   ]
+   ],
+   "ported_to": "tests/ops/test_host_stack_drift.py"
   },
   "tests/ops/test_lane_relaunch.py": {
    "disposition": "port-first",
@@ -12216,7 +12236,8 @@
     "scripts.ops.lane_relaunch [present: present on machinery main as lu_machinery/ops/lane_relaunch.py]",
     "scripts/ops/lane_relaunch.py [present: present on machinery main as lu_machinery/ops/lane_relaunch.py]",
     "start-codex-driver.sh [present: product-owned in LU]"
-   ]
+   ],
+   "ported_to": "tests/ops/test_lane_relaunch.py"
   },
   "tests/ops/test_product_entry_confinement.py": {
    "disposition": "port-first",
@@ -12263,7 +12284,8 @@
     "unresolved: non-literal import_module(name)",
     "unresolved: non-literal import_module(other)",
     "unresolved: non-literal spec_from_file_location path source"
-   ]
+   ],
+   "ported_to": "tests/ops/test_product_entry_confinement.py"
   },
   "tests/opsec/test_gh_snapshot.py": {
    "disposition": "port-first",
@@ -15209,7 +15231,8 @@
    "subjects": [
     "packaging/systemd [present: mixed-owned in LU]",
     "scripts.orchestration.install_backup_timer [present: present on machinery main as lu_machinery/orchestration/install_backup_timer.py]"
-   ]
+   ],
+   "ported_to": "tests/packaging/test_backup_timer_units.py"
   },
   "tests/packaging/test_data_tier_timer_units.py": {
    "disposition": "port-first",
@@ -15223,7 +15246,8 @@
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.orchestration.install_data_tier_timer [present: present on machinery main as lu_machinery/orchestration/install_data_tier_timer.py]"
-   ]
+   ],
+   "ported_to": "tests/packaging/test_data_tier_timer_units.py"
   },
   "tests/packaging/test_driver_lane_units.py": {
    "disposition": "port-first",
@@ -15236,7 +15260,8 @@
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "packaging/systemd [present: mixed-owned in LU]"
-   ]
+   ],
+   "ported_to": "tests/packaging/test_driver_lane_units.py"
   },
   "tests/packaging/test_issue_quality_report_timer_units.py": {
    "disposition": "port-first",
@@ -15250,7 +15275,8 @@
    "subjects": [
     "scripts.common.safe_unit_install [present: present on machinery main as lu_machinery/common/safe_unit_install.py]",
     "scripts.orchestration.install_issue_quality_report_timer [present: present on machinery main as lu_machinery/orchestration/install_issue_quality_report_timer.py]"
-   ]
+   ],
+   "ported_to": "tests/packaging/test_issue_quality_report_timer_units.py"
   },
   "tests/packaging/test_machinery_extraction_verify.py": {
    "disposition": "keep",
@@ -15279,7 +15305,8 @@
     "packaging/machinery-security [present: present on machinery main as packaging/machinery-security]",
     "packaging/machinery-security/pins.txt [present: present on machinery main as packaging/machinery-security/pins.txt]",
     "packaging/machinery-security/prepublication-gate.sh [present: present on machinery main as packaging/machinery-security/prepublication-gate.sh]"
-   ]
+   ],
+   "residual_id": "PORT-1108-T9-R3"
   },
   "tests/packaging/test_systemd_templates.py": {
    "disposition": "port-first",
@@ -15305,7 +15332,8 @@
     "scripts.opsec.needles [present: present on machinery main as lu_machinery/opsec/needles.py]",
     "scripts.orchestration.scheduled_worktree_cleanup [present: present on machinery main as lu_machinery/orchestration/scheduled_worktree_cleanup.py]",
     "scripts.storage.install_data_volume_dropins [present: product-retained (aaba253): #108 keeps product reporting and deployment tools in product; LU retains its copies]"
-   ]
+   ],
+   "ported_to": "tests/packaging/test_systemd_templates.py"
   },
   "tests/pohribnyi_schema.py": {
    "disposition": "keep",
@@ -18559,7 +18587,8 @@
     "scripts.agent_runtime.result [present: present on machinery main as lu_machinery/agent_runtime/result.py]",
     "scripts.ai_llm.agent_runtime_call [present: present on machinery main as lu_machinery/ai_llm/agent_runtime_call.py]",
     "scripts.ai_llm.claude_call [present: present on machinery main as lu_machinery/ai_llm/claude_call.py]"
-   ]
+   ],
+   "ported_to": "tests/ai_llm/test_ai_llm_claude_call.py"
   },
   "tests/test_ai_llm_codex_call.py": {
    "disposition": "port-first",
@@ -18578,7 +18607,8 @@
     "scripts.agent_runtime.result [present: present on machinery main as lu_machinery/agent_runtime/result.py]",
     "scripts.ai_llm.agent_runtime_call [present: present on machinery main as lu_machinery/ai_llm/agent_runtime_call.py]",
     "scripts.ai_llm.codex_call [present: present on machinery main as lu_machinery/ai_llm/codex_call.py]"
-   ]
+   ],
+   "ported_to": "tests/ai_llm/test_ai_llm_codex_call.py"
   },
   "tests/test_ai_llm_fallback.py": {
    "disposition": "port-first",
@@ -18594,7 +18624,8 @@
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.ai_llm.fallback [present: present on machinery main as lu_machinery/ai_llm/fallback.py]"
-   ]
+   ],
+   "ported_to": "tests/ai_llm/test_ai_llm_fallback.py"
   },
   "tests/test_alignment_manifest.py": {
    "disposition": "keep",
@@ -18867,7 +18898,8 @@
     "scripts/guardrails [present: present on machinery main as lu_machinery/guardrails]",
     "scripts/guardrails/assert_primary_on_main.py [present: present on machinery main as lu_machinery/guardrails/assert_primary_on_main.py]",
     "scripts/guardrails/primary_post_checkout_heal.sh [present: present on machinery main as lu_machinery/guardrails/primary_post_checkout_heal.sh]"
-   ]
+   ],
+   "ported_to": "tests/guardrails/test_assert_primary_on_main.py"
   },
   "tests/test_assess_kaikki_fillability.py": {
    "disposition": "keep",
@@ -20321,7 +20353,8 @@
     "site/src/data/arc-a1.json [present: product-owned in LU]",
     "tasks [present: product-owned in LU]",
     "unresolved: non-literal spec_from_file_location path SERVER_PATH"
-   ]
+   ],
+   "residual_id": "PORT-1108-T9-R2"
   },
   "tests/test_claude_account_route_key.py": {
    "disposition": "port-first",
@@ -20587,7 +20620,8 @@
     "site/src/data/arc-a1.json [present: product-owned in LU]",
     "tasks [present: product-owned in LU]",
     "unresolved: non-literal spec_from_file_location path SERVER_PATH"
-   ]
+   ],
+   "ported_to": "tests/curriculum/test_claude_account_route_key.py"
   },
   "tests/test_claude_cap_guard.py": {
    "disposition": "port-first",
@@ -20761,7 +20795,8 @@
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.utils.claude_version [present: present on machinery main as lu_machinery/utils/claude_version.py]"
-   ]
+   ],
+   "ported_to": "tests/utils/test_claude_version.py"
   },
   "tests/test_clean_text_resolver.py": {
    "disposition": "keep",
@@ -20786,7 +20821,8 @@
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.ops.clear_stale_git_lock [present: present on machinery main as lu_machinery/ops/clear_stale_git_lock.py]"
-   ]
+   ],
+   "ported_to": "tests/ops/test_clear_stale_git_lock.py"
   },
   "tests/test_cli_tail_timeouts.py": {
    "disposition": "port-first",
@@ -20799,7 +20835,8 @@
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.bench.writer_matrix [present: present on machinery main as lu_machinery/bench/writer_matrix.py]"
-   ]
+   ],
+   "ported_to": "tests/bench/test_cli_tail_timeouts.py"
   },
   "tests/test_codex_bridge.py": {
    "disposition": "port-first",
@@ -20867,7 +20904,8 @@
     "scripts.session_canary.codex_lane [present: present on machinery main as lu_machinery/session_canary/codex_lane.py]",
     "scripts.session_canary.gemini_lane [present: present on machinery main as lu_machinery/session_canary/gemini_lane.py]",
     "scripts.session_canary.glm_lane [present: present on machinery main as lu_machinery/session_canary/glm_lane.py]"
-   ]
+   ],
+   "ported_to": "tests/session_canary/test_codex_lane_canary.py"
   },
   "tests/test_codex_report.py": {
    "disposition": "port-first",
@@ -21418,7 +21456,8 @@
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.context_canary [present: present on machinery main as lu_machinery/context_canary.py]"
-   ]
+   ],
+   "ported_to": "tests/context_canary/test_context_canary.py"
   },
   "tests/test_context_cost_report.py": {
    "disposition": "port-first",
@@ -21459,7 +21498,8 @@
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.ops.context_cost_report [present: present on machinery main as lu_machinery/ops/context_cost_report.py]"
-   ]
+   ],
+   "ported_to": "tests/ops/test_context_cost_report.py"
   },
   "tests/test_context_hook_state_writes.py": {
    "disposition": "port-first",
@@ -21647,7 +21687,8 @@
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.telemetry.cost_report [present: present on machinery main as lu_machinery/telemetry/cost_report.py]"
-   ]
+   ],
+   "ported_to": "tests/telemetry/test_cost_report.py"
   },
   "tests/test_cost_runtime_ledger.py": {
    "disposition": "keep",
@@ -22418,7 +22459,8 @@
     "site/src/data/arc-a1.json [present: product-owned in LU]",
     "tasks [present: product-owned in LU]",
     "unresolved: non-literal spec_from_file_location path SERVER_PATH"
-   ]
+   ],
+   "ported_to": "tests/curriculum/test_delegate_check_budget.py"
   },
   "tests/test_delegate_ownership.py": {
    "disposition": "port-first",
@@ -22495,7 +22537,8 @@
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.guardrails.delegate_ownership [present: present on machinery main as lu_machinery/guardrails/delegate_ownership.py]"
-   ]
+   ],
+   "ported_to": "tests/guardrails/test_delegate_ownership_identity.py"
   },
   "tests/test_delegate_ownership_relaxation.py": {
    "disposition": "keep",
@@ -22671,7 +22714,8 @@
     "scripts/agent_deploy/update_agent_deploy_status.py [present: present on machinery main as lu_machinery/agent_deploy/update_agent_deploy_status.py]",
     "scripts/lib/deploy_extensions.sh [present: present on machinery main as lu_machinery/lib/deploy_extensions.sh]",
     "scripts/lib/project_interpreter.sh [present: present on machinery main as lu_machinery/lib/project_interpreter.sh]"
-   ]
+   ],
+   "ported_to": "tests/agent_deploy/test_deploy_extensions.py"
   },
   "tests/test_deploy_pages_workflow.py": {
    "disposition": "keep",
@@ -22713,7 +22757,8 @@
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.tools.detach_session_task [present: present on machinery main as lu_machinery/tools/detach_session_task.py]"
-   ]
+   ],
+   "ported_to": "tests/tools/test_detach_session_task.py"
   },
   "tests/test_detect_tool_theatre_integration.py": {
    "disposition": "keep",
@@ -23106,7 +23151,8 @@
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.driver_blockers [present: present on machinery main as lu_machinery/driver_blockers.py]"
-   ]
+   ],
+   "ported_to": "tests/driver_blockers/test_driver_blockers.py"
   },
   "tests/test_driver_breadth_report.py": {
    "disposition": "port-first",
@@ -24400,7 +24446,8 @@
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.session_canary.gemini_lane [present: present on machinery main as lu_machinery/session_canary/gemini_lane.py]"
-   ]
+   ],
+   "ported_to": "tests/session_canary/test_gemini_lane_session_canary.py"
   },
   "tests/test_gemini_output.py": {
    "disposition": "keep",
@@ -24657,7 +24704,8 @@
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.session_canary.grok_lane [present: present on machinery main as lu_machinery/session_canary/grok_lane.py]"
-   ]
+   ],
+   "ported_to": "tests/session_canary/test_git_probe_timeouts.py"
   },
   "tests/test_git_shim_guard.py": {
    "disposition": "port-first",
@@ -24889,7 +24937,8 @@
     "scripts.work.normalize [present: present on machinery main as lu_machinery/work/normalize.py]",
     "scripts.work.relations [present: present on machinery main as lu_machinery/work/relations.py]",
     "scripts.work.sources_public [present: present on machinery main as lu_machinery/work/sources_public.py]"
-   ]
+   ],
+   "ported_to": "tests/work/test_github_rest_cache.py"
   },
   "tests/test_github_slice1_landing_guard.py": {
    "disposition": "port-first",
@@ -25002,7 +25051,8 @@
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.goal_driver.status_lines [present: present on machinery main as lu_machinery/goal_driver/status_lines.py]"
-   ]
+   ],
+   "ported_to": "tests/goal_driver/test_goal_driver_status_lines.py"
   },
   "tests/test_goal_driver_stop_hook.py": {
    "disposition": "port-first",
@@ -25027,7 +25077,8 @@
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.goal_driver.stop_hook [present: present on machinery main as lu_machinery/goal_driver/stop_hook.py]"
-   ]
+   ],
+   "ported_to": "tests/goal_driver/test_goal_driver_stop_hook.py"
   },
   "tests/test_goroh_etymology_ingest.py": {
    "disposition": "keep",
@@ -25142,7 +25193,8 @@
    "subjects": [
     "scripts.session_canary.diary [present: present on machinery main as lu_machinery/session_canary/diary.py]",
     "scripts.session_canary.grok_lane [present: present on machinery main as lu_machinery/session_canary/grok_lane.py]"
-   ]
+   ],
+   "ported_to": "tests/session_canary/test_grok_lane_session_canary.py"
   },
   "tests/test_grok_prompt_limit.py": {
    "disposition": "port-first",
@@ -25756,7 +25808,8 @@
     "scripts.guardrails.primary_write_guard [present: present on machinery main as lu_machinery/guardrails/primary_write_guard.py]",
     "scripts.guardrails.worktree_containment [present: present on machinery main as lu_machinery/guardrails/worktree_containment.py]",
     "scripts/install_git_hooks.sh [present: present on machinery main as lu_machinery/install_git_hooks.sh]"
-   ]
+   ],
+   "ported_to": "tests/guardrails/test_guardrails_timeouts.py"
   },
   "tests/test_gui_session_lease.py": {
    "disposition": "port-first",
@@ -25966,7 +26019,8 @@
    "subjects": [
     "scripts.hooks.apply_grok_hook_profile [present: present on machinery main as lu_machinery/hooks/apply_grok_hook_profile.py]",
     "scripts.hooks.hook_timing [present: present on machinery main as lu_machinery/hooks/hook_timing.py]"
-   ]
+   ],
+   "ported_to": "tests/hooks/test_hook_timing_and_profile.py"
   },
   "tests/test_hook_tool_names.py": {
    "disposition": "port-first",
@@ -27609,7 +27663,8 @@
    "subjects": [
     "packaging/systemd/lu.slice [present: present on machinery main as packaging/systemd/lu.slice]",
     "scripts/ops/lu_slice_apply.sh [present: present on machinery main as lu_machinery/ops/lu_slice_apply.sh]"
-   ]
+   ],
+   "ported_to": "tests/ops/test_lu_slice_apply.py"
   },
   "tests/test_luna_max_routing_contract.py": {
    "disposition": "port-first",
@@ -29713,7 +29768,8 @@
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts/agent_deploy/reap_agent_mirrors.py [present: present on machinery main as lu_machinery/agent_deploy/reap_agent_mirrors.py]"
-   ]
+   ],
+   "ported_to": "tests/agent_deploy/test_reap_agent_mirrors.py"
   },
   "tests/test_reattribute_ukrlib.py": {
    "disposition": "keep",
@@ -30039,7 +30095,8 @@
    "subjects": [
     "scripts.research.research_quality [present: present on machinery main as lu_machinery/research/research_quality.py]",
     "scripts/research [present: present on machinery main as lu_machinery/research]"
-   ]
+   ],
+   "ported_to": "tests/research/test_research_quality.py"
   },
   "tests/test_research_registry.py": {
    "disposition": "keep",
@@ -30159,7 +30216,8 @@
    "subjects": [
     "agents_extensions/shared/skills [present: mixed-owned in LU]",
     "scripts.agent_deploy.retire_codex_skills [present: present on machinery main as lu_machinery/agent_deploy/retire_codex_skills.py]"
-   ]
+   ],
+   "ported_to": "tests/agent_deploy/test_retire_codex_skills.py"
   },
   "tests/test_reused_worktree_retention.py": {
    "disposition": "port-first",
@@ -31178,7 +31236,8 @@
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts/safe_env.sh [present: present on machinery main as lu_machinery/safe_env.sh]"
-   ]
+   ],
+   "ported_to": "tests/safe_env/test_safe_env.py"
   },
   "tests/test_scaffolding_leak_gate.py": {
    "disposition": "keep",
@@ -31400,7 +31459,8 @@
    "subjects": [
     "scripts.session_canary.diary [present: present on machinery main as lu_machinery/session_canary/diary.py]",
     "scripts.session_canary.grok_lane [present: present on machinery main as lu_machinery/session_canary/grok_lane.py]"
-   ]
+   ],
+   "ported_to": "tests/session_canary/test_session_canary_diary.py"
   },
   "tests/test_session_canary_handoff_select.py": {
    "disposition": "port-first",
@@ -31451,7 +31511,8 @@
     "scripts.session_canary.grok_lane [present: present on machinery main as lu_machinery/session_canary/grok_lane.py]",
     "scripts.session_canary.handoff_select [present: present on machinery main as lu_machinery/session_canary/handoff_select.py]",
     "scripts.session_canary.kimi_lane [gone: deleted in machinery bdfb837: #71 deletes the retired Kimi canary lane]"
-   ]
+   ],
+   "ported_to": "tests/session_canary/test_session_canary_handoff_select.py"
   },
   "tests/test_session_canary_muse_lane.py": {
    "disposition": "port-first",
@@ -31470,7 +31531,8 @@
     "scripts.session_canary.diary [present: present on machinery main as lu_machinery/session_canary/diary.py]",
     "scripts.session_canary.grok_lane [present: present on machinery main as lu_machinery/session_canary/grok_lane.py]",
     "scripts.session_canary.muse_lane [present: present on machinery main as lu_machinery/session_canary/muse_lane.py]"
-   ]
+   ],
+   "ported_to": "tests/session_canary/test_session_canary_muse_lane.py"
   },
   "tests/test_session_canary_stream_resolution.py": {
    "disposition": "port-first",
@@ -31493,7 +31555,8 @@
     "scripts/config/issue_streams.yaml [present: present on machinery main as lu_machinery/config/issue_streams.yaml]",
     "scripts/config/launcher_stream_aliases.tsv [present: present on machinery main as lu_machinery/config/launcher_stream_aliases.tsv]",
     "scripts/lib/handoff_identity.sh [present: present on machinery main as lu_machinery/lib/handoff_identity.sh]"
-   ]
+   ],
+   "ported_to": "tests/session_canary/test_session_canary_stream_resolution.py"
   },
   "tests/test_session_identity_env_isolation.py": {
    "disposition": "port-first",
@@ -31992,7 +32055,8 @@
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.session_canary.shared_hydration [present: present on machinery main as lu_machinery/session_canary/shared_hydration.py]"
-   ]
+   ],
+   "ported_to": "tests/session_canary/test_shared_hydration.py"
   },
   "tests/test_shared_memory_review_docs.py": {
    "disposition": "keep",
@@ -33302,7 +33366,8 @@
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.telemetry.emit [present: present on machinery main as lu_machinery/telemetry/emit.py]"
-   ]
+   ],
+   "ported_to": "tests/telemetry/test_telemetry_emit.py"
   },
   "tests/test_telemetry_router.py": {
    "disposition": "keep",
@@ -33828,7 +33893,8 @@
    "subjects": [
     "scripts/agent_deploy [present: present on machinery main as lu_machinery/agent_deploy]",
     "scripts/agent_deploy/update_agent_deploy_status.py [present: present on machinery main as lu_machinery/agent_deploy/update_agent_deploy_status.py]"
-   ]
+   ],
+   "ported_to": "tests/agent_deploy/test_update_agent_deploy_status.py"
   },
   "tests/test_update_plan_activities.py": {
    "disposition": "keep",
@@ -34505,7 +34571,8 @@
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.work.attention [present: present on machinery main as lu_machinery/work/attention.py]"
-   ]
+   ],
+   "ported_to": "tests/work/test_work_actionable_honesty.py"
   },
   "tests/test_work_api.py": {
    "disposition": "port-first",
@@ -34571,7 +34638,8 @@
     "scripts.work.schema [present: present on machinery main as lu_machinery/work/schema/__init__.py]",
     "scripts.work.sources_public [present: present on machinery main as lu_machinery/work/sources_public.py]",
     "scripts/work/attention.py [present: present on machinery main as lu_machinery/work/attention.py]"
-   ]
+   ],
+   "ported_to": "tests/work/test_work_api.py"
   },
   "tests/test_work_contract.py": {
    "disposition": "port-first",
@@ -34639,7 +34707,8 @@
     "scripts.work.schema [present: present on machinery main as lu_machinery/work/schema/__init__.py]",
     "scripts.work.sources_public [present: present on machinery main as lu_machinery/work/sources_public.py]",
     "scripts/work/attention.py [present: present on machinery main as lu_machinery/work/attention.py]"
-   ]
+   ],
+   "ported_to": "tests/work/test_work_contract.py"
   },
   "tests/test_work_dashboard.py": {
    "disposition": "port-first",
@@ -34699,7 +34768,8 @@
     "scripts.work.normalize [present: present on machinery main as lu_machinery/work/normalize.py]",
     "scripts.work.schema [present: present on machinery main as lu_machinery/work/schema/__init__.py]",
     "scripts.work.sources_public [present: present on machinery main as lu_machinery/work/sources_public.py]"
-   ]
+   ],
+   "ported_to": "tests/work/test_work_pr_snapshot.py"
   },
   "tests/test_work_privacy.py": {
    "disposition": "keep",
@@ -34795,7 +34865,8 @@
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.guardrails.worktree_containment [present: present on machinery main as lu_machinery/guardrails/worktree_containment.py]"
-   ]
+   ],
+   "ported_to": "tests/guardrails/test_worktree_containment_bare.py"
   },
   "tests/test_worktree_record_lookup.py": {
    "disposition": "port-first",
@@ -35037,7 +35108,8 @@
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "unresolved: empty subject set"
-   ]
+   ],
+   "ported_to": "tests/trails/__init__.py"
   },
   "tests/trails/fixtures/certification/case-matrix.v1.yaml": {
    "disposition": "keep",
@@ -35054,7 +35126,8 @@
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "tests/test_trail_certification.py [user: SUBJECT-PRESENT]"
-   ]
+   ],
+   "ported_to": "tests/trails/fixtures/certification/executable.trail.yaml"
   },
   "tests/trails/fixtures/certification/legacy.trail.yaml": {
    "disposition": "port-first",
@@ -35066,7 +35139,8 @@
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "tests/test_trail_certification.py [user: SUBJECT-PRESENT]"
-   ]
+   ],
+   "ported_to": "tests/trails/fixtures/certification/legacy.trail.yaml"
   },
   "tests/trails/fixtures/certification/seats.yaml": {
    "disposition": "port-first",
@@ -35078,7 +35152,8 @@
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "tests/test_trail_certification.py [user: SUBJECT-PRESENT]"
-   ]
+   ],
+   "ported_to": "tests/trails/fixtures/certification/seats.yaml"
   },
   "tests/trails/test_rb1_rb6_v11.py": {
    "disposition": "port-first",
@@ -35102,7 +35177,8 @@
     "scripts.orchestration.validate_trailspec [present: present on machinery main as lu_machinery/orchestration/validate_trailspec.py]",
     "scripts/config/trails/rb1-cold-start.trail.yaml [present: present on machinery main as lu_machinery/config/trails/rb1-cold-start.trail.yaml]",
     "scripts/config/trails/rb6-estate-probes.trail.yaml [present: present on machinery main as lu_machinery/config/trails/rb6-estate-probes.trail.yaml]"
-   ]
+   ],
+   "ported_to": "tests/trails/test_rb1_rb6_v11.py"
   },
   "tests/trails/test_rb2_rb5_v11.py": {
    "disposition": "port-first",
@@ -35129,7 +35205,8 @@
     "scripts.orchestration.trails.store [present: present on machinery main as lu_machinery/orchestration/trails/store.py]",
     "scripts.orchestration.validate_trailspec [present: present on machinery main as lu_machinery/orchestration/validate_trailspec.py]",
     "scripts/config/trails/rb5-session-close.trail.yaml [present: present on machinery main as lu_machinery/config/trails/rb5-session-close.trail.yaml]"
-   ]
+   ],
+   "ported_to": "tests/trails/test_rb2_rb5_v11.py"
   },
   "tests/trails/test_rb3_rb4_v11.py": {
    "disposition": "port-first",
@@ -35153,7 +35230,8 @@
     "scripts.orchestration.validate_trailspec [present: present on machinery main as lu_machinery/orchestration/validate_trailspec.py]",
     "scripts/config/trails/rb3-pr-lifecycle.trail.yaml [present: present on machinery main as lu_machinery/config/trails/rb3-pr-lifecycle.trail.yaml]",
     "scripts/config/trails/rb4-red-ci-triage.trail.yaml [present: present on machinery main as lu_machinery/config/trails/rb4-red-ci-triage.trail.yaml]"
-   ]
+   ],
+   "ported_to": "tests/trails/test_rb3_rb4_v11.py"
   },
   "tests/typesafe/__init__.py": {
    "disposition": "keep",
@@ -35338,7 +35416,8 @@
     "scripts.work.normalize [present: present on machinery main as lu_machinery/work/normalize.py]",
     "scripts.work.schema [present: present on machinery main as lu_machinery/work/schema/__init__.py]",
     "scripts.work.sources_public [present: present on machinery main as lu_machinery/work/sources_public.py]"
-   ]
+   ],
+   "ported_to": "tests/work/test_merged_pr_history.py"
   },
   "tests/work/test_work_ownership_contract.py": {
    "disposition": "port-first",
@@ -35354,7 +35433,8 @@
     "scripts.work.normalize [present: present on machinery main as lu_machinery/work/normalize.py]",
     "scripts.work.schema [present: present on machinery main as lu_machinery/work/schema/__init__.py]",
     "scripts.work.sources_public [present: present on machinery main as lu_machinery/work/sources_public.py]"
-   ]
+   ],
+   "ported_to": "tests/work/test_work_ownership_contract.py"
   },
   "tests/worker_leftovers_fakes.py": {
    "disposition": "port-first",
