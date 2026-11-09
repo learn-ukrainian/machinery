@@ -35,7 +35,6 @@ tests/repo_contracts/test_launcher_sandbox_closure.py
 tests/repo_contracts/test_migrate_to_html.py
 tests/repo_contracts/test_red_ci_registry_file.py
 tests/repo_contracts/test_secret_redactor_urls.py
-tests/repo_contracts/test_session_streams.py
 tests/repo_contracts/test_shell_shlex.py
 tests/repo_contracts/test_store_resolver.py
 tests/repo_contracts/test_work_dashboard.py

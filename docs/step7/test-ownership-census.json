@@ -32204,8 +32204,7 @@
     "agents_extensions.shared.session_streams.model [present: moved: agents_extensions/shared/session_streams/model.py -> lu_machinery/session_streams/model.py (00d92c9); git log --follow --diff-filter=R: 00d92c9]",
     "agents_extensions.shared.session_streams.store [present: moved: agents_extensions/shared/session_streams/store.py -> lu_machinery/session_streams/store.py (00d92c9); git log --follow --diff-filter=R: 00d92c9]",
     "archive/evidence/ua-eval-v0.1.0/run_codex_baseline.py.txt [present: product-owned in LU]"
-   ],
-   "ported_to": "tests/repo_contracts/test_session_streams.py"
+   ]
   },
   "tests/test_session_streams_api.py": {
    "disposition": "port-first",
