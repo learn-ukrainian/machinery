@@ -326,9 +326,14 @@ jobs:
               def pytest_deselected(self, items):
                   self.deselected += len(items)
 
+              @pytest.hookimpl(wrapper=True, trylast=True)
               def pytest_sessionfinish(self, session):
+                  # Ordinary finish hooks may change session.exitstatus.
+                  # Capture it before xdist's outer finish wrapper sends output.
+                  yield
                   if hasattr(session.config, "workeroutput"):
                       session.config.workeroutput["machinery_collection"] = {
+                          "exit": int(session.exitstatus),
                           "collected": self.collected,
                           "deselected": self.deselected,
                           "collect_errors": self.collect_errors,
@@ -340,10 +345,13 @@ jobs:
 
               @pytest.hookimpl(optionalhook=True)
               def pytest_testnodedown(self, node, error):
-                  worker = getattr(node, "workeroutput", {}).get("machinery_collection")
+                  output = getattr(node, "workeroutput", {})
+                  worker = output.get("machinery_collection")
                   if error or worker is None:
                       self.worker_problems.append(f"{node.gateway.id}: missing collection evidence or worker error")
                       return
+                  if output.get("exitstatus") != 0 or worker.get("exit") != 0:
+                      self.worker_problems.append(f"{node.gateway.id}: worker session exited unsuccessfully")
                   collected = worker["collected"]
                   if not self.collected:
                       self.collected = collected
