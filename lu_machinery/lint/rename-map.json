@@ -1188,7 +1188,6 @@
  "scripts/common/safe_unit_install.py": "machinery",
  "scripts/common/schema_check.py": "machinery",
  "scripts/common/scratch.py": "machinery",
- "scripts/common/session_daemons.py": "machinery",
  "scripts/common/task_scratch.py": "machinery",
  "scripts/common/task_store_paths.py": "machinery",
  "scripts/common/test_slots.py": "machinery",
