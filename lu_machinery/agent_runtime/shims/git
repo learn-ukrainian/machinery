@@ -32,8 +32,8 @@ _opsec_restore_override() {
   fi
 }
 
-# The one project interpreter (R66). AGENT_GIT_SHIM_PYTHON is not a selector:
-# a runner that must pin an interpreter sets LEARN_UKRAINIAN_PYTHON.
+# The one project interpreter (R66).
+# A runner that must pin an interpreter sets LEARN_UKRAINIAN_PYTHON.
 # Sourced in this shell: a later command substitution must not be the only source,
 # or project_python_run would be missing when the guard runs.
 _shim_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
