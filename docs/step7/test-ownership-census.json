@@ -42,7 +42,8 @@
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "tests/agent_runtime/adapters/test_agy_denial_evidence.py [user: SUBJECT-PRESENT]"
-   ]
+   ],
+   "ported_to": "tests/agent_runtime/adapters/fixtures/headless_denial.jsonl"
   },
   "tests/agent_runtime/adapters/kimi_admitted.py": {
    "disposition": "keep",
@@ -125,7 +126,8 @@
     "scripts.review.review_contract [present: present on machinery main as lu_machinery/review/review_contract.py]",
     "scripts/agent_runtime/secret_print_hook.py [present: present on machinery main as lu_machinery/agent_runtime/secret_print_hook.py]",
     "scripts/config.py [present: present on machinery main as lu_machinery/config.py]"
-   ]
+   ],
+   "ported_to": "tests/agent_runtime/adapters/test_agy_cancel_recovery.py"
   },
   "tests/agent_runtime/adapters/test_agy_claude_routes.py": {
    "disposition": "port-first",
@@ -164,7 +166,8 @@
     "scripts.fleet.claude_account_lane [present: present on machinery main as lu_machinery/fleet/claude_account_lane.py]",
     "scripts.review.reviewer_resolver [present: present on machinery main as lu_machinery/review/reviewer_resolver.py]",
     "scripts/agent_runtime [present: present on machinery main as lu_machinery/agent_runtime]"
-   ]
+   ],
+   "ported_to": "tests/agent_runtime/adapters/test_agy_claude_routes.py"
   },
   "tests/agent_runtime/adapters/test_agy_denial_evidence.py": {
    "disposition": "port-first",
@@ -232,7 +235,8 @@
     "scripts.review.review_contract [present: present on machinery main as lu_machinery/review/review_contract.py]",
     "scripts/agent_runtime/secret_print_hook.py [present: present on machinery main as lu_machinery/agent_runtime/secret_print_hook.py]",
     "scripts/config.py [present: present on machinery main as lu_machinery/config.py]"
-   ]
+   ],
+   "ported_to": "tests/agent_runtime/adapters/test_agy_denial_evidence.py"
   },
   "tests/agent_runtime/adapters/test_agy_review_permissions.py": {
    "disposition": "keep",
@@ -252,7 +256,8 @@
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.agent_runtime.adapters.agy [present: present on machinery main as lu_machinery/agent_runtime/adapters/agy.py]"
-   ]
+   ],
+   "ported_to": "tests/agent_runtime/adapters/test_agy_sources_mcp.py"
   },
   "tests/agent_runtime/adapters/test_claude_adapter.py": {
    "disposition": "port-first",
@@ -270,7 +275,8 @@
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.agent_runtime.adapters.claude [present: present on machinery main as lu_machinery/agent_runtime/adapters/claude.py]"
-   ]
+   ],
+   "ported_to": "tests/agent_runtime/adapters/test_claude_adapter.py"
   },
   "tests/agent_runtime/adapters/test_cursor_adapter.py": {
    "disposition": "port-first",
@@ -462,7 +468,8 @@
     "scripts.review.reviewer_resolver [present: present on machinery main as lu_machinery/review/reviewer_resolver.py]",
     "scripts.telemetry.emit [present: present on machinery main as lu_machinery/telemetry/emit.py]",
     "scripts/agent_runtime [present: present on machinery main as lu_machinery/agent_runtime]"
-   ]
+   ],
+   "ported_to": "tests/agent_runtime/test_accounting.py"
   },
   "tests/agent_runtime/test_acp_health.py": {
    "disposition": "port-first",
@@ -902,7 +909,8 @@
     "scripts.agent_runtime.result [present: present on machinery main as lu_machinery/agent_runtime/result.py]",
     "scripts.agent_runtime.runner [present: present on machinery main as lu_machinery/agent_runtime/runner.py]",
     "scripts.ai_llm.fallback [present: present on machinery main as lu_machinery/ai_llm/fallback.py]"
-   ]
+   ],
+   "ported_to": "tests/agent_runtime/test_agy_retry.py"
   },
   "tests/agent_runtime/test_agy_tool_config.py": {
    "disposition": "port-first",
@@ -927,7 +935,8 @@
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.agent_runtime.tool_config [present: present on machinery main as lu_machinery/agent_runtime/tool_config.py]"
-   ]
+   ],
+   "ported_to": "tests/agent_runtime/test_agy_tool_config.py"
   },
   "tests/agent_runtime/test_agy_transient_fault.py": {
    "disposition": "port-first",
@@ -962,7 +971,8 @@
     "scripts.build.linear_pipeline [present: product-owned in LU]",
     "scripts.review.review_contract [present: present on machinery main as lu_machinery/review/review_contract.py]",
     "scripts/agent_runtime/secret_print_hook.py [present: present on machinery main as lu_machinery/agent_runtime/secret_print_hook.py]"
-   ]
+   ],
+   "ported_to": "tests/agent_runtime/test_agy_transient_fault.py"
   },
   "tests/agent_runtime/test_attempt_boundary.py": {
    "disposition": "keep",
@@ -1046,7 +1056,8 @@
     "scripts.agent_runtime.runner [present: present on machinery main as lu_machinery/agent_runtime/runner.py]",
     "scripts.agent_runtime.watchdog [present: present on machinery main as lu_machinery/agent_runtime/watchdog.py]",
     "scripts.fleet_comms.request_executor [present: present on machinery main as lu_machinery/fleet_comms/request_executor.py]"
-   ]
+   ],
+   "ported_to": "tests/agent_runtime/test_attempt_safe_read.py"
   },
   "tests/agent_runtime/test_binary_resolve.py": {
    "disposition": "port-first",
@@ -1384,7 +1395,8 @@
     "site/src/data/arc-a1.json [present: product-owned in LU]",
     "tasks [present: product-owned in LU]",
     "unresolved: non-literal spec_from_file_location path SERVER_PATH"
-   ]
+   ],
+   "ported_to": "tests/agent_runtime/test_claude_account_worker.py"
   },
   "tests/agent_runtime/test_claude_cli_version_determinism.py": {
    "disposition": "port-first",
@@ -1444,7 +1456,8 @@
     "site/src/data [present: product-owned in LU]",
     "tasks [present: product-owned in LU]",
     "unresolved: non-literal import_module(alias)"
-   ]
+   ],
+   "ported_to": "tests/agent_runtime/test_claude_cli_version_determinism.py"
   },
   "tests/agent_runtime/test_claude_no_background.py": {
    "disposition": "port-first",
@@ -1476,7 +1489,8 @@
     "scripts.review.model_catalog [present: present on machinery main as lu_machinery/review/model_catalog.py]",
     "scripts/review/model_catalog.py [present: present on machinery main as lu_machinery/review/model_catalog.py]",
     "unresolved: non-literal import_module(name)"
-   ]
+   ],
+   "ported_to": "tests/agent_runtime/test_claude_no_background.py"
   },
   "tests/agent_runtime/test_claude_permissions.py": {
    "disposition": "keep",
@@ -1650,7 +1664,8 @@
    "subjects": [
     "scripts.agent_runtime.adapters.agy [present: present on machinery main as lu_machinery/agent_runtime/adapters/agy.py]",
     "scripts.agent_runtime.agy_hook_config [present: present on machinery main as lu_machinery/agent_runtime/agy_hook_config.py]"
-   ]
+   ],
+   "ported_to": "tests/agent_runtime/test_delegate_tool_config_contract.py"
   },
   "tests/agent_runtime/test_full_review_access.py": {
    "disposition": "keep",
@@ -8504,7 +8519,8 @@
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "tests/agent_runtime/test_claude_account_worker.py [user: SUBJECT-PRESENT]"
-   ]
+   ],
+   "ported_to": "tests/fixtures/claude_default_account_plan.json"
   },
   "tests/fixtures/claude_login/credentials-with-plan.template.json": {
    "disposition": "keep",
