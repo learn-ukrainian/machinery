@@ -798,9 +798,9 @@ def post_disk_alert(body: str, idempotency_key: str) -> None:
     if os.environ.get("PYTEST_CURRENT_TEST") and os.environ.get("LU_TEST_DISPATCH_HEALTHY_HOST") == "1":
         raise RuntimeError("test host: alerts are not published")
 
-    from lu_machinery.common.repo_root import machinery_path
+    from lu_machinery.common.repo_root import state_root
 
-    root = machinery_path("dispatch.py").parent.parent
+    root = state_root()
     command = [
         sys.executable,
         "-m",
