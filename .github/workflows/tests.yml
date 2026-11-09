@@ -17,13 +17,15 @@
 #   where they apply to these files (timeout 120 s with the thread method,
 #   faulthandler off, DeprecationWarning ignored); addopts is cleared so no
 #   configuration file can select, deselect or skip what the manifest lists.
-# - pytest runs in-process with a recorder (the step-6 V8 harness's method)
-#   that keeps every item as collected, before any hook can deselect or drop
-#   it, and the terminal outcome of each. The job fails on a nonzero exit, no
-#   collected test, any deselection, collection error, failure, error or
+# - pytest-xdist distributes tests across the runner's CPUs. A recorder in
+#   every worker keeps every item before any hook can deselect or drop it;
+#   the controller checks their inventories agree and records every report.
+#   The job fails on a nonzero exit, no collected test, any deselection,
+#   collection error, failure, error or
 #   unexpected pass, a node id collected twice, an outcome for a node never
-#   collected, a collected test that never ran or whose node id is not under a
-#   listed file (`<path>::`), and a [run] file with no passed test.
+#   collected, a repeated execution report, a collected test that never ran
+#   or whose node id is not under a listed file (`<path>::`), and a [run]
+#   file with no passed test.
 # - Read-only contents permission, no kept checkout token, no secrets. Tests
 #   run under `env -i` with a temporary HOME and TMPDIR, so no runner
 #   credential or user configuration reaches them, and with isolated
@@ -47,7 +49,7 @@ jobs:
   pytest:
     name: pytest
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 20
     permissions:
       contents: read
     steps:
@@ -295,31 +297,15 @@ jobs:
           # source package. Child interpreters therefore resolve the wheel too.
           rm -rf lu_machinery "$RUNNER_TEMP/installed-wheel/src"
           LU_TEST_WHEEL="$(find "$RUNNER_TEMP/installed-wheel/dist" -name '*.whl')"
-          # The runner records every item as collected, before any hook can
-          # deselect, drop or reorder it, and the terminal outcome of each,
-          # the same record the step-6 V8 harness keeps.
-          runner="$work/run_pytest.py"
-          cat > "$runner" <<'PY'
-          import json
-          import subprocess
+          # Install the temporary recorder beside pytest so isolated xdist
+          # interpreters can load it with -p, without adding checkout code to
+          # PYTHONPATH. Both serial and parallel runs use the same hooks.
+          site_packages="$("$venv/bin/python" -I -c 'import sysconfig; print(sysconfig.get_path("purelib"))')"
+          cat > "$site_packages/machinery_ci_recorder.py" <<'PY'
+          import shlex
           import sys
-          from pathlib import Path
 
-          import lu_machinery
           import pytest
-
-          origin = Path(lu_machinery.__file__).resolve()
-          assert Path(sys.prefix).resolve() in origin.parents, origin
-          print(f"parent wheel origin: {origin}", flush=True)
-          child = subprocess.run(
-              [sys.executable, "-c", "import lu_machinery; print(lu_machinery.__file__)"],
-              check=True, capture_output=True, text=True,
-          )
-          child_origin = Path(child.stdout.strip()).resolve()
-          assert child_origin == origin, child.stdout
-          print(f"subprocess wheel origin: {child_origin}", flush=True)
-
-          out, *args = sys.argv[1:]
 
 
           class Recorder:
@@ -328,6 +314,17 @@ jobs:
                   self.deselected = 0
                   self.collect_errors = 0
                   self.results = {}
+                  self.reports = set()
+                  self.repeated_reports = []
+                  self.workers = {}
+                  self.worker_problems = []
+
+              @pytest.hookimpl(optionalhook=True)
+              def pytest_xdist_setupnodes(self, config, specs):
+                  # execnet otherwise starts workers without the controller's
+                  # isolated/no-bytecode flags. Pin the same venv interpreter.
+                  for spec in specs:
+                      spec.python = shlex.join([sys.executable, "-I", "-B"])
 
               def pytest_itemcollected(self, item):
                   self.collected.append(item.nodeid)
@@ -339,8 +336,48 @@ jobs:
               def pytest_deselected(self, items):
                   self.deselected += len(items)
 
+              @pytest.hookimpl(wrapper=True, trylast=True)
+              def pytest_sessionfinish(self, session):
+                  # Ordinary finish hooks may change session.exitstatus.
+                  # Capture it before xdist's outer finish wrapper sends output.
+                  yield
+                  if hasattr(session.config, "workeroutput"):
+                      session.config.workeroutput["machinery_collection"] = {
+                          "exit": int(session.exitstatus),
+                          "collected": self.collected,
+                          "deselected": self.deselected,
+                          "collect_errors": self.collect_errors,
+                      }
+
+              @pytest.hookimpl(optionalhook=True)
+              def pytest_xdist_node_collection_finished(self, node, ids):
+                  self.workers[node.gateway.id] = list(ids)
+
+              @pytest.hookimpl(optionalhook=True)
+              def pytest_testnodedown(self, node, error):
+                  output = getattr(node, "workeroutput", {})
+                  worker = output.get("machinery_collection")
+                  if error or worker is None:
+                      self.worker_problems.append(f"{node.gateway.id}: missing collection evidence or worker error")
+                      return
+                  if output.get("exitstatus") != 0 or worker.get("exit") != 0:
+                      self.worker_problems.append(f"{node.gateway.id}: worker session exited unsuccessfully")
+                  collected = worker["collected"]
+                  if not self.collected:
+                      self.collected = collected
+                  elif self.collected != collected:
+                      self.worker_problems.append(f"{node.gateway.id}: pre-selection collections differ")
+                  if sorted(self.workers.get(node.gateway.id, [])) != sorted(collected):
+                      self.worker_problems.append(f"{node.gateway.id}: scheduled collection differs from original")
+                  self.deselected += worker["deselected"]
+                  self.collect_errors += worker["collect_errors"]
+
               def pytest_runtest_logreport(self, report):
                   node = report.nodeid
+                  key = (node, report.when)
+                  if key in self.reports:
+                      self.repeated_reports.append(key)
+                  self.reports.add(key)
                   xfail = hasattr(report, "wasxfail")
                   if report.when == "setup":
                       if report.failed:
@@ -357,7 +394,35 @@ jobs:
 
 
           recorder = Recorder()
-          code = int(pytest.main(args, plugins=[recorder]))
+
+
+          def pytest_configure(config):
+              config.pluginmanager.register(recorder, "machinery-recorder")
+          PY
+          runner="$work/run_pytest.py"
+          cat > "$runner" <<'PY'
+          import json
+          import subprocess
+          import sys
+          from pathlib import Path
+
+          import lu_machinery
+          import pytest
+          from machinery_ci_recorder import recorder
+
+          origin = Path(lu_machinery.__file__).resolve()
+          assert Path(sys.prefix).resolve() in origin.parents, origin
+          print(f"parent wheel origin: {origin}", flush=True)
+          child = subprocess.run(
+              [sys.executable, "-c", "import lu_machinery; print(lu_machinery.__file__)"],
+              check=True, capture_output=True, text=True,
+          )
+          child_origin = Path(child.stdout.strip()).resolve()
+          assert child_origin == origin, child.stdout
+          print(f"subprocess wheel origin: {child_origin}", flush=True)
+
+          out, *args = sys.argv[1:]
+          code = int(pytest.main(["-p", "machinery_ci_recorder", *args]))
           with open(out, "w", encoding="utf-8") as handle:
               json.dump(
                   {
@@ -366,6 +431,8 @@ jobs:
                       "deselected": recorder.deselected,
                       "collect_errors": recorder.collect_errors,
                       "results": recorder.results,
+                      "repeated_reports": recorder.repeated_reports,
+                      "worker_problems": recorder.worker_problems,
                   },
                   handle,
               )
@@ -387,7 +454,7 @@ jobs:
           env -i PATH="/usr/bin:/bin:$toolchain" HOME="$work/home" TMPDIR="$work/tmp" LU_TEST_WHEEL="$LU_TEST_WHEEL" \
             LEARN_UKRAINIAN_PYTHON="$venv/bin/python" \
             "$venv/bin/python" -I -B "$runner" "$work/record.json" \
-            -p no:cacheprovider --rootdir="$PWD" \
+            -n logical --max-worker-restart=0 -p no:cacheprovider --rootdir="$PWD" \
             -o addopts= -o timeout=120 -o timeout_method=thread -o faulthandler_timeout=0 \
             -W ignore::DeprecationWarning -rfEs --tb=short "${files[@]}"
           rc=$?
@@ -425,6 +492,9 @@ jobs:
               problems.append(f"{record['deselected']} test(s) were deselected; every listed test must run")
           if record["collect_errors"]:
               problems.append(f"{record['collect_errors']} collection error(s)")
+          problems.extend(record["worker_problems"])
+          if record["repeated_reports"]:
+              problems.append(f"{len(record['repeated_reports'])} repeated execution report(s): {record['repeated_reports'][:10]}")
           if duplicates:
               problems.append(f"{len(duplicates)} node id(s) were collected more than once: {duplicates[:10]}")
           not_run = [node for node in collected if node not in results]
