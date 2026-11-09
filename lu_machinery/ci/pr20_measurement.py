@@ -23,7 +23,7 @@ if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from lu_machinery.ci._location import module_name
-from lu_machinery.common.repo_root import machinery_root, product_root
+from lu_machinery.common.repo_root import ProductRootError, in_tree_source, machinery_root, product_root
 
 SIZE = 50
 BASELINE_MEMBERSHIP_SHA256 = "83b9115d8f86a96991ef0329d4f68bec2877fb2773b5765b4412e985b42e3272"
@@ -505,6 +505,8 @@ Related: docs/best-practices/pr20-measurement.md. Read the result fields before 
             result = analyze(args.inputs, baseline=True)
             result["implementation"] = implementation()
         elif args.command == "anchor":
+            if not in_tree_source():
+                raise ProductRootError("PR20 source attestation requires an in-tree source checkout, not installed machinery")
             before = analyze(args.inputs, baseline=True)
             raw = args.switch_pr.read_bytes()
             pr = json.loads(raw)

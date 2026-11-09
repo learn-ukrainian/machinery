@@ -575,7 +575,7 @@ def _install_refresh_hooks(path: Path, registry: Path) -> None:
                 if entry.name not in REFRESH_HOOKS and entry.is_file() and os.access(entry, os.X_OK) \
                         and not entry.name.endswith(".sample"):
                     (hooks / entry.name).symlink_to(entry)
-        root = machinery_path("dispatch.py").parent.parent
+        root = state_root()
         refresh = " ".join(shlex.quote(word) for word in (sys.executable, "-m", "lu_machinery.dispatcher.git", "refresh",
                                                           _key(path), str(registry)))
         for name in REFRESH_HOOKS:
