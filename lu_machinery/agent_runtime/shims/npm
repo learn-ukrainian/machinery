@@ -70,7 +70,6 @@ _real_binary() {
 }
 
 # The one project interpreter (R66), the same rule as the git shim.
-# AGENT_GIT_SHIM_PYTHON is not a selector.
 _guard_python() {
   local root
   root="$(cd "$shim_dir/../../.." && pwd)"

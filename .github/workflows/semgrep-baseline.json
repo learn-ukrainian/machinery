@@ -1222,17 +1222,17 @@
   {
    "path": "lu_machinery/ai_agent_bridge/_dispatch_wrappers.py",
    "rule": "python.lang.security.audit.dangerous-subprocess-use-audit",
-   "sha256": "7ce2648b36454d0b8bf9804ac3ca7f0d1b29d444aafa6703707e271f1898cb5a"
+   "sha256": "fe772e32bd40d55338004711e1aac8f4cda4a655e27a664a140a6f022fe70999"
   },
   {
    "path": "lu_machinery/ai_agent_bridge/_dispatch_wrappers.py",
    "rule": "python.lang.security.audit.dangerous-subprocess-use-audit",
-   "sha256": "ee7d85bcec46a26d754b9f543e329d644eea50d31f904e671509e33799db3789"
+   "sha256": "ddeca4415c3764f2ee8dcb3066f3ed4498b7ba98eaed0ea0a2fe5fbf15700c58"
   },
   {
    "path": "lu_machinery/ai_agent_bridge/_dispatch_wrappers.py",
    "rule": "python.lang.security.audit.dangerous-subprocess-use-audit",
-   "sha256": "215293e4b0c9bd93075fa7dee1dca3307ca0f763a2be0d0e050de6087a8f7a76"
+   "sha256": "b23598fe4262534922120d6c72b4cfdf06a3ff767f7134f4c1086f994e0b9f43"
   },
   {
    "path": "lu_machinery/ai_agent_bridge/_gemini.py",

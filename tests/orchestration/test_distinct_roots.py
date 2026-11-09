@@ -155,6 +155,7 @@ def _reexec(monkeypatch: pytest.MonkeyPatch, runtime: Path) -> list[str]:
         calls.append([path, *argv])
         raise _Execed
 
+    monkeypatch.setattr(dispatcher_primary, "in_tree_source", lambda: True)
     monkeypatch.setattr(dispatcher_primary, "machinery_path", lambda relative: runtime / "lu_machinery" / relative)
     monkeypatch.setattr(dispatcher_primary.os, "execv", fake_execv)
     with pytest.raises(_Execed):
@@ -251,8 +252,8 @@ def test_dispatch_targets_state_and_slug_follow_the_configuration(monkeypatch, l
     monkeypatch.setattr(bridge.github_client, "run", launch)
     command = [sys.executable, "-m", "lu_machinery.dispatch", "dispatch", "--task-id", "root-probe"]
     assert bridge._run_dispatch(command, False, Path("unused-prompt")) == 0
-    assert launch.call_args.kwargs["cwd"] == rr.machinery_path("dispatch.py").parent.parent
-    assert launch.call_args.kwargs["cwd"] not in {layout["primary"], layout["product"]}
+    assert launch.call_args.kwargs["cwd"] == layout["primary"]
+    assert launch.call_args.kwargs["cwd"] != layout["product"]
 
     monkeypatch.delenv(rr.PRODUCT_ROOT_ENV)
     ask = Mock(return_value=SimpleNamespace(ok=True))
