@@ -154,7 +154,6 @@ Exact tables below must match `lu_machinery/config/model_catalog.yaml` → `orch
 | cursor | true |
 | gemini | false |
 | grok | true |
-| kimi | false |
 <!-- fleet-roster-projection:end formal_review_eligible -->
 
 These tables project catalog fields, not proof of current reviewer health or

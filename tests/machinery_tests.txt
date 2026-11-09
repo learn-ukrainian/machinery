@@ -626,6 +626,69 @@ tests/work/test_work_contract.py
 tests/work/test_work_ownership_contract.py
 tests/work/test_work_pr_snapshot.py
 
+tests/publish/test_pr_merge_squash_scan_ported.py
+tests/publish/test_slow_nightly_workflow_dispatch.py
+tests/review/seeds/test_migration.py
+tests/review/seeds/test_score.py
+tests/review/test_app_bot_authorship.py
+tests/review/test_ask_review_admission_floor.py
+tests/review/test_bench_health.py
+tests/review/test_capability_charge.py
+tests/review/test_capability_failure.py
+tests/review/test_findings_db.py
+tests/review/test_luna_max_routing_contract.py
+tests/review/test_model_catalog_roles.py
+tests/review/test_review_cursor_grok_reviewer.py
+tests/review/test_review_findings_ledger.py
+tests/review/test_review_lineage_supersession.py
+tests/review/test_review_scope_baseline.py
+tests/review/test_review_target_resolution.py
+tests/dispatcher/test_agy_canary.py
+tests/dispatcher/test_agy_readonly_inputs.py
+tests/dispatcher/test_codex_accounts.py
+tests/dispatcher/test_codex_read_only_scratch.py
+tests/dispatcher/test_core.py
+tests/dispatcher/test_core_admission.py
+tests/dispatcher/test_core_branch_start.py
+tests/dispatcher/test_core_delivery.py
+tests/dispatcher/test_core_delivery_scope.py
+tests/dispatcher/test_core_ownership_walk.py
+tests/dispatcher/test_core_provider_results.py
+tests/dispatcher/test_core_review_gate_supervision.py
+tests/dispatcher/test_core_scope_verification.py
+tests/dispatcher/test_drive_epic_review_docs.py
+tests/dispatcher/test_environment.py
+tests/dispatcher/test_opencode_provider.py
+tests/dispatcher/test_pool_selector.py
+tests/dispatcher/test_providers_b.py
+tests/dispatcher/test_providers_c.py
+tests/dispatcher/test_retention_inventory.py
+tests/dispatcher/test_review_metadata.py
+tests/dispatcher/test_review_tools.py
+tests/review/test_review_verdict_parser.py
+tests/review/test_routing_amendment_11327.py
+tests/review/test_second_seat.py
+tests/review/test_review_target_admission.py
+tests/review/test_temp_lifecycle.py
+tests/review/test_temp_worktree_guard.py
+tests/review/test_verdict_parser.py
+tests/review/test_verdict_parser_root.py
+tests/publish/test_guard_pr_merge.py
+tests/publish/test_merge_guard.py
+tests/publish/test_merge_queue_keeper_untrusted_text.py
+tests/lint/test_boundary_ratchet.py
+tests/lint/test_lint_fleet_roster.py
+tests/lint/test_lint_prompts.py
+tests/lint/test_mypy_ratchet.py
+tests/lint/test_orchestrator_track_sparse_worktree.py
+tests/opsec/test_gh_snapshot.py
+tests/opsec/test_git_push_scan.py
+tests/opsec/test_override_command_scope.py
+tests/opsec/test_publish_hostname.py
+tests/opsec/test_publish_workflow_inputs.py
+tests/dispatcher/test_task_store_records.py
+tests/dispatcher/test_worktree_links.py
+tests/dispatcher/test_worktree_registry.py
 # [support]
 
 # PORT-1108 T1, from LU 5aba2adb.
@@ -792,6 +855,17 @@ tests/wait_helpers.py
 tests/work/conftest.py
 tests/worktree_prep_helpers.py
 
+tests/dispatcher/conftest.py
+tests/dispatcher/stub_provider.py
+tests/dispatcher/worker_reap.py
+tests/helpers/review_scope.py
+tests/review/record_support.py
+tests/review/seeds/fixtures/__init__.py
+tests/fixtures/ci_advisory_workflow.yml
+tests/fixtures/product_tree/.github/workflows/coverage-ref.yml
+tests/fixtures/product_tree/.github/workflows/pytest-slow-nightly.yml
+tests/fixtures/product_tree/.gitignore
+tests/dispatcher/fixtures/product.mcp.json
 # [held]
 # tests/test_launcher_interactive_scope.py: 101 tests list the product's root start-*.sh wrappers through product_root(), which needs the product checkout (ProductRootError: no product is configured; LU_PRODUCT_ROOT names none).
 # tests/test_handoff_slot_registry.py: collection calls product_checkout() (line 35) for the product's root start-*-driver.sh wrappers; product_root() raises ProductRootError without the product checkout.
