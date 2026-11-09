@@ -6,6 +6,11 @@ import time
 from pathlib import Path
 
 from lu_machinery.hygiene.lane_disk_retention import scan_dispatch_worktrees
+import pytest
+from tests.helpers.product_tree import configured_roots  # noqa: F401
+
+pytestmark = pytest.mark.usefixtures("configured_roots")
+
 
 
 def test_scan_dispatch_worktrees_reports_stale(tmp_path: Path, monkeypatch) -> None:

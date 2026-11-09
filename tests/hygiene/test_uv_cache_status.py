@@ -17,6 +17,10 @@ from pathlib import Path
 import pytest
 
 from lu_machinery.hygiene import uv_cache_status as uv
+from tests.helpers.product_tree import configured_roots  # noqa: F401
+
+pytestmark = pytest.mark.usefixtures("configured_roots")
+
 
 GIB = 1024**3
 HOUR = 3600

@@ -7,6 +7,10 @@ import argparse
 import pytest
 
 from lu_machinery.hygiene import retention_engine
+from tests.helpers.product_tree import configured_roots  # noqa: F401
+
+pytestmark = pytest.mark.usefixtures("configured_roots")
+
 
 
 def _help(argv: list[str], capsys: pytest.CaptureFixture[str]) -> str:

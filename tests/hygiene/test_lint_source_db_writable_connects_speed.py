@@ -11,6 +11,11 @@ from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
 from lu_machinery.hygiene import lint_source_db_writable_connects as lint
+import pytest
+from tests.helpers.product_tree import configured_roots  # noqa: F401
+
+pytestmark = pytest.mark.usefixtures("configured_roots")
+
 
 DB_TARGET = "data/sources@@db".replace("@@", ".")
 

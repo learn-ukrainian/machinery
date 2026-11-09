@@ -9,8 +9,9 @@ import pytest
 
 from lu_machinery.hygiene import lint_raw_rm_rf
 from lu_machinery.path_safety import assert_delete_target
+from tests.helpers.product_tree import configured_roots  # noqa: F401
 
-pytestmark = pytest.mark.repo_invariant
+pytestmark = [pytest.mark.repo_invariant, pytest.mark.usefixtures("configured_roots")]
 
 
 def test_delete_guard_allows_descendants_of_standard_and_approved_roots(

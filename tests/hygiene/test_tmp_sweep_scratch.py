@@ -16,6 +16,10 @@ import pytest
 from lu_machinery.common import task_scratch
 from lu_machinery.hygiene import tmp_sweep as sweep
 from lu_machinery.hygiene.retention_engine import reap_attributed_temp
+from tests.helpers.product_tree import configured_roots  # noqa: F401
+
+pytestmark = pytest.mark.usefixtures("configured_roots")
+
 
 DAY = 86400
 OLD = time.time() - 3 * DAY

@@ -9,6 +9,10 @@ from pathlib import Path
 import pytest
 
 from lu_machinery.hygiene import codex_rollout_reconcile as reconcile
+from tests.helpers.product_tree import configured_roots  # noqa: F401
+
+pytestmark = pytest.mark.usefixtures("configured_roots")
+
 
 NOW = 1_800_000_000
 OLD = NOW - 3 * 24 * 60 * 60

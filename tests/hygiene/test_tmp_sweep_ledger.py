@@ -21,6 +21,10 @@ import pytest
 
 from lu_machinery.hygiene import tmp_sweep as sweep
 from lu_machinery.hygiene import tmp_sweep_ledger as ledger_mod
+from tests.helpers.product_tree import configured_roots  # noqa: F401
+
+pytestmark = pytest.mark.usefixtures("configured_roots")
+
 
 DAY = 86400
 OLD = time.time() - 3 * DAY

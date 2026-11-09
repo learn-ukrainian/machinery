@@ -4,6 +4,11 @@ from __future__ import annotations
 
 from lu_machinery.hygiene import home_session_retention_check as check
 from lu_machinery.hygiene.inventory_home_sessions import SessionCandidate, SessionRootReport
+import pytest
+from tests.helpers.product_tree import configured_roots  # noqa: F401
+
+pytestmark = pytest.mark.usefixtures("configured_roots")
+
 
 
 def test_build_report_measures_each_lane_and_flags_stale_bytes(monkeypatch) -> None:

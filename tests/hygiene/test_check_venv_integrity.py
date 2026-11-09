@@ -22,6 +22,10 @@ from lu_machinery.hygiene.check_venv_integrity import (
     find_broken_console_scripts,
     main,
 )
+from tests.helpers.product_tree import configured_roots  # noqa: F401
+
+pytestmark = pytest.mark.usefixtures("configured_roots")
+
 
 
 def _events(state_dir: Path) -> list[dict]:

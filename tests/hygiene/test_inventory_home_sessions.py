@@ -9,6 +9,10 @@ from pathlib import Path
 import pytest
 
 from lu_machinery.hygiene import inventory_home_sessions as inventory
+from tests.helpers.product_tree import configured_roots  # noqa: F401
+
+pytestmark = pytest.mark.usefixtures("configured_roots")
+
 
 
 def _old_file(path: Path, *, age_days: float = 15.0) -> Path:

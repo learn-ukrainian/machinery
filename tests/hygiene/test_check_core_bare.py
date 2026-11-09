@@ -7,6 +7,11 @@ import subprocess
 from pathlib import Path
 
 from lu_machinery.hygiene.check_core_bare import check_core_bare, main
+import pytest
+from tests.helpers.product_tree import configured_roots  # noqa: F401
+
+pytestmark = pytest.mark.usefixtures("configured_roots")
+
 
 _GIT_REDIRECT = frozenset(
     {

@@ -6,6 +6,10 @@ import pytest
 
 from lu_machinery.common.safe_unit_install import InstallError
 from lu_machinery.orchestration import install_preserved_retention_timer as installer
+from tests.helpers.product_tree import configured_roots  # noqa: F401
+
+pytestmark = pytest.mark.usefixtures("configured_roots")
+
 
 
 def test_daily_backstop_expires_24h_only_after_explicit_install_and_enable(tmp_path, monkeypatch):

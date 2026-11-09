@@ -15,6 +15,10 @@ import pytest
 
 from lu_machinery.hygiene import fetch_refspecs
 from lu_machinery.orchestration import scheduled_worktree_cleanup as cleanup
+from tests.helpers.product_tree import configured_roots  # noqa: F401
+
+pytestmark = pytest.mark.usefixtures("configured_roots")
+
 
 
 def _git_env() -> dict[str, str]:

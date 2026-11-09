@@ -20,6 +20,10 @@ from pathlib import Path
 import pytest
 
 from lu_machinery.hygiene import lint_tmp_paths as lint
+from tests.helpers.product_tree import configured_roots  # noqa: F401
+
+pytestmark = pytest.mark.usefixtures("configured_roots")
+
 
 LITERAL = "/" + "tmp/fixture"
 TMP_ROOT = "/" + "tmp"

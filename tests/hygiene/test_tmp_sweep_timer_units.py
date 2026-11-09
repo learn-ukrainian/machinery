@@ -13,6 +13,10 @@ from pathlib import Path
 import pytest
 
 from lu_machinery.orchestration import install_tmp_sweep_timer as installer
+from tests.helpers.product_tree import configured_roots  # noqa: F401
+
+pytestmark = pytest.mark.usefixtures("configured_roots")
+
 
 
 def test_service_and_timer_contract() -> None:

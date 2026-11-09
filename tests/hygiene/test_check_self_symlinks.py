@@ -14,6 +14,11 @@ from lu_machinery.hygiene.check_self_symlinks import (
     check_self_symlinks,
     find_looping_symlinks,
 )
+import pytest
+from tests.helpers.product_tree import configured_roots  # noqa: F401
+
+pytestmark = pytest.mark.usefixtures("configured_roots")
+
 
 
 def _make_self_loop(path: Path) -> None:

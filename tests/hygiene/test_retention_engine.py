@@ -11,6 +11,11 @@ from lu_machinery.hygiene.retention_engine import (
     record_gate5_observation,
     write_plan,
 )
+import pytest
+from tests.helpers.product_tree import configured_roots  # noqa: F401
+
+pytestmark = pytest.mark.usefixtures("configured_roots")
+
 
 
 def test_plan_digest_is_stable_and_plan_never_mutates(tmp_path: Path) -> None:

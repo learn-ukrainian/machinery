@@ -16,6 +16,10 @@ import pytest
 from lu_machinery.guardrails.worktree_containment import NotAGitRepositoryError, _resolve_main_root_or_none
 from lu_machinery.hygiene import root_entry_guard
 from lu_machinery.hygiene.root_entry_guard import main, scan_unexpected_root_entries
+from tests.helpers.product_tree import configured_roots  # noqa: F401
+
+pytestmark = pytest.mark.usefixtures("configured_roots")
+
 
 
 def _git(root: Path, *args: str) -> None:
