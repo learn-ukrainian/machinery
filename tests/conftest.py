@@ -106,7 +106,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 # scripts.common is on the rules-workflow allowlist; scripts.lib is not.
 from lu_machinery.common.bridge_paths import configured_bridge_db_path, default_bridge_db_path
 from lu_machinery.common.flake_quarantine import TIMEOUT_PATTERN, load_registry, rerun_node_ids
-from lu_machinery.common.repo_root import main_checkout_root, resolve_repo_root
+from lu_machinery.common.repo_root import configured_primary_root, main_checkout_root
 from tests import sparse_trees
 from tests.helpers.monitor import UNREACHABLE_MONITOR_URL, UNREACHABLE_TOOL_TIMING_URL
 
@@ -1087,7 +1087,7 @@ def _fake_github_bin(tmp_path_factory: pytest.TempPathFactory) -> Path:
 
 def _bridge_db_paths() -> tuple[Path, Path]:
     """Return the primary bridge DB and any configured path before tests begin."""
-    primary_repo_root = resolve_repo_root(Path(__file__), 1)
+    primary_repo_root = (configured_primary_root() or main_checkout_root(_REPO_ROOT))
     return (
         default_bridge_db_path(primary_repo_root).resolve(),
         configured_bridge_db_path(primary_repo_root).resolve(),
@@ -1823,7 +1823,7 @@ def _isolate_issue_stream_refresh_state(_write_ownership_base: Path, monkeypatch
 # All dispatch task-store consumers resolve ``LU_TASKS_DIR`` at call time.
 # The ownership ledger above is a separate seam (env override).
 
-_REAL_TASKS_DIR = (resolve_repo_root(Path(__file__), 1) / "batch_state" / "tasks").resolve()
+_REAL_TASKS_DIR = ((configured_primary_root() or main_checkout_root(_REPO_ROOT)) / "batch_state" / "tasks").resolve()
 # Legacy task-store paths derived from ``tasks_dir().parent``:
 # - ``tasks_dir().parent / "preflight_fast_fail.jsonl"``
 # - fallback ``tasks_dir().parent / worktree_claims.LOCK_DIR_NAME``
