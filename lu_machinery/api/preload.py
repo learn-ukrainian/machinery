@@ -53,7 +53,6 @@ PRELOAD_MODULES = [
     "lu_machinery.hygiene.check_tmp_usability",
     "lu_machinery.agent_runtime.adapters.gemini",
     "lu_machinery.research.registry",
-    "scripts.audit.check_research_registry",
 ]
 
 # Heavy or optional dependencies (try/except ImportError, record skipped)
