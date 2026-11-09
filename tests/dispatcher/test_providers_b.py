@@ -39,6 +39,8 @@ def test_instruction_free_dispatch_delivers_trusted_core(tmp_path, monkeypatch, 
     spec = TaskSpec("core-delivery", provider, "grok-4.7-high" if provider == "cursor" else "stub",
                     "high", mode, checkout, brief, tmp_path / "result")
     monkeypatch.setattr(agy_sandbox, "launcher", lambda spec, argv: argv)
+    if provider == "agy":
+        monkeypatch.setattr(agy_sandbox, "unavailable", lambda: None)
     binary = tmp_path / ("cursor-agent" if provider == "cursor" else provider)
     binary.write_text(f"#!{sys.executable}\n" + r'''
 import json, pathlib, sys, tomllib
