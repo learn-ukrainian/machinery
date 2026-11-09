@@ -77,8 +77,15 @@ in `pyproject.toml` and `$SHA` the full commit:
    022. Set `$NPM_CACHE` to an absolute, empty release-owned cache for the
    first install. The release prepares its version-and-lock-derived prefix,
    selects Node matching that prefix's `.nvmrc`, and resolves the npm CLI
-   inside that Node installation. Python never executes npm. Run this exact
-   block after the wheel install:
+   inside that Node installation. Python never executes npm. Selection takes
+   the highest matching-major Node among `PATH`, `/opt/homebrew/bin` and
+   `/usr/local/bin`; `PATH` order breaks only ties. A minimal `PATH` that omits
+   the host's pinned Node selects a distro Node of the same major. Put the
+   pinned Node's directory on `PATH`, make sure no higher matching-major Node
+   is also there, and check that `node --version` prints the pinned version.
+   Afterwards confirm that `"$NODE" --version` and `"$NPM" --version` match
+   the pinned versions; if not, discard that prefix and cache and rerun with
+   a corrected `PATH`. Run this exact block after the wheel install:
 
    ```bash
    set -eu
@@ -126,7 +133,14 @@ in `pyproject.toml` and `$SHA` the full commit:
    for each enabled provider. Run the Claude canary in the host PID namespace,
    not a synthetic-root one, while the caller has same-account processes whose
    `/proc` entries it cannot read; it must return the known answer with `ok`
-   true and leave no new launcher copy. With registry access disabled, remove
+   true and leave no new launcher copy. Agent CLI lookup
+   without an explicit search path (such as codex and grok) uses only
+   `$HOME/.local/bin` and `$HOME/.opencode/bin`, not `PATH`, so a drill's
+   scratch `$HOME` needs links to those executables there. Claude is looked up
+   on `PATH` first, then `$HOME/.local/bin/claude`; control `PATH` so the
+   intended Claude is the one tested. The
+   Claude launcher refuses any world-writable ancestor, so the canary venv and
+   scratch `$HOME` must live outside `/tmp`. With registry access disabled, remove
    a package, introduce an incompatible version and tamper with an executable
    in separate restored copies. Each must refuse before prompt delivery. Import success
    is insufficient.
@@ -155,7 +169,10 @@ in `pyproject.toml` and `$SHA` the full commit:
    acceptance.
 
 4. Tag and publish. Push the annotated tag `v$V` on `$SHA`, then create the
-   release with all three assets in one call:
+   release with all three assets in one call. The installed publisher resolves
+   its repository context from the environment, so set
+   `LEARN_UKRAINIAN_PRIMARY_REPO_ROOT` to the absolute primary git checkout
+   that holds `batch_state/`; without it the command refuses:
 
    ```bash
    "$P" -m lu_machinery.publish release-create --repo learn-ukrainian/machinery --tag "v$V" \
