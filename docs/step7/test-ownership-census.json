@@ -5794,6 +5794,7 @@
    "ownership": "product"
   },
   "tests/common/test_jsonl.py": {
+   "ported_to": "tests/common/test_jsonl.py",
    "disposition": "port-first",
    "evidence": "machinery-only subject references; subjects scripts.common.jsonl; 6 of 6 test IDs lack a machinery v0.1.0 replacement",
    "lu_test_ids": 6,
@@ -5817,6 +5818,7 @@
    "ownership": "product"
   },
   "tests/common/test_jsonl_readers_ai_agent_bridge.py": {
+   "ported_to": "tests/common/test_jsonl_readers_ai_agent_bridge.py",
    "disposition": "port-first",
    "evidence": "machinery-only subject references; subjects scripts.ai_agent_bridge._grok_build, scripts.ai_agent_bridge._opencode, scripts.ai_agent_bridge._ui_agy (+1); 1 of 1 test IDs lack a machinery v0.1.0 replacement",
    "lu_test_ids": 1,
@@ -5868,6 +5870,7 @@
    "ownership": "product"
   },
   "tests/common/test_jsonl_readers_fleet_comms.py": {
+   "ported_to": "tests/common/test_jsonl_readers_fleet_comms.py",
    "disposition": "port-first",
    "evidence": "machinery-only subject references; subjects scripts.fleet_comms.adapter_conformance, scripts.fleet_comms.cli, scripts.fleet_comms.message_plane; 1 of 1 test IDs lack a machinery v0.1.0 replacement",
    "lu_test_ids": 1,
@@ -5883,6 +5886,7 @@
    ]
   },
   "tests/common/test_jsonl_readers_goal_driver.py": {
+   "ported_to": "tests/common/test_jsonl_readers_goal_driver.py",
    "disposition": "port-first",
    "evidence": "machinery-only subject references; subjects scripts.goal_driver.stop_hook; 1 of 1 test IDs lack a machinery v0.1.0 replacement",
    "lu_test_ids": 1,
@@ -5906,6 +5910,7 @@
    "ownership": "product"
   },
   "tests/common/test_jsonl_readers_maintenance.py": {
+   "ported_to": "tests/common/test_jsonl_readers_maintenance.py",
    "disposition": "port-first",
    "evidence": "machinery-only subject references; subjects scripts.agent_runtime.usage; 1 of 1 test IDs lack a machinery v0.1.0 replacement",
    "lu_test_ids": 1,
@@ -5969,6 +5974,7 @@
    "ownership": "product"
   },
   "tests/common/test_nofollow_walk.py": {
+   "ported_to": "tests/common/test_nofollow_walk.py",
    "disposition": "port-first",
    "evidence": "machinery-only subject references; subjects scripts.common.nofollow_walk; 4 of 4 test IDs lack a machinery v0.1.0 replacement",
    "lu_test_ids": 4,
@@ -5985,6 +5991,7 @@
    ]
   },
   "tests/common/test_pytest_scratch_backed_up_basetemp.py": {
+   "ported_to": "tests/common/test_pytest_scratch_backed_up_basetemp.py",
    "disposition": "port-first",
    "evidence": "machinery-only subject references; subjects scripts.common.pytest_scratch; 3 of 3 test IDs lack a machinery v0.1.0 replacement",
    "lu_test_ids": 3,
@@ -6001,6 +6008,7 @@
    ]
   },
   "tests/common/test_pytest_scratch_readonly.py": {
+   "ported_to": "tests/common/test_pytest_scratch_readonly.py",
    "disposition": "port-first",
    "evidence": "machinery-only subject references; subjects scripts.common.pytest_scratch, scripts.common.pytest_scratch, scripts.common.task_scratch; 40 of 40 test IDs lack a machinery v0.1.0 replacement",
    "lu_test_ids": 40,
@@ -6054,6 +6062,7 @@
    ]
   },
   "tests/common/test_safe_unit_install.py": {
+   "ported_to": "tests/common/test_safe_unit_install.py",
    "disposition": "port-first",
    "evidence": "machinery-only subject references; subjects scripts.common.safe_unit_install; 16 of 16 test IDs lack a machinery v0.1.0 replacement",
    "lu_test_ids": 16,
@@ -6082,6 +6091,7 @@
    ]
   },
   "tests/common/test_test_slots.py": {
+   "ported_to": "tests/common/test_test_slots.py",
    "disposition": "port-first",
    "evidence": "machinery-only subject references; subjects scripts.common, scripts.common.test_slots, scripts.common.test_slots (+1); pkg3 isolation-only failures 12; 31 of 31 test IDs lack a machinery v0.1.0 replacement",
    "lu_test_ids": 31,
@@ -6127,6 +6137,7 @@
    ]
   },
   "tests/common/test_test_slots_review_hold.py": {
+   "ported_to": "tests/common/test_test_slots_review_hold.py",
    "disposition": "port-first",
    "evidence": "machinery-only subject references; subjects scripts.common, scripts.common.test_slots, scripts.common.test_slots; pkg3 isolation-only failures 3; 32 of 32 test IDs lack a machinery v0.1.0 replacement",
    "lu_test_ids": 32,
@@ -11105,6 +11116,7 @@
    "ownership": "product"
   },
   "tests/hygiene/test_batch_state_staleness.py": {
+   "ported_to": "tests/hygiene/test_batch_state_staleness.py",
    "disposition": "port-first",
    "evidence": "machinery-only subject references; subjects scripts.hygiene.batch_state_retention, scripts.hygiene.pytest_retention, scripts.hygiene.tmp_sweep; 16 of 16 test IDs lack a machinery v0.1.0 replacement",
    "lu_test_ids": 16,
@@ -11136,6 +11148,7 @@
    ]
   },
   "tests/hygiene/test_branch_sweep_archive_expired.py": {
+   "ported_to": "tests/hygiene/test_branch_sweep_archive_expired.py",
    "disposition": "port-first",
    "evidence": "machinery-only subject references; subjects scripts.hygiene.branch_sweep, scripts.orchestration.worktree_git; 42 of 42 test IDs lack a machinery v0.1.0 replacement",
    "lu_test_ids": 42,
@@ -11193,6 +11206,7 @@
    ]
   },
   "tests/hygiene/test_branch_sweep_evidence.py": {
+   "ported_to": "tests/hygiene/test_branch_sweep_evidence.py",
    "disposition": "port-first",
    "evidence": "machinery-only subject references; subjects scripts.common.github_client, scripts.hygiene.branch_sweep, scripts.orchestration.worktree_git; 30 of 30 test IDs lack a machinery v0.1.0 replacement",
    "lu_test_ids": 30,
@@ -11238,6 +11252,7 @@
    ]
   },
   "tests/hygiene/test_fetch_refspecs.py": {
+   "ported_to": "tests/hygiene/test_fetch_refspecs.py",
    "disposition": "port-first",
    "evidence": "machinery-only subject references; subjects scripts.hygiene.fetch_refspecs, scripts.orchestration.scheduled_worktree_cleanup; 10 of 10 test IDs lack a machinery v0.1.0 replacement",
    "lu_test_ids": 10,
@@ -11262,6 +11277,7 @@
    ]
   },
   "tests/hygiene/test_lint_tmp_paths_speed.py": {
+   "ported_to": "tests/hygiene/test_lint_tmp_paths_speed.py",
    "disposition": "port-first",
    "evidence": "machinery-only subject references; subjects scripts.hygiene.lint_tmp_paths, scripts/hygiene/lint_tmp_paths.py; pkg3 switch regressions 15; 10 of 10 test IDs lack a machinery v0.1.0 replacement",
    "lu_test_ids": 10,
@@ -11286,6 +11302,7 @@
    ]
   },
   "tests/hygiene/test_preserved_retention.py": {
+   "ported_to": "tests/hygiene/test_preserved_retention.py",
    "disposition": "port-first",
    "evidence": "machinery-only subject references; subjects scripts.hygiene.preserved_retention; pkg3 switch regressions 1; 61 of 61 test IDs lack a machinery v0.1.0 replacement",
    "lu_test_ids": 61,
@@ -11361,6 +11378,7 @@
    ]
   },
   "tests/hygiene/test_preserved_retention_timer.py": {
+   "ported_to": "tests/hygiene/test_preserved_retention_timer.py",
    "disposition": "port-first",
    "evidence": "machinery-only subject references; subjects scripts.common.safe_unit_install, scripts.orchestration.install_preserved_retention_timer; 3 of 3 test IDs lack a machinery v0.1.0 replacement",
    "lu_test_ids": 3,
@@ -11377,6 +11395,7 @@
    ]
   },
   "tests/hygiene/test_pytest_retention.py": {
+   "residual_id": "T7-pytest-retention-git-custody",
    "disposition": "port-first",
    "evidence": "machinery-only subject references; subjects scripts.common.acp_runtime_lock, scripts.common.pytest_scratch, scripts.common.pytest_scratch (+7); pkg3 isolation-only failures 18; 60 of 60 test IDs lack a machinery v0.1.0 replacement",
    "lu_test_ids": 60,
@@ -11462,6 +11481,7 @@
    "ownership": "product"
   },
   "tests/hygiene/test_retention_engine_cli_help.py": {
+   "ported_to": "tests/hygiene/test_retention_engine_cli_help.py",
    "disposition": "port-first",
    "evidence": "machinery-only subject references; subjects scripts.hygiene.retention_engine, scripts/hygiene/retention_engine.py; pkg3 switch regressions 1; 3 of 3 test IDs lack a machinery v0.1.0 replacement",
    "lu_test_ids": 3,
@@ -11478,6 +11498,7 @@
    ]
   },
   "tests/hygiene/test_root_entry_guard.py": {
+   "ported_to": "tests/hygiene/test_root_entry_guard.py",
    "disposition": "port-first",
    "evidence": "machinery-only subject references; subjects scripts.guardrails.worktree_containment, scripts.hygiene.root_entry_guard, scripts.hygiene.root_entry_guard; pkg3 switch regressions 1; 13 of 13 test IDs lack a machinery v0.1.0 replacement",
    "lu_test_ids": 13,
@@ -11506,6 +11527,7 @@
    ]
   },
   "tests/hygiene/test_tmp_sweep_ledger.py": {
+   "ported_to": "tests/hygiene/test_tmp_sweep_ledger.py",
    "disposition": "port-first",
    "evidence": "machinery-only subject references; subjects scripts.hygiene, scripts.hygiene.tmp_sweep, scripts.hygiene.tmp_sweep_ledger; pkg3 isolation-only failures 4; 35 of 35 test IDs lack a machinery v0.1.0 replacement",
    "lu_test_ids": 35,
@@ -11555,6 +11577,7 @@
    ]
   },
   "tests/hygiene/test_tmp_sweep_scratch.py": {
+   "ported_to": "tests/hygiene/test_tmp_sweep_scratch.py",
    "disposition": "port-first",
    "evidence": "machinery-only subject references; subjects scripts.common.task_scratch, scripts.hygiene.retention_engine, scripts.hygiene.tmp_sweep; 36 of 36 test IDs lack a machinery v0.1.0 replacement",
    "lu_test_ids": 36,
@@ -11605,6 +11628,7 @@
    ]
   },
   "tests/hygiene/test_tmp_sweep_timer_units.py": {
+   "ported_to": "tests/hygiene/test_tmp_sweep_timer_units.py",
    "disposition": "port-first",
    "evidence": "machinery-only subject references; subjects scripts.hygiene.batch_state_retention, scripts.hygiene.tmp_sweep, scripts.orchestration.install_tmp_sweep_timer (+1); pkg3 switch regressions 1; 10 of 10 test IDs lack a machinery v0.1.0 replacement",
    "lu_test_ids": 10,
@@ -17476,6 +17500,7 @@
    "ownership": "product"
   },
   "tests/storage/test_needs_artifact_hook.py": {
+   "ported_to": "tests/storage/test_needs_artifact_hook.py",
    "disposition": "port-first",
    "evidence": "machinery-only subject references; subjects scripts.storage.paths; pkg3 switch regressions 1; 4 of 4 test IDs lack a machinery v0.1.0 replacement",
    "lu_test_ids": 4,
@@ -17547,6 +17572,7 @@
    "ownership": "product"
   },
   "tests/storage/test_reactivation.py": {
+   "ported_to": "tests/storage/test_reactivation.py",
    "disposition": "port-first",
    "evidence": "machinery-only subject references; subjects scripts.storage, scripts.storage.artifacts, scripts.storage.paths; pkg3 isolation-only failures 22; 4 of 4 test IDs lack a machinery v0.1.0 replacement",
    "lu_test_ids": 4,
@@ -17570,6 +17596,7 @@
    ]
   },
   "tests/storage/test_test_baseline.py": {
+   "ported_to": "tests/storage/test_test_baseline.py",
    "disposition": "port-first",
    "evidence": "machinery-only subject references; subjects scripts.storage.test_baseline; 11 of 11 test IDs lack a machinery v0.1.0 replacement",
    "lu_test_ids": 11,
@@ -17593,6 +17620,7 @@
    ]
   },
   "tests/storage/test_wal_permissions.py": {
+   "ported_to": "tests/storage/test_wal_permissions.py",
    "disposition": "port-first",
    "evidence": "machinery-only subject references; subjects scripts.storage, scripts.storage, scripts.storage.cli (+2); 13 of 13 test IDs lack a machinery v0.1.0 replacement",
    "lu_test_ids": 13,
@@ -17620,6 +17648,7 @@
    ]
   },
   "tests/storage_callers/test_agy_store_layout.py": {
+   "ported_to": "tests/storage_callers/test_agy_store_layout.py",
    "disposition": "port-first",
    "evidence": "machinery-only subject references; subjects scripts.dispatcher.agy_sandbox, scripts.lib.readonly_sqlite, scripts.storage.generations (+1); pkg3 switch regressions 1; 3 of 3 test IDs lack a machinery v0.1.0 replacement",
    "lu_test_ids": 3,
@@ -17665,6 +17694,7 @@
    "ownership": "product"
   },
   "tests/storage_callers/test_store_scanner.py": {
+   "ported_to": "tests/storage_callers/test_store_scanner.py",
    "disposition": "port-first",
    "evidence": "machinery-only subject references; subjects scripts.hygiene.lint_source_db_writable_connects, scripts.storage.topology, scripts/storage/topology.py; 5 of 5 test IDs lack a machinery v0.1.0 replacement",
    "lu_test_ids": 5,
@@ -17684,6 +17714,7 @@
    ]
   },
   "tests/storage_callers/test_write_contract.py": {
+   "ported_to": "tests/storage_callers/test_write_contract.py",
    "disposition": "port-first",
    "evidence": "machinery-only subject references; subjects scripts.lib.readonly_sqlite, scripts.storage.topology; 11 of 11 test IDs lack a machinery v0.1.0 replacement",
    "lu_test_ids": 11,
@@ -17714,6 +17745,7 @@
    "ownership": "product"
   },
   "tests/storage_callers/test_writer_lock.py": {
+   "ported_to": "tests/storage_callers/test_writer_lock.py",
    "disposition": "port-first",
    "evidence": "machinery-only subject references; subjects scripts.lib.readonly_sqlite, scripts.storage, scripts.storage.generations (+1); pkg3 isolation-only failures 1; 8 of 8 test IDs lack a machinery v0.1.0 replacement",
    "lu_test_ids": 8,
@@ -19389,6 +19421,7 @@
    "ownership": "product"
   },
   "tests/test_branch_sweep.py": {
+   "ported_to": "tests/hygiene/test_branch_sweep.py",
    "disposition": "port-first",
    "evidence": "machinery-only subject references; subjects scripts.hygiene.branch_sweep, scripts.orchestration.worktree_git; 27 of 27 test IDs lack a machinery v0.1.0 replacement",
    "lu_test_ids": 27,
@@ -19802,6 +19835,7 @@
    "ownership": "product"
   },
   "tests/test_check_core_bare.py": {
+   "ported_to": "tests/hygiene/test_check_core_bare.py",
    "disposition": "port-first",
    "evidence": "machinery-only subject references; subjects scripts.hygiene.check_core_bare; 3 of 3 test IDs lack a machinery v0.1.0 replacement",
    "lu_test_ids": 3,
@@ -19837,6 +19871,7 @@
    "ownership": "product"
   },
   "tests/test_check_node_modules_integrity.py": {
+   "ported_to": "tests/hygiene/test_check_node_modules_integrity.py",
    "disposition": "port-first",
    "evidence": "machinery-only subject references; subjects scripts.hygiene.check_node_modules_integrity, scripts.hygiene.check_node_modules_integrity._resolve_main_root; 14 of 14 test IDs lack a machinery v0.1.0 replacement",
    "lu_test_ids": 14,
@@ -19873,6 +19908,7 @@
    "ownership": "product"
   },
   "tests/test_check_primary_integrity.py": {
+   "ported_to": "tests/common/test_check_primary_integrity.py",
    "disposition": "port-first",
    "evidence": "machinery-only subject references; subjects scripts.common.safe_unit_install, scripts.hygiene.check_primary_integrity; 18 of 18 test IDs lack a machinery v0.1.0 replacement",
    "lu_test_ids": 18,
@@ -19915,6 +19951,7 @@
    "ownership": "product"
   },
   "tests/test_check_self_symlinks.py": {
+   "ported_to": "tests/hygiene/test_check_self_symlinks.py",
    "disposition": "port-first",
    "evidence": "machinery-only subject references; subjects scripts.hygiene.check_self_symlinks; 4 of 4 test IDs lack a machinery v0.1.0 replacement",
    "lu_test_ids": 4,
@@ -19946,6 +19983,7 @@
    "ownership": "product"
   },
   "tests/test_check_venv_integrity.py": {
+   "ported_to": "tests/hygiene/test_check_venv_integrity.py",
    "disposition": "port-first",
    "evidence": "machinery-only subject references; subjects scripts.hygiene.check_venv_integrity; 12 of 12 test IDs lack a machinery v0.1.0 replacement",
    "lu_test_ids": 12,
@@ -20067,6 +20105,7 @@
    "ownership": "product"
   },
   "tests/test_ci_recovery.py": {
+   "residual_id": "T7-ci-recovery",
    "disposition": "port-first",
    "evidence": "machinery-only subject references; subjects scripts.opsec.prepublish, scripts.orchestration.merge_queue_keeper, scripts.publish.github (+1); 29 of 29 test IDs lack a machinery v0.1.0 replacement",
    "lu_test_ids": 29,
@@ -21141,6 +21180,7 @@
    "ported_to": "tests/agent_runtime/test_codex_review_tmp.py"
   },
   "tests/test_codex_rollout_reconcile.py": {
+   "ported_to": "tests/hygiene/test_codex_rollout_reconcile.py",
    "disposition": "port-first",
    "evidence": "machinery-only subject references; subjects scripts.hygiene.codex_rollout_reconcile; 15 of 15 test IDs lack a machinery v0.1.0 replacement",
    "lu_test_ids": 15,
@@ -21365,6 +21405,7 @@
    "ownership": "product"
   },
   "tests/test_conftest_task_store_guard.py": {
+   "ported_to": "tests/common/test_conftest_task_store_guard.py",
    "disposition": "port-first",
    "evidence": "machinery-only subject references; subjects scripts.api.config, scripts.api.delegate_router, scripts.api.main (+8); 6 of 6 test IDs lack a machinery v0.1.0 replacement",
    "lu_test_ids": 6,
@@ -21438,6 +21479,7 @@
    ]
   },
   "tests/test_conftest_telemetry_guard.py": {
+   "ported_to": "tests/common/test_conftest_telemetry_guard.py",
    "disposition": "port-first",
    "evidence": "machinery-only subject references; subjects scripts.common.repo_root, scripts.telemetry, scripts.telemetry.emit (+2); pkg3 switch regressions 4; pkg3 isolation-only failures 10; 7 of 7 test IDs lack a machinery v0.1.0 replacement",
    "lu_test_ids": 7,
@@ -21504,6 +21546,7 @@
    ]
   },
   "tests/test_conftest_worktree_guard.py": {
+   "ported_to": "tests/common/test_conftest_worktree_guard.py",
    "disposition": "port-first",
    "evidence": "machinery-only subject references; subjects scripts.ai_agent_bridge._acp_execution, scripts.ai_agent_bridge._acp_execution, scripts.common.repo_root (+1); pkg3 isolation-only failures 2; 27 of 27 test IDs lack a machinery v0.1.0 replacement",
    "lu_test_ids": 27,
@@ -23383,6 +23426,7 @@
    "ownership": "product"
   },
   "tests/test_efficiency_metrics.py": {
+   "ported_to": "tests/common/test_efficiency_metrics.py",
    "disposition": "port-first",
    "evidence": "machinery-only subject references; subjects scripts.common.github_client, scripts.fleet_comms.efficiency_metrics; 5 of 5 test IDs lack a machinery v0.1.0 replacement",
    "lu_test_ids": 5,
@@ -23457,6 +23501,7 @@
    "ported_to": "tests/agent_runtime/test_env_sanitize.py"
   },
   "tests/test_epic_selector.py": {
+   "ported_to": "tests/common/test_epic_selector.py",
    "disposition": "port-first",
    "evidence": "machinery-only subject references; subjects scripts/common/epic_selector.py; 1 of 1 test IDs lack a machinery v0.1.0 replacement",
    "lu_test_ids": 1,
@@ -24067,6 +24112,7 @@
    "ported_to": "tests/fleet_comms/test_fleet_comms_message_plane_e2e.py"
   },
   "tests/test_fleet_comms_metrics_merge_cache.py": {
+   "ported_to": "tests/common/test_fleet_comms_metrics_merge_cache.py",
    "disposition": "port-first",
    "evidence": "machinery-only subject references; subjects scripts.common.github_client, scripts.fleet_comms.efficiency_metrics; 9 of 9 test IDs lack a machinery v0.1.0 replacement",
    "lu_test_ids": 9,
@@ -24948,6 +24994,7 @@
    "ported_to": "tests/agent_runtime/test_git_shim_guard.py"
   },
   "tests/test_github_cache_isolation.py": {
+   "ported_to": "tests/common/test_github_cache_isolation.py",
    "disposition": "port-first",
    "evidence": "machinery-only subject references; subjects scripts.common.github_client, scripts.common.github_client; 11 of 11 test IDs lack a machinery v0.1.0 replacement",
    "lu_test_ids": 11,
@@ -24994,6 +25041,7 @@
    ]
   },
   "tests/test_github_client_native_buckets.py": {
+   "ported_to": "tests/common/test_github_client_native_buckets.py",
    "disposition": "port-first",
    "evidence": "machinery-only subject references; subjects scripts.common.github_client; 23 of 23 test IDs lack a machinery v0.1.0 replacement",
    "lu_test_ids": 23,
@@ -25068,6 +25116,7 @@
    "ported_to": "tests/fleet_comms/test_github_pr_metrics.py"
   },
   "tests/test_github_request_normalizer.py": {
+   "ported_to": "tests/common/test_github_request_normalizer.py",
    "disposition": "port-first",
    "evidence": "machinery-only subject references; subjects scripts.common.github_client, scripts.orchestration.merge_queue_keeper; 31 of 31 test IDs lack a machinery v0.1.0 replacement",
    "lu_test_ids": 31,
@@ -25154,6 +25203,7 @@
    ]
   },
   "tests/test_github_slice1_landing_guard.py": {
+   "ported_to": "tests/common/test_github_slice1_landing_guard.py",
    "disposition": "port-first",
    "evidence": "machinery-only subject references; subjects scripts.common.github_client, scripts.fleet_comms.review_publisher, scripts.github_rest_cache (+3); pkg3 isolation-only failures 1; 52 of 52 test IDs lack a machinery v0.1.0 replacement",
    "lu_test_ids": 52,
@@ -26193,6 +26243,7 @@
    "ownership": "product"
   },
   "tests/test_home_session_retention_check.py": {
+   "ported_to": "tests/hygiene/test_home_session_retention_check.py",
    "disposition": "port-first",
    "evidence": "machinery-only subject references; subjects scripts.hygiene.home_session_retention_check, scripts.hygiene.inventory_home_sessions; 3 of 3 test IDs lack a machinery v0.1.0 replacement",
    "lu_test_ids": 3,
@@ -26298,6 +26349,7 @@
    ]
   },
   "tests/test_hramatka_scope_gate.py": {
+   "ported_to": "tests/common/test_hramatka_scope_gate.py",
    "disposition": "port-first",
    "evidence": "machinery-only subject references; subjects scripts.common.github_client, scripts.fleet.hramatka_scope_gate; pkg3 switch regressions 1; 21 of 21 test IDs lack a machinery v0.1.0 replacement",
    "lu_test_ids": 21,
@@ -26351,6 +26403,7 @@
    ]
   },
   "tests/test_http_status.py": {
+   "ported_to": "tests/common/test_http_status.py",
    "disposition": "port-first",
    "evidence": "machinery-only subject references; subjects scripts.common.http_status; 7 of 7 test IDs lack a machinery v0.1.0 replacement",
    "lu_test_ids": 7,
@@ -26531,6 +26584,7 @@
    "ownership": "product"
   },
   "tests/test_inventory_home_sessions.py": {
+   "ported_to": "tests/hygiene/test_inventory_home_sessions.py",
    "disposition": "port-first",
    "evidence": "machinery-only subject references; subjects scripts.hygiene.inventory_home_sessions; 8 of 8 test IDs lack a machinery v0.1.0 replacement",
    "lu_test_ids": 8,
@@ -26940,6 +26994,7 @@
    "ownership": "product"
   },
   "tests/test_lane_disk_retention.py": {
+   "ported_to": "tests/hygiene/test_lane_disk_retention.py",
    "disposition": "port-first",
    "evidence": "machinery-only subject references; subjects scripts.hygiene.lane_disk_retention, scripts.hygiene.lane_disk_retention._git; 1 of 1 test IDs lack a machinery v0.1.0 replacement",
    "lu_test_ids": 1,
@@ -26991,6 +27046,7 @@
    "ownership": "product"
   },
   "tests/test_launcher_canary_honesty.py": {
+   "ported_to": "tests/common/test_launcher_canary_honesty.py",
    "disposition": "port-first",
    "evidence": "machinery-only subject references; subjects scripts/launchers, scripts/lib/launcher_core.sh; 3 of 3 test IDs lack a machinery v0.1.0 replacement",
    "lu_test_ids": 3,
@@ -27405,6 +27461,7 @@
    ]
   },
   "tests/test_launcher_remote_renew.py": {
+   "ported_to": "tests/common/test_launcher_remote_renew.py",
    "disposition": "port-first",
    "evidence": "machinery-only subject references; subjects scripts.session_supervisor, scripts/lib, scripts/lib/launcher_core.sh; pkg3 isolation-only failures 2; 1 of 1 test IDs lack a machinery v0.1.0 replacement",
    "lu_test_ids": 1,
@@ -27426,6 +27483,7 @@
    ]
   },
   "tests/test_launcher_sandbox_closure.py": {
+   "residual_id": "T7-launcher-sandbox-closure",
    "disposition": "port-first",
    "evidence": "machinery-only subject references; subjects scripts/fleet_comms/contracts.py; 1 of 1 test IDs lack a machinery v0.1.0 replacement",
    "lu_test_ids": 1,
@@ -27734,6 +27792,7 @@
    "ownership": "product"
   },
   "tests/test_lint_source_db_writable_connects_speed.py": {
+   "ported_to": "tests/hygiene/test_lint_source_db_writable_connects_speed.py",
    "disposition": "port-first",
    "evidence": "machinery-only subject references; subjects scripts.hygiene.lint_source_db_writable_connects; pkg3 switch regressions 1; 1 of 1 test IDs lack a machinery v0.1.0 replacement",
    "lu_test_ids": 1,
@@ -27748,6 +27807,7 @@
    ]
   },
   "tests/test_lint_tmp_paths.py": {
+   "ported_to": "tests/hygiene/test_lint_tmp_paths.py",
    "disposition": "port-first",
    "evidence": "machinery-only subject references; subjects scripts.hygiene.lint_tmp_paths; pkg3 switch regressions 1; 20 of 20 test IDs lack a machinery v0.1.0 replacement",
    "lu_test_ids": 20,
@@ -29200,6 +29260,7 @@
    "ownership": "product"
   },
   "tests/test_path_safety.py": {
+   "ported_to": "tests/hygiene/test_path_safety.py",
    "disposition": "port-first",
    "evidence": "machinery-only subject references; subjects scripts.hygiene.lint_control_plane_sqlite, scripts.hygiene.lint_raw_rm_rf, scripts.path_safety (+1); 14 of 14 test IDs lack a machinery v0.1.0 replacement",
    "lu_test_ids": 14,
@@ -29764,6 +29825,7 @@
    "ownership": "product"
   },
   "tests/test_publish_cf_verdict_marker.py": {
+   "ported_to": "tests/common/test_publish_cf_verdict_marker.py",
    "disposition": "port-first",
    "evidence": "machinery-only subject references; subjects scripts.opsec.prepublish, scripts.orchestration.integration_sweep, scripts.publish.github (+1); 10 of 10 test IDs lack a machinery v0.1.0 replacement",
    "lu_test_ids": 10,
@@ -30414,6 +30476,7 @@
    "ownership": "product"
   },
   "tests/test_retention_engine.py": {
+   "ported_to": "tests/hygiene/test_retention_engine.py",
    "disposition": "port-first",
    "evidence": "machinery-only subject references; subjects scripts.hygiene.retention_engine, scripts.hygiene.retention_engine._utc_now, scripts.hygiene.retention_engine.primary_checkout_root (+1); 3 of 3 test IDs lack a machinery v0.1.0 replacement",
    "lu_test_ids": 3,
@@ -31418,6 +31481,7 @@
    ]
   },
   "tests/test_runtime_scratch_isolation.py": {
+   "ported_to": "tests/common/test_runtime_scratch_isolation.py",
    "disposition": "port-first",
    "evidence": "machinery-only subject references; subjects scripts.common.scratch, scripts.review.isolation; 6 of 6 test IDs lack a machinery v0.1.0 replacement",
    "lu_test_ids": 6,
@@ -31804,6 +31868,7 @@
    ]
   },
   "tests/test_session_identity_env_isolation.py": {
+   "ported_to": "tests/common/test_session_identity_env_isolation.py",
    "disposition": "port-first",
    "evidence": "machinery-only subject references; subjects agents_extensions/shared/hooks, scripts/agent_runtime, scripts/dispatcher (+11); 3 of 3 test IDs lack a machinery v0.1.0 replacement",
    "lu_test_ids": 3,
@@ -32559,6 +32624,7 @@
    "ownership": "product"
   },
   "tests/test_source_db_presence_checks_readonly.py": {
+   "ported_to": "tests/common/test_source_db_presence_checks_readonly.py",
    "disposition": "port-first",
    "evidence": "machinery-only subject references; subjects scripts.lib.readonly_sqlite, scripts.storage.topology; 1 of 1 test IDs lack a machinery v0.1.0 replacement",
    "lu_test_ids": 1,
@@ -33713,6 +33779,7 @@
    "ownership": "product"
   },
   "tests/test_tmp_sweep.py": {
+   "ported_to": "tests/hygiene/test_tmp_sweep.py",
    "disposition": "port-first",
    "evidence": "machinery-only subject references; subjects scripts.common.task_scratch, scripts.hygiene.retention_engine, scripts.hygiene.tmp_sweep (+1); 36 of 36 test IDs lack a machinery v0.1.0 replacement",
    "lu_test_ids": 36,
@@ -34168,6 +34235,7 @@
    "ownership": "product"
   },
   "tests/test_uv_cache_status.py": {
+   "ported_to": "tests/hygiene/test_uv_cache_status.py",
    "disposition": "port-first",
    "evidence": "machinery-only subject references; subjects scripts.hygiene.uv_cache_status, scripts.hygiene.uv_cache_status; 25 of 25 test IDs lack a machinery v0.1.0 replacement",
    "lu_test_ids": 25,
@@ -35074,6 +35142,7 @@
    ]
   },
   "tests/test_worktree_containment.py": {
+   "ported_to": "tests/common/test_worktree_containment.py",
    "disposition": "port-first",
    "evidence": "machinery-only subject references; subjects scripts.common.scratch, scripts.guardrails.worktree_containment; 24 of 24 test IDs lack a machinery v0.1.0 replacement",
    "lu_test_ids": 24,
