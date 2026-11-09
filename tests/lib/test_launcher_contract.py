@@ -352,7 +352,7 @@ def test_codex_launchers_pin_roles_and_preserve_explicit_effort(launcher, args, 
 # tests/test_start_codex_profiles.py and tests/test_launcher_helper_root.py; the
 # import itself by tests/test_rollover_bundles.py.
 _ROLLOVER_IMPORT_STUB = """\
-if [[ "${1:-}" == */lu_machinery/orchestration/thread_handoff.py && "$*" == *" import-bundle "* ]]; then
+if [[ ( "${1:-}" == */lu_machinery/orchestration/thread_handoff.py || "${1:-}:${2:-}" == -m:lu_machinery.orchestration.thread_handoff ) && "$*" == *" import-bundle "* ]]; then
   exit 0
 fi
 """

@@ -647,6 +647,7 @@ def _failure_publication_fixture(tmp_path: Path, *, seed_channel: bool) -> dict[
     _write_executable(
         bindir / "python",
         f"""#!/usr/bin/env bash
+if [[ "${{1:-}}" == "-I" && "${{2:-}}" == "-c" && "${{3:-}}" == *"module bootstrap:"* ]]; then shift 5; fi
 if [ "$1" = -m ]; then
   printf '%s\\n' "$*" >> "$TEST_PUBLISH_ARGS"
   [ "$2" = lu_machinery.fleet_comms ] || exit 91

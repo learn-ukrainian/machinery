@@ -17,7 +17,6 @@ import pytest
 
 from tests.helpers.product_tree import configured_roots as configured_roots
 
-pytestmark = pytest.mark.usefixtures("configured_roots")
 
 import json
 from datetime import UTC, datetime
@@ -30,6 +29,9 @@ from lu_machinery.session_streams.db import SessionStreamDatabase
 from lu_machinery.session_streams.model import LeaseHolder
 from lu_machinery.session_streams.store import SessionStreamStore
 from tests.epics_monitor_stub import epics_monitor_stub
+
+
+pytestmark = pytest.mark.usefixtures("configured_roots")
 
 
 def _init_session_db(root: Path) -> Path:

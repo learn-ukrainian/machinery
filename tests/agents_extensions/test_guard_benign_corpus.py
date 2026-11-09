@@ -4,10 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-if __name__ != "__main__":
-    from tests.helpers.product_tree import configured_roots as configured_roots
 
-pytestmark = pytest.mark.usefixtures("configured_roots")
+
 
 import json
 import subprocess
@@ -15,6 +13,12 @@ import sys
 from pathlib import Path
 
 from lu_machinery.common.repo_root import machinery_path
+
+
+if __name__ != "__main__":
+    from tests.helpers.product_tree import configured_roots as configured_roots
+
+pytestmark = pytest.mark.usefixtures("configured_roots")
 
 REPO = Path(__file__).resolve().parents[2]
 HOOK_DIR = machinery_path('agents_extensions/shared/hooks')

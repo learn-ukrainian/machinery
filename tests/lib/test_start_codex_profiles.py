@@ -85,7 +85,8 @@ def _prepare_repo(tmp_path: Path, *, separate_git_dir: bool = False) -> tuple[Pa
     _write_executable(
         venv_bin / "python",
         f"""#!/usr/bin/env bash
-if [[ "${{1:-}}" == */lu_machinery/orchestration/thread_handoff.py && "$*" == *" detect "* ]]; then
+if [[ "${{1:-}}" == "-I" && "${{2:-}}" == "-c" && "${{3:-}}" == *"module bootstrap:"* ]]; then shift 5; fi
+if [[ ( "${{1:-}}" == */lu_machinery/orchestration/thread_handoff.py || "${{1:-}}:${{2:-}}" == -m:lu_machinery.orchestration.thread_handoff ) && "$*" == *" detect "* ]]; then
   if [[ -n "${{CODEX_LAUNCHER_TEST_ORDER:-}}" ]]; then
     printf '%s\n' 'prelease-scan' >> "$CODEX_LAUNCHER_TEST_ORDER"
   fi
@@ -112,7 +113,7 @@ JSON
       ;;
   esac
 fi
-if [[ "${{1:-}}" == */lu_machinery/orchestration/thread_handoff.py && "$*" == *" import-bundle "* ]]; then
+if [[ ( "${{1:-}}" == */lu_machinery/orchestration/thread_handoff.py || "${{1:-}}:${{2:-}}" == -m:lu_machinery.orchestration.thread_handoff ) && "$*" == *" import-bundle "* ]]; then
   if [[ -n "${{CODEX_LAUNCHER_TEST_ORDER:-}}" ]]; then
     printf '%s\n' 'import-bundle' >> "$CODEX_LAUNCHER_TEST_ORDER"
     [[ "$*" == *"--from-api"* ]] && printf '%s\n' 'from-api' >> "$CODEX_LAUNCHER_TEST_ORDER"

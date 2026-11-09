@@ -10,10 +10,6 @@ import yaml
 from lu_machinery.session_streams import inventory as stream_inventory
 
 
-@pytest.fixture(autouse=True)
-def _fixture_stream_manifest(tmp_path, monkeypatch):
-    """Select the temporary stream registry instead of the shipped registry."""
-    monkeypatch.setattr(stream_inventory, "DEFAULT_STREAMS_YAML", Path("scripts/config/issue_streams.yaml"))
 
 
 from lu_machinery.session_streams.dual_write import (
@@ -23,6 +19,13 @@ from lu_machinery.session_streams.dual_write import (
 from lu_machinery.session_streams.inventory import (
     epic_handoff_map,
 )
+
+
+@pytest.fixture(autouse=True)
+def _fixture_stream_manifest(tmp_path, monkeypatch):
+    """Select the temporary stream registry instead of the shipped registry."""
+    monkeypatch.setattr(stream_inventory, "DEFAULT_STREAMS_YAML", Path("scripts/config/issue_streams.yaml"))
+
 
 
 def test_list_handoff_candidates_marks_missing(tmp_path: Path):

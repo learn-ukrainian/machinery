@@ -13,10 +13,6 @@ import yaml
 from lu_machinery.session_streams import inventory as stream_inventory
 
 
-@pytest.fixture(autouse=True)
-def _fixture_stream_manifest(tmp_path, monkeypatch):
-    """Select the temporary stream registry instead of the shipped registry."""
-    monkeypatch.setattr(stream_inventory, "DEFAULT_STREAMS_YAML", Path("scripts/config/issue_streams.yaml"))
 
 
 from lu_machinery.session_streams.cli import main
@@ -33,6 +29,13 @@ from lu_machinery.session_streams.receipts import (
     register_manifest_inventory,
 )
 from lu_machinery.session_streams.store import SessionStreamStore
+
+
+@pytest.fixture(autouse=True)
+def _fixture_stream_manifest(tmp_path, monkeypatch):
+    """Select the temporary stream registry instead of the shipped registry."""
+    monkeypatch.setattr(stream_inventory, "DEFAULT_STREAMS_YAML", Path("scripts/config/issue_streams.yaml"))
+
 
 NOW = datetime(2026, 7, 20, 15, 0, tzinfo=UTC)
 

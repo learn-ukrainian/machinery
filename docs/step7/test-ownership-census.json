@@ -5477,6 +5477,7 @@
     "test_sparse_checkout_independence"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/ci/test_check_large_files.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "README.md [present: product-owned in LU]",
@@ -5531,6 +5532,7 @@
     "test_unexpected_playground_on_shard_two_rejected"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/ci/test_cursor_cloud_pytest_verify.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.ci.cursor_cloud_pytest_verify [present: present on machinery main as lu_machinery/ci/cursor_cloud_pytest_verify.py]",
@@ -5573,6 +5575,7 @@
     "test_run_json_command_unparseable_json_raises"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/ci/test_dependency_advisory_issue.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "package-lock.json [present: product-owned in LU]",
@@ -5604,6 +5607,7 @@
     "test_session_exception_is_not_attributed_to_the_cap"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/ci/test_pytest_dispatch_cap.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.ci.pytest_dispatch_cap [present: present on machinery main as lu_machinery/ci/pytest_dispatch_cap.py]",
@@ -5637,6 +5641,7 @@
     "test_within_cap_serial_and_zero_still_run"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/ci/test_pytest_fanout_refusal.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "pyproject.toml [present: product-owned in LU]",
@@ -5669,6 +5674,7 @@
     "test_xdist_workers_never_exceed_the_slots_held"
    ],
    "ownership": "machinery",
+   "residual_id": "PORT-T8-D01",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.ci.pytest_dispatch_cap [present: present on machinery main as lu_machinery/ci/pytest_dispatch_cap.py]",
@@ -5704,6 +5710,7 @@
     "test_start_publishes_marker_atomically"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/ci/test_test_env_sh.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts/ci/test_env.sh [present: present on machinery main as lu_machinery/ci/test_env.sh]",
@@ -10593,6 +10600,7 @@
     "test_dispatched_commit_outside_owned_paths_is_refused_at_commit_time (machinery replacement tests/githooks/test_owned_paths_hook.py::test_dispatched_commit_outside_owned_paths_is_refused_at_commit_time failed on installed v0.1.0; source checkout: passed)"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/githooks/test_owned_paths_hook.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     ".githooks [present: present on machinery main as .githooks]"
@@ -15411,6 +15419,7 @@
     "test_rejects_bare_python_including_venv_laundering"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/pre_commit/test_check_no_bare_python.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts/pre_commit/check_no_bare_python.py [present: present on machinery main as lu_machinery/pre_commit/check_no_bare_python.py]"
@@ -17700,12 +17709,12 @@
     "test_discuss_rejects_single_participant_before_provider_call"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/agent_runtime/test_ab_discuss_read_only.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.agent_runtime.acpx_discuss [present: present on machinery main as lu_machinery/agent_runtime/acpx_discuss.py]",
     "scripts.ai_agent_bridge._channels_cli [present: present on machinery main as lu_machinery/ai_agent_bridge/_channels_cli.py]"
-   ],
-   "ported_to": "tests/agent_runtime/test_ab_discuss_read_only.py"
+   ]
   },
   "tests/test_ab_dispatch_wrappers.py": {
    "disposition": "port-first",
@@ -18149,6 +18158,8 @@
     "test_write_guard_rejects_primary_checkout_on_protected_branch"
    ],
    "ownership": "machinery",
+   "residual": "deferred: imports tests/agent_runtime/adapters/test_agy_claude_routes.py, owned by T3a",
+   "residual_id": "T3B-R01",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     ".github/workflows/ci.yml [present: product-owned in LU]",
@@ -18187,9 +18198,7 @@
     "scripts/curriculum/deploy_paths.v1.json [present: product-owned in LU]",
     "scripts/review/model_catalog.py [present: present on machinery main as lu_machinery/review/model_catalog.py]",
     "unresolved: non-literal import_module(name)"
-   ],
-   "residual_id": "T3B-R01",
-   "residual": "deferred: imports tests/agent_runtime/adapters/test_agy_claude_routes.py, owned by T3a"
+   ]
   },
   "tests/test_agent_runtime_acp_transport_cutover.py": {
    "disposition": "port-first",
@@ -18212,6 +18221,7 @@
     "test_resolve_inter_agent_route_refuses_every_kimi_participant"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/agent_runtime/test_agent_runtime_acp_transport_cutover.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.agent_runtime.acpx_discuss [present: present on machinery main as lu_machinery/agent_runtime/acpx_discuss.py]",
@@ -18219,8 +18229,7 @@
     "scripts.agent_runtime.env_sanitize [present: present on machinery main as lu_machinery/agent_runtime/env_sanitize.py]",
     "scripts.agent_runtime.result [present: present on machinery main as lu_machinery/agent_runtime/result.py]",
     "scripts.agent_runtime.runner [present: present on machinery main as lu_machinery/agent_runtime/runner.py]"
-   ],
-   "ported_to": "tests/agent_runtime/test_agent_runtime_acp_transport_cutover.py"
+   ]
   },
   "tests/test_agent_runtime_cursor_env.py": {
    "disposition": "port-first",
@@ -18237,12 +18246,12 @@
     "test_load_cursor_api_key_from_env_file_missing"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/agent_runtime/test_agent_runtime_cursor_env.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.agent_runtime.adapters.cursor [present: present on machinery main as lu_machinery/agent_runtime/adapters/cursor.py]",
     "scripts.agent_runtime.env_sanitize [present: present on machinery main as lu_machinery/agent_runtime/env_sanitize.py]"
-   ],
-   "ported_to": "tests/agent_runtime/test_agent_runtime_cursor_env.py"
+   ]
   },
   "tests/test_agent_runtime_effort.py": {
    "disposition": "port-first",
@@ -18259,6 +18268,7 @@
     "test_runner_invoke_forwards_effort_to_adapter_build_invocation"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/agent_runtime/test_agent_runtime_effort.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.agent_runtime.adapters.claude [present: present on machinery main as lu_machinery/agent_runtime/adapters/claude.py]",
@@ -18269,8 +18279,7 @@
     "scripts.ai_llm.fallback [present: present on machinery main as lu_machinery/ai_llm/fallback.py]",
     "scripts.hygiene.check_primary_integrity [present: present on machinery main as lu_machinery/hygiene/check_primary_integrity.py]",
     "scripts.utils.claude_version [present: present on machinery main as lu_machinery/utils/claude_version.py]"
-   ],
-   "ported_to": "tests/agent_runtime/test_agent_runtime_effort.py"
+   ]
   },
   "tests/test_agent_runtime_env_sanitize.py": {
    "disposition": "port-first",
@@ -18289,15 +18298,15 @@
     "test_runner_smoke_spawns_each_provider_with_only_its_own_key"
    ],
    "ownership": "machinery",
+   "residual": "real machinery defect, class R78 (routed by claude-cto to cto-ed25-r78-sol): publish_environment puts the gh shim first on PATH but stamps no interpreter, and since #171 the shim resolves its interpreter only from LEARN_UKRAINIAN_PYTHON or a primary-checkout virtualenv, which an installed wheel does not have, so gh exits 127 for an unguarded child; reproducer test_runner_codex_subprocess_gets_gh_token_for_gh_auth_status",
+   "residual_id": "T3B-R08",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.agent_runtime.env_sanitize [present: present on machinery main as lu_machinery/agent_runtime/env_sanitize.py]",
     "scripts.agent_runtime.registry [present: present on machinery main as lu_machinery/agent_runtime/registry.py]",
     "scripts.agent_runtime.result [present: present on machinery main as lu_machinery/agent_runtime/result.py]",
     "scripts.agent_runtime.runner [present: present on machinery main as lu_machinery/agent_runtime/runner.py]"
-   ],
-   "residual_id": "T3B-R08",
-   "residual": "real machinery defect, class R78 (routed by claude-cto to cto-ed25-r78-sol): publish_environment puts the gh shim first on PATH but stamps no interpreter, and since #171 the shim resolves its interpreter only from LEARN_UKRAINIAN_PYTHON or a primary-checkout virtualenv, which an installed wheel does not have, so gh exits 127 for an unguarded child; reproducer test_runner_codex_subprocess_gets_gh_token_for_gh_auth_status"
+   ]
   },
   "tests/test_agent_runtime_gemini_adapter.py": {
    "disposition": "port-first",
@@ -18311,12 +18320,12 @@
     "test_subscription_auth_strips_gemini_api_env_vars"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/agent_runtime/test_agent_runtime_gemini_adapter.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.agent_runtime.adapters.gemini [present: present on machinery main as lu_machinery/agent_runtime/adapters/gemini.py]",
     "scripts.ai_llm.fallback [present: present on machinery main as lu_machinery/ai_llm/fallback.py]"
-   ],
-   "ported_to": "tests/agent_runtime/test_agent_runtime_gemini_adapter.py"
+   ]
   },
   "tests/test_agent_runtime_git_shim.py": {
    "disposition": "port-first",
@@ -18333,12 +18342,12 @@
     "test_git_shim_works_when_hosted_in_worktree_without_venv"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/agent_runtime/test_agent_runtime_git_shim.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.guardrails.worktree_containment [present: present on machinery main as lu_machinery/guardrails/worktree_containment.py]",
     "scripts/agent_runtime/shims/git [present: present on machinery main as lu_machinery/agent_runtime/shims/git]"
-   ],
-   "ported_to": "tests/agent_runtime/test_agent_runtime_git_shim.py"
+   ]
   },
   "tests/test_agent_runtime_glm_adapter.py": {
    "disposition": "port-first",
@@ -18359,12 +18368,12 @@
     "test_glm_runner_refuses_retired_explicit_pin_before_subprocess"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/agent_runtime/test_agent_runtime_glm_adapter.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.agent_runtime.adapters.glm [present: present on machinery main as lu_machinery/agent_runtime/adapters/glm.py]",
     "scripts.agent_runtime.runner [present: present on machinery main as lu_machinery/agent_runtime/runner.py]"
-   ],
-   "ported_to": "tests/agent_runtime/test_agent_runtime_glm_adapter.py"
+   ]
   },
   "tests/test_agent_runtime_json_parse.py": {
    "disposition": "port-first",
@@ -18378,11 +18387,11 @@
     "test_extracts_nested_braces_json_object"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/agent_runtime/test_agent_runtime_json_parse.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.agent_runtime.json_parse [present: present on machinery main as lu_machinery/agent_runtime/json_parse.py]"
-   ],
-   "ported_to": "tests/agent_runtime/test_agent_runtime_json_parse.py"
+   ]
   },
   "tests/test_agent_runtime_log_redaction_acpx.py": {
    "disposition": "port-first",
@@ -18398,11 +18407,11 @@
     "test_sweep_keeping_a_held_copy_logs_a_constant_message"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/agent_runtime/test_agent_runtime_log_redaction_acpx.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.agent_runtime.adapters.acpx [present: present on machinery main as lu_machinery/agent_runtime/adapters/acpx.py]"
-   ],
-   "ported_to": "tests/agent_runtime/test_agent_runtime_log_redaction_acpx.py"
+   ]
   },
   "tests/test_agent_runtime_log_redaction_adapters.py": {
    "disposition": "port-first",
@@ -18419,6 +18428,8 @@
     "test_sibling_invocation_logs_constant_message"
    ],
    "ownership": "machinery",
+   "residual": "deferred: imports tests/agent_runtime/test_acpx_adapter.py, owned by T3a",
+   "residual_id": "T3B-R02",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "docs/runbooks/agent-seat-onboarding.md [present: present on machinery main as docs/runbooks/agent-seat-onboarding.md]",
@@ -18446,9 +18457,7 @@
     "unresolved: computed patch target f'{adapter_type.__module__}.shutil.which'",
     "unresolved: computed setattr target f'{adapter_type.__module__}._cached_flash_name'",
     "unresolved: non-literal import_module(name)"
-   ],
-   "residual_id": "T3B-R02",
-   "residual": "deferred: imports tests/agent_runtime/test_acpx_adapter.py, owned by T3a"
+   ]
   },
   "tests/test_agent_runtime_log_redaction_claude.py": {
    "disposition": "port-first",
@@ -18458,12 +18467,12 @@
     "test_claude_unsupported_effort_logs_constant_message_without_command_values"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/agent_runtime/test_agent_runtime_log_redaction_claude.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.agent_runtime.adapters.claude [present: present on machinery main as lu_machinery/agent_runtime/adapters/claude.py]",
     "scripts.utils.claude_version [present: present on machinery main as lu_machinery/utils/claude_version.py]"
-   ],
-   "ported_to": "tests/agent_runtime/test_agent_runtime_log_redaction_claude.py"
+   ]
   },
   "tests/test_agent_runtime_log_redaction_codex.py": {
    "disposition": "port-first",
@@ -18473,11 +18482,11 @@
     "test_non_claude_max_budget_warning_is_constant"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/agent_runtime/test_agent_runtime_log_redaction_codex.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.agent_runtime.adapters.codex [present: present on machinery main as lu_machinery/agent_runtime/adapters/codex.py]"
-   ],
-   "ported_to": "tests/agent_runtime/test_agent_runtime_log_redaction_codex.py"
+   ]
   },
   "tests/test_agent_runtime_rate_limit.py": {
    "disposition": "port-first",
@@ -18489,12 +18498,12 @@
     "test_saved_success_record_with_rate_limit_warning_remains_readable"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/agent_runtime/test_agent_runtime_rate_limit.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.agent_runtime.adapters.claude [present: present on machinery main as lu_machinery/agent_runtime/adapters/claude.py]",
     "scripts.agent_runtime.usage [present: present on machinery main as lu_machinery/agent_runtime/usage.py]"
-   ],
-   "ported_to": "tests/agent_runtime/test_agent_runtime_rate_limit.py"
+   ]
   },
   "tests/test_agent_runtime_redacted_env.py": {
    "disposition": "port-first",
@@ -18510,14 +18519,14 @@
     "test_real_subprocess_receives_original_env_values"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/agent_runtime/test_agent_runtime_redacted_env.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.agent_runtime.adapters.acpx [present: present on machinery main as lu_machinery/agent_runtime/adapters/acpx.py]",
     "scripts.agent_runtime.adapters.base [present: present on machinery main as lu_machinery/agent_runtime/adapters/base.py]",
     "scripts.agent_runtime.kimi_admission [present: moved: lu_machinery/agent_runtime/kimi_admission.py -> lu_machinery/agent_runtime/retired_seat_admission.py (a75a9dc); git log --follow --diff-filter=R: a75a9dc]",
     "scripts.agent_runtime.redacted_env [present: present on machinery main as lu_machinery/agent_runtime/redacted_env.py]"
-   ],
-   "ported_to": "tests/agent_runtime/test_agent_runtime_redacted_env.py"
+   ]
   },
   "tests/test_agent_runtime_tool_calls.py": {
    "disposition": "keep",
@@ -18541,11 +18550,11 @@
     "test_codex_tool_config_strips_claude_format_type_field"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/agent_runtime/test_agent_runtime_tool_config.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.agent_runtime.tool_config [present: present on machinery main as lu_machinery/agent_runtime/tool_config.py]"
-   ],
-   "ported_to": "tests/agent_runtime/test_agent_runtime_tool_config.py"
+   ]
   },
   "tests/test_agent_seat_onboarding_docs.py": {
    "disposition": "keep",
@@ -18560,11 +18569,11 @@
     "test_headless_workers_omit_the_interactive_advisor"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/agent_runtime/test_agent_settings.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.agent_runtime.adapters.claude [present: present on machinery main as lu_machinery/agent_runtime/adapters/claude.py]"
-   ],
-   "ported_to": "tests/agent_runtime/test_agent_settings.py"
+   ]
   },
   "tests/test_agent_success_metrics.py": {
    "disposition": "port-first",
@@ -18848,14 +18857,14 @@
     "test_large_prepared_prompt_avoids_e2big_and_reaches_non_tty_stdin"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/agent_runtime/test_ask_cursor.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.agent_runtime.adapters.claude [present: present on machinery main as lu_machinery/agent_runtime/adapters/claude.py]",
     "scripts.agent_runtime.adapters.cursor [present: present on machinery main as lu_machinery/agent_runtime/adapters/cursor.py]",
     "scripts.ai_agent_bridge._cursor [present: present on machinery main as lu_machinery/ai_agent_bridge/_cursor.py]",
     "scripts.lib.rules_core [present: present on machinery main as lu_machinery/lib/rules_core.py]"
-   ],
-   "ported_to": "tests/agent_runtime/test_ask_cursor.py"
+   ]
   },
   "tests/test_ask_gemma.py": {
    "disposition": "port-first",
@@ -19088,6 +19097,7 @@
     "test_resolve_cve_to_ghsa"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/ci/test_audit_dependencies.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.ci.audit_dependencies [present: present on machinery main as lu_machinery/ci/audit_dependencies.py]"
@@ -19177,6 +19187,7 @@
     "test_verified_dependabot_branch_is_attributed_reviewed_and_recorded_without_a_model"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/agent_runtime/test_authoring_review_feasibility.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     ".github/workflows/ci.yml [present: product-owned in LU]",
@@ -19196,8 +19207,7 @@
     "scripts/agent_runtime/adapters/muse.py [present: present on machinery main as lu_machinery/agent_runtime/adapters/muse.py]",
     "scripts/curriculum/deploy_paths.v1.json [present: product-owned in LU]",
     "tasks [present: product-owned in LU]"
-   ],
-   "ported_to": "tests/agent_runtime/test_authoring_review_feasibility.py"
+   ]
   },
   "tests/test_auto_deploy_component_parity.py": {
    "disposition": "keep",
@@ -19616,6 +19626,7 @@
     "test_retired_or_unknown_seat_refuses_publication"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/agents_extensions/test_catalog_routing_tables.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "agents_extensions.shared [present: mixed-owned in LU]"
@@ -19658,14 +19669,14 @@
     "test_partial_discussion_reports_zero_completed_rounds_not_requested_rounds"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/agent_runtime/test_channels_discuss_resume.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.agent_runtime.acpx_discuss [present: present on machinery main as lu_machinery/agent_runtime/acpx_discuss.py]",
     "scripts.agent_runtime.runner [present: present on machinery main as lu_machinery/agent_runtime/runner.py]",
     "scripts.ai_agent_bridge._channels [present: present on machinery main as lu_machinery/ai_agent_bridge/_channels.py]",
     "scripts.ai_agent_bridge._channels_cli [present: present on machinery main as lu_machinery/ai_agent_bridge/_channels_cli.py]"
-   ],
-   "ported_to": "tests/agent_runtime/test_channels_discuss_resume.py"
+   ]
   },
   "tests/test_channels_registry.py": {
    "disposition": "keep",
@@ -19681,6 +19692,7 @@
     "test_probe_special_path_counts_one_unread_and_is_readonly"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/agents_extensions/test_check_agent_inbox_hook.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "agents_extensions/shared/hooks/check-agent-inbox.sh [present: present on machinery main as agents_extensions/shared/hooks/check-agent-inbox.sh]"
@@ -19941,6 +19953,7 @@
     "test_uv_superseded_entry_read_recently_is_kept"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/ci/test_ci_cache_hygiene.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.ci.cache_hygiene [present: present on machinery main as lu_machinery/ci/cache_hygiene.py]"
@@ -20013,6 +20026,7 @@
     "test_runtime_matrix_fails_closed"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/ci/test_ci_slot_inventory.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.ci.slot_inventory [present: present on machinery main as lu_machinery/ci/slot_inventory.py]"
@@ -20045,6 +20059,7 @@
     "test_run_jobs_fetch_error_is_not_dropped"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/ci/test_ci_timings.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.ci.ci_timings [present: present on machinery main as lu_machinery/ci/ci_timings.py]"
@@ -20733,6 +20748,7 @@
     "test_weekly_reader_uses_environment_target"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/lib/test_claude_cap_guard.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     ".gemini/config.yaml [present: product-owned in LU]",
@@ -20810,12 +20826,12 @@
     "test_claude_oauth_keychain_works_with_sanitized_env"
    ],
    "ownership": "machinery",
+   "residual": "not portable to the Linux wheel job: its only test needs macOS and a logged-in Claude CLI, so it can never pass in CI",
+   "residual_id": "T3B-R09",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.agent_runtime.env_sanitize [present: present on machinery main as lu_machinery/agent_runtime/env_sanitize.py]"
-   ],
-   "residual_id": "T3B-R09",
-   "residual": "not portable to the Linux wheel job: its only test needs macOS and a logged-in Claude CLI, so it can never pass in CI"
+   ]
   },
   "tests/test_claude_project_key.py": {
    "disposition": "port-first",
@@ -20826,13 +20842,13 @@
     "test_project_name_matches_only_the_checkout_and_its_worktrees"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/agent_runtime/test_claude_project_key.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "agents_extensions/shared/hooks/post-compact.sh [present: present on machinery main as agents_extensions/shared/hooks/post-compact.sh]",
     "scripts/agent_runtime/bounded_command.py [present: present on machinery main as lu_machinery/agent_runtime/bounded_command.py]",
     "scripts/token_usage.py [present: product-retained (aaba253): #108 keeps product reporting and deployment tools in product; LU retains its copies]"
-   ],
-   "ported_to": "tests/agent_runtime/test_claude_project_key.py"
+   ]
   },
   "tests/test_claude_settings_permissions.py": {
    "disposition": "keep",
@@ -20923,6 +20939,7 @@
     "test_stale_queued_model_returns_error_before_headroom_or_invoke"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/agent_runtime/test_codex_bridge.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.agent_runtime.adapters.codex [present: present on machinery main as lu_machinery/agent_runtime/adapters/codex.py]",
@@ -20935,8 +20952,7 @@
     "scripts.ai_agent_bridge._db [present: present on machinery main as lu_machinery/ai_agent_bridge/_db.py]",
     "scripts.ai_agent_bridge._messaging [present: present on machinery main as lu_machinery/ai_agent_bridge/_messaging.py]",
     "scripts.ai_agent_bridge._review_worktree [present: present on machinery main as lu_machinery/ai_agent_bridge/_review_worktree.py]"
-   ],
-   "ported_to": "tests/agent_runtime/test_codex_bridge.py"
+   ]
   },
   "tests/test_codex_hooks_contract.py": {
    "disposition": "keep",
@@ -21020,14 +21036,14 @@
     "test_sources_prompt_fails_fast_when_read_only_cannot_approve"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/agent_runtime/test_codex_review_tmp.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.agent_runtime.adapters.codex [present: present on machinery main as lu_machinery/agent_runtime/adapters/codex.py]",
     "scripts.common.github_client [present: present on machinery main as lu_machinery/common/github_client.py]",
     "scripts.opsec.gh_entry [present: present on machinery main as lu_machinery/opsec/gh_entry.py]",
     "scripts.publish [present: present on machinery main as lu_machinery/publish/__init__.py]"
-   ],
-   "ported_to": "tests/agent_runtime/test_codex_review_tmp.py"
+   ]
   },
   "tests/test_codex_rollout_reconcile.py": {
    "disposition": "port-first",
@@ -21590,6 +21606,7 @@
     "test_twelve_concurrent_calls_announce_each_tier_once"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/agents_extensions/test_context_hook_state_writes.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "agents_extensions/shared/hooks [present: present on machinery main as agents_extensions/shared/hooks]",
@@ -21613,6 +21630,7 @@
     "test_usage_shapes_are_additive_without_main_iterations"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/agents_extensions/test_context_latest_usage.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "agents_extensions/shared/hooks/context-rollover-lib.sh [present: present on machinery main as agents_extensions/shared/hooks/context-rollover-lib.sh]"
@@ -21639,6 +21657,7 @@
     "test_shell_resolver_rejects_any_other_missing_field"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/lib/test_context_profiles.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.lib.context_profiles [present: present on machinery main as lu_machinery/lib/context_profiles.py]",
@@ -21815,6 +21834,7 @@
     "test_unconditional_arc_loss_is_visible_in_enriched_reports"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/ci/test_coverage_diff.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.ci.coverage_diff [present: present on machinery main as lu_machinery/ci/coverage_diff.py]"
@@ -21872,6 +21892,7 @@
     "test_xdist_collection_recorder_retains_controller_ids"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/ci/test_coverage_ref.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "agents_extensions/shared/hooks/check-agent-inbox.sh [present: present on machinery main as agents_extensions/shared/hooks/check-agent-inbox.sh]",
@@ -22070,6 +22091,7 @@
     "test_cursor_cold_start_fetches_api_rules"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/agents_extensions/test_cursor_cold_start.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "agents_extensions/shared/rules/operator-expectations.md [present: present on machinery main as agents_extensions/shared/rules/operator-expectations.md]",
@@ -22104,11 +22126,11 @@
     "test_permission_error_with_env_api_key_is_authenticated"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/agent_runtime/test_cursor_probe_login_honesty.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.agent_runtime.adapters.cursor [present: present on machinery main as lu_machinery/agent_runtime/adapters/cursor.py]"
-   ],
-   "ported_to": "tests/agent_runtime/test_cursor_probe_login_honesty.py"
+   ]
   },
   "tests/test_cursor_process_guard.py": {
    "disposition": "keep",
@@ -22125,11 +22147,11 @@
     "test_probe_cursor_provider_windows_includes_grok_bot"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/agent_runtime/test_cursor_provider_windows.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.agent_runtime.adapters.cursor [present: present on machinery main as lu_machinery/agent_runtime/adapters/cursor.py]"
-   ],
-   "ported_to": "tests/agent_runtime/test_cursor_provider_windows.py"
+   ]
   },
   "tests/test_cursor_routing_pins.py": {
    "disposition": "port-first",
@@ -22143,12 +22165,12 @@
     "test_cursor_routing_pins_no_native_cli_does_not_bypass_allowlist"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/agent_runtime/test_cursor_routing_pins.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.agent_runtime.adapters.claude [present: present on machinery main as lu_machinery/agent_runtime/adapters/claude.py]",
     "scripts.review.model_catalog [present: present on machinery main as lu_machinery/review/model_catalog.py]"
-   ],
-   "ported_to": "tests/agent_runtime/test_cursor_routing_pins.py"
+   ]
   },
   "tests/test_cursor_routing_pins_callers.py": {
    "disposition": "keep",
@@ -22263,11 +22285,11 @@
     "test_numstat_parser_and_test_path_classifier"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/agent_runtime/test_delegate_bounded_advisory.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.agent_runtime.bounded_advisory [present: present on machinery main as lu_machinery/agent_runtime/bounded_advisory.py]"
-   ],
-   "ported_to": "tests/agent_runtime/test_delegate_bounded_advisory.py"
+   ]
   },
   "tests/test_delegate_check_budget.py": {
    "disposition": "port-first",
@@ -22584,14 +22606,14 @@
     "test_unprovable_refusal_names_peer_and_is_not_called_a_conflict"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/agent_runtime/test_delegate_ownership.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.guardrails.delegate_ownership [present: present on machinery main as lu_machinery/guardrails/delegate_ownership.py]",
     "scripts.orchestration.dead_worker_state [present: present on machinery main as lu_machinery/orchestration/dead_worker_state.py]",
     "scripts/agent_runtime [present: present on machinery main as lu_machinery/agent_runtime]",
     "scripts/agent_runtime/runner.py [present: present on machinery main as lu_machinery/agent_runtime/runner.py]"
-   ],
-   "ported_to": "tests/agent_runtime/test_delegate_ownership.py"
+   ]
   },
   "tests/test_delegate_ownership_identity.py": {
    "disposition": "port-first",
@@ -22692,11 +22714,11 @@
     "test_read_only_agy_cwd_pin_verifies_child_settled_inside"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/agent_runtime/test_delegate_readonly_guard.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.agent_runtime.runner [present: present on machinery main as lu_machinery/agent_runtime/runner.py]"
-   ],
-   "ported_to": "tests/agent_runtime/test_delegate_readonly_guard.py"
+   ]
   },
   "tests/test_delegate_review_admission.py": {
    "disposition": "keep",
@@ -22711,6 +22733,7 @@
     "test_shared_review_texts_state_the_rules"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/agents_extensions/test_delegate_review_brief_warning.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "agents_extensions/shared/skills/drive-epic/references [present: present on machinery main as agents_extensions/shared/skills/drive-epic/references]",
@@ -23055,6 +23078,7 @@
     "test_unexpected_version_probe_failure_still_warns"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/agent_runtime/test_dispatch_telemetry.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.agent_runtime.adapters.acpx [present: present on machinery main as lu_machinery/agent_runtime/adapters/acpx.py]",
@@ -23071,8 +23095,7 @@
     "scripts.review.model_catalog [present: present on machinery main as lu_machinery/review/model_catalog.py]",
     "scripts/review/model_catalog.py [present: present on machinery main as lu_machinery/review/model_catalog.py]",
     "unresolved: non-literal import_module(name)"
-   ],
-   "ported_to": "tests/agent_runtime/test_dispatch_telemetry.py"
+   ]
   },
   "tests/test_dispatch_xdist_cap.py": {
    "disposition": "port-first",
@@ -23095,6 +23118,7 @@
     "test_without_marker_explicit_n_above_the_cap_is_refused"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/ci/test_dispatch_xdist_cap.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "pyproject.toml [present: product-owned in LU]",
@@ -23332,13 +23356,13 @@
     "test_workdir_repointing_git_env_is_scrubbed"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/agent_runtime/test_env_sanitize.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.agent_runtime.agent_github_identity [present: present on machinery main as lu_machinery/agent_runtime/agent_github_identity.py]",
     "scripts.agent_runtime.env_sanitize [present: present on machinery main as lu_machinery/agent_runtime/env_sanitize.py]",
     "scripts.ci.pytest_dispatch_cap [present: present on machinery main as lu_machinery/ci/pytest_dispatch_cap.py]"
-   ],
-   "ported_to": "tests/agent_runtime/test_env_sanitize.py"
+   ]
   },
   "tests/test_epic_selector.py": {
    "disposition": "port-first",
@@ -23546,6 +23570,7 @@
     "test_queue_runs_that_reused_a_green_run_are_not_missing_evidence"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/ci/test_flake_ledger.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.ci.flake_ledger [present: present on machinery main as lu_machinery/ci/flake_ledger.py]"
@@ -23789,6 +23814,7 @@
     "test_fleet_status_remote_unreachable"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/agents_extensions/test_fleet_comms_fleet_status.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "agents_extensions.shared.session_streams.db [present: moved: agents_extensions/shared/session_streams/db.py -> lu_machinery/session_streams/db.py (00d92c9); git log --follow --diff-filter=R: 00d92c9]",
@@ -24311,6 +24337,7 @@
     "test_session_setup_hook_names_driver_state_as_authoritative"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/lib/test_fleet_taxonomy_aliases.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     ".gemini/config.yaml [present: product-owned in LU]",
@@ -24467,14 +24494,14 @@
     "TestResolveAuthMode::test_oauth_alias_resolves_to_subscription"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/agent_runtime/test_gemini_adapter_auth.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.agent_runtime.adapters.base [present: present on machinery main as lu_machinery/agent_runtime/adapters/base.py]",
     "scripts.agent_runtime.adapters.gemini [present: present on machinery main as lu_machinery/agent_runtime/adapters/gemini.py]",
     "scripts.ai_llm.cooldown [present: present on machinery main as lu_machinery/ai_llm/cooldown.py]",
     "scripts.ai_llm.fallback [present: present on machinery main as lu_machinery/ai_llm/fallback.py]"
-   ],
-   "ported_to": "tests/agent_runtime/test_gemini_adapter_auth.py"
+   ]
   },
   "tests/test_gemini_adapter_tool_calls.py": {
    "disposition": "keep",
@@ -24505,6 +24532,7 @@
     "test_score_pass_hydrates_then_continues"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/agents_extensions/test_gemini_lane_canary.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "agents_extensions.shared.session_streams.inventory [present: moved: agents_extensions/shared/session_streams/inventory.py -> lu_machinery/session_streams/inventory.py (00d92c9); git log --follow --diff-filter=R: 00d92c9]",
@@ -24539,12 +24567,12 @@
     "test_resolve_retired_agent_alias_passthrough_for_live_agents"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/agent_runtime/test_gemini_retired_agy_alias.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.agent_runtime.agent_identity [present: present on machinery main as lu_machinery/agent_runtime/agent_identity.py]",
     "scripts.fleet.capacity_pick [present: present on machinery main as lu_machinery/fleet/capacity_pick.py]"
-   ],
-   "ported_to": "tests/agent_runtime/test_gemini_retired_agy_alias.py"
+   ]
   },
   "tests/test_gemini_session.py": {
    "disposition": "keep",
@@ -24670,6 +24698,7 @@
     "test_render_output_modes"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/ci/test_gh_merge_queue_status.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.ci.ci_timings [present: present on machinery main as lu_machinery/ci/ci_timings.py]",
@@ -24805,11 +24834,11 @@
     "test_wrapper_reentry_is_bounded_with_hard_timeout"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/agent_runtime/test_git_shim_guard.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts/agent_runtime/shims/git [present: present on machinery main as lu_machinery/agent_runtime/shims/git]"
-   ],
-   "ported_to": "tests/agent_runtime/test_git_shim_guard.py"
+   ]
   },
   "tests/test_github_cache_isolation.py": {
    "disposition": "port-first",
@@ -24851,6 +24880,7 @@
     "test_standalone_hook_colour_stripping_is_pinned"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/agents_extensions/test_github_client_lint.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "agents_extensions/shared/hooks [present: present on machinery main as agents_extensions/shared/hooks]",
@@ -25104,12 +25134,12 @@
     "test_score_fail_handoff_closes_exact_lease_and_exits"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/agent_runtime/test_glm_lane_session_canary.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.agent_runtime.adapters.glm [present: present on machinery main as lu_machinery/agent_runtime/adapters/glm.py]",
     "scripts.session_canary.glm_lane [present: present on machinery main as lu_machinery/session_canary/glm_lane.py]"
-   ],
-   "ported_to": "tests/agent_runtime/test_glm_lane_session_canary.py"
+   ]
   },
   "tests/test_goal_driver_status_lines.py": {
    "disposition": "port-first",
@@ -25216,6 +25246,7 @@
     "test_translate_mcp_prefix_for_grok_build_is_scoped"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/agent_runtime/test_grok_build_adapter.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.agent_runtime.adapters.base [present: present on machinery main as lu_machinery/agent_runtime/adapters/base.py]",
@@ -25223,8 +25254,7 @@
     "scripts.agent_runtime.failover [present: present on machinery main as lu_machinery/agent_runtime/failover.py]",
     "scripts.agent_runtime.registry [present: present on machinery main as lu_machinery/agent_runtime/registry.py]",
     "scripts.review.isolation [present: present on machinery main as lu_machinery/review/isolation.py]"
-   ],
-   "ported_to": "tests/agent_runtime/test_grok_build_adapter.py"
+   ]
   },
   "tests/test_grok_build_bridge.py": {
    "disposition": "port-first",
@@ -25287,12 +25317,12 @@
     "test_write_mode_invalid_effort_leaves_no_guard_or_prompt_file"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/agent_runtime/test_grok_prompt_limit.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.agent_runtime.adapters.grok_build [present: present on machinery main as lu_machinery/agent_runtime/adapters/grok_build.py]",
     "scripts.review.isolation [present: present on machinery main as lu_machinery/review/isolation.py]"
-   ],
-   "ported_to": "tests/agent_runtime/test_grok_prompt_limit.py"
+   ]
   },
   "tests/test_grok_sealed_review_refuse.py": {
    "disposition": "port-first",
@@ -25405,6 +25435,8 @@
     "test_self_matching_process_kill"
    ],
    "ownership": "machinery",
+   "residual": "deferred: imports tests/test_secret_print_hook.py (T3B-R06)",
+   "residual_id": "T3B-R07",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "AGENTS.md [present: product-owned in LU]",
@@ -25417,9 +25449,7 @@
     "scripts.session_supervisor [present: present on machinery main as lu_machinery/session_supervisor/__init__.py]",
     "scripts/agent_runtime/secret_print_hook.py [present: present on machinery main as lu_machinery/agent_runtime/secret_print_hook.py]",
     "unresolved: non-literal spec_from_file_location path path"
-   ],
-   "residual_id": "T3B-R07",
-   "residual": "deferred: imports tests/test_secret_print_hook.py (T3B-R06)"
+   ]
   },
   "tests/test_guard_benign_corpus.py": {
    "disposition": "port-first",
@@ -25431,6 +25461,7 @@
     "test_head_only_benign_literals_have_no_new_blocks"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/agents_extensions/test_guard_benign_corpus.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "agents_extensions/shared/hooks [present: present on machinery main as agents_extensions/shared/hooks]",
@@ -25852,6 +25883,7 @@
     "test_worker_env_commands_are_blocked"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/agents_extensions/test_guard_secret_print.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "AGENTS.md [present: product-owned in LU]",
@@ -25899,6 +25931,7 @@
     "test_source_blind_cli_lifecycle_and_exact_replay"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/agents_extensions/test_gui_session_lease.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "agents_extensions.shared.session_streams.model [present: moved: agents_extensions/shared/session_streams/model.py -> lu_machinery/session_streams/model.py (00d92c9); git log --follow --diff-filter=R: 00d92c9]",
@@ -25962,6 +25995,7 @@
     "test_stream_anchor_matches_launcher_selector_stream"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/lib/test_handoff_slot_registry.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     ".gemini/config.yaml [present: product-owned in LU]",
@@ -26107,6 +26141,7 @@
     "test_issue_10337_shell_names_are_exact"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/agents_extensions/test_hook_tool_names.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "agents_extensions/shared/hooks/tool_names.py [present: present on machinery main as agents_extensions/shared/hooks/tool_names.py]"
@@ -26120,6 +26155,7 @@
     "test_hooks_are_executable_in_git"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/agents_extensions/test_hooks_executable.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "agents_extensions/shared/hooks [present: present on machinery main as agents_extensions/shared/hooks]"
@@ -26249,12 +26285,12 @@
     "test_repository_name_git_timeout_raises_identity_error"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/agent_runtime/test_identity_eval_timeouts.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.agent_runtime.agent_github_identity [present: present on machinery main as lu_machinery/agent_runtime/agent_github_identity.py]",
     "scripts.agent_runtime.env_sanitize [present: present on machinery main as lu_machinery/agent_runtime/env_sanitize.py]"
-   ],
-   "ported_to": "tests/agent_runtime/test_identity_eval_timeouts.py"
+   ]
   },
   "tests/test_idle_settle.py": {
    "disposition": "port-first",
@@ -26585,6 +26621,7 @@
     "test_verified_job_keeps_arguments_and_its_own_status"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/lib/test_job_memory_scope.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts/lib/job_memory_scope.sh [present: present on machinery main as lu_machinery/lib/job_memory_scope.sh]"
@@ -26602,6 +26639,7 @@
     "test_summary_tolerates_missing_empty_and_corrupt_files"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/ci/test_junit_results.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.ci.junit_results [present: present on machinery main as lu_machinery/ci/junit_results.py]"
@@ -26825,12 +26863,12 @@
     "test_unlistable_usage_directory_counts_as_one_unreadable_file"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/agent_runtime/test_lane_runtime_usage.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.agent_runtime.agent_identity [present: present on machinery main as lu_machinery/agent_runtime/agent_identity.py]",
     "scripts.agent_runtime.usage [present: present on machinery main as lu_machinery/agent_runtime/usage.py]"
-   ],
-   "ported_to": "tests/agent_runtime/test_lane_runtime_usage.py"
+   ]
   },
   "tests/test_language_salad.py": {
    "disposition": "keep",
@@ -26908,6 +26946,7 @@
     "test_watcher_exit_recovery_preserves_provider_and_rejects_false_wakes"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/lib/test_launcher_contract.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     ".gemini/config.yaml [present: product-owned in LU]",
@@ -27011,6 +27050,7 @@
     "test_waiting_launcher_collects_status_without_waiting_on_a_running_child"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/lib/test_launcher_driver_scope.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     ".gemini/config.yaml [present: product-owned in LU]",
@@ -27122,6 +27162,7 @@
     "test_worktree_reached_through_a_symlinked_path_still_resolves"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/lib/test_launcher_helper_root.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     ".gemini/config.yaml [present: product-owned in LU]",
@@ -27194,6 +27235,7 @@
     "test_unreadable_caller_cgroup_is_refused"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/lib/test_launcher_interactive_scope.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     ".gemini/config.yaml [present: product-owned in LU]",
@@ -27694,11 +27736,11 @@
     "test_stdout_streamed_signal_returns_true_when_last_write_is_recent"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/agent_runtime/test_livenessprobe.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.agent_runtime.livenessprobe [present: present on machinery main as lu_machinery/agent_runtime/livenessprobe.py]"
-   ],
-   "ported_to": "tests/agent_runtime/test_livenessprobe.py"
+   ]
   },
   "tests/test_llm_qg_api.py": {
    "disposition": "keep",
@@ -28030,6 +28072,7 @@
     "test_unknown_activity_and_unknown_model"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/agent_runtime/test_root_model_catalog.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.agent_runtime.registry [present: present on machinery main as lu_machinery/agent_runtime/registry.py]",
@@ -28040,8 +28083,7 @@
     "scripts.fleet.claude_account_lane [present: present on machinery main as lu_machinery/fleet/claude_account_lane.py]",
     "scripts.review.model_catalog [present: present on machinery main as lu_machinery/review/model_catalog.py]",
     "scripts/dispatch.py [present: present on machinery main as lu_machinery/dispatch.py]"
-   ],
-   "ported_to": "tests/agent_runtime/test_root_model_catalog.py"
+   ]
   },
   "tests/test_model_families.py": {
    "disposition": "keep",
@@ -28082,6 +28124,7 @@
     "test_window_used_pct_requires_false_stale_and_finite_remaining"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/agent_runtime/test_model_pause.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.agent_runtime.model_pause [present: present on machinery main as lu_machinery/agent_runtime/model_pause.py]",
@@ -28090,8 +28133,7 @@
     "scripts.review.model_catalog [present: present on machinery main as lu_machinery/review/model_catalog.py]",
     "scripts.review.reviewer_resolver [present: present on machinery main as lu_machinery/review/reviewer_resolver.py]",
     "scripts/dispatcher [present: present on machinery main as lu_machinery/dispatcher]"
-   ],
-   "ported_to": "tests/agent_runtime/test_model_pause.py"
+   ]
   },
   "tests/test_model_ready_receipt_audit.py": {
    "disposition": "keep",
@@ -28893,6 +28935,7 @@
     "test_offline_fallback_list_equals_rule_sources"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/agents_extensions/test_operator_contract_wiring.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "AGENTS.md [present: product-owned in LU]",
@@ -28916,6 +28959,7 @@
     "test_publisher_sandbox_imports_merge_guard_in_isolation"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/ci/test_opsec_fixtures.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     ".github/workflows/ci.yml [present: product-owned in LU]",
@@ -29097,6 +29141,7 @@
     "test_postgres_files_are_found_in_the_repo"
    ],
    "ownership": "machinery",
+   "residual_id": "PORT-T8-D03",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.ci.junit_results [present: present on machinery main as lu_machinery/ci/junit_results.py]",
@@ -29269,6 +29314,7 @@
     "test_open_model_data_hook_main_blocks_and_head_is_ready"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/agents_extensions/test_post_compact_stream.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "agents_extensions/shared/hooks/post-compact.sh [present: present on machinery main as agents_extensions/shared/hooks/post-compact.sh]",
@@ -29444,14 +29490,14 @@
     "test_worktree_writes_are_not_reported"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/agent_runtime/test_primary_tree_watch.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.agent_runtime.primary_tree_watch [present: present on machinery main as lu_machinery/agent_runtime/primary_tree_watch.py]",
     "scripts.agent_runtime.result [present: present on machinery main as lu_machinery/agent_runtime/result.py]",
     "scripts.agent_runtime.runner [present: present on machinery main as lu_machinery/agent_runtime/runner.py]",
     "scripts/api/fleet_router.py [present: present on machinery main as lu_machinery/api/fleet_router.py]"
-   ],
-   "ported_to": "tests/agent_runtime/test_primary_tree_watch.py"
+   ]
   },
   "tests/test_primary_write_guard.py": {
    "disposition": "port-first",
@@ -29496,6 +29542,8 @@
     "test_typed_missing_commit_neutralizes_and_wrong_base_stays_specific"
    ],
    "ownership": "machinery",
+   "residual": "deferred: imports tests/test_review_target_resolution.py, owned by the review tranche",
+   "residual_id": "T3B-R04",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     ".github/workflows/ci.yml [present: product-owned in LU]",
@@ -29526,9 +29574,7 @@
     "scripts/verify_review.py [present: present on machinery main as lu_machinery/verify_review.py]",
     "tasks [present: product-owned in LU]",
     "tests [present: mixed-owned in LU]"
-   ],
-   "residual_id": "T3B-R04",
-   "residual": "deferred: imports tests/test_review_target_resolution.py, owned by the review tranche"
+   ]
   },
   "tests/test_private_teacher_lesson_full_intake.py": {
    "disposition": "keep",
@@ -29990,6 +30036,7 @@
     "test_environ_formatting_omits_values_and_lookups_keep_them"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/lib/test_redacted_environ.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.lib.redacted_environ [present: present on machinery main as lu_machinery/lib/redacted_environ.py]"
@@ -30031,6 +30078,7 @@
     "test_remote_supervisor_recovery_reports_monitor_expiry"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/agents_extensions/test_remote_epic_lifecycle.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "agents_extensions.shared.session_streams.db [present: moved: agents_extensions/shared/session_streams/db.py -> lu_machinery/session_streams/db.py (00d92c9); git log --follow --diff-filter=R: 00d92c9]",
@@ -30067,6 +30115,7 @@
     "test_unavailable_restart_cli_does_not_claim_or_replay_delivery"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/agents_extensions/test_remote_supervisor.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "agents_extensions.shared.session_streams.db [present: moved: agents_extensions/shared/session_streams/db.py -> lu_machinery/session_streams/db.py (00d92c9); git log --follow --diff-filter=R: 00d92c9]",
@@ -30391,6 +30440,7 @@
     "test_target_and_freeze_are_immutable_once_baseline_frozen"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/agent_runtime/test_review_closeout_cli.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     ".github/workflows/ci.yml [present: product-owned in LU]",
@@ -30417,8 +30467,7 @@
     "scripts/dispatch.py [present: present on machinery main as lu_machinery/dispatch.py]",
     "scripts/verify_review.py [present: present on machinery main as lu_machinery/verify_review.py]",
     "tasks [present: product-owned in LU]"
-   ],
-   "ported_to": "tests/agent_runtime/test_review_closeout_cli.py"
+   ]
   },
   "tests/test_review_cursor_grok_reviewer.py": {
    "disposition": "port-first",
@@ -30606,6 +30655,8 @@
     "test_untracked_immutable_capture_survives_source_swap"
    ],
    "ownership": "machinery",
+   "residual": "deferred: imports tests/agent_runtime/test_codex_sources_config_layers.py, owned by T3a",
+   "residual_id": "T3B-R03",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "AGENTS.md [present: product-owned in LU]",
@@ -30620,9 +30671,7 @@
     "scripts.ai_agent_bridge._review_worktree [present: present on machinery main as lu_machinery/ai_agent_bridge/_review_worktree.py]",
     "scripts.review.isolation [present: present on machinery main as lu_machinery/review/isolation.py]",
     "scripts.review.snapshot [present: present on machinery main as lu_machinery/review/snapshot.py]"
-   ],
-   "residual_id": "T3B-R03",
-   "residual": "deferred: imports tests/agent_runtime/test_codex_sources_config_layers.py, owned by T3a"
+   ]
   },
   "tests/test_review_plan.py": {
    "disposition": "keep",
@@ -30850,6 +30899,7 @@
     "test_supplied_manifest_json_refusal"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/agents_extensions/test_rollover_bundles.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     ".gemini/config.yaml [present: product-owned in LU]",
@@ -31130,6 +31180,7 @@
     "test_review_admission_preserves_anchor_manifest_and_dynamic_digest"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/agents_extensions/test_rules_core_structural_coverage.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "agents_extensions/shared/rules [present: mixed-owned in LU]",
@@ -31168,14 +31219,14 @@
     "test_unparseable_tool_event_emits_warning_not_crash"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/agent_runtime/test_runner_tool_calls.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.agent_runtime.adapters.base [present: present on machinery main as lu_machinery/agent_runtime/adapters/base.py]",
     "scripts.agent_runtime.adapters.claude [present: present on machinery main as lu_machinery/agent_runtime/adapters/claude.py]",
     "scripts.agent_runtime.adapters.codex [present: present on machinery main as lu_machinery/agent_runtime/adapters/codex.py]",
     "scripts.agent_runtime.adapters.gemini [present: present on machinery main as lu_machinery/agent_runtime/adapters/gemini.py]"
-   ],
-   "ported_to": "tests/agent_runtime/test_runner_tool_calls.py"
+   ]
   },
   "tests/test_runtime_agents_dedupe.py": {
    "disposition": "port-first",
@@ -31403,6 +31454,8 @@
     "test_unexpected_adapter_failure_denies"
    ],
    "ownership": "machinery",
+   "residual": "deferred: imports tests/test_guard_secret_print.py, owned by T8 (agents_extensions)",
+   "residual_id": "T3B-R06",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "AGENTS.md [present: product-owned in LU]",
@@ -31415,9 +31468,7 @@
     "scripts.session_supervisor [present: present on machinery main as lu_machinery/session_supervisor/__init__.py]",
     "scripts/agent_runtime/secret_print_hook.py [present: present on machinery main as lu_machinery/agent_runtime/secret_print_hook.py]",
     "unresolved: non-literal spec_from_file_location path path"
-   ],
-   "residual_id": "T3B-R06",
-   "residual": "deferred: imports tests/test_guard_secret_print.py, owned by T8 (agents_extensions)"
+   ]
   },
   "tests/test_secret_redaction.py": {
    "disposition": "keep",
@@ -31739,6 +31790,7 @@
     "test_write_record_refuses_symlinked_sessions_dir"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/lib/test_session_record.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.lib.session_record [present: present on machinery main as lu_machinery/lib/session_record.py]",
@@ -31836,6 +31888,7 @@
     "test_remote_diagnosis_without_expiry_does_not_infer_claimability"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/agents_extensions/test_session_stream_handoff.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "agents_extensions.shared.session_streams.db [present: moved: agents_extensions/shared/session_streams/db.py -> lu_machinery/session_streams/db.py (00d92c9); git log --follow --diff-filter=R: 00d92c9]",
@@ -31887,6 +31940,7 @@
     "test_vendored_public_suffix_snapshot_is_pinned_and_rules_only"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/agents_extensions/test_session_streams.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "README.md [present: product-owned in LU]",
@@ -31932,6 +31986,7 @@
     "test_tail_missing_stream_has_stable_exit_code"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/agents_extensions/test_session_streams_cli.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "agents_extensions.shared.session_streams.cli [present: moved: agents_extensions/shared/session_streams/cli.py -> lu_machinery/session_streams/cli.py (00d92c9); git log --follow --diff-filter=R: 00d92c9]",
@@ -31949,6 +32004,7 @@
     "test_resolve_handoff_path_first_existing"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/agents_extensions/test_session_streams_dual_write_status.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "agents_extensions.shared.session_streams.dual_write [present: moved: agents_extensions/shared/session_streams/dual_write.py -> lu_machinery/session_streams/dual_write.py (00d92c9); git log --follow --diff-filter=R: 00d92c9]",
@@ -31970,6 +32026,7 @@
     "test_stream_anchor_follows_listed_order_not_numeric_order"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/agents_extensions/test_session_streams_inventory_receipts.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "agents_extensions.shared.session_streams.cli [present: moved: agents_extensions/shared/session_streams/cli.py -> lu_machinery/session_streams/cli.py (00d92c9); git log --follow --diff-filter=R: 00d92c9]",
@@ -31995,6 +32052,7 @@
     "test_remote_epic_status_has_no_per_request_connection_fan_out"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/agents_extensions/test_session_streams_projection.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "agents_extensions.shared.session_streams.cli [present: moved: agents_extensions/shared/session_streams/cli.py -> lu_machinery/session_streams/cli.py (00d92c9); git log --follow --diff-filter=R: 00d92c9]",
@@ -32029,6 +32087,7 @@
     "test_workers_cannot_acquire_or_receive_driver_lease (machinery replacement tests/test_session_supervisor.py::test_workers_cannot_acquire_or_receive_driver_lease collection error on installed v0.1.0; source checkout: passed)"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/agents_extensions/test_session_supervisor.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     ".gemini/config.yaml [present: product-owned in LU]",
@@ -32066,6 +32125,7 @@
     "test_wake_owner_reads_delivery_after_path_unlinked"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/lib/test_session_supervisor_shell.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     ".gemini/config.yaml [present: product-owned in LU]",
@@ -32180,6 +32240,7 @@
     "test_whole_command_detector_does_not_split_scope_events"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/agents_extensions/test_shell_redirects.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "agents_extensions/shared/hooks [present: present on machinery main as agents_extensions/shared/hooks]"
@@ -32346,6 +32407,7 @@
     "test_documented_archive_failure_command_parses_with_real_cli"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/agents_extensions/test_skill_instruction_routes.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "agents_extensions/shared/skills [present: mixed-owned in LU]",
@@ -32536,6 +32598,7 @@
     "test_versioned_retired_claude_alias_is_refused"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/lib/test_start_claude_profiles.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     ".gemini/config.yaml [present: product-owned in LU]",
@@ -32623,6 +32686,7 @@
     "test_direct_codex_proxy_configuration_rejects_old_pin_without_exports"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/lib/test_start_codex_claude_code.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     ".gemini/config.yaml [present: product-owned in LU]",
@@ -32839,6 +32903,7 @@
     "test_untrusted_codex_driver_skips_lease_and_canary"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/lib/test_start_codex_profiles.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     ".gemini/config.yaml [present: product-owned in LU]",
@@ -32925,6 +32990,7 @@
     "test_supervisor_successor_reenters_cto_wrapper"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/lib/test_start_cto_wrappers.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     ".gemini/config.yaml [present: product-owned in LU]",
@@ -33022,6 +33088,7 @@
     "test_cursor_rewrites_bare_grok_4_7_to_high"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/lib/test_start_cursor_launcher.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     ".gemini/config.yaml [present: product-owned in LU]",
@@ -33473,6 +33540,7 @@
     "test_read_test_source_refreshes_after_path_replacement"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/ci/test_test_source_cache.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.ci.test_source_cache [present: present on machinery main as lu_machinery/ci/test_source_cache.py]"
@@ -33612,6 +33680,7 @@
     "test_hook_posts_json_that_validates_against_tool_timing_model"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/agents_extensions/test_tool_timing_hook.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "agents_extensions/shared/hooks/tool-timing.sh [present: present on machinery main as agents_extensions/shared/hooks/tool-timing.sh]",
@@ -33630,13 +33699,13 @@
     "test_gemini_session_does_not_leak_across_invocations"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/agent_runtime/test_trace_capture_no_contamination.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.agent_runtime.adapters.claude [present: present on machinery main as lu_machinery/agent_runtime/adapters/claude.py]",
     "scripts.agent_runtime.adapters.codex [present: present on machinery main as lu_machinery/agent_runtime/adapters/codex.py]",
     "scripts.agent_runtime.adapters.gemini [present: present on machinery main as lu_machinery/agent_runtime/adapters/gemini.py]"
-   ],
-   "ported_to": "tests/agent_runtime/test_trace_capture_no_contamination.py"
+   ]
   },
   "tests/test_track_completion.py": {
    "disposition": "keep",
@@ -33730,6 +33799,7 @@
     "test_unproven_adapters_refuse_before_runner_loads_them"
    ],
    "ownership": "machinery",
+   "ported_to": "tests/agent_runtime/test_trail_isolation.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     ".mcp.json [present: product-owned in LU]",
@@ -33746,8 +33816,7 @@
     "scripts.review.model_catalog [present: present on machinery main as lu_machinery/review/model_catalog.py]",
     "scripts/review/model_catalog.py [present: present on machinery main as lu_machinery/review/model_catalog.py]",
     "unresolved: non-literal import_module(name)"
-   ],
-   "ported_to": "tests/agent_runtime/test_trail_isolation.py"
+   ]
   },
   "tests/test_trail_predicates.py": {
    "disposition": "port-first",
@@ -34324,6 +34393,8 @@
     "test_verify_review_read_review_timeout_exits_invalid"
    ],
    "ownership": "machinery",
+   "residual": "deferred: imports tests/test_review_target_resolution.py, owned by the review tranche",
+   "residual_id": "T3B-R05",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     ".github/workflows/ci.yml [present: product-owned in LU]",
@@ -34357,9 +34428,7 @@
     "scripts/verify_review.py [present: present on machinery main as lu_machinery/verify_review.py]",
     "tasks [present: product-owned in LU]",
     "tests [present: mixed-owned in LU]"
-   ],
-   "residual_id": "T3B-R05",
-   "residual": "deferred: imports tests/test_review_target_resolution.py, owned by the review tranche"
+   ]
   },
   "tests/test_verify_shippable.py": {
    "disposition": "keep",

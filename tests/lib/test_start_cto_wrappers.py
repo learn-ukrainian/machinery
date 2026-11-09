@@ -6,7 +6,6 @@ import hashlib
 import json
 import os
 import shlex
-import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -143,8 +142,6 @@ def test_epics_stream_key_is_distinct_from_nested_epics_and_duplicate_keys(tmp_p
 def _runtime_checkout(tmp_path: Path) -> tuple[Path, dict[str, str]]:
     launcher, _, _ = _core_canary_failure_fixture(tmp_path)
     root = launcher.parent
-    for name in WRAPPERS:
-        shutil.copy2(REPO / name, root / name)
     env = scope_sandbox(root, tmp_path)
     # Only preparation and provider execution are fake. Slot validation, scope
     # re-entry, common supervisor and remote lease refusals execute real code.

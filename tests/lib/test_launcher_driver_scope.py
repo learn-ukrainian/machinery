@@ -20,7 +20,7 @@ import pytest
 from lu_machinery.common.repo_root import machinery_path
 from tests.helpers import machinery_package
 from tests.helpers.product_tree import configured_roots as configured_roots
-from tests.launcher_sandbox import launcher_environment
+from tests.launcher_sandbox import copy_launcher_sources, launcher_environment
 from tests.wait_helpers import wait_until
 
 pytestmark = pytest.mark.usefixtures("hermetic_monitor")
@@ -63,6 +63,7 @@ def test_forwarder_finishes_close_and_reaps_children_after_repeated_signal(
     client_pid = tmp_path / "client-pid"
     # Keep the package layout: the core names its modules from its own location.
     core = _write(tmp_path / "lu_machinery/lib/launcher_core.sh", (machinery_path('lib/launcher_core.sh')).read_text())
+    shutil.copy2(machinery_path("lib/project_interpreter.sh"), core.with_name("project_interpreter.sh"))
     provider = _write(tmp_path / "provider.py", """import signal, sys
 from pathlib import Path
 def stop(sig, frame):
@@ -75,6 +76,7 @@ signal.pause()
 """)
     # Only this disposable helper can receive the real close function's call.
     _write(tmp_path / ".venv/bin/python", """#!/usr/bin/env bash
+if [[ "${1:-}" == "-I" && "${2:-}" == "-c" && "${3:-}" == *"module bootstrap:"* ]]; then shift 5; fi
 [ "$*" = '-m lu_machinery.session_supervisor close --role driver' ] || exit 97
 printf '%s\\n' "$$" > "$TEST_CLIENT_PID"
 printf 'close\\n' >> "$TEST_ATTEMPTS"
@@ -83,7 +85,7 @@ printf 'closed\\n' > "$TEST_CLOSED"
 """, 0o755)
     launcher = _write(tmp_path / "forwarder.sh", f"""#!/usr/bin/env bash
 source {shlex.quote(str(core))}
-source {shlex.quote(str(REPO / 'lu_machinery/lib/session_supervisor.sh'))}
+source {shlex.quote(str(machinery_path('lib/session_supervisor.sh')))}
 LC_DURABLE_HELPER_ROOT="$PWD"
 LC_PROVIDER=claude
 {shlex.quote(sys.executable)} -I {shlex.quote(str(provider))} {shlex.quote(str(ready))} {shlex.quote(str(received))} &
@@ -283,9 +285,11 @@ def install_scope_sandbox(root: Path) -> None:
 
 def _launcher(tmp_path: Path, provider: str = "claude") -> tuple[Path, dict[str, str]]:
     root = tmp_path / "repo"
+    copy_launcher_sources(root)
     env = scope_sandbox(root, tmp_path)
     core = root / "lu_machinery/lib/launcher_core.sh"
     shutil.copy2(machinery_path('lib/launcher_core.sh'), core)
+    shutil.copy2(machinery_path('lib/project_interpreter.sh'), core.with_name('project_interpreter.sh'))
     shutil.copy2(machinery_path('lib/git_identity.py'), root / "lu_machinery/lib/git_identity.py")
     env["TEST_PROJECT_PYTHON"] = sys.executable
     # Only provider/lease/preparation seams are stubbed. The full main entry,
@@ -302,7 +306,7 @@ launcher_project_python() { printf '%s\\n' "$TEST_PROJECT_PYTHON"; }
 launcher_publication_path() { :; }
 launcher_normalize_model() { :; }
 launcher_validate_mode() { :; }
-launcher_load_rules_core() { [ -s "$FAKE_STARTS" ] || exit 98; printf 'PREPARED\\n'; }
+launcher_load_rules_core() { [ -s "$FAKE_STARTS" ] || exit 98; }
 launcher_prepare_driver_identity() { :; }
 launcher_import_rollover_bundle() { printf 'IMPORT\\n'; }
 launcher_claim_driver_lease() { printf 'LEASE\\n'; }
@@ -310,9 +314,9 @@ launcher_bind_drive_epic() { :; }
 """
     )
     (root / "lu_machinery/lib/handoff_identity.sh").write_text("")
-    (root / "lu_machinery/lib/deploy_extensions.sh").write_text("deploy_agent_extensions() { :; }\n")
+    (root / "lu_machinery/lib/deploy_extensions.sh").write_text("deploy_agent_extensions() { printf 'PREPARED\\n'; }\n")
     adapter = root / "lu_machinery/launchers/claude.sh"
-    adapter.parent.mkdir(parents=True)
+    adapter.parent.mkdir(parents=True, exist_ok=True)
     adapter.write_text("""launcher_adapter_validate() { :; }
 launcher_adapter_preflight() { :; }
 launcher_adapter_canary() { :; }

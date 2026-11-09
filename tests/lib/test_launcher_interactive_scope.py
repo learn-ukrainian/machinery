@@ -28,14 +28,13 @@ from pathlib import Path
 
 import pytest
 
+from lu_machinery.common.repo_root import machinery_path
 from tests.helpers import machinery_package
 from tests.helpers.product_tree import configured_roots as configured_roots
-from tests.launcher_libraries import launcher_catalog_files, launcher_library_files
 from tests.launcher_sandbox import (
+    copy_launcher_sources,
     copy_slot_registry,
     launcher_environment,
-    launcher_wrapper_source,
-    tracked_launcher_wrappers,
 )
 from tests.lib.test_launcher_driver_scope import default_hup as default_hup
 from tests.lib.test_launcher_driver_scope import (
@@ -183,6 +182,7 @@ done
 """
 _PYTHON = """#!/usr/bin/env bash
 {event}
+if [[ "${{1:-}}" == "-I" && "${{2:-}}" == "-c" && "${{3:-}}" == *"module bootstrap:"* ]]; then shift 5; fi
 case "${{1:-}}:${{2:-}}" in
   -m:{package}.session_supervisor)
     lu_test_event "lease-${{3:-}}"
@@ -194,6 +194,7 @@ JSON
     exit 0
     ;;
   -m:{package}.fleet_comms) lu_test_event publish; exit 0 ;;
+  -m:{package}.orchestration.thread_handoff) lu_test_event rollover-import; exit 0 ;;
 esac
 case "${{1:-}}" in */{package}/orchestration/thread_handoff.py) lu_test_event rollover-import; exit 0 ;; esac
 exec {python} "$@"
@@ -277,19 +278,7 @@ def _write(path: Path, body: str, mode: int = 0o644) -> Path:
 def _checkout(tmp_path: Path) -> tuple[Path, dict[str, str]]:
     """Copy every tracked wrapper and the shared core; stub only the edges."""
     root = tmp_path / "repo"
-    for wrapper in tracked_launcher_wrappers():
-        destination = root / wrapper
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(launcher_wrapper_source(wrapper), destination)
-    for relative in (
-        f"{MACHINERY}/config/issue_streams.yaml",
-        f"{MACHINERY}/config/launcher_stream_aliases.tsv",
-        *launcher_library_files(REPO),
-        *launcher_catalog_files(REPO),
-    ):
-        destination = root / relative
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(REPO / relative, destination)
+    copy_launcher_sources(root)
     # Recording adapters below model the retained wrapper ABI, independent of
     # production retirement. Real GLM launch refusal remains covered separately.
     import yaml
@@ -788,9 +777,13 @@ def test_dispatch_from_an_interactive_scope_stays_bounded(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, driver_scope_detection: Callable[[], bool]
 ) -> None:
     """Downstream: bounded worker scopes are allowed, the unbounded fallback is refused."""
-    from tests.orchestration.test_dispatch_isolation import _PY, _env, _install_fakes, _subtree
-
     from lu_machinery.orchestration import dispatch_isolation as iso
+    from tests.orchestration.test_dispatch_isolation import (
+        _PY,
+        _env,
+        _install_fakes,
+        _subtree,
+    )
 
     monkeypatch.setattr(iso, "_caller_in_driver_scope", driver_scope_detection)
     original = Path.read_text
@@ -1314,7 +1307,7 @@ def test_bounded_live_interactive_scope_soak(tmp_path: Path) -> None:
     require_soak_opt_in()
     root, _ = _checkout(tmp_path)
     # The production helper and manager, rather than the fake kernel/manager.
-    shutil.copy2(REPO / MACHINERY / "lib/driver_scope.sh", root / MACHINERY / "lib/driver_scope.sh")
+    shutil.copy2(machinery_path("lib/driver_scope.sh"), root / MACHINERY / "lib/driver_scope.sh")
     hog, proof = soak_hog(tmp_path)
     provider = _write(
         root / "provider.sh",

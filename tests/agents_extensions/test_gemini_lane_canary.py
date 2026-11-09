@@ -6,11 +6,13 @@ import pytest
 
 from tests.helpers.product_tree import configured_roots as configured_roots
 
-pytestmark = pytest.mark.usefixtures("configured_roots")
 
 from pathlib import Path
 
 from lu_machinery.session_canary import gemini_lane
+
+
+pytestmark = pytest.mark.usefixtures("configured_roots")
 
 
 @pytest.mark.parametrize("epic", ["../../tmp/evil", "/absolute/evil", "bad_name", "-infra", "infra-"])
