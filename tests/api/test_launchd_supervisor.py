@@ -451,6 +451,18 @@ def test_unexpected_clean_exit_is_recorded_and_restarted_by_launchd_contract(tmp
 _WRAPPER = supervisor.wrapper_path()
 
 
+def _wrapper_env(**extra: str) -> dict[str, str]:
+    """The wrapper's environment without an explicit interpreter.
+
+    Since #171 the wrapper takes an absolute executable ``LEARN_UKRAINIAN_PYTHON`` before the
+    primary checkout's ``.venv``. These cases are about the primary-venv branch, so the inherited
+    selection is removed.
+    """
+    env = {name: value for name, value in os.environ.items() if name != "LEARN_UKRAINIAN_PYTHON"}
+    env.update(extra)
+    return env
+
+
 def test_wrapper_exits_78_when_interpreter_missing(tmp_path: Path) -> None:
     proc = subprocess.run(
         [
@@ -466,6 +478,7 @@ def test_wrapper_exits_78_when_interpreter_missing(tmp_path: Path) -> None:
         text=True,
         check=False,
         timeout=10,
+        env=_wrapper_env(),
     )
     assert proc.returncode == 78
     assert "missing interpreter" in proc.stderr
@@ -496,7 +509,7 @@ def test_wrapper_execs_primary_interpreter(tmp_path: Path) -> None:
         text=True,
         check=False,
         timeout=10,
-        env={**os.environ, "PATH": "/usr/bin:/bin"},
+        env=_wrapper_env(PATH="/usr/bin:/bin"),
     )
     assert proc.returncode == 0
     assert "-m" in proc.stdout
