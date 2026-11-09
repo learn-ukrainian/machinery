@@ -81,10 +81,11 @@ in `pyproject.toml` and `$SHA` the full commit:
    the highest matching-major Node among `PATH`, `/opt/homebrew/bin` and
    `/usr/local/bin`; `PATH` order breaks only ties. A minimal `PATH` that omits
    the host's pinned Node selects a distro Node of the same major. Put the
-   pinned Node's directory on `PATH` and confirm it is the highest matching-major
-   there: run the `NODE` and `NPM` assignments of the block below on their own
-   and check that `"$NODE" --version` and `"$NPM" --version` print the pinned
-   versions before `npm ci`. Run this exact block after the wheel install:
+   pinned Node's directory on `PATH`, make sure no higher matching-major Node
+   is also there, and check that `node --version` prints the pinned version.
+   Afterwards confirm that `"$NODE" --version` and `"$NPM" --version` match
+   the pinned versions; if not, discard that prefix and cache and rerun with
+   a corrected `PATH`. Run this exact block after the wheel install:
 
    ```bash
    set -eu
