@@ -49,7 +49,7 @@ jobs:
   pytest:
     name: pytest
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 20
     permissions:
       contents: read
     steps:
