@@ -11,19 +11,19 @@ updates_file="$(mktemp "$tmp_root/learn-uk-pre-push.XXXXXX")"
 trap 'rm -f "$updates_file"' EXIT
 tee "$updates_file" >/dev/null
 
-# Scan the exact Git-supplied updates before any cached validation can return.
-# The shared publication scanner covers commit messages, including intermediate
-# commits, and retains its verified-public-history exclusions and masked errors.
+# Scan the Git-supplied updates with machinery's publication scanner before any
+# other check. The scanner reads commit messages, ref names and tag text on the
+# outgoing range. A scanner that cannot start refuses the push.
 if [[ $# -ne 0 ]]; then
-  run_project_python "$source_root/.githooks/pre_push_gate.py" --push-messages "$@" <"$updates_file"
+  scanner="$worktree_root/lu_machinery/opsec/git_push.py"
+  if [[ ! -r "$scanner" ]]; then
+    echo "OPSEC: push scanner unavailable; push refused." >&2
+    exit 1
+  fi
+  run_project_python "$hook_dir/pre_push_gate.py" --push-messages "$@" <"$updates_file"
 fi
 check_owned_paths push <"$updates_file"
 run_project_python "$hook_dir/check-pytest-stamp.py" "$@" <"$updates_file"
-# The gate runs the pre-commit pre-push stage over the explicit outgoing range,
-# with the per-commit OPSEC and internal-ID scans (#10033). It runs no tests of
-# its own (#11276): CI runs the full suite and remains the merge gate.
-run_project_python "$hook_dir/pre_push_gate.py" \
-  --launcher "$project_python" --config "$source_root/.pre-commit-config.yaml" "$@" <"$updates_file"
 # Git always supplies the remote name and URL. Only the driver's direct,
 # argument-free validation call separates these checks from network transport.
 if [[ $# -ne 0 ]]; then

@@ -419,8 +419,92 @@ def test_routed_scripts_do_not_build_a_venv_interpreter_path() -> None:
         assert ".venv/bin/python" not in text, relative
 
 
+def _tracked_pre_push_scans_the_outgoing_range(tmp_path: Path) -> None:
+    """Defect class: a tracked pre-push hook that skips machinery's scanner, or pushes when that scanner cannot start.
+
+    A temporary repository, synthetic matcher fixtures, and a local bare remote. The planted value is the
+    fixture token, never a credential.
+    """
+    from tests.opsec_fixtures import CATALOG, TOKEN, make_tooling
+
+    real_git = shutil.which("git", path=os.defpath)
+    assert real_git is not None
+    repo = tmp_path / "repo"
+    repo.mkdir(parents=True)
+    shutil.copytree(machinery_root(), repo / "lu_machinery", ignore=shutil.ignore_patterns("__pycache__"))
+    (repo / "lu_machinery/config/fleet_repos.yaml").write_text(json.dumps({"repos": CATALOG}), encoding="utf-8")
+    shutil.copytree(_checkout() / ".githooks", repo / ".githooks", ignore=shutil.ignore_patterns("__pycache__"))
+    (repo / ".venv").symlink_to(Path(sys.executable).resolve().parents[1], target_is_directory=True)
+    make_tooling(tmp_path / "private-fixture/tools/public_opsec_scan")
+    remote = tmp_path / "remote.git"
+    env = {key: value for key, value in os.environ.items() if not key.startswith(("GIT_", "PRE_COMMIT", "LU_OPSEC", "PYTHON"))}
+    env.update(
+        PATH=os.pathsep.join([str(Path(real_git).parent), os.defpath]),
+        LEARN_UKRAINIAN_PYTHON=sys.executable,
+        LEARN_UKRAINIAN_PRIMARY_REPO_ROOT=str(repo),
+        GIT_CONFIG_GLOBAL=os.devnull,
+        GIT_CONFIG_NOSYSTEM="1",
+        GIT_TERMINAL_PROMPT="0",
+    )
+
+    def git(*args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
+        result = subprocess.run(
+            [real_git, *args], cwd=repo, env=env, capture_output=True, text=True, timeout=60, check=False,
+        )
+        if check and result.returncode != 0:
+            raise AssertionError(result.stderr or result.stdout)
+        return result
+
+    git("init", "-q", "-b", "main")
+    git("config", "user.email", "hook-test@example.invalid")
+    git("config", "user.name", "Hook Test")
+    (repo / "file.txt").write_text("clean\n", encoding="utf-8")
+    git("add", "file.txt")
+    git("commit", "-q", "--no-verify", "-m", "base")
+    git("init", "-q", "--bare", str(remote))
+    git("remote", "add", "origin", str(remote))
+    git("push", "-q", "--no-verify", "origin", "HEAD:refs/heads/main")
+    git("config", "core.hooksPath", ".githooks")
+
+    def remote_has(sha: str) -> bool:
+        probe = subprocess.run(
+            [real_git, "cat-file", "-e", sha], cwd=remote, env=env, capture_output=True, text=True, timeout=30,
+        )
+        return probe.returncode == 0
+
+    (repo / "file.txt").write_text("clean\nsecret\n", encoding="utf-8")
+    git("commit", "-q", "--no-verify", "-am", "clean subject\n\nbody " + TOKEN)
+    secret = git("rev-parse", "HEAD").stdout.strip()
+    refused = git("push", "origin", "HEAD:refs/heads/feature", check=False)
+    assert refused.returncode != 0, refused.stderr
+    assert "OPSEC blocked: rule=synthetic-rule" in refused.stderr, refused.stderr
+    assert TOKEN not in refused.stderr and TOKEN not in refused.stdout
+    assert not remote_has(secret)
+
+    git("reset", "-q", "--hard", "HEAD~1")
+    (repo / "file.txt").write_text("clean\nallowed\n", encoding="utf-8")
+    git("commit", "-q", "--no-verify", "-am", "clean subject")
+    clean = git("rev-parse", "HEAD").stdout.strip()
+    allowed = git("push", "origin", "HEAD:refs/heads/feature", check=False)
+    assert allowed.returncode == 0, allowed.stderr
+    assert remote_has(clean)
+
+    (repo / "lu_machinery/opsec/git_push.py").unlink()
+    (repo / "file.txt").write_text("clean\nagain\n", encoding="utf-8")
+    git("commit", "-q", "--no-verify", "-am", "clean subject again")
+    missing = git("rev-parse", "HEAD").stdout.strip()
+    blocked = git("push", "origin", "HEAD:refs/heads/feature", check=False)
+    assert blocked.returncode != 0, blocked.stderr
+    assert "OPSEC: push scanner unavailable; push refused." in blocked.stderr, blocked.stderr
+    assert not remote_has(missing)
+
+
 def test_project_python_and_githooks_follow_the_rule(tmp_path: Path) -> None:
-    """The pre-commit launcher and the hooks that call it use the rule, not a worktree venv."""
+    """The pre-commit launcher and the hooks that call it use the rule, not a worktree venv.
+
+    The same function proves the tracked pre-push hook: a planted fixture value is refused, a clean
+    push is allowed, and a missing scanner refuses the push.
+    """
     primary, worktree, log = _layout(tmp_path, primary_venv=True, worktree_venv=True)
     override = _wrapper(tmp_path / "override-python", log)
     plain = tmp_path / "plain-file"
@@ -464,6 +548,10 @@ def test_project_python_and_githooks_follow_the_rule(tmp_path: Path) -> None:
     assert hook_log.read_text(encoding="utf-8").split()[0] == str(hook_override)
     for relative in (".githooks/_lib.sh", ".githooks/commit-msg", ".githooks/post-merge", ".githooks/pre-push"):
         assert "run_project_python" in (_checkout() / relative).read_text(encoding="utf-8")
+    hook_text = (_checkout() / ".githooks" / "pre-push").read_text(encoding="utf-8")
+    assert ".pre-commit-config.yaml" not in hook_text
+    assert "lint_opsec" not in hook_text
+    _tracked_pre_push_scans_the_outgoing_range(tmp_path / "push-proof")
 
 
 def test_repo_root_launchers_follow_the_rule(tmp_path: Path) -> None:
