@@ -19909,7 +19909,6 @@
    "ownership": "product"
   },
   "tests/test_check_primary_integrity.py": {
-   "ported_to": "tests/common/test_check_primary_integrity.py",
    "disposition": "port-first",
    "evidence": "machinery-only subject references; subjects scripts.common.safe_unit_install, scripts.hygiene.check_primary_integrity; 18 of 18 test IDs lack a machinery v0.1.0 replacement",
    "lu_test_ids": 18,
@@ -27061,7 +27060,6 @@
    "ownership": "product"
   },
   "tests/test_launcher_canary_honesty.py": {
-   "ported_to": "tests/common/test_launcher_canary_honesty.py",
    "disposition": "port-first",
    "evidence": "machinery-only subject references; subjects scripts/launchers, scripts/lib/launcher_core.sh; 3 of 3 test IDs lack a machinery v0.1.0 replacement",
    "lu_test_ids": 3,
@@ -27478,7 +27476,6 @@
    ]
   },
   "tests/test_launcher_remote_renew.py": {
-   "ported_to": "tests/common/test_launcher_remote_renew.py",
    "disposition": "port-first",
    "evidence": "machinery-only subject references; subjects scripts.session_supervisor, scripts/lib, scripts/lib/launcher_core.sh; pkg3 isolation-only failures 2; 1 of 1 test IDs lack a machinery v0.1.0 replacement",
    "lu_test_ids": 1,
