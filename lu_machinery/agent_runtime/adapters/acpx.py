@@ -279,6 +279,19 @@ _GROK_XAI_API_KEY_ENV_UNSETS: tuple[str, ...] = (
     "ACPX_AUTH_API_KEY",
 )
 
+# Node module-resolution controls never reach an ACP Node process, whether
+# inherited or seat-supplied (C-4952, R95): NODE_OPTIONS can preload code or
+# add export conditions, and NODE_PATH adds unauthenticated module folders.
+_ACP_NODE_ENV_UNSETS: tuple[str, ...] = ("NODE_OPTIONS", "NODE_PATH")
+
+
+def _acp_probe_env() -> dict[str, str]:
+    """The caller's environment without Node resolution controls, for direct preparation probes.
+
+    Version probes run before any plan exists, so plan ``env_unsets`` cannot cover them.
+    """
+    return {name: value for name, value in os.environ.items() if name not in _ACP_NODE_ENV_UNSETS}
+
 # tool_config allowlist. Anything outside this set is rejected before spawn
 # — this is the enforcement point for "unsupported permission/tool config"
 # in the approved reject-before-spawn list. No key here can loosen
@@ -878,7 +891,10 @@ def _require_codex_cli() -> tuple[str, str]:
     if not binary:
         raise AcpxShadowRefusalError("AcpxAdapter: installed codex CLI unavailable; install the current Codex CLI")
     try:
-        probe = subprocess.run([binary, "--version"], capture_output=True, text=True, timeout=5, check=False)
+        # A resolved CLI path and a literal flag in an argv list; no shell runs.
+        probe = subprocess.run(  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit
+            [binary, "--version"], capture_output=True, text=True, timeout=5, check=False, env=_acp_probe_env(),
+        )
     except (OSError, subprocess.TimeoutExpired) as exc:
         raise AcpxShadowRefusalError("AcpxAdapter: installed codex CLI version probe failed") from exc
     match = re.fullmatch(r"codex-cli ([0-9]+\.[0-9]+\.[0-9]+(?:[-+][\w.-]+)?)", probe.stdout.strip())
@@ -1325,12 +1341,14 @@ def _versioned_node_keg_dirs(required_major: int) -> tuple[Path, ...]:
 def _probe_node_semver(candidate: Path) -> tuple[int, int, int] | None:
     """Run ``<candidate> --version`` once; return semver if it is Node-shaped."""
     try:
-        proc = subprocess.run(
+        # A resolved Node candidate and a literal flag in an argv list; no shell runs.
+        proc = subprocess.run(  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit
             [str(candidate), "--version"],
             capture_output=True,
             text=True,
             timeout=5,
             check=False,
+            env=_acp_probe_env(),
         )
     except (OSError, subprocess.TimeoutExpired):
         return None
@@ -1462,11 +1480,17 @@ def _acpx_runtime_env_overrides(
     *,
     adapter_label: str = "ACPX",
 ) -> dict[str, str]:
-    """Merge seat env overrides with a Node-bearing PATH for ACPX children."""
+    """Merge seat env overrides with a Node-bearing PATH for ACPX children.
+
+    Seat-supplied Node resolution controls are dropped; plans also unset the
+    inherited ones (``_ACP_NODE_ENV_UNSETS``).
+    """
     node = _resolve_host_node_binary(adapter_label=adapter_label)
     env: dict[str, str] = {"PATH": _acpx_path_with_node(node)}
     if extra:
         for key, value in extra.items():
+            if key in _ACP_NODE_ENV_UNSETS:
+                continue
             if key == "PATH":
                 env["PATH"] = _acpx_path_with_node(node, value)
             else:
@@ -2768,12 +2792,14 @@ def _probe_grok_version(binary: str) -> str:
     string, controls whether the adapter may spawn the CLI.
     """
     try:
-        proc = subprocess.run(
+        # A resolved CLI path and a literal flag in an argv list; no shell runs.
+        proc = subprocess.run(  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit
             [binary, "--version"],
             capture_output=True,
             text=True,
             timeout=10,
             check=False,
+            env=_acp_probe_env(),
         )
     except (OSError, subprocess.TimeoutExpired):
         return ""
@@ -2883,12 +2909,14 @@ _PROVIDER_VERSION_PATTERNS = {
 def _probe_participant_cli_version(binary: str, executable: str) -> str:
     """Return a version anchored to the reviewed provider output format."""
     try:
-        proc = subprocess.run(
+        # A resolved CLI path and a literal flag in an argv list; no shell runs.
+        proc = subprocess.run(  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit
             [binary, "--version"],
             capture_output=True,
             text=True,
             timeout=10,
             check=False,
+            env=_acp_probe_env(),
         )
     except (OSError, subprocess.TimeoutExpired):
         return ""
@@ -3254,6 +3282,7 @@ class AcpxAdapter:
                 {"ACPX_AUTH_CHAT_GPT": "1", "CODEX_PATH": codex_binary},
                 adapter_label="AcpxAdapter",
             ),
+            env_unsets=_ACP_NODE_ENV_UNSETS,
             liveness_paths=(),
             metadata=metadata,
         )
@@ -3641,7 +3670,7 @@ class _AcpxDiscussionAdapter:
         return _acpx_runtime_env_overrides(seat, adapter_label=type(self).__name__)
 
     def _env_unsets(self) -> tuple[str, ...]:
-        return ()
+        return _ACP_NODE_ENV_UNSETS
 
     def _extra_metadata(self) -> dict[str, Any]:
         return {}
@@ -4272,7 +4301,7 @@ class AcpxGrokShadowAdapter:
                 {GROK_AUTH_CACHED_TOKEN_ENV: "1"},
                 adapter_label="AcpxGrokShadowAdapter",
             ),
-            env_unsets=_GROK_XAI_API_KEY_ENV_UNSETS,
+            env_unsets=(*_GROK_XAI_API_KEY_ENV_UNSETS, *_ACP_NODE_ENV_UNSETS),
             liveness_paths=(),
             metadata=metadata,
         )
