@@ -221,7 +221,7 @@ def test_issue_9115_escaped_nested_backtick_admin_merge_is_visible():
 
 
 def test_issue_9115_backtick_depth_limit_blocks_in_hook(monkeypatch):
-    monkeypatch.setattr(sys.modules["shell_shlex"], "_MAX_BACKTICK_DEPTH", 2)
+    monkeypatch.setattr(sys.modules["agents_extensions.shared.hooks.shell_shlex"], "_MAX_BACKTICK_DEPTH", 2)
     body = "gh pr merge 5 --admin"
     for _ in range(3):
         body = "`" + body.replace("\\", "\\\\").replace("`", r"\`") + "`"

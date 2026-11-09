@@ -99,7 +99,7 @@ _ISSUE_9461_SUFFIXES = [
 ]
 
 
-@pytest.mark.parametrize("dependency", ["lu_machinery.publish.merge_guard", "shell_shlex"])
+@pytest.mark.parametrize("dependency", ["lu_machinery.publish.merge_guard", "agents_extensions.shared.hooks.shell_shlex"])
 @pytest.mark.parametrize(
     "command,expected",
     [
@@ -241,7 +241,7 @@ def test_issue_9115_escaped_nested_backtick_merge_is_visible(monkeypatch):
 
 
 def test_issue_9115_backtick_depth_limit_blocks_merge_hook(monkeypatch):
-    monkeypatch.setattr(sys.modules["shell_shlex"], "_MAX_BACKTICK_DEPTH", 2)
+    monkeypatch.setattr(sys.modules["agents_extensions.shared.hooks.shell_shlex"], "_MAX_BACKTICK_DEPTH", 2)
     body = "gh pr merge 5 --squash"
     for _ in range(3):
         body = "`" + body.replace("\\", "\\\\").replace("`", r"\`") + "`"

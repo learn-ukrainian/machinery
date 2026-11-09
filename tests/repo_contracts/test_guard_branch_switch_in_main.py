@@ -209,7 +209,7 @@ def test_issue_9115_escaped_nested_backtick_switch_is_visible(repos):
 
 
 def test_issue_9115_backtick_depth_limit_blocks_branch_hook(repos, monkeypatch):
-    monkeypatch.setattr(sys.modules["shell_shlex"], "_MAX_BACKTICK_DEPTH", 2)
+    monkeypatch.setattr(sys.modules["agents_extensions.shared.hooks.shell_shlex"], "_MAX_BACKTICK_DEPTH", 2)
     monkeypatch.chdir(repos["public"])
     body = "git checkout -b feature"
     for _ in range(3):

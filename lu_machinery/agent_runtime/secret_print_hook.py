@@ -59,8 +59,8 @@ def run_guard(command: str, *, timeout: float = DEFAULT_TIMEOUT, harness: str = 
     if not math.isfinite(timeout) or not 0 < timeout <= DEFAULT_TIMEOUT:
         return False, BLOCK_PREFIX + "invalid guard deadline.\n"
     try:
-        from lu_machinery.common.repo_root import product_root
         from lu_machinery.agent_runtime.codex_hook_policy import run_guard as run_guard_process
+        from lu_machinery.common.repo_root import product_root
 
         guard_path = product_root() / "agents_extensions/shared/hooks/guard-secret-print.py"
         if not guard_path.is_file():

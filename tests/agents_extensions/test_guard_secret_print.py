@@ -540,7 +540,7 @@ def test_issue_9115_redirection_does_not_hide_secret_file(monkeypatch, command):
 
 
 def test_issue_9115_backtick_depth_limit_blocks_secret_hook(monkeypatch):
-    monkeypatch.setattr(sys.modules["shell_shlex"], "_MAX_BACKTICK_DEPTH", 2)
+    monkeypatch.setattr(sys.modules["agents_extensions.shared.hooks.shell_shlex"], "_MAX_BACKTICK_DEPTH", 2)
     body = "cat .env"
     for _ in range(3):
         body = "`" + body.replace("\\", "\\\\").replace("`", r"\`") + "`"
