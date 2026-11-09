@@ -142,7 +142,7 @@ def _linked_worktree(tmp_path: Path) -> tuple[Path, Path]:
     return primary, tree
 
 
-def _reexec(monkeypatch: pytest.MonkeyPatch, runtime: Path) -> list[str]:
+def _observe_reexec(monkeypatch: pytest.MonkeyPatch, runtime: Path) -> list[list[str]]:
     calls: list[list[str]] = []
 
     def fake_execv(path: str, argv: list[str]) -> None:
@@ -151,9 +151,7 @@ def _reexec(monkeypatch: pytest.MonkeyPatch, runtime: Path) -> list[str]:
 
     monkeypatch.setattr(dispatcher_primary, "machinery_path", lambda relative: runtime / "lu_machinery" / relative)
     monkeypatch.setattr(dispatcher_primary.os, "execv", fake_execv)
-    with pytest.raises(_Execed):
-        dispatcher_primary.exec_primary(["list"])
-    return calls[0]
+    return calls
 
 
 def _unit_lines() -> dict[str, list[str]]:
@@ -258,8 +256,10 @@ def test_dispatch_targets_state_and_slug_follow_the_configuration(monkeypatch, l
     monkeypatch.setattr(bridge.github_client, "run", launch)
     command = [sys.executable, "-m", "lu_machinery.dispatch", "dispatch", "--task-id", "root-probe"]
     assert bridge._run_dispatch(command, False, Path("unused-prompt")) == 0
-    assert launch.call_args.kwargs["cwd"] == rr.machinery_path("dispatch.py").parent.parent
-    assert launch.call_args.kwargs["cwd"] not in {layout["primary"], layout["product"]}
+    assert launch.call_args.kwargs["cwd"] == layout["primary"]
+    assert launch.call_args.kwargs["cwd"] not in {
+        layout["product"], rr.machinery_path("dispatch.py").parent.parent,
+    }
 
     monkeypatch.delenv(rr.PRODUCT_ROOT_ENV)
     ask = Mock(return_value=SimpleNamespace(ok=True))
@@ -271,17 +271,14 @@ def test_dispatch_targets_state_and_slug_follow_the_configuration(monkeypatch, l
 
 
 @pytest.mark.parametrize("repo", sorted(REPOS))
-def test_dispatch_reexec_keeps_running_interpreter(monkeypatch, tmp_path: Path, layout, repo: str) -> None:
+def test_installed_dispatch_validates_primary_without_reexec(monkeypatch, tmp_path: Path, layout, repo: str) -> None:
     for key, value in _configured(layout, repo).items():
         monkeypatch.setenv(key, value)
-    runtime_primary, tree = _linked_worktree(tmp_path)
-    call = _reexec(monkeypatch, tree)
-    assert call == [
-        sys.executable,
-        sys.executable,
-        str(runtime_primary / "lu_machinery/dispatch.py"),
-        "list",
-    ]
+    _, tree = _linked_worktree(tmp_path)
+    calls = _observe_reexec(monkeypatch, tree)
+    dispatcher_primary.exec_primary(["list"])
+    assert calls == []
+    assert dispatcher_primary.primary_root() == layout["primary"]
 
 
 @pytest.mark.parametrize("repo", sorted(REPOS))
@@ -452,10 +449,12 @@ def test_unset_configuration_keeps_todays_interpreter_order(clean_env, tmp_path:
     assert rr.project_interpreter(checkout) == own
 
 
-def test_unset_configuration_reexecs_with_this_interpreter(clean_env, monkeypatch, tmp_path: Path) -> None:
-    runtime_primary, tree = _linked_worktree(tmp_path)
-    call = _reexec(monkeypatch, tree)
-    assert call == [sys.executable, sys.executable, str(runtime_primary / "lu_machinery/dispatch.py"), "list"]
+def test_installed_dispatch_without_primary_refuses_reexec(clean_env, monkeypatch, tmp_path: Path) -> None:
+    _, tree = _linked_worktree(tmp_path)
+    calls = _observe_reexec(monkeypatch, tree)
+    with pytest.raises(rr.StateRootError, match="no shared-state anchor is configured"):
+        dispatcher_primary.exec_primary(["list"])
+    assert calls == []
 
 
 def test_unset_configuration_keeps_todays_systemd_exec_start() -> None:

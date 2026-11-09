@@ -13046,7 +13046,7 @@
    "ownership": "machinery",
    "residual_id": "PORT-T1-B02",
    "residual_owner": "claude-cto",
-   "residual_reason": "Machinery #100 R78: disk-alert publication uses the package installation as the state root; LU test stays port-first.",
+   "residual_reason": "Observed before machinery #177: R78 disk-alert publication used the package installation as its state root. The production fix merged in #177; this LU file stays port-first for the CTO-owned follow-up port.",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.fleet_comms [present: present on machinery main as lu_machinery/fleet_comms/__init__.py]",
