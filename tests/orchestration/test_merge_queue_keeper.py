@@ -14,20 +14,29 @@ from lu_machinery.orchestration import merge_queue_keeper as keeper
 from lu_machinery.orchestration.integration_sweep import Verdict
 from lu_machinery.review.record_cf_verdict import build_comment
 
+from tests.helpers.product_tree import configured_roots as configured_roots
+
 HEAD_A = "a" * 40
 HEAD_B = "b" * 40
 
 
 
 @pytest.fixture(autouse=True)
-def product_policy(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Supply product-owned policy data without requiring a product checkout."""
+def product_policy(monkeypatch: pytest.MonkeyPatch, configured_roots) -> None:
+    """Return the keeper policy, read through the hermetic product tree."""
     policy = DeployPaths(
         content_path_prefixes=("curriculum/",),
         site_code_path_exceptions=frozenset(),
         site_code_path_prefixes=("site/",),
     )
-    monkeypatch.setattr(sweep, "load_deploy_paths", lambda: policy)
+    product = Path(configured_roots.product)
+
+    def load(product_root: Path | None = None) -> DeployPaths:
+        if product_root != product:
+            raise AssertionError("deploy policy was not read from the hermetic product tree")
+        return policy
+
+    monkeypatch.setattr(sweep, "load_deploy_paths", load)
 
 
 def pr(**changes: Any) -> dict[str, Any]:
