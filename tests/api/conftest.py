@@ -15,13 +15,22 @@ a test builds below ``tmp_path``.
 
 The installed package derives no product or shared-state root (``lu_machinery.common.repo_root``),
 and several modules here build the Monitor app at import (``from lu_machinery.api.main import
-app``). In the product suite the root conftest named its own checkout; here this conftest names
-two Git repositories for the session instead, unless the environment already configures them.
+app``). In the product suite the root conftest named its own checkout. Here this conftest names
+two session Git repositories instead, for this directory only: around the collection of each
+module below it, and for each test below it through ``monkeypatch``, whatever the inherited
+environment names. The environment is restored after each collection and each test, and when
+the run leaves this directory the API config's cached roots and the cached production context
+are dropped too, so tests in other directories still see no root and keep their no-root
+refusals.
+
 The product root holds only the product data file the Monitor app reads
 (``lu_machinery.api.product_contribution.PRODUCT_DATA``) and an entry whose ``build_api`` adds
 nothing, so the app is the machinery app alone. The entry's ``scripts`` modules are dropped from
-``sys.modules`` after collection and after each test, so another test's product root never meets
-a cached ``scripts`` package from this one. The roots are removed at the end of the session.
+``sys.modules`` after each collection and each test, so another test's product root never meets
+a cached ``scripts`` package from this one. Before each test the session state root is emptied
+(its ``.git`` stays), so state one test writes there, such as persisted account samples under
+``batch_state/routing_budget``, never reaches the next test. The roots are removed at the end of
+the session.
 """
 
 from __future__ import annotations
@@ -65,46 +74,91 @@ def _write_product(root: Path) -> None:
     (package / "entry.py").write_text(_ENTRY_SOURCE, encoding="utf-8")
 
 
-def _configure_session_roots() -> Path | None:
-    missing = [name for name in _ROOT_VARIABLES if not os.environ.get(name)]
-    if not missing:
-        return None
+def _session_roots() -> tuple[Path, dict[str, str]]:
     base = Path(tempfile.mkdtemp(prefix="lu-api-roots-"))
-    for name in missing:
+    values = {}
+    for name in _ROOT_VARIABLES:
         root = base / _ROOT_VARIABLES[name]
         root.mkdir()
         subprocess.run(["git", "init", "-q", str(root)], check=True)
         if name == "LU_PRODUCT_ROOT":
             _write_product(root)
-        os.environ[name] = str(root)
-    return base
+        values[name] = str(root)
+    return base, values
 
 
-_SESSION_ROOTS = _configure_session_roots()
+_SESSION_ROOTS, _ROOT_VALUES = _session_roots()
+# The API config caches these on first use (lu_machinery.api.config.__getattr__).
+_CONFIG_ROOT_CACHES = (
+    "PROJECT_ROOT", "PRODUCT_ROOT", "LIVE_REPO_ROOT", "CURRICULUM_ROOT", "DASHBOARDS_DIR", "BATCH_STATE_DIR",
+    "MESSAGE_DB",
+)
 
 
 def _forget_entry_modules() -> None:
-    if _SESSION_ROOTS is None:
-        return
     for name, module in tuple(sys.modules.items()):
         origin = getattr(module, "__file__", None) or ""
         if (name == "scripts" or name.startswith("scripts.")) and origin.startswith(str(_SESSION_ROOTS)):
             del sys.modules[name]
 
 
-def pytest_collection_finish(session: pytest.Session) -> None:
+def _forget_session_roots() -> None:
+    """Drop what was cached from the session roots: the product entry modules, config roots, context."""
     _forget_entry_modules()
+    config = sys.modules.get("lu_machinery.api.config")
+    if config is not None:
+        for name in _CONFIG_ROOT_CACHES:
+            vars(config).pop(name, None)
+    context = sys.modules.get("lu_machinery.api.monitor_context")
+    if context is not None:
+        context._cached_production_context.cache_clear()
+
+
+@pytest.hookimpl(wrapper=True)
+def pytest_make_collect_report(collector: pytest.Collector):
+    """Collect each module below this directory with the session roots configured, then restore."""
+    previous = {name: os.environ.get(name) for name in _ROOT_VALUES}
+    os.environ.update(_ROOT_VALUES)
+    try:
+        return (yield)
+    finally:
+        for name, value in previous.items():
+            if value is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = value
+        _forget_session_roots()
 
 
 @pytest.fixture(autouse=True)
-def _forget_test_product_modules():
+def _session_roots_for_this_test(monkeypatch):
+    for name, value in _ROOT_VALUES.items():
+        monkeypatch.setenv(name, value)
+    state = _SESSION_ROOTS / _ROOT_VARIABLES["LEARN_UKRAINIAN_PRIMARY_REPO_ROOT"]
+    for child in state.iterdir():
+        if child.name == ".git":
+            continue
+        if child.is_dir() and not child.is_symlink():
+            shutil.rmtree(child)
+        else:
+            child.unlink()
     yield
     _forget_entry_modules()
 
 
+@pytest.hookimpl(wrapper=True)
+def pytest_runtest_teardown(item: pytest.Item, nextitem: pytest.Item | None):
+    """After the last test of this directory, once its fixtures are undone, drop the cached roots."""
+    try:
+        return (yield)
+    finally:
+        here = Path(__file__).parent
+        if nextitem is None or here not in Path(nextitem.path).parents:
+            _forget_session_roots()
+
+
 def pytest_unconfigure(config: pytest.Config) -> None:
-    if _SESSION_ROOTS is not None:
-        shutil.rmtree(_SESSION_ROOTS, ignore_errors=True)
+    shutil.rmtree(_SESSION_ROOTS, ignore_errors=True)
 
 
 @pytest.fixture(autouse=True)

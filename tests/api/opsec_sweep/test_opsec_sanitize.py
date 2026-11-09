@@ -7,6 +7,8 @@ occupancy maps appear in these fixtures.
 from __future__ import annotations
 
 import json
+import os
+import shutil
 from pathlib import Path
 
 import pytest
@@ -46,8 +48,10 @@ def test_real_app_rules_json_preserves_source_bytes(scope, tmp_path, monkeypatch
     from lu_machinery.lib import rules_core
 
     # Fleet rules come from the installed release; the product rules come from the configured
-    # product (#126). The product here is a fixture, not a checkout.
+    # product (#126). The product here is a fixture, not a checkout: a copy of the session test
+    # product (tests/api/conftest.py), which the Monitor app loads, plus the product rule files.
     root = tmp_path / "product"
+    shutil.copytree(os.environ["LU_PRODUCT_ROOT"], root, ignore=shutil.ignore_patterns(".git"))
     for rel in sorted(rules_core._PRODUCT_RULES):
         target = root / rel
         target.parent.mkdir(parents=True, exist_ok=True)
