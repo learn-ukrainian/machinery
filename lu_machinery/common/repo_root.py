@@ -223,10 +223,13 @@ def runtime_primary_root(start: Path | None = None) -> Path:
     """The running code's own primary checkout, from its Git metadata; never configured.
 
     ``start`` is the caller's own checkout (``Path(__file__).resolve().parents[2]``),
-    default this module's. Callers that start the dispatcher use this, as
-    ``exec_primary`` does, so the configured target primary never selects which
-    dispatcher code runs.
+    default this module's. Only the in-tree source copy has runtime Git provenance;
+    installed machinery raises StateRootError even with a configured product primary.
+    A product checkout cannot identify the code of the installed distribution.
     """
+    _require_in_tree_default(
+        StateRootError, "runtime source checkout", "installed machinery has no Git source checkout",
+    )
     return main_checkout_root(RUNTIME_ROOT if start is None else start)
 
 
@@ -560,29 +563,10 @@ def project_interpreter(root: Path | None = None, *, env: Mapping[str, str] | No
 
 
 def resolve_repo_root(script_path: Path, parents: int) -> Path:
-    """Anchor all dispatch state to the PRIMARY checkout, never a worktree copy.
+    """Compatibility spelling for the shared primary/state anchor.
 
-    Every dispatch worktree carries its own copy of this script; running that
-    copy used to anchor batch_state/ and .worktrees/ to the WORKTREE root,
-    nesting worktrees and hiding tasks from the Monitor API (#5171).
-
-    Consequence: sys.path inserts and relative-path resolution (e.g. a
-    relative --cwd) also anchor to the primary checkout — a worktree copy
-    of this script lazy-imports the PRIMARY's scripts/* modules, not the
-    worktree branch's. Intentional: dispatch infrastructure is ground truth
-    in the primary; cross-cutting changes to dispatch.py plus its lazy deps
-    must land on main before they steer live dispatches.
-
-    A configured ``LEARN_UKRAINIAN_PRIMARY_REPO_ROOT`` names that primary
-    directly, so machinery installed outside the checkout anchors state on
-    the configured primary instead of on its own install location.
-
-    Unlike :func:`state_root`, this does not refuse an unconfigured installed
-    package: modules bind it at import, and imports must keep working with
-    nothing configured. Those callers move to :func:`state_root` at their
-    call sites in a later step of C-4843, after which this helper is removed.
+    The in-tree source copy may derive its own checkout from ``script_path``.
+    Installed machinery requires the configured primary and never treats the
+    supplied script's ancestor as a repository or state root.
     """
-    configured = configured_primary_root()
-    if configured is not None:
-        return configured
-    return main_checkout_root(script_path.resolve().parents[parents])
+    return state_root(script_path.resolve().parents[parents] if in_tree_source() else None)

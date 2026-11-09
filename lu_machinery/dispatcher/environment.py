@@ -5,7 +5,7 @@ import sys
 from pathlib import Path
 
 from lu_machinery.agent_runtime.read_only_tmp import dispatch_lease
-from lu_machinery.common.repo_root import INTERPRETER_ENV, PRODUCT_ROOT_ENV
+from lu_machinery.common.repo_root import INTERPRETER_ENV, PRODUCT_ROOT_ENV, project_interpreter
 from lu_machinery.common.task_store_paths import tasks_dir
 from lu_machinery.dispatcher.types import TaskSpec
 
@@ -92,7 +92,7 @@ def child_env(spec: TaskSpec) -> dict[str, str]:
         )
         env.update(
             PATH=f"{shims}{os.pathsep}{original_path}", AGENT_ORIGINAL_PATH=original_path,
-            AGENT_GIT_SHIM_PYTHON=sys.executable,
+            LEARN_UKRAINIAN_PYTHON=str(project_interpreter(env=source)),
         )
     elif any((spec.worktree / name).is_symlink() for name in ("node_modules", "site/node_modules")):
         raise ValueError("npm/npx guard unavailable for shared node_modules links")

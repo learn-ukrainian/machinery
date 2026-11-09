@@ -156,7 +156,7 @@ elif scenario == 'diagnostic':
         result = causes._append_diagnostics(record, [('field', object())], source='test')
     assert result == 'batch_state/tasks/root-probe.diag', result
     assert record.with_suffix('.diag').read_text() == 'root proof\n'
-elif scenario == 'gh_shim':
+elif scenario in ('gh_shim', 'guarded_gh_shim'):
     from lu_machinery.opsec.prepublish import publish_environment
     real = product / 'gh'
     real.write_text('#!/bin/sh\nprintf "gh-root-proof\\n"\n')
@@ -167,12 +167,57 @@ elif scenario == 'gh_shim':
     python = primary / '.venv/bin/python'
     python.parent.mkdir(parents=True)
     python.symlink_to(sys.executable)
-    environment = publish_environment(source)
+    if scenario == 'guarded_gh_shim':
+        from lu_machinery.agent_runtime.runner import _apply_merge_guard
+        source['AGENT_NO_MERGE'] = '1'
+        source.pop('AGENT_ALLOW_MERGE', None)
+        environment = _apply_merge_guard(mode='danger', env=source)
+    else:
+        environment = publish_environment(source)
     assert environment[rr.INTERPRETER_ENV] == str(python)
     result = subprocess.run(['gh', 'auth', 'status'], cwd=product, env=environment,
                             capture_output=True, text=True, timeout=30)
     assert result.returncode == 0, result.stderr
     assert result.stdout == 'gh-root-proof\n', result.stdout
+    if scenario == 'guarded_gh_shim':
+        denied = subprocess.run(['gh', 'pr', 'merge', '1'], cwd=product, env=environment,
+                                capture_output=True, text=True, timeout=30)
+        assert denied.returncode != 0 and 'AGENT_NO_MERGE=1' in denied.stderr, denied
+elif scenario == 'npm_shim':
+    from lu_machinery.dispatcher.environment import child_env
+    python = primary / '.venv/bin/python'
+    python.parent.mkdir(parents=True)
+    python.symlink_to(sys.executable)
+    npm = product / 'npm'
+    npm.write_text('#!/bin/sh\nprintf "npm-root-proof\\n"\n')
+    npm.chmod(0o755)
+    os.environ.pop(rr.INTERPRETER_ENV, None)
+    os.environ['PATH'] = str(product) + os.pathsep + os.defpath
+    spec = SimpleNamespace(agent='muse', provider=None, worktree=product,
+                           task_id='root-probe', mode='workspace-write')
+    environment = child_env(spec)
+    assert environment[rr.INTERPRETER_ENV] == str(python)
+    result = subprocess.run(['npm', '--version'], cwd=product, env=environment,
+                            capture_output=True, text=True, timeout=30)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == 'npm-root-proof\n', result.stdout
+elif scenario == 'compatibility_resolvers':
+    assert rr.resolve_repo_root(Path(rr.__file__), 2) == primary
+    for key in rr.MACHINERY_ENV_VARS:
+        os.environ.pop(key, None)
+    try:
+        rr.resolve_repo_root(Path(rr.__file__), 2)
+    except rr.StateRootError:
+        pass
+    else:
+        raise AssertionError('compatibility resolver derived an installed state root')
+    os.environ[rr.PRIMARY_ROOT_ENV] = str(primary)
+    try:
+        rr.runtime_primary_root()
+    except rr.StateRootError:
+        pass
+    else:
+        raise AssertionError('installed code claimed a runtime Git checkout')
 elif scenario == 'source_attestation':
     from lu_machinery.ci import pr20_measurement as pr20
     import io
@@ -217,7 +262,7 @@ def installed_site(tmp_path_factory: pytest.TempPathFactory) -> Path:
 
 @pytest.mark.parametrize("scenario", [
     "text", "dispatch", "review_dispatch", "review_wait", "supervisor", "provenance",
-    "primary", "hooks", "alert", "drift", "interpreter", "diagnostic", "gh_shim", "source_attestation", "unconfigured",
+    "primary", "hooks", "alert", "drift", "interpreter", "diagnostic", "gh_shim", "guarded_gh_shim", "npm_shim", "compatibility_resolvers", "source_attestation", "unconfigured",
 ])
 def test_installed_entry_points_never_use_package_ancestors_as_roots(installed_site, tmp_path, scenario):
     """Defect class: installed package location used as cwd, repository or state anchor."""
