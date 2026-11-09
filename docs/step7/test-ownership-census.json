@@ -4174,7 +4174,14 @@
     "scripts.api.claude_account_usage [present: present on machinery main as lu_machinery/api/claude_account_usage.py]",
     "scripts.api.preload [present: present on machinery main as lu_machinery/api/preload.py]",
     "scripts.api.state_helpers [present: present on machinery main as lu_machinery/api/state_helpers.py]"
-   ]
+   ],
+   "residual_owner": "claude-cto",
+   "residual_reason": "PyMuPDF/pymupdf is not in the hash-pinned pytest dependency closure in .github/workflows/tests.yml; the source test importorskip would never execute its only behavior in machinery CI.",
+   "residual_resolution": {
+    "id": "PORT-1108-T2-R3",
+    "decision": "still-deferred",
+    "evidence": "PyMuPDF/pymupdf is not in the hash-pinned pytest dependency closure in .github/workflows/tests.yml; the source test importorskip would never execute its only behavior in machinery CI."
+   }
   },
   "tests/api/test_project_state.py": {
    "disposition": "port-first",
@@ -4996,7 +5003,7 @@
    "ownership": "product"
   },
   "tests/backup_data_script/test_sources_generations.py": {
-   "disposition": "port-first",
+   "disposition": "keep",
    "evidence": "machinery-only subject references; subjects scripts.storage, scripts.storage.generations; pkg3 isolation-only failures 6; 3 of 3 test IDs lack a machinery v0.1.0 replacement",
    "lu_test_ids": 3,
    "missing_behaviours": [
@@ -5004,7 +5011,7 @@
     "test_publication_during_backup_restores_the_generation_the_backup_selected",
     "test_selector_backs_up_only_the_selected_generation_and_restores_the_selector"
    ],
-   "ownership": "machinery",
+   "ownership": "product",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "README.md [present: product-owned in LU]",
@@ -5016,7 +5023,11 @@
     "scripts.storage.generations [present: present on machinery main as lu_machinery/storage/generations.py]",
     "scripts/backup-data.sh [present: product-owned in LU]"
    ],
-   "residual_id": "PORT-1108-T9-R1"
+   "residual_resolution": {
+    "id": "PORT-1108-T9-R1",
+    "decision": "product",
+    "evidence": "Exercises the product backup script scripts/backup-data.sh through tests/backup_data_script/_support.py; the backup entry point and source data selectors remain in learn-ukrainian."
+   }
   },
   "tests/backup_data_script/test_sqlite_file_root_wal.py": {
    "disposition": "keep",
@@ -5740,7 +5751,14 @@
     "scripts.ci.pytest_dispatch_cap [present: present on machinery main as lu_machinery/ci/pytest_dispatch_cap.py]",
     "scripts.common [present: present on machinery main as lu_machinery/common/__init__.py]",
     "scripts.common.test_slots [present: present on machinery main as lu_machinery/common/test_slots.py]"
-   ]
+   ],
+   "residual_owner": "claude-cto",
+   "residual_reason": "tests/common/test_test_thread_caps.py (EXPECTED fixture) is absent from machinery main; test_pytest_test_slots.py imports it.",
+   "residual_resolution": {
+    "id": "PORT-T8-D01",
+    "decision": "still-deferred",
+    "evidence": "tests/common/test_test_thread_caps.py (EXPECTED fixture) is absent from machinery main; test_pytest_test_slots.py imports it."
+   }
   },
   "tests/ci/test_scheduled_secret_scan.py": {
    "disposition": "keep",
@@ -7020,7 +7038,14 @@
     "start-muse-driver.sh [present: product-owned in LU]",
     "tasks [present: product-owned in LU]",
     "unresolved: non-literal spec_from_file_location path SERVER_PATH"
-   ]
+   ],
+   "residual_owner": "claude-cto",
+   "residual_reason": "tests/test_rules_core_loading.py (core_without_addendum, missing_core) is absent from machinery main and remains held for product_root-dependent setup. Attempt-boundary helpers exist at tests/agent_runtime/attempt_boundary_support.py, but do not supply those core fixtures.",
+   "residual_resolution": {
+    "id": "PORT-1108-T5-R1",
+    "decision": "still-deferred",
+    "evidence": "tests/test_rules_core_loading.py (core_without_addendum, missing_core) is absent from machinery main and remains held for product_root-dependent setup. Attempt-boundary helpers exist at tests/agent_runtime/attempt_boundary_support.py, but do not supply those core fixtures."
+   }
   },
   "tests/dispatcher/test_advisory.py": {
    "disposition": "keep",
@@ -9915,7 +9940,12 @@
     "scripts.review.review_contract [present: present on machinery main as lu_machinery/review/review_contract.py]",
     "scripts/agent_runtime/secret_print_hook.py [present: present on machinery main as lu_machinery/agent_runtime/secret_print_hook.py]"
    ],
-   "residual_id": "PORT-1108-T6-R4"
+   "ported_to": "tests/fleet/test_agy_failure_tally.py",
+   "residual_resolution": {
+    "id": "PORT-1108-T6-R4",
+    "decision": "ported",
+    "evidence": "Copied from frozen LU 5aba2adb96e13b3f4a5dc2abbe5ed71b7fb81d00 with package/import and installed-wheel fixture adaptations; registered as a whole-file machinery test."
+   }
   },
   "tests/fleet/test_capacity_pick.py": {
    "disposition": "port-first",
@@ -10011,8 +10041,12 @@
     "site/src/data/lexicon-manifest.fingerprint.json [present: product-owned in LU]",
     "tasks [present: product-owned in LU]"
    ],
-   "residual_id": "PORT-1108-T6-R5",
-   "ported_to": "tests/fleet/test_ignored_task_output.py"
+   "ported_to": "tests/fleet/test_ignored_task_output.py",
+   "residual_resolution": {
+    "id": "PORT-1108-T6-R5",
+    "decision": "ported",
+    "evidence": "Deduplicated against machinery main 43ea8c717352174d029f8de7c9727a977030a30c: existing ported_to contains every frozen source test function; no duplicate file added."
+   }
   },
   "tests/fleet/test_pr_owner_check.py": {
    "disposition": "port-first",
@@ -10152,8 +10186,12 @@
     "site/src/data/lexicon-manifest.fingerprint.json [present: product-owned in LU]",
     "tasks [present: product-owned in LU]"
    ],
-   "residual_id": "PORT-1108-T6-R6",
-   "ported_to": "tests/fleet/test_reaper_regenerable_cap.py"
+   "ported_to": "tests/fleet/test_reaper_regenerable_cap.py",
+   "residual_resolution": {
+    "id": "PORT-1108-T6-R6",
+    "decision": "ported",
+    "evidence": "Deduplicated against machinery main 43ea8c717352174d029f8de7c9727a977030a30c: existing ported_to contains every frozen source test function; no duplicate file added."
+   }
   },
   "tests/fleet/test_regenerable_output.py": {
    "disposition": "port-first",
@@ -10212,8 +10250,12 @@
     "site/src/data/lexicon-manifest.fingerprint.json [present: product-owned in LU]",
     "tasks [present: product-owned in LU]"
    ],
-   "residual_id": "PORT-1108-T6-R7",
-   "ported_to": "tests/fleet/test_regenerable_output.py"
+   "ported_to": "tests/fleet/test_regenerable_output.py",
+   "residual_resolution": {
+    "id": "PORT-1108-T6-R7",
+    "decision": "ported",
+    "evidence": "Deduplicated against machinery main 43ea8c717352174d029f8de7c9727a977030a30c: existing ported_to contains every frozen source test function; no duplicate file added."
+   }
   },
   "tests/fleet/test_regenerable_release_output.py": {
    "disposition": "keep",
@@ -10301,8 +10343,12 @@
     "site/src/data/lexicon-manifest.fingerprint.json [present: product-owned in LU]",
     "tasks [present: product-owned in LU]"
    ],
-   "residual_id": "PORT-1108-T6-R8",
-   "ported_to": "tests/fleet/test_terminal_abandon.py"
+   "ported_to": "tests/fleet/test_terminal_abandon.py",
+   "residual_resolution": {
+    "id": "PORT-1108-T6-R8",
+    "decision": "ported",
+    "evidence": "Deduplicated against machinery main 43ea8c717352174d029f8de7c9727a977030a30c: existing ported_to contains every frozen source test function; no duplicate file added."
+   }
   },
   "tests/fleet/test_terminal_abandon_10624.py": {
    "disposition": "port-first",
@@ -10369,8 +10415,12 @@
     "site/src/data/lexicon-manifest.fingerprint.json [present: product-owned in LU]",
     "tasks [present: product-owned in LU]"
    ],
-   "residual_id": "PORT-1108-T6-R9",
-   "ported_to": "tests/fleet/test_terminal_abandon_10624.py"
+   "ported_to": "tests/fleet/test_terminal_abandon_10624.py",
+   "residual_resolution": {
+    "id": "PORT-1108-T6-R9",
+    "decision": "ported",
+    "evidence": "Deduplicated against machinery main 43ea8c717352174d029f8de7c9727a977030a30c: existing ported_to contains every frozen source test function; no duplicate file added."
+   }
   },
   "tests/fleet/test_terminal_abandon_bundle.py": {
    "disposition": "port-first",
@@ -10428,8 +10478,12 @@
     "site/src/data/lexicon-manifest.fingerprint.json [present: product-owned in LU]",
     "tasks [present: product-owned in LU]"
    ],
-   "residual_id": "PORT-1108-T6-R10",
-   "ported_to": "tests/fleet/test_terminal_abandon_bundle.py"
+   "ported_to": "tests/fleet/test_terminal_abandon_bundle.py",
+   "residual_resolution": {
+    "id": "PORT-1108-T6-R10",
+    "decision": "ported",
+    "evidence": "Deduplicated against machinery main 43ea8c717352174d029f8de7c9727a977030a30c: existing ported_to contains every frozen source test function; no duplicate file added."
+   }
   },
   "tests/fleet/test_usage_cli.py": {
    "disposition": "port-first",
@@ -11519,7 +11573,14 @@
     "scripts.hygiene.tmp_sweep [present: present on machinery main as lu_machinery/hygiene/tmp_sweep.py]",
     "scripts.hygiene.tmp_sweep_ledger [present: present on machinery main as lu_machinery/hygiene/tmp_sweep_ledger.py]",
     "status [present: product-owned in LU]"
-   ]
+   ],
+   "residual_owner": "claude-cto",
+   "residual_reason": "lu_machinery/hygiene/tmp_sweep.py lacks the source _custody_free_config, _disposable_git_directory and _disposable_git_file predicates. Its disposable_git exception is unconditional; frozen tests require custody-sensitive handling of external worktrees/config. Existing partial pytest-retention tests are retained; production port is outside this test-only brief.",
+   "residual_resolution": {
+    "id": "T7-pytest-retention-git-custody",
+    "decision": "still-deferred",
+    "evidence": "lu_machinery/hygiene/tmp_sweep.py lacks the source _custody_free_config, _disposable_git_directory and _disposable_git_file predicates. Its disposable_git exception is unconditional; frozen tests require custody-sensitive handling of external worktrees/config. Existing partial pytest-retention tests are retained; production port is outside this test-only brief."
+   }
   },
   "tests/hygiene/test_remote_branch_cleanup.py": {
    "disposition": "keep",
@@ -13222,17 +13283,20 @@
     "test_write_dispatch_boundaries_refuse_only_at_90"
    ],
    "ownership": "machinery",
-   "residual_id": "PORT-T1-B02",
-   "residual_owner": "claude-cto",
-   "residual_reason": "Observed before machinery #177: R78 disk-alert publication used the package installation as its state root. The production fix merged in #177; this LU file stays port-first for the CTO-owned follow-up port.",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.fleet_comms [present: present on machinery main as lu_machinery/fleet_comms/__init__.py]",
     "scripts.orchestration.dispatch_admission [present: present on machinery main as lu_machinery/orchestration/dispatch_admission.py]"
-   ]
+   ],
+   "ported_to": "tests/orchestration/test_dispatch_admission_disk.py",
+   "residual_resolution": {
+    "id": "PORT-T1-B02",
+    "decision": "ported",
+    "evidence": "Copied from frozen LU 5aba2adb96e13b3f4a5dc2abbe5ed71b7fb81d00 with package/import and installed-wheel fixture adaptations; registered as a whole-file machinery test."
+   }
   },
   "tests/orchestration/test_distinct_roots.py": {
-   "disposition": "port-first",
+   "disposition": "keep",
    "evidence": "machinery-only subject references; subjects packaging/systemd/learn-ukrainian-project-state-reporter.service, scripts.ai_agent_bridge, scripts.api.main (+13); pkg3 switch regressions 8; pkg3 isolation-only failures 4; 5 of 15 test IDs lack a machinery v0.1.0 replacement; installed v0.1.0 wheel: 7 of 10 named replacement IDs pass",
    "lu_test_ids": 15,
    "missing_behaviours": [
@@ -13245,7 +13309,7 @@
     "test_systemd_exec_start_runs_with_the_configured_roots (machinery replacement tests/orchestration/test_distinct_roots.py::test_systemd_exec_start_runs_with_the_configured_roots failed on installed v0.1.0; source checkout: passed)",
     "test_unset_configuration_keeps_todays_roots (machinery replacement tests/orchestration/test_distinct_roots.py::test_unset_configuration_keeps_todays_roots failed on installed v0.1.0; source checkout: passed)"
    ],
-   "ownership": "machinery",
+   "ownership": "product",
    "partial_replacement_test_ids": [
     "tests/orchestration/test_distinct_roots.py::test_a_linked_worktree_is_never_the_configured_primary_or_state_root",
     "tests/orchestration/test_distinct_roots.py::test_closeout_control_plane_is_the_configured_state_root",
@@ -13256,9 +13320,6 @@
     "tests/orchestration/test_distinct_roots.py::test_unset_configuration_reexecs_with_this_interpreter"
    ],
    "ported_to": "tests/orchestration/test_distinct_roots_ported.py",
-   "residual_id": "PORT-T1-PRODUCT-01",
-   "residual_owner": "claude-cto",
-   "residual_reason": "The product assertion on scripts.review.integration_check.DISPATCH_ENTRY stays in LU for the mixed-file split in LU PR #12863. ported_to covers machinery assertions and does not authorize whole-file deletion.",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "agents_extensions/shared/rules [present: mixed-owned in LU]",
@@ -13278,7 +13339,12 @@
     "scripts/dispatch.py [present: present on machinery main as lu_machinery/dispatch.py]",
     "scripts/orchestration/run_project_state_reporter.sh [present: present on machinery main as lu_machinery/orchestration/run_project_state_reporter.sh]",
     "tasks [present: product-owned in LU]"
-   ]
+   ],
+   "residual_resolution": {
+    "id": "PORT-T1-PRODUCT-01",
+    "decision": "product",
+    "evidence": "The remaining mixed-file assertions exercise the product API contribution and scripts.review.integration_check.DISPATCH_ENTRY. Existing ported_to covers only machinery cases; keep the LU file and its product assertions."
+   }
   },
   "tests/orchestration/test_execution_safe_git.py": {
    "disposition": "port-first",
@@ -13465,9 +13531,6 @@
     "test_imported_pending_packet_launcher_binding"
    ],
    "ownership": "machinery",
-   "residual_id": "PORT-T1-DEFER-01",
-   "residual_owner": "claude-cto",
-   "residual_reason": "Deferred: imports tests/test_rollover_bundles.py, dominant agents_extensions, owned by T8. LU test stays port-first until that dependency lands.",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     ".gemini/config.yaml [present: product-owned in LU]",
@@ -13505,7 +13568,13 @@
     "scripts/lib/launcher_core.sh [present: present on machinery main as lu_machinery/lib/launcher_core.sh]",
     "scripts/lib/thread_rollover_link.sh [present: present on machinery main as lu_machinery/lib/thread_rollover_link.sh]",
     "scripts/orchestration/thread_handoff.py [present: present on machinery main as lu_machinery/orchestration/thread_handoff.py]"
-   ]
+   ],
+   "ported_to": "tests/orchestration/test_imported_rollover_detection.py",
+   "residual_resolution": {
+    "id": "PORT-T1-DEFER-01",
+    "decision": "ported",
+    "evidence": "Copied from frozen LU 5aba2adb96e13b3f4a5dc2abbe5ed71b7fb81d00 with package/import and installed-wheel fixture adaptations; registered as a whole-file machinery test."
+   }
   },
   "tests/orchestration/test_install_archived_thread_cleanup_launchd.py": {
    "disposition": "port-first",
@@ -13561,11 +13630,16 @@
    "ownership": "machinery",
    "residual_id": "PORT-T1-B01",
    "residual_owner": "claude-cto",
-   "residual_reason": "Machinery #100 R77: launchd installer requires machinery code in the product checkout; LU test stays port-first.",
+   "residual_reason": "Machinery #100 R77 remains: lu_machinery/orchestration/install_worktree_cleanup_launchd.py wrapper_path and _validate_primary require public_repo/lu_machinery/orchestration artifacts, rather than the separately installed package. Both source installer test files await that production dependency.",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.orchestration.install_worktree_cleanup_launchd [present: present on machinery main as lu_machinery/orchestration/install_worktree_cleanup_launchd.py]"
-   ]
+   ],
+   "residual_resolution": {
+    "id": "PORT-T1-B01",
+    "decision": "still-deferred",
+    "evidence": "Machinery #100 R77 remains: lu_machinery/orchestration/install_worktree_cleanup_launchd.py wrapper_path and _validate_primary require public_repo/lu_machinery/orchestration artifacts, rather than the separately installed package. Both source installer test files await that production dependency."
+   }
   },
   "tests/orchestration/test_integration_sweep.py": {
    "disposition": "keep",
@@ -13627,7 +13701,7 @@
    "ownership": "machinery",
    "residual_id": "PORT-T1-DEFER-02",
    "residual_owner": "claude-cto",
-   "residual_reason": "Deferred: imports tests/test_check_issue_task_quality.py, owned by task-quality tranche. LU test stays port-first until that dependency lands.",
+   "residual_reason": "tests/test_check_issue_task_quality.py (COMPLETE, HYGIENE, REGISTRY, REPO, audit_report) is absent from machinery main.",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "docs/WORKSTREAMS.md [present: product-owned in LU]",
@@ -13641,7 +13715,12 @@
     "scripts/ci/check_issue_task_quality.py [present: present on machinery main as lu_machinery/ci/check_issue_task_quality.py]",
     "scripts/ci/comment_issue_task_quality.py [present: present on machinery main as lu_machinery/ci/comment_issue_task_quality.py]",
     "scripts/orchestration/issue_quality_report.py [present: present on machinery main as lu_machinery/orchestration/issue_quality_report.py]"
-   ]
+   ],
+   "residual_resolution": {
+    "id": "PORT-T1-DEFER-02",
+    "decision": "still-deferred",
+    "evidence": "tests/test_check_issue_task_quality.py (COMPLETE, HYGIENE, REGISTRY, REPO, audit_report) is absent from machinery main."
+   }
   },
   "tests/orchestration/test_job_host_exec.py": {
    "disposition": "keep",
@@ -14228,9 +14307,6 @@
     "test_worker_git_pointer_cannot_choose_primary_proof_root"
    ],
    "ownership": "machinery",
-   "residual_id": "PORT-T1-DEFER-03",
-   "residual_owner": "claude-cto",
-   "residual_reason": "Deferred: imports tests/fleet/test_reaper_regenerable_cap.py, owned by T6. LU test stays port-first until that dependency lands.",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     ".gitignore [present: product-owned in LU]",
@@ -14265,7 +14341,13 @@
     "scripts/deploy/prepare_atlas_runtime_release.py [present: product-owned in LU]",
     "site/src/data/lexicon-manifest.fingerprint.json [present: product-owned in LU]",
     "tasks [present: product-owned in LU]"
-   ]
+   ],
+   "ported_to": "tests/orchestration/test_reaper_regenerable_round3.py",
+   "residual_resolution": {
+    "id": "PORT-T1-DEFER-03",
+    "decision": "ported",
+    "evidence": "Copied from frozen LU 5aba2adb96e13b3f4a5dc2abbe5ed71b7fb81d00 with package/import and installed-wheel fixture adaptations; registered as a whole-file machinery test."
+   }
   },
   "tests/orchestration/test_reaper_restore_safe_git.py": {
    "disposition": "port-first",
@@ -14945,9 +15027,6 @@
     "test_typed_checks_hold_under_optimize"
    ],
    "ownership": "machinery",
-   "residual_id": "PORT-T1-DEFER-04",
-   "residual_owner": "claude-cto",
-   "residual_reason": "Deferred: imports tests/test_rollover_bundles.py, dominant agents_extensions, owned by T8. LU test stays port-first until that dependency lands.",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     ".agent [present: product-owned in LU]",
@@ -14970,7 +15049,13 @@
     "scripts.orchestration.thread_handoff [present: present on machinery main as lu_machinery/orchestration/thread_handoff.py]",
     "scripts/config/issue_streams.yaml [present: present on machinery main as lu_machinery/config/issue_streams.yaml]",
     "scripts/lib/launcher_core.sh [present: present on machinery main as lu_machinery/lib/launcher_core.sh]"
-   ]
+   ],
+   "ported_to": "tests/orchestration/test_thread_handoff_reconcile.py",
+   "residual_resolution": {
+    "id": "PORT-T1-DEFER-04",
+    "decision": "ported",
+    "evidence": "Copied from frozen LU 5aba2adb96e13b3f4a5dc2abbe5ed71b7fb81d00 with package/import and installed-wheel fixture adaptations; registered as a whole-file machinery test."
+   }
   },
   "tests/orchestration/test_thread_restart_e2e.py": {
    "disposition": "keep",
@@ -15041,7 +15126,7 @@
    "ownership": "machinery",
    "residual_id": "PORT-T1-B01",
    "residual_owner": "claude-cto",
-   "residual_reason": "Machinery #100 R77: launchd installer requires machinery code in the product checkout; LU test stays port-first.",
+   "residual_reason": "Machinery #100 R77 remains: lu_machinery/orchestration/install_worktree_cleanup_launchd.py wrapper_path and _validate_primary require public_repo/lu_machinery/orchestration artifacts, rather than the separately installed package. Both source installer test files await that production dependency.",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.common.safe_unit_install [present: present on machinery main as lu_machinery/common/safe_unit_install.py]",
@@ -15055,7 +15140,12 @@
     "scripts.storage.install_data_volume_dropins [present: product-retained (aaba253): #108 keeps product reporting and deployment tools in product; LU retains its copies]",
     "scripts/orchestration/archived_thread_cleanup.py [present: present on machinery main as lu_machinery/orchestration/archived_thread_cleanup.py]",
     "scripts/orchestration/observer_heartbeat.py [present: present on machinery main as lu_machinery/orchestration/observer_heartbeat.py]"
-   ]
+   ],
+   "residual_resolution": {
+    "id": "PORT-T1-B01",
+    "decision": "still-deferred",
+    "evidence": "Machinery #100 R77 remains: lu_machinery/orchestration/install_worktree_cleanup_launchd.py wrapper_path and _validate_primary require public_repo/lu_machinery/orchestration artifacts, rather than the separately installed package. Both source installer test files await that production dependency."
+   }
   },
   "tests/orchestration/test_worker_leftovers.py": {
    "disposition": "port-first",
@@ -15538,7 +15628,14 @@
     "packaging/machinery-security/pins.txt [present: present on machinery main as packaging/machinery-security/pins.txt]",
     "packaging/machinery-security/prepublication-gate.sh [present: present on machinery main as packaging/machinery-security/prepublication-gate.sh]"
    ],
-   "residual_id": "PORT-1108-T9-R3"
+   "residual_id": "PORT-1108-T9-R3",
+   "residual_owner": "claude-cto",
+   "residual_reason": "The pinned TruffleHog executable, hash-locked Semgrep engine and pinned semgrep-rules checkout required by tests/packaging/test_machinery_prepublication_gate.py are not provisioned in the pytest CI job. Source tests skip without that scanner closure; no passing replacement is claimed.",
+   "residual_resolution": {
+    "id": "PORT-1108-T9-R3",
+    "decision": "still-deferred",
+    "evidence": "The pinned TruffleHog executable, hash-locked Semgrep engine and pinned semgrep-rules checkout required by tests/packaging/test_machinery_prepublication_gate.py are not provisioned in the pytest CI job. Source tests skip without that scanner closure; no passing replacement is claimed."
+   }
   },
   "tests/packaging/test_systemd_templates.py": {
    "disposition": "port-first",
@@ -17122,8 +17219,6 @@
     "test_unresolved_default_account_removes_only_claude_seats"
    ],
    "ownership": "machinery",
-   "residual": "deferred: product-kept test-helper dependencies; retained in LU pending helper port (owner: claude-cto)",
-   "residual_id": "PORT-1108-T5-R2",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     ".mcp/servers/sources/server.py [present: product-owned in LU]",
@@ -17376,7 +17471,13 @@
     "site/src/data/arc-a1.json [present: product-owned in LU]",
     "tasks [present: product-owned in LU]",
     "unresolved: non-literal spec_from_file_location path SERVER_PATH"
-   ]
+   ],
+   "ported_to": "tests/review/test_review_capacity_rule.py",
+   "residual_resolution": {
+    "id": "PORT-1108-T5-R2",
+    "decision": "ported",
+    "evidence": "Copied from frozen LU 5aba2adb96e13b3f4a5dc2abbe5ed71b7fb81d00 with package/import and installed-wheel fixture adaptations; registered as a whole-file machinery test."
+   }
   },
   "tests/review/test_review_lineage_supersession.py": {
    "disposition": "port-first",
@@ -18410,7 +18511,14 @@
     "scripts/curriculum/deploy_paths.v1.json [present: product-owned in LU]",
     "scripts/review/model_catalog.py [present: present on machinery main as lu_machinery/review/model_catalog.py]",
     "unresolved: non-literal import_module(name)"
-   ]
+   ],
+   "residual_owner": "claude-cto",
+   "residual_reason": "tests/agent_runtime/adapters/kimi_admitted.py (admitted_tool_config) is absent from machinery main. The T3a AGY route dependency is present; the remaining helper still prevents this whole-file port.",
+   "residual_resolution": {
+    "id": "T3B-R01",
+    "decision": "still-deferred",
+    "evidence": "tests/agent_runtime/adapters/kimi_admitted.py (admitted_tool_config) is absent from machinery main. The T3a AGY route dependency is present; the remaining helper still prevents this whole-file port."
+   }
   },
   "tests/test_agent_runtime_acp_transport_cutover.py": {
    "disposition": "port-first",
@@ -18510,15 +18618,19 @@
     "test_runner_smoke_spawns_each_provider_with_only_its_own_key"
    ],
    "ownership": "machinery",
-   "residual": "real machinery defect, class R78 (routed by claude-cto to cto-ed25-r78-sol): publish_environment puts the gh shim first on PATH but stamps no interpreter, and since #171 the shim resolves its interpreter only from LEARN_UKRAINIAN_PYTHON or a primary-checkout virtualenv, which an installed wheel does not have, so gh exits 127 for an unguarded child; reproducer test_runner_codex_subprocess_gets_gh_token_for_gh_auth_status",
-   "residual_id": "T3B-R08",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.agent_runtime.env_sanitize [present: present on machinery main as lu_machinery/agent_runtime/env_sanitize.py]",
     "scripts.agent_runtime.registry [present: present on machinery main as lu_machinery/agent_runtime/registry.py]",
     "scripts.agent_runtime.result [present: present on machinery main as lu_machinery/agent_runtime/result.py]",
     "scripts.agent_runtime.runner [present: present on machinery main as lu_machinery/agent_runtime/runner.py]"
-   ]
+   ],
+   "ported_to": "tests/test_agent_runtime_env_sanitize.py",
+   "residual_resolution": {
+    "id": "T3B-R08",
+    "decision": "ported",
+    "evidence": "Copied from frozen LU 5aba2adb96e13b3f4a5dc2abbe5ed71b7fb81d00 with package/import and installed-wheel fixture adaptations; registered as a whole-file machinery test."
+   }
   },
   "tests/test_agent_runtime_gemini_adapter.py": {
    "disposition": "port-first",
@@ -18669,7 +18781,14 @@
     "unresolved: computed patch target f'{adapter_type.__module__}.shutil.which'",
     "unresolved: computed setattr target f'{adapter_type.__module__}._cached_flash_name'",
     "unresolved: non-literal import_module(name)"
-   ]
+   ],
+   "residual_owner": "claude-cto",
+   "residual_reason": "lu_machinery/agent_runtime/adapters/kimi.py (KimiAdapter) and tests/agent_runtime/adapters/kimi_admitted.py are absent from machinery main; the source tests import both. The ACpx test helper is present.",
+   "residual_resolution": {
+    "id": "T3B-R02",
+    "decision": "still-deferred",
+    "evidence": "lu_machinery/agent_runtime/adapters/kimi.py (KimiAdapter) and tests/agent_runtime/adapters/kimi_admitted.py are absent from machinery main; the source tests import both. The ACpx test helper is present."
+   }
   },
   "tests/test_agent_runtime_log_redaction_claude.py": {
    "disposition": "port-first",
@@ -19728,18 +19847,22 @@
    "ownership": "product"
   },
   "tests/test_build_events_api.py": {
-   "disposition": "port-first",
+   "disposition": "keep",
    "evidence": "machinery-only subject references; subjects scripts.api.main; pkg3 isolation-only failures 1; 1 of 1 test IDs lack a machinery v0.1.0 replacement",
    "lu_test_ids": 1,
    "missing_behaviours": [
     "test_active_events_respects_10_min_window"
    ],
-   "ownership": "machinery",
-   "residual_id": "PORT-1108-T2-R2",
+   "ownership": "product",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.api.main [present: present on machinery main as lu_machinery/api/main.py]"
-   ]
+   ],
+   "residual_resolution": {
+    "id": "PORT-1108-T2-R2",
+    "decision": "product",
+    "evidence": "The /api/build/events/active route is contributed by the product scripts/project_api/build_events_router.py via scripts/project_api/entry.py; it is absent from the machinery-only API."
+   }
   },
   "tests/test_build_kaikki_lookup.py": {
    "disposition": "keep",
@@ -20205,7 +20328,6 @@
    "ownership": "product"
   },
   "tests/test_ci_recovery.py": {
-   "residual_id": "T7-ci-recovery",
    "disposition": "port-first",
    "evidence": "machinery-only subject references; subjects scripts.opsec.prepublish, scripts.orchestration.merge_queue_keeper, scripts.publish.github (+1); 29 of 29 test IDs lack a machinery v0.1.0 replacement",
    "lu_test_ids": 29,
@@ -20250,7 +20372,13 @@
     "scripts.publish.github [present: present on machinery main as lu_machinery/publish/github.py]",
     "scripts.review.record_cf_verdict [present: present on machinery main as lu_machinery/review/record_cf_verdict.py]",
     "scripts/curriculum/deploy_paths.v1.json [present: product-owned in LU]"
-   ]
+   ],
+   "ported_to": "tests/test_ci_recovery.py",
+   "residual_resolution": {
+    "id": "T7-ci-recovery",
+    "decision": "ported",
+    "evidence": "Copied from frozen LU 5aba2adb96e13b3f4a5dc2abbe5ed71b7fb81d00 with package/import and installed-wheel fixture adaptations; registered as a whole-file machinery test."
+   }
   },
   "tests/test_ci_slot_inventory.py": {
    "disposition": "port-first",
@@ -20675,7 +20803,12 @@
     "tasks [present: product-owned in LU]",
     "unresolved: non-literal spec_from_file_location path SERVER_PATH"
    ],
-   "residual_id": "PORT-1108-T9-R2"
+   "ported_to": "tests/test_claude_account_bound_snapshot.py",
+   "residual_resolution": {
+    "id": "PORT-1108-T9-R2",
+    "decision": "ported",
+    "evidence": "Copied from frozen LU 5aba2adb96e13b3f4a5dc2abbe5ed71b7fb81d00 with package/import and installed-wheel fixture adaptations; registered as a whole-file machinery test."
+   }
   },
   "tests/test_claude_account_route_key.py": {
    "disposition": "port-first",
@@ -21070,7 +21203,14 @@
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.agent_runtime.env_sanitize [present: present on machinery main as lu_machinery/agent_runtime/env_sanitize.py]"
-   ]
+   ],
+   "residual_owner": "claude-cto",
+   "residual_reason": "A macOS runner with a logged-in Claude CLI/keychain is required by its sole source test. Machinery tests.yml runs on ubuntu-24.04; no Linux skip is claimed as coverage.",
+   "residual_resolution": {
+    "id": "T3B-R09",
+    "decision": "still-deferred",
+    "evidence": "A macOS runner with a logged-in Claude CLI/keychain is required by its sole source test. Machinery tests.yml runs on ubuntu-24.04; no Linux skip is claimed as coverage."
+   }
   },
   "tests/test_claude_project_key.py": {
    "disposition": "port-first",
@@ -21997,20 +22137,24 @@
    "ownership": "product"
   },
   "tests/test_cost_api.py": {
-   "disposition": "port-first",
+   "disposition": "keep",
    "evidence": "machinery-only subject references; subjects scripts.api.main, scripts.telemetry.cost_report; pkg3 isolation-only failures 1; 1 of 1 test IDs lack a machinery v0.1.0 replacement",
    "lu_test_ids": 1,
    "missing_behaviours": [
     "test_cost_module_route_returns_windows"
    ],
-   "ownership": "machinery",
-   "residual_id": "PORT-1108-T2-R1",
+   "ownership": "product",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "batch_state [present: product-owned in LU]",
     "scripts.api.main [present: present on machinery main as lu_machinery/api/main.py]",
     "scripts.telemetry.cost_report [present: present on machinery main as lu_machinery/telemetry/cost_report.py]"
-   ]
+   ],
+   "residual_resolution": {
+    "id": "PORT-1108-T2-R1",
+    "decision": "product",
+    "evidence": "The /api/analytics/cost/module route is contributed by the product scripts/project_api/cost_router.py via scripts/project_api/entry.py; it is absent from the machinery-only API."
+   }
   },
   "tests/test_cost_report.py": {
    "disposition": "port-first",
@@ -22931,7 +23075,14 @@
     "site/src/pages/lexicon/[lemma].astro [present: product-owned in LU]"
    ],
    "port_note": "deferred: imports tests/test_delegate_ownership_relaxation.py, owned by T9",
-   "residual_id": "PORT-1108-T10-R1"
+   "residual_id": "PORT-1108-T10-R1",
+   "residual_owner": "claude-cto",
+   "residual_reason": "tests/test_delegate_ownership_relaxation.py (FakeTime) is absent from machinery main; test_delegate_ownership_repository.py still imports it.",
+   "residual_resolution": {
+    "id": "PORT-1108-T10-R1",
+    "decision": "still-deferred",
+    "evidence": "tests/test_delegate_ownership_relaxation.py (FakeTime) is absent from machinery main; test_delegate_ownership_repository.py still imports it."
+   }
   },
   "tests/test_delegate_primary_integrity.py": {
    "disposition": "keep",
@@ -25745,8 +25896,6 @@
     "test_self_matching_process_kill"
    ],
    "ownership": "machinery",
-   "residual": "deferred: imports tests/test_secret_print_hook.py (T3B-R06)",
-   "residual_id": "T3B-R07",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "AGENTS.md [present: product-owned in LU]",
@@ -25759,7 +25908,13 @@
     "scripts.session_supervisor [present: present on machinery main as lu_machinery/session_supervisor/__init__.py]",
     "scripts/agent_runtime/secret_print_hook.py [present: present on machinery main as lu_machinery/agent_runtime/secret_print_hook.py]",
     "unresolved: non-literal spec_from_file_location path path"
-   ]
+   ],
+   "ported_to": "tests/test_guard_bash_process_kill.py",
+   "residual_resolution": {
+    "id": "T3B-R07",
+    "decision": "ported",
+    "evidence": "Copied from frozen LU 5aba2adb96e13b3f4a5dc2abbe5ed71b7fb81d00 with package/import and installed-wheel fixture adaptations; registered as a whole-file machinery test."
+   }
   },
   "tests/test_guard_benign_corpus.py": {
    "disposition": "port-first",
@@ -27524,7 +27679,7 @@
    ]
   },
   "tests/test_launcher_interactive_scope.py": {
-   "disposition": "port-first",
+   "disposition": "keep",
    "evidence": "machinery-only subject references; subjects agents_extensions.shared.session_streams.db, agents_extensions.shared.session_streams.model, agents_extensions.shared.session_streams.store (+3); pkg3 switch regressions 10; 30 of 30 test IDs lack a machinery v0.1.0 replacement",
    "lu_test_ids": 30,
    "missing_behaviours": [
@@ -27559,8 +27714,7 @@
     "test_unlisted_entry_point_is_refused",
     "test_unreadable_caller_cgroup_is_refused"
    ],
-   "ownership": "machinery",
-   "residual_id": "PORT-T8-B02",
+   "ownership": "product",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     ".gemini/config.yaml [present: product-owned in LU]",
@@ -27626,7 +27780,12 @@
     "start-kimi.sh [present: product-owned in LU]",
     "start-kimicc.sh [present: product-owned in LU]",
     "start-muse-driver.sh [present: product-owned in LU]"
-   ]
+   ],
+   "residual_resolution": {
+    "id": "PORT-T8-B02",
+    "decision": "product",
+    "evidence": "Exercises the product root start-*.sh interactive, driver and CTO wrappers through launcher_wrapper_source/product_checkout. tests/machinery_tests.txt already holds this exact file for that product dependency; shared runtime assertions do not authorize deleting the mixed LU file."
+   }
   },
   "tests/test_launcher_remote_renew.py": {
    "disposition": "port-first",
@@ -29885,8 +30044,6 @@
     "test_typed_missing_commit_neutralizes_and_wrong_base_stays_specific"
    ],
    "ownership": "machinery",
-   "residual": "deferred: imports tests/test_review_target_resolution.py, owned by the review tranche",
-   "residual_id": "T3B-R04",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     ".github/workflows/ci.yml [present: product-owned in LU]",
@@ -29917,7 +30074,13 @@
     "scripts/verify_review.py [present: present on machinery main as lu_machinery/verify_review.py]",
     "tasks [present: product-owned in LU]",
     "tests [present: mixed-owned in LU]"
-   ]
+   ],
+   "ported_to": "tests/test_private_review_target.py",
+   "residual_resolution": {
+    "id": "T3B-R04",
+    "decision": "ported",
+    "evidence": "Copied from frozen LU 5aba2adb96e13b3f4a5dc2abbe5ed71b7fb81d00 with package/import and installed-wheel fixture adaptations; registered as a whole-file machinery test."
+   }
   },
   "tests/test_private_teacher_lesson_full_intake.py": {
    "disposition": "keep",
@@ -31012,8 +31175,6 @@
     "test_untracked_immutable_capture_survives_source_swap"
    ],
    "ownership": "machinery",
-   "residual": "deferred: imports tests/agent_runtime/test_codex_sources_config_layers.py, owned by T3a",
-   "residual_id": "T3B-R03",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "AGENTS.md [present: product-owned in LU]",
@@ -31028,7 +31189,13 @@
     "scripts.ai_agent_bridge._review_worktree [present: present on machinery main as lu_machinery/ai_agent_bridge/_review_worktree.py]",
     "scripts.review.isolation [present: present on machinery main as lu_machinery/review/isolation.py]",
     "scripts.review.snapshot [present: present on machinery main as lu_machinery/review/snapshot.py]"
-   ]
+   ],
+   "ported_to": "tests/test_review_isolation.py",
+   "residual_resolution": {
+    "id": "T3B-R03",
+    "decision": "ported",
+    "evidence": "Copied from frozen LU 5aba2adb96e13b3f4a5dc2abbe5ed71b7fb81d00 with package/import and installed-wheel fixture adaptations; registered as a whole-file machinery test."
+   }
   },
   "tests/test_review_plan.py": {
    "disposition": "keep",
@@ -31820,8 +31987,6 @@
     "test_unexpected_adapter_failure_denies"
    ],
    "ownership": "machinery",
-   "residual": "deferred: imports tests/test_guard_secret_print.py, owned by T8 (agents_extensions)",
-   "residual_id": "T3B-R06",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "AGENTS.md [present: product-owned in LU]",
@@ -31834,7 +31999,13 @@
     "scripts.session_supervisor [present: present on machinery main as lu_machinery/session_supervisor/__init__.py]",
     "scripts/agent_runtime/secret_print_hook.py [present: present on machinery main as lu_machinery/agent_runtime/secret_print_hook.py]",
     "unresolved: non-literal spec_from_file_location path path"
-   ]
+   ],
+   "ported_to": "tests/test_secret_print_hook.py",
+   "residual_resolution": {
+    "id": "T3B-R06",
+    "decision": "ported",
+    "evidence": "Copied from frozen LU 5aba2adb96e13b3f4a5dc2abbe5ed71b7fb81d00 with package/import and installed-wheel fixture adaptations; registered as a whole-file machinery test."
+   }
   },
   "tests/test_secret_redaction.py": {
    "disposition": "keep",
@@ -31882,13 +32053,13 @@
    ]
   },
   "tests/test_secret_redactor_urls.py": {
-   "disposition": "port-first",
+   "disposition": "keep",
    "evidence": "machinery-only subject references; subjects scripts.secret_redactor; 15 of 15 test IDs lack a machinery v0.1.0 replacement",
    "lu_test_ids": 15,
    "missing_behaviours": [
     "test_ordinary_repository_corpus_is_unchanged_by_url_pass"
    ],
-   "ownership": "machinery",
+   "ownership": "product",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "AGENTS.md [present: product-owned in LU]",
@@ -31899,7 +32070,6 @@
     "scripts/api/lane_health.py [present: present on machinery main as lu_machinery/api/lane_health.py]"
    ],
    "ported_to": "tests/repo_contracts/test_secret_redactor_urls.py",
-   "residual_id": "PORT-1108-T10-R3",
    "ported_behaviours": [
     "test_ambiguous_numeric_or_empty_password_prefix_stays_a_port",
     "test_credentialless_nested_and_joined_urls_stay_byte_identical",
@@ -31916,7 +32086,12 @@
     "test_url_password_characters_are_redacted_without_normalizing_bytes",
     "test_username_only_and_schemeless_userinfo_stay_unchanged"
    ],
-   "port_note": "partial port: 14 pure redactor functions; product-kept: test_ordinary_repository_corpus_is_unchanged_by_url_pass tests the LU product-document corpus; retain the LU file for this residual"
+   "port_note": "partial port: 14 pure redactor functions; product-kept: test_ordinary_repository_corpus_is_unchanged_by_url_pass tests the LU product-document corpus; retain the LU file for this residual",
+   "residual_resolution": {
+    "id": "PORT-1108-T10-R3",
+    "decision": "product",
+    "evidence": "Only test_ordinary_repository_corpus_is_unchanged_by_url_pass remains; it scans the LU product-document corpus. The other 14 functions already have machinery coverage at ported_to."
+   }
   },
   "tests/test_secret_scan_scope.py": {
    "disposition": "keep",
@@ -33157,7 +33332,7 @@
    ]
   },
   "tests/test_start_codex_driver.py": {
-   "disposition": "port-first",
+   "disposition": "keep",
    "evidence": "machinery-only subject references; subjects agents_extensions/shared/prompts/dynamic-area-epic-fleet-governor.md, scripts.common, scripts.common.transitive (+21); pkg3 switch regressions 14; pkg3 isolation-only failures 30; 21 of 21 test IDs lack a machinery v0.1.0 replacement",
    "lu_test_ids": 21,
    "missing_behaviours": [
@@ -33183,10 +33358,7 @@
     "test_sustained_driver_probes_then_claims_lease_then_binds_drive_epic",
     "test_unclassified_provider_option_refused_before_caller"
    ],
-   "ownership": "machinery",
-   "residual_id": "PORT-T1-DEFER-05",
-   "residual_owner": "claude-cto",
-   "residual_reason": "Deferred: imports tests/test_launcher_contract.py and tests/test_launcher_driver_scope.py, owned by T8. LU test stays port-first until that dependency lands.",
+   "ownership": "product",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     ".gemini/config.yaml [present: product-owned in LU]",
@@ -33277,7 +33449,12 @@
     "start-kimi.sh [present: product-owned in LU]",
     "start-kimicc.sh [present: product-owned in LU]",
     "start-muse-driver.sh [present: product-owned in LU]"
-   ]
+   ],
+   "residual_resolution": {
+    "id": "PORT-T1-DEFER-05",
+    "decision": "product",
+    "evidence": "Exercises the product root start-codex-driver.sh wrapper, including its governor, selectors and forwarding contract. The wrapper is product-owned; the shared launcher libraries remain covered separately in machinery."
+   }
   },
   "tests/test_start_codex_launcher.py": {
    "disposition": "keep",
@@ -34801,8 +34978,6 @@
     "test_verify_review_read_review_timeout_exits_invalid"
    ],
    "ownership": "machinery",
-   "residual": "deferred: imports tests/test_review_target_resolution.py, owned by the review tranche",
-   "residual_id": "T3B-R05",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     ".github/workflows/ci.yml [present: product-owned in LU]",
@@ -34836,7 +35011,13 @@
     "scripts/verify_review.py [present: present on machinery main as lu_machinery/verify_review.py]",
     "tasks [present: product-owned in LU]",
     "tests [present: mixed-owned in LU]"
-   ]
+   ],
+   "ported_to": "tests/test_verify_review.py",
+   "residual_resolution": {
+    "id": "T3B-R05",
+    "decision": "ported",
+    "evidence": "Copied from frozen LU 5aba2adb96e13b3f4a5dc2abbe5ed71b7fb81d00 with package/import and installed-wheel fixture adaptations; registered as a whole-file machinery test."
+   }
   },
   "tests/test_verify_shippable.py": {
    "disposition": "keep",
@@ -35330,7 +35511,14 @@
     "dashboards/work.html [present: present on machinery main as dashboards/work.html]"
    ],
    "residual_id": "PORT-1108-T10-R2",
-   "port_note": "browser-environment residual: all 14 browser proofs remain port-first in LU; machinery CI has no Puppeteer/browser setup; no replacement coverage claimed"
+   "port_note": "browser-environment residual: all 14 browser proofs remain port-first in LU; machinery CI has no Puppeteer/browser setup; no replacement coverage claimed",
+   "residual_owner": "claude-cto",
+   "residual_reason": "Puppeteer and a compatible Chrome/Chromium executable are required for all 14 browser proofs; .github/workflows/tests.yml does not provision that browser environment.",
+   "residual_resolution": {
+    "id": "PORT-1108-T10-R2",
+    "decision": "still-deferred",
+    "evidence": "Puppeteer and a compatible Chrome/Chromium executable are required for all 14 browser proofs; .github/workflows/tests.yml does not provision that browser environment."
+   }
   },
   "tests/test_work_pr_snapshot.py": {
    "disposition": "port-first",

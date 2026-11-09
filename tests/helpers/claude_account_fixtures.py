@@ -17,7 +17,7 @@ def default_account_file(tmp_path, monkeypatch, content: bytes | None = None, *,
 
 
 def bind_claude_account_b(tmp_path, monkeypatch, *, bound: bool = True) -> str:
-    from tests.agent_runtime.test_attempt_boundary import (
+    from tests.agent_runtime.attempt_boundary_support import (
         BOUND_ACCOUNT_UUID,
         CLAUDE_AMBIENT_AUTH,
         DEFAULT_ACCOUNT_UUID,
