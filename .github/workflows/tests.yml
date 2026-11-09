@@ -264,10 +264,14 @@ jobs:
           )
           for path in unlisted:
               print(f"::warning file={path}::{path} is not in {manifest}; the pytest job does not run it")
+          # Sorted so every directory is contiguous: pytest binds a directory's
+          # conftest fixtures to one collector node, and a directory split in
+          # the argument list gets a second node without them.
+          run_files = sorted(sections["run"])
           with open(out, "w", encoding="utf-8") as handle:
-              handle.write("".join(f"{path}\n" for path in sections["run"]))
+              handle.write("".join(f"{path}\n" for path in run_files))
           print(f"{len(sections['run'])} [run] file(s), {len(sections['support'])} [support] file(s).")
-          for path in sections["run"]:
+          for path in run_files:
               print(f"  {path}")
           PY
 
