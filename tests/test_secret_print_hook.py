@@ -7,7 +7,6 @@ import json
 import subprocess
 import shutil
 import sys
-from pathlib import Path
 
 import pytest
 
@@ -23,7 +22,6 @@ from tests.agents_extensions.test_guard_secret_print import (
 )
 
 HARNESS_NAMES = ["claude", "codex", "grok", "kimi", "cursor", "agy", "opencode"]
-ROOT = Path(__file__).resolve().parents[1]
 ADAPTER = machinery_path("agent_runtime/secret_print_hook.py")
 SENTINEL = "synthetic_adapter_value_91b8"
 
@@ -289,12 +287,12 @@ def test_cli_help():
 
 
 @pytest.mark.parametrize("harness", HARNESS_NAMES)
-def test_actual_guard_stderr_is_forwarded(harness, monkeypatch, capsys):
+def test_actual_guard_stderr_is_forwarded(harness, monkeypatch, capsys, secret_print_product):
     from lu_machinery.agent_runtime import secret_print_hook as hook
 
     command = 'echo "$ARBITRARY_TOKEN"'
     guard = subprocess.run(
-        [sys.executable, str(hook.GUARD_PATH)],
+        [sys.executable, "-I", str(secret_print_product / "agents_extensions/shared/hooks/guard-secret-print.py")],
         input=json.dumps(event("claude", command)),
         text=True,
         capture_output=True,
@@ -421,18 +419,16 @@ def test_agy_invalid_stdin_subprocess(raw):
 
 
 @pytest.mark.parametrize("failure", ["missing", "crash", "deadline"])
-def test_agy_detector_failure_real_subprocess(tmp_path, failure):
-    guard = tmp_path / "guard.py"
+def test_agy_detector_failure_real_subprocess(tmp_path, failure, secret_print_product):
+    guard = secret_print_product / "agents_extensions/shared/hooks/guard-secret-print.py"
+    guard.unlink()
     if failure != "missing":
         guard.write_text(
             "raise RuntimeError('synthetic crash')\n" if failure == "crash" else "import time\ntime.sleep(30)\n"
         )
     wrapper = tmp_path / "hook_probe.py"
     wrapper.write_text(
-        "import sys\nfrom pathlib import Path\n"
-        f"sys.path.insert(0, {str(ROOT)!r})\n"
         "from lu_machinery.agent_runtime import secret_print_hook as hook\n"
-        f"hook.GUARD_PATH = Path({str(guard)!r})\n"
         "raise SystemExit(hook.main(['--harness', 'agy']))\n"
     )
     result = subprocess.run(

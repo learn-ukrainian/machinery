@@ -15,6 +15,10 @@
 # [support]: their fixture and helper closure: every tests/ file imported or opened while the
 #   [run] files ran (import and open audit hook, the source manifest's method). A [support]
 #   file named test_*.py is imported by a [run] file and is not run itself.
+tests/fixtures/product_tree/agents_extensions/shared/curriculum-lifecycle/config/coordinator.v1.yaml
+
+tests/fixtures/product_tree/agents_extensions/shared/curriculum-lifecycle/schema/coordinator-config.v1.schema.json
+
 # [held]: source [run] files this repository does not run, with the reason; none is ported.
 #   Each needs the product checkout, which this repository does not hold.
 

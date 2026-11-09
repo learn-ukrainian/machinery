@@ -1810,8 +1810,8 @@ def test_load_schema_invalid_json_is_contract_error(tmp_path, monkeypatch):
     schema_file = bad / "code-review-findings.v1.schema.json"
     schema_file.write_text("{not-json", encoding="utf-8")
     monkeypatch.setattr(
-        "lu_machinery.review.review_contract.package_repo_root",
-        lambda: tmp_path,
+        "lu_machinery.review.review_contract.schema_path",
+        lambda **_: schema_file,
     )
     with pytest.raises(ContractError, match="schema_invalid_json") as exc:
         load_schema()
@@ -1820,8 +1820,8 @@ def test_load_schema_invalid_json_is_contract_error(tmp_path, monkeypatch):
 
 def test_load_schema_unreadable_is_contract_error(tmp_path, monkeypatch):
     monkeypatch.setattr(
-        "lu_machinery.review.review_contract.package_repo_root",
-        lambda: tmp_path / "missing-root",
+        "lu_machinery.review.review_contract.schema_path",
+        lambda **_: tmp_path / "missing-root" / "code-review-findings.v1.schema.json",
     )
     with pytest.raises(ContractError, match="schema_unavailable") as exc:
         load_schema()
