@@ -373,7 +373,7 @@ ROUTED = (
     "lu_machinery/agy_hooks/pending_orders_inject.sh",
     "lu_machinery/ai_agent_bridge/inbox_watch.sh",
     "lu_machinery/api/run_monitor_api_supervisor.sh",
-    "lu_machinery/ci/checks.sh",
+    "lu_machinery/deploy_prompts.sh",
     "lu_machinery/guardrails/primary_post_checkout_heal.sh",
     "lu_machinery/hooks/run_hook_timed.sh",
     "lu_machinery/ops/smoketest_bridge_stdout_only.sh",
@@ -567,10 +567,12 @@ def test_remaining_shell_programs_select_the_rule_and_refuse_invalid(tmp_path: P
     codex_selected = selected([str(codex), "pre-tool-use"], cwd=worktree, extra={"CLAUDE_PROJECT_DIR": str(worktree)}, stdin=payload)
     assert str(override) in log.read_text(encoding="utf-8"), codex_selected.stderr
 
-    checks = selected([str(SOURCE / "lu_machinery/ci/checks.sh")], cwd=primary, extra={})
-    assert str(override) in log.read_text(encoding="utf-8"), checks.stderr
-    checks_refused = refused([str(SOURCE / "lu_machinery/ci/checks.sh")], cwd=primary, extra={})
-    assert checks_refused.returncode != 0
+    deploy = str(SOURCE / "lu_machinery/deploy_prompts.sh")
+    deploy_extra = {"LU_PRODUCT_ROOT": str(primary)}
+    deployed = selected([deploy], cwd=primary, extra=deploy_extra)
+    assert str(override) in log.read_text(encoding="utf-8"), deployed.stderr
+    deploy_refused = refused([deploy], cwd=primary, extra=deploy_extra)
+    assert deploy_refused.returncode != 0
     assert log.read_text(encoding="utf-8") == ""
 
     for script, argv, stdin, extra in (
