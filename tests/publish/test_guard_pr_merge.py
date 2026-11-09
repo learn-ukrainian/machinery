@@ -31,6 +31,7 @@ from pathlib import Path
 import pytest
 from lu_machinery.common.repo_root import machinery_path
 from tests.helpers.product_tree import configured_roots  # noqa: F401
+from tests.helpers.restore_import_state import restore_import_state
 
 
 
@@ -76,7 +77,12 @@ guard = None
 @pytest.fixture(autouse=True)
 def loaded_guard(configured_roots):  # noqa: F811 - imported pytest fixture
     global guard
-    guard = _load_hook()
+    # The hook bootstraps a fresh root package and changes interpreter globals.
+    with restore_import_state("lu_machinery"), pytest.MonkeyPatch.context() as patches:
+        patches.setattr(sys, "path", sys.path.copy())
+        patches.setattr(sys, "dont_write_bytecode", sys.dont_write_bytecode)
+        guard = _load_hook()
+        yield
 
 
 _ISSUE_9461_MERGES = [

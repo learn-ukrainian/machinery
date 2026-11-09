@@ -33652,7 +33652,7 @@
     "test_the_original_request_is_gated_before_the_launch_route_runs"
    ],
    "ownership": "machinery",
-   "ported_to": "tests/review/test_target_admission.py",
+   "ported_to": "tests/review/test_review_target_admission.py",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     ".gitattributes [present: product-owned in LU]",

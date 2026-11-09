@@ -535,7 +535,7 @@ tests/dispatcher/test_review_tools.py
 tests/review/test_review_verdict_parser.py
 tests/review/test_routing_amendment_11327.py
 tests/review/test_second_seat.py
-tests/review/test_target_admission.py
+tests/review/test_review_target_admission.py
 tests/review/test_temp_lifecycle.py
 tests/review/test_temp_worktree_guard.py
 tests/review/test_verdict_parser.py
@@ -697,7 +697,7 @@ tests/fixtures/ci_advisory_workflow.yml
 tests/fixtures/product_tree/.github/workflows/coverage-ref.yml
 tests/fixtures/product_tree/.github/workflows/pytest-slow-nightly.yml
 tests/fixtures/product_tree/.gitignore
-tests/fixtures/product_tree/.mcp.json
+tests/dispatcher/fixtures/product.mcp.json
 # [held]
 
 # tests/test_launcher_interactive_scope.py: 101 tests list the product's root start-*.sh wrappers through product_root(), which needs the product checkout (ProductRootError: no product is configured; LU_PRODUCT_ROOT names none).

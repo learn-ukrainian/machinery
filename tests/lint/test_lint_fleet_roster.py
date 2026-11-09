@@ -125,8 +125,9 @@ def test_committed_projections_match_machine_authorities():
     assert eligible["grok"] is True
     # #9488: Cursor is formal only for its catalog-pinned, runtime-attested model.
     assert eligible["cursor"] is True
-    for name in ("agy", "kimi"):
-        assert eligible[name] is False
+    assert eligible["agy"] is False
+    # PRs #141 and #160 removed the retired endpoint from the authority.
+    assert "kimi" not in eligible
 
 
 @pytest.mark.parametrize("field", SEAT_FIELDS)
