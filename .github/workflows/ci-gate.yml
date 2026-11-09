@@ -26,9 +26,10 @@
 # - CI Gate needs every other job, runs even when one of them fails, and passes
 #   only when every expected job reports `success`. A failed, cancelled or
 #   skipped job, a missing result or an unexpected job fails it, because GitHub
-#   counts a skipped required check as passing. There is no matrix, so each
-#   check name is the job name (the called tests.yml job reports as
-#   "pytest / pytest"). A new job must be added to both `needs` and the
+#   counts a skipped required check as passing. Each check name is the job
+#   name. The called tests.yml reports its shards as "pytest / pytest (N)"
+#   and their always() aggregate as "pytest / pytest shards"; `pytest` here
+#   succeeds only if all of them do. A new job must be added to both `needs` and the
 #   gate's expected list; nothing else catches a job left out of both.
 # - Hosted runners only (ubuntu-24.04). Every tool is downloaded at a pinned
 #   version and checked against a pinned SHA-256 before it runs: release
