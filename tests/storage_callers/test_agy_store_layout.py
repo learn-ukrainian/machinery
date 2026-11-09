@@ -90,5 +90,11 @@ def test_disagreeing_primary_anchors_refuse_before_scratch_or_provider(tmp_path,
     argv, _env = _launch(tmp_path, worktree, "anchor", ["/bin/true"])
     assert agy_sandbox.main(argv[argv.index("--task-id"):]) == 125
     receipt = json.loads((tmp_path / "anchor.sandbox.json").read_text())
-    assert receipt["reason"] == "store_primary_disagreement"
+    # The anchor check runs only after the host can start bubblewrap. A host
+    # without bwrap refuses at that earlier gate, still before scratch exists.
+    boundary = agy_sandbox.unavailable()
+    if boundary is None:
+        assert receipt["reason"] == "store_primary_disagreement"
+    else:
+        assert receipt["reason"] == boundary
     assert not (tmp_path / "scratch-anchor").exists()
