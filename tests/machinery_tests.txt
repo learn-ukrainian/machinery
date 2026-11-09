@@ -323,6 +323,12 @@ tests/fleet/test_reviewer_scheduler.py
 tests/fleet/test_routing_policy.py
 tests/fleet/test_sibling_git.py
 tests/fleet/test_usage_cli.py
+tests/fleet/test_ignored_task_output.py
+tests/fleet/test_reaper_regenerable_cap.py
+tests/fleet/test_regenerable_output.py
+tests/fleet/test_terminal_abandon.py
+tests/fleet/test_terminal_abandon_10624.py
+tests/fleet/test_terminal_abandon_bundle.py
 tests/fleet_comms/test_artifacts_byteplane_integrity.py
 tests/fleet_comms/test_cold_start_board.py
 tests/fleet_comms/test_cto_recipient.py
