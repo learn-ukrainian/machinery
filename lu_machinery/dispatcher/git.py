@@ -7,6 +7,7 @@ import os
 import re
 import shlex
 import shutil
+import stat
 import subprocess
 import sys
 import time
@@ -31,7 +32,9 @@ from lu_machinery.common.task_scratch import TaskScratchError, allocate
 from lu_machinery.common.task_store_paths import tasks_dir
 from lu_machinery.dispatcher import site_deps
 from lu_machinery.dispatcher.types import TaskSpec
+from lu_machinery.orchestration.execution_safe_git import GIT as EXECUTION_SAFE_GIT
 from lu_machinery.orchestration.execution_safe_git import run_git as execution_safe_git
+from lu_machinery.orchestration.execution_safe_git import safe_git_env
 from lu_machinery.storage.topology import STORE_FILES
 
 # Default trees excluded from dispatch worktrees.
@@ -624,6 +627,116 @@ PULL_HEAD = re.compile(r"refs/pull/[0-9]+/head")
 
 
 
+def _hidden_tracked_changes(tree: Path) -> bool:
+    """Whether the tree holds uncommitted tracked work that ``git status --porcelain`` cannot see.
+
+    Status trusts the assume-unchanged and skip-worktree index flags, so every flagged entry is compared here:
+    a missing file is a deletion, except a skip-worktree entry the sparse-checkout rules exclude; a present one
+    must keep the entry's type and executable bit, and its bytes must equal the entry's checkout form
+    (cat-file --filters; a symlink's target text raw). A flagged submodule entry or a path under a symlinked
+    directory counts as changed. Each initialized submodule is checked the same way, with its own status run
+    with --ignore-submodules=none, since its index flags and its own submodules' ignore settings hide work
+    from the superproject; a submodule path under a symlink, or a non-empty submodule directory without its
+    Git metadata, counts as changed. Filter drivers stay disabled (execution_safe_git), so a driver-filtered or
+    re-encoded file can read changed, never clean.
+    """
+    local = partial(execution_safe_git, cwd=tree, capture_output=True, check=True, timeout=30)
+
+    def enabled(key: str) -> bool:
+        value: bytes = local(["config", "--type=bool", key], check=False).stdout
+        return value.strip() != b"false"
+
+    def under_symlink(parts: tuple[str, ...]) -> bool:
+        return any(os.path.islink(tree.joinpath(*parts[:depth])) for depth in range(1, len(parts)))
+
+    flagged: list[tuple[bool, str, str, str]] = []
+    submodules: dict[str, None] = {}
+    for entry in local(["ls-files", "--stage", "-v", "-z"]).stdout.split(b"\0"):
+        if not entry:
+            continue
+        meta, raw_name = entry[2:].split(b"\t", 1)
+        mode, oid, _stage = meta.decode("ascii").split(" ")
+        name = os.fsdecode(raw_name)
+        if entry[:1].islower() or entry[:1] == b"S":
+            flagged.append((entry[:1] in (b"S", b"s"), mode, oid, name))
+        elif mode == "160000":
+            submodules[name] = None
+    executable = symlinks = True
+    if flagged:
+        executable, symlinks = enabled("core.fileMode"), enabled("core.symlinks")
+    absent, converted, raw = [], [], []
+    for skip, mode, oid, name in flagged:
+        path = tree / name
+        if mode == "160000" or under_symlink(PurePosixPath(name).parts):
+            return True
+        if not os.path.lexists(path):
+            if not skip:
+                return True
+            absent.append(name)
+            continue
+        info = os.lstat(path)
+        if mode == "120000":
+            if not (stat.S_ISLNK(info.st_mode) or (not symlinks and stat.S_ISREG(info.st_mode))):
+                return True
+            raw.append((oid, path))
+        elif not stat.S_ISREG(info.st_mode) or (executable and bool(info.st_mode & 0o100) != (mode == "100755")):
+            return True
+        else:
+            converted.append((oid, name))
+    if absent:
+        if local(["config", "--type=bool", "core.sparseCheckout"], check=False).stdout.strip() != b"true":
+            return True
+        # check-rules reads only configuration and the rules file, never the index, so no fsmonitor or hook runs.
+        # The fixed Git executable and literal argv run in the sanitized Git environment; no shell runs.
+        included = subprocess.run(  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit
+            [EXECUTION_SAFE_GIT, "--no-pager", "-c", "core.fsmonitor=false", "-c", f"core.hooksPath={os.devnull}",
+             "-C", str(tree), "sparse-checkout", "check-rules", "-z"],
+            input=b"".join(os.fsencode(name) + b"\0" for name in absent), env=safe_git_env(),
+            capture_output=True, check=True, timeout=30,
+        ).stdout
+        if any(included.split(b"\0")):
+            return True
+    for (_oid, path), blob in zip(raw, _batch_blobs(local, [oid for oid, _ in raw]), strict=True):
+        if (os.fsencode(os.readlink(path)) if path.is_symlink() else path.read_bytes()) != blob:
+            return True
+    # One request per entry: a batch request strips a path's leading blanks, and with --filters its header
+    # gives the stored size, not the converted one.
+    for oid, name in converted:
+        if (tree / name).read_bytes() != local(["cat-file", "--filters", f"--path={name}", oid]).stdout:
+            return True
+    for name in submodules:
+        path = tree / name
+        if under_symlink((*PurePosixPath(name).parts, ".git")):
+            return True
+        if not os.path.lexists(path / ".git"):
+            # An uninitialized submodule is an empty directory or none; files left without their Git metadata are
+            # invisible to the superproject's status and may be tracked work.
+            if os.path.isdir(path) and os.listdir(path):
+                return True
+            continue
+        nested = partial(execution_safe_git, cwd=path, capture_output=True, check=True, timeout=30)
+        if nested(["status", "--porcelain", "--ignore-submodules=none"]).stdout or _hidden_tracked_changes(path):
+            return True
+    return False
+
+
+def _batch_blobs(local, oids: list[str]) -> list[bytes]:
+    """Stored contents of the named blobs, in order, from one NUL-separated ``cat-file --batch`` request."""
+    if not oids:
+        return []
+    out = local(["cat-file", "--batch", "-Z"], input=b"".join(oid.encode() + b"\0" for oid in oids)).stdout
+    blobs, position = [], 0
+    for _ in oids:
+        end = out.index(b"\0", position)
+        header = out[position:end].split(b" ")
+        if len(header) != 3 or header[1] != b"blob":
+            raise ValueError("flagged index entry has no readable blob")
+        position = end + 1 + int(header[2])
+        blobs.append(out[end + 1:position])
+        position += 1
+    return blobs
+
+
 def snapshot_delivery(spec: TaskSpec, record: dict) -> dict:
     delivery = dict(
         head_sha=None, remote_head_sha=None, remote_ref=None, publish_branch=record.get("publish_branch"),
@@ -637,11 +750,16 @@ def snapshot_delivery(spec: TaskSpec, record: dict) -> dict:
             head_sha=local(["rev-parse", "HEAD"]).stdout.strip(),
             commits_ahead=int(local(["rev-list", "--count", f"{start_sha}..HEAD"]).stdout),
         )
-        status = [line for line in local(["status", "--porcelain"]).stdout.splitlines() if line]
+        # --ignore-submodules=none overrides submodule.<name>.ignore and diff.ignoreSubmodules, so a submodule
+        # edit or new submodule commit is reported whatever the tree configures.
+        status = [line for line in local(["status", "--porcelain", "--ignore-submodules=none"]).stdout.splitlines()
+                  if line]
+        hidden = _hidden_tracked_changes(spec.worktree)
         # Untracked files alone, which settlement's removal preserves, leave the merge rescue open
         # (worker._enforce_delivery); it reads this status, taken with head_sha, never the tree again.
-        delivery.update(worktree_dirty_on_exit=bool(status),
-                        worktree_untracked_only_on_exit=bool(status) and all(line.startswith("?? ") for line in status))
+        delivery.update(worktree_dirty_on_exit=bool(status) or hidden,
+                        worktree_untracked_only_on_exit=bool(status) and not hidden
+                        and all(line.startswith("?? ") for line in status))
         if spec.mode == "read-only":
             delivery["push_state"] = "not_applicable"
             delivery["push_state_reason"] = "read_only"
@@ -663,7 +781,8 @@ def snapshot_delivery(spec: TaskSpec, record: dict) -> dict:
             delivery["push_state_reason"] = (
                 "remote_head_matches" if matched else "remote_head_differs" if heads else "remote_branch_missing"
             )
-    except (OSError, ValueError, subprocess.SubprocessError, TaskScratchError):
+    # RecursionError: submodules nested past the interpreter's limit leave the tree unknown, never clean.
+    except (OSError, ValueError, RecursionError, subprocess.SubprocessError, TaskScratchError):
         pass
     if spec.mode != "read-only" and delivery["worktree_dirty_on_exit"]:
         delivery["push_state"] = "unpushed"
