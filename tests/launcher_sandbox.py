@@ -27,6 +27,7 @@ import tempfile
 from collections.abc import Mapping
 from pathlib import Path
 
+from lu_machinery.common.repo_root import machinery_path, machinery_root
 from lu_machinery.common.scratch import ensure_scratch_root
 from tests.helpers import machinery_module, machinery_package, product_checkout
 from tests.helpers.monitor import UNREACHABLE_MONITOR_URL, UNREACHABLE_TOOL_TIMING_URL
@@ -243,49 +244,20 @@ def copy_launcher_sources(root: Path) -> None:
     Runtime mirrors and caches must never link back into the tested checkout.
     """
     root.mkdir(parents=True, exist_ok=True)
-    tracked = subprocess.run(
-        [
-            "git",
-            "ls-files",
-            "-z",
-            "--",
-            "start-*.sh",
-            "package.json",
-            machinery_package(),
-            "agents_extensions",
-            "gemini_extensions",
-            ".gemini/config.yaml",
-            "docs/l2-uk-en",
-            "docs/prompts/orchestrators",
-            "curriculum/l2-uk-en/curriculum.yaml",
-        ],
-        cwd=_REPO_ROOT,
-        capture_output=True,
-        text=True,
-        check=True,
-        timeout=30,
-        env=launcher_environment(),
-    )
-    for raw in tracked.stdout.split("\0"):
-        if not raw:
-            continue
-        relative = Path(raw)
-        destination = root / relative
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        source = _REPO_ROOT / relative
-        if source.is_file():
+    # The tested release, including non-Python resources, is the code source.
+    # Product files come only from the explicitly configured fixture tree.
+    shutil.copytree(machinery_root(), root / machinery_package(), dirs_exist_ok=True,
+                    ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+    shutil.copytree(machinery_path("agents_extensions/shared"), root / "agents_extensions/shared",
+                    dirs_exist_ok=True, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+    for source in product_checkout().iterdir():
+        destination = root / source.name
+        if source.is_dir():
+            shutil.copytree(source, destination, dirs_exist_ok=True)
+        elif source.is_file():
             shutil.copy2(source, destination)
-        else:
-            # The real curriculum manifest may be sparse; use its tracked bytes.
-            blob = subprocess.run(
-                ["git", "show", f"HEAD:{relative.as_posix()}"],
-                cwd=_REPO_ROOT,
-                capture_output=True,
-                check=True,
-                timeout=30,
-                env=launcher_environment(),
-            )
-            destination.write_bytes(blob.stdout)
+            if source.name.startswith("start-") and source.suffix == ".sh":
+                destination.write_text(destination.read_text().replace("/scripts/", f"/{machinery_package()}/"))
 
 
 def tracked_launcher_wrappers() -> tuple[str, ...]:
@@ -294,33 +266,16 @@ def tracked_launcher_wrappers() -> tuple[str, ...]:
     The root wrappers are product files, listed in the product checkout; the machinery package's
     wrappers are listed here. :func:`launcher_wrapper_source` names the file to copy for each.
     """
-    product = subprocess.run(
-        ["git", "ls-files", "-z", "--", "start-*.sh"],
-        cwd=product_checkout(),
-        capture_output=True,
-        text=True,
-        check=True,
-        timeout=30,
-        env=launcher_environment(),
-    )
-    machinery = subprocess.run(
-        ["git", "ls-files", "-z", "--", f"{machinery_package()}/start-*.sh"],
-        cwd=_REPO_ROOT,
-        capture_output=True,
-        text=True,
-        check=True,
-        timeout=30,
-        env=launcher_environment(),
-    )
-    listed = {raw for raw in (product.stdout + machinery.stdout).split("\0") if raw}
-    return tuple(sorted(listed))
+    product = {path.name for path in product_checkout().glob("start-*.sh") if path.is_file()}
+    machinery = {f"{machinery_package()}/{path.name}" for path in machinery_root().glob("start-*.sh") if path.is_file()}
+    return tuple(sorted(product | machinery))
 
 
 def launcher_wrapper_source(relative: str) -> Path:
     """The tracked file of the wrapper ``relative``: a product root wrapper or a machinery wrapper."""
     if "/" not in relative:
         return product_checkout() / relative
-    return _REPO_ROOT / relative
+    return machinery_root().parent / relative
 
 
 def copy_interactive_launcher_checkout(root: Path) -> None:
@@ -414,27 +369,17 @@ def slot_registry_sources() -> tuple[Path, ...]:
         timeout=120,
         env=launcher_environment(),
     )
-    tracked = set(
-        subprocess.run(
-            ["git", "ls-files", "-z"],
-            cwd=_REPO_ROOT,
-            capture_output=True,
-            text=True,
-            check=True,
-            timeout=30,
-            env=launcher_environment(),
-        ).stdout.split("\0")
-    )
+    release = machinery_root().parent
     sources: set[Path] = set()
     for raw in json.loads(probe.stdout.splitlines()[-1]):
         path = Path(raw)
         if not path.is_absolute():
             path = _REPO_ROOT / path
         try:
-            relative = path.resolve().relative_to(_REPO_ROOT)
+            relative = path.resolve().relative_to(release)
         except ValueError:
             continue
-        if relative.as_posix() in tracked:
+        if path.is_file() and relative.parts[0] in (machinery_package(), "agents_extensions"):
             sources.add(relative)
     return tuple(sorted(sources))
 
@@ -469,8 +414,8 @@ def copy_slot_registry(root: Path) -> None:
         if destination.exists():
             continue
         destination.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(_REPO_ROOT / relative, destination)
+        shutil.copy2(machinery_root().parent / relative, destination)
         # A read-only canonical mode must not make the sandbox copy unwritable.
         destination.chmod(destination.stat().st_mode | 0o200)
         if relative.suffix == ".py":
-            _copy_bytecode(_REPO_ROOT / relative, destination)
+            _copy_bytecode(machinery_root().parent / relative, destination)

@@ -13,8 +13,10 @@ from urllib.request import urlopen
 
 import uvicorn
 from fastapi import FastAPI
+
 from lu_machinery.api.main import create_app
 from lu_machinery.api.monitor_context import fixture_context
+from lu_machinery.api.product_contribution import ProductContribution
 from lu_machinery.session_streams.store import SessionStreamStore
 
 
@@ -40,7 +42,7 @@ def epics_app_for_store(
     if live_repo_root is not None:
         ctx = ctx.with_roots(live_repo_root=Path(live_repo_root))
     ctx = replace(ctx, stores=replace(ctx.stores, epics_store=store))
-    return create_app(ctx, lifespan=_stub_lifespan)
+    return create_app(ctx, lifespan=_stub_lifespan, product=ProductContribution())
 
 
 @contextmanager
