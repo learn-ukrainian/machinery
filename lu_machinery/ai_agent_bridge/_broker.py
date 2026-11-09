@@ -50,6 +50,12 @@ def _validate_file_writes(pre_snapshot: set[str], allowed_path: str) -> list[str
     return violations
 
 
+# PID files written by this process, keyed by (agent, task_id). Cleanup removes
+# the exact path that was written, so it never re-resolves the state root (which
+# may be unavailable by the time an atexit hook runs).
+_WRITTEN_PID_FILES: dict[tuple[str, str], Path] = {}
+
+
 def _write_pid_file(agent: str, task_id: str, info: dict, pid: int | None = None):
     """Write a PID file for a running agent process."""
     _config.PID_DIR.mkdir(parents=True, exist_ok=True)
@@ -61,6 +67,7 @@ def _write_pid_file(agent: str, task_id: str, info: dict, pid: int | None = None
         **info,
     }
     pid_file.write_text(json.dumps(pid_data, indent=2))
+    _WRITTEN_PID_FILES[(agent, task_id)] = pid_file
 
 
 def _is_task_locked(agent: str, task_id: str) -> bool:
@@ -134,8 +141,16 @@ def _check_stale_lock(data: dict, pid: int, pid_file: Path) -> bool:
 
 
 def _remove_pid_file(agent: str, task_id: str):
-    """Remove PID file when process finishes."""
-    pid_file = _config.PID_DIR / f"{agent}-{task_id}.json"
+    """Remove PID file when process finishes.
+
+    Removes the path recorded by ``_write_pid_file`` when this process wrote
+    one (the record is kept so a repeat call, such as the atexit hook after an
+    explicit cleanup, stays a no-op); only a PID file this process never wrote
+    is resolved from the state root.
+    """
+    pid_file = _WRITTEN_PID_FILES.get((agent, task_id))
+    if pid_file is None:
+        pid_file = _config.PID_DIR / f"{agent}-{task_id}.json"
     pid_file.unlink(missing_ok=True)
 
 
