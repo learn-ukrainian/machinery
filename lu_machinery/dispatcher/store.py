@@ -14,6 +14,8 @@ from lu_machinery.common.git_context import validate_plain_branch_name
 from lu_machinery.common.task_store_paths import tasks_dir
 from lu_machinery.dispatcher.types import ReviewAttempt
 from lu_machinery.orchestration.task_record_store import (
+    TaskIdentityMismatch,
+    is_stray_copy,
     iter_task_records,
     locate_task_record,
     read_task_record,
@@ -456,6 +458,10 @@ def list_tasks(status: str | None = None, include_archive=False, *, strict=False
                 if relocated_result_file:
                     record["result_file"] = relocated_result_file(path, record.get("result_file"))
                 records.append(record)
+        except TaskIdentityMismatch as exc:
+            # A worker's copy of a record listed under its own name is no run of its own.
+            if strict and not is_stray_copy(exc):
+                raise ValueError(f"unreadable task record {path}; review attempt reuse cannot be excluded") from None
         except (OSError, ValueError):
             if strict:
                 raise ValueError(f"unreadable task record {path}; review attempt reuse cannot be excluded") from None

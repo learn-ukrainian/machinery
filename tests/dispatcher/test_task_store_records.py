@@ -54,6 +54,40 @@ def test_foreign_sidecar_does_not_block_review_admission(tmp_path, monkeypatch, 
     assert str(sidecar) in caplog.text
 
 
+def _plant_record_and_copy(root, copy_name, **copy_updates):
+    record = dict(task_id="worker", schema_version=2, run_nonce="n1", repository="org/repo", status="done")
+    (root / "worker.json").write_text(json.dumps(record))
+    (root / copy_name).write_text(json.dumps({**record, "status": "running", **copy_updates}))
+
+
+def test_stray_copy_of_a_named_record_does_not_block_admission(tmp_path, monkeypatch):
+    """Defect class: a worker's saved copy of a task record refused every review admission read."""
+    monkeypatch.setenv("LU_TASKS_DIR", str(tmp_path))
+    _plant_record_and_copy(tmp_path, "worker.copy.json")
+    readers = admission_readers(tmp_path)
+    assert [record["task_id"] for record in readers[1]()] == ["worker"]
+    assert readers[2]() == ()
+    assert readers[3]() is None
+
+
+@pytest.mark.parametrize("reader, message", [
+    (1, "unreadable task record .*worker.forged.json"),
+    (2, "task record .*worker.forged.json unreadable"),
+    (3, "RED_TEAM_REFUSED: task ledger unavailable"),
+], ids=["list_tasks_strict", "admitted_unknown_history", "in_flight_guard"])
+def test_orphaned_or_forged_copy_still_blocks_admission(tmp_path, monkeypatch, reader, message):
+    """Defect class: a renamed or forged record under another name is skipped as if it were a copy."""
+    monkeypatch.setenv("LU_TASKS_DIR", str(tmp_path))
+    errors = (ValueError, recorder.BranchFactsError, recorder.RecordError)
+    _plant_record_and_copy(tmp_path, "worker.forged.json", run_nonce="n2")
+    with pytest.raises(errors, match=message):
+        admission_readers(tmp_path)[reader]()
+    (tmp_path / "worker.forged.json").unlink()
+    (tmp_path / "worker.json").rename(tmp_path / "worker.renamed.json")
+    with pytest.raises(errors, match=message.replace("forged", "renamed")):
+        admission_readers(tmp_path)[reader]()
+
+
 def test_receipt_marker_cannot_hide_legacy_review_claim(tmp_path, monkeypatch):
     """A receipt marker cannot remove a lifecycle claim from admission's inventory."""
     monkeypatch.setenv("LU_TASKS_DIR", str(tmp_path))

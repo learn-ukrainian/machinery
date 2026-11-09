@@ -137,7 +137,49 @@ class TaskIdentityMismatch(ValueError):
 
     def __init__(self, path: Path, record: dict[str, Any]) -> None:
         super().__init__(f"task record {path} has invalid task identity")
+        self.path = path
         self.record = record
+
+
+def named_run_identity(path: Path, record: dict[str, Any]) -> tuple[str, str] | None:
+    """``(task_id, run_nonce)`` of a record that sits under the name dispatch gives its task_id.
+
+    Only such a record can vouch for a copy: a legacy or schema-1 record under another name never does.
+    """
+    task_id, nonce = record.get("task_id"), record.get("run_nonce")
+    if isinstance(task_id, str) and isinstance(nonce, str) and nonce and candidate_task_record_names(
+        task_id, (path.name,)
+    ):
+        return task_id, nonce
+    return None
+
+
+def is_stray_copy(mismatch: TaskIdentityMismatch) -> bool:
+    """Whether a misnamed record is a worker's copy of a correctly named record of the same run.
+
+    True only when a record under the name dispatch gives the task carries the same task_id and
+    run_nonce, in the hot directory or its archive. A renamed, orphaned or forged record is False,
+    so its reader refuses it exactly as before.
+    """
+    record = mismatch.record
+    nonce = record.get("run_nonce")
+    if not isinstance(nonce, str) or not nonce:
+        return False
+    root = mismatch.path.parent
+    if root.name == ARCHIVE_DIR_NAME:
+        root = root.parent
+    task_id = record["task_id"]
+    # Names are locators: read only the records dispatch could have named for this task.
+    for path in iter_task_records(root, include_archive=True):
+        if path == mismatch.path or not candidate_task_record_names(task_id, (path.name,)):
+            continue
+        try:
+            other = read_task_record(path)
+        except (OSError, ValueError):
+            continue
+        if isinstance(other, dict) and named_run_identity(path, other) == (task_id, nonce):
+            return True
+    return False
 
 
 def read_task_record(path: Path) -> dict[str, Any] | None:
