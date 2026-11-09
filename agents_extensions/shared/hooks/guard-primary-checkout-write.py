@@ -2197,8 +2197,10 @@ def _names(text: str) -> frozenset[str]:
 
 
 _GIT_SAFE_GLOBAL_FLAGS = _names(
-    "--no-pager -P --no-optional-locks --literal-pathspecs --glob-pathspecs --noglob-pathspecs "
-    "--icase-pathspecs --no-replace-objects"
+    """
+    --no-pager -P --no-optional-locks --literal-pathspecs --glob-pathspecs --noglob-pathspecs --icase-pathspecs
+    --no-replace-objects
+    """
 )
 _GIT_TARGET_GLOBALS = ("-C", "--git-dir", "--work-tree")
 # Informational invocations without a subcommand.
@@ -2245,8 +2247,10 @@ _GIT_READERS: dict[str, _GitSpec] = {
     ),
     "status": (
         _names(
-            "short branch porcelain long verbose untracked-files ignored ignore-submodules null column no-column "
-            "ahead-behind no-ahead-behind renames no-renames find-renames show-stash"
+            """
+            short branch porcelain long verbose untracked-files ignored ignore-submodules null column no-column
+            ahead-behind no-ahead-behind renames no-renames find-renames show-stash
+            """
         ),
         "sbvz",
         "u",
@@ -2254,11 +2258,13 @@ _GIT_READERS: dict[str, _GitSpec] = {
     ),
     "grep": (
         _names(
-            "cached untracked no-index exclude-standard no-exclude-standard recurse-submodules text ignore-case "
-            "word-regexp invert-match full-name extended-regexp basic-regexp perl-regexp fixed-strings line-number "
-            "column files-with-matches name-only files-without-match null count color no-color break heading "
-            "show-function function-context after-context before-context context threads max-depth only-matching "
-            "quiet all-match and or not max-count recursive no-recursive"
+            """
+            cached untracked no-index exclude-standard no-exclude-standard recurse-submodules text ignore-case
+            word-regexp invert-match full-name extended-regexp basic-regexp perl-regexp fixed-strings line-number
+            column files-with-matches name-only files-without-match null count color no-color break heading
+            show-function function-context after-context before-context context threads max-depth only-matching
+            quiet all-match and or not max-count recursive no-recursive
+            """
         ),
         "aiIvwhHEGPFnlLzcoqWpr",
         "ABCemf",
@@ -2268,9 +2274,11 @@ _GIT_READERS: dict[str, _GitSpec] = {
         ("blame", "annotate"),
         (
             _names(
-                "porcelain line-porcelain incremental root show-stats score-debug show-name show-number show-email "
-                "abbrev date reverse first-parent encoding progress no-progress ignore-rev ignore-revs-file "
-                "color-lines color-by-age minimal"
+                """
+                porcelain line-porcelain incremental root show-stats score-debug show-name show-number show-email
+                abbrev date reverse first-parent encoding progress no-progress ignore-rev ignore-revs-file
+                color-lines color-by-age minimal
+                """
             ),
             "bclfnpstwe",
             "LMC",
@@ -2279,9 +2287,11 @@ _GIT_READERS: dict[str, _GitSpec] = {
     ),
     "ls-files": (
         _names(
-            "cached deleted modified others ignored stage directory no-empty-directory unmerged killed exclude "
-            "exclude-from exclude-per-directory exclude-standard error-unmatch with-tree full-name "
-            "recurse-submodules abbrev debug eol deduplicate sparse format resolve-undo"
+            """
+            cached deleted modified others ignored stage directory no-empty-directory unmerged killed exclude
+            exclude-from exclude-per-directory exclude-standard error-unmatch with-tree full-name
+            recurse-submodules abbrev debug eol deduplicate sparse format resolve-undo
+            """
         ),
         "cdmoiskuzvtf",
         "xX",
@@ -2290,8 +2300,10 @@ _GIT_READERS: dict[str, _GitSpec] = {
     "ls-tree": (_names("long name-only name-status object-only full-name full-tree abbrev format"), "dlrtz", "", False),
     "cat-file": (
         _names(
-            "batch batch-check batch-command batch-all-objects buffer unordered follow-symlinks allow-unknown-type "
-            "use-mailmap mailmap no-mailmap no-use-mailmap"
+            """
+            batch batch-check batch-command batch-all-objects buffer unordered follow-symlinks allow-unknown-type
+            use-mailmap mailmap no-mailmap no-use-mailmap
+            """
         ),
         "tspe",
         "",
@@ -2299,11 +2311,13 @@ _GIT_READERS: dict[str, _GitSpec] = {
     ),
     "rev-parse": (
         _names(
-            "abbrev-ref short verify quiet show-toplevel show-prefix show-cdup git-dir git-common-dir "
-            "absolute-git-dir is-inside-work-tree is-inside-git-dir is-bare-repository is-shallow-repository "
-            "symbolic symbolic-full-name path-format git-path show-object-format show-ref-format default revs-only "
-            "no-revs flags no-flags sq sq-quote local-env-vars all branches tags remotes glob exclude disambiguate "
-            "since after until before resolve-git-dir show-superproject-working-tree shared-index-path"
+            """
+            abbrev-ref short verify quiet show-toplevel show-prefix show-cdup git-dir git-common-dir
+            absolute-git-dir is-inside-work-tree is-inside-git-dir is-bare-repository is-shallow-repository
+            symbolic symbolic-full-name path-format git-path show-object-format show-ref-format default revs-only
+            no-revs flags no-flags sq sq-quote local-env-vars all branches tags remotes glob exclude disambiguate
+            since after until before resolve-git-dir show-superproject-working-tree shared-index-path
+            """
         ),
         "q",
         "",
@@ -2312,8 +2326,10 @@ _GIT_READERS: dict[str, _GitSpec] = {
     "merge-base": (_names("all octopus independent is-ancestor fork-point"), "a", "", False),
     "for-each-ref": (
         _names(
-            "count sort format color shell perl python tcl points-at merged no-merged contains no-contains "
-            "ignore-case omit-empty exclude include-root-refs"
+            """
+            count sort format color shell perl python tcl points-at merged no-merged contains no-contains
+            ignore-case omit-empty exclude include-root-refs
+            """
         ),
         "sp",
         "",
@@ -2338,8 +2354,10 @@ _GIT_READERS: dict[str, _GitSpec] = {
     "ls-remote": (_names("heads tags refs branches quiet exit-code get-url symref sort"), "htqb", "", False),
     "show-branch": (
         _names(
-            "all remotes topo-order date-order current sparse more list merge-base independent no-name sha1-name "
-            "topics reflog color no-color"
+            """
+            all remotes topo-order date-order current sparse more list merge-base independent no-name sha1-name
+            topics reflog color no-color
+            """
         ),
         "ar",
         "",
@@ -2356,8 +2374,10 @@ _GIT_READERS: dict[str, _GitSpec] = {
 # uses the option tables below.
 _GIT_BRANCH_LIST: _GitSpec = (
     _names(
-        "list show-current all remotes verbose abbrev no-abbrev column no-column sort format color no-color "
-        "contains no-contains merged no-merged points-at ignore-case omit-empty"
+        """
+        list show-current all remotes verbose abbrev no-abbrev column no-column sort format color no-color contains
+        no-contains merged no-merged points-at ignore-case omit-empty
+        """
     ),
     "larvi",
     "",
@@ -2366,8 +2386,10 @@ _GIT_BRANCH_LIST: _GitSpec = (
 _GIT_BRANCH_LIST_MODE = _names("-l --list --contains --no-contains --merged --no-merged --points-at")
 _GIT_TAG_LIST: _GitSpec = (
     _names(
-        "list contains no-contains merged no-merged points-at sort format color column no-column ignore-case "
-        "omit-empty"
+        """
+        list contains no-contains merged no-merged points-at sort format color column no-column ignore-case
+        omit-empty
+        """
     ),
     "li",
     "n",
@@ -2375,9 +2397,11 @@ _GIT_TAG_LIST: _GitSpec = (
 )
 _GIT_CONFIG_READ: _GitSpec = (
     _names(
-        "get get-all get-regexp get-urlmatch list global system local worktree file blob show-origin show-scope "
-        "name-only null bool int bool-or-int path expiry-date type default includes no-includes all regexp url "
-        "fixed-value value"
+        """
+        get get-all get-regexp get-urlmatch list global system local worktree file blob show-origin show-scope
+        name-only null bool int bool-or-int path expiry-date type default includes no-includes all regexp url
+        fixed-value value
+        """
     ),
     "lz",
     "f",
@@ -2434,8 +2458,7 @@ def _git_short_flag(options: list[str], letter: str) -> bool:
 
 def _git_worktree_add(args: list[str]) -> tuple[str, list[str]] | None:
     """Parse ``worktree add [-b|-B <branch>] [flags] [--] <path> [<commit-ish>]``."""
-    flags = _names("--detach -d -q --quiet --lock --checkout --no-checkout --track --no-track --guess-remote "
-                   "--no-guess-remote")
+    flags = _names("--detach -d -q --quiet --lock --checkout --no-checkout --track --no-track --guess-remote --no-guess-remote")
     operands: list[str] = []
     i = 0
     while i < len(args):
