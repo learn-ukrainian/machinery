@@ -17,20 +17,6 @@ from tests.helpers.product_tree import configured_roots  # noqa: F401
 pytestmark = pytest.mark.usefixtures("configured_roots", "bridge_wake_dir")
 
 
-def _bridge_primary(path, monkeypatch):
-    """Make ``path`` the bridge's repository and the primary checkout that holds its state.
-
-    The ask state, logs and plane resolve under the shared state root at each call (#99);
-    in the product repository both were the primary checkout these tests name.
-    """
-    import subprocess
-
-    if not (path / ".git").is_dir():
-        subprocess.run(["git", "init", "-q", str(path)], check=True)
-    monkeypatch.setenv("AB_REPO_ROOT", str(path))
-    monkeypatch.setenv("LEARN_UKRAINIAN_PRIMARY_REPO_ROOT", str(path))
-
-
 @pytest.fixture
 def bridge_db(tmp_path, monkeypatch):
     db_path = tmp_path / "messages.db"
@@ -109,9 +95,9 @@ def test_background_branch_review_agy_refuses_sealed_cf(bridge_db, monkeypatch):
     assert row is None
 
 
-def test_launch_background_ask_writes_state_and_uses_detached_popen(bridge_db, monkeypatch, tmp_path):
+def test_launch_background_ask_writes_state_and_uses_detached_popen(bridge_db, monkeypatch, tmp_path, configured_roots):
     message_id = _send_ask()
-    _bridge_primary(tmp_path, monkeypatch)
+    monkeypatch.setenv("AB_REPO_ROOT", str(tmp_path))
     monkeypatch.setattr(lifecycle, "_WORKER_START_GRACE_S", 0.05)
     monkeypatch.setattr(lifecycle, "_WORKER_POLL_S", 0.01)
 
@@ -127,7 +113,8 @@ def test_launch_background_ask_writes_state_and_uses_detached_popen(bridge_db, m
     state = json.loads((tmp_path / "pids" / f"ask-{message_id}.json").read_text())
     assert state["pid"] == 4321
     assert state["target"] == "agy"
-    launch = json.loads((tmp_path / "batch_state" / "asks" / "task-4837" / "launch.json").read_text())
+    # Ask state lives under the shared state root, the configured primary (#123).
+    launch = json.loads((configured_roots.primary / "batch_state" / "asks" / "task-4837" / "launch.json").read_text())
     assert launch["message_id"] == message_id
     assert launch["pid"] == 4321
     assert launch["agent"] == "agy"
@@ -135,10 +122,10 @@ def test_launch_background_ask_writes_state_and_uses_detached_popen(bridge_db, m
     assert launch["started_at"]
 
 
-def test_background_exception_writes_well_formed_terminal_record(bridge_db, monkeypatch, tmp_path):
+def test_background_exception_writes_well_formed_terminal_record(bridge_db, monkeypatch, tmp_path, configured_roots):
     """A detached exception must leave a crash-safe terminal artifact (#5891)."""
     message_id = _send_ask()
-    _bridge_primary(tmp_path, monkeypatch)
+    monkeypatch.setenv("AB_REPO_ROOT", str(tmp_path))
     monkeypatch.setattr(lifecycle, "_background_options", lambda *_args: {})
     monkeypatch.setattr(
         lifecycle,
@@ -148,34 +135,34 @@ def test_background_exception_writes_well_formed_terminal_record(bridge_db, monk
 
     lifecycle.process_background_ask(message_id, "agy")
 
-    terminal = json.loads((tmp_path / "batch_state" / "asks" / "task-4837" / "terminal.json").read_text())
+    terminal = json.loads((configured_roots.primary / "batch_state" / "asks" / "task-4837" / "terminal.json").read_text())
     assert terminal["rc_or_signal"] == 1
     assert terminal["stage"] == "exception"
     assert terminal["stderr_tail"] == ""
     assert terminal["ended_at"]
 
 
-def test_background_signal_handler_writes_terminal_record(bridge_db, monkeypatch, tmp_path):
+def test_background_signal_handler_writes_terminal_record(bridge_db, monkeypatch, tmp_path, configured_roots):
     """SIGTERM is recorded before the detached process exits (#5891)."""
     message_id = _send_ask()
-    _bridge_primary(tmp_path, monkeypatch)
+    monkeypatch.setenv("AB_REPO_ROOT", str(tmp_path))
     recorder = lifecycle._AskTerminalRecorder(message_id)
 
     with pytest.raises(SystemExit) as exc_info:
         recorder.signal_handler(lifecycle.signal.SIGTERM, None)
 
     assert exc_info.value.code == 128 + lifecycle.signal.SIGTERM
-    terminal = json.loads((tmp_path / "batch_state" / "asks" / "task-4837" / "terminal.json").read_text())
+    terminal = json.loads((configured_roots.primary / "batch_state" / "asks" / "task-4837" / "terminal.json").read_text())
     assert terminal["rc_or_signal"] == "SIGTERM"
     assert terminal["stage"] == "signal"
     assert terminal["ended_at"]
 
 
-def test_asks_marks_dead_launched_worker_without_terminal_as_died_silent(bridge_db, monkeypatch, capsys, tmp_path):
+def test_asks_marks_dead_launched_worker_without_terminal_as_died_silent(bridge_db, monkeypatch, capsys, tmp_path, configured_roots):
     """A vanished worker cannot remain indefinitely indistinguishable from pending."""
     message_id = _send_ask()
-    _bridge_primary(tmp_path, monkeypatch)
-    state_dir = tmp_path / "batch_state" / "asks" / "task-4837"
+    monkeypatch.setenv("AB_REPO_ROOT", str(tmp_path))
+    state_dir = configured_roots.primary / "batch_state" / "asks" / "task-4837"
     lifecycle._atomic_write_json(
         state_dir / "launch.json",
         {
@@ -399,11 +386,11 @@ def test_ask_reply_remains_unacked_for_requester(bridge_db, monkeypatch):
         conn.close()
 
 
-def test_watchdog_refires_dead_worker_without_clean_terminal_once(bridge_db, monkeypatch, tmp_path):
+def test_watchdog_refires_dead_worker_without_clean_terminal_once(bridge_db, monkeypatch, tmp_path, configured_roots):
     """A dead background ask worker with no reply and no clean terminal gets auto-retried once (#5893)."""
     message_id = _send_ask("task-watchdog-1", target="grok")
-    _bridge_primary(tmp_path, monkeypatch)
-    state_dir = tmp_path / "batch_state" / "asks" / "task-watchdog-1"
+    monkeypatch.setenv("AB_REPO_ROOT", str(tmp_path))
+    state_dir = configured_roots.primary / "batch_state" / "asks" / "task-watchdog-1"
     lifecycle._atomic_write_json(
         state_dir / "launch.json",
         {
@@ -428,11 +415,11 @@ def test_watchdog_refires_dead_worker_without_clean_terminal_once(bridge_db, mon
     assert "auto-retried" not in meta
 
 
-def test_watchdog_ignores_clean_terminal_records(bridge_db, monkeypatch, tmp_path):
+def test_watchdog_ignores_clean_terminal_records(bridge_db, monkeypatch, tmp_path, configured_roots):
     """Clean terminal records (rc=0, stage=success) are NOT re-fired by watchdog (#5893)."""
     message_id = _send_ask("task-watchdog-clean", target="grok")
-    _bridge_primary(tmp_path, monkeypatch)
-    state_dir = tmp_path / "batch_state" / "asks" / "task-watchdog-clean"
+    monkeypatch.setenv("AB_REPO_ROOT", str(tmp_path))
+    state_dir = configured_roots.primary / "batch_state" / "asks" / "task-watchdog-clean"
     lifecycle._atomic_write_json(
         state_dir / "launch.json",
         {
@@ -463,11 +450,11 @@ def test_watchdog_ignores_clean_terminal_records(bridge_db, monkeypatch, tmp_pat
     re_fire_mock.assert_not_called()
 
 
-def test_watchdog_ignores_already_retried_asks(bridge_db, monkeypatch, tmp_path):
+def test_watchdog_ignores_already_retried_asks(bridge_db, monkeypatch, tmp_path, configured_roots):
     """An ask that was already auto-retried (accepting kebab-case on read) must NOT be retried again (#5893)."""
     message_id = _send_ask("task-watchdog-retried", target="grok")
-    _bridge_primary(tmp_path, monkeypatch)
-    state_dir = tmp_path / "batch_state" / "asks" / "task-watchdog-retried"
+    monkeypatch.setenv("AB_REPO_ROOT", str(tmp_path))
+    state_dir = configured_roots.primary / "batch_state" / "asks" / "task-watchdog-retried"
     lifecycle._atomic_write_json(
         state_dir / "launch.json",
         {
@@ -499,13 +486,13 @@ def test_watchdog_ignores_already_retried_asks(bridge_db, monkeypatch, tmp_path)
     re_fire_mock.assert_not_called()
 
 
-def test_watchdog_ignores_stale_launch_records(bridge_db, monkeypatch, tmp_path):
+def test_watchdog_ignores_stale_launch_records(bridge_db, monkeypatch, tmp_path, configured_roots):
     """Launch records older than 2x recorded hard timeout window are NOT re-fired by watchdog (#5893)."""
     from datetime import UTC, datetime, timedelta
 
     message_id = _send_ask("task-watchdog-stale", target="grok")
-    _bridge_primary(tmp_path, monkeypatch)
-    state_dir = tmp_path / "batch_state" / "asks" / "task-watchdog-stale"
+    monkeypatch.setenv("AB_REPO_ROOT", str(tmp_path))
+    state_dir = configured_roots.primary / "batch_state" / "asks" / "task-watchdog-stale"
     stale_timestamp = (datetime.now(UTC) - timedelta(seconds=3700)).isoformat()
     lifecycle._atomic_write_json(
         state_dir / "launch.json",
@@ -527,13 +514,13 @@ def test_watchdog_ignores_stale_launch_records(bridge_db, monkeypatch, tmp_path)
     re_fire_mock.assert_not_called()
 
 
-def test_watchdog_retries_fresh_launch_records(bridge_db, monkeypatch, tmp_path):
+def test_watchdog_retries_fresh_launch_records(bridge_db, monkeypatch, tmp_path, configured_roots):
     """Launch records within 2x hard timeout window ARE retried by watchdog (#5893)."""
     from datetime import UTC, datetime, timedelta
 
     message_id = _send_ask("task-watchdog-fresh", target="grok")
-    _bridge_primary(tmp_path, monkeypatch)
-    state_dir = tmp_path / "batch_state" / "asks" / "task-watchdog-fresh"
+    monkeypatch.setenv("AB_REPO_ROOT", str(tmp_path))
+    state_dir = configured_roots.primary / "batch_state" / "asks" / "task-watchdog-fresh"
     fresh_timestamp = (datetime.now(UTC) - timedelta(seconds=100)).isoformat()
     lifecycle._atomic_write_json(
         state_dir / "launch.json",
@@ -551,13 +538,13 @@ def test_watchdog_retries_fresh_launch_records(bridge_db, monkeypatch, tmp_path)
     assert lifecycle.should_auto_retry_ask(message_id) is True
 
 
-def test_watchdog_legacy_record_uses_fallback(bridge_db, monkeypatch, tmp_path):
+def test_watchdog_legacy_record_uses_fallback(bridge_db, monkeypatch, tmp_path, configured_roots):
     """Legacy launch record lacking timeout_seconds falls back to 2x1800 = 3600s window."""
     from datetime import UTC, datetime, timedelta
 
     message_id = _send_ask("task-watchdog-legacy", target="grok")
-    _bridge_primary(tmp_path, monkeypatch)
-    state_dir = tmp_path / "batch_state" / "asks" / "task-watchdog-legacy"
+    monkeypatch.setenv("AB_REPO_ROOT", str(tmp_path))
+    state_dir = configured_roots.primary / "batch_state" / "asks" / "task-watchdog-legacy"
 
     # Eligible at minute 35 (2100s < 3600s)
     min35_timestamp = (datetime.now(UTC) - timedelta(seconds=2100)).isoformat()
@@ -590,13 +577,13 @@ def test_watchdog_legacy_record_uses_fallback(bridge_db, monkeypatch, tmp_path):
     assert lifecycle.should_auto_retry_ask(message_id) is False
 
 
-def test_watchdog_stale_beyond_own_window_not_eligible(bridge_db, monkeypatch, tmp_path):
+def test_watchdog_stale_beyond_own_window_not_eligible(bridge_db, monkeypatch, tmp_path, configured_roots):
     """An ask with recorded timeout of 900s is NOT eligible at 1900s (> 2x900 = 1800s window)."""
     from datetime import UTC, datetime, timedelta
 
     message_id = _send_ask("task-watchdog-stale-window", target="claude")
-    _bridge_primary(tmp_path, monkeypatch)
-    state_dir = tmp_path / "batch_state" / "asks" / "task-watchdog-stale-window"
+    monkeypatch.setenv("AB_REPO_ROOT", str(tmp_path))
+    state_dir = configured_roots.primary / "batch_state" / "asks" / "task-watchdog-stale-window"
     stale_timestamp = (datetime.now(UTC) - timedelta(seconds=1900)).isoformat()
     lifecycle._atomic_write_json(
         state_dir / "launch.json",
@@ -614,11 +601,11 @@ def test_watchdog_stale_beyond_own_window_not_eligible(bridge_db, monkeypatch, t
     assert lifecycle.should_auto_retry_ask(message_id) is False
 
 
-def test_atomic_retry_claim_prevents_concurrent_refire(bridge_db, monkeypatch, tmp_path):
+def test_atomic_retry_claim_prevents_concurrent_refire(bridge_db, monkeypatch, tmp_path, configured_roots):
     """Atomic O_CREAT|O_EXCL retry-claim file ensures exactly one claim succeeds (#5893 item 3)."""
     message_id = _send_ask("task-atomic-claim", target="grok")
-    _bridge_primary(tmp_path, monkeypatch)
-    state_dir = tmp_path / "batch_state" / "asks" / "task-atomic-claim"
+    monkeypatch.setenv("AB_REPO_ROOT", str(tmp_path))
+    state_dir = configured_roots.primary / "batch_state" / "asks" / "task-atomic-claim"
     lifecycle._atomic_write_json(
         state_dir / "launch.json",
         {
@@ -642,11 +629,11 @@ def test_atomic_retry_claim_prevents_concurrent_refire(bridge_db, monkeypatch, t
     assert lifecycle._re_fire_ask(message_id) is False
 
 
-def test_cancel_and_retell_native_grok_permission_cancelled(bridge_db, monkeypatch, tmp_path):
+def test_cancel_and_retell_native_grok_permission_cancelled(bridge_db, monkeypatch, tmp_path, configured_roots):
     """A native Grok turn ending in permission_cancelled auto-retries once with refusal reason (#5893)."""
     from lu_machinery.ai_agent_bridge import _grok_build
 
-    _bridge_primary(tmp_path, monkeypatch)
+    monkeypatch.setenv("AB_REPO_ROOT", str(tmp_path))
 
     message_id = _send_ask("task-cancel-retell", target="grok")
 
@@ -712,15 +699,15 @@ def test_cancel_and_retell_composes_with_watchdog_within_bound(bridge_db, monkey
     assert _grok_build._can_cancel_retry(msg) is False
 
 
-def test_re_fire_ask_inner_claim_admits_exactly_one_caller(bridge_db, monkeypatch, tmp_path):
+def test_re_fire_ask_inner_claim_admits_exactly_one_caller(bridge_db, monkeypatch, tmp_path, configured_roots):
     """The once-only enforcement point under concurrency is the O_EXCL claim INSIDE
     _re_fire_ask: two callers that both already passed should_auto_retry_ask must
     resolve to exactly one live re-fire. (r3 review mutation check showed the
     pre-created-claim test only covers the outer should_auto_retry_ask decline —
     removing the inner claim left it green.)"""
     message_id = _send_ask("task-claim-inner", target="grok")
-    _bridge_primary(tmp_path, monkeypatch)
-    state_dir = tmp_path / "batch_state" / "asks" / "task-claim-inner"
+    monkeypatch.setenv("AB_REPO_ROOT", str(tmp_path))
+    state_dir = configured_roots.primary / "batch_state" / "asks" / "task-claim-inner"
     lifecycle._atomic_write_json(
         state_dir / "launch.json",
         {

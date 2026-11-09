@@ -47,7 +47,7 @@ def test_large_response_writes_sidecar_and_truncated_footer(configured_roots, mo
     assert "TRUNCATED" in result.content
     assert f"bytes: {result.full_bytes}" in result.content
     assert result.full_sha256 in result.content
-    # Sidecars live under the shared state root (#99).
+    # Sidecars live under the shared state root (#123).
     candidates = list((configured_roots.primary / "batch_state" / "asks").rglob("reply-*.md"))
     assert len(candidates) == 1
     assert candidates[0].read_text(encoding="utf-8") == body

@@ -270,17 +270,22 @@ def test_ask_review_refuses_a_fable_pin_before_any_dispatch(monkeypatch, target,
 
 
 @pytest.fixture()
-def registered_histories(tmp_path, monkeypatch):
+def registered_histories(tmp_path, monkeypatch, configured_roots):
     from lu_machinery.dispatcher import git as dispatch_git
     from lu_machinery.orchestration import fleet_repos
 
     from tests.ai_agent_bridge.review_target_git import _git, _init_repo, _publish_pr_branch
 
+    # The dispatcher resolves the default repository to the product checkout and every other
+    # repository to ``<local_name>`` beside the state primary (#107), so the sibling history is
+    # placed beside the configured primary, under a name unique to this test.
+    sibling = f"{tmp_path.name}-infra-private"
+    places = {"public": tmp_path / "public", "infra-private": configured_roots.primary.parent / sibling}
     roots, heads = {}, {}
     for key, slug in (("public", "example/public"), ("infra-private", "example/sibling")):
         seed = tmp_path / (key + "-seed")
         seed.mkdir()
-        root = _init_repo(seed).rename(tmp_path / key)
+        root = _init_repo(seed).rename(places[key])
         _git(root, "config", "core.hooksPath", os.devnull)
         (root / "app.py").write_text(f"print({key!r})\n", encoding="utf-8")
         _git(root, "add", "app.py")
@@ -294,21 +299,18 @@ def registered_histories(tmp_path, monkeypatch):
     config.write_text(
         "repos:\n"
         "  public: {github: example/public, local_name: public, default: true}\n"
-        "  infra-private: {github: example/sibling, local_name: infra-private}\n",
+        f"  infra-private: {{github: example/sibling, local_name: {sibling}}}\n",
         encoding="utf-8",
     )
     monkeypatch.setattr(fleet_repos, "_CONFIG_PATH", config)
-    # The dispatcher reads the packaged repository catalog and resolves the default repository
-    # to the product checkout and the others beside the state primary (#107).
+    # The dispatcher reads the packaged repository catalog (#107).
     packaged = dispatch_git.machinery_path
     monkeypatch.setattr(
         dispatch_git,
         "machinery_path",
         lambda relative: config if relative == "config/fleet_repos.yaml" else packaged(relative),
     )
-    state = tmp_path / "state"
-    _git(tmp_path, "init", "-q", str(state))
-    monkeypatch.setenv("LEARN_UKRAINIAN_PRIMARY_REPO_ROOT", str(state))
+    # The PR target is the product checkout, as ``_cli.REPO_ROOT`` was in learn-ukrainian.
     monkeypatch.setenv("LU_PRODUCT_ROOT", str(roots["public"]))
     monkeypatch.setenv("GIT_ALLOW_PROTOCOL", "file")
     return roots, heads
@@ -415,7 +417,7 @@ def test_selected_repository_refusals_preserve_private_boundary(registered_histo
     if failure == "wrong-origin":
         _git(roots["infra-private"], "remote", "set-url", "origin", "https://github.com/example/wrong.git")
     elif failure == "missing-branch":
-        _git(roots["infra-private"], "--git-dir", str(roots["infra-private"].parent / "infra-private-canonical.git"),
+        _git(roots["infra-private"], "--git-dir", str(roots["infra-private"].parent / f"{roots['infra-private'].name}-canonical.git"),
              "update-ref", "-d", "refs/heads/review-shared")
     payload = json.loads(_same_repo_payload(head_sha=heads["infra-private"], branch="review-shared"))
     payload["isCrossRepository"] = failure == "cross-repository"

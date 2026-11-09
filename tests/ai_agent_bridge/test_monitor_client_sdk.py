@@ -39,7 +39,7 @@ _CONFIG_ROOT_CACHES = (
 def _client(configured_roots, monkeypatch):
     """A Monitor app over this test's configured roots, with no product contribution.
 
-    The installed package derives no root and has no implicit product (#99, C-4746), so the
+    The installed package derives no root and has no implicit product (#70, C-4746), so the
     product's production app is not available here; these SDK contracts are machinery routes.
     Building the app installs process-wide product providers and caches this test's roots in
     the API config and the production context; all three are undone after the test, so later

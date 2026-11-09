@@ -455,7 +455,8 @@ def test_sealed_acp_config_is_parent_owned_and_snapshot_pinned(tmp_path: Path) -
 
     assert stat.S_IMODE(config_path.stat().st_mode) == 0o400
     assert server["name"] == "sealed_review"
-    # The project interpreter: a configured LEARN_UKRAINIAN_PYTHON wins, else the primary .venv (#166).
+    # The project interpreter: the CI job configures LEARN_UKRAINIAN_PYTHON, which wins here as it
+    # did in learn-ukrainian; the product suite ran with the checkout .venv instead.
     assert server["command"] == str(project_interpreter())
     assert server["args"][:2] == ["-I", "-S"]
     assert server["args"][3] == str(checkout.path)
