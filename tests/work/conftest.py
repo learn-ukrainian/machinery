@@ -79,6 +79,22 @@ def _forget(product: Path) -> None:
         vars(main).pop("app", None)
 
 
+@pytest.fixture(autouse=True)
+def release_monitor_app(monkeypatch):
+    """Undo ``create_app``'s process-wide providers and root caches after each test.
+
+    Building an app installs providers and caches the roots. The pytest job runs
+    every directory in one process, so the next directory must see the providers
+    and roots it would have seen without this test (T4, #185).
+    """
+    from lu_machinery.api import product_contribution
+
+    for name in ("_atlas", "_fleet_batches", "_product"):
+        monkeypatch.setattr(product_contribution, name, getattr(product_contribution, name))
+    yield
+    _forget(Path("."))
+
+
 @pytest.fixture(scope="module")
 def monitor_roots(tmp_path_factory: pytest.TempPathFactory):
     """One minimal product entry and git primary for the module, then cleared."""
