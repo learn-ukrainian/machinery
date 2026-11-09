@@ -786,4 +786,4 @@ def test_runtime_headroom_gates_each_codex_account_on_its_own_events(tmp_path, m
     usage._reset_rate_limit_cache_for_tests()
 
 
-pytestmark = pytest.mark.usefixtures("configured_roots")
+pytestmark = pytest.mark.usefixtures("sources_product_root")

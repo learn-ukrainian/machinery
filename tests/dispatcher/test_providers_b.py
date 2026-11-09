@@ -2,7 +2,6 @@
 
 import json
 import os
-import shutil
 import subprocess
 import sys
 from dataclasses import replace
@@ -23,18 +22,6 @@ from lu_machinery.common.repo_root import machinery_root
 
 
 
-
-
-@pytest.fixture
-def sources_product_root(configured_roots, tmp_path_factory, monkeypatch):  # noqa: F811 - imported pytest fixture
-    """Keep Sources MCP data local to these dispatcher cases, away from other tranches."""
-    product = tmp_path_factory.getbasetemp() / "t5-sources-product"
-    if not product.exists():
-        shutil.copytree(configured_roots.product, product)
-        source = Path(__file__).parent / "fixtures" / "product.mcp.json"
-        (product / ".mcp.json").write_bytes(source.read_bytes())
-    monkeypatch.setenv("LU_PRODUCT_ROOT", str(product))
-    return product
 
 
 @pytest.mark.parametrize("provider", PROVIDERS)

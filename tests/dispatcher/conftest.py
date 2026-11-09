@@ -23,6 +23,18 @@ from lu_machinery.common.repo_root import machinery_root
 DOCTOR_NOT_FETCHED = "Managed settings (remote): not fetched — requires an Enterprise or Team subscription"
 
 
+@pytest.fixture
+def sources_product_root(configured_roots, tmp_path_factory, monkeypatch):
+    """Keep Sources MCP data local to these dispatcher cases, away from other tranches."""
+    product = tmp_path_factory.getbasetemp() / "t5-sources-product"
+    if not product.exists():
+        shutil.copytree(configured_roots.product, product)
+        source = Path(__file__).parent / "fixtures" / "product.mcp.json"
+        (product / ".mcp.json").write_bytes(source.read_bytes())
+    monkeypatch.setenv("LU_PRODUCT_ROOT", str(product))
+    return product
+
+
 @pytest.fixture(scope="session", autouse=True)
 def dispatcher_worker_reaper() -> Iterator[Reaper]:
     """Fail the session if a dispatcher test left a detached worker alive.
@@ -87,7 +99,7 @@ def run_git(repo, *args):
 
 
 @pytest.fixture
-def sandbox(tmp_path, hermetic_monitor, configured_roots):
+def sandbox(tmp_path, hermetic_monitor, configured_roots, sources_product_root):
     repo, tasks = tmp_path / "public", tmp_path / "tasks"
     remote = tmp_path / "remote.git"
     repo.mkdir()
@@ -131,7 +143,7 @@ def sandbox(tmp_path, hermetic_monitor, configured_roots):
     (repo / "scripts/curriculum").mkdir(parents=True)
     for name in ("review_hooks.v1.json", "admission_policy.v1.json"):
         shutil.copy(configured_roots.product / "scripts/curriculum" / name, repo / "scripts/curriculum")
-    shutil.copytree(configured_roots.product, repo, dirs_exist_ok=True)
+    shutil.copytree(sources_product_root, repo, dirs_exist_ok=True)
     schema_dir = repo / "schemas"
     schema_dir.mkdir()
     shutil.copy(SOURCE / "lu_machinery/schemas/code-review-findings.v1.schema.json", schema_dir)

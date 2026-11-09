@@ -1021,4 +1021,4 @@ def test_worker_env_disables_the_node_compile_cache(spec, monkeypatch, tmp_path,
     assert "NODE_COMPILE_CACHE" not in env
 
 
-pytestmark = pytest.mark.usefixtures("configured_roots")
+pytestmark = pytest.mark.usefixtures("sources_product_root")

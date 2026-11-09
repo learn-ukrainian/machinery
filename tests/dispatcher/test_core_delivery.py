@@ -149,4 +149,4 @@ def test_dry_run_constructs_context_transport_without_writes(tmp_path, provider)
         assert "--prompt-file" in invocation.argv
 
 
-pytestmark = pytest.mark.usefixtures("configured_roots")
+pytestmark = pytest.mark.usefixtures("sources_product_root")
