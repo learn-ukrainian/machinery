@@ -600,11 +600,17 @@ jobs:
           PY
 
       # Input for refreshing lu_machinery/ci/pytest-file-durations.json (see the header).
+      # It also runs after a failed test, so a slow failing shard is still measured.
       - name: Per-file seconds
+        if: ${{ !cancelled() }}
         run: |
           set -euo pipefail
-          "$RUNNER_TEMP/test-venv/bin/python" -I -B -m lu_machinery.ci.split_tests durations \
-            "$RUNNER_TEMP/pytest/pytest.xml"
+          report="$RUNNER_TEMP/pytest/pytest.xml"
+          if [ ! -f "$report" ]; then
+            echo "pytest wrote no JUnit report; no seconds to print"
+            exit 0
+          fi
+          "$RUNNER_TEMP/test-venv/bin/python" -I -B -m lu_machinery.ci.split_tests durations "$report"
 
       - name: Remove test files
         if: always()
