@@ -11,6 +11,7 @@ import stat
 import subprocess
 import sys
 import time
+from collections.abc import Iterator
 from contextlib import contextmanager, suppress
 from datetime import datetime
 from functools import partial
@@ -864,6 +865,16 @@ def _delivery_prs(record: dict, repo: str) -> list[int]:
     return sorted(numbers)
 
 
+def _merged_delivery_candidates(record: dict, repo: str) -> Iterator[int]:
+    """Try recorded PRs first, then canonical merged PRs whose final head equals the exit snapshot."""
+    yield from _delivery_prs(record, repo)
+    head = record.get("head_sha")
+    if head and re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", head):
+        listed = json.loads(_gh("pr", "list", "--repo", repo, "--search", head, "--state", "merged",
+                                "--json", "number,isCrossRepository,headRefOid"))
+        yield from (pr["number"] for pr in listed if pr["headRefOid"] == head and not pr["isCrossRepository"])
+
+
 def merged_delivery(record: dict) -> dict | None:
     """The merged pull request that carries this task's delivery, or None when none is proven.
 
@@ -881,7 +892,7 @@ def merged_delivery(record: dict) -> dict | None:
         if repo is None:
             return None
         started = datetime.fromisoformat(record["started_at"].replace("Z", "+00:00"))
-        for number in _delivery_prs(record, repo):
+        for number in _merged_delivery_candidates(record, repo):
             pr = json.loads(_gh("pr", "view", str(number), "--repo", repo, "--json",
                                 "state,baseRefName,mergedAt,headRefOid"))
             if (pr["state"] != "MERGED" or pr["baseRefName"] != base

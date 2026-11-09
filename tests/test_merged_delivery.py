@@ -18,11 +18,13 @@ def _git(cwd, *args):
     return subprocess.run(["git", "-C", str(cwd), *args], check=True, capture_output=True, text=True).stdout.strip()
 
 
+@pytest.mark.parametrize("replacement", [False, True])
 @pytest.mark.parametrize(("case", "tree"), [
     ("merged", "clean"), ("open", "clean"), ("merged-other-head", "clean"),
+    ("outside", "clean"), ("rename-outside", "clean"), ("wrong-base", "clean"), ("before-start", "clean"),
     ("merged", "untracked"), ("merged", "tracked"), ("merged", "staged"), ("merged", "late-commit"),
 ])
-def test_merged_pr_proves_delivery_after_branch_and_pull_ref_are_gone(tmp_path, monkeypatch, case, tree):
+def test_merged_pr_proves_delivery_after_branch_and_pull_ref_are_gone(tmp_path, monkeypatch, case, tree, replacement):
     """Defect class: a squash-merged task whose branch closeout deleted, and whose refs/pull/N/head the remote
     no longer advertises, or whose tree held only untracked scratch, settled no_deliverable. An open PR, a
     merged PR whose head is not the task's head, a tracked or staged change left in the tree, or one committed
@@ -36,46 +38,65 @@ def test_merged_pr_proves_delivery_after_branch_and_pull_ref_are_gone(tmp_path, 
     base = _git(work, "rev-parse", "HEAD")
     _git(work, "push", "origin", "main")
     _git(work, "switch", "-c", "claude/rescue-probe")
+    branch = "claude/rescue-probe-v3" if replacement else "claude/rescue-probe"
+    if replacement:
+        _git(work, "push", "origin", "claude/rescue-probe")
+        _git(work, "switch", "-c", branch)
     (work / "docs").mkdir()
     (work / "docs" / "owned.md").write_text("delivered\n")
     _git(work, "add", "docs/owned.md")
     _git(work, "commit", "-m", "deliver")
     head = _git(work, "rev-parse", "HEAD")
-    _git(work, "push", "origin", "claude/rescue-probe")
+    _git(work, "push", "origin", branch)
     # The queue squash-merges the work as a new commit on main, then closeout deletes the task branch.
     _git(work, "switch", "main")
-    _git(work, "merge", "--squash", "claude/rescue-probe")
+    _git(work, "merge", "--squash", branch)
     _git(work, "commit", "-m", "deliver (#7)")
-    _git(work, "push", "origin", "main", ":claude/rescue-probe")
+    _git(work, "push", "origin", "main", f":{branch}")
     # The task worktree stays on its branch, with the canonical origin recorded at dispatch.
-    _git(work, "switch", "claude/rescue-probe")
+    _git(work, "switch", branch)
     _git(work, "remote", "set-url", "origin", "https://github.com/org/repo.git")
 
     @contextmanager
     def private_remote(task_id, url):
-        namespace = tmp_path / f"ns-{task_id}"
+        namespace = tmp_path / f"ns-{task_id}-{len(list(tmp_path.glob('ns-*')))}"
         namespace.mkdir()
         run = partial(git._verification_git, namespace, git_dir=namespace)
         run("init", "--bare", "--template=")
         run("config", "remote.origin.url", str(remote))
         yield run, namespace
 
-    pr = {"state": "OPEN" if case == "open" else "MERGED", "baseRefName": "main",
-          "mergedAt": "2026-11-08T12:50:00Z", "headRefOid": "b" * 40 if case == "merged-other-head" else head}
+    pr = {"state": "OPEN" if case == "open" else "MERGED", "baseRefName": "other" if case == "wrong-base" else "main",
+          "mergedAt": "2026-11-08T12:00:00Z" if case == "before-start" else "2026-11-08T12:50:00Z",
+          "headRefOid": "b" * 40 if case == "merged-other-head" else head}
 
     def gh(args, **_):
         words = args[1:]
-        out = (json.dumps([{"number": 7, "isCrossRepository": False, "headRefName": "claude/rescue-probe"}])
-               if words[:2] == ["pr", "list"] else json.dumps(pr) if words[:2] == ["pr", "view"]
-               else json.dumps("docs/owned.md"))
+        if words[:2] == ["pr", "list"]:
+            if "--search" in words:
+                assert words[words.index("--search") + 1] == head
+                assert words[words.index("--state") + 1] == "merged"
+                out = json.dumps([{"number": 7, "isCrossRepository": False, "headRefOid": pr["headRefOid"]}])
+            else:
+                out = json.dumps([] if replacement else [
+                    {"number": 7, "isCrossRepository": False, "headRefName": branch}])
+        elif words[:2] == ["pr", "view"]:
+            out = json.dumps(pr)
+        else:
+            out = json.dumps("outside.md" if case == "outside" else "docs/owned.md")
+            if case == "rename-outside":
+                out += "\n" + json.dumps("outside.md")
         return SimpleNamespace(returncode=0, stdout=out, stderr="")
 
     monkeypatch.setattr(git, "_private_remote_git", private_remote)
     monkeypatch.setattr(github_client, "run", gh)
     monkeypatch.setattr(pr_ownership, "state_path", lambda: tmp_path / "ownership.json")
     # The ownership walk fetches the deleted branch, as the recorded failures did.
-    monkeypatch.setattr(git, "ownership_git", Mock(side_effect=subprocess.CalledProcessError(128, ["git", "fetch"])))
-    assert not _git(remote, "for-each-ref", "refs/pull", "refs/heads/claude")
+    if not replacement:
+        monkeypatch.setattr(git, "ownership_git", Mock(side_effect=subprocess.CalledProcessError(128, ["git", "fetch"])))
+    assert not _git(remote, "for-each-ref", "refs/pull", f"refs/heads/{branch}")
+    if replacement:
+        assert _git(remote, "rev-parse", "refs/heads/claude/rescue-probe") == base
     if tree == "untracked":
         (work / ".pytest_breadcrumbs").mkdir()
         (work / ".pytest_breadcrumbs" / "breadcrumb_master.txt").write_text("scratch\n")
@@ -97,7 +118,10 @@ def test_merged_pr_proves_delivery_after_branch_and_pull_ref_are_gone(tmp_path, 
     worker._enforce_delivery(record)
     if case == "merged" and tree in {"clean", "untracked"}:
         assert (record["status"], record["error"], record["delivery_pr"]) == ("done", None, "org/repo#7")
+    elif case in {"outside", "rename-outside"}:
+        assert (record["status"], record["error"]) == ("no_deliverable", "outside_owned_paths: outside.md")
     else:
+        reason = "remote delivery tip does not match snapshot" if replacement else "git fetch failed"
         assert (record["status"], record["error"]) == (
-            "no_deliverable", "owned_paths_verification_failed: git fetch failed")
+            "no_deliverable", f"owned_paths_verification_failed: {reason}")
         assert "delivery_pr" not in record
