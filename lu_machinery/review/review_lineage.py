@@ -42,7 +42,8 @@ from lu_machinery.orchestration.integration_sweep import (
 from lu_machinery.orchestration.task_record_store import (
     ARCHIVE_DIR_NAME,
     TaskIdentityMismatch,
-    candidate_task_record_names,
+    is_identical_copy,
+    misnamed_record_refusal,
     read_task_record,
 )
 from lu_machinery.review import capability_failure
@@ -173,25 +174,23 @@ def review_records(task_root: Path, *, repository: str) -> list[tuple[Path, dict
         paths = [*sorted((task_root / ARCHIVE_DIR_NAME).glob("*.json")), *sorted(task_root.glob("*.json"))]
     except OSError as exc:
         raise LineageRefused(f"task ledger unavailable: {exc}") from None
-    records, named, misnamed = [], set(), []
+    records = []
     for path in paths:
         try:
             record = read_task_record(path)
         except TaskIdentityMismatch as exc:
-            # A copy (a worker's saved `dispatch.py wait` output) never joins the lineage; it
-            # must match a correctly named record below, or a record was renamed or forged.
-            misnamed.append((path, exc.record))
+            # A copy (a worker's saved `dispatch.py wait` output) never joins the lineage, and only an
+            # exact copy of the named record is skipped; any other misnamed file refuses.
+            if not is_identical_copy(exc):
+                raise LineageRefused(
+                    f"task record {path.name} has invalid task identity; {misnamed_record_refusal(path)}"
+                ) from None
+            _LOG.warning("NON_RECORD_FILE: %s copies task record %s", path, exc.record["task_id"])
             continue
         except (OSError, ValueError) as exc:
             raise LineageRefused(f"task record {path.name} unreadable: {exc}") from None
         if not isinstance(record, dict):
             continue
-        task_id, nonce = record.get("task_id"), record.get("run_nonce")
-        # Only a record whose file name is its task_id's can vouch for a copy.
-        if isinstance(task_id, str) and isinstance(nonce, str) and nonce and candidate_task_record_names(
-            task_id, (path.name,)
-        ):
-            named.add((task_id, nonce))
         if record.get("status") in {"dry_run", "dry-run"} or not _is_review_task(record):
             continue
         if not isinstance(record.get("repository"), str) or normalize_repository(
@@ -199,11 +198,6 @@ def review_records(task_root: Path, *, repository: str) -> list[tuple[Path, dict
         ) != normalize_repository(repository):
             continue
         records.append((path, record))
-    for path, record in misnamed:
-        nonce = record.get("run_nonce")
-        if not isinstance(nonce, str) or not nonce or (record["task_id"], nonce) not in named:
-            raise LineageRefused(f"task record {path.name} has invalid task identity and no correctly named record")
-        _LOG.warning("NON_RECORD_FILE: %s copies task record %s", path, record["task_id"])
     return records
 
 

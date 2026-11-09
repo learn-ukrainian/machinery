@@ -44,7 +44,13 @@ from lu_machinery.orchestration.dead_worker_state import worker_liveness
 from lu_machinery.orchestration.execution_safe_git import SafeGitRunner
 from lu_machinery.orchestration.execution_safe_git import run_git as safe_git
 from lu_machinery.orchestration.fleet_repos import FleetRepoError, load_fleet_repos
-from lu_machinery.orchestration.task_record_store import parse_task_record, task_record_path
+from lu_machinery.orchestration.task_record_store import (
+    TaskIdentityMismatch,
+    is_identical_copy,
+    misnamed_record_refusal,
+    parse_task_record,
+    task_record_path,
+)
 from lu_machinery.path_safety import assert_delete_target
 
 # This package's import name, from the unresolved file location: never from __package__, which a
@@ -429,6 +435,11 @@ def active_worktree_claim_refusal(
             return refused(state_file, "unreadable")
         try:
             record = parse_task_record(state_file, raw)
+        except TaskIdentityMismatch as exc:
+            # An exact copy of the named record claims nothing it does not; any other misnamed file refuses.
+            if is_identical_copy(exc):
+                continue
+            return refused(state_file, f"unreadable ({misnamed_record_refusal(state_file)})")
         except (ValueError, RecursionError):
             return refused(state_file, "unreadable")
         if record is None or not record_may_claim_worktree(raw, needles):

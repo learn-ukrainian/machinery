@@ -442,10 +442,10 @@ def test_resolve_host_node_skips_symlink_loop_path_entry(tmp_path, monkeypatch):
 
 
 def test_acpx_spawn_argv_pins_absolute_node_when_shebang_uses_env(tmp_path, monkeypatch):
-    """#6953: jail PATH=/usr/bin:/bin must not yield ``env: node: No such file``."""
-    # Resolve the real contract node before hermetic PATH isolation.
-    host_node = acpx_module._resolve_host_node_binary(adapter_label="test-host")
+    """#6953: jail PATH=/usr/bin:/bin must not yield ``env: node: No such file``.
 
+    The release drill in docs/release.md runs the real prefix under that PATH.
+    """
     required = acpx_module._required_node_major(adapter_label="test")
     script = tmp_path / "acpx"
     script.write_text("#!/usr/bin/env node\nconsole.log('ok')\n", encoding="utf-8")
@@ -455,25 +455,6 @@ def test_acpx_spawn_argv_pins_absolute_node_when_shebang_uses_env(tmp_path, monk
 
     argv = acpx_module._acpx_spawn_argv(str(script), adapter_label="test")
     assert argv == [str(node.resolve()), str(script.resolve())]
-
-    _isolate_node_fallbacks(monkeypatch, host_node.parent, path_dirs=(host_node.parent,))
-    primary = acpx_module.node_prefix() / "node_modules" / ".bin" / "acpx"
-    if not primary.is_file():
-        pytest.skip("machinery release prefix not provisioned in the hermetic unit fixture")
-    jail_env = acpx_module._acpx_runtime_env_overrides(adapter_label="test-host")
-    spawn = acpx_module._acpx_spawn_argv(str(primary), adapter_label="test-host")
-    assert Path(spawn[0]).resolve() == host_node.resolve()
-    proc = subprocess.run(
-        [*spawn, "--version"],
-        capture_output=True,
-        text=True,
-        timeout=10,
-        env={**jail_env, "PATH": "/usr/bin:/bin"},
-        check=False,
-    )
-    assert proc.returncode == 0, (proc.stdout, proc.stderr)
-    assert "env: node: No such file" not in (proc.stderr or "")
-    assert (proc.stdout or "").strip()
 
 
 def _fake_installed_claude_adapter(tmp_path: Path, *, version: str = "0.64.2") -> Path:
@@ -823,6 +804,9 @@ def test_build_invocation_refuses_when_release_pin_is_missing(tmp_path, monkeypa
 @pytest.mark.parametrize("defect", [
     "missing", "version", "bytes", "archive", "symlink", "owner", "writable",
     "missing-applicable-optional", "omitted-inapplicable-optional",
+    "absent-peer", "inapplicable-peer-provider", "misplaced-peer-provider", "provided-peer",
+    "exempt-peer-pinned", "exempt-peer-entry-changed", "exempt-peer-identity-missing",
+    "exempt-peer-maps-removed", "exempt-peer-type-changed", "manifest-only-peer",
 ])
 def test_release_prefix_admission_rejects_untrusted_node_dependency(tmp_path, monkeypatch, defect):
     """Granted by claude-cto: release admission must never execute untrusted dependencies."""
@@ -839,7 +823,10 @@ def test_release_prefix_admission_rejects_untrusted_node_dependency(tmp_path, mo
     prefix.mkdir()
     package = prefix / "node_modules" / "acpx"
     (package / "dist").mkdir(parents=True)
-    manifest = json.dumps({"name": "acpx", "version": "0.21.0"}).encode()
+    peer = "react-native-b4a" if defect.startswith("exempt") else "supports-color"
+    # Metadata-only, as debug declares supports-color; the authenticated manifest declares it too.
+    peer_meta = {"peerDependenciesMeta": {peer: {"optional": True}}} if "peer" in defect else {}
+    manifest = json.dumps({"name": "acpx", "version": "0.21.0", **peer_meta}).encode()
     payload = b"#!/usr/bin/env node\nconsole.log('trusted');\n"
     archive_buffer = io.BytesIO()
     with tarfile.open(fileobj=archive_buffer, mode="w:gz") as archive:
@@ -878,7 +865,8 @@ def test_release_prefix_admission_rejects_untrusted_node_dependency(tmp_path, mo
     monkeypatch.setattr(acpx_module, "_ACPX_BINARY", None)
     monkeypatch.setattr(acpx_module.subprocess, "run", lambda *_a, **_k: pytest.fail("dependency executed before admission"))
     monkeypatch.setattr(acpx_module.shutil, "which", lambda *_a, **_k: pytest.fail("global fallback attempted"))
-    assert acpx_module._resolve_acpx_binary(adapter_label="test") == str(binary)
+    if "peer" not in defect:  # a declared peer has no provider until its case adds one
+        assert acpx_module._resolve_acpx_binary(adapter_label="test") == str(binary)
     target = package / "dist" / "cli.js"
     if defect == "missing":
         target.unlink()
@@ -900,12 +888,47 @@ def test_release_prefix_admission_rejects_untrusted_node_dependency(tmp_path, mo
         monkeypatch.setattr(acpx_module.os, "getuid", lambda: uid + 1)
     elif defect == "writable":
         target.chmod(0o664)
+    elif "peer" in defect:
+        # C-4952: declared peers must resolve inside the prefix from the declaring package.
+        monkeypatch.setattr(platform, "system", lambda: "Linux")
+        monkeypatch.setattr(platform, "machine", lambda: "x86_64")
+        entry = lock["packages"]["node_modules/acpx"]
+        provider_entry = dict(entry)
+        if defect != "manifest-only-peer":  # only the authenticated manifest declares it
+            entry.update(json.loads(json.dumps(peer_meta)))
+        if defect.startswith("exempt"):
+            pinned = json.loads(json.dumps(entry))
+            if defect == "exempt-peer-identity-missing":
+                pinned["resolved"] = "https://registry.npmjs.org/acpx/-/acpx-0.21.0.tgz"
+            monkeypatch.setattr(acpx_module, "_NODE_PEER_EXEMPTIONS", {("node_modules/acpx", peer): pinned})
+            if defect == "exempt-peer-entry-changed":
+                entry["license"] = "MIT"
+            elif defect == "exempt-peer-maps-removed":
+                # The lock hides the peer; the authenticated manifest still declares it.
+                del entry["peerDependenciesMeta"]
+            elif defect == "exempt-peer-type-changed":
+                entry["peerDependenciesMeta"][peer]["optional"] = 1
+        provider = {
+            "provided-peer": "node_modules/supports-color",
+            "inapplicable-peer-provider": "node_modules/supports-color",
+            "misplaced-peer-provider": "node_modules/other/node_modules/supports-color",
+        }.get(defect)
+        if defect == "inapplicable-peer-provider":
+            lock["packages"][provider] = {**provider_entry, "optional": True, "os": ["!linux"]}
+        elif provider is not None:
+            lock["packages"][provider] = provider_entry
+            shutil.copytree(package, prefix / provider)
+        for root in (contract, prefix):
+            (root / "package-lock.json").write_text(json.dumps(lock))
+        if defect in {"provided-peer", "exempt-peer-pinned"}:
+            assert acpx_module._resolve_acpx_binary(adapter_label="test") == str(binary)
+            return
     else:
         shutil.rmtree(optional)
         if defect == "omitted-inapplicable-optional":
             assert acpx_module._resolve_acpx_binary(adapter_label="test") == str(binary)
             return
-    with pytest.raises(AcpxShadowRefusalError):
+    with pytest.raises(AcpxShadowRefusalError, match="without an applicable provider|reviewed peer exemption" if "peer" in defect else None):
         acpx_module._resolve_acpx_binary(adapter_label="test")
 
 

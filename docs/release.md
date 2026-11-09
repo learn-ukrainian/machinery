@@ -100,6 +100,14 @@ in `pyproject.toml` and `$SHA` the full commit:
    modes before any provider is spawned. Every applicable optional package is
    required: only lock OS/CPU/libc constraints excluding this host permit an
    optional package to be absent. Unknown host targets refuse admission.
+   Every peer a present package declares, including names listed only under
+   `peerDependenciesMeta`, must resolve from that package's own location to
+   the nearest lock entry, and that entry must apply to the host. Otherwise
+   Node would search ancestor and global module directories that admission
+   does not authenticate. The one exemption is `b4a`'s `react-native-b4a`,
+   which Node selects only under the `react-native` export condition. It is
+   pinned to the exact lock entry in `acpx.py`, and any change to that entry
+   refuses admission until the exemption is reviewed again.
    Python and Node must use the same host architecture. A missing, mismatched or unsealed
    prefix refuses and names this install-and-seal step. An ACP request never
    installs or repairs dependencies.
@@ -122,6 +130,19 @@ in `pyproject.toml` and `$SHA` the full commit:
    a package, introduce an incompatible version and tamper with an executable
    in separate restored copies. Each must refuse before prompt delivery. Import success
    is insufficient.
+
+   Prove the prefix is the only module source. Plant a marker package, which
+   records its own execution, in the prefix's parent `node_modules` and in a
+   `NODE_PATH` directory. Plant one for every lock peer name and every lock
+   package absent from the prefix. As positive controls, each marker must run
+   when required from outside the prefix. Then run every enabled route
+   through a terminal response, and the lazy require sites: `debug` with
+   colours enabled, which reads `supports-color`, and
+   `@modelcontextprotocol/sdk/validation/cfworker` in both CommonJS and ESM.
+   Also run `b4a`, `bare-events`, `bare-stream` and `express`. Run the
+   prefix's ACPX shim with `--version` under `PATH=/usr/bin:/bin`. It must
+   succeed. Each route and each lazy site must execute zero markers. Remove
+   the markers and confirm the prefix still validates.
 
    Then check that every packaged resource resolves from the installed wheel
    and exercise lazy runtime paths. Running the agent deployer's plan and apply
