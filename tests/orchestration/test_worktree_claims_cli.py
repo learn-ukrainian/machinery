@@ -690,6 +690,45 @@ def test_namespace_owner_exemption_does_not_release_unknown_worker(tmp_path):
     ) == "worktree claimed by active task worker"
 
 
+
+def _claim_record(target, **updates):
+    return {"schema_version": 2, "task_id": "worker", "status": "running", "run_nonce": "run",
+            "worktree_path": str(target), **updates}
+
+
+def test_stray_copy_of_a_task_record_does_not_block_the_claim_scan(tmp_path):
+    """Defect class: a worker's saved copy of a task record made every worktree removal refuse."""
+    target = tmp_path / "checkout"
+    target.mkdir()
+    tasks = tmp_path / "tasks"
+    tasks.mkdir()
+    record = json.dumps(_claim_record(target, status="done"))
+    (tasks / "worker.json").write_text(record)
+    (tasks / "worker.wait.json").write_text(record)
+    assert worktree_claims.active_worktree_claim_refusal(target, tasks_dir=tasks, repo_root=tmp_path) is None
+    # The correctly named record still claims what it claims.
+    (tasks / "worker.json").write_text(json.dumps(_claim_record(target)))
+    assert worktree_claims.active_worktree_claim_refusal(
+        target, tasks_dir=tasks, repo_root=tmp_path
+    ) == "worktree claimed by active task worker"
+
+
+def test_orphaned_or_forged_task_record_still_blocks_the_claim_scan(tmp_path):
+    """Defect class: a renamed or forged record is skipped as a copy and its live claim is lost."""
+    target = tmp_path / "checkout"
+    target.mkdir()
+    tasks = tmp_path / "tasks"
+    tasks.mkdir()
+    (tasks / "worker.json").write_text(json.dumps(_claim_record(target, status="done")))
+    (tasks / "worker.forged.json").write_text(json.dumps(_claim_record(target, run_nonce="other")))
+    refusal = worktree_claims.active_worktree_claim_refusal(target, tasks_dir=tasks, repo_root=tmp_path)
+    assert refusal is not None and "worker.forged.json" in refusal and "refusing worktree removal" in refusal
+    (tasks / "worker.forged.json").unlink()
+    (tasks / "worker.json").rename(tasks / "worker.renamed.json")
+    refusal = worktree_claims.active_worktree_claim_refusal(target, tasks_dir=tasks, repo_root=tmp_path)
+    assert refusal is not None and "worker.renamed.json" in refusal and "refusing worktree removal" in refusal
+
+
 # The kernel's initial PID namespace (fixed inode PROC_PID_INIT_INO), read from /proc, never configured.
 _INITIAL_PID_NAMESPACE = f"pid:[{0xEFFFFFFC}]"
 

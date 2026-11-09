@@ -42,7 +42,7 @@ from lu_machinery.orchestration.integration_sweep import (
 from lu_machinery.orchestration.task_record_store import (
     ARCHIVE_DIR_NAME,
     TaskIdentityMismatch,
-    candidate_task_record_names,
+    named_run_identity,
     read_task_record,
 )
 from lu_machinery.review import capability_failure
@@ -186,12 +186,10 @@ def review_records(task_root: Path, *, repository: str) -> list[tuple[Path, dict
             raise LineageRefused(f"task record {path.name} unreadable: {exc}") from None
         if not isinstance(record, dict):
             continue
-        task_id, nonce = record.get("task_id"), record.get("run_nonce")
         # Only a record whose file name is its task_id's can vouch for a copy.
-        if isinstance(task_id, str) and isinstance(nonce, str) and nonce and candidate_task_record_names(
-            task_id, (path.name,)
-        ):
-            named.add((task_id, nonce))
+        identity = named_run_identity(path, record)
+        if identity is not None:
+            named.add(identity)
         if record.get("status") in {"dry_run", "dry-run"} or not _is_review_task(record):
             continue
         if not isinstance(record.get("repository"), str) or normalize_repository(
