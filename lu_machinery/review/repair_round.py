@@ -49,7 +49,7 @@ import os
 import re
 import subprocess
 import time
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Collection, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -68,7 +68,7 @@ CONFLICT_RESOLUTION = "conflict-resolution"
 MAX_REPAIR_COMMITS = 20
 FAILED_CONCLUSIONS = frozenset({"failure", "timed_out"})
 # Only the required CI workflow's PR and merge-queue runs are CI evidence; a manual or other run is not.
-# The workflow is the repository's own ``required_workflow`` in lu_machinery/config/fleet_repos.yaml.
+# The workflows are the repository's own ``required_workflow`` (a path or a list) in lu_machinery/config/fleet_repos.yaml.
 DEFAULT_REQUIRED_WORKFLOW = ".github/workflows/ci.yml"
 WORKFLOW_PATH = re.compile(r"\.github/workflows/[A-Za-z0-9._-]+\.ya?ml\Z")
 CI_EVENTS = frozenset({"pull_request", "merge_group"})
@@ -239,8 +239,8 @@ def classify_delta(repo_root: Path, *, approved: str, candidate: str, base_tip: 
     return delta
 
 
-def required_workflow(repository: str) -> str:
-    """The repository's required CI workflow: its registry row's ``required_workflow``, else ci.yml."""
+def required_workflows(repository: str) -> tuple[str, ...]:
+    """The repository's required CI workflows: its row's ``required_workflow`` (a path or a list), else ci.yml."""
     try:
         rows = [
             row
@@ -255,33 +255,41 @@ def required_workflow(repository: str) -> str:
         raise RepairRefused(
             EVIDENCE, f"{repository} is registered more than once, so its required CI workflow is unknown"
         )
-    workflow = rows[0].get("required_workflow", DEFAULT_REQUIRED_WORKFLOW) if rows else DEFAULT_REQUIRED_WORKFLOW
-    if not isinstance(workflow, str) or not WORKFLOW_PATH.match(workflow):
-        raise RepairRefused(EVIDENCE, f"{repository}'s required_workflow is not a .github/workflows/ file")
-    return workflow
+    value = rows[0].get("required_workflow", DEFAULT_REQUIRED_WORKFLOW) if rows else DEFAULT_REQUIRED_WORKFLOW
+    items = value if isinstance(value, list) and value else [value] if isinstance(value, str) else None
+    if (
+        items is None
+        or not all(isinstance(item, str) and WORKFLOW_PATH.match(item) for item in items)
+        or len(set(items)) != len(items)
+    ):
+        raise RepairRefused(
+            EVIDENCE,
+            f"{repository}'s required_workflow is not a .github/workflows/ file or a non-empty list of distinct ones",
+        )
+    return tuple(items)
 
 
-def _required_failure(run: Mapping[str, Any], workflow: str) -> bool:
-    """A failed run of the required CI workflow on a PR or merge-queue event."""
+def _required_failure(run: Mapping[str, Any], workflows: Collection[str]) -> bool:
+    """A failed run of any required CI workflow on a PR or merge-queue event."""
     path = str(run.get("path") or "").split("@", 1)[0]
-    return path == workflow and run.get("event") in CI_EVENTS and run.get("conclusion") in FAILED_CONCLUSIONS
+    return path in workflows and run.get("event") in CI_EVENTS and run.get("conclusion") in FAILED_CONCLUSIONS
 
 
 def failed_runs_for(
-    approved: str, *, number: int, repo_root: Path, github: GitHubReads, workflow: str
+    approved: str, *, number: int, repo_root: Path, github: GitHubReads, workflows: Collection[str]
 ) -> list[dict[str, Any]]:
-    """Failed ``workflow`` runs of the approved head itself, or of this PR's merge-queue candidate built from it."""
+    """Failed runs of any of ``workflows`` of the approved head itself, or of this PR's merge-queue candidate built from it."""
     tied = [
         {"run_id": run.get("id"), "event": run.get("event"), "conclusion": run.get("conclusion")}
         for run in github.failed_runs(approved)
-        if run.get("head_sha") == approved and _required_failure(run, workflow) and run.get("event") == "pull_request"
+        if run.get("head_sha") == approved and _required_failure(run, workflows) and run.get("event") == "pull_request"
     ]
     queue = re.compile(rf"gh-readonly-queue/[^/]+(?:/[^/]+)*/pr-{number}-([0-9a-f]{{40}})\Z")
     for run in github.queue_runs():
         match = queue.match(str(run.get("head_branch") or ""))
         if (
             not match
-            or not _required_failure(run, workflow)
+            or not _required_failure(run, workflows)
             or run.get("event") != "merge_group"
             or not SHA.fullmatch(str(run.get("head_sha")))
         ):
@@ -414,13 +422,13 @@ def admit_repair_round(
         )
     elif "commit" in kinds and kinds <= {"commit", "clean-merge"}:
         kind = CI_FIX
-        workflow = required_workflow(repository)
-        runs = failed_runs_for(approved, number=number, repo_root=repo_root, github=github, workflow=workflow)
+        workflows = required_workflows(repository)
+        runs = failed_runs_for(approved, number=number, repo_root=repo_root, github=github, workflows=workflows)
         if not runs:
             raise RepairRefused(
                 EVIDENCE,
                 f"no failed CI run is tied to the approved head {approved} (its own PR run, or this PR's "
-                f"merge-queue candidate built from it, of {workflow}); a change after approval without one escalates",
+                f"merge-queue candidate built from it, of {', '.join(workflows)}); a change after approval without one escalates",
             )
         evidence["failed_runs"] = runs
     else:
