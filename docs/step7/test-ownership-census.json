@@ -407,7 +407,8 @@
     "scripts/review/model_catalog.py [present: present on machinery main as lu_machinery/review/model_catalog.py]",
     "unresolved: non-literal import_module(name)"
    ],
-   "retired": "disposition c: tests the Kimi adapters removed by machinery #141 (adapters/kimi.py, adapters/kimicc.py, kimicc_headless.sh); retired-input refusal stays covered by tests/agent_runtime/test_retired_seat_admission.py (#160)"
+   "retired": "disposition c for 20 of 21 test functions: they test the Kimi adapters removed by machinery #141 (adapters/kimi.py, adapters/kimicc.py, kimicc_headless.sh); retired-input refusal stays covered by tests/agent_runtime/test_retired_seat_admission.py (#160). test_kimi_mcp_request_fails_closed_without_per_call_selector tests build_mcp_tool_config, which is live, and is ported.",
+   "ported_to": "tests/agent_runtime/adapters/test_kimi_adapter.py"
   },
   "tests/agent_runtime/adapters/test_kimicc_headless.py": {
    "disposition": "port-first",

@@ -151,6 +151,7 @@ tests/agent_runtime/adapters/test_claude_adapter.py
 tests/agent_runtime/adapters/test_cursor_adapter.py
 tests/agent_runtime/adapters/test_deepseek_adapter.py
 tests/agent_runtime/adapters/test_glm_adapter.py
+tests/agent_runtime/adapters/test_kimi_adapter.py
 tests/agent_runtime/test_accounting.py
 tests/agent_runtime/test_acp_health.py
 tests/agent_runtime/test_acpx_adapter.py
