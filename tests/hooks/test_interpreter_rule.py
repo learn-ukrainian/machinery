@@ -27,7 +27,7 @@ SESSION_STDIN = json.dumps({"session_id": "interpreter-rule", "source": "startup
 GUARDS = {
     "heal-core-bare.py": ("git status", 0),
     "guard-branch-switch-in-main.py": ("git checkout topic", 2),
-    "guard-primary-checkout-write.py": ("git reset --hard", 2),
+    "guard-primary-checkout-write.py": ("git reset --hard", 0),
     "guard-pr-merge.py": ("gh pr merge 1", 2),
     "guard-public-github-text.py": ("gh pr view 1", 0),
 }

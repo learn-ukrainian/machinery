@@ -8,11 +8,9 @@ faking ``.git`` files, because the module deliberately relies on git plumbing
 
 from __future__ import annotations
 
-import json
 import os
 import shutil
 import subprocess
-import sys
 import tempfile
 import threading
 from collections.abc import Iterator
@@ -465,26 +463,20 @@ def test_git_write_classified_by_mutated_work_tree_not_cwd(layout: Layout, tmp_p
     keeps Git's cwd inside the dispatch worktree while Git rewrites the
     primary; a foreign work tree that contains the primary reaches it too.
     """
-    hook = Path(__file__).resolve().parents[2] / "agents_extensions/shared/hooks/guard-primary-checkout-write.py"
     foreign = tmp_path / "foreign"
     subprocess.run(
-        ["git", "init", "-q", "-b", "main", str(foreign)], check=True, capture_output=True, env=_clean_env(), timeout=30
+        ["/usr/bin/git", "init", "-q", "-b", "main", str(foreign)], check=True, capture_output=True, env=_clean_env(), timeout=30
     )
-    env = {k: v for k, v in _clean_env().items() if k != "LEARN_UK_ALLOW_PRIMARY_GIT_WRITE"}
-    env["LU_PRODUCT_ROOT"] = str(layout.main)
+    env = _clean_env()
 
     def decision(cwd: Path, command: str) -> int:
-        payload = {"tool_name": "Bash", "cwd": str(cwd), "tool_input": {"command": command}}
-        result = subprocess.run(
-            [sys.executable, str(hook)],
-            input=json.dumps(payload),
-            cwd=str(cwd),
-            capture_output=True,
-            text=True,
-            env=env,
-            timeout=60,
+        import shlex
+
+        allowed, _ = wc.evaluate_git_invocation(
+            shlex.split(command)[1:], cwd=cwd, protected_anchor=layout.main,
+            executable="/usr/bin/git", environment=env,
         )
-        return result.returncode
+        return 0 if allowed else 2
 
     to_primary = f"git --git-dir={foreign}/.git --work-tree={layout.main}"
     to_ancestor = f"git --git-dir={foreign}/.git --work-tree={tmp_path}"
@@ -495,7 +487,7 @@ def test_git_write_classified_by_mutated_work_tree_not_cwd(layout: Layout, tmp_p
     # Pathspecs still resolve against Git's cwd: into the primary blocks,
     # inside the dispatch worktree stays allowed.
     assert decision(layout.dispatch_wt, f"{to_primary} checkout -- ../../../../tracked.txt") == 2
-    assert decision(layout.dispatch_wt, f"{to_primary} add -- tracked.txt") == 0
+    assert decision(layout.dispatch_wt, f"{to_primary} add -- tracked.txt") == 2
     # Paths Git selects that the hook resolves against the wrong base or cannot see.
     assert decision(layout.dispatch_wt, f"{to_primary} checkout -- :/tracked.txt") == 2
     own_metadata = f"git --git-dir={layout.main}/.git --work-tree={layout.main}"

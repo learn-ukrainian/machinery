@@ -1168,28 +1168,6 @@ def test_module_context_attacks(world, tmp_path, monkeypatch, kind):
     shutil.rmtree(primary / "agents_extensions")
 
 
-@pytest.mark.parametrize(
-    ("shape", "expected"),
-    [
-        ("git -C {sibling} merge --ff-only origin/main", 0),
-        ("cd {sibling} && git merge --ff-only origin/main", 2),
-        ("git -C {sibling} worktree remove {target}", 0),
-        ("git -C {primary} merge --ff-only origin/main", 2),
-        ("cd {primary} && git merge --ff-only origin/main", 2),
-    ],
-)
-def test_issue_11381_raw_git_targets_own_repository(world, monkeypatch, shape, expected):
-    primary, sibling, _ = world
-    hook = fixture_hook(primary, monkeypatch)
-    command = shape.format(sibling=shlex.quote(str(sibling)), primary=shlex.quote(str(primary)), target=shlex.quote(str(primary / "file.txt")))
-    before = snapshot(primary)
-    try:
-        # The raw Git commands are classified without executing any mutation.
-        assert decide(hook, command, primary) == expected
-        assert snapshot(primary) == before
-    finally:
-        shutil.rmtree(primary / "lu_machinery")
-        shutil.rmtree(primary / "agents_extensions")
 
 
 def test_help_and_invalid_argv(world, capsys):

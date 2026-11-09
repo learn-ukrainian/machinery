@@ -1,16 +1,7 @@
-"""Regression tests for the agent git shim's branch-switch guard.
+"""Exec-time primary-policy guard and existing OPSEC discovery/re-entry regressions.
 
-INCIDENT 2026-07-05 (fork bomb): the shim spawned the worktree-containment
-python guard for EVERY git subcommand, and the guard's own ``_run_git`` calls
-bare ``git`` which PATH-resolves back to the shim — infinite bash+python
-recursion until the per-user process limit (~2,200 stuck processes observed,
-machine-wide fork failures).
-
-Contract under test (scripts/agent_runtime/shims/git):
-1. Non-checkout/switch subcommands NEVER spawn the python guard (bash pre-filter).
-2. checkout/switch DO consult the guard.
-3. With AGENT_GIT_SHIM_GUARD_ACTIVE=1 (set by the shim around the guard call),
-   even checkout/switch skip the guard — breaking any nested recursion.
+Every Git invocation now consults the guard. Its probes call the real binary
+instead of re-entering the shim; caller sentinels fail closed.
 """
 
 from __future__ import annotations
@@ -38,11 +29,14 @@ def _install_shim(shim_copy: Path) -> None:
     library = shim_copy.parent.parent.parent / "lib" / "project_interpreter.sh"
     library.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(INTERPRETER_LIBRARY, library)
+    package = shim_copy.parent.parent.parent
+    for name in ("__init__.py", "common", "guardrails"):
+        (package / name).symlink_to(machinery_path(name), target_is_directory=name != "__init__.py")
 
-PYTHON_STUB = """#!/usr/bin/env bash
-# Records that the containment guard python was invoked, then declines to block.
+PYTHON_STUB = f"""#!/usr/bin/env bash
+# Records the policy invocation, then runs the project interpreter.
 echo invoked >> "$(dirname "$0")/../guard-invocations.log"
-exit 1
+exec {sys.executable} "$@"
 """
 
 
@@ -75,7 +69,9 @@ def shim_fixture(tmp_path: Path) -> dict[str, Path]:
         env={"PATH": "/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin", "HOME": str(tmp_path)}, timeout=30,
     )
 
-    return {"shim": shim_copy, "workdir": workdir, "log": tmp_path / ".venv" / "guard-invocations.log"}
+    protected = tmp_path / "protected"
+    subprocess.run(["/usr/bin/git", "init", "-q", "-b", "main", str(protected)], check=True, timeout=30)
+    return {"protected": protected, "python": stub, "shim": shim_copy, "workdir": workdir, "log": tmp_path / ".venv" / "guard-invocations.log"}
 
 
 def _run_shim(fx: dict[str, Path], *args: str, extra_env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
@@ -83,6 +79,8 @@ def _run_shim(fx: dict[str, Path], *args: str, extra_env: dict[str, str] | None 
         "PATH": "/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin",
         "HOME": str(fx["workdir"]),
         "AGENT_NO_MERGE": "1",
+        "LU_PRODUCT_ROOT": str(fx["protected"]),
+        "LEARN_UKRAINIAN_PYTHON": str(fx["python"]),
     }
     if extra_env:
         env.update(extra_env)
@@ -97,11 +95,11 @@ def _run_shim(fx: dict[str, Path], *args: str, extra_env: dict[str, str] | None 
     )
 
 
-def test_non_switch_subcommand_never_spawns_guard(shim_fixture: dict[str, Path]) -> None:
-    """`git status` through the shim must not fork the python guard (fork-bomb vector)."""
+def test_non_switch_subcommand_consults_guard_without_recursion(shim_fixture: dict[str, Path]) -> None:
+    """One status invocation consults the guard once; its direct probes never recurse."""
     result = _run_shim(shim_fixture, "status", "--porcelain")
     assert result.returncode == 0, result.stderr
-    assert not shim_fixture["log"].exists(), "guard python was spawned for a non-checkout subcommand"
+    assert shim_fixture["log"].read_text().splitlines() == ["invoked"]
 
 
 def test_checkout_consults_guard(shim_fixture: dict[str, Path]) -> None:
@@ -128,15 +126,15 @@ def test_sentinel_fails_closed_on_branch_switch(shim_fixture: dict[str, Path]) -
     assert "fail-closed sentinel" in result.stderr
 
 
-def test_sentinel_passes_readonly_plumbing(shim_fixture: dict[str, Path]) -> None:
-    """Non-switch commands under the sentinel pass through without the guard."""
+def test_sentinel_fails_closed_for_readonly_plumbing(shim_fixture: dict[str, Path]) -> None:
+    """No caller-supplied sentinel grants a policy exemption, including to readers."""
     result = _run_shim(
         shim_fixture,
         "status",
         "--porcelain",
         extra_env={"AGENT_GIT_SHIM_GUARD_ACTIVE": "1"},
     )
-    assert result.returncode == 0, result.stderr
+    assert result.returncode == 1, result.stderr
     assert not shim_fixture["log"].exists()
 
 
@@ -230,7 +228,7 @@ if [[ "${*: -1}" == --list-cmds=builtins,main ]]; then
   exit "$UNIT_DISCOVERY_EXIT"
 fi
 for arg in "$@"; do
-  if [[ "$arg" == config ]]; then
+  if [[ "$arg" == config || "$arg" == --git-common-dir || "$arg" == symbolic-ref || "$arg" == worktree ]]; then
     exec "$UNIT_REAL_GIT" "$@"
   fi
 done
@@ -354,6 +352,8 @@ def test_wrapper_reentry_is_bounded_with_hard_timeout(shim_fixture, tmp_path, se
         "PATH": f"{fx['shim'].parent}:{wrapper_dir}:/usr/bin:/bin",
         "AGENT_ORIGINAL_PATH": f"{wrapper_dir}:/usr/bin:/bin",
         "UNIT_CALLS": str(calls),
+        "LEARN_UKRAINIAN_PYTHON": str(fx["python"]),
+        "LU_PRODUCT_ROOT": str(fx["protected"]),
     }
     if selection == "explicit":
         env["AGENT_REAL_GIT"] = str(wrapper)
@@ -366,7 +366,9 @@ def test_wrapper_reentry_is_bounded_with_hard_timeout(shim_fixture, tmp_path, se
         (126, REENTRY_REFUSAL) if command == "--version" else (2, DISCOVERY_REFUSAL)
     )
     assert result.stdout == ""
-    assert calls.read_text().splitlines() == [f"1:{depth}" for depth in range(1, 9)]
+    # A shim used as a discovery wrapper is now refused before final exec;
+    # informational re-entry still reaches the existing hard depth cap.
+    assert calls.read_text().splitlines() == ([f"1:{depth}" for depth in range(1, 9)] if command == "--version" else ["1:1"])
 
 
 @pytest.mark.parametrize("depth", [None, "", "0", "8", "999999999999999999999", "1+1", "01"])
@@ -433,9 +435,4 @@ def test_failed_push_common_dir_probe_preserves_opsec_refusal(shim_fixture, tmp_
     detached_shim = tmp_path / "detached" / "scripts" / "agent_runtime" / "shims" / "git"
     _install_shim(detached_shim)
     result = _run_shim({**shim_fixture, "shim": detached_shim}, "push", "origin", "feature")
-    # Since #171 the shim resolves its interpreter through project_interpreter.sh first, which names
-    # the missing interpreter before the unchanged push refusal.
-    missing = tmp_path / "detached" / ".venv" / "bin" / "python"
-    assert (result.returncode, result.stdout, result.stderr) == (
-        2, "", f"Error: project interpreter not found: {missing}\nOPSEC: push scanner hooks unavailable; push refused.\n",
-    )
+    assert (result.returncode, result.stdout, result.stderr) == (2, "", "OPSEC: push scanner hooks unavailable; push refused.\n")

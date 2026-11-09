@@ -121,16 +121,18 @@ class WriteDecision:
 _GIT_TIMEOUT_S = 30
 
 
-def _run_git(cwd: Path, *args: str) -> subprocess.CompletedProcess[str]:
+def _run_git(
+    cwd: Path, *args: str, environment: dict[str, str] | None = None, executable: str = "git",
+) -> subprocess.CompletedProcess[str]:
     """Run a read-only git command scoped to ``cwd`` with sanitized env."""
-    argv = ["git", "-C", str(cwd), *args]
+    argv = [executable, "-C", str(cwd), *args]
     try:
         return subprocess.run(
             argv,
             capture_output=True,
             text=True,
             check=False,
-            env=sanitized_git_env(),
+            env=sanitized_git_env() if environment is None else environment,
             timeout=_GIT_TIMEOUT_S,
         )
     except subprocess.TimeoutExpired as exc:
@@ -163,15 +165,21 @@ class GitWriteTarget:
     cwd: Path
 
 
-def resolve_git_worktree(cwd: Path | str, options: list[str]) -> GitWriteTarget:
+def resolve_git_worktree(
+    cwd: Path | str, options: list[str], *, environment: dict[str, str] | None = None, executable: str = "git",
+) -> GitWriteTarget:
     """Resolve Git target options without executing a working-tree mutation.
 
     Git interprets repeated -C and relative --git-dir/--work-tree itself.
     Failed probes and missing worktrees are unknown, never foreign-repo proof.
     """
+    # A caller-supplied real-Git wrapper may itself invoke the PATH shim.
+    # Such re-entry must refuse instead of spawning another policy helper.
+    probe_env = None if environment is None else {**environment, "AGENT_GIT_SHIM_GUARD_ACTIVE": "1"}
     proc = _run_git(
         Path(cwd), *options, "rev-parse", "--path-format=absolute",
         "--git-common-dir", "--absolute-git-dir", "--show-toplevel", "--show-prefix",
+        environment=probe_env, executable=executable,
     )
     lines = proc.stdout.splitlines()
     if proc.returncode or len(lines) != 4:
@@ -183,6 +191,78 @@ def resolve_git_worktree(cwd: Path | str, options: list[str]) -> GitWriteTarget:
     if not all(path.is_dir() for path in (common_dir, git_dir, worktree)):
         raise NotAGitRepositoryError("Cannot resolve Git write target")
     return GitWriteTarget(common_dir, git_dir, worktree, (worktree / prefix).resolve(strict=True))
+
+
+def evaluate_git_invocation(
+    argv: list[str], *, cwd: Path, protected_anchor: Path, executable: str, environment: dict[str, str],
+) -> tuple[bool, str]:
+    """Exec-time primary policy on actual argv/cwd/env, independently anchored.
+
+    Only the target probe receives caller Git redirections. The protected
+    repository probe strips them and external configuration, so a foreign
+    target cannot redefine what this invocation protects. Probes call the real
+    executable directly, never the PATH shim, preventing guard recursion.
+    """
+    from lu_machinery.guardrails.git_primary_policy import _GIT_INFO_GLOBALS, git_invocation_form, split_invocation
+
+    try:
+        options, sub, args, strict = split_invocation(argv)
+        if sub in _GIT_INFO_GLOBALS and not options:
+            return True, "informational"
+        trusted_env = {
+            key: value for key, value in environment.items()
+            if key not in GIT_REDIRECT_ENV_KEYS and not key.startswith("GIT_CONFIG")
+        }
+        trusted_env.update(GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_SYSTEM=os.devnull, AGENT_GIT_SHIM_GUARD_ACTIVE="1")
+        protected = resolve_git_worktree(protected_anchor, [], environment=trusted_env, executable=executable)
+        # A launch may name a dispatch worktree of the protected repository.
+        primary = protected.common_dir.parent
+        protected = resolve_git_worktree(primary, [], environment=trusted_env, executable=executable)
+        target = resolve_git_worktree(cwd, options, environment=environment, executable=executable)
+        branch = _run_git(
+            primary, "symbolic-ref", "--quiet", "--short", "HEAD", environment=trusted_env, executable=executable,
+        )
+        if branch.returncode not in (0, 1):
+            return False, "undecidable_protected_branch"
+        if branch.stdout.strip() not in PROTECTED_BRANCHES:
+            return True, "unprotected_branch"
+        listing = _run_git(primary, "worktree", "list", "--porcelain", environment=trusted_env, executable=executable)
+        if listing.returncode:
+            return False, "undecidable_registered_worktrees"
+        worktrees = [Path(line[9:]).resolve() for line in listing.stdout.splitlines() if line.startswith("worktree ")]
+        reaches_primary = (
+            _classify_with_worktrees(target.worktree, primary, worktrees) == "primary_checkout"
+            or primary.is_relative_to(target.worktree)
+            or target.git_dir == protected.git_dir
+        )
+        # Explicit metadata redirection can touch the primary even when both
+        # the repository and the working-tree probe name another checkout.
+        for key in ("GIT_INDEX_FILE", "GIT_OBJECT_DIRECTORY", "GIT_COMMON_DIR"):
+            if environment.get(key):
+                location = absolute_path(environment[key], cwd=cwd)
+                reaches_primary |= location.is_relative_to(protected.common_dir)
+        if not reaches_primary:
+            return True, "isolated_git_target"
+        if target.common_dir != protected.common_dir:
+            return False, "git_foreign_config_on_primary"
+        if not strict or any(
+            name.startswith("GIT_CONFIG") and name not in {"GIT_CONFIG_NOSYSTEM", "GIT_CONFIG_GLOBAL", "GIT_CONFIG_SYSTEM"}
+            for name in environment
+        ) or any(environment.get(name) for name in ("GIT_INDEX_FILE", "GIT_OBJECT_DIRECTORY", "GIT_COMMON_DIR", "GIT_PAGER", "PAGER")):
+            return False, "undecidable_git_environment_or_globals"
+        form = ("read", []) if sub in _GIT_INFO_GLOBALS else git_invocation_form(sub, args)
+        if form is None:
+            return False, "git_not_on_read_only_allowlist"
+        kind, paths = form
+        if kind != "read" and (target.git_dir != protected.git_dir or target.worktree != protected.worktree):
+            return False, "git_maintenance_outside_primary_repo"
+        for raw in paths:
+            location = absolute_path(raw, cwd=target.cwd)
+            if _classify_with_worktrees(location, primary, worktrees) == "primary_checkout" or primary.is_relative_to(location):
+                return False, "git_worktree_path_reaches_primary"
+        return True, kind
+    except (OSError, RuntimeError, ValueError):
+        return False, "undecidable_git_target"
 
 
 def _git_dir_for(path: Path) -> Path:
@@ -443,6 +523,11 @@ def _classify_resolved_path(target: Path, anchor: Path) -> tuple[PathClass, Path
         main_root = _resolve_main_root_or_none(target)
         if main_root is None:
             return "outside_repo", None
+    return _classify_with_worktrees(target, main_root, registered_worktrees(main_root)), main_root
+
+
+def _classify_with_worktrees(target: Path, main_root: Path, worktrees: list[Path]) -> PathClass:
+    """Pure containment shared by normal callers and non-recursing exec-time probes."""
     worktrees_dir = main_root / ".worktrees"
 
     # The ``.worktrees/**`` subtree is classified structurally so a dispatch
@@ -451,22 +536,22 @@ def _classify_resolved_path(target: Path, anchor: Path) -> tuple[PathClass, Path
     if _is_within(target, worktrees_dir):
         rel = target.relative_to(worktrees_dir)
         if rel.parts and rel.parts[0] == "dispatch":
-            return "dispatch_worktree", main_root
-        return "other_worktree", main_root
+            return "dispatch_worktree"
+        return "other_worktree"
 
     # Any other registered worktree sharing this .git store — e.g. an
     # externally-located worktree under ~/.codex/worktrees/... — is isolated
     # from the primary checkout and therefore an allowed write location.
-    for worktree in registered_worktrees(main_root):
+    for worktree in worktrees:
         if worktree == main_root:
             continue
         if _is_within(target, worktree):
-            return "other_worktree", main_root
+            return "other_worktree"
 
     if _is_within(target, main_root):
-        return "primary_checkout", main_root
+        return "primary_checkout"
 
-    return "outside_repo", main_root
+    return "outside_repo"
 
 
 def classify_repo_path(path: Path | str, cwd: Path | str | None = None) -> PathClass:

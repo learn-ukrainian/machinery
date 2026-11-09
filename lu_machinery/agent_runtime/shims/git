@@ -106,171 +106,6 @@ if [[ "${AGENT_NO_MERGE:-}" == "1" ]] && _blocks_git_push "$@"; then
   _deny
 fi
 
-_blocks_branch_switch() {
-  local shim_dir
-  shim_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-  # The machinery package directory, named by the shim's unresolved location (design-v1 amendment 1).
-  local package="${shim_dir%/*/*}"
-  package="${package##*/}"
-
-  local guard_python=""
-  guard_python="$(_shim_project_python)" || true
-
-  if [[ -z "$guard_python" || ! -x "$guard_python" ]]; then
-    cat >&2 <<EOF
-error: git shim guard interpreter unavailable.
-       Cannot verify branch containment; failing closed.
-EOF
-    return 125
-  fi
-
-  local guard_status=0
-  local guard_out
-  guard_out="$(project_python_run "$guard_python" -c '
-import sys
-import subprocess
-from pathlib import Path
-
-# Exit codes:
-#   0 with stdout "GUARD_ALLOW" = ALLOW (safe to run)
-#   2 = BLOCKED (illegal branch switch in primary checkout)
-# Any unhandled exception or non-zero exit code fails closed.
-
-try:
-    import importlib
-
-    machinery_package = sys.argv[1]
-    git_args = sys.argv[2:]
-
-    if not machinery_package.isidentifier():
-        raise ValueError(f"machinery package name {machinery_package!r} is not a Python identifier")
-
-    containment = importlib.import_module(machinery_package + ".guardrails.worktree_containment")
-    is_primary_checkout = containment.is_primary_checkout
-    is_protected_branch = containment.is_protected_branch
-    PROTECTED_BRANCHES = containment.PROTECTED_BRANCHES
-
-    if not (is_primary_checkout() and is_protected_branch()):
-        print("GUARD_ALLOW")
-        sys.exit(0)
-
-    if not git_args:
-        print("GUARD_ALLOW")
-        sys.exit(0)
-
-    cmd = git_args[0]
-    if cmd not in ("checkout", "switch"):
-        print("GUARD_ALLOW")
-        sys.exit(0)
-
-    creates_branch = any(arg in ("-b", "-B", "-c", "-C") for arg in git_args[1:])
-    if creates_branch:
-        sys.exit(2)
-
-    target = None
-    for arg in git_args[1:]:
-        if arg == "--":
-            break
-        if not arg.startswith("-"):
-            target = arg
-            break
-
-    if not target:
-        print("GUARD_ALLOW")
-        sys.exit(0)
-
-    if target in PROTECTED_BRANCHES:
-        print("GUARD_ALLOW")
-        sys.exit(0)
-
-    if cmd == "switch":
-        if "--detach" not in git_args and "-d" not in git_args:
-            sys.exit(2)
-        print("GUARD_ALLOW")
-        sys.exit(0)
-
-    is_local = (subprocess.run(["git", "show-ref", "--verify", "--quiet", f"refs/heads/{target}"]).returncode == 0)
-    is_remote = (subprocess.run(["git", "show-ref", "--verify", "--quiet", f"refs/remotes/origin/{target}"]).returncode == 0)
-
-    if is_local or is_remote:
-        target_idx = git_args.index(target)
-        remaining_args = git_args[target_idx+1:]
-        if "--" in remaining_args:
-            print("GUARD_ALLOW")
-            sys.exit(0)
-        has_file_args = False
-        for arg in remaining_args:
-            if not arg.startswith("-"):
-                has_file_args = True
-                break
-        if has_file_args:
-            print("GUARD_ALLOW")
-            sys.exit(0)
-        sys.exit(2)
-
-    print("GUARD_ALLOW")
-    sys.exit(0)
-except SystemExit:
-    raise
-except Exception as exc:
-    print(f"error: branch containment check failed: {exc}", file=sys.stderr)
-    sys.exit(3)
-' "$package" "$@")" || guard_status=$?
-
-  if [[ "$guard_status" -ne 0 ]]; then
-    return "$guard_status"
-  fi
-
-  if [[ "$guard_out" == "GUARD_ALLOW" ]]; then
-    return 0
-  fi
-
-  cat >&2 <<EOF
-error: git shim guard did not verify containment; failing closed.
-EOF
-  return 124
-}
-
-# INCIDENT 2026-07-05 (fork bomb): _blocks_branch_switch spawns a python guard whose
-# worktree_containment._run_git calls bare "git" -> PATH resolves back to THIS shim ->
-# guard again -> infinite bash+python chains until the per-user process limit (observed:
-# ~2,200 stuck processes, machine-wide fork failures). Two independent breakers:
-#   1. Bash-side pre-filter: the guard only concerns checkout/switch — never spawn the
-#      python (which itself runs git) for any other subcommand.
-#   2. AGENT_GIT_SHIM_GUARD_ACTIVE sentinel, FAIL-CLOSED (codex review msg 2014): the
-#      guard's subtree only ever runs read-only plumbing (rev-parse/show-ref/ls-files),
-#      which the pre-filter passes through. A checkout/switch arriving WITH the sentinel
-#      set is therefore either recursion or spoofing — both are DENIED outright, without
-#      spawning the guard python. Spoofing the sentinel strengthens the block; it cannot
-#      bypass it. The push-deny above stays active regardless.
-if [[ "${AGENT_NO_MERGE:-}" == "1" ]] && [[ "${1:-}" == "checkout" || "${1:-}" == "switch" ]]; then
-  if [[ "${AGENT_GIT_SHIM_GUARD_ACTIVE:-}" == "1" ]]; then
-    cat >&2 <<EOF
-error: branch switch denied inside the containment guard's own subtree (fail-closed sentinel).
-EOF
-    exit 1
-  fi
-
-  guard_rc=0
-  AGENT_GIT_SHIM_GUARD_ACTIVE=1 _blocks_branch_switch "$@" || guard_rc=$?
-
-  if [[ "$guard_rc" -eq 2 ]]; then
-    cat >&2 <<EOF
-error: agent cannot switch branches in the primary checkout.
-       Create and cd into a dispatch worktree (.worktrees/dispatch/<agent>/<task>/) before switching branches.
-EOF
-    exit 1
-  elif [[ "$guard_rc" -ne 0 ]]; then
-    if [[ "$guard_rc" -ne 125 && "$guard_rc" -ne 124 && "$guard_rc" -ne 3 ]]; then
-      cat >&2 <<EOF
-error: git shim guard interpreter failed to run ($guard_rc).
-       Cannot verify branch containment; failing closed.
-EOF
-    fi
-    exit 1
-  fi
-fi
-
 real_git="$(_real_git)" || {
   echo "error: could not locate the real git binary behind the agent shim." >&2
   exit 127
@@ -506,6 +341,50 @@ OPSEC: an alias named '$_opsec_command' is defined, so '$_opsec_command' was not
 EOF
     exit 2
   fi
+fi
+
+# The shell has already expanded argv and changed cwd. A direct real-Git probe
+# cannot re-enter this shim, so enforcement runs for every command without a
+# caller-controlled AGENT_NO_MERGE gate or a read-only recursion exemption.
+if [[ "${AGENT_GIT_SHIM_GUARD_ACTIVE:-}" == 1 ]]; then
+  echo "error: git policy re-entry refused (fail-closed sentinel)." >&2
+  exit 1
+fi
+_guard_python="$(_shim_project_python)" || _guard_python=""
+if [[ -z "$_guard_python" || ! -x "$_guard_python" ]]; then
+  echo "error: git shim guard interpreter unavailable; failing closed." >&2
+  exit 1
+fi
+_guard_status=0
+_guard_out="$(project_python_run "$_guard_python" -c '
+import importlib.util
+import os
+import sys
+from pathlib import Path
+try:
+    root = Path(sys.argv[1])
+    spec = importlib.util.spec_from_file_location("lu_machinery", root / "__init__.py", submodule_search_locations=[str(root)])
+    if spec is None or spec.loader is None:
+        raise ImportError("machinery package unavailable")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules["lu_machinery"] = module
+    spec.loader.exec_module(module)
+    from lu_machinery.common.repo_root import product_root
+    from lu_machinery.guardrails.worktree_containment import evaluate_git_invocation
+    allowed, reason = evaluate_git_invocation(sys.argv[3:], cwd=Path.cwd(), protected_anchor=product_root(), executable=sys.argv[2], environment=dict(os.environ))
+    if not allowed:
+        print("error: primary Git policy refused [" + reason + "].", file=sys.stderr)
+        sys.exit(2)
+    print("GUARD_ALLOW")
+except SystemExit:
+    raise
+except Exception:
+    print("error: primary Git policy unavailable; failing closed.", file=sys.stderr)
+    sys.exit(3)
+' "$_shim_dir/../.." "$real_git" "$@")" || _guard_status=$?
+if [[ "$_guard_status" -ne 0 || "$_guard_out" != GUARD_ALLOW ]]; then
+  echo "error: primary Git policy did not verify the invocation; failing closed." >&2
+  exit 1
 fi
 
 if [[ "$_opsec_push" == 1 ]]; then

@@ -59,6 +59,7 @@ def run_git_shim(repo: Path, *args: str, agent_no_merge: bool = True, python_bin
     shim_path = machinery_path("agent_runtime/shims/git")
 
     env = _clean_env()
+    env["LU_PRODUCT_ROOT"] = str(wc.resolve_main_root(repo))
     if agent_no_merge:
         env["AGENT_NO_MERGE"] = "1"
     else:
@@ -85,7 +86,7 @@ def test_git_shim_blocks_branch_switch_in_main(repo_layout):
     # Checking out a branch in main (protected) should be blocked
     proc = run_git_shim(repo_layout.main, "checkout", "feature-1")
     assert proc.returncode == 1
-    assert "agent cannot switch branches in the primary checkout" in proc.stderr
+    assert "primary Git policy" in proc.stderr
 
     proc = run_git_shim(repo_layout.main, "switch", "feature-1")
     assert proc.returncode == 1
@@ -102,7 +103,7 @@ def test_git_shim_allows_file_checkout(repo_layout):
     assert proc.returncode == 0
 
     proc = run_git_shim(repo_layout.main, "checkout", "feature-1", "--", "tracked.txt")
-    assert proc.returncode == 0
+    assert proc.returncode == 1  # Only restoration from the primary index is a rescue form.
 
 def test_git_shim_allows_branch_switch_in_worktree(repo_layout):
     # Checking out a branch in worktree should be allowed
@@ -116,10 +117,10 @@ def test_git_shim_allows_read_only(repo_layout):
     proc = run_git_shim(repo_layout.main, "log")
     assert proc.returncode == 0
 
-def test_git_shim_human_operator_unaffected(repo_layout):
-    # When AGENT_NO_MERGE=1 is not set, block should not occur
+def test_git_shim_enforces_without_caller_agent_flag(repo_layout):
+    # Clearing a caller-controlled flag must not disable primary containment.
     proc = run_git_shim(repo_layout.main, "checkout", "feature-1", agent_no_merge=False)
-    assert proc.returncode == 0
+    assert proc.returncode == 1
 
 
 @pytest.mark.parametrize("verb,args", [
@@ -134,7 +135,7 @@ def test_git_shim_fails_closed_when_guard_interpreter_absent(repo_layout, verb, 
     proc = run_git_shim(repo_layout.main, verb, *args, python_bin=nonexistent)
     assert proc.returncode == 1
     assert "error: git shim guard interpreter unavailable" in proc.stderr
-    assert "Cannot verify branch containment; failing closed." in proc.stderr
+    assert "failing closed" in proc.stderr
 
 
 def test_git_shim_fails_closed_on_fake_interpreter_stdout(repo_layout):
@@ -182,6 +183,7 @@ def test_git_shim_works_when_hosted_in_worktree_without_venv(repo_layout, tmp_pa
     # Run the worktree-hosted shim from target_wt
     env = _clean_env()
     env["AGENT_NO_MERGE"] = "1"
+    env["LU_PRODUCT_ROOT"] = str(mock_main)
     env.pop("LEARN_UKRAINIAN_PYTHON", None)
 
     proc = subprocess.run(
