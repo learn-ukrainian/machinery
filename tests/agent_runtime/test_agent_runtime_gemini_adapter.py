@@ -1,4 +1,4 @@
-"""Focused Gemini adapter regression tests for prompt passing and auth."""
+"""Gemini adapter: the native CLI argv is refused; auth resolution stays."""
 
 from __future__ import annotations
 
@@ -11,11 +11,11 @@ from lu_machinery.agent_runtime.adapters.gemini import (
     GeminiAdapter,
     resolve_gemini_auth_mode,
 )
-from lu_machinery.ai_llm.fallback import GEMINI_AUTH_ENV_VARS
+from lu_machinery.agent_runtime.errors import AgentUnavailableError
 
 
-def _build(prompt: str, tmp_path: Path, **kwargs):
-    return GeminiAdapter().build_invocation(
+def _refuse(prompt: str, tmp_path: Path, **kwargs) -> None:
+    GeminiAdapter().build_invocation(
         prompt=prompt,
         mode=kwargs.pop("mode", "workspace-write"),
         cwd=tmp_path,
@@ -27,35 +27,25 @@ def _build(prompt: str, tmp_path: Path, **kwargs):
     )
 
 
-def test_small_prompt_passes_via_stdin_with_placeholder_p_arg(tmp_path):
-    """Gemini CLI 0.40.1 (#1730): a prompt containing `-p` stays on stdin.
-    The `-p` argument is a single space."""
-    prompt = "x" * 200
-    plan = _build(prompt, tmp_path)
-
-    assert "-p" in plan.cmd
-    # Placeholder, not the prompt — prompt goes via stdin.
-    assert plan.cmd[plan.cmd.index("-p") + 1] == " "
-    assert plan.stdin_payload == prompt
-    assert "--approval-mode=yolo" in plan.cmd
-    assert "--skip-trust" in plan.cmd
+def test_build_invocation_refuses_the_retired_gemini_cli(tmp_path):
+    """The retired CLI must not return an argv, including one that names gemini."""
+    prompt = "do not put this prompt on a command line"
+    with pytest.raises(
+        AgentUnavailableError, match="The gemini CLI is retired"
+    ) as refused:
+        _refuse(prompt, tmp_path)
+    assert prompt not in str(refused.value)
 
 
-def test_large_prompt_api_fail_fast_does_not_create_temp_file(tmp_path, monkeypatch):
-    """API-mode misconfiguration must fail before any temp-file creation.
-
-    NOTE: post-#1730 we no longer write prompt files at all — prompts go
-    via stdin. The `learn-ukrainian-gemini-prompt-*` glob is checked here
-    only as a defense-in-depth assertion that no stale legacy code path
-    creates files under any circumstance.
-    """
+def test_large_prompt_refusal_does_not_create_temp_file(tmp_path, monkeypatch):
+    """Refusal happens before any prompt file is created."""
     monkeypatch.setenv("GEMINI_AUTH_MODE", "api")
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
     monkeypatch.setenv("TMPDIR", str(tmp_path))
     monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
 
-    with pytest.raises(RuntimeError, match="GEMINI_AUTH_MODE=api"):
+    with pytest.raises(AgentUnavailableError, match="retired"):
         GeminiAdapter().build_invocation(
             prompt="x" * 200_000,
             mode="workspace-write",
@@ -69,23 +59,11 @@ def test_large_prompt_api_fail_fast_does_not_create_temp_file(tmp_path, monkeypa
     assert not list(tmp_path.glob("learn-ukrainian-gemini-prompt-*"))
 
 
-def test_mcp_server_names_present_with_stdin_prompt(tmp_path):
-    plan = _build("hello", tmp_path, tool_config={"mcp_server_names": ["sources"]})
-
-    assert "--allowed-mcp-server-names" in plan.cmd
-    assert plan.cmd[plan.cmd.index("--allowed-mcp-server-names") + 1] == "sources"
-    # -p still present (placeholder), real prompt on stdin (#1730).
-    assert plan.cmd[plan.cmd.index("-p") + 1] == " "
-    assert plan.stdin_payload == "hello"
-
-
-def test_subscription_auth_strips_gemini_api_env_vars(tmp_path, monkeypatch):
+def test_mcp_and_subscription_callers_also_refuse(tmp_path, monkeypatch):
     monkeypatch.setenv("GEMINI_AUTH_MODE", "subscription")
     monkeypatch.setenv("GEMINI_API_KEY", "secret")
-
-    plan = _build("hello", tmp_path)
-
-    assert plan.env_unsets == GEMINI_AUTH_ENV_VARS
+    with pytest.raises(AgentUnavailableError, match="retired"):
+        _refuse("hello", tmp_path, tool_config={"mcp_server_names": ["sources"]})
 
 
 @pytest.mark.parametrize(
@@ -94,7 +72,10 @@ def test_subscription_auth_strips_gemini_api_env_vars(tmp_path, monkeypatch):
         ({}, "subscription"),
         ({"GEMINI_API_KEY": "secret"}, "api"),
         ({"GOOGLE_API_KEY": "secret"}, "api"),
-        ({"GEMINI_AUTH_MODE": "subscription", "GEMINI_API_KEY": "secret"}, "subscription"),
+        (
+            {"GEMINI_AUTH_MODE": "subscription", "GEMINI_API_KEY": "secret"},
+            "subscription",
+        ),
         ({"GEMINI_AUTH_MODE": "api"}, "api"),
     ],
 )

@@ -8,9 +8,11 @@ from pathlib import Path
 
 import pytest
 
+from lu_machinery.agent_runtime.adapters.base import InvocationPlan
 from lu_machinery.agent_runtime.adapters.claude import ClaudeAdapter
 from lu_machinery.agent_runtime.adapters.codex import CodexAdapter
 from lu_machinery.agent_runtime.adapters.gemini import GeminiAdapter
+from lu_machinery.agent_runtime.errors import AgentUnavailableError
 from tests.helpers.codex_exec_stream import completed_stream, mcp_call, reasoning
 from tests.helpers.product_tree import configured_roots  # noqa: F401
 
@@ -49,15 +51,20 @@ def test_gemini_session_does_not_leak_across_invocations(
 
     prompt = "CURRENT PLAN: write this module."
     adapter = GeminiAdapter()
-    plan = adapter.build_invocation(
-        prompt=prompt,
-        mode="read-only",
-        cwd=cwd,
-        model=None,
-        task_id=None,
-        session_id=None,
-        tool_config=None,
-    )
+    with pytest.raises(AgentUnavailableError, match="retired"):
+        adapter.build_invocation(
+            prompt=prompt,
+            mode="read-only",
+            cwd=cwd,
+            model=None,
+            task_id=None,
+            session_id=None,
+            tool_config=None,
+        )
+    # Historical CLI transcripts are still scoped by the plan's cwd and prompt.
+    # The retired argv builder no longer supplies that plan.
+    plan = InvocationPlan(cmd=["agy"], cwd=cwd, stdin_payload=prompt)
+    adapter._reset_per_invocation_state(plan_cwd=cwd)
 
     current = chats / "session-current.json"
     current.write_text(
@@ -141,7 +148,14 @@ def test_codex_event_stream_records_only_its_own_typed_tool_calls(
     """#9532: tool telemetry is the invocation's typed items, never a shared rollout."""
     home = tmp_path / "home"
     today = datetime.now(UTC)
-    rollout_dir = home / ".codex" / "sessions" / f"{today.year:04d}" / f"{today.month:02d}" / f"{today.day:02d}"
+    rollout_dir = (
+        home
+        / ".codex"
+        / "sessions"
+        / f"{today.year:04d}"
+        / f"{today.month:02d}"
+        / f"{today.day:02d}"
+    )
     rollout_dir.mkdir(parents=True)
     monkeypatch.setattr(Path, "home", lambda: home)
 
@@ -162,11 +176,20 @@ def test_codex_event_stream_records_only_its_own_typed_tool_calls(
     (rollout_dir / "rollout-concurrent.jsonl").write_text(
         "\n".join(
             [
-                json.dumps({"type": "event_msg", "payload": {"type": "user_message", "message": prompt}}),
+                json.dumps(
+                    {
+                        "type": "event_msg",
+                        "payload": {"type": "user_message", "message": prompt},
+                    }
+                ),
                 json.dumps(
                     {
                         "type": "response_item",
-                        "payload": {"type": "function_call", "name": "mcp__sources__concurrent", "arguments": {}},
+                        "payload": {
+                            "type": "function_call",
+                            "name": "mcp__sources__concurrent",
+                            "arguments": {},
+                        },
                     }
                 ),
             ]
@@ -185,5 +208,7 @@ def test_codex_event_stream_records_only_its_own_typed_tool_calls(
         plan=plan,
     )
 
-    assert [call["name"] for call in result.tool_calls] == ["mcp__sources__verify_words"]
+    assert [call["name"] for call in result.tool_calls] == [
+        "mcp__sources__verify_words"
+    ]
     plan.output_file.unlink(missing_ok=True)
