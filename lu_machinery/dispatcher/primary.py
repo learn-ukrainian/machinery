@@ -6,7 +6,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import NoReturn
 
-from lu_machinery.common.repo_root import machinery_path, main_checkout_root
+from lu_machinery.common.repo_root import in_tree_source, machinery_path, main_checkout_root, primary_root
 
 ENTRY = Path(Path(__file__).absolute().parents[1].name, "dispatch.py")
 
@@ -31,7 +31,14 @@ def exec_primary(
     The primary here is the running code's own primary, read from its Git metadata:
     the configured target primary (``LEARN_UKRAINIAN_PRIMARY_REPO_ROOT``) never
     chooses which dispatcher code runs. The re-exec uses this process's interpreter.
+    Installed code validates its configured primary and stays in this process; help
+    needs no operational root.
     """
+    if not in_tree_source():
+        # Installed code stays installed; a product checkout cannot select its replacement.
+        if not any(arg in {"-h", "--help"} for arg in argv):
+            primary_root()
+        return
     root = machinery_path("dispatch.py").parent.parent
     try:
         primary = main_checkout_root(root).resolve()

@@ -527,7 +527,9 @@ def project_interpreter(root: Path | None = None, *, env: Mapping[str, str] | No
     ``MachineryConfigError``. A missing or non-executable file raises
     ``FileNotFoundError``. There is no fallback. The operator who sets it
     vouches for it, as for ``PATH``. Unset, the interpreter is the validated
-    primary checkout's ``.venv/bin/python`` when that file is executable.     The
+    primary checkout's ``.venv/bin/python`` when that file is executable. Without an
+    explicit checkout, the configured primary supplies that root; installed code
+    never searches beside the package for an interpreter. The
     primary is the git common-dir checkout ``main_checkout_root`` finds for a
     linked worktree, and the checkout itself when ``.git`` is a directory.
     A gitfile that is not Git's ``.git/worktrees/<name>`` shape is not a
@@ -542,19 +544,19 @@ def project_interpreter(root: Path | None = None, *, env: Mapping[str, str] | No
                 f"project interpreter not found: {INTERPRETER_ENV}={configured} is not an executable file"
             )
         return configured
-    repo = RUNTIME_ROOT if root is None else Path(root)
-    primary_root = main_checkout_root(repo)
+    repo = primary_root(env=env) if root is None else Path(root)
+    primary = main_checkout_root(repo)
     # main_checkout_root anchors a malformed gitfile to the directory itself.
     # That directory is a linked worktree, not the primary, so its .venv is refused.
-    if (repo / ".git").is_file() and primary_root.resolve() == repo.resolve():
+    if (repo / ".git").is_file() and primary.resolve() == repo.resolve():
         refused = repo / ".venv" / "bin" / "python"
         raise FileNotFoundError(
             f"project interpreter not found: {refused} (a linked worktree .venv is not used)"
         )
-    primary = _venv_python(primary_root)
-    if _executable_file(primary):
-        return primary
-    raise FileNotFoundError(f"project interpreter not found: {primary} is not an executable file")
+    executable = _venv_python(primary)
+    if _executable_file(executable):
+        return executable
+    raise FileNotFoundError(f"project interpreter not found: {executable} is not an executable file")
 
 
 def resolve_repo_root(script_path: Path, parents: int) -> Path:

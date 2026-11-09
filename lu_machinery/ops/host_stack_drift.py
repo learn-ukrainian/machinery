@@ -36,8 +36,8 @@ from lu_machinery.ci.stack_currency_report import (
     load_pin_rows,
 )
 from lu_machinery.common.github_client import run as github_run
+from lu_machinery.common.repo_root import machinery_path, machinery_root, product_root
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
 # The machinery package's directory name, which is also its import name and the first component
 # of its files' checkout paths. Taken from this file's unresolved location, so neither a short
 # import spelling nor a symlinked directory changes it.
@@ -434,7 +434,7 @@ def write_report(
     env: Mapping[str, str] | None = None,
 ) -> Path:
     """Write ``report.json`` outside the session checkout and the canonical repository."""
-    roots = (repo_root, REPO_ROOT)
+    roots = (repo_root, machinery_root())
     if canonical_root is not None:
         roots = (*roots, canonical_root)
     directory = _assert_outside_repo(state_dir(env), roots)
@@ -444,7 +444,7 @@ def write_report(
     destination = directory / "report.json"
     _refuse_linked_file(destination)
     _refuse_linked_file(directory / _PREDICTABLE_TEMP)
-    pins_path = repo_root / _MACHINERY / "config" / "stack_pins.yaml"
+    pins_path = machinery_path("config/stack_pins.yaml")
     complete = True
     if read is None:
         scan_deadline = time.monotonic() + BUDGET_SECONDS
@@ -511,12 +511,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--repo-root",
         type=Path,
-        default=REPO_ROOT,
-        help=f"checkout whose {_MACHINERY}/config/stack_pins.yaml is the pin source (default: this repo)",
+        default=None,
+        help="Product checkout excluded from report storage (default: LU_PRODUCT_ROOT); pins come from the package.",
     )
     args = parser.parse_args(argv)
     try:
-        write_report(args.repo_root.resolve())
+        write_report(product_root(args.repo_root).resolve())
     except (DriftError, OSError):
         print("stack-drift report was not written")
         return 1

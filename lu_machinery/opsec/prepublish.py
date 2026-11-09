@@ -478,6 +478,9 @@ def real_gh(environment: Mapping[str, str]) -> str:
 def publish_environment(source: Mapping[str, str]) -> dict[str, str]:
     """Keep the package's publishing shim first without propagating command-scoped overrides."""
     env = internal_environment(source)
+    from lu_machinery.common.repo_root import project_interpreter
+
+    env["LEARN_UKRAINIAN_PYTHON"] = str(project_interpreter(env=source))
     shim = str(_PACKAGE / "agent_runtime" / "shims")
     env["PATH"] = os.pathsep.join([shim, *[p for p in env.get("PATH", "").split(os.pathsep) if p and p != shim]])
     try:
