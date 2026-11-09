@@ -22685,7 +22685,8 @@
    "subjects": [
     "AGENTS.md [present: product-owned in LU]",
     "scripts.deploy_codex_home [present: present on machinery main as lu_machinery/deploy_codex_home.py]"
-   ]
+   ],
+   "ported_to": "tests/repo_contracts/test_deploy_codex_home.py"
   },
   "tests/test_deploy_extensions.py": {
    "disposition": "port-first",
@@ -26794,7 +26795,8 @@
     "scripts/launchers [present: present on machinery main as lu_machinery/launchers]",
     "scripts/lib/launcher_core.sh [present: present on machinery main as lu_machinery/lib/launcher_core.sh]"
    ],
-   "ported_to": "tests/repo_contracts/test_launcher_canary_honesty.py"
+   "ported_to": "tests/repo_contracts/test_launcher_canary_honesty.py",
+   "port_note": "disposition (c), machinery PR #141: removed only the four Kimi launcher parameter cases; lu_machinery/launchers/kimi.sh and executable callers are absent; historical identities and refusals remain covered"
   },
   "tests/test_launcher_contract.py": {
    "disposition": "port-first",
@@ -27227,7 +27229,9 @@
     "scripts.common.scratch [present: present on machinery main as lu_machinery/common/scratch.py]",
     "scripts.orchestration.handoff_slot_registry [present: present on machinery main as lu_machinery/orchestration/handoff_slot_registry.py]",
     "scripts/fleet_comms/contracts.py [present: present on machinery main as lu_machinery/fleet_comms/contracts.py]"
-   ]
+   ],
+   "ported_to": "tests/repo_contracts/test_launcher_sandbox_closure.py",
+   "port_note": "disposition (a), machinery PR #170: installed-wheel CI removes the checkout package; assert no checkout machinery source is copied and import the installed contracts shim"
   },
   "tests/test_layer_b_adversarial_corpus.py": {
    "disposition": "keep",
@@ -31393,6 +31397,21 @@
    "evidence": "machinery-only subject references; subjects scripts.secret_redactor; 15 of 15 test IDs lack a machinery v0.1.0 replacement",
    "lu_test_ids": 15,
    "missing_behaviours": [
+    "test_ordinary_repository_corpus_is_unchanged_by_url_pass"
+   ],
+   "ownership": "machinery",
+   "subject_status": "SUBJECT-PRESENT",
+   "subjects": [
+    "AGENTS.md [present: product-owned in LU]",
+    "CLAUDE.md [present: product-owned in LU]",
+    "GEMINI.md [present: product-owned in LU]",
+    "agents_extensions/shared/rules [present: mixed-owned in LU]",
+    "scripts.secret_redactor [present: present on machinery main as lu_machinery/secret_redactor.py]",
+    "scripts/api/lane_health.py [present: present on machinery main as lu_machinery/api/lane_health.py]"
+   ],
+   "ported_to": "tests/repo_contracts/test_secret_redactor_urls.py",
+   "residual_id": "PORT-1108-T10-R3",
+   "ported_behaviours": [
     "test_ambiguous_numeric_or_empty_password_prefix_stays_a_port",
     "test_credentialless_nested_and_joined_urls_stay_byte_identical",
     "test_credentialless_outer_url_does_not_hide_inner_credentials",
@@ -31404,21 +31423,11 @@
     "test_multiple_urls_and_nested_values_redact_only_password_bytes",
     "test_nested_url_does_not_turn_numeric_or_empty_port_into_userinfo",
     "test_nonnumeric_colon_prefix_uses_round_a_fallback_across_nested_scheme",
-    "test_ordinary_repository_corpus_is_unchanged_by_url_pass",
     "test_path_query_and_fragment_at_signs_are_not_userinfo",
     "test_url_password_characters_are_redacted_without_normalizing_bytes",
     "test_username_only_and_schemeless_userinfo_stay_unchanged"
    ],
-   "ownership": "machinery",
-   "subject_status": "SUBJECT-PRESENT",
-   "subjects": [
-    "AGENTS.md [present: product-owned in LU]",
-    "CLAUDE.md [present: product-owned in LU]",
-    "GEMINI.md [present: product-owned in LU]",
-    "agents_extensions/shared/rules [present: mixed-owned in LU]",
-    "scripts.secret_redactor [present: present on machinery main as lu_machinery/secret_redactor.py]",
-    "scripts/api/lane_health.py [present: present on machinery main as lu_machinery/api/lane_health.py]"
-   ]
+   "port_note": "partial port: 14 pure redactor functions; product-kept: test_ordinary_repository_corpus_is_unchanged_by_url_pass tests the LU product-document corpus; retain the LU file for this residual"
   },
   "tests/test_secret_scan_scope.py": {
    "disposition": "keep",
@@ -34784,7 +34793,9 @@
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "dashboards/work.html [present: present on machinery main as dashboards/work.html]"
-   ]
+   ],
+   "residual_id": "PORT-1108-T10-R2",
+   "port_note": "browser-environment residual: all 14 browser proofs remain port-first in LU; machinery CI has no Puppeteer/browser setup; no replacement coverage claimed"
   },
   "tests/test_work_pr_snapshot.py": {
    "disposition": "port-first",

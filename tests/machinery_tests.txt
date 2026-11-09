@@ -35,9 +35,24 @@ tests/repo_contracts/test_shell_shlex.py
 tests/repo_contracts/test_store_resolver.py
 tests/repo_contracts/test_work_dashboard.py
 
+tests/repo_contracts/test_deploy_codex_home.py
+tests/repo_contracts/test_launcher_sandbox_closure.py
+tests/repo_contracts/test_secret_redactor_urls.py
+
 # [support]: their fixture and helper closure: every tests/ file imported or opened while the
 #   [run] files ran (import and open audit hook, the source manifest's method). A [support]
 #   file named test_*.py is imported by a [run] file and is not run itself.
+tests/fixtures/product_tree/agents_extensions/codex-home/AGENTS.md
+tests/fixtures/product_tree/agents_extensions/codex-home/agents/luna_coder_high.toml
+tests/fixtures/product_tree/agents_extensions/codex-home/agents/luna_explorer_high.toml
+tests/fixtures/product_tree/agents_extensions/codex-home/agents/luna_explorer_medium.toml
+tests/fixtures/product_tree/agents_extensions/codex-home/agents/sol_advisor_high.toml
+tests/fixtures/product_tree/agents_extensions/codex-home/agents/sol_coder_high.toml
+tests/fixtures/product_tree/agents_extensions/codex-home/agents/sol_red_team_high.toml
+tests/fixtures/product_tree/agents_extensions/codex-home/agents/sol_ukrainian_content_high.toml
+tests/fixtures/product_tree/agents_extensions/codex-home/agents/terra_coder_high.toml
+tests/fixtures/product_tree/agents_extensions/codex-home/config.toml
+
 # [held]: source [run] files this repository does not run, with the reason; none is ported.
 #   Each needs the product checkout, which this repository does not hold.
 # [run]
