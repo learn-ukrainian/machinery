@@ -35,7 +35,7 @@ def _capture_native_review(
 
     def native_boundary(command, **kwargs):
         calls.append(command)
-        # ``python -m lu_machinery.dispatch <subcommand>`` from the machinery import cwd (#107).
+        # ``python -m lu_machinery.dispatch <subcommand>`` (#107), run from the shared state root (#177).
         if command[3] == "dispatch":
             prompt = Path(_option(command, "--prompt-file")).read_bytes().decode("utf-8")
             prompts.append(prompt)
@@ -43,7 +43,7 @@ def _capture_native_review(
             result.write_text(reply, encoding="utf-8")
             assert _option(command, "--mode") == "read-only"
             assert "--require-review-verdict" in command
-            assert kwargs["cwd"] == wrappers.machinery_path("dispatch.py").parent.parent
+            assert kwargs["cwd"] == wrappers.state_root()
             if profile:
                 assert _option(command, "--review-profile") == profile
             else:
