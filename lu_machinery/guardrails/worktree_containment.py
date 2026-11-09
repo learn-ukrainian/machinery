@@ -215,9 +215,22 @@ def evaluate_git_invocation(
         }
         trusted_env.update(GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_SYSTEM=os.devnull, AGENT_GIT_SHIM_GUARD_ACTIVE="1")
         protected = resolve_git_worktree(protected_anchor, [], environment=trusted_env, executable=executable)
-        # A launch may name a dispatch worktree of the protected repository.
-        primary = protected.common_dir.parent
+        # Git lists the primary first. Its common directory need not be
+        # <primary>/.git (a valid --separate-git-dir checkout has another store).
+        listing = _run_git(protected.worktree, "worktree", "list", "--porcelain", environment=trusted_env, executable=executable)
+        if listing.returncode:
+            return False, "undecidable_registered_worktrees"
+        worktrees = [Path(line[9:]).resolve(strict=True) for line in listing.stdout.splitlines() if line.startswith("worktree ")]
+        if not worktrees:
+            return False, "undecidable_primary_worktree"
+        # The trusted anchor may already name the primary, including a
+        # separate Git store for which `worktree list` guesses another path.
+        # Its own Git directory equals the common directory only on that route.
+        primary = protected.worktree if protected.git_dir == protected.common_dir else worktrees[0]
         protected = resolve_git_worktree(primary, [], environment=trusted_env, executable=executable)
+        if protected.git_dir != protected.common_dir:
+            return False, "undecidable_primary_worktree"
+        worktrees[0] = primary
         target = resolve_git_worktree(cwd, options, environment=environment, executable=executable)
         branch = _run_git(
             primary, "symbolic-ref", "--quiet", "--short", "HEAD", environment=trusted_env, executable=executable,
@@ -226,10 +239,6 @@ def evaluate_git_invocation(
             return False, "undecidable_protected_branch"
         if branch.stdout.strip() not in PROTECTED_BRANCHES:
             return True, "unprotected_branch"
-        listing = _run_git(primary, "worktree", "list", "--porcelain", environment=trusted_env, executable=executable)
-        if listing.returncode:
-            return False, "undecidable_registered_worktrees"
-        worktrees = [Path(line[9:]).resolve() for line in listing.stdout.splitlines() if line.startswith("worktree ")]
         reaches_primary = (
             _classify_with_worktrees(target.worktree, primary, worktrees) == "primary_checkout"
             or primary.is_relative_to(target.worktree)
@@ -241,6 +250,13 @@ def evaluate_git_invocation(
             if environment.get(key):
                 location = absolute_path(environment[key], cwd=cwd)
                 reaches_primary |= location.is_relative_to(protected.common_dir)
+        form = ("read", []) if sub in _GIT_INFO_GLOBALS else git_invocation_form(sub, args)
+        # Worktree maintenance names a separate filesystem destination. A
+        # foreign repository does not exempt that destination from protection.
+        for raw in form[1] if form is not None else []:
+            location = absolute_path(raw, cwd=target.cwd)
+            if _classify_with_worktrees(location, primary, worktrees) == "primary_checkout" or primary.is_relative_to(location):
+                return False, "git_worktree_path_reaches_primary"
         if not reaches_primary:
             return True, "isolated_git_target"
         if target.common_dir != protected.common_dir:
@@ -248,19 +264,14 @@ def evaluate_git_invocation(
         if not strict or any(
             name.startswith("GIT_CONFIG") and name not in {"GIT_CONFIG_NOSYSTEM", "GIT_CONFIG_GLOBAL", "GIT_CONFIG_SYSTEM"}
             for name in environment
-        ) or any(environment.get(name) for name in ("GIT_INDEX_FILE", "GIT_OBJECT_DIRECTORY", "GIT_COMMON_DIR", "GIT_PAGER", "PAGER")):
+        ) or any(environment.get(name) for name in ("GIT_INDEX_FILE", "GIT_OBJECT_DIRECTORY", "GIT_COMMON_DIR")):
             return False, "undecidable_git_environment_or_globals"
-        form = ("read", []) if sub in _GIT_INFO_GLOBALS else git_invocation_form(sub, args)
         if form is None:
             return False, "git_not_on_read_only_allowlist"
-        kind, paths = form
+        kind, _ = form
         if kind != "read" and (target.git_dir != protected.git_dir or target.worktree != protected.worktree):
             return False, "git_maintenance_outside_primary_repo"
-        for raw in paths:
-            location = absolute_path(raw, cwd=target.cwd)
-            if _classify_with_worktrees(location, primary, worktrees) == "primary_checkout" or primary.is_relative_to(location):
-                return False, "git_worktree_path_reaches_primary"
-        return True, kind
+        return True, "primary_" + kind
     except (OSError, RuntimeError, ValueError):
         return False, "undecidable_git_target"
 

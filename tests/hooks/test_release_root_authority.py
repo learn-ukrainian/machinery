@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import shlex
 import shutil
 import subprocess
 import sys
@@ -134,10 +135,28 @@ def test_branch_guard_does_not_protect_release_instead_of_product(release, produ
     assert result.returncode == 2 and "configuration unusable" in result.stderr
 
 
-def test_write_guard_does_not_anchor_git_mutations_to_release(release, product):
+def test_write_policy_does_not_anchor_mutations_to_release(release, product):
     name = "guard-primary-checkout-write.py"
     assert run_hook(release, product, name, "git status").returncode == 0
-    assert run_hook(release, product, name, "git reset --hard").returncode == 2
+    protected = product / "dirty.txt"
+    env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+    protected.write_text("committed content\n")
+    subprocess.run(["/usr/bin/git", "-C", str(product), "add", "--", protected.name], env=env, check=True, capture_output=True, timeout=30)
+    subprocess.run(
+        ["/usr/bin/git", "-C", str(product), "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid",
+         "-c", "core.hooksPath=/dev/null", "commit", "-m", "tracked fixture"],
+        env=env, check=True, capture_output=True, timeout=30,
+    )
+    protected.write_text("preserve dirty content\n")
+    assert run_hook(release, product, name, f"printf dirt > {shlex.quote(str(protected))}").returncode == 2
+    env.update(LU_PRODUCT_ROOT=str(product), LEARN_UKRAINIAN_PYTHON=sys.executable,
+               AGENT_REAL_GIT="/usr/bin/git", AGENT_NO_MERGE="0")
+    result = subprocess.run(
+        [str(release / "lu_machinery/agent_runtime/shims/git"), "reset", "--hard"],
+        cwd=product, env=env, text=True, capture_output=True, timeout=30,
+    )
+    assert result.returncode != 0 and "primary Git policy" in result.stderr
+    assert protected.read_text() == "preserve dirty content\n"
     result = run_hook(release, product, name, "echo safe", missing=True)
     assert result.returncode == 2 and "product_root_unavailable" in result.stderr
 

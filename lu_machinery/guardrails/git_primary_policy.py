@@ -6,6 +6,7 @@ this module receives Git's actual argument words and never parses shell text.
 
 from __future__ import annotations
 
+
 def _names(text: str) -> frozenset[str]:
     return frozenset(text.split())
 
@@ -331,12 +332,12 @@ def git_invocation_form(sub: str, args: list[str]) -> tuple[str, list[str]] | No
     if spec is not None:
         return ("read", []) if _git_options_listed(_git_reader_words(args), spec) else None
     action = args[0] if args else ""
-    read = ("read", [])
+    read: tuple[str, list[str]] = ("read", [])
     if sub == "branch":
         parsed = _git_parse(args, _GIT_BRANCH_DELETE)
         if parsed is not None and parsed[1] and any(name in {"-d", "-D", "--delete"} for name, _ in parsed[0]):
-            names = parsed[1]
-            if not any(word.startswith("-") or word in _GIT_PROTECTED_BRANCHES for word in names):
+            branches = parsed[1]
+            if not any(word.startswith("-") or word in _GIT_PROTECTED_BRANCHES for word in branches):
                 return "branch_delete", []
             return None
         parsed = _git_parse(args, _GIT_BRANCH_LIST)
@@ -445,11 +446,11 @@ def split_invocation(argv: list[str]) -> tuple[list[str], str, list[str], bool]:
                 raise ValueError("missing global option value")
             strict = strict and word in _GIT_TARGET_GLOBALS
             i += 2
-        elif word in _GIT_SAFE_GLOBAL_FLAGS:
-            i += 1
-        elif word.startswith("-C") and len(word) > 2:
-            i += 1
-        elif word.startswith(("--git-dir=", "--work-tree=")):
+        elif (
+            word in _GIT_SAFE_GLOBAL_FLAGS
+            or (word.startswith("-C") and len(word) > 2)
+            or word.startswith(("--git-dir=", "--work-tree="))
+        ):
             i += 1
         elif word.startswith(("-c", "--config-env=", "--namespace=", "--exec-path=")) or word == "--bare":
             strict = False

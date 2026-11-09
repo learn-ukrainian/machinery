@@ -1795,11 +1795,17 @@ def test_alias_over_any_listed_name_is_refused(push_sandbox, options, name):
 
 
 def _git_stub(sandbox, body):
-    """A stand-in for AGENT_REAL_GIT. Push skips Git's command list and probes config only."""
+    """A stand-in for AGENT_REAL_GIT; policy metadata probes still use real Git."""
     path = sandbox.tmp / "git-stub"
     tripwire = shlex.quote(str(sandbox.tmp / "intended-command-ran"))
     path.write_text(
         "#!/bin/sh\n"
+        # The exec-time policy probes the real repository before the requested
+        # effect. A fake empty-success is not a resolvable Git target.
+        'for arg in "$@"; do\n'
+        '  case "$arg" in rev-parse|symbolic-ref|worktree) exec '
+        + shlex.quote(str(REAL_GIT)) + ' "$@";; esac\n'
+        'done\n'
         'case " $* " in *" config "*) ;; *) printf ran > '
         + tripwire + ";; esac\n" + body
     )
@@ -2102,7 +2108,7 @@ def test_alias_lookup_latency_is_reported(push_sandbox):
         for kind in times:
             argv = [str(push_sandbox.shim) if kind == "shim" else REAL_GIT, "status", "--short"]
             started = time.perf_counter()
-            subprocess.run(argv, cwd=push_sandbox.work, env=_env(), check=True, capture_output=True, timeout=60)
+            subprocess.run(argv, cwd=push_sandbox.work, env=_env(LU_PRODUCT_ROOT=str(push_sandbox.root), LEARN_UKRAINIAN_PYTHON=sys.executable), check=True, capture_output=True, timeout=60)
             times[kind].append(time.perf_counter() - started)
     shim, plain = (sorted(values)[3] for values in times.values())
     print(f"git status: plain git {plain:.3f}s, through the shim {shim:.3f}s, added {shim - plain:.3f}s")

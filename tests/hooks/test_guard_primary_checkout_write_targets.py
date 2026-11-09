@@ -11,6 +11,8 @@ from pathlib import Path
 
 import pytest
 
+from lu_machinery.common.repo_root import machinery_path
+
 HOOK = Path(__file__).resolve().parents[2] / "agents_extensions/shared/hooks/guard-primary-checkout-write.py"
 
 
@@ -62,7 +64,8 @@ def _decision(repositories, cwd: Path, command: str) -> subprocess.CompletedProc
         return result
     # The hook no longer guesses expanded Git argv. The real shim follows the
     # shell, with a tripwire suppressing only the requested final Git effect.
-    shim = HOOK.parents[3] / "lu_machinery/agent_runtime/shims"
+    shim = machinery_path("agent_runtime/shims")
+    assert (shim / "git").is_file(), "the tested release must contain the Git shim"
     env.update(PATH=f"{shim}:/usr/bin:/bin", AGENT_REAL_GIT=str(repositories["probe"]),
                LEARN_UKRAINIAN_PYTHON=sys.executable)
     env.pop("PAGER", None)

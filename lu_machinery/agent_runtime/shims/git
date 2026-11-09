@@ -41,7 +41,39 @@ _shim_root="$(cd "$_shim_dir/../../.." && pwd)"
 # shellcheck disable=SC1091
 source "$_shim_dir/../../lib/project_interpreter.sh"
 _shim_project_python() {
-  project_interpreter_resolve "$_shim_root"
+  # During canonical-root validation the launcher has not yet exported its
+  # validated helper root. The existing operator override can name a separate
+  # Git store, which the ordinary gitfile interpreter lookup cannot recognize.
+  # Validate exactly the launcher's repository/primary/main/core.worktree
+  # conditions before passing that root's interpreter through the shared pin.
+  if [[ -z "${LEARN_UKRAINIAN_PYTHON+set}" && -n "${CODEX_CANONICAL_REPO_ROOT:-}" ]]; then
+    (
+      local anchor common own_common own_git recorded key local_vars
+      local_vars="$(_exec_git "$real_git" rev-parse --local-env-vars 2>/dev/null)" || exit 1
+      [[ -n "$local_vars" ]] || exit 1
+      while IFS= read -r key; do
+        case "$key" in GIT_*) unset "$key" ;; *) exit 1 ;; esac
+      done <<< "$local_vars"
+      export GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null
+      anchor="$(cd -P "$CODEX_CANONICAL_REPO_ROOT" 2>/dev/null && pwd)" || exit 1
+      common="$(_exec_git "$real_git" -C "${LC_SESSION_ROOT:-$PWD}" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" || exit 1
+      common="$(cd -P "$common" && pwd)" || exit 1
+      own_common="$(_exec_git "$real_git" -C "$anchor" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" || exit 1
+      own_common="$(cd -P "$own_common" && pwd)" || exit 1
+      own_git="$(_exec_git "$real_git" -C "$anchor" rev-parse --absolute-git-dir 2>/dev/null)" || exit 1
+      own_git="$(cd -P "$own_git" && pwd)" || exit 1
+      [[ "$common" == "$own_common" && "$own_git" == "$own_common" ]] || exit 1
+      [[ "$(_exec_git "$real_git" -C "$anchor" symbolic-ref --quiet --short HEAD 2>/dev/null)" == main ]] || exit 1
+      recorded="$(_exec_git "$real_git" -C "$anchor" config --get core.worktree 2>/dev/null)" || recorded=""
+      if [[ -n "$recorded" ]]; then
+        case "$recorded" in /*) ;; *) recorded="$common/$recorded" ;; esac
+        [[ "$(cd -P "$recorded" 2>/dev/null && pwd)" == "$anchor" ]] || exit 1
+      fi
+      LEARN_UKRAINIAN_PYTHON="$anchor/.venv/bin/python" project_interpreter_resolve "$_shim_root"
+    )
+  else
+    project_interpreter_resolve "$_shim_root"
+  fi
 }
 
 _deny() {
@@ -343,6 +375,36 @@ EOF
   fi
 fi
 
+if [[ "$_opsec_push" == 1 ]]; then
+  # GIT_CONFIG changes what `git config` reports, not the configuration Git
+  # pushes with (core.sshCommand, core.hooksPath, ...), so the scanner and the
+  # caller-hook chain could read a different configuration than the push uses.
+  if [[ -n "${GIT_CONFIG+set}" ]]; then
+    _opsec_refuse "GIT_CONFIG is set, which changes what 'git config' reports but not the configuration Git pushes with (unset it)"
+  fi
+  if _opsec_skips_hook "${@:_opsec_index+2}"; then
+    _opsec_refuse "--no-verify would skip the push scan"
+  fi
+  if [[ "$_opsec_shallow" == 1 ]]; then
+    _opsec_refuse "--shallow-file is not supported for a scanned push"
+  fi
+  # The scanner is the one in this shim's own machinery package directory.
+  _opsec_machinery="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
+  _opsec_hooks="$_opsec_machinery/opsec/push_hooks"
+  # The hook resolves the same interpreter itself. This preflight refuses a push
+  # that the hook would refuse, without handing it a second interpreter.
+  _opsec_python="$(_shim_project_python)" || true
+  for _opsec_hook in pre-push reference-transaction chain; do
+    [[ -f "$_opsec_hooks/$_opsec_hook" && -x "$_opsec_hooks/$_opsec_hook" ]] || _opsec_refuse "push scanner hooks unavailable"
+  done
+  [[ -f "$_opsec_machinery/opsec/git_push.py" ]] || _opsec_refuse "push scanner unavailable"
+  [[ -n "$_opsec_python" && -x "$_opsec_python" ]] || _opsec_refuse "project interpreter unavailable"
+  export LU_OPSEC_REAL_GIT="$real_git"
+  _git_exec_args=("$real_git" "${_opsec_globals[@]}" -c "core.hooksPath=$_opsec_hooks" "${@:_opsec_index+1}")
+else
+  _git_exec_args=("$real_git" "$@")
+fi
+
 # The shell has already expanded argv and changed cwd. A direct real-Git probe
 # cannot re-enter this shim, so enforcement runs for every command without a
 # caller-controlled AGENT_NO_MERGE gate or a read-only recursion exemption.
@@ -371,50 +433,31 @@ try:
     spec.loader.exec_module(module)
     from lu_machinery.common.repo_root import product_root
     from lu_machinery.guardrails.worktree_containment import evaluate_git_invocation
-    allowed, reason = evaluate_git_invocation(sys.argv[3:], cwd=Path.cwd(), protected_anchor=product_root(), executable=sys.argv[2], environment=dict(os.environ))
+    # The canonical override is already an operator trust input while the
+    # launcher validates it, before LC_DURABLE_HELPER_ROOT can be exported.
+    bootstrap_anchor = os.environ.get("LC_DURABLE_HELPER_ROOT") or os.environ.get("CODEX_CANONICAL_REPO_ROOT")
+    anchor = Path(bootstrap_anchor) if bootstrap_anchor else product_root()
+    allowed, reason = evaluate_git_invocation(sys.argv[3:], cwd=Path.cwd(), protected_anchor=anchor, executable=sys.argv[2], environment=dict(os.environ))
     if not allowed:
         print("error: primary Git policy refused [" + reason + "].", file=sys.stderr)
         sys.exit(2)
-    print("GUARD_ALLOW")
+    print("GUARD_ALLOW_NO_PAGER" if reason.startswith("primary_") else "GUARD_ALLOW")
 except SystemExit:
     raise
 except Exception:
     print("error: primary Git policy unavailable; failing closed.", file=sys.stderr)
     sys.exit(3)
 ' "$_shim_dir/../.." "$real_git" "$@")" || _guard_status=$?
-if [[ "$_guard_status" -ne 0 || "$_guard_out" != GUARD_ALLOW ]]; then
+if [[ "$_guard_status" -ne 0 || ( "$_guard_out" != GUARD_ALLOW && "$_guard_out" != GUARD_ALLOW_NO_PAGER ) ]]; then
   echo "error: primary Git policy did not verify the invocation; failing closed." >&2
   exit 1
 fi
 
-if [[ "$_opsec_push" == 1 ]]; then
-  # GIT_CONFIG changes what `git config` reports, not the configuration Git
-  # pushes with (core.sshCommand, core.hooksPath, ...), so the scanner and the
-  # caller-hook chain could read a different configuration than the push uses.
-  if [[ -n "${GIT_CONFIG+set}" ]]; then
-    _opsec_refuse "GIT_CONFIG is set, which changes what 'git config' reports but not the configuration Git pushes with (unset it)"
-  fi
-  if _opsec_skips_hook "${@:_opsec_index+2}"; then
-    _opsec_refuse "--no-verify would skip the push scan"
-  fi
-  if [[ "$_opsec_shallow" == 1 ]]; then
-    _opsec_refuse "--shallow-file is not supported for a scanned push"
-  fi
-  # The scanner is the one in this shim's own machinery package directory.
-  _opsec_machinery="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
-  _opsec_hooks="$_opsec_machinery/opsec/push_hooks"
-  # The hook resolves the same interpreter itself. This preflight refuses a push
-  # that the hook would refuse, without handing it a second interpreter.
-  _opsec_python="$(_shim_project_python)" || true
-  for _opsec_hook in pre-push reference-transaction chain; do
-    [[ -f "$_opsec_hooks/$_opsec_hook" && -x "$_opsec_hooks/$_opsec_hook" ]] || _opsec_refuse "push scanner hooks unavailable"
-  done
-  [[ -f "$_opsec_machinery/opsec/git_push.py" ]] || _opsec_refuse "push scanner unavailable"
-  [[ -n "$_opsec_python" && -x "$_opsec_python" ]] || _opsec_refuse "project interpreter unavailable"
-  export LU_OPSEC_REAL_GIT="$real_git"
-  _opsec_restore_override
-  _exec_git "$real_git" "${_opsec_globals[@]}" -c "core.hooksPath=$_opsec_hooks" "${@:_opsec_index+1}"
+# Primary readers and maintenance never start a pager from inherited PAGER /
+# GIT_PAGER. Put the fixed flag after caller globals so it cannot be undone.
+# Push is never an admitted primary form, so this does not alter its hook pin.
+if [[ "$_guard_out" == GUARD_ALLOW_NO_PAGER ]]; then
+  _git_exec_args=("$real_git" "${_opsec_globals[@]}" --no-pager "${@:_opsec_index+1}")
 fi
-
 _opsec_restore_override
-_exec_git "$real_git" "$@"
+_exec_git "${_git_exec_args[@]}"

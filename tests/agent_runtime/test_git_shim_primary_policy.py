@@ -6,17 +6,16 @@ import os
 import shlex
 import subprocess
 import sys
-from pathlib import Path
 
 import pytest
 
+from lu_machinery.common.repo_root import machinery_path
 from tests.hooks import test_guard_primary_checkout_write_targets as target_cases
 
 _git = target_cases._git
 repositories = target_cases.repositories
 
-ROOT = Path(__file__).resolve().parents[2]
-SHIM = ROOT / "lu_machinery/agent_runtime/shims/git"
+SHIM = machinery_path("agent_runtime/shims/git")
 
 
 def _environment(repositories):
@@ -203,3 +202,14 @@ def test_every_non_enumerated_subcommand_is_refused_before_execution(repositorie
     result = _run(repositories, a, [sub])
     assert result.returncode != 0, (sub, result.stdout, result.stderr)
     assert (a / "file").read_bytes() == before
+
+
+@pytest.mark.parametrize("action", ["add", "remove"])
+def test_foreign_worktree_maintenance_cannot_target_primary(repositories, action):
+    """A foreign Git common directory does not exempt an explicit primary filesystem destination."""
+    a, b = repositories["A"], repositories["B"]
+    destination = a / "new-tree" if action == "add" else a
+    result = _run(repositories, b, ["worktree", action, str(destination)])
+    assert result.returncode != 0
+    assert "git_worktree_path_reaches_primary" in result.stderr
+    assert not (a / "new-tree").exists()
