@@ -53,7 +53,9 @@ def _mod(*parts: str) -> str:
 def _scan_trees() -> tuple[str, ...]:
     """The machinery package directory, the product scripts tree and tests.
 
-    In this checkout the first two are one directory, so the tuple has two names.
+    This repository's roots are the machinery package and ``tests``; ``scripts`` is the
+    product tree, kept for the product's invocation and absent here, so it matches
+    nothing (residual I10-product, #10).
     """
     return tuple(dict.fromkeys((_machinery_top(), "scripts", "tests")))
 

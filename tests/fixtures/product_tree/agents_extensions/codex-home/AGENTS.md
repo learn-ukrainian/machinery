@@ -1,0 +1,105 @@
+# Durable Codex orchestration policy
+
+## Live sources of truth
+
+- Base routing decisions on the live agent catalog, installed agent profiles,
+  current tool schemas, and current provider health and quota signals.
+- Do not put application release numbers, dated provider-status snapshots,
+  transient model-catalog details, or historical bug workarounds in global
+  personalization. Keep temporary compatibility notes in the affected task or
+  operational runbook, and remove them when the incident is resolved.
+- After an upgrade, verify the live catalog and a small representative spawn
+  before consequential fan-out. Treat observed current behavior as authoritative.
+- If a configured route or telemetry source is unavailable, report it as unknown.
+  Do not infer that the route is healthy, exhausted, authorized, or forbidden.
+
+## Quota and health
+
+- Use the installed CodexBar CLI as a quota and provider-health probe before
+  substantive fan-out or provider-routing decisions. On macOS its bundled
+  executable is `/Applications/CodexBar.app/Contents/Helpers/CodexBarCLI`;
+  otherwise use the configured executable if available.
+- Query `usage --provider <provider> --format json --no-color`. Report only
+  aggregate percentages and timestamps; omit account identifiers and credits.
+- Reuse an existing configured telemetry endpoint for long runs. Do not start
+  another service or assume an occupied port belongs to CodexBar. If the probe
+  is unavailable, record usage and health as unknown.
+- Below 50% weekly Codex usage, use the best-fit workers normally. At 50%, keep
+  work packets bounded and prefer efficient worker lanes. At 75%, reserve the
+  strongest lead lane for the critical path and final judgment. At 90%, prefer
+  deterministic local work and avoid new model fan-out unless the user explicitly
+  authorizes more usage.
+
+## Orchestration
+
+- Appoint exactly one accountable lead for each substantive stream. The lead
+  owns scope, sequencing, integration, validation, and final disposition.
+- Use deterministic local tools before model calls. Delegate only when a worker
+  adds useful speed, context capacity, specialization, or independent evidence.
+- Split work into distinct bounded packets with explicit ownership. Run
+  independent packets concurrently when useful, but never duplicate a healthy
+  investigation, implementation, review, or test lane.
+- Workers must preserve unrelated and user changes, stay within assigned scope,
+  run proportionate validation, and return evidence, risks, and blockers. They
+  do not silently expand scope, become a second orchestrator, or claim the final
+  disposition.
+
+## Worker preference
+
+- Use Sol at high reasoning as the regular accountable driver. The default
+  coder and generic subagent are Terra 6.1 at high reasoning for routine
+  non-security code, including Codex multi_agent_v2 children.
+- Luna profiles remain available explicitly for bounded work with a complete
+  Sol advisory envelope; use them only when task fit and resource policy admit.
+- Use `luna_explorer_medium` for routine exploration and scouting. Use
+  `luna_explorer_high` when ambiguity or complex call chains justify deeper
+  investigation. Both explorer roles are read-only.
+- Use `terra_coder_high` for routine non-security implementation with explicit
+  owned paths, a complete brief and verification command. Use `sol_coder_high`
+  for hard tasks. `luna_coder_high` remains an explicit bounded-work option.
+- Terra must not operate security tools or change security-sensitive code, perform
+  destructive cleanup, drive or orchestrate a lane, review or critique work, give
+  designated approval, or author or judge Ukrainian content. Pin Sol explicitly
+  for reserved Codex roles. Terra returns blockers to the accountable lead.
+- Use `sol_red_team_high` for adversarial code review and
+  `sol_advisor_high` for consequential architecture and technical advice.
+  Both roles are read-only; the driver retains final judgment.
+- Advice and designated approval come from Opus 5.5 and Sol 6.1. Designated
+  approval comes from the operator, or from the two agreeing; when one of them
+  authored the proposal, the other's approval completes it, and a proposal by
+  any other agent needs both; if they disagree, the operator decides. `sol_advisor_high` supplies only the Sol half.
+- Use `sol_ukrainian_content_high` for source-grounded Ukrainian authoring.
+  Escalate difficult linguistic or pedagogical judgments to
+  `sol_advisor_high`, and
+  verify word validity, stress, and morphology with VESUM and sources.
+- Resolve exact model identifiers from the live catalog and installed profiles.
+  Luna is explicitly permitted for exploration and scouting. Do not silently
+  substitute another model if a configured route is unavailable.
+- Prefer installed named profiles so their model, effort, and role boundaries
+  apply explicitly. Reuse workers for related follow-up work when helpful.
+- Dispatch disjoint bounded packets concurrently when useful; do not manufacture
+  work to fill slots or duplicate a healthy investigation.
+- Do trivial deterministic work locally when delegation adds no value.
+- GPT-6 red-team review does not count as cross-family review of GPT-6-authored
+  work. Seek independent cross-family dissent for high-risk changes when an
+  authorized healthy lane is available.
+
+## Agent invocation
+
+- Prefer installed `agent_type` profiles for standard repeatable lanes; let the
+  profile supply its model, effort, sandbox, and role instructions. Do not repeat
+  those changing implementation details in personalization.
+- When selecting a custom profile, use the invocation shape required by the
+  current tool schema. When selecting a model or effort directly, choose only
+  values exposed by the live catalog and use a bounded history fork.
+- If a newly changed profile is not visible in the current task, start a fresh
+  task before concluding that the profile is broken.
+
+## Independent review
+
+- For high-risk changes, seek independent cross-provider dissent when an
+  authorized healthy lane is available. A same-provider check is useful but is
+  not independent review.
+- If an independent provider is unavailable, state that limitation instead of
+  fabricating coverage. Treat unresolved material findings as blockers unless
+  the user explicitly accepts the documented risk.

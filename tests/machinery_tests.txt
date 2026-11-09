@@ -19,6 +19,25 @@
 #   Each needs the product checkout, which this repository does not hold.
 
 # [run]
+tests/repo_contracts/test_catalog_retirement_11327.py
+tests/repo_contracts/test_dashboard_empty_states.py
+tests/repo_contracts/test_deploy_codex_home.py
+tests/repo_contracts/test_digest_codex_rollout.py
+tests/repo_contracts/test_epics_dashboard_contract.py
+tests/repo_contracts/test_epics_map_dashboard_contract.py
+tests/repo_contracts/test_fleet_comms_launcher_awareness.py
+tests/repo_contracts/test_fleet_hramatka_hygiene_check.py
+tests/repo_contracts/test_fleet_occupancy_idle_contract.py
+tests/repo_contracts/test_git_identity.py
+tests/repo_contracts/test_guard_admin_merge.py
+tests/repo_contracts/test_guard_branch_switch_in_main.py
+tests/repo_contracts/test_launcher_sandbox_closure.py
+tests/repo_contracts/test_migrate_to_html.py
+tests/repo_contracts/test_red_ci_registry_file.py
+tests/repo_contracts/test_secret_redactor_urls.py
+tests/repo_contracts/test_shell_shlex.py
+tests/repo_contracts/test_store_resolver.py
+tests/repo_contracts/test_work_dashboard.py
 
 # PORT-1108 T1, from LU 5aba2adb.
 
@@ -626,7 +645,80 @@ tests/work/test_work_contract.py
 tests/work/test_work_ownership_contract.py
 tests/work/test_work_pr_snapshot.py
 
+tests/publish/test_pr_merge_squash_scan_ported.py
+tests/publish/test_slow_nightly_workflow_dispatch.py
+tests/review/seeds/test_migration.py
+tests/review/seeds/test_score.py
+tests/review/test_app_bot_authorship.py
+tests/review/test_ask_review_admission_floor.py
+tests/review/test_bench_health.py
+tests/review/test_capability_charge.py
+tests/review/test_capability_failure.py
+tests/review/test_findings_db.py
+tests/review/test_luna_max_routing_contract.py
+tests/review/test_model_catalog_roles.py
+tests/review/test_review_cursor_grok_reviewer.py
+tests/review/test_review_findings_ledger.py
+tests/review/test_review_lineage_supersession.py
+tests/review/test_review_scope_baseline.py
+tests/review/test_review_target_resolution.py
+tests/dispatcher/test_agy_canary.py
+tests/dispatcher/test_agy_readonly_inputs.py
+tests/dispatcher/test_codex_accounts.py
+tests/dispatcher/test_codex_read_only_scratch.py
+tests/dispatcher/test_core.py
+tests/dispatcher/test_core_admission.py
+tests/dispatcher/test_core_branch_start.py
+tests/dispatcher/test_core_delivery.py
+tests/dispatcher/test_core_delivery_scope.py
+tests/dispatcher/test_core_ownership_walk.py
+tests/dispatcher/test_core_provider_results.py
+tests/dispatcher/test_core_review_gate_supervision.py
+tests/dispatcher/test_core_scope_verification.py
+tests/dispatcher/test_drive_epic_review_docs.py
+tests/dispatcher/test_environment.py
+tests/dispatcher/test_opencode_provider.py
+tests/dispatcher/test_pool_selector.py
+tests/dispatcher/test_providers_b.py
+tests/dispatcher/test_providers_c.py
+tests/dispatcher/test_retention_inventory.py
+tests/dispatcher/test_review_metadata.py
+tests/dispatcher/test_review_tools.py
+tests/review/test_review_verdict_parser.py
+tests/review/test_routing_amendment_11327.py
+tests/review/test_second_seat.py
+tests/review/test_review_target_admission.py
+tests/review/test_temp_lifecycle.py
+tests/review/test_temp_worktree_guard.py
+tests/review/test_verdict_parser.py
+tests/review/test_verdict_parser_root.py
+tests/publish/test_guard_pr_merge.py
+tests/publish/test_merge_guard.py
+tests/publish/test_merge_queue_keeper_untrusted_text.py
+tests/lint/test_boundary_ratchet.py
+tests/lint/test_lint_fleet_roster.py
+tests/lint/test_lint_prompts.py
+tests/lint/test_mypy_ratchet.py
+tests/lint/test_orchestrator_track_sparse_worktree.py
+tests/opsec/test_gh_snapshot.py
+tests/opsec/test_git_push_scan.py
+tests/opsec/test_override_command_scope.py
+tests/opsec/test_publish_hostname.py
+tests/opsec/test_publish_workflow_inputs.py
+tests/dispatcher/test_task_store_records.py
+tests/dispatcher/test_worktree_links.py
+tests/dispatcher/test_worktree_registry.py
 # [support]
+tests/fixtures/product_tree/agents_extensions/codex-home/AGENTS.md
+tests/fixtures/product_tree/agents_extensions/codex-home/agents/luna_coder_high.toml
+tests/fixtures/product_tree/agents_extensions/codex-home/agents/luna_explorer_high.toml
+tests/fixtures/product_tree/agents_extensions/codex-home/agents/luna_explorer_medium.toml
+tests/fixtures/product_tree/agents_extensions/codex-home/agents/sol_advisor_high.toml
+tests/fixtures/product_tree/agents_extensions/codex-home/agents/sol_coder_high.toml
+tests/fixtures/product_tree/agents_extensions/codex-home/agents/sol_red_team_high.toml
+tests/fixtures/product_tree/agents_extensions/codex-home/agents/sol_ukrainian_content_high.toml
+tests/fixtures/product_tree/agents_extensions/codex-home/agents/terra_coder_high.toml
+tests/fixtures/product_tree/agents_extensions/codex-home/config.toml
 
 # PORT-1108 T1, from LU 5aba2adb.
 
@@ -792,6 +884,17 @@ tests/wait_helpers.py
 tests/work/conftest.py
 tests/worktree_prep_helpers.py
 
+tests/dispatcher/conftest.py
+tests/dispatcher/stub_provider.py
+tests/dispatcher/worker_reap.py
+tests/helpers/review_scope.py
+tests/review/record_support.py
+tests/review/seeds/fixtures/__init__.py
+tests/fixtures/ci_advisory_workflow.yml
+tests/fixtures/product_tree/.github/workflows/coverage-ref.yml
+tests/fixtures/product_tree/.github/workflows/pytest-slow-nightly.yml
+tests/fixtures/product_tree/.gitignore
+tests/dispatcher/fixtures/product.mcp.json
 # [held]
 # tests/test_launcher_interactive_scope.py: 101 tests list the product's root start-*.sh wrappers through product_root(), which needs the product checkout (ProductRootError: no product is configured; LU_PRODUCT_ROOT names none).
 # tests/test_handoff_slot_registry.py: collection calls product_checkout() (line 35) for the product's root start-*-driver.sh wrappers; product_root() raises ProductRootError without the product checkout.
