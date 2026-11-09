@@ -207,6 +207,27 @@ def test_bounded_maintenance_preserves_primary_content(repositories, tmp_path):
     result = _run(repositories, a, ["worktree", "add", "--detach", "~/wt", "main"])
     assert result.returncode != 0
     assert not (a / "~").exists()
+    b = repositories["B"]
+    foreign = [f"--git-dir={b / '.git'}", f"--work-tree={b}"]
+    routes = [
+        (a, foreign),
+        (b, ["-C", str(a), "-C", "", *foreign]),
+        (b, ["-C", str(repositories["root"]), "-C", a.name, *foreign]),
+        (b, ["-C", str(repositories["link"]), *foreign]),
+    ]
+    for index, (cwd, prefix) in enumerate(routes):
+        # Explicit foreign metadata/worktree does not move the execution cwd.
+        result = _run(repositories, cwd, [*prefix, "worktree", "add", "--detach", "primary-intruder", "main"])
+        assert result.returncode != 0
+        assert not (a / "primary-intruder").exists()
+        destination = b / f"allowed-maintenance-{index}"
+        relative = os.path.relpath(destination, a)
+        result = _run(repositories, cwd, [*prefix, "worktree", "add", "--detach", relative, "main"])
+        assert result.returncode == 0, result.stderr
+        assert (destination / "file").read_text() == "tracked\n"
+        result = _run(repositories, cwd, [*prefix, "worktree", "remove", relative])
+        assert result.returncode == 0, result.stderr
+        assert not destination.exists()
 
 
 # `git help -a` of Git 2.53 (commands; the guide and external sections excluded).

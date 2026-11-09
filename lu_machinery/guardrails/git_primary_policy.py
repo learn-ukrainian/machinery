@@ -424,26 +424,30 @@ def git_invocation_form(sub: str, args: list[str]) -> tuple[str, list[str]] | No
 
 
 
-def split_invocation(argv: list[str]) -> tuple[list[str], str, list[str], bool]:
+def split_invocation(argv: list[str]) -> tuple[list[str], str, list[str], bool, list[str]]:
     """Separate Git globals without guessing an unknown option's arity.
 
     Globals are returned intact for Git's own target probe. The final boolean
     admits only target selectors and the enumerated safe globals on the primary.
+    Ordered -C operands preserve the execution cwd independently of the worktree.
     """
     i = 0
     strict = True
+    directories: list[str] = []
     valued = {"-C", "--git-dir", "--work-tree", "-c", "--config-env", "--namespace", "--exec-path"}
     while i < len(argv):
         word = argv[i]
         if word in _GIT_INFO_GLOBALS:
             if i + 1 != len(argv):
                 raise ValueError("ambiguous informational invocation")
-            return argv[:i], word, [], strict
+            return argv[:i], word, [], strict, directories
         if not word.startswith("-"):
-            return argv[:i], word, argv[i + 1:], strict
+            return argv[:i], word, argv[i + 1:], strict, directories
         if word in valued:
             if i + 1 >= len(argv):
                 raise ValueError("missing global option value")
+            if word == "-C":
+                directories.append(argv[i + 1])
             strict = strict and word in _GIT_TARGET_GLOBALS
             i += 2
         elif (
@@ -451,10 +455,12 @@ def split_invocation(argv: list[str]) -> tuple[list[str], str, list[str], bool]:
             or (word.startswith("-C") and len(word) > 2)
             or word.startswith(("--git-dir=", "--work-tree="))
         ):
+            if word.startswith("-C") and len(word) > 2:
+                directories.append(word[2:])
             i += 1
         elif word.startswith(("-c", "--config-env=", "--namespace=", "--exec-path=")) or word == "--bare":
             strict = False
             i += 1
         else:
             raise ValueError("unknown Git global option")
-    return argv, "", [], strict
+    return argv, "", [], strict, directories

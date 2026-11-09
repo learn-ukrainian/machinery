@@ -229,9 +229,16 @@ def evaluate_git_invocation(
             for name, value in environment.items()
         ):
             return False, "git_trace_destination_refused"
-        options, sub, args, strict = split_invocation(argv)
+        options, sub, args, strict, directories = split_invocation(argv)
         if sub in _GIT_INFO_GLOBALS and not options:
             return True, "informational"
+        # --work-tree changes the worktree without necessarily changing cwd.
+        # Only Git's ordered -C options move the execution directory; an empty
+        # -C operand leaves it unchanged, and Git never expands a literal '~'.
+        execution_cwd = Path(cwd).resolve(strict=True)
+        for directory in directories:
+            if directory:
+                execution_cwd = (execution_cwd / directory).resolve(strict=True)
         trusted_env = {
             key: value for key, value in environment.items()
             if key not in GIT_REDIRECT_ENV_KEYS and not key.startswith("GIT_CONFIG")
@@ -294,7 +301,7 @@ def evaluate_git_invocation(
         # Worktree maintenance names a separate filesystem destination. A
         # foreign repository does not exempt that destination from protection.
         for raw in form[1] if form is not None else []:
-            location = (target.cwd / raw).resolve()
+            location = (execution_cwd / raw).resolve()
             if _classify_with_worktrees(location, primary, worktrees) == "primary_checkout" or primary.is_relative_to(location):
                 return False, "git_worktree_path_reaches_primary"
         if not reaches_primary:
