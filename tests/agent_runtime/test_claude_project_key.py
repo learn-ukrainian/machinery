@@ -25,6 +25,11 @@ def _git(*args: str, cwd: Path) -> None:
     subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True, text=True, timeout=30)
 
 
+ROLLOVER_STUB = """import sys
+print("rollover-stub " + " ".join(sys.argv[1:]))
+"""
+
+
 def _primary_with_worktree(tmp_path: Path) -> tuple[Path, Path]:
     """A primary checkout and a linked worktree; the worktree has no venv."""
     primary = tmp_path / "learn-ukrainian"
@@ -73,8 +78,8 @@ def _line(context: str, marker: str) -> str:
 
 @pytest.mark.skipif(shutil.which("jq") is None, reason="jq is required by the hook")
 def test_post_compact_uses_the_primary_checkout_venv_with_production_defaults(tmp_path: Path) -> None:
-    # No interpreter or rollover override: the shared venv exists only in
-    # the primary checkout, exactly as for a real linked worktree.
+    # No interpreter override: the shared venv exists only in the primary checkout,
+    # exactly as for a real linked worktree.
     primary, worktree = _primary_with_worktree(tmp_path)
     venv_python = primary / ".venv/bin/python"
     venv_python.parent.mkdir(parents=True)
@@ -92,3 +97,11 @@ def test_post_compact_uses_the_primary_checkout_venv_with_production_defaults(tm
     assert "Thread rollover health (read-only): {" in context
     health = json.loads(context.split("Thread rollover health (read-only): ", 1)[1].split("\n  - If a live packet", 1)[0])
     assert health == {"agent": "claude", "status": "none"}
+
+    # The primary root reaches the rollover command (LU asserted this with a stub script in the
+    # primary): the hook's THREAD_ROLLOVER_SCRIPT seam runs a stub through the same interpreter,
+    # and the stub echoes the arguments the hook passed.
+    stub = tmp_path / "rollover-stub.py"
+    stub.write_text(ROLLOVER_STUB)
+    stubbed = _line(_run_hook(worktree, THREAD_ROLLOVER_SCRIPT=str(stub)), "Thread rollover health")
+    assert f"rollover-stub --repo-root {primary.resolve()} detect --agent claude" in stubbed
