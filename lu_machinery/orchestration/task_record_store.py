@@ -144,10 +144,11 @@ class TaskIdentityMismatch(ValueError):
 def is_identical_copy(mismatch: TaskIdentityMismatch) -> bool:
     """Whether a misnamed record is exactly the record dispatch names for its task, in the same directory.
 
-    True only when the correctly named record in that directory decodes to JSON equal to the
-    misnamed file's: a byte-for-byte saved copy adds no claim any reader scans for. There is no
-    tolerance for a null, omitted or earlier field, so a copy saved mid-run, a forged or edited
-    one, an orphan and a renamed record are all False and their reader refuses them.
+    True only when the correctly named record in that directory decodes to the same JSON as the
+    misnamed file, key order aside; true and false never equal 1 and 0. A saved copy then adds no claim
+    any reader scans for. There is no tolerance for a null, omitted or earlier field, so a copy saved
+    mid-run, a forged or edited one, an orphan and a renamed record are all False and their reader
+    refuses them.
     """
     record = mismatch.record
     named = task_record_path(mismatch.path.parent, record["task_id"])
@@ -157,7 +158,8 @@ def is_identical_copy(mismatch: TaskIdentityMismatch) -> bool:
         other = read_task_record(named)
     except (OSError, ValueError):
         return False
-    return isinstance(other, dict) and other == record
+    # Compare the JSON texts: dict equality would equate true with 1 and false with 0.
+    return isinstance(other, dict) and json.dumps(other, sort_keys=True) == json.dumps(record, sort_keys=True)
 
 
 def misnamed_record_refusal(path: Path) -> str:

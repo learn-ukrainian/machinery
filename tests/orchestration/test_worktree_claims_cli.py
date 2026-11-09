@@ -727,12 +727,13 @@ def test_any_other_misnamed_task_record_blocks_the_claim_scan(tmp_path):
     target.mkdir()
     tasks = tmp_path / "tasks"
     tasks.mkdir()
-    named = _claim_record(target, status="done", review_mode="independent")
+    named = _claim_record(target, status="done", review_mode="independent", retried=False)
     divergent = {
         "forged": {**named, "run_nonce": "other"},
         "status_nulled": {**named, "status": None},
         "review_mode_omitted": {key: value for key, value in named.items() if key != "review_mode"},
         "mid_run": {**named, "status": "running"},
+        "false_as_zero": {**named, "retried": 0},
         "claim_added": {**named, "worktree_path": str(target / "elsewhere")},
     }
     for name, copy in divergent.items():
