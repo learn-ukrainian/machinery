@@ -3188,8 +3188,9 @@ def _main() -> int:
                     if not decision.allowed:
                         return _block_git_mediated(summary, intent_root, reason=decision.reason)
                 if target is None:
-                    # Unresolved: fail closed when any named location is or contains the primary.
-                    if any(
+                    # Unresolved: the writers refused here before #208 stay refused, and any
+                    # other form fails closed when a named location is or contains the primary.
+                    if intent.get("foreign_write") or intent.get("sub") == "worktree" or any(
                         wc.classify_repo_path(location, cwd=intent_root) == "primary_checkout"
                         or protected.worktree.is_relative_to(location)
                         for location in _git_literal_locations(segment_cwd, options)

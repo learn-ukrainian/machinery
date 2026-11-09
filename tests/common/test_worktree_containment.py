@@ -614,6 +614,7 @@ def test_git_reaching_the_primary_admits_only_the_read_only_allowlist(
         # An unresolved target that names the primary fails closed; one away from it does not.
         (outside_any_repo, f"git init r && git --git-dir=r/.git --work-tree={main} checkout-index -a -f", 2),
         (outside_any_repo, "git init r && git --git-dir=r/.git --work-tree=r stash", 0),
+        (outside_any_repo, "git init r && git --git-dir=r/.git --work-tree=r reset --hard", 2),
     ]
     wrong = _misdecided(main, cases)
     assert wrong == [], "\n".join(wrong)
