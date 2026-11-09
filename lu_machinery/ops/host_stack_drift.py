@@ -516,7 +516,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
     try:
-        write_report(product_root(args.repo_root).resolve())
+        write_report(product_root(args.repo_root.resolve() if args.repo_root is not None else None).resolve())
     except (DriftError, OSError):
         print("stack-drift report was not written")
         return 1

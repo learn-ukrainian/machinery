@@ -121,6 +121,9 @@ elif scenario == 'drift':
     with patch.object(drift, 'write_report') as write:
         assert drift.main([]) == 0
     write.assert_called_once_with(product)
+    with patch.object(drift, 'write_report') as write:
+        assert drift.main(['--repo-root', product.relative_to(Path.cwd()).as_posix()]) == 0
+    write.assert_called_once_with(product)
     report = drift.write_report(product, env={'XDG_STATE_HOME':str(product.parent / 'private-state')},
                                 read=lambda name: drift.Reading('unknown', 'unknown'))
     payload = json.loads(report.read_text())
