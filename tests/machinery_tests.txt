@@ -836,8 +836,6 @@ tests/fixtures/product_tree/start-glm.sh
 tests/fixtures/product_tree/start-glmcc.sh
 tests/fixtures/product_tree/start-grok-driver.sh
 tests/fixtures/product_tree/start-grok.sh
-tests/fixtures/product_tree/start-kimi.sh
-tests/fixtures/product_tree/start-kimicc.sh
 tests/fixtures/product_tree/start-muse-driver.sh
 tests/fixtures/routing_baseline/baseline.json.gz
 tests/fixtures/routing_baseline/inputs.json
