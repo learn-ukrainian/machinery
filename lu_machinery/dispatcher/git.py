@@ -1047,10 +1047,12 @@ def _salvage_hold(tree: Path, primary: Path, untracked: list[str]) -> tuple[str,
                                                           strip=False).split("\0") if entry.startswith("160000 ")]
     for name in (*(n for n in (*untracked, *ignored) if n.endswith("/")), *gitlinks):
         nested = tree / name
-        if os.path.lexists(nested / ".git") and (
-                _git(nested, "status", "--porcelain", isolate=True)
-                or _git(nested, "rev-list", "-n1", "--all", "--not", "--remotes", isolate=True)):
-            return "nested_repository_unpushed", name
+        if os.path.lexists(nested / ".git"):
+            # A nested repository is worker-controlled: its own configuration (core.fsmonitor, filters) must not run.
+            probe = partial(execution_safe_git, cwd=nested, capture_output=True, text=True, check=True, timeout=30)
+            if probe(["status", "--porcelain"]).stdout or probe(
+                    ["rev-list", "-n1", "--all", "--not", "--remotes"]).stdout:
+                return "nested_repository_unpushed", name
     tracked = set(_git(tree, "ls-files", "-z", "--cached", isolate=True, strip=False).split("\0"))
     ignored_names = set(ignored)
     release_pins = committed_release_pins(tree, tracked)

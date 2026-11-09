@@ -152,6 +152,19 @@ def test_salvage_hold_keeps_a_tree_with_an_unpushed_commit_in_a_tracked_submodul
     assert sub.is_dir()
 
 
+def test_salvage_hold_never_runs_a_submodules_own_configured_command(tmp_path, work):
+    """Defect class: the hold's nested status ran the worker-controlled submodule's core.fsmonitor command
+    in the supervisor (#100 R88 F2, review F1)."""
+    _submodule(tmp_path, work, "none")
+    marker = tmp_path / "ran"
+    hook = tmp_path / "hook.sh"
+    hook.write_text(f"#!/bin/sh\ntouch {marker}\n")
+    hook.chmod(0o755)
+    _git(work / "sub", "config", "core.fsmonitor", str(hook))
+    assert git._salvage_hold(work, work, []) is None
+    assert not marker.exists()
+
+
 def test_removal_reports_a_recursion_error_as_unknown_not_error(tmp_path, monkeypatch):
     """Defect class: nested submodules deeper than the recursion limit raised RecursionError out of
     settle_worktree instead of retaining the tree as unknown (#100 R88 F1)."""

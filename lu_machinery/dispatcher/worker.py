@@ -1131,7 +1131,9 @@ def supervise(path: Path, options: dict | None = None, hard_timeout: float | Non
             return
         if spec.agent == "codex" and spec.mode == "read-only":
             try:
-                record["read_only_scratch"] = str(dispatch_lease(spec.task_id))  # settlement may resolve another root
+                # Persisted before the lease exists, so crash recovery under another scratch root still finds it.
+                record["read_only_scratch"] = str(dispatch_lease(spec.task_id))
+                store.replace(record, path, require_existing=True)
                 create_dispatch_lease(spec.task_id, spec.worktree)
             except (OSError, ValueError) as exc:
                 status, error = "failed", f"read_only_scratch_unavailable: {exc}"
