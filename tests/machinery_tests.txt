@@ -15,6 +15,8 @@
 # [support]: their fixture and helper closure: every tests/ file imported or opened while the
 #   [run] files ran (import and open audit hook, the source manifest's method). A [support]
 #   file named test_*.py is imported by a [run] file and is not run itself.
+
+
 # [held]: source [run] files this repository does not run, with the reason; none is ported.
 #   Each needs the product checkout, which this repository does not hold.
 
@@ -708,6 +710,24 @@ tests/opsec/test_publish_workflow_inputs.py
 tests/dispatcher/test_task_store_records.py
 tests/dispatcher/test_worktree_links.py
 tests/dispatcher/test_worktree_registry.py
+# PORT-1108 deferred-files: frozen LU 5aba2adb; dependency-complete whole-file ports.
+tests/fleet/test_agy_failure_tally.py
+tests/orchestration/test_dispatch_admission_disk.py
+tests/orchestration/test_imported_rollover_detection.py
+tests/orchestration/test_reaper_regenerable_round3.py
+tests/orchestration/test_thread_handoff_reconcile.py
+tests/review/test_review_capacity_rule.py
+tests/test_agent_runtime_env_sanitize.py
+tests/test_ci_recovery.py
+tests/test_claude_account_bound_snapshot.py
+tests/test_guard_bash_process_kill.py
+tests/test_private_review_target.py
+tests/test_review_isolation.py
+tests/test_secret_print_hook.py
+tests/test_verify_review.py
+
+tests/ci/test_pytest_test_slots.py
+
 # PORT-1108 T6 and T8 Postgres residuals (C-4890), from LU 5aba2adb.
 tests/fleet_comms/test_artifacts_pg_byte_plane.py
 tests/fleet_comms/test_artifacts_pg_transactions.py
@@ -901,6 +921,9 @@ tests/fixtures/product_tree/.github/workflows/coverage-ref.yml
 tests/fixtures/product_tree/.github/workflows/pytest-slow-nightly.yml
 tests/fixtures/product_tree/.gitignore
 tests/dispatcher/fixtures/product.mcp.json
+tests/fixtures/product_tree/agents_extensions/shared/curriculum-lifecycle/config/coordinator.v1.yaml
+tests/fixtures/product_tree/agents_extensions/shared/curriculum-lifecycle/schema/coordinator-config.v1.schema.json
+
 # [held]
 # tests/test_launcher_interactive_scope.py: 101 tests list the product's root start-*.sh wrappers through product_root(), which needs the product checkout (ProductRootError: no product is configured; LU_PRODUCT_ROOT names none).
 # tests/test_handoff_slot_registry.py: collection calls product_checkout() (line 35) for the product's root start-*-driver.sh wrappers; product_root() raises ProductRootError without the product checkout.

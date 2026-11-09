@@ -43,7 +43,7 @@ def packet(tmp_path, monkeypatch, capsys, request):
     return SimpleNamespace(root=tmp_path, agent=agent, handoff=tmp_path / handoff, lease=lease, state=state)
 
 
-def _launcher_detection(packet):
+def _launcher_detection(packet, *, stream="epic:1234"):
     # A fixture interpreter wrapper exercises the real shell parser and real
     # detector without installing an environment in the dispatch checkout.
     python = packet.root / ".venv/bin/python"
@@ -65,7 +65,7 @@ def _launcher_detection(packet):
         canonical_handoff.write_bytes(packet.handoff.read_bytes())
         stamp = packet.handoff.stat().st_mtime
         os.utime(canonical_handoff, (stamp, stamp))
-    env = launcher_environment(SESSION_STREAM_ID="epic:1234")
+    env = launcher_environment(SESSION_STREAM_ID=stream)
     return subprocess.run(
         ["bash", "-c", 'source "$1"; resolve_codex_pending_rollover "$2" "$3"; '
          'rc=$?; printf "BOUND=%s\\n" "${CODEX_LAUNCHER_ROLLOVER_ID:-}"; exit "$rc"',
