@@ -1115,7 +1115,7 @@ def provision_node_dependencies(*, cache: Path, offline: bool = False) -> Path:
     prefix = node_prefix()
     if prefix.exists():
         return _validate_node_prefix()
-    node = _resolve_host_node_binary(adapter_label="Node provisioning")
+    node = _resolve_host_node_binary(adapter_label="Node provisioning", _bootstrap=True)
     npm = node.parent / "npm"
     if not npm.is_file():
         raise AcpxShadowRefusalError("npm must be installed beside the pinned Node binary")
@@ -1140,10 +1140,16 @@ def provision_node_dependencies(*, cache: Path, offline: bool = False) -> Path:
     return _validate_node_prefix()
 
 
-def _required_node_major(*, adapter_label: str = "ACPX") -> int:
-    """The machinery release owns the Node pin, including before provisioning."""
+def _required_node_major(*, adapter_label: str = "ACPX", _bootstrap: bool = False) -> int:
+    """Runtime reads only the prefix pin; explicit installation bootstraps from the wheel."""
     try:
-        raw = (_node_contract() / ".nvmrc").read_text(encoding="utf-8").strip()
+        contract = _node_contract() / ".nvmrc"
+        pin = contract if _bootstrap else node_prefix() / ".nvmrc"
+        _check_node_artifact(pin)
+        data = pin.read_bytes()
+        if not _bootstrap and data != contract.read_bytes():
+            raise ValueError("prefix Node pin differs from the release contract")
+        raw = data.decode("ascii").strip()
         if not raw.isdigit():
             raise ValueError("expected an integer Node major")
         return int(raw)
@@ -1183,7 +1189,7 @@ def _probe_node_semver(candidate: Path) -> tuple[int, int, int] | None:
     return int(match.group(1)), int(match.group(2)), int(match.group(3))
 
 
-def _resolve_host_node_binary(*, adapter_label: str = "ACPX") -> Path:
+def _resolve_host_node_binary(*, adapter_label: str = "ACPX", _bootstrap: bool = False) -> Path:
     """Resolve an absolute highest matching-major ``node`` for ACPX shebang scripts.
 
     Collect every ``node`` on PATH (each PATH directory, in order — not only
@@ -1198,7 +1204,7 @@ def _resolve_host_node_binary(*, adapter_label: str = "ACPX") -> Path:
     Never invent a Node runtime or consult an unreviewed global acpx install
     as a substitute.
     """
-    required_major = _required_node_major(adapter_label=adapter_label)
+    required_major = _required_node_major(adapter_label=adapter_label, _bootstrap=_bootstrap)
     candidates: list[Path] = []
     for part in os.environ.get("PATH", "").split(os.pathsep):
         if not part:

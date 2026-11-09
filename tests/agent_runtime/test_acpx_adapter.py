@@ -243,9 +243,13 @@ def tmp_path(tmp_path, _acpx_worktree):
 
 
 @pytest.fixture(autouse=True)
-def installed_codex_cli(monkeypatch):
-    # Unit tests never depend on an npm adapter's bundled Codex or a host CLI.
+def installed_codex_cli(monkeypatch, tmp_path):
+    # Unit tests isolate the host CLI and the release prefix's Node pin.
     monkeypatch.setattr(acpx_module, "_require_codex_cli", lambda: ("/installed/codex", "0.159.2"))
+    prefix = tmp_path / "node-prefix"
+    prefix.mkdir()
+    (prefix / ".nvmrc").write_bytes((acpx_module._node_contract() / ".nvmrc").read_bytes())
+    monkeypatch.setattr(acpx_module, "_NODE_PREFIX", prefix)
 
 
 def _stub_binary(
@@ -432,9 +436,9 @@ def test_acpx_spawn_argv_pins_absolute_node_when_shebang_uses_env(tmp_path, monk
     assert argv == [str(node.resolve()), str(script.resolve())]
 
     _isolate_node_fallbacks(monkeypatch, host_node.parent, path_dirs=(host_node.parent,))
-    primary = Path(__file__).resolve().parents[2] / "node_modules" / ".bin" / "acpx"
+    primary = acpx_module.node_prefix() / "node_modules" / ".bin" / "acpx"
     if not primary.is_file():
-        pytest.skip("project-local acpx not installed")
+        pytest.skip("machinery release prefix not provisioned in the hermetic unit fixture")
     jail_env = acpx_module._acpx_runtime_env_overrides(adapter_label="test-host")
     spawn = acpx_module._acpx_spawn_argv(str(primary), adapter_label="test-host")
     assert Path(spawn[0]).resolve() == host_node.resolve()
@@ -724,6 +728,7 @@ def test_build_invocation_rejects_missing_binary(tmp_path, monkeypatch):
 def _select_prefix(monkeypatch, prefix: Path) -> Path:
     """The validated machinery prefix is independent of product and cwd."""
     prefix.mkdir(parents=True, exist_ok=True)
+    (prefix / ".nvmrc").write_bytes((acpx_module._node_contract() / ".nvmrc").read_bytes())
     monkeypatch.setattr(acpx_module, "_ACPX_BINARY", None)
     monkeypatch.setattr(acpx_module, "_NODE_PREFIX", prefix)
     monkeypatch.setattr(acpx_module, "_validate_node_prefix", lambda: prefix)
