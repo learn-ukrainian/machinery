@@ -97,7 +97,10 @@ in `pyproject.toml` and `$SHA` the full commit:
    dependency sets. Sealing retains integrity-addressed archives from npm's
    cache. Runtime admission verifies the copied contract, package versions,
    archive integrity, installed bytes, executable targets, owners and writable
-   modes before any provider is spawned. A missing, mismatched or unsealed
+   modes before any provider is spawned. Every applicable optional package is
+   required: only lock OS/CPU/libc constraints excluding this host permit an
+   optional package to be absent. Unknown host targets refuse admission.
+   Python and Node must use the same host architecture. A missing, mismatched or unsealed
    prefix refuses and names this install-and-seal step. An ACP request never
    installs or repairs dependencies.
 

@@ -83,6 +83,7 @@ import hashlib
 import json
 import logging
 import os
+import platform
 import pwd
 import re
 import secrets
@@ -1055,6 +1056,57 @@ def _check_node_prefix_contract(prefix: Path) -> None:
             raise AcpxShadowRefusalError(f"Node dependency contract mismatch: {name}")
 
 
+def _node_host_target() -> tuple[str, str]:
+    # npm filters: https://docs.npmjs.com/cli/v10/configuring-npm/package-json#os
+    # Names: https://nodejs.org/docs/latest-v22.x/api/process.html#processarch
+    # and https://nodejs.org/docs/latest-v22.x/api/process.html#processplatform
+    systems = {
+        "Linux": "linux", "Darwin": "darwin", "Windows": "win32", "AIX": "aix",
+        "FreeBSD": "freebsd", "OpenBSD": "openbsd", "SunOS": "sunos", "Android": "android",
+    }
+    architectures = {
+        "x86_64": "x64", "amd64": "x64", "x64": "x64",
+        "i386": "ia32", "i486": "ia32", "i586": "ia32", "i686": "ia32", "x86": "ia32",
+        "aarch64": "arm64", "arm64": "arm64",
+        "arm": "arm", "armv6l": "arm", "armv7l": "arm", "armv8l": "arm",
+        "ppc": "ppc", "ppc64": "ppc64", "ppc64le": "ppc64",
+        "s390": "s390", "s390x": "s390x", "riscv64": "riscv64",
+        "loongarch64": "loong64", "loong64": "loong64", "mips": "mips", "mipsel": "mipsel",
+    }
+    try:
+        return systems[platform.system()], architectures[platform.machine().lower()]
+    except KeyError as exc:
+        raise AcpxShadowRefusalError(
+            "Unknown Node dependency host platform or architecture", failure_code="acp_adapter_incompatible",
+        ) from exc
+
+
+def _node_target_allows(constraints: Any, target: str) -> bool:
+    """npm-install-checks checkList: explicit negatives win; positives must match."""
+    if constraints is None:
+        return True
+    entries = [constraints] if isinstance(constraints, str) else constraints
+    if not isinstance(entries, list) or any(not isinstance(entry, str) for entry in entries):
+        raise AcpxShadowRefusalError("Invalid Node dependency platform constraint")
+    if entries == ["any"]:
+        return True
+    if "!" + target in entries:
+        return False
+    positives = [entry for entry in entries if not entry.startswith("!")]
+    return not positives or target in positives
+
+
+def _node_package_applies(package: Mapping[str, Any], host_os: str, host_cpu: str) -> bool:
+    if not _node_target_allows(package.get("os"), host_os) or not _node_target_allows(package.get("cpu"), host_cpu):
+        return False
+    if package.get("libc") is not None:
+        libc = {"glibc": "glibc", "musl": "musl"}.get(platform.libc_ver()[0].lower())
+        if libc is None:
+            raise AcpxShadowRefusalError("Unknown Node dependency host libc", failure_code="acp_adapter_incompatible")
+        return _node_target_allows(package["libc"], libc)
+    return True
+
+
 def validate_node_dependencies() -> Path:
     """Verify all installed package bytes against retained, lock-authenticated tarballs.
 
@@ -1069,12 +1121,13 @@ def validate_node_dependencies() -> Path:
         _check_node_artifact(prefix / "archives", directory=True)
         lock = json.loads((prefix / "package-lock.json").read_bytes())
         direct = json.loads((prefix / "package.json").read_bytes())["dependencies"]
+        host_os, host_cpu = _node_host_target()
         expected: set[Path] = set()
         for location, package in lock["packages"].items():
             if not location:
                 continue
             root = prefix / location
-            if not root.exists() and package.get("optional"):
+            if not root.exists() and package.get("optional") and not _node_package_applies(package, host_os, host_cpu):
                 continue
             _check_node_artifact(root, directory=True)
             digest = base64.b64decode(package["integrity"].removeprefix("sha512-"), validate=True).hex()

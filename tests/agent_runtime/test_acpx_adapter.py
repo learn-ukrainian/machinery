@@ -806,12 +806,17 @@ def test_build_invocation_refuses_when_release_pin_is_missing(tmp_path, monkeypa
         _build(AcpxAdapter(), cwd=tmp_path)
 
 
-@pytest.mark.parametrize("defect", ["missing", "version", "bytes", "archive", "symlink", "owner", "writable"])
+@pytest.mark.parametrize("defect", [
+    "missing", "version", "bytes", "archive", "symlink", "owner", "writable",
+    "missing-applicable-optional", "omitted-inapplicable-optional",
+])
 def test_release_prefix_admission_rejects_untrusted_node_dependency(tmp_path, monkeypatch, defect):
     """Granted by claude-cto: release admission must never execute untrusted dependencies."""
     import base64
     import hashlib
     import io
+    import platform
+    import shutil
     import tarfile
 
     contract = tmp_path / "contract"
@@ -835,6 +840,16 @@ def test_release_prefix_admission_rejects_untrusted_node_dependency(tmp_path, mo
     archive_path = prefix / "archives" / (digest.hex() + ".tgz")
     archive_path.write_bytes(archive_data)
     lock = {"packages": {"": {}, "node_modules/acpx": {"version": "0.21.0", "integrity": "sha512-" + base64.b64encode(digest).decode()}}}
+    optional = prefix / "node_modules" / "optional-platform"
+    if defect.endswith("optional"):
+        # CTO's two additional cases pin both positive and negated npm constraints.
+        monkeypatch.setattr(platform, "system", lambda: "Linux")
+        monkeypatch.setattr(platform, "machine", lambda: "x86_64")
+        shutil.copytree(package, optional)
+        lock["packages"]["node_modules/optional-platform"] = {
+            **lock["packages"]["node_modules/acpx"], "optional": True,
+            "os": ["!linux"] if defect.startswith("omitted") else ["linux"], "cpu": ["x64"],
+        }
     for name, data in {
         "package.json": json.dumps({"version": "0.1.0", "dependencies": {"acpx": "0.21.0"}}),
         "package-lock.json": json.dumps(lock), ".nvmrc": "22\n",
@@ -869,8 +884,13 @@ def test_release_prefix_admission_rejects_untrusted_node_dependency(tmp_path, mo
     elif defect == "owner":
         uid = os.getuid()
         monkeypatch.setattr(acpx_module.os, "getuid", lambda: uid + 1)
-    else:
+    elif defect == "writable":
         target.chmod(0o664)
+    else:
+        shutil.rmtree(optional)
+        if defect == "omitted-inapplicable-optional":
+            assert acpx_module._resolve_acpx_binary(adapter_label="test") == str(binary)
+            return
     with pytest.raises(AcpxShadowRefusalError):
         acpx_module._resolve_acpx_binary(adapter_label="test")
 
