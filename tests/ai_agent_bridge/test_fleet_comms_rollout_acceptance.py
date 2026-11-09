@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 from lu_machinery.ai_agent_bridge import _ask_lifecycle as lifecycle
-from lu_machinery.ai_agent_bridge import _claude, _codex, _db, _gemini
+from lu_machinery.ai_agent_bridge import _db, _gemini
 from lu_machinery.fleet_comms.artifacts import ArtifactStore
 from lu_machinery.fleet_comms.formal_review_finalize import finalize_formal_review_verdict
 from lu_machinery.fleet_comms.formal_review_jobs import FormalReviewJobService
@@ -84,14 +84,6 @@ def approved_findings_path(tmp_path: Path) -> Path:
     ("recipient", "send"),
     [
         (
-            "codex",
-            lambda: _codex.ask_codex("acceptance ask", task_id="rollout-codex", from_llm="test"),
-        ),
-        (
-            "claude",
-            lambda: _claude.ask_claude("acceptance ask", task_id="rollout-claude", from_llm="test"),
-        ),
-        (
             "gemini",
             lambda: _gemini.ask_gemini(
                 "acceptance ask",
@@ -104,14 +96,11 @@ def approved_findings_path(tmp_path: Path) -> Path:
 )
 def test_bridge_asks_dual_write_to_legacy_and_message_plane(
     dual_write_bridge: tuple[Path, Path],
-    monkeypatch: pytest.MonkeyPatch,
     recipient: str,
     send: Callable[[], int | None],
 ) -> None:
     """Each public ask writes its legacy row and synchronous plane request."""
     legacy_db, plane_root = dual_write_bridge
-    monkeypatch.setattr(_codex, "process_for_codex", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr(_claude, "process_for_claude", lambda *_args, **_kwargs: None)
 
     message_id = send()
     assert isinstance(message_id, int)

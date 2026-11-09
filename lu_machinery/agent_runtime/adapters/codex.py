@@ -1,9 +1,9 @@
 """CodexAdapter — wraps ``codex exec`` for the agent runtime.
 
 First real adapter. Proves the protocol shape works against a real CLI.
-Lifted from the prior art in ``scripts/ai_agent_bridge/_codex.py`` and
-``scripts/build/dispatch.py`` (Codex branch) — same flag semantics, now
-routed through the unified runtime.
+The retired Codex bridge processor is gone. Flag semantics now live in
+this adapter and the dispatch Codex branch, routed through the unified
+runtime.
 
 Key design points:
 
@@ -12,8 +12,7 @@ Key design points:
   runner policy gate, while an exact bridge task/thread may resume its prior
   Codex CLI session and retain native reasoning/compaction state (#1894).
 - **All three modes supported:** read-only, workspace-write, danger.
-  Mode → flag mapping matches ``_codex.py::_codex_bridge_flags`` and
-  ``dispatch.py::_codex_dispatch_flags``.
+  Mode → flag mapping matches the dispatch Codex flags.
 - **Identity remains request-side.** The model flag selects a configured
   request. A successful final response or rollout context does not establish
   provider-observed model/version identity; this adapter does not claim it.
@@ -999,8 +998,7 @@ class CodexAdapter:
         Codex's coarser sandbox model; worktree isolation is the actual
         security boundary for headless dispatches.
 
-        Matches the mapping in _codex.py::_codex_bridge_flags and
-        dispatch.py::_codex_dispatch_flags for consistency during migration.
+        Matches the dispatch Codex flag mapping.
         """
         if mode == "read-only":
             return ["-s", "read-only"]

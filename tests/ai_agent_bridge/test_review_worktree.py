@@ -5,7 +5,6 @@ import json
 import stat
 import subprocess
 import sys
-from contextlib import contextmanager
 from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
@@ -18,7 +17,7 @@ from lu_machinery.agent_runtime.adapters.acpx import (
     _validate_sealed_review_mcp_config,
 )
 from lu_machinery.common.repo_root import project_interpreter
-from lu_machinery.ai_agent_bridge import _agy, _claude, _cli
+from lu_machinery.ai_agent_bridge import _agy, _cli
 from lu_machinery.ai_agent_bridge import _review_worktree as review_worktree
 from lu_machinery.review.isolation import create_review_temp_root
 from lu_machinery.review.snapshot import (
@@ -1584,37 +1583,6 @@ def _review_message(*, to: str) -> dict[str, object]:
         "content": "Review the branch.",
         "data": json.dumps({"review_target": {"branch": "feature/review"}}),
     }
-
-
-@contextmanager
-def _null_review_checkout(*_args, **_kwargs):
-    yield None
-
-
-def test_claude_review_bridge_refuses_null_sealed_checkout(monkeypatch: pytest.MonkeyPatch) -> None:
-    errors: list[str] = []
-    monkeypatch.setattr(_claude, "_is_task_locked", lambda *_args: False)
-    monkeypatch.setattr(_claude, "_write_pid_file", lambda *_args: None)
-    monkeypatch.setattr(_claude, "_remove_pid_file", lambda *_args: None)
-    monkeypatch.setattr(_claude.atexit, "register", lambda *_args: None)
-    monkeypatch.setattr(_claude, "set_session", lambda *_args: None)
-    monkeypatch.setattr(_claude, "provision_review_worktree", _null_review_checkout)
-    monkeypatch.setattr(
-        _claude,
-        "runtime_invoke",
-        lambda *_args, **_kwargs: pytest.fail("runtime must not launch without a sealed checkout"),
-    )
-    monkeypatch.setattr(
-        _claude,
-        "send_message",
-        lambda **kwargs: errors.append(str(kwargs.get("content"))) or 92,
-    )
-    monkeypatch.setattr(_claude, "acknowledge", lambda *_args: None)
-    monkeypatch.setattr(_claude, "record_ask_failure", lambda *_args, **_kwargs: None)
-
-    _claude._run_claude_sync_via_runtime(_review_message(to="claude"), 91, None, False, True)
-
-    assert any("exact-target-required" in error for error in errors)
 
 
 def test_agy_review_bridge_refuses_null_sealed_checkout(monkeypatch: pytest.MonkeyPatch) -> None:

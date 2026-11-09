@@ -84,7 +84,6 @@ tests/agent_runtime/test_agent_settings.py
 tests/agent_runtime/test_agy_retry.py
 tests/agent_runtime/test_agy_tool_config.py
 tests/agent_runtime/test_agy_transient_fault.py
-tests/agent_runtime/test_ask_cursor.py
 tests/agent_runtime/test_attempt_network.py
 tests/agent_runtime/test_attempt_safe_read.py
 tests/agent_runtime/test_authoring_review_feasibility.py
@@ -96,7 +95,6 @@ tests/agent_runtime/test_claude_cli_version_determinism.py
 tests/agent_runtime/test_claude_no_background.py
 tests/agent_runtime/test_claude_project_key.py
 tests/agent_runtime/test_codex_adapter.py
-tests/agent_runtime/test_codex_bridge.py
 tests/agent_runtime/test_codex_exec_stream.py
 tests/agent_runtime/test_codex_hook_probe.py
 tests/agent_runtime/test_codex_review_tmp.py
@@ -198,15 +196,12 @@ tests/ai_agent_bridge/test_bridge_state_roots.py
 tests/ai_agent_bridge/test_bridge_wave2_cli.py
 tests/ai_agent_bridge/test_channels_discuss_idempotency.py
 tests/ai_agent_bridge/test_citation_check.py
-tests/ai_agent_bridge/test_claude_advisory_routing.py
-tests/ai_agent_bridge/test_claude_review_worktree.py
 tests/ai_agent_bridge/test_codex_rollout_readiness.py
 tests/ai_agent_bridge/test_comms_router_expiry_sweep.py
 tests/ai_agent_bridge/test_fleet_comms_bottleneck_alerts.py
 tests/ai_agent_bridge/test_fleet_comms_migration.py
 tests/ai_agent_bridge/test_fleet_comms_rollout_acceptance.py
 tests/ai_agent_bridge/test_fleet_taxonomy_slot_addressing.py
-tests/ai_agent_bridge/test_grok_build_bridge.py
 tests/ai_agent_bridge/test_idle_driver_wake.py
 tests/ai_agent_bridge/test_inbox_watch.py
 tests/ai_agent_bridge/test_kimi_integration.py
