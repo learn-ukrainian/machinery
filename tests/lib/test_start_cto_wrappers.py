@@ -30,7 +30,7 @@ from tests.lib.test_launcher_contract import (
 from tests.lib.test_launcher_driver_scope import scope_sandbox
 from tests.rules_core_view import _build_view
 
-pytestmark = [pytest.mark.usefixtures("hermetic_monitor"), pytest.mark.usefixtures("isolated_monitor_state")]
+pytestmark = [pytest.mark.usefixtures("configured_roots"), pytest.mark.usefixtures("hermetic_monitor"), pytest.mark.usefixtures("isolated_monitor_state")]
 WRAPPERS = ("start-claude-cto.sh", "start-codex-cto.sh")
 launch_with_usage = _usage_fixture
 # The epics stream id comes from the registry, so a re-rooted epic needs no test edit.
@@ -584,9 +584,3 @@ session_supervisor_exec_successor
             assert result.stdout.endswith("CAPTURED:" + "\0".join(captured) + "\0")
             assert (config / "claude-account").read_text() == "b\n"
         assert not list((scratch_root / "task-scratch").glob("cto-argument-capture.*"))
-
-
-@pytest.fixture(autouse=True)
-def _configured_launcher_roots(configured_roots):
-    """Use the shared hermetic product and primary trees for launcher calls."""
-    return configured_roots

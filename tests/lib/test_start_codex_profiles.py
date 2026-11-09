@@ -18,7 +18,7 @@ from tests.launcher_sandbox import (
 from tests.lib.test_launcher_driver_scope import install_scope_sandbox
 from tests.rules_core_view import install_loader_bypass
 
-pytestmark = pytest.mark.usefixtures("hermetic_monitor")
+pytestmark = [pytest.mark.usefixtures("configured_roots"), pytest.mark.usefixtures("hermetic_monitor")]
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 # Tests spawn the same prescribed project interpreter that is running pytest;
@@ -521,9 +521,3 @@ def test_ambiguous_or_resumed_rollover_fails_before_lease_and_codex(tmp_path: Pa
         assert "MULTIPLE_LIVE_PENDING_ROLLOVERS" in result.stderr
     else:
         assert "already resumed; refusing to reuse it" in result.stderr
-
-
-@pytest.fixture(autouse=True)
-def _configured_launcher_roots(configured_roots):
-    """Use the shared hermetic product and primary trees for launcher calls."""
-    return configured_roots

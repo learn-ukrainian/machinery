@@ -23,7 +23,7 @@ from tests.helpers.product_tree import configured_roots as configured_roots
 from tests.launcher_sandbox import copy_launcher_sources, launcher_environment
 from tests.wait_helpers import wait_until
 
-pytestmark = pytest.mark.usefixtures("hermetic_monitor")
+pytestmark = [pytest.mark.usefixtures("configured_roots"), pytest.mark.usefixtures("hermetic_monitor")]
 
 REPO = Path(__file__).resolve().parents[2]
 
@@ -1398,9 +1398,3 @@ def test_driver_scope_caps_pytest_auto_workers(
     result = _run(launcher, env, **extra)
     assert result.returncode == 0, result.stderr
     assert f"XDIST_AUTO:{expected}" in result.stdout
-
-
-@pytest.fixture(autouse=True)
-def _configured_launcher_roots(configured_roots):
-    """Use the shared hermetic product and primary trees for launcher calls."""
-    return configured_roots

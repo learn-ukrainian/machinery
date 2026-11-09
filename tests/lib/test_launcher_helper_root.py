@@ -28,7 +28,7 @@ from tests.launcher_sandbox import launcher_environment, launcher_wrapper_source
 
 REPO = Path(__file__).resolve().parents[2]
 
-pytestmark = [pytest.mark.skipif(shutil.which("bash") is None, reason="bash not available"), pytest.mark.usefixtures("hermetic_monitor")]
+pytestmark = [pytest.mark.usefixtures("configured_roots"), pytest.mark.skipif(shutil.which("bash") is None, reason="bash not available"), pytest.mark.usefixtures("hermetic_monitor")]
 
 _COPIED = (
     "start-claude-driver.sh",
@@ -715,9 +715,3 @@ def test_machinery_dir_is_the_physical_package_when_reached_through_a_symlink(tm
     )
     assert result.returncode == 0, result.stderr
     assert result.stdout.splitlines() == [str(real / "lu_machinery"), "1"]
-
-
-@pytest.fixture(autouse=True)
-def _configured_launcher_roots(configured_roots):
-    """Use the shared hermetic product and primary trees for launcher calls."""
-    return configured_roots

@@ -19,6 +19,8 @@ from lu_machinery.session_canary import codex_lane, gemini_lane
 from tests.helpers.product_tree import configured_roots as configured_roots
 from tests.launcher_sandbox import copy_launcher_sources, launcher_environment
 
+pytestmark = pytest.mark.usefixtures("configured_roots")
+
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 
 def _clean_environ() -> dict[str, str]:
@@ -737,9 +739,3 @@ def test_launcher_wake_survives_signal_between_check_and_wait(tmp_path: Path) ->
     assert result.returncode == 0, result.stderr
     assert events == ["stopped", "close", "successor"]
     assert elapsed < 5, f"Supervisory wake took {elapsed:.3f}s"
-
-
-@pytest.fixture(autouse=True)
-def _configured_launcher_roots(configured_roots):
-    """Use the shared hermetic product and primary trees for launcher calls."""
-    return configured_roots

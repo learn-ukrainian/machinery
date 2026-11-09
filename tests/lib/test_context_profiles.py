@@ -19,6 +19,8 @@ from lu_machinery.lib.context_profiles import (
 )
 from tests.helpers.product_tree import configured_roots as configured_roots
 
+pytestmark = pytest.mark.usefixtures("_configured_profile_product")
+
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 RESOLVER = machinery_path('lib/context_profiles.py')
 SHELL_RESOLVER = machinery_path('lib/profile_resolver.sh')
@@ -339,7 +341,7 @@ def test_shell_resolver_rejects_any_other_missing_field(tmp_path: Path) -> None:
     assert "invalid field stream" in result.stderr
 
 
-@pytest.fixture(autouse=True)
+@pytest.fixture
 def _configured_profile_product(configured_roots, monkeypatch):
     """Use the shared empty product tree, with the profile contract in the wheel."""
     monkeypatch.setattr(sys.modules[__name__], "PROJECT_ROOT", configured_roots.product)

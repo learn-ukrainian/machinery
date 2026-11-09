@@ -29,6 +29,8 @@ from tests.launcher_sandbox import (
     launcher_environment,
 )
 
+pytestmark = pytest.mark.usefixtures("_configured_launcher_roots")
+
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _HANDOFF_IDENTITY_SH = machinery_path('lib/handoff_identity.sh')
 _ISSUE_STREAMS = machinery_path('config/issue_streams.yaml')
@@ -450,7 +452,7 @@ def test_session_setup_hook_names_driver_state_as_authoritative(tmp_path: Path) 
     assert ".claude/curriculum-upgrade-epic/DRIVER-STATE.md" in context
 
 
-@pytest.fixture(autouse=True)
+@pytest.fixture
 def _configured_launcher_roots(configured_roots, monkeypatch):
     """Use the shared hermetic product and primary trees for launcher calls."""
     root = configured_roots.primary / "launcher-checkout"

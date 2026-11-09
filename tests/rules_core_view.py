@@ -152,6 +152,10 @@ def rules_core_absent_when_marked(request: pytest.FixtureRequest, monkeypatch: p
     """
     if request.node.get_closest_marker("rules_core_absent") is None:
         return
+    # An autouse bypass may run before ordinary module fixtures. Honor roots
+    # only when the module already opted in, never for a no-root refusal test.
+    if any("configured_roots" in mark.args for mark in request.node.iter_markers("usefixtures")):
+        request.getfixturevalue("configured_roots")
     view = bypass_checkout(request)
     monkeypatch.setattr(rules_core, "require_core", lambda seat=None, root=None: rules_core.resolve_seat(seat))
     monkeypatch.setattr(rules_core, "with_core", lambda prompt, seat=None, root=None: prompt)

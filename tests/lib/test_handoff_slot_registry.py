@@ -52,7 +52,7 @@ UNREGISTERED_SELECTORS = (
     "infra.curriculum-upgrade",
 )
 
-pytestmark = pytest.mark.skipif(shutil.which("bash") is None, reason="bash not available")
+pytestmark = [pytest.mark.usefixtures("configured_roots"), pytest.mark.skipif(shutil.which("bash") is None, reason="bash not available")]
 
 
 def _driver_providers() -> tuple[str, ...]:
@@ -604,9 +604,3 @@ def test_kube_dojo_wrapper_refuses_a_caller_lane(caller_epic: tuple[str, ...], l
     assert result.returncode == 2, result.stdout + result.stderr
     assert "fixes the lane 'kube-dojo'; refusing the caller's lane 'devops'" in result.stderr
     assert "would claim" not in result.stdout
-
-
-@pytest.fixture(autouse=True)
-def _configured_launcher_roots(configured_roots):
-    """Use the shared hermetic product and primary trees for launcher calls."""
-    return configured_roots

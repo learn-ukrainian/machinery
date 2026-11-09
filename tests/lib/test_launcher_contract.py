@@ -41,7 +41,7 @@ from tests.rules_core_view import (
     rules_core_absent_when_marked,  # noqa: F401  (autouse: serves @rules_core_absent)
 )
 
-pytestmark = [pytest.mark.usefixtures("hermetic_monitor"), pytest.mark.usefixtures("isolated_monitor_state")]
+pytestmark = [pytest.mark.usefixtures("configured_roots"), pytest.mark.usefixtures("hermetic_monitor"), pytest.mark.usefixtures("isolated_monitor_state")]
 
 REPO = Path(__file__).resolve().parents[2]
 # The checkout run_launcher starts launchers from; rules_core_absent tests get a
@@ -1507,9 +1507,3 @@ fi
         with suppress(ProcessLookupError):
             os.killpg(process.pid, signal.SIGKILL)
         process.communicate(timeout=10)
-
-
-@pytest.fixture(autouse=True)
-def _configured_launcher_roots(configured_roots):
-    """Use the shared hermetic product and primary trees for launcher calls."""
-    return configured_roots

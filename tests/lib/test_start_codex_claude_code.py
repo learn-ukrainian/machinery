@@ -12,7 +12,7 @@ from tests.helpers.product_tree import configured_roots as configured_roots
 from tests.launcher_sandbox import launcher_environment, launcher_toolchain_path
 from tests.lib.test_launcher_contract import run_launcher
 
-pytestmark = pytest.mark.usefixtures("hermetic_monitor")
+pytestmark = [pytest.mark.usefixtures("configured_roots"), pytest.mark.usefixtures("hermetic_monitor")]
 
 
 def _stub_claude(tmp_path: Path) -> Path:
@@ -105,9 +105,3 @@ def test_direct_codex_proxy_configuration_rejects_old_pin_without_exports():
     )
     assert result.returncode == 2
     assert "approved models are gpt-6-luna, gpt-6.1-sol" in result.stderr
-
-
-@pytest.fixture(autouse=True)
-def _configured_launcher_roots(configured_roots):
-    """Use the shared hermetic product and primary trees for launcher calls."""
-    return configured_roots

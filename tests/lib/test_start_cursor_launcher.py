@@ -19,7 +19,7 @@ from tests.lib.test_launcher_contract import REPO, run_launcher
 from tests.lib.test_launcher_driver_scope import manager_guard
 from tests.rules_core_view import _build_view
 
-pytestmark = pytest.mark.usefixtures("hermetic_monitor")
+pytestmark = [pytest.mark.usefixtures("configured_roots"), pytest.mark.usefixtures("hermetic_monitor")]
 
 DRIVER = "start-cursor-driver.sh"
 RETIRED_MODEL_IDS = {
@@ -413,9 +413,3 @@ def test_cursor_driver_refuses_retired_fable_5_before_the_claude_gate(tmp_path: 
     assert "is retired in the model catalog" in result.stderr
     assert "claude-fable-5-1" in result.stderr
     assert "would exec" not in result.stdout
-
-
-@pytest.fixture(autouse=True)
-def _configured_launcher_roots(configured_roots):
-    """Use the shared hermetic product and primary trees for launcher calls."""
-    return configured_roots

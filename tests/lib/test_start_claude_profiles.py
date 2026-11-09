@@ -16,7 +16,7 @@ from tests.lib.test_launcher_contract import (
     run_launcher,
 )
 
-pytestmark = pytest.mark.usefixtures("hermetic_monitor")
+pytestmark = [pytest.mark.usefixtures("configured_roots"), pytest.mark.usefixtures("hermetic_monitor")]
 
 
 def _stub_claude(tmp_path: Path) -> Path:
@@ -222,9 +222,3 @@ def test_native_claude_clears_foreign_route_and_capacity_overrides(tmp_path: Pat
     assert "compact=unset" in result.stdout
     assert "profile=native_claude" in result.stdout
     assert "foreign-secret" not in result.stdout + result.stderr
-
-
-@pytest.fixture(autouse=True)
-def _configured_launcher_roots(configured_roots):
-    """Use the shared hermetic product and primary trees for launcher calls."""
-    return configured_roots

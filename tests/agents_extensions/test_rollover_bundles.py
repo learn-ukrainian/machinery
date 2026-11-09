@@ -27,7 +27,7 @@ from tests.helpers.product_tree import configured_roots as configured_roots
 from tests.launcher_sandbox import launcher_environment
 from tests.epics_monitor_stub import isolated_monitor_state as isolated_monitor_state
 
-pytestmark = pytest.mark.usefixtures("isolated_monitor_state")
+pytestmark = [pytest.mark.usefixtures("configured_roots"), pytest.mark.usefixtures("isolated_monitor_state")]
 
 HANDOFF_PATH = ".claude/infra-epic/CLAUDE-DRIVER-HANDOFF.md"
 AGENT = "claude-infra"
@@ -2266,9 +2266,3 @@ def test_imported_lease_refusal_never_echoes_bundle_strings(tmp_path):
             members={lease_name: th._bundle_json(state)},
         )
     assert BOUND_SENTINEL not in str(refusal.value)
-
-
-@pytest.fixture(autouse=True)
-def _configured_bundle_roots(configured_roots):
-    """Bundle state is anchored in the shared isolated primary fixture."""
-    return configured_roots

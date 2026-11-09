@@ -21,7 +21,7 @@ from tests.rules_core_view import (
     rules_core_absent_when_marked,  # noqa: F401  (autouse: serves @rules_core_absent)
 )
 
-pytestmark = pytest.mark.usefixtures("hermetic_monitor")
+pytestmark = [pytest.mark.usefixtures("configured_roots"), pytest.mark.usefixtures("hermetic_monitor")]
 
 
 @pytest.fixture(autouse=True)
@@ -743,9 +743,3 @@ def test_real_reader_unavailable_warns_without_disclosing_target(name, tmp_path)
     assert "warning: Claude weekly usage unknown or invalid" in result.stderr
     assert "claude-sonnet-5-5" in _exec_line(result.stdout)
     assert "private-telemetry-target" not in result.stdout + result.stderr
-
-
-@pytest.fixture(autouse=True)
-def _configured_launcher_roots(configured_roots):
-    """Use the shared hermetic product and primary trees for launcher calls."""
-    return configured_roots
