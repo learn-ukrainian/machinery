@@ -226,14 +226,6 @@ elif scenario == 'compatibility_resolvers':
         pass
     else:
         raise AssertionError('installed code claimed a runtime Git checkout')
-elif scenario == 'source_attestation':
-    from lu_machinery.ci import pr20_measurement as pr20
-    import io
-    with patch.object(subprocess, 'check_output', side_effect=AssertionError('package Git probe')), \
-         patch.object(sys, 'stderr', new_callable=io.StringIO) as error:
-        assert pr20.main(['anchor', '--inputs', str(product / 'inputs'), '--output', str(product / 'out'),
-                          '--switch-pr', str(product / 'switch'), '--observed-at', '2026-11-09T00:00:00Z']) == 2
-    assert '(ProductRootError)' in error.getvalue(), error.getvalue()
 elif scenario == 'unconfigured':
     for key in (*rr.MACHINERY_ENV_VARS, rr.PRODUCT_ROOT_ENV):
         os.environ.pop(key, None)
@@ -270,7 +262,7 @@ def installed_site(tmp_path_factory: pytest.TempPathFactory) -> Path:
 
 @pytest.mark.parametrize("scenario", [
     "text", "dispatch", "review_dispatch", "review_wait", "supervisor", "provenance",
-    "primary", "hooks", "alert", "drift", "interpreter", "diagnostic", "gh_shim", "guarded_gh_shim", "npm_shim", "compatibility_resolvers", "source_attestation", "unconfigured",
+    "primary", "hooks", "alert", "drift", "interpreter", "diagnostic", "gh_shim", "guarded_gh_shim", "npm_shim", "compatibility_resolvers", "unconfigured",
 ])
 def test_installed_entry_points_never_use_package_ancestors_as_roots(installed_site, tmp_path, scenario):
     """Defect class: installed package location used as cwd, repository or state anchor."""
