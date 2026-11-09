@@ -28,6 +28,8 @@ def _clean_environ() -> dict[str, str]:
 
 
 def _write_executable(path: Path, body: str) -> None:
+    # The fake interpreter still runs its stdlib snippets with this test interpreter.
+    body = body.replace("/usr/bin/env python3", shlex.quote(sys.executable))
     path.write_text(body, encoding="utf-8")
     path.chmod(0o755)
 
