@@ -175,7 +175,7 @@ tests/test_sibling_git.py
 tests/common/fixtures/github_endpoint_parent_admission.json
 tests/common/github_cache_isolation.py
 tests/common/jsonl_reader_cases.py
-tests/common/test_test_thread_caps.py
+tests/common/thread_cap_expected.py
 tests/common/wait_helpers.py
 tests/hygiene/conftest.py
 tests/helpers/product_tree.py
