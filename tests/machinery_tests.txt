@@ -726,6 +726,8 @@ tests/test_review_isolation.py
 tests/test_secret_print_hook.py
 tests/test_verify_review.py
 
+tests/ci/test_pytest_test_slots.py
+
 # [support]
 tests/fixtures/product_tree/agents_extensions/codex-home/AGENTS.md
 tests/fixtures/product_tree/agents_extensions/codex-home/agents/luna_coder_high.toml

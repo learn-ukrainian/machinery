@@ -5745,20 +5745,18 @@
     "test_xdist_workers_never_exceed_the_slots_held"
    ],
    "ownership": "machinery",
-   "residual_id": "PORT-T8-D01",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.ci.pytest_dispatch_cap [present: present on machinery main as lu_machinery/ci/pytest_dispatch_cap.py]",
     "scripts.common [present: present on machinery main as lu_machinery/common/__init__.py]",
     "scripts.common.test_slots [present: present on machinery main as lu_machinery/common/test_slots.py]"
    ],
-   "residual_owner": "claude-cto",
-   "residual_reason": "tests/common/test_test_thread_caps.py (EXPECTED fixture) is absent from machinery main; test_pytest_test_slots.py imports it.",
    "residual_resolution": {
     "id": "PORT-T8-D01",
-    "decision": "still-deferred",
-    "evidence": "tests/common/test_test_thread_caps.py (EXPECTED fixture) is absent from machinery main; test_pytest_test_slots.py imports it."
-   }
+    "decision": "ported",
+    "evidence": "Frozen source port with canonical lu_machinery plugin imports and installed module paths. The previously deferred EXPECTED fixture is already on main as tests/common/thread_cap_expected.py, extracted verbatim from frozen LU tests/common/test_test_thread_caps.py."
+   },
+   "ported_to": "tests/ci/test_pytest_test_slots.py"
   },
   "tests/ci/test_scheduled_secret_scan.py": {
    "disposition": "keep",
