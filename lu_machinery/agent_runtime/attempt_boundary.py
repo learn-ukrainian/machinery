@@ -1339,14 +1339,18 @@ class AttemptBoundary:
             }
             self.tool_config.pop("read_only_tmp_root", None)
             if agent == "codex":
-                from .review_mcp import _render_codex_review_config
+                from .review_mcp import _render_codex_review_config, _toml_string
 
+                # The renderer JSON-escapes the path. A raw replace misses quotes, backslashes and non-ASCII.
+                rendered = _render_codex_review_config(Path(proxy_server["command"]), proxy, {})
+                needle = f"args = [{_toml_string(str(proxy))}]"
+                isolated = "args = [" + ", ".join(
+                    _toml_string(part) for part in ("-I", str(proxy), str(endpoint))
+                ) + "]"
+                if rendered.count(needle) != 1:
+                    raise ReviewIsolationError("attempt_codex_proxy_args_unisolated")
                 codex_home = home / ".codex"
-                (codex_home / "config.toml").write_text(
-                    _render_codex_review_config(Path(proxy_server["command"]), proxy, {}).replace(
-                        f'args = ["{proxy}"]', f'args = ["-I", "{proxy}", "{endpoint}"]'
-                    )
-                )
+                (codex_home / "config.toml").write_text(rendered.replace(needle, isolated, 1))
                 self.tool_config["codex_home_override"] = str(codex_home)
                 self.tool_config["attempt_os_sandbox"] = True
             elif agent == "agy":
