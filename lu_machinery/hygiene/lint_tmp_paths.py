@@ -2309,8 +2309,20 @@ def is_pytest_root_override(value: str) -> bool:
         return False
     if value.startswith(CACHE_DIR_SETTING):
         return True
-    tokens = value.split()
+    tokens = command_words(value)
     return any(override_at(tokens, index) for index in range(len(tokens)))
+
+
+def command_words(value: str) -> list[str]:
+    """The words a shell makes of ``value``, quotes removed (``-o'cache_dir=x'`` is ``-ocache_dir=x``).
+
+    A value the shell lexer cannot split (an unbalanced quote) is split on
+    whitespace with every quote character dropped, so it is still checked.
+    """
+    try:
+        return shlex.split(value)
+    except ValueError:
+        return value.replace("'", "").replace('"', "").split()
 
 
 def _may_hold_temp_root(value: str) -> bool:
