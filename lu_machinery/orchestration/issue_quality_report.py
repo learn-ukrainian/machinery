@@ -247,9 +247,11 @@ def persisted_payload(day: str, *, root: Path | None = None, build=build_report)
 
 def publish_payload(payload: bytes, day: str, sender: str) -> int:
     # The running interpreter and fixed module are trusted; argv is separate and no shell runs.
+    # -I: the state-root cwd must not shadow the installed release. The exit code is read after the child ends.
     result = subprocess.run(  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit
         [
             sys.executable,
+            "-I",
             "-m",
             "lu_machinery.fleet_comms",
             "channel",

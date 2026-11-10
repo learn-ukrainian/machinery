@@ -152,6 +152,7 @@ def test_cli_publishes_through_fleet_comms_to_the_cto_channel(tmp_path: Path, mo
     assert status == 0
     assert seen["command"] == [
         sys.executable,
+        "-I",
         "-m",
         "lu_machinery.fleet_comms",
         "channel",
@@ -315,7 +316,7 @@ def authority_publisher(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
 
     def isolated_run(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
         assert command[0] == sys.executable
-        assert command[1:3] == ["-m", "lu_machinery.fleet_comms"]
+        assert command[1:4] == ["-I", "-m", "lu_machinery.fleet_comms"]
         # Only the test child uses sys.executable; no worktree venv is created.
         return run(
             [sys.executable, *command[1:], "--root", str(root)],

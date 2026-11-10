@@ -541,8 +541,10 @@ def resolve_prompt_file(repo_root: Path, args: argparse.Namespace) -> Path:
 
 
 def build_dispatch_command(args: argparse.Namespace, prompt_file: Path) -> list[str]:
+    # -I: the repo cwd must not shadow the installed dispatcher. Output is captured after exit.
     command = [
         sys.executable,
+        "-I",
         "-m",
         f"{_MACHINERY}.dispatch",
         "dispatch",

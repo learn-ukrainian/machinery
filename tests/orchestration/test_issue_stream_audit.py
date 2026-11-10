@@ -900,6 +900,7 @@ def test_spawn_worker_uses_running_interpreter_and_packaged_module(tmp_path, mon
     assert issue_stream_audit._spawn_worker("run-1") is True
     assert captured["argv"] == [
         sys.executable,
+        "-I",
         "-m",
         "lu_machinery.orchestration.issue_stream_audit",
         "--refresh-worker",

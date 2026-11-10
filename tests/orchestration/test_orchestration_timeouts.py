@@ -339,7 +339,7 @@ def test_orchestrator_control_cmd_dispatch_timeout(tmp_path: Path, capsys: pytes
         check=True,
     )
     assert len(calls) == 1
-    assert calls[0]["cmd"][:4] == [sys.executable, "-m", "lu_machinery.dispatch", "dispatch"]
+    assert calls[0]["cmd"][:5] == [sys.executable, "-I", "-m", "lu_machinery.dispatch", "dispatch"]
     assert calls[0]["timeout"] == oc.DEFAULT_DISPATCH_TIMEOUT_SECONDS
     capsys.readouterr()
 
