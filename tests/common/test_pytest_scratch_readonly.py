@@ -1146,6 +1146,8 @@ _SELF_SIGNALLED = {
         "@pytest.hookimpl(wrapper=True)\n"
         "def pytest_sessionfinish(session):\n    os.kill(os.getpid(), signal.SIGTERM)\n    return (yield)\n"
     ),
+    # A session-finish wrapper that a conftest in a test directory registers during collection, after the plugin.
+    "late-finish-wrapper": "",
     # The removal of the run itself.
     "removal": (
         "from lu_machinery.common import task_scratch\n\n"
@@ -1157,7 +1159,8 @@ _SELF_SIGNALLED = {
 
 
 @pytest.mark.parametrize(
-    "when", ["session", "nested", "finishing", "configure", "ignored-hup", "finish-wrapper", "removal"]
+    "when",
+    ["session", "nested", "finishing", "configure", "ignored-hup", "finish-wrapper", "late-finish-wrapper", "removal"],
 )
 def test_a_terminated_session_removes_its_run(tmp_path, when):
     """Defect class: a session ended by SIGTERM (a supervisor's timeout) never reaches its cleanup and leaves its run.
@@ -1172,6 +1175,14 @@ def test_a_terminated_session_removes_its_run(tmp_path, when):
         suite, shared, env = _writable_suite(tmp_path, "def test_passes():\n    pass\n")
         with (suite / "conftest.py").open("a") as conftest:
             conftest.write("import os, signal\nimport pytest\n\n" + _SELF_SIGNALLED[when])
+        if when == "late-finish-wrapper":
+            (suite / "sub").mkdir()
+            (suite / "sub" / "test_sub.py").write_text("def test_sub():\n    pass\n")
+            (suite / "sub" / "conftest.py").write_text(
+                "import os, signal\nimport pytest\n\n"
+                "@pytest.hookimpl(wrapper=True, tryfirst=True)\n"
+                "def pytest_sessionfinish(session):\n    os.kill(os.getpid(), signal.SIGTERM)\n    return (yield)\n"
+            )
         result = subprocess.run(
             [sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider"], cwd=suite, env=env,
             capture_output=True, text=True, timeout=120,

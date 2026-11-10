@@ -545,10 +545,10 @@ class _Termination:
     - running: ``KeyboardInterrupt`` where the process is, which stops a blocked
       test. If a nested in-process session catches it instead, this session
       raises it again after the test that ran the nested one;
-    - finishing, from the outermost ``pytest_sessionfinish`` wrapper through
-      unconfigure and every cleanup, until the run is removed: only recorded,
-      because the removal is already under way. The session then ends with
-      its own status.
+    - finishing, from the end of the run loop (or a failed collection) through
+      session finish, unconfigure and every cleanup, until the run is removed:
+      only recorded, because the removal is already under way. The session
+      then ends with its own status.
     """
 
     def __init__(self) -> None:
@@ -589,6 +589,22 @@ class _Termination:
     @pytest.hookimpl(tryfirst=True)
     def pytest_runtest_logfinish(self) -> None:
         self.raise_if_received()
+
+    @pytest.hookimpl(wrapper=True, tryfirst=True)
+    def pytest_collection(self) -> Generator[None, None, None]:
+        try:
+            return (yield)
+        except BaseException:
+            self.finish()  # the session ends here; no run loop follows
+            raise
+
+    @pytest.hookimpl(wrapper=True, tryfirst=True)
+    def pytest_runtestloop(self) -> Generator[None, None, None]:
+        try:
+            return (yield)
+        finally:
+            # Before any session-finish hook, including wrappers a later conftest registers ahead of this one.
+            self.finish()
 
     @pytest.hookimpl(wrapper=True, tryfirst=True)
     def pytest_sessionfinish(self) -> Generator[None, None, None]:
