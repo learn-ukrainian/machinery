@@ -53,4 +53,5 @@ def exec_primary(
     entry = primary / entry
     if not entry.is_file():
         refuse(f"primary checkout has no entry point: {entry}")
-    os.execv(sys.executable, [sys.executable, "-I", str(entry), *argv])
+    # This interpreter under -I and the primary checkout's entry file in an argv list; no shell runs.
+    os.execv(sys.executable, [sys.executable, "-I", str(entry), *argv])  # nosemgrep: python.lang.security.audit.dangerous-os-exec-audit
