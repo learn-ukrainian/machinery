@@ -231,12 +231,7 @@ def test_project_interpreter_refuses_a_non_executable_primary_venv(tmp_path):
 # marker, an invalid selection never falls through, decoys in the working directory are
 # never consulted, and resolution creates nothing.
 
-_ROOT_ENV = (
-    *rr.MACHINERY_ENV_VARS,
-    rr.PRODUCT_ROOT_ENV,
-    rr.PRODUCT_ROOT_DERIVED_ENV,
-    rr.PRIMARY_ROOT_DERIVED_ENV,
-)
+_ROOT_ENV = (*rr.MACHINERY_ENV_VARS, rr.PRODUCT_ROOT_ENV)
 _copy_ids = itertools.count()
 
 
@@ -333,96 +328,6 @@ def test_the_installed_package_resolves_its_configured_anchors(unconfigured, tmp
     monkeypatch.setenv(rr.STATE_ROOT_ENV, str(tmp_path / "decoy"))
     with pytest.raises(rr.MachineryConfigError, match="state cutover"):
         rr.state_root()
-
-
-def test_inherited_derived_product_root_is_not_configuration(unconfigured, tmp_path, monkeypatch):
-    """Defect class: an inherited derived product root counted as explicit configuration.
-
-    The installed package refuses it, the same as an unset variable. An explicit
-    argument still wins. The in-tree copy falls through to the checkout that holds it.
-    """
-    inherited = tmp_path / "enclosing-product"
-    inherited.mkdir()
-    explicit = tmp_path / "named-product"
-    explicit.mkdir()
-    marked = {
-        rr.PRODUCT_ROOT_ENV: str(inherited),
-        rr.PRODUCT_ROOT_DERIVED_ENV: str(inherited),
-    }
-    with pytest.raises(rr.ProductRootError, match="no product is configured"):
-        rr.product_root(env=marked)
-    assert rr.product_root(explicit, env=marked) == explicit
-    # A matching mark is not validated as a configured path.
-    relative = {rr.PRODUCT_ROOT_ENV: "not-absolute", rr.PRODUCT_ROOT_DERIVED_ENV: "not-absolute"}
-    with pytest.raises(rr.ProductRootError, match="no product is configured"):
-        rr.product_root(env=relative)
-
-    product = _decoy_cwd(tmp_path / "in-tree-product")
-    in_tree = _load_copy(monkeypatch, product / "scripts")
-    assert in_tree.product_root(env=marked) == product
-    assert in_tree.product_root(explicit, env=marked) == explicit
-
-
-def test_inherited_derived_primary_root_falls_back_to_the_checkout(unconfigured, tmp_path, monkeypatch):
-    """Defect class: an inherited derived primary adopted as the shared-state anchor.
-
-    The in-tree copy derives its own primary through main_checkout_root. The installed
-    package refuses, as it does when the variable is unset.
-    """
-    primary = _primary_checkout(tmp_path / "checkout")
-    worktree = primary / ".worktrees" / "dispatch" / "task"
-    _link_worktree(primary, worktree)
-    foreign = _primary_checkout(tmp_path / "enclosing")
-    marked = {
-        rr.PRIMARY_ROOT_ENV: str(foreign),
-        rr.PRIMARY_ROOT_DERIVED_ENV: str(foreign),
-    }
-    in_tree = _load_copy(monkeypatch, worktree / "scripts")
-    assert in_tree.configured_primary_root(marked) is None
-    assert in_tree.primary_root(env=marked).resolve() == primary.resolve()
-    assert in_tree.state_root(env=marked).resolve() == primary.resolve()
-    assert rr.configured_primary_root(marked) is None
-    with pytest.raises(rr.StateRootError, match=rr.PRIMARY_ROOT_ENV):
-        rr.primary_root(env=marked)
-    with pytest.raises(rr.StateRootError, match=rr.PRIMARY_ROOT_ENV):
-        rr.state_root(env=marked)
-
-
-def test_unmarked_explicit_roots_stay_configuration(unconfigured, tmp_path):
-    """Defect class: a configured root with no derived mark dropped or re-derived."""
-    primary = _primary_checkout(tmp_path / "primary")
-    product = tmp_path / "product"
-    product.mkdir()
-    env = {rr.PRIMARY_ROOT_ENV: str(primary), rr.PRODUCT_ROOT_ENV: str(product)}
-    assert rr.product_root(env=env) == product
-    assert rr.configured_primary_root(env) == primary
-    assert rr.primary_root(env=env) == primary
-    assert rr.state_root(env=env) == primary
-
-
-def test_a_derived_mark_that_does_not_equal_the_value_is_ignored(unconfigured, tmp_path):
-    """Defect class: a stale derived mark replacing or suppressing an explicit root."""
-    primary = _primary_checkout(tmp_path / "primary")
-    product = tmp_path / "product"
-    product.mkdir()
-    plain = tmp_path / "plain"
-    plain.mkdir()
-    stale = str(tmp_path / "ancestor")
-    env = {
-        rr.PRODUCT_ROOT_ENV: str(product),
-        rr.PRODUCT_ROOT_DERIVED_ENV: stale,
-        rr.PRIMARY_ROOT_ENV: str(primary),
-        rr.PRIMARY_ROOT_DERIVED_ENV: stale,
-    }
-    assert rr.product_root(env=env) == product
-    assert rr.configured_primary_root(env) == primary
-    assert rr.primary_root(env=env) == primary
-    assert rr.state_root(env=env) == primary
-    # The mark does not exempt an explicit value from today's validation.
-    with pytest.raises(rr.ProductRootError, match="must be an absolute path"):
-        rr.product_root(env={rr.PRODUCT_ROOT_ENV: "relative", rr.PRODUCT_ROOT_DERIVED_ENV: stale})
-    with pytest.raises(rr.MachineryConfigError, match="must name a primary checkout"):
-        rr.configured_primary_root({rr.PRIMARY_ROOT_ENV: str(plain), rr.PRIMARY_ROOT_DERIVED_ENV: stale})
 
 
 @pytest.mark.parametrize("in_tree", [False, True], ids=["installed", "in-tree"])
