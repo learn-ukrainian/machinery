@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import sqlite3
 from pathlib import Path
 from typing import Any
 
+import pytest
 import yaml
 
 from lu_machinery.orchestration.trails.closure import ClosureError, TrailClosureGate
@@ -331,3 +333,28 @@ def test_park_race_on_invalid_chain_returns_closed_result_not_crash(tmp_path: Pa
     assert result.outcome == "closed"
     assert executor.store.get_run(run_id).closure_state == "closed"
     assert executor.store.get_closure(run_id) is not None
+
+
+def test_transaction_error_survives_rollback_failure(tmp_path, caplog):
+    """Defect class: a ROLLBACK error replaced the error inside a trail transaction."""
+    store = TrailStore(tmp_path / "trails.sqlite", tmp_path / "receipts")
+
+    class _RollbackFails:
+        in_transaction = True
+
+        def execute(self, sql, *args, **kwargs):
+            if sql == "ROLLBACK":
+                raise sqlite3.OperationalError("injected rollback failure")
+
+        def close(self) -> None:
+            return None
+
+    store._connect = lambda: _RollbackFails()
+    with (
+        caplog.at_level("WARNING", logger="lu_machinery.orchestration.trails.store"),
+        pytest.raises(RuntimeError, match="injected transaction failure") as raised,
+        store._immediate_transaction(),
+    ):
+        raise RuntimeError("injected transaction failure")
+    assert any("injected rollback failure" in note for note in raised.value.__notes__)
+    assert "trail rollback cleanup failed" in caplog.text

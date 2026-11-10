@@ -599,3 +599,23 @@ def test_remove_unclaimed_worktree_refuses_while_a_dispatch_task_claims_it(
     )
     git_safety.remove_unclaimed_worktree(repo, worktree)
     assert not worktree.exists()
+
+
+def test_write_json_atomic_keeps_replace_error_when_unlink_fails(tmp_path, monkeypatch, caplog):
+    """Defect class: an unlink error other than FileNotFoundError replaced the git-safety write error."""
+
+    def fail_replace(*args, **kwargs):
+        raise OSError("injected replace failure")
+
+    def fail_unlink(path, *args, **kwargs):
+        raise OSError("injected unlink failure")
+
+    monkeypatch.setattr(os, "replace", fail_replace)
+    monkeypatch.setattr(os, "unlink", fail_unlink)
+    with (
+        caplog.at_level("WARNING", logger="lu_machinery.orchestration.task_family.git_safety"),
+        pytest.raises(OSError, match="injected replace failure") as raised,
+    ):
+        git_safety.write_json_atomic(tmp_path / "git.json", {"a": 1})
+    assert any("injected unlink failure" in note for note in raised.value.__notes__)
+    assert "git safety json cleanup failed" in caplog.text

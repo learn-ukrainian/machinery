@@ -2026,3 +2026,23 @@ def test_systemd_timer_does_not_leave_both_root_cleanup_on_four_hour_cadence() -
         "@PRIVATE_ROOT@",
         "--apply",
     ]
+
+
+def test_atomic_write_keeps_replace_error_when_unlink_fails(tmp_path, monkeypatch, caplog):
+    """Defect class: temp unlink failure replaced the atomic write error."""
+
+    def fail_replace(*args, **kwargs):
+        raise OSError("injected replace failure")
+
+    def fail_unlink(self, missing_ok=False):
+        raise OSError("injected unlink failure")
+
+    monkeypatch.setattr(os, "replace", fail_replace)
+    monkeypatch.setattr(Path, "unlink", fail_unlink)
+    with (
+        caplog.at_level("WARNING", logger="lu_machinery.orchestration.scheduled_worktree_cleanup"),
+        pytest.raises(OSError, match="injected replace failure") as raised,
+    ):
+        cleanup.atomic_write(tmp_path / "out.json", b"{}")
+    assert any("injected unlink failure" in note for note in raised.value.__notes__)
+    assert "atomic write cleanup failed" in caplog.text

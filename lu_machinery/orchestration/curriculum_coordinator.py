@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import logging
 import os
 import re
 import shlex
@@ -1275,8 +1276,19 @@ def acquire_next(
                     track=track,
                     slug=item["slug"],
                 )
-            except Exception:
-                _release_owned_lease(_lease_path(root, "global"), run_id)
+            except Exception as exc:
+                try:
+                    _release_owned_lease(_lease_path(root, "global"), run_id)
+                except BaseException as cleanup_exc:
+                    text = f"{type(cleanup_exc).__name__}: {cleanup_exc}"[:300]
+                    logging.getLogger(__name__).warning("coordinator lease cleanup failed: %s", text)
+                    try:
+                        exc.add_note(f"coordinator lease cleanup failed: {text}")
+                    except BaseException as again:
+                        logging.getLogger(__name__).warning(
+                            "coordinator lease cleanup failed: %s",
+                            f"{type(again).__name__}: {again}"[:300],
+                        )
                 raise
             _append_event(
                 ledger,

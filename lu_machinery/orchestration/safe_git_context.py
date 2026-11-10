@@ -153,8 +153,23 @@ class SafeGitContext:
                     )
             raise
 
-    def __exit__(self, *_exc) -> None:
-        self._scratch.cleanup()
+    def __exit__(self, exc_type, exc, tb) -> None:
+        try:
+            self._scratch.cleanup()
+        except BaseException as cleanup_exc:
+            # A failed body already has the error the caller needs. Cleanup's
+            # own error is logged and attached; it must not replace that error.
+            if exc is None:
+                raise
+            text = f"{type(cleanup_exc).__name__}: {cleanup_exc}"[:300]
+            logging.getLogger(__name__).warning("safe git context cleanup failed: %s", text)
+            try:
+                exc.add_note(f"scratch cleanup failed: {text}")
+            except BaseException as again:
+                logging.getLogger(__name__).warning(
+                    "safe git context cleanup failed: %s",
+                    f"{type(again).__name__}: {again}"[:300],
+                )
 
     def run(
         self,

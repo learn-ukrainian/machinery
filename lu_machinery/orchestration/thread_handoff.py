@@ -19,6 +19,7 @@ import http.client
 import importlib.util
 import io
 import json
+import logging
 import os
 import re
 import shlex
@@ -5786,8 +5787,19 @@ class _BundleReconcileTree:
                     return self
             self.lineage_fd = root
             return self
-        except BaseException:
-            self.__exit__(None, None, None)
+        except BaseException as exc:
+            try:
+                self.__exit__(None, None, None)
+            except BaseException as cleanup_exc:
+                text = f"{type(cleanup_exc).__name__}: {cleanup_exc}"[:300]
+                logging.getLogger(__name__).warning("bundle reconcile fd cleanup failed: %s", text)
+                try:
+                    exc.add_note(f"bundle reconcile fd cleanup failed: {text}")
+                except BaseException as again:
+                    logging.getLogger(__name__).warning(
+                        "bundle reconcile fd cleanup failed: %s",
+                        f"{type(again).__name__}: {again}"[:300],
+                    )
             raise
 
     def __exit__(self, *_args: Any) -> None:

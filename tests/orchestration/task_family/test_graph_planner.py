@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 
 import pytest
 
@@ -18,7 +19,11 @@ from lu_machinery.orchestration.task_family.model import (
     TaskRelation,
 )
 from lu_machinery.orchestration.task_family.planner import TaskFamilyPlan, build_plan
-from lu_machinery.orchestration.task_family.storage import TaskFamilyStorage, atomic_write_json
+from lu_machinery.orchestration.task_family.storage import (
+    TaskFamilyStorage,
+    atomic_write_json,
+    atomic_write_text,
+)
 
 
 def _node(task_id: str, title: str, **resources: str) -> TaskNode:
@@ -276,3 +281,26 @@ def test_atomic_persistence_and_schema_validation_reject_drift_and_unknown_enums
     payload["state"] = "unknown"
     with pytest.raises(ValueError, match="unknown operation or lifecycle state"):
         TaskFamilyPlan.from_dict(payload)
+
+
+def test_atomic_write_keeps_replace_error_when_unlink_fails(tmp_path, monkeypatch, caplog):
+    """Defect class: an unlink error other than FileNotFoundError replaced the task-family write error."""
+
+    def fail_replace(*args, **kwargs):
+        raise OSError("injected replace failure")
+
+    def fail_unlink(path, *args, **kwargs):
+        raise OSError("injected unlink failure")
+
+    monkeypatch.setattr(os, "replace", fail_replace)
+    monkeypatch.setattr(os, "unlink", fail_unlink)
+    with (
+        caplog.at_level("WARNING", logger="lu_machinery.orchestration.task_family.storage"),
+        pytest.raises(OSError, match="injected replace failure") as json_raised,
+    ):
+        atomic_write_json(tmp_path / "fam.json", {"a": 1})
+    with pytest.raises(OSError, match="injected replace failure") as text_raised:
+        atomic_write_text(tmp_path / "fam.txt", "hello")
+    assert any("injected unlink failure" in note for note in json_raised.value.__notes__)
+    assert any("task family json cleanup failed" in note for note in json_raised.value.__notes__)
+    assert any("task family text cleanup failed" in note for note in text_raised.value.__notes__)

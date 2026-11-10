@@ -6,6 +6,7 @@ import contextlib
 import fcntl
 import hashlib
 import json
+import logging
 import os
 import re
 import subprocess
@@ -126,9 +127,20 @@ def write_json_atomic(path: Path, payload: dict[str, Any]) -> None:
             os.fsync(directory_fd)
         finally:
             os.close(directory_fd)
-    except BaseException:
-        with contextlib.suppress(FileNotFoundError):
-            os.unlink(temporary_name)
+    except BaseException as exc:
+        try:
+            with contextlib.suppress(FileNotFoundError):
+                os.unlink(temporary_name)
+        except BaseException as cleanup_exc:
+            text = f"{type(cleanup_exc).__name__}: {cleanup_exc}"[:300]
+            logging.getLogger(__name__).warning("git safety json cleanup failed: %s", text)
+            try:
+                exc.add_note(f"git safety json cleanup failed: {text}")
+            except BaseException as again:
+                logging.getLogger(__name__).warning(
+                    "git safety json cleanup failed: %s",
+                    f"{type(again).__name__}: {again}"[:300],
+                )
         raise
 
 

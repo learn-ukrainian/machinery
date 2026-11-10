@@ -371,3 +371,25 @@ def test_working_attributes_cannot_hide_a_named_filter_from_the_captured_tree(so
     with context(source, tmp_path) as safe:
         with pytest.raises(SnapshotRefusal, match="rescue_filtered_path"):
             safe.capture(repo, head)
+
+
+def test_body_refusal_survives_exit_cleanup_failure(source, tmp_path, monkeypatch, caplog):
+    """Defect class: scratch cleanup in SafeGitContext.__exit__ replaced the body error."""
+    real_cleanup = tempfile.TemporaryDirectory.cleanup
+
+    def fail_safe_scratch(self):
+        if "lu-safe-git-" in str(self.name):
+            raise OSError("injected scratch cleanup failure")
+        return real_cleanup(self)
+
+    monkeypatch.setattr(tempfile.TemporaryDirectory, "cleanup", fail_safe_scratch)
+    failure = SnapshotRefusal("rescue_input_changed")
+    with (
+        caplog.at_level(logging.WARNING, logger="lu_machinery.orchestration.safe_git_context"),
+        pytest.raises(SnapshotRefusal) as raised,
+        context(source, tmp_path),
+    ):
+        raise failure
+    assert raised.value is failure
+    assert any("OSError: injected scratch cleanup failure" in note for note in raised.value.__notes__)
+    assert "safe git context cleanup failed" in caplog.text

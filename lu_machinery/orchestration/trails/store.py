@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 import sqlite3
 from collections.abc import Iterator
@@ -157,9 +158,20 @@ class TrailStore:
             connection.execute("BEGIN IMMEDIATE")
             yield connection
             connection.execute("COMMIT")
-        except BaseException:
-            if connection.in_transaction:
-                connection.execute("ROLLBACK")
+        except BaseException as exc:
+            try:
+                if connection.in_transaction:
+                    connection.execute("ROLLBACK")
+            except BaseException as cleanup_exc:
+                text = f"{type(cleanup_exc).__name__}: {cleanup_exc}"[:300]
+                logging.getLogger(__name__).warning("trail rollback cleanup failed: %s", text)
+                try:
+                    exc.add_note(f"trail rollback cleanup failed: {text}")
+                except BaseException as again:
+                    logging.getLogger(__name__).warning(
+                        "trail rollback cleanup failed: %s",
+                        f"{type(again).__name__}: {again}"[:300],
+                    )
             raise
         finally:
             connection.close()
