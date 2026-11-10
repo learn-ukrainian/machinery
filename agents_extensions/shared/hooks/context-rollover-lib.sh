@@ -9,16 +9,21 @@
 # find, so the first probe writes the same rule out, with that file's gitfile
 # checks and without asking git (a rewritten gitfile or commondir must not choose
 # the interpreter that runs first): LEARN_UKRAINIAN_PYTHON when it is an absolute
-# executable file; else the .venv of the operator-set CODEX_CANONICAL_REPO_ROOT;
-# else the .venv of the primary checkout, which is the project itself when its
-# .git is a real directory (or absent), or the <primary> of a linked worktree whose
+# executable file; else the .venv of the operator-set CODEX_CANONICAL_REPO_ROOT
+# when that directory's .git is a real directory or a gitfile, not a symlink and
+# not absent; else the .venv of the primary checkout, which is the project itself
+# when its .git is a real directory, or the <primary> of a linked worktree whose
 # gitfile names a real <primary>/.git/worktrees/<name> that points back at it;
-# else refuse. An invalid override does not fall back.
+# else refuse. A directory with no .git entry is not a checkout. An invalid
+# override does not fall back.
 _context_rule_root() {
   local root="$1" git_path line gitdir worktrees common pointer pointed
   git_path="$root/.git"
   [ ! -L "$git_path" ] || return 1
-  if [ -d "$git_path" ] || [ ! -e "$git_path" ]; then
+  # A missing .git used to count as a primary, so <dir>/.venv/bin/python ran
+  # for any directory a caller passed. Only a real .git directory is this
+  # checkout; a gitfile is checked below and never by running git.
+  if [ -d "$git_path" ]; then
     printf '%s\n' "$root"
     return 0
   fi
@@ -58,7 +63,7 @@ _context_rule_root() {
   printf '%s\n' "${common%/*}"
 }
 _context_rule_probe() {
-  local configured="${LEARN_UKRAINIAN_PYTHON:-}" project_dir="$1" root
+  local configured="${LEARN_UKRAINIAN_PYTHON:-}" project_dir="$1" root git_path
   if [ -n "$configured" ]; then
     case "$configured" in
       /*) ;;
@@ -70,7 +75,17 @@ _context_rule_probe() {
     return 0
   fi
   if [ -n "${CODEX_CANONICAL_REPO_ROOT:-}" ]; then
-    root="$CODEX_CANONICAL_REPO_ROOT"
+    # Operator-set, so a separate-git-dir gitfile stays valid, but a directory
+    # with no .git entry is not a checkout and its interpreter must not run.
+    if ! root="$(cd -P "$CODEX_CANONICAL_REPO_ROOT" 2>/dev/null && pwd)"; then
+      echo "${0##*/}: project interpreter not found: untrusted git metadata at ${CODEX_CANONICAL_REPO_ROOT}/.git; set LEARN_UKRAINIAN_PYTHON" >&2
+      return 1
+    fi
+    git_path="$root/.git"
+    if [ -L "$git_path" ] || { [ ! -d "$git_path" ] && [ ! -f "$git_path" ]; }; then
+      echo "${0##*/}: project interpreter not found: untrusted git metadata at $git_path; set LEARN_UKRAINIAN_PYTHON" >&2
+      return 1
+    fi
   elif ! root="$(cd -P "$project_dir" 2>/dev/null && pwd)" || ! root="$(_context_rule_root "$root")"; then
     echo "${0##*/}: project interpreter not found: untrusted git metadata at $project_dir/.git; set LEARN_UKRAINIAN_PYTHON" >&2
     return 1
@@ -94,11 +109,39 @@ _context_import_release() {
 # sourced when it differs. Fails closed: on any doubt it says why on stderr and
 # returns 1, and the hook refuses instead of running code from anywhere else.
 context_machinery_bootstrap() {
-  local project_dir="$1" probe resolved
+  local project_dir="$1" probe resolved start candidate parent
   MACHINERY_DIR="" CONTEXT_PROJECT_PYTHON=""
-  probe="$(_context_rule_probe "$project_dir")" || return 1
+  # Callers pass the project directory. The probe and the release resolver
+  # receive the checkout root: the directory itself when its .git entry is
+  # present, otherwise the nearest ancestor that has one. A directory that is
+  # not inside a checkout is refused here, before any interpreter runs,
+  # unless LEARN_UKRAINIAN_PYTHON is an absolute path. That operator path
+  # short-circuits the resolver, so the directory's own interpreter cannot
+  # be selected. A canonical-root override does not: the probe would accept
+  # the override and the resolver would then execute this directory's
+  # interpreter, because a missing .git is still a primary there.
+  if ! start="$(cd -P "$project_dir" 2>/dev/null && pwd)"; then
+    echo "${0##*/}: project interpreter not found: untrusted git metadata at ${project_dir}/.git; set LEARN_UKRAINIAN_PYTHON" >&2
+    return 1
+  fi
+  candidate="$start"
+  while [ ! -e "$candidate/.git" ] && [ ! -L "$candidate/.git" ]; do
+    parent="$(dirname "$candidate")"
+    [ "$parent" != "$candidate" ] || break
+    candidate="$parent"
+  done
+  if [ ! -e "$candidate/.git" ] && [ ! -L "$candidate/.git" ]; then
+    case "${LEARN_UKRAINIAN_PYTHON:-}" in
+      /*) candidate="$start" ;;
+      *)
+        echo "${0##*/}: project interpreter not found: untrusted git metadata at ${start}/.git; set LEARN_UKRAINIAN_PYTHON" >&2
+        return 1
+        ;;
+    esac
+  fi
+  probe="$(_context_rule_probe "$candidate")" || return 1
   _context_import_release "$probe" || return 1
-  resolved="$(project_interpreter_resolve "$project_dir")" || { MACHINERY_DIR=""; return 1; }
+  resolved="$(project_interpreter_resolve "$candidate")" || { MACHINERY_DIR=""; return 1; }
   if [ "$resolved" != "$probe" ]; then
     _context_import_release "$resolved" || { MACHINERY_DIR=""; return 1; }
   fi
