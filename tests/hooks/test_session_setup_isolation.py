@@ -191,10 +191,6 @@ _LIB_SITES = {
     "fleet_comms_plane_probe": (
         f'source {_LIB}/fleet_comms_cold_start.sh && PROJECT_DIR="$1" fleet_comms_warn_if_plane_unreachable'
     ),
-    "glmcc_route": (
-        f"source {_LIB}/glmcc_route.sh && MODEL_ALIAS=glm-5.3 ENDPOINT=coding ISOLATE_CONFIG=1 && "
-        'glmcc_configure_route "$1"'
-    ),
     "claude_route_guard": (
         f"source {_LIB}/claude_route_guard.sh && printf '{{}}' > \"$1/settings.json\" && "
         f'CLAUDE_ROUTE_GUARD_PYTHON={_PY} claude_settings_conflicting_route_keys "$1/settings.json"'

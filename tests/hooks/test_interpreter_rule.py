@@ -319,12 +319,14 @@ def test_deployed_guards_do_not_import_a_planted_stdlib_module(tmp_path: Path) -
     assert not plant_log.exists()
 
 
-def test_deploy_inventory_ships_the_hook_loader() -> None:
-    """A deployed consumer receives load_hook_package.py beside the guards (R72)."""
+def test_deploy_inventory_uses_installed_hook_modules() -> None:
+    """Deployed guards import shared code from the wheel without a path loader (R72)."""
     inventory = json.loads((machinery_root() / "agent_deploy/release.v1.json").read_text(encoding="utf-8"))
-    record = inventory["files"]["hooks/load_hook_package.py"]
-    assert record["owner"] == "fleet"
-    assert set(record["targets"]) == {"agy", "claude", "codex", "cursor"}
+    assert "hooks/load_hook_package.py" not in inventory["files"]
+    for name in ("shell_shlex.py", "shell_redirects.py", "tool_names.py"):
+        record = inventory["files"]["hooks/" + name]
+        assert record["owner"] == "fleet"
+        assert set(record["targets"]) == {"agy", "claude", "codex", "cursor"}
 
 
 def test_deployed_probe_does_not_execute_a_worktree_venv_when_git_cannot_name_the_primary(tmp_path: Path) -> None:
@@ -398,7 +400,6 @@ ROUTED = (
     ".githooks/pre-push",
     "lu_machinery/launchers/codex.sh",
     "lu_machinery/lib/claude_route_guard.sh",
-    "lu_machinery/lib/glmcc_route.sh",
     "lu_machinery/lib/handoff_identity.sh",
     "lu_machinery/lib/thread_rollover_link.sh",
     "agents_extensions/shared/hooks/auto-audit.sh",

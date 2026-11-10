@@ -2,20 +2,15 @@
 
 from __future__ import annotations
 
-import sys
-
 import pytest
 
-from lu_machinery.common.repo_root import machinery_path
-
-sys.path.insert(0, str(machinery_path('agents_extensions/shared/hooks')))
-from shell_redirects import (
+from agents_extensions.shared.hooks.shell_redirects import (
     command_repository_unknown,
     preprocess_branch_command,
     scope_events,
     unmodeled_shell_offset,
 )
-from shell_shlex import ShellPreprocessLimit, preprocess_shell_command
+from agents_extensions.shared.hooks.shell_shlex import ShellPreprocessLimit, preprocess_shell_command
 
 
 @pytest.mark.parametrize(
@@ -152,7 +147,7 @@ def test_whole_command_detector_controls(command):
 
 
 def test_detector_internal_failure_fails_closed(monkeypatch):
-    import shell_redirects
+    from agents_extensions.shared.hooks import shell_redirects
 
     def broken(command):
         raise RuntimeError("synthetic detector failure")
@@ -176,7 +171,7 @@ def test_detector_internal_failure_fails_closed(monkeypatch):
     ],
 )
 def test_unknown_repository_reader_keeps_branch_commands_visible(command):
-    from shell_redirects import unknown_repository_segments
+    from agents_extensions.shared.hooks.shell_redirects import unknown_repository_segments
 
     assert ["git", "switch", "-c", "fixture"] in unknown_repository_segments(command)
 
@@ -191,7 +186,7 @@ def test_unknown_repository_reader_keeps_branch_commands_visible(command):
     ],
 )
 def test_unknown_repository_reader_keeps_quoted_branch_prose_inert(command):
-    from shell_redirects import unknown_repository_segments
+    from agents_extensions.shared.hooks.shell_redirects import unknown_repository_segments
 
     assert not any(argv[:2] == ["git", "switch"] for argv in unknown_repository_segments(command))
 

@@ -1,36 +1,9 @@
-"""GeminiAdapter — wraps ``gemini`` CLI (Google AI Studio / Gemini CLI) for the runtime.
+"""Gemini seat helpers. The native ``gemini`` CLI argv is retired.
 
-Second real adapter. Pressure-tests the protocol against the RICHEST existing
-flag requirements in the codebase:
-
-- MCP tool restrictions via ``--allowed-mcp-server-names`` (used by
-  ``scripts/build/dispatch.py`` for pipeline reviewers to restrict tool
-  access).
-- Stall detection: the prior art in ``_gemini.py::_stream_with_watchdog``
-  was specifically built because Gemini CLI stalls frequently. Our runtime's
-  stall watchdog covers this case uniformly — GeminiAdapter doesn't need a
-  custom implementation, just the right ``stall_timeout`` default.
-- Rate-limit detection: Gemini returns ``RESOURCE_EXHAUSTED``, ``quota
-  exceeded``, and occasionally ``No capacity available`` depending on
-  backend. Patterns match dispatch.py prior art.
-- Auth precedence: in auto mode, ``GEMINI_API_KEY`` / ``GOOGLE_API_KEY``
-  selects API-key auth first; otherwise the adapter falls back to
-  subscription/OAuth and strips Gemini API env vars from the subprocess.
-  Explicit ``GEMINI_AUTH_MODE=api`` or ``subscription`` still wins.
-- **``--resume`` vs ``--session-id``**: Gemini CLI accepts UUID resume.
-  ``--resume <uuid>`` resumes an existing session and ``--session-id
-  <uuid>`` starts a NEW named session with that UUID. The bridge passes
-  ``tool_config={"is_new_session": bool}``, matching ClaudeAdapter.
-
-Key differences from CodexAdapter:
-- Output to stdout (no ``-o <file>``); ``output_file`` stays None.
-- No sandbox flags. Gemini CLI uses ``--approval-mode=yolo`` for
-  writable mode; read-only is the default. There is no ``danger`` mode
-  distinct from ``workspace-write``.
-- Liveness paths = () — stdout streaming is the only signal we need,
-  and it's sufficient because Gemini CLI always writes to stdout.
-
-Issue: #1184
+``build_invocation`` refuses before any command is built. Auth helpers still
+serve the runtime auth snapshot, and ``parse_response`` still reads historical
+CLI transcripts. The runner loads this class when a caller names the
+``gemini`` seat; the certified model then runs through AGY.
 """
 
 from __future__ import annotations
@@ -39,15 +12,10 @@ import contextlib
 import logging
 import os
 import re
-import shutil
 from collections.abc import Mapping
 from pathlib import Path
 
-if __package__ == "agent_runtime.adapters":  # the historical top-level alias, with scripts/ on sys.path
-    from lu_machinery.ai_llm.fallback import GEMINI_AUTH_ENV_VARS
-else:
-    from ...ai_llm.fallback import GEMINI_AUTH_ENV_VARS
-
+from ..errors import AgentUnavailableError
 from ..failure_codes import provider_failure_code, provider_stderr_error
 from ..result import ParseResult
 from ..tool_calls import normalize_tool_calls, parse_json_events
@@ -62,19 +30,11 @@ _TRANSIENT_ERROR_PATTERNS = (
 _TRANSIENT_ERROR_RE = re.compile("|".join(_TRANSIENT_ERROR_PATTERNS), re.IGNORECASE)
 _AUTH_MODE_VALUES = frozenset({"auto", "subscription", "api"})
 _PROMPT_FILE_PREFIX = "learn-ukrainian-gemini-prompt-"
-_DISCUSS_READONLY_TOOL_CONFIG_KEY = "discussion_readonly"
 _UUID_PATTERN = r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
 _SESSION_ID_RE = re.compile(
     rf"(?:session[_-]?id[:=]\s*|gemini\s+--resume\s+)({_UUID_PATTERN})",
     re.IGNORECASE,
 )
-
-
-def _discussion_readonly_requested(tool_config: dict | None) -> bool:
-    """Return True when the caller is an ab discuss read-only invocation."""
-    return bool(
-        os.environ.get("AB_DISCUSS_READONLY") == "1" or (tool_config or {}).get(_DISCUSS_READONLY_TOOL_CONFIG_KEY)
-    )
 
 
 def has_gemini_oauth_credentials(home: Path | None = None) -> bool:
@@ -121,10 +81,6 @@ def resolve_gemini_auth_mode(
     return "subscription"
 
 
-def _has_gemini_api_key(env: Mapping[str, str]) -> bool:
-    return bool(env.get("GEMINI_API_KEY") or env.get("GOOGLE_API_KEY"))
-
-
 def _cleanup_prompt_file(path: Path | None) -> None:
     if path is None:
         return
@@ -148,14 +104,15 @@ def _extract_session_id(stdout: str, events: list[Mapping[str, object]]) -> str 
 
 
 class GeminiAdapter:
-    """Adapter for the ``gemini`` CLI (Google Gemini)."""
+    """Loadable Gemini seat. ``build_invocation`` does not run the ``gemini`` CLI."""
 
     name: str = "gemini"
     default_model: str = "gemini-3.8-flash-high"
-    # Gemini has no sandbox distinction between workspace-write and danger —
-    # we accept both names but treat them identically (both mean "CLI may
-    # write files in cwd via --approval-mode=yolo").
-    supported_modes: frozenset[str] = frozenset({"read-only", "workspace-write", "danger"})
+    # The runner checks this set before the AGY fallback rung. Keep the
+    # historical mode names so that check still passes.
+    supported_modes: frozenset[str] = frozenset(
+        {"read-only", "workspace-write", "danger"}
+    )
 
     def build_invocation(
         self,
@@ -169,111 +126,10 @@ class GeminiAdapter:
         tool_config: dict | None,
         effort: str | None = None,
     ) -> InvocationPlan:
-        """Build the ``gemini`` CLI invocation.
-
-        Supports ``tool_config``:
-            - ``is_new_session: bool`` — if True, use ``--session-id`` (new
-              named session); if False or absent, use ``--resume`` (resume
-              existing). Only meaningful when ``session_id`` is provided.
-            - ``{"mcp_server_names": ["rag", "other"]}`` → appended as
-              ``--allowed-mcp-server-names rag,other``
-            - Any other keys are ignored (forward-compatible).
-
-        ``effort`` is accepted for uniformity with the other adapters but
-        currently a no-op: the ``gemini`` CLI does not expose a reasoning
-        effort flag. When set we emit a debug log and proceed without
-        modifying the command. Follow-up #1396.
-
-        Gemini CLI v0.40.1 treats stdin as REPL keystrokes in non-TTY
-        contexts, so prompts must be passed with ``-p``. Small prompts are
-        passed inline; prompts over 100K chars use the verified ``-p @PATH``
-        file-reference form, with runner cleanup after the subprocess exits.
-        """
-        discussion_readonly = _discussion_readonly_requested(tool_config)
-        if discussion_readonly and mode != "read-only":
-            raise ValueError("AB_DISCUSS_READONLY requires mode='read-only'")
-
-        max_budget_usd = (tool_config or {}).get("max_budget_usd")
-        if max_budget_usd is not None:
-            _logger.warning("non-claude adapter ignoring max_budget_usd; use hard-timeout/silence-timeout instead")
-
-        if effort is not None:
-            _logger.debug("gemini effort not yet wired through CLI — using adapter default (#1396 follow-up)")
-        self._reset_per_invocation_state(plan_cwd=cwd)
-        gemini_bin = shutil.which("gemini") or "gemini"
-
-        cmd: list[str] = [
-            gemini_bin,
-            "-m",
-            model or self.default_model,
-        ]
-
-        # Approval mode: discussion calls force Gemini's plan mode because
-        # the historical read-only default still exposed edit-capable tools
-        # in trusted workspaces (#1702).
-        if discussion_readonly:
-            cmd.extend(["--approval-mode", "plan"])
-
-        # Approval mode: read-only is the default; yolo for write modes.
-        # "danger" is treated identically to "workspace-write" because
-        # Gemini CLI has no stricter-than-yolo bypass.
-        if mode in ("workspace-write", "danger"):
-            cmd.append("--approval-mode=yolo")
-            cmd.append("--skip-trust")
-
-        # MCP tool restriction via tool_config.
-        if tool_config:
-            mcp_server_names = tool_config.get("mcp_server_names")
-            if mcp_server_names:
-                if isinstance(mcp_server_names, (list, tuple)):
-                    joined = ",".join(mcp_server_names)
-                else:
-                    joined = str(mcp_server_names)
-                cmd.extend(["--allowed-mcp-server-names", joined])
-
-        # Session handling mirrors ClaudeAdapter: --session-id creates the
-        # named session on the first bridge call, --resume reuses it later.
-        has_session = session_id is not None
-        if has_session:
-            is_new = bool((tool_config or {}).get("is_new_session", False))
-            if is_new:
-                cmd.extend(["--session-id", session_id])
-            else:
-                cmd.extend(["--resume", session_id])
-
-        # task_id is logged by the runner. cwd IS stamped into the plan —
-        # liveness_signal_paths() needs it to derive the ~/.gemini/tmp/
-        # <basename>/ project dir without reading os.getcwd().
-        _ = task_id
-        requested_auth_mode = None
-        if tool_config:
-            requested_auth_mode = tool_config.get("auth_mode")
-        auth_mode = (
-            _normalize_gemini_auth_mode(str(requested_auth_mode))
-            if requested_auth_mode is not None
-            else resolve_gemini_auth_mode()
-        )
-        env_unsets: tuple[str, ...] = ()
-        if auth_mode == "subscription":
-            env_unsets = GEMINI_AUTH_ENV_VARS
-        elif not _has_gemini_api_key(os.environ):
-            raise RuntimeError("GEMINI_AUTH_MODE=api selected but neither GEMINI_API_KEY nor GOOGLE_API_KEY is set")
-
-        # Prompt bytes stay on stdin. Gemini CLI 0.40.1 mis-parses argv when
-        # the text contains an option-like substring (#1730).
-        cmd.extend(["-p", " "])
-        _logger.debug("gemini prompt length=%d passed via stdin", len(prompt))
-
-        return InvocationPlan(
-            cmd=cmd,
-            cwd=cwd,
-            stdin_payload=prompt,
-            output_file=None,  # Gemini writes to stdout only.
-            env_overrides={"AB_DISCUSS_READONLY": "1"} if discussion_readonly else {},
-            env_unsets=env_unsets,
-            liveness_paths=(),  # stdout streamer is not actually sufficient —
-            # see liveness_signal_paths() docstring — but we compute the
-            # real paths lazily there because they depend on cwd.
+        """Refuse the retired ``gemini`` CLI before any argv is built."""
+        del prompt, mode, cwd, model, task_id, session_id, tool_config, effort
+        raise AgentUnavailableError(
+            "The gemini CLI is retired; Gemini runs only through AGY."
         )
 
     def cleanup_invocation(self, plan: InvocationPlan) -> None:
@@ -330,7 +186,11 @@ class GeminiAdapter:
             logger=_logger,
         )
         if session_trace:
-            trace_events.extend(parse_json_events(session_trace, source="gemini-session", logger=_logger))
+            trace_events.extend(
+                parse_json_events(
+                    session_trace, source="gemini-session", logger=_logger
+                )
+            )
         tool_calls = normalize_tool_calls(trace_events)
 
         stdout_response = stdout.strip()
@@ -363,7 +223,9 @@ class GeminiAdapter:
         # Rate limit: pattern present AND we have no usable response
         # anywhere. If we recovered from the session file, it's not a
         # real rate-limit — the CLI survived whatever transient 429 it saw.
-        failure_code = provider_failure_code(provider_error) if not final_response else None
+        failure_code = (
+            provider_failure_code(provider_error) if not final_response else None
+        )
         rate_limited = failure_code == "rate_limited"
 
         # Only trip the sticky cooldown when we were actually on the API
@@ -521,7 +383,11 @@ class GeminiAdapter:
 
         snapshot: set[Path] = getattr(self, "_session_snapshot", None) or set()
         bound: Path | None = getattr(self, "_bound_session", None)
-        if bound is not None and bound.exists() and self._session_matches_plan(bound, plan):
+        if (
+            bound is not None
+            and bound.exists()
+            and self._session_matches_plan(bound, plan)
+        ):
             return bound
 
         chats_dir = Path.home() / ".gemini" / "tmp" / plan.cwd.name / "chats"
@@ -541,7 +407,9 @@ class GeminiAdapter:
 
         if call_start_time is not None:
             two_hours_ago = _time.time() - 2 * 3600
-            new_candidates = [path for path in new_candidates if self._mtime(path) >= two_hours_ago]
+            new_candidates = [
+                path for path in new_candidates if self._mtime(path) >= two_hours_ago
+            ]
             if not new_candidates:
                 return None
 

@@ -233,16 +233,6 @@
       "message": "Incompatible types in assignment (expression has type \"Path\", variable has type \"None\")"
     },
     {
-      "path": "lu_machinery/agent_runtime/adapters/gemini.py",
-      "code": "list-item",
-      "message": "List item 1 has incompatible type \"None | str\"; expected \"str\""
-    },
-    {
-      "path": "lu_machinery/agent_runtime/adapters/gemini.py",
-      "code": "list-item",
-      "message": "List item 1 has incompatible type \"None | str\"; expected \"str\""
-    },
-    {
       "path": "lu_machinery/agent_runtime/adapters/grok_build.py",
       "code": "arg-type",
       "message": "Argument 1 to \"_message_text_blocks\" has incompatible type \"Any | None | dict[Any, Any]\"; expected \"dict[Any, Any]\""

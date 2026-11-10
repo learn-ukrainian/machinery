@@ -21,7 +21,6 @@ include agents_extensions/shared/hooks/guard-public-github-text.py
 include agents_extensions/shared/hooks/guard-reviewer-publish.py
 include agents_extensions/shared/hooks/guard-secret-print.py
 include agents_extensions/shared/hooks/heal-core-bare.py
-include agents_extensions/shared/hooks/load_hook_package.py
 include agents_extensions/shared/hooks/post-compact.sh
 include agents_extensions/shared/hooks/precompact-handoff-guard.sh
 include agents_extensions/shared/hooks/release-thread-lease.sh

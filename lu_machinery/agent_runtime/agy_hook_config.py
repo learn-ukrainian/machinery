@@ -103,21 +103,16 @@ def _check_file(path: Path, interpreter: Path, script: Path, *, absolute: bool) 
         argv = shlex.split(hook["command"])
     except ValueError:
         raise AgyHookConfigError("invalid_command") from None
-    if len(argv) != 4 or argv[2:] != ["--harness", "agy"]:
+    if len(argv) != 6 or argv[1:] != ["-I", "-m", "lu_machinery.agent_runtime.secret_print_hook", "--harness", "agy"]:
         raise AgyHookConfigError("invalid_command")
-    paths = [Path(arg) for arg in argv[:2]]
-    if absolute and not all(p.is_absolute() for p in paths):
+    executable = Path(argv[0])
+    if absolute and not executable.is_absolute():
         raise AgyHookConfigError("relative_home_command")
-    resolved = [Path(os.path.abspath(path.parent / p)) for p in paths]
-    # Compare interpreter spelling too: resolving its final symlink would accept
-    # a system Python that bypasses the project's environment.
-    if (
-        resolved[0] != Path(os.path.abspath(interpreter))
-        or not resolved[0].is_file()
-        or not os.access(resolved[0], os.X_OK)
-    ):
+    resolved = Path(os.path.abspath(path.parent / executable))
+    # Keep the interpreter spelling: resolving a symlink could accept system Python.
+    if resolved != Path(os.path.abspath(interpreter)) or not resolved.is_file() or not os.access(resolved, os.X_OK):
         raise AgyHookConfigError("invalid_interpreter")
-    if resolved[1].resolve() != script.resolve() or not resolved[1].is_file():
+    if not script.is_file():
         raise AgyHookConfigError("missing_script")
 
 
@@ -158,7 +153,7 @@ def check_hook_config(locations: tuple[Path, ...]) -> HookConfigResult:
 
 
 def guard_registration() -> dict:
-    """Use the tracked overlay, with absolute interpreter and entry-point paths.
+    """Use the tracked overlay with an isolated installed-module invocation.
 
     The overlay is product configuration, read from the product checkout ``product_root``
     selects (C-4746). The guard entry point is this package's ``secret_print_hook``
@@ -167,7 +162,7 @@ def guard_registration() -> dict:
     """
     guard = copy.deepcopy(_read_config(product_root() / "agents_extensions/agy/hooks.json")[GUARD_NAME])
     guard["PreToolUse"][0]["hooks"][0]["command"] = shlex.join(
-        [sys.executable, str(machinery_path("agent_runtime/secret_print_hook.py")), "--harness", "agy"]
+        [sys.executable, "-I", "-m", "lu_machinery.agent_runtime.secret_print_hook", "--harness", "agy"]
     )
     return guard
 

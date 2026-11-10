@@ -209,7 +209,7 @@ def test_issue_9115_escaped_nested_backtick_switch_is_visible(repos):
 
 
 def test_issue_9115_backtick_depth_limit_blocks_branch_hook(repos, monkeypatch):
-    monkeypatch.setattr(sys.modules["shell_shlex"], "_MAX_BACKTICK_DEPTH", 2)
+    monkeypatch.setattr(sys.modules["agents_extensions.shared.hooks.shell_shlex"], "_MAX_BACKTICK_DEPTH", 2)
     monkeypatch.chdir(repos["public"])
     body = "git checkout -b feature"
     for _ in range(3):
@@ -299,9 +299,8 @@ def test_issue_9088_exotic_body_cannot_skip_later_safe_opener(repos):
 def test_issue_9088_missing_shell_helper_blocks(tmp_path):
     guard_copy = tmp_path / HOOK_PATH.name
     shutil.copy2(HOOK_PATH, guard_copy)
-    shutil.copy2(HOOK_PATH.parent / "load_hook_package.py", tmp_path / "load_hook_package.py")
     result = subprocess.run(
-        [sys.executable, str(guard_copy)],
+        [sys.executable, "-I", "-S", str(guard_copy)],
         input=json.dumps({"tool_input": {"command": "git checkout -b feature"}}),
         text=True,
         capture_output=True,

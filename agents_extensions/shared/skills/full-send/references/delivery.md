@@ -106,9 +106,11 @@ Every item must hold on the **current** head. A moved head voids the verdict and
 2. A recorded exact-head APPROVE from the reviewer of record (`review-loop`), with no open
    blocker in the ledger. The optional DeepSeek pre-check (DS-PRECHECK-1101) is never a review of
    record and never satisfies or waives this gate.
-3. Same-head PR CI Gate green, which includes the affected tests and Frontend, not the full suite. It
-   was green **before** the reviewed round started, and it is still green on the live head. PR CI
-   never replaces the merge-group CI Gate on the real queue candidate (`workflow.md` § Merge policy).
+3. Same-head PR CI Gate green, which includes the affected tests and Frontend, not the full suite.
+   It may have finished before or after the review round, but it is green on the live head;
+   pending, red or cancelled is not green. Later CI evidence that materially undermines the
+   recorded verdict needs reviewer disposition before enqueue. PR CI never replaces the
+   merge-group CI Gate on the real queue candidate (`workflow.md` § Merge policy).
 4. Follow-ups sent to the CTO through Fleet Comms, or recorded on the parent issue when they
    share its outcome. A non-blocking follow-up never holds the merge.
 5. The PR is open, not a draft, mergeable and not BEHIND or DIRTY against its base.

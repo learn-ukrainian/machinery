@@ -37,7 +37,6 @@ Allowed in the MAIN worktree:
 
 from __future__ import annotations
 
-import importlib.util
 import json
 import os
 import re
@@ -52,16 +51,10 @@ from pathlib import Path
 _ROOTS_READER_MODULE = "lu_machinery.common.repo_root"
 _MACHINERY = _ROOTS_READER_MODULE.partition(".")[0]
 
-# Package-only loader (#161). A deployed copy must not put the consumer parent on sys.path.
-_loader = Path(__file__).resolve().parent / "load_hook_package.py"
-_spec = importlib.util.spec_from_file_location("_load_hook_package", _loader)
-if _spec is None or _spec.loader is None:
-    raise ImportError(f"hook package loader missing: {_loader}")
-_spec.loader.exec_module(importlib.util.module_from_spec(_spec))
 # Don't write __pycache__ next to deployed hooks (#9108).
 sys.dont_write_bytecode = True
 try:
-    from shell_shlex import (
+    from agents_extensions.shared.hooks.shell_shlex import (
         skippable_heredoc_delimiters,
         strip_skippable_heredoc_bodies,
     )
@@ -70,7 +63,7 @@ except Exception as exc:
     raise SystemExit(2) from exc
 
 try:
-    from shell_redirects import (
+    from agents_extensions.shared.hooks.shell_redirects import (
         command_repository_unknown,
         preprocess_branch_command,
         scope_events,

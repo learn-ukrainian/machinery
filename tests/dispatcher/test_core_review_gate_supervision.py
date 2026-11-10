@@ -14,7 +14,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
 import pytest
-from lu_machinery.dispatcher import store, worker
+from lu_machinery.dispatcher import environment, store, worker
 from lu_machinery.dispatcher.types import TaskSpec
 from tests.dispatcher.conftest import SOURCE, await_file, run_git
 from tests.helpers.product_tree import configured_roots  # noqa: F401
@@ -258,6 +258,58 @@ def test_failed_fallback_stop_retains_the_worktree_without_settling_it(monkeypat
     worker._reap_settled(record)
     assert (record["worktree_disposition"], record["worktree_disposition_reason"]) == (
         "retained", "provider_liveness_unknown")
+
+
+def _settle_with_worktree(monkeypatch, tmp_path, state):
+    """Settle task ``scratch-task`` against a temporary scratch base, its worktree disposition being ``state``."""
+    base = tmp_path / "var-tmp"
+    base.mkdir()
+    monkeypatch.setattr(environment, "TASK_SCRATCH_BASE", base)
+    monkeypatch.setattr(worker, "_end_own_scope", lambda _record: None)
+    monkeypatch.setattr(worker, "_provider_alive", lambda _record: False)
+    monkeypatch.setattr(worker.git, "settle_worktree", lambda *_args, **_kwargs: {
+        "worktree_disposition": state, "worktree_disposition_reason": "clean" if state == "removed" else "dirty"})
+    record = {"task_id": "scratch-task"}
+    return base, record
+
+
+def test_settlement_removes_the_task_scratch_including_a_read_only_directory(monkeypatch, tmp_path):
+    """Defect class: scratch leak. A settled task whose worktree went left /var/tmp/<task-id> behind, and a
+    0500 directory a test left inside it refused deletion."""
+    base, record = _settle_with_worktree(monkeypatch, tmp_path, "removed")
+    locked = base / "scratch-task" / "fixture" / "locked"
+    locked.mkdir(parents=True)
+    (locked / "data").write_bytes(b"x" * 10)
+    locked.chmod(0o500)
+    base.joinpath("scratch-task").chmod(0o500)
+    worker._reap_settled(record)
+    assert not (base / "scratch-task").exists()
+    assert (record["task_scratch_disposition"], record["task_scratch_bytes"]) == ("removed", 10)
+
+
+def test_settlement_refuses_a_symlinked_task_scratch_and_leaves_its_target(monkeypatch, tmp_path):
+    """Defect class: symlink-following deletion. A symlink at /var/tmp/<task-id> led settlement to delete
+    the directory it points to."""
+    base, record = _settle_with_worktree(monkeypatch, tmp_path, "removed")
+    target = tmp_path / "elsewhere"
+    target.mkdir()
+    (target / "keep").write_text("kept")
+    (base / "scratch-task").symlink_to(target, target_is_directory=True)
+    worker._reap_settled(record)
+    assert (base / "scratch-task").is_symlink() and (target / "keep").read_text() == "kept"
+    assert record["task_scratch_disposition"] == "refused"
+    assert record["worktree_disposition"] == "removed"  # the refusal never fails settlement
+
+
+def test_retained_worktree_keeps_the_task_scratch(monkeypatch, tmp_path):
+    """Defect class: evidence loss. Scratch went while the worktree it serves was kept for inspection."""
+    base, record = _settle_with_worktree(monkeypatch, tmp_path, "retained")
+    (base / "scratch-task").mkdir()
+    (base / "scratch-task" / "log").write_text("evidence")
+    worker._reap_settled(record)
+    assert (base / "scratch-task" / "log").read_text() == "evidence"
+    assert record["task_scratch_disposition"] == "retained"
+    assert "worktree retained" in record["task_scratch_disposition_reason"]
 
 
 def test_stop_never_signals_a_marked_non_descendant_that_appears_mid_stop():

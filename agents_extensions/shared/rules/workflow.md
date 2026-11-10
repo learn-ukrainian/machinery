@@ -167,7 +167,10 @@ receipts or legacy authoring-review admission. Missing required evidence blocks 
 
 The binding landing order (operator 2026-08-30, #7450; CF-attest retired 2026-09-03).
 OO-53 (#11226) supersedes the 2026-09-18 "CF review-fix before CI" order: a PR may
-be opened before approval so CI exists; merge still needs both gates below.
+be opened before approval so CI exists; merge still needs both gates below. Review no
+longer waits for PR CI (designated approval and operator approval, 2026-11-09): after
+the head is pushed and the PR opened or updated, independent review runs in parallel
+with PR CI on that immutable head.
 This section holds the gates, trials and red-team policy. The step-by-step delivery is
 the `full-send` skill (the briefed worker or the accountable driver, to MERGED) or
 `full-stop` (to ready-to-merge),
@@ -176,12 +179,14 @@ with `review-loop` for review rounds and the budget.
 0. **CF review on the branch (binding).** Push the implementation branch and open the PR;
    `.github/workflows/ci.yml` runs on `opened` / `synchronize` with no draft guard, so every
    pushed fix starts CI on the new head. Run independent exact-head review at the PR's tier on that
-   branch (`ask-<lane> --review --branch <name>` / detached dispatch; drive-epic §6) once the
-   `CI Gate` is green on the head, as `full-send` orders. Delegate
+   branch (`ask-<lane> --review --branch <name>` / detached dispatch; drive-epic §6) right after
+   the PR is opened or updated, in parallel with PR CI on that immutable head, as `full-send`
+   orders. Pending CI is not successful CI: a reviewer withholds APPROVE when evidence necessary to
+   resolve a material finding remains unavailable. Delegate
    admission pins the remote-tracking target; fetch refuses movement. Compare
    task `pinned_head`/`worktree_base_sha` with the pushed tip, not ask reply stdout.
    Continue client expiry on the same task/nonce (§6), never repeat the launch.
-   On `REQUEST_CHANGES`: fix on the branch → green CI on the new head → re-CF that SHA.
+   On `REQUEST_CHANGES`: fix on the branch → push → re-CF that SHA while CI runs on the new head.
    An open PR or its green CI is not approval.
 1. Independent exact-head review **APPROVE** on the tip you intend to land, at the tier the
    [review policy](../skills/review-loop/references/policy.md#2-risk-tier-is-set-by-the-change)
@@ -194,12 +199,15 @@ with `review-loop` for review rounds and the budget.
    from the shared bot identity when it also authored the PR; do not use
    `gh pr review --approve` for this publication. The comment records independent
    cross-family review, not self-approval. Require the **PR CI Gate green**
-   on that **same** head. PR CI runs Frontend, the admission checks and the affected
+   on that **same** head before enqueue; it may finish before or after the review. Later CI
+   evidence that materially undermines the recorded verdict needs reviewer disposition before
+   enqueue. PR CI runs Frontend, the admission checks and the affected
    tests (changed test files, tests that import or read changed files, the guards and
    the `repo_wide` invariants), not the pytest shards. The real merge-group candidate
    must pass the required **CI Gate**, which runs the full supported pytest suite,
    before landing; nightly and opt-in `workflow_dispatch` runs run the full suite too.
-3. Only then enqueue. Never arm auto-merge ahead of either gate —
+3. Only then enqueue: a recorded exact-head APPROVE and a green PR CI Gate, both bound to the
+   current PR head. Never arm auto-merge ahead of either gate —
 early-armed auto-merge is how #7447–#7449 landed with empty reviews, and a moved head
 voids both approval and CI; re-establish both on the new head. Automated merge pipelines cannot replace review gates; enqueue
 with the task-prescribed interpreter and `-m lu_machinery.publish pr-merge --number <N>` after both gates (never `--auto` as a

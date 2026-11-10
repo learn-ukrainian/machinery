@@ -15,8 +15,6 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-if not __package__:  # run by path: the install root holds the package
-    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from lu_machinery.common.repo_root import MachineryConfigError
 from lu_machinery.common.repo_root import state_root as shared_state_root
 from lu_machinery.lib.context_profiles import resolve_profile

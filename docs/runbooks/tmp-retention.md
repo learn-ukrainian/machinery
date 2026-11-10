@@ -180,6 +180,23 @@ An entry whose name maps to a dispatch task still follows the task rules from
 #8755: it goes only once that task has settled. The scratch rule never
 overrides a task that is still unsettled.
 
+### Dispatched task scratch
+
+Every dispatched worker gets `LU_TASK_SCRATCH=/var/tmp/<task-id>` in its
+environment; the worker creates the directory when it needs it, and `TMPDIR`
+is unchanged. When the task settles and the dispatcher removes its worktree
+(`worktree_disposition: removed`), it deletes that directory too, directly and
+without quarantine. A retained worktree keeps its scratch. The task record
+shows the result next to the worktree disposition: `task_scratch_disposition`
+(`removed`, `absent`, `retained`, `refused` or `failed`),
+`task_scratch_disposition_reason` and `task_scratch_bytes` (file bytes found
+before deletion). Only the exact child named by a valid task id is
+considered. A symlink, a non-directory, an entry another user owns, one on
+another filesystem or one with a mount below it is refused; deletion never
+follows a symlink and makes read-only directories writable before emptying
+them. A refusal or failure is recorded and never fails settlement; whatever
+stays is left to the rules above.
+
 ### Listening sockets
 
 A listening Unix socket never appears as a path in `/proc/<pid>/fd`, only as
