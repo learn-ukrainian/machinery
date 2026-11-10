@@ -16,6 +16,10 @@ from tests.helpers.product_tree import configured_roots  # noqa: F401
 
 
 HEAD = "a" * 40
+_ABSENT = object()
+_UNVERIFIABLE_RECORDER = (
+    "OPSEC: merge refused: the repository's verdict_recorder setting is unverifiable."
+)
 
 
 @pytest.fixture(autouse=True)
@@ -124,6 +128,30 @@ def test_head_without_a_recorded_verdict_is_refused_only_where_the_recorder_is_u
     else:
         pub.publish("pr-merge", repo="unit/public", number=1, runner=send)
         assert len(calls) == 1
+
+
+@pytest.mark.parametrize(
+    "setting",
+    [
+        pytest.param(_ABSENT, id="absent"),
+        pytest.param("true", id="string-true"),
+        pytest.param("false", id="string-false"),
+        pytest.param(None, id="null"),
+    ],
+)
+def test_absent_string_or_null_verdict_recorder_is_refused_before_publication(
+    synthetic_opsec, monkeypatch, setting,
+):
+    """An absent, string (including \"true\") or null recorder is unverifiable, never coerced."""
+    row = {key: value for key, value in CATALOG["public"].items() if key != "verdict_recorder"}
+    if setting is not _ABSENT:
+        row["verdict_recorder"] = setting
+    monkeypatch.setattr(gate, "catalog", lambda: {**CATALOG, "public": row})
+    calls = []
+    with pytest.raises(gate.PublishBlocked) as caught:
+        pub.publish("pr-merge", repo="unit/public", number=1, runner=transport(calls))
+    assert str(caught.value) == _UNVERIFIABLE_RECORDER
+    assert not calls
 
 
 @pytest.mark.parametrize(

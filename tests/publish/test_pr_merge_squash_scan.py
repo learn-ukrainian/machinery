@@ -9,6 +9,10 @@ import pytest
 from lu_machinery.publish import github as publisher
 
 HEAD = "a" * 40
+_ABSENT = object()
+_UNVERIFIABLE_RECORDER = (
+    "OPSEC: merge refused: the repository's verdict_recorder setting is unverifiable."
+)
 
 
 def enqueue_transport(writes, *, state="CLEAN", draft=False, priority=False, head=HEAD, queued=False):
@@ -118,3 +122,34 @@ def test_head_without_a_recorded_verdict_is_refused_only_where_the_recorder_is_u
             admit()
     else:
         assert admit() is None
+
+
+@pytest.mark.parametrize(
+    "setting",
+    [
+        pytest.param(_ABSENT, id="absent"),
+        pytest.param("true", id="string-true"),
+        pytest.param("false", id="string-false"),
+        pytest.param(None, id="null"),
+    ],
+)
+def test_absent_string_or_null_verdict_recorder_is_refused_before_publication(
+    monkeypatch, tmp_path, setting,
+):
+    """An absent, string (including \"true\") or null recorder is unverifiable, never coerced."""
+    row = {"github": "unit/public"}
+    if setting is not _ABSENT:
+        row["verdict_recorder"] = setting
+    monkeypatch.setattr(publisher.gate, "catalog", lambda: {"public": row})
+    calls = []
+
+    def send(args, **_kwargs):
+        calls.append(args)
+        return subprocess.CompletedProcess(args, 0, "{}", "")
+
+    with pytest.raises(publisher.gate.PublishBlocked) as caught:
+        publisher._refuse_incomplete_seats(
+            "github.com/unit/public", 1, HEAD, send, tmp_path, {},
+        )
+    assert str(caught.value) == _UNVERIFIABLE_RECORDER
+    assert calls == []
