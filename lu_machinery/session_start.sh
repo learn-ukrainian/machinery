@@ -155,10 +155,9 @@ echo ""
 INBOX_COUNT=""
 if command -v curl > /dev/null 2>&1; then
     # The bridge package loads from this tree by the shared module bootstrap.
-    repo_root="$(cd "$MACHINERY_DIR/.." && pwd)"
     # shellcheck disable=SC1091
-    source "$repo_root/lu_machinery/lib/project_interpreter.sh"
-    if inbox_python="$(project_interpreter_resolve "$repo_root")"; then
+    source "$MACHINERY_DIR/lib/project_interpreter.sh"
+    if repo_root="$(project_product_root_resolve)" && inbox_python="$(project_interpreter_resolve "$repo_root")"; then
         INBOX_RESULT=$(project_python_run "$inbox_python" -c "
 import json
 try:

@@ -1678,7 +1678,7 @@ launcher_main() {
   # Re-entry must retain --force for the first actual lease acquisition;
   # successor arguments intentionally drop it later in this same startup.
   LC_SCOPE_ORIGINAL_ARGS=("$@")
-  LC_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+  LC_ROOT="$(project_product_root_resolve)" || return 1
   # Keep route selection self-contained for minimal/synthetic launchers while
   # sourcing the richer cold-start clause whenever the full checkout is
   # present. Neither path starts an ACP process.

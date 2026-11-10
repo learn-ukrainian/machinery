@@ -156,7 +156,7 @@ def _helper_root() -> Path:
 
 
 def _bash(script: str, *args: str) -> subprocess.CompletedProcess[str]:
-    env = {**launcher_environment(), "LEARN_UKRAINIAN_PYTHON": sys.executable}
+    env = {**launcher_environment(), PRODUCT_ROOT_ENV: str(REPO), "LEARN_UKRAINIAN_PYTHON": sys.executable}
     return subprocess.run(
         ["bash", "-c", script, "bash", *args],
         cwd=REPO,
@@ -177,7 +177,7 @@ def launch_root(request: pytest.FixtureRequest) -> Path:
 def _launcher(
     root: Path, *args: str, dry_run: bool = True, env: dict[str, str] | None = None
 ) -> subprocess.CompletedProcess[str]:
-    launch_env = {**launcher_environment(), "LAUNCHER_DRY_RUN": "1" if dry_run else "0"}
+    launch_env = {**launcher_environment(), PRODUCT_ROOT_ENV: str(root), "LAUNCHER_DRY_RUN": "1" if dry_run else "0"}
     launch_env.update(env or {})
     return subprocess.run(
         [str(root / "start-claude-driver.sh"), *args],
@@ -360,7 +360,7 @@ def test_kube_dojo_wrapper_dry_run_binds_its_claude_lane(launch_root: Path) -> N
     result = subprocess.run(
         [str(launch_root / MACHINERY.name / "start-kube-dojo-driver.sh")],
         cwd=launch_root,
-        env={**launcher_environment(), "LAUNCHER_DRY_RUN": "1"},
+        env={**launcher_environment(), PRODUCT_ROOT_ENV: str(launch_root), "LAUNCHER_DRY_RUN": "1"},
         capture_output=True,
         text=True,
         timeout=60,
@@ -391,7 +391,7 @@ def test_practice_launcher_dry_run_uses_the_dedicated_stream(provider: str, laun
     result = subprocess.run(
         [str(launch_root / f"start-{provider}-driver.sh"), "--epic", "practice"],
         cwd=launch_root,
-        env={**launcher_environment(), "LAUNCHER_DRY_RUN": "1"},
+        env={**launcher_environment(), PRODUCT_ROOT_ENV: str(launch_root), "LAUNCHER_DRY_RUN": "1"},
         capture_output=True,
         text=True,
         timeout=60,
@@ -595,7 +595,7 @@ def test_kube_dojo_wrapper_refuses_a_caller_lane(caller_epic: tuple[str, ...], l
     result = subprocess.run(
         [str(launch_root / MACHINERY.name / "start-kube-dojo-driver.sh"), *caller_epic],
         cwd=launch_root,
-        env={**launcher_environment(), "LAUNCHER_DRY_RUN": "1"},
+        env={**launcher_environment(), PRODUCT_ROOT_ENV: str(launch_root), "LAUNCHER_DRY_RUN": "1"},
         capture_output=True,
         text=True,
         timeout=60,

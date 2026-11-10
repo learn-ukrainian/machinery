@@ -51,6 +51,7 @@ def writer_environment(tmp_path: Path) -> tuple[dict[str, str], Path, Path]:
             "PATH": f"{fake_bin}:{environment['PATH']}",
             "HOME": str(home),
             "LU_BACKUP_PROJECT_ROOT": str(project),
+            "LU_PRODUCT_ROOT": str(project),
             "TMPDIR": str(tmp_path),
         }
     )

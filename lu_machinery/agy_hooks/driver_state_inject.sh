@@ -2,8 +2,8 @@
 # Harness hook entry point for the pinned driver state (scripts/driver_state.py).
 #   driver_state_inject.sh [agy-hook|agy-stop-hook|agy-pretool-hook|claude-hook|claude-stop-hook]
 # AGY runs hooks from the directory that holds hooks.json (.agents/), and
-# Claude Code from the project directory, so resolve the checkout from this
-# script. Fail-open: always print a JSON object and exit 0, so a broken hook
+# Claude Code from the project directory. The explicit configuration selects
+# the checkout. Fail-open: always print a JSON object and exit 0, so a broken hook
 # never blocks the agent loop.
 mode="${1:-agy-hook}"
 case "$mode" in
@@ -24,13 +24,13 @@ if ! cat >"$input_file"; then
   echo "$fallback"
   exit 0
 fi
-root=$(cd "$(dirname "$0")/../.." 2>/dev/null && pwd) || { echo "$fallback"; exit 0; }
+# shellcheck disable=SC1091
+source "$(dirname "${BASH_SOURCE[0]}")/../lib/project_interpreter.sh" || { echo "$fallback"; exit 0; }
+root="$(project_product_root_resolve)" || { echo "$fallback"; exit 0; }
 if [ -z "${LU_DRIVER_STATE_FILE:-}" ] || [ -z "${SESSION_HANDOFF_AGENT:-}" ]; then
   echo "$fallback"
   exit 0
 fi
-# shellcheck disable=SC1091
-source "$root/lu_machinery/lib/project_interpreter.sh" || { echo "$fallback"; exit 0; }
 py="$(project_interpreter_resolve "$root")" || { echo "$fallback"; exit 0; }
 # Validate output without storing its bytes in a shell variable.
 output_file=$(mktemp --tmpdir="$TMPDIR" agy-out.XXXXXX) || { echo "$fallback"; exit 0; }

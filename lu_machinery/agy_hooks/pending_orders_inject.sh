@@ -2,9 +2,9 @@
 # Read-only AGY PreInvocation announcement. Never persist stdin or probe output.
 fleet_module=lu_machinery.fleet_comms
 fallback='{"injectSteps":[{"ephemeralMessage":"PENDING ORDERS: unknown; legacy: ai_agent_bridge inbox for the registered handoff slot; authority: project interpreter -m '"$fleet_module"' deliveries --help"}]}'
-root=$(cd "$(dirname "$0")/../.." 2>/dev/null && pwd) || { cat >/dev/null; printf '%s\n' "$fallback"; exit 0; }
 # shellcheck disable=SC1091
-source "$root/lu_machinery/lib/project_interpreter.sh" || { cat >/dev/null; printf '%s\n' "$fallback"; exit 0; }
+source "$(dirname "${BASH_SOURCE[0]}")/../lib/project_interpreter.sh" || { cat >/dev/null; printf '%s\n' "$fallback"; exit 0; }
+root="$(project_product_root_resolve)" || { cat >/dev/null; printf '%s\n' '{}'; exit 0; }
 py="$(project_interpreter_resolve "$root")" || { cat >/dev/null; printf '%s\n' "$fallback"; exit 0; }
 # The child drains stdin; on early import/exec failure the parent drains the rest.
 project_python_command "$py" || { cat >/dev/null; printf '%s\n' "$fallback"; exit 0; }

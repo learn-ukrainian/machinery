@@ -19,7 +19,8 @@ set -euo pipefail
 
 # Resolve the shared repository root even when this script is run from a linked
 # worktree. The common Git directory belongs to the primary checkout.
-SCRIPT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+source "$(dirname "${BASH_SOURCE[0]}")/lib/project_interpreter.sh"
+SCRIPT_ROOT="$(project_product_root_resolve)" || exit 1
 # This script's checkout-relative path, from its own location, for the usage text.
 WT_SELF="$(basename "$(cd "$(dirname "$0")" && pwd)")/wt.sh"
 GIT_COMMON_DIR="$(git -C "$SCRIPT_ROOT" rev-parse --path-format=absolute --git-common-dir)"
@@ -54,11 +55,7 @@ check_active_builds() {
 
 # The one project interpreter (R66). The checkout is this script's repository.
 project_python() {
-    local root
-    root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-    # shellcheck disable=SC1091
-    source "$root/lu_machinery/lib/project_interpreter.sh" || return 127
-    project_interpreter_resolve "$root"
+    project_interpreter_resolve "$SCRIPT_ROOT"
 }
 
 # Capture build check result — avoids duplicating set +e/set -e pattern

@@ -113,6 +113,7 @@ def test_project_state_reporter_exports_variable_to_its_child(
     stand_in.chmod(0o755)
     env = _env(prior)
     env["LEARN_UKRAINIAN_PYTHON"] = str(stand_in)
+    env["LU_PRODUCT_ROOT"] = str(stale_repo)
     before = _index(stale_repo)
     proc = subprocess.run(
         ["bash", str(machinery_path('orchestration/run_project_state_reporter.sh'))],

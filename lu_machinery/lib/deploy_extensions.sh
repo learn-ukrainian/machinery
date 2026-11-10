@@ -28,6 +28,7 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/project_interpreter.sh"
 deploy_agent_extensions() {
     local project_dir="$1"
     local npm_script="$2"
+    project_dir="$(project_product_root_resolve "$project_dir")" || return 1
 
     if ! command -v npm >/dev/null 2>&1; then
         echo "⚠️  npm not found — skipping agent-extensions deploy (targets may be stale)"
@@ -57,15 +58,13 @@ deploy_agent_extensions() {
     # .agent is concurrent agent-owned state. The helper opens it with
     # O_NOFOLLOW|O_DIRECTORY and updates leaves by dir_fd; plain shell
     # redirection/cp/rm here would reintroduce deploy's path-swap escape.
-    local scripts_dir helper_project_root status_python status_rc=0
-    scripts_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-    helper_project_root="$(cd "$scripts_dir/.." && pwd)"
+    local status_python status_rc=0
 
     # A missing interpreter must not read as an unsafe .agent root: the
     # resolver prints its own "project interpreter not found" line. The helper
     # exits 1 only when it refuses the .agent root (its stderr says why); any
     # other non-zero exit is a crash or usage error.
-    status_python="$(project_interpreter_resolve "$helper_project_root")" || status_python=""
+    status_python="$(project_interpreter_resolve "$project_dir")" || status_python=""
 
     if [ "$exit_code" -eq 0 ]; then
         if [ -z "$status_python" ]; then

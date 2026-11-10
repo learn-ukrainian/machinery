@@ -6,7 +6,8 @@
 
 set -euo pipefail
 
-REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+source "$(dirname "${BASH_SOURCE[0]}")/lib/project_interpreter.sh"
+REPO_DIR="$(project_product_root_resolve)" || exit 1
 
 echo "Starting core.bare watchdog for $REPO_DIR"
 

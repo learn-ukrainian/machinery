@@ -63,6 +63,18 @@ PROJECT_CODE_ROOT="${PROJECT_PACKAGE%/*}"
 PROJECT_PACKAGE="${PROJECT_PACKAGE##*/}"
 unset _project_interpreter_lib_dir
 
+# Shell counterpart of common.repo_root.product_root's explicit selection.
+# Installed resources have no implicit consumer. Keep the selected spelling,
+# including symlinks, as the Python resolver does.
+project_product_root_resolve() {
+    local root="${1-${LU_PRODUCT_ROOT:-}}"
+    if [[ "$root" != /* || ! -d "$root" ]]; then
+        printf '%s\n' 'Error: product root requires an absolute existing directory (set LU_PRODUCT_ROOT or pass an explicit root)' >&2
+        return 1
+    fi
+    printf '%s\n' "$root"
+}
+
 # The one module bootstrap for every launcher-library Python child (#100 R68).
 # The child starts with -I, so the caller's PYTHONPATH, user site and cwd stay
 # off its import path. The bootstrap loads only the package from

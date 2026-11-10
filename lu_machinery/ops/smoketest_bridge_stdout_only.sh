@@ -21,10 +21,10 @@
 
 set -euo pipefail
 
-PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-cd "$PROJECT_ROOT"
 # shellcheck disable=SC1091
-source "$PROJECT_ROOT/lu_machinery/lib/project_interpreter.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/../lib/project_interpreter.sh"
+PROJECT_ROOT="$(project_product_root_resolve)" || exit 1
+cd "$PROJECT_ROOT"
 if ! py="$(project_interpreter_resolve "$PROJECT_ROOT")"; then
   echo "FAIL: project interpreter is unavailable." >&2
   exit 1
@@ -40,9 +40,10 @@ trap 'rm -f "$OUT_FILE" "$ERR_FILE"' EXIT
 # `unset` of AGY bridge credentials forces the bridge through the
 # subscription path (matches how production wiki compiles call it).
 unset GEMINI_API_KEY GOOGLE_API_KEY
+project_python_command "$py"
 
 if ! printf '%s\n' "$PROMPT" | timeout 180 \
-        "$py" -m lu_machinery.ai_agent_bridge ask-agy - \
+        "${PROJECT_PYTHON_COMMAND[@]}" -m lu_machinery.ai_agent_bridge ask-agy - \
             --task-id "$TASK_ID" \
             --to-model gemini-3.8-flash-high \
             --stdout-only \

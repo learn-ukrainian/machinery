@@ -232,7 +232,7 @@ launcher_session_epic() {
 # check could not run); returns 2 when no interpreter is available so callers
 # fail closed.
 _handoff_slot_registry() {
-  local repo_root="$_HANDOFF_IDENTITY_DIR/../.."
+  local repo_root
   local py=""
   [ -f "$_HANDOFF_IDENTITY_DIR/project_interpreter.sh" ] || return 2
   # shellcheck source=scripts/lib/project_interpreter.sh
@@ -241,6 +241,7 @@ _handoff_slot_registry() {
   if [ -n "${LC_DURABLE_HELPER_ROOT:-}" ] && declare -F launcher_project_python >/dev/null; then
     py="$(launcher_project_python 2>/dev/null)" || return 2
   else
+    repo_root="$(project_product_root_resolve)" || return 2
     py="$(project_interpreter_resolve "$repo_root" 2>/dev/null)" || return 2
   fi
   [ -n "$py" ] && [ -x "$py" ] || return 2

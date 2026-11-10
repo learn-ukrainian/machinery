@@ -29,7 +29,8 @@ umask 077
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 readonly SCRIPT_DIR
-REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd -P)"
+source "$SCRIPT_DIR/../lib/project_interpreter.sh"
+REPO_ROOT="$(project_product_root_resolve)" || exit 78
 readonly REPO_ROOT
 
 configure_backup() {

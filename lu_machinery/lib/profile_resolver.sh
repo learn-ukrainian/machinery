@@ -35,11 +35,12 @@ _context_profile_contract_rollover_mode() {
 resolve_context_profile() {
   local p_id="${1:-}"
   local m_id="${2:-}"
-  local project_dir="${PROJECT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
+  local project_dir
   local contract_py="$(dirname -- "${BASH_SOURCE[0]}")/context_profiles.py"
   local resolver_py="${CLAUDE_PROFILE_RESOLVER_PY:-$contract_py}"
   # shellcheck source=project_interpreter.sh
   source "$(dirname -- "${BASH_SOURCE[0]}")/project_interpreter.sh"
+  project_dir="$(project_product_root_resolve ${PROJECT_DIR:+"$PROJECT_DIR"})" || return 1
   # A launcher has already validated its primary (including the Codex canonical
   # checkout). Use that same interpreter. Hooks resolve from the checkout.
   local py_bin
