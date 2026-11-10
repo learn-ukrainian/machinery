@@ -13,6 +13,19 @@ def test_systemd_templates_have_no_host_facts() -> None:
             continue
         text = path.read_text(encoding="utf-8")
         assert_no_host_facts(text, path.name)
+    # Units that launch npm or node through /usr/bin/env must prefer the pinned Node
+    # over the host Node. Without this line the Astro unit crash-loops on the older /usr/bin/node.
+    pinned_node_path = "Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin"
+    for path in sorted(PACKAGING.glob("*.service")):
+        lines = path.read_text(encoding="utf-8").splitlines()
+        launches_host_node = [
+            line
+            for line in lines
+            if line.startswith(("ExecStart=", "ExecStartPre=", "ExecStartPost="))
+            and ("/usr/bin/env npm" in line or "/usr/bin/env node" in line)
+        ]
+        if launches_host_node:
+            assert pinned_node_path in lines, path.name
 
 
 def test_git_maintenance_limits_and_schedule() -> None:
