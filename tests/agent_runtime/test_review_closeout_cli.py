@@ -1126,16 +1126,18 @@ def test_pr_mode_target_keeps_the_base_name_for_authorship_exclusion(tmp_path, m
 # Re-pinned for the added b-sub trace/advisory row; every other receipt field is unchanged.
 # Re-pinned again for the package rename (machinery d0de39f): the only receipt change is the
 # dispatch invocation path, `scripts/dispatch.py` -> `lu_machinery/dispatch.py` (and the owned path).
+# Re-pinned again for the module invocation: `lu_machinery/dispatch.py` -> `-m lu_machinery.dispatch`.
+# Restoring the path spelling in the stdout reproduces the previous digests.
 @pytest.mark.parametrize(
     "author,risk,path,digest",
     [
-        ("gpt-6.1-sol", "medium", "ordinary.py", "52afe5d0a08520157df25fa45ceba6b1ff7816b8728bdd60dc9ad2635587dcd4"),
-        ("claude-opus-5-5", "low", "ordinary.py", "914840bf2c1813681da2defa3a93117b29008ae93fc4db47c33109832a4d5810"),
+        ("gpt-6.1-sol", "medium", "ordinary.py", "3e2f6344899d0c9c3254e2028a637882afa541ea91abd852bbf6e947f337b94d"),
+        ("claude-opus-5-5", "low", "ordinary.py", "bac538fd4951f3d2dac6afa4a651f098e581507c748e89dc3212c21baf529e23"),
         (
             "gpt-6.1-sol",
             "low",
             "lu_machinery/agent_runtime/target_admission.py",
-            "156faaeb78215f3fce31f10c2609ce8603eba2b33d0c5fe1bef3fd057f6fef20",
+            "bda49e88e0484d35f4407ade138ad2d042866f6340971de5e02b98feb7af34e5",
         ),
     ],
 )

@@ -36,25 +36,25 @@ from tests.claude_route_accounts import HOST_ACCOUNT
 
 
 @pytest.mark.parametrize("seat,route,launcher,agent,model,effort", [
-    ("openai_frontier", "native", "dispatch.py", "codex", "gpt-6.1-sol", "high"),
-    ("xai_reviewer", "cursor_fallback", "dispatch.py", "cursor", "grok-4.7-high", None),
-    ("anthropic_authority", "native", "dispatch.py", "claude", "claude-opus-5-5", None),
-    ("anthropic_practical", "native", "dispatch.py", "claude", "claude-sonnet-5-5", None),
-    ("mechanical_worker", "native", "dispatch.py", "claude", "claude-haiku-5-5", "high"),
-    ("bounded_worker", "native", "dispatch.py", "codex", "gpt-6-luna", "high"),
-    ("google_bounded", "native", "dispatch.py", "agy", "gemini-3.8-flash-high", "high"),
+    ("openai_frontier", "native", "lu_machinery.dispatch", "codex", "gpt-6.1-sol", "high"),
+    ("xai_reviewer", "cursor_fallback", "lu_machinery.dispatch", "cursor", "grok-4.7-high", None),
+    ("anthropic_authority", "native", "lu_machinery.dispatch", "claude", "claude-opus-5-5", None),
+    ("anthropic_practical", "native", "lu_machinery.dispatch", "claude", "claude-sonnet-5-5", None),
+    ("mechanical_worker", "native", "lu_machinery.dispatch", "claude", "claude-haiku-5-5", "high"),
+    ("bounded_worker", "native", "lu_machinery.dispatch", "codex", "gpt-6-luna", "high"),
+    ("google_bounded", "native", "lu_machinery.dispatch", "agy", "gemini-3.8-flash-high", "high"),
 ])
 def test_catalog_invocations_pin_supported_launchers_and_flags(seat, route, launcher, agent, model, effort):
     catalog = load_model_catalog()
     template = catalog["seats"][seat]["routes"][route]["invocation"]
     argv = shlex.split(template.format(wire_id=model))
-    expected = [".venv/bin/python", f"lu_machinery/{launcher}", "dispatch", "--agent", agent, "--model", model]
+    expected = [".venv/bin/python", "-m", launcher, "dispatch", "--agent", agent, "--model", model]
     if effort:
         expected += ["--effort", effort]
     assert argv == expected
     from lu_machinery.dispatcher.cli import build_parser
 
-    args = build_parser().parse_args([*argv[2:],
+    args = build_parser().parse_args([*argv[3:],
         "--worktree", "--mode", "read-only", "--task-id", "catalog-review", "--prompt-file", "prompt.md",
     ])
     assert (args.agent, args.model, args.effort, args.task_id) == (agent, model, effort, "catalog-review")

@@ -96,7 +96,7 @@ interpreter does not select the primary checkout's Python modules.
    exactly. Do not add `--require-review-verdict` to these bound attempts.
 
    ```bash
-   "$PY" lu_machinery/dispatch.py dispatch \
+   "$PY" -m lu_machinery.dispatch dispatch \
      --agent "$REVIEW_AGENT" --model "$REVIEW_MODEL" --effort high \
      --mode read-only --worktree --task-id "$REVIEW_TASK" \
      --prompt-file "$REVIEW_BRIEF" --branch "$BRANCH" --pinned-head "$HEAD_SHA" --pr "$PR" \
@@ -115,7 +115,7 @@ interpreter does not select the primary checkout's Python modules.
 4. **Wait on that task and nonce.** Never re-dispatch.
 
    ```bash
-   "$PY" lu_machinery/dispatch.py wait "$REVIEW_TASK" --run-nonce "$REVIEW_NONCE" --timeout 1800
+   "$PY" -m lu_machinery.dispatch wait "$REVIEW_TASK" --run-nonce "$REVIEW_NONCE" --timeout 1800
    ```
 
    Exit 0: `done`. Exit 124: client expiry while the task still runs; run the same wait again.

@@ -166,7 +166,7 @@ first review of record, at most **one per PR lineage**.
 - **Execution:** run with a hard timeout of 900 seconds:
 
   ```bash
-  "$PY" lu_machinery/dispatch.py dispatch \
+  "$PY" -m lu_machinery.dispatch dispatch \
     --agent opencode --model deepseek-v4.1-flash --mode read-only \
     --hard-timeout 900 --worktree --task-id "$PRECHECK_TASK" \
     --prompt-file "$PRECHECK_PROMPT" --pinned-head "$HEAD_SHA"
@@ -198,7 +198,7 @@ paths, task id, run nonce, reason and approval reference to `claude-cto` through
 The coordinator records the grant, then replies to the task-ID recipient with the JSON receipt:
 
 ```bash
-/abs/path/.venv/bin/python lu_machinery/dispatch.py grant-paths TASK --run-nonce NONCE \
+/abs/path/.venv/bin/python -m lu_machinery.dispatch grant-paths TASK --run-nonce NONCE \
   --owned-path tests/fixture.py --reason 'Approved fixture change' --approval-ref message-id
 ```
 
