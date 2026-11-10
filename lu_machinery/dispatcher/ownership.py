@@ -140,6 +140,15 @@ def _task_record(root: Path) -> dict | None:
     bound = Path(worktree).resolve(strict=True)
     if not bound.is_dir():
         raise ValueError("worktree binding is not a directory")
+    # Verify the stored binding independently of the committing repository's
+    # inherited Git environment, including GIT_DIR and GIT_WORK_TREE.
+    bound_root = subprocess.run(
+        ["git", "-C", str(bound), "rev-parse", "--show-toplevel"],
+        env={key: value for key, value in os.environ.items() if not key.startswith("GIT_")},
+        capture_output=True, text=True, check=True, timeout=30,
+    ).stdout.rstrip("\n")
+    if not Path(bound_root).is_absolute() or Path(bound_root).resolve(strict=True) != bound:
+        raise ValueError("worktree binding is not a Git worktree root")
     # The task id is inherited by every process the worker starts; only its own worktree is bound.
     if bound != root.resolve(strict=True):
         return None

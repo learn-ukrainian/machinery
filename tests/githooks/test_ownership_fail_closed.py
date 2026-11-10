@@ -67,9 +67,9 @@ def _hook(world, stage, path="owned/change.txt", *, staged_guard=False):
 @pytest.mark.parametrize("case", [
     "missing", "damaged", "unreadable", "empty-object", "wrong-id", "wrong-mode",
     "missing-binding", "empty-binding", "relative-binding", "non-string-binding",
-    "absent-binding", "file-binding", "loop-binding", "bad-scope", "bad-grants",
+    "absent-binding", "file-binding", "loop-binding", "non-git-binding", "subdirectory-binding", "bad-scope", "bad-grants",
     "bad-grant-binding", "invalid-grant-path", "missing-grant-nonce",
-    "invalid-read-only", "invalid-unrestricted", "invalid-different-tree", "git-failure",
+    "invalid-read-only", "invalid-unrestricted", "invalid-different-tree", "git-failure", "empty-git-root",
 ])
 def test_installed_hooks_refuse_unverifiable_ownership(hook_world, stage, case):
     repo, _, _, record_path = hook_world
@@ -96,6 +96,10 @@ def test_installed_hooks_refuse_unverifiable_ownership(hook_world, stage, case):
         loop = repo / "loop"
         loop.symlink_to(loop)
         record["worktree_path"] = str(loop)
+    elif case in {"non-git-binding", "subdirectory-binding"}:
+        other = repo.parent / "not-a-checkout" if case == "non-git-binding" else repo / "subdirectory"
+        other.mkdir()
+        record["worktree_path"] = str(other)
     elif case == "bad-scope":
         record["owned_paths"] = "owned"
     elif case == "bad-grants":
@@ -128,12 +132,14 @@ def test_installed_hooks_refuse_unverifiable_ownership(hook_world, stage, case):
         record_path.write_text('{"secret": "DO-NOT-ECHO', encoding="utf-8")
     elif case == "unreadable":
         record_path.chmod(0)
-    elif case == "git-failure" and stage == "staged":
+    elif case == "empty-git-root" or (case == "git-failure" and stage == "staged"):
         shim = repo.parent / "git-bin"
         shim.mkdir()
         executable = shim / "git"
+        failure = ('if [ "$1" = -C ]; then exit 0; fi' if case == "empty-git-root" else
+                   'if [ "$1" = diff ]; then exit 23; fi')
         executable.write_text(
-            '#!/bin/sh\nif [ "$1" = diff ]; then exit 23; fi\nexec /usr/bin/git "$@"\n',
+            '#!/bin/sh\n' + failure + '\nexec /usr/bin/git "$@"\n',
             encoding="utf-8",
         )
         executable.chmod(0o755)
@@ -160,7 +166,11 @@ def test_installed_hooks_preserve_scope_and_only_valid_skips(hook_world, stage, 
     elif case == "different-tree":
         other = tmp_path / "other"
         other.mkdir()
+        assert _git(other, "init", "-q", "-b", "main", env=hook_world[1]).returncode == 0
         record["worktree_path"] = str(other)
+        # Git's caller-local environment must not spoof the stored binding.
+        task_env["GIT_DIR"] = str(hook_world[0] / ".git")
+        task_env["GIT_WORK_TREE"] = str(hook_world[0])
     elif case == "read-only":
         record["mode"] = "read-only"
     elif case == "unrestricted":
