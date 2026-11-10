@@ -675,6 +675,7 @@ tests/dispatcher/test_core_review_gate_supervision.py
 tests/dispatcher/test_core_scope_verification.py
 tests/dispatcher/test_drive_epic_review_docs.py
 tests/dispatcher/test_environment.py
+tests/dispatcher/test_installed_dispatch_linked_worktree.py
 tests/dispatcher/test_opencode_provider.py
 tests/dispatcher/test_pool_selector.py
 tests/dispatcher/test_providers_b.py
