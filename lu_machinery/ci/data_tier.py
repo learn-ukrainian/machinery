@@ -396,7 +396,8 @@ def hydrate(checkout: Path, groups: list[str], project_python: Path) -> dict[str
             failures[group] = "hydration budget exhausted"
             continue
         try:
-            result = subprocess.run(
+            # The project interpreter, -I and the fixed module are an argv list; no shell runs.
+            result = subprocess.run(  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit
                 # -I: the checkout cwd is where files land, not an import path.
                 [str(project_python), "-I", "-m", "lu_machinery.storage.artifacts", "hydrate", "--group", group],
                 cwd=checkout,
@@ -415,7 +416,8 @@ def hydrate(checkout: Path, groups: list[str], project_python: Path) -> dict[str
 
 
 def bulk_status(checkout: Path, project_python: Path) -> tuple[str | None, str]:
-    result = subprocess.run(
+    # The project interpreter, -I and the fixed module are an argv list; no shell runs.
+    result = subprocess.run(  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit
         [str(project_python), "-I", "-m", "lu_machinery.storage", "status", "--json"],
         cwd=checkout,
         capture_output=True,

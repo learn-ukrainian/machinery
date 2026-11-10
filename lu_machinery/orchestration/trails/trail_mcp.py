@@ -46,7 +46,8 @@ def _run_runner(*args: str) -> dict[str, Any]:
         raise TrailMcpError(f"parent-owned TrailSpec runner is unavailable: {exc}") from exc
     if not python_bin.is_file():
         raise TrailMcpError("parent-owned TrailSpec runner is unavailable")
-    completed = subprocess.run(
+    # The project interpreter, -I and the fixed module are an argv list; no shell runs.
+    completed = subprocess.run(  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit
         # -I: the product cwd must not shadow the installed runner. Its JSON is read after exit.
         [str(python_bin), "-I", "-m", "lu_machinery.orchestration.trail_runner", *args],
         cwd=cwd,
