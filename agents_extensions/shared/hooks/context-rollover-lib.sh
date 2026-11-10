@@ -114,10 +114,12 @@ context_machinery_bootstrap() {
   # Callers pass the project directory. The probe and the release resolver
   # receive the checkout root: the directory itself when its .git entry is
   # present, otherwise the nearest ancestor that has one. A directory that is
-  # not inside a checkout is refused here, before any interpreter runs. The
-  # probe's canonical-root override validates that override, not this
-  # directory, and project_interpreter_resolve still treats a missing .git as
-  # a primary, so it must not see that directory.
+  # not inside a checkout is refused here, before any interpreter runs,
+  # unless LEARN_UKRAINIAN_PYTHON is an absolute path. That operator path
+  # short-circuits the resolver, so the directory's own interpreter cannot
+  # be selected. A canonical-root override does not: the probe would accept
+  # the override and the resolver would then execute this directory's
+  # interpreter, because a missing .git is still a primary there.
   if ! start="$(cd -P "$project_dir" 2>/dev/null && pwd)"; then
     echo "${0##*/}: project interpreter not found: untrusted git metadata at ${project_dir}/.git; set LEARN_UKRAINIAN_PYTHON" >&2
     return 1
@@ -129,8 +131,13 @@ context_machinery_bootstrap() {
     candidate="$parent"
   done
   if [ ! -e "$candidate/.git" ] && [ ! -L "$candidate/.git" ]; then
-    echo "${0##*/}: project interpreter not found: untrusted git metadata at ${start}/.git; set LEARN_UKRAINIAN_PYTHON" >&2
-    return 1
+    case "${LEARN_UKRAINIAN_PYTHON:-}" in
+      /*) candidate="$start" ;;
+      *)
+        echo "${0##*/}: project interpreter not found: untrusted git metadata at ${start}/.git; set LEARN_UKRAINIAN_PYTHON" >&2
+        return 1
+        ;;
+    esac
   fi
   probe="$(_context_rule_probe "$candidate")" || return 1
   _context_import_release "$probe" || return 1
