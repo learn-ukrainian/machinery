@@ -330,7 +330,8 @@ launcher_adapter_exec() {
 """)
     launcher = root / f"start-{provider}-driver.sh"
     launcher.write_text(
-        '#!/usr/bin/env bash\nset -euo pipefail\nsource "$(dirname "$0")/lu_machinery/lib/launcher_core.sh"\n'
+        '#!/usr/bin/env bash\nset -euo pipefail\nexport LU_PRODUCT_ROOT="$(cd "$(dirname "$0")" && pwd)"\n'
+        'source "$(dirname "$0")/lu_machinery/lib/launcher_core.sh"\n'
         f'launcher_main {provider} driver "$@"\n'
     )
     return launcher, env

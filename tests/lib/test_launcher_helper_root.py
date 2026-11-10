@@ -22,9 +22,9 @@ from pathlib import Path
 
 import pytest
 
-from lu_machinery.common.repo_root import machinery_path
+from lu_machinery.common.repo_root import machinery_path, machinery_root
 from tests.helpers.product_tree import configured_roots as configured_roots
-from tests.launcher_sandbox import launcher_environment, launcher_wrapper_source
+from tests.launcher_sandbox import launcher_environment, launcher_wrapper_source, sandbox_wrapper_text
 
 REPO = Path(__file__).resolve().parents[2]
 
@@ -135,7 +135,7 @@ def layout(tmp_path: Path) -> Layout:
         destination.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(launcher_wrapper_source(relative), destination)
         if relative.startswith("start-"):
-            destination.write_text(destination.read_text().replace("/scripts/", "/lu_machinery/"))
+            destination.write_text(sandbox_wrapper_text(destination.read_text()))
     _place_helper_scripts(primary)
     (primary / ".gitignore").write_text(".venv/\n", encoding="utf-8")
     _git(primary, "init", "-q", "-b", "main")
@@ -489,7 +489,7 @@ def _separate_git_dir_layout(layout: Layout) -> Layout:
         destination.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(launcher_wrapper_source(relative), destination)
         if relative.startswith("start-"):
-            destination.write_text(destination.read_text().replace("/scripts/", "/lu_machinery/"))
+            destination.write_text(sandbox_wrapper_text(destination.read_text()))
     _place_helper_scripts(primary)
     (primary / ".gitignore").write_text(".venv/\n", encoding="utf-8")
     _git(primary, "init", "-q", "-b", "main", "--separate-git-dir", str(layout.tmp / "sgd-git"))
@@ -714,3 +714,88 @@ def test_machinery_dir_is_the_physical_package_when_reached_through_a_symlink(tm
     )
     assert result.returncode == 0, result.stderr
     assert result.stdout.splitlines() == [str(real / "lu_machinery"), "1"]
+
+
+# --- the product root (LC_ROOT) of an installed core -------------------------
+
+# Sources one launcher core, then stops launcher_main at LC_ROOT's first consumer
+# (launcher_resolve_roots): no interpreter, lease, deploy, scope or provider runs.
+_PRODUCT_ROOT_PROBE = r"""
+source "$1"
+launcher_resolve_roots() {
+  printf 'product-root=%s\n' "$LC_ROOT"
+  printf 'exported=%s\n' "$(printenv LU_PRODUCT_ROOT || true)"
+  exit 0
+}
+launcher_main claude driver --epic devops
+"""
+
+
+def _primary_checkout(path: Path) -> Path:
+    path.mkdir(parents=True)
+    _git(path, "init", "-q", "-b", "main")
+    _git(path, "commit", "-q", "--allow-empty", "-m", "init")
+    return path
+
+
+def _probe_product_root(tmp: Path, core: Path, **env: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        ["bash", "-c", _PRODUCT_ROOT_PROBE, "bash", str(core)],
+        cwd=tmp,
+        env=_clean_env(HOME=str(tmp), **env),
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=60,
+    )
+
+
+@pytest.mark.parametrize("product", ["checkout", "unset", "relative"])
+def test_installed_core_takes_the_product_root_from_lu_product_root(tmp_path: Path, product: str) -> None:
+    """Defect class: an installed launcher core serving site-packages as the product checkout.
+
+    The lu_machinery package is copied to a site-packages directory, with no
+    ``<product>/lu_machinery`` link. Its core must take the product from the wrapper's
+    LU_PRODUCT_ROOT, and refuse with a named reason when that is unset or relative (never
+    resolved against the working directory), instead of deriving a product from its own
+    location.
+    """
+    tmp = tmp_path.resolve()
+    site = tmp / "venv" / "lib" / "python3" / "site-packages"
+    shutil.copytree(machinery_root(), site / "lu_machinery", ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+    checkout = _primary_checkout(tmp / "product")
+    env: dict[str, str] = {}
+    if product == "checkout":
+        env["LU_PRODUCT_ROOT"] = str(checkout)
+    elif product == "relative":
+        # The probe runs in tmp, where "product" names the checkout.
+        env["LU_PRODUCT_ROOT"] = "product"
+
+    result = _probe_product_root(tmp, site / "lu_machinery/lib/launcher_core.sh", **env)
+
+    if product == "checkout":
+        assert result.returncode == 0, result.stderr
+        assert result.stdout.splitlines() == [f"product-root={checkout}", f"exported={checkout}"]
+        return
+    assert result.returncode == 3, (result.stdout, result.stderr)
+    reason = "LU_PRODUCT_ROOT_REQUIRED" if product == "unset" else "LU_PRODUCT_ROOT_INVALID"
+    assert reason in result.stderr
+    assert "product-root=" not in result.stdout
+
+
+def test_in_tree_core_keeps_its_own_checkout_as_the_product_root(tmp_path: Path) -> None:
+    """Defect class: the in-tree source copy taking a configured product instead of its checkout.
+
+    A package directory named other than lu_machinery inside a product checkout keeps the
+    default it always had, the checkout holding it, even with LU_PRODUCT_ROOT naming
+    another primary checkout.
+    """
+    tmp = tmp_path.resolve()
+    checkout = _primary_checkout(tmp / "product")
+    shutil.copytree(machinery_root(), checkout / "scripts", ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+    other = _primary_checkout(tmp / "other")
+
+    result = _probe_product_root(tmp, checkout / "scripts/lib/launcher_core.sh", LU_PRODUCT_ROOT=str(other))
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.splitlines() == [f"product-root={checkout}", f"exported={other}"]

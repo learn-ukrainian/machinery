@@ -195,7 +195,8 @@ EXIT CODES:
   0  Launch completed, help shown, or dry-run succeeded.
   1  Launch refused on a continuity precondition (rollover ambiguity or lease).
   2  Usage error (unknown flag, retired model, unsupported harness, or invalid selector).
-  3  Required provider credential or executable is unavailable.
+  3  Required provider credential or executable is unavailable, or the
+     product or helper checkout does not validate.
   4  Driver certification is missing or revoked.
   5  Provider transport is degraded; use the stated external-fleet disposition.
   6  Driver memory scope unavailable or unverifiable; no unbounded override.
@@ -625,6 +626,38 @@ LC_GIT_LOCAL_ENV_VARS=(
   GIT_IMPLICIT_WORK_TREE GIT_GRAFT_FILE GIT_INDEX_FILE GIT_NO_REPLACE_OBJECTS
   GIT_REPLACE_REF_BASE GIT_PREFIX GIT_SHALLOW_FILE GIT_COMMON_DIR
 )
+
+# Sets LC_ROOT, the product checkout this launch serves (session root, deploy
+# target, wrapper entry, driver state). The rule is common/repo_root.py
+# in_tree_source (C-4843), decided from the package directory's unresolved name
+# (LC_MACHINERY_PACKAGE):
+# - the in-tree source copy (a package directory not named lu_machinery inside a
+#   product checkout) keeps the default it always had, the checkout holding it;
+# - the lu_machinery package (installed under site-packages, or a standalone
+#   machinery checkout) derives no product from its own location. The wrapper
+#   names the product with LU_PRODUCT_ROOT, selected by the shared
+#   project_product_root_resolve rule (an absolute path of an existing
+#   directory); unset or invalid refuses before any side effect. The value is
+#   exported so every helper selects the same product.
+# Either way launcher_resolve_roots then decides, once, whether LC_ROOT's Git
+# metadata is trusted and which primary checkout supplies the helpers.
+launcher_resolve_product_root() {
+  local root
+  if [ "$LC_MACHINERY_PACKAGE" != lu_machinery ]; then
+    LC_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+    return 0
+  fi
+  if [ -z "${LU_PRODUCT_ROOT:-}" ]; then
+    launcher_error "LU_PRODUCT_ROOT_REQUIRED: the lu_machinery launcher core derives no product checkout from its own location; the wrapper must set LU_PRODUCT_ROOT to the product checkout."
+    return 1
+  fi
+  if ! root="$(project_product_root_resolve "$LU_PRODUCT_ROOT" 2>/dev/null)"; then
+    launcher_error "LU_PRODUCT_ROOT_INVALID: LU_PRODUCT_ROOT must be an absolute path of an existing directory: $LU_PRODUCT_ROOT"
+    return 1
+  fi
+  LC_ROOT="$root"
+  export LU_PRODUCT_ROOT="$root"
+}
 
 # LC_DURABLE_HELPER_ROOT is the primary checkout that every launcher helper
 # interpreter and helper script runs from. It is resolved by the shared
@@ -1678,7 +1711,7 @@ launcher_main() {
   # Re-entry must retain --force for the first actual lease acquisition;
   # successor arguments intentionally drop it later in this same startup.
   LC_SCOPE_ORIGINAL_ARGS=("$@")
-  LC_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+  launcher_resolve_product_root || exit 3
   # Keep route selection self-contained for minimal/synthetic launchers while
   # sourcing the richer cold-start clause whenever the full checkout is
   # present. Neither path starts an ACP process.

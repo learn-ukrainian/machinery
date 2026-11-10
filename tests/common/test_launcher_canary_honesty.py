@@ -57,6 +57,7 @@ def _canary_binding_probe(
             "LC_PROVIDER_CANARY_RAN": "1" if inherited else "0",
             "LEARN_UKRAINIAN_PYTHON": sys.executable,
             "LEARN_UKRAINIAN_PRIMARY_REPO_ROOT": str(anchor),
+            "LU_PRODUCT_ROOT": str(tmp_path),
         },
         capture_output=True, text=True, check=False, timeout=30,
     )

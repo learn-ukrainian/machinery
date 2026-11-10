@@ -360,7 +360,7 @@ def test_kube_dojo_wrapper_dry_run_binds_its_claude_lane(launch_root: Path) -> N
     result = subprocess.run(
         [str(launch_root / MACHINERY.name / "start-kube-dojo-driver.sh")],
         cwd=launch_root,
-        env={**launcher_environment(), "LAUNCHER_DRY_RUN": "1"},
+        env={**launcher_environment(), "LAUNCHER_DRY_RUN": "1", "LU_PRODUCT_ROOT": str(launch_root)},
         capture_output=True,
         text=True,
         timeout=60,
@@ -595,7 +595,7 @@ def test_kube_dojo_wrapper_refuses_a_caller_lane(caller_epic: tuple[str, ...], l
     result = subprocess.run(
         [str(launch_root / MACHINERY.name / "start-kube-dojo-driver.sh"), *caller_epic],
         cwd=launch_root,
-        env={**launcher_environment(), "LAUNCHER_DRY_RUN": "1"},
+        env={**launcher_environment(), "LAUNCHER_DRY_RUN": "1", "LU_PRODUCT_ROOT": str(launch_root)},
         capture_output=True,
         text=True,
         timeout=60,
