@@ -437,6 +437,7 @@ tests/fleet_comms/test_inbox_pending.py
 tests/fleet_comms/test_kimi_sealed_review_refuse.py
 tests/fleet_comms/test_request_executor_exactly_once.py
 tests/githooks/test_owned_paths_hook.py
+tests/githooks/test_ownership_fail_closed.py
 tests/goal_driver/test_goal_driver_status_lines.py
 tests/goal_driver/test_goal_driver_stop_hook.py
 tests/guardrails/test_assert_primary_on_main.py
