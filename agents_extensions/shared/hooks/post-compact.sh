@@ -55,11 +55,17 @@ source "$(dirname "${BASH_SOURCE[0]}")/context-rollover-lib.sh" \
   || { echo "post-compact.sh: context-rollover-lib.sh is missing beside this hook" >&2; exit 1; }
 # One interpreter (R66) and code root (machinery #100 R51, R62, R69): the release the
 # one project interpreter imports, never this file's location. Fails closed: refuse,
-# with the reason on stderr, rather than run code from anywhere else.
-context_machinery_bootstrap "$PROJECT_DIR" || exit 1
-BOUNDED_PYTHON="$CONTEXT_PROJECT_PYTHON"
-BOUNDED_RUNNER_DEFAULT="$MACHINERY_DIR/lu_machinery/agent_runtime/bounded_command.py"
-BOUNDED_RUNNER="${SESSION_BOUNDED_RUNNER:-$BOUNDED_RUNNER_DEFAULT}"
+# with the reason on stderr, rather than run code from anywhere else. Called at top
+# level just before machinery code first runs, so the thin Grok path and native
+# Codex compaction start no interpreter.
+BOUNDED_PYTHON=""
+BOUNDED_RUNNER=""
+post_compact_bootstrap() {
+  [ -n "$BOUNDED_PYTHON" ] && return 0
+  context_machinery_bootstrap "$PROJECT_DIR" || exit 1
+  BOUNDED_PYTHON="$CONTEXT_PROJECT_PYTHON"
+  BOUNDED_RUNNER="${SESSION_BOUNDED_RUNNER:-$MACHINERY_DIR/lu_machinery/agent_runtime/bounded_command.py}"
+}
 run_bounded() {
   local timeout_seconds="$1"
   shift
@@ -124,6 +130,7 @@ case "$POST_COMPACT_AGENT" in
       # into the shared Claude-oriented replay below.
       exit 0
     else
+      post_compact_bootstrap
       # Reuse the canary's lightweight selector without importing lane runtimes.
       # A first Codex launch may continue
       # from the shared driver handoff; a fixed filename can select stale state.
@@ -188,6 +195,7 @@ Do not select the next queue action until the stream lease or diary is repaired.
     fi
     ;;
 esac
+post_compact_bootstrap
 
 # 1. Find current in-progress modules
 IN_PROGRESS=""

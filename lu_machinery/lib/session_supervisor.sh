@@ -333,7 +333,12 @@ session_supervisor_publish_start_failure() {
   case "$reason" in wake-file-missing|watcher-failed|scope-start-failed) ;; *) return 0 ;; esac
   local py
   [ -n "$helper_root" ] && [ -n "$sender" ] || return 0
-  py="$(project_interpreter_resolve "$helper_root" 2>/dev/null)" || return 0
+  # The one interpreter rule (R66): inside a launcher, over the helper root it validated.
+  if [ -n "${LC_DURABLE_HELPER_ROOT:-}" ] && declare -F launcher_project_python >/dev/null; then
+    py="$(launcher_project_python 2>/dev/null)" || return 0
+  else
+    py="$(project_interpreter_resolve "$helper_root" 2>/dev/null)" || return 0
+  fi
   # Use Python for JSON encoding and a numeric generation, not shell escaping.
   "$py" -I -c \
     'import json,sys; print(json.dumps(dict(stream=sys.argv[1], generation=int(sys.argv[2]), reason=sys.argv[3])))' \

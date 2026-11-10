@@ -78,10 +78,15 @@ resolve_codex_pending_rollover() {
   local project_dir="$1"
   local handoff_agent="$2"
   local stream_id="${3-${SESSION_STREAM_ID:-}}"
-  # The one project interpreter (R66): never a worktree .venv. Unresolved, the
-  # executable check below fails open as before.
+  # The one project interpreter (R66): never a worktree .venv; inside a launcher,
+  # over the helper root it validated. Unresolved, the executable check below
+  # fails open as before.
   local python_bin
-  python_bin="$(project_interpreter_resolve "$project_dir" 2>/dev/null)" || python_bin=""
+  if [ -n "${LC_DURABLE_HELPER_ROOT:-}" ] && declare -F launcher_project_python >/dev/null; then
+    python_bin="$(launcher_project_python 2>/dev/null)" || python_bin=""
+  else
+    python_bin="$(project_interpreter_resolve "$project_dir" 2>/dev/null)" || python_bin=""
+  fi
   local handoff_script="$PROJECT_CODE_ROOT/$PROJECT_PACKAGE/orchestration/thread_handoff.py"
   # Every Python child starts with -I, so the caller's PYTHONPATH and cwd stay
   # off its import path; thread_handoff runs through the shared module bootstrap

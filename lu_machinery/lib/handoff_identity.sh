@@ -237,7 +237,12 @@ _handoff_slot_registry() {
   [ -f "$_HANDOFF_IDENTITY_DIR/project_interpreter.sh" ] || return 2
   # shellcheck source=scripts/lib/project_interpreter.sh
   source "$_HANDOFF_IDENTITY_DIR/project_interpreter.sh"
-  py="$(project_interpreter_resolve "${LC_DURABLE_HELPER_ROOT:-$repo_root}" 2>/dev/null)" || return 2
+  # The one interpreter rule (R66): inside a launcher, over the helper root it validated.
+  if [ -n "${LC_DURABLE_HELPER_ROOT:-}" ] && declare -F launcher_project_python >/dev/null; then
+    py="$(launcher_project_python 2>/dev/null)" || return 2
+  else
+    py="$(project_interpreter_resolve "$repo_root" 2>/dev/null)" || return 2
+  fi
   [ -n "$py" ] && [ -x "$py" ] || return 2
   # The shared module bootstrap (#100 R64, R68) runs this tree's package with -I:
   # neither the caller's PYTHONPATH nor its cwd is on the import path.
