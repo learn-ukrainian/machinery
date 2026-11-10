@@ -4053,16 +4053,6 @@
       "message": "Argument 1 to \"resolve_claude_budget_usd\" has incompatible type \"None | str\"; expected \"str\""
     },
     {
-      "path": "lu_machinery/dispatcher/ownership.py",
-      "code": "union-attr",
-      "message": "Item \"None\" of \"None | dict[Any, Any]\" has no attribute \"get\""
-    },
-    {
-      "path": "lu_machinery/dispatcher/ownership.py",
-      "code": "union-attr",
-      "message": "Item \"None\" of \"None | dict[Any, Any]\" has no attribute \"get\""
-    },
-    {
       "path": "lu_machinery/dispatcher/pool_selector.py",
       "code": "arg-type",
       "message": "Argument 1 to \"append\" of \"list\" has incompatible type \"tuple[Pool, Meter | None]\"; expected \"tuple[Pool, Meter]\""

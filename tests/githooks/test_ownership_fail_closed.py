@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import json
 import subprocess
-import sysconfig
-from pathlib import Path
 
 import pytest
 
@@ -22,17 +20,7 @@ from tests.githooks.test_owned_paths_hook import (
 @pytest.fixture(scope="module")
 def installed_python(tmp_path_factory):
     root = tmp_path_factory.mktemp("installed-ownership")
-    python = _installed_python(root)
-    site = _run(
-        [str(python), "-c", "import sysconfig; print(sysconfig.get_path('purelib'))"],
-        cwd=root, env=_base_env(),
-    )
-    assert site.returncode == 0, site.stderr
-    # Use the real pre-commit and its dependencies after the isolated package copy.
-    (Path(site.stdout.strip()) / "hook-dependencies.pth").write_text(
-        sysconfig.get_path("purelib") + "\n", encoding="utf-8",
-    )
-    return python
+    return _installed_python(root)
 
 
 @pytest.fixture
@@ -45,13 +33,21 @@ def hook_world(tmp_path, installed_python):
     return repo, env, task_env, record_path
 
 
-def _hook(world, stage, path="owned/change.txt"):
+def _hook(world, stage, path="owned/change.txt", *, staged_guard=False):
     repo, env, task_env, _ = world
     target = repo / path
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text("changed\n", encoding="utf-8")
     assert _git(repo, "add", path, env=env).returncode == 0
     if stage == "staged":
+        if staged_guard:
+            # The product fixture has no pre-commit dependency. Positive staged
+            # cases exercise the exact real hook guard without its later runner.
+            return _run(
+                ["/usr/bin/bash", "-c", 'source "$1"; check_owned_paths staged',
+                 "owned-path-stage", str(repo / ".githooks/_lib.sh")],
+                cwd=repo, env=task_env,
+            )
         return _run(["/usr/bin/bash", str(repo / ".git/hooks/pre-commit")], cwd=repo, env=task_env)
     # Construct the outgoing commit as fixture data, then run the installed
     # pre-push delegator with Git's update protocol and no network dependency.
@@ -180,7 +176,10 @@ def test_installed_hooks_preserve_scope_and_only_valid_skips(hook_world, stage, 
             "owned_paths": ["outside.txt"],
         }]
     record_path.write_text(json.dumps(record), encoding="utf-8")
-    result = _hook(hook_world, stage, "owned/change.txt" if case == "allowed" else "outside.txt")
+    result = _hook(
+        hook_world, stage, "owned/change.txt" if case == "allowed" else "outside.txt",
+        staged_guard=case != "outside",
+    )
     assert (result.returncode == 0) == (case != "outside"), result.stderr
     if case == "outside":
         assert "outside.txt" in result.stderr and "owned-path check refused" in result.stderr
