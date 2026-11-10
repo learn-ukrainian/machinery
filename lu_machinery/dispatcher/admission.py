@@ -178,7 +178,7 @@ def claude_launch(spec, invocation):
         )
     except ClaudeAccountRefused as exc:
         raise ValueError(f"CLAUDE_ACCOUNT_REFUSED: {exc.code}") from None
-    guarded = [sys.executable, "-I", "-c", adapter._LAUNCH_GUARD_CODE, str(adapter._CODE_ROOT), verified]
+    guarded = [sys.executable, "-I", "-c", adapter._LAUNCH_GUARD_CODE, verified]
     return Invocation([*guarded, "--", *argv], invocation.stdin, env, invocation.final_file)
 
 

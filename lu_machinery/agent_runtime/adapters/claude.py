@@ -249,7 +249,7 @@ from functools import cache
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from lu_machinery.common.repo_root import RUNTIME_ROOT, machinery_path, product_root
+from lu_machinery.common.repo_root import machinery_path, product_root
 
 from ..env_sanitize import (
     CLAUDE_CONFIG_DIR_ENV,
@@ -370,19 +370,17 @@ _API_KEY_AUTH_STATUS_KEYS = frozenset(
 )
 _API_KEY_STATUS_TEXT = ["Auth token: apiKeyHelper"]
 _AUTH_STATUS_TIMEOUT_S = 30
-# Runs ``env_sanitize.run_claude_launch_guard`` from this checkout's code,
-# isolated from the worker's Python environment variables and working
-# directory. That module imports the standard library only, so the guard
-# needs no virtual environment (the runner resolves the interpreter link).
-# The guard is named under the machinery package's canonical import name (the
-# unresolved name of the package directory this file is in), whichever name this
-# module was imported by.
+# Runs ``env_sanitize.run_claude_launch_guard`` from the release installed in
+# this process's interpreter, under ``-I``: no checkout, working directory,
+# ``PYTHONPATH`` or user site enters ``sys.path``. Callers spawn it as
+# ``[sys.executable, "-I", "-c", _LAUNCH_GUARD_CODE, <digest>, "--", <argv>]``.
+# ``env_sanitize``'s own ``-m`` entry point is the launcher's child-environment
+# CLI, so the guard is reached by import rather than a second mode there.
 _LAUNCH_GUARD_CODE = (
-    "import sys; sys.path.insert(0, sys.argv.pop(1)); "
-    f"from {Path(__file__).absolute().parents[2].name}.agent_runtime.env_sanitize import run_claude_launch_guard; "
+    "import sys; "
+    "from lu_machinery.agent_runtime.env_sanitize import run_claude_launch_guard; "
     "run_claude_launch_guard(sys.argv[1:])"
 )
-_CODE_ROOT = RUNTIME_ROOT
 _DISALLOWED_TOOLS_FLAGS = ("--disallowedTools", "--disallowed-tools")
 # The wrappers build the child environment and run the argv directly.
 _WRAPPER_OWNED_KWARGS = frozenset({"env", "shell", "executable"})
@@ -599,7 +597,10 @@ def _reviewer_mcp_config() -> str:
 _DEPLOYED_HOOKS_PREFIX = "$CLAUDE_PROJECT_DIR/.claude/hooks/"
 _PROJECT_PYTHON_HOOK_WRAPPER = "run-project-python-hook.sh"
 # Guards whose parser dependency is not in the system Python. Only these may
-# appear in the wrapper form; they run under this process's interpreter.
+# appear in the wrapper form. Every Python guard runs under this process's
+# interpreter with ``-I``, so ``PYTHONPATH``, the working directory and the user
+# site cannot supply a portion of the ``agents_extensions.shared.hooks``
+# namespace package ahead of the release.
 PROJECT_PYTHON_GUARDS = frozenset({"guard-pr-merge.py", "guard-admin-merge.py", "guard-branch-switch-in-main.py"})
 # A command whose raw text or shell words contain any of these is a fleet guard
 # and must take one of the two supported forms.
@@ -615,12 +616,15 @@ def _worker_guard_invocation(command: str) -> str | None:
 
     The command is split into shell words first, so quoting and escaping never
     change its classification; an unreadable command raises. The single word
-    ``$CLAUDE_PROJECT_DIR/.claude/hooks/<guard>`` becomes the tracked guard
-    path. The words ``bash $CLAUDE_PROJECT_DIR/.claude/hooks/run-project-python-hook.sh
-    <guard>`` become this process's interpreter plus the tracked guard, for the
-    guards in ``PROJECT_PYTHON_GUARDS`` only. Any other command naming the hooks
-    directory, the wrapper or one of those guards raises, so a guard is never
-    silently dropped. Commands naming none of them are not fleet guards and
+    ``$CLAUDE_PROJECT_DIR/.claude/hooks/<guard>`` becomes the tracked guard:
+    ``<this interpreter> -I <guard>`` for a ``.py`` guard, the path alone (run
+    by its shebang) for a shell guard. The words ``bash
+    $CLAUDE_PROJECT_DIR/.claude/hooks/run-project-python-hook.sh <guard>``
+    become ``<this interpreter> -I <guard>``, for the guards in
+    ``PROJECT_PYTHON_GUARDS`` only. The tracked guard path is always the last
+    shell word, which the Grok hook bridge relies on. Any other command naming
+    the hooks directory, the wrapper or one of those guards raises, so a guard
+    is never silently dropped. Commands naming none of them are not fleet guards and
     return ``None``.
     """
     try:
@@ -635,13 +639,15 @@ def _worker_guard_invocation(command: str) -> str | None:
         tracked = hooks_dir / argv[2]
         if not tracked.is_file():
             raise RuntimeError(f"Claude worker guard unavailable: {tracked}")
-        return shlex.join([sys.executable, str(tracked)])
+        return shlex.join([sys.executable, "-I", str(tracked)])
     plain = len(argv) == 1 and argv[0].startswith(_DEPLOYED_HOOKS_PREFIX)
     name = argv[0].removeprefix(_DEPLOYED_HOOKS_PREFIX) if plain else ""
     if name not in {"", ".", "..", _PROJECT_PYTHON_HOOK_WRAPPER} and "/" not in name:
         tracked = hooks_dir / name
         if not tracked.is_file():
             raise RuntimeError(f"Claude worker guard unavailable: {tracked}")
+        if tracked.suffix == ".py":
+            return shlex.join([sys.executable, "-I", str(tracked)])
         return shlex.quote(str(tracked))
     raise RuntimeError(f"Claude worker guard has an unsupported form: {command}")
 
@@ -650,8 +656,8 @@ def _worker_guard_settings(*, publish_guard: bool = False) -> str:
     """Build worker hook settings: the product's hook list, run with this installation's guards.
 
     The product supplies its provider settings; mandatory guard executables come
-    from the installed machinery release. Parser guards run under this process's
-    interpreter.
+    from the installed machinery release. Python guards run under this process's
+    interpreter with ``-I``.
     """
     try:
         source = json.loads((product_root() / "agents_extensions/shared/settings.json").read_text(encoding="utf-8"))
@@ -674,7 +680,8 @@ def _worker_guard_settings(*, publish_guard: bool = False) -> str:
             raise RuntimeError(f"Claude reviewer publish guard unavailable: {guard}")
         # Same failure policy as the shared refusing guards (#10848): a timeout
         # or failed start refuses the call instead of letting it run unguarded.
-        hook = {"type": "command", "command": shlex.quote(str(guard)), "timeout": 10, "onFailure": "block"}
+        command = shlex.join([sys.executable, "-I", str(guard)])
+        hook = {"type": "command", "command": command, "timeout": 10, "onFailure": "block"}
         groups.append({"matcher": "Bash", "hooks": [hook]})
     if not groups:
         raise RuntimeError("Claude worker PreToolUse guards unavailable")
@@ -1291,7 +1298,7 @@ def _verified_labelled_launch(
         raise ClaudeAccountRefused("claude_account_settings_changed")
     refuse_claude_machine_policy()
     note_claude_account_verified(account.label, CLAUDE_AUTH_SUBSCRIPTION_LOGIN)
-    return [sys.executable, "-I", "-c", _LAUNCH_GUARD_CODE, str(_CODE_ROOT), verified, "--", *cmd]
+    return [sys.executable, "-I", "-c", _LAUNCH_GUARD_CODE, verified, "--", *cmd]
 
 
 def _verify_labelled_auth_method(

@@ -713,7 +713,7 @@ def test_launch_guard_refuses_a_malformed_or_unbound_launch(accounts, argv, monk
     """
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(accounts.config_dir))
     done = subprocess.run(
-        [sys.executable, "-I", "-c", claude._LAUNCH_GUARD_CODE, str(claude._CODE_ROOT), *argv],
+        [sys.executable, "-I", "-c", claude._LAUNCH_GUARD_CODE, *argv],
         cwd=accounts.workdir,
         capture_output=True,
         text=True,
@@ -1455,7 +1455,7 @@ def test_launch_guard_stops_a_machine_policy_helper_whose_answer_changed(account
     cmd = [str(accounts.binary), "-p", "--settings", settings, "--setting-sources", "project,local", "--", "fixture"]
 
     done = subprocess.run(
-        [sys.executable, "-I", "-c", claude._LAUNCH_GUARD_CODE, str(claude._CODE_ROOT), bound, "--", *cmd],
+        [sys.executable, "-I", "-c", claude._LAUNCH_GUARD_CODE, bound, "--", *cmd],
         cwd=accounts.workdir,
         env=env,
         capture_output=True,
