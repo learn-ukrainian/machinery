@@ -28,14 +28,16 @@ def catalog(monkeypatch):
     monkeypatch.delenv("AGENT_NO_MERGE", raising=False)
 
 
-def transport(calls, *, subject="clean (#1)", body="* clean", queue=True, head=HEAD, queued=None):
-    """Answer readiness and squash-text reads; record only the queue mutation.
+def transport(calls, *, subject="clean (#1)", body="* clean", queue=True, head=HEAD, reads=None, queued=None):
+    """Answer readiness and squash-text reads; record the queue mutation, and every call in ``reads``.
 
     ``queued`` is non-empty once an enqueue succeeded; later reads report queue membership.
     """
     queued = [] if queued is None else queued
 
     def send(args, **kwargs):
+        if reads is not None:
+            reads.append(args)
         pull = {
             "id": "PR_node", "number": 1, "isDraft": False, "headRefOid": HEAD, "state": "OPEN",
             "baseRefName": "main", "isCrossRepository": False, "headRefName": "codex/fixture",
@@ -80,10 +82,14 @@ def test_default_squash_text_hit_is_refused_before_merge(synthetic_opsec, field,
 
 @pytest.mark.parametrize("field", ["subject", "body"])
 def test_explicit_squash_text_hit_is_refused_before_merge(synthetic_opsec, field):
-    calls = []
+    """A blocked supplied field is refused before any GitHub read, not only before the write."""
+    calls, reads = [], []
     with pytest.raises(gate.PublishBlocked, match=f"field={field} "):
-        pub.publish("pr-merge", repo="unit/public", number=1, runner=transport(calls), **{field: "x " + TOKEN})
+        pub.publish(
+            "pr-merge", repo="unit/public", number=1, runner=transport(calls, reads=reads), **{field: "x " + TOKEN}
+        )
     assert not calls
+    assert reads == []
 
 
 def test_clean_defaults_are_sent_explicitly_as_scanned(synthetic_opsec):
@@ -236,6 +242,20 @@ def test_transfer_without_a_product_root_is_refused_before_any_receipt(synthetic
     with pytest.raises(gate.PublishBlocked, match="product checkout is unresolved"):
         _transfer_into(target)
     assert not target.exists()
+
+
+@pytest.mark.parametrize("field", ["subject", "body"])
+def test_override_for_a_supplied_field_is_offered_once(synthetic_opsec, tmp_path, monkeypatch, field):
+    """Defect class: the early supplied-field scan consuming or auditing the override a second time."""
+    monkeypatch.setattr(gate, "primary_root", lambda cwd=None: tmp_path)
+    calls = []
+    pub.publish(
+        "pr-merge", repo="unit/public", number=1, env={"LU_OPSEC_OVERRIDE": "synthetic false positive"},
+        runner=transport(calls), **{field: "x " + TOKEN},
+    )
+    assert len(calls) == 1
+    rows = (tmp_path / "batch_state/opsec/overrides.jsonl").read_text().splitlines()
+    assert len(rows) == 1 and TOKEN not in rows[0]
 
 
 def priority_transport(calls, *, labels, timeline):
