@@ -356,12 +356,11 @@ def build_parser() -> argparse.ArgumentParser:
         "Guard repository against untracked large blobs over 5 MB.\n"
         "Use in CI checks and merge queue; do not use for historical scanning or working-tree file discovery."
     )
-    script = checkout_relative("ci", "check_large_files.py").as_posix()
     artifacts = checkout_relative("storage", "artifacts.py").as_posix()
     epilog = (
         "Examples:\n"
-        f"  .venv/bin/python {script} --repo-root \"$PWD\" --changed-vs-base origin/main\n"
-        f"  .venv/bin/python {script} --repo-root \"$PWD\" --seed-allowlist\n\n"
+        '  .venv/bin/python -m lu_machinery.ci.check_large_files --repo-root "$PWD" --changed-vs-base origin/main\n'
+        '  .venv/bin/python -m lu_machinery.ci.check_large_files --repo-root "$PWD" --seed-allowlist\n\n'
         "Outputs:\n"
         "  None during verification; seeding updates ci/large_files_allowlist.txt in the selected checkout's Python tree.\n\n"
         "Exit codes:\n"

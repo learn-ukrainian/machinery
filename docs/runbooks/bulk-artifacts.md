@@ -10,10 +10,10 @@ When `check_large_files.py` fails with an unallowlisted oversized blob:
    .venv/bin/python -m lu_machinery.storage.artifacts manifest build --group <group> --pre HEAD
    ```
    Note: `lu_machinery.storage.artifacts manifest build` covers only groups defined in the `data/` split (`registry/artifacts/classification-v1.tsv`). It is not a general storage mechanism for files under other trees such as `site/` or `curriculum/`.
-2. **Add an allowlist entry**: If the blob is canonical source that must stay tracked, add an entry to `lu_machinery/ci/large_files_allowlist.txt` with exact path, size in bytes, and reason.
+2. **Add an allowlist entry**: If the blob is canonical source that must stay tracked, add an entry to `scripts/ci/large_files_allowlist.txt` with exact path, size in bytes, and reason.
 
 ## Allowlist Format
-`lu_machinery/ci/large_files_allowlist.txt` uses a tab-separated text format:
+`scripts/ci/large_files_allowlist.txt` uses a tab-separated text format:
 `<repository-relative-path>\t<size-in-bytes>\t<reason>`
 - Lines starting with `#` and empty lines are comments/ignored.
 - Exact repository-relative path match (no wildcards or prefixes).
