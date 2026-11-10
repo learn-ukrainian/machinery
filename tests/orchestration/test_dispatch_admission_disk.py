@@ -264,6 +264,7 @@ def test_publish_runs_the_fleet_comms_channel_publish_command(monkeypatch, tmp_p
     assert seen["command"][0] == sys.executable
     assert seen["kwargs"]["cwd"] == tmp_path
     assert seen["command"][1:] == [
+        "-I",
         "-m",
         "lu_machinery.fleet_comms",
         "channel",

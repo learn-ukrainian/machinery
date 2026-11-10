@@ -422,9 +422,11 @@ def _spawn_worker(run_id: str) -> bool:
     """Spawn the detached refresh worker subprocess. Returns True on success."""
     try:
         # The running interpreter and fixed module are trusted; argv is separate and no shell runs.
+        # -I: the worker's cwd must not shadow the installed release. Its stdio is discarded.
         subprocess.Popen(  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit
             [
                 sys.executable,
+                "-I",
                 "-m",
                 "lu_machinery.orchestration.issue_stream_audit",
                 "--refresh-worker",

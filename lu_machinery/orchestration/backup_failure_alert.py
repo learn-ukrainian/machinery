@@ -208,7 +208,8 @@ def recovery_message(unit: str, now: str, since: str, project_root: Path | None 
 
 def fleet_comms_publisher(project_root: Path) -> Publisher:
     def run_json(arguments: list[str], message: str | None = None) -> dict:
-        command = [sys.executable, "-m", "lu_machinery.fleet_comms", *arguments]
+        # -I: the project cwd must not shadow the installed release. Output is captured after exit.
+        command = [sys.executable, "-I", "-m", "lu_machinery.fleet_comms", *arguments]
         try:
             result = subprocess.run(
                 command,

@@ -1123,7 +1123,8 @@ class _Boundary:
         readers, writers = sources_tool_sets()
         if not self.shell:
             _write_private(config / "mcp_config.json", json.dumps({"mcpServers": {"sources": {
-                "command": str(interpreter), "args": [str(boundary / "stdio.py"), str(boundary / "sources.sock")],
+                # -I: the relay directory and PYTHONPATH must not supply code. The proxy flushes each write.
+                "command": str(interpreter), "args": ["-I", str(boundary / "stdio.py"), str(boundary / "sources.sock")],
             }}}).encode())
             # Defense in depth only: the relay is what refuses these tools.
             _write_private(app / "settings.json", json.dumps({"permissions": {
@@ -1200,8 +1201,10 @@ class _Boundary:
         plan = {"report_fd": report_write, "go_fd": go_read, "probes": probes}
         _write_private(boundary / "plan.json", json.dumps(plan).encode(), 0o444)
         # A shell runs with no network at all; AGY reaches its provider hosts only through the egress proxy.
-        forwarder = [] if self.shell else [str(interpreter), str(boundary / "forwarder.py"), str(boundary / "egress.sock")]
-        inner = [str(interpreter), str(boundary / "canary.py"), str(boundary / "plan.json"), "--",
+        # -I: the projected canary and forwarder are copied beside the boundary. Neither uses PYTHONPATH;
+        # the canary inserts its own store_contract directory. Output is the canary report, read after the probes.
+        forwarder = [] if self.shell else [str(interpreter), "-I", str(boundary / "forwarder.py"), str(boundary / "egress.sock")]
+        inner = [str(interpreter), "-I", str(boundary / "canary.py"), str(boundary / "plan.json"), "--",
                  *forwarder, str(agy), *command[1:]]
         argv = wrap_argv_with_sandbox(inner, sandbox)
         masks = [argument for path in hidden for argument in ("--tmpfs", str(path), "--remount-ro", str(path))]

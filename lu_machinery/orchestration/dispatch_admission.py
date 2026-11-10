@@ -801,8 +801,10 @@ def post_disk_alert(body: str, idempotency_key: str) -> None:
     from lu_machinery.common.repo_root import state_root
 
     root = state_root()
+    # -I: the state-root cwd must not shadow the installed release. Output is captured after exit.
     command = [
         sys.executable,
+        "-I",
         "-m",
         "lu_machinery.fleet_comms",
         "channel",

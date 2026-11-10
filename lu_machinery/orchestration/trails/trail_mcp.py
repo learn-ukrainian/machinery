@@ -47,7 +47,8 @@ def _run_runner(*args: str) -> dict[str, Any]:
     if not python_bin.is_file():
         raise TrailMcpError("parent-owned TrailSpec runner is unavailable")
     completed = subprocess.run(
-        [str(python_bin), "-m", "lu_machinery.orchestration.trail_runner", *args],
+        # -I: the product cwd must not shadow the installed runner. Its JSON is read after exit.
+        [str(python_bin), "-I", "-m", "lu_machinery.orchestration.trail_runner", *args],
         cwd=cwd,
         capture_output=True,
         check=False,

@@ -1324,9 +1324,10 @@ class AttemptBoundary:
             self.egress = AttemptEgress(self.egress_endpoint, load_allowlist(agent))
             self.forwarder = self.write_root / "forwarder.py"
             self.forwarder.write_bytes(Path(__file__).with_name("attempt_forwarder.py").read_bytes())
+            # -I: the proxy directory and PYTHONPATH must not supply code. attempt_proxy flushes each write.
             proxy_server = {
                 "command": str(Path(sys.executable).resolve(strict=True)),
-                "args": [str(proxy), str(endpoint)],
+                "args": ["-I", str(proxy), str(endpoint)],
             }
             proxy_config = self.write_root / "mcp.json"
             proxy_config.write_text(json.dumps({"mcpServers": {"sources": proxy_server}}))
@@ -1343,7 +1344,7 @@ class AttemptBoundary:
                 codex_home = home / ".codex"
                 (codex_home / "config.toml").write_text(
                     _render_codex_review_config(Path(proxy_server["command"]), proxy, {}).replace(
-                        f'args = ["{proxy}"]', f'args = ["{proxy}", "{endpoint}"]'
+                        f'args = ["{proxy}"]', f'args = ["-I", "{proxy}", "{endpoint}"]'
                     )
                 )
                 self.tool_config["codex_home_override"] = str(codex_home)
@@ -1407,8 +1408,10 @@ class AttemptBoundary:
         )
         if self.egress is None or not self.egress.thread.is_alive():
             raise ReviewIsolationError("attempt_egress_unavailable")
+        # -I: the projected forwarder is stdlib-only. Its directory and PYTHONPATH must not supply code.
         argv = [
             str(Path(sys.executable).resolve(strict=True)),
+            "-I",
             str(self.forwarder),
             str(self.egress_endpoint),
             str(binary),

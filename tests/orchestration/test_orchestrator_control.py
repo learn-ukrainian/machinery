@@ -192,7 +192,7 @@ def test_dispatch_dry_run_builds_dispatch_command(tmp_path: Path, capsys):
     command = payload["command"]
 
     assert rc == 0
-    assert command[:4] == [sys.executable, "-m", "lu_machinery.dispatch", "dispatch"]
+    assert command[:5] == [sys.executable, "-I", "-m", "lu_machinery.dispatch", "dispatch"]
     assert _option(command, "--agent") == "codex"
     assert _option(command, "--task-id") == "worker-3"
     assert _option(command, "--mode") == "danger"
@@ -296,8 +296,8 @@ def test_v2_launch_flag_parity_and_watchdog_forwarding(tmp_path: Path, capsys, m
         options.extend(["--silence-timeout", str(watchdogs[0]), "--initial-response-timeout", str(watchdogs[1])])
     assert oc.main(["--repo-root", str(tmp_path), *options, "--prompt-file", str(prompt)]) == 0
     command = json.loads(capsys.readouterr().out)["command"]
-    parsed = build_dispatch_parser().parse_args(command[3:])
-    assert command[:4] == [sys.executable, "-m", "lu_machinery.dispatch", "dispatch"]
+    parsed = build_dispatch_parser().parse_args(command[4:])
+    assert command[:5] == [sys.executable, "-I", "-m", "lu_machinery.dispatch", "dispatch"]
     assert parsed.model == "exact-model"
     assert parsed.agent == provider
     expected_base = "origin/topic/repair" if base == "topic/repair" else "origin/main"
@@ -375,5 +375,5 @@ def test_v2_gaps_are_forwarded_for_explicit_refusal(tmp_path: Path, option):
     command = oc.build_dispatch_command(args, tmp_path / "brief.md")
     assert option[0] in command
     with pytest.raises(SystemExit) as exc:
-        build_dispatch_parser().parse_args(command[3:])
+        build_dispatch_parser().parse_args(command[4:])
     assert exc.value.code == 2
