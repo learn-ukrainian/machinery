@@ -1132,15 +1132,54 @@ _FINISHING_CONFTEST = (
     "    Path({started!r}).write_text(tempfile.gettempdir())\n"
     "    time.sleep(5)\n"
 )
+# The session signals itself at one point of its lifetime; the value is the conftest code that does it.
+_SELF_SIGNALLED = {
+    # Another plugin's configure, after the handlers are armed and before the session starts.
+    "configure": "def pytest_configure(config):\n    os.kill(os.getpid(), signal.SIGTERM)\n",
+    # SIGHUP inherited as ignored (nohup) must not leave SIGTERM unhandled.
+    "ignored-hup": (
+        "signal.signal(signal.SIGHUP, signal.SIG_IGN)\n\n"
+        "def pytest_sessionstart(session):\n    os.kill(os.getpid(), signal.SIGTERM)\n"
+    ),
+    # A session-finish wrapper runs before plain session-finish hooks.
+    "finish-wrapper": (
+        "@pytest.hookimpl(wrapper=True)\n"
+        "def pytest_sessionfinish(session):\n    os.kill(os.getpid(), signal.SIGTERM)\n    return (yield)\n"
+    ),
+    # The removal of the run itself.
+    "removal": (
+        "from lu_machinery.common import task_scratch\n\n"
+        "_remove = task_scratch.TaskScratch.remove\n\n"
+        "def _signalled_remove(self):\n    os.kill(os.getpid(), signal.SIGTERM)\n    return _remove(self)\n\n"
+        "task_scratch.TaskScratch.remove = _signalled_remove\n"
+    ),
+}
 
 
-@pytest.mark.parametrize("when", ["session", "nested", "finishing"])
+@pytest.mark.parametrize(
+    "when", ["session", "nested", "finishing", "configure", "ignored-hup", "finish-wrapper", "removal"]
+)
 def test_a_terminated_session_removes_its_run(tmp_path, when):
     """Defect class: a session ended by SIGTERM (a supervisor's timeout) never reaches its cleanup and leaves its run.
 
     The signal can land in the session's own test, in a nested in-process session that would swallow the
-    interrupt, or while the session is already finishing.
+    interrupt, while the session is finishing, or, sent by the session to itself, during another plugin's
+    configure, at session start with SIGHUP ignored, in a session-finish wrapper or during the run's removal.
+    Before the tests run it interrupts the session at its start; once the session is finishing it is only
+    recorded, and the session ends with its own status after the run is removed.
     """
+    if when in _SELF_SIGNALLED:
+        suite, shared, env = _writable_suite(tmp_path, "def test_passes():\n    pass\n")
+        with (suite / "conftest.py").open("a") as conftest:
+            conftest.write("import os, signal\nimport pytest\n\n" + _SELF_SIGNALLED[when])
+        result = subprocess.run(
+            [sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider"], cwd=suite, env=env,
+            capture_output=True, text=True, timeout=120,
+        )
+        expected = pytest.ExitCode.INTERRUPTED if when in {"configure", "ignored-hup"} else pytest.ExitCode.OK
+        assert result.returncode == expected, result.stdout + result.stderr
+        assert _runs(shared) == [], result.stdout + result.stderr
+        return
     started = tmp_path / "started"
     suite, shared, env = _writable_suite(tmp_path, _WAITS[when].format(started=str(started)))
     if when == "finishing":

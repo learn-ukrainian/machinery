@@ -48,10 +48,13 @@ bytecode (``PYTHONDONTWRITEBYTECODE``); test breadcrumbs go into the run unless
 the caller names their directory (``PYTEST_BREADCRUMB_DIR``). All of these
 reach xdist workers and child processes.
 
-A terminated session still removes its run: ``SIGTERM`` and ``SIGHUP`` become
-``KeyboardInterrupt`` for the outermost session in the process, so pytest
-unwinds and runs its cleanups (exit status 2); see ``_Termination``. The first
-signal disarms both, so a second one ends the process at once.
+A terminated session still removes its run: ``SIGTERM`` and ``SIGHUP``, where
+not ignored, are handled for the outermost session in the process from before
+its run exists until the run is removed. While tests run they become
+``KeyboardInterrupt``, so pytest unwinds and runs its cleanups (exit status 2);
+earlier they are raised at session start, and later only recorded, since the
+removal is already under way (see ``_Termination``). The first signal disarms
+both, so a second one ends the process at once.
 Only ``SIGKILL`` or a crash leaves the run, for the scheduled sweep.
 """
 
@@ -68,7 +71,7 @@ import sys
 import tempfile
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Generator
 from functools import partial
 from pathlib import Path
 from typing import Any
@@ -531,56 +534,88 @@ def _set_cache_dir(config: pytest.Config, path: Path) -> None:
 class _Termination:
     """A termination signal, as the session that owns the run sees it.
 
-    The first ``SIGTERM`` or ``SIGHUP`` disarms both, so a repeated signal kills
-    at once, and raises ``KeyboardInterrupt`` where the process is. That stops a
-    blocked test; if a nested in-process session catches it instead, this
-    session raises it again after the test that ran the nested one. Once this
-    session is finishing, the signal is only recorded: its cleanups are already
-    under way, so the run is removed and the process then ends.
+    Installed before the run is allocated, on each termination signal whose
+    disposition is the default; an ignored one stays ignored. The first signal
+    disarms them all, so a repeated one kills at once. What it does depends on
+    the session's phase:
+
+    - arming, from installation until ``pytest_sessionstart``: only recorded,
+      then raised at session start, inside pytest's interrupt handling, once
+      every plugin has configured and the run's removal is registered;
+    - running: ``KeyboardInterrupt`` where the process is, which stops a blocked
+      test. If a nested in-process session catches it instead, this session
+      raises it again after the test that ran the nested one;
+    - finishing, from the outermost ``pytest_sessionfinish`` wrapper through
+      unconfigure and every cleanup, until the run is removed: only recorded,
+      because the removal is already under way. The session then ends with
+      its own status.
     """
 
     def __init__(self) -> None:
         self.received: int | None = None
-        self.finishing = False
+        self.phase = "arming"
+        self.installed: list[int] = []
 
     def handle(self, signum: int, _frame: object) -> None:
-        for each in TERMINATION_SIGNALS:
+        for each in self.installed:
             signal.signal(each, signal.SIG_DFL)
         self.received = signum
-        if not self.finishing:
+        if self.phase == "running":
             raise self.interrupt()
 
     def interrupt(self) -> KeyboardInterrupt:
         name = signal.Signals(self.received).name if self.received is not None else "termination"
         return KeyboardInterrupt(f"pytest scratch: {name} received; removing the run")
 
-    @pytest.hookimpl(tryfirst=True)
-    def pytest_runtest_logfinish(self) -> None:
-        if self.received is not None and not self.finishing:
+    def finish(self) -> None:
+        self.phase = "finishing"
+
+    def disarm(self) -> None:
+        """Give back the default disposition of every signal this owner still handles."""
+        for signum in self.installed:
+            if signal.getsignal(signum) == self.handle:
+                signal.signal(signum, signal.SIG_DFL)
+
+    def raise_if_received(self) -> None:
+        if self.received is not None and self.phase == "running":
             raise self.interrupt()
 
     @pytest.hookimpl(tryfirst=True)
-    def pytest_sessionfinish(self) -> None:
-        self.finishing = True
+    def pytest_sessionstart(self) -> None:
+        if self.phase == "arming":
+            self.phase = "running"
+        self.raise_if_received()
+
+    @pytest.hookimpl(tryfirst=True)
+    def pytest_runtest_logfinish(self) -> None:
+        self.raise_if_received()
+
+    @pytest.hookimpl(wrapper=True, tryfirst=True)
+    def pytest_sessionfinish(self) -> Generator[None, None, None]:
+        self.finish()
+        return (yield)
+
+    @pytest.hookimpl(tryfirst=True)
+    def pytest_unconfigure(self) -> None:
+        self.finish()
 
 
-def _install_termination_handlers(config: pytest.Config) -> None:
-    """Route default-disposition termination signals to this session; a nested session finds them taken."""
-    if threading.current_thread() is not threading.main_thread():
-        return
-    if any(signal.getsignal(signum) is not signal.SIG_DFL for signum in TERMINATION_SIGNALS):
-        return
+def _owning_termination() -> bool:
+    """A session in this process already handles termination: this one is nested inside it."""
+    return any(isinstance(getattr(signal.getsignal(signum), "__self__", None), _Termination)
+               for signum in TERMINATION_SIGNALS)
+
+
+def _arm_termination() -> _Termination | None:
+    """Route default-disposition termination signals to a new owner; None when nested or none can be routed."""
+    if threading.current_thread() is not threading.main_thread() or _owning_termination():
+        return None
     termination = _Termination()
     for signum in TERMINATION_SIGNALS:
-        signal.signal(signum, termination.handle)
-    config.pluginmanager.register(termination, "lu-pytest-scratch-termination")
-
-    def restore() -> None:
-        for signum in TERMINATION_SIGNALS:
-            if signal.getsignal(signum) == termination.handle:
-                signal.signal(signum, signal.SIG_DFL)
-
-    config.add_cleanup(restore)
+        if signal.getsignal(signum) is signal.SIG_DFL:
+            signal.signal(signum, termination.handle)
+            termination.installed.append(signum)
+    return termination if termination.installed else None
 
 
 def _set_session_env(config: pytest.Config, values: dict[str, str]) -> None:
@@ -629,15 +664,25 @@ def pytest_configure(config: pytest.Config) -> None:
             )
         if not _inside(_basetemp_destination(str(config.option.basetemp)), roots):
             raise _outside_root("base temp", str(config.option.basetemp), roots)
-    scratch = _allocate_run()
+    # Armed before the run exists, so no signal can land between its allocation and its removal's registration.
+    termination = _arm_termination()
+    try:
+        scratch = _allocate_run()
+    except BaseException:
+        if termination is not None:
+            termination.disarm()
+        raise
+    if termination is not None:
+        config.pluginmanager.register(termination, "lu-pytest-scratch-termination")
+        # Registered before the removal, so it runs after it: the run stays protected until it is gone.
+        config.add_cleanup(termination.disarm)
     if config.option.basetemp is None:
         # Pytest recreates --basetemp. Keep ownership metadata outside that payload.
         config.option.basetemp = str(scratch.payload_dir / "base")
-    # Registered first, so it runs after the TMPDIR restore and every later cleanup.
+    # Registered before every other cleanup but the disarm, so it runs after the TMPDIR restore and the rest.
     config.add_cleanup(partial(_release, scratch))
     if explicit_cache is None:
         _set_cache_dir(config, scratch.path / CACHE_DIRNAME)
-    _install_termination_handlers(config)
     previous_bytecode = sys.dont_write_bytecode
     sys.dont_write_bytecode = True
     config.add_cleanup(partial(setattr, sys, "dont_write_bytecode", previous_bytecode))
@@ -661,3 +706,6 @@ def pytest_configure(config: pytest.Config) -> None:
             os.environ["TMPDIR"] = previous_env
 
     config.add_cleanup(restore_tempdir)
+    if termination is not None:
+        # Registered last, so it runs first: every cleanup after it, the run's removal included, is finishing.
+        config.add_cleanup(termination.finish)
