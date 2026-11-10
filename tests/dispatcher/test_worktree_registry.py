@@ -119,6 +119,35 @@ def test_a_creation_that_fails_after_git_made_the_tree_leaves_the_record_active(
     assert (entry["state"], entry["branch"], entry["head"]) == ("active", "codex/survivor", sha)
 
 
+def test_a_failed_registry_reconcile_keeps_the_creation_error(sandbox, monkeypatch, caplog):
+    """Defect class: a registry reconcile error raised while handling a failed creation replaced the creation error."""
+    import logging
+
+    from lu_machinery.dispatcher import git
+
+    primary, registry, _ = declared_repo(sandbox)
+    sha = run_git(primary, "rev-parse", "HEAD")
+    tree = primary / ".worktrees/dispatch/codex/masked"
+    registration = dict(registry=registry, agent="codex", task_id="masked", initiator=None, purpose="p")
+    real_git = git._git
+
+    def reset_fails(where, *args, **kwargs):
+        if args[:2] == ("reset", "--hard"):
+            raise OSError("disk full")
+        return real_git(where, *args, **kwargs)
+
+    def reconcile_fails(*_args, **_kwargs):
+        raise RuntimeError("injected reconcile failure")
+
+    monkeypatch.setattr(git, "_git", reset_fails)
+    monkeypatch.setattr(git, "confirm_worktree", reconcile_fails)
+    with caplog.at_level(logging.WARNING, logger="lu_machinery.dispatcher.git"), pytest.raises(OSError) as raised:
+        git.create_worktree(primary, tree, "codex/masked", sha, registration=registration)
+    assert str(raised.value) == "disk full"
+    assert any("RuntimeError: injected reconcile failure" in note for note in raised.value.__notes__)
+    assert "worktree registry reconcile failed: RuntimeError: injected reconcile failure" in caplog.text
+
+
 def test_noncanonical_spelling_and_live_path(sandbox):
     from lu_machinery.dispatcher import git
 

@@ -633,7 +633,7 @@ def test_a_run_settling_while_a_task_it_dispatched_still_runs_names_that_task(sa
     await_file(sandbox.tasks / f"{parent[0]}.started")
     # The child is dispatched from inside the parent's run, which hands its commands the parent's task id.
     result = subprocess.run(
-        [sys.executable, "lu_machinery/dispatch.py", "dispatch", "--agent", "sol", "--model", "blocked",
+        [sandbox.python, "lu_machinery/dispatch.py", "dispatch", "--agent", "sol", "--model", "blocked",
          "--prompt", "literal child request"],
         cwd=sandbox.repo, env={**sandbox.env, "LEARN_UKRAINIAN_DISPATCH_TASK_ID": parent[0]},
         text=True, capture_output=True, timeout=30,

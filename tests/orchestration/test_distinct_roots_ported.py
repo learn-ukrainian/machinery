@@ -233,7 +233,7 @@ def test_dispatch_targets_state_and_slug_follow_the_configuration(monkeypatch, l
     # and a sibling keeps its own catalog slug.
     assert roots["slug"] == roots["github"]["public"] == CONFIGURED_SLUG
     assert roots["github"]["kube-dojo"] == REPOS["kube-dojo"]
-    assert roots["bridge_dispatcher"] == [sys.executable, "-m", "lu_machinery.dispatch", "wait", "probe", "--timeout", "1"]
+    assert roots["bridge_dispatcher"] == [sys.executable, "-I", "-m", "lu_machinery.dispatch", "wait", "probe", "--timeout", "1"]
 
     from lu_machinery.ai_agent_bridge import _acp_compat, _cli
     from lu_machinery.review import target_resolution
@@ -418,7 +418,7 @@ def test_unset_configuration_refuses_unanchored_dispatch_roots() -> None:
         "tasks_dir": "StateRootError", "bridge_state": "StateRootError",
     }
     assert roots["slug"] == DEFAULT_SLUG
-    assert roots["bridge_dispatcher"] == [sys.executable, "-m", "lu_machinery.dispatch", "wait", "probe", "--timeout", "1"]
+    assert roots["bridge_dispatcher"] == [sys.executable, "-I", "-m", "lu_machinery.dispatch", "wait", "probe", "--timeout", "1"]
 
 
 @pytest.mark.parametrize("git_metadata", ["gitfile", "symlink-to-admin-dir", "copied-admin-dir", "absent"])

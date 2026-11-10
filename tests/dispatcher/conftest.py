@@ -5,7 +5,9 @@ import os
 import shutil
 import subprocess
 import sys
+import sysconfig
 import time
+import venv
 from collections.abc import Iterator
 from pathlib import Path
 from types import SimpleNamespace
@@ -190,10 +192,21 @@ def sandbox(tmp_path, hermetic_monitor, configured_roots, sources_product_root):
     # manager and starts every stub worker in a real ``lu-worker-*`` scope.
     env = {**os.environ, "LU_TASKS_DIR": str(tasks), "LU_DISPATCH_ISOLATION": "fallback", "LU_PRODUCT_ROOT": str(repo), "LEARN_UKRAINIAN_PRIMARY_REPO_ROOT": str(repo)}
     env.pop("PYTHONPATH", None)
+    # The dispatcher launches its supervisor and hooks as `sys.executable -I -m lu_machinery...`, so neither
+    # the working directory nor PYTHONPATH reaches them. This interpreter's site imports the overlay first,
+    # then the installed wheel, so those children run the same test doubles as the dispatcher itself.
+    interpreter = tmp_path / "interpreter"
+    venv.EnvBuilder(with_pip=False, symlinks=True).create(interpreter)
+    site = Path(subprocess.run(
+        [str(interpreter / "bin/python"), "-I", "-c", "import sysconfig; print(sysconfig.get_paths()['purelib'])"],
+        text=True, capture_output=True, check=True, timeout=30,
+    ).stdout.strip())
+    (site / "dispatcher-overlay.pth").write_text(f"{repo}\n{sysconfig.get_paths()['purelib']}\n")
+    python = str(interpreter / "bin/python")
 
     def cli(*args, expected=0, stdin=None):
         result = subprocess.run(
-            [sys.executable, "lu_machinery/dispatch.py", *args],
+            [python, "lu_machinery/dispatch.py", *args],
             cwd=repo,
             env=env,
             input=stdin,
@@ -245,8 +258,8 @@ def sandbox(tmp_path, hermetic_monitor, configured_roots, sources_product_root):
                        "authored change\n\nX-Agent: claude/claude-opus-5-5")
         return "--base", "main", "--pinned-head", head
 
-    box = SimpleNamespace(repo=repo, tasks=tasks, remote=remote, env=env, cli=cli, dispatch=dispatch, settle=settle,
-                          sweep=sweep, review_models=review_models, review_target=review_target)
+    box = SimpleNamespace(repo=repo, tasks=tasks, remote=remote, env=env, python=python, cli=cli, dispatch=dispatch,
+                          settle=settle, sweep=sweep, review_models=review_models, review_target=review_target)
     try:
         yield box
     finally:

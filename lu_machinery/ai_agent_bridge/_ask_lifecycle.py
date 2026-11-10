@@ -394,9 +394,13 @@ def launch_background_ask(message_id: int, target: str, options: dict[str, Any])
     )
     try:
         with log_file.open("w", encoding="utf-8") as log:
-            proc = subprocess.Popen(
+            # The project interpreter, literal flags and module, and the message id and target in an argv list; no shell runs.
+            proc = subprocess.Popen(  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit
                 [
                     str(project_interpreter()),
+                    # -I ignores PYTHONUNBUFFERED from _PARENT_ENV; -u keeps the log unbuffered.
+                    "-I",
+                    "-u",
                     "-m",
                     "lu_machinery.ai_agent_bridge",
                     "process-ask",

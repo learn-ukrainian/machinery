@@ -3,6 +3,7 @@
 import contextvars
 import fcntl
 import json
+import logging
 import os
 import re
 import shlex
@@ -425,7 +426,18 @@ def create_worktree(repo: Path, path: Path, branch: str, sha: str, *, full_check
                 _install_refresh_hooks(path, registration["registry"])
         except BaseException as exc:
             if registration:
-                _reconcile_failed_creation(repo, registration["registry"], path, f"{type(exc).__name__}")
+                # Reconciling the registry is cleanup. Its own error must not replace the creation error.
+                try:
+                    _reconcile_failed_creation(repo, registration["registry"], path, f"{type(exc).__name__}")
+                except BaseException as cleanup_exc:
+                    text = f"{type(cleanup_exc).__name__}: {cleanup_exc}"[:300]
+                    logging.getLogger(__name__).warning("worktree registry reconcile failed: %s", text)
+                    try:
+                        exc.add_note(f"worktree registry reconcile failed: {text}")
+                    except BaseException as again:
+                        logging.getLogger(__name__).warning(
+                            "worktree registry reconcile failed: %s", f"{type(again).__name__}: {again}"[:300]
+                        )
             raise
     # Outside the lock: a store miss runs one npm install, and other creations must not wait for it.
     site_deps.provision(repo, path)
@@ -577,7 +589,7 @@ def _install_refresh_hooks(path: Path, registry: Path) -> None:
                         and not entry.name.endswith(".sample"):
                     (hooks / entry.name).symlink_to(entry)
         root = state_root()
-        refresh = " ".join(shlex.quote(word) for word in (sys.executable, "-m", "lu_machinery.dispatcher.git", "refresh",
+        refresh = " ".join(shlex.quote(word) for word in (sys.executable, "-I", "-m", "lu_machinery.dispatcher.git", "refresh",
                                                           _key(path), str(registry)))
         for name in REFRESH_HOOKS:
             script = hooks / name

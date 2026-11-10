@@ -243,7 +243,7 @@ def start(spec: TaskSpec, record: dict, prompt: bytes, hard_timeout: float) -> N
             mask = signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGTERM, signal.SIGINT})
             try:
                 process, launch = admission.spawn_supervisor(
-                    [sys.executable, "-m", "lu_machinery.dispatcher.worker", str(path)],
+                    [sys.executable, "-I", "-m", "lu_machinery.dispatcher.worker", str(path)],
                     task_id=spec.task_id, run_nonce=record["run_nonce"], cwd=state_root(),
                     stderr=err, stderr_log=logs / f"{spec.task_id}.stderr.log",
                     env={**os.environ,

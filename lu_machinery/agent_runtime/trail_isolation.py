@@ -24,6 +24,7 @@ TRAIL_MCP_SERVER_NAME = "trail"
 # The server runs by module name under this package's import name (the unresolved
 # name of the package directory this file is in), never by file path.
 TRAIL_MCP_ARGS: tuple[str, ...] = (
+    "-I",
     "-m",
     f"{Path(os.path.abspath(__file__)).parents[1].name}.orchestration.trails.trail_mcp",
 )

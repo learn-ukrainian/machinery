@@ -339,14 +339,14 @@ def test_registered_review_targets_use_selected_history(
             assert kwargs["cwd"] == roots[key]
             assert command[command.index("--repo") + 1] == f"example/{'public' if key == 'public' else 'sibling'}"
             return subprocess.CompletedProcess(command, 0, _same_repo_payload(head_sha=heads[key], branch="review-shared"))
-        # ``python -m lu_machinery.dispatch <subcommand>`` (#107).
-        if len(command) > 3 and command[1:3] == ["-m", "lu_machinery.dispatch"]:
+        # ``python -I -m lu_machinery.dispatch <subcommand>`` (#107).
+        if len(command) > 4 and command[1:4] == ["-I", "-m", "lu_machinery.dispatch"]:
             calls.append(command)
-            if command[3] == "wait":
+            if command[4] == "wait":
                 return subprocess.CompletedProcess(command, 0, json.dumps({
                     "status": "done", "result_file": str(result), "worktree_base_sha": heads[key],
                 }))
-            parsed = build_parser().parse_args(command[3:])
+            parsed = build_parser().parse_args(command[4:])
             assert parsed.repo == (key if selector is not None else None)
             root, _ = dispatch_git.resolve_repo(parsed.repo)
             assert root == roots[key]

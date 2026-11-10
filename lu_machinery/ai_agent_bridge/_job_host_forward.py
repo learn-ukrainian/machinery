@@ -143,6 +143,7 @@ def _build_remote_ask_script(
     """
     argv = [
         ".venv/bin/python",
+        "-I",
         "-m",
         BRIDGE_ENTRY,
         f"ask-{command_target}",
