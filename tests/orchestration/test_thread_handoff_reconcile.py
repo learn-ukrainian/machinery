@@ -1352,3 +1352,26 @@ def test_enter_keeps_directory_error_when_fd_close_fails(tmp_path, monkeypatch, 
         pass
     assert any("injected fd close failure" in note for note in raised.value.__notes__)
     assert "bundle reconcile fd cleanup failed" in caplog.text
+
+
+def test_body_error_survives_exit_fd_close_failure(tmp_path, monkeypatch, caplog):
+    """Defect class: os.close in _BundleReconcileTree.__exit__ replaced the with-body error."""
+    state = tmp_path / "state"
+    state.mkdir()
+    real_close = os.close
+
+    def fail_close(fd):
+        real_close(fd)
+        raise OSError("injected fd close failure")
+
+    monkeypatch.setattr(os, "close", fail_close)
+    failure = OSError("injected body failure")
+    with (
+        caplog.at_level("WARNING", logger="lu_machinery.orchestration.thread_handoff"),
+        pytest.raises(OSError, match="injected body failure") as raised,
+        th._BundleReconcileTree(state, "cursor", "lineage"),
+    ):
+        raise failure
+    assert raised.value is failure
+    assert any("injected fd close failure" in note for note in raised.value.__notes__)
+    assert "bundle reconcile fd cleanup failed" in caplog.text

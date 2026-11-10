@@ -170,6 +170,7 @@ def _atomic_write_json(path: Path, value: Mapping[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
     payload = json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
+    caught: BaseException | None = None
     try:
         with temporary.open("w", encoding="utf-8") as handle:
             handle.write(payload)
@@ -181,8 +182,25 @@ def _atomic_write_json(path: Path, value: Mapping[str, Any]) -> None:
             os.fsync(directory_fd)
         finally:
             os.close(directory_fd)
+    except BaseException as exc:
+        caught = exc
+        raise
     finally:
-        temporary.unlink(missing_ok=True)
+        # Unlink is cleanup. Its failure must not replace the write error.
+        try:
+            temporary.unlink(missing_ok=True)
+        except BaseException as cleanup_exc:
+            if caught is None:
+                raise
+            text = f"{type(cleanup_exc).__name__}: {cleanup_exc}"[:300]
+            logging.getLogger(__name__).warning("coordinator json cleanup failed: %s", text)
+            try:
+                caught.add_note(f"coordinator json cleanup failed: {text}")
+            except BaseException as again:
+                logging.getLogger(__name__).warning(
+                    "coordinator json cleanup failed: %s",
+                    f"{type(again).__name__}: {again}"[:300],
+                )
 
 
 def _read_optional_json(path: Path) -> dict[str, Any] | None:

@@ -5802,11 +5802,32 @@ class _BundleReconcileTree:
                     )
             raise
 
-    def __exit__(self, *_args: Any) -> None:
+    def __exit__(self, exc_type, exc, tb) -> None:
+        # A failed body already has the error the caller needs. A close error
+        # is logged and attached; it must not replace that error. A successful
+        # body still raises the close error.
+        cleanup_error: BaseException | None = None
         for fd in reversed(self.fds):
             self.fd_paths.pop(fd, None)
-            os.close(fd)
+            try:
+                os.close(fd)
+            except BaseException as cleanup_exc:
+                if cleanup_error is None:
+                    cleanup_error = cleanup_exc
         self.fds.clear()
+        if cleanup_error is None:
+            return
+        if exc is None:
+            raise cleanup_error
+        text = f"{type(cleanup_error).__name__}: {cleanup_error}"[:300]
+        logging.getLogger(__name__).warning("bundle reconcile fd cleanup failed: %s", text)
+        try:
+            exc.add_note(f"bundle reconcile fd cleanup failed: {text}")
+        except BaseException as again:
+            logging.getLogger(__name__).warning(
+                "bundle reconcile fd cleanup failed: %s",
+                f"{type(again).__name__}: {again}"[:300],
+            )
 
     def _child_relative(self, parent: int, name: str) -> str:
         parent_rel = self.fd_paths[parent]
