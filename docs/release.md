@@ -130,16 +130,18 @@ in `pyproject.toml` and `$SHA` the full commit:
    paths. For every enabled ACP route, including the text server, complete
    initialization, session creation, a known-answer prompt and a terminal
    response with deterministic peers, then run a bounded authenticated canary
-   for each enabled provider. Run the Claude canary in the host PID namespace,
-   not a synthetic-root one, while the caller has same-account processes whose
-   `/proc` entries it cannot read; it must return the known answer with `ok`
-   true and leave no new launcher copy. Agent CLI lookup
-   without an explicit search path (such as codex and grok) uses only
-   `$HOME/.local/bin` and `$HOME/.opencode/bin`, not `PATH`, so a drill's
-   scratch `$HOME` needs links to those executables there. Claude is looked up
-   on `PATH` first, then `$HOME/.local/bin/claude`; control `PATH` so the
-   intended Claude is the one tested. The
-   Claude launcher refuses any world-writable ancestor, so the canary venv and
+   for each enabled provider. Authenticated provider canaries run with the
+   account HOME (the runtime user's real HOME). A scratch HOME is used only
+   for the deterministic, tamper and marker-static steps. The deterministic
+   Claude run is in the host namespace, not a synthetic root. Run the Claude
+   canary in the host PID namespace, not a synthetic-root one, while the
+   caller has same-account processes whose `/proc` entries it cannot read; it
+   must return the known answer with `ok` true and leave no new launcher
+   copy. Agent CLI lookup without an explicit search path (such as codex and
+   grok) uses only `$HOME/.local/bin` and `$HOME/.opencode/bin`, not `PATH`.
+   Claude is looked up on `PATH` first, then `$HOME/.local/bin/claude`;
+   control `PATH` so the intended Claude is the one tested. The Claude
+   launcher refuses any world-writable ancestor, so the canary venv and
    scratch `$HOME` must live outside `/tmp`. With registry access disabled, remove
    a package, introduce an incompatible version and tamper with an executable
    in separate restored copies. Each must refuse before prompt delivery. Import success
