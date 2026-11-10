@@ -1148,6 +1148,21 @@ _SELF_SIGNALLED = {
     ),
     # A session-finish wrapper that a conftest in a test directory registers during collection, after the plugin.
     "late-finish-wrapper": "",
+    # A failed session start skips session finish; the signal lands in an unconfigure wrapper.
+    "start-error": (
+        "def pytest_sessionstart(session):\n    raise pytest.UsageError('probe')\n\n"
+        "@pytest.hookimpl(wrapper=True, tryfirst=True)\n"
+        "def pytest_unconfigure(config):\n    os.kill(os.getpid(), signal.SIGTERM)\n    return (yield)\n"
+    ),
+    # A collection wrapper registered at session start fails after the plugin's own collection wrapper returned.
+    "late-collection-error": (
+        "class Late:\n"
+        "    @pytest.hookimpl(wrapper=True, tryfirst=True)\n"
+        "    def pytest_collection(self):\n        yield\n        raise pytest.UsageError('probe')\n\n"
+        "    @pytest.hookimpl(wrapper=True, tryfirst=True)\n"
+        "    def pytest_sessionfinish(self):\n        os.kill(os.getpid(), signal.SIGTERM)\n        return (yield)\n\n"
+        "def pytest_sessionstart(session):\n    session.config.pluginmanager.register(Late(), 'late')\n"
+    ),
     # The removal of the run itself.
     "removal": (
         "from lu_machinery.common import task_scratch\n\n"
@@ -1160,16 +1175,21 @@ _SELF_SIGNALLED = {
 
 @pytest.mark.parametrize(
     "when",
-    ["session", "nested", "finishing", "configure", "ignored-hup", "finish-wrapper", "late-finish-wrapper", "removal"],
+    [
+        "session", "nested", "finishing", "configure", "ignored-hup", "finish-wrapper", "late-finish-wrapper",
+        "start-error", "late-collection-error", "removal",
+    ],
 )
 def test_a_terminated_session_removes_its_run(tmp_path, when):
     """Defect class: a session ended by SIGTERM (a supervisor's timeout) never reaches its cleanup and leaves its run.
 
     The signal can land in the session's own test, in a nested in-process session that would swallow the
     interrupt, while the session is finishing, or, sent by the session to itself, during another plugin's
-    configure, at session start with SIGHUP ignored, in a session-finish wrapper or during the run's removal.
-    Before the tests run it interrupts the session at its start; once the session is finishing it is only
-    recorded, and the session ends with its own status after the run is removed.
+    configure, at session start with SIGHUP ignored, in a session-finish wrapper (also one a test directory's
+    conftest registers late), in shutdown after a failed start or a failed late collection wrapper, or during
+    the run's removal. A signal before collection interrupts the session when collection starts; one during
+    shutdown is only recorded, and the session ends with its own status after the run is removed. Never may
+    it escape pytest's interrupt handling (exit -2) or leave the run.
     """
     if when in _SELF_SIGNALLED:
         suite, shared, env = _writable_suite(tmp_path, "def test_passes():\n    pass\n")
@@ -1187,7 +1207,10 @@ def test_a_terminated_session_removes_its_run(tmp_path, when):
             [sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider"], cwd=suite, env=env,
             capture_output=True, text=True, timeout=120,
         )
-        expected = pytest.ExitCode.INTERRUPTED if when in {"configure", "ignored-hup"} else pytest.ExitCode.OK
+        expected = {
+            "configure": pytest.ExitCode.INTERRUPTED, "ignored-hup": pytest.ExitCode.INTERRUPTED,
+            "start-error": pytest.ExitCode.USAGE_ERROR, "late-collection-error": pytest.ExitCode.USAGE_ERROR,
+        }.get(when, pytest.ExitCode.OK)
         assert result.returncode == expected, result.stdout + result.stderr
         assert _runs(shared) == [], result.stdout + result.stderr
         return

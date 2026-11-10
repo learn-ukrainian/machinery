@@ -50,11 +50,12 @@ reach xdist workers and child processes.
 
 A terminated session still removes its run: ``SIGTERM`` and ``SIGHUP``, where
 not ignored, are handled for the outermost session in the process from before
-its run exists until the run is removed. While tests run they become
-``KeyboardInterrupt``, so pytest unwinds and runs its cleanups (exit status 2);
-earlier they are raised at session start, and later only recorded, since the
-removal is already under way (see ``_Termination``). The first signal disarms
-both, so a second one ends the process at once.
+its run exists until the run is removed. During collection and the run loop
+they become ``KeyboardInterrupt``, so pytest unwinds and runs its cleanups
+(exit status 2); anywhere else they are only recorded, then raised at the next
+point inside those phases or, once shutdown is under way, left to it (see
+``_Termination``). The first signal disarms both, so a second one ends the
+process at once.
 Only ``SIGKILL`` or a crash leaves the run, for the scheduled sweep.
 """
 
@@ -536,39 +537,40 @@ class _Termination:
 
     Installed before the run is allocated, on each termination signal whose
     disposition is the default; an ignored one stays ignored. The first signal
-    disarms them all, so a repeated one kills at once. What it does depends on
-    the session's phase:
+    disarms them all, so a repeated one kills at once.
 
-    - arming, from installation until ``pytest_sessionstart``: only recorded,
-      then raised at session start, inside pytest's interrupt handling, once
-      every plugin has configured and the run's removal is registered;
-    - running: ``KeyboardInterrupt`` where the process is, which stops a blocked
-      test. If a nested in-process session catches it instead, this session
-      raises it again after the test that ran the nested one;
-    - finishing, from the end of the run loop (or a failed collection) through
-      session finish, unconfigure and every cleanup, until the run is removed:
-      only recorded, because the removal is already under way. The session
-      then ends with its own status.
+    The signal interrupts only where pytest is certain to handle the
+    interrupt: inside this session's own collection and run-loop wrappers,
+    which pytest always calls within its interrupt handling. There it raises
+    ``KeyboardInterrupt`` where the process is, which stops a blocked test,
+    and pytest unwinds and runs the cleanups that remove the run (exit status
+    2). Anywhere else (configure, session start and finish, unconfigure,
+    cleanups, another plugin's hooks) it is only recorded. A recorded signal
+    is raised at the next checkpoint inside those wrappers: their start, and
+    the end of each test, which also catches one that a nested in-process
+    session swallowed. If none follows, the session is already shutting down
+    and removing its run, and it ends with its own status.
     """
 
     def __init__(self) -> None:
         self.received: int | None = None
-        self.phase = "arming"
+        self.interruptible = False
         self.installed: list[int] = []
 
     def handle(self, signum: int, _frame: object) -> None:
         for each in self.installed:
             signal.signal(each, signal.SIG_DFL)
         self.received = signum
-        if self.phase == "running":
+        if self.interruptible:
             raise self.interrupt()
 
     def interrupt(self) -> KeyboardInterrupt:
         name = signal.Signals(self.received).name if self.received is not None else "termination"
         return KeyboardInterrupt(f"pytest scratch: {name} received; removing the run")
 
-    def finish(self) -> None:
-        self.phase = "finishing"
+    def checkpoint(self) -> None:
+        if self.received is not None and self.interruptible:
+            raise self.interrupt()
 
     def disarm(self) -> None:
         """Give back the default disposition of every signal this owner still handles."""
@@ -576,44 +578,25 @@ class _Termination:
             if signal.getsignal(signum) == self.handle:
                 signal.signal(signum, signal.SIG_DFL)
 
-    def raise_if_received(self) -> None:
-        if self.received is not None and self.phase == "running":
-            raise self.interrupt()
-
-    @pytest.hookimpl(tryfirst=True)
-    def pytest_sessionstart(self) -> None:
-        if self.phase == "arming":
-            self.phase = "running"
-        self.raise_if_received()
-
-    @pytest.hookimpl(tryfirst=True)
-    def pytest_runtest_logfinish(self) -> None:
-        self.raise_if_received()
+    def _interruptible(self) -> Generator[None, None, None]:
+        self.interruptible = True
+        try:
+            self.checkpoint()
+            return (yield)
+        finally:
+            self.interruptible = False
 
     @pytest.hookimpl(wrapper=True, tryfirst=True)
     def pytest_collection(self) -> Generator[None, None, None]:
-        try:
-            return (yield)
-        except BaseException:
-            self.finish()  # the session ends here; no run loop follows
-            raise
+        return (yield from self._interruptible())
 
     @pytest.hookimpl(wrapper=True, tryfirst=True)
     def pytest_runtestloop(self) -> Generator[None, None, None]:
-        try:
-            return (yield)
-        finally:
-            # Before any session-finish hook, including wrappers a later conftest registers ahead of this one.
-            self.finish()
-
-    @pytest.hookimpl(wrapper=True, tryfirst=True)
-    def pytest_sessionfinish(self) -> Generator[None, None, None]:
-        self.finish()
-        return (yield)
+        return (yield from self._interruptible())
 
     @pytest.hookimpl(tryfirst=True)
-    def pytest_unconfigure(self) -> None:
-        self.finish()
+    def pytest_runtest_logfinish(self) -> None:
+        self.checkpoint()
 
 
 def _owning_termination() -> bool:
@@ -680,7 +663,7 @@ def pytest_configure(config: pytest.Config) -> None:
             )
         if not _inside(_basetemp_destination(str(config.option.basetemp)), roots):
             raise _outside_root("base temp", str(config.option.basetemp), roots)
-    # Armed before the run exists, so no signal can land between its allocation and its removal's registration.
+    # Armed before the run exists: a signal from here on is at least recorded, never fatal to the run.
     termination = _arm_termination()
     try:
         scratch = _allocate_run()
@@ -722,6 +705,3 @@ def pytest_configure(config: pytest.Config) -> None:
             os.environ["TMPDIR"] = previous_env
 
     config.add_cleanup(restore_tempdir)
-    if termination is not None:
-        # Registered last, so it runs first: every cleanup after it, the run's removal included, is finishing.
-        config.add_cleanup(termination.finish)
