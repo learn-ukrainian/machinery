@@ -63,18 +63,12 @@ from xml.etree import ElementTree
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from lu_machinery.ci._location import checkout_relative, module_name
+from lu_machinery.ci._location import module_name
 from lu_machinery.common import github_client
-from lu_machinery.common.repo_root import product_root
+from lu_machinery.common.repo_root import product_root, product_tree_path
 
-# Duration refresh checks this file out without scripts/common/repo_root.py.
-# _location derives the package name from its own unresolved path and imports
-# nothing from that module.
-DEFAULT_DURATIONS = Path(__file__).with_name("pytest-file-durations.json")
-# Repo-relative path the workflow passes to ``split``. It names DEFAULT_DURATIONS
-# without putting a runner path in the job log.
-COMMITTED_DURATION_PATH = checkout_relative("ci", "pytest-file-durations.json")
-DEFAULT_HISTORY = Path(__file__).with_name("history-tests.txt")
+DEFAULT_DURATIONS = Path("ci/pytest-file-durations.json")
+DEFAULT_HISTORY = Path("ci/history-tests.txt")
 HISTORY_SHARD = 1  # ci.yml: the one pytest shard with a full-history checkout
 TIMING_ARTIFACT = "pytest-file-durations"
 MAX_ARCHIVE_BYTES = 2 * 1024 * 1024
@@ -118,7 +112,7 @@ def resolve_duration_path(refresh_result: str, snapshot: Path) -> Path:
     ``committed``, ``snapshot`` is ignored even if it holds different weights.
     """
     if duration_source_decision(refresh_result) == SOURCE_COMMITTED:
-        return COMMITTED_DURATION_PATH
+        return product_tree_path(*DEFAULT_DURATIONS.parts).relative_to(product_root())
     try:
         validate_durations(json.loads(snapshot.read_text(encoding="utf-8")))
     except (OSError, ValueError):
@@ -387,9 +381,9 @@ Related: .github/workflows/ci.yml; issues #9065 and #11040.
     split.add_argument("--shard", type=int, required=True, help="1-based shard number")
     split.add_argument("--of", type=int, required=True, dest="shard_count", help="total shards, e.g. 16")
     split.add_argument(
-        "--durations", type=Path, default=DEFAULT_DURATIONS, help="file weights (default: committed JSON)"
+        "--durations", type=Path, help="file weights (default: selected checkout's committed JSON)"
     )
-    split.add_argument("--history", type=Path, default=DEFAULT_HISTORY, help="files pinned to the history shard")
+    split.add_argument("--history", type=Path, help="files pinned to the history shard (default: selected checkout's list)")
     split.add_argument(
         "--weights-out",
         type=Path,
@@ -427,7 +421,7 @@ Related: .github/workflows/ci.yml; issues #9065 and #11040.
     refresh.add_argument("--repo", required=True, help="GitHub owner/repo; uses GH_TOKEN with actions:read")
     refresh.add_argument("--output", required=True, type=Path, help="immutable snapshot JSON shared by all shards")
     refresh.add_argument(
-        "--fallback", type=Path, default=DEFAULT_DURATIONS, help="offline weights (default: committed JSON)"
+        "--fallback", type=Path, help="offline weights (default: selected checkout's committed JSON)"
     )
     refresh.add_argument(
         "--limit", type=int, default=SAMPLE_LIMIT, help=f"successful timing samples, 1..20 (default: {SAMPLE_LIMIT})"
@@ -456,7 +450,8 @@ Related: .github/workflows/ci.yml; issues #9065 and #11040.
             return 1
         return 0
     if args.command == "refresh":
-        refresh_durations(args.repo, args.fallback, args.output, args.limit)
+        fallback = args.fallback if args.fallback is not None else product_tree_path(*DEFAULT_DURATIONS.parts)
+        refresh_durations(args.repo, fallback, args.output, args.limit)
         return 0
     if args.command == "duration-source":
         try:
@@ -480,8 +475,10 @@ Related: .github/workflows/ci.yml; issues #9065 and #11040.
     files = [line.strip() for line in sys.stdin if line.strip()]
     if not files:
         parser.error("no test files on stdin")
-    recorded = validate_durations(json.loads(args.durations.read_text(encoding="utf-8")))
-    shard = assign(files, recorded, args.shard_count, read_list(args.history))[args.shard - 1]
+    durations_path = args.durations if args.durations is not None else product_tree_path(*DEFAULT_DURATIONS.parts)
+    history_path = args.history if args.history is not None else product_tree_path(*DEFAULT_HISTORY.parts)
+    recorded = validate_durations(json.loads(durations_path.read_text(encoding="utf-8")))
+    shard = assign(files, recorded, args.shard_count, read_list(history_path))[args.shard - 1]
     if args.weights_out is not None:
         weights = {name: recorded[name] for name in shard if name in recorded}
         args.weights_out.write_text(json.dumps(weights, indent=2, sort_keys=True) + "\n", encoding="utf-8")

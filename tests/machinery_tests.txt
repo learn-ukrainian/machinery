@@ -338,6 +338,7 @@ tests/ci/test_flake_ledger.py
 tests/ci/test_gh_merge_queue_status.py
 tests/ci/test_junit_results.py
 tests/ci/test_opsec_fixtures.py
+tests/ci/test_product_rooted_ci_data.py
 tests/ci/test_pytest_dispatch_cap.py
 tests/ci/test_pytest_fanout_refusal.py
 tests/ci/test_semgrep_baseline.py

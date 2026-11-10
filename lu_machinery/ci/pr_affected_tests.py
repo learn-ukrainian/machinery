@@ -15,18 +15,19 @@ import sys
 import time
 import unicodedata
 import xml.etree.ElementTree as ET
+from contextlib import chdir
 from functools import lru_cache
 from pathlib import Path, PurePosixPath
 
 from lu_machinery.ci.gate import event_tier
+from lu_machinery.common.repo_root import product_root, product_tree_path
 
-# This file is copied alone into a fixture checkout, so its paths come from
-# this file's own directory, with symlinks left unresolved.
+# The runtime package supplies the CLI module name; data belongs to the product.
 _PACKAGE_DIR = Path(__file__).parents[1]
 
 
 def _checkout_relative(*parts: str) -> Path:
-    return Path(_PACKAGE_DIR.name, *parts)
+    return product_tree_path(*parts).relative_to(product_root())
 
 
 def _module_name() -> str:
@@ -44,8 +45,8 @@ def _module_name() -> str:
     return ".".join(parts)
 
 
-GUARDS = _checkout_relative("ci", "pr-affected-guards.txt")
-DURATIONS = _checkout_relative("ci", "pytest-file-durations.json")
+GUARDS = Path("ci/pr-affected-guards.txt")
+DURATIONS = Path("ci/pytest-file-durations.json")
 INFRA = {
     ".github/workflows/ci.yml",
     "pyproject.toml",
@@ -290,6 +291,11 @@ def importing_tests(
 
 def plan(base: str, candidate: str, *, importers: bool = True) -> dict:
     """Use only the original base-to-candidate diff, never a current branch tip."""
+    with chdir(product_root()):
+        return _plan(base, candidate, importers=importers)
+
+
+def _plan(base: str, candidate: str, *, importers: bool) -> dict:
     entries = {}
     for row in git("ls-tree", "-rz", candidate, "--", "tests").split(b"\0"):
         if row:
@@ -300,7 +306,7 @@ def plan(base: str, candidate: str, *, importers: bool = True) -> dict:
         for p in git("diff", "--no-renames", "--name-only", "-z", base, candidate, "--").split(b"\0")
         if p
     ]
-    guards = [safe_path(line, node=True) for line in GUARDS.read_text(encoding="utf-8").splitlines()]
+    guards = [safe_path(line, node=True) for line in product_tree_path(*GUARDS.parts).read_text(encoding="utf-8").splitlines()]
     if not guards or len(set(guards)) != len(guards):
         raise ValueError("empty or duplicate guard list")
     tests = sorted(p for p in changed if TEST.fullmatch(p) and p in entries)
@@ -313,7 +319,7 @@ def plan(base: str, candidate: str, *, importers: bool = True) -> dict:
     for entry in guards:
         if "::" in entry:
             validate_node(entry)
-    durations = json.loads(DURATIONS.read_text(encoding="utf-8"))
+    durations = json.loads(product_tree_path(*DURATIONS.parts).read_text(encoding="utf-8"))
     if not isinstance(durations, dict):
         raise ValueError("invalid duration record")
     # A pinned id always runs: its whole file may be deferred by cost even when it changed.
@@ -455,6 +461,7 @@ def main() -> int:
     args = parser.parse_args()
     stage, reason = "event_identity", "invalid_event_or_candidate"
     try:
+        os.chdir(product_root())
         actual = git("rev-parse", "HEAD").decode().strip()
         payload = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text(encoding="utf-8"))
         tier = event_tier(os.environ["EVENT_NAME"], payload, os.environ["GITHUB_SHA"], os.environ["GITHUB_REF"], actual)

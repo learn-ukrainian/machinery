@@ -28,10 +28,10 @@ if __package__ in (None, ""):
 
 import yaml
 
-from lu_machinery.ci._location import checkout_relative, module_name
-from lu_machinery.common.repo_root import machinery_path
+from lu_machinery.ci._location import module_name
+from lu_machinery.common.repo_root import product_tree_path
 
-PINS_PATH = machinery_path("config/stack_pins.yaml")
+PINS_PATH = Path("config/stack_pins.yaml")
 
 # kind, target. Targets are public package or release identifiers, not host paths.
 # The code CLI's npm package is derived from its pin name so this file does not
@@ -250,11 +250,9 @@ def build_report(path: Path, latest_of: Callable[[str], str]) -> dict[str, Any]:
 
 
 def _pin_names(path: Path | None = None) -> frozenset[str]:
-    """Exact ``name`` strings from the pin file. Unreadable pins publish no names."""
-    try:
-        return frozenset(row["name"] for row in load_pin_rows(path or PINS_PATH))
-    except PinFileError:
-        return frozenset()
+    """Exact names from the selected checkout. Unreadable pins refuse rendering."""
+    selected = path if path is not None else product_tree_path(*PINS_PATH.parts)
+    return frozenset(row["name"] for row in load_pin_rows(selected))
 
 
 def _publish_name(value: object, names: frozenset[str]) -> str:
@@ -330,7 +328,7 @@ def main(argv: list[str] | None = None) -> int:
             "  or the rendered body is not publishable.\n"
             "\n"
             "Related:\n"
-            f"  Pin file: {checkout_relative('config', 'stack_pins.yaml').as_posix()}.\n"
+            "  Pin file: config/stack_pins.yaml in the selected checkout's Python tree.\n"
             "  Policy: docs/best-practices/stack-currency.md section 2.\n"
             "  Publisher: the stack-currency job in .github/workflows/security-audit.yml (#10862)."
         ),
@@ -342,8 +340,8 @@ def main(argv: list[str] | None = None) -> int:
     collect_parser.add_argument(
         "--pins",
         type=Path,
-        default=PINS_PATH,
-        help=f"pin file path (default: {checkout_relative('config', 'stack_pins.yaml').as_posix()})",
+        default=None,
+        help="pin file path (default: selected checkout's config/stack_pins.yaml)",
     )
     collect_parser.add_argument(
         "--out",
@@ -369,7 +367,8 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         if args.command == "collect":
-            report = build_report(args.pins, fetch_latest)
+            pins = args.pins if args.pins is not None else product_tree_path(*PINS_PATH.parts)
+            report = build_report(pins, fetch_latest)
             args.out.parent.mkdir(parents=True, exist_ok=True)
             args.out.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
             print(f"stack-currency rows={len(report['rows'])}")
@@ -380,6 +379,9 @@ def main(argv: list[str] | None = None) -> int:
         print("stack-currency body written")
     except (PinFileError, PublicationRefused) as exc:
         print(str(exc))
+        return 1
+    except (OSError, ValueError):
+        print("stack currency inputs unavailable")
         return 1
     return 0
 

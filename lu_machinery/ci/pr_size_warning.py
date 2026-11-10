@@ -11,7 +11,7 @@ from pathlib import Path
 
 from lu_machinery.ci._location import module_name
 from lu_machinery.common.git_context import sanitized_git_env
-from lu_machinery.common.repo_root import machinery_root, rules_dir
+from lu_machinery.common.repo_root import machinery_root, product_root, rules_dir
 from lu_machinery.review.target_resolution import is_test_path
 
 SHA = re.compile(r"[0-9a-fA-F]{40}")
@@ -241,7 +241,7 @@ Related: #11470; agents_extensions/shared/rules/workflow.md, Small batches.
 """,
     )
     parser.add_argument(
-        "--repo", type=Path, default=Path.cwd(), help="Git checkout to measure (default: cwd; example: .)."
+        "--repo", type=Path, default=None, help="Git checkout to measure (default: selected product checkout)."
     )
     parser.add_argument(
         "--base", help="Base commit, full 40-hex SHA (default: absent; event payload takes precedence)."
@@ -265,6 +265,7 @@ Related: #11470; agents_extensions/shared/rules/workflow.md, Small batches.
     policy_path = None
     lookup_error = None
     try:
+        args.repo = product_root(args.repo.absolute() if args.repo is not None else None)
         policy_path = rules_dir() / "workflow.md"
     except (OSError, ValueError) as exc:
         lookup_error = exc

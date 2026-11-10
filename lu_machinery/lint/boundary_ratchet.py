@@ -55,7 +55,7 @@ from lu_machinery.ci.components import (
     scan_imports,
     scan_runtime_edges,
 )
-from lu_machinery.common.repo_root import machinery_path, product_root
+from lu_machinery.common.repo_root import _PRODUCT_TREE, product_root, product_tree_path
 
 
 def _machinery_top() -> str:
@@ -63,15 +63,10 @@ def _machinery_top() -> str:
     return Path(os.path.abspath(__file__)).parents[1].name
 
 
-# The product scripts tree keeps this name after the machinery package moves. It is
-# absent from this repository and matches nothing here (residual I10-product, #10).
-_PRODUCT_TREE = "scripts"
-
-
 def _trees() -> tuple[str, ...]:
     """Checkout-relative trees the census reads: the machinery package, then the product tree.
 
-    In this checkout both are the same directory, so the tuple has one name.
+    An absent tree contributes no files. The in-tree product copy has one name.
     """
 
     return tuple(dict.fromkeys((_machinery_top(), _PRODUCT_TREE)))
@@ -81,10 +76,13 @@ def _in_trees(parts: Sequence[str]) -> bool:
     return bool(parts) and parts[0] in _trees()
 
 
-BASELINE_PATH = Path(__file__).with_name("boundary_baseline.json")
-CONFIG_PATH = machinery_path("config/package_boundary.yaml")
+BASELINE_PATH = Path("lint/boundary_baseline.json")
+CONFIG_PATH = Path("config/package_boundary.yaml")
 SCHEMA = "boundary-ratchet-baseline.v1"
 CONFIG_SCHEMA = "package-boundary.v1"
+_CONFIGURED_LOADER_PATHS = frozenset(
+    f"{tree}/{CONFIGURED_LOADER_PATH.partition('/')[2]}" for tree in _trees()
+)
 ROLES = frozenset({"machinery", "product", "shared"})
 _GIT_TIMEOUT_SECONDS = 30
 _SKIP_DIRS = frozenset({"__pycache__"})
@@ -444,7 +442,7 @@ def _entries_from_rows(rows: object, where: str) -> Counter[tuple[str, str]]:
         count = row.get("count")
         if (
             not isinstance(path, str)
-            or not path.startswith(f"{_machinery_top()}/")
+            or not path.startswith(tuple(f"{tree}/" for tree in _trees()))
             or path.startswith(("/", "\\"))
             or ".." in Path(path).parts
             or not isinstance(module, str)
@@ -953,7 +951,7 @@ def _dynamic_count(graph: Mapping[str, object], config: Classified, role: str) -
     callers: set[str] = set()
     for site in loads:
         path = site[0]
-        if path == CONFIGURED_LOADER_PATH or _role_of(path, config) != role:
+        if path in _CONFIGURED_LOADER_PATHS or _role_of(path, config) != role:
             continue
         if site in configured:
             callers.add(path)
@@ -965,8 +963,8 @@ def _dynamic_count(graph: Mapping[str, object], config: Classified, role: str) -
 def _configured_line(graph: Mapping[str, object]) -> str:
     """The configured-entry-point loader's own non-literal imports, and the files that call it."""
     loads, configured = _nonliteral_loads(graph)
-    implementation = sum(path == CONFIGURED_LOADER_PATH for path, _line in loads)
-    callers = {path for path, _line in configured if path != CONFIGURED_LOADER_PATH}
+    implementation = sum(path in _CONFIGURED_LOADER_PATHS for path, _line in loads)
+    callers = {path for path, _line in configured if path not in _CONFIGURED_LOADER_PATHS}
     return f"configured-entry-point implementation={implementation} callers={len(callers)}"
 
 
@@ -1089,12 +1087,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         nargs="*",
         help=f"Python files to check (default: {_TREES_HELP}). Other paths recheck {_TREES_HELP}.",
     )
-    parser.add_argument("--baseline", type=Path, default=BASELINE_PATH, help="Baseline JSON.")
+    parser.add_argument("--baseline", type=Path, help="Baseline JSON (default: selected checkout's baseline).")
     parser.add_argument(
         "--config",
         type=Path,
-        default=CONFIG_PATH,
-        help="Package boundary YAML.",
+        default=None,
+        help="Package boundary YAML (default: selected checkout's configuration).",
     )
     parser.add_argument(
         "--root",
@@ -1109,9 +1107,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
     try:
-        root = (args.root if args.root is not None else product_root()).resolve()
-        baseline = args.baseline if args.baseline.is_absolute() else root / args.baseline
-        config_path = args.config if args.config.is_absolute() else root / args.config
+        root = product_root(args.root.absolute() if args.root is not None else None).resolve()
+        baseline = product_tree_path(*BASELINE_PATH.parts, root=root) if args.baseline is None else (
+            args.baseline if args.baseline.is_absolute() else root / args.baseline
+        )
+        config_path = product_tree_path(*CONFIG_PATH.parts, root=root) if args.config is None else (
+            args.config if args.config.is_absolute() else root / args.config
+        )
         if args.write_baseline:
             config = load_config(config_path)
             violations = classification_violations(root, config)

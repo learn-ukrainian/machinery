@@ -18,9 +18,10 @@ if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from lu_machinery.ci._location import checkout_relative
+from lu_machinery.common.repo_root import _PRODUCT_TREE, product_root, product_tree_path
 
 THRESHOLD_BYTES = 5 * 1024 * 1024  # 5,242,880 bytes (5 MB)
-DEFAULT_ALLOWLIST = checkout_relative("ci", "large_files_allowlist.txt").as_posix()
+DEFAULT_ALLOWLIST = f"{_PRODUCT_TREE}/ci/large_files_allowlist.txt"
 _HEX_DIGITS = set(string.hexdigits)
 
 
@@ -356,14 +357,13 @@ def build_parser() -> argparse.ArgumentParser:
         "Use in CI checks and merge queue; do not use for historical scanning or working-tree file discovery."
     )
     script = checkout_relative("ci", "check_large_files.py").as_posix()
-    allowlist = DEFAULT_ALLOWLIST
     artifacts = checkout_relative("storage", "artifacts.py").as_posix()
     epilog = (
         "Examples:\n"
-        f"  .venv/bin/python {script} --changed-vs-base origin/main\n"
-        f"  .venv/bin/python {script} --seed-allowlist\n\n"
+        f"  .venv/bin/python {script} --repo-root \"$PWD\" --changed-vs-base origin/main\n"
+        f"  .venv/bin/python {script} --repo-root \"$PWD\" --seed-allowlist\n\n"
         "Outputs:\n"
-        f"  None during verification; updates {allowlist} when seeding.\n\n"
+        "  None during verification; seeding updates ci/large_files_allowlist.txt in the selected checkout's Python tree.\n\n"
         "Exit codes:\n"
         "  0 = all checked blobs pass or are within threshold\n"
         "  1 = oversized unallowlisted blob, Git error, or missing ref\n"
@@ -376,7 +376,7 @@ def build_parser() -> argparse.ArgumentParser:
     g.add_argument("--changed-vs-base", metavar="REF", help="Git ref to compute merge-base against HEAD.")
     g.add_argument("--seed-allowlist", action="store_true", help="Seed allowlist file from blobs in seed-ref tree.")
     p.add_argument(
-        "--allowlist", type=Path, default=None, help=f"Path to allowlist file (default: {DEFAULT_ALLOWLIST})."
+        "--allowlist", type=Path, default=None, help="Path to allowlist file (default: selected checkout's ci/large_files_allowlist.txt)."
     )
     p.add_argument(
         "--threshold",
@@ -386,16 +386,16 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p.add_argument("--seed-ref", default="origin/main", help="Git ref to seed allowlist from (default: origin/main).")
     p.add_argument(
-        "--repo-root", type=Path, default=None, help="Root path of Git repository (default: current directory)."
+        "--repo-root", type=Path, default=None, help="Root path of Git repository (default: selected product checkout)."
     )
     return p
 
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-    repo_root = args.repo_root or Path.cwd()
-    allowlist_path = args.allowlist or (repo_root / DEFAULT_ALLOWLIST)
     try:
+        repo_root = product_root(args.repo_root.absolute() if args.repo_root is not None else None)
+        allowlist_path = args.allowlist or product_tree_path("ci", "large_files_allowlist.txt", root=repo_root)
         if args.seed_allowlist:
             seeded = seed_allowlist(args.seed_ref, allowlist_path, repo_root, args.threshold)
             print(
@@ -404,6 +404,10 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         violations = check_changed_vs_base(args.changed_vs_base, allowlist_path, repo_root, args.threshold)
         if violations:
+            allowlist_label = (
+                allowlist_path.relative_to(repo_root).as_posix()
+                if allowlist_path.is_relative_to(repo_root) else "the selected allowlist"
+            )
             print(
                 f"ERROR: Large file guard violation: {len(violations)} blob(s) exceed {args.threshold} bytes (5 MB):",
                 file=sys.stderr,
@@ -414,7 +418,7 @@ def main(argv: list[str] | None = None) -> int:
                 "\nNewly added or modified blobs over 5242880 bytes cannot be tracked directly in Git.\n"
                 "How to proceed:\n"
                 f"  1. Move the large file behind artifact storage using '{checkout_relative('storage', 'artifacts.py').as_posix()}'.\n"
-                f"  2. If the file must remain tracked in Git, add an entry to '{DEFAULT_ALLOWLIST}'\n"
+                f"  2. If the file must remain tracked in Git, add an entry to '{allowlist_label}'\n"
                 "     with the exact path, size in bytes, and an explicit reason.",
                 file=sys.stderr,
             )

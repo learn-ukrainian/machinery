@@ -94,6 +94,7 @@ def test_new_oversized_blob_fails(tmp_path: Path) -> None:
     assert f"Size: {THRESHOLD_BYTES + 1} bytes" in res.stderr
     assert f"threshold: {THRESHOLD_BYTES} bytes" in res.stderr
     assert "lu_machinery/storage/artifacts.py" in res.stderr
+    assert str(repo) not in res.stderr
 
 
 def test_allowlisted_oversized_blob_passes(tmp_path: Path) -> None:
@@ -492,6 +493,7 @@ def test_cli_help_standards() -> None:
     assert "5242880" in help_text
     assert "--seed-ref" in help_text
     assert "origin/main" in help_text
+    assert '--repo-root "$PWD"' in help_text
 
     # Epilog standards: Examples, Outputs, Exit codes, Related
     assert "Examples:" in help_text

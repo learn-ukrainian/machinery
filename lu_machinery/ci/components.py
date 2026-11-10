@@ -28,11 +28,10 @@ from lu_machinery.ci import deploy_paths, frontend_change_scope
 from lu_machinery.ci._location import checkout_relative, module_name, package_dir_name
 from lu_machinery.ci.junit_results import parse_junit
 from lu_machinery.common.jsonl import jsonl_lines
-from lu_machinery.common.repo_root import machinery_path, product_root, project_interpreter
+from lu_machinery.common.repo_root import _PRODUCT_TREE, machinery_path, product_root, project_interpreter
 from lu_machinery.storage.test_baseline import nodeid_to_junit_id
 
 _PACKAGE_NAME = Path(__file__).parents[1].name
-_PACKAGE_PREFIX = f"{_PACKAGE_NAME}."
 NODE_IDS = (
     "open-model-data", "atlas-data", "atlas-frontend", "practice-frontend",
     "curriculum-generation", "curriculum-display", "harness", "shared-core",
@@ -98,11 +97,6 @@ def load_manifest(path: Path | None = None) -> dict:
             raise ValueError("edge names an unknown node")
     data["path_prefixes"] = _with_machinery_prefixes(data["path_prefixes"])
     return data
-
-
-# The manifest spells shared prefixes under the product scripts tree, which keeps
-# this name after the machinery package moves.
-_PRODUCT_TREE = "scripts"
 
 
 def _with_machinery_prefixes(prefixes: list[dict]) -> list[dict]:
@@ -387,11 +381,15 @@ def scan_imports(
     unresolved = set()
     configured_loads = set()
     loads_unproven = {}
-    bare_packages = {name.split(".")[1] for name in packages if name.startswith(_PACKAGE_PREFIX)}
+    roots = tuple(dict.fromkeys((_PACKAGE_NAME, _PRODUCT_TREE)))
+    prefixes = tuple(f"{name}." for name in roots)
+    bare_packages = {name.split(".")[1] for name in packages if name.startswith(prefixes)}
 
     def resolve(module):
         # Legacy sys.path entries expose scripts packages without scripts.*.
-        return modules.get(module) or modules.get(_PACKAGE_PREFIX + module)
+        return modules.get(module) or next(
+            (modules[prefix + module] for prefix in prefixes if prefix + module in modules), None
+        )
 
     def add_import(importer, module, *, required, line):
         target = resolve(module)
@@ -403,9 +401,8 @@ def scan_imports(
                 parent = modules.get(".".join(canonical.split(".")[:index]))
                 if parent and parent.endswith("/__init__.py"):
                     edges.add((importer, parent))
-        elif required and module not in packages and _PACKAGE_PREFIX + module not in packages and (
-            module == _PACKAGE_NAME or module.startswith(_PACKAGE_PREFIX)
-            or _PACKAGE_PREFIX + module in packages
+        elif required and module not in packages and not any(prefix + module in packages for prefix in prefixes) and (
+            module in roots or module.startswith(prefixes)
             or module.split(".")[0] in bare_packages
         ):
             unresolved.add((importer, line, "missing-local-import"))
@@ -493,7 +490,7 @@ def scan_imports(
                     add_import(path, str(value), required=True, line=node.lineno)
                 else:
                     edges.add((path, target))
-            elif value is None or kind == "file" or str(value).startswith(_PACKAGE_PREFIX):
+            elif value is None or kind == "file" or str(value).startswith(prefixes):
                 unresolved.add((path, node.lineno, "nonliteral-or-missing-load"))
                 if configured:
                     configured_loads.add((path, node.lineno))
