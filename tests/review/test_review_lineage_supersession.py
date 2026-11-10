@@ -189,3 +189,61 @@ def test_a_malformed_witness_supersedes_nothing_and_the_lineage_still_refuses(da
     # The witness is read first, so its own defect is the refusal.
     with pytest.raises(LineageRefused, match=refusal):
         lineage(witness, orphan)
+
+
+def crashed_without_reply(task, sha, *, minute, provider_pgid=None, result_sha256=None, publish=False):
+    """A terminal crashed run. The supervisor pid is set; the reply was never written.
+
+    ``provider_pgid`` and ``result_sha256`` default to null, the shape of a run whose provider never started.
+    """
+    run, comment = review(task, sha, "VERDICT: APPROVE", minute=minute, status="crashed", publish=publish)
+    record = {
+        **run.record,
+        "provider_pgid": provider_pgid,
+        "result_sha256": result_sha256,
+        "pid": 1001,
+        "process_start": "supervisor:1",
+    }
+    return ReviewRun(task, record, None), comment
+
+
+def test_a_crashed_run_that_never_started_a_provider_is_admitted():
+    """Defect class: a crashed review with no provider pgid, no result digest and no reply blocks the lineage forever.
+
+    The supervisor pid can be recorded. That run carries no verdict, so a later published APPROVE still stands.
+    """
+    approve = review("sol-r1", APPROVED, "VERDICT: APPROVE", minute=1)
+    crashed = crashed_without_reply("crashed-r0", EARLY, minute=0)
+    seats, superseded = lineage(crashed, approve)
+    assert seats == ["openai"]
+    assert superseded == []
+
+
+@pytest.mark.parametrize(
+    "provider_pgid,result_sha256",
+    [(4242, None), (None, "ab" * 32)],
+    ids=["provider-pgid", "result-digest"],
+)
+def test_a_crashed_run_whose_record_does_not_prove_the_provider_never_ran_is_still_refused(
+    provider_pgid, result_sha256
+):
+    """Defect class: a missing reply is admitted when the record shows a provider pgid or a result digest.
+
+    Either fact means a provider may have run, so the missing reply still refuses.
+    """
+    approve = review("sol-r1", APPROVED, "VERDICT: APPROVE", minute=1)
+    crashed = crashed_without_reply(
+        "crashed-r0", EARLY, minute=0, provider_pgid=provider_pgid, result_sha256=result_sha256
+    )
+    with pytest.raises(LineageRefused, match=r"review task crashed-r0 \(crashed\) has no reply on record"):
+        lineage(crashed, approve)
+
+
+def test_a_published_verdict_naming_a_never_started_run_is_refused():
+    """Defect class: a published verdict is accepted for a review run that never started a provider.
+
+    A verdict cannot belong to that run, so the lineage refuses it.
+    """
+    crashed = crashed_without_reply("never-started", APPROVED, minute=1, publish=True)
+    with pytest.raises(LineageRefused, match="published verdict of task never-started has no review run on record"):
+        lineage(crashed)
