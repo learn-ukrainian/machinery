@@ -212,7 +212,8 @@ def _systemd_exec_start(home: Path) -> subprocess.CompletedProcess[str]:
                 env[key] = value
     (command,) = unit["ExecStart"]
     (cwd,) = unit["WorkingDirectory"]
-    rendered = command.replace("%h", str(home)).replace("@PYTHON@", sys.executable)
+    product_python = f"{home}/projects/learn-ukrainian/.venv/bin/python"
+    rendered = command.replace("%h", str(home)).replace(product_python, sys.executable, 1)
     return subprocess.run(
         shlex.split(rendered),
         cwd=cwd.replace("%h", str(home)),
@@ -493,7 +494,7 @@ def test_unset_configuration_reexecs_with_this_interpreter(clean_env, monkeypatc
 def test_unset_configuration_keeps_todays_systemd_exec_start() -> None:
     unit = _unit_lines()
     assert unit["ExecStart"] == [
-        "@PYTHON@ -c 'import os,sys; from importlib.resources import files; "
+        "%h/projects/learn-ukrainian/.venv/bin/python -c 'import os,sys; from importlib.resources import files; "
         'os.execvp("bash", ["bash", str(files("lu_machinery.orchestration")'
         '.joinpath("run_project_state_reporter.sh")), *sys.argv[1:]])\''
     ]

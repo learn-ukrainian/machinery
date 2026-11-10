@@ -12,7 +12,7 @@ Environment=LU_PRODUCT_ROOT=%h/projects/learn-ukrainian
 # LU_PRODUCT_ROOT defaults to WorkingDirectory and can be overridden in that file.
 EnvironmentFile=-%h/.config/learn-ukrainian/machinery.env
 # The wrapper is the installed package resource, not a path under WorkingDirectory.
-ExecStart=@PYTHON@ -c 'import os,sys; from importlib.resources import files; os.execvp("bash", ["bash", str(files("lu_machinery.orchestration").joinpath("run_project_state_reporter.sh")), *sys.argv[1:]])'
+ExecStart=%h/projects/learn-ukrainian/.venv/bin/python -c 'import os,sys; from importlib.resources import files; os.execvp("bash", ["bash", str(files("lu_machinery.orchestration").joinpath("run_project_state_reporter.sh")), *sys.argv[1:]])'
 WorkingDirectory=%h/projects/learn-ukrainian
 
 [Install]
