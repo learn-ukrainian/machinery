@@ -424,6 +424,7 @@ _BUNDLE_HELPER_CALLS = {
 _PRIMITIVE_CALLS = {
     "BundleReconcileRefused", "_BundleImportLedger", "_bundle_member_path", "_bundle_member_path(path).split",
     "any", "found.append", "found.extend", "handle.fileno", "handle.flush", "handle.read", "handle.write", "len",
+    "exc.add_note", "logging.getLogger", "logging.getLogger(__name__).warning",
     "os.close", "os.fdopen", "os.fstat", "os.fsync", "os.link", "os.listdir", "os.mkdir", "os.open",
     "os.replace", "os.rmdir", "os.stat", "os.unlink", "relative.split", "reversed", "self.__exit__",
     "self._child_relative", "self._descendant_rels", "self._error_with_cleanup", "self._leaf_exists",
@@ -432,7 +433,7 @@ _PRIMITIVE_CALLS = {
     "self.fd_paths.pop", "self.fds.append", "self.fds.clear", "self.ledger.drop", "self.ledger.intend_existing",
     "self.ledger.intend_new", "self.ledger.mark_published", "self.lstat_nofollow", "self.parent", "self.release",
     "self.remove", "self.signature", "self.write", "stat.S_ISDIR", "stat.S_ISFIFO", "stat.S_ISLNK", "stat.S_ISREG",
-    "suppress", "uuid.uuid4",
+    "suppress", "type", "uuid.uuid4",
 }
 
 
@@ -1328,3 +1329,26 @@ def test_containment_rejects_unanchored_or_unchecked_primitive_paths(mutation):
     source = source.replace(marker, marker + '        ' + mutation + '\n', 1)
     with pytest.raises(AssertionError):
         _assert_bundle_containment(source)
+
+
+def test_enter_keeps_directory_error_when_fd_close_fails(tmp_path, monkeypatch, caplog):
+    """Defect class: os.close during _BundleReconcileTree entry cleanup replaced the entry error."""
+    state = tmp_path / "state"
+    state.mkdir()
+
+    def fail_directory(self, *args, **kwargs):
+        raise OSError("injected directory failure")
+
+    def fail_close(fd):
+        raise OSError("injected fd close failure")
+
+    monkeypatch.setattr(th._BundleReconcileTree, "directory", fail_directory)
+    monkeypatch.setattr(os, "close", fail_close)
+    with (
+        caplog.at_level("WARNING", logger="lu_machinery.orchestration.thread_handoff"),
+        pytest.raises(OSError, match="injected directory failure") as raised,
+        th._BundleReconcileTree(state, "cursor", "lineage"),
+    ):
+        pass
+    assert any("injected fd close failure" in note for note in raised.value.__notes__)
+    assert "bundle reconcile fd cleanup failed" in caplog.text

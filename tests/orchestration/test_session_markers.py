@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import json
+import os
 from datetime import UTC, datetime, timedelta
+
+import pytest
 
 from lu_machinery.orchestration.session_markers import (
     MARKER_SCHEMA,
@@ -83,3 +86,29 @@ def test_marker_rejects_path_like_identity(tmp_path) -> None:
         is None
     )
     assert list(tmp_path.iterdir()) == []
+
+
+def test_marker_write_keeps_replace_error_when_unlink_fails(tmp_path, monkeypatch, caplog):
+    """Defect class: temp unlink failure replaced the session-marker write error."""
+
+    def fail_replace(*args, **kwargs):
+        raise OSError("injected replace failure")
+
+    def fail_unlink(self, missing_ok=False):
+        raise OSError("injected unlink failure")
+
+    monkeypatch.setattr(os, "replace", fail_replace)
+    monkeypatch.setattr(type(tmp_path), "unlink", fail_unlink)
+    with (
+        caplog.at_level("WARNING", logger="lu_machinery.orchestration.session_markers"),
+        pytest.raises(OSError, match="injected replace failure") as raised,
+    ):
+        write_session_marker(
+            agent="claude",
+            harness="claude-code",
+            instance_id="session-cleanup",
+            pid=1234,
+            root=tmp_path,
+        )
+    assert any("injected unlink failure" in note for note in raised.value.__notes__)
+    assert "session marker cleanup failed" in caplog.text

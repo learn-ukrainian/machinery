@@ -2021,3 +2021,36 @@ def test_walk_refuses_a_target_longer_than_the_path_limit(tmp_path, monkeypatch)
     assert caught.value.args == ("target-too-long",)
     assert target not in str(caught.value)
     assert _fd_count() == before
+
+
+def test_open_parent_keeps_walk_error_when_close_fails(tmp_path, monkeypatch, caplog):
+    """Defect class: os.close while walking an artifact parent replaced the walk error."""
+    (tmp_path / "a").mkdir()
+    root_fd = os.open(tmp_path, os.O_RDONLY | os.O_DIRECTORY)
+    real_open = wa.open_directory_component
+    real_close = os.close
+    calls = {"n": 0}
+
+    def flaky(parent, name):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return real_open(parent, name)
+        raise OSError("injected walk failure")
+
+    def fail_close(fd):
+        if fd == root_fd:
+            return real_close(fd)
+        raise OSError("injected fd close failure")
+
+    monkeypatch.setattr(wa, "open_directory_component", flaky)
+    monkeypatch.setattr(os, "close", fail_close)
+    try:
+        with (
+            caplog.at_level("WARNING", logger="lu_machinery.orchestration.worktree_artifacts"),
+            pytest.raises(OSError, match="injected walk failure") as raised,
+        ):
+            wa._open_parent(root_fd, ("a", "b"))
+        assert any("injected fd close failure" in note for note in raised.value.__notes__)
+        assert "artifact parent fd cleanup failed" in caplog.text
+    finally:
+        real_close(root_fd)

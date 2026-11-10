@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import os
 import tempfile
 from collections.abc import Callable, Iterator
@@ -138,8 +139,19 @@ def write_session_marker(
             os.fsync(handle.fileno())
         os.chmod(temporary_path, 0o600)
         os.replace(temporary_path, path)
-    except BaseException:
-        temporary_path.unlink(missing_ok=True)
+    except BaseException as exc:
+        try:
+            temporary_path.unlink(missing_ok=True)
+        except BaseException as cleanup_exc:
+            text = f"{type(cleanup_exc).__name__}: {cleanup_exc}"[:300]
+            logging.getLogger(__name__).warning("session marker cleanup failed: %s", text)
+            try:
+                exc.add_note(f"session marker cleanup failed: {text}")
+            except BaseException as again:
+                logging.getLogger(__name__).warning(
+                    "session marker cleanup failed: %s",
+                    f"{type(again).__name__}: {again}"[:300],
+                )
         raise
     return path
 

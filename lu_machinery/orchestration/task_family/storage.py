@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import fcntl
 import json
+import logging
 import os
 import tempfile
 import time
@@ -32,9 +33,20 @@ def atomic_write_json(path: Path, payload: dict[str, Any]) -> None:
             os.fsync(directory_fd)
         finally:
             os.close(directory_fd)
-    except BaseException:
-        with suppress(FileNotFoundError):
-            os.unlink(temp_name)
+    except BaseException as exc:
+        try:
+            with suppress(FileNotFoundError):
+                os.unlink(temp_name)
+        except BaseException as cleanup_exc:
+            text = f"{type(cleanup_exc).__name__}: {cleanup_exc}"[:300]
+            logging.getLogger(__name__).warning("task family json cleanup failed: %s", text)
+            try:
+                exc.add_note(f"task family json cleanup failed: {text}")
+            except BaseException as again:
+                logging.getLogger(__name__).warning(
+                    "task family json cleanup failed: %s",
+                    f"{type(again).__name__}: {again}"[:300],
+                )
         raise
 
 
@@ -52,9 +64,20 @@ def atomic_write_text(path: Path, text: str) -> None:
             os.fsync(directory_fd)
         finally:
             os.close(directory_fd)
-    except BaseException:
-        with suppress(FileNotFoundError):
-            os.unlink(temp_name)
+    except BaseException as exc:
+        try:
+            with suppress(FileNotFoundError):
+                os.unlink(temp_name)
+        except BaseException as cleanup_exc:
+            detail = f"{type(cleanup_exc).__name__}: {cleanup_exc}"[:300]
+            logging.getLogger(__name__).warning("task family text cleanup failed: %s", detail)
+            try:
+                exc.add_note(f"task family text cleanup failed: {detail}")
+            except BaseException as again:
+                logging.getLogger(__name__).warning(
+                    "task family text cleanup failed: %s",
+                    f"{type(again).__name__}: {again}"[:300],
+                )
         raise
 
 

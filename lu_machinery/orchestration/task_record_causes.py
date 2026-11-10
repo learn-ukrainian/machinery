@@ -13,6 +13,7 @@ import errno
 import fcntl
 import functools
 import json
+import logging
 import os
 import re
 import stat
@@ -510,8 +511,19 @@ def _open_diagnostic(directory_fd: int, name: str, flags: int = os.O_RDWR | os.O
         if stat.S_IMODE(info.st_mode) != 0o600:
             os.fchmod(fd, 0o600)
         return fd
-    except BaseException:
-        os.close(fd)
+    except BaseException as exc:
+        try:
+            os.close(fd)
+        except BaseException as cleanup_exc:
+            text = f"{type(cleanup_exc).__name__}: {cleanup_exc}"[:300]
+            logging.getLogger(__name__).warning("diagnostic fd cleanup failed: %s", text)
+            try:
+                exc.add_note(f"diagnostic fd cleanup failed: {text}")
+            except BaseException as again:
+                logging.getLogger(__name__).warning(
+                    "diagnostic fd cleanup failed: %s",
+                    f"{type(again).__name__}: {again}"[:300],
+                )
         raise
 
 

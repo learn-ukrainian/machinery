@@ -830,3 +830,24 @@ def test_final_worktree_delete_hand_refuses_the_repository_root(tmp_path):
     error = worktree_claims.git_worktree_remove(repo, repo, force=True)
 
     assert error == "delete guard refused worktree target: delete target is the repository root"
+
+
+def test_lock_error_survives_fd_close_failure(tmp_path, monkeypatch, caplog):
+    """Defect class: os.close after a failed flock replaced the worktree lock error."""
+
+    def fail_flock(fd, op):
+        raise OSError("injected flock failure")
+
+    def fail_close(fd):
+        raise OSError("injected fd close failure")
+
+    monkeypatch.setattr(fcntl, "flock", fail_flock)
+    monkeypatch.setattr(os, "close", fail_close)
+    with (
+        caplog.at_level("WARNING", logger="lu_machinery.orchestration.worktree_claims"),
+        pytest.raises(worktree_claims.WorktreeLockError, match="injected flock failure") as raised,
+        worktree_claims.worktree_lock(tmp_path / "tree", lock_dir=tmp_path / "locks", timeout_s=0),
+    ):
+        pass
+    assert any("injected fd close failure" in note for note in raised.value.__notes__)
+    assert "worktree lock fd cleanup failed" in caplog.text
