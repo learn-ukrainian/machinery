@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import shlex
 import subprocess
 import sys
@@ -28,6 +29,7 @@ from lu_machinery.review.model_catalog import (
     retired_model_refusal,
     risk_reviewer_refusal,
     runtime_model_matches_requested,
+    unknown_model_refusal,
     validate_catalog,
     validate_glm_alias_consumers,
 )
@@ -299,31 +301,47 @@ def test_unknown_activity_and_unknown_model():
         activity_role_refusal("claude-opus-5-5", "approve")
     check_model_admission("cursor", "auto", "workspace-write", {}, b"")
     check_model_admission("claude", "opus", "read-only", {}, b"")
+    check_model_admission("claude", "sonnet[1m]", "read-only", {}, b"")
     check_model_admission("claude", "fable", "read-only", {}, b"")
     check_model_admission("codex", "gpt-6.1-sol-high", "read-only", {}, b"")
     check_model_admission("cursor", "grok-4.7-build", "read-only", {}, b"")
+    check_model_admission("cursor", "grok-4.7-high", "read-only", {}, b"")
     check_model_admission("agy", "claude-opus-5-5-high", "read-only", {}, b"")
-    for pin in ("claude-opus-5-6", "claude-sonnet-5-6", "claude-fable-5-3", "gpt-6-luna-garbage", "grok-4.7-build-fast"):
-        with pytest.raises(ValueError, match=rf"model '{pin}' is not in the model catalog"):
+    for pin in (
+        "claude-opus-5-6", "claude-sonnet-5-6", "claude-fable-5-3", "claude-opus-5-6[1m]",
+        "gpt-6-luna-garbage", "gpt-6-luna-highest", "grok-4.7-build-fast",
+    ):
+        with pytest.raises(ValueError, match=re.escape(unknown_model_refusal(pin))):
             check_model_admission("codex", pin, "read-only", {}, b"")
-    with pytest.raises(ValueError, match="is not in the model catalog"):
+    with pytest.raises(ValueError, match=re.escape(unknown_model_refusal("auto"))):
         check_model_admission("codex", "auto", "read-only", {}, b"")
 
 
 def test_unknown_google_ais_gemma_stays_refused_under_the_routing_override(monkeypatch):
-    """An unknown google-ais Gemma spelling stays refused when the spend override is set.
+    """An unknown Gemma spelling of the retired row stays refused when the spend override is set.
 
-    The retired catalog row is refused before that override. A spelling the catalog
-    does not name must be too, or the override would admit it.
+    Identity stays None. The retired prefix is what refuses it, before the override.
+    google-ais also refuses an uncatalogued Gemma and a catalog Gemma whose row is not active.
     """
     from lu_machinery.ai_agent_bridge.routing_guard import RoutingGuardError, assert_model_routing_allowed
 
-    spelling = "google-ais/gemma-4-26b-a4b-it"
-    with pytest.raises(RoutingGuardError, match="is not in the model catalog"):
-        assert_model_routing_allowed(spelling, context="probe")
+    unknown_gemma = (
+        "google-ais/gemma-4-26b-a4b-it",
+        "gemma-4-26b-a4b-it",
+        "openrouter/google/gemma-4-26b-a4b-it",
+    )
+    for spelling in unknown_gemma:
+        assert canonical_model_id(spelling) is None
+        expected = (
+            f"model {spelling!r} names no catalog model; its prefix "
+            "google-ais/gemma-4-31b-it is retired in the model catalog"
+        )
+        with pytest.raises(RoutingGuardError, match=re.escape(expected)):
+            assert_model_routing_allowed(spelling, context="probe")
     monkeypatch.setenv("LU_ROUTING_GUARD_OVERRIDE", "1")
-    with pytest.raises(RoutingGuardError, match="is not in the model catalog"):
-        assert_model_routing_allowed(spelling, context="probe")
+    for spelling in unknown_gemma:
+        with pytest.raises(RoutingGuardError, match="is retired in the model catalog"):
+            assert_model_routing_allowed(spelling, context="probe")
     for still_retired in (
         "google-ais/gemma-4-31b-it",
         "gemma-4-31b-it",
@@ -332,6 +350,14 @@ def test_unknown_google_ais_gemma_stays_refused_under_the_routing_override(monke
     ):
         with pytest.raises(RoutingGuardError, match="retired in the model catalog"):
             assert_model_routing_allowed(still_retired, context="probe")
+    monkeypatch.delenv("LU_ROUTING_GUARD_OVERRIDE", raising=False)
+    with pytest.raises(RoutingGuardError, match=re.escape(unknown_model_refusal("google-ais/gemmaX"))):
+        assert_model_routing_allowed("google-ais/gemmaX", context="probe")
+    catalog = deepcopy(load_model_catalog())
+    catalog["models"]["google-ais/gemma-4-31b-it"]["lifecycle"] = "hold"
+    monkeypatch.setattr("lu_machinery.review.model_catalog.load_model_catalog", lambda: catalog)
+    with pytest.raises(RoutingGuardError, match="is not admitted for routing"):
+        assert_model_routing_allowed("google-ais/gemma-4-31b-it", context="probe")
 
 
 @pytest.mark.parametrize(
@@ -793,6 +819,9 @@ def test_catalog_refuses_a_direct_bounded_worker_route():
         ("claude-opus-5-6", None),
         ("claude-sonnet-5-6", None),
         ("claude-fable-5-3", None),
+        ("claude-opus-5-6[1m]", None),
+        ("claude-opus-5-5-thinking-xhigh", "claude-opus-5-5"),
+        ("gpt-6-luna-highest", None),
         ("grok-4.7-build", "grok-4.7"),
         ("grok-4.7-build-fast", None),
         ("grok-4.7-cursor-fallback", None),
@@ -848,6 +877,31 @@ def test_retired_model_refusal_names_id_and_replacement(model, retired_id):
 @pytest.mark.parametrize("model", [None, "", "gpt-6.1-sol", "gpt-6.1-sol-high", "gpt-6-luna", "grok-4.7", "auto"])
 def test_retired_model_refusal_admits_non_retired_ids(model):
     assert retired_model_refusal(model) is None
+
+
+@pytest.mark.parametrize(
+    ("model", "prefix", "kind"),
+    [
+        ("claude-opus-5-6", "claude-opus-5", "retired"),
+        ("claude-sonnet-5-6", "claude-sonnet-5", "retired"),
+        ("claude-fable-5-3", "claude-fable-5", "retired"),
+        ("gemma-4-26b-a4b-it", "google-ais/gemma-4-31b-it", "retired"),
+        ("google-ais/gemma-4-26b-a4b-it", "google-ais/gemma-4-31b-it", "retired"),
+        ("openrouter/google/gemma-4-26b-a4b-it", "google-ais/gemma-4-31b-it", "retired"),
+        ("composer-2.5-fast", "composer-2.5", "retired"),
+        ("gpt-6-astra-extra", "gpt-6-astra", "red-team"),
+    ],
+)
+def test_retired_model_refusal_refuses_an_unknown_spelling_of_a_retired_or_red_team_prefix(model, prefix, kind):
+    """An unknown extension keeps no identity, and the retired or red-team owner still refuses it."""
+    assert canonical_model_id(model) is None
+    refusal = retired_model_refusal(model)
+    if kind == "retired":
+        assert refusal == f"model {model!r} names no catalog model; its prefix {prefix} is retired in the model catalog"
+    else:
+        assert refusal == (
+            f"model {model!r} names no catalog model; its prefix {prefix} is restricted to red-team review (#10437)"
+        )
 
 
 def test_replaced_by_must_sit_on_retired_model_and_name_active_model():

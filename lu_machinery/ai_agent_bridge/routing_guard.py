@@ -80,22 +80,16 @@ def assert_model_routing_allowed(model: str | None, *, context: str) -> None:
 
     ``context`` names the call site for the error message (and telemetry).
     """
-    from lu_machinery.review.model_catalog import canonical_model_id, retired_model_refusal
+    from lu_machinery.review.model_catalog import (
+        canonical_model_id,
+        load_model_catalog,
+        retired_model_refusal,
+        unknown_model_refusal,
+    )
 
     if refusal := retired_model_refusal(model):
         raise RoutingGuardError(f"{context}: {refusal}")
     text = str(model or "").strip()
-    ais_prefix = _GOOGLE_AIS_PREFIX_RE.match(text) if text else None
-    # An unknown google-ais Gemma spelling is not the free lane. Refuse it
-    # before the spend override, as a retired catalog id is refused above,
-    # without inheriting that row. A spelling the catalog names is not this
-    # branch, so a later catalog row needs no edit here.
-    if (
-        ais_prefix
-        and _GEMMA_FAMILY_MODEL_RE.match(text[ais_prefix.end() :])
-        and canonical_model_id(text) is None
-    ):
-        raise RoutingGuardError(f"{context}: {text!r} is not in the model catalog")
     if os.environ.get(_OVERRIDE_ENV) == "1":
         return
     if not text:
@@ -163,6 +157,15 @@ def assert_model_routing_allowed(model: str | None, *, context: str) -> None:
             "the agy subscription seat). "
             f"Set {_OVERRIDE_ENV}=1 only with explicit user authorization."
         )
+    if ais_prefix:
+        # Fail closed (C-4967): google-ais carries only a Gemma model the catalog names and whose
+        # catalog row admits routing. The catalog row decides; no model id is hard-coded here.
+        catalog = load_model_catalog()
+        identity = canonical_model_id(text, catalog)
+        if identity is None:
+            raise RoutingGuardError(f"{context}: {unknown_model_refusal(text)}")
+        if catalog["models"][identity]["lifecycle"] not in {"active", "fallback"}:
+            raise RoutingGuardError(f"{context}: model {text!r} is not admitted for routing")
 
 
 def assert_agent_routing_allowed(agent: str | None, *, context: str) -> None:

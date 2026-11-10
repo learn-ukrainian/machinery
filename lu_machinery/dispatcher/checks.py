@@ -19,6 +19,7 @@ from lu_machinery.review.model_catalog import (
     is_cursor_auto_selector,
     load_model_catalog,
     retired_model_refusal,
+    unknown_model_refusal,
 )
 
 _NATIVE_CLAUDE_ALIASES = frozenset({"haiku", "opus", "sonnet", "fable"})
@@ -158,7 +159,7 @@ def check_model_admission(agent: str, model: str, mode: str, options: dict, prom
     catalog = load_model_catalog()
     identity = canonical_model_id(_normalize_native_claude_alias(agent, model), catalog)
     if identity is None and not (agent == "cursor" and is_cursor_auto_selector(model)):
-        raise ValueError(f"model {model!r} is not in the model catalog")
+        raise ValueError(unknown_model_refusal(model))
     if not catalog["models"].get(identity, {}).get("red_team_only"):
         return
     context = {key: options.get(key) for key in ("review_mode", "review_profile", "requested_role")}
