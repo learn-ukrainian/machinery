@@ -1,9 +1,14 @@
-"""Build and maintain immutable API release snapshots.
+"""Build and maintain immutable API release snapshots of a product checkout.
 
-The API process runs code from ``.runtime/api/releases/<full-sha>`` while
+The API process runs product code from ``.runtime/api/releases/<full-sha>`` while
 using selected mutable data directories from the live checkout.  This module
 keeps publication deliberately small and explicit so the shell launcher and
 its tests share the same atomicity and pruning rules.
+
+A snapshot holds the product's code only. The machinery that serves it is the
+installed package, versioned by its release, so it is never archived: the
+snapshot directory is first on the API child's import path, and a machinery
+copy there would shadow the installed release.
 """
 
 from __future__ import annotations
@@ -33,11 +38,11 @@ from lu_machinery.common.release_layout import (
     RELEASES_RELATIVE_PATH,
 )
 
-# The machinery package directory, named by this file's location (design-v1 amendment 1), is always
-# archived. The product's code and schema directories are archived when the commit has them; in this
-# checkout the machinery package is the product's code directory, so the names are deduplicated.
-MACHINERY_ARCHIVE_PATH = Path(os.path.abspath(__file__)).parents[1].name
-ARCHIVE_PATHS: tuple[str, ...] = tuple(dict.fromkeys((MACHINERY_ARCHIVE_PATH, "scripts", "schemas")))
+# The product's code directory: the package the Monitor app loads the product entry from
+# (``product_contribution.PRODUCT_DATA``, ``ops.product_entry``). Every release commit must have it.
+PRODUCT_CODE_PATH = "scripts"
+# The product's directories a snapshot archives: its code, then its schemas when the commit has them.
+ARCHIVE_PATHS: tuple[str, ...] = (PRODUCT_CODE_PATH, "schemas")
 
 # A hung lsof must not stall release pruning or API startup. On timeout the
 # probe fails closed and pruning is skipped, same as when lsof is missing.
@@ -155,7 +160,7 @@ class _StrictArchiveInfo(tarfile.TarInfo):
 
 
 def _present_archive_paths(repo_root: Path, sha: str) -> tuple[str, ...]:
-    """The :data:`ARCHIVE_PATHS` the commit has as directories; the machinery package is required."""
+    """The :data:`ARCHIVE_PATHS` the commit has as directories; the product code directory is required."""
     try:
         listing = subprocess.run(
             ["git", "-C", str(repo_root), "--no-optional-locks", "ls-tree", "-d", "--name-only", sha, "--",
@@ -165,8 +170,8 @@ def _present_archive_paths(repo_root: Path, sha: str) -> tuple[str, ...]:
     except (OSError, subprocess.SubprocessError) as exc:
         raise ReleaseSnapshotError(f"could not list the release code paths at {sha}") from exc
     present = tuple(name for name in ARCHIVE_PATHS if name in listing)
-    if MACHINERY_ARCHIVE_PATH not in present:
-        raise ReleaseSnapshotError(f"release commit {sha} has no {MACHINERY_ARCHIVE_PATH}/ directory")
+    if PRODUCT_CODE_PATH not in present:
+        raise ReleaseSnapshotError(f"release commit {sha} has no {PRODUCT_CODE_PATH}/ directory")
     return present
 
 
@@ -292,8 +297,8 @@ def _archive_files(release_dir: Path) -> Iterable[Path]:
     for source_dir in ARCHIVE_PATHS:
         directory = release_dir / source_dir
         if not directory.is_dir():
-            # A product path the commit lacks was never archived; the manifest digest covers the rest.
-            if source_dir != MACHINERY_ARCHIVE_PATH and not directory.exists() and not directory.is_symlink():
+            # An optional path the commit lacks was never archived; the manifest digest covers the rest.
+            if source_dir != PRODUCT_CODE_PATH and not directory.exists() and not directory.is_symlink():
                 continue
             raise ReleaseSnapshotError(f"release archive is missing {source_dir}/")
         for path in sorted(directory.rglob("*")):
