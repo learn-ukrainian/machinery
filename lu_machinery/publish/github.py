@@ -990,26 +990,33 @@ def _transfer_endpoint(value, environment):
 
 
 def _transfer_checkouts():
-    """The trees a transfer receipt must stay out of: the product checkout and this package's tree.
+    checkouts = [gate.ROOT.resolve()]
+    with contextlib.suppress(NotAGitRepositoryError):
+        checkouts.append(resolve_main_root_without_git(gate.ROOT).resolve())
+    return checkouts
 
-    An installed release lives in site-packages, so its own location names no product
-    checkout; ``product_root()`` does, and an unresolved product root refuses the transfer.
+
+def _product_checkouts(environment):
+    """The product checkout and its primary, which a transfer receipt must also stay out of.
+
+    The package's own tree is no product checkout on an installed release (it is
+    site-packages), so ``product_root()`` under the publication's environment names it;
+    an unresolved product root refuses the transfer. The root is canonical before its
+    primary is looked up, so a symlinked root still bounds its primary checkout.
     """
     from lu_machinery.common.repo_root import ProductRootError, product_root
 
     try:
-        product = Path(product_root())
+        product = Path(product_root(env=environment)).resolve()
     except ProductRootError:
         raise _transfer_refused("the product checkout is unresolved, so the receipt boundary is unknown") from None
-    checkouts = []
-    for root in (product, gate.ROOT):
-        checkouts.append(root.resolve())
-        with contextlib.suppress(NotAGitRepositoryError):
-            checkouts.append(resolve_main_root_without_git(root).resolve())
+    checkouts = [product]
+    with contextlib.suppress(NotAGitRepositoryError):
+        checkouts.append(resolve_main_root_without_git(product).resolve())
     return checkouts
 
 
-def _reserve_transfer_receipt(value, source, number):
+def _reserve_transfer_receipt(value, source, number, environment):
     """Create a new 0600 receipt in a private directory outside every checkout.
 
     The directory is opened once and checked through that descriptor (owner, mode, real
@@ -1028,7 +1035,8 @@ def _reserve_transfer_receipt(value, source, number):
             raise _transfer_refused("the receipt directory must be an absolute path")
     directory = Path(os.path.abspath(directory))
     # Lexical check first, so nothing is ever created inside a checkout.
-    if any(directory.resolve().is_relative_to(root) for root in _transfer_checkouts()):
+    checkouts = [*_product_checkouts(environment), *_transfer_checkouts()]
+    if any(directory.resolve().is_relative_to(root) for root in checkouts):
         raise _transfer_refused("the receipt directory must be outside the repository")
     try:
         directory.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -1038,7 +1046,9 @@ def _reserve_transfer_receipt(value, source, number):
     try:
         info = os.fstat(directory_fd)
         real = Path(os.readlink(f"/proc/self/fd/{directory_fd}"))
-        if not real.is_absolute() or any(real.is_relative_to(root) for root in _transfer_checkouts()):
+        if not real.is_absolute() or any(
+            real.is_relative_to(root) for root in (*_product_checkouts(environment), *_transfer_checkouts())
+        ):
             raise _transfer_refused("the receipt directory must be outside the repository")
         if not stat.S_ISDIR(info.st_mode) or info.st_uid != os.geteuid() or info.st_mode & 0o077:
             raise _transfer_refused("the receipt directory must be a mode 0700 directory owned by this user")
@@ -1266,7 +1276,7 @@ def _issue_transfer(fields, *, runner, cwd, environment, capture_output, text):
         with tempfile.TemporaryDirectory(
             prefix="lu-transfer-", dir=ensure_scratch_root(), ignore_cleanup_errors=True
         ) as directory:
-            sink.update(_reserve_transfer_receipt(fields.get("receipt_dir"), source, number))
+            sink.update(_reserve_transfer_receipt(fields.get("receipt_dir"), source, number, environment))
             return _transfer_checked(
                 fields, source, destination, receipt, sink, Path(directory),
                 runner=runner, cwd=cwd, environment=environment, capture_output=capture_output, text=text,
