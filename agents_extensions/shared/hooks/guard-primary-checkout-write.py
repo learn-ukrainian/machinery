@@ -826,11 +826,16 @@ class ShellWord(str):
 class ShellSegment(list):
     """Expanded words with their shell scope and neighboring control operators."""
 
-    def __init__(self, words: list[ShellWord], scope: tuple[int, ...], prev_op: str, next_op: str) -> None:
+    def __init__(
+        self, words: list[ShellWord], scope: tuple[int, ...], prev_op: str, next_op: str, uv_dir_bound: bool = False
+    ) -> None:
         super().__init__(words)
         self.scope = scope
         self.prev_op = prev_op
         self.next_op = next_op
+        # The command may have bound ``UV_WORKING_DIR`` before this segment runs.
+        self.uv_dir_bound = uv_dir_bound
+        self.command_uv_env: str | None = None
 
 
 Bindings = dict[str, Optional[str]]  # noqa: UP045 - Python 3.9 parser
@@ -908,7 +913,11 @@ class _Expander:
         self.ifs_changed = False  # unquoted values may split anywhere: none is known
         self.assigned: Optional[set[str]] = None  # noqa: UP045
         self.stable: Optional[set[str]] = None  # noqa: UP045
+        self.opaque_seen = False  # some command could have bound any variable
+        self.first_opaque = False
+        self.uv_dir_bound = False  # the segment being built may see a bound UV_WORKING_DIR
         if first is not None:
+            self.first_opaque = first.opaque_seen
             self.assigned = set(first.values) | first.tainted
             self.stable = {name for name, seen in first.values.items() if name not in first.tainted and len(seen) == 1}
 
@@ -931,7 +940,17 @@ class _Expander:
             self.ifs_changed = True
             self._opaque()
 
+    def _bound(self, name: str) -> bool:
+        """Whether the command may have bound ``name`` before this point, in any way."""
+        replayable = self.assigned is not None and (self.frames or self.poisoned)
+        return (
+            self.opaque_seen
+            or name in self.bindings
+            or bool(replayable and (name in (self.assigned or ()) or self.first_opaque))
+        )
+
     def _opaque(self) -> None:
+        self.opaque_seen = True
         for name in {*self.bindings, "HOME"}:
             self.bindings[name] = None
             self.tainted.add(name)
@@ -1015,6 +1034,7 @@ class _Expander:
 
     def _segment(self, tokens: list[str], prev_op: str, next_op: str) -> list[ShellWord]:
         body, header = self._strip_reserved(tokens)
+        self.uv_dir_bound = self._bound("UV_WORKING_DIR")
         if not body:
             return []
         unconditional = (
@@ -1046,7 +1066,7 @@ class _Expander:
     def _command_effects(self, body: list[str], *, unconditional: bool) -> None:
         cmd, idx = _command_word(body)
         args = body[idx + 1 :]
-        if _runs_in_child(body, idx):
+        if _command_position(body)[2]:
             return
         if cmd in _OPAQUE_ASSIGNERS:
             self._opaque()
@@ -1057,6 +1077,15 @@ class _Expander:
             for tok in args:
                 if _ASSIGN_RE.match(tok):
                     self._assign(tok, unconditional=unconditional and cmd in _BINDING_DECLARATIONS)
+                    continue
+                # A computed operand (``"$N=value"``) binds the name it expands to; an unknown
+                # one may bind any name.
+                word = self._expand(tok)
+                if word.unresolved_at is not None:
+                    self._opaque()
+                    return
+                if word != tok and (match := _ASSIGN_RE.match(word)):
+                    self._forget(match.group(1))
                 elif cmd != "export":
                     self._forget_leading_names([tok])
         elif cmd in _CLOBBERERS:
@@ -1074,7 +1103,7 @@ class _Expander:
                 words = self._segment(current, prev_op, tok)
                 if words:
                     scope = tuple(int(frame.split(":", 1)[1]) for frame in self.frames if frame.startswith("paren:"))
-                    segments.append(ShellSegment(words, scope, prev_op, tok))
+                    segments.append(ShellSegment(words, scope, prev_op, tok, self.uv_dir_bound))
                 current = []
             elif tok == "\n" and prev_op in _CONTINUING_OPS:
                 continue
@@ -1259,14 +1288,18 @@ def _uv_launch(segment: list[str], i: int) -> _UvLaunch | None:
     return _UvLaunch(min(i, len(segment)), module, directory)
 
 
-def _command_position(segment: list[str]) -> tuple[int, _UvLaunch | None]:
-    """Index of a segment's real command, skipping wrappers, and the uv launch that runs it.
+def _command_position(segment: list[str]) -> tuple[int, _UvLaunch | None, bool]:
+    """Index of a segment's real command, skipping wrappers, the uv launch that runs it, and
+    whether an executable wrapper runs it as a child process.
 
     The launch is set only when the command is the target of ``uv run``, ``uv tool run`` or
-    ``uvx`` itself, not of a wrapper uv runs.
+    ``uvx`` itself, not of a wrapper uv runs. A child cannot change the shell's directory or
+    variables: ``env cd x`` and ``uv run export X=1`` leave the shell as it was. The ``time``
+    keyword is already gone from a segment, so a remaining ``time`` is the executable.
     """
     i = 0
     launch: _UvLaunch | None = None
+    child = False
     while i < len(segment):
         tok = segment[i]
         if getattr(tok, "shell_redirect", tok in _REDIRECT_OPS):
@@ -1279,13 +1312,14 @@ def _command_position(segment: list[str]) -> tuple[int, _UvLaunch | None]:
             tok = Path(tok).name
         if tok in _PATH_WRAPPERS or tok in {"builtin", "command", "exec"}:
             launch = None  # a wrapper after the launcher runs the command, not uv
+        child = child or tok in _PATH_WRAPPERS
         if tok in {"uv", "uvx"}:
             launch = _uv_launch(segment, i)
             if launch is None:
                 break
             i = launch.index
             continue
-        if tok in {"time", "nohup", "builtin", "exec"}:
+        if tok == "builtin":
             i += 1
             continue
         if tok == "command":
@@ -1308,7 +1342,7 @@ def _command_position(segment: list[str]) -> tuple[int, _UvLaunch | None]:
                 else:
                     break
             continue
-        if tok in {"nice", "timeout", "stdbuf", "sudo"}:
+        if tok in {"nice", "timeout", "stdbuf", "sudo", "time", "nohup", "exec"}:
             wrapper = tok
             i += 1
             value_opts = {
@@ -1316,6 +1350,9 @@ def _command_position(segment: list[str]) -> tuple[int, _UvLaunch | None]:
                 "timeout": {"-s", "--signal", "-k", "--kill-after"},
                 "sudo": {"-u", "-g", "-h", "-p", "-C", "-T"},
                 "stdbuf": {"-i", "-o", "-e"},
+                "time": {"-f", "--format", "-o", "--output"},  # GNU time; -p, -a, -v, -q, -- are flags
+                "nohup": set(),  # --help, --version, --
+                "exec": {"-a"},  # the bash builtin: -a NAME, -c, -l
             }[wrapper]
             while i < len(segment) and segment[i].startswith("-"):
                 option = segment[i]
@@ -1324,17 +1361,7 @@ def _command_position(segment: list[str]) -> tuple[int, _UvLaunch | None]:
                 i += 1  # duration
             continue
         break
-    return min(i, len(segment)), launch
-
-
-def _runs_in_child(segment: list[str], index: int) -> bool:
-    """Whether an executable wrapper before ``segment[index]`` runs it as a child process.
-
-    A child cannot change the shell's directory or variables: ``env cd x`` and
-    ``uv run export X=1`` leave the shell as it was. The ``time`` keyword is already gone
-    from a segment, so a remaining ``time`` is the executable.
-    """
-    return any(Path(word).name in _PATH_WRAPPERS and not _ASSIGN_RE.match(word) for word in segment[:index])
+    return min(i, len(segment)), launch, child
 
 
 def _command_word(segment: list[str]) -> tuple[str, int]:
@@ -1351,7 +1378,7 @@ def _command_word(segment: list[str]) -> tuple[str, int]:
     ``uv run -m M`` runs ``python -m M``, so it reads as ``python`` at the index of ``M``;
     ``_command_argvs`` gives the argv uv runs.
     """
-    i, launch = _command_position(segment)
+    i, launch, _ = _command_position(segment)
     if i >= len(segment):
         return "", i
     if launch is not None and launch.module:
@@ -1367,7 +1394,7 @@ def _command_argvs(segment: list[str]) -> list[list[str]]:
     with Python. Whether a target is a directory depends on the directory the command runs
     in, which the guard cannot always know, so a ``uv run`` target is read both ways.
     """
-    i, launch = _command_position(segment)
+    i, launch, _ = _command_position(segment)
     if i >= len(segment):
         return []
     argv = list(segment[i:])
@@ -1838,7 +1865,9 @@ def _find_start_paths(args: list[str]) -> list[str]:
     return starts or ["."]
 
 
-def _find_targets(args: list[str], *, cwd: str | None, main_root: Path | None, depth: int) -> list[str]:
+def _find_targets(
+    args: list[str], *, cwd: str | None, main_root: Path | None, depth: int, uv_env: str | None = None
+) -> list[str]:
     starts = _find_start_paths(args)
     targets: list[str] = []
     if "-delete" in args:
@@ -1872,7 +1901,12 @@ def _find_targets(args: list[str], *, cwd: str | None, main_root: Path | None, d
             for start in starts:
                 instantiated = [start if word == "{}" else word for word in template]
                 nested = _writer_targets(
-                    instantiated, cwd=exec_cwd, redirect_cwd=exec_cwd, main_root=main_root, depth=depth + 1
+                    instantiated,
+                    cwd=exec_cwd,
+                    redirect_cwd=exec_cwd,
+                    main_root=main_root,
+                    depth=depth + 1,
+                    uv_env=uv_env,
                 )
                 for target in nested:
                     if exec_cwd is None and not Path(target).is_absolute():
@@ -1881,7 +1915,7 @@ def _find_targets(args: list[str], *, cwd: str | None, main_root: Path | None, d
                     targets.append(target)
         else:
             nested = _writer_targets(
-                template, cwd=exec_cwd, redirect_cwd=exec_cwd, main_root=main_root, depth=depth + 1
+                template, cwd=exec_cwd, redirect_cwd=exec_cwd, main_root=main_root, depth=depth + 1, uv_env=uv_env
             )
             for target in nested:
                 if exec_cwd is None and not Path(target).is_absolute():
@@ -1892,9 +1926,18 @@ def _find_targets(args: list[str], *, cwd: str | None, main_root: Path | None, d
 
 
 def _writer_targets(
-    segment: list[str], *, cwd: str | None, redirect_cwd: str | None, main_root: Path | None, depth: int
+    segment: list[str],
+    *,
+    cwd: str | None,
+    redirect_cwd: str | None,
+    main_root: Path | None,
+    depth: int,
+    uv_env: str | None = None,
 ) -> list[str]:
-    """Targets of the writer in one expanded segment, including exec wrappers."""
+    """Targets of the writer in one expanded segment, including exec wrappers.
+
+    ``uv_env`` is the ``UV_WORKING_DIR`` the command inherits; a nested shell inherits it.
+    """
     targets = _redirect_targets(segment)
     for target in targets:
         if isinstance(target, ShellWord):
@@ -1952,7 +1995,9 @@ def _writer_targets(
             unknown.decision_reason = "undecidable_eval_primary_target"
             targets.append(unknown)
         else:
-            targets.extend(bash_write_targets(" ".join(args), cwd=cwd, main_root=main_root, depth=depth + 1))
+            targets.extend(
+                bash_write_targets(" ".join(args), cwd=cwd, main_root=main_root, depth=depth + 1, uv_env=uv_env)
+            )
     elif cmd in {"sh", "bash", "zsh", "dash"}:
         script = _shell_command_script(segment[idx + 1 :])
         if script is not None:
@@ -1961,9 +2006,11 @@ def _writer_targets(
                 unknown.decision_reason = "undecidable_shell_script_target"
                 targets.append(unknown)
             else:
-                targets.extend(bash_write_targets(str(script), cwd=cwd, main_root=main_root, depth=depth + 1))
+                targets.extend(
+                    bash_write_targets(str(script), cwd=cwd, main_root=main_root, depth=depth + 1, uv_env=uv_env)
+                )
     elif cmd == "find":
-        targets.extend(_find_targets(segment[idx + 1 :], cwd=cwd, main_root=main_root, depth=depth))
+        targets.extend(_find_targets(segment[idx + 1 :], cwd=cwd, main_root=main_root, depth=depth, uv_env=uv_env))
     return targets
 
 
@@ -2045,25 +2092,28 @@ def _changed_cwd(cwd: str | None, path: str) -> str | None:
     return None
 
 
-def _env_command_cwd(segment: list[str], cwd: str | None, *, uv_dir_named: bool = False) -> str | None:
-    """Apply ``env -C`` / ``--chdir`` and uv's working directory before resolving a wrapped writer.
+# uv's working directory from the environment, ``UV_WORKING_DIR``: a value, None when unset, or
+# this unresolved word when the command may have changed it (it then makes the cwd unknown).
+_UV_DIR_UNKNOWN = ShellWord("$UV_WORKING_DIR", unresolved_at=0)
+# ``bash_write_targets`` default: the hook's own environment, which the agent's shell inherits.
+_UV_DIR_INHERITED = object()
 
-    uv changes to ``--directory``, else to ``UV_WORKING_DIR``. A literal binding or unset
-    in this segment, else the inherited environment, gives that variable's value;
-    ``uv_dir_named`` (the command names the variable elsewhere, so an earlier statement may
-    bind it) makes an inherited value unknown.
+
+def _command_context(segment: list[str], cwd: str | None, uv_env: str | None) -> tuple[str | None, str | None]:
+    """The cwd a segment's command runs in and the ``UV_WORKING_DIR`` it inherits.
+
+    Applies ``env -C`` / ``--chdir``, then uv's ``--directory``, else its ``UV_WORKING_DIR``:
+    ``uv_env`` is the shell's value, changed by this segment's own ``NAME=`` prefix and
+    ``env`` bindings, ``env -u`` and ``env -i``.
     """
     segment = _without_redirects(segment)
-    command_index, _ = _command_position(segment)
-    uv_dir: str | None = None
-    inherit = True  # False once this segment binds or unsets UV_WORKING_DIR; uv_dir holds it
+    command_index = _command_position(segment)[0]
     i = 0
     while i < command_index:
         word = segment[i]
         if _ASSIGN_RE.match(word):
             if word.startswith("UV_WORKING_DIR="):
-                inherit = False
-                uv_dir = word.tail(len("UV_WORKING_DIR=")) if isinstance(word, ShellWord) else word.split("=", 1)[1]
+                uv_env = word.tail(len("UV_WORKING_DIR=")) if isinstance(word, ShellWord) else word.split("=", 1)[1]
             i += 1
             continue
         name = Path(word).name
@@ -2071,14 +2121,8 @@ def _env_command_cwd(segment: list[str], cwd: str | None, *, uv_dir_named: bool 
             launch = _uv_launch(segment, i)
             if launch is None:
                 break
-            directory = launch.directory
-            if directory is None and not inherit:
-                directory = uv_dir or None
-            elif directory is None and uv_dir_named:
-                cwd = None
-            elif directory is None:
-                directory = os.environ.get("UV_WORKING_DIR") or None
-            if directory is not None:
+            directory = launch.directory if launch.directory is not None else uv_env
+            if directory:
                 cwd = _changed_cwd(cwd, directory)
             i = launch.index
             continue
@@ -2102,7 +2146,7 @@ def _env_command_cwd(segment: list[str], cwd: str | None, *, uv_dir_named: bool 
             if arg in {"-i", "--ignore-environment", "--unset=UV_WORKING_DIR"} or (
                 arg in {"-u", "--unset"} and i + 1 < len(segment) and segment[i + 1] == "UV_WORKING_DIR"
             ):
-                uv_dir, inherit = None, False
+                uv_env = None
             if arg in {"-u", "--unset", "-S", "--split-string"}:
                 i += 2
             elif (
@@ -2111,12 +2155,11 @@ def _env_command_cwd(segment: list[str], cwd: str | None, *, uv_dir_named: bool 
                 or _ASSIGN_RE.match(arg)
             ):
                 if arg.startswith("UV_WORKING_DIR="):
-                    inherit = False
-                    uv_dir = arg.tail(len("UV_WORKING_DIR=")) if isinstance(arg, ShellWord) else arg.split("=", 1)[1]
+                    uv_env = arg.tail(len("UV_WORKING_DIR=")) if isinstance(arg, ShellWord) else arg.split("=", 1)[1]
                 i += 1
             else:
                 break
-    return cwd
+    return cwd, uv_env
 
 
 def _cdpath_binding(segment: list[str]) -> bool | None:
@@ -2130,13 +2173,18 @@ def _cdpath_binding(segment: list[str]) -> bool | None:
     return None
 
 
-def _segments_with_cwd(command: str, cwd: str | None):
-    """Yield expanded segments with the cwd they execute from."""
+def _segments_with_cwd(command: str, cwd: str | None, uv_env: object = _UV_DIR_INHERITED):
+    """Yield expanded segments with the cwd they execute from.
+
+    ``uv_env`` is the ``UV_WORKING_DIR`` the shell inherits. Each segment records the
+    value its command inherits as ``command_uv_env``. By default the shell inherits the
+    hook's own environment.
+    """
+    if uv_env is _UV_DIR_INHERITED:
+        uv_env = os.environ.get("UV_WORKING_DIR") or None
     scope_cwds: dict[tuple[int, ...], str | None] = {(): cwd}
     scope_dirs: dict[tuple[int, ...], list[str | None]] = {(): []}
     scope_cdpath_empty: dict[tuple[int, ...], bool] = {(): False}
-    # Any statement may bind uv's working directory for a later one.
-    uv_dir_named = "UV_WORKING_DIR" in command
     for segment in _expanded_segments(command):
         scope = segment.scope
         if scope not in scope_cwds:
@@ -2146,7 +2194,7 @@ def _segments_with_cwd(command: str, cwd: str | None):
         effective_cwd = scope_cwds[scope]
         argv = _without_redirects(segment)
         cmd, idx = _command_word(argv)
-        isolated = segment.prev_op in {"|", "|&"} or segment.next_op in {"|", "|&", "&"} or _runs_in_child(argv, idx)
+        isolated = segment.prev_op in {"|", "|&"} or segment.next_op in {"|", "|&", "&"} or _command_position(argv)[2]
         cdpath_binding = _cdpath_binding(segment)
         cdpath_empty_here = cdpath_binding if cdpath_binding is not None else scope_cdpath_empty[scope]
         stack_only = cmd in {"pushd", "popd"} and "-n" in argv[idx + 1 :]
@@ -2180,18 +2228,29 @@ def _segments_with_cwd(command: str, cwd: str | None):
                 scope_cdpath_empty[scope] = cdpath_binding
             elif not cdpath_binding:
                 scope_cdpath_empty[scope] = False
-        yield segment, _env_command_cwd(segment, effective_cwd, uv_dir_named=uv_dir_named), effective_cwd
+        # Once the command may have bound the variable, the shell's value is unknown.
+        shell_uv_env = _UV_DIR_UNKNOWN if segment.uv_dir_bound else uv_env
+        command_cwd, segment.command_uv_env = _command_context(segment, effective_cwd, shell_uv_env)
+        yield segment, command_cwd, effective_cwd
 
 
 def bash_write_targets(
-    command: str, *, cwd: str | None = None, main_root: Path | None = None, depth: int = 0
+    command: str,
+    *,
+    cwd: str | None = None,
+    main_root: Path | None = None,
+    depth: int = 0,
+    uv_env: object = _UV_DIR_INHERITED,
 ) -> list[str]:
     """Best-effort list of files a Bash command would create/modify.
 
     Covers redirection and the writer commands listed above. Other write
     vectors are intentionally out of scope (see module docstring); they rely on
-    physical worktree isolation and the monitor/git-shim layers.
+    physical worktree isolation and the monitor/git-shim layers. ``uv_env`` is the
+    ``UV_WORKING_DIR`` the command's shell inherits; by default the hook's environment.
     """
+    if uv_env is _UV_DIR_INHERITED:
+        uv_env = os.environ.get("UV_WORKING_DIR") or None
     _refuse_nested_ansi_c_quoting(command, depth)
     if depth >= _MAX_SHELL_DEPTH:
         unknown = ShellWord("shell recursion limit")
@@ -2199,12 +2258,17 @@ def bash_write_targets(
         return [unknown]
     targets: list[str] = []
     pipeline: list[str] = []
-    for segment, effective_cwd, shell_cwd in _segments_with_cwd(command, cwd):
+    for segment, effective_cwd, shell_cwd in _segments_with_cwd(command, cwd, uv_env):
         if segment.prev_op not in {"|", "|&"}:
             pipeline = []
         pipeline.extend(segment)
         segment_targets = _writer_targets(
-            segment, cwd=effective_cwd, redirect_cwd=shell_cwd, main_root=main_root, depth=depth
+            segment,
+            cwd=effective_cwd,
+            redirect_cwd=shell_cwd,
+            main_root=main_root,
+            depth=depth,
+            uv_env=segment.command_uv_env,
         )
         template = _xargs_template(segment)
         if (
@@ -2225,7 +2289,12 @@ def bash_write_targets(
         if template:
             segment_targets.extend(
                 _writer_targets(
-                    template, cwd=effective_cwd, redirect_cwd=effective_cwd, main_root=main_root, depth=depth + 1
+                    template,
+                    cwd=effective_cwd,
+                    redirect_cwd=effective_cwd,
+                    main_root=main_root,
+                    depth=depth + 1,
+                    uv_env=segment.command_uv_env,
                 )
             )
         for target in segment_targets:
