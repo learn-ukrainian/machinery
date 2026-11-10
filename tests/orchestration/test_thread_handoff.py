@@ -9,8 +9,6 @@ import sys
 import urllib.error
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-
-from tests.orchestration.test_thread_handoff_confirmation import headless_packet
 from types import SimpleNamespace
 
 import pytest
@@ -4288,57 +4286,6 @@ def test_script_by_path_parses_git_log_without_common_jsonl():
     assert result.stdout.strip() == repr(
         [{"sha": "abc1234", "subject": "first tail"}, {"sha": "def5678", "subject": "second"}]
     )
-
-
-def test_bootstrap_replacement_without_quiz_template_is_idempotent(tmp_path, capsys, monkeypatch):
-    packet, bootstrap = headless_packet(tmp_path, capsys, monkeypatch)
-    state_path = tmp_path / packet["state_file"]
-    before = state_path.read_bytes()
-    assert th.main(bootstrap) == 0
-    result = json.loads(capsys.readouterr().out)
-    assert result["status"] == "bootstrap_ready"
-    assert state_path.read_bytes() == before
-    assert not list(tmp_path.rglob("semantic-snapshot*"))
-
-
-def test_bootstrap_replacement_wrong_id_fails_closed_without_mutating_binding(tmp_path, capsys, monkeypatch):
-    packet, bootstrap = headless_packet(tmp_path, capsys, monkeypatch)
-    state_path = tmp_path / packet["state_file"]
-    before = state_path.read_bytes()
-    assert th.main([*bootstrap[:-3], "other-thread", "--evidence", "test exact binding"]) == 2
-    assert "replacement task ID does not match the exact persisted binding" in capsys.readouterr().out
-    assert state_path.read_bytes() == before
-
-
-def test_confirm_replacement_without_quiz_reruns_idempotently(tmp_path, capsys, monkeypatch):
-    packet, _bootstrap = headless_packet(tmp_path, capsys, monkeypatch)
-    state_path = tmp_path / packet["state_file"]
-    confirm = [
-        "--repo-root",
-        str(tmp_path),
-        "confirm-replacement",
-        "--agent",
-        "codex",
-        "--lineage-id",
-        packet["lineage_id"],
-        "--rollover-id",
-        packet["rollover_id"],
-    ]
-    assert th.main(confirm) == 0
-    capsys.readouterr()
-    confirmed = json.loads(state_path.read_text())
-    assert confirmed["replacement"]["status"] == "started"
-    assert confirmed["replacement"]["thread_id"] == "new-thread"
-    assert confirmed["cleanup"]["old_automation_ready_to_delete"] is True
-    assert "strict_verdict" not in confirmed["replacement"]
-    assert "canary_proof" not in confirmed["replacement"]
-    before = state_path.read_bytes()
-    assert th.main(confirm) == 0
-    capsys.readouterr()
-    assert state_path.read_bytes() == before
-    assert th.main([*confirm, "--replacement-thread-id", "wrong-thread"]) == 2
-    assert "does not match the thread" in capsys.readouterr().out
-    assert state_path.read_bytes() == before
 
 
 def test_prepare_dry_run_never_prints_bootstrap_prompt(

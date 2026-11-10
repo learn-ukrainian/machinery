@@ -199,31 +199,38 @@ def test_resume_and_confirm_independently_recheck_checkout_continuity(tmp_path: 
     assert json.loads(state_path.read_text(encoding="utf-8"))["replacement"]["status"] == "pending_start"
     monkeypatch.setattr(th, "gather_git_state", lambda root: clean)
     assert th.main(resume_command) == 0
+    # Retired non-quiz CLI partitions: the resume payload keeps visible_title,
+    # a second resume leaves the state bytes identical, and confirm-started
+    # reports identity.lifecycle_state confirmed.
+    resumed_payload = json.loads(capsys.readouterr().out)
+    assert resumed_payload["identity"]["visible_title"] == packet["identity"]["visible_title"]
+    resumed_bytes = state_path.read_bytes()
+    assert th.main(resume_command) == 0
     capsys.readouterr()
-    capsys.readouterr()
+    assert state_path.read_bytes() == resumed_bytes
     monkeypatch.setattr(
         th, "gather_git_state", lambda root: {**clean, "modified_files": [{"status": "M", "path": "tracked.txt"}]}
     )
-    assert (
-        th.main(
-            [
-                "--repo-root",
-                str(tmp_path),
-                "confirm-started",
-                "--lineage-id",
-                packet["lineage_id"],
-                "--rollover-id",
-                packet["rollover_id"],
-                "--new-thread-id",
-                "new-thread",
-            ]
-        )
-        == 2
-    )
+    confirm_command = [
+        "--repo-root",
+        str(tmp_path),
+        "confirm-started",
+        "--lineage-id",
+        packet["lineage_id"],
+        "--rollover-id",
+        packet["rollover_id"],
+        "--new-thread-id",
+        "new-thread",
+    ]
+    assert th.main(confirm_command) == 2
     assert "invoking checkout must be clean" in json.loads(capsys.readouterr().out)["error"]
     final_state = json.loads(state_path.read_text(encoding="utf-8"))
     assert final_state["replacement"]["status"] == "resumed"
     assert final_state["cleanup"]["old_automation_ready_to_delete"] is False
+    monkeypatch.setattr(th, "gather_git_state", lambda root: clean)
+    assert th.main(confirm_command) == 0
+    confirmed_payload = json.loads(capsys.readouterr().out)
+    assert confirmed_payload["identity"]["lifecycle_state"] == "confirmed"
 
 
 def test_confirm_started_is_scoped_to_selected_agent(tmp_path: Path, capsys):
