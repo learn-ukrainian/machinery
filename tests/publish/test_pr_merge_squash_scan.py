@@ -15,13 +15,19 @@ _UNVERIFIABLE_RECORDER = (
 )
 
 
-def enqueue_transport(writes, *, state="CLEAN", draft=False, priority=False, head=HEAD, queued=False):
-    """Stub GitHub reads, recording every write including legacy merge commands."""
+def enqueue_transport(writes, *, state="CLEAN", draft=False, priority=False, head=HEAD, queued=False, outcome="queued"):
+    """Stub GitHub reads, recording every write including legacy merge commands.
+
+    ``outcome`` is what a successful enqueue leaves on GitHub: ``queued``, ``armed``
+    (auto-merge armed instead of a queue entry) or ``absent`` (neither).
+    """
+    after = {"isInMergeQueue": queued, "autoMergeRequest": None}
+
     def send(args, **_kwargs):
         pull = {
             "id": "PR_node", "number": 1, "isDraft": draft, "headRefOid": head,
             "mergeStateStatus": state, "isCrossRepository": False, "baseRefName": "main",
-            "labels": [{"name": "merge-priority"}] if priority else [], "isInMergeQueue": queued,
+            "labels": [{"name": "merge-priority"}] if priority else [], **after,
             "isMergeQueueEnabled": True, "viewerMergeHeadlineText": "Safe change",
             "viewerMergeBodyText": "Safe change description",
         }
@@ -33,6 +39,8 @@ def enqueue_transport(writes, *, state="CLEAN", draft=False, priority=False, hea
             payload = json.loads(Path(args[args.index("--input") + 1]).read_text())
             if payload["query"].startswith("mutation"):
                 writes.append(payload)
+                after["isInMergeQueue"] = outcome == "queued"
+                after["autoMergeRequest"] = {"enabledAt": "2026-11-10T00:00:00Z"} if outcome == "armed" else None
                 value = {"data": {"enqueuePullRequest": {"mergeQueueEntry": {"position": 1}}}}
             else:
                 value = {"data": {"repository": {"pullRequest": pull}}}
@@ -87,6 +95,22 @@ def test_ready_pr_enqueues_exact_head_without_gh_merge(queue_publisher, monkeypa
     assert "expectedHeadOid:$head" in writes[0]["query"]
     assert f"jump:{str(jump).lower()}" in writes[0]["query"]
     assert writes[0]["variables"] == {"id": "PR_node", "head": HEAD}
+
+
+@pytest.mark.parametrize("outcome,disarmed", [("armed", True), ("absent", False)])
+def test_enqueue_without_a_queue_entry_fails_and_never_leaves_auto_merge_armed(
+    queue_publisher, capsys, outcome, disarmed,
+):
+    """A requirement GitHub enforces but the guard cannot see (C-5079): exit 0 must mean queued."""
+    writes = []
+    assert publisher.main(
+        ["pr-merge", "--repo", "unit/public", "--number", "1", "--match-head", HEAD],
+        runner=enqueue_transport(writes, outcome=outcome),
+    ) == 2
+    assert "a merge requirement is unmet" in capsys.readouterr().err
+    assert "enqueuePullRequest" in writes[0]["query"]
+    assert writes[1:] == ([{"argv": ["gh", "pr", "merge", "1", "--repo", "unit/public", "--disable-auto"]}]
+                          if disarmed else [])
 
 
 def test_moved_head_refuses_enqueue(queue_publisher, capsys):

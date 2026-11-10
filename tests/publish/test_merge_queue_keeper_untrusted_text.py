@@ -481,3 +481,16 @@ def test_plain_flaky_issue_is_unchanged(tmp_path: Path, transport: Transport) ->
 
 
 pytestmark = pytest.mark.usefixtures("configured_roots")
+
+
+def test_armed_without_queue_entry_is_reported_unmet_not_ready(tmp_path: Path, transport: Transport) -> None:
+    """C-5079: auto-merge armed on a PR GitHub holds (missing code-owner review) is never reported ready."""
+    subject = Subject(tmp_path)
+    subject.row["autoMergeRequest"] = {"enabledAt": "2026-11-10T00:00:00Z"}
+    subject.row["mergeStateStatus"] = "BLOCKED"
+    lines, failed = keeper.run(subject, tmp_path / "state.json", apply=True)
+    assert not failed, lines
+    assert f"reason={keeper.ARMED_UNMET} queued=False armed=True" in lines[0]
+    assert "reason=ready" not in lines[0]
+    assert "#42 armed: requirement unmet" in lines
+    assert transport.sent == []

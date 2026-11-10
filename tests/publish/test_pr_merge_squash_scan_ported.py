@@ -28,14 +28,21 @@ def catalog(monkeypatch):
     monkeypatch.delenv("AGENT_NO_MERGE", raising=False)
 
 
-def transport(calls, *, subject="clean (#1)", body="* clean", queue=True, head=HEAD):
-    """Answer readiness and squash-text reads; record only the queue mutation."""
+def transport(calls, *, subject="clean (#1)", body="* clean", queue=True, head=HEAD, reads=None, queued=None):
+    """Answer readiness and squash-text reads; record the queue mutation, and every call in ``reads``.
+
+    ``queued`` is non-empty once an enqueue succeeded; later reads report queue membership.
+    """
+    queued = [] if queued is None else queued
+
     def send(args, **kwargs):
+        if reads is not None:
+            reads.append(args)
         pull = {
             "id": "PR_node", "number": 1, "isDraft": False, "headRefOid": HEAD, "state": "OPEN",
             "baseRefName": "main", "isCrossRepository": False, "headRefName": "codex/fixture",
             "statusCheckRollup": [], "mergeStateStatus": "CLEAN", "labels": [],
-            "isInMergeQueue": False, "isMergeQueueEnabled": queue,
+            "isInMergeQueue": bool(queued), "isMergeQueueEnabled": queue,
             "viewerMergeHeadlineText": subject, "viewerMergeBodyText": body,
         }
         if args[:3] == ["gh", "pr", "view"]:
@@ -50,6 +57,7 @@ def transport(calls, *, subject="clean (#1)", body="* clean", queue=True, head=H
             payload = json.loads(Path(args[args.index("--input") + 1]).read_text())
             if payload["query"].startswith("mutation"):
                 calls.append({"argv": args, "payload": payload})
+                queued.append(True)
                 value = {"data": {"enqueuePullRequest": {"mergeQueueEntry": {"position": 1}}}}
             else:
                 value = {"data": {"repository": {"pullRequest": {
@@ -74,10 +82,14 @@ def test_default_squash_text_hit_is_refused_before_merge(synthetic_opsec, field,
 
 @pytest.mark.parametrize("field", ["subject", "body"])
 def test_explicit_squash_text_hit_is_refused_before_merge(synthetic_opsec, field):
-    calls = []
+    """A blocked supplied field is refused before any GitHub read, not only before the write."""
+    calls, reads = [], []
     with pytest.raises(gate.PublishBlocked, match=f"field={field} "):
-        pub.publish("pr-merge", repo="unit/public", number=1, runner=transport(calls), **{field: "x " + TOKEN})
+        pub.publish(
+            "pr-merge", repo="unit/public", number=1, runner=transport(calls, reads=reads), **{field: "x " + TOKEN}
+        )
     assert not calls
+    assert reads == []
 
 
 def test_clean_defaults_are_sent_explicitly_as_scanned(synthetic_opsec):
@@ -191,9 +203,72 @@ def test_override_is_logged_and_single_use(synthetic_opsec, tmp_path, monkeypatc
     assert len(calls) == 1
 
 
+def _transfer_into(directory, env=None):
+    return pub.publish(
+        "issue-transfer", repo="public", number=7, destination="infra-private", receipt_dir=str(directory),
+        env=env, runner=lambda *a, **k: pytest.fail("read or write"),
+    )
+
+
+@pytest.mark.parametrize("where", ["product", "product-primary", "symlinked-product-primary", "call-env"])
+def test_transfer_receipt_never_lands_in_the_product_checkout_of_an_installed_release(
+    synthetic_opsec, tmp_path, monkeypatch, where,
+):
+    """An installed release's own tree is site-packages; the product checkout still bounds the receipt.
+
+    Defect class: the receipt boundary taken from the package location, from the process
+    environment instead of the publication's, or lost for a symlinked product root, so an
+    installed release writes a receipt into the product checkout before refusing the transfer.
+    """
+    site = tmp_path / "site-packages"
+    site.mkdir()
+    monkeypatch.setattr(gate, "ROOT", site)
+    product, linked = tmp_path / "product", tmp_path / "linked"
+    git = ["git", "-c", "user.name=test", "-c", "user.email=test@example.invalid"]
+    for args in (["init", "-q", "-b", "main", str(product)],
+                 ["-C", str(product), "commit", "-q", "--allow-empty", "-m", "init"],
+                 ["-C", str(product), "worktree", "add", "-q", "--detach", str(linked)]):
+        subprocess.run([*git, *args], check=True, capture_output=True, timeout=30)
+    (tmp_path / "link").symlink_to(linked)
+    (tmp_path / "elsewhere").mkdir()
+    # The product root is the primary, a linked worktree of it, or a symlink to that worktree.
+    # In the call-env case the process names another tree and only the publication's env names this one.
+    root = {"product": product, "product-primary": linked, "symlinked-product-primary": tmp_path / "link",
+            "call-env": tmp_path / "elsewhere"}[where]
+    monkeypatch.setenv("LU_PRODUCT_ROOT", str(root))
+    env = {"LU_PRODUCT_ROOT": str(product)} if where == "call-env" else None
+    target = product / "receipts"
+    with pytest.raises(gate.PublishBlocked, match="outside the repository"):
+        _transfer_into(target, env)
+    assert not target.exists()
+
+
+def test_transfer_without_a_product_root_is_refused_before_any_receipt(synthetic_opsec, tmp_path, monkeypatch):
+    monkeypatch.delenv("LU_PRODUCT_ROOT", raising=False)
+    target = tmp_path / "receipts"
+    with pytest.raises(gate.PublishBlocked, match="product checkout is unresolved"):
+        _transfer_into(target)
+    assert not target.exists()
+
+
+@pytest.mark.parametrize("field", ["subject", "body"])
+def test_override_for_a_supplied_field_is_offered_once(synthetic_opsec, tmp_path, monkeypatch, field):
+    """Defect class: the early supplied-field scan consuming or auditing the override a second time."""
+    monkeypatch.setattr(gate, "primary_root", lambda cwd=None: tmp_path)
+    calls = []
+    pub.publish(
+        "pr-merge", repo="unit/public", number=1, env={"LU_OPSEC_OVERRIDE": "synthetic false positive"},
+        runner=transport(calls), **{field: "x " + TOKEN},
+    )
+    assert len(calls) == 1
+    rows = (tmp_path / "batch_state/opsec/overrides.jsonl").read_text().splitlines()
+    assert len(rows) == 1 and TOKEN not in rows[0]
+
+
 def priority_transport(calls, *, labels, timeline):
     """A queue repository with one recorded approval of HEAD; records either enqueue write."""
-    base = transport(calls, queue=True)
+    queued = []
+    base = transport(calls, queue=True, queued=queued)
     approval = recorded_approval(HEAD, "fleet")
     pages = {"/comments": [[approval]], "/files": [[{"filename": "scripts/example.py"}]], "/timeline": [timeline]}
 
@@ -213,6 +288,7 @@ def priority_transport(calls, *, labels, timeline):
             document = json.loads(Path(args[6]).read_text())
             if "enqueuePullRequest" in document["query"]:
                 calls.append({"argv": args, "jump": "jump:true" in document["query"], "variables": document["variables"], "payload": document})
+                queued.append(True)
                 return subprocess.CompletedProcess(args, 0, json.dumps({"data": {"enqueuePullRequest": {"mergeQueueEntry": {"position": 1}}}}), "")
         return base(args, **kwargs)
 

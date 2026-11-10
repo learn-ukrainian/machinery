@@ -64,6 +64,9 @@ HOLD_LABELS = {"needs-operator-go", "hold", "do-not-merge", "blocked"}
 # covered (#12257). All of these surface as needs-CF, so a queued partial is revoked.
 MISSING_CF_STATES = frozenset({"needs-CF", "CF-stale", "CF-unrecorded", NEEDS_SEAT, NEEDS_COVERAGE})
 SHA = re.compile(r"[0-9a-f]{40}\Z")
+# Armed auto-merge without a queue entry: GitHub holds the PR on a requirement the
+# keeper's own checks do not see (a code-owner review, a ruleset), so it is never ready.
+ARMED_UNMET = "armed-requirement-unmet"
 # Slow mode: ``--apply`` skips a run that starts within this many seconds of
 # the last recorded run, so a frequent timer can be throttled without a unit edit.
 MIN_INTERVAL_ENV = "MQ_KEEPER_MIN_INTERVAL_SECONDS"
@@ -1222,8 +1225,9 @@ def run(gh: GitHub, state_path: Path, *, apply: bool = False) -> tuple[list[str]
             observed_at=observed,
         )
         state = "ready" if reason == "ready" and not queued and not armed else report.state
+        shown = ARMED_UNMET if reason == "ready" and armed and queued is not True else reason
         lines.append(
-            f"#{number} head={head[:12]} state={state} reason={reason} queued={queued} armed={armed}"
+            f"#{number} head={head[:12]} state={state} reason={shown} queued={queued} armed={armed}"
             + verdict_detail(verdict.reason, verdict.comment_id, verdict.superseded_markers)
             + (f" canary=({canary})" if reason == contract_canary.REASON else "")
         )
@@ -1353,6 +1357,8 @@ def run(gh: GitHub, state_path: Path, *, apply: bool = False) -> tuple[list[str]
                 elif reason != "ready":
                     lines.append(f"#{number} held: {reason}" + _cf_unknown_detail(reason, current_verdict)
                                  + (f" ({canary})" if reason == contract_canary.REASON else ""))
+                else:
+                    lines.append(f"#{number} armed: requirement unmet")
             elif reason == "ready":
                 if drops >= 1 or drop_key in previous.get("ejections", {}):
                     # Spend the one re-enqueue on disk before the mutation, so neither a
