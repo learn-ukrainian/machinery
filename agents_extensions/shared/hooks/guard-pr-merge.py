@@ -108,6 +108,7 @@ sys.dont_write_bytecode = True
 try:
     from agents_extensions.shared.hooks.shell_shlex import (
         ShellPreprocessLimit,
+        collapse_line_continuations,
         preprocess_shell_command,
         skippable_heredoc_delimiters,
         strip_shell_comments,
@@ -625,6 +626,20 @@ class _SplitQuoting(ShellPreprocessLimit):
     """A merge candidate whose quoting the line reader cannot group as Bash does."""
 
 
+def _without_quoted_heredoc_data(command: str) -> str:
+    """Drop only the bodies of closed here-docs with a quoted delimiter (`<<'EOF'`).
+
+    Bash expands nothing in such a body, so its backticks and `$(` are text. An
+    unquoted body's substitutions run, so that body stays; an ambiguous or
+    unclosed opener keeps every later line (the shared parser's fail-closed rule).
+    """
+    return strip_skippable_heredoc_bodies(
+        collapse_line_continuations(command),
+        opener_transform=strip_shell_comments,
+        body_substitutions=lambda body: [body],
+    )
+
+
 def _unmodeled_quoting(command: str) -> bool:
     """Stop before Bash-only quote contexts can desynchronize shlex."""
     # Comments, heredoc data and continuing quotes can disagree about state
@@ -703,8 +718,10 @@ def _may_merge(command: str, depth: int = 0) -> bool:
     """
     # Keep both representations: preprocessing may expose split syntax or
     # remove quote-bearing data, and may rewrite Bash-only syntax itself.
+    # Quoted here-doc bodies are data in both: a brief that mentions a merge in
+    # Markdown backticks is not shell syntax.
     if _merge_candidate(command) and (
-        _unmodeled_quoting(command)
+        _unmodeled_quoting(_without_quoted_heredoc_data(command))
         or _unmodeled_quoting(preprocess_shell_command(command))
     ):
         raise ShellPreprocessLimit("shell quoting cannot be read safely")

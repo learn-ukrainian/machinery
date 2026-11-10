@@ -21,8 +21,11 @@ A malicious process running as the same user can bypass or falsify it (edit
 the state directory, write between snapshots, or skip the hooks entirely).
 
 Cost: two ``git status --porcelain=v1 -z --untracked-files=all`` runs per shell
-call, with ``GIT_OPTIONAL_LOCKS=0`` so the probe never rewrites the index. Each
-run is bounded by :data:`GIT_TIMEOUT_S` and :data:`MAX_ENTRIES`; only new
+call, with ``GIT_OPTIONAL_LOCKS=0`` so the probe never rewrites the index. When
+the second run shows new paths, a confirmation run follows once any concurrent
+Git operation in the primary releases its lock (waiting at most
+:data:`SETTLE_TIMEOUT_S`), so a fast-forward by another process is not
+attributed. Each run is bounded by :data:`GIT_TIMEOUT_S` and :data:`MAX_ENTRIES`; only new
 untracked entries are fingerprinted, at most :data:`MAX_FINGERPRINTS` of them,
 and only files up to :data:`MAX_HASH_BYTES` are hashed.
 """
@@ -52,6 +55,9 @@ MAX_HASH_BYTES = 8 * 1024 * 1024
 MAX_COMMAND_CHARS = 4000
 SNAPSHOT_TTL_S = 6 * 3600
 MAX_GC_PER_CALL = 500
+# Bounded wait for a concurrent Git operation in the primary before the confirmation pass.
+SETTLE_TIMEOUT_S = 1.0
+SETTLE_POLL_S = 0.02
 
 
 class AuditError(RuntimeError):
@@ -158,6 +164,29 @@ def status_entries(root: Path, pathspec: str | None = None) -> dict[str, str]:
         if len(entries) > MAX_ENTRIES:
             raise AuditError(f"primary checkout {root} has more than {MAX_ENTRIES} dirty entries")
     return entries
+
+
+def settle_git_operation(root: Path, timeout: float = SETTLE_TIMEOUT_S) -> None:
+    """Wait, at most ``timeout`` seconds, while a Git operation holds the primary's index or HEAD lock.
+
+    A fast-forward or checkout run by another process rewrites tracked files
+    under ``index.lock`` before it commits the index and moves the branch, so
+    ``git status`` inside that window lists the files as modified. A stale lock
+    only costs the bounded wait.
+    """
+    proc = _git(root, "rev-parse", "--absolute-git-dir", "--symbolic-full-name", "HEAD")
+    if proc.returncode != 0:
+        return
+    lines = proc.stdout.splitlines()
+    if not lines or not Path(lines[0]).is_absolute():
+        return
+    git_dir = Path(lines[0])
+    locks = [git_dir / "index.lock", git_dir / "HEAD.lock"]
+    if len(lines) > 1 and lines[1].startswith("refs/") and split_relpath(lines[1]) is not None:
+        locks.append(git_dir / f"{lines[1]}.lock")
+    deadline = time.monotonic() + timeout
+    while any(os.path.lexists(lock) for lock in locks) and time.monotonic() < deadline:
+        time.sleep(SETTLE_POLL_S)
 
 
 def is_tracked(root: Path, relpath: str) -> bool:
@@ -385,9 +414,23 @@ def finish_call(
             unaudited[root_text] = str(exc)
             continue
         new_paths = sorted(set(after) - set(before))
-        changed = sorted(p for p in set(after) & set(before) if after[p] != before[p])
         if not new_paths:
             continue
+        # Another process moving the primary's HEAD (a fast-forward of main) shows
+        # its files as dirty until it finishes; a clean tree after it is not dirt.
+        # Confirm once after any Git operation settles and attribute only the
+        # paths still new; if the confirmation cannot run, keep the first pass.
+        try:
+            settle_git_operation(root)
+            confirmed = status_entries(root)
+        except AuditError:
+            confirmed = None
+        if confirmed is not None:
+            after = confirmed
+            new_paths = [p for p in new_paths if p in after]
+        if not new_paths:
+            continue
+        changed = sorted(p for p in set(after) & set(before) if after[p] != before[p])
         entries = []
         for index, relpath in enumerate(new_paths):
             xy = after[relpath]
