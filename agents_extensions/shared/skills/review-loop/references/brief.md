@@ -12,7 +12,9 @@ Add to the template's **Target** section:
 - the review round (`round 1 of 3`, or of the budget the repository declares);
 - the author model of every commit on the branch, the catalog risk and the review profile;
 - the base ref and merge-base SHA, so the reviewer reviews `merge-base..exact head`;
-- the checks already run, with their results or CI run ids (reviewers do not re-run suites).
+- the checks already run, with their results or CI run ids (reviewers do not re-run suites),
+  and the checks still pending on that head, named as pending. Review starts without waiting
+  for the PR's `CI Gate`; pending CI is not successful CI.
 
 For the `ukrainian` profile, identify the contracts in
 [`ukrainian-linguistics.md` §8](../../../rules/ukrainian-linguistics.md#ukrainian-linguistic-principles):
@@ -36,6 +38,14 @@ alone. If the reviewer cannot read the schema, the reply is a schema-valid objec
 `overall.correctness` of `uncertain`, no findings, and `missing_capabilities` naming
 `checkout-data`. A prose approval or a verdict line does not replace the object. An
 improvised or malformed findings block is refused even beside a valid verdict line.
+
+A reviewer withholds APPROVE when evidence necessary to resolve a material finding remains
+unavailable, such as a pending check that finding depends on: it replies `uncertain`
+(`BLOCKED`), names the missing evidence and the pending check, and lists no other finding as
+a reason. A pending check does not change a verdict that the diff and the available evidence
+already settle. The driver or worker does not record that reply
+([policy](policy.md#recording-the-verdict)). The capability-only `BLOCKED` below covers a
+missing reviewer capability, never pending CI.
 
 A capability-only `BLOCKED` uses `uncertain`, no findings, and `missing_capabilities`.
 The recorder's extension and the permitted capabilities are defined by

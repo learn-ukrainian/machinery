@@ -18,6 +18,12 @@ runner never picks one, and the resolver never returns a family that authored a 
 branch. No eligible reviewer is handled in step 2; nobody substitutes a reviewer of their own
 choosing.
 
+**When it starts.** Right after the PR is opened or updated on the pushed head: review runs in
+parallel with PR CI on that immutable head and never waits for the `CI Gate`. Pending CI is not
+successful CI, so the verdict never rests on a result that has not arrived. Enqueue still needs
+this recorded exact-head verdict and a green PR `CI Gate` on the same head
+([delivery](../full-send/references/delivery.md#the-gate)).
+
 **Inputs.** The hand-off record ([delivery](../full-send/references/delivery.md#hand-off-record)):
 branch, exact pushed head, base and merge-base, author model of every commit, catalog risk,
 the finding ledger and rounds already used.
@@ -51,10 +57,12 @@ interpreter does not select the primary checkout's Python modules.
    (DS-PRECHECK-1101) was run, list its findings and their dispositions as author context only.
    Later rounds reuse the frozen sections unchanged: scope is frozen at round 1, and new code
    goes in a new PR ([policy](references/policy.md#4-convergence)). **A read-only Codex reviewer cannot read CI logs**, so every
-   brief for one inlines the CI evidence of the exact head: the head SHA, the run and job ids,
-   their conclusions, and the test output or log excerpts the review needs, never conclusions
-   alone where the logs matter. A reviewer still blocked by it replies BLOCKED with
-   `missing_capabilities: ["ci-logs"]`.
+   brief for one inlines the CI evidence of the exact head that exists when the brief is frozen:
+   the head SHA, the run and job ids, their conclusions or `pending`, and the test output or
+   log excerpts the review needs, never conclusions alone where the logs matter. A reviewer
+   still blocked by it replies BLOCKED with `missing_capabilities: ["ci-logs"]`. A brief for a
+   head whose CI is still running says so and tells the reviewer to withhold APPROVE when evidence
+   needed to resolve a material finding is not yet available ([brief](references/brief.md)).
 2. **Resolve the target and the reviewer live.** Never pick a fixed model. Derive the review
    profile from the target and record it in the hand-off record (`review.profile`) and the
    frozen brief: `infra` when the change touches the build pipeline, gates, CI, deploy, the
@@ -140,7 +148,10 @@ interpreter does not select the primary checkout's Python modules.
    ([policy](references/policy.md#recording-the-verdict)). A second such reply is charged, and a published
    one stays charged. Any other failed execution (timeout, error, malformed reply) is rerun
    once at the same head; a second failure escalates.
-7. **Record the verdict on the open PR** (it is open and CI-green at the reviewed head, `full-send` step 4):
+7. **Record the verdict on the open PR** (it is open at the reviewed head, `full-send` step 4; its CI may still be running).
+   Do not record a `BLOCKED` reply whose only reason is a check still pending on the head: wait
+   for that check to finish, then rerun once at the same head with its result inlined
+   ([policy](references/policy.md#recording-the-verdict)).
 
    ```bash
    "$PY" "$PRIMARY_REPO/lu_machinery/review/record_cf_verdict.py" --task-id "$REVIEW_TASK" --pr "$PR"

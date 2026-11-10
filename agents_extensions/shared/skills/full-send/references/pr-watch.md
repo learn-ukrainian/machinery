@@ -19,8 +19,9 @@ the accountable driver's cycle.
   "$PY" -m lu_machinery.gh_merge_queue_status "$PR" --json
   ```
 
-- Do not start a review round while the PR's `CI Gate` is pending or red on the head under
-  review: wait for green first (`full-send` step 4).
+- A review round does not wait for the PR's `CI Gate`: it runs in parallel with CI on the head
+  under review (`full-send` steps 4 and 5). Pending CI is not successful CI, so the gate (not the
+  review) waits for green before enqueue.
 - While CI or a review runs, dispatch the next ready item instead of idling (drive-epic §2c).
 - An event is news, not a decision: re-check the gate yourself.
 
@@ -31,7 +32,8 @@ the accountable driver's cycle.
   authoring lane as a fix; prove the fix before it is pushed.
 - Answer a false positive with a written reason through `pr-comments`. Bot or AI review is
   advisory unless it is the reviewer of record.
-- Every fix push moves the head: run the `review-loop` delta for it and wait for same-head CI.
+- Every fix push moves the head: run the `review-loop` delta for it in parallel with the new
+  head's CI; enqueue needs both on that head.
 - Keep the PR at the size its outcome needs. Decline extras (unneeded guards, rare edges,
   extra compatibility) with a reason and send them as follow-ups.
 
