@@ -6,6 +6,7 @@ without importing a curriculum, crawler, or application package.
 
 from __future__ import annotations
 
+import errno
 import fcntl
 import functools
 import importlib
@@ -328,38 +329,53 @@ class _DeclarationUnusable(Exception):
         self.reason = reason
 
 
-def _read_regular_file(path: str, limit: int, label: str) -> bytes:
-    """The bytes of regular file ``path`` (never through a final symlink), or raise ``label``-prefixed codes."""
+def _open_no_follow(name: str, flags: int, dir_fd: int | None) -> int:
+    """Open ``name`` (relative to ``dir_fd`` when given) without following a symlink, or raise a declaration code."""
     try:
-        info = os.lstat(path)
+        return os.open(name, flags | os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 0), dir_fd=dir_fd)
     except FileNotFoundError:
-        raise _DeclarationUnusable(f"{label}_missing") from None
-    except OSError:
-        raise _DeclarationUnusable(f"{label}_unreadable") from None
-    if not stat.S_ISREG(info.st_mode):
-        raise _DeclarationUnusable(f"{label}_not_regular_file")
-    if info.st_size > limit:
-        raise _DeclarationUnusable(f"{label}_too_large")
-    # O_NONBLOCK: a FIFO swapped in after the lstat opens at once; the fstat refuses it.
-    flags = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | getattr(os, "O_CLOEXEC", 0)
+        raise _DeclarationUnusable("product_declaration_missing") from None
+    except OSError as exc:
+        # ELOOP: a symlink; ENOTDIR: a non-directory where a directory belongs.
+        if exc.errno in (errno.ELOOP, errno.ENOTDIR):
+            raise _DeclarationUnusable("product_declaration_not_regular_file") from None
+        raise _DeclarationUnusable("product_declaration_unreadable") from None
+
+
+def _read_product_declaration(product: str) -> bytes:
+    """The bytes of :data:`PRODUCT_WRITER_DECLARATION` under real path ``product``.
+
+    Every component below ``product`` is opened relative to its pinned parent
+    descriptor with ``O_NOFOLLOW``, so a directory or file swapped for a symlink
+    while this runs is refused instead of followed (#243 F1).
+    """
+    *parents, name = PRODUCT_WRITER_DECLARATION.split("/")
+    directory = _open_no_follow(product, os.O_RDONLY | os.O_DIRECTORY, None)
     try:
-        descriptor = os.open(path, flags)
-    except OSError:
-        raise _DeclarationUnusable(f"{label}_unreadable") from None
+        for part in parents:
+            child = _open_no_follow(part, os.O_RDONLY | os.O_DIRECTORY, directory)
+            os.close(directory)
+            directory = child
+        # O_NONBLOCK: a FIFO opens at once instead of blocking; the fstat refuses it.
+        descriptor = _open_no_follow(name, os.O_RDONLY | os.O_NONBLOCK, directory)
+    finally:
+        os.close(directory)
     try:
         opened = os.fstat(descriptor)
-        if not stat.S_ISREG(opened.st_mode) or (opened.st_dev, opened.st_ino) != (info.st_dev, info.st_ino):
-            raise _DeclarationUnusable(f"{label}_not_regular_file")
+        if not stat.S_ISREG(opened.st_mode):
+            raise _DeclarationUnusable("product_declaration_not_regular_file")
+        if opened.st_size > _MAX_DECLARATION_BYTES:
+            raise _DeclarationUnusable("product_declaration_too_large")
         with os.fdopen(descriptor, "rb") as handle:
             descriptor = -1
-            data = handle.read(limit + 1)
+            data = handle.read(_MAX_DECLARATION_BYTES + 1)
     except OSError:
-        raise _DeclarationUnusable(f"{label}_unreadable") from None
+        raise _DeclarationUnusable("product_declaration_unreadable") from None
     finally:
         if descriptor >= 0:
             os.close(descriptor)
-    if len(data) > limit:
-        raise _DeclarationUnusable(f"{label}_too_large")
+    if len(data) > _MAX_DECLARATION_BYTES:
+        raise _DeclarationUnusable("product_declaration_too_large")
     return data
 
 
@@ -373,15 +389,11 @@ def _product_writer_paths(product: str) -> frozenset[str]:
     """Writer paths the product checkout at real path ``product`` declares.
 
     Raises :class:`_DeclarationUnusable` when the declaration is missing,
-    unreadable, not a regular file in a non-symlinked directory, too large or
+    unreadable, not a regular file reached without a symlink, too large or
     malformed (not strict UTF-8 JSON, a duplicate key, a row without a string
     ``path`` and ``kind``, a non-canonical or repeated ``path``).
     """
-    *parents, name = PRODUCT_WRITER_DECLARATION.split("/")
-    directory = os.path.join(product, *parents)
-    if os.path.realpath(directory) != directory:
-        raise _DeclarationUnusable("product_declaration_not_regular_file")
-    data = _read_regular_file(os.path.join(directory, name), _MAX_DECLARATION_BYTES, "product_declaration")
+    data = _read_product_declaration(product)
 
     def no_constant(literal: str) -> Any:
         raise ValueError(f"non-finite number {literal}")
