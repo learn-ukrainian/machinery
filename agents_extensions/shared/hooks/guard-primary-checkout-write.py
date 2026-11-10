@@ -1001,6 +1001,11 @@ class _Expander:
                     self.poisoned = True
             elif tok == "function":
                 i += 1  # its name
+            elif tok == "time":
+                # Bash reads ``time [-p] [--] command``: at most one of each.
+                for option in ("-p", "--"):
+                    if i + 1 < len(tokens) and tokens[i + 1] == option:
+                        i += 1
             elif tok not in _COMPOUND_PREFIXES:
                 break
             i += 1
@@ -1041,6 +1046,8 @@ class _Expander:
     def _command_effects(self, body: list[str], *, unconditional: bool) -> None:
         cmd, idx = _command_word(body)
         args = body[idx + 1 :]
+        if _runs_in_child(body, idx):
+            return
         if cmd in _OPAQUE_ASSIGNERS:
             self._opaque()
         elif cmd in _DECLARATION_BUILTINS:
@@ -1318,6 +1325,16 @@ def _command_position(segment: list[str]) -> tuple[int, _UvLaunch | None]:
             continue
         break
     return min(i, len(segment)), launch
+
+
+def _runs_in_child(segment: list[str], index: int) -> bool:
+    """Whether an executable wrapper before ``segment[index]`` runs it as a child process.
+
+    A child cannot change the shell's directory or variables: ``env cd x`` and
+    ``uv run export X=1`` leave the shell as it was. The ``time`` keyword is already gone
+    from a segment, so a remaining ``time`` is the executable.
+    """
+    return any(Path(word).name in _PATH_WRAPPERS and not _ASSIGN_RE.match(word) for word in segment[:index])
 
 
 def _command_word(segment: list[str]) -> tuple[str, int]:
@@ -2129,16 +2146,7 @@ def _segments_with_cwd(command: str, cwd: str | None):
         effective_cwd = scope_cwds[scope]
         argv = _without_redirects(segment)
         cmd, idx = _command_word(argv)
-        # A wrapper that is an executable (``env cd``, ``uv run cd``) runs ``cd`` in a child,
-        # never in this shell; the ``time`` keyword times the shell's own builtin.
-        isolated = (
-            segment.prev_op in {"|", "|&"}
-            or segment.next_op in {"|", "|&", "&"}
-            or any(
-                Path(word).name in _PATH_WRAPPERS and word != "time" and not _ASSIGN_RE.match(word)
-                for word in argv[:idx]
-            )
-        )
+        isolated = segment.prev_op in {"|", "|&"} or segment.next_op in {"|", "|&", "&"} or _runs_in_child(argv, idx)
         cdpath_binding = _cdpath_binding(segment)
         cdpath_empty_here = cdpath_binding if cdpath_binding is not None else scope_cdpath_empty[scope]
         stack_only = cmd in {"pushd", "popd"} and "-n" in argv[idx + 1 :]

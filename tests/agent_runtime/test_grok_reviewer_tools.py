@@ -123,12 +123,13 @@ def test_reviewer_opt_in_denies_bash_and_guards_all_tracked_reads(tmp_path: Path
         ("python scripts/publish/__pycache__/__main__.cpython-312.pyc issue-comment --number 1", True),
         ("python -m scripts.foo bar", False),
         # A launcher runs the publisher too: uv run's command, its -m module and a script or
-        # directory it hands to Python, and a wrapper spelled as a path.
+        # directory it hands to Python, a wrapper spelled as a path, and the time keyword's -p.
         ("uv run python -m scripts.publish issue-comment --number 1 --body unit", True),
         ("uv run --no-sync python -m lu_machinery.publish issue-comment --number 1", True),
         ("uv run -m scripts.publish issue-comment --number 1", True),
         ("uv run scripts/publish/__main__.py issue-comment --number 1", True),
         ("/usr/bin/timeout 5 python -m scripts.publish issue-comment --number 1", True),
+        ("time -p python -m scripts.publish issue-comment --number 1", True),
         ("uv run pytest -q", False),
         ("uv run python -m scripts.foo bar", False),
         ("gh pr comment 8912 --body test", True),
