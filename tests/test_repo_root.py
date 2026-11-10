@@ -87,6 +87,7 @@ def test_bridge_config_state_paths_resolve_to_primary_in_worktree(wt_layout):
     script = "from lu_machinery.ai_agent_bridge._config import DB_PATH, PID_DIR; print(f'{DB_PATH};{PID_DIR}')"
     env = os.environ.copy()
     env.pop("AB_DB_PATH", None)  # Exercise the default path, not the suite's isolated override.
+    env.pop("LU_PRODUCT_ROOT", None)  # The child runs in the fixture's product layout.
     env["LEARN_UKRAINIAN_PRIMARY_REPO_ROOT"] = str(main_repo)
     proc = subprocess.run(
         [sys.executable, "-c", script],

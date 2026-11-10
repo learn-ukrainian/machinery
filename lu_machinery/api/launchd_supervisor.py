@@ -519,6 +519,9 @@ def _prepare_api_command(repo_root: Path, *, live_mode: bool, port: int) -> tupl
     ):
         environment.pop(key, None)
     environment["LEARN_UK_REPO_ROOT"] = str(repo_root)
+    # The API serves launch_dir, so its product is the release snapshot or live checkout,
+    # rather than the supervisor's inherited product checkout.
+    environment["LU_PRODUCT_ROOT"] = str(launch_dir)
     environment["GIT_DIR"] = str(repo_root / ".git")
     environment["GIT_WORK_TREE"] = str(repo_root)
     environment["PYTHONDONTWRITEBYTECODE"] = "1"

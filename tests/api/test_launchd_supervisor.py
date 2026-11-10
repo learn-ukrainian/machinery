@@ -13,6 +13,7 @@ from pathlib import Path
 import pytest
 
 from lu_machinery.api import launchd_supervisor as supervisor
+from lu_machinery.api.release_snapshot import PruneResult
 
 
 def test_supervisor_help_describes_outputs_and_exit_codes():
@@ -127,6 +128,39 @@ def test_api_child_disables_bytecode_writes(tmp_path: Path, monkeypatch) -> None
         timeout=30,
     )
     assert json.loads(inherited.stdout) == {"env": "1", "dont_write": True}
+
+
+@pytest.mark.parametrize("live_mode", [True, False])
+@pytest.mark.parametrize("inherited_product", [False, True])
+def test_api_child_product_root_overrides_supervisor_checkout(tmp_path: Path, monkeypatch, live_mode, inherited_product):
+    """Defect class: the API child inherits the supervisor's product instead of its served tree."""
+    repo = tmp_path / "repo"
+    release = tmp_path / "release"
+    repo.mkdir()
+    release.mkdir()
+    if inherited_product:
+        monkeypatch.setenv("LU_PRODUCT_ROOT", str(tmp_path / "supervisor-checkout"))
+    else:
+        monkeypatch.delenv("LU_PRODUCT_ROOT", raising=False)
+
+    with monkeypatch.context() as snapshot:
+        snapshot.setattr(supervisor.subprocess, "run", lambda *args, **kwargs: subprocess.CompletedProcess([], 0, "a" * 40))
+        snapshot.setattr(supervisor, "build_release", lambda *args: (release, False))
+        snapshot.setattr(supervisor, "prune_releases", lambda *args, **kwargs: PruneResult(removed=(), kept=()))
+        _, launch_dir, environment, _ = supervisor._prepare_api_command(repo, live_mode=live_mode, port=8765)
+
+    assert launch_dir == (repo if live_mode else release)
+    assert environment["LU_PRODUCT_ROOT"] == str(launch_dir)
+    child = subprocess.run(
+        [sys.executable, "-B", "-c", "import os; print(os.environ['LU_PRODUCT_ROOT'])"],
+        cwd=launch_dir,
+        env=environment,
+        capture_output=True,
+        text=True,
+        check=True,
+        timeout=30,
+    )
+    assert child.stdout.strip() == str(launch_dir)
 
 
 def _runtime_repo(tmp_path: Path) -> Path:
