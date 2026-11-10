@@ -347,13 +347,17 @@ def _read_product_declaration(product: str) -> bytes:
 
     Every component below ``product`` is opened relative to its pinned parent
     descriptor with ``O_NOFOLLOW``, so a directory or file swapped for a symlink
-    while this runs is refused instead of followed (#243 F1).
+    while this runs is refused instead of followed (#243 F1). Directories are
+    pinned search-only (``O_PATH`` where the platform has it), so a directory
+    that permits traversal but not listing still works (#243 F2); a symlink
+    there fails with ``ENOTDIR``.
     """
     *parents, name = PRODUCT_WRITER_DECLARATION.split("/")
-    directory = _open_no_follow(product, os.O_RDONLY | os.O_DIRECTORY, None)
+    search_only = getattr(os, "O_PATH", os.O_RDONLY) | os.O_DIRECTORY
+    directory = _open_no_follow(product, search_only, None)
     try:
         for part in parents:
-            child = _open_no_follow(part, os.O_RDONLY | os.O_DIRECTORY, directory)
+            child = _open_no_follow(part, search_only, directory)
             os.close(directory)
             directory = child
         # O_NONBLOCK: a FIFO opens at once instead of blocking; the fstat refuses it.
