@@ -82,13 +82,11 @@ import re
 import shlex
 import sys
 
-# Use the sibling helper in either the source tree or a deployed hook copy.
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 # Don't write __pycache__ next to deployed hooks (#9108).
 sys.dont_write_bytecode = True
 try:
-    from shell_redirects import _redirect_target_dynamic
-    from shell_shlex import (
+    from agents_extensions.shared.hooks.shell_redirects import _redirect_target_dynamic
+    from agents_extensions.shared.hooks.shell_shlex import (
         ShellPreprocessLimit,
         normalize_io_descriptors,
         preprocess_shell_command,
@@ -97,7 +95,7 @@ try:
         split_quote_preserving,
         strip_skippable_heredoc_bodies,
     )
-    from shell_shlex import (
+    from agents_extensions.shared.hooks.shell_shlex import (
         _quote_after as shell_quote_after,
     )
 except Exception as exc:

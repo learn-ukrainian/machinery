@@ -34,7 +34,7 @@ def test_agy_child_drops_secret_override_only_for_agy(harness, monkeypatch):
     if harness != "agy":
         payload = {"tool_input": {"command": 'printf "%s" "$AGY_SYNTHETIC_TOKEN"'}}
     result = subprocess.run(
-        [sys.executable, str(ADAPTER), "--harness", harness],
+        [sys.executable, "-I", "-m", "lu_machinery.agent_runtime.secret_print_hook", "--harness", harness],
         input=json.dumps(payload),
         text=True,
         capture_output=True,
@@ -54,7 +54,7 @@ NATIVE_ENV = {"PATH": "/usr/bin:/bin", "ARBITRARY_TOKEN": SENTINEL, "PYTHONDONTW
 )
 def test_native_round_seven_inventory_and_neighbors(harness, command, allowed):
     result = subprocess.run(
-        [sys.executable, str(ADAPTER), "--harness", harness],
+        [sys.executable, "-I", "-m", "lu_machinery.agent_runtime.secret_print_hook", "--harness", harness],
         input=json.dumps(event(harness, command)),
         text=True,
         capture_output=True,
@@ -70,7 +70,7 @@ def test_native_round_seven_inventory_and_neighbors(harness, command, allowed):
 @pytest.mark.parametrize("api,command", ROUND_SIX_INVENTORY, ids=[row[0] for row in ROUND_SIX_INVENTORY])
 def test_native_round_six_inventory(harness, api, command):
     result = subprocess.run(
-        [sys.executable, str(ADAPTER), "--harness", harness],
+        [sys.executable, "-I", "-m", "lu_machinery.agent_runtime.secret_print_hook", "--harness", harness],
         input=json.dumps(event(harness, command)),
         text=True,
         capture_output=True,
@@ -84,7 +84,7 @@ def test_native_round_six_inventory(harness, api, command):
 @pytest.mark.parametrize("command", ROUND_SIX_NEIGHBORS)
 def test_native_round_six_neighbors(harness, command):
     result = subprocess.run(
-        [sys.executable, str(ADAPTER), "--harness", harness],
+        [sys.executable, "-I", "-m", "lu_machinery.agent_runtime.secret_print_hook", "--harness", harness],
         input=json.dumps(event(harness, command)),
         text=True,
         capture_output=True,
@@ -98,7 +98,7 @@ def test_native_round_six_neighbors(harness, command):
 @pytest.mark.parametrize("command", ROUND_FIVE_SPELLINGS)
 def test_native_round_five_review_spellings(harness, command):
     result = subprocess.run(
-        [sys.executable, str(ADAPTER), "--harness", harness],
+        [sys.executable, "-I", "-m", "lu_machinery.agent_runtime.secret_print_hook", "--harness", harness],
         input=json.dumps(event(harness, command)),
         text=True,
         capture_output=True,
@@ -115,7 +115,7 @@ def test_native_round_five_literal_policy(harness, consumer, program, name, allo
     import shlex
 
     result = subprocess.run(
-        [sys.executable, str(ADAPTER), "--harness", harness],
+        [sys.executable, "-I", "-m", "lu_machinery.agent_runtime.secret_print_hook", "--harness", harness],
         input=json.dumps(event(harness, f"{consumer} --unknown {shlex.quote(program.format(name=name))}")),
         text=True,
         capture_output=True,
@@ -138,7 +138,7 @@ def test_native_round_five_literal_policy(harness, consumer, program, name, allo
 )
 def test_native_structural_dump_denials(harness, command):
     result = subprocess.run(
-        [sys.executable, str(ADAPTER), "--harness", harness],
+        [sys.executable, "-I", "-m", "lu_machinery.agent_runtime.secret_print_hook", "--harness", harness],
         input=json.dumps(event(harness, command)),
         text=True,
         capture_output=True,
@@ -183,7 +183,7 @@ def test_native_cli_decisions(harness, case):
         payload = event(harness, ["env"])
     raw = "{" + SENTINEL if case == "unparseable" else json.dumps(payload)
     result = subprocess.run(
-        [sys.executable, str(ADAPTER), "--harness", harness], input=raw, text=True, capture_output=True, timeout=10
+        [sys.executable, "-I", "-m", "lu_machinery.agent_runtime.secret_print_hook", "--harness", harness], input=raw, text=True, capture_output=True, timeout=10
     )
     assert_decision(harness, result.returncode, result.stdout, result.stderr, case == "allow")
 
@@ -279,7 +279,7 @@ def test_invalid_options_fail_closed(argv, monkeypatch, capsys):
 
 def test_cli_help():
     result = subprocess.run(
-        [sys.executable, str(ADAPTER), "--help"], text=True, capture_output=True, env=NATIVE_ENV, timeout=10
+        [sys.executable, "-I", "-m", "lu_machinery.agent_runtime.secret_print_hook", "--help"], text=True, capture_output=True, env=NATIVE_ENV, timeout=10
     )
     assert result.returncode == 0
     for term in ["--harness", "--timeout", "Outputs:", "Exit codes:", "Related:"]:
@@ -308,7 +308,7 @@ def test_actual_guard_stderr_is_forwarded(harness, monkeypatch, capsys, secret_p
 @pytest.mark.parametrize("harness", HARNESS_NAMES)
 def test_denial_never_includes_candidate_filename(harness):
     result = subprocess.run(
-        [sys.executable, str(ADAPTER), "--harness", harness],
+        [sys.executable, "-I", "-m", "lu_machinery.agent_runtime.secret_print_hook", "--harness", harness],
         input=json.dumps(event(harness, f"cat .env.{SENTINEL}")),
         text=True,
         capture_output=True,
@@ -373,7 +373,7 @@ def test_unexpected_adapter_failure_denies(harness, monkeypatch, capsys):
 )
 def test_agy_native_precedence_and_legacy(payload, allowed):
     result = subprocess.run(
-        [sys.executable, str(ADAPTER), "--harness", "agy"],
+        [sys.executable, "-I", "-m", "lu_machinery.agent_runtime.secret_print_hook", "--harness", "agy"],
         input=json.dumps(payload),
         text=True,
         capture_output=True,
@@ -392,7 +392,7 @@ def test_non_agy_oversized_metadata_keeps_base_allow(harness):
 
     payload = {**event(harness, "printf OK"), "metadata": "x" * (MAX_STDIN_BYTES + 1)}
     result = subprocess.run(
-        [sys.executable, str(ADAPTER), "--harness", harness],
+        [sys.executable, "-I", "-m", "lu_machinery.agent_runtime.secret_print_hook", "--harness", harness],
         input=json.dumps(payload),
         text=True,
         capture_output=True,
@@ -409,7 +409,7 @@ def test_non_agy_oversized_metadata_keeps_base_allow(harness):
 )
 def test_agy_invalid_stdin_subprocess(raw):
     result = subprocess.run(
-        [sys.executable, str(ADAPTER), "--harness", "agy"],
+        [sys.executable, "-I", "-m", "lu_machinery.agent_runtime.secret_print_hook", "--harness", "agy"],
         input=raw,
         text=True,
         capture_output=True,

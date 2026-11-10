@@ -1532,24 +1532,6 @@ def _checkout_relative(relative: str) -> str:
     return f"{package}/{relative}"
 
 
-def validate_glm_alias_consumers(project_root: Path = PROJECT_ROOT) -> None:
-    """Reject local alias maps so all GLM surfaces stay catalog-backed."""
-    consumers = {
-        _checkout_relative("lib/glmcc_route.sh"): ("--resolve-glm-model", "--format glmcc"),
-    }
-    for relative_path, required_snippets in consumers.items():
-        path = project_root / relative_path
-        try:
-            source = path.read_text(encoding="utf-8")
-        except OSError as exc:
-            raise ModelCatalogError(f"cannot read GLM alias consumer {relative_path}: {exc}") from exc
-        missing = [snippet for snippet in required_snippets if snippet not in source]
-        if missing:
-            raise ModelCatalogError(
-                f"{relative_path} must resolve GLM aliases through model_catalog.yaml; missing {missing}"
-            )
-
-
 def _main() -> int:
     """Expose catalog-backed model resolution for shell launchers."""
     import argparse

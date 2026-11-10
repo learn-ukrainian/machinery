@@ -1009,7 +1009,7 @@ def fixture_hook(primary, monkeypatch, *, deployed=False):
     )
     path.parent.mkdir(parents=True, exist_ok=True)
     shutil.copyfile(HOOK, path)
-    for helper in ("load_hook_package.py", "shell_shlex.py", "tool_names.py"):
+    for helper in ("shell_shlex.py", "tool_names.py"):
         shutil.copyfile(HOOK.parent / helper, path.parent / helper)
     # The hook verifies the module files of the machinery root that owns it: here, the copies above.
     monkeypatch.setattr(repo_root, "machinery_root", lambda *_a, **_k: primary / "lu_machinery")

@@ -156,7 +156,6 @@ for one shell invocation. Prefer fixing the cwd / using a worktree instead.
 from __future__ import annotations
 
 import fnmatch
-import importlib.util
 import json
 import os
 import re
@@ -166,16 +165,10 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Optional
 
-# Package-only loader (#161). A deployed copy must not put the consumer parent on sys.path.
-_loader = Path(__file__).resolve().parent / "load_hook_package.py"
-_spec = importlib.util.spec_from_file_location("_load_hook_package", _loader)
-if _spec is None or _spec.loader is None:
-    raise ImportError(f"hook package loader missing: {_loader}")
-_spec.loader.exec_module(importlib.util.module_from_spec(_spec))
 # Don't write __pycache__ next to deployed hooks (#9108).
 sys.dont_write_bytecode = True
 try:
-    from shell_shlex import (
+    from agents_extensions.shared.hooks.shell_shlex import (
         ShellPreprocessLimit,
         normalize_io_descriptors,
         preprocess_shell_command,
@@ -187,7 +180,7 @@ except Exception as exc:
     print(f"guard dependency unavailable: shell_shlex ({exc})", file=sys.stderr)
     raise SystemExit(2) from exc
 try:
-    from tool_names import is_shell_tool
+    from agents_extensions.shared.hooks.tool_names import is_shell_tool
 except Exception as exc:
     print(f"guard dependency unavailable: tool_names ({exc})", file=sys.stderr)
     raise SystemExit(2) from exc

@@ -1,6 +1,6 @@
 """Shared filesystem SQLite reader boundary (#9609, #9662).
 
-Kept in scripts/lib so tooling and corpus readers share one small dependency,
+Tooling and corpus readers share this installed-package dependency,
 without importing a curriculum, crawler, or application package.
 """
 
@@ -21,15 +21,7 @@ from types import ModuleType
 from typing import Any, Protocol, Self
 from urllib.parse import parse_qs, unquote, urlsplit
 
-try:
-    from ..common.repo_root import machinery_path, machinery_root
-except ImportError:  # loaded by path: the install root, not the package directory, is the import anchor
-    import sys
-
-    _root = str(Path(__file__).resolve().parents[2])
-    if _root not in sys.path:
-        sys.path.insert(0, _root)
-    from lu_machinery.common.repo_root import machinery_path, machinery_root  # type: ignore[no-redef]
+from lu_machinery.common.repo_root import machinery_path, machinery_root
 
 
 class SQLiteConnection(Protocol):

@@ -392,24 +392,6 @@
         ]
       }
     },
-    "hooks/load_hook_package.py": {
-      "mode": 493,
-      "owner": "fleet",
-      "targets": {
-        "agy": [
-          ".agent/hooks/load_hook_package.py"
-        ],
-        "claude": [
-          ".claude/hooks/load_hook_package.py"
-        ],
-        "codex": [
-          ".codex/hooks/load_hook_package.py"
-        ],
-        "cursor": [
-          ".cursor/hooks/load_hook_package.py"
-        ]
-      }
-    },
     "hooks/post-compact.sh": {
       "mode": 493,
       "owner": "fleet",

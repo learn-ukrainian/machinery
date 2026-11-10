@@ -6,12 +6,10 @@ consume Claude-shaped fields. This bridge preserves the original payload and
 adds the shape the guards require; an unreadable event or missing guard denies.
 Reviewer sessions and write sessions both enter through this bridge.
 
-The guard argument is either a tracked guard path, run directly, or the project
-interpreter followed by one of the tracked guards that need it. A tracked guard
-sits in the release's shared hooks directory, where the Claude settings builder
-points every guard; the configured product root plays no part. The Claude
-adapter emits the second form for parser guards; any other path, interpreter,
-guard or extra argument denies.
+The guard argument is exactly one tracked guard path in the release's shared
+hooks directory. Python guards execute with this process's interpreter and -I;
+shell guards execute directly. The configured product root plays no part.
+Other paths, interpreters and extra arguments deny.
 """
 
 from __future__ import annotations
@@ -38,56 +36,35 @@ _TOOL_NAMES = {
 }
 
 
-# Must match ``PROJECT_PYTHON_GUARDS`` in ``adapters/claude.py``; a test pins the
-# two sets together. The bridge does not import the adapter: it runs on every
-# guarded tool call.
-PROJECT_PYTHON_GUARDS = frozenset({"guard-pr-merge.py", "guard-admin-merge.py", "guard-branch-switch-in-main.py"})
 # The deployed wrapper is translated away by the adapter; it is never a guard.
 _PROJECT_PYTHON_HOOK_WRAPPER = "run-project-python-hook.sh"
 
 
 class GuardInvocationError(ValueError):
-    """The guard argument is neither a guard path nor a pinned invocation."""
+    """The guard argument is not exactly one tracked guard path."""
 
 
 def guard_argv(command: str) -> list[str]:
-    """Return the argv for one guard path or one pinned interpreter invocation.
-
-    The argument is split into shell words first, so quoting and escaping never
-    change how it is classified; an unreadable argument denies.
-    """
+    """Isolate one tracked Python guard; keep shell guards as direct invocations."""
     try:
         argv = shlex.split(command)
     except ValueError as exc:
         raise GuardInvocationError("unreadable fleet guard invocation") from exc
-    try:
-        from lu_machinery.common.repo_root import machinery_path
-    except ModuleNotFoundError:
-        # File launch from a checkout: the package is not installed on this interpreter.
-        sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-        from lu_machinery.common.repo_root import machinery_path
+    from lu_machinery.common.repo_root import machinery_path
+
     hooks_dir = machinery_path("agents_extensions/shared/hooks")
 
     def tracked(guard: Path) -> bool:
         return guard == hooks_dir / guard.name
 
-    if len(argv) == 1:
-        guard = Path(argv[0])
-        if not tracked(guard) or guard.name == _PROJECT_PYTHON_HOOK_WRAPPER:
-            raise GuardInvocationError("only tracked fleet guards may run")
-        if not guard.is_file():
-            raise GuardInvocationError("fleet guard unavailable")
-        return argv
-    if len(argv) != 2:
-        raise GuardInvocationError("one fleet guard path or pinned interpreter invocation required")
-    python_bin, guard = (Path(arg) for arg in argv)
-    if guard.name not in PROJECT_PYTHON_GUARDS or not tracked(guard):
-        raise GuardInvocationError("only tracked parser guards may run under the project interpreter")
+    if len(argv) != 1:
+        raise GuardInvocationError("one tracked fleet guard path required")
+    guard = Path(argv[0])
+    if not tracked(guard) or guard.name == _PROJECT_PYTHON_HOOK_WRAPPER:
+        raise GuardInvocationError("only tracked fleet guards may run")
     if not guard.is_file():
         raise GuardInvocationError("fleet guard unavailable")
-    if python_bin != Path(sys.executable):
-        raise GuardInvocationError("fleet guard interpreter is not this process's interpreter")
-    return argv
+    return [sys.executable, "-I", str(guard)] if guard.suffix == ".py" else argv
 
 
 def main() -> int:

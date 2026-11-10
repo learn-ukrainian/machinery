@@ -40,7 +40,6 @@ likewise unread — a deliberate-only shape, documented rather than papered over
 from __future__ import annotations
 
 import concurrent.futures
-import importlib.util
 import json
 import os
 import re
@@ -104,16 +103,10 @@ if __name__ == "__main__":
 _MERGE_GUARD_MODULE = "lu_machinery.publish.merge_guard"
 _PUBLISHER = _MERGE_GUARD_MODULE.rpartition(".")[0]
 
-# Package-only loader (#161). A deployed copy must not put the consumer parent on sys.path.
-_loader = Path(__file__).resolve().parent / "load_hook_package.py"
-_spec = importlib.util.spec_from_file_location("_load_hook_package", _loader)
-if _spec is None or _spec.loader is None:
-    raise ImportError(f"hook package loader missing: {_loader}")
-_spec.loader.exec_module(importlib.util.module_from_spec(_spec))
 # Don't write __pycache__ next to deployed hooks (#9108).
 sys.dont_write_bytecode = True
 try:
-    from shell_shlex import (
+    from agents_extensions.shared.hooks.shell_shlex import (
         ShellPreprocessLimit,
         preprocess_shell_command,
         skippable_heredoc_delimiters,
@@ -125,7 +118,7 @@ except Exception as exc:
     raise SystemExit(2) from exc
 
 try:
-    from shell_redirects import literal_lines, scope_events
+    from agents_extensions.shared.hooks.shell_redirects import literal_lines, scope_events
 except Exception as exc:
     print(f"guard dependency unavailable: shell_redirects ({exc})", file=sys.stderr)
     raise SystemExit(2) from exc

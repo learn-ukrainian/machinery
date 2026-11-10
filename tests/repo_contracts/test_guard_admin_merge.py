@@ -156,11 +156,15 @@ def test_issue_9479_literal_redirect_target(monkeypatch, target):
 def test_issue_9479_missing_shared_helper_fails_closed(tmp_path, hook):
     hook_path = HOOK_PATH.parent / hook
     shutil.copy2(hook_path, tmp_path / hook)
-    shutil.copy2(HOOK_PATH.parent / "load_hook_package.py", tmp_path / "load_hook_package.py")
-    shutil.copy2(HOOK_PATH.parent / "shell_shlex.py", tmp_path / "shell_shlex.py")
     command = "git switch -c fixture" if "branch" in hook else "gh pr merge 5 --admin"
     result = subprocess.run(
-        [sys.executable, str(tmp_path / hook)],
+        [
+            sys.executable, "-I", "-c",
+            "import runpy, sys; "
+            "sys.modules['agents_extensions.shared.hooks.shell_redirects'] = None; "
+            "runpy.run_path(sys.argv[1], run_name='__main__')",
+            str(tmp_path / hook),
+        ],
         input=json.dumps({"tool_input": {"command": command}}),
         capture_output=True,
         text=True,
@@ -222,7 +226,7 @@ def test_issue_9115_escaped_nested_backtick_admin_merge_is_visible():
 
 
 def test_issue_9115_backtick_depth_limit_blocks_in_hook(monkeypatch):
-    monkeypatch.setattr(sys.modules["shell_shlex"], "_MAX_BACKTICK_DEPTH", 2)
+    monkeypatch.setattr(sys.modules["agents_extensions.shared.hooks.shell_shlex"], "_MAX_BACKTICK_DEPTH", 2)
     body = "gh pr merge 5 --admin"
     for _ in range(3):
         body = "`" + body.replace("\\", "\\\\").replace("`", r"\`") + "`"
@@ -308,7 +312,7 @@ def test_issue_9088_missing_shell_helper_blocks(tmp_path):
     guard_copy = tmp_path / HOOK_PATH.name
     shutil.copy2(HOOK_PATH, guard_copy)
     result = subprocess.run(
-        [sys.executable, str(guard_copy)],
+        [sys.executable, "-I", "-S", str(guard_copy)],
         input=json.dumps({"tool_input": {"command": "gh pr merge 1 --admin"}}),
         text=True,
         capture_output=True,
