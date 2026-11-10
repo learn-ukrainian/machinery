@@ -188,6 +188,11 @@ CLAUDE_ACP_MIN_CLAUDE_CODE_VERSIONS: dict[str, tuple[int, int, int]] = {CLAUDE_A
 # participant sends the catalog's Cursor seat pin, or the other allowlisted pin.
 CURSOR_ACP_MODEL = "grok-4.7"
 CURSOR_ACP_MODELS = frozenset({"grok-4.7-high"})
+# The pin stays the fleet identity. On the ACP argv it is the advertised-id
+# prefix: acpx accepts a Cursor --model only as an advertised id or the unique
+# id starting with "<model>[", and Cursor ACP advertises grok-4.7[...] ids,
+# never the CLI slug grok-4.7-high.
+CURSOR_ACP_INVOCATION_MODEL = "grok-4.7"
 GLM_ACP_MODEL = "glm-5.3"
 GLM_ACP_INVOCATION_MODEL = "zai-coding-plan/glm-5.3"
 # DeepSeek ACP seat (#6805): the bare catalog id remains fleet identity.
@@ -3855,7 +3860,7 @@ class _AcpxDiscussionAdapter:
             cmd.extend(["--model", self.acpx_model or self.fixed_model])
         elif self.allowed_models:
             cmd_model = model or self.default_model
-            cmd.extend(["--model", cmd_model])
+            cmd.extend(["--model", self.acpx_model or cmd_model])
         if custom_agent is None:
             if self.target_agent in {"claude", "codex"} and _ACPX_BINARY is None:
                 cmd.extend(["--agent", _node_adapter_command(self.target_agent), "exec", "-f", "-"])
@@ -4036,6 +4041,7 @@ class AcpxCursorShadowAdapter(_AcpxDiscussionAdapter):
     name = "acpx-cursor-shadow"
     target_agent = "cursor"
     allowed_models = CURSOR_ACP_MODELS
+    acpx_model = CURSOR_ACP_INVOCATION_MODEL
     default_model = CURSOR_ACP_MODEL
     # Cursor's ACP authenticate(cursor_login) can wait indefinitely on an
     # interactive login. The child receives the existing API key instead.

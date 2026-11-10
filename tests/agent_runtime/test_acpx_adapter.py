@@ -1934,9 +1934,9 @@ def test_builtin_discussion_seats_are_fixed_active_only_and_confined(
         assert "--model" not in plan.cmd
         assert "model" not in plan.metadata
     else:
-        expected_wire_model = "grok-4.7-high" if participant == "cursor" and fixed_model == "grok-4.7" else fixed_model
-        assert ("--model", expected_wire_model) in zip(plan.cmd, plan.cmd[1:], strict=False)
-        assert plan.metadata["model"] == expected_wire_model
+        expected_pin = "grok-4.7-high" if participant == "cursor" and fixed_model == "grok-4.7" else fixed_model
+        assert ("--model", fixed_model) in zip(plan.cmd, plan.cmd[1:], strict=False)
+        assert plan.metadata["model"] == expected_pin
     if participant == "claude":
         assert "--system-prompt" not in plan.cmd
         assert plan.metadata["effort"] == "high"
@@ -2058,7 +2058,7 @@ def _cursor_acp_plan(tmp_path, monkeypatch, model):
 
 
 @pytest.mark.parametrize(
-    ("model", "sent"),
+    ("model", "pin"),
     [
         (None, "grok-4.7-high"),
         ("grok-4.7", "grok-4.7-high"),
@@ -2066,16 +2066,21 @@ def _cursor_acp_plan(tmp_path, monkeypatch, model):
         ("composer-2.5", None),
     ],
 )
-def test_cursor_acp_invocation_carries_a_concrete_pin(tmp_path, monkeypatch, model, sent):
-    """Operator decision 2026-09-30 (#9274): a Cursor consult or discussion never runs Auto."""
-    if sent is None:
+def test_cursor_acp_invocation_carries_a_concrete_pin(tmp_path, monkeypatch, model, pin):
+    """Operator decision 2026-09-30 (#9274): a Cursor consult or discussion never runs Auto.
+
+    The pin is the plan's model identity. The ACP argv carries ``grok-4.7``: acpx
+    accepts a Cursor ``--model`` only as an advertised id or the unique advertised
+    id starting with ``grok-4.7[``, and refuses the CLI slug ``grok-4.7-high``.
+    """
+    if pin is None:
         with pytest.raises(AcpxShadowRefusalError, match="CURSOR_MODEL_NOT_APPROVED"):
             _cursor_acp_plan(tmp_path, monkeypatch, model)
         return
     plan = _cursor_acp_plan(tmp_path, monkeypatch, model)
-    assert ("--model", sent) in zip(plan.cmd, plan.cmd[1:], strict=False)
+    assert ("--model", "grok-4.7") in zip(plan.cmd, plan.cmd[1:], strict=False)
     assert plan.cmd.count("--model") == 1
-    assert plan.metadata["model"] == sent
+    assert plan.metadata["model"] == pin
 
 
 @pytest.mark.parametrize(
