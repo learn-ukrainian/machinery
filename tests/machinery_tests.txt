@@ -898,7 +898,6 @@ tests/rules_core_view.py
 tests/sparse_trees.py
 tests/storage/__init__.py
 tests/test_agent_github_identity.py
-tests/test_sibling_git.py
 tests/trails/__init__.py
 tests/trails/fixtures/certification/executable.trail.yaml
 tests/trails/fixtures/certification/legacy.trail.yaml
