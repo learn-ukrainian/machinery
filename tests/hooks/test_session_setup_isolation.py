@@ -60,6 +60,8 @@ def _tree_copy(tmp_path: Path) -> Path:
     hooks = tree / "agents_extensions" / "shared" / "hooks"
     hooks.mkdir(parents=True)
     shutil.copy2(_HOOK, hooks / _HOOK.name)
+    lib = _HOOK.parent / "context-rollover-lib.sh"
+    shutil.copy2(lib, hooks / lib.name)
     subprocess.run(["git", "init", "-q", str(tree)], check=True)
     return tree
 
@@ -190,10 +192,6 @@ _LIB_SITES = {
     "fleet_comms_plane_mode": f'source {_LIB}/fleet_comms_cold_start.sh && PROJECT_DIR="$1" fleet_comms_resolve_plane_mode',
     "fleet_comms_plane_probe": (
         f'source {_LIB}/fleet_comms_cold_start.sh && PROJECT_DIR="$1" fleet_comms_warn_if_plane_unreachable'
-    ),
-    "claude_route_guard": (
-        f"source {_LIB}/claude_route_guard.sh && printf '{{}}' > \"$1/settings.json\" && "
-        f'CLAUDE_ROUTE_GUARD_PYTHON={_PY} claude_settings_conflicting_route_keys "$1/settings.json"'
     ),
     "deploy_extensions": (
         f'source {_LIB}/deploy_extensions.sh && printf \'{{"scripts": {{"probe": "x"}}}}\' > "$1/package.json" && '

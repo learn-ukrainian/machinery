@@ -245,7 +245,8 @@ def test_session_setup_interpreter_matrix(tmp_path: Path) -> None:
     )
     assert bare.returncode != 0
     assert "project interpreter not found" in bare.stderr
-    assert "is not used" in bare.stderr
+    assert str(_bare_primary / ".venv" / "bin" / "python") in bare.stderr
+    assert str(bare_worktree / ".venv" / "bin" / "python") not in bare.stderr
     assert bare_log.read_text(encoding="utf-8") == ""
 
 
@@ -383,7 +384,6 @@ ROUTED = (
     "lu_machinery/orchestration/run_mac_observer_heartbeat.sh",
     "lu_machinery/orchestration/run_project_state_reporter.sh",
     "lu_machinery/orchestration/run_scheduled_worktree_cleanup.sh",
-    "lu_machinery/pre_commit/project_python.sh",
     "lu_machinery/session_start.sh",
     "lu_machinery/wt.sh",
     "lu_machinery/agent_runtime/shims/gh",
@@ -399,7 +399,6 @@ ROUTED = (
     ".githooks/post-merge",
     ".githooks/pre-push",
     "lu_machinery/launchers/codex.sh",
-    "lu_machinery/lib/claude_route_guard.sh",
     "lu_machinery/lib/handoff_identity.sh",
     "lu_machinery/lib/thread_rollover_link.sh",
     "agents_extensions/shared/hooks/auto-audit.sh",
@@ -515,32 +514,48 @@ def _tracked_pre_push_scans_the_outgoing_range(tmp_path: Path) -> None:
 
 
 def test_project_python_and_githooks_follow_the_rule(tmp_path: Path) -> None:
-    """The pre-commit launcher and the hooks that call it use the rule, not a worktree venv.
+    """The hook installer and the hooks use the selector, not a worktree venv.
 
+    ``pre_commit/project_python.sh`` is gone. ``install_git_hooks.sh`` sources
+    ``lib/project_interpreter.sh`` and resolves for the worktree, as ``.githooks/_lib.sh`` does.
     The same function proves the tracked pre-push hook: a planted fixture value is refused, a clean
     push is allowed, and a missing scanner refuses the push.
     """
-    primary, worktree, log = _layout(tmp_path, primary_venv=True, worktree_venv=True)
-    override = _wrapper(tmp_path / "override-python", log)
+    primary, worktree, _log = _layout(tmp_path, primary_venv=True, worktree_venv=True)
+    override = _wrapper(tmp_path / "override-python", _log)
     plain = tmp_path / "plain-file"
     plain.write_text("", encoding="utf-8")
-    script = SOURCE / "lu_machinery/pre_commit/project_python.sh"
-    selected = _run([str(script), "-c", "print(1)"], cwd=worktree, env={**_base_env(tmp_path), "LEARN_UKRAINIAN_PYTHON": str(override)})
+    installer = (_checkout() / "lu_machinery" / "install_git_hooks.sh").read_text(encoding="utf-8")
+    assert "lu_machinery/lib/project_interpreter.sh" in installer
+    assert "project_interpreter_resolve" in installer
+    assert "project_python.sh" not in installer
+    assert not (SOURCE / "lu_machinery/pre_commit/project_python.sh").exists()
+    selector = (
+        f'source "{LIB / "project_interpreter.sh"}" && project_interpreter_resolve "$1"'
+    )
+    selected = _run(
+        ["bash", "-c", selector, "probe", str(worktree)],
+        cwd=worktree,
+        env={**_base_env(tmp_path), "LEARN_UKRAINIAN_PYTHON": str(override)},
+    )
     assert selected.returncode == 0, selected.stderr
-    assert log.read_text(encoding="utf-8").split()[0] == str(override)
+    assert selected.stdout.strip() == str(override)
 
-    log.write_text("", encoding="utf-8")
-    refused = _run([str(script), "-c", "print(1)"], cwd=worktree, env={**_base_env(tmp_path), "LEARN_UKRAINIAN_PYTHON": str(plain)})
+    refused = _run(
+        ["bash", "-c", selector, "probe", str(worktree)],
+        cwd=worktree,
+        env={**_base_env(tmp_path), "LEARN_UKRAINIAN_PYTHON": str(plain)},
+    )
     assert refused.returncode != 0
-    assert log.read_text(encoding="utf-8") == ""
     assert str(primary / ".venv/bin/python") not in refused.stdout
 
-    log.write_text("", encoding="utf-8")
-    primary_selected = _run([str(script), "-c", "print(1)"], cwd=worktree, env=_base_env(tmp_path))
+    primary_selected = _run(
+        ["bash", "-c", selector, "probe", str(worktree)],
+        cwd=worktree,
+        env=_base_env(tmp_path),
+    )
     assert primary_selected.returncode == 0, primary_selected.stderr
-    picked = log.read_text(encoding="utf-8").split()
-    assert picked[0] == str(primary / ".venv/bin/python")
-    assert str(worktree / ".venv/bin/python") not in picked
+    assert primary_selected.stdout.strip() == str(primary / ".venv/bin/python")
 
     hook_log = tmp_path / "hook.log"
     hook_override = _wrapper(tmp_path / "hook-python", hook_log)

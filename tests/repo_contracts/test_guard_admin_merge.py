@@ -153,7 +153,14 @@ def test_issue_9479_literal_redirect_target(monkeypatch, target):
 
 
 @pytest.mark.parametrize("hook", ["guard-admin-merge.py", "guard-branch-switch-in-main.py", "guard-pr-merge.py"])
-def test_issue_9479_missing_shared_helper_fails_closed(tmp_path, hook):
+def test_issue_9479_missing_shell_redirects_namespace_fails_closed(tmp_path, hook):
+    """The whole installed shell_redirects namespace is missing, so the guard fails closed.
+
+    Setting ``sys.modules['agents_extensions.shared.hooks.shell_redirects']`` to None
+    removes that module. The proof is the refusal, not a helper file copied beside
+    the hook. The old ``shutil.copy2(... shell_shlex.py ...)`` line is already gone
+    (it did not affect an import of the installed namespace).
+    """
     hook_path = HOOK_PATH.parent / hook
     shutil.copy2(hook_path, tmp_path / hook)
     command = "git switch -c fixture" if "branch" in hook else "gh pr merge 5 --admin"

@@ -85,9 +85,28 @@ is_current_delegator() {
 # Hook types .pre-commit-config.yaml asks to run, from a real YAML parse
 # (default_install_hook_types, default_stages, and every hook's stages).
 declared_stages() {
-    local config="$1"
-    (cd "$repo_root" && bash lu_machinery/pre_commit/project_python.sh \
-        lu_machinery/pre_commit/declared_hook_stages.py "$config")
+    local config="$1" source_root interpreter python git_common_dir main_root
+    # Same selector the tracked hooks use (.githooks/_lib.sh): the checkout's
+    # lib/project_interpreter.sh, or the primary checkout's copy when this
+    # worktree does not hold one.
+    source_root="$repo_root"
+    if [[ ! -f "$source_root/lu_machinery/lib/project_interpreter.sh" ]]; then
+        git_common_dir="$(git rev-parse --git-common-dir)"
+        if [[ "$git_common_dir" != /* ]]; then
+            git_common_dir="$repo_root/$git_common_dir"
+        fi
+        main_root="$(cd "$git_common_dir/.." && pwd -P)"
+        source_root="$main_root"
+    fi
+    interpreter="$source_root/lu_machinery/lib/project_interpreter.sh"
+    if [[ ! -f "$interpreter" ]]; then
+        echo "Git hook installer: project interpreter selector not found at $interpreter" >&2
+        return 127
+    fi
+    # shellcheck source=lu_machinery/lib/project_interpreter.sh
+    source "$interpreter"
+    python="$(project_interpreter_resolve "$repo_root")" || return 127
+    (cd "$repo_root" && "$python" lu_machinery/pre_commit/declared_hook_stages.py "$config")
 }
 
 run_check() {

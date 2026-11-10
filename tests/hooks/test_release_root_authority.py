@@ -301,6 +301,7 @@ def test_deployed_session_setup_runs_installed_release_code(release, product):
     hooks = product / ".claude/hooks"
     hooks.mkdir(parents=True)
     shutil.copy2(SOURCE / HOOKS / "session-setup.sh", hooks / "session-setup.sh")
+    shutil.copy2(SOURCE / HOOKS / "context-rollover-lib.sh", hooks / "context-rollover-lib.sh")
     subprocess.run(
         [sys.executable, "-I", "-m", "venv", "--without-pip", str(product / ".venv")],
         check=True,

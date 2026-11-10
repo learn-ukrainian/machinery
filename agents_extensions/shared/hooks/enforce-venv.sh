@@ -25,40 +25,47 @@ if echo "$COMMAND" | grep -qE '^python3?[[:space:]]'; then
     exit 0
   fi
 
-  CANONICAL_ROOT="${LEARN_UK_CANONICAL_ROOT:-}"
-  if [ -z "$CANONICAL_ROOT" ]; then
-    TOOL_CWD=$(printf '%s' "$INPUT" | jq -r '
+  # The suggestion is the interpreter project_interpreter.sh would pick
+  # (LEARN_UKRAINIAN_PYTHON, else the primary checkout's .venv). The checkout
+  # handed to that selector is LEARN_UK_CANONICAL_ROOT when the Codex policy
+  # set it, else the tool's working directory.
+  CHECKOUT="${LEARN_UK_CANONICAL_ROOT:-}"
+  if [ -z "$CHECKOUT" ]; then
+    CHECKOUT=$(printf '%s' "$INPUT" | jq -r '
       .tool_input.workdir
       // .tool_input.cwd
       // .tool_input.working_directory
       // .cwd
       // empty
     ')
-    [ -n "$TOOL_CWD" ] || TOOL_CWD="$PWD"
-    COMMON_DIR=$(git -C "$TOOL_CWD" rev-parse --path-format=absolute --git-common-dir 2>/dev/null) \
-      || COMMON_DIR=""
-    [ -z "$COMMON_DIR" ] || CANONICAL_ROOT="$(dirname "$COMMON_DIR")"
+    [ -n "$CHECKOUT" ] || CHECKOUT="${CLAUDE_PROJECT_DIR:-${LU_PRODUCT_ROOT:-$PWD}}"
   fi
+  # shellcheck source=agents_extensions/shared/hooks/context-rollover-lib.sh
+  source "$(dirname "${BASH_SOURCE[0]}")/context-rollover-lib.sh" \
+    || { printf 'enforce-venv: context-rollover-lib.sh is missing beside this hook\n' >&2; exit 2; }
+  context_machinery_bootstrap "$CHECKOUT" || exit 2
+  PYTHON_BIN="$CONTEXT_PROJECT_PYTHON"
 
-  PYTHON_BIN="${CANONICAL_ROOT:+$CANONICAL_ROOT/}.venv/bin/python"
-  if [ ! -x "$PYTHON_BIN" ]; then
-    printf 'Unqualified interpreter blocked: project venv is missing at %s\n' "$PYTHON_BIN" >&2
-    exit 2
+  PRIMARY_ROOT=""
+  if PRIMARY_ROOT="$(project_primary_root_resolve "$CHECKOUT" 2>/dev/null)"; then
+    PYTHON_VERSION_FILE="$PRIMARY_ROOT/.python-version"
+  else
+    PYTHON_VERSION_FILE=""
   fi
-
-  PYTHON_VERSION_FILE="${CANONICAL_ROOT:+$CANONICAL_ROOT/}.python-version"
-  if [ ! -f "$PYTHON_VERSION_FILE" ]; then
+  if [ -z "${LEARN_UKRAINIAN_PYTHON:-}" ] && [ ! -f "$PYTHON_VERSION_FILE" ]; then
     printf 'Unqualified interpreter blocked: project Python pin is missing at %s\n' \
-      "$PYTHON_VERSION_FILE" >&2
+      "${PYTHON_VERSION_FILE:-<unresolved primary>}" >&2
     exit 2
   fi
-  EXPECTED_PYTHON_VERSION=$(head -1 "$PYTHON_VERSION_FILE" | tr -d '[:space:]')
-  ACTUAL_PYTHON_VERSION=$("$PYTHON_BIN" --version 2>&1)
-  if [ -z "$EXPECTED_PYTHON_VERSION" ] \
-    || [ "$ACTUAL_PYTHON_VERSION" != "Python $EXPECTED_PYTHON_VERSION" ]; then
-    printf 'Unqualified interpreter blocked: expected Python %s, got %s\n' \
-      "${EXPECTED_PYTHON_VERSION:-<missing pin>}" "${ACTUAL_PYTHON_VERSION:-<unavailable>}" >&2
-    exit 2
+  if [ -f "$PYTHON_VERSION_FILE" ]; then
+    EXPECTED_PYTHON_VERSION=$(head -1 "$PYTHON_VERSION_FILE" | tr -d '[:space:]')
+    ACTUAL_PYTHON_VERSION=$("$PYTHON_BIN" --version 2>&1)
+    if [ -z "$EXPECTED_PYTHON_VERSION" ] \
+      || [ "$ACTUAL_PYTHON_VERSION" != "Python $EXPECTED_PYTHON_VERSION" ]; then
+      printf 'Unqualified interpreter blocked: expected Python %s, got %s\n' \
+        "${EXPECTED_PYTHON_VERSION:-<missing pin>}" "${ACTUAL_PYTHON_VERSION:-<unavailable>}" >&2
+      exit 2
+    fi
   fi
 
   printf -v QUOTED_PYTHON '%q' "$PYTHON_BIN"

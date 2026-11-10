@@ -580,6 +580,15 @@ Failed push runs on `main`, scheduled runs and other runs without a PR retain
 normal failed-job rerun behavior. Ambiguous PR or
 merge-group associations remain refused.
 
+## A required job GitHub never created
+
+`scripts.publish run-rerun` reruns failed jobs only (`gh run rerun --failed`). When a run's conclusion is failure and every job GitHub created succeeded, the publisher refuses: the recovery evidence must name exactly those failed job ids, and that set is empty (`RECOVERY_EVIDENCE_MISMATCH` in `lu_machinery/publish/github.py`). That is the case where a required job, such as `CI Gate` or `pytest / pytest shards`, was never created. There is no publisher command for a full rerun of that run, and none is added.
+
+Recovery still uses the one allowance for that PR head:
+
+- Merge queue: if the failed run already removed the PR, enqueue it once. That re-enqueue is the existing CI recovery and spends the allowance. If the PR is still queued, dequeue it and then enqueue once, and treat that pair as the head's one recovery. A manual removal is not itself classified as a CI failure; do not take a second recovery for the same head.
+- PR CI: the CTO runs one full rerun of the workflow run, not `run-rerun`. Before that rerun, record on the PR the run id, the names of the jobs GitHub never created, and the GitHub status-page incident.
+
 A spent allowance has two ways out: a new PR head with fresh exact-head approval
 and green CI, or an attributed operator action. Record an operator-authorized
 exception as a separate attributed PR comment naming the exact head, first

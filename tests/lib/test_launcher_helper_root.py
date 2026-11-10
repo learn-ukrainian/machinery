@@ -36,7 +36,6 @@ _COPIED = (
     "lu_machinery/lib/project_interpreter.sh",
     "lu_machinery/lib/handoff_identity.sh",
     "lu_machinery/lib/session_supervisor.sh",
-    "lu_machinery/lib/claude_route_guard.sh",
     "lu_machinery/lib/profile_resolver.sh",
     "lu_machinery/launchers/claude.sh",
     "lu_machinery/launchers/codex.sh",
