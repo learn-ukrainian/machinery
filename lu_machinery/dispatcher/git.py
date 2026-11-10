@@ -1189,7 +1189,7 @@ def _require_public_push(tree: Path, remote: str, ref: str, commit: str) -> None
         lint_env.pop(OVERRIDE, None)
         lint_env.update(GIT_DIR=git_dir, GIT_WORK_TREE=str(tree), GIT_TERMINAL_PROMPT="0")
         completed = subprocess.run(
-            [sys.executable, str(script), "--commit-range", f"{base}..{commit}"],
+            [sys.executable, "-I", str(script), "--commit-range", f"{base}..{commit}"],
             cwd=product_root(), env=lint_env, capture_output=True, text=True, timeout=120, check=False,
         )
         if completed.returncode != 0:

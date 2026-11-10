@@ -30,7 +30,9 @@ def exec_primary(
 
     The primary here is the running code's own primary, read from its Git metadata:
     the configured target primary (``LEARN_UKRAINIAN_PRIMARY_REPO_ROOT``) never
-    chooses which dispatcher code runs. The re-exec uses this process's interpreter.
+    chooses which dispatcher code runs. The re-exec uses this process's interpreter under
+    ``-I``: the entry puts the primary root on ``sys.path`` itself, so neither the entry's
+    directory nor ``PYTHONPATH`` can shadow a module.
     Installed code validates its configured primary and stays in this process; help
     needs no operational root.
     """
@@ -51,4 +53,4 @@ def exec_primary(
     entry = primary / entry
     if not entry.is_file():
         refuse(f"primary checkout has no entry point: {entry}")
-    os.execv(sys.executable, [sys.executable, str(entry), *argv])
+    os.execv(sys.executable, [sys.executable, "-I", str(entry), *argv])
