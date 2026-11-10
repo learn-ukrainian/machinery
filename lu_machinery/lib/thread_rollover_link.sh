@@ -277,7 +277,8 @@ bootstrap_codex_checkout() {
   local canonical_root="$1"
   local worktree_root="$2"
   local deploy_failure_policy="${3:-fail}"
-  local deploy_helper="$worktree_root/$THREAD_ROLLOVER_PACKAGE/lib/deploy_extensions.sh"
+  # The deploy code is this library's own tree; the checkout is only the deploy target.
+  local deploy_helper="$PROJECT_CODE_ROOT/$PROJECT_PACKAGE/lib/deploy_extensions.sh"
 
   ensure_codex_venv_link "$canonical_root" "$worktree_root" || return 1
   ensure_thread_rollover_link "$canonical_root" "$worktree_root" || return 1

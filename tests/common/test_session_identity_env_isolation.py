@@ -66,6 +66,7 @@ _HOST_CONFIG_EXPORTS = frozenset(
         "LU_DRIVER_STATE_PYTHON",  # interpreter configuration, shared across sessions
         "LU_AGENT_COMM_TRANSPORT",  # fleet comms transport choice
         "LU_MONITOR_HOST_ID",  # this host, shared by every session on it
+        "LU_PRODUCT_ROOT",  # product checkout path, not a session
         "LU_RUNTIME_TMP_BASE_ROOT",  # storage root
         "LU_RUNTIME_TMP_ROOT",  # storage root
         "LU_TASKS_DIR",  # task-record storage root, shared by every session

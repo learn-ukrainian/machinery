@@ -288,6 +288,7 @@ def _run_interactive(tmp_path: Path, *args: str, env: dict[str, str] | None = No
         {
             "LAUNCHER_DRY_RUN": "1" if dry_run else "0",
             "LC_TEST_REPO": str(root),
+            "LU_PRODUCT_ROOT": str(root),
             "LEARN_UKRAINIAN_PYTHON": sys.executable,
             "LU_SKIP_PLANE_TUNNEL_CHECK": "1",
             "LU_TEST_REAL_MANAGER_CONTACT": str(contact),

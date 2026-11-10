@@ -267,7 +267,24 @@ def copy_launcher_sources(root: Path) -> None:
         elif source.is_file():
             shutil.copy2(source, destination)
             if source.name.startswith("start-") and source.suffix == ".sh":
-                destination.write_text(destination.read_text().replace("/scripts/", f"/{machinery_package()}/"))
+                destination.write_text(sandbox_wrapper_text(destination.read_text()))
+
+
+_PRODUCT_CORE_SOURCE = 'source "$ROOT/scripts/lib/launcher_core.sh"\n'
+
+
+def sandbox_wrapper_text(text: str) -> str:
+    """A product root wrapper rewritten for the sandbox's machinery package.
+
+    Code paths move from the product's in-tree ``scripts/`` package to the copied package.
+    The lu_machinery launcher core derives no product from its own location, so the wrapper
+    names its own checkout with ``LU_PRODUCT_ROOT`` before loading the core, as product
+    wrappers on the installed release do.
+    """
+    if text.count(_PRODUCT_CORE_SOURCE) != 1:
+        raise ValueError("a product wrapper must load the launcher core exactly once")
+    text = text.replace(_PRODUCT_CORE_SOURCE, 'export LU_PRODUCT_ROOT="$ROOT"\n' + _PRODUCT_CORE_SOURCE)
+    return text.replace("/scripts/", f"/{machinery_package()}/")
 
 
 def tracked_launcher_wrappers() -> tuple[str, ...]:

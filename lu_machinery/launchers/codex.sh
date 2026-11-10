@@ -113,7 +113,7 @@ launcher_codex_native_profile_preflight() {
   export PROJECT_DIR="$LC_CODEX_CANONICAL_ROOT"
 
   # shellcheck source=scripts/lib/thread_rollover_link.sh
-  source "$LC_ROOT/lu_machinery/lib/thread_rollover_link.sh"
+  source "$LC_MACHINERY_DIR/lib/thread_rollover_link.sh"
   clear_codex_launcher_rollover_env
   if [ "$LC_MODE" = interactive ]; then
     deploy_failure_policy="continue"
@@ -123,7 +123,7 @@ launcher_codex_native_profile_preflight() {
   fi
 
   # shellcheck source=scripts/lib/profile_resolver.sh
-  source "$LC_ROOT/lu_machinery/lib/profile_resolver.sh"
+  source "$LC_MACHINERY_DIR/lib/profile_resolver.sh"
   # The profile resolver uses the one project interpreter (R66).
   if ! resolve_context_profile native_codex "$LC_MODEL"; then
     launcher_error "failed to resolve the native Codex context profile."
@@ -152,7 +152,7 @@ launcher_adapter_preflight() {
     launcher_require_binary codex 'Codex executable is unavailable.' 3 || exit $?
   else
     # shellcheck source=scripts/lib/codex_cc_route.sh
-    source "$LC_ROOT/lu_machinery/lib/codex_cc_route.sh"
+    source "$LC_MACHINERY_DIR/lib/codex_cc_route.sh"
     codex_cc_configure_route "$LC_MODEL" || exit $?
     LC_AUTH_SOURCE="$CODEX_CC_AUTH_SOURCE"
     launcher_require_binary claude 'Claude Code executable is unavailable for the Codex harness.' 3 || exit $?
@@ -170,7 +170,7 @@ launcher_adapter_prelease() {
   local stream
   stream="$(launcher_selector_stream "$LC_EPIC")" || return 1
   # shellcheck source=scripts/lib/thread_rollover_link.sh
-  source "$LC_ROOT/lu_machinery/lib/thread_rollover_link.sh"
+  source "$LC_MACHINERY_DIR/lib/thread_rollover_link.sh"
   if [ "$LC_DRY_RUN" = 1 ]; then
     # detect is read-only; a dry run reports the packet it would bind.
     resolve_codex_pending_rollover "$LC_CODEX_CANONICAL_ROOT" "$SESSION_HANDOFF_AGENT" "$stream" \
