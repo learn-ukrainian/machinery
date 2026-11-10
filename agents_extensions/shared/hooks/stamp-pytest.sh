@@ -22,6 +22,6 @@ HELPER="$PROJECT_ROOT/.githooks/pytest_stamp.py"
 # marker, and the later pre-push guard remains fail-closed.
 # shellcheck source=agents_extensions/shared/hooks/context-rollover-lib.sh
 source "$(dirname "${BASH_SOURCE[0]}")/context-rollover-lib.sh" 2>/dev/null || exit 0
-PYTHON="$(_context_rule_probe "$(context_canonical_root "$PROJECT_ROOT")" "$PROJECT_ROOT" 2>/dev/null)" || exit 0
+PYTHON="$(_context_rule_probe "$PROJECT_ROOT" 2>/dev/null)" || exit 0
 
 exec "$PYTHON" "$HELPER"

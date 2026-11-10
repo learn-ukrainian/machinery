@@ -6,11 +6,59 @@
 # The machinery code root (#100 R51, R62, R69, R66): the release the one project
 # interpreter imports, never this file's location and never <project>/lu_machinery.
 # The rule is lib/project_interpreter.sh, which lives inside the release it has to
-# find, so the first probe writes the same rule out: LEARN_UKRAINIAN_PYTHON when it
-# is an absolute executable file, else the canonical checkout's .venv, else refuse.
-# An invalid override does not fall back.
+# find, so the first probe writes the same rule out, with that file's gitfile
+# checks and without asking git (a rewritten gitfile or commondir must not choose
+# the interpreter that runs first): LEARN_UKRAINIAN_PYTHON when it is an absolute
+# executable file; else the .venv of the operator-set CODEX_CANONICAL_REPO_ROOT;
+# else the .venv of the primary checkout, which is the project itself when its
+# .git is a real directory (or absent), or the <primary> of a linked worktree whose
+# gitfile names a real <primary>/.git/worktrees/<name> that points back at it;
+# else refuse. An invalid override does not fall back.
+_context_rule_root() {
+  local root="$1" git_path line gitdir worktrees common pointer pointed
+  git_path="$root/.git"
+  [ ! -L "$git_path" ] || return 1
+  if [ -d "$git_path" ] || [ ! -e "$git_path" ]; then
+    printf '%s\n' "$root"
+    return 0
+  fi
+  [ -f "$git_path" ] || return 1
+  IFS= read -r line < "$git_path" || true
+  case "$line" in gitdir:*) ;; *) return 1 ;; esac
+  gitdir="${line#gitdir:}"
+  gitdir="${gitdir#"${gitdir%%[![:space:]]*}"}"
+  gitdir="${gitdir%"${gitdir##*[![:space:]]}"}"
+  case "$gitdir" in /*) ;; *) gitdir="$root/$gitdir" ;; esac
+  # Collapse "." and ".." without following symlinks, so a symlink stays visible.
+  local part normalized=""
+  local -a parts kept=()
+  IFS=/ read -r -a parts <<< "$gitdir"
+  for part in ${parts[@]+"${parts[@]}"}; do
+    case "$part" in
+      ''|.) ;;
+      ..) [ "${#kept[@]}" -gt 0 ] && unset "kept[$((${#kept[@]} - 1))]" ;;
+      *) kept+=("$part") ;;
+    esac
+  done
+  for part in ${kept[@]+"${kept[@]}"}; do normalized="$normalized/$part"; done
+  gitdir="$normalized"
+  worktrees="${gitdir%/*}"
+  common="${worktrees%/*}"
+  [ "${worktrees##*/}" = worktrees ] && [ "${common##*/}" = .git ] || return 1
+  [ -d "$gitdir" ] && [ ! -L "$gitdir" ] && [ ! -L "$worktrees" ] || return 1
+  [ ! -L "$common" ] && [ -d "$common" ] || return 1
+  [ -f "$gitdir/gitdir" ] && [ ! -L "$gitdir/gitdir" ] || return 1
+  IFS= read -r pointer < "$gitdir/gitdir" || true
+  pointer="${pointer#"${pointer%%[![:space:]]*}"}"
+  pointer="${pointer%"${pointer##*[![:space:]]}"}"
+  case "$pointer" in /*) ;; ?*) pointer="$gitdir/$pointer" ;; *) return 1 ;; esac
+  [ "${pointer##*/}" = .git ] || return 1
+  pointed="$(cd -P "${pointer%/*}" 2>/dev/null && pwd)" || return 1
+  [ "$pointed" = "$root" ] || return 1
+  printf '%s\n' "${common%/*}"
+}
 _context_rule_probe() {
-  local configured="${LEARN_UKRAINIAN_PYTHON:-}" root="$1" project_dir="$2"
+  local configured="${LEARN_UKRAINIAN_PYTHON:-}" project_dir="$1" root
   if [ -n "$configured" ]; then
     case "$configured" in
       /*) ;;
@@ -21,14 +69,14 @@ _context_rule_probe() {
     printf '%s\n' "$configured"
     return 0
   fi
-  # Git could not name the primary, so the probe root is this directory.
-  # A linked worktree's .git is a file; its .venv is not the interpreter.
-  if [ -f "$project_dir/.git" ] && [ "$root" = "$project_dir" ]; then
-    echo "${0##*/}: project interpreter not found: a linked worktree .venv is not used; set LEARN_UKRAINIAN_PYTHON" >&2
+  if [ -n "${CODEX_CANONICAL_REPO_ROOT:-}" ]; then
+    root="$CODEX_CANONICAL_REPO_ROOT"
+  elif ! root="$(cd -P "$project_dir" 2>/dev/null && pwd)" || ! root="$(_context_rule_root "$root")"; then
+    echo "${0##*/}: project interpreter not found: untrusted git metadata at $project_dir/.git; set LEARN_UKRAINIAN_PYTHON" >&2
     return 1
   fi
-  [ -n "$root" ] && [ -x "$root/.venv/bin/python" ] \
-    || { echo "${0##*/}: project interpreter not found: ${root:-<unset>}/.venv/bin/python; set LEARN_UKRAINIAN_PYTHON" >&2; return 1; }
+  [ -f "$root/.venv/bin/python" ] && [ -x "$root/.venv/bin/python" ] \
+    || { echo "${0##*/}: project interpreter not found: $root/.venv/bin/python; set LEARN_UKRAINIAN_PYTHON" >&2; return 1; }
   printf '%s\n' "$root/.venv/bin/python"
 }
 _context_import_release() {
@@ -48,7 +96,7 @@ _context_import_release() {
 context_machinery_bootstrap() {
   local project_dir="$1" probe resolved
   MACHINERY_DIR="" CONTEXT_PROJECT_PYTHON=""
-  probe="$(_context_rule_probe "$(context_canonical_root "$project_dir")" "$project_dir")" || return 1
+  probe="$(_context_rule_probe "$project_dir")" || return 1
   _context_import_release "$probe" || return 1
   resolved="$(project_interpreter_resolve "$project_dir")" || { MACHINERY_DIR=""; return 1; }
   if [ "$resolved" != "$probe" ]; then
@@ -62,8 +110,10 @@ context_hook_state() {
   local operation="$1" project_dir="$2" session_id="$3" helper
   shift 3
   [ -n "${CONTEXT_PROJECT_PYTHON:-}" ] || context_machinery_bootstrap "$project_dir" 2>/dev/null || return 0
-  helper="$(dirname "${BASH_SOURCE[0]}")/context-hook-state.py"
-  # The helper is stdlib-only: -I keeps the cwd and PYTHONPATH off its import path.
+  # The helper is the imported release's copy, never the one beside this file. It is
+  # stdlib-only: -I keeps the cwd and PYTHONPATH off its import path.
+  helper="$MACHINERY_DIR/agents_extensions/shared/hooks/context-hook-state.py"
+  [ -f "$helper" ] || return 0
   "$CONTEXT_PROJECT_PYTHON" -I "$helper" "$operation" "$project_dir" "$session_id" "$@" 2>/dev/null || true
 }
 

@@ -31,7 +31,7 @@ if [[ "$CHANGED_FILE" =~ curriculum/l2-uk-en/[^/]+/[^/]+\.md$ ]] && [[ ! "$CHANG
   # shellcheck source=agents_extensions/shared/hooks/context-rollover-lib.sh
   source "$(dirname "${BASH_SOURCE[0]}")/context-rollover-lib.sh" \
     || { echo "auto-audit.sh: context-rollover-lib.sh is missing beside this hook" >&2; exit 1; }
-  AUDIT_PYTHON="$(_context_rule_probe "$(context_canonical_root "$PROJECT_DIR")" "$PROJECT_DIR")" || exit 1
+  AUDIT_PYTHON="$(_context_rule_probe "$PROJECT_DIR")" || exit 1
   AUDIT_RESULT=$("$AUDIT_PYTHON" "$PROJECT_DIR/scripts/audit_module.py" "$CHANGED_FILE" 2>&1 | tail -5)
 
   if [ -n "$AUDIT_RESULT" ]; then

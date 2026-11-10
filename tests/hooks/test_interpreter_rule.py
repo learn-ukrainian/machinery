@@ -353,7 +353,7 @@ def test_deployed_probe_does_not_execute_a_worktree_venv_when_git_cannot_name_th
         check=False,
     )
     assert result.returncode == 1, result.stderr
-    assert "a linked worktree .venv is not used" in result.stderr
+    assert "untrusted git metadata" in result.stderr
     assert not log.exists()
 
 
