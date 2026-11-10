@@ -418,7 +418,6 @@
  "scripts/agent_deploy/test_deploy_extensions.sh": "machinery",
  "scripts/agent_deploy/update_agent_deploy_status.py": "machinery",
  "scripts/agent_runtime/__init__.py": "machinery",
- "scripts/agent_runtime/_smoke_pty_agents.sh": "machinery",
  "scripts/agent_runtime/accounting.py": "machinery",
  "scripts/agent_runtime/acp_health.py": "machinery",
  "scripts/agent_runtime/acp_text_agent.mjs": "machinery",

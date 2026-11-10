@@ -94,7 +94,8 @@ def hook_case(tmp_path):
     return project, env, payload
 
 
-def run_hook(case, hook="context-monitor.sh"):
+def run_hook(case, hook="context-monitor.sh", refused=None):
+    """The hook's stdout; ``refused`` is the reason a fail-closed refusal must print (#100 R51)."""
     project, env, payload = case
     result = subprocess.run(
         [str(HOOKS / hook)],
@@ -105,6 +106,11 @@ def run_hook(case, hook="context-monitor.sh"):
         capture_output=True,
         timeout=30,
     )
+    if refused is not None:
+        assert result.returncode == 1, result.stderr
+        assert refused in result.stderr
+        assert result.stdout == ""
+        return result.stdout
     assert result.returncode == 0, result.stderr
     assert result.stderr == ""
     return result.stdout
@@ -339,15 +345,15 @@ def test_invalid_state_rearms_safely(state_module, tmp_path, raw, capsys):
     assert (state / f"{SESSION}.tier").read_bytes() == b"3 760000\n"
 
 
-def test_helper_unavailable_fails_open_without_announcement(hook_case):
+def test_helper_unavailable_refuses_without_announcement(hook_case):
     hook_case[1]["LEARN_UKRAINIAN_PYTHON"] = "/unavailable/interpreter"
-    assert run_hook(hook_case) == ""
+    run_hook(hook_case, refused="LEARN_UKRAINIAN_PYTHON=/unavailable/interpreter is not an executable file")
     assert not (hook_case[0] / "batch_state").exists()
 
 
-def test_missing_resolver_fails_open_without_path_python(hook_case):
+def test_missing_resolver_refuses_without_path_python(hook_case):
     hook_case[1].pop("LEARN_UKRAINIAN_PYTHON")
-    assert run_hook(hook_case) == ""
+    run_hook(hook_case, refused="project interpreter not found")
     assert not (hook_case[0] / "batch_state").exists()
 
 
@@ -362,7 +368,7 @@ def test_invalid_worktree_metadata_refuses_interpreter(hook_case):
     # canonical shared interpreter; no worktree-local interpreter is created.
     (project / ".git").write_text(f"gitdir: {canonical / '.git'}\n")
     # Invalid metadata must fail closed, rather than select a planted Python.
-    assert run_hook(hook_case) == ""
+    run_hook(hook_case, refused="project interpreter not found")
     assert not (project / ".venv").exists()
 
 

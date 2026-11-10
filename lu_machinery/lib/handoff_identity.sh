@@ -237,8 +237,9 @@ _handoff_slot_registry() {
   [ -f "$_HANDOFF_IDENTITY_DIR/project_interpreter.sh" ] || return 2
   # shellcheck source=scripts/lib/project_interpreter.sh
   source "$_HANDOFF_IDENTITY_DIR/project_interpreter.sh"
-  if [ -n "${LC_DURABLE_HELPER_ROOT:-}" ]; then
-    py="$LC_DURABLE_HELPER_ROOT/.venv/bin/python"
+  # The one interpreter rule (R66): inside a launcher, over the helper root it validated.
+  if [ -n "${LC_DURABLE_HELPER_ROOT:-}" ] && declare -F launcher_project_python >/dev/null; then
+    py="$(launcher_project_python 2>/dev/null)" || return 2
   else
     py="$(project_interpreter_resolve "$repo_root" 2>/dev/null)" || return 2
   fi

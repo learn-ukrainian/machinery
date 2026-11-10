@@ -50,60 +50,22 @@ if [ -n "${CODEX_CANONICAL_REPO_ROOT:-}" ]; then
 else
   CANONICAL_ROOT="${PRIMARY_ROOT:-$PROJECT_DIR}"
 fi
-# One interpreter (R66). An invalid override does not fall back. A missing
-# interpreter leaves the later bounded calls fail-open (return 127).
-_post_probe_python() {
-  local configured="${LEARN_UKRAINIAN_PYTHON:-}"
-  if [ -n "$configured" ]; then
-    case "$configured" in
-      /*) ;;
-      *) return 1 ;;
-    esac
-    [ -f "$configured" ] && [ -x "$configured" ] || return 1
-    printf '%s\n' "$configured"
-    return 0
-  fi
-  # Git could not name the primary, so CANONICAL_ROOT is this directory.
-  # A linked worktree's .git is a file; its .venv is not the interpreter.
-  if [ -f "${PROJECT_DIR:-}/.git" ] && [ "$CANONICAL_ROOT" = "${PROJECT_DIR:-}" ]; then
-    return 1
-  fi
-  [ -x "$CANONICAL_ROOT/.venv/bin/python" ] || return 1
-  printf '%s\n' "$CANONICAL_ROOT/.venv/bin/python"
-}
+# shellcheck source=agents_extensions/shared/hooks/context-rollover-lib.sh
+source "$(dirname "${BASH_SOURCE[0]}")/context-rollover-lib.sh" \
+  || { echo "post-compact.sh: context-rollover-lib.sh is missing beside this hook" >&2; exit 1; }
+# One interpreter (R66) and code root (machinery #100 R51, R62, R69): the release the
+# one project interpreter imports, never this file's location. Fails closed: refuse,
+# with the reason on stderr, rather than run code from anywhere else. Called at top
+# level just before machinery code first runs, so the thin Grok path and native
+# Codex compaction start no interpreter.
 BOUNDED_PYTHON=""
-MACHINERY_DIR=""
-_hook_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)" || _hook_dir=""
-case "$_hook_dir" in
-  */agents_extensions/shared/hooks)
-    MACHINERY_DIR="${_hook_dir%/agents_extensions/shared/hooks}"
-    # shellcheck source=lu_machinery/lib/project_interpreter.sh
-    source "$MACHINERY_DIR/lu_machinery/lib/project_interpreter.sh" 2>/dev/null || MACHINERY_DIR=""
-    if [ -n "$MACHINERY_DIR" ]; then
-      BOUNDED_PYTHON="$(project_interpreter_resolve "$PROJECT_DIR" 2>/dev/null)" || BOUNDED_PYTHON=""
-    fi
-    ;;
-  *)
-    BOUNDED_PYTHON="$(_post_probe_python 2>/dev/null)" || BOUNDED_PYTHON=""
-    if [ -n "$BOUNDED_PYTHON" ]; then
-      MACHINERY_DIR=$("$BOUNDED_PYTHON" -I -c 'import os, lu_machinery; print(os.path.dirname(os.path.dirname(os.path.abspath(lu_machinery.__file__))))' 2>/dev/null) || MACHINERY_DIR=""
-      # shellcheck source=lu_machinery/lib/project_interpreter.sh
-      source "$MACHINERY_DIR/lu_machinery/lib/project_interpreter.sh" 2>/dev/null || MACHINERY_DIR=""
-      if [ -n "$MACHINERY_DIR" ]; then
-        RESOLVED="$(project_interpreter_resolve "$PROJECT_DIR" 2>/dev/null)" || RESOLVED=""
-        if [ -n "$RESOLVED" ] && [ "$RESOLVED" != "$BOUNDED_PYTHON" ]; then
-          MACHINERY_DIR=$("$RESOLVED" -I -c 'import os, lu_machinery; print(os.path.dirname(os.path.dirname(os.path.abspath(lu_machinery.__file__))))' 2>/dev/null) || MACHINERY_DIR=""
-          # shellcheck source=lu_machinery/lib/project_interpreter.sh
-          source "$MACHINERY_DIR/lu_machinery/lib/project_interpreter.sh" 2>/dev/null || MACHINERY_DIR=""
-        fi
-        [ -n "$RESOLVED" ] && BOUNDED_PYTHON="$RESOLVED"
-      fi
-    fi
-    ;;
-esac
-unset _hook_dir
-BOUNDED_RUNNER_DEFAULT="$MACHINERY_DIR/lu_machinery/agent_runtime/bounded_command.py"
-BOUNDED_RUNNER="${SESSION_BOUNDED_RUNNER:-$BOUNDED_RUNNER_DEFAULT}"
+BOUNDED_RUNNER=""
+post_compact_bootstrap() {
+  [ -n "$BOUNDED_PYTHON" ] && return 0
+  context_machinery_bootstrap "$PROJECT_DIR" || exit 1
+  BOUNDED_PYTHON="$CONTEXT_PROJECT_PYTHON"
+  BOUNDED_RUNNER="${SESSION_BOUNDED_RUNNER:-$MACHINERY_DIR/lu_machinery/agent_runtime/bounded_command.py}"
+}
 run_bounded() {
   local timeout_seconds="$1"
   shift
@@ -168,6 +130,7 @@ case "$POST_COMPACT_AGENT" in
       # into the shared Claude-oriented replay below.
       exit 0
     else
+      post_compact_bootstrap
       # Reuse the canary's lightweight selector without importing lane runtimes.
       # A first Codex launch may continue
       # from the shared driver handoff; a fixed filename can select stale state.
@@ -232,6 +195,7 @@ Do not select the next queue action until the stream lease or diary is repaired.
     fi
     ;;
 esac
+post_compact_bootstrap
 
 # 1. Find current in-progress modules
 IN_PROGRESS=""
@@ -284,7 +248,7 @@ KEY REMINDERS:
   - If a live packet is shown, read its handoff path; SessionStart provides the lifecycle commands.
   - Legacy module word targets are MINIMUMS (check config.py); core fresh-build lessons: non-negotiable-rules.md rule 4
   - Edit agents_extensions/shared/, not .claude/ directly
-  - .venv/bin/python only
+  - Project interpreter only: $BOUNDED_PYTHON
   - Pre-commit: ruff + /simplify + cross-family code review (non-Gemini seat)
   - Read audit/ and review/ files before fixing modules
   - MEMORY: \$HOME/.claude/projects/$CLAUDE_PROJECT_KEY/memory/MEMORY.md"

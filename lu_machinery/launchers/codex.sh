@@ -88,9 +88,11 @@ launcher_codex_resolve_canonical_root() {
 }
 
 launcher_codex_assert_primary_on_main() {
-  local assertion="$LC_CODEX_CANONICAL_ROOT/lu_machinery/guardrails/assert_primary_on_main.py"
-  if [ -x "$LC_CODEX_CANONICAL_ROOT/.venv/bin/python" ] && [ -f "$assertion" ]; then
-    if ! "$LC_CODEX_CANONICAL_ROOT/.venv/bin/python" "$assertion" \
+  # The one project interpreter (R66) runs this machinery tree's assertion; the
+  # canonical checkout is only its subject, never where its code comes from.
+  local py
+  if py="$(launcher_project_python 2>/dev/null)"; then
+    if ! project_python_run "$py" -m "$LC_MACHINERY_PACKAGE.guardrails.assert_primary_on_main" \
         --cwd "$LC_CODEX_CANONICAL_ROOT" --quiet; then
       launcher_error "canonical primary checkout must be attached to main: $LC_CODEX_CANONICAL_ROOT"
       exit 1
@@ -198,7 +200,7 @@ launcher_adapter_exec() {
     # AGENTS.md autoload does not carry the rules core; developer_instructions
     # adds it as a developer message (TOML-encoded so -c never reparses it).
     if [ -n "${LC_RULES_CORE:-}" ]; then
-      if LC_RULES_CORE_TOML="$(rules_core_toml "$LC_DURABLE_HELPER_ROOT/.venv/bin/python")"; then
+      if LC_RULES_CORE_TOML="$(rules_core_toml "$(launcher_project_python)")"; then
         cmd+=(-c "developer_instructions=$LC_RULES_CORE_TOML")
       else
         rules_core_refuse "TOML encoding failed"

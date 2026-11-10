@@ -35,62 +35,15 @@ esac
 
 RECIPIENT_LABEL=$(printf '%s' "$RECIPIENT" | tr '[:lower:]' '[:upper:]')
 
-# The inbox CLI is optional in hook contexts. A missing project interpreter or
-# a CLI failure must never block the provider's prompt submission. The interpreter
-# is the one rule (R66): an invalid LEARN_UKRAINIAN_PYTHON does not fall back to
-# this checkout's .venv, and a worktree .venv is not the interpreter.
-_inbox_probe_python() {
-  local configured="${LEARN_UKRAINIAN_PYTHON:-}" root=""
-  if [ -n "$configured" ]; then
-    case "$configured" in
-      /*) ;;
-      *) return 1 ;;
-    esac
-    [ -f "$configured" ] && [ -x "$configured" ] || return 1
-    printf '%s\n' "$configured"
-    return 0
-  fi
-  if [ -n "${CODEX_CANONICAL_REPO_ROOT:-}" ]; then
-    root="$CODEX_CANONICAL_REPO_ROOT"
-  else
-    root=$(git -C "$PROJECT_DIR" rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)
-    if [ -n "$root" ] && [ "$(basename "$root")" = ".git" ]; then
-      root=$(dirname "$root")
-    else
-      root="$PROJECT_DIR"
-    fi
-  fi
-  # Git could not name the primary, so the probe root is this directory.
-  # A linked worktree's .git is a file; its .venv is not the interpreter.
-  if [ -f "${PROJECT_DIR:-}/.git" ] && [ "$root" = "${PROJECT_DIR:-}" ]; then
-    return 1
-  fi
-  [ -x "$root/.venv/bin/python" ] || return 1
-  printf '%s\n' "$root/.venv/bin/python"
-}
-_hook_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)" || exit 0
-case "$_hook_dir" in
-  */agents_extensions/shared/hooks)
-    MACHINERY_DIR="${_hook_dir%/agents_extensions/shared/hooks}"
-    # shellcheck source=lu_machinery/lib/project_interpreter.sh
-    source "$MACHINERY_DIR/lu_machinery/lib/project_interpreter.sh" 2>/dev/null || exit 0
-    INBOX_PYTHON="$(project_interpreter_resolve "$PROJECT_DIR" 2>/dev/null)" || exit 0
-    ;;
-  *)
-    INBOX_PYTHON="$(_inbox_probe_python 2>/dev/null)" || exit 0
-    MACHINERY_DIR=$("$INBOX_PYTHON" -I -c 'import os, lu_machinery; print(os.path.dirname(os.path.dirname(os.path.abspath(lu_machinery.__file__))))' 2>/dev/null) || exit 0
-    # shellcheck source=lu_machinery/lib/project_interpreter.sh
-    source "$MACHINERY_DIR/lu_machinery/lib/project_interpreter.sh" 2>/dev/null || exit 0
-    RESOLVED="$(project_interpreter_resolve "$PROJECT_DIR" 2>/dev/null)" || exit 0
-    if [ "$RESOLVED" != "$INBOX_PYTHON" ]; then
-      MACHINERY_DIR=$("$RESOLVED" -I -c 'import os, lu_machinery; print(os.path.dirname(os.path.dirname(os.path.abspath(lu_machinery.__file__))))' 2>/dev/null) || exit 0
-      # shellcheck source=lu_machinery/lib/project_interpreter.sh
-      source "$MACHINERY_DIR/lu_machinery/lib/project_interpreter.sh" 2>/dev/null || exit 0
-    fi
-    INBOX_PYTHON="$RESOLVED"
-    ;;
-esac
-unset _hook_dir
+# One interpreter (R66) and code root (machinery #100 R51, R62, R69): the release the
+# one project interpreter imports, never this file's location. Fails closed: refuse,
+# with the reason on stderr, rather than run code from anywhere else. Exit 1 does
+# not block the provider's prompt submission; a later CLI failure stays silent.
+# shellcheck source=agents_extensions/shared/hooks/context-rollover-lib.sh
+source "$(dirname "${BASH_SOURCE[0]}")/context-rollover-lib.sh" \
+  || { echo "check-agent-inbox.sh: context-rollover-lib.sh is missing beside this hook" >&2; exit 1; }
+context_machinery_bootstrap "$PROJECT_DIR" || exit 1
+INBOX_PYTHON="$CONTEXT_PROJECT_PYTHON"
 
 # Fast path: probe the same broker DB the bridge CLI reads
 # (scripts/ai_agent_bridge/_config.py DB_PATH → _messaging.py check_inbox)
@@ -254,7 +207,7 @@ fi
 INBOX_MODULE=lu_machinery.ai_agent_bridge
 CONTEXT="${CONTEXT}
 ---
-.venv/bin/python -m ${INBOX_MODULE} inbox --for ${RECIPIENT}"
+$(printf '%q' "$INBOX_PYTHON") -m ${INBOX_MODULE} inbox --for ${RECIPIENT}"
 
 jq -n --arg msg "$CONTEXT" \
   '{"hookSpecificOutput":{"hookEventName":"UserPromptSubmit","additionalContext":$msg}}'

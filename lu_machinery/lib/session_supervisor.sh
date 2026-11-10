@@ -108,11 +108,8 @@ claim_session_supervisor_env() {
 
   local state_root
   state_root="$(_canonical_state_root "$project_dir")" || return 1
-  local python_bin="$state_root/.venv/bin/python"
-  if [ ! -x "$python_bin" ]; then
-    echo "Error: project Python not found at ${python_bin}" >&2
-    return 1
-  fi
+  local python_bin
+  python_bin="$(project_interpreter_resolve "$state_root")" || return 1
 
   local supervisor_tmp release_tmp
   supervisor_tmp="$(mktemp)"
@@ -334,12 +331,19 @@ session_supervisor_publish_start_failure() {
   local sender="${SESSION_HANDOFF_AGENT:-${LC_DRIVER_HANDOFF:-${LC_PROVIDER:-}}}"
   [[ "$stream" =~ ^epic:[0-9]+$ && "$generation" =~ ^[0-9]+$ ]] || return 0
   case "$reason" in wake-file-missing|watcher-failed|scope-start-failed) ;; *) return 0 ;; esac
-  [ -n "$helper_root" ] && [ -x "$helper_root/.venv/bin/python" ] && [ -n "$sender" ] || return 0
+  local py
+  [ -n "$helper_root" ] && [ -n "$sender" ] || return 0
+  # The one interpreter rule (R66): inside a launcher, over the helper root it validated.
+  if [ -n "${LC_DURABLE_HELPER_ROOT:-}" ] && declare -F launcher_project_python >/dev/null; then
+    py="$(launcher_project_python 2>/dev/null)" || return 0
+  else
+    py="$(project_interpreter_resolve "$helper_root" 2>/dev/null)" || return 0
+  fi
   # Use Python for JSON encoding and a numeric generation, not shell escaping.
-  "$helper_root/.venv/bin/python" -I -c \
+  "$py" -I -c \
     'import json,sys; print(json.dumps(dict(stream=sys.argv[1], generation=int(sys.argv[2]), reason=sys.argv[3])))' \
     "$stream" "$generation" "$reason" 2>/dev/null | \
-    project_python_run "$helper_root/.venv/bin/python" -m "$SESSION_SUPERVISOR_PACKAGE.fleet_comms" channel publish cto - \
+    project_python_run "$py" -m "$SESSION_SUPERVISOR_PACKAGE.fleet_comms" channel publish cto - \
       --sender "$sender" --kind status --idempotency-key "$stream-$generation-$reason" \
       >/dev/null 2>&1 || true
 }

@@ -39,7 +39,7 @@ CLAUDE_ROUTE_ENV_KEYS=(
 )
 
 # Print space-separated route keys present under settings.json env (if any).
-# Uses the project venv when available; falls back to python3.
+# Uses the one project interpreter (R66); never python3 from PATH.
 claude_settings_conflicting_route_keys() {
   local settings_path="${1:-${HOME}/.claude/settings.json}"
   local py_bin="${CLAUDE_ROUTE_GUARD_PYTHON:-}"
@@ -51,10 +51,9 @@ claude_settings_conflicting_route_keys() {
   fi
 
   if [ -z "$py_bin" ]; then
-    if [ -n "${PROJECT_DIR:-}" ] && [ -x "${PROJECT_DIR}/.venv/bin/python" ]; then
-      py_bin="${PROJECT_DIR}/.venv/bin/python"
-    else
-      echo "Error: .venv/bin/python is required to inspect Claude settings at $settings_path." >&2
+    if [ -z "${PROJECT_DIR:-}" ] || ! declare -F project_interpreter_resolve >/dev/null \
+        || ! py_bin="$(project_interpreter_resolve "$PROJECT_DIR")"; then
+      echo "Error: the project interpreter is required to inspect Claude settings at $settings_path." >&2
       return 2
     fi
   fi

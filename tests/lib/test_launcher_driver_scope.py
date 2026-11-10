@@ -973,6 +973,8 @@ def test_failed_supervisory_successor_scope_publishes_and_preserves_exit(tmp_pat
 
     launcher, env = _launcher(tmp_path)
     env.update(_failure_publication_fixture(tmp_path, seed_channel=publish_ok))
+    # The publisher uses the launcher's one interpreter (R66, #100 R74), here the recorder.
+    env["TEST_PROJECT_PYTHON"] = env["LEARN_UKRAINIAN_PYTHON"]
     launcher.chmod(0o755)
     helper = launcher.parent / "lu_machinery/lib/session_supervisor.sh"
     shutil.copy2(machinery_path('lib/session_supervisor.sh'), helper)

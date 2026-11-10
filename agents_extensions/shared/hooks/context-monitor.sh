@@ -36,7 +36,8 @@ fi
 
 command -v jq >/dev/null 2>&1 || exit 0
 # shellcheck source=agents_extensions/shared/hooks/context-rollover-lib.sh
-source "$(dirname "${BASH_SOURCE[0]}")/context-rollover-lib.sh" 2>/dev/null || exit 0
+source "$(dirname "${BASH_SOURCE[0]}")/context-rollover-lib.sh" \
+  || { echo "context-monitor.sh: context-rollover-lib.sh is missing beside this hook" >&2; exit 1; }
 
 INPUT=$(cat)
 SESSION_ID=$(printf '%s' "$INPUT" | jq -r '.session_id // empty' 2>/dev/null)
@@ -53,45 +54,10 @@ case "$PROJECT_DIR" in
 esac
 TRANSCRIPT=$(printf '%s' "$INPUT" | jq -r '.transcript_path // empty' 2>/dev/null)
 [ -z "$TRANSCRIPT" ] || [ ! -f "$TRANSCRIPT" ] && exit 0
-CANONICAL_ROOT=$(context_canonical_root "$PROJECT_DIR") || exit 0
-# Code root (machinery #100 R62, R69, R66): in-tree, this file's tree. A deployed
-# copy asks the one project interpreter for the release it imports. An invalid
-# override does not fall back, and the monitor then stays silent.
-_hook_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)" || exit 0
-case "$_hook_dir" in
-  */agents_extensions/shared/hooks)
-    MACHINERY_DIR="${_hook_dir%/agents_extensions/shared/hooks}"
-    ;;
-  *)
-    _monitor_probe="$(_context_rule_probe "$CANONICAL_ROOT" 2>/dev/null)" || _monitor_probe=""
-    if [ -z "$_monitor_probe" ]; then
-      MACHINERY_DIR=""
-    else
-      MACHINERY_DIR=$("$_monitor_probe" -I -c 'import os, lu_machinery; print(os.path.dirname(os.path.dirname(os.path.abspath(lu_machinery.__file__))))' 2>/dev/null) || MACHINERY_DIR=""
-    fi
-    unset _monitor_probe
-    ;;
-esac
-# shellcheck source=lu_machinery/lib/project_interpreter.sh
-source "$MACHINERY_DIR/lu_machinery/lib/project_interpreter.sh" 2>/dev/null || MACHINERY_DIR=""
-case "$_hook_dir" in
-  */agents_extensions/shared/hooks) ;;
-  *)
-    if [ -n "$MACHINERY_DIR" ]; then
-      _monitor_resolved="$(project_interpreter_resolve "$PROJECT_DIR" 2>/dev/null)" || _monitor_resolved=""
-      if [ -n "$_monitor_resolved" ]; then
-        _monitor_found=$("$_monitor_resolved" -I -c 'import os, lu_machinery; print(os.path.dirname(os.path.dirname(os.path.abspath(lu_machinery.__file__))))' 2>/dev/null) || _monitor_found=""
-        if [ -n "$_monitor_found" ] && [ "$_monitor_found" != "$MACHINERY_DIR" ]; then
-          MACHINERY_DIR="$_monitor_found"
-          # shellcheck source=lu_machinery/lib/project_interpreter.sh
-          source "$MACHINERY_DIR/lu_machinery/lib/project_interpreter.sh" 2>/dev/null || MACHINERY_DIR=""
-        fi
-      fi
-      unset _monitor_resolved _monitor_found
-    fi
-    ;;
-esac
-unset _hook_dir
+# Code root (machinery #100 R51, R62, R69, R66): the release the one project
+# interpreter imports, never this file's location. Fails closed: refuse, with the
+# reason on stderr, rather than run code from anywhere else.
+context_machinery_bootstrap "$PROJECT_DIR" || exit 1
 
 # Prefer the latest assistant input/cache usage. Output tokens are not current
 # context usage and therefore are deliberately excluded.
@@ -203,12 +169,7 @@ fi
 # .venv), the actual harness, and this session as the exact active thread, so
 # context-rollover-guard.sh can match the prepared lease to this session.
 # Task-identity values only the agent knows stay as <placeholders>.
-PREPARE_PY="<project interpreter>"
-if declare -F project_interpreter_resolve >/dev/null \
-    && PREPARE_PY_RESOLVED=$(project_interpreter_resolve "$PROJECT_DIR" 2>/dev/null); then
-  PREPARE_PY=$(printf '%q' "$PREPARE_PY_RESOLVED")
-fi
-unset PREPARE_PY_RESOLVED
+PREPARE_PY=$(printf '%q' "$CONTEXT_PROJECT_PYTHON")
 if [[ "${0:-}" == *"/.gemini/"* ]]; then
   PREPARE_HARNESS="agy"
 else

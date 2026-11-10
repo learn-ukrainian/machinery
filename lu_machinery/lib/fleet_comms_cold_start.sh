@@ -32,23 +32,11 @@ fleet_comms_rule_relpath() {
   printf '%s' "agents_extensions/shared/rules/fleet-comms-coordination.md"
 }
 
-# Resolve the project interpreter (checkout .venv, else primary via git common-dir).
+# Resolve the one project interpreter (R66): never a worktree .venv.
 fleet_comms_resolve_python() {
   local root="${1:-${PROJECT_DIR:-${LC_ROOT:-.}}}"
-  local git_common=""
-  if [ -x "$root/.venv/bin/python" ]; then
-    printf '%s' "$root/.venv/bin/python"
-    return 0
-  fi
-  git_common="$(
-    env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR \
-      git -C "$root" rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true
-  )"
-  if [ -n "$git_common" ] && [ -x "$(dirname "$git_common")/.venv/bin/python" ]; then
-    printf '%s' "$(dirname "$git_common")/.venv/bin/python"
-    return 0
-  fi
-  return 1
+  declare -F project_interpreter_resolve >/dev/null || return 1
+  project_interpreter_resolve "$root" 2>/dev/null
 }
 
 # Resolve plane mode once (fail-open → off).

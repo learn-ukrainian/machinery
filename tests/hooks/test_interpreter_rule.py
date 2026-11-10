@@ -337,7 +337,8 @@ def test_deployed_probe_does_not_execute_a_worktree_venv_when_git_cannot_name_th
     (product / ".git").write_text("gitdir: /nonexistent/elsewhere\n", encoding="utf-8")
     deployed = tmp_path / "consumer" / ".claude" / "hooks"
     deployed.mkdir(parents=True)
-    shutil.copy2(HOOKS / "goal-driver-stop.sh", deployed / "goal-driver-stop.sh")
+    for name in ("goal-driver-stop.sh", "context-rollover-lib.sh"):
+        shutil.copy2(HOOKS / name, deployed / name)
     env = {
         "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
         "HOME": str(tmp_path / "home"),
@@ -353,7 +354,8 @@ def test_deployed_probe_does_not_execute_a_worktree_venv_when_git_cannot_name_th
         timeout=30,
         check=False,
     )
-    assert result.returncode == 0, result.stderr
+    assert result.returncode == 1, result.stderr
+    assert "untrusted git metadata" in result.stderr
     assert not log.exists()
 
 
@@ -369,7 +371,6 @@ def _run(argv: list[str], *, cwd: Path, env: dict[str, str], stdin: str = "") ->
 
 
 ROUTED = (
-    "lu_machinery/agent_runtime/_smoke_pty_agents.sh",
     "lu_machinery/agent_runtime/codex_hook_entry.sh",
     "lu_machinery/agy_hooks/driver_state_inject.sh",
     "lu_machinery/agy_hooks/pending_orders_inject.sh",
@@ -397,6 +398,16 @@ ROUTED = (
     ".githooks/commit-msg",
     ".githooks/post-merge",
     ".githooks/pre-push",
+    "lu_machinery/launchers/codex.sh",
+    "lu_machinery/lib/claude_route_guard.sh",
+    "lu_machinery/lib/handoff_identity.sh",
+    "lu_machinery/lib/thread_rollover_link.sh",
+    "agents_extensions/shared/hooks/auto-audit.sh",
+    "agents_extensions/shared/hooks/check-agent-inbox.sh",
+    "agents_extensions/shared/hooks/goal-driver-stop.sh",
+    "agents_extensions/shared/hooks/post-compact.sh",
+    "agents_extensions/shared/hooks/release-thread-lease.sh",
+    "agents_extensions/shared/hooks/stamp-pytest.sh",
 )
 
 
@@ -415,6 +426,8 @@ def test_routed_scripts_do_not_build_a_venv_interpreter_path() -> None:
     for relative in ROUTED:
         if relative.startswith(".githooks/"):
             path = checkout / relative
+        elif relative.startswith("agents_extensions/"):
+            path = machinery_root().parent / relative
         else:
             path = machinery_root() / relative.removeprefix("lu_machinery/")
         text = path.read_text(encoding="utf-8")
@@ -532,11 +545,8 @@ def test_project_python_and_githooks_follow_the_rule(tmp_path: Path) -> None:
     hook_log = tmp_path / "hook.log"
     hook_override = _wrapper(tmp_path / "hook-python", hook_log)
     packaged = machinery_root()
-    launcher = primary / "lu_machinery" / "pre_commit" / "project_python.sh"
     library = primary / "lu_machinery" / "lib" / "project_interpreter.sh"
-    launcher.parent.mkdir(parents=True)
     library.parent.mkdir(parents=True)
-    shutil.copy2(packaged / "pre_commit" / "project_python.sh", launcher)
     shutil.copy2(packaged / "lib" / "project_interpreter.sh", library)
     hook_lib = primary / ".githooks"
     hook_lib.mkdir()
@@ -550,6 +560,7 @@ def test_project_python_and_githooks_follow_the_rule(tmp_path: Path) -> None:
     assert hook_log.read_text(encoding="utf-8").split()[0] == str(hook_override)
     for relative in (".githooks/_lib.sh", ".githooks/commit-msg", ".githooks/post-merge", ".githooks/pre-push"):
         assert "run_project_python" in (_checkout() / relative).read_text(encoding="utf-8")
+    assert "project_python.sh" not in (_checkout() / ".githooks" / "_lib.sh").read_text(encoding="utf-8")
     hook_text = (_checkout() / ".githooks" / "pre-push").read_text(encoding="utf-8")
     assert ".pre-commit-config.yaml" not in hook_text
     assert "lint_opsec" not in hook_text
@@ -666,7 +677,6 @@ def test_remaining_shell_programs_select_the_rule_and_refuse_invalid(tmp_path: P
     assert log.read_text(encoding="utf-8") == ""
 
     for script, argv, stdin, extra in (
-        (SOURCE / "lu_machinery/agent_runtime/_smoke_pty_agents.sh", [], "", {}),
         (SOURCE / "lu_machinery/ops/smoketest_bridge_stdout_only.sh", [], "", {}),
         (SOURCE / "lu_machinery/ai_agent_bridge/inbox_watch.sh", [], "", {}),
         (SOURCE / "lu_machinery/opsec/push_hooks/pre-push", [], "a b c d\n", {}),

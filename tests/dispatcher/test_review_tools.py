@@ -125,7 +125,7 @@ def _claude_shell(tmp_path, worktree, task_id, command, prefix=agy_sandbox.SHELL
     cwd_file = claude_tmp / "claude-ab12-cwd"
     script = _CLAUDE_WRAPPER.format(command="'" + command.replace("'", "'\\''") + "'", cwd_file=cwd_file)
     env = {**os.environ, "CLAUDE_CODE_TMPDIR": str(claude_tmp),
-           agy_sandbox.SHELL_ENV_PYTHON: str(project_interpreter()), agy_sandbox.SHELL_ENV_TASK: task_id,
+           "LEARN_UKRAINIAN_PYTHON": str(project_interpreter()), agy_sandbox.SHELL_ENV_TASK: task_id,
            agy_sandbox.SHELL_ENV_WORKTREE: str(worktree), agy_sandbox.SHELL_ENV_LOG: str(tmp_path / f"{task_id}.shell.jsonl")}
     return [str(prefix), script], env, cwd_file
 

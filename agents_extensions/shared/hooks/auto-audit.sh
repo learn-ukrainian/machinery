@@ -26,7 +26,13 @@ fi
 # Only audit actual module content files (not orchestration, not plans)
 # Pattern: curriculum/l2-uk-en/{level}/{slug}.md
 if [[ "$CHANGED_FILE" =~ curriculum/l2-uk-en/[^/]+/[^/]+\.md$ ]] && [[ ! "$CHANGED_FILE" =~ /orchestration/ ]] && [[ ! "$CHANGED_FILE" =~ /audit/ ]] && [[ ! "$CHANGED_FILE" =~ /review/ ]]; then
-  AUDIT_RESULT=$("$PROJECT_DIR/.venv/bin/python" "$PROJECT_DIR/scripts/audit_module.py" "$CHANGED_FILE" 2>&1 | tail -5)
+  # The one project interpreter rule (R66, machinery #100 R74), never a worktree
+  # .venv. The audit is the product's script, so no machinery release is needed.
+  # shellcheck source=agents_extensions/shared/hooks/context-rollover-lib.sh
+  source "$(dirname "${BASH_SOURCE[0]}")/context-rollover-lib.sh" \
+    || { echo "auto-audit.sh: context-rollover-lib.sh is missing beside this hook" >&2; exit 1; }
+  AUDIT_PYTHON="$(_context_rule_probe "$PROJECT_DIR")" || exit 1
+  AUDIT_RESULT=$("$AUDIT_PYTHON" "$PROJECT_DIR/scripts/audit_module.py" "$CHANGED_FILE" 2>&1 | tail -5)
 
   if [ -n "$AUDIT_RESULT" ]; then
     printf '{"additionalContext": %s}' "$(printf '%s' "AUTO-AUDIT ($CHANGED_FILE): $AUDIT_RESULT" | jq -Rs '.')"

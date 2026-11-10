@@ -604,7 +604,7 @@ source {shlex.quote(str(lib / "session_supervisor.sh"))}
 LC_ROOT={shlex.quote(str(root))}
 LC_MODE=driver LC_PROVIDER=codex LC_DRIVER_LEASE_CLAIMED=1 LC_DRY_RUN=0
 LC_DURABLE_HELPER_ROOT="${{LC_DURABLE_HELPER_ROOT:-{shlex.quote(str(root))}}}"
-export LEARN_UKRAINIAN_PYTHON={shlex.quote(sys.executable)}
+export LEARN_UKRAINIAN_PYTHON="${{LEARN_UKRAINIAN_PYTHON:-{shlex.quote(sys.executable)}}}"
 LC_DRIVER_ORIGINAL_ARGS=(--fixture 'two words')
 export SESSION_STREAM_ID=epic:9999 SESSION_STREAM_LEASE_ID=lease-test SESSION_STREAM_GENERATION=30
 launcher_driver_renew_loop() {{ :; }}
@@ -661,9 +661,8 @@ def _failure_publication_fixture(tmp_path: Path, *, seed_channel: bool) -> dict[
         f"""#!/usr/bin/env bash
 if [[ "${{1:-}}" == "-I" && "${{2:-}}" == "-c" && "${{3:-}}" == *"module bootstrap:"* ]]; then shift 5; fi
 if [ "$1" = -I ]; then shift; fi
-if [ "$1" = -m ]; then
+if [ "$1" = -m ] && [ "$2" = lu_machinery.fleet_comms ]; then
   printf '%s\\n' "$*" >> "$TEST_PUBLISH_ARGS"
-  [ "$2" = lu_machinery.fleet_comms ] || exit 91
   if [ -n "${{TEST_CLOSE_EVENTS:-}}" ]; then
     [ "$(tail -n 1 "$TEST_CLOSE_EVENTS")" = close ] || exit 92
   fi
@@ -674,6 +673,8 @@ exec {shlex.quote(sys.executable)} "$@"
     )
     return {
         "LC_DURABLE_HELPER_ROOT": str(root),
+        # The one interpreter rule (R66, #100 R74): the publisher uses the configured interpreter.
+        "LEARN_UKRAINIAN_PYTHON": str(bindir / "python"),
         "FLEET_COMMS_ROOT": str(plane),
         "SESSION_HANDOFF_AGENT": "fixture-driver",
         "TEST_PUBLISH_ARGS": str(tmp_path / "publish-args"),

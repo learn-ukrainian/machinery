@@ -116,11 +116,6 @@ SKIPPED_AST_NODES = frozenset(
 # Remote job hosts have their own exit/signal traps and no local TMPDIR lease.
 ALLOWLIST: tuple[tuple[str, str, str], ...] = (
     (
-        _mp("agent_runtime/_smoke_pty_agents.sh"),
-        "Existing literal or temp producer exposed by expanded lint; migration tracked in #9702.",
-        "bbde142ffb6490869b6843635b499c5891e9209299d5b86c4b000489023caa09:1",
-    ),
-    (
         _mp("agent_runtime/adapters/_template.py"),
         "Legacy literal/default/example; follow-up outside this bounded packet (#9702).",
         "2d478c815c365293b10ec511e722c6a22f7736d8cc6be2b3985b1a24ba65e77a:1",

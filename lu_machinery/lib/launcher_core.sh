@@ -873,8 +873,9 @@ launcher_validate_cursor_pin() {
     launcher_error "the $seat requires a concrete model; an empty model runs Auto (pin $LC_CURSOR_SEAT_PIN)."
     exit 4
   fi
-  local normalized
-  if ! normalized="$(project_python_run "$LC_DURABLE_HELPER_ROOT/.venv/bin/python" -c '
+  local normalized py
+  py="$(launcher_project_python)" || exit 4
+  if ! normalized="$(project_python_run "$py" -c '
 import importlib
 import sys
 catalog = importlib.import_module(sys.argv[2])
@@ -926,8 +927,9 @@ launcher_prepare_driver_identity() {
   # Pinned per-epic driver state (scripts/driver_state.py). Harness hooks
   # re-inject it every model call so compaction cannot drop the epic binding.
   export LU_DRIVER_STATE_FILE="$LC_ROOT/.claude/${LC_EPIC}-epic/DRIVER-STATE.md"
-  if [ -n "${LC_DURABLE_HELPER_ROOT:-}" ] && [ -x "$LC_DURABLE_HELPER_ROOT/.venv/bin/python" ]; then
-    export LU_DRIVER_STATE_PYTHON="$LC_DURABLE_HELPER_ROOT/.venv/bin/python"
+  local py
+  if py="$(launcher_project_python 2>/dev/null)"; then
+    export LU_DRIVER_STATE_PYTHON="$py"
   fi
 }
 
@@ -940,7 +942,8 @@ launcher_seed_driver_state() {
     printf 'launcher: would seed driver state %s\n' ".claude/${LC_EPIC}-epic/DRIVER-STATE.md"
     return 0
   fi
-  local py="${LU_DRIVER_STATE_PYTHON:-$LC_ROOT/.venv/bin/python}"
+  local py="${LU_DRIVER_STATE_PYTHON:-}"
+  [ -n "$py" ] || py="$(launcher_project_python 2>/dev/null)" || return 0
   [ -x "$py" ] || return 0
   (cd "$LC_ROOT" && project_python_run "$py" -m "$LC_MACHINERY_PACKAGE.driver_state" init --epic "$LC_EPIC" >/dev/null 2>&1) || true
 }
@@ -953,10 +956,11 @@ launcher_import_rollover_bundle() {
     *) return 0 ;;
   esac
   helper_root="$LC_DURABLE_HELPER_ROOT"
-  py="$helper_root/.venv/bin/python"
-  # This tree's thread_handoff; the helper root supplies the interpreter and the state.
+  py="$(launcher_project_python 2>/dev/null)" || py=""
+  # This tree's thread_handoff; the one project interpreter (R66) runs it, the
+  # helper root supplies the state.
   script="$LC_MACHINERY_DIR/orchestration/thread_handoff.py"
-  if [ ! -x "$py" ] || [ ! -f "$script" ]; then
+  if [ -z "$py" ] || [ ! -x "$py" ] || [ ! -f "$script" ]; then
     printf 'WARNING: rollover bundle pre-lease import unavailable; continuing fail-open (helper=%s).\n' "$helper_root" >&2
     return 0
   fi
@@ -1004,10 +1008,11 @@ launcher_cursor_observer_presence() {
     printf 'launcher: would renew observer presence while the driver session runs\n'
     return 0
   fi
-  local task_id
+  local task_id py
   task_id="${SESSION_TASK_ID:-${LC_EPIC:-cursor-driver}}"
-  # Linked worktrees carry no venv; the validated durable helper root does.
-  project_python_run "$LC_DURABLE_HELPER_ROOT/.venv/bin/python" -m "$LC_MACHINERY_PACKAGE.orchestration.observer_heartbeat" \
+  # The one project interpreter (R66); linked worktrees carry no venv.
+  py="$(launcher_project_python 2>/dev/null)" || return 0
+  project_python_run "$py" -m "$LC_MACHINERY_PACKAGE.orchestration.observer_heartbeat" \
     --agent cursor \
     --task-id "$task_id" \
     --epic "$LC_EPIC" \
@@ -1084,6 +1089,9 @@ launcher_driver_renew_loop() {
     # do not require Bash 4; reserve fd 214 instead of {var} FDs.
     local renew_stop=""
     local slices=0
+    # The one project interpreter (R66); linked worktrees carry no venv.
+    local renew_py
+    renew_py="$(launcher_project_python 2>/dev/null)" || renew_py=""
     local wait_fifo wait_fd=""
     trap 'renew_stop=1' INT TERM HUP
     if wait_fifo="$(mktemp -u)" && mkfifo "$wait_fifo"; then
@@ -1110,7 +1118,7 @@ launcher_driver_renew_loop() {
       if ! kill -0 "$launcher_pid" 2>/dev/null || ! kill -0 "$child_pid" 2>/dev/null; then
         break
       fi
-      if heartbeat_error="$(project_python_run "$LC_DURABLE_HELPER_ROOT/.venv/bin/python" -m "$LC_MACHINERY_PACKAGE.session_supervisor" heartbeat --role driver 2>&1 >/dev/null)"; then
+      if heartbeat_error="$(project_python_run "$renew_py" -m "$LC_MACHINERY_PACKAGE.session_supervisor" heartbeat --role driver 2>&1 >/dev/null)"; then
         renew_started=$SECONDS
         continue
       fi
@@ -1169,7 +1177,8 @@ launcher_close_driver_lease() {
   [ "${LC_DRIVER_LEASE_CLOSED:-0}" = "1" ] && return 0
 
   local attempt=0 delay=1 remaining
-  local close_stderr="" close_failure_reason
+  local close_stderr="" close_failure_reason close_py
+  close_py="$(launcher_project_python 2>/dev/null)" || close_py=""
   local retry_seconds="${LC_DRIVER_CLOSE_RETRY_SECONDS:-600}"
   case "$retry_seconds" in
     ''|*[!0-9]*) retry_seconds=600 ;;
@@ -1177,9 +1186,8 @@ launcher_close_driver_lease() {
   local deadline=$((SECONDS + 10#$retry_seconds))
   while :; do
     attempt=$((attempt + 1))
-    # Linked worktrees carry no venv; the validated durable helper root does.
     # Capture stderr per attempt for classification only — it is never echoed.
-    if close_stderr="$(project_python_run "$LC_DURABLE_HELPER_ROOT/.venv/bin/python" \
+    if close_stderr="$(project_python_run "$close_py" \
         -m "$LC_MACHINERY_PACKAGE.session_supervisor" close --role driver 2>&1 >/dev/null)"; then
       LC_DRIVER_LEASE_CLOSED=1
       return 0
@@ -1397,11 +1405,10 @@ launcher_inject_driver_agent() {
   if launcher_forward_args_have_agent; then
     return 0
   fi
-  # The validated durable helper root's interpreter only; a worktree-local
-  # .venv is never tried (#9118, #9121).
-  local py="$LC_DURABLE_HELPER_ROOT/.venv/bin/python"
-  local agent_type=""
-  [ -x "$py" ] || return 0
+  # The one project interpreter (R66); a worktree-local .venv is never tried
+  # (#9118, #9121).
+  local py agent_type=""
+  py="$(launcher_project_python 2>/dev/null)" || return 0
   agent_type="$(cd "$LC_SESSION_ROOT" && project_python_run "$py" -m "$LC_MACHINERY_PACKAGE.orchestration.driver_agent_type" --lane "$LC_EPIC" 2>/dev/null || true)"
   if [ -z "$agent_type" ]; then
     printf 'launcher: no driver_agent_type for lane %s in area_assignments.yaml; no named agent selected; using the launcher model or project settings (Sonnet 5.5)\n' "$LC_EPIC" >&2
