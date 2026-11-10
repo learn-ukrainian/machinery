@@ -503,6 +503,57 @@ def _squash_text(gh_repo, fields, dest, temp, runner, cwd, environment):
     return {"subject": subject, "body": body, "queue": pull["isMergeQueueEnabled"], "id": pull["id"]}
 
 
+QUEUE_ENTRY_QUERY = (
+    "query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){"
+    "pullRequest(number:$number){headRefOid isInMergeQueue mergeQueueEntry{headCommit{oid}} "
+    "autoMergeRequest{enabledAt}}}}"
+)
+
+
+def _confirm_enqueued(gh_repo, number, head, dest, temp, readers, cwd, environment):
+    """Prove the reviewed head has a queue entry after a successful enqueue.
+
+    A PR that GitHub left out of the queue, or armed for auto-merge instead, is a
+    refusal naming the unmet requirement; armed auto-merge is disarmed first.
+    ``readers`` is ``(readiness_runner, runner)``: fresh reads, then the write transport.
+    """
+    readiness_runner, runner = readers
+    owner, name = gh_repo.split("/", 1)
+    query = temp / "queue-entry.json"
+    variables = {"owner": owner, "name": name, "number": number}
+    query.write_bytes(json.dumps({"query": QUEUE_ENTRY_QUERY, "variables": variables}).encode("utf-8"))
+    try:
+        result = readiness_runner(
+            ["gh", "api", "--method", "POST", "graphql", "--input", str(query), *_hostname_flag(dest)],
+            cwd=cwd, env=dict(environment), capture_output=True, text=True, check=False, timeout=15,
+        )
+        document = json.loads(result.stdout) if result.returncode == 0 else None
+        pull = document["data"]["repository"]["pullRequest"]
+        if document.get("errors") or type(pull["isInMergeQueue"]) is not bool or not isinstance(pull["headRefOid"], str):
+            raise ValueError
+    except github_client.GitHubRateLimited:
+        raise
+    except Exception:
+        raise gate.PublishBlocked(
+            "ENQUEUE_UNVERIFIED: the enqueue was sent but queue membership is unreadable;"
+            " read the PR's queue entry and auto-merge state before retrying."
+        ) from None
+    if pull["isInMergeQueue"] and pull["headRefOid"].lower() == head.lower():
+        return
+    if pull.get("autoMergeRequest") is not None:
+        disarm = _send(
+            ["gh", "pr", "merge", str(number), "--repo", gh_repo, "--disable-auto"],
+            environment=environment, runner=runner, cwd=cwd, capture_output=True, text=True, check=False, timeout=30,
+        )
+        raise gate.PublishBlocked(
+            "ENQUEUE_REFUSED: a merge requirement is unmet; GitHub armed auto-merge instead of queueing, "
+            + ("and auto-merge was disarmed." if disarm.returncode == 0 else "and the disarm FAILED; run pr-disarm.")
+        )
+    raise gate.PublishBlocked(
+        "ENQUEUE_REFUSED: a merge requirement is unmet; the reviewed head has no merge-queue entry after enqueue."
+    )
+
+
 def _refuse_incomplete_seats(dest, number, head, runner, cwd, environment):
     """Refuse a head the merge-queue keeper would not land on its recorded verdicts (#12020).
 
@@ -939,9 +990,22 @@ def _transfer_endpoint(value, environment):
 
 
 def _transfer_checkouts():
-    checkouts = [gate.ROOT.resolve()]
-    with contextlib.suppress(NotAGitRepositoryError):
-        checkouts.append(resolve_main_root_without_git(gate.ROOT).resolve())
+    """The trees a transfer receipt must stay out of: the product checkout and this package's tree.
+
+    An installed release lives in site-packages, so its own location names no product
+    checkout; ``product_root()`` does, and an unresolved product root refuses the transfer.
+    """
+    from lu_machinery.common.repo_root import ProductRootError, product_root
+
+    try:
+        product = Path(product_root())
+    except ProductRootError:
+        raise _transfer_refused("the product checkout is unresolved, so the receipt boundary is unknown") from None
+    checkouts = []
+    for root in (product, gate.ROOT):
+        checkouts.append(root.resolve())
+        with contextlib.suppress(NotAGitRepositoryError):
+            checkouts.append(resolve_main_root_without_git(root).resolve())
     return checkouts
 
 
@@ -1504,6 +1568,19 @@ def publish(
         if verb == "pr-merge":
             from lu_machinery.publish.merge_guard import ensure_merge_ready
 
+            # Refuse a blocked supplied subject or body before any GitHub read. With an
+            # override set, the one combined scan below decides, so the override is
+            # offered once for the whole publish.
+            supplied = [key for key in ("subject", "body") if key in fields]
+            if supplied and not environment.get(gate.OVERRIDE, "").strip():
+                try:
+                    gate.check_texts(
+                        dest, [fields[key] for key in supplied], environment=dict(environment), field_names=supplied
+                    )
+                except gate.PublishBlocked:
+                    raise
+                except Exception:
+                    raise gate.PublishBlocked("OPSEC: checker unavailable; write refused.") from None
             fields["match_head"] = ensure_merge_ready(
                 gh_repo,
                 fields["number"],
@@ -1753,6 +1830,10 @@ def publish(
             )
             if not capture_output:
                 print(str(result.stdout or "").strip())
+        if verb == "pr-merge" and not already_queued and result.returncode == 0:
+            _confirm_enqueued(
+                gh_repo, fields["number"], fields["match_head"], dest, temp, (readiness_runner, runner), cwd, environment,
+            )
         if jump and result.returncode == 0:
             result.queue_jump = True
             print(f"queue-jump: enqueued at the front of the merge queue at {fields['match_head']}", file=sys.stderr)
