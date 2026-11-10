@@ -2163,7 +2163,7 @@ ALLOWLIST: tuple[tuple[str, str, str], ...] = (
     (
         "tests/common/test_pytest_scratch_readonly.py",
         "Proves the scratch plugin refuses a base temp or cache directory outside the scratch root and keeps an explicit one inside it (Refs #100).",
-        "9ed4f2efeb4f1759b0467dce520adc7aa3115c2abea678619920073ac0fc6e14:1 "
+        "588db09cd4cb607c089332b91b48f30d7a14dfc9ac89b2ed97d6107a5076bf09:1 "
         "0bd713ebd1d6e243147733abf59213da87ecbfbf5e20a241601c86d0318d1731:1 "
         "88be6fc0456c80003ee24d60b2506b5c9b2e47ec76372c312c14cb59d59c4d1f:1 "
         "50767ff87670a08beadc12a409763e44a8b156acf70f3ad4e8bdaa15bab1bc82:1 "
@@ -2281,14 +2281,36 @@ PYTEST_ROOT_PREFIXES = (
 )
 
 
+def override_at(tokens: list[str], index: int) -> bool:
+    """Whether ``tokens[index]`` starts a pytest temp-root override: ``--basetemp`` or a ``cache_dir`` ini override.
+
+    A bare ``cache_dir=`` word is a shell assignment or a keyword; only pytest's
+    ``-o``/``--override-ini`` spellings count, attached or followed by the setting.
+    """
+    token = tokens[index].strip("'\"")
+    following = tokens[index + 1].strip("'\"") if index + 1 < len(tokens) else ""
+    return (
+        token == BASETEMP_OPTION
+        or token.startswith(PYTEST_ROOT_PREFIXES)
+        or (token in OVERRIDE_INI_OPTIONS and following.startswith(CACHE_DIR_SETTING))
+    )
+
+
 def is_pytest_root_override(value: str) -> bool:
-    """A pytest argument that opens another temp root: ``--basetemp`` or a ``cache_dir`` ini override.
+    """A Python string that opens another pytest temp root: an argv element or a whole command line.
 
     The pytest scratch plugin gives every session one run under the managed root
-    and removes it when the session ends; either override places pytest's files
-    somewhere else (a checkout, ``batch_state``, a private temp) that nothing removes.
+    and removes it when the session ends; ``--basetemp`` or a ``cache_dir``
+    override places pytest's files somewhere else (a checkout, ``batch_state``,
+    a private temp) that nothing removes. A value that starts with the setting
+    is the argument after ``-o``; anywhere else each word is checked.
     """
-    return value == BASETEMP_OPTION or value.startswith((*PYTEST_ROOT_PREFIXES, CACHE_DIR_SETTING))
+    if "basetemp" not in value and CACHE_DIR_SETTING not in value:
+        return False
+    if value.startswith(CACHE_DIR_SETTING):
+        return True
+    tokens = value.split()
+    return any(override_at(tokens, index) for index in range(len(tokens)))
 
 
 def _may_hold_temp_root(value: str) -> bool:
@@ -2501,14 +2523,9 @@ def scan_shell(source: str, path: str) -> list[Finding]:
         if token and all(c in "();<>|&{}\n" for c in token):
             command_start = True
             continue
-        following = tokens[index + 1][0] if index + 1 < len(tokens) else ""
-        # A bare cache_dir= word is a shell assignment; only pytest's -o/--override-ini spelling counts.
-        if (
-            token == BASETEMP_OPTION
-            or token.startswith(PYTEST_ROOT_PREFIXES)
-            or (token in OVERRIDE_INI_OPTIONS and following.startswith(CACHE_DIR_SETTING))
-        ):
-            findings.append(Finding(path, number, PYTEST_ROOT_MESSAGE + " ".join([token, following]).strip()))
+        words = [token, tokens[index + 1][0] if index + 1 < len(tokens) else ""]
+        if override_at(words, 0):
+            findings.append(Finding(path, number, PYTEST_ROOT_MESSAGE + " ".join(words).strip()))
         if command_start and (
             token in {"command", "exec", "env", "if", "then", "elif", "else", "do", "!"}
             or re.match(r"[A-Za-z_]\w*=", token)

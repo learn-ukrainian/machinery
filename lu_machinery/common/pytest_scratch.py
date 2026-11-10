@@ -125,6 +125,8 @@ _LOCK_JOIN_FLAGS = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC
 _NOT_A_RUN_ERRNOS = frozenset({errno.ENOENT, errno.ENOTDIR, errno.ELOOP})
 # Shared holds on the runs this process works inside, by lock identity, kept until it exits.
 _JOINED: dict[tuple[int, int], int] = {}
+# The session in this process that owns termination handling, from arming until its run is removed.
+_OWNER: list[_Termination] = []
 
 
 def _is_unwritable(exc: OSError) -> bool:
@@ -573,10 +575,12 @@ class _Termination:
             raise self.interrupt()
 
     def disarm(self) -> None:
-        """Give back the default disposition of every signal this owner still handles."""
+        """Give back the default disposition of every signal this owner still handles, and end its ownership."""
         for signum in self.installed:
             if signal.getsignal(signum) == self.handle:
                 signal.signal(signum, signal.SIG_DFL)
+        if self in _OWNER:
+            _OWNER.remove(self)
 
     def _interruptible(self) -> Generator[None, None, None]:
         self.interruptible = True
@@ -600,9 +604,8 @@ class _Termination:
 
 
 def _owning_termination() -> bool:
-    """A session in this process already handles termination: this one is nested inside it."""
-    return any(isinstance(getattr(signal.getsignal(signum), "__self__", None), _Termination)
-               for signum in TERMINATION_SIGNALS)
+    """A session in this process already owns termination, even after a signal disarmed it: this one is nested."""
+    return bool(_OWNER)
 
 
 def _arm_termination() -> _Termination | None:
@@ -614,7 +617,10 @@ def _arm_termination() -> _Termination | None:
         if signal.getsignal(signum) is signal.SIG_DFL:
             signal.signal(signum, termination.handle)
             termination.installed.append(signum)
-    return termination if termination.installed else None
+    if not termination.installed:
+        return None
+    _OWNER.append(termination)
+    return termination
 
 
 def _set_session_env(config: pytest.Config, values: dict[str, str]) -> None:
@@ -648,6 +654,9 @@ def pytest_configure(config: pytest.Config) -> None:
     """Give the session its run and settings; an explicit base temp inside the root keeps only its fixture directory."""
     inherited_run = _join_inherited_run()
     if hasattr(config, "workerinput"):
+        # The controller owns the run and checked any explicit cache; a worker writes into the same run.
+        if inherited_run is not None and _explicit_cache_dir(config) is None:
+            _set_cache_dir(config, Path(inherited_run) / CACHE_DIRNAME)
         return
     roots = _allowed_roots(inherited_run)
     explicit_cache = _explicit_cache_dir(config)
@@ -657,7 +666,7 @@ def pytest_configure(config: pytest.Config) -> None:
         held_by = _backed_up_root_holding(str(config.option.basetemp))
         if held_by is not None:
             raise pytest.UsageError(
-                f"--basetemp {config.option.basetemp} is inside {held_by}, which the data backup reads "
+                f"The base temp (--basetemp) {config.option.basetemp} is inside {held_by}, which the data backup reads "
                 "and refuses for the absolute symlinks pytest leaves there. Omit --basetemp, or put it under "
                 "$TMPDIR, the managed scratch."
             )
