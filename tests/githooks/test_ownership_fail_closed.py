@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+from pathlib import Path
 
 import pytest
 
@@ -15,18 +16,20 @@ from tests.githooks.test_owned_paths_hook import (
     _run,
     _task,
 )
+from tests.helpers.wheel import release_wheel
 
 
 @pytest.fixture(scope="module")
 def installed_python(tmp_path_factory):
     root = tmp_path_factory.mktemp("installed-ownership")
-    return _installed_python(root)
+    wheel = release_wheel(Path(__file__).resolve().parents[2], root)
+    return _installed_python(root, wheel)
 
 
 @pytest.fixture
 def hook_world(tmp_path, installed_python):
     env = {**_base_env(), "LEARN_UKRAINIAN_PYTHON": str(installed_python), "TMPDIR": str(tmp_path)}
-    repo = _product_repo(tmp_path, env)
+    repo = _product_repo(tmp_path, env, installed_python)
     env["LEARN_UKRAINIAN_PRIMARY_REPO_ROOT"] = str(repo)
     task_env = _task(repo, tmp_path / "tasks", env)
     record_path = tmp_path / "tasks" / "owned-paths-task.json"
