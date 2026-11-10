@@ -16,6 +16,7 @@ from bisect import bisect_right
 from collections import Counter, deque
 from dataclasses import dataclass
 from pathlib import Path
+from typing import cast
 
 from lu_machinery.common.repo_root import product_root
 
@@ -2149,6 +2150,25 @@ ALLOWLIST: tuple[tuple[str, str, str], ...] = (
         "Existing literal or temp producer exposed by expanded lint; migration tracked in #9702.",
         "8a29d4629d3631c0a1b6c19f95f1bf7d58f8e571c8928d419d94cdcc5b3d2b73:3",
     ),
+    (
+        "tests/common/test_conftest_telemetry_guard.py",
+        "A child pytest's base temp inside the parent run's tmp_path, which the scratch plugin accepts (Refs #100).",
+        "06dd05849f69b6fc254520f5b5785749f1c73d1f142548858caa0416e1cba078:1",
+    ),
+    (
+        "tests/common/test_pytest_scratch_backed_up_basetemp.py",
+        "Proves the scratch plugin refuses a base temp the data backup reads (#12153).",
+        "f959d72a8508a9a57a24ea1cb5a8871afe4321f6a16a81e47ada2ea3b67f347c:1",
+    ),
+    (
+        "tests/common/test_pytest_scratch_readonly.py",
+        "Proves the scratch plugin refuses a base temp or cache directory outside the scratch root and keeps an explicit one inside it (Refs #100).",
+        "588db09cd4cb607c089332b91b48f30d7a14dfc9ac89b2ed97d6107a5076bf09:1 "
+        "0bd713ebd1d6e243147733abf59213da87ecbfbf5e20a241601c86d0318d1731:1 "
+        "88be6fc0456c80003ee24d60b2506b5c9b2e47ec76372c312c14cb59d59c4d1f:1 "
+        "50767ff87670a08beadc12a409763e44a8b156acf70f3ad4e8bdaa15bab1bc82:1 "
+        "ffec729907f007051141c873e6e78034bc36c3fdfe5ab665bff95bc29ffdae66:1",
+    ),
 )
 
 
@@ -2248,13 +2268,70 @@ def _literal_line_numbers(source: str) -> set[int]:
     return numbers
 
 
+PYTEST_ROOT_MESSAGE = "pytest-temp-root: the session's run holds its base temp and cache; drop the override: "
+# Spelled in pieces so this module's own source carries none of the overrides it rejects.
+BASETEMP_OPTION = "--" + "basetemp"
+CACHE_DIR_SETTING = "cache" + "_dir="
+OVERRIDE_INI_OPTIONS = frozenset({"-o", "--override-ini"})
+# --basetemp=x, -ocache_dir=x, -o=cache_dir=x and --override-ini=cache_dir=x: the attached spellings.
+PYTEST_ROOT_PREFIXES = (
+    BASETEMP_OPTION + "=",
+    "-o" + CACHE_DIR_SETTING,
+    *(option + "=" + CACHE_DIR_SETTING for option in sorted(OVERRIDE_INI_OPTIONS)),
+)
+
+
+def override_at(tokens: list[str], index: int) -> bool:
+    """Whether ``tokens[index]`` starts a pytest temp-root override: ``--basetemp`` or a ``cache_dir`` ini override.
+
+    A bare ``cache_dir=`` word is a shell assignment or a keyword; only pytest's
+    ``-o``/``--override-ini`` spellings count, attached or followed by the setting.
+    """
+    token = tokens[index].strip("'\"")
+    following = tokens[index + 1].strip("'\"") if index + 1 < len(tokens) else ""
+    return (
+        token == BASETEMP_OPTION
+        or token.startswith(PYTEST_ROOT_PREFIXES)
+        or (token in OVERRIDE_INI_OPTIONS and following.startswith(CACHE_DIR_SETTING))
+    )
+
+
+def is_pytest_root_override(value: str) -> bool:
+    """A Python string that opens another pytest temp root: an argv element or a whole command line.
+
+    The pytest scratch plugin gives every session one run under the managed root
+    and removes it when the session ends; ``--basetemp`` or a ``cache_dir``
+    override places pytest's files somewhere else (a checkout, ``batch_state``,
+    a private temp) that nothing removes. A value that starts with the setting
+    is the argument after ``-o``; anywhere else each word is checked.
+    """
+    if "basetemp" not in value and CACHE_DIR_SETTING not in value:
+        return False
+    if value.startswith(CACHE_DIR_SETTING):
+        return True
+    tokens = command_words(value)
+    return any(override_at(tokens, index) for index in range(len(tokens)))
+
+
+def command_words(value: str) -> list[str]:
+    """The words a shell makes of ``value``, quotes removed (``-o'cache_dir=x'`` is ``-ocache_dir=x``).
+
+    A value the shell lexer cannot split (an unbalanced quote) is split on
+    whitespace with every quote character dropped, so it is still checked.
+    """
+    try:
+        return shlex.split(value)
+    except ValueError:
+        return value.replace("'", "").replace('"', "").split()
+
+
 def _may_hold_temp_root(value: str) -> bool:
     """Per-value fast path: every ``LITERAL_TEMP`` match contains a marker substring."""
     return TEMP_ROOT_MARKERS[0] in value or TEMP_ROOT_MARKERS[1] in value
 
 
 def scan_python(source: str, path: str) -> list[Finding]:
-    """Find tempfile calls without an explicit managed directory, including aliases.
+    """Find tempfile calls without an explicit managed directory, including aliases, and pytest temp-root overrides.
 
     One breadth-first walk in ``ast.walk`` order collects imports, decoded
     literals and calls; calls are resolved only after the whole walk has filled
@@ -2264,6 +2341,7 @@ def scan_python(source: str, path: str) -> list[Finding]:
     aliases: dict[str, str] = {}
     calls: list[ast.Call] = []
     findings: list[Finding] = []
+    source_text_lines: list[str] | None = None
     pending = deque([tree])
     while pending:
         node = pending.popleft()
@@ -2274,6 +2352,11 @@ def scan_python(source: str, path: str) -> list[Finding]:
                 value = value.decode("utf-8", errors="replace")
             if type(value) is str and _may_hold_temp_root(value) and has_literal_temp_path(value):
                 findings.append(Finding(path, node.lineno, "literal system temp path"))
+            if type(value) is str and is_pytest_root_override(value):
+                if source_text_lines is None:
+                    source_text_lines = LINE_SEPARATOR.split(source)
+                lineno = cast(ast.Constant, node).lineno
+                findings.append(Finding(path, lineno, PYTEST_ROOT_MESSAGE + source_text_lines[lineno - 1].strip()))
         elif kind is ast.Call:
             func = node.func
             func_kind = type(func)
@@ -2452,6 +2535,9 @@ def scan_shell(source: str, path: str) -> list[Finding]:
         if token and all(c in "();<>|&{}\n" for c in token):
             command_start = True
             continue
+        words = [token, tokens[index + 1][0] if index + 1 < len(tokens) else ""]
+        if override_at(words, 0):
+            findings.append(Finding(path, number, PYTEST_ROOT_MESSAGE + " ".join(words).strip()))
         if command_start and (
             token in {"command", "exec", "env", "if", "then", "elif", "else", "do", "!"}
             or re.match(r"[A-Za-z_]\w*=", token)

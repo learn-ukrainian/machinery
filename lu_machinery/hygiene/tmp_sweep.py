@@ -310,7 +310,10 @@ def tree_facts(path: Path, *, run_contents: bool = False) -> tuple[int, float, f
     can be a bind-mount target, so every node is checked against the mounts.
     ``run_contents`` marks a managed pytest run whose owner is proven dead: its
     contents are pytest's own scratch, so Git metadata, hard links and special
-    files inside it keep nothing; foreign owners and mounts still do.
+    files inside it keep nothing; foreign owners and mounts still do. For such a
+    run the latest change is the latest ctime alone: every write and every
+    ``utime`` sets ctime to now, and nothing can set it later, whereas a test
+    fixture that dates a file into the future would keep its run young forever.
     """
     allocated = 0
     newest = 0.0
@@ -329,7 +332,7 @@ def tree_facts(path: Path, *, run_contents: bool = False) -> tuple[int, float, f
             node = pending.pop()
             info = node.lstat()
             newest = max(newest, info.st_mtime)
-            changed = max(changed, info.st_mtime, info.st_ctime)
+            changed = max(changed, info.st_ctime) if run_contents else max(changed, info.st_mtime, info.st_ctime)
             identity = info.st_dev, info.st_ino
             if identity not in seen:
                 allocated += info.st_blocks * 512
