@@ -185,8 +185,11 @@ def settle_git_operation(root: Path, timeout: float = SETTLE_TIMEOUT_S) -> None:
     if len(lines) > 1 and lines[1].startswith("refs/") and split_relpath(lines[1]) is not None:
         locks.append(git_dir / f"{lines[1]}.lock")
     deadline = time.monotonic() + timeout
-    while any(os.path.lexists(lock) for lock in locks) and time.monotonic() < deadline:
-        time.sleep(SETTLE_POLL_S)
+    while any(os.path.lexists(lock) for lock in locks):
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return
+        time.sleep(min(SETTLE_POLL_S, remaining))
 
 
 def is_tracked(root: Path, relpath: str) -> bool:
