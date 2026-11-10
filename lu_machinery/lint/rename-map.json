@@ -5110,6 +5110,7 @@
  "tests/test_shared_memory_review_docs.py": "product",
  "tests/test_shell_redirects.py": "machinery",
  "tests/test_shell_shlex.py": "machinery",
+ "tests/test_sibling_git.py": "machinery",
  "tests/test_sibling_git_https.py": "machinery",
  "tests/test_site_links.py": "product",
  "tests/test_six_disposition_writer_guards.py": "product",

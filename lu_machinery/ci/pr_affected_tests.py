@@ -114,28 +114,6 @@ def git(*args: str) -> bytes:
     return subprocess.run(["git", *args], check=True, capture_output=True, timeout=30).stdout
 
 
-def manifest_run_files(candidate: str, entries: dict[str, str]) -> set[str] | None:
-    """The candidate's [run] files when it tracks a test manifest, else None.
-
-    Sections are the workflow's: a ``# [name]`` line opens one, other ``#`` lines and
-    blank lines are skipped. The workflow checks the manifest's form; this refuses a
-    manifest without a [run] file rather than selecting nothing.
-    """
-    if MANIFEST not in entries:
-        return None
-    section = None
-    run: set[str] = set()
-    for line in git("show", f"{candidate}:{MANIFEST}").decode("utf-8").splitlines():
-        header = re.fullmatch(r"# \[(\w+)\]", line)
-        if header:
-            section = header.group(1)
-        elif line.strip() and not line.startswith("#") and section == "run":
-            run.add(line)
-    if not run:
-        raise ValueError("test manifest lists no [run] file")
-    return run
-
-
 def safe_path(name: str, *, node: bool = False) -> str:
     if node and "::" in name:
         file, _, rest = name.partition("::")
@@ -319,6 +297,28 @@ def plan(base: str, candidate: str, *, importers: bool = True) -> dict:
     """Use only the original base-to-candidate diff, never a current branch tip."""
     with chdir(product_root()):
         return _plan(base, candidate, importers=importers)
+
+
+def manifest_run_files(candidate: str, entries: dict[str, str]) -> set[str] | None:
+    """The candidate's [run] files when it tracks a test manifest, else None.
+
+    Sections are the workflow's: a ``# [name]`` line opens one, other ``#`` lines and
+    blank lines are skipped. The workflow checks the manifest's form; this refuses a
+    manifest without a [run] file rather than selecting nothing.
+    """
+    if MANIFEST not in entries:
+        return None
+    section = None
+    run: set[str] = set()
+    for line in git("show", f"{candidate}:{MANIFEST}").decode("utf-8").splitlines():
+        header = re.fullmatch(r"# \[(\w+)\]", line)
+        if header:
+            section = header.group(1)
+        elif line.strip() and not line.startswith("#") and section == "run":
+            run.add(line)
+    if not run:
+        raise ValueError("test manifest lists no [run] file")
+    return run
 
 
 def _plan(base: str, candidate: str, *, importers: bool) -> dict:
