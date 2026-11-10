@@ -4871,11 +4871,6 @@
    "evidence": "product subject reference; subjects scripts.audit.config, scripts.audit.track_deterministic_audit, scripts.curriculum.pedagogy_config (+9)",
    "ownership": "product"
   },
-  "tests/audit/test_typesafe_citation_verifier.py": {
-   "disposition": "keep",
-   "evidence": "product subject reference; subjects scripts.audit.typesafe_citation_verifier, scripts.typesafe.client",
-   "ownership": "product"
-  },
   "tests/audit/test_wiki_completeness_gate.py": {
    "disposition": "keep",
    "evidence": "product subject reference; subjects scripts.audit.wiki_completeness_gate, wiki/pedagogy/a1/my-morning.md, wiki/pedagogy/a1/sounds-letters-and-hello.md",
@@ -5406,11 +5401,6 @@
   "tests/build/test_textbook_grounding_split.py": {
    "disposition": "keep",
    "evidence": "product subject reference; subjects curriculum/l2-uk-en/plans/a1/my-morning.yaml, scripts.build.linear_pipeline",
-   "ownership": "product"
-  },
-  "tests/build/test_typesafe_curriculum.py": {
-   "disposition": "keep",
-   "evidence": "product subject reference; subjects scripts.build.typesafe_curriculum",
    "ownership": "product"
   },
   "tests/build/test_universal_rules_registry.py": {
@@ -9505,11 +9495,6 @@
   "tests/fixtures/textbook_grounding/good-module.md": {
    "disposition": "keep",
    "evidence": "test data; referenced by 1 test file(s) through 'good-module.md', including product files",
-   "ownership": "product"
-  },
-  "tests/fixtures/typesafe_citation_cases.jsonl": {
-   "disposition": "keep",
-   "evidence": "test data; referenced by 1 test file(s) through 'typesafe_citation_cases.jsonl', including product files",
    "ownership": "product"
   },
   "tests/fixtures/ukrlib/rylsky-molyus-i-viryu.html": {
@@ -16014,21 +15999,6 @@
   "tests/projects/open_model_data/test_sum20_codification_records.py": {
    "disposition": "keep",
    "evidence": "product subject reference; subjects scripts.projects.open_model_data.build_decolonization_cases, scripts.projects.open_model_data.sum20_codification_records",
-   "ownership": "product"
-  },
-  "tests/projects/open_model_data/test_typesafe_corpus_firewall.py": {
-   "disposition": "keep",
-   "evidence": "product subject reference; subjects scripts.projects.open_model_data.typesafe_corpus_firewall, scripts.projects.open_model_data.typesafe_cyrillic_gate",
-   "ownership": "product"
-  },
-  "tests/projects/open_model_data/test_typesafe_homonym_disambiguator.py": {
-   "disposition": "keep",
-   "evidence": "product subject reference; subjects scripts.projects.open_model_data.typesafe_homonym_disambiguator",
-   "ownership": "product"
-  },
-  "tests/projects/open_model_data/test_typesafe_word_qualifier.py": {
-   "disposition": "keep",
-   "evidence": "product subject reference; subjects scripts.projects.open_model_data.typesafe_word_qualifier",
    "ownership": "product"
   },
   "tests/projects/open_model_data/test_upload_to_huggingface_p3a.py": {
@@ -29753,7 +29723,7 @@
   },
   "tests/test_practice_quality_gate.py": {
    "disposition": "keep",
-   "evidence": "product subject reference; subjects scripts.audit.practice_quality_gate, scripts.practice.extract_textbook_error_corrections, scripts.practice.typesafe_distractor_validator (+2)",
+   "evidence": "product subject reference; subjects scripts.audit.practice_quality_gate, scripts.practice.extract_textbook_error_corrections (+2)",
    "ownership": "product"
   },
   "tests/test_practice_sense_and_gloss.py": {
@@ -34373,21 +34343,6 @@
    "evidence": "product subject reference; subjects scripts.audit.check_decisions, scripts.audit.check_review_issues, scripts.lexicon.admit_fmu_boosters (+3); pkg3 switch regressions 16",
    "ownership": "product"
   },
-  "tests/test_typesafe_cyrillic_gate.py": {
-   "disposition": "keep",
-   "evidence": "product subject reference; subjects scripts.projects.open_model_data.typesafe_cyrillic_gate",
-   "ownership": "product"
-  },
-  "tests/test_typesafe_distractor_validator.py": {
-   "disposition": "keep",
-   "evidence": "product subject reference; subjects scripts.practice.typesafe_distractor_validator, scripts.practice.typesafe_distractor_validator.verify_word, scripts.practice.typesafe_distractor_validator.verify_words",
-   "ownership": "product"
-  },
-  "tests/test_typesafe_entity_aligner.py": {
-   "disposition": "keep",
-   "evidence": "product subject reference; subjects scripts.atlas.typesafe_entity_aligner, scripts.atlas.typesafe_entity_aligner.TypeSafeClient",
-   "ownership": "product"
-  },
   "tests/test_ua_eval_codex_runtime_guard.py": {
    "disposition": "keep",
    "evidence": "product subject reference; subjects scripts.projects.ua_eval_harness.run_codex_baseline",
@@ -35895,21 +35850,6 @@
    ],
    "ported_to": "tests/trails/test_rb3_rb4_v11.py"
   },
-  "tests/typesafe/__init__.py": {
-   "disposition": "keep",
-   "evidence": "serves product test files under tests/typesafe/",
-   "ownership": "product"
-  },
-  "tests/typesafe/test_client.py": {
-   "disposition": "keep",
-   "evidence": "product subject reference; subjects scripts.typesafe.client, scripts.typesafe.client.load_typesafe_api_key",
-   "ownership": "product"
-  },
-  "tests/typesafe/test_skill_suggestion.py": {
-   "disposition": "keep",
-   "evidence": "product subject reference; subjects scripts.typesafe.skill_suggestion",
-   "ownership": "product"
-  },
   "tests/ukrainian-mmlu-test.md": {
    "disposition": "keep",
    "evidence": "test data; no test file names it or its directory",
@@ -36178,14 +36118,14 @@
   "all_files": {
    "machinery/delete-at-switch": 3,
    "machinery/port-first": 728,
-   "product/keep": 1944
+   "product/keep": 1932
   },
   "delete_at_switch_replacement_ids": 56,
   "port_first_python_test_names": 9948,
   "python_files": {
    "machinery/delete-at-switch": 3,
    "machinery/port-first": 707,
-   "product/keep": 1511
+   "product/keep": 1500
   }
  }
 }
