@@ -6,7 +6,9 @@ set -euo pipefail
 
 readonly image="${LINUX_FS_PARITY_IMAGE:-python:3.12-bookworm}"
 readonly script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-readonly repo_root="$(cd -- "${script_dir}/../.." && pwd)"
+source "$script_dir/../lib/project_interpreter.sh"
+repo_root="$(project_product_root_resolve)" || exit 1
+readonly repo_root
 
 docker run --rm --init \
   --mount "type=bind,src=${repo_root},dst=/workspace,readonly" \

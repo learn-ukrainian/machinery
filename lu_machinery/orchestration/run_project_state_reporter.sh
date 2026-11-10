@@ -6,11 +6,13 @@ set -euo pipefail
 # explicit operator value wins.
 export GIT_OPTIONAL_LOCKS="${GIT_OPTIONAL_LOCKS:-0}"
 
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 # shellcheck disable=SC1091
-source "$REPO_ROOT/lu_machinery/lib/project_interpreter.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/../lib/project_interpreter.sh"
+REPO_ROOT="$(project_product_root_resolve)" || exit 1
 if ! PYTHON="$(project_interpreter_resolve "$REPO_ROOT")"; then
   echo "project interpreter missing" >&2
   exit 1
 fi
-exec "$PYTHON" "$REPO_ROOT/lu_machinery/api/project_state_local.py" report
+cd "$REPO_ROOT"
+project_python_command "$PYTHON"
+exec "${PROJECT_PYTHON_COMMAND[@]}" -m lu_machinery.api.project_state_local report

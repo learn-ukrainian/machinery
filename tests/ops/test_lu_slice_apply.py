@@ -75,6 +75,7 @@ esac
     fake.chmod(0o755)
     return {
         "PATH": f"{bindir}:{os.environ['PATH']}",
+        "LU_PRODUCT_ROOT": str(tmp_path),
         "LU_SLICE_CGROUP": str(cg),
         "LU_SLICE_UNIT_DIR": str(units),
         "LU_SLICE_CONTROL_DIR": str(tmp_path / "ctl-persist"),

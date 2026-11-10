@@ -617,6 +617,7 @@ def test_remaining_shell_programs_select_the_rule_and_refuse_invalid(tmp_path: P
     args_path = tmp_path / "args"
     override = _record(tmp_path / "override-python", log, code=1, args_path=args_path)
     base = _base_env(tmp_path)
+    base["LU_PRODUCT_ROOT"] = str(worktree)
 
     def selected(argv: list[str], *, cwd: Path, extra: dict[str, str], stdin: str = "") -> subprocess.CompletedProcess[str]:
         log.write_text("", encoding="utf-8")

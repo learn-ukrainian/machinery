@@ -16,11 +16,11 @@
 #   [run] files ran (import and open audit hook, the source manifest's method). A [support]
 #   file named test_*.py is imported by a [run] file and is not run itself.
 
-
 # [held]: source [run] files this repository does not run, with the reason; none is ported.
 #   Each needs the product checkout, which this repository does not hold.
 
 # [run]
+tests/test_installed_shell_product_roots.py
 tests/repo_contracts/test_catalog_retirement_11327.py
 tests/repo_contracts/test_dashboard_empty_states.py
 tests/repo_contracts/test_deploy_codex_home.py

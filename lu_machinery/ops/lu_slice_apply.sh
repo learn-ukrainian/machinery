@@ -9,7 +9,8 @@
 # loaded and every value is finite, so installing the unit never lifts the cap.
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+source "$(dirname "${BASH_SOURCE[0]}")/../lib/project_interpreter.sh"
+ROOT="$(project_product_root_resolve)" || exit 1
 SRC="${LU_SLICE_SOURCE:-$ROOT/packaging/systemd/lu.slice}"
 UNIT_DIR="${LU_SLICE_UNIT_DIR:-$HOME/.config/systemd/user}"
 CGROUP="${LU_SLICE_CGROUP:-/sys/fs/cgroup/user.slice/user-$(id -u).slice/user@$(id -u).service/lu.slice}"
