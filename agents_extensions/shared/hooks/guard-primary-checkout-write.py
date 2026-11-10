@@ -827,14 +827,24 @@ class ShellSegment(list):
     """Expanded words with their shell scope and neighboring control operators."""
 
     def __init__(
-        self, words: list[ShellWord], scope: tuple[int, ...], prev_op: str, next_op: str, uv_dir_bound: bool = False
+        self,
+        words: list[ShellWord],
+        scope: tuple[int, ...],
+        prev_op: str,
+        next_op: str,
+        uv_dir_bound: bool = False,
+        uv_env_file_bound: bool = False,
+        refusal: Optional[str] = None,  # noqa: UP045 - Python 3.9 parser
     ) -> None:
         super().__init__(words)
         self.scope = scope
         self.prev_op = prev_op
         self.next_op = next_op
-        # The command may have bound ``UV_WORKING_DIR`` before this segment runs.
+        # The command may have bound ``UV_WORKING_DIR`` or ``UV_ENV_FILE`` before this segment runs.
         self.uv_dir_bound = uv_dir_bound
+        self.uv_env_file_bound = uv_env_file_bound
+        # Set when the segment's command is undecidable before any wrapper is read (`_timed_refusal`).
+        self.refusal = refusal
         self.command_uv_env: str | None = None
 
 
@@ -916,6 +926,9 @@ class _Expander:
         self.opaque_seen = False  # some command could have bound any variable
         self.first_opaque = False
         self.uv_dir_bound = False  # the segment being built may see a bound UV_WORKING_DIR
+        self.uv_env_file_bound = False  # ... or a bound UV_ENV_FILE
+        self.timed = False  # the segment being built started with a ``time`` the expander removed
+        self.refusal: Optional[str] = None  # noqa: UP045 - why that segment is undecidable
         if first is not None:
             self.first_opaque = first.opaque_seen
             self.assigned = set(first.values) | first.tainted
@@ -1006,6 +1019,7 @@ class _Expander:
     def _strip_reserved(self, tokens: list[str]) -> tuple[list[str], str]:
         """Drop leading reserved words (tracking scope); return rest + loop header."""
         header = ""
+        self.timed = False
         i = 0
         while i < len(tokens):
             tok = tokens[i]
@@ -1032,6 +1046,7 @@ class _Expander:
                         j += 1
                 if j < len(tokens) and tokens[j].startswith("-"):
                     break
+                self.timed = True
                 i = j - 1
             elif tok not in _COMPOUND_PREFIXES:
                 break
@@ -1042,8 +1057,10 @@ class _Expander:
 
     def _segment(self, tokens: list[str], prev_op: str, next_op: str) -> list[ShellWord]:
         body, header = self._strip_reserved(tokens)
+        self.uv_dir_bound = self._bound("UV_WORKING_DIR")
         # ``UV_ENV_FILE`` names a dotenv file a nested uv reads ``UV_WORKING_DIR`` from.
-        self.uv_dir_bound = self._bound("UV_WORKING_DIR") or self._bound("UV_ENV_FILE")
+        self.uv_env_file_bound = self._bound("UV_ENV_FILE")
+        self.refusal = None
         if not body:
             return []
         unconditional = (
@@ -1053,6 +1070,9 @@ class _Expander:
         while lead < len(body) and _ASSIGN_RE.match(body[lead]):
             lead += 1
         if lead == len(body):
+            if self.timed:
+                # ``time X=1`` binds X only when ``time`` is the keyword, not the executable.
+                self.refusal = str(body[0])
             # Pure assignment statement: bash assigns left to right.
             words = []
             for tok in body:
@@ -1063,6 +1083,8 @@ class _Expander:
         # Expansion sees the state from before this command's own effects.
         cmd, cmd_index = _command_word(body)
         words = [self._expand(tok, eval_arg=cmd == "eval" and i > cmd_index) for i, tok in enumerate(body)]
+        if self.timed:
+            self.refusal = _timed_refusal(words)
         if header:
             self._forget_leading_names(body)
         for tok in body[:lead]:  # ``S=x cmd``: cmd's environment, never a binding
@@ -1117,7 +1139,11 @@ class _Expander:
                 words = self._segment(current, prev_op, tok)
                 if words:
                     scope = tuple(int(frame.split(":", 1)[1]) for frame in self.frames if frame.startswith("paren:"))
-                    segments.append(ShellSegment(words, scope, prev_op, tok, self.uv_dir_bound))
+                    segments.append(
+                        ShellSegment(
+                            words, scope, prev_op, tok, self.uv_dir_bound, self.uv_env_file_bound, self.refusal
+                        )
+                    )
                 current = []
             elif tok == "\n" and prev_op in _CONTINUING_OPS:
                 continue
@@ -1627,6 +1653,40 @@ def _command_argvs(segment: list[str]) -> list[list[str]]:
     if launch.module:
         return [["python", "-m", *argv]]
     return [argv, ["python", *argv]]
+
+
+# Builtins that change this shell's directory or variables. After ``time`` they run in this shell
+# when ``time`` is the keyword, and not at all when it is the executable (`_timed_refusal`).
+_SHELL_STATE_BUILTINS = frozenset(
+    {"cd", "pushd", "popd", "set", "shopt"} | _OPAQUE_ASSIGNERS | _DECLARATION_BUILTINS | _CLOBBERERS
+)
+
+
+def _timed_refusal(words: list[str]) -> str | None:
+    """Why the command after a removed ``time`` is undecidable, else None.
+
+    Quotes are gone when the expander removes a leading ``time``, so the keyword (``time``)
+    and the executable (``"time"``, ``\\time``) look the same, and both are read through it.
+    They agree on an ordinary command, but not on a first word that expands to an option,
+    to nothing, to unknown text or to a pattern (the executable reads it as an option or
+    skips it), nor on a builtin that changes this shell or a statement of bindings only (the
+    keyword runs them here; the executable cannot run them). Each of those is refused.
+    """
+    argv = _without_redirects(words)
+    if not argv:
+        return None
+    first = argv[0]
+    if _unclassifiable(first) or first.startswith("-"):
+        return str(first)
+    walk = _command_walk(argv)
+    if walk.undecidable is not None:
+        return walk.undecidable
+    if walk.index >= len(argv):
+        return str(first)  # ``time >f X=1``: only bindings, which only the keyword makes here
+    if _unclassifiable(argv[walk.index]):
+        return str(argv[walk.index])  # ``time X=1 $EMPTY tee f``
+    cmd, _ = _command_word(argv)
+    return cmd if cmd in _SHELL_STATE_BUILTINS else None
 
 
 def _inplace_edit_targets(segment: list[str], cmd_index: int) -> list[str]:
@@ -2172,6 +2232,9 @@ def _writer_targets(
     A ``template`` (a find ``-exec`` or xargs command) applies its own wrappers' directory and
     environment (`_command_context`), which the shell's segment walk never saw.
     """
+    refused = getattr(segment, "refusal", None)
+    if refused is not None:
+        raise _UndecidableWrapper(refused)
     targets = _redirect_targets(segment)
     for target in targets:
         if isinstance(target, ShellWord):
@@ -2348,6 +2411,10 @@ def _changed_cwd(cwd: str | None, path: str) -> str | None:
 # uv's working directory from the environment, ``UV_WORKING_DIR``: a value, None when unset, or
 # this unresolved word when the command may have changed it (it then makes the cwd unknown).
 _UV_DIR_UNKNOWN = ShellWord("$UV_WORKING_DIR", unresolved_at=0)
+# Unknown because a dotenv file (``UV_ENV_FILE``, ``uv run --env-file``) may set it for a nested
+# uv. Unsetting or binding ``UV_WORKING_DIR`` does not clear this; only ``env -i`` does, and
+# ``env -u UV_ENV_FILE`` leaves the value unknown.
+_UV_DIR_ENV_FILE = ShellWord("$UV_ENV_FILE", unresolved_at=0)
 # ``bash_write_targets`` default: the hook's own environment, which the agent's shell inherits.
 _UV_DIR_INHERITED = object()
 
@@ -2355,7 +2422,7 @@ _UV_DIR_INHERITED = object()
 def _inherited_uv_env() -> str | None:
     """``UV_WORKING_DIR`` from the hook's environment; unknown when ``UV_ENV_FILE`` may set it."""
     if os.environ.get("UV_ENV_FILE"):
-        return _UV_DIR_UNKNOWN
+        return _UV_DIR_ENV_FILE
     return os.environ.get("UV_WORKING_DIR") or None
 
 
@@ -2365,34 +2432,39 @@ def _command_context(segment: list[str], cwd: str | None, uv_env: str | None) ->
     Replays the command's walk (`_command_walk`): ``env -C``/``--chdir`` moves the cwd; uv
     moves it to ``--directory``, else to ``UV_WORKING_DIR``. ``uv_env`` is the shell's value;
     a leading ``NAME=`` binding, an ``env`` or ``sudo`` operand, ``env -u`` and ``env -i``
-    change it. sudo's environment reset and uv's ``--env-file`` make it unknown.
+    change it. sudo's environment reset makes it unknown; a ``UV_ENV_FILE`` binding and uv's
+    ``--env-file`` make it unknown for every later command (`_UV_DIR_ENV_FILE`).
     """
     for kind, payload in _command_walk(_without_redirects(segment)).events:
         if kind == "assign":
             match = _ASSIGN_RE.match(payload)
             if match and match.group(1) == "UV_ENV_FILE":
-                uv_env = _UV_DIR_UNKNOWN  # a nested uv reads its directory from that file
-            elif match and match.group(1) == "UV_WORKING_DIR":
+                uv_env = _UV_DIR_ENV_FILE  # a nested uv reads its directory from that file
+            elif match and match.group(1) == "UV_WORKING_DIR" and uv_env is not _UV_DIR_ENV_FILE:
                 # ``+=`` and an array index build on a value the guard does not track.
                 start = match.end()
                 exact = not (match.group(2) or match.group(3))
                 value = payload.tail(start) if isinstance(payload, ShellWord) else str(payload)[start:]
                 uv_env = value if exact else _UV_DIR_UNKNOWN
         elif kind == "sudo":
-            if uv_env is not None:
+            if uv_env is not None and uv_env is not _UV_DIR_ENV_FILE:
                 uv_env = _UV_DIR_UNKNOWN
         elif kind == "env":
             option, value = payload
             if option == "chdir":
                 cwd = _changed_cwd(cwd, value) if value is not None else None
-            elif option == "ignore-environment" or (option == "unset" and value == "UV_WORKING_DIR"):
+            elif option == "ignore-environment" or (
+                option == "unset" and value == "UV_WORKING_DIR" and uv_env is not _UV_DIR_ENV_FILE
+            ):
                 uv_env = None
+            elif option == "unset" and value == "UV_ENV_FILE" and uv_env is _UV_DIR_ENV_FILE:
+                uv_env = _UV_DIR_UNKNOWN  # the value the dotenv file hid is not tracked
         elif kind == "uv":
             directory = payload.directory if payload.directory is not None else uv_env
             if directory:
                 cwd = _changed_cwd(cwd, directory)
             if payload.env_file:
-                uv_env = _UV_DIR_UNKNOWN
+                uv_env = _UV_DIR_ENV_FILE
     return cwd, uv_env
 
 
@@ -2463,7 +2535,12 @@ def _segments_with_cwd(command: str, cwd: str | None, uv_env: object = _UV_DIR_I
             elif not cdpath_binding:
                 scope_cdpath_empty[scope] = False
         # Once the command may have bound the variable, the shell's value is unknown.
-        shell_uv_env = _UV_DIR_UNKNOWN if segment.uv_dir_bound else uv_env
+        if uv_env is _UV_DIR_ENV_FILE or segment.uv_env_file_bound:
+            shell_uv_env = _UV_DIR_ENV_FILE
+        elif segment.uv_dir_bound:
+            shell_uv_env = _UV_DIR_UNKNOWN
+        else:
+            shell_uv_env = uv_env
         command_cwd, segment.command_uv_env = _command_context(segment, effective_cwd, shell_uv_env)
         yield segment, command_cwd, effective_cwd
 

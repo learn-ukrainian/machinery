@@ -195,10 +195,13 @@ def blocked(command: str, parser=None, depth: int = 0) -> str | None:
     if parser._has_ansi_c_quoting(command):
         return "Bash ANSI-C quoting ($'...')"
     for segment in parser._expanded_segments(command):
-        segment = parser._without_redirects(segment)
         # A wrapper option the parser does not model (``env -S``, ``exec -c``, ``time -f``)
-        # may hide the command it runs: refuse it rather than guess (`_command_walk`).
-        refused = parser._command_walk(segment).undecidable
+        # may hide the command it runs: refuse it rather than guess (`_command_walk`). So may
+        # an option-like or builtin word after a ``time`` the expander removed (`_timed_refusal`).
+        refused = getattr(segment, "refusal", None)
+        segment = parser._without_redirects(segment)
+        if refused is None:
+            refused = parser._command_walk(segment).undecidable
         if refused is not None:
             return f"a command behind an unclassifiable wrapper word ({refused!r})"
         # Every argv the command may run: a launcher such as ``uv run`` can run its target

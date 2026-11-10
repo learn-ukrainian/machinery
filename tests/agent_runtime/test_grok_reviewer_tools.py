@@ -143,6 +143,8 @@ def test_reviewer_opt_in_denies_bash_and_guards_all_tracked_reads(tmp_path: Path
         ('"time" -f %e python -m scripts.publish issue-comment --number 1', True),
         ("X=; nohup $X python -m scripts.publish issue-comment --number 1", True),
         ("nohup {python,python} -m scripts.publish issue-comment --number 1", True),
+        # A word after a quoted time (the executable) that expands to an option.
+        ('X=-f; "time" $X %e python -m scripts.publish issue-comment --number 1', True),
         ("uv run pytest -q", False),
         ("uv run python -m scripts.foo bar", False),
         ("gh pr comment 8912 --body test", True),
@@ -460,6 +462,21 @@ def test_grok_hook_bridge_primary_checkout_write_guard(agent_runtime_roots, monk
             f"'{probe.name}'",
         ),
         ("run_terminal_command", {"command": f"UV_WORKING_DIR=~ uv run tee {probe.name}"}, True, f"'{probe.name}'"),
+        # After time, an empty word or a builtin that changes this shell, which only the keyword
+        # runs here; and a dotenv source that unsetting UV_WORKING_DIR does not clear.
+        ("run_terminal_command", {"command": f"X=; time $X tee {probe}"}, True, "undecidable_wrapper_option"),
+        (
+            "run_terminal_command",
+            {"command": f'D={primary}/; "time" export D=/tmp/; tee ${{D}}{probe.name}'},
+            True,
+            "undecidable_wrapper_option",
+        ),
+        (
+            "run_terminal_command",
+            {"command": f"UV_ENV_FILE=/dev/stdin env -u UV_WORKING_DIR uv run bash -c 'uv run tee {probe.name}'"},
+            True,
+            f"'{probe.name}'",
+        ),
         ("write", {"file_path": str(allow), "content": "ok"}, False),
     ]
     for tool_name, tool_input, blocked, *shown in cases:
