@@ -2,6 +2,7 @@
 
 import dataclasses
 import json
+import logging
 import os
 import subprocess
 import sys
@@ -598,6 +599,35 @@ def test_spawn_setup_failure_never_strands_published_record(tmp_path, monkeypatc
     assert "admission_hold" not in state
     if failure == "prompt-collision":
         assert spec.prompt_file.read_bytes() == b"original prompt"
+
+
+def test_launch_error_survives_a_cleanup_failure(tmp_path, monkeypatch, caplog):
+    """Defect class: an error raised while recording a failed launch replaced the launch error."""
+    spec, record, path = _spawn_refused_record(tmp_path, monkeypatch, "cleanup-masks-launch")
+    path.parent.mkdir(parents=True)
+    (path.parent / "logs").touch()
+    real = store.replace
+    calls = {"n": 0}
+
+    def flaky(record, path=None, **kwargs):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise OSError("injected launch cleanup failure")
+        return real(record, path, **kwargs)
+
+    monkeypatch.setattr(store, "replace", flaky)
+    with caplog.at_level(logging.WARNING, logger="lu_machinery.dispatcher.worker"), pytest.raises(FileExistsError):
+        worker.start(spec, record, b"submitted prompt", 60)
+    state = store.read(spec.task_id)
+    assert calls["n"] == 2
+    assert state["status"] == "failed"
+    assert state["returncode_reason"] == "spawn_setup_failed"
+    assert state["error"] == "spawn_setup_failed: FileExistsError"
+    assert state["pid"] is None
+    assert "admission_hold" not in state
+    assert state["launch_cleanup_error"] == "OSError: injected launch cleanup failure"
+    assert "launch cleanup failed" in caplog.text
+    assert "OSError: injected launch cleanup failure" in caplog.text
 
 
 def test_spawn_setup_failure_does_not_overwrite_existing_run(tmp_path, monkeypatch):
