@@ -411,6 +411,8 @@ jobs:
           fi
 
       - name: Run the mypy ratchet over lu_machinery/
+        env:
+          LU_PRODUCT_ROOT: ${{ github.workspace }}
         run: |
           set -euo pipefail
           venv="$RUNNER_TEMP/mypy-venv"

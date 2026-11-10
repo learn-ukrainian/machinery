@@ -1,4 +1,14 @@
 graft lu_machinery
+# CI census inputs belong to the selected checkout, including this repository's.
+# components.json stays bundled for component_shadow's release fingerprint;
+# stack_pins.yaml stays for ops.host_stack_drift, not the CI report.
+exclude lu_machinery/ci/history-tests.txt
+exclude lu_machinery/ci/large_files_allowlist.txt
+exclude lu_machinery/ci/pr-affected-guards.txt
+exclude lu_machinery/ci/pytest-file-durations.json
+exclude lu_machinery/config/package_boundary.yaml
+exclude lu_machinery/lint/boundary_baseline.json
+exclude lu_machinery/lint/mypy_baseline.json
 # Explicit release allowlist; product-owned resources never enter the wheel.
 include agents_extensions/shared/contracts/rollover-registry.md
 include agents_extensions/shared/contracts/task-identity.md

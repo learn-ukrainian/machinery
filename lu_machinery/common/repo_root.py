@@ -135,6 +135,8 @@ RULES_DIR_REL = "agents_extensions/shared/rules"
 RUNTIME_ROOT = Path(__file__).resolve().parents[2]
 _MACHINERY_ROOT = Path(__file__).resolve().parents[1]
 PRODUCT_ROOT_ENV = "LU_PRODUCT_ROOT"
+# Product Python code and CI census data keep this tree after extraction.
+_PRODUCT_TREE = "scripts"
 # A file only the product repository has (Sol, C-4746): it proves a checkout's layout.
 PRODUCT_MARKER = "curriculum/l2-uk-en/curriculum.yaml"
 # The checkout that holds this package, from the unresolved module location (design-v1
@@ -385,6 +387,20 @@ def machinery_path(relative: str) -> Path:
 
 class ProductRootError(MachineryConfigError):
     """No product checkout can be selected; the message names the candidate and the rule it broke."""
+
+
+def product_tree_path(*parts: str, root: Path | None = None) -> Path:
+    """A CI input or Python tree in the selected checkout, never in the wheel.
+
+    Products keep ``scripts``. Machinery's own checkout uses its package name
+    when that directory exists there. Missing product inputs keep their product
+    spelling and fail at the reader; they never select a packaged copy.
+    """
+    selected = product_root(root)
+    tree = _PRODUCT_TREE
+    if not (selected / tree).is_dir() and (selected / _MACHINERY_ROOT.name).is_dir():
+        tree = _MACHINERY_ROOT.name
+    return selected.joinpath(tree, *parts)
 
 
 def _carries_product_marker(checkout: Path, *, through_primary: bool) -> bool:

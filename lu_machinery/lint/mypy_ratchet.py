@@ -46,7 +46,7 @@ from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
-from lu_machinery.common.repo_root import RUNTIME_ROOT, machinery_path, product_root
+from lu_machinery.common.repo_root import _PRODUCT_TREE, machinery_path, product_root, product_tree_path
 
 
 def _package_dir() -> Path:
@@ -54,13 +54,8 @@ def _package_dir() -> Path:
     return Path(os.path.abspath(__file__)).parents[1]
 
 
-def _mp(relative: str) -> str:
-    return f"{_package_dir().name}/{relative}"
-
-
-BASELINE_PATH = Path(__file__).with_name("mypy_baseline.json")
+BASELINE_PATH = Path("lint/mypy_baseline.json")
 SCHEMA = "mypy-ratchet-baseline.v1"
-DEFAULT_TARGET = _package_dir().name
 MYPY_TIMEOUT_SECONDS = 600
 # python-ci-env installs the lock without these wheels. Skipping them makes a
 # laptop venv that has them report the same errors as CI.
@@ -360,7 +355,7 @@ def _normalize_message(message: str) -> str:
 # rewritten. Other mypy forms (``...; maybe "x"?``, explicit-export messages,
 # ``Function``/``Module`` "is not valid as a type") stay outside on purpose.
 
-_SOURCE_PACKAGE = "scripts"  # the census spelling, and the pinned rename's old root
+_SOURCE_PACKAGE = _PRODUCT_TREE  # the census spelling, and the pinned rename's old root
 _MACHINERY = "machinery"
 _PRODUCT = "product"
 _AMBIGUOUS = "ambiguous"
@@ -542,11 +537,11 @@ class _BaselineSpelling:
         return message[:start] + self.package + message[start + len(_SOURCE_PACKAGE) : end] + message[end:]
 
 
-def _baseline_spelling() -> _BaselineSpelling:
-    """The running layout, from this file's unresolved location (amendment 1)."""
+def _baseline_spelling(root: Path | None = None) -> _BaselineSpelling:
+    """Spelling for the selected census tree, or the runtime for standalone readers."""
 
     package_dir = _package_dir()
-    if package_dir.name == _SOURCE_PACKAGE:
+    if package_dir.name == _SOURCE_PACKAGE or (root is not None and (root / _PRODUCT_TREE).is_dir()):
         return _BaselineSpelling(_SOURCE_PACKAGE, None)
     return _BaselineSpelling(package_dir.name, _load_rename_map(package_dir))
 
@@ -794,10 +789,10 @@ def compare(current: Sequence[MypyError], baseline: Sequence[MypyError]) -> list
     return violations
 
 
-def _entries_from_rows(rows: object, where: str) -> list[MypyError]:
+def _entries_from_rows(rows: object, where: str, root: Path | None = None) -> list[MypyError]:
     if not isinstance(rows, list):
         raise ValueError(f"{where}: entries must be a list")
-    spelling = _baseline_spelling()
+    spelling = _baseline_spelling(root)
     entries: list[MypyError] = []
     for row in rows:
         if not isinstance(row, dict):
@@ -820,14 +815,14 @@ def _entries_from_rows(rows: object, where: str) -> list[MypyError]:
     return entries
 
 
-def _payload_entries(payload: object, where: str) -> list[MypyError]:
+def _payload_entries(payload: object, where: str, root: Path | None = None) -> list[MypyError]:
     if not isinstance(payload, dict) or payload.get("schema") != SCHEMA:
         raise ValueError(f"{where}: schema must be {SCHEMA}")
-    return _entries_from_rows(payload.get("entries"), where)
+    return _entries_from_rows(payload.get("entries"), where, root)
 
 
-def load_entries(path: Path) -> list[MypyError]:
-    return _payload_entries(json.loads(path.read_text(encoding="utf-8")), str(path))
+def load_entries(path: Path, root: Path | None = None) -> list[MypyError]:
+    return _payload_entries(json.loads(path.read_text(encoding="utf-8")), str(path), root)
 
 
 def write_baseline(path: Path, entries: Sequence[MypyError]) -> None:
@@ -853,7 +848,7 @@ def _baseline_at(root: Path, ref: str, rel: str) -> list[MypyError] | None:
     )
     if result.returncode != 0:
         return None
-    return _payload_entries(json.loads(result.stdout), f"{ref}:{rel}")
+    return _payload_entries(json.loads(result.stdout), f"{ref}:{rel}", root)
 
 
 def _is_subset(current: Sequence[MypyError], previous: Sequence[MypyError]) -> bool:
@@ -903,22 +898,23 @@ def evaluate(
     selected = _normalize_targets(root, targets)
     py_targets = [target for target in selected if target.endswith(".py") or (root / target).is_dir()]
     # A baseline-only path (no Python) rechecks the whole scripts tree.
-    scoped = py_targets or [DEFAULT_TARGET]
+    default_target = product_tree_path(root=root).name
+    scoped = py_targets or [default_target]
     current, fatal = collect_errors(
         root, scoped, config_file=config_file, incremental=incremental
     )
     if fatal:
         return fatal
-    entries = load_entries(baseline)
+    entries = load_entries(baseline, root)
     # A file list compares only those files. The full scripts/ census also
     # rejects a baseline entry that names something outside scripts/.
     relevant = [entry for entry in entries if _in_scope(entry.path, scoped)]
     violations: list[str] = []
-    if DEFAULT_TARGET in scoped:
+    if default_target in scoped:
         violations.extend(
             f"{entry.path}: stale baseline {entry.code}: {entry.message}"
             for entry in entries
-            if not _in_scope(entry.path, (DEFAULT_TARGET,))
+            if not _in_scope(entry.path, (default_target,))
         )
     violations.extend(compare(current, relevant))
     violations.extend(shrink_violations(root, baseline, entries))
@@ -927,10 +923,10 @@ def evaluate(
 
 def _python_targets(paths: Sequence[str], root: Path) -> list[str]:
     if not paths:
-        return [DEFAULT_TARGET]
+        return [product_tree_path(root=root).name]
     selected = _normalize_targets(root, paths)
-    python = [target for target in selected if target.endswith(".py")]
-    return python or [DEFAULT_TARGET]
+    python = [target for target in selected if target.endswith(".py") or (root / target).is_dir()]
+    return python or [product_tree_path(root=root).name]
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -941,21 +937,20 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument(
         "paths",
         nargs="*",
-        help=f"Python files to check (default: {DEFAULT_TARGET}/). Other paths recheck {DEFAULT_TARGET}/.",
+        help="Python files or directories to check (default: selected checkout's Python tree). Other paths recheck that tree.",
     )
     parser.add_argument(
         "--baseline",
         type=Path,
-        default=BASELINE_PATH,
-        help=f"Baseline JSON (default: {_mp('lint/mypy_baseline.json')}).",
+        default=None,
+        help="Baseline JSON (default: selected checkout's lint/mypy_baseline.json).",
     )
     parser.add_argument(
         "--root",
         type=Path,
         default=None,
         help=(
-            "Tree mypy runs in (default: this checkout when it holds the "
-            "package and pyproject.toml, otherwise the selected product checkout)."
+            "Tree mypy runs in (default: selected product checkout)."
         ),
     )
     parser.add_argument(
@@ -970,20 +965,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
     try:
-        if args.root is not None:
-            root = args.root.resolve()
-        elif (RUNTIME_ROOT / DEFAULT_TARGET).is_dir() and (RUNTIME_ROOT / "pyproject.toml").is_file():
-            # This repository's CI typechecks the package in this checkout, with no
-            # product configured. An installed copy has no project file beside the
-            # package, so that case selects the product and refuses without one.
-            root = RUNTIME_ROOT
-        else:
-            root = product_root().resolve()
-        baseline = args.baseline if args.baseline.is_absolute() else root / args.baseline
-        # A renamed layout needs its verified rename map in every mode, so a
-        # missing or broken artifact fails before a baseline is written.
-        _baseline_spelling()
-        targets = [DEFAULT_TARGET] if args.write_baseline else _python_targets(args.paths, root)
+        root = product_root(args.root).resolve()
+        baseline = product_tree_path(*BASELINE_PATH.parts, root=root) if args.baseline is None else (
+            args.baseline if args.baseline.is_absolute() else root / args.baseline
+        )
+        # Only a renamed census needs the release's verified rename metadata.
+        _baseline_spelling(root)
+        targets = [product_tree_path(root=root).name] if args.write_baseline else _python_targets(args.paths, root)
         if args.write_baseline:
             current, fatal = collect_errors(
                 root, targets, incremental=not args.no_incremental
