@@ -444,7 +444,7 @@ def test_disallowed_shell_actions_return_typed_refusal_before_native_permissions
     from lu_machinery.agent_runtime.grok_reviewer_permissions import REFUSAL_CODE
 
     result = subprocess.run(
-        [sys.executable, str(machinery_path("agent_runtime/grok_reviewer_permissions.py")), "--review-root", str(ROOT)],
+        [sys.executable, "-I", str(machinery_path("agent_runtime/grok_reviewer_permissions.py")), "--review-root", str(ROOT)],
         input=json.dumps({
             "hook_event_name": "PreToolUse", "toolName": "run_terminal_command", "toolInput": {"command": command},
         }), capture_output=True, text=True, timeout=30,
@@ -492,7 +492,7 @@ def test_permission_guard_cli_admits_read_command_and_denies_bad_json():
         "hook_event_name": "PreToolUse", "toolName": "run_terminal_command", "toolInput": {"command": "pwd"},
     }), 0), ("broken json", 2)]:
         result = subprocess.run(
-            [sys.executable, str(machinery_path("agent_runtime/grok_reviewer_permissions.py")), "--review-root", str(ROOT)],
+            [sys.executable, "-I", str(machinery_path("agent_runtime/grok_reviewer_permissions.py")), "--review-root", str(ROOT)],
             input=event, capture_output=True, text=True, timeout=30,
         )
         assert result.returncode == expected
@@ -590,7 +590,7 @@ def test_tracked_symlink_loop_is_a_typed_denial(tracked_review_root):
     event = {"hook_event_name": "PreToolUse", "toolName": "read_file", "toolInput": {"target_file": "loop"}}
     assert not policy.reviewer_tool_allowed(event, tracked_review_root)
     result = subprocess.run(
-        [sys.executable, str(machinery_path("agent_runtime/grok_reviewer_permissions.py")),
+        [sys.executable, "-I", str(machinery_path("agent_runtime/grok_reviewer_permissions.py")),
          "--review-root", str(tracked_review_root)],
         input=json.dumps(event), capture_output=True, text=True, timeout=30,
     )
@@ -657,7 +657,7 @@ def test_unreadable_tracked_file_is_denied(tracked_review_root):
     target.chmod(0)
     try:
         result = subprocess.run(
-            [sys.executable, str(machinery_path("agent_runtime/grok_reviewer_permissions.py")),
+            [sys.executable, "-I", str(machinery_path("agent_runtime/grok_reviewer_permissions.py")),
              "--review-root", str(tracked_review_root)],
             input=json.dumps({"hook_event_name": "PreToolUse", "toolName": "read_file",
                               "toolInput": {"target_file": "tracked.txt"}}),
@@ -671,7 +671,7 @@ def test_unreadable_tracked_file_is_denied(tracked_review_root):
 
 def test_guard_help_does_not_require_a_review_event():
     result = subprocess.run(
-        [sys.executable, str(machinery_path("agent_runtime/grok_reviewer_permissions.py")), "--help"],
+        [sys.executable, "-I", str(machinery_path("agent_runtime/grok_reviewer_permissions.py")), "--help"],
         capture_output=True, text=True, timeout=30,
     )
     assert result.returncode == 0
@@ -684,7 +684,7 @@ def test_refusal_exits_two_with_real_closed_stderr_pipe(event):
     os.close(read_fd)
     try:
         result = subprocess.run(
-            [sys.executable, str(machinery_path("agent_runtime/grok_reviewer_permissions.py")),
+            [sys.executable, "-I", str(machinery_path("agent_runtime/grok_reviewer_permissions.py")),
              "--review-root", str(ROOT)],
             input=event, text=True, stdout=subprocess.PIPE, stderr=write_fd, timeout=30,
         )

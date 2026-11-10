@@ -273,6 +273,7 @@ def test_dispatch_reexec_keeps_the_running_interpreter(monkeypatch, tmp_path: Pa
     assert call == [
         sys.executable,
         sys.executable,
+        "-I",
         str(runtime_primary / "lu_machinery/dispatch.py"),
         "list",
     ]
@@ -434,7 +435,7 @@ def test_unset_configuration_keeps_todays_interpreter_order(clean_env, tmp_path:
 def test_unset_configuration_reexecs_with_this_interpreter(clean_env, monkeypatch, tmp_path: Path) -> None:
     runtime_primary, tree = _linked_worktree(tmp_path)
     call = _reexec(monkeypatch, tree)
-    assert call == [sys.executable, sys.executable, str(runtime_primary / "lu_machinery/dispatch.py"), "list"]
+    assert call == [sys.executable, sys.executable, "-I", str(runtime_primary / "lu_machinery/dispatch.py"), "list"]
 
 
 def test_unset_configuration_keeps_todays_systemd_exec_start() -> None:

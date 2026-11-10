@@ -337,7 +337,7 @@ def _reviewer_agent_definition(cwd: Path) -> str:
         publish_guard=True,
         native_aliases=False,
     )
-    guard_command = shlex.join([sys.executable, str(guard), "--review-root", str(cwd)])
+    guard_command = shlex.join([sys.executable, "-I", str(guard), "--review-root", str(cwd)])
     # This guard consumes native Grok events directly, before native approval.
     hook = (
         '    - matcher: ".*"\n'

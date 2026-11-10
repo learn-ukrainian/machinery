@@ -563,7 +563,7 @@ class SourcesRelay:
     def __init__(self, endpoint: Path, readers: frozenset[str], env: dict[str, str]):
         from lu_machinery.agent_runtime.sources_read_only import SERVER_RELATIVE_PATH
 
-        self.server = [sys.executable, str(product_root() / SERVER_RELATIVE_PATH)]
+        self.server = [sys.executable, "-I", str(product_root() / SERVER_RELATIVE_PATH)]
         self.readers, self.env = readers, env
         self.completed = self.failed = 0
         self.tools: dict[str, int] = {}
