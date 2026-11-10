@@ -115,9 +115,42 @@ def _task_record(root: Path) -> dict | None:
     if not task_id:
         return None
     record = store.read(task_id)
+    if not isinstance(record, dict) or record.get("task_id") != task_id:
+        raise ValueError("invalid task record identity")
+    if record.get("mode") not in {"read-only", "workspace-write"}:
+        raise ValueError("invalid task mode")
+    owned = record.get("owned_paths")
+    if owned is not None and (not isinstance(owned, list) or
+                              any(not isinstance(path, str) or not path for path in owned)):
+        raise ValueError("invalid owned paths")
+    effective_scope(record)  # Validate grants before any retained skip.
+    from lu_machinery.guardrails.delegate_ownership import owned_path_matcher
+
+    grants = record.get("owned_path_grants", [])
+    for grant in grants:
+        if (not isinstance(record.get("run_nonce"), str) or not record["run_nonce"] or
+                not isinstance(grant["grant_id"], str)):
+            raise ValueError("invalid owned-path grant identity")
+    for path in [*(owned or []), *(path for grant in grants for path in grant["owned_paths"])]:
+        if owned_path_matcher(path) is None:
+            raise ValueError("invalid owned path")
     worktree = record.get("worktree_path")
+    if not isinstance(worktree, str) or not worktree.strip() or not Path(worktree).is_absolute():
+        raise ValueError("invalid worktree binding")
+    bound = Path(worktree).resolve(strict=True)
+    if not bound.is_dir():
+        raise ValueError("worktree binding is not a directory")
+    # Verify the stored binding independently of the committing repository's
+    # inherited Git environment, including GIT_DIR and GIT_WORK_TREE.
+    bound_root = subprocess.run(
+        ["git", "-C", str(bound), "rev-parse", "--show-toplevel"],
+        env={key: value for key, value in os.environ.items() if not key.startswith("GIT_")},
+        capture_output=True, text=True, check=True, timeout=30,
+    ).stdout.rstrip("\n")
+    if not Path(bound_root).is_absolute() or Path(bound_root).resolve(strict=True) != bound:
+        raise ValueError("worktree binding is not a Git worktree root")
     # The task id is inherited by every process the worker starts; only its own worktree is bound.
-    if not worktree or Path(worktree).resolve() != root.resolve():
+    if bound != root.resolve(strict=True):
         return None
     if record.get("mode") == "read-only" or not record.get("owned_paths"):
         return None
@@ -186,15 +219,16 @@ def main(argv: list[str] | None = None) -> int:
         paths = (_staged_paths(run) if args.stage == "staged" else
                  _pushed_paths(run, record, sys.stdin.read()))
         outside = outside_owned(paths, effective_scope(record))
-    except (OSError, ValueError, KeyError, TypeError, IndexError, subprocess.SubprocessError) as exc:
-        # Settlement stays the authority, so an early check that cannot run never blocks the work.
-        print(f"owned-path check skipped ({failure_detail(exc)}); settlement still checks the delivery.",
+        if outside:
+            print(_refusal(args.stage, record, outside), file=sys.stderr)
+    except Exception as exc:
+        # Exception messages may contain record contents, paths or Git output. Keep this
+        # boundary diagnostic fixed and single-line, including for unexpected failures.
+        print(f"owned-path check could not run ({type(exc).__name__}: "
+              "task record or ownership verification failed); refusing",
               file=sys.stderr)
-        return 0
-    if not outside:
-        return 0
-    print(_refusal(args.stage, record, outside), file=sys.stderr)
-    return 1
+        return 1
+    return int(bool(outside))
 
 
 if __name__ == "__main__":
