@@ -122,6 +122,15 @@ def test_reviewer_opt_in_denies_bash_and_guards_all_tracked_reads(tmp_path: Path
         ("cd lu_machinery && python -m publish issue-comment --number 1", True),
         ("python scripts/publish/__pycache__/__main__.cpython-312.pyc issue-comment --number 1", True),
         ("python -m scripts.foo bar", False),
+        # A launcher runs the publisher too: uv run's command, its -m module and a script or
+        # directory it hands to Python, and a wrapper spelled as a path.
+        ("uv run python -m scripts.publish issue-comment --number 1 --body unit", True),
+        ("uv run --no-sync python -m lu_machinery.publish issue-comment --number 1", True),
+        ("uv run -m scripts.publish issue-comment --number 1", True),
+        ("uv run scripts/publish/__main__.py issue-comment --number 1", True),
+        ("/usr/bin/timeout 5 python -m scripts.publish issue-comment --number 1", True),
+        ("uv run pytest -q", False),
+        ("uv run python -m scripts.foo bar", False),
         ("gh pr comment 8912 --body test", True),
     ],
 )
@@ -407,9 +416,13 @@ def test_grok_hook_bridge_primary_checkout_write_guard(agent_runtime_roots, monk
             True,
         ),
         ("run_terminal_command", {"command": f"printf probe > {probe}"}, True),
+        # uv runs the wrapped writer, and --directory moves it into the primary; the refusal
+        # names a relative target as written.
+        ("run_terminal_command", {"command": f"uv run --no-sync tee {probe}"}, True),
+        ("run_terminal_command", {"command": f"uv run --directory {primary} tee {probe.name}"}, True, f"'{probe.name}'"),
         ("write", {"file_path": str(allow), "content": "ok"}, False),
     ]
-    for tool_name, tool_input, blocked in cases:
+    for tool_name, tool_input, blocked, *shown in cases:
         event = {
             "hook_event_name": "PreToolUse",
             "toolName": tool_name,
@@ -430,7 +443,7 @@ def test_grok_hook_bridge_primary_checkout_write_guard(agent_runtime_roots, monk
         assert (result.returncode == 2) is blocked, (tool_name, result.returncode, result.stderr)
         if blocked:
             assert "BLOCKED by guard-primary-checkout-write" in result.stderr
-            assert str(probe) in result.stderr
+            assert (shown[0] if shown else str(probe)) in result.stderr
 
 
 @pytest.mark.parametrize("tool", ["run_terminal_command", "run_terminal_cmd", "Bash"])

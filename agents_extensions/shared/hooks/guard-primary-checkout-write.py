@@ -163,7 +163,7 @@ import shlex
 import sys
 from collections.abc import Callable
 from pathlib import Path
-from typing import Optional
+from typing import NamedTuple, Optional
 
 # Don't write __pycache__ next to deployed hooks (#9108).
 sys.dont_write_bytecode = True
@@ -1123,17 +1123,143 @@ def _without_redirects(segment: list[str]) -> list[str]:
     return words
 
 
-def _command_word(segment: list[str]) -> tuple[str, int]:
-    """First real command word of a segment and its index, skipping wrappers.
+# uv's option grammar for ``uv run``, ``uv tool run``/``uvx`` and its global options (uv 0.13.1
+# ``--help`` plus the hidden options it still accepts). Long options never abbreviate. An
+# unknown option is read as a flag, as the other wrappers' unknown options are.
+_UV_VALUE_OPTIONS = frozenset(
+    {
+        "--allow-insecure-host",
+        "--build-constraints",
+        "--cache-dir",
+        "--color",
+        "--config-file",
+        "--config-setting",
+        "--config-settings-package",
+        "--constraints",
+        "--default-index",
+        "--directory",
+        "--env-file",
+        "--exclude-newer",
+        "--exclude-newer-package",
+        "--extra",
+        "--extra-index-url",
+        "--find-links",
+        "--fork-strategy",
+        "--from",
+        "--group",
+        "--index",
+        "--index-strategy",
+        "--index-url",
+        "--keyring-provider",
+        "--link-mode",
+        "--max-recursion-depth",
+        "--no-binary-package",
+        "--no-build-isolation-package",
+        "--no-build-package",
+        "--no-editable-package",
+        "--no-extra",
+        "--no-group",
+        "--no-sources-package",
+        "--only-group",
+        "--overrides",
+        "--package",
+        "--prerelease",
+        "--prerelease-package",
+        "--preview-features",
+        "--project",
+        "--python",
+        "--python-fetch",
+        "--python-platform",
+        "--python-preference",
+        "--refresh-package",
+        "--reinstall-package",
+        "--resolution",
+        "--torch-backend",
+        "--upgrade-group",
+        "--upgrade-package",
+        "--with",
+        "--with-editable",
+        "--with-requirements",
+    }
+)
+_UV_SHORT_VALUE_OPTIONS = frozenset("bcfiCpPw")
+# Executables that run the rest of their argv as a command. A wrapper spelled as a path
+# (``/usr/bin/timeout``) still wraps; shell builtins (``command``, ``exec``) have no path.
+_PATH_WRAPPERS = frozenset({"env", "nice", "nohup", "stdbuf", "sudo", "time", "timeout", "uv", "uvx"})
 
-    Skips leading ``VAR=val`` assignments and common wrappers (``sudo``,
-    ``env``, ``time``, ``nohup``, ``command``) so ``sudo tee x`` still reads as
-    a ``tee``. The word is reduced to its basename without decoding, so an
-    ANSI-C span spelled as a plain path (``$'/usr/bin/tee'``) yields ``tee``
-    while the token keeps ``unresolved_at`` set; the hook entry refuses every
-    unquoted ``$'`` command before this parser runs (#10633).
+
+class _UvLaunch(NamedTuple):
+    """What ``uv run``, ``uv tool run`` or ``uvx`` runs.
+
+    ``index`` is the wrapped command, or ``len(segment)`` when there is none. ``module`` is set
+    by ``-m``/``--module``: uv then runs ``python -m <target>``. ``directory`` is the last
+    ``--directory`` value, the directory uv changes to before it runs the command.
+    """
+
+    index: int
+    module: bool
+    directory: Optional[str]  # noqa: UP045 - Python 3.9 parser
+
+
+def _uv_launch(segment: list[str], i: int) -> _UvLaunch | None:
+    """Parse the uv launcher at ``segment[i]``; None when it is not one that runs a command."""
+    name = Path(segment[i]).name
+    if name not in {"uv", "uvx"}:
+        return None
+    stage = "run" if name == "uvx" else "uv"
+    module = False
+    directory: str | None = None
+    i += 1
+    while i < len(segment):
+        tok = segment[i]
+        if tok == "--":
+            if stage == "run":
+                i += 1
+                break
+            return None
+        if tok.startswith("--"):
+            option, eq, value = tok.partition("=")
+            module = module or option == "--module"
+            if eq:
+                if option == "--directory":
+                    directory = tok.tail(len(option) + 1) if isinstance(tok, ShellWord) else value
+            elif option in _UV_VALUE_OPTIONS:
+                i += 1
+                if option == "--directory" and i < len(segment):
+                    directory = segment[i]
+            i += 1
+            continue
+        if tok.startswith("-") and tok != "-":
+            for k, char in enumerate(tok[1:], start=1):
+                module = module or char == "m"
+                if char in _UV_SHORT_VALUE_OPTIONS:
+                    if k + 1 == len(tok):
+                        i += 1  # the value is the next word
+                    break
+            i += 1
+            continue
+        if stage == "run":
+            break
+        if stage == "uv" and tok in {"run", "tool"}:
+            stage = "run" if tok == "run" else "tool"
+        elif stage == "tool" and tok == "run":
+            stage = "run"
+        else:
+            return None
+        i += 1
+    if stage != "run":
+        return None
+    return _UvLaunch(min(i, len(segment)), module, directory)
+
+
+def _command_position(segment: list[str]) -> tuple[int, _UvLaunch | None]:
+    """Index of a segment's real command, skipping wrappers, and the uv launch that runs it.
+
+    The launch is set only when the command is the target of ``uv run``, ``uv tool run`` or
+    ``uvx`` itself, not of a wrapper uv runs.
     """
     i = 0
+    launch: _UvLaunch | None = None
     while i < len(segment):
         tok = segment[i]
         if getattr(tok, "shell_redirect", tok in _REDIRECT_OPS):
@@ -1141,6 +1267,16 @@ def _command_word(segment: list[str]) -> tuple[str, int]:
             continue
         if _ASSIGN_RE.match(tok):
             i += 1  # leading environment assignment
+            continue
+        if Path(tok).name in _PATH_WRAPPERS:
+            tok = Path(tok).name
+        if tok in _PATH_WRAPPERS or tok in {"builtin", "command", "exec"}:
+            launch = None  # a wrapper after the launcher runs the command, not uv
+        if tok in {"uv", "uvx"}:
+            launch = _uv_launch(segment, i)
+            if launch is None:
+                break
+            i = launch.index
             continue
         if tok in {"time", "nohup", "builtin", "exec"}:
             i += 1
@@ -1181,9 +1317,48 @@ def _command_word(segment: list[str]) -> tuple[str, int]:
                 i += 1  # duration
             continue
         break
+    return min(i, len(segment)), launch
+
+
+def _command_word(segment: list[str]) -> tuple[str, int]:
+    """First real command word of a segment and its index, skipping wrappers.
+
+    Skips leading ``VAR=val`` assignments and common wrappers (``sudo``,
+    ``env``, ``time``, ``nohup``, ``command``, ``uv run``) so ``sudo tee x`` still reads as
+    a ``tee``. A wrapper that is an executable also counts when spelled as a path
+    (``/usr/bin/timeout``). The word is reduced to its basename without decoding, so an
+    ANSI-C span spelled as a plain path (``$'/usr/bin/tee'``) yields ``tee``
+    while the token keeps ``unresolved_at`` set; the hook entry refuses every
+    unquoted ``$'`` command before this parser runs (#10633).
+
+    ``uv run -m M`` runs ``python -m M``, so it reads as ``python`` at the index of ``M``;
+    ``_command_argvs`` gives the argv uv runs.
+    """
+    i, launch = _command_position(segment)
     if i >= len(segment):
         return "", i
+    if launch is not None and launch.module:
+        return "python", i
     return Path(segment[i]).name, i
+
+
+def _command_argvs(segment: list[str]) -> list[list[str]]:
+    """Every argv a segment's real command may run, program first; empty when there is none.
+
+    One argv, the segment from its command word, except behind ``uv run``. uv runs
+    ``-m M`` as ``python -m M``, and runs a ``.py`` file, a directory or a zip application
+    with Python. Whether a target is a directory depends on the directory the command runs
+    in, which the guard cannot always know, so a ``uv run`` target is read both ways.
+    """
+    i, launch = _command_position(segment)
+    if i >= len(segment):
+        return []
+    argv = list(segment[i:])
+    if launch is None:
+        return [argv]
+    if launch.module:
+        return [["python", "-m", *argv]]
+    return [argv, ["python", *argv]]
 
 
 def _inplace_edit_targets(segment: list[str], cmd_index: int) -> list[str]:
@@ -1842,13 +2017,55 @@ def _names_primary_literal(word: str, cwd: str, main_root: Path) -> bool:
     return relative.parts[:2] != (".worktrees", "dispatch")
 
 
-def _env_command_cwd(segment: list[str], cwd: str | None) -> str | None:
-    """Apply ``env -C`` / ``--chdir`` before resolving a wrapped writer."""
+def _changed_cwd(cwd: str | None, path: str) -> str | None:
+    """The directory a command changes to; None when the guard cannot know it."""
+    if getattr(path, "unresolved_at", None) is not None or re.search(r"[*?\[\]{}]", path):
+        return None
+    if Path(path).is_absolute():
+        return str(Path(path).resolve())
+    if cwd is not None:
+        return str(_resolve(path, cwd, expand_user=False).resolve())
+    return None
+
+
+def _env_command_cwd(segment: list[str], cwd: str | None, *, uv_dir_named: bool = False) -> str | None:
+    """Apply ``env -C`` / ``--chdir`` and uv's working directory before resolving a wrapped writer.
+
+    uv changes to ``--directory``, else to ``UV_WORKING_DIR``. A literal binding or unset
+    in this segment, else the inherited environment, gives that variable's value;
+    ``uv_dir_named`` (the command names the variable elsewhere, so an earlier statement may
+    bind it) makes an inherited value unknown.
+    """
     segment = _without_redirects(segment)
-    _, command_index = _command_word(segment)
+    command_index, _ = _command_position(segment)
+    uv_dir: str | None = None
+    inherit = True  # False once this segment binds or unsets UV_WORKING_DIR; uv_dir holds it
     i = 0
     while i < command_index:
-        if segment[i] != "env":
+        word = segment[i]
+        if _ASSIGN_RE.match(word):
+            if word.startswith("UV_WORKING_DIR="):
+                inherit = False
+                uv_dir = word.tail(len("UV_WORKING_DIR=")) if isinstance(word, ShellWord) else word.split("=", 1)[1]
+            i += 1
+            continue
+        name = Path(word).name
+        if name in {"uv", "uvx"}:
+            launch = _uv_launch(segment, i)
+            if launch is None:
+                break
+            directory = launch.directory
+            if directory is None and not inherit:
+                directory = uv_dir or None
+            elif directory is None and uv_dir_named:
+                cwd = None
+            elif directory is None:
+                directory = os.environ.get("UV_WORKING_DIR") or None
+            if directory is not None:
+                cwd = _changed_cwd(cwd, directory)
+            i = launch.index
+            continue
+        if name != "env":
             i += 1
             continue
         i += 1
@@ -1863,13 +2080,12 @@ def _env_command_cwd(segment: list[str], cwd: str | None) -> str | None:
             else:
                 path = None
             if path is not None:
-                if getattr(path, "unresolved_at", None) is not None or re.search(r"[*?\[\]{}]", path):
-                    cwd = None
-                elif Path(path).is_absolute():
-                    cwd = str(Path(path).resolve())
-                elif cwd is not None:
-                    cwd = str(_resolve(path, cwd, expand_user=False).resolve())
+                cwd = _changed_cwd(cwd, path)
                 continue
+            if arg in {"-i", "--ignore-environment", "--unset=UV_WORKING_DIR"} or (
+                arg in {"-u", "--unset"} and i + 1 < len(segment) and segment[i + 1] == "UV_WORKING_DIR"
+            ):
+                uv_dir, inherit = None, False
             if arg in {"-u", "--unset", "-S", "--split-string"}:
                 i += 2
             elif (
@@ -1877,6 +2093,9 @@ def _env_command_cwd(segment: list[str], cwd: str | None) -> str | None:
                 or arg.startswith("--unset=")
                 or _ASSIGN_RE.match(arg)
             ):
+                if arg.startswith("UV_WORKING_DIR="):
+                    inherit = False
+                    uv_dir = arg.tail(len("UV_WORKING_DIR=")) if isinstance(arg, ShellWord) else arg.split("=", 1)[1]
                 i += 1
             else:
                 break
@@ -1899,6 +2118,8 @@ def _segments_with_cwd(command: str, cwd: str | None):
     scope_cwds: dict[tuple[int, ...], str | None] = {(): cwd}
     scope_dirs: dict[tuple[int, ...], list[str | None]] = {(): []}
     scope_cdpath_empty: dict[tuple[int, ...], bool] = {(): False}
+    # Any statement may bind uv's working directory for a later one.
+    uv_dir_named = "UV_WORKING_DIR" in command
     for segment in _expanded_segments(command):
         scope = segment.scope
         if scope not in scope_cwds:
@@ -1908,7 +2129,16 @@ def _segments_with_cwd(command: str, cwd: str | None):
         effective_cwd = scope_cwds[scope]
         argv = _without_redirects(segment)
         cmd, idx = _command_word(argv)
-        isolated = segment.prev_op in {"|", "|&"} or segment.next_op in {"|", "|&", "&"}
+        # A wrapper that is an executable (``env cd``, ``uv run cd``) runs ``cd`` in a child,
+        # never in this shell; the ``time`` keyword times the shell's own builtin.
+        isolated = (
+            segment.prev_op in {"|", "|&"}
+            or segment.next_op in {"|", "|&", "&"}
+            or any(
+                Path(word).name in _PATH_WRAPPERS and word != "time" and not _ASSIGN_RE.match(word)
+                for word in argv[:idx]
+            )
+        )
         cdpath_binding = _cdpath_binding(segment)
         cdpath_empty_here = cdpath_binding if cdpath_binding is not None else scope_cdpath_empty[scope]
         stack_only = cmd in {"pushd", "popd"} and "-n" in argv[idx + 1 :]
@@ -1942,7 +2172,7 @@ def _segments_with_cwd(command: str, cwd: str | None):
                 scope_cdpath_empty[scope] = cdpath_binding
             elif not cdpath_binding:
                 scope_cdpath_empty[scope] = False
-        yield segment, _env_command_cwd(segment, effective_cwd), effective_cwd
+        yield segment, _env_command_cwd(segment, effective_cwd, uv_dir_named=uv_dir_named), effective_cwd
 
 
 def bash_write_targets(
