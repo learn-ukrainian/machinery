@@ -31,10 +31,10 @@ def test_product_tree_cannot_supply_fleet_guard_executables(tmp_path, monkeypatc
     assert result == {"hooks": {"PreToolUse": [
         {"matcher": "Bash", "hooks": [
             {"type": "command", "command": shlex.quote(str(hooks / "enforce-venv.sh"))},
-            {"type": "command", "command": shlex.join([sys.executable, str(hooks / "guard-pr-merge.py")])},
+            {"type": "command", "command": shlex.join([sys.executable, "-I", str(hooks / "guard-pr-merge.py")])},
         ]},
         {"matcher": "Bash", "hooks": [{
-            "type": "command", "command": shlex.quote(str(hooks / "guard-reviewer-publish.py")),
+            "type": "command", "command": shlex.join([sys.executable, "-I", str(hooks / "guard-reviewer-publish.py")]),
             "timeout": 10, "onFailure": "block",
         }]},
     ]}}
