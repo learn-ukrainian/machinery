@@ -32,19 +32,17 @@ esac
 
 shim_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 shim_dir_physical="$(cd -P "$shim_dir" && pwd -P)"
-# The machinery package directory holds this shim at agent_runtime/shims; its name comes from the
-# shim's unresolved location (design-v1 amendment 1), and every checkout's shim directories sit
-# under a package of that name.
-shim_package="${shim_dir%/*/*}"
-shim_package="${shim_package##*/}"
 
 # True for a directory that is this shim's (however it is spelled: `/.`, a
 # trailing slash, a symlink) or any checkout's shim directory, compared by
 # physical path so a lookup can never resolve back to a shim and recurse.
+# A shim directory under any package name counts: the product checkout keeps
+# its own copies under `scripts`, and two copies that skip only their own
+# package's directories would exec each other forever.
 _is_shim_dir() {
   local physical
   physical="$(cd -P -- "$1" 2> /dev/null && pwd -P)" || return 1
-  [[ "$physical" == "$shim_dir_physical" || "$physical" == */"$shim_package"/agent_runtime/shims || "$physical" == */"$shim_package"/dispatcher/npm_shims ]]
+  [[ "$physical" == "$shim_dir_physical" || "$physical" == */agent_runtime/shims || "$physical" == */dispatcher/npm_shims ]]
 }
 
 # The real NAME: the PINNED path unless it is a shim, else the first executable

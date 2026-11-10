@@ -370,4 +370,35 @@ def test_foreign_dispatcher_shims_cannot_recurse(layout, monkeypatch, tool, rout
     assert result.stdout == "real-tool\n"
 
 
+def test_product_and_release_shims_on_one_path_reach_real_npm(tmp_path):
+    """Mutual shim recursion: a product checkout's npm shims (under `scripts`) and the release's on one PATH.
+
+    A shim that skips only its own package's shim directories execs the other copy, which execs it back.
+    """
+    package = Path(environment.__file__).resolve().parents[1]
+    product = tmp_path / "product" / "scripts"
+    for relative in ("agent_runtime/shims", "dispatcher/npm_shims"):
+        shutil.copytree(package / relative, product / relative)
+    shutil.copy2(package / "agent_runtime" / "npm_guard.py", product / "agent_runtime" / "npm_guard.py")
+    (product / "lib").mkdir()
+    shutil.copy2(package / "lib" / "project_interpreter.sh", product / "lib" / "project_interpreter.sh")
+    binaries = tmp_path / "bin"
+    binaries.mkdir()
+    for tool in ("npm", "npx"):
+        binary = binaries / tool
+        binary.write_text(f'#!/bin/sh\nprintf "real-{tool}\\n"\n')
+        binary.chmod(0o755)
+    release = [str(package / "dispatcher" / "npm_shims"), str(package / "agent_runtime" / "shims")]
+    foreign = [str(product / "dispatcher" / "npm_shims"), str(product / "agent_runtime" / "shims")]
+    for first, second in ((release, foreign), (foreign, release)):
+        path = os.pathsep.join([*first, *second, str(binaries), "/usr/bin", "/bin"])
+        env = {"PATH": path, "HOME": str(tmp_path), "LEARN_UKRAINIAN_PYTHON": sys.executable}
+        for tool in ("npm", "npx"):
+            result = subprocess.run(
+                [tool, "--version"], cwd=tmp_path, env=env, capture_output=True, text=True, timeout=10
+            )
+            assert result.returncode == 0, (first[0], tool, result.stderr)
+            assert result.stdout == f"real-{tool}\n"
+
+
 pytestmark = pytest.mark.usefixtures("configured_roots")

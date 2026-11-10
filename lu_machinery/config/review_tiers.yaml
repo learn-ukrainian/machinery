@@ -50,7 +50,6 @@ tiers:
     - 'scripts/install*'
     - 'lu_machinery/launchers/**'
     - 'scripts/launchers/**'
-    - 'lu_machinery/launchd/**'
     - 'scripts/launchd/**'
     - 'lu_machinery/lib/*.sh'
     - 'scripts/lib/*.sh'
