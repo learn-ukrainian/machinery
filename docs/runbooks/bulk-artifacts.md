@@ -18,4 +18,4 @@ When `check_large_files.py` fails with an unallowlisted oversized blob:
 - Lines starting with `#` and empty lines are comments/ignored.
 - Exact repository-relative path match (no wildcards or prefixes).
 - Recorded sizes represent provenance; modifications to allowlisted paths remain exempt.
-- Seed or refresh from `origin/main` with `.venv/bin/python lu_machinery/ci/check_large_files.py --seed-allowlist`. Re-running `--seed-allowlist` overwrites any hand-written reasons with generator-derived reasons.
+- Seed or refresh from `origin/main` with `.venv/bin/python lu_machinery/ci/check_large_files.py --repo-root "$PWD" --seed-allowlist`, run from the root of the checkout to seed. The tool reads the selected product checkout: name it with `--repo-root` (default: selected product checkout) or with `LU_PRODUCT_ROOT`; without either it fails closed. Seeding updates `ci/large_files_allowlist.txt` in the selected checkout's Python tree (`scripts/ci/` in a product checkout). Re-running `--seed-allowlist` overwrites any hand-written reasons with generator-derived reasons.
