@@ -37,7 +37,6 @@ SECURITY_SENSITIVE_PATHS = (
     f"{_MACHINERY}/session_start.sh",
     f"{_MACHINERY}/install_git_hooks.sh",
     f"{_MACHINERY}/launchers/**",
-    f"{_MACHINERY}/launchd/**",
     f"{_MACHINERY}/lib/*.sh",
     f"{_MACHINERY}/hooks/**",
     f"{_MACHINERY}/guardrails/**",
