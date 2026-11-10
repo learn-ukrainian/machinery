@@ -130,6 +130,7 @@ def test_reviewer_opt_in_denies_bash_and_guards_all_tracked_reads(tmp_path: Path
         ("uv run scripts/publish/__main__.py issue-comment --number 1", True),
         ("/usr/bin/timeout 5 python -m scripts.publish issue-comment --number 1", True),
         ("time -p python -m scripts.publish issue-comment --number 1", True),
+        ("/usr/bin/time -p python -m scripts.publish issue-comment --number 1", True),
         ("uv run pytest -q", False),
         ("uv run python -m scripts.foo bar", False),
         ("gh pr comment 8912 --body test", True),
@@ -421,6 +422,14 @@ def test_grok_hook_bridge_primary_checkout_write_guard(agent_runtime_roots, monk
         # names a relative target as written.
         ("run_terminal_command", {"command": f"uv run --no-sync tee {probe}"}, True),
         ("run_terminal_command", {"command": f"uv run --directory {primary} tee {probe.name}"}, True, f"'{probe.name}'"),
+        # A builtin after a redirect binds in this shell; a quoted name still sets uv's directory.
+        ("run_terminal_command", {"command": f"D=/tmp/; < /usr/bin/env export D={primary}/; tee ${{D}}{probe.name}"}, True),
+        (
+            "run_terminal_command",
+            {"command": f'export UV_WORKING_""DIR={primary}; uv run tee {probe.name}'},
+            True,
+            f"'{probe.name}'",
+        ),
         ("write", {"file_path": str(allow), "content": "ok"}, False),
     ]
     for tool_name, tool_input, blocked, *shown in cases:
