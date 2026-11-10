@@ -26,9 +26,10 @@ if echo "$COMMAND" | grep -qE '^python3?[[:space:]]'; then
   fi
 
   # The suggestion is the interpreter project_interpreter.sh would pick
-  # (LEARN_UKRAINIAN_PYTHON, else the primary checkout's .venv). The checkout
-  # handed to that selector is LEARN_UK_CANONICAL_ROOT when the Codex policy
-  # set it, else the tool's working directory.
+  # (LEARN_UKRAINIAN_PYTHON, else the primary checkout's .venv). The directory
+  # in the tool payload may be a subdirectory. A directory with no .git is not
+  # a checkout: the bootstrap would treat it as one and execute
+  # <subdir>/.venv/bin/python. Walk up to the checkout that contains it first.
   CHECKOUT="${LEARN_UK_CANONICAL_ROOT:-}"
   if [ -z "$CHECKOUT" ]; then
     CHECKOUT=$(printf '%s' "$INPUT" | jq -r '
@@ -40,6 +41,21 @@ if echo "$COMMAND" | grep -qE '^python3?[[:space:]]'; then
     ')
     [ -n "$CHECKOUT" ] || CHECKOUT="${CLAUDE_PROJECT_DIR:-${LU_PRODUCT_ROOT:-$PWD}}"
   fi
+  if ! CHECKOUT="$(cd -P "$CHECKOUT" 2>/dev/null && pwd)"; then
+    printf 'enforce-venv: tool directory is not a directory\n' >&2
+    exit 2
+  fi
+  _root="$CHECKOUT"
+  while [ ! -e "$_root/.git" ]; do
+    _parent="$(dirname "$_root")"
+    if [ "$_parent" = "$_root" ]; then
+      printf 'enforce-venv: no checkout root above the tool directory\n' >&2
+      exit 2
+    fi
+    _root="$_parent"
+  done
+  CHECKOUT="$_root"
+  unset _root _parent
   # shellcheck source=agents_extensions/shared/hooks/context-rollover-lib.sh
   source "$(dirname "${BASH_SOURCE[0]}")/context-rollover-lib.sh" \
     || { printf 'enforce-venv: context-rollover-lib.sh is missing beside this hook\n' >&2; exit 2; }
