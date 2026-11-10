@@ -114,8 +114,9 @@ def test_assume_unchanged_edit_reads_dirty(work):
 
 def test_flagged_lf_rewrite_under_autocrlf_reads_clean(work):
     """Defect class: a flagged file rewritten with LF under core.autocrlf=true was reported dirty
-    although that difference is the committed form (#100 R82). Stripping CR on both sides then hid a
-    real edit whose stored blob is not that LF form, including a file Git does not convert."""
+    although that difference is the committed form (#100 R82). Stripping CR then hid a real edit
+    Git does not convert: a stored CR blob, a lone CR, a non-printable file, -crlf, and a
+    working-tree encoding."""
     _git(work, "config", "core.autocrlf", "true")
     _git(work, "update-index", "--assume-unchanged", "tracked.txt")
     assert _git(work, "status", "--porcelain") == ""
@@ -154,6 +155,47 @@ def test_flagged_lf_rewrite_under_autocrlf_reads_clean(work):
     _git(work, "config", "core.autocrlf", "true")
     _git(work, "update-index", "--assume-unchanged", "tracked.txt", ".gitattributes")
     (work / "tracked.txt").write_bytes(b"committed\r\n")
+    assert _dirty(work) is True
+    _git(work, "update-index", "--no-assume-unchanged", "tracked.txt", ".gitattributes")
+    _git(work, "config", "core.autocrlf", "false")
+    (work / ".gitattributes").write_text("*encoded* working-tree-encoding=UTF-16LE\n")
+    (work / "tracked.txt").write_bytes(b"a\rb\n")
+    _git(work, "add", "tracked.txt", ".gitattributes")
+    _git(work, "commit", "-q", "-m", "lone cr")
+    _git(work, "config", "core.autocrlf", "true")
+    _git(work, "update-index", "--assume-unchanged", "tracked.txt")
+    (work / "tracked.txt").write_bytes(b"a\rb\r\n")
+    assert _dirty(work) is True
+    _git(work, "update-index", "--no-assume-unchanged", "tracked.txt")
+    _git(work, "config", "core.autocrlf", "false")
+    (work / "tracked.txt").write_bytes(b"\x01a\n")
+    _git(work, "add", "tracked.txt")
+    _git(work, "commit", "-q", "-m", "nonprintable")
+    _git(work, "config", "core.autocrlf", "true")
+    _git(work, "update-index", "--assume-unchanged", "tracked.txt")
+    (work / "tracked.txt").write_bytes(b"\x01a\r\n")
+    assert _dirty(work) is True
+    _git(work, "update-index", "--no-assume-unchanged", "tracked.txt")
+    _git(work, "config", "core.autocrlf", "false")
+    (work / "tracked.txt").write_bytes(b"committed\n")
+    (work / ".gitattributes").write_text(
+        (work / ".gitattributes").read_text() + "tracked.txt -crlf\n"
+    )
+    _git(work, "add", "tracked.txt", ".gitattributes")
+    _git(work, "commit", "-q", "-m", "legacy crlf off")
+    _git(work, "config", "core.autocrlf", "true")
+    _git(work, "update-index", "--assume-unchanged", "tracked.txt", ".gitattributes")
+    (work / "tracked.txt").write_bytes(b"committed\r\n")
+    assert _dirty(work) is True
+    _git(work, "update-index", "--no-assume-unchanged", "tracked.txt", ".gitattributes")
+    _git(work, "config", "core.autocrlf", "false")
+    (work / ".gitattributes").write_text("*encoded* working-tree-encoding=UTF-16LE\ntracked.txt working-tree-encoding=ISO-8859-1\n")
+    (work / "tracked.txt").write_bytes("é\n".encode("latin1"))
+    _git(work, "add", "tracked.txt", ".gitattributes")
+    _git(work, "commit", "-q", "-m", "encoded")
+    _git(work, "config", "core.autocrlf", "true")
+    _git(work, "update-index", "--assume-unchanged", "tracked.txt", ".gitattributes")
+    (work / "tracked.txt").write_bytes("é\n".encode())
     assert _dirty(work) is True
 
 
