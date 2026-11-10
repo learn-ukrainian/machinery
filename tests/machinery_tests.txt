@@ -297,6 +297,7 @@ tests/api/test_pace_reserve_routing.py
 tests/api/test_project_state.py
 tests/api/test_project_state_collect.py
 tests/api/test_project_state_local_cli.py
+tests/api/test_release_snapshot.py
 tests/api/test_rollover_api.py
 tests/api/test_rollover_bundle_router.py
 tests/api/test_route_contracts.py
