@@ -85,7 +85,7 @@ def test_background_logs_use_state_but_child_cwd_stays_product(roots, monkeypatc
         _gemini._launch_gemini_background({"task_id": "root-proof"}, 42, "test-model", "test", auth_mode=None)
         log_name = "gemini-root-proof.log"
     assert len(captured) == 1
-    assert captured[0][0][1:3] == ["-m", "lu_machinery.ai_agent_bridge"]
+    assert captured[0][0][1:5] == ["-I", "-u", "-m", "lu_machinery.ai_agent_bridge"]
     assert captured[0][1]["cwd"] == str(product)
     log = state / ".mcp/servers/message-broker/logs" / log_name
     assert log.read_text() == "child log\n"

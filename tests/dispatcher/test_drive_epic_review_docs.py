@@ -80,11 +80,11 @@ def test_canonical_review_ask_recipes_reach_branch_pin_admission(argv, monkeypat
     reply.write_text("VERDICT: APPROVE\n", encoding="utf-8")
 
     def native_boundary(command, **kwargs):
-        if command[1:3] != ["-m", "lu_machinery.dispatch"]:
+        if command[1:4] != ["-I", "-m", "lu_machinery.dispatch"]:
             return real_run(command, **kwargs)
         commands.append(command)
         if "dispatch" in command:
-            launch = dispatch_cli.build_parser().parse_args(command[3:])
+            launch = dispatch_cli.build_parser().parse_args(command[4:])
             assert launch.pinned_head is None
             _path, _branch, base = dispatch_git.worktree_plan(
                 repo.root, launch.agent, launch.task_id, launch.pinned_head or launch.branch
@@ -443,9 +443,9 @@ def test_ask_expiry_lookup_and_documented_same_task_continuation(
     monkeypatch.setattr(wrappers, "_prompt_directory", prompt_directory)
 
     def native_boundary(command, **kwargs):
-        assert command[1:3] == ["-m", "lu_machinery.dispatch"]
-        args = dispatch_cli.build_parser().parse_args(command[3:])
-        calls.append(command[3:])
+        assert command[1:4] == ["-I", "-m", "lu_machinery.dispatch"]
+        args = dispatch_cli.build_parser().parse_args(command[4:])
+        calls.append(command[4:])
         if args.command == "dispatch":
             task_path.write_text(
                 json.dumps({"task_id": args.task_id, "run_nonce": NONCE, "status": "running"}),
@@ -459,7 +459,7 @@ def test_ask_expiry_lookup_and_documented_same_task_continuation(
         monkeypatch.setattr(worker.time, "sleep", lambda _seconds: clock.__setitem__(0, args.timeout + 1))
         stdout, stderr = io.StringIO(), io.StringIO()
         with redirect_stdout(stdout), redirect_stderr(stderr):
-            rc = dispatch_cli.main(command[3:])
+            rc = dispatch_cli.main(command[4:])
         assert rc == 124 and json.loads(stdout.getvalue())["status"] == "running"
         assert stderr.getvalue() == ""
         return subprocess.CompletedProcess(command, rc, stdout.getvalue(), stderr.getvalue())

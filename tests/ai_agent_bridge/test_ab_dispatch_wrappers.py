@@ -35,8 +35,8 @@ def _capture_native_review(
 
     def native_boundary(command, **kwargs):
         calls.append(command)
-        # ``python -m lu_machinery.dispatch <subcommand>`` (#107), run from the shared state root (#177).
-        if command[3] == "dispatch":
+        # ``python -I -m lu_machinery.dispatch <subcommand>`` (#107), run from the shared state root (#177).
+        if command[4] == "dispatch":
             prompt = Path(_option(command, "--prompt-file")).read_bytes().decode("utf-8")
             prompts.append(prompt)
             reply = response(prompt) if callable(response) else response
@@ -51,7 +51,7 @@ def _capture_native_review(
             if head:
                 assert _option(command, "--pinned-head") == head
             return subprocess.CompletedProcess(command, 0)
-        assert command[3] == "wait"
+        assert command[4] == "wait"
         return subprocess.CompletedProcess(
             command, 0, stdout=json.dumps({"status": "done", "result_file": str(result)})
         )
@@ -254,8 +254,8 @@ def test_review_deep_for_pr_target_generates_prompt_and_dry_run_state(monkeypatc
     assert _option(command, "--task-id").startswith("review-1740-")
     from lu_machinery.dispatcher.cli import build_parser
 
-    assert command[:4] == [sys.executable, "-m", "lu_machinery.dispatch", "dispatch"]
-    parsed = build_parser().parse_args(command[3:])
+    assert command[:5] == [sys.executable, "-I", "-m", "lu_machinery.dispatch", "dispatch"]
+    parsed = build_parser().parse_args(command[4:])
     assert (parsed.agent, parsed.model, parsed.mode, parsed.effort) == (
         "claude", "claude-opus-5-5", "read-only", "xhigh",
     )
@@ -425,7 +425,7 @@ def test_run_ask_review_dispatch_attaches_author_branch(monkeypatch, tmp_path, r
     assert [dispatch[i + 1] for i, arg in enumerate(dispatch) if arg == "--subject-family"] == ["openai", "xai", "openai"]
     from lu_machinery.dispatcher.cli import build_parser
 
-    args = build_parser().parse_args(dispatch[3:])
+    args = build_parser().parse_args(dispatch[4:])
     assert args.repo == repo
     assert args.subject_seat == ["codex", "cursor"]
     assert args.subject_family == ["openai", "xai", "openai"]

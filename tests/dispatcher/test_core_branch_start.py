@@ -2,7 +2,6 @@
 
 import json
 import subprocess
-import sys
 from pathlib import Path
 from unittest.mock import Mock
 import pytest
@@ -291,7 +290,7 @@ def test_branch_write_refuses_local_outside_commit_after_remote_branch_deleted(s
     run_git(sandbox.repo, "update-ref", f"refs/heads/{branch}", planted)
     run_git(sandbox.repo, "push", "origin", f":refs/heads/{branch}")
     result = subprocess.run(
-        [sys.executable, "lu_machinery/dispatch.py", "dispatch", "--agent", "sol", "--model", "pushed",
+        [sandbox.python, "lu_machinery/dispatch.py", "dispatch", "--agent", "sol", "--model", "pushed",
          "--prompt", "literal final response", "--task-id", "missing-remote", "--mode", "workspace-write",
          "--owned-path", "delivered.txt", "--branch", branch],
         cwd=sandbox.repo, env=sandbox.env, text=True, capture_output=True, timeout=30,

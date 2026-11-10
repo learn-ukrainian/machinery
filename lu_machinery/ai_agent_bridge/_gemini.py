@@ -352,6 +352,8 @@ def _launch_gemini_background(
         venv_python = str(project_interpreter())
         bridge_cmd = [
             venv_python,
+            # -I ignores PYTHONUNBUFFERED from _PARENT_ENV; -u keeps the log unbuffered.
+            "-I", "-u",
             "-m", "lu_machinery.ai_agent_bridge",
             "process",
             str(message_id),

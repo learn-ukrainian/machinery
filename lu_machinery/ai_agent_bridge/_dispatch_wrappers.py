@@ -191,6 +191,7 @@ def build_review_deep_command(target: str, prompt_file: Path, effort: str, *, pr
     branch = validate_plain_branch_name(branch, repo_root=product_root())
     command = [
         sys.executable,
+        "-I",
         "-m",
         f"{MACHINERY_PACKAGE}.dispatch",
         "dispatch",
@@ -324,6 +325,7 @@ def build_ask_review_dispatch_command(
         raise ValueError(f"no default dispatch model for {target.recipient!r}")
     cmd = [
         sys.executable,
+        "-I",
         "-m",
         f"{MACHINERY_PACKAGE}.dispatch",
         "dispatch",
@@ -360,7 +362,7 @@ def build_ask_review_dispatch_command(
 
 
 def build_ask_review_wait_command(task_id: str, *, timeout: int) -> list[str]:
-    return [sys.executable, "-m", f"{MACHINERY_PACKAGE}.dispatch", "wait", task_id, "--timeout", str(timeout)]
+    return [sys.executable, "-I", "-m", f"{MACHINERY_PACKAGE}.dispatch", "wait", task_id, "--timeout", str(timeout)]
 
 
 _ASK_REVIEW_DEFAULT_TIMEOUT_S = 1800

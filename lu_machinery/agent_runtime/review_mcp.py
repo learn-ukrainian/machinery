@@ -815,10 +815,11 @@ def sources_server_launch() -> tuple[Path, Path]:
 def sources_mcp_config(python_bin: Path, sources_server: Path, env: Mapping[str, str] | None = None) -> dict[str, Any]:
     """An MCP configuration defining only a stdio ``sources`` server started from ``python_bin`` and ``sources_server``.
 
-    Formal attempts pass their recording ``env``. An ordinary Claude reviewer uses
-    ``isolated_sources_mcp_config`` instead.
+    The server runs under ``-I``, as the ordinary reviewer's does: no ``PYTHON*`` variable, user site or
+    script directory supplies code before it initializes. Formal attempts pass their recording ``env``.
+    An ordinary Claude reviewer uses ``isolated_sources_mcp_config`` instead.
     """
-    server: dict[str, Any] = {"command": str(python_bin), "args": [str(sources_server)]}
+    server: dict[str, Any] = {"command": str(python_bin), "args": ["-I", str(sources_server)]}
     if env is not None:
         server["env"] = dict(env)
     return {"mcpServers": {"sources": server}}
