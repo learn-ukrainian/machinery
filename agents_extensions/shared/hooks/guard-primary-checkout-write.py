@@ -1288,9 +1288,162 @@ def _uv_launch(segment: list[str], i: int) -> _UvLaunch | None:
     return _UvLaunch(min(i, len(segment)), module, directory)
 
 
-def _command_position(segment: list[str]) -> tuple[int, _UvLaunch | None, bool]:
-    """Index of a segment's real command, skipping wrappers, the uv launch that runs it, and
-    whether an executable wrapper runs it as a child process.
+# Option grammars of the executable wrappers, as their own parsers (GNU getopt_long, or the bash
+# builtin) read them: short options that take a value, and every long option with whether it
+# takes one. A short option bundles (``-pf FMT``, ``-ca NAME``); a value attaches or follows; a
+# long option takes ``=value`` or the next word and may be abbreviated to a unique prefix.
+_WRAPPER_GRAMMARS: dict[str, tuple[frozenset[str], dict[str, bool]]] = {
+    "env": (
+        frozenset("uCS"),
+        {
+            "ignore-environment": False,
+            "null": False,
+            "unset": True,
+            "chdir": True,
+            "split-string": True,
+            "block-signal": False,
+            "default-signal": False,
+            "ignore-signal": False,
+            "list-signal-handling": False,
+            "debug": False,
+            "help": False,
+            "version": False,
+        },
+    ),
+    "nice": (frozenset("n"), {"adjustment": True, "help": False, "version": False}),
+    "timeout": (
+        frozenset("sk"),
+        {
+            "signal": True,
+            "kill-after": True,
+            "preserve-status": False,
+            "foreground": False,
+            "verbose": False,
+            "help": False,
+            "version": False,
+        },
+    ),
+    "stdbuf": (frozenset("ioe"), {"input": True, "output": True, "error": True, "help": False, "version": False}),
+    "sudo": (
+        frozenset("aCcDgpRrTtUu"),  # -h takes only an attached value (getopt "h::")
+        {
+            "auth-type": True,
+            "close-from": True,
+            "chdir": True,
+            "login-class": True,
+            "group": True,
+            "host": False,  # an optional value, attached with "="
+            "prompt": True,
+            "chroot": True,
+            "role": True,
+            "command-timeout": True,
+            "type": True,
+            "other-user": True,
+            "user": True,
+            "askpass": False,
+            "background": False,
+            "bell": False,
+            "edit": False,
+            "help": False,
+            "login": False,
+            "remove-timestamp": False,
+            "reset-timestamp": False,
+            "list": False,
+            "non-interactive": False,
+            "preserve-groups": False,
+            "preserve-env": False,
+            "set-home": False,
+            "shell": False,
+            "stdin": False,
+            "validate": False,
+            "version": False,
+        },
+    ),
+    "time": (
+        frozenset("fo"),
+        {
+            "format": True,
+            "output": True,
+            "append": False,
+            "portability": False,
+            "verbose": False,
+            "quiet": False,
+            "help": False,
+            "version": False,
+        },
+    ),
+    "nohup": (frozenset(), {"help": False, "version": False}),
+    "exec": (frozenset("a"), {}),  # the bash builtin: -a NAME, -c, -l; no long options
+}
+# Wrappers that read ``NAME=VALUE`` operands after their options and pass them to the command.
+_ASSIGNING_WRAPPERS = frozenset({"env", "sudo"})
+
+
+def _wrapper_options(wrapper: str, segment: list[str], i: int) -> tuple[int, list[tuple[str, object]]]:
+    """Read ``wrapper``'s options from ``segment[i]``: the index after them and each option read.
+
+    An option is named by its long name when it has one, else by its short letter; its value is
+    the word (an attached value keeps the word's unresolved offset) or None.
+    """
+    shorts, longs = _WRAPPER_GRAMMARS[wrapper]
+    short_names = {
+        "env": {"i": "ignore-environment", "0": "null", "u": "unset", "C": "chdir", "S": "split-string", "v": "debug"},
+        "nice": {"n": "adjustment"},
+        "timeout": {"s": "signal", "k": "kill-after", "v": "verbose"},
+        "stdbuf": {"i": "input", "o": "output", "e": "error"},
+        "sudo": {"D": "chdir", "u": "user"},
+        "time": {"f": "format", "o": "output", "a": "append", "p": "portability", "v": "verbose", "q": "quiet"},
+    }.get(wrapper, {})
+    read: list[tuple[str, object]] = []
+    while i < len(segment):
+        tok = segment[i]
+        if tok == "--":
+            return i + 1, read
+        if not tok.startswith("-") or tok == "-":
+            break
+        if tok.startswith("--"):
+            name, eq, _ = tok[2:].partition("=")
+            matches = [name] if name in longs else [long for long in longs if long.startswith(name)]
+            takes = any(longs[match] for match in matches)
+            canonical = matches[0] if len(matches) == 1 else name
+            value: object = None
+            if eq:
+                value = tok.tail(len(name) + 3) if isinstance(tok, ShellWord) else tok.split("=", 1)[1]
+                i += 1
+            elif takes:
+                value = segment[i + 1] if i + 1 < len(segment) else None
+                i += 2
+            else:
+                i += 1
+            read.append((canonical, value))
+            continue
+        i += 1
+        for k, char in enumerate(tok[1:], start=1):
+            if char in shorts:
+                if k + 1 < len(tok):
+                    value = tok.tail(k + 1) if isinstance(tok, ShellWord) else tok[k + 1 :]
+                else:
+                    value = segment[i] if i < len(segment) else None
+                    i += 1
+                read.append((short_names.get(char, char), value))
+                break
+            read.append((short_names.get(char, char), None))
+    return min(i, len(segment)), read
+
+
+class _CommandWalk(NamedTuple):
+    """How a segment reaches its real command (`_command_walk`)."""
+
+    index: int  # the real command, or len(segment) when there is none
+    launch: Optional[_UvLaunch]  # noqa: UP045 - set when the command is uv's own target
+    child: bool  # an executable wrapper runs the command as a child process
+    # In order: ("assign", word) for a binding the command receives, ("env", (option, value)) for an
+    # env option, ("uv", launch) for a uv launcher.
+    events: list[tuple[str, object]]
+
+
+def _command_walk(segment: list[str]) -> _CommandWalk:
+    """Walk a segment to its real command through assignments, redirections and wrappers.
 
     The launch is set only when the command is the target of ``uv run``, ``uv tool run`` or
     ``uvx`` itself, not of a wrapper uv runs. A child cannot change the shell's directory or
@@ -1300,68 +1453,78 @@ def _command_position(segment: list[str]) -> tuple[int, _UvLaunch | None, bool]:
     i = 0
     launch: _UvLaunch | None = None
     child = False
+    events: list[tuple[str, object]] = []
+    prefix = True  # leading NAME=VALUE words bind for the command
     while i < len(segment):
         tok = segment[i]
         if getattr(tok, "shell_redirect", tok in _REDIRECT_OPS):
             i += 2
             continue
-        if _ASSIGN_RE.match(tok):
-            i += 1  # leading environment assignment
+        if prefix and _ASSIGN_RE.match(tok):
+            events.append(("assign", tok))
+            i += 1
             continue
-        if Path(tok).name in _PATH_WRAPPERS:
-            tok = Path(tok).name
-        if tok in _PATH_WRAPPERS or tok in {"builtin", "command", "exec"}:
+        prefix = False
+        name = Path(tok).name if Path(tok).name in _PATH_WRAPPERS else tok
+        if name in _PATH_WRAPPERS or name in {"builtin", "command", "exec"}:
             launch = None  # a wrapper after the launcher runs the command, not uv
-        child = child or tok in _PATH_WRAPPERS
-        if tok in {"uv", "uvx"}:
+        child = child or name in _PATH_WRAPPERS
+        if name in {"uv", "uvx"}:
             launch = _uv_launch(segment, i)
             if launch is None:
                 break
+            events.append(("uv", launch))
             i = launch.index
             continue
-        if tok == "builtin":
+        if name == "builtin":
             i += 1
             continue
-        if tok == "command":
+        if name == "command":
             i += 1
             while i < len(segment) and segment[i] in {"-p", "--"}:
                 i += 1
             continue
-        if tok == "env":
-            i += 1
-            while i < len(segment):
-                arg = segment[i]
-                if arg in {"-u", "--unset", "-C", "--chdir", "-S", "--split-string"}:
-                    i += 2
-                elif (
-                    arg in {"-i", "--ignore-environment", "-0", "--null", "--"}
-                    or arg.startswith(("--unset=", "--chdir="))
-                    or _ASSIGN_RE.match(arg)
-                ):
-                    i += 1
-                else:
-                    break
-            continue
-        if tok in {"nice", "timeout", "stdbuf", "sudo", "time", "nohup", "exec"}:
-            wrapper = tok
-            i += 1
-            value_opts = {
-                "nice": {"-n", "--adjustment"},
-                "timeout": {"-s", "--signal", "-k", "--kill-after"},
-                "sudo": {"-u", "-g", "-h", "-p", "-C", "-T"},
-                "stdbuf": {"-i", "-o", "-e"},
-                "time": {"-f", "--format", "-o", "--output"},  # GNU time; -p, -a, -v, -q, -- are flags
-                "nohup": set(),  # --help, --version, --
-                "exec": {"-a"},  # the bash builtin: -a NAME, -c, -l
-            }[wrapper]
-            while i < len(segment) and segment[i].startswith("-"):
-                option = segment[i]
-                i += 2 if option in value_opts else 1
-            if wrapper == "timeout" and i < len(segment):
+        if name in _WRAPPER_GRAMMARS:
+            i, read = _wrapper_options(name, segment, i + 1)
+            if name == "sudo":
+                events.append(("sudo", None))  # sudo resets the environment by default
+            if name in {"env", "sudo"}:
+                events.extend(("env", option) for option in read)
+            if name == "timeout" and i < len(segment):
                 i += 1  # duration
+            if name in _ASSIGNING_WRAPPERS:
+                while i < len(segment) and _ASSIGN_RE.match(segment[i]):
+                    events.append(("assign", segment[i]))
+                    i += 1
             continue
         break
-    return min(i, len(segment)), launch, child
+    return _CommandWalk(min(i, len(segment)), launch, child, events)
+
+
+def _split_string_command(segment: list[str]) -> list[str] | None:
+    """The segment respelled when ``env -S STRING`` runs it, else None.
+
+    env splits STRING into its own further arguments (options, ``NAME=VALUE`` and the
+    command), so they are read as ``env`` followed by the split words and the remaining ones.
+    """
+    walk = _command_walk(segment)
+    for kind, payload in walk.events:
+        if kind == "env" and payload[0] == "split-string":
+            value = payload[1]
+            if value is None or getattr(value, "unresolved_at", None) is not None:
+                return None
+            try:
+                words = shlex.split(str(value))
+            except ValueError:
+                return None
+            return [ShellWord("env"), *(ShellWord(word) for word in words), *segment[walk.index :]]
+    return None
+
+
+def _command_position(segment: list[str]) -> tuple[int, _UvLaunch | None, bool]:
+    """`_command_walk` without its events: command index, uv launch and child flag."""
+    walk = _command_walk(segment)
+    return walk.index, walk.launch, walk.child
 
 
 def _command_word(segment: list[str]) -> tuple[str, int]:
@@ -1383,6 +1546,8 @@ def _command_word(segment: list[str]) -> tuple[str, int]:
         return "", i
     if launch is not None and launch.module:
         return "python", i
+    if segment[i] == ".":
+        return ".", i  # the source builtin; a path's name would be empty
     return Path(segment[i]).name, i
 
 
@@ -1394,6 +1559,9 @@ def _command_argvs(segment: list[str]) -> list[list[str]]:
     with Python. Whether a target is a directory depends on the directory the command runs
     in, which the guard cannot always know, so a ``uv run`` target is read both ways.
     """
+    split = _split_string_command(segment)
+    if split is not None:
+        return _command_argvs(split)
     i, launch, _ = _command_position(segment)
     if i >= len(segment):
         return []
@@ -1907,6 +2075,7 @@ def _find_targets(
                     main_root=main_root,
                     depth=depth + 1,
                     uv_env=uv_env,
+                    template=True,
                 )
                 for target in nested:
                     if exec_cwd is None and not Path(target).is_absolute():
@@ -1915,7 +2084,13 @@ def _find_targets(
                     targets.append(target)
         else:
             nested = _writer_targets(
-                template, cwd=exec_cwd, redirect_cwd=exec_cwd, main_root=main_root, depth=depth + 1, uv_env=uv_env
+                template,
+                cwd=exec_cwd,
+                redirect_cwd=exec_cwd,
+                main_root=main_root,
+                depth=depth + 1,
+                uv_env=uv_env,
+                template=True,
             )
             for target in nested:
                 if exec_cwd is None and not Path(target).is_absolute():
@@ -1933,10 +2108,13 @@ def _writer_targets(
     main_root: Path | None,
     depth: int,
     uv_env: str | None = None,
+    template: bool = False,
 ) -> list[str]:
     """Targets of the writer in one expanded segment, including exec wrappers.
 
     ``uv_env`` is the ``UV_WORKING_DIR`` the command inherits; a nested shell inherits it.
+    A ``template`` (a find ``-exec`` or xargs command) applies its own wrappers' directory and
+    environment (`_command_context`), which the shell's segment walk never saw.
     """
     targets = _redirect_targets(segment)
     for target in targets:
@@ -1948,6 +2126,15 @@ def _writer_targets(
     # file was already classified above; leaving `>` in argv makes a harmless
     # `tee /tmp/file >/dev/null` look like a write to a file named `>`.
     segment = _without_redirects(segment)
+    if template:
+        cwd, uv_env = _command_context(segment, cwd, uv_env)
+        own = len(targets)
+    split = _split_string_command(segment)
+    if split is not None:
+        # The cwd is unknown after ``env -S`` (`_command_context`), so a relative target refuses.
+        targets.extend(
+            _writer_targets(split, cwd=cwd, redirect_cwd=cwd, main_root=main_root, depth=depth + 1, uv_env=uv_env)
+        )
     cmd, idx = _command_word(segment)
     if cmd in _LONG_TAIL_WRITERS:
         targets.extend(_long_tail_targets(segment[idx + 1 :], cmd))
@@ -2011,6 +2198,15 @@ def _writer_targets(
                 )
     elif cmd == "find":
         targets.extend(_find_targets(segment[idx + 1 :], cwd=cwd, main_root=main_root, depth=depth, uv_env=uv_env))
+    if template:
+        for index, target in enumerate(targets[own:], start=own):
+            word = target if isinstance(target, ShellWord) else ShellWord(str(target))
+            if not Path(word).is_absolute() and word.base is None and word.decision_reason is None:
+                if cwd is None:
+                    word.decision_reason = "undecidable_write_target_after_cd"
+                else:
+                    word.base = cwd
+            targets[index] = word
     return targets
 
 
@@ -2102,63 +2298,33 @@ _UV_DIR_INHERITED = object()
 def _command_context(segment: list[str], cwd: str | None, uv_env: str | None) -> tuple[str | None, str | None]:
     """The cwd a segment's command runs in and the ``UV_WORKING_DIR`` it inherits.
 
-    Applies ``env -C`` / ``--chdir``, then uv's ``--directory``, else its ``UV_WORKING_DIR``:
-    ``uv_env`` is the shell's value, changed by this segment's own ``NAME=`` prefix and
-    ``env`` bindings, ``env -u`` and ``env -i``.
+    Replays the command's walk (`_command_walk`): ``env -C``/``--chdir`` and ``sudo -D``
+    move the cwd; uv moves it to ``--directory``, else to ``UV_WORKING_DIR``. ``uv_env`` is
+    the shell's value; a leading ``NAME=`` binding, an ``env`` or ``sudo`` operand, ``env -u``
+    and ``env -i`` change it, and sudo's environment reset makes an inherited value unknown.
     """
-    segment = _without_redirects(segment)
-    command_index = _command_position(segment)[0]
-    i = 0
-    while i < command_index:
-        word = segment[i]
-        if _ASSIGN_RE.match(word):
-            if word.startswith("UV_WORKING_DIR="):
-                uv_env = word.tail(len("UV_WORKING_DIR=")) if isinstance(word, ShellWord) else word.split("=", 1)[1]
-            i += 1
-            continue
-        name = Path(word).name
-        if name in {"uv", "uvx"}:
-            launch = _uv_launch(segment, i)
-            if launch is None:
-                break
-            directory = launch.directory if launch.directory is not None else uv_env
+    def value_of(word: str) -> str:
+        return word.tail(len("UV_WORKING_DIR=")) if isinstance(word, ShellWord) else word.split("=", 1)[1]
+
+    for kind, payload in _command_walk(_without_redirects(segment)).events:
+        if kind == "assign":
+            if str(payload).startswith("UV_WORKING_DIR="):
+                uv_env = value_of(payload)
+        elif kind == "sudo":
+            if uv_env is not None:
+                uv_env = _UV_DIR_UNKNOWN
+        elif kind == "env":
+            option, value = payload
+            if option == "chdir":
+                cwd = _changed_cwd(cwd, value) if value is not None else None
+            elif option == "ignore-environment" or (option == "unset" and value == "UV_WORKING_DIR"):
+                uv_env = None
+            elif option == "split-string":
+                cwd, uv_env = None, _UV_DIR_UNKNOWN  # the split words are not modelled
+        elif kind == "uv":
+            directory = payload.directory if payload.directory is not None else uv_env
             if directory:
                 cwd = _changed_cwd(cwd, directory)
-            i = launch.index
-            continue
-        if name != "env":
-            i += 1
-            continue
-        i += 1
-        while i < command_index:
-            arg = segment[i]
-            if arg in {"-C", "--chdir"} and i + 1 < len(segment):
-                path = segment[i + 1]
-                i += 2
-            elif arg.startswith("--chdir="):
-                path = arg.tail(len("--chdir=")) if isinstance(arg, ShellWord) else arg.split("=", 1)[1]
-                i += 1
-            else:
-                path = None
-            if path is not None:
-                cwd = _changed_cwd(cwd, path)
-                continue
-            if arg in {"-i", "--ignore-environment", "--unset=UV_WORKING_DIR"} or (
-                arg in {"-u", "--unset"} and i + 1 < len(segment) and segment[i + 1] == "UV_WORKING_DIR"
-            ):
-                uv_env = None
-            if arg in {"-u", "--unset", "-S", "--split-string"}:
-                i += 2
-            elif (
-                arg in {"-i", "--ignore-environment", "-0", "--null", "--"}
-                or arg.startswith("--unset=")
-                or _ASSIGN_RE.match(arg)
-            ):
-                if arg.startswith("UV_WORKING_DIR="):
-                    uv_env = arg.tail(len("UV_WORKING_DIR=")) if isinstance(arg, ShellWord) else arg.split("=", 1)[1]
-                i += 1
-            else:
-                break
     return cwd, uv_env
 
 
@@ -2295,6 +2461,7 @@ def bash_write_targets(
                     main_root=main_root,
                     depth=depth + 1,
                     uv_env=segment.command_uv_env,
+                    template=True,
                 )
             )
         for target in segment_targets:
