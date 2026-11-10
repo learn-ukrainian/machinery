@@ -373,20 +373,23 @@ def test_runtime_target_interpreter_policy_and_state_roots_are_distinct(monkeypa
 
 
 def test_unset_configuration_keeps_todays_roots(clean_env, monkeypatch) -> None:
-    assert rr.RUNTIME_ROOT == Path(rr.__file__).resolve().parents[2]
-    # This case deliberately models the legacy in-tree copy, independently
-    # of where pytest imported the installed resolver.
+    unpatched_runtime = Path(rr.__file__).resolve().parents[2]
+    assert rr.RUNTIME_ROOT == unpatched_runtime
+    # Model the legacy in-tree copy independently of where pytest imported the
+    # installed resolver. Compare runtime with the derivation above before
+    # replacing RUNTIME_ROOT: after that patch the equality only reads the patch back.
     monkeypatch.setattr(rr, "_IN_TREE_SOURCE", True)
-    monkeypatch.setattr(rr, "RUNTIME_ROOT", REPO)
     # Interpreter selection is not under test here and depends on the host (a linked worktree whose
     # primary has no .venv, run by another checkout's venv, is refused by design), so pin it.
     stand_in = Path(sys.executable)
     monkeypatch.setattr(rr, "project_interpreter", lambda *args, **kwargs: stand_in)
-    runtime = REPO
-    primary = rr.main_checkout_root(runtime)
+    derived = rr.machinery_roots()
+    assert derived.interpreter == stand_in
+    assert derived.runtime == unpatched_runtime
+    monkeypatch.setattr(rr, "RUNTIME_ROOT", REPO)
+    primary = rr.main_checkout_root(REPO)
     roots = rr.machinery_roots()
     assert roots.interpreter == stand_in
-    assert roots.runtime == runtime == REPO
     assert (roots.primary, roots.state, roots.github_slug) == (
         primary,
         primary,

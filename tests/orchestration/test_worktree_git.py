@@ -1002,11 +1002,14 @@ def test_dotdot_hidden_symlink_gitdir_cannot_authorize_switched_removal(tmp_path
         "https://github.com:65536/acme/widget",
         "https://github.com:80abc/acme/widget.git",
         "ssh://git@github.com:notaport/acme/widget.git",
-        'https://github.com:abc/acme/widget.git',
+        "https://user@github.com:abc/acme/widget.git",
     ],
 )
 def test_malformed_origin_port_is_unknown(origin):
-    """A port GitHub's URL parser cannot read is an unknown origin, not an exception."""
+    """A port GitHub's URL parser cannot read is an unknown origin, not an exception.
+
+    The userinfo form is a separate partition from the same port with no userinfo.
+    """
     assert wg._parse_github_origin(origin) is None
 
 
