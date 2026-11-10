@@ -2016,16 +2016,12 @@ def test_systemd_timer_does_not_leave_both_root_cleanup_on_four_hour_cadence() -
     assert timer["Timer"]["Unit"] == "learn-ukrainian-worktree-gc.service"
     service = configparser.ConfigParser()
     service.read(packaging / "learn-ukrainian-worktree-gc.service")
-    assert service["Service"]["ExecStart"].split() == [
-        "/usr/bin/env",
-        "bash",
-        "@REPO_ROOT@/lu_machinery/orchestration/run_scheduled_worktree_cleanup.sh",
-        "--repo-root",
-        "@REPO_ROOT@",
-        "--repo-root",
-        "@PRIVATE_ROOT@",
-        "--apply",
-    ]
+    assert service["Service"]["ExecStart"] == (
+        "@PYTHON@ -c 'import os,sys; from importlib.resources import files; "
+        'os.execvp("bash", ["bash", str(files("lu_machinery.orchestration")'
+        '.joinpath("run_scheduled_worktree_cleanup.sh")), *sys.argv[1:]])\''
+        " --repo-root @REPO_ROOT@ --repo-root @PRIVATE_ROOT@ --apply"
+    )
 
 
 def test_atomic_write_keeps_replace_error_when_unlink_fails(tmp_path, monkeypatch, caplog):

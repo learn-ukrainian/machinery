@@ -9,7 +9,7 @@ the accountable driver's cycle.
 
 - Do not write a watcher, polling loop or `sleep` loop, and do not run a second watcher on the
   same PR: every watcher shares one GitHub rate limit.
-- Arm waits on the original tasks (`lu_machinery/dispatch.py wait <task> --run-nonce <nonce>`, see
+- Arm waits on the original tasks (`"$PY" -m lu_machinery.dispatch wait <task> --run-nonce <nonce>`, see
   `review-loop`). Check CI and the queue on each driver cycle:
 
   ```bash

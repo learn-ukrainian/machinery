@@ -34,7 +34,7 @@ PY="$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")/.venv/
 
    ```bash
    gh pr view "$PR" --json number,state,author,title,body,baseRefName,headRefName,headRefOid,commits,reviews,closingIssuesReferences,statusCheckRollup
-   "$PY" lu_machinery/dispatch.py status "$TASK" --run-nonce "$NONCE"
+   "$PY" -m lu_machinery.dispatch status "$TASK" --run-nonce "$NONCE"
    ```
 
    Read the record's `worktree_disposition`: when the dispatcher has already removed the

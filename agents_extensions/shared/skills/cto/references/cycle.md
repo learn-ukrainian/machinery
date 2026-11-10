@@ -79,7 +79,7 @@ never fine.
    A queue custodian also covers ejection, stale approval, merge confirmation and closeout for
    the owners it releases ([pr-watch](../../full-send/references/pr-watch.md#queue-custody)).
 5. **Live workers.** Active dispatches from the Monitor API, then
-   `.venv/bin/python lu_machinery/dispatch.py status <task-id> --run-nonce <nonce>` for each task
+   `.venv/bin/python -m lu_machinery.dispatch status <task-id> --run-nonce <nonce>` for each task
    the handoff or the view names; task files outrank a partial view. Every running worker
    has an armed background `dispatch.py wait`. Any terminal status but `done` is an
    attention item; before calling a dispatch dead check open PRs and its worktree for

@@ -311,7 +311,8 @@ from lu_machinery.dispatcher import store, worker
 argv = sys.argv[1:]
 if argv[0] == '-c':
     raise SystemExit(subprocess.run([sys.executable, *argv], check=False).returncode)
-assert argv.pop(0) == 'lu_machinery/dispatch.py'
+assert argv[:2] == ['-m', 'lu_machinery.dispatch']
+del argv[:2]
 args = dispatch_cli.build_parser().parse_args(argv)
 path = Path(os.environ['RECIPE_CALLS'])
 calls = json.loads(path.read_text()) if path.exists() else []
@@ -521,7 +522,8 @@ from lu_machinery.dispatcher import store, worker
 argv = sys.argv[1:]
 if argv[0] == '-c':
     raise SystemExit(subprocess.run([sys.executable, *argv], check=False).returncode)
-assert argv.pop(0) == 'lu_machinery/dispatch.py'
+assert argv[:2] == ['-m', 'lu_machinery.dispatch']
+del argv[:2]
 args = dispatch_cli.build_parser().parse_args(argv)
 assert args.command in ('status', 'wait'), 'recovery must never dispatch'
 root = Path(os.environ['RECIPE_ROOT'])

@@ -104,7 +104,7 @@ Chat "ready" is not DoR. Tables: `docs/best-practices/task-quality.md` and `/api
 Before review, apply the size signal and its split-or-justify line in [workflow.md § Merge policy](../../../rules/workflow.md#merge-policy--ready-prs-must-not-sit-4703-landing-order-7450).
 
 ```bash
-.venv/bin/python lu_machinery/dispatch.py dispatch --model <catalog-model>  --agent <lane> --worktree ...
+.venv/bin/python -m lu_machinery.dispatch dispatch --model <catalog-model>  --agent <lane> --worktree ...
 ```
 
 A takeover or any worker pushing to an existing PR branch is dispatched with `--branch <PR head branch>`.

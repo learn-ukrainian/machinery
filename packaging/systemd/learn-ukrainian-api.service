@@ -11,7 +11,7 @@ Environment=PYTHONUNBUFFERED=1
 # Optional: EnvironmentFile=-%h/.config/learn-ukrainian/monitor.env
 # (MONITOR_OCCUPANCY_HOST_IDS=canonical=opaque-id,...). Never put IPs or SSH
 # hostnames in the JSON; default glance opaque id is host-teacher (+ mac-operator).
-ExecStart=@REPO_ROOT@/.venv/bin/python -m uvicorn lu_machinery.api.main:app --host 127.0.0.1 --port 8765 --log-config lu_machinery/api/logging.json --timeout-graceful-shutdown 8
+ExecStart=@REPO_ROOT@/.venv/bin/python -c 'import os,sys; from importlib.resources import files; os.execvp(sys.executable, [sys.executable, "-m", "uvicorn", "lu_machinery.api.main:app", "--host", "127.0.0.1", "--port", "8765", "--log-config", str(files("lu_machinery.api").joinpath("logging.json")), "--timeout-graceful-shutdown", "8"])'
 Restart=on-failure
 RestartSec=5
 

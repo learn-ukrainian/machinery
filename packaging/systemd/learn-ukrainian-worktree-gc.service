@@ -6,7 +6,7 @@ After=network.target
 Type=oneshot
 WorkingDirectory=@REPO_ROOT@
 Environment=PYTHONUNBUFFERED=1
-ExecStart=/usr/bin/env bash @REPO_ROOT@/lu_machinery/orchestration/run_scheduled_worktree_cleanup.sh --repo-root @REPO_ROOT@ --repo-root @PRIVATE_ROOT@ --apply
+ExecStart=@PYTHON@ -c 'import os,sys; from importlib.resources import files; os.execvp("bash", ["bash", str(files("lu_machinery.orchestration").joinpath("run_scheduled_worktree_cleanup.sh")), *sys.argv[1:]])' --repo-root @REPO_ROOT@ --repo-root @PRIVATE_ROOT@ --apply
 
 [Install]
 WantedBy=default.target

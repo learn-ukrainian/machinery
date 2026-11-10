@@ -11,7 +11,6 @@ from __future__ import annotations
 import json
 import os
 import shlex
-import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -166,6 +165,25 @@ def _unit_lines() -> dict[str, list[str]]:
     return lines
 
 
+def _reporter_code_root() -> str:
+    """Parent of the package whose reporter script the unit's importlib line runs."""
+    probe = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "from importlib.resources import files; "
+            "print(files('lu_machinery.orchestration').joinpath('run_project_state_reporter.sh'))",
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+        cwd=Path(sys.executable).parent,
+        env={"PATH": "/usr/bin:/bin"},
+    )
+    # orchestration/<script> -> package directory -> directory that holds the package.
+    return str(Path(probe.stdout.strip()).parents[2])
+
+
 def _systemd_exec_start(home: Path) -> subprocess.CompletedProcess[str]:
     """Run the unit's ExecStart the way systemd does: Environment=, optional EnvironmentFile=, cwd."""
     unit = _unit_lines()
@@ -185,8 +203,9 @@ def _systemd_exec_start(home: Path) -> subprocess.CompletedProcess[str]:
                 env[key] = value
     (command,) = unit["ExecStart"]
     (cwd,) = unit["WorkingDirectory"]
+    rendered = command.replace("%h", str(home)).replace("@PYTHON@", sys.executable)
     return subprocess.run(
-        shlex.split(command.replace("%h", str(home))),
+        shlex.split(rendered),
         cwd=cwd.replace("%h", str(home)),
         env={"HOME": str(home), **env},
         capture_output=True,
@@ -197,15 +216,11 @@ def _systemd_exec_start(home: Path) -> subprocess.CompletedProcess[str]:
 
 
 def _systemd_home(tmp_path: Path) -> Path:
+    """A product checkout with no machinery tree. The unit must load its script from the package."""
     home = tmp_path / "home"
     (home / "projects").mkdir(parents=True)
     runtime = tmp_path / "runtime-real"
-    wrapper = runtime / "lu_machinery/orchestration/run_project_state_reporter.sh"
-    wrapper.parent.mkdir(parents=True)
-    shutil.copy2(rr.machinery_path("orchestration/run_project_state_reporter.sh"), wrapper)
-    library = runtime / "lu_machinery/lib/project_interpreter.sh"
-    library.parent.mkdir(parents=True)
-    shutil.copy2(rr.machinery_path("lib/project_interpreter.sh"), library)
+    runtime.mkdir()
     (home / "projects/learn-ukrainian").symlink_to(runtime, target_is_directory=True)
     return home
 
@@ -324,11 +339,11 @@ def test_systemd_exec_start_runs_with_the_configured_roots(tmp_path: Path, layou
     result = _systemd_exec_start(home)
     assert result.returncode == 0, result.stderr
     ran = json.loads(record.read_text(encoding="utf-8"))
-    # Code loads from the installed resource tree through the isolated module
-    # bootstrap, while the product comes from the configured environment.
+    # The unit loads the packaged script. Its bootstrap names that package's
+    # parent as the code root. The product comes from the configured environment.
     argv = ran.pop("argv")
     assert argv[:2] == ["-I", "-c"]
-    assert argv[3] == str(tmp_path / "runtime-real")
+    assert argv[3] == _reporter_code_root()
     assert argv[4:] == ["lu_machinery", "-m", "lu_machinery.api.project_state_local", "report"]
     assert ran == {
         "primary": str(layout["primary"]),
@@ -468,7 +483,9 @@ def test_installed_dispatch_without_primary_refuses_reexec(clean_env, monkeypatc
 def test_unset_configuration_keeps_todays_systemd_exec_start() -> None:
     unit = _unit_lines()
     assert unit["ExecStart"] == [
-        "/usr/bin/env bash --noprofile --norc lu_machinery/orchestration/run_project_state_reporter.sh"
+        "@PYTHON@ -c 'import os,sys; from importlib.resources import files; "
+        'os.execvp("bash", ["bash", str(files("lu_machinery.orchestration")'
+        '.joinpath("run_project_state_reporter.sh")), *sys.argv[1:]])\''
     ]
     assert unit["WorkingDirectory"] == ["%h/projects/learn-ukrainian"]
     assert unit["EnvironmentFile"] == ["-%h/.config/learn-ukrainian/machinery.env"]

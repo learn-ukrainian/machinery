@@ -1090,11 +1090,12 @@ def without_advisory_roles(catalog):
 
 
 def approved_dispatcher_spelling(value):
-    """``value`` with the dispatcher path spelled as the frozen fixtures and approvals spell it.
+    """``value`` with the dispatcher spelled as the frozen fixtures and approvals spell it.
 
-    They name ``scripts/dispatch.py``; the machinery-move rename rewrites that path to the package's
-    new directory. Only the exact dispatcher path, alone or after the project interpreter, is mapped,
-    so every other byte still has to match.
+    They name ``scripts/dispatch.py``. The machinery-move path and the installed
+    ``python -m <package>.dispatch`` invocation both rewrite that spelling. Only those
+    exact forms, alone or after the project interpreter, are mapped, so every other
+    byte still has to match.
     """
     package = machinery_package()
     if isinstance(value, dict):
@@ -1104,9 +1105,12 @@ def approved_dispatcher_spelling(value):
     if isinstance(value, str):
         if value == f"{package}/dispatch.py":
             return "scripts/dispatch.py"
-        moved = f".venv/bin/python {package}/dispatch.py "
-        if value.startswith(moved):
-            return ".venv/bin/python scripts/dispatch.py " + value[len(moved):]
+        for moved in (
+            f".venv/bin/python {package}/dispatch.py ",
+            f".venv/bin/python -m {package}.dispatch ",
+        ):
+            if value.startswith(moved):
+                return ".venv/bin/python scripts/dispatch.py " + value[len(moved):]
     return value
 
 

@@ -79,7 +79,7 @@ PY="$PRIMARY_REPO/.venv/bin/python"
 
 # If requires_silence_timeout is true, set SILENCE_TIMEOUT_SECONDS from current
 # seat/runtime guidance and add --silence-timeout "$SILENCE_TIMEOUT_SECONDS".
-dispatch_result="$("$PY" lu_machinery/dispatch.py dispatch \
+dispatch_result="$("$PY" -m lu_machinery.dispatch dispatch \
   --agent "$REVIEW_AGENT" --model "$REVIEW_MODEL" --effort high \
   --mode read-only --worktree --task-id "$REVIEW_TASK" \
   --prompt-file "$REVIEW_BRIEF" --branch "$AUTHOR_BRANCH" \
@@ -92,14 +92,14 @@ REVIEW_NONCE="${dispatch_lines[1]}"
 # Arm in a yielding tool session. Re-arm ONLY wait on client expiry.
 while true; do
   wait_rc=0
-  wait_result="$("$PY" lu_machinery/dispatch.py wait "$REVIEW_TASK" \
+  wait_result="$("$PY" -m lu_machinery.dispatch wait "$REVIEW_TASK" \
     --run-nonce "$REVIEW_NONCE" --timeout 1800)" || wait_rc=$?
   if (( wait_rc == 0 )); then printf '%s\n' "$wait_result"; break; fi
   if (( wait_rc == 124 )); then
-    state="$("$PY" lu_machinery/dispatch.py status "$REVIEW_TASK" --run-nonce "$REVIEW_NONCE")"
+    state="$("$PY" -m lu_machinery.dispatch status "$REVIEW_TASK" --run-nonce "$REVIEW_NONCE")"
     if "$PY" -c 'import json,sys; sys.exit(json.load(sys.stdin).get("status") not in ("running", "spawning", "done"))' < <(printf '%s\n' "$state"); then continue; fi
     # A terminal state raced expiry: read its same-nonce settlement/exit code.
-    "$PY" lu_machinery/dispatch.py wait "$REVIEW_TASK" --run-nonce "$REVIEW_NONCE" --timeout 1
+    "$PY" -m lu_machinery.dispatch wait "$REVIEW_TASK" --run-nonce "$REVIEW_NONCE" --timeout 1
     exit $?
   fi
   printf '%s\n' "$wait_result"
@@ -118,7 +118,7 @@ and `PRIMARY_REPO`/`PY` as above; query the live task record via `dispatch.py st
 
 ```bash
 set -euo pipefail
-state="$("$PY" lu_machinery/dispatch.py status "$REVIEW_TASK")"
+state="$("$PY" -m lu_machinery.dispatch status "$REVIEW_TASK")"
 REVIEW_NONCE="$("$PY" -c 'import json,sys; s=json.load(sys.stdin); n=s.get("run_nonce"); (s.get("task_id")==sys.argv[1] and isinstance(n,str) and n.strip()) or sys.exit("invalid task identity/nonce"); print(n)' "$REVIEW_TASK" <<<"$state")"
 ```
 
