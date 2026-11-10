@@ -209,6 +209,26 @@ the validated primary checkout's `.venv/bin/python`; otherwise a refusal. A
 worktree-local `.venv` is not the interpreter, and nothing is discovered on
 `PATH`.
 
+A consumer that writes `sources.db` or `vesum.db` declares its own writers in
+`scripts/config/sqlite_reference_allowlist.json` in the product checkout. The
+file uses the format of machinery's `lu_machinery/hygiene/sqlite_reference_allowlist.json`:
+a JSON list of objects, each with a checkout-relative `path` and a `kind`; rows
+of kind `writer` are the declared writers. The release's corpus write guard
+(`refuse_writable_corpus_database`) judges each stack frame by its real path,
+with symlinks resolved. A frame inside the installed package counts only when
+machinery's file lists it. Any other frame counts only when it lies inside the
+product root that `LU_PRODUCT_ROOT` selects, which must be the checkout whose
+code runs, and when the product's file lists it. A missing, unreadable or
+malformed product file, or an unset product root, authorizes no product writer.
+The guard then raises `ProductWriterDeclarationRefused`, with a path-free
+`reason`. The guard reads the product file through descriptors that do not
+follow symlinks (`O_PATH`). Product corpus writers are therefore supported on
+Linux only, where the corpus store lives in the host checkout's local `data/`.
+On a platform without `os.O_PATH` the reason is
+`product_declaration_platform_unsupported`. Machinery's own writers are not
+affected. The Sources store writer lock and selected-generation checks still
+apply after the declaration check.
+
 Offline reinstall uses the retained wheelhouse and npm cache. Restore the
 wheel first, set `$P` to its absolute interpreter and `$NPM_CACHE` to the
 retained absolute cache path, then run this offline variant:
