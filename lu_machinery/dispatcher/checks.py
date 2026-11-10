@@ -166,6 +166,16 @@ def check_model_admission(agent: str, model: str, mode: str, options: dict, prom
     identity = canonical_model_id(_normalize_native_claude_alias(agent, model), catalog)
     if identity is None and not (agent == "cursor" and is_cursor_auto_selector(model)):
         raise ValueError(unknown_model_refusal(model))
+    if agent == "agy":
+        from lu_machinery.dispatcher.providers.agy import _agy_model_ids, transport_model
+
+        # A generic effort suffix still names a catalog model (gemini-4-argon-xhigh), but agy
+        # attests only the selectors the catalog lists, so that run could never succeed.
+        listed = _agy_model_ids()
+        if transport_model(model) not in listed:
+            names = sorted(name for name in listed if canonical_model_id(name, catalog) == identity)
+            raise ValueError(f"model {model!r} is not an AGY selector the model catalog lists for "
+                             f"{identity}; listed: {', '.join(names) or 'none'}")
     if not catalog["models"].get(identity, {}).get("red_team_only"):
         # Review typing is the one dispatch role admission infers: every review flag, --risk,
         # --review-mode, --language-lane, the subject selectors and a review research role.
