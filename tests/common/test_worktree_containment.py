@@ -509,7 +509,8 @@ def test_tar_list_mode_option_word_is_not_a_primary_write(layout: Layout):
 
     ``-t`` lists the archive named by ``-f`` and writes nothing; later words are
     member names. Controls: extracting or creating into the primary is still
-    refused, and so is a listing whose ``TAR_OPTIONS`` the command sets.
+    refused, and so is a listing whose ``TAR_OPTIONS`` the command sets or whose
+    words Bash can expand into other options.
     """
     hook = Path(__file__).resolve().parents[2] / "agents_extensions/shared/hooks/guard-primary-checkout-write.py"
     env = {**_clean_env(), "LU_PRODUCT_ROOT": str(layout.main)}
@@ -534,6 +535,8 @@ def test_tar_list_mode_option_word_is_not_a_primary_write(layout: Layout):
     assert decision(f"tar -xzf {archive} -C {layout.main}") == 2
     assert decision(f"tar czf {layout.main}/out.tgz pkg") == 2
     assert decision(f"TAR_OPTIONS=--checkpoint-action=exec=touch tar tzf {archive}") == 2
+    assert decision(f"tar tzf {archive} {{--checkpoint=1,--checkpoint-action=exec=touch}}") == 2
+    assert decision(f"tar tzf {archive} *") == 2
 
 
 def test_relative_gitignored_path_resolved_against_cwd(layout: Layout):

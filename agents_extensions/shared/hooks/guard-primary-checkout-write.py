@@ -1855,6 +1855,10 @@ _TAR_LIST_SHORT = frozenset("vzjJZ")
 _TAR_LIST_LONG = frozenset(
     {"verbose", "gzip", "gunzip", "ungzip", "bzip2", "xz", "lzma", "lzip", "lzop", "zstd", "compress", "uncompress"}
 )
+# Bash brace, pathname and extended-glob syntax: such a word can expand into other words,
+# including options outside the allowlist (``{--checkpoint=1,x}``, ``*``). Quoted or not,
+# a word holding one is not proven literal.
+_TAR_EXPANDABLE = frozenset("*?[]{}()")
 
 
 def _tar_lists_only(args: list[str]) -> bool:
@@ -1862,10 +1866,16 @@ def _tar_lists_only(args: list[str]) -> bool:
 
     tar takes a dash-less first word as bundled options (``tar tzf a.tgz``),
     each value-taking letter consuming the next word. Positional words in list
-    mode are member names, not paths. An expansion or any option outside the
-    list-mode allowlist is not proven read-only.
+    mode are member names, not paths. Every word must be provably literal: an
+    expansion, brace or glob syntax, or any option outside the list-mode
+    allowlist is not proven read-only.
     """
-    if any(getattr(arg, "unresolved_at", None) is not None for arg in args):
+    if any(
+        getattr(arg, "unresolved_at", None) is not None
+        or not _TAR_EXPANDABLE.isdisjoint(str(arg))
+        or not _TAR_EXPANDABLE.isdisjoint(str(getattr(arg, "raw", "")))
+        for arg in args
+    ):
         return False
     words = [str(arg) for arg in args]
     listed = False
@@ -2300,6 +2310,7 @@ def _writer_targets(
         and not template
         and getattr(segment, "prev_op", None) == ""
         and getattr(segment, "scope", None) == ()
+        and getattr(segment, "next_op", None) != "("  # ``tar tf A @(x)``: an extended glob
         and "TAR_OPTIONS" not in os.environ
     )
     targets = _redirect_targets(segment)
