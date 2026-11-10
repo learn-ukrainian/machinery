@@ -37,6 +37,7 @@ import re
 import shutil
 import signal
 import subprocess
+import sys
 import tempfile
 import time
 from collections.abc import Callable, Mapping, Sequence
@@ -822,7 +823,8 @@ def _prepare_spawn_command(
     if augmented_path != original_path:
         prepared_env["PATH"] = augmented_path
 
-    resolved = resolve_agent_binary(prepared_cmd[0], path=augmented_path)
+    # Resolving a virtualenv Python symlink loses its installed package environment.
+    resolved = None if prepared_cmd[0] == sys.executable else resolve_agent_binary(prepared_cmd[0], path=augmented_path)
     if resolved is not None:
         prepared_cmd[0] = resolved
     return prepared_cmd, prepared_env

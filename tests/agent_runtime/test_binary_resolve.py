@@ -5,6 +5,8 @@ from __future__ import annotations
 import os
 import shutil
 import stat
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -53,3 +55,11 @@ def test_prepare_spawn_command_resolves_argv0(tmp_path: Path, monkeypatch: pytes
     assert cmd[0] == str(binary.resolve())
     assert cmd[1:] == ["--help"]
     assert str(local_bin) in env["PATH"].split(os.pathsep)
+
+    # A resolved virtualenv Python symlink would lose the installed package environment.
+    cmd, env = _prepare_spawn_command(
+        [sys.executable, "-I", "-c", "import sys; print(sys.prefix)"], {"PATH": "/usr/bin:/bin"}
+    )
+    assert cmd[0] == sys.executable
+    result = subprocess.run(cmd, env=env, capture_output=True, text=True, check=True, timeout=10)
+    assert result.stdout.strip() == sys.prefix
