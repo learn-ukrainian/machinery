@@ -4615,6 +4615,7 @@
  "tests/test_ingest_ua_gec_gold.py": "product",
  "tests/test_inject_activity_gate.py": "product",
  "tests/test_install_git_hooks.py": "product",
+ "tests/test_installed_shell_product_roots.py": "machinery",
  "tests/test_interjection_mechanics_engine.py": "product",
  "tests/test_inventory_existing_assets.py": "product",
  "tests/test_inventory_home_sessions.py": "machinery",

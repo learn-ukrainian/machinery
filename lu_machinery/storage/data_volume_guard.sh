@@ -5,9 +5,10 @@ set -euo pipefail
 EX_CONFIG=78
 UUID_FILE=/etc/learn-ukrainian/data-volume.uuid
 GUARD_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "$GUARD_DIR/../.." && pwd)"
+source "$GUARD_DIR/../lib/project_interpreter.sh"
+REPO_ROOT="$(project_product_root_resolve)" || exit "$EX_CONFIG"
 # Checkout-relative path of this file, from its unresolved location, for the help text.
-GUARD_REL="${GUARD_DIR#"$REPO_ROOT"/}/${BASH_SOURCE[0]##*/}"
+GUARD_REL="${BASH_SOURCE[0]}"
 
 usage() {
     cat <<EOF

@@ -321,11 +321,13 @@ def test_systemd_exec_start_runs_with_the_configured_roots(tmp_path: Path, layou
     result = _systemd_exec_start(home)
     assert result.returncode == 0, result.stderr
     ran = json.loads(record.read_text(encoding="utf-8"))
-    # The relative ExecStart (machinery move, C-4755) starts bash in the physical WorkingDirectory: systemd
-    # sets no PWD, so the wrapper resolves the physical runtime behind the %h symlink.
-    reporter = tmp_path / "runtime-real/lu_machinery/api/project_state_local.py"
+    # Code loads from the installed resource tree through the isolated module
+    # bootstrap, while the product comes from the configured environment.
+    argv = ran.pop("argv")
+    assert argv[:2] == ["-I", "-c"]
+    assert argv[3] == str(tmp_path / "runtime-real")
+    assert argv[4:] == ["lu_machinery", "-m", "lu_machinery.api.project_state_local", "report"]
     assert ran == {
-        "argv": [str(reporter), "report"],
         "primary": str(layout["primary"]),
         "slug": CONFIGURED_SLUG,
     }

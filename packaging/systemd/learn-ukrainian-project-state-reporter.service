@@ -5,10 +5,11 @@ After=network.target
 [Service]
 Type=oneshot
 Environment=PATH=/usr/local/bin:/usr/bin:/bin
+Environment=LU_PRODUCT_ROOT=%h/projects/learn-ukrainian
 # Machinery roots (scripts/common/repo_root.py): LEARN_UKRAINIAN_PRIMARY_REPO_ROOT,
 # LEARN_UKRAINIAN_GITHUB_SLUG, LEARN_UKRAINIAN_STATE_ROOT and
 # LEARN_UKRAINIAN_PYTHON. The wrapper and the reporter read them from this optional file;
-# without it they keep their defaults.
+# LU_PRODUCT_ROOT defaults to WorkingDirectory and can be overridden in that file.
 EnvironmentFile=-%h/.config/learn-ukrainian/machinery.env
 # The wrapper path is relative to WorkingDirectory.
 ExecStart=/usr/bin/env bash --noprofile --norc lu_machinery/orchestration/run_project_state_reporter.sh

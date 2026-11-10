@@ -17,6 +17,8 @@
 #   file named test_*.py is imported by a [run] file and is not run itself.
 
 
+tests/test_installed_shell_product_roots.py
+
 # [held]: source [run] files this repository does not run, with the reason; none is ported.
 #   Each needs the product checkout, which this repository does not hold.
 
