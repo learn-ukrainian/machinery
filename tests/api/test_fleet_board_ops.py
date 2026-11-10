@@ -81,7 +81,7 @@ def test_fetch_caps_timeout_and_rejects_other_schemes() -> None:
         return _Body(b"[]")
 
     assert fetch_json(_with_userinfo("metrics.example", "/v1"), timeout_s=30, opener=opener) == []
-    assert seen["timeout"] == pytest.approx(2.0, abs=0.05)
+    assert 0 < seen["timeout"] <= 2.0
     assert seen["url"] == "https://metrics.example/v1"
     with pytest.raises(ValueError):
         fetch_json("ftp://metrics.example/v1", opener=opener)

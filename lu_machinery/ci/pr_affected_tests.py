@@ -46,6 +46,10 @@ def _module_name() -> str:
 
 
 GUARDS = Path("ci/pr-affected-guards.txt")
+# The checkout's test manifest, as the machinery pytest job reads it (.github/workflows/tests.yml,
+# `MANIFEST`): the job runs its [run] files and never a [support] or [held] one. A checkout that
+# tracks no manifest selects from every tracked test file.
+MANIFEST = "tests/machinery_tests.txt"
 DURATIONS = Path("ci/pytest-file-durations.json")
 INFRA = {
     ".github/workflows/ci.yml",
@@ -295,6 +299,28 @@ def plan(base: str, candidate: str, *, importers: bool = True) -> dict:
         return _plan(base, candidate, importers=importers)
 
 
+def manifest_run_files(candidate: str, entries: dict[str, str]) -> set[str] | None:
+    """The candidate's [run] files when it tracks a test manifest, else None.
+
+    Sections are the workflow's: a ``# [name]`` line opens one, other ``#`` lines and
+    blank lines are skipped. The workflow checks the manifest's form; this refuses a
+    manifest without a [run] file rather than selecting nothing.
+    """
+    if MANIFEST not in entries:
+        return None
+    section = None
+    run: set[str] = set()
+    for line in git("show", f"{candidate}:{MANIFEST}").decode("utf-8").splitlines():
+        header = re.fullmatch(r"# \[(\w+)\]", line)
+        if header:
+            section = header.group(1)
+        elif line.strip() and not line.startswith("#") and section == "run":
+            run.add(line)
+    if not run:
+        raise ValueError("test manifest lists no [run] file")
+    return run
+
+
 def _plan(base: str, candidate: str, *, importers: bool) -> dict:
     entries = {}
     for row in git("ls-tree", "-rz", candidate, "--", "tests").split(b"\0"):
@@ -309,7 +335,10 @@ def _plan(base: str, candidate: str, *, importers: bool) -> dict:
     guards = [safe_path(line, node=True) for line in product_tree_path(*GUARDS.parts).read_text(encoding="utf-8").splitlines()]
     if not guards or len(set(guards)) != len(guards):
         raise ValueError("empty or duplicate guard list")
-    tests = sorted(p for p in changed if TEST.fullmatch(p) and p in entries)
+    # Only a file the pytest job runs can be selected; the guards are named outright.
+    runnable = manifest_run_files(candidate, entries)
+    selectable = entries if runnable is None else {name: mode for name, mode in entries.items() if name in runnable}
+    tests = sorted(p for p in changed if TEST.fullmatch(p) and p in selectable)
     for name in {guard_file(g) for g in guards} | set(tests):
         if not TEST.fullmatch(name) or entries.get(name) not in {"100644", "100755"}:
             raise ValueError("test is not a tracked regular file")
@@ -384,20 +413,21 @@ def _plan(base: str, candidate: str, *, importers: bool) -> dict:
                 used += cost(p)
     # Tests for changed code fill the fill budget, cheapest first; the
     # rest defer to merge-group pytest. Infrastructure changes run guards only.
-    sources = {p for p in changed if not TEST.fullmatch(p)}
+    # A changed test file the job does not run is code for the tests that import or read it.
+    sources = {p for p in changed if not TEST.fullmatch(p) or (runnable is not None and p not in runnable)}
     deleted = {
         safe_path(p.decode("utf-8"))
         for p in git("diff", "--no-renames", "--diff-filter=D", "--name-only", "-z", base, candidate, "--").split(b"\0")
         if p
     } & sources
     direct, shared = (
-        tuple([p for p in tier if p not in run] for tier in importing_tests(sources, deleted, base, entries))
+        tuple([p for p in tier if p not in run] for tier in importing_tests(sources, deleted, base, selectable))
         if importers and sources and not reason
         else ([], [])
     )
     imported = direct + shared
     readers = (
-        [p for p in text_reading_tests(sources, entries) if p not in run and p not in imported]
+        [p for p in text_reading_tests(sources, selectable) if p not in run and p not in imported]
         if importers and sources and not reason
         else []
     )

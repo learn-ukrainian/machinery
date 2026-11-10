@@ -43,7 +43,9 @@ def _git(root: Path, *args: str) -> str:
     ).strip()
 
 
-def _product(scratch: Path, variant: str, *, missing: str | None = None) -> tuple[Path, dict[str, str]]:
+def _product(
+    scratch: Path, variant: str, *, missing: str | None = None, extra: dict[str, str] | None = None,
+) -> tuple[Path, dict[str, str]]:
     root = scratch / variant
     root.mkdir()
     guard = FILES[0 if variant == "alpha" else 1]
@@ -70,6 +72,7 @@ def _product(scratch: Path, variant: str, *, missing: str | None = None) -> tupl
         ),
         "pyproject.toml": '[tool.mypy]\npython_version = "3.12"\n',
         **{name: "def test_ok():\n    assert True\n" for name in FILES},
+        **(extra or {}),
     }
     for name, content in data.items():
         if name == f"scripts/{missing}":
@@ -189,6 +192,35 @@ def test_product_defaults_control_shards_guards_and_stack_names(
                 "--event-path", str(tmp_path / "absent-event.json"))
     assert size.returncode == 0, size.stderr
     assert json.loads(size.stdout.splitlines()[0])["status"] == "unknown"
+
+
+def test_selection_names_only_manifest_run_files(tmp_path: Path, installed: tuple[Path, Path]) -> None:
+    """Defect class: PR selection runs a test file the pytest job never runs.
+
+    A [support] file that names a changed path is not selected, while a [run] file that
+    names it is; a changed [support] file selects the [run] file that names it.
+    """
+    python, _wheel = installed
+    reader = 'TARGETS = ("scripts/runner.py", "tests/test_support_reader.py")\n\ndef test_ok():\n    assert TARGETS\n'
+    root, env = _product(tmp_path, "alpha", extra={
+        "tests/machinery_tests.txt": "\n".join([
+            "# [run]", *FILES, "tests/test_run_reader.py", "# [support]", "tests/test_support_reader.py", "# [held]",
+        ]) + "\n",
+        "tests/test_run_reader.py": reader,
+        "tests/test_support_reader.py": reader,
+    })
+    code = "import json; from lu_machinery.ci.pr_affected_tests import plan; print(json.dumps(plan('HEAD^1', 'HEAD')))"
+    plan = _run(python, tmp_path, env, "-c", code)
+    assert plan.returncode == 0, plan.stderr
+    assert json.loads(plan.stdout)["run_files"] == ["tests/test_alpha.py", "tests/test_run_reader.py"]
+    _git(root, "checkout", "-b", "support")
+    (root / "tests/test_support_reader.py").write_text(reader + "# changed\n", encoding="utf-8")
+    _git(root, "commit", "-am", "support change")
+    _git(root, "checkout", "main")
+    _git(root, "merge", "--no-ff", "support", "-m", "PR candidate")
+    plan = _run(python, tmp_path, env, "-c", code)
+    assert plan.returncode == 0, plan.stderr
+    assert json.loads(plan.stdout)["run_files"] == ["tests/test_alpha.py", "tests/test_run_reader.py"]
 
 
 def test_installed_catalogue_reads_the_product_owner_registries(tmp_path: Path, installed: tuple[Path, Path]) -> None:
