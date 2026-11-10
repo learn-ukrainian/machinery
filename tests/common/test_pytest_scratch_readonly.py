@@ -1117,7 +1117,7 @@ def test_a_terminated_session_removes_its_run(tmp_path):
 
 
 def test_the_session_keeps_cache_claude_config_and_bytecode_inside_its_run(tmp_path):
-    """Defect class: pytest's cache, a test-started Claude Code or bytecode writes outside the session's run."""
+    """Defect class: pytest's cache, breadcrumbs, a test-started Claude Code or bytecode write outside the run."""
     suite, shared, env = _writable_suite(
         tmp_path,
         "import os, sys, tempfile\nfrom pathlib import Path\n\n"
@@ -1126,6 +1126,7 @@ def test_the_session_keeps_cache_claude_config_and_bytecode_inside_its_run(tmp_p
         "    assert Path(os.environ['CLAUDE_CONFIG_DIR']) == run / 'claude-config'\n"
         "    assert os.environ['PYTHONDONTWRITEBYTECODE'] == '1' and sys.dont_write_bytecode\n"
         "    assert request.config.cache._cachedir == run / 'pytest-cache'\n"
+        "    assert Path(os.environ['PYTEST_BREADCRUMB_DIR']) == run / 'breadcrumbs'\n"
         "    request.config.cache.set('probe/value', 1)\n",
     )
     env["CLAUDE_CONFIG_DIR"] = str(tmp_path / "operator-claude")

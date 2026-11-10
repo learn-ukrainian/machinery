@@ -42,7 +42,9 @@ is created. Without one, pytest's cache goes into the run beside its payload,
 so neither a checkout nor ``batch_state`` gets one. For the session, Claude
 Code started directly by a test gets a configuration directory inside the run
 (``CLAUDE_CONFIG_DIR``), never the operator's, and Python writes no bytecode
-(``PYTHONDONTWRITEBYTECODE``); both reach xdist workers and child processes.
+(``PYTHONDONTWRITEBYTECODE``); test breadcrumbs go into the run unless the
+caller names their directory (``PYTEST_BREADCRUMB_DIR``). All of these reach
+xdist workers and child processes.
 
 A terminated session still removes its run: ``SIGTERM`` and ``SIGHUP`` become
 ``KeyboardInterrupt`` in the session that owns the run, so pytest unwinds and
@@ -98,6 +100,9 @@ CACHE_DIRNAME = "pytest-cache"
 CLAUDE_CONFIG_DIRNAME = "claude-config"
 CLAUDE_CONFIG_ENV_VAR = "CLAUDE_CONFIG_DIR"
 NO_BYTECODE_ENV_VAR = "PYTHONDONTWRITEBYTECODE"
+# The suite conftest's per-worker test breadcrumbs; an unset value means the working directory.
+BREADCRUMB_ENV_VAR = "PYTEST_BREADCRUMB_DIR"
+BREADCRUMB_DIRNAME = "breadcrumbs"
 PYTEST_DEFAULT_CACHE_DIR = ".pytest_cache"
 # Termination signals that unwind the owning session so its cleanups remove the run.
 TERMINATION_SIGNALS = (signal.SIGTERM, signal.SIGHUP)
@@ -592,10 +597,11 @@ def pytest_configure(config: pytest.Config) -> None:
     previous_bytecode = sys.dont_write_bytecode
     sys.dont_write_bytecode = True
     config.add_cleanup(partial(setattr, sys, "dont_write_bytecode", previous_bytecode))
-    _set_session_env(
-        config,
-        {NO_BYTECODE_ENV_VAR: "1", CLAUDE_CONFIG_ENV_VAR: str(scratch.path / CLAUDE_CONFIG_DIRNAME)},
-    )
+    session_env = {NO_BYTECODE_ENV_VAR: "1", CLAUDE_CONFIG_ENV_VAR: str(scratch.path / CLAUDE_CONFIG_DIRNAME)}
+    if BREADCRUMB_ENV_VAR not in os.environ:
+        # CI names its own breadcrumb directory to upload; otherwise they would accumulate in the working directory.
+        session_env[BREADCRUMB_ENV_VAR] = str(scratch.path / BREADCRUMB_DIRNAME)
+    _set_session_env(config, session_env)
     # Fixtures and ordinary tempfile users must share a containment root.
     # Workers inherit TMPDIR; this process may already have cached tempdir.
     previous_env = os.environ.get("TMPDIR")

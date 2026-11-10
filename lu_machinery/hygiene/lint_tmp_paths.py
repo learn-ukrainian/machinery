@@ -16,6 +16,7 @@ from bisect import bisect_right
 from collections import Counter, deque
 from dataclasses import dataclass
 from pathlib import Path
+from typing import cast
 
 from lu_machinery.common.repo_root import product_root
 
@@ -2312,8 +2313,8 @@ def scan_python(source: str, path: str) -> list[Finding]:
             if type(value) is str and is_pytest_root_override(value):
                 if source_text_lines is None:
                     source_text_lines = LINE_SEPARATOR.split(source)
-                text = source_text_lines[node.lineno - 1].strip()
-                findings.append(Finding(path, node.lineno, PYTEST_ROOT_MESSAGE + text))
+                lineno = cast(ast.Constant, node).lineno
+                findings.append(Finding(path, lineno, PYTEST_ROOT_MESSAGE + source_text_lines[lineno - 1].strip()))
         elif kind is ast.Call:
             func = node.func
             func_kind = type(func)
