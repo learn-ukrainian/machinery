@@ -114,9 +114,10 @@ context_machinery_bootstrap() {
   # Callers pass the project directory. The probe and the release resolver
   # receive the checkout root: the directory itself when its .git entry is
   # present, otherwise the nearest ancestor that has one. A directory that is
-  # not inside a checkout is passed through, and the probe refuses it before
-  # any interpreter runs. project_interpreter_resolve still treats a missing
-  # .git as a primary, so it must not see that directory.
+  # not inside a checkout is refused here, before any interpreter runs. The
+  # probe's canonical-root override validates that override, not this
+  # directory, and project_interpreter_resolve still treats a missing .git as
+  # a primary, so it must not see that directory.
   if ! start="$(cd -P "$project_dir" 2>/dev/null && pwd)"; then
     echo "${0##*/}: project interpreter not found: untrusted git metadata at ${project_dir}/.git; set LEARN_UKRAINIAN_PYTHON" >&2
     return 1
@@ -128,7 +129,8 @@ context_machinery_bootstrap() {
     candidate="$parent"
   done
   if [ ! -e "$candidate/.git" ] && [ ! -L "$candidate/.git" ]; then
-    candidate="$start"
+    echo "${0##*/}: project interpreter not found: untrusted git metadata at ${start}/.git; set LEARN_UKRAINIAN_PYTHON" >&2
+    return 1
   fi
   probe="$(_context_rule_probe "$candidate")" || return 1
   _context_import_release "$probe" || return 1
