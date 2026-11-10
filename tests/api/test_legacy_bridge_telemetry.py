@@ -57,6 +57,9 @@ def test_default_store_resolves_from_a_linked_worktree_to_the_primary_checkout(
     worktree = tmp_path / "dispatch" / "task"
     worktree_git_dir = primary / ".git" / "worktrees" / "task"
     worktree_git_dir.mkdir(parents=True)
+    for entry in ("objects", "refs"):
+        (primary / ".git" / entry).mkdir()
+    (primary / ".git" / "HEAD").write_text("ref: refs/heads/main\n", encoding="utf-8")
     worktree.mkdir(parents=True)
     (worktree / ".git").write_text(f"gitdir: {worktree_git_dir}\n", encoding="utf-8")
     # #92: the installed package anchors shared state only on the configured primary checkout.
@@ -72,7 +75,9 @@ def test_release_snapshot_store_uses_its_primary_data_symlink(
 ) -> None:
     primary_data = tmp_path / "primary" / "data"
     (primary_data / "telemetry").mkdir(parents=True)
-    (tmp_path / "primary" / ".git").mkdir()
+    for entry in ("objects", "refs"):
+        (tmp_path / "primary" / ".git" / entry).mkdir(parents=True)
+    (tmp_path / "primary" / ".git" / "HEAD").write_text("ref: refs/heads/main\n", encoding="utf-8")
     release = tmp_path / "release"
     release.mkdir()
     (release / "data").symlink_to(primary_data, target_is_directory=True)

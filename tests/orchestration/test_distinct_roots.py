@@ -103,7 +103,10 @@ def layout(tmp_path: Path) -> dict[str, Path]:
     primary = tmp_path / "estate" / "lu-primary"
     kube = tmp_path / "estate" / "kube-dojo"
     for checkout in (primary, kube):
-        (checkout / ".git").mkdir(parents=True)
+        # A real Git directory: Git needs HEAD, objects/ and refs/ before it treats .git as one.
+        for entry in ("objects", "refs"):
+            (checkout / ".git" / entry).mkdir(parents=True)
+        (checkout / ".git" / "HEAD").write_text("ref: refs/heads/main\n", encoding="utf-8")
     rules = tmp_path / "policy" / "rules"
     rules.mkdir(parents=True)
     (rules / "core.md").write_text("# Configured core\n", encoding="utf-8")
@@ -425,6 +428,21 @@ def test_a_linked_worktree_is_never_the_configured_primary_or_state_root(
             resolve()
     with pytest.raises(worktree_claims.ControlPlaneError):
         worktree_claims.public_primary_root()
+
+
+def test_an_empty_git_directory_is_never_the_configured_primary(clean_env, monkeypatch, tmp_path: Path) -> None:
+    """A stray empty .git is not a repository, so it never anchors state; a real primary still does."""
+    stray = tmp_path / "stray"
+    (stray / ".git").mkdir(parents=True)
+    monkeypatch.setenv(rr.PRIMARY_ROOT_ENV, str(stray))
+    for resolve in (rr.configured_primary_root, rr.state_root, rr.machinery_roots):
+        with pytest.raises(rr.MachineryConfigError, match="not a real Git directory"):
+            resolve()
+    real = tmp_path / "real"
+    subprocess.run(["git", "init", "-q", str(real)], check=True, capture_output=True, timeout=30)
+    monkeypatch.setenv(rr.PRIMARY_ROOT_ENV, str(real))
+    assert rr.configured_primary_root() == real
+    assert rr.state_root() == real
 
 
 def test_unset_configuration_keeps_todays_interpreter_order(clean_env, tmp_path: Path) -> None:
