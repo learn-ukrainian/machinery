@@ -75,19 +75,15 @@ fi
 # so no session inherits a broken tree. Runs BEFORE the headless-skip because
 # pipeline jobs need a work tree too. See issue #2842.
 #
-# MACHINERY_DIR holds lu_machinery/ beside agents_extensions/. Run from that
-# layout (a checkout or the installed wheel in site-packages), this file's own
-# tree supplies the code, and the project is CLAUDE_PROJECT_DIR or else the cwd
-# the harness runs hooks in; site-packages is never the project. A deployed copy
-# (.claude/hooks/ in a consumer) takes the project from configuration
-# (CLAUDE_PROJECT_DIR, else LU_PRODUCT_ROOT), never from its own location, and
-# its code from the release installed for the project interpreter, below: a
-# consumer checkout holds no lu_machinery/ (machinery #100, R62).
+# The project is configured (CLAUDE_PROJECT_DIR from the harness, else
+# LU_PRODUCT_ROOT). A checkout whose hook path is agents_extensions/shared/hooks
+# still accepts the cwd when neither is set, because the harness runs that copy
+# with the project as cwd (R44). The code never comes from this file's location:
+# context_machinery_bootstrap, below, uses the release the project interpreter
+# imports (machinery #100, R51, R62).
 _HOOK_DIR="$(cd "$(dirname "$0")" && pwd)"
-MACHINERY_DIR=""
 case "$_HOOK_DIR" in
   */agents_extensions/shared/hooks)
-    MACHINERY_DIR="${_HOOK_DIR%/agents_extensions/shared/hooks}"
     PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$(pwd)}"
     ;;
   *)
@@ -175,81 +171,14 @@ else
   fi
 fi
 
-# One interpreter (R66): LEARN_UKRAINIAN_PYTHON when it is an absolute executable
-# file, else the validated primary checkout's .venv/bin/python, else refuse.
-# lib/project_interpreter.sh is that rule. An in-tree hook sources the copy
-# beside it. A deployed copy uses the same rule to find the installed release,
-# then sources that release's copy and keeps the resolver's answer. An invalid
-# override does not fall back.
-_session_import_machinery_dir() {
-  _hook_deadline 3 "$1" -I -c '
-import os, lu_machinery
-print(os.path.dirname(os.path.dirname(os.path.abspath(lu_machinery.__file__))))
-' 2>/dev/null
-}
-_session_probe_python() {
-  local configured="${LEARN_UKRAINIAN_PYTHON:-}" root="$1"
-  if [ -n "$configured" ]; then
-    case "$configured" in
-      /*) ;;
-      *)
-        echo "session-setup.sh: LEARN_UKRAINIAN_PYTHON must be an absolute path, got $configured" >&2
-        return 1
-        ;;
-    esac
-    if [ ! -f "$configured" ] || [ ! -x "$configured" ]; then
-      echo "session-setup.sh: LEARN_UKRAINIAN_PYTHON=$configured is not an executable file" >&2
-      return 1
-    fi
-    printf '%s\n' "$configured"
-    return 0
-  fi
-  # Git could not name the primary, so the probe root is this directory.
-  # A linked worktree's .git is a file; its .venv is not the interpreter.
-  if [ -f "${PROJECT_DIR:-}/.git" ] && [ "$root" = "${PROJECT_DIR:-}" ]; then
-    echo "session-setup.sh: project interpreter not found: a linked worktree .venv is not used" >&2
-    return 1
-  fi
-  if [ -n "$root" ] && [ -x "$root/.venv/bin/python" ]; then
-    printf '%s\n' "$root/.venv/bin/python"
-    return 0
-  fi
-  echo "session-setup.sh: project interpreter not found: ${root:-<unset>}/.venv/bin/python" >&2
-  return 1
-}
-_session_source_interpreter() {
-  # shellcheck source=lu_machinery/lib/project_interpreter.sh
-  source "$1/lu_machinery/lib/project_interpreter.sh"
-}
-if [ -n "$MACHINERY_DIR" ]; then
-  _session_source_interpreter "$MACHINERY_DIR" || {
-    echo "session-setup.sh: cannot source $MACHINERY_DIR/lu_machinery/lib/project_interpreter.sh" >&2
-    exit 1
-  }
-  SHARED_PYTHON="$(project_interpreter_resolve "$PROJECT_DIR")" || exit 1
-else
-  SHARED_PYTHON="$(_session_probe_python "$CANONICAL_ROOT")" || exit 1
-  MACHINERY_DIR="$(_session_import_machinery_dir "$SHARED_PYTHON")" || MACHINERY_DIR=""
-  if [ -z "$MACHINERY_DIR" ] || [ ! -f "$MACHINERY_DIR/lu_machinery/__init__.py" ]; then
-    echo "session-setup.sh: no installed lu_machinery release: the project interpreter $SHARED_PYTHON cannot import lu_machinery" >&2
-    exit 1
-  fi
-  _session_source_interpreter "$MACHINERY_DIR" || {
-    echo "session-setup.sh: cannot source $MACHINERY_DIR/lu_machinery/lib/project_interpreter.sh" >&2
-    exit 1
-  }
-  RESOLVED="$(project_interpreter_resolve "$PROJECT_DIR")" || exit 1
-  if [ "$RESOLVED" != "$SHARED_PYTHON" ]; then
-    SHARED_PYTHON="$RESOLVED"
-    MACHINERY_DIR="$(_session_import_machinery_dir "$SHARED_PYTHON")" || MACHINERY_DIR=""
-    if [ -z "$MACHINERY_DIR" ] || [ ! -f "$MACHINERY_DIR/lu_machinery/__init__.py" ]; then
-      echo "session-setup.sh: no installed lu_machinery release: the project interpreter $SHARED_PYTHON cannot import lu_machinery" >&2
-      exit 1
-    fi
-    _session_source_interpreter "$MACHINERY_DIR" || exit 1
-  fi
-  SHARED_PYTHON="$RESOLVED"
-fi
+# One interpreter (R66) and code root (machinery #100 R51, R62, R69): the release
+# the one project interpreter imports, never this file's location. Fails closed:
+# refuse, with the reason on stderr, rather than run code from anywhere else.
+# shellcheck source=agents_extensions/shared/hooks/context-rollover-lib.sh
+source "$(dirname "${BASH_SOURCE[0]}")/context-rollover-lib.sh" \
+  || { echo "session-setup.sh: context-rollover-lib.sh is missing beside this hook" >&2; exit 1; }
+context_machinery_bootstrap "$PROJECT_DIR" || exit 1
+SHARED_PYTHON="$CONTEXT_PROJECT_PYTHON"
 BOUNDED_PYTHON="$SHARED_PYTHON"
 project_python_command "$BOUNDED_PYTHON" || exit 1
 BOUNDED_RUNNER_DEFAULT="$MACHINERY_DIR/lu_machinery/agent_runtime/bounded_command.py"

@@ -136,7 +136,6 @@ POLLUTED_PARENT_TESTS = {
     "tests/test_start_codex_claude_code.py::test_codex_claude_code_clears_foreign_ambient_auth_before_exec": "Codex proxy explicit fake PATH and hostile auth",
     "tests/test_start_codex_launcher.py::test_codex_native_harness_is_default_and_forwards_arguments_after_separator": "Codex interactive shared launcher consumer",
     "tests/test_start_glm_launcher.py::test_glm_retirement_precedes_profile_export": "retired GLM wrapper and explicit fake PATH",
-    "tests/test_start_glm_launcher.py::test_claude_route_guard_checks_primary_checkout_settings_for_linked_worktree": "GLM Git fixture and direct route-guard environments",
     "tests/test_start_kimi_claude_code.py::test_kimicc_interactive_dry_run_refuses_retired_pins": "retired Kimi Claude-Code shared launcher consumer",
     "tests/test_start_kimi_launcher.py::test_kimi_native_is_default_and_interactive_rejects_epic": "retired native Kimi shared launcher consumer",
     "tests/test_launcher_sandbox_closure.py::test_slot_registry_closure_includes_fleet_comms_contracts_shim": "shared measured sandbox import closure",
