@@ -1021,10 +1021,18 @@ class _Expander:
             elif tok == "function":
                 i += 1  # its name
             elif tok == "time":
-                # Bash reads ``time [-p] [--] command``: at most one of each.
+                # Bash reads ``time [-p] [--] command``: at most one of each. Quotes are gone
+                # here, so ``"time"`` and ``\time`` (the executable) look the same. When
+                # another option follows, keep ``time`` as the executable: its options then
+                # pass the wrapper allowlist (`_command_walk`), and the keyword would only
+                # have run a command named by that option.
+                j = i + 1
                 for option in ("-p", "--"):
-                    if i + 1 < len(tokens) and tokens[i + 1] == option:
-                        i += 1
+                    if j < len(tokens) and tokens[j] == option:
+                        j += 1
+                if j < len(tokens) and tokens[j].startswith("-"):
+                    break
+                i = j - 1
             elif tok not in _COMPOUND_PREFIXES:
                 break
             i += 1
@@ -1034,7 +1042,8 @@ class _Expander:
 
     def _segment(self, tokens: list[str], prev_op: str, next_op: str) -> list[ShellWord]:
         body, header = self._strip_reserved(tokens)
-        self.uv_dir_bound = self._bound("UV_WORKING_DIR")
+        # ``UV_ENV_FILE`` names a dotenv file a nested uv reads ``UV_WORKING_DIR`` from.
+        self.uv_dir_bound = self._bound("UV_WORKING_DIR") or self._bound("UV_ENV_FILE")
         if not body:
             return []
         unconditional = (
@@ -1066,6 +1075,11 @@ class _Expander:
     def _command_effects(self, body: list[str], *, unconditional: bool) -> None:
         cmd, idx = _command_word(body)
         args = body[idx + 1 :]
+        if idx < len(body) and _DYNAMIC_NAME_RE.search(body[idx]):
+            # ``E=export; command $E X=1``: the raw command word is an expansion or a
+            # pattern, so it may name ``export``, ``source`` or any builtin that binds.
+            self._opaque()
+            return
         if _command_position(body)[2]:
             return
         if cmd in _OPAQUE_ASSIGNERS:
@@ -1269,13 +1283,26 @@ _UV_SHORT_FLAGS = frozenset({"-h", "-m", "-n", "-q", "-s", "-U", "-v", "-V"})
 _PATH_WRAPPERS = frozenset({"env", "nice", "nohup", "stdbuf", "sudo", "time", "timeout", "uv", "uvx"})
 
 
-def _unknown_word(word: str) -> bool:
-    """Whether ``word`` holds an unknown expansion.
+# A pathname pattern (``*``, ``?``, ``[...]``) or a brace expansion (``{a,b}``, ``{1..3}``).
+_PATTERN_RE = re.compile(r"[*?]|\[[^\]]*\]|\{[^}]*(?:,|\.\.)[^}]*\}")
+# A raw (unexpanded) command word whose name the expansion decides.
+_DYNAMIC_NAME_RE = re.compile(r"[$`*?]|\[[^\]]*\]|\{[^}]*(?:,|\.\.)[^}]*\}")
 
-    Between a wrapper and its command such a word is undecidable: unquoted, it may split into
-    further words, and any of them may be an option, a ``NAME=VALUE`` binding or the command.
+
+def _unclassifiable(word: str) -> bool:
+    """Whether the guard cannot tell which arguments ``word`` becomes after a wrapper.
+
+    That is an unknown expansion (unquoted, it may split into options, bindings or the
+    command), an empty word (an unquoted empty expansion is removed, shifting the next word
+    into its place), a pathname or brace pattern (it may become several words), or a lone
+    ``-`` (``env -`` clears the environment).
     """
-    return getattr(word, "unresolved_at", None) is not None
+    return (
+        getattr(word, "unresolved_at", None) is not None
+        or not word
+        or word == "-"
+        or _PATTERN_RE.search(word) is not None
+    )
 
 
 class _UvLaunch(NamedTuple):
@@ -1306,7 +1333,7 @@ def _uv_launch(segment: list[str], i: int) -> _UvLaunch | None:
     i += 1
     while i < len(segment):
         tok = segment[i]
-        if _unknown_word(tok):
+        if _unclassifiable(tok):
             return _UvLaunch(i, module, directory, env_file, undecidable=True)
         if tok == "--":
             if stage != "run":
@@ -1321,7 +1348,7 @@ def _uv_launch(segment: list[str], i: int) -> _UvLaunch | None:
                 else:
                     i += 1
                     value = segment[i] if i < len(segment) else None
-                    if value is not None and _unknown_word(value):
+                    if value is not None and _unclassifiable(value):
                         return _UvLaunch(i, module, directory, env_file, undecidable=True)
                 if option == "--directory":
                     directory = value
@@ -1332,10 +1359,10 @@ def _uv_launch(segment: list[str], i: int) -> _UvLaunch | None:
                 return _UvLaunch(i, module, directory, env_file, undecidable=True)
             i += 1
             continue
-        if tok.startswith("-") and tok != "-":
+        if tok.startswith("-"):
             if tok in _UV_SHORT_VALUE_OPTIONS:
                 i += 1
-                if i < len(segment) and _unknown_word(segment[i]):
+                if i < len(segment) and _unclassifiable(segment[i]):
                     return _UvLaunch(i, module, directory, env_file, undecidable=True)
             elif tok in _UV_SHORT_FLAGS:
                 module = module or tok == "-m"
@@ -1419,11 +1446,11 @@ def _wrapper_options(wrapper: str, segment: list[str], i: int) -> tuple[int, lis
     read: list[tuple[str, object]] = []
     while i < len(segment):
         tok = segment[i]
-        if _unknown_word(tok):
+        if _unclassifiable(tok):
             return i, read, True
         if tok == "--":
             return i + 1, read, False
-        if not tok.startswith("-") or tok == "-":
+        if not tok.startswith("-"):
             break
         spelling, eq, _ = tok.partition("=") if tok.startswith("--") else (tok, "", "")
         entry = table.get(spelling)
@@ -1439,7 +1466,7 @@ def _wrapper_options(wrapper: str, segment: list[str], i: int) -> tuple[int, lis
             i += 1
         elif takes_value:
             value = segment[i + 1] if i + 1 < len(segment) else None
-            if value is not None and _unknown_word(value):
+            if value is not None and _unclassifiable(value):
                 return i + 1, read, True
             i += 2
         else:
@@ -1491,7 +1518,7 @@ def _command_walk(segment: list[str]) -> _CommandWalk:
             i += 1
             continue
         prefix = False
-        if wrapped and _unknown_word(tok):
+        if wrapped and _unclassifiable(tok):
             return undecidable(i)
         name = Path(tok).name if Path(tok).name in _PATH_WRAPPERS else tok
         if name in _PATH_WRAPPERS or name in {"builtin", "command", "exec"}:
@@ -1534,12 +1561,12 @@ def _command_walk(segment: list[str]) -> _CommandWalk:
             if name in {"env", "sudo"}:
                 events.extend(("env", option) for option in read)
             if name == "timeout" and i < len(segment):
-                if _unknown_word(segment[i]):
+                if _unclassifiable(segment[i]):
                     return undecidable(i)
                 i += 1  # duration
             if name in _ASSIGNING_WRAPPERS:
                 while i < len(segment) and _ASSIGN_RE.match(segment[i]):
-                    if _unknown_word(segment[i]):
+                    if _unclassifiable(segment[i]):
                         return undecidable(i)  # an unquoted value may split into a command
                     events.append(("assign", segment[i]))
                     i += 1
@@ -2304,8 +2331,12 @@ def _names_primary_literal(word: str, cwd: str, main_root: Path) -> bool:
 
 
 def _changed_cwd(cwd: str | None, path: str) -> str | None:
-    """The directory a command changes to; None when the guard cannot know it."""
-    if getattr(path, "unresolved_at", None) is not None or re.search(r"[*?\[\]{}]", path):
+    """The directory a command changes to; None when the guard cannot know it.
+
+    A ``~`` anywhere is unknown: Bash expands it in an assignment value (``UV_WORKING_DIR=~``)
+    with the shell's own ``HOME``.
+    """
+    if getattr(path, "unresolved_at", None) is not None or re.search(r"[*?\[\]{}~]", path):
         return None
     if Path(path).is_absolute():
         return str(Path(path).resolve())
@@ -2321,6 +2352,13 @@ _UV_DIR_UNKNOWN = ShellWord("$UV_WORKING_DIR", unresolved_at=0)
 _UV_DIR_INHERITED = object()
 
 
+def _inherited_uv_env() -> str | None:
+    """``UV_WORKING_DIR`` from the hook's environment; unknown when ``UV_ENV_FILE`` may set it."""
+    if os.environ.get("UV_ENV_FILE"):
+        return _UV_DIR_UNKNOWN
+    return os.environ.get("UV_WORKING_DIR") or None
+
+
 def _command_context(segment: list[str], cwd: str | None, uv_env: str | None) -> tuple[str | None, str | None]:
     """The cwd a segment's command runs in and the ``UV_WORKING_DIR`` it inherits.
 
@@ -2332,7 +2370,9 @@ def _command_context(segment: list[str], cwd: str | None, uv_env: str | None) ->
     for kind, payload in _command_walk(_without_redirects(segment)).events:
         if kind == "assign":
             match = _ASSIGN_RE.match(payload)
-            if match and match.group(1) == "UV_WORKING_DIR":
+            if match and match.group(1) == "UV_ENV_FILE":
+                uv_env = _UV_DIR_UNKNOWN  # a nested uv reads its directory from that file
+            elif match and match.group(1) == "UV_WORKING_DIR":
                 # ``+=`` and an array index build on a value the guard does not track.
                 start = match.end()
                 exact = not (match.group(2) or match.group(3))
@@ -2375,7 +2415,7 @@ def _segments_with_cwd(command: str, cwd: str | None, uv_env: object = _UV_DIR_I
     hook's own environment.
     """
     if uv_env is _UV_DIR_INHERITED:
-        uv_env = os.environ.get("UV_WORKING_DIR") or None
+        uv_env = _inherited_uv_env()
     scope_cwds: dict[tuple[int, ...], str | None] = {(): cwd}
     scope_dirs: dict[tuple[int, ...], list[str | None]] = {(): []}
     scope_cdpath_empty: dict[tuple[int, ...], bool] = {(): False}
@@ -2444,7 +2484,7 @@ def bash_write_targets(
     ``UV_WORKING_DIR`` the command's shell inherits; by default the hook's environment.
     """
     if uv_env is _UV_DIR_INHERITED:
-        uv_env = os.environ.get("UV_WORKING_DIR") or None
+        uv_env = _inherited_uv_env()
     _refuse_nested_ansi_c_quoting(command, depth)
     if depth >= _MAX_SHELL_DEPTH:
         unknown = ShellWord("shell recursion limit")

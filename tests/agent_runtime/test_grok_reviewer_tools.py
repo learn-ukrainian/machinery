@@ -138,6 +138,11 @@ def test_reviewer_opt_in_denies_bash_and_guards_all_tracked_reads(tmp_path: Path
         ("nice --adj 5 python -m scripts.publish issue-comment --number 1", True),
         ("uv run -qm scripts.publish issue-comment --number 1", True),
         ("nohup $UNKNOWN python -m scripts.publish issue-comment --number 1", True),
+        # env's lone -, a quoted time (the executable), an empty expansion and a brace pattern.
+        ("env - python -m scripts.publish issue-comment --number 1", True),
+        ('"time" -f %e python -m scripts.publish issue-comment --number 1', True),
+        ("X=; nohup $X python -m scripts.publish issue-comment --number 1", True),
+        ("nohup {python,python} -m scripts.publish issue-comment --number 1", True),
         ("uv run pytest -q", False),
         ("uv run python -m scripts.foo bar", False),
         ("gh pr comment 8912 --body test", True),
@@ -440,6 +445,21 @@ def test_grok_hook_bridge_primary_checkout_write_guard(agent_runtime_roots, monk
         # An exec or env option the guard does not model hides the writer; it is refused anywhere.
         ("run_terminal_command", {"command": f"exec -c tee {probe}"}, True, "undecidable_wrapper_option"),
         ("run_terminal_command", {"command": f"env --argv0 x tee {probe}"}, True, "undecidable_wrapper_option"),
+        # A builtin named by an expansion, an agent-set UV_ENV_FILE and a ~ value make uv's
+        # directory unknown, so a relative target refuses.
+        (
+            "run_terminal_command",
+            {"command": f"E=export; command $E UV_WORKING_DIR={primary}; uv run tee {probe.name}"},
+            True,
+            f"'{probe.name}'",
+        ),
+        (
+            "run_terminal_command",
+            {"command": f"UV_ENV_FILE=/dev/stdin uv run bash -c 'uv run tee {probe.name}'"},
+            True,
+            f"'{probe.name}'",
+        ),
+        ("run_terminal_command", {"command": f"UV_WORKING_DIR=~ uv run tee {probe.name}"}, True, f"'{probe.name}'"),
         ("write", {"file_path": str(allow), "content": "ok"}, False),
     ]
     for tool_name, tool_input, blocked, *shown in cases:
