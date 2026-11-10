@@ -122,6 +122,31 @@ def test_reviewer_opt_in_denies_bash_and_guards_all_tracked_reads(tmp_path: Path
         ("cd lu_machinery && python -m publish issue-comment --number 1", True),
         ("python scripts/publish/__pycache__/__main__.cpython-312.pyc issue-comment --number 1", True),
         ("python -m scripts.foo bar", False),
+        # A launcher runs the publisher too: uv run's command, its -m module and a script or
+        # directory it hands to Python, a wrapper spelled as a path, and the time keyword's -p.
+        ("uv run python -m scripts.publish issue-comment --number 1 --body unit", True),
+        ("uv run --no-sync python -m lu_machinery.publish issue-comment --number 1", True),
+        ("uv run -m scripts.publish issue-comment --number 1", True),
+        ("uv run scripts/publish/__main__.py issue-comment --number 1", True),
+        ("/usr/bin/timeout 5 python -m scripts.publish issue-comment --number 1", True),
+        ("time -p python -m scripts.publish issue-comment --number 1", True),
+        ("/usr/bin/time -p python -m scripts.publish issue-comment --number 1", True),
+        # A wrapper option outside the guard's allowlist, or an unknown expansion between a
+        # wrapper and its command, may hide the command it runs: each such class is refused.
+        ("env -S 'uv run' -m scripts.publish issue-comment --number 1", True),
+        ("/usr/bin/time -pf %e python -m scripts.publish issue-comment --number 1", True),
+        ("nice --adj 5 python -m scripts.publish issue-comment --number 1", True),
+        ("uv run -qm scripts.publish issue-comment --number 1", True),
+        ("nohup $UNKNOWN python -m scripts.publish issue-comment --number 1", True),
+        # env's lone -, a quoted time (the executable), an empty expansion and a brace pattern.
+        ("env - python -m scripts.publish issue-comment --number 1", True),
+        ('"time" -f %e python -m scripts.publish issue-comment --number 1', True),
+        ("X=; nohup $X python -m scripts.publish issue-comment --number 1", True),
+        ("nohup {python,python} -m scripts.publish issue-comment --number 1", True),
+        # A word after a quoted time (the executable) that expands to an option.
+        ('X=-f; "time" $X %e python -m scripts.publish issue-comment --number 1', True),
+        ("uv run pytest -q", False),
+        ("uv run python -m scripts.foo bar", False),
         ("gh pr comment 8912 --body test", True),
     ],
 )
@@ -407,9 +432,54 @@ def test_grok_hook_bridge_primary_checkout_write_guard(agent_runtime_roots, monk
             True,
         ),
         ("run_terminal_command", {"command": f"printf probe > {probe}"}, True),
+        # uv runs the wrapped writer, and --directory moves it into the primary; the refusal
+        # names a relative target as written.
+        ("run_terminal_command", {"command": f"uv run --no-sync tee {probe}"}, True),
+        ("run_terminal_command", {"command": f"uv run --directory {primary} tee {probe.name}"}, True, f"'{probe.name}'"),
+        # A builtin after a redirect binds in this shell; a quoted name still sets uv's directory.
+        ("run_terminal_command", {"command": f"D=/tmp/; < /usr/bin/env export D={primary}/; tee ${{D}}{probe.name}"}, True),
+        (
+            "run_terminal_command",
+            {"command": f'export UV_WORKING_""DIR={primary}; uv run tee {probe.name}'},
+            True,
+            f"'{probe.name}'",
+        ),
+        # An exec or env option the guard does not model hides the writer; it is refused anywhere.
+        ("run_terminal_command", {"command": f"exec -c tee {probe}"}, True, "undecidable_wrapper_option"),
+        ("run_terminal_command", {"command": f"env --argv0 x tee {probe}"}, True, "undecidable_wrapper_option"),
+        # A builtin named by an expansion, an agent-set UV_ENV_FILE and a ~ value make uv's
+        # directory unknown, so a relative target refuses.
+        (
+            "run_terminal_command",
+            {"command": f"E=export; command $E UV_WORKING_DIR={primary}; uv run tee {probe.name}"},
+            True,
+            f"'{probe.name}'",
+        ),
+        (
+            "run_terminal_command",
+            {"command": f"UV_ENV_FILE=/dev/stdin uv run bash -c 'uv run tee {probe.name}'"},
+            True,
+            f"'{probe.name}'",
+        ),
+        ("run_terminal_command", {"command": f"UV_WORKING_DIR=~ uv run tee {probe.name}"}, True, f"'{probe.name}'"),
+        # After time, an empty word or a builtin that changes this shell, which only the keyword
+        # runs here; and a dotenv source that unsetting UV_WORKING_DIR does not clear.
+        ("run_terminal_command", {"command": f"X=; time $X tee {probe}"}, True, "undecidable_wrapper_option"),
+        (
+            "run_terminal_command",
+            {"command": f'D={primary}/; "time" export D=/tmp/; tee ${{D}}{probe.name}'},
+            True,
+            "undecidable_wrapper_option",
+        ),
+        (
+            "run_terminal_command",
+            {"command": f"UV_ENV_FILE=/dev/stdin env -u UV_WORKING_DIR uv run bash -c 'uv run tee {probe.name}'"},
+            True,
+            f"'{probe.name}'",
+        ),
         ("write", {"file_path": str(allow), "content": "ok"}, False),
     ]
-    for tool_name, tool_input, blocked in cases:
+    for tool_name, tool_input, blocked, *shown in cases:
         event = {
             "hook_event_name": "PreToolUse",
             "toolName": tool_name,
@@ -430,7 +500,7 @@ def test_grok_hook_bridge_primary_checkout_write_guard(agent_runtime_roots, monk
         assert (result.returncode == 2) is blocked, (tool_name, result.returncode, result.stderr)
         if blocked:
             assert "BLOCKED by guard-primary-checkout-write" in result.stderr
-            assert str(probe) in result.stderr
+            assert (shown[0] if shown else str(probe)) in result.stderr
 
 
 @pytest.mark.parametrize("tool", ["run_terminal_command", "run_terminal_cmd", "Bash"])

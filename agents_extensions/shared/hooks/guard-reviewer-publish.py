@@ -151,6 +151,41 @@ def _runs_publisher(args: list[str]) -> bool:
     return hit and tail != ["--help"] and not (len(tail) == 2 and tail[-1] == "--help")
 
 
+def _argv_blocked(binary: str, args: list[str], parser, depth: int) -> str | None:
+    if binary == "git":
+        _, _, rest = parser._git_global_prefix(args)
+        if rest and rest[0] == "push":
+            return "git push"
+    elif binary == "gh":
+        rest = _gh_args(args)
+        if not rest:
+            return None
+        group = rest[0]
+        group_args = _gh_args(rest[1:])
+        if group in {"pr", "issue"} and group_args and group_args[0] in _PR_ISSUE_WRITES:
+            return f"gh {group} {group_args[0]}"
+        if group == "api" and _api_writes(rest[1:]):
+            return "gh api write"
+        if group == "release" or (group == "workflow" and len(rest) > 1 and rest[1] == "run"):
+            return f"gh {group} publish"
+    elif binary.startswith("python"):
+        if _runs_publisher(args):
+            return "typed GitHub publisher"
+    elif binary in {"bash", "sh", "eval"}:
+        if binary == "eval":
+            body = " ".join(args)
+        else:
+            body = ""
+            for i, arg in enumerate(args):
+                if arg == "-c" or (arg.startswith("-") and "c" in arg[1:]):
+                    if i + 1 < len(args):
+                        body = args[i + 1]
+                    break
+        if body:
+            return blocked(body, parser, depth + 1)
+    return None
+
+
 def blocked(command: str, parser=None, depth: int = 0) -> str | None:
     if depth > 8:
         return "nested shell command exceeds reviewer inspection depth"
@@ -160,42 +195,22 @@ def blocked(command: str, parser=None, depth: int = 0) -> str | None:
     if parser._has_ansi_c_quoting(command):
         return "Bash ANSI-C quoting ($'...')"
     for segment in parser._expanded_segments(command):
+        # A wrapper option the parser does not model (``env -S``, ``exec -c``, ``time -f``)
+        # may hide the command it runs: refuse it rather than guess (`_command_walk`). So may
+        # an option-like or builtin word after a ``time`` the expander removed (`_timed_refusal`).
+        refused = getattr(segment, "refusal", None)
         segment = parser._without_redirects(segment)
-        binary, index = parser._command_word(segment)
-        args = [str(word) for word in segment[index + 1 :]]
-        if binary == "git":
-            _, _, rest = parser._git_global_prefix(args)
-            if rest and rest[0] == "push":
-                return "git push"
-        elif binary == "gh":
-            rest = _gh_args(args)
-            if not rest:
-                continue
-            group = rest[0]
-            group_args = _gh_args(rest[1:])
-            if group in {"pr", "issue"} and group_args and group_args[0] in _PR_ISSUE_WRITES:
-                return f"gh {group} {group_args[0]}"
-            if group == "api" and _api_writes(rest[1:]):
-                return "gh api write"
-            if group == "release" or (group == "workflow" and len(rest) > 1 and rest[1] == "run"):
-                return f"gh {group} publish"
-        elif binary and Path(binary).name.startswith("python"):
-            if _runs_publisher(args):
-                return "typed GitHub publisher"
-        elif binary in {"bash", "sh", "eval"}:
-            if binary == "eval":
-                body = " ".join(args)
-            else:
-                body = ""
-                for i, arg in enumerate(args):
-                    if arg == "-c" or (arg.startswith("-") and "c" in arg[1:]):
-                        if i + 1 < len(args):
-                            body = args[i + 1]
-                        break
-            if body:
-                reason = blocked(body, parser, depth + 1)
-                if reason:
-                    return reason
+        if refused is None:
+            refused = parser._command_walk(segment).undecidable
+        if refused is not None:
+            return f"a command behind an unclassifiable wrapper word ({refused!r})"
+        # Every argv the command may run: a launcher such as ``uv run`` can run its target
+        # as a command or with Python.
+        for argv in parser._command_argvs(segment):
+            words = [str(word) for word in argv]
+            reason = _argv_blocked(Path(words[0]).name, words[1:], parser, depth)
+            if reason:
+                return reason
     return None
 
 
