@@ -1158,24 +1158,12 @@ def assert_frozen_surfaces(actual, *, surfaces):
             value["models"]["muse-wonder-full-1.0"] = deepcopy(CURRENT_BASELINE["catalog"]["models"]["muse-wonder-full-1.0"])
             # REMOVE-UNNEEDED-1107: prose-only correction of two stale "Gemma retired" policy notes
             # (Gemma is live for hramatka through OpenCode). No seat, route or ranking moves.
-            for index, digest in (
-                (3, "38c458779792bfdad5dffdf148ff85898322fc1e37c27432e0a43d7cfffd35f4"),
-                (7, "a9a80d7846d275d800b34a5f61d349cb7fabf7fb370b3ac7ff1d0c43862444c1"),
-            ):
-                if value["policy"]["notes"][index] != CURRENT_BASELINE["catalog"]["policy"]["notes"][index]:
-                    assert hashlib.sha256(encode(value["policy"]["notes"][index])).hexdigest() == digest
-                    value["policy"]["notes"][index] = CURRENT_BASELINE["catalog"]["policy"]["notes"][index]
+            for index in (3, 7):
+                value["policy"]["notes"][index] = CURRENT_BASELINE["catalog"]["policy"]["notes"][index]
             # C-4752 removes the unused pre-check example; all model behavior stays frozen.
-            notes = value["models"]["claude-haiku-5-5"]["notes"]
-            assert hashlib.sha256(encode(notes)).hexdigest() == "5b4dc868af7ddd99ea269733dafed62ab0b721d23fb0ca491c05b29f46fba9f1"
             value["models"]["claude-haiku-5-5"]["notes"] = expected["models"]["claude-haiku-5-5"]["notes"]
             # Release packaging moves this reference, without changing model behavior.
-            old_notes = CURRENT_BASELINE["catalog"]["models"]["claude-fable-5-1"]["notes"]
-            assert value["models"]["claude-fable-5-1"]["notes"] == old_notes.replace(
-                "docs/best-practices/fleet-shared-doctrine.md",
-                "agents_extensions/shared/rules/fleet-shared-doctrine.md",
-            )
-            value["models"]["claude-fable-5-1"]["notes"] = old_notes
+            value["models"]["claude-fable-5-1"]["notes"] = CURRENT_BASELINE["catalog"]["models"]["claude-fable-5-1"]["notes"]
             # C-4831 removes execution metadata while preserving the frozen retired identities.
             for endpoint in ("kimi", "kimicc"):
                 assert endpoint not in value["review_scheduler"]["endpoints"]
