@@ -265,7 +265,7 @@ Related: #11470; agents_extensions/shared/rules/workflow.md, Small batches.
     policy_path = None
     lookup_error = None
     try:
-        args.repo = product_root(args.repo)
+        args.repo = product_root(args.repo.absolute() if args.repo is not None else None)
         policy_path = rules_dir() / "workflow.md"
     except (OSError, ValueError) as exc:
         lookup_error = exc

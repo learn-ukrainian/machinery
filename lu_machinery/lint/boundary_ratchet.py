@@ -1107,7 +1107,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
     try:
-        root = product_root(args.root).resolve()
+        root = product_root(args.root.absolute() if args.root is not None else None).resolve()
         baseline = product_tree_path(*BASELINE_PATH.parts, root=root) if args.baseline is None else (
             args.baseline if args.baseline.is_absolute() else root / args.baseline
         )

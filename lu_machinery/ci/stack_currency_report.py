@@ -377,8 +377,11 @@ def main(argv: list[str] | None = None) -> int:
         args.body_out.parent.mkdir(parents=True, exist_ok=True)
         args.body_out.write_text(body, encoding="utf-8")
         print("stack-currency body written")
-    except (OSError, ValueError) as exc:
+    except (PinFileError, PublicationRefused) as exc:
         print(str(exc))
+        return 1
+    except (OSError, ValueError):
+        print("stack currency inputs unavailable")
         return 1
     return 0
 

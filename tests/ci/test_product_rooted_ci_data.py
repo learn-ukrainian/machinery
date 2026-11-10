@@ -126,7 +126,7 @@ def test_wheel_cannot_supply_checkout_ci_census(installed: tuple[Path, Path]) ->
 def test_product_defaults_control_shards_guards_and_stack_names(
     tmp_path: Path, installed: tuple[Path, Path], variant: str,
 ) -> None:
-    """Cross-product defaults change shard membership, guards, or publishable pin names."""
+    """Wrong product defaults or rejected relative root flags change CI behavior."""
     python, _wheel = installed
     root, env = _product(tmp_path, variant)
     expected = (
@@ -159,16 +159,31 @@ def test_product_defaults_control_shards_guards_and_stack_names(
     assert f"| product-{variant} |" in body
     assert f"| product-{'beta' if variant == 'alpha' else 'alpha'} |" not in body
     assert "| python |" not in body
+    unavailable = str(tmp_path / "absent")
+    refused = _run(python, tmp_path, {**env, "LU_PRODUCT_ROOT": unavailable},
+                   "-m", "lu_machinery.ci.stack_currency_report", "collect", "--out", "absent-report.json")
+    assert refused.returncode == 1
+    assert unavailable not in refused.stdout + refused.stderr
     for module in ("mypy_ratchet", "boundary_ratchet"):
         result = _run(python, tmp_path, env, "-m", f"lu_machinery.lint.{module}")
         assert result.returncode == 0, result.stdout + result.stderr
+        explicit = _run(python, tmp_path, {**env, "LU_PRODUCT_ROOT": str(tmp_path / "absent")},
+                        "-m", f"lu_machinery.lint.{module}", "--root", variant)
+        assert explicit.returncode == 0, explicit.stdout + explicit.stderr
     guard = _run(python, tmp_path, env, "-m", "lu_machinery.ci.check_large_files", "--changed-vs-base", "HEAD^1")
+    assert guard.returncode == 0, guard.stdout + guard.stderr
+    guard = _run(python, tmp_path, {**env, "LU_PRODUCT_ROOT": str(tmp_path / "absent")},
+                 "-m", "lu_machinery.ci.check_large_files", "--changed-vs-base", "HEAD^1", "--repo-root", variant)
     assert guard.returncode == 0, guard.stdout + guard.stderr
     size = _run(python, tmp_path, env, "-m", "lu_machinery.ci.pr_size_warning",
                 "--base", _git(root, "rev-parse", "HEAD^1"), "--head", env["GITHUB_SHA"])
     assert size.returncode == 0, size.stderr
     assert json.loads(size.stdout.splitlines()[0])["status"] == "measured"
     assert json.loads(size.stdout.splitlines()[0])["changed_non_test_lines"] == 2
+    size = _run(python, tmp_path, {**env, "LU_PRODUCT_ROOT": str(tmp_path / "absent")},
+                "-m", "lu_machinery.ci.pr_size_warning", "--repo", variant)
+    assert size.returncode == 0, size.stderr
+    assert json.loads(size.stdout.splitlines()[0])["status"] == "measured"
     size = _run(python, tmp_path, env, "-m", "lu_machinery.ci.pr_size_warning",
                 "--event-path", str(tmp_path / "absent-event.json"))
     assert size.returncode == 0, size.stderr
