@@ -1890,6 +1890,9 @@ def test_muse_probe_reads_muse_usage_json(monkeypatch):
         captured["kwargs"] = kwargs
         return subprocess.CompletedProcess(argv, 0, stdout=json.dumps(payload), stderr=_MUSE_EMAIL)
 
+    from tests.opsec_fixtures import TOKEN
+
+    monkeypatch.setenv("GH_TOKEN", TOKEN)
     monkeypatch.setattr(
         subscription_usage_mod.shutil, "which", lambda name: "/usr/bin/muse" if name == "muse" else None
     )
@@ -1897,6 +1900,10 @@ def test_muse_probe_reads_muse_usage_json(monkeypatch):
     record = subscription_usage_mod.fetch_provider_usage("muse", timeout_s=5)
     assert captured["argv"] == ["/usr/bin/muse", "usage", "--json"]
     assert captured["kwargs"]["stdin"] is subprocess.DEVNULL
+    usage_env = captured["kwargs"]["env"]
+    assert usage_env["MUSE_NO_AUTO_UPDATE"] == "1"
+    assert "GH_TOKEN" not in usage_env
+    assert TOKEN not in usage_env.values()
     assert record["status"] == "healthy"
     assert record["source"] == "muse_usage"
     assert record["weekly_used_pct"] == 30.0

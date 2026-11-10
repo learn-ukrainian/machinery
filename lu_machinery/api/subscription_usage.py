@@ -1409,13 +1409,14 @@ def _read_muse_usage(muse_bin: str, timeout_s: float) -> dict[str, Any]:
                 "muse",
                 {"message": "Muse usage probe timed out", "kind": "timeout", "code": "TIMEOUT"},
             )
-        completed = subprocess.run(
+        completed = subprocess.run(  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit
             [muse_bin, "usage", "--json"],
             capture_output=True,
             text=True,
             timeout=float(timeout_s),
             check=False,
             stdin=subprocess.DEVNULL,
+            env=_muse_session_env(),
         )
     except subprocess.TimeoutExpired:
         return _normalize_provider_error(
@@ -1515,7 +1516,7 @@ def _muse_open_allowance_session(muse_bin: str, timeout_s: float) -> bool:
     _muse_mark_allowance_attempt()
     scratch = make_scratch_dir("muse-allowance-")
     try:
-        completed = subprocess.run(
+        completed = subprocess.run(  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit
             [
                 muse_bin,
                 "exec",
