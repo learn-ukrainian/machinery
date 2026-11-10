@@ -634,7 +634,9 @@ def _hidden_tracked_changes(tree: Path) -> bool:
     Status trusts the assume-unchanged and skip-worktree index flags, so every flagged entry is compared here:
     a missing file is a deletion, except a skip-worktree entry the sparse-checkout rules exclude; a present one
     must keep the entry's type and executable bit, and its bytes must equal the entry's checkout form
-    (cat-file --filters; a symlink's target text raw). A flagged submodule entry or a path under a symlinked
+    (cat-file --filters; a symlink's target text raw). With ``core.autocrlf`` true, a text file (no NUL)
+    whose only difference is a CR before LF still matches: that is the committed form. A flagged submodule
+    entry or a path under a symlinked
     directory counts as changed. Each initialized submodule is checked the same way, with its own status run
     with --ignore-submodules=none, since its index flags and its own submodules' ignore settings hide work
     from the superproject; a submodule path under a symlink, or a non-empty submodule directory without its
@@ -702,9 +704,19 @@ def _hidden_tracked_changes(tree: Path) -> bool:
             return True
     # One request per entry: a batch request strips a path's leading blanks, and with --filters its header
     # gives the stored size, not the converted one.
+    autocrlf = None
     for oid, name in converted:
-        if (tree / name).read_bytes() != local(["cat-file", "--filters", f"--path={name}", oid]).stdout:
-            return True
+        work_bytes = (tree / name).read_bytes()
+        filtered = local(["cat-file", "--filters", f"--path={name}", oid]).stdout
+        if work_bytes == filtered:
+            continue
+        if autocrlf is None:
+            # Missing or non-bool (for example "input") is not true: only an explicit true normalizes.
+            autocrlf = local(["config", "--type=bool", "core.autocrlf"], check=False).stdout.strip() == b"true"
+        if (autocrlf and b"\0" not in work_bytes and b"\0" not in filtered
+                and work_bytes.replace(b"\r\n", b"\n") == filtered.replace(b"\r\n", b"\n")):
+            continue
+        return True
     for name in submodules:
         path = tree / name
         if under_symlink((*PurePosixPath(name).parts, ".git")):

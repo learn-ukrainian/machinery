@@ -112,6 +112,22 @@ def test_assume_unchanged_edit_reads_dirty(work):
     assert _dirty(work) is True
 
 
+def test_flagged_lf_rewrite_under_autocrlf_reads_clean(work):
+    """Defect class: a flagged file rewritten with LF under core.autocrlf=true was reported dirty
+    although that difference is the committed form (#100 R82)."""
+    _git(work, "config", "core.autocrlf", "true")
+    _git(work, "update-index", "--assume-unchanged", "tracked.txt")
+    assert _git(work, "status", "--porcelain") == ""
+    assert _dirty(work) is False
+    (work / "tracked.txt").write_text("real edit\n")
+    assert _git(work, "status", "--porcelain") == ""
+    assert _dirty(work) is True
+    (work / "tracked.txt").write_bytes(b"committed\r\n")
+    assert _dirty(work) is False
+    _git(work, "config", "core.autocrlf", "false")
+    assert _dirty(work) is True
+
+
 def test_submodule_edit_with_ignore_dirty_reads_dirty(tmp_path, work):
     """Also an edit that the submodule's own assume-unchanged flag hides from its status, with or without the
     submodule's gitfile."""
