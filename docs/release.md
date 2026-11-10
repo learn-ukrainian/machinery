@@ -221,7 +221,12 @@ product root that `LU_PRODUCT_ROOT` selects, which must be the checkout whose
 code runs, and when the product's file lists it. A missing, unreadable or
 malformed product file, or an unset product root, authorizes no product writer.
 The guard then raises `ProductWriterDeclarationRefused`, with a path-free
-`reason`. The Sources store writer lock and selected-generation checks still
+`reason`. The guard reads the product file through descriptors that do not
+follow symlinks (`O_PATH`). Product corpus writers are therefore supported on
+Linux only, where the corpus store lives in the host checkout's local `data/`.
+On a platform without `os.O_PATH` the reason is
+`product_declaration_platform_unsupported`. Machinery's own writers are not
+affected. The Sources store writer lock and selected-generation checks still
 apply after the declaration check.
 
 Offline reinstall uses the retained wheelhouse and npm cache. Restore the

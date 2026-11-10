@@ -265,7 +265,8 @@ class ProductWriterDeclarationRefused(CorpusDatabaseWriteRefused):
 
     ``reason`` is a path-free code: ``product_root_unavailable``, or
     ``product_declaration_`` followed by ``missing``, ``unreadable``,
-    ``not_regular_file``, ``too_large`` or ``malformed``.
+    ``not_regular_file``, ``too_large``, ``malformed`` or
+    ``platform_unsupported`` (no ``os.O_PATH``: product writers are Linux-only).
     """
 
     def __init__(self, database_name: str, reason: str) -> None:
@@ -348,12 +349,17 @@ def _read_product_declaration(product: str) -> bytes:
     Every component below ``product`` is opened relative to its pinned parent
     descriptor with ``O_NOFOLLOW``, so a directory or file swapped for a symlink
     while this runs is refused instead of followed (#243 F1). Directories are
-    pinned search-only (``O_PATH`` where the platform has it), so a directory
-    that permits traversal but not listing still works (#243 F2); a symlink
-    there fails with ``ENOTDIR``.
+    pinned search-only with ``O_PATH``, so a directory that permits traversal
+    but not listing still works (#243 F2); a symlink there fails with
+    ``ENOTDIR``. Product corpus writers are supported on Linux only: without
+    ``os.O_PATH`` the declaration is refused as
+    ``product_declaration_platform_unsupported``.
     """
+    o_path = getattr(os, "O_PATH", None)
+    if o_path is None:
+        raise _DeclarationUnusable("product_declaration_platform_unsupported")
     *parents, name = PRODUCT_WRITER_DECLARATION.split("/")
-    search_only = getattr(os, "O_PATH", os.O_RDONLY) | os.O_DIRECTORY
+    search_only = o_path | os.O_DIRECTORY
     directory = _open_no_follow(product, search_only, None)
     try:
         for part in parents:
