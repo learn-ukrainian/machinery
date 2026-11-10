@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "lu-machinery"
-version = "0.1.5"
+version = "0.1.6"
 description = "Shared agent orchestration and development tooling"
 requires-python = ">=3.12"
 # Direct third-party imports under lu_machinery/, including the CI tools it runs.
