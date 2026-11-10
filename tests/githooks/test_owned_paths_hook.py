@@ -31,8 +31,11 @@ _MISSING_CHECKER = (
 )
 _MISSING_HOOK = "Git hook error: tracked hook is missing or not executable:"
 _PLAN = "curriculum/a1/plans/greetings.yaml"
-# The product's hook, as its pre-commit configuration declares it: commit-msg stage, run by
-# the configured project interpreter, so the checker is the installed release's module.
+# The product's check-plan-immutability hook at the commit-msg stage, with the candidate
+# post-B2 product entry (CTO decision on C-5041, 2026-11-10; B2a slice E3 adopts it verbatim):
+# the configured project interpreter runs the installed release's checker module. Today's
+# product entry runs scripts/pre_commit/{project_python.sh,check_plan_immutability.py}. Both
+# files are machinery-mapped in lint/rename-map.json, so a clean product checkout lacks them.
 _PRODUCT_PRE_COMMIT_CONFIG = """\
 repos:
   - repo: local
