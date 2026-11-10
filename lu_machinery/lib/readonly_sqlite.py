@@ -12,7 +12,9 @@ import importlib
 import inspect
 import json
 import os
+import re
 import sqlite3
+import stat
 import threading
 from collections.abc import Callable, Iterable
 from contextlib import suppress
@@ -242,12 +244,32 @@ def _checkout_relative(relative: str) -> str:
 
 
 _GUARD_PATH = _checkout_relative("lib/readonly_sqlite.py")
-# The writer allowlist, relative to the checkout that holds it.
-_ALLOWLIST = Path(_checkout_relative("hygiene/sqlite_reference_allowlist.json"))
+
+# Product corpus writers (W1, machinery #100). The product declares its own
+# writers in a file it owns, in the bound product checkout
+# (``repo_root.product_root``); machinery's declaration lists only machinery's
+# writers. The format is the writer allowlist's: a JSON list of objects whose
+# ``path`` is checkout-relative and whose ``kind`` is ``writer`` for a writer.
+PRODUCT_WRITER_DECLARATION = "scripts/config/sqlite_reference_allowlist.json"
+_MAX_DECLARATION_BYTES = 1024 * 1024
+_DECLARED_PATH = re.compile(r"[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*")
 
 
 class CorpusDatabaseWriteRefused(PermissionError):
     """A generic factory cannot open sources.db or vesum.db for writing."""
+
+
+class ProductWriterDeclarationRefused(CorpusDatabaseWriteRefused):
+    """No product writer can be authorized, because the product root or its declaration is unusable.
+
+    ``reason`` is a path-free code: ``product_root_unavailable``, or
+    ``product_declaration_`` followed by ``missing``, ``unreadable``,
+    ``not_regular_file``, ``too_large`` or ``malformed``.
+    """
+
+    def __init__(self, database_name: str, reason: str) -> None:
+        self.reason = reason
+        super().__init__(f"refusing writable open of corpus database {database_name}: {reason}")
 
 
 def _filesystem_path(database: str | os.PathLike[str] | bytes) -> str:
@@ -292,7 +314,7 @@ def _uri_requests_read_only(database: str | os.PathLike[str] | bytes) -> bool:
 
 @functools.lru_cache(maxsize=1)
 def _declared_writer_paths() -> frozenset[str]:
-    """Writer paths from the allowlist file, without importing the linter."""
+    """Machinery's own writer paths from its allowlist file, without importing the linter."""
     candidate = machinery_path("hygiene/sqlite_reference_allowlist.json")
     if not candidate.is_file():
         return frozenset()
@@ -300,15 +322,97 @@ def _declared_writer_paths() -> frozenset[str]:
     return frozenset(entry["path"] for entry in entries if entry.get("kind") == "writer")
 
 
-def _script_path(filename: str) -> str | None:
-    path = Path(filename).resolve()
-    for parent in path.parents:
-        if (parent / _ALLOWLIST).is_file():
-            try:
-                return path.relative_to(parent).as_posix()
-            except ValueError:
-                return None
-    return None
+class _DeclarationUnusable(Exception):
+    def __init__(self, reason: str) -> None:
+        super().__init__(reason)
+        self.reason = reason
+
+
+def _read_regular_file(path: str, limit: int, label: str) -> bytes:
+    """The bytes of regular file ``path`` (never through a final symlink), or raise ``label``-prefixed codes."""
+    try:
+        info = os.lstat(path)
+    except FileNotFoundError:
+        raise _DeclarationUnusable(f"{label}_missing") from None
+    except OSError:
+        raise _DeclarationUnusable(f"{label}_unreadable") from None
+    if not stat.S_ISREG(info.st_mode):
+        raise _DeclarationUnusable(f"{label}_not_regular_file")
+    if info.st_size > limit:
+        raise _DeclarationUnusable(f"{label}_too_large")
+    # O_NONBLOCK: a FIFO swapped in after the lstat opens at once; the fstat refuses it.
+    flags = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | getattr(os, "O_CLOEXEC", 0)
+    try:
+        descriptor = os.open(path, flags)
+    except OSError:
+        raise _DeclarationUnusable(f"{label}_unreadable") from None
+    try:
+        opened = os.fstat(descriptor)
+        if not stat.S_ISREG(opened.st_mode) or (opened.st_dev, opened.st_ino) != (info.st_dev, info.st_ino):
+            raise _DeclarationUnusable(f"{label}_not_regular_file")
+        with os.fdopen(descriptor, "rb") as handle:
+            descriptor = -1
+            data = handle.read(limit + 1)
+    except OSError:
+        raise _DeclarationUnusable(f"{label}_unreadable") from None
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+    if len(data) > limit:
+        raise _DeclarationUnusable(f"{label}_too_large")
+    return data
+
+
+def _unique_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    if len({key for key, _ in pairs}) != len(pairs):
+        raise ValueError("duplicate key")
+    return dict(pairs)
+
+
+def _product_writer_paths(product: str) -> frozenset[str]:
+    """Writer paths the product checkout at real path ``product`` declares.
+
+    Raises :class:`_DeclarationUnusable` when the declaration is missing,
+    unreadable, not a regular file in a non-symlinked directory, too large or
+    malformed (not strict UTF-8 JSON, a duplicate key, a row without a string
+    ``path`` and ``kind``, a non-canonical or repeated ``path``).
+    """
+    *parents, name = PRODUCT_WRITER_DECLARATION.split("/")
+    directory = os.path.join(product, *parents)
+    if os.path.realpath(directory) != directory:
+        raise _DeclarationUnusable("product_declaration_not_regular_file")
+    data = _read_regular_file(os.path.join(directory, name), _MAX_DECLARATION_BYTES, "product_declaration")
+
+    def no_constant(literal: str) -> Any:
+        raise ValueError(f"non-finite number {literal}")
+
+    try:
+        rows = json.loads(data.decode("utf-8"), object_pairs_hook=_unique_keys, parse_constant=no_constant)
+    except (UnicodeDecodeError, ValueError, RecursionError):
+        raise _DeclarationUnusable("product_declaration_malformed") from None
+    if not isinstance(rows, list):
+        raise _DeclarationUnusable("product_declaration_malformed")
+    seen: set[str] = set()
+    writers: set[str] = set()
+    for row in rows:
+        path = row.get("path") if isinstance(row, dict) else None
+        kind = row.get("kind") if isinstance(row, dict) else None
+        if (
+            not isinstance(path, str)
+            or not isinstance(kind, str)
+            or not _DECLARED_PATH.fullmatch(path)
+            or any(part in (".", "..") for part in path.split("/"))
+            or path in seen
+        ):
+            raise _DeclarationUnusable("product_declaration_malformed")
+        seen.add(path)
+        if kind == "writer":
+            writers.add(path)
+    return frozenset(writers)
+
+
+def _within(root: str, real: str) -> bool:
+    return real == root or real.startswith(root.rstrip(os.sep) + os.sep)
 
 
 _OPEN_HELPERS = frozenset({"_open_conn", "_open_writer_conn"})
@@ -317,34 +421,73 @@ _OPEN_HELPERS = frozenset({"_open_conn", "_open_writer_conn"})
 _SEAM_FUNCTIONS = frozenset({(_checkout_relative("api/resilience.py"), "connect_sqlite")})
 
 
-def _stack_may_write(factory: str | None) -> bool:
-    """True when an ingest function or a declared writer file is anywhere on the stack.
+def _stack_refusal(factory: str | None) -> str | None:
+    """``None`` when an ingest function or a declared writer file is on the stack, else a path-free reason.
+
+    Each frame is judged by its real path (symlinks resolved). A frame inside
+    the machinery package counts only when machinery's declaration lists it. Any
+    other frame counts only when it is inside the bound product checkout
+    (``repo_root.product_root``, resolved) and the product's declaration
+    (:data:`PRODUCT_WRITER_DECLARATION`) lists it. An unbound
+    product or an unusable declaration authorizes no product frame; its reason
+    (``product_...``) is returned when nothing else authorized the write.
 
     The open helpers alone do not authorize a write. A non-writer relay between
     the helper and ``main`` does not hide ``main``. Generic factories such as
-    ``connect_sqlite`` pass no factory file and rely on the declared writer paths.
+    ``connect_sqlite`` pass no factory file and rely on the declared writer
+    paths. A factory file is matched relative to its own checkout and must be
+    declared there too.
     """
-    writers = _declared_writer_paths()
+    from lu_machinery.common.repo_root import ProductRootError, product_root
+
+    machinery_writers = _declared_writer_paths()
+    package = os.path.realpath(machinery_root())
+    package_parent = os.path.dirname(package)
+    product: str | None = None
+    product_writers: frozenset[str] | None = None
+    product_error: str | None = None
+    product_looked_up = False
     factory_functions: list[str] = []
     writer_on_stack = False
     for frame in inspect.stack():
-        rel = _script_path(frame.filename)
-        if rel is None or rel == _GUARD_PATH or (rel, frame.function) in _SEAM_FUNCTIONS:
+        try:
+            real = os.path.realpath(frame.filename)
+        except (OSError, ValueError):
             continue
-        if frame.function in _OPEN_HELPERS:
-            # The helper's file is an allowlisted writer. The helper itself
-            # must not authorize a nested writable open.
-            if factory is not None and rel == factory:
-                factory_functions.append(frame.function)
-            continue
+        if _within(package, real):
+            rel = os.path.relpath(real, package_parent).replace(os.sep, "/")
+            if rel == _GUARD_PATH or (rel, frame.function) in _SEAM_FUNCTIONS or rel not in machinery_writers:
+                continue
+        else:
+            if not product_looked_up:
+                product_looked_up = True
+                try:
+                    product = os.path.realpath(product_root())
+                except (ProductRootError, OSError, ValueError):
+                    product_error = "product_root_unavailable"
+            if product is None or not _within(product, real):
+                continue
+            if product_writers is None and product_error is None:
+                try:
+                    product_writers = _product_writer_paths(product)
+                except _DeclarationUnusable as exc:
+                    product_error = exc.reason
+            if product_writers is None:
+                continue
+            rel = os.path.relpath(real, product).replace(os.sep, "/")
+            if rel not in product_writers:
+                continue
         if factory is not None and rel == factory:
             factory_functions.append(frame.function)
             continue
-        if rel in writers:
-            writer_on_stack = True
-    if any(name not in _OPEN_HELPERS for name in factory_functions):
-        return True
-    return writer_on_stack
+        if frame.function in _OPEN_HELPERS:
+            # The helper's file is a declared writer. The helper itself must
+            # not authorize a nested writable open.
+            continue
+        writer_on_stack = True
+    if writer_on_stack or any(name not in _OPEN_HELPERS for name in factory_functions):
+        return None
+    return product_error or "no_declared_writer"
 
 
 # --- Sources store writer lock bookkeeping -------------------------------------
@@ -446,23 +589,31 @@ def refuse_writable_corpus_database(
     """Refuse a writable open of sources.db or vesum.db outside ingest writers.
 
     ``uri`` with ``mode=ro`` is a read-only open and is allowed. ``factory`` is
-    the repo-relative file of a writer seam whose own ingest functions may
+    the checkout-relative file of a writer seam whose own ingest functions may
     write. Generic factories leave it unset and still allow a declared writer
-    file on the stack. ``allow_declared_writers=False`` refuses every caller;
-    the control-plane store uses that. The live Sources store (its selector, a
-    generation, or the pre-bootstrap file) also needs the store writer lock,
-    and only the generation the selector selects may be opened.
+    file on the stack. Machinery declares its own writers; the product declares
+    its writers in :data:`PRODUCT_WRITER_DECLARATION` of the bound product
+    checkout (see :func:`_stack_refusal`). An unbound product or an unusable
+    product declaration raises :class:`ProductWriterDeclarationRefused` unless a
+    machinery writer authorized the open. ``allow_declared_writers=False``
+    refuses every caller; the control-plane store uses that. The live Sources
+    store (its selector, a generation, or the pre-bootstrap file) also needs the
+    store writer lock, and only the generation the selector selects may be opened.
     """
     name = corpus_database_name(database)
     if name is None:
         return
     if uri and _uri_requests_read_only(database):
         return
-    if allow_declared_writers and _stack_may_write(factory):
-        if name != "sources.db":
-            return
-        reason = writable_store_refusal(_filesystem_path(database))
-        if reason is None:
-            return
-        raise CorpusDatabaseWriteRefused(f"refusing writable open of the Sources store: {reason}")
+    if allow_declared_writers:
+        refusal = _stack_refusal(factory)
+        if refusal is None:
+            if name != "sources.db":
+                return
+            reason = writable_store_refusal(_filesystem_path(database))
+            if reason is None:
+                return
+            raise CorpusDatabaseWriteRefused(f"refusing writable open of the Sources store: {reason}")
+        if refusal.startswith("product_"):
+            raise ProductWriterDeclarationRefused(name, refusal)
     raise CorpusDatabaseWriteRefused(f"refusing writable open of corpus database {name}")

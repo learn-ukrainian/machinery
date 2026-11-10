@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import importlib.util
+import json
 import sqlite3
 import time
 from pathlib import Path
@@ -86,15 +88,124 @@ def test_connect_refuses_corpus_names_even_for_a_declared_writer(
 ) -> None:
     from lu_machinery.lib import readonly_sqlite
 
-    monkeypatch.setattr(
-        readonly_sqlite,
-        "_declared_writer_paths",
-        lambda: frozenset({readonly_sqlite._script_path(__file__)}),
-    )
+    # Every stack counts as a declared writer here; the control-plane seam must
+    # still refuse, because it never consults the stack.
+    monkeypatch.setattr(readonly_sqlite, "_stack_refusal", lambda factory: None)
     path = tmp_path / "sources.db"
     path.write_bytes(b"")
     with pytest.raises(CorpusDatabaseWriteRefused, match=r"sources\.db"):
         connect(StoreId.FLEET_COMMS, path=path)
+
+
+def _product_writer_tree(root: Path, *, writer: Path | None = None) -> Path:
+    """A product checkout at ``root`` declaring ``scripts/ingest/writer.py``; returns that path.
+
+    The writer module opens its target through the release guard. ``writer``,
+    when given, is where the module's real file lives; the declared path is then
+    a symlink to it.
+    """
+    from lu_machinery.lib import readonly_sqlite
+
+    declared = root / "scripts" / "ingest" / "writer.py"
+    declared.parent.mkdir(parents=True)
+    source = (
+        "from lu_machinery.lib.readonly_sqlite import refuse_writable_corpus_database\n\n\n"
+        "def ingest(path):\n"
+        "    refuse_writable_corpus_database(path)\n"
+    )
+    if writer is None:
+        declared.write_text(source, encoding="utf-8")
+    else:
+        writer.parent.mkdir(parents=True, exist_ok=True)
+        writer.write_text(source, encoding="utf-8")
+        declared.symlink_to(writer)
+    declaration = root / readonly_sqlite.PRODUCT_WRITER_DECLARATION
+    declaration.parent.mkdir(parents=True)
+    rows = [{"path": "scripts/ingest/writer.py", "reference_count": 1, "kind": "writer", "reason": "ingest"}]
+    declaration.write_text(json.dumps(rows, indent=2) + "\n", encoding="utf-8")
+    return declared
+
+
+def _load_writer(path: Path, name: str):
+    spec = importlib.util.spec_from_file_location(name, path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_product_declared_writer_under_bound_product_root_is_allowed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Defect class: release guard ignores product-declared writers (W1).
+
+    On the installed release only machinery's own allowlist was consulted, so
+    every product ingest writer was refused a writable corpus open.
+    """
+    product = tmp_path / "product"
+    declared = _product_writer_tree(product)
+    monkeypatch.setenv("LU_PRODUCT_ROOT", str(product))
+    database = tmp_path / "data" / "vesum.db"
+    database.parent.mkdir()
+    database.write_bytes(b"")
+
+    _load_writer(declared, "w1_product_writer_allowed").ingest(str(database))
+
+
+def test_product_writer_reached_through_symlink_from_outside_product_root_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Defect class: authorizing a frame by its logical path instead of its real path.
+
+    The declared product path is a symlink to code that lives outside the bound
+    product root; that code must not inherit the declared writer's authority.
+    """
+    product = tmp_path / "product"
+    declared = _product_writer_tree(product, writer=tmp_path / "outside" / "scripts" / "ingest" / "writer.py")
+    monkeypatch.setenv("LU_PRODUCT_ROOT", str(product))
+    database = tmp_path / "data" / "vesum.db"
+    database.parent.mkdir()
+    database.write_bytes(b"")
+
+    writer = _load_writer(declared, "w1_product_writer_symlinked")
+    with pytest.raises(CorpusDatabaseWriteRefused, match=r"vesum\.db"):
+        writer.ingest(str(database))
+
+
+@pytest.mark.parametrize(
+    ("damage", "reason"),
+    [
+        ("missing", "product_declaration_missing"),
+        ("malformed", "product_declaration_malformed"),
+    ],
+)
+def test_unusable_product_declaration_refuses_without_fallback(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, damage: str, reason: str
+) -> None:
+    """Defect class: fail-open fallback when the product writer declaration is unusable.
+
+    A missing or malformed declaration must refuse with a typed reason, never
+    fall back to allowing the declared writer.
+    """
+    from lu_machinery.lib import readonly_sqlite
+
+    product = tmp_path / "product"
+    declared = _product_writer_tree(product)
+    declaration = product / readonly_sqlite.PRODUCT_WRITER_DECLARATION
+    if damage == "missing":
+        declaration.unlink()
+    else:
+        # Truncated mid-row: the row that declares the writer is unreadable.
+        declaration.write_text('[{"path": "scripts/ingest/writer.py", "kind": "writer"', encoding="utf-8")
+    monkeypatch.setenv("LU_PRODUCT_ROOT", str(product))
+    database = tmp_path / "data" / "vesum.db"
+    database.parent.mkdir()
+    database.write_bytes(b"")
+
+    writer = _load_writer(declared, f"w1_product_writer_{damage}")
+    with pytest.raises(readonly_sqlite.ProductWriterDeclarationRefused, match=r"vesum\.db") as refused:
+        writer.ingest(str(database))
+    assert refused.value.reason == reason
 
 
 def test_ownership_ledger_uses_seam_and_begin_immediate(
