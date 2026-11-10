@@ -12,10 +12,12 @@ import errno
 import json
 import os
 import shutil
+import signal
 import stat
 import subprocess
 import sys
 import tempfile
+import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -104,7 +106,11 @@ class World:
         return install_readonly(self.shared, self.monkeypatch.setattr, code)
 
     def configure(self, *, basetemp: str | None = None, worker: bool = False) -> SimpleNamespace:
-        config = SimpleNamespace(option=SimpleNamespace(basetemp=basetemp), add_cleanup=self.cleanups.append)
+        config = SimpleNamespace(
+            option=SimpleNamespace(basetemp=basetemp),
+            add_cleanup=self.cleanups.append,
+            pluginmanager=SimpleNamespace(has_plugin=lambda name: False),
+        )
         if worker:
             config.workerinput = {"workerid": "gw0"}
         pytest_scratch.pytest_configure(config)
@@ -955,7 +961,7 @@ def test_callers_owning_their_base_temp_are_untouched(world, caller):
     world.make_runs_root(0o700)
     before = _listing(world.shared)
     refused = world.readonly()
-    basetemp = str(world.temp / "gate-owned") if caller == "explicit-basetemp" else None
+    basetemp = str(world.shared / "gate-owned") if caller == "explicit-basetemp" else None
     config = world.configure(basetemp=basetemp, worker=caller == "xdist-worker")
     assert config.option.basetemp == basetemp
     assert world.cleanups == [] and refused == [] and world.fchmods == []
@@ -1013,6 +1019,7 @@ def test_real_pytest_on_readonly_shared_root_runs_to_completion(tmp_path):
 import os
 import stat
 import tempfile
+import time
 from pathlib import Path
 
 def _unreplaceable(path):
@@ -1051,3 +1058,97 @@ def test_payload(tmp_path):
     assert stat.S_IMODE(private.stat().st_mode) == 0o700
     # The session ended, so its run went with it, removed through the fallback's descriptors.
     assert list((private / pytest_scratch.RUNS_DIRNAME).iterdir()) == []
+
+
+# ---- one temp root per session -------------------------------------------------------------------------------
+
+
+def _writable_suite(tmp_path: Path, test_source: str) -> tuple[Path, Path, dict[str, str]]:
+    """A child suite loading the real plugin on a writable shared root; returns it, the root and its env."""
+    _require_unreplaceable(tmp_path)
+    shared = tmp_path / "shared"
+    shared.mkdir(mode=0o700)
+    temp = tmp_path / "temp"
+    temp.mkdir(mode=0o700)
+    suite = tmp_path / "suite"
+    suite.mkdir()
+    (suite / "conftest.py").write_text(
+        f"import sys\nsys.path.insert(0, {str(REPO)!r})\n" 'pytest_plugins = ["lu_machinery.common.pytest_scratch"]\n'
+    )
+    (suite / "test_child.py").write_text(test_source)
+    env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "LU_SCRATCH_ROOT": str(shared), "TMPDIR": str(temp)}
+    return suite, shared, env
+
+
+def _runs(shared: Path) -> list[Path]:
+    return list((shared / pytest_scratch.NAMESPACE / pytest_scratch.RUNS_DIRNAME).iterdir())
+
+
+def test_a_terminated_session_removes_its_run(tmp_path):
+    """Defect class: a session ended by SIGTERM (a supervisor's timeout) never reaches its cleanup and leaves its run."""
+    suite, shared, env = _writable_suite(
+        tmp_path,
+        "import os, tempfile, time\nfrom pathlib import Path\n\n"
+        "def test_waits(tmp_path):\n"
+        "    (tmp_path / 'big').write_bytes(b'x' * 4096)\n"
+        f"    Path({str(tmp_path / 'started')!r}).write_text(tempfile.gettempdir())\n"
+        "    time.sleep(120)\n",
+    )
+    child = subprocess.Popen(
+        [sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider"],
+        cwd=suite, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+    )
+    try:
+        started = tmp_path / "started"
+        for _ in range(600):
+            if started.exists() or child.poll() is not None:
+                break
+            time.sleep(0.1)
+        payload = Path(started.read_text())
+        assert payload.is_dir() and payload.parent in _runs(shared)
+        child.send_signal(signal.SIGTERM)
+        output, _ = child.communicate(timeout=60)
+    finally:
+        if child.poll() is None:
+            child.kill()
+            child.communicate()
+    assert child.returncode == pytest.ExitCode.INTERRUPTED, output
+    assert _runs(shared) == [], output
+
+
+def test_the_session_keeps_cache_claude_config_and_bytecode_inside_its_run(tmp_path):
+    """Defect class: pytest's cache, a test-started Claude Code or bytecode writes outside the session's run."""
+    suite, shared, env = _writable_suite(
+        tmp_path,
+        "import os, sys, tempfile\nfrom pathlib import Path\n\n"
+        "def test_inside(request):\n"
+        "    run = Path(tempfile.gettempdir()).parent\n"
+        "    assert Path(os.environ['CLAUDE_CONFIG_DIR']) == run / 'claude-config'\n"
+        "    assert os.environ['PYTHONDONTWRITEBYTECODE'] == '1' and sys.dont_write_bytecode\n"
+        "    assert request.config.cache._cachedir == run / 'pytest-cache'\n"
+        "    request.config.cache.set('probe/value', 1)\n",
+    )
+    env["CLAUDE_CONFIG_DIR"] = str(tmp_path / "operator-claude")
+    result = subprocess.run(
+        [sys.executable, "-m", "pytest", "-q"], cwd=suite, env=env, capture_output=True, text=True, timeout=120
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert not (suite / ".pytest_cache").exists() and not (tmp_path / "operator-claude").exists()
+    # The conftest is imported before the plugin configures; every module imported after writes no bytecode.
+    cached = [path.name for path in suite.glob("__pycache__/*")]
+    assert all(name.startswith("conftest.") for name in cached), cached
+    assert _runs(shared) == []
+
+
+@pytest.mark.parametrize("option", ["--basetemp", "cache_dir"])
+def test_a_temp_root_outside_the_scratch_root_is_refused(tmp_path, option):
+    """Defect class: a caller's --basetemp or cache_dir opens another temp root (a checkout, batch_state, the system temp)."""
+    suite, shared, env = _writable_suite(tmp_path, "def test_never():\n    pass\n")
+    elsewhere = tmp_path / "elsewhere"
+    args = ["--basetemp", str(elsewhere)] if option == "--basetemp" else ["-o", f"cache_dir={elsewhere}"]
+    result = subprocess.run(
+        [sys.executable, "-m", "pytest", "-q", *args], cwd=suite, env=env, capture_output=True, text=True, timeout=120
+    )
+    assert result.returncode == pytest.ExitCode.USAGE_ERROR, result.stdout + result.stderr
+    assert "outside the managed pytest scratch" in result.stderr
+    assert not elsewhere.exists() and not (shared / pytest_scratch.NAMESPACE).exists()

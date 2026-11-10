@@ -34,6 +34,20 @@ directory the nightly data backup reads (#12153): a pytest base temp holds
 absolute ``*current`` symlinks, which that backup refuses, so one run there
 fails every later backup. Such a base temp is refused before anything is
 created, and the message names the managed scratch to use instead.
+
+The run is the session's only temp root. An explicit ``--basetemp`` or
+``cache_dir`` must lie inside the scratch root or inside the managed run this
+process inherited (a nested session); anywhere else is refused before anything
+is created. Without one, pytest's cache goes into the run beside its payload,
+so neither a checkout nor ``batch_state`` gets one. For the session, Claude
+Code started directly by a test gets a configuration directory inside the run
+(``CLAUDE_CONFIG_DIR``), never the operator's, and Python writes no bytecode
+(``PYTHONDONTWRITEBYTECODE``); both reach xdist workers and child processes.
+
+A terminated session still removes its run: ``SIGTERM`` and ``SIGHUP`` become
+``KeyboardInterrupt`` in the session that owns the run, so pytest unwinds and
+runs its cleanups (exit status 2). A second signal ends the process at once.
+Only ``SIGKILL`` or a crash leaves the run, for the scheduled sweep.
 """
 
 from __future__ import annotations
@@ -43,8 +57,11 @@ import errno
 import fcntl
 import os
 import secrets
+import signal
 import stat
+import sys
 import tempfile
+import threading
 import time
 from collections.abc import Callable
 from functools import partial
@@ -54,7 +71,7 @@ from typing import Any
 import pytest
 
 from lu_machinery.common.acp_runtime_lock import process_start_time
-from lu_machinery.common.scratch import ensure_scratch_root
+from lu_machinery.common.scratch import ensure_scratch_root, resolve_scratch_root
 from lu_machinery.common.task_scratch import (
     LEASE_FILENAME,
     LEASE_SCHEMA_VERSION,
@@ -76,6 +93,14 @@ PRIVATE_MODE = 0o700
 FALLBACK_PREFIX = "lu-pytest-"
 # Set to 1 to keep the run's scratch after the session for inspection.
 KEEP_ENV_VAR = "LU_KEEP_PYTEST_SCRATCH"
+# Beside the payload in the run, so neither tempfile users nor fixtures see them.
+CACHE_DIRNAME = "pytest-cache"
+CLAUDE_CONFIG_DIRNAME = "claude-config"
+CLAUDE_CONFIG_ENV_VAR = "CLAUDE_CONFIG_DIR"
+NO_BYTECODE_ENV_VAR = "PYTHONDONTWRITEBYTECODE"
+PYTEST_DEFAULT_CACHE_DIR = ".pytest_cache"
+# Termination signals that unwind the owning session so its cleanups remove the run.
+TERMINATION_SIGNALS = (signal.SIGTERM, signal.SIGHUP)
 # Top-level directories of a checkout that scripts/config/backup-allowlist.json
 # keeps; scripts/backup-data.sh reads everything beneath them.
 BACKED_UP_ROOTS = (".agent", ".claude", "batch_state", "data")
@@ -393,17 +418,21 @@ def _release(scratch: TaskScratch) -> None:
 
     Failure evidence is pytest's report and junit, not the run's checkouts and
     virtual environments. A removal the remover refuses leaves the run for the
-    scheduled sweep and never fails the session.
+    scheduled sweep and never fails the session; one line on stderr names the
+    run and the reason, so a kept run is never silent.
     """
     try:
         if os.environ.get(KEEP_ENV_VAR) != "1":
-            with contextlib.suppress(OSError, TaskScratchError):
+            try:
                 scratch.remove()
+            except (OSError, TaskScratchError) as exc:
+                reason = _reason(exc) if isinstance(exc, OSError) else str(exc)
+                print(f"pytest scratch: run {scratch.path} kept for the scheduled sweep: {reason}", file=sys.stderr)
     finally:
         scratch.preserve()
 
 
-def _join_inherited_run() -> None:
+def _join_inherited_run() -> str | None:
     """Share the lifetime lock of the run whose payload this process inherited as ``TMPDIR``.
 
     xdist workers and nested sessions work inside their parent session's run.
@@ -412,29 +441,112 @@ def _join_inherited_run() -> None:
     descriptor is close-on-exec and is released when this process exits. A
     ``TMPDIR`` whose parent holds no regular lock file names no managed run and
     joins nothing. Any other failure to join stops the session before it uses
-    that scratch: the run could be deleted under it.
+    that scratch: the run could be deleted under it. Returns the run directory
+    held, or None when ``TMPDIR`` names no managed run.
     """
     inherited = os.environ.get("TMPDIR", "")
     if os.path.basename(inherited) != PAYLOAD_DIRNAME:
-        return
+        return None
     lock = os.path.join(os.path.dirname(inherited), LOCK_FILENAME)
     try:
         fd = os.open(lock, _LOCK_JOIN_FLAGS)
     except OSError as exc:
         if exc.errno in _NOT_A_RUN_ERRNOS:
-            return
+            return None
         raise pytest.UsageError(f"cannot hold the scratch run of TMPDIR={inherited}: {_reason(exc)}") from exc
     try:
         held = os.fstat(fd)
-        if not stat.S_ISREG(held.st_mode) or (held.st_dev, held.st_ino) in _JOINED:
-            # Not a run, or already held by this process (an in-process nested session).
+        if not stat.S_ISREG(held.st_mode):
             os.close(fd)
-            return
+            return None
+        if (held.st_dev, held.st_ino) in _JOINED:
+            # Already held by this process (an in-process nested session).
+            os.close(fd)
+            return os.path.dirname(inherited)
         fcntl.flock(fd, fcntl.LOCK_SH | fcntl.LOCK_NB)
     except OSError as exc:
         os.close(fd)
         raise pytest.UsageError(f"cannot hold the scratch run of TMPDIR={inherited}: {_reason(exc)}") from exc
     _JOINED[(held.st_dev, held.st_ino)] = fd
+    return os.path.dirname(inherited)
+
+
+def _inside(path: str, roots: list[str]) -> bool:
+    """``path``, read as pytest reads it (``..`` collapsed, then links resolved), lies in one of ``roots``."""
+    real = os.path.realpath(os.path.abspath(path))
+    return any(real == root or real.startswith(root.rstrip("/") + "/") for root in roots)
+
+
+def _allowed_roots(inherited_run: str | None) -> list[str]:
+    """Where a caller may place its own base temp or cache: the scratch root, or the run it works inside."""
+    roots = [os.path.realpath(resolve_scratch_root())]
+    if inherited_run is not None:
+        roots.append(os.path.realpath(inherited_run))
+    return roots
+
+
+def _outside_root(what: str, value: str, roots: list[str]) -> pytest.UsageError:
+    return pytest.UsageError(
+        f"pytest {what} {value} is outside the managed pytest scratch ({roots[0]}). Omit it: every session gets a run "
+        "there that holds its base temp and cache and is removed when the session ends."
+    )
+
+
+def _explicit_cache_dir(config: pytest.Config) -> str | None:
+    """The cache directory a caller configured, or None for pytest's default or no cache plugin."""
+    if not config.pluginmanager.has_plugin("cacheprovider"):
+        return None
+    value = str(config.getini("cache_dir"))
+    if value == PYTEST_DEFAULT_CACHE_DIR:
+        return None
+    # Resolved as the cache plugin resolves it: environment variables, then the root directory.
+    return str(config.rootpath / os.path.expandvars(value))
+
+
+def _set_cache_dir(config: pytest.Config, path: Path) -> None:
+    """Point pytest's cache at ``path`` before the cache plugin reads it (this hook runs first)."""
+    if config.pluginmanager.has_plugin("cacheprovider"):
+        config.getini("cache_dir")  # fills pytest's per-config ini cache, which the cache plugin then reads
+        config._inicache["cache_dir"] = str(path)
+
+
+def _interrupt_on_termination(signum: int, _frame: object) -> None:
+    """Unwind the owning session so its cleanups remove the run; a repeated signal kills at once."""
+    signal.signal(signum, signal.SIG_DFL)
+    raise KeyboardInterrupt(f"pytest scratch: {signal.Signals(signum).name} received; removing the run")
+
+
+def _install_termination_handlers(config: pytest.Config) -> None:
+    """Route default-disposition termination signals through pytest's interrupt handling for this session."""
+    if threading.current_thread() is not threading.main_thread():
+        return
+    installed = []
+    for signum in TERMINATION_SIGNALS:
+        if signal.getsignal(signum) is signal.SIG_DFL:
+            signal.signal(signum, _interrupt_on_termination)
+            installed.append(signum)
+
+    def restore() -> None:
+        for signum in installed:
+            if signal.getsignal(signum) is _interrupt_on_termination:
+                signal.signal(signum, signal.SIG_DFL)
+
+    config.add_cleanup(restore)
+
+
+def _set_session_env(config: pytest.Config, values: dict[str, str]) -> None:
+    """Set environment values for the session (workers and children inherit them); restore them at the end."""
+    previous = {name: os.environ.get(name) for name in values}
+    os.environ.update(values)
+
+    def restore() -> None:
+        for name, value in previous.items():
+            if value is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = value
+
+    config.add_cleanup(restore)
 
 
 def _allocate_run() -> TaskScratch:
@@ -450,10 +562,14 @@ def _allocate_run() -> TaskScratch:
 
 @pytest.hookimpl(tryfirst=True)
 def pytest_configure(config: pytest.Config) -> None:
-    """Hold one invocation lock until teardown; explicit base temps retain their owner."""
-    _join_inherited_run()
+    """Hold one invocation lock until teardown; explicit base temps retain their owner inside the root."""
+    inherited_run = _join_inherited_run()
     if hasattr(config, "workerinput"):
         return
+    roots = _allowed_roots(inherited_run)
+    explicit_cache = _explicit_cache_dir(config)
+    if explicit_cache is not None and not _inside(explicit_cache, roots):
+        raise _outside_root("cache directory", explicit_cache, roots)
     if config.option.basetemp is not None:
         held_by = _backed_up_root_holding(str(config.option.basetemp))
         if held_by is not None:
@@ -462,12 +578,24 @@ def pytest_configure(config: pytest.Config) -> None:
                 "and refuses for the absolute symlinks pytest leaves there. Omit --basetemp, or put it under "
                 "$TMPDIR, the managed scratch."
             )
+        if not _inside(str(config.option.basetemp), roots):
+            raise _outside_root("base temp", str(config.option.basetemp), roots)
         return
     scratch = _allocate_run()
     # Pytest recreates --basetemp. Keep ownership metadata outside that payload.
     config.option.basetemp = str(scratch.payload_dir / "base")
     # Registered first, so it runs after the TMPDIR restore and every later cleanup.
     config.add_cleanup(partial(_release, scratch))
+    if explicit_cache is None:
+        _set_cache_dir(config, scratch.path / CACHE_DIRNAME)
+    _install_termination_handlers(config)
+    previous_bytecode = sys.dont_write_bytecode
+    sys.dont_write_bytecode = True
+    config.add_cleanup(partial(setattr, sys, "dont_write_bytecode", previous_bytecode))
+    _set_session_env(
+        config,
+        {NO_BYTECODE_ENV_VAR: "1", CLAUDE_CONFIG_ENV_VAR: str(scratch.path / CLAUDE_CONFIG_DIRNAME)},
+    )
     # Fixtures and ordinary tempfile users must share a containment root.
     # Workers inherit TMPDIR; this process may already have cached tempdir.
     previous_env = os.environ.get("TMPDIR")

@@ -233,3 +233,30 @@ def test_repeated_producer_exceeds_counted_baseline(tmp_path, monkeypatch):
 @pytest.mark.parametrize("source", ['echo "<<EOF"\nmktemp -d\n', "if mktemp -d; then :; fi", "f() { mktemp -d; }"])
 def test_shell_control_flow_and_quoted_operator_do_not_hide_calls(source):
     assert lint.scan_shell(source, "scripts/probe.sh")
+
+
+BASETEMP = "--" + "basetemp"
+CACHE_DIR = "cache" + "_dir="
+
+
+@pytest.mark.parametrize(
+    ("suffix", "source", "flagged"),
+    [
+        (".py", f'ARGS = ["pytest", "{BASETEMP}", "batch_state/run/pytest-current"]\n', True),
+        (".py", f'ARGS = ["pytest", "{BASETEMP}=x"]\n', True),
+        (".py", f'ARGS = ["pytest", "-o", f"{CACHE_DIR}{{work}}/pytest-cache"]\n', True),
+        (".sh", f"python -m pytest -q {BASETEMP} batch_state/run/pytest-current tests\n", True),
+        (".sh", f'python -m pytest -q -o "{CACHE_DIR}$WORK/cache" tests\n', True),
+        (".sh", f"python -m pytest -q --override-ini={CACHE_DIR}x tests\n", True),
+        # Not overrides: a word, a keyword argument, a shell assignment.
+        (".py", 'ROOT = "cache"\n', False),
+        (".py", "run(cache_dir=root)\n", False),
+        (".sh", f"{CACHE_DIR}$HOME/x\n", False),
+    ],
+)
+def test_a_new_pytest_temp_root_override_is_a_finding(tmp_path, suffix, source, flagged):
+    """Defect class: code or a brief's command opens another pytest temp root (basetemp or cache) beside the run."""
+    path = tmp_path / f"scripts/probe{suffix}"
+    path.parent.mkdir()
+    path.write_text(source)
+    assert lint.find_literal_tmp_paths(tmp_path) == ([(f"scripts/probe{suffix}", 1)] if flagged else [])
