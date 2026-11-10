@@ -193,3 +193,18 @@ def test_invalid_product_is_named_refusal(split, monkeypatch):
     assert result.returncode == 3
     assert rules_core.CONTENT_ADDENDUM_REL in result.stderr
     assert _client(split[0]).get("/api/rules?scope=content").status_code == 503
+
+
+def test_default_binding_bundle_is_the_bounded_core(split) -> None:
+    """Default-bundle defect: an omitted scope must serve the bounded core, not a wider bundle."""
+    api_client = _client(split[0])
+    body = api_client.get("/api/rules?format=json").json()
+    assert body == api_client.get("/api/rules?scope=core&format=json").json()
+    assert body["scope"] == "core"
+    assert body["sources"] == [rules_core.CORE_REL]
+    assert body["markdown"] == rules_core.core_text()
+    assert body["bytes"] == len(body["markdown"].encode("utf-8")) <= 40_960
+    plain = api_client.get("/api/rules")
+    assert plain.text == body["markdown"]
+    assert plain.headers["x-rules-scope"] == "core"
+    assert api_client.get("/api/rules", headers={"If-None-Match": plain.headers["etag"]}).status_code == 304
