@@ -24,14 +24,15 @@ Cost: two ``git status --porcelain=v1 -z --untracked-files=all`` runs per shell
 call, with ``GIT_OPTIONAL_LOCKS=0`` so the probe never rewrites the index. When
 the second run shows new paths, a confirmation run follows once any concurrent
 Git operation in the primary releases its lock (waiting at most
-:data:`SETTLE_TIMEOUT_S`), so a fast-forward by another process is not
-attributed. Each run is bounded by :data:`GIT_TIMEOUT_S` and :data:`MAX_ENTRIES`; only new
+:data:`SETTLE_TIMEOUT_S`) and replaces it, so a fast-forward by another process
+that leaves a clean tree is not attributed. Each run is bounded by :data:`GIT_TIMEOUT_S` and :data:`MAX_ENTRIES`; only new
 untracked entries are fingerprinted, at most :data:`MAX_FINGERPRINTS` of them,
 and only files up to :data:`MAX_HASH_BYTES` are hashed.
 """
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import os
@@ -421,16 +422,13 @@ def finish_call(
             continue
         # Another process moving the primary's HEAD (a fast-forward of main) shows
         # its files as dirty until it finishes; a clean tree after it is not dirt.
-        # Confirm once after any Git operation settles and attribute only the
-        # paths still new; if the confirmation cannot run, keep the first pass.
-        try:
+        # Once any Git operation settles, the confirmation pass is the observation:
+        # every path dirty then and not before is attributed, including one that
+        # first appeared during the wait. If it cannot run, keep the first pass.
+        with contextlib.suppress(AuditError):
             settle_git_operation(root)
-            confirmed = status_entries(root)
-        except AuditError:
-            confirmed = None
-        if confirmed is not None:
-            after = confirmed
-            new_paths = [p for p in new_paths if p in after]
+            after = status_entries(root)
+        new_paths = sorted(set(after) - set(before))
         if not new_paths:
             continue
         changed = sorted(p for p in set(after) & set(before) if after[p] != before[p])

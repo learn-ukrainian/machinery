@@ -2292,6 +2292,16 @@ def _writer_targets(
     refused = getattr(segment, "refusal", None)
     if refused is not None:
         raise _UndecidableWrapper(refused)
+    # GNU tar also reads options from TAR_OPTIONS (a --checkpoint-action can run a program), so
+    # list mode is proven read-only only where nothing can have set it: the command's first
+    # top-level segment, outside any nested shell or template, and an unset harness value.
+    tar_environment_fixed = (
+        depth == 0
+        and not template
+        and getattr(segment, "prev_op", None) == ""
+        and getattr(segment, "scope", None) == ()
+        and "TAR_OPTIONS" not in os.environ
+    )
     targets = _redirect_targets(segment)
     for target in targets:
         if isinstance(target, ShellWord):
@@ -2309,7 +2319,7 @@ def _writer_targets(
     if refused is not None:
         raise _UndecidableWrapper(refused)
     cmd, idx = _command_word(segment)
-    if cmd == "tar" and _tar_lists_only(segment[idx + 1 :]):
+    if cmd == "tar" and idx == 0 and tar_environment_fixed and _tar_lists_only(segment[1:]):
         pass  # List mode reads the archive and writes nothing; -x/-c/-r/-u/-A stay below.
     elif cmd in _LONG_TAIL_WRITERS:
         targets.extend(_long_tail_targets(segment[idx + 1 :], cmd))

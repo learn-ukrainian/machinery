@@ -108,7 +108,6 @@ sys.dont_write_bytecode = True
 try:
     from agents_extensions.shared.hooks.shell_shlex import (
         ShellPreprocessLimit,
-        collapse_line_continuations,
         preprocess_shell_command,
         skippable_heredoc_delimiters,
         strip_shell_comments,
@@ -626,18 +625,65 @@ class _SplitQuoting(ShellPreprocessLimit):
     """A merge candidate whose quoting the line reader cannot group as Bash does."""
 
 
-def _without_quoted_heredoc_data(command: str) -> str:
-    """Drop only the bodies of closed here-docs with a quoted delimiter (`<<'EOF'`).
+def _quote_after_line(line: str, quote: str) -> str:
+    """The quote still open after ``line`` when it starts inside ``quote``."""
+    index = 0
+    while index < len(line):
+        char = line[index]
+        if char == "\\" and quote != "'":
+            index += 2
+            continue
+        if char in "\"'" and (not quote or quote == char):
+            quote = "" if quote else char
+        index += 1
+    return quote
 
-    Bash expands nothing in such a body, so its backticks and `$(` are text. An
-    unquoted body's substitutions run, so that body stays; an ambiguous or
-    unclosed opener keeps every later line (the shared parser's fail-closed rule).
+
+def _without_quoted_heredoc_data(command: str) -> str:
+    """Drop only the bodies of closed here-docs whose delimiters are all quoted (`<<'EOF'`).
+
+    Bash expands nothing in such a body and reads it by physical lines, so its
+    backticks and `$(` are text and a trailing backslash does not join the closer.
+    The whole command is kept, for the raw check to read, whenever a body's start
+    or end is not certain: an ambiguous opener (the shared parser's rule), an
+    unquoted delimiter, an opener line ending inside a quote or with a backslash
+    continuation (Bash then starts the body after a later line), an unclosed
+    body, an ANSI-C `$'` quote, or a carriage return.
     """
-    return strip_skippable_heredoc_bodies(
-        collapse_line_continuations(command),
-        opener_transform=strip_shell_comments,
-        body_substitutions=lambda body: [body],
-    )
+    if "<<" not in command or "\r" in command or "$'" in command:
+        return command
+    lines = command.split("\n")
+    kept: list[str] = []
+    quote = ""
+    joined = False  # this line continues the previous one (`cat <\` + `<<'EOF'` is `<<<`)
+    index = 0
+    while index < len(lines):
+        line = lines[index]
+        kept.append(line)
+        index += 1
+        if quote:
+            quote = _quote_after_line(line, quote)
+            joined = not quote and (len(line) - len(line.rstrip("\\"))) % 2 == 1
+            continue
+        if joined and "<<" in line:
+            return command
+        opener = strip_shell_comments(line)
+        joined = (len(line) - len(line.rstrip("\\"))) % 2 == 1
+        delimiters = skippable_heredoc_delimiters(opener) if "<<" in opener else []
+        if delimiters is None:
+            return command
+        if not delimiters:
+            quote = _quote_after_line(opener, "")
+            continue
+        if _quote_after_line(opener, "") or joined or not all(quoted for _, _, quoted in delimiters):
+            return command
+        for delimiter, strip_tabs, _ in delimiters:
+            while index < len(lines) and (lines[index].lstrip("\t") if strip_tabs else lines[index]) != delimiter:
+                index += 1
+            if index == len(lines):
+                return command
+            index += 1
+    return "\n".join(kept)
 
 
 def _unmodeled_quoting(command: str) -> bool:
