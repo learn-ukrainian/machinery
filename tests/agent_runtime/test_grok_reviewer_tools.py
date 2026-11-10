@@ -102,6 +102,26 @@ def test_reviewer_opt_in_denies_bash_and_guards_all_tracked_reads(tmp_path: Path
         ("python -m lu_machinery.publish issue-comment --number 1 --body unit", True),
         ("python -m lu_machinery.publish --help", False),
         ("python -m lu_machinery.publish pr-comment --help", False),
+        # Every entry form of both publisher names, the installed package and the product's
+        # in-tree copy, must be refused: interpreter flags or clusters before -m, an attached
+        # module, the package's __main__ module, and its __main__.py or directory as a path.
+        ("python -m scripts.publish issue-comment --number 1 --body unit", True),
+        ("python -I -m lu_machinery.publish issue-comment --number 1", True),
+        ("python -Im scripts.publish issue-comment --number 1", True),
+        ("python -W ignore -mlu_machinery.publish issue-comment --number 1", True),
+        ("python -u -Es -m scripts.publish.__main__ pr-comment --number 1", True),
+        ("python -m lu_machinery.publish.__main__ issue-comment --number 1", True),
+        ("python /x/site-packages/lu_machinery/publish/__main__.py issue-comment --number 1", True),
+        ("python scripts/publish/__main__.py issue-comment --number 1", True),
+        ("python ./lu_machinery/publish/ issue-comment --number 1", True),
+        ("python -X dev scripts/publish issue-comment --number 1", True),
+        # The guard cannot know the working directory, so a relative tail of a publisher path
+        # or module, a dots-only directory and the cached bytecode all count as the publisher.
+        ("cd lu_machinery/publish && python __main__.py issue-comment --number 1", True),
+        ("cd lu_machinery/publish/__pycache__ && python .. issue-comment --number 1", True),
+        ("cd lu_machinery && python -m publish issue-comment --number 1", True),
+        ("python scripts/publish/__pycache__/__main__.cpython-312.pyc issue-comment --number 1", True),
+        ("python -m scripts.foo bar", False),
         ("gh pr comment 8912 --body test", True),
     ],
 )

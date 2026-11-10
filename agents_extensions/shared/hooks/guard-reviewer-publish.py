@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import posixpath
 import sys
 from pathlib import Path
 
@@ -31,11 +32,18 @@ def _shell_parser():
     return module
 
 
-# The typed GitHub publisher's entry module, by import name. This hook is outside the machinery
-# package; under a checkout the module's file is at the same dotted path.
-_PUBLISHER_ENTRY_MODULE = "lu_machinery.publish.github"
-_PUBLISHER = _PUBLISHER_ENTRY_MODULE.rpartition(".")[0]
-_PUBLISHER_ENTRY_FILE = Path(*_PUBLISHER_ENTRY_MODULE.split(".")).with_suffix(".py").as_posix()
+# The typed GitHub publisher's package, by every import name that still runs it: the installed
+# machinery package and the product's in-tree copy, which stays live until it is deleted. This hook
+# is outside the machinery package; under a checkout each package's files are at its dotted path.
+_PUBLISHERS = ("lu_machinery.publish", "scripts.publish")
+_PUBLISHER_MODULES = frozenset(name for pkg in _PUBLISHERS for name in (pkg, f"{pkg}.__main__"))
+_PUBLISHER_PATHS = tuple(
+    path
+    for pkg in _PUBLISHERS
+    for path in (pkg.replace(".", "/"), f"{pkg.replace('.', '/')}/__main__.py", f"{pkg.replace('.', '/')}/github.py")
+)
+# CPython options that take the next argument when it is not attached (``-W x``, ``-X x``).
+_PYTHON_VALUE_OPTIONS = frozenset("WX")
 
 _PR_ISSUE_WRITES = frozenset({"merge", "create", "comment", "review", "edit", "close", "reopen"})
 _API_FIELDS = frozenset({"-f", "-F", "--field", "--raw-field", "--input"})
@@ -68,6 +76,81 @@ def _api_writes(args: list[str]) -> bool:
     return False
 
 
+def _python_target(args: list[str]) -> tuple[str, str, list[str]] | None:
+    """Return what a CPython command line runs, as ``(kind, target, tail)``.
+
+    ``kind`` is ``"m"`` for a module, ``"c"`` for a command string or ``"script"`` for a
+    path. Interpreter options are skipped the way CPython parses them, including clusters
+    (``-Im``), attached values (``-mpkg``, ``-Wignore``) and ``--``.
+    """
+    i = 0
+    while i < len(args):
+        arg = args[i]
+        if arg == "--":
+            i += 1
+            break
+        if arg == "--check-hash-based-pycs":
+            i += 2
+            continue
+        if arg.startswith("--"):
+            i += 1
+            continue
+        if arg == "-" or not arg.startswith("-"):
+            break
+        for j, option in enumerate(arg[1:], start=1):
+            attached = arg[j + 1 :]
+            if option in "cm":
+                if attached:
+                    return option, attached, args[i + 1 :]
+                return option, args[i + 1] if i + 1 < len(args) else "", args[i + 2 :]
+            if option in _PYTHON_VALUE_OPTIONS:
+                if not attached:
+                    i += 1
+                break
+        i += 1
+    if i < len(args):
+        return "script", args[i], args[i + 1 :]
+    return None
+
+
+def _names_entry(target: str, entries, sep: str) -> bool:
+    """True when ``target`` names an entry, or is its tail and so names it from some directory.
+
+    The guard cannot know the directory a command runs in (``cd`` may precede it), so
+    ``__main__.py``, ``publish`` or ``-m publish`` count as the publisher.
+    """
+    return any((sep + target).endswith(sep + entry) or (sep + entry).endswith(sep + target) for entry in entries)
+
+
+def _script_source(name: str) -> str:
+    """Normalise a script path; a cached bytecode file maps to its source (PEP 3147)."""
+    path = posixpath.normpath(name)
+    while path.startswith("../"):
+        path = path[3:]
+    head, base = posixpath.split(path)
+    if base.endswith(".pyc"):
+        if posixpath.basename(head) == "__pycache__":
+            head = posixpath.dirname(head)
+        path = posixpath.join(head, base.split(".", 1)[0] + ".py")
+    return path
+
+
+def _runs_publisher(args: list[str]) -> bool:
+    target = _python_target(args)
+    if target is None:
+        return False
+    kind, name, tail = target
+    if kind == "m":
+        hit = bool(name) and _names_entry(name, _PUBLISHER_MODULES, ".")
+    elif kind == "script":
+        path = _script_source(name)
+        # A directory named only by dots runs the __main__.py of an unknown directory.
+        hit = path in {".", ".."} or _names_entry(path, _PUBLISHER_PATHS, "/")
+    else:
+        hit = False
+    return hit and tail != ["--help"] and not (len(tail) == 2 and tail[-1] == "--help")
+
+
 def blocked(command: str, parser=None, depth: int = 0) -> str | None:
     if depth > 8:
         return "nested shell command exceeds reviewer inspection depth"
@@ -97,11 +180,7 @@ def blocked(command: str, parser=None, depth: int = 0) -> str | None:
             if group == "release" or (group == "workflow" and len(rest) > 1 and rest[1] == "run"):
                 return f"gh {group} publish"
         elif binary and Path(binary).name.startswith("python"):
-            if args[:2] == ["-m", _PUBLISHER]:
-                tail = args[2:]
-                if tail != ["--help"] and not (len(tail) == 2 and tail[-1] == "--help"):
-                    return "typed GitHub publisher"
-            elif args and args[0].endswith(_PUBLISHER_ENTRY_FILE):
+            if _runs_publisher(args):
                 return "typed GitHub publisher"
         elif binary in {"bash", "sh", "eval"}:
             if binary == "eval":
