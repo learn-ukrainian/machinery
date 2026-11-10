@@ -245,6 +245,7 @@ CACHE_DIR = "cache" + "_dir="
         (".py", f'ARGS = ["pytest", "{BASETEMP}", "batch_state/run/pytest-current"]\n', True),
         (".py", f'ARGS = ["pytest", "{BASETEMP}=x"]\n', True),
         (".py", f'ARGS = ["pytest", "-o", f"{CACHE_DIR}{{work}}/pytest-cache"]\n', True),
+        (".py", f'ARGS = ["pytest", "-o{CACHE_DIR}elsewhere", f"-o{CACHE_DIR}{{work}}/cache"]\n', True),
         (".sh", f"python -m pytest -q {BASETEMP} batch_state/run/pytest-current tests\n", True),
         (".sh", f'python -m pytest -q -o "{CACHE_DIR}$WORK/cache" tests\n', True),
         (".sh", f"python -m pytest -q --override-ini={CACHE_DIR}x tests\n", True),

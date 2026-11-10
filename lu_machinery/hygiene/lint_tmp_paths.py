@@ -2162,9 +2162,12 @@ ALLOWLIST: tuple[tuple[str, str, str], ...] = (
     ),
     (
         "tests/common/test_pytest_scratch_readonly.py",
-        "Proves the scratch plugin refuses a base temp or cache directory outside the scratch root (Refs #100).",
-        "b50d6cde375d6f5e0d52268da06c93932dd0410855869a40dcfcff482abff9a2:1 "
-        "c50597503c9f7a12bb90d69ae1bf06f5d2c122f1a6fc355d66925ab60e81cdb8:1",
+        "Proves the scratch plugin refuses a base temp or cache directory outside the scratch root and keeps an explicit one inside it (Refs #100).",
+        "9ed4f2efeb4f1759b0467dce520adc7aa3115c2abea678619920073ac0fc6e14:1 "
+        "0bd713ebd1d6e243147733abf59213da87ecbfbf5e20a241601c86d0318d1731:1 "
+        "88be6fc0456c80003ee24d60b2506b5c9b2e47ec76372c312c14cb59d59c4d1f:1 "
+        "50767ff87670a08beadc12a409763e44a8b156acf70f3ad4e8bdaa15bab1bc82:1 "
+        "ffec729907f007051141c873e6e78034bc36c3fdfe5ab665bff95bc29ffdae66:1",
     ),
 )
 
@@ -2270,7 +2273,12 @@ PYTEST_ROOT_MESSAGE = "pytest-temp-root: the session's run holds its base temp a
 BASETEMP_OPTION = "--" + "basetemp"
 CACHE_DIR_SETTING = "cache" + "_dir="
 OVERRIDE_INI_OPTIONS = frozenset({"-o", "--override-ini"})
-PYTEST_ROOT_PREFIXES = (BASETEMP_OPTION + "=", *(option + "=" + CACHE_DIR_SETTING for option in OVERRIDE_INI_OPTIONS))
+# --basetemp=x, -ocache_dir=x, -o=cache_dir=x and --override-ini=cache_dir=x: the attached spellings.
+PYTEST_ROOT_PREFIXES = (
+    BASETEMP_OPTION + "=",
+    "-o" + CACHE_DIR_SETTING,
+    *(option + "=" + CACHE_DIR_SETTING for option in sorted(OVERRIDE_INI_OPTIONS)),
+)
 
 
 def is_pytest_root_override(value: str) -> bool:
@@ -2497,7 +2505,7 @@ def scan_shell(source: str, path: str) -> list[Finding]:
         # A bare cache_dir= word is a shell assignment; only pytest's -o/--override-ini spelling counts.
         if (
             token == BASETEMP_OPTION
-            or token.startswith((*PYTEST_ROOT_PREFIXES, "-o" + CACHE_DIR_SETTING))
+            or token.startswith(PYTEST_ROOT_PREFIXES)
             or (token in OVERRIDE_INI_OPTIONS and following.startswith(CACHE_DIR_SETTING))
         ):
             findings.append(Finding(path, number, PYTEST_ROOT_MESSAGE + " ".join([token, following]).strip()))

@@ -109,7 +109,7 @@ class World:
         config = SimpleNamespace(
             option=SimpleNamespace(basetemp=basetemp),
             add_cleanup=self.cleanups.append,
-            pluginmanager=SimpleNamespace(has_plugin=lambda name: False),
+            pluginmanager=SimpleNamespace(has_plugin=lambda name: False, register=lambda plugin, name: None),
         )
         if worker:
             config.workerinput = {"workerid": "gw0"}
@@ -955,19 +955,34 @@ def test_fallback_lease_is_one_the_shared_allocator_would_write(world, tmp_path)
 # ---- callers that own their base temp ------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("caller", ["explicit-basetemp", "xdist-worker"])
-def test_callers_owning_their_base_temp_are_untouched(world, caller):
-    """Defect class: an explicit --basetemp or an xdist worker is re-allocated or has TMPDIR rewritten."""
+def test_an_xdist_worker_is_untouched(world):
+    """Defect class: an xdist worker is re-allocated or has TMPDIR rewritten."""
     world.make_runs_root(0o700)
     before = _listing(world.shared)
     refused = world.readonly()
-    basetemp = str(world.shared / "gate-owned") if caller == "explicit-basetemp" else None
-    config = world.configure(basetemp=basetemp, worker=caller == "xdist-worker")
-    assert config.option.basetemp == basetemp
+    config = world.configure(worker=True)
+    assert config.option.basetemp is None
     assert world.cleanups == [] and refused == [] and world.fchmods == []
     assert os.environ["TMPDIR"] == str(world.temp)
     assert _listing(world.shared) == before
     assert list(world.temp.iterdir()) == [] and list(world.shm.iterdir()) == []
+
+
+def test_an_explicit_base_temp_keeps_its_fixtures_and_still_gets_the_run(world):
+    """Defect class: an explicit --basetemp is re-pointed, or its session skips the run and its settings."""
+    world.make_runs_root(0o700)
+    before = _listing(world.shared)
+    refused = world.readonly()
+    basetemp = str(world.shared / "gate-owned")
+    config = world.configure(basetemp=basetemp)
+    assert config.option.basetemp == basetemp
+    # The read-only shared root refused the allocation and is unchanged.
+    assert refused and world.fchmods == [] and _listing(world.shared) == before
+    # The shared root is read-only here, so the session's run is in the private fallback.
+    payload = Path(tempfile.gettempdir())
+    (private,) = world.temp.iterdir()
+    assert os.environ["TMPDIR"] == str(payload) and payload.name == "scratch" and payload.is_relative_to(private)
+    assert json.loads((payload.parent / "lease.json").read_text())["state"] == "registered"
 
 
 # ---- end to end ----------------------------------------------------------------------------------------------
@@ -1084,22 +1099,58 @@ def _runs(shared: Path) -> list[Path]:
     return list((shared / pytest_scratch.NAMESPACE / pytest_scratch.RUNS_DIRNAME).iterdir())
 
 
-def test_a_terminated_session_removes_its_run(tmp_path):
-    """Defect class: a session ended by SIGTERM (a supervisor's timeout) never reaches its cleanup and leaves its run."""
-    suite, shared, env = _writable_suite(
-        tmp_path,
-        "import os, tempfile, time\nfrom pathlib import Path\n\n"
+# A test that waits for SIGTERM, as the whole session, inside a nested in-process session, or while finishing.
+_WAITS = {
+    "session": (
+        "import tempfile, time\nfrom pathlib import Path\n\n"
         "def test_waits(tmp_path):\n"
         "    (tmp_path / 'big').write_bytes(b'x' * 4096)\n"
-        f"    Path({str(tmp_path / 'started')!r}).write_text(tempfile.gettempdir())\n"
-        "    time.sleep(120)\n",
-    )
+        "    Path({started!r}).write_text(tempfile.gettempdir())\n"
+        "    time.sleep(120)\n"
+    ),
+    "nested": (
+        "import signal, tempfile\nfrom pathlib import Path\nimport pytest\n\n"
+        "def test_runs_a_nested_session(tmp_path):\n"
+        "    inner = tmp_path / 'inner'\n"
+        "    inner.mkdir()\n"
+        "    (inner / 'test_inner.py').write_text(\n"
+        "        'import time\\nfrom pathlib import Path\\n\\n'\n"
+        "        'def test_inner():\\n'\n"
+        "        '    Path(' + repr({started!r}) + ').write_text(' + repr(tempfile.gettempdir()) + ')\\n'\n"
+        "        '    time.sleep(120)\\n'\n"
+        "    )\n"
+        "    code = pytest.main(['-q', '-p', 'no:cacheprovider', '--rootdir', str(inner), '--basetemp',\n"
+        "                        str(tmp_path / 'inner-base'), str(inner)])\n"
+        "    disarmed = all(signal.getsignal(s) is signal.SIG_DFL for s in (signal.SIGTERM, signal.SIGHUP))\n"
+        "    Path({started!r} + '.inner').write_text(f'{{int(code)}} {{disarmed}}')\n"
+    ),
+    "finishing": "def test_passes():\n    pass\n",
+}
+_FINISHING_CONFTEST = (
+    "import tempfile, time\nfrom pathlib import Path\n\n"
+    "def pytest_sessionfinish(session):\n"
+    "    Path({started!r}).write_text(tempfile.gettempdir())\n"
+    "    time.sleep(5)\n"
+)
+
+
+@pytest.mark.parametrize("when", ["session", "nested", "finishing"])
+def test_a_terminated_session_removes_its_run(tmp_path, when):
+    """Defect class: a session ended by SIGTERM (a supervisor's timeout) never reaches its cleanup and leaves its run.
+
+    The signal can land in the session's own test, in a nested in-process session that would swallow the
+    interrupt, or while the session is already finishing.
+    """
+    started = tmp_path / "started"
+    suite, shared, env = _writable_suite(tmp_path, _WAITS[when].format(started=str(started)))
+    if when == "finishing":
+        with (suite / "conftest.py").open("a") as conftest:
+            conftest.write(_FINISHING_CONFTEST.format(started=str(started)))
     child = subprocess.Popen(
         [sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider"],
         cwd=suite, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
     )
     try:
-        started = tmp_path / "started"
         for _ in range(600):
             if started.exists() or child.poll() is not None:
                 break
@@ -1112,28 +1163,44 @@ def test_a_terminated_session_removes_its_run(tmp_path):
         if child.poll() is None:
             child.kill()
             child.communicate()
-    assert child.returncode == pytest.ExitCode.INTERRUPTED, output
+    # Finishing already removes the run, so the session ends with its own status.
+    expected = pytest.ExitCode.OK if when == "finishing" else pytest.ExitCode.INTERRUPTED
+    assert child.returncode == expected, output
     assert _runs(shared) == [], output
+    if when == "nested":
+        # The nested session took the interrupt; both signals were disarmed, and the owner stopped anyway.
+        assert (tmp_path / "started.inner").read_text() == f"{int(pytest.ExitCode.INTERRUPTED)} True"
 
 
-def test_the_session_keeps_cache_claude_config_and_bytecode_inside_its_run(tmp_path):
-    """Defect class: pytest's cache, breadcrumbs, a test-started Claude Code or bytecode write outside the run."""
+@pytest.mark.parametrize("basetemp", [False, True], ids=["managed", "explicit-basetemp"])
+def test_the_session_keeps_cache_claude_config_and_bytecode_inside_its_run(tmp_path, basetemp):
+    """Defect class: pytest's cache, breadcrumbs, a test-started Claude Code or bytecode write outside the run.
+
+    An explicit --basetemp inside the root moves only the fixtures; the rest still goes in the run.
+    """
     suite, shared, env = _writable_suite(
         tmp_path,
         "import os, sys, tempfile\nfrom pathlib import Path\n\n"
-        "def test_inside(request):\n"
+        "def test_inside(request, tmp_path):\n"
         "    run = Path(tempfile.gettempdir()).parent\n"
+        "    assert run.parent.name == 'runs'\n"
         "    assert Path(os.environ['CLAUDE_CONFIG_DIR']) == run / 'claude-config'\n"
         "    assert os.environ['PYTHONDONTWRITEBYTECODE'] == '1' and sys.dont_write_bytecode\n"
         "    assert request.config.cache._cachedir == run / 'pytest-cache'\n"
         "    assert Path(os.environ['PYTEST_BREADCRUMB_DIR']) == run / 'breadcrumbs'\n"
-        "    request.config.cache.set('probe/value', 1)\n",
+        "    request.config.cache.set('probe/value', 1)\n"
+        "    print('FIXTURES', tmp_path)\n",
     )
     env["CLAUDE_CONFIG_DIR"] = str(tmp_path / "operator-claude")
+    caller_base = shared / "caller-base"
+    args = ["--basetemp", str(caller_base)] if basetemp else []
     result = subprocess.run(
-        [sys.executable, "-m", "pytest", "-q"], cwd=suite, env=env, capture_output=True, text=True, timeout=120
+        [sys.executable, "-m", "pytest", "-q", "-s", *args], cwd=suite, env=env, capture_output=True, text=True,
+        timeout=120,
     )
     assert result.returncode == 0, result.stdout + result.stderr
+    fixtures = Path(result.stdout.split("FIXTURES ", 1)[1].split()[0])
+    assert fixtures.is_relative_to(caller_base) is basetemp
     assert not (suite / ".pytest_cache").exists() and not (tmp_path / "operator-claude").exists()
     # The conftest is imported before the plugin configures; every module imported after writes no bytecode.
     cached = [path.name for path in suite.glob("__pycache__/*")]
@@ -1141,12 +1208,28 @@ def test_the_session_keeps_cache_claude_config_and_bytecode_inside_its_run(tmp_p
     assert _runs(shared) == []
 
 
-@pytest.mark.parametrize("option", ["--basetemp", "cache_dir"])
+@pytest.mark.parametrize("option", ["basetemp", "cache_dir", "cache_dir-link-dotdot", "cache_dir-home"])
 def test_a_temp_root_outside_the_scratch_root_is_refused(tmp_path, option):
-    """Defect class: a caller's --basetemp or cache_dir opens another temp root (a checkout, batch_state, the system temp)."""
+    """Defect class: a caller's --basetemp or cache_dir opens another temp root (a checkout, batch_state, the system temp).
+
+    The cache directory is judged where pytest puts it: ``~`` expands, and ``..`` steps out of a link's target.
+    """
     suite, shared, env = _writable_suite(tmp_path, "def test_never():\n    pass\n")
     elsewhere = tmp_path / "elsewhere"
-    args = ["--basetemp", str(elsewhere)] if option == "--basetemp" else ["-o", f"cache_dir={elsewhere}"]
+    if option == "basetemp":
+        args = ["--basetemp", str(elsewhere)]
+    elif option == "cache_dir":
+        args = ["-o", f"cache_dir={elsewhere}"]
+    elif option == "cache_dir-link-dotdot":
+        (tmp_path / "outside" / "child").mkdir(parents=True)
+        (shared / "link").symlink_to(tmp_path / "outside" / "child")
+        elsewhere = tmp_path / "outside" / "escape"
+        args = ["-o", f"cache_dir={shared}/link/../escape"]
+    else:
+        env["HOME"] = str(tmp_path / "home")
+        elsewhere = tmp_path / "home" / "escape"
+        # A root directory inside the scratch root, where an unexpanded ~ would look contained.
+        args = ["-o", "cache_dir=~/escape", "--rootdir", str(shared)]
     result = subprocess.run(
         [sys.executable, "-m", "pytest", "-q", *args], cwd=suite, env=env, capture_output=True, text=True, timeout=120
     )
