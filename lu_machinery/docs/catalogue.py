@@ -48,6 +48,7 @@ import yaml
 from jsonschema import Draft202012Validator
 from jsonschema.exceptions import best_match
 
+from lu_machinery.common.repo_root import _PRODUCT_TREE
 from lu_machinery.docs import store_census  # imports this module back; each side uses the other only at call time
 from lu_machinery.docs.docs_inventory import EXCLUDED_PARTS
 from lu_machinery.docs.docs_inventory import metadata as inventory_metadata
@@ -76,8 +77,10 @@ def _sibling_path(name: str) -> str:
 CATALOGUE_PATH = 'docs/knowledge/catalogue.yaml'
 SCHEMA_PATH = 'docs/knowledge/catalogue.schema.json'
 TRACKED_ROOTS = ('docs', 'registry', 'curriculum/l2-uk-en/evidence')
-OWNER_SOURCES = ((f'{_top()}/config/issue_streams.yaml', 'streams'),
-                 (f'{_top()}/config/area_assignments.yaml', 'assignments'))
+# Owner registries, relative to the checkout's Python tree (``owner_tree``): ``scripts/config/``
+# in a product, never the installed package's own directory name.
+OWNER_SOURCES = (('config/issue_streams.yaml', 'streams'),
+                 ('config/area_assignments.yaml', 'assignments'))
 TERMINAL_LIFECYCLES = frozenset({'active', 'archive'})
 SQLITE_SIDECARS = ('-shm', '-wal', '-journal')
 PLACEHOLDER_NAMES = frozenset({'.gitkeep', '.gitignore'})
@@ -405,10 +408,25 @@ def load(path: Path) -> dict:
         return parse(handle.read(MAX_CATALOGUE_BYTES + 1))
 
 
+def owner_tree(repo: Path) -> str:
+    """The Python tree whose ``config/`` the index of ``repo`` holds: the product's ``scripts``,
+    else this package's own tree (machinery's checkout), else ``scripts``.
+
+    ``product_tree_path``'s rule, decided from the index like every catalogue read, so a sparse,
+    untracked or unstaged directory cannot change it; a missing registry fails at the reader.
+    """
+    for tree in dict.fromkeys((_PRODUCT_TREE, _top())):
+        if git(repo, 'ls-files', '-z', '--', f':(top,literal){tree}/config/'):
+            return tree
+    return _PRODUCT_TREE
+
+
 def owner_keys(repo: Path) -> set[str]:
+    """Stream and area keys from the owner registries in ``repo``'s index."""
+    tree = owner_tree(repo)
     keys: set[str] = set()
     for rel, section in OWNER_SOURCES:
-        data = yaml.safe_load(git(repo, 'show', f':{rel}').decode('utf-8')) or {}
+        data = yaml.safe_load(git(repo, 'show', f':{tree}/{rel}').decode('utf-8')) or {}
         keys.update((data.get(section) or {}).keys())
     return keys
 

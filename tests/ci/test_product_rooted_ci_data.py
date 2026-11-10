@@ -1,7 +1,8 @@
 """Installed CI must not substitute wheel census data for the selected product.
 
-Defect classes: cross-product defaults, missing-input success, and a stack report
-publishing names from the machinery release instead of the selected product.
+Defect classes: cross-product defaults, missing-input success, a stack report
+publishing names from the machinery release instead of the selected product, and a
+document catalogue reading owner registries at the installed package's paths.
 """
 
 from __future__ import annotations
@@ -188,6 +189,58 @@ def test_product_defaults_control_shards_guards_and_stack_names(
                 "--event-path", str(tmp_path / "absent-event.json"))
     assert size.returncode == 0, size.stderr
     assert json.loads(size.stdout.splitlines()[0])["status"] == "unknown"
+
+
+def test_installed_catalogue_reads_the_product_owner_registries(tmp_path: Path, installed: tuple[Path, Path]) -> None:
+    """Owner keys come from the tree the index holds, so a valid catalogue searches complete.
+
+    Reading lu_machinery/config/ from the product index fails, which marks every search
+    incomplete (catalogue_invalid) and every hit uncatalogued. Machinery's own checkout keeps
+    its registries under lu_machinery/config/; an untracked scripts/ there must not move them.
+    """
+    root, env = _product(tmp_path, "alpha")
+    machinery = tmp_path / "machinery-checkout"
+    (machinery / "scripts").mkdir(parents=True)
+    (machinery / "scripts" / "untracked.py").write_text("", encoding="utf-8")
+    _git(machinery, "init", "-b", "main")
+    for key, value in (("user.name", "CI fixture"), ("user.email", "ci@example.com"),
+                       ("commit.gpgsign", "false"), ("core.hooksPath", "/dev/null")):
+        _git(machinery, "config", key, value)
+    entry = {"kind": "doc_family", "purpose": "fixture documents", "lifecycle": "active",
+             "query": [{"surface": "git_grep", "how": "git grep -n -i -F <term> -- docs"}],
+             "content_searchable": True}
+    catalogue = {
+        "schema_version": 1,
+        "denominator": {"tracked_roots": ["docs", "registry", "curriculum/l2-uk-en/evidence"],
+                        "local_store_root": "data"},
+        "status_mapping": {"current": "active", "historical": "archive", "superseded": "superseded"},
+        "entries": [
+            {**entry, "id": "knowledge", "paths": ["docs/knowledge/**"], "keywords": ["catalogue"],
+             "owner": "docs-knowledge"},
+            {**entry, "id": "guide", "paths": ["docs/guide/**"], "keywords": ["workflow"], "owner": "infra-harness"},
+        ],
+        "residual": [],
+    }
+    for checkout, tree in ((root, "scripts"), (machinery, "lu_machinery")):
+        files = {
+            f"{tree}/config/issue_streams.yaml": "streams:\n  docs-knowledge: {epics: [1]}\n",
+            f"{tree}/config/area_assignments.yaml": "assignments:\n  infra-harness: {slots: []}\n",
+            "docs/knowledge/catalogue.schema.json": json.dumps({"type": "object"}),
+            "docs/knowledge/catalogue.yaml": json.dumps(catalogue),
+            "docs/guide/workflow.md": "# Workflow\nThe release workflow lands one change at a time.\n",
+        }
+        for name, content in files.items():
+            (checkout / name).parent.mkdir(parents=True, exist_ok=True)
+            (checkout / name).write_text(content, encoding="utf-8")
+            _git(checkout, "add", name)
+        _git(checkout, "commit", "-m", "catalogue")
+        result = _run(installed[0], tmp_path, {**env, "LU_PRODUCT_ROOT": str(checkout)},
+                      "-m", "lu_machinery.docs.find", "workflow", "--json", "--repo", str(checkout))
+        assert result.returncode == 0, result.stdout + result.stderr
+        found = json.loads(result.stdout)
+        assert found["coverage"]["incomplete"] is False, (tree, found["coverage"]["incomplete_reasons"])
+        assert found["coverage"]["catalogue_errors"] == 0
+        assert found["hits"] and {hit["status"] for hit in found["hits"]} == {"current"}, found["hits"]
 
 
 @pytest.mark.parametrize("variant", ["alpha", "beta"])
