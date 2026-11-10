@@ -113,16 +113,39 @@ def _python_target(args: list[str]) -> tuple[str, str, list[str]] | None:
     return None
 
 
+def _names_entry(target: str, entries, sep: str) -> bool:
+    """True when ``target`` names an entry, or is its tail and so names it from some directory.
+
+    The guard cannot know the directory a command runs in (``cd`` may precede it), so
+    ``__main__.py``, ``publish`` or ``-m publish`` count as the publisher.
+    """
+    return any((sep + target).endswith(sep + entry) or (sep + entry).endswith(sep + target) for entry in entries)
+
+
+def _script_source(name: str) -> str:
+    """Normalise a script path; a cached bytecode file maps to its source (PEP 3147)."""
+    path = posixpath.normpath(name)
+    while path.startswith("../"):
+        path = path[3:]
+    head, base = posixpath.split(path)
+    if base.endswith(".pyc"):
+        if posixpath.basename(head) == "__pycache__":
+            head = posixpath.dirname(head)
+        path = posixpath.join(head, base.split(".", 1)[0] + ".py")
+    return path
+
+
 def _runs_publisher(args: list[str]) -> bool:
     target = _python_target(args)
     if target is None:
         return False
     kind, name, tail = target
     if kind == "m":
-        hit = name in _PUBLISHER_MODULES
+        hit = bool(name) and _names_entry(name, _PUBLISHER_MODULES, ".")
     elif kind == "script":
-        path = "/" + posixpath.normpath(name)
-        hit = any(path.endswith("/" + suffix) for suffix in _PUBLISHER_PATHS)
+        path = _script_source(name)
+        # A directory named only by dots runs the __main__.py of an unknown directory.
+        hit = path in {".", ".."} or _names_entry(path, _PUBLISHER_PATHS, "/")
     else:
         hit = False
     return hit and tail != ["--help"] and not (len(tail) == 2 and tail[-1] == "--help")

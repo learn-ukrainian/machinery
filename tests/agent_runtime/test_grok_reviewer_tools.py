@@ -115,6 +115,12 @@ def test_reviewer_opt_in_denies_bash_and_guards_all_tracked_reads(tmp_path: Path
         ("python scripts/publish/__main__.py issue-comment --number 1", True),
         ("python ./lu_machinery/publish/ issue-comment --number 1", True),
         ("python -X dev scripts/publish issue-comment --number 1", True),
+        # The guard cannot know the working directory, so a relative tail of a publisher path
+        # or module, a dots-only directory and the cached bytecode all count as the publisher.
+        ("cd lu_machinery/publish && python __main__.py issue-comment --number 1", True),
+        ("cd lu_machinery/publish/__pycache__ && python .. issue-comment --number 1", True),
+        ("cd lu_machinery && python -m publish issue-comment --number 1", True),
+        ("python scripts/publish/__pycache__/__main__.cpython-312.pyc issue-comment --number 1", True),
         ("python -m scripts.foo bar", False),
         ("gh pr comment 8912 --body test", True),
     ],
