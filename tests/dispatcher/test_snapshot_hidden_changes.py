@@ -112,6 +112,93 @@ def test_assume_unchanged_edit_reads_dirty(work):
     assert _dirty(work) is True
 
 
+def test_flagged_lf_rewrite_under_autocrlf_reads_clean(work):
+    """Defect class: a flagged file rewritten with LF under core.autocrlf=true was reported dirty
+    although that difference is the committed form (#100 R82). Stripping CR then hid a real edit
+    Git does not convert: a stored CR blob, a lone CR, a non-printable file, -crlf, and a
+    working-tree encoding."""
+    _git(work, "config", "core.autocrlf", "true")
+    _git(work, "update-index", "--assume-unchanged", "tracked.txt")
+    assert _git(work, "status", "--porcelain") == ""
+    assert _dirty(work) is False
+    (work / "tracked.txt").write_text("real edit\n")
+    assert _git(work, "status", "--porcelain") == ""
+    assert _dirty(work) is True
+    (work / "tracked.txt").write_bytes(b"committed\r\n")
+    assert _dirty(work) is False
+    _git(work, "config", "core.autocrlf", "false")
+    assert _dirty(work) is True
+    _git(work, "update-index", "--no-assume-unchanged", "tracked.txt")
+    (work / "tracked.txt").write_bytes(b"committed\r\n")
+    _git(work, "add", "tracked.txt")
+    _git(work, "commit", "-q", "-m", "store crlf")
+    _git(work, "config", "core.autocrlf", "true")
+    _git(work, "update-index", "--assume-unchanged", "tracked.txt")
+    assert _dirty(work) is True
+    (work / "tracked.txt").write_bytes(b"committed\n")
+    assert _dirty(work) is True
+    (work / "tracked.txt").write_bytes(b"a\r\nb\n")
+    _git(work, "update-index", "--no-assume-unchanged", "tracked.txt")
+    _git(work, "config", "core.autocrlf", "false")
+    _git(work, "add", "tracked.txt")
+    _git(work, "commit", "-q", "-m", "mixed")
+    _git(work, "config", "core.autocrlf", "true")
+    _git(work, "update-index", "--assume-unchanged", "tracked.txt")
+    (work / "tracked.txt").write_bytes(b"a\nb\n")
+    assert _dirty(work) is True
+    _git(work, "update-index", "--no-assume-unchanged", "tracked.txt")
+    _git(work, "config", "core.autocrlf", "false")
+    (work / "tracked.txt").write_bytes(b"committed\n")
+    (work / ".gitattributes").write_text((work / ".gitattributes").read_text() + "tracked.txt -text\n")
+    _git(work, "add", "tracked.txt", ".gitattributes")
+    _git(work, "commit", "-q", "-m", "disable conversion")
+    _git(work, "config", "core.autocrlf", "true")
+    _git(work, "update-index", "--assume-unchanged", "tracked.txt", ".gitattributes")
+    (work / "tracked.txt").write_bytes(b"committed\r\n")
+    assert _dirty(work) is True
+    _git(work, "update-index", "--no-assume-unchanged", "tracked.txt", ".gitattributes")
+    _git(work, "config", "core.autocrlf", "false")
+    (work / ".gitattributes").write_text("*encoded* working-tree-encoding=UTF-16LE\n")
+    (work / "tracked.txt").write_bytes(b"a\rb\n")
+    _git(work, "add", "tracked.txt", ".gitattributes")
+    _git(work, "commit", "-q", "-m", "lone cr")
+    _git(work, "config", "core.autocrlf", "true")
+    _git(work, "update-index", "--assume-unchanged", "tracked.txt")
+    (work / "tracked.txt").write_bytes(b"a\rb\r\n")
+    assert _dirty(work) is True
+    _git(work, "update-index", "--no-assume-unchanged", "tracked.txt")
+    _git(work, "config", "core.autocrlf", "false")
+    (work / "tracked.txt").write_bytes(b"\x01a\n")
+    _git(work, "add", "tracked.txt")
+    _git(work, "commit", "-q", "-m", "nonprintable")
+    _git(work, "config", "core.autocrlf", "true")
+    _git(work, "update-index", "--assume-unchanged", "tracked.txt")
+    (work / "tracked.txt").write_bytes(b"\x01a\r\n")
+    assert _dirty(work) is True
+    _git(work, "update-index", "--no-assume-unchanged", "tracked.txt")
+    _git(work, "config", "core.autocrlf", "false")
+    (work / "tracked.txt").write_bytes(b"committed\n")
+    (work / ".gitattributes").write_text(
+        (work / ".gitattributes").read_text() + "tracked.txt -crlf\n"
+    )
+    _git(work, "add", "tracked.txt", ".gitattributes")
+    _git(work, "commit", "-q", "-m", "legacy crlf off")
+    _git(work, "config", "core.autocrlf", "true")
+    _git(work, "update-index", "--assume-unchanged", "tracked.txt", ".gitattributes")
+    (work / "tracked.txt").write_bytes(b"committed\r\n")
+    assert _dirty(work) is True
+    _git(work, "update-index", "--no-assume-unchanged", "tracked.txt", ".gitattributes")
+    _git(work, "config", "core.autocrlf", "false")
+    (work / ".gitattributes").write_text("*encoded* working-tree-encoding=UTF-16LE\ntracked.txt working-tree-encoding=ISO-8859-1\n")
+    (work / "tracked.txt").write_bytes("é\n".encode("latin1"))
+    _git(work, "add", "tracked.txt", ".gitattributes")
+    _git(work, "commit", "-q", "-m", "encoded")
+    _git(work, "config", "core.autocrlf", "true")
+    _git(work, "update-index", "--assume-unchanged", "tracked.txt", ".gitattributes")
+    (work / "tracked.txt").write_bytes("é\n".encode())
+    assert _dirty(work) is True
+
+
 def test_submodule_edit_with_ignore_dirty_reads_dirty(tmp_path, work):
     """Also an edit that the submodule's own assume-unchanged flag hides from its status, with or without the
     submodule's gitfile."""

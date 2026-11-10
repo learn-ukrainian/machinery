@@ -4,6 +4,7 @@ import contextlib
 import ctypes
 import hashlib
 import json
+import logging
 import os
 import re
 import signal
@@ -182,6 +183,45 @@ def _submitted_prompt_already_published(record: dict, prompt: bytes, failed: str
     return held == prompt
 
 
+def _launch_cleanup_text(exc: BaseException) -> str:
+    return f"{type(exc).__name__}: {exc}"[:300]
+
+
+def _record_failed_launch(path: Path, spec: TaskSpec, record: dict, exc: BaseException,
+                          cleanup_error: BaseException | None = None) -> None:
+    """Record the launch error. A cleanup failure is a separate field, never that error."""
+    with store.task_state_lock(path):
+        current = store.read(spec.task_id, missing_ok=True)
+        if (current is None or current.get("run_nonce") != record["run_nonce"]
+                or current.get("status") not in store.ACTIVE):
+            return
+        fields = (exc.fields if isinstance(exc, admission.LaunchRefused) else
+                  dict(status="failed" if current.get("pid") is None else "crashed",
+                       error="supervisor launch failed"))
+        reason = (fields["error"].split(":", 1)[0] if isinstance(exc, admission.LaunchRefused) else
+                  "spawn_setup_failed" if current.get("pid") is None else "supervisor_launch_failed")
+        if not isinstance(exc, admission.LaunchRefused):
+            fields["error"] = f"{reason}: {type(exc).__name__}"
+        if cleanup_error is not None:
+            fields["launch_cleanup_error"] = _launch_cleanup_text(cleanup_error)
+        current.update(fields, finished_at=store.now(), returncode_reason=reason)
+        store.replace(current, path)
+
+
+def _guard_launch_cleanup(path: Path, spec: TaskSpec, record: dict, exc: BaseException) -> None:
+    """Record the failed launch. A cleanup failure is logged and kept on the record; the launch error still propagates."""
+    try:
+        _record_failed_launch(path, spec, record, exc)
+    except BaseException as cleanup_exc:
+        logging.getLogger(__name__).warning(
+            "launch cleanup failed for %s: %s", spec.task_id, _launch_cleanup_text(cleanup_exc))
+        try:
+            _record_failed_launch(path, spec, record, exc, cleanup_exc)
+        except BaseException as again:
+            logging.getLogger(__name__).warning(
+                "launch cleanup failed for %s: %s", spec.task_id, _launch_cleanup_text(again))
+
+
 def start(spec: TaskSpec, record: dict, prompt: bytes, hard_timeout: float) -> None:
     from lu_machinery.orchestration.dispatch_admission import new_admission_hold
 
@@ -223,19 +263,8 @@ def start(spec: TaskSpec, record: dict, prompt: bytes, hard_timeout: float) -> N
     except BaseException as exc:
         # create() can publish the record before prompt/log setup fails. Never
         # overwrite another run, or a supervisor that has already settled.
-        with store.task_state_lock(path):
-            current = store.read(spec.task_id, missing_ok=True)
-            if (current is not None and current.get("run_nonce") == record["run_nonce"]
-                    and current.get("status") in store.ACTIVE):
-                fields = (exc.fields if isinstance(exc, admission.LaunchRefused) else
-                          dict(status="failed" if current.get("pid") is None else "crashed",
-                               error="supervisor launch failed"))
-                reason = (fields["error"].split(":", 1)[0] if isinstance(exc, admission.LaunchRefused) else
-                          "spawn_setup_failed" if current.get("pid") is None else "supervisor_launch_failed")
-                if not isinstance(exc, admission.LaunchRefused):
-                    fields["error"] = f"{reason}: {type(exc).__name__}"
-                current.update(fields, finished_at=store.now(), returncode_reason=reason)
-                store.replace(current, path)
+        # Recording that failure is cleanup: its own error must not replace the launch error.
+        _guard_launch_cleanup(path, spec, record, exc)
         raise
 
 

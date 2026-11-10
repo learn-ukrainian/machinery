@@ -628,13 +628,52 @@ PULL_HEAD = re.compile(r"refs/pull/[0-9]+/head")
 
 
 
+def _autocrlf_binary(data: bytes) -> bool:
+    """Whether Git's autocrlf heuristic refuses to convert ``data``.
+
+    Same counts as Git's ``gather_stats`` / ``convert_is_binary``: a lone CR, a NUL, or more
+    non-printable bytes than one per 128 printable bytes. CR before LF is a line ending, not a
+    lone CR. DEL and the other controls except BS, HT, ESC and FF are non-printable. A trailing
+    byte 0x1a is not counted.
+    """
+    printable = nonprintable = lonecr = nul = 0
+    index = 0
+    size = len(data)
+    while index < size:
+        byte = data[index]
+        if byte == 13:
+            if index + 1 < size and data[index + 1] == 10:
+                index += 2
+                continue
+            lonecr += 1
+            index += 1
+            continue
+        if byte == 10:
+            index += 1
+            continue
+        if byte == 127 or (byte < 32 and byte not in (8, 9, 12, 27)):
+            nonprintable += 1
+            if byte == 0:
+                nul += 1
+        else:
+            printable += 1
+        index += 1
+    if size >= 1 and data[-1] == 0x1A:
+        nonprintable -= 1
+    return bool(lonecr or nul or (printable >> 7) < nonprintable)
+
+
 def _hidden_tracked_changes(tree: Path) -> bool:
     """Whether the tree holds uncommitted tracked work that ``git status --porcelain`` cannot see.
 
     Status trusts the assume-unchanged and skip-worktree index flags, so every flagged entry is compared here:
     a missing file is a deletion, except a skip-worktree entry the sparse-checkout rules exclude; a present one
     must keep the entry's type and executable bit, and its bytes must equal the entry's checkout form
-    (cat-file --filters; a symlink's target text raw). A flagged submodule entry or a path under a symlinked
+    (cat-file --filters; a symlink's target text raw). With ``core.autocrlf`` true, a file Git will
+    convert matches only when dropping a CR before LF yields the stored blob. Git converts when the
+    autocrlf heuristic says text, ``text`` and ``crlf`` are not unset, and ``working-tree-encoding`` is
+    unset. A flagged submodule
+    entry or a path under a symlinked
     directory counts as changed. Each initialized submodule is checked the same way, with its own status run
     with --ignore-submodules=none, since its index flags and its own submodules' ignore settings hide work
     from the superproject; a submodule path under a symlink, or a non-empty submodule directory without its
@@ -702,8 +741,38 @@ def _hidden_tracked_changes(tree: Path) -> bool:
             return True
     # One request per entry: a batch request strips a path's leading blanks, and with --filters its header
     # gives the stored size, not the converted one.
+    autocrlf = None
+
+    def converts(name: str, work_bytes: bytes, filtered: bytes) -> bool:
+        nonlocal autocrlf
+        if _autocrlf_binary(work_bytes) or _autocrlf_binary(filtered):
+            return False
+        if autocrlf is None:
+            # Missing or non-bool (for example "input") is not true: only an explicit true converts.
+            autocrlf = local(["config", "--type=bool", "core.autocrlf"], check=False).stdout.strip() == b"true"
+        if not autocrlf:
+            return False
+        # -z triples are path, attribute, value. A short or failed read does not convert.
+        parts = local(
+            ["check-attr", "-z", "text", "crlf", "working-tree-encoding", "--", name], check=False
+        ).stdout.split(b"\0")
+        values: dict[bytes, bytes] = {}
+        for offset in range(0, len(parts) - 2, 3):
+            values[parts[offset + 1]] = parts[offset + 2]
+        if values.get(b"text") in (None, b"unset") or values.get(b"crlf") in (None, b"unset"):
+            return False
+        return values.get(b"working-tree-encoding") in (None, b"unspecified")
+
     for oid, name in converted:
-        if (tree / name).read_bytes() != local(["cat-file", "--filters", f"--path={name}", oid]).stdout:
+        work_bytes = (tree / name).read_bytes()
+        filtered = local(["cat-file", "--filters", f"--path={name}", oid]).stdout
+        if converts(name, work_bytes, filtered):
+            # The clean form is the stored blob. Matching the checkout form is not enough: a blob that
+            # already contains CR stays different after autocrlf is turned on.
+            if work_bytes.replace(b"\r\n", b"\n") == local(["cat-file", "blob", oid]).stdout:
+                continue
+            return True
+        if work_bytes != filtered:
             return True
     for name in submodules:
         path = tree / name
