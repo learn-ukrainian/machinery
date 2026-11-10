@@ -431,7 +431,11 @@ def test_a_linked_worktree_is_never_the_configured_primary_or_state_root(
 
 
 def test_an_empty_git_directory_is_never_the_configured_primary(clean_env, monkeypatch, tmp_path: Path) -> None:
-    """A stray empty .git is not a repository, so it never anchors state; a real primary still does."""
+    """A stray empty .git is not a repository, so it never anchors state; every primary Git accepts still does.
+
+    Git's own test also accepts an unborn symlinked HEAD and an object directory named by
+    GIT_OBJECT_DIRECTORY instead of .git/objects.
+    """
     stray = tmp_path / "stray"
     (stray / ".git").mkdir(parents=True)
     monkeypatch.setenv(rr.PRIMARY_ROOT_ENV, str(stray))
@@ -443,6 +447,19 @@ def test_an_empty_git_directory_is_never_the_configured_primary(clean_env, monke
     monkeypatch.setenv(rr.PRIMARY_ROOT_ENV, str(real))
     assert rr.configured_primary_root() == real
     assert rr.state_root() == real
+    (real / ".git" / "HEAD").unlink()
+    (real / ".git" / "HEAD").symlink_to("refs/heads/unborn")
+    assert rr.configured_primary_root() == real
+    odb = tmp_path / "odb"
+    odb.mkdir()
+    external = tmp_path / "external"
+    subprocess.run(["git", "init", "-q", str(external)], check=True, capture_output=True, timeout=30,
+                   env={**os.environ, "GIT_OBJECT_DIRECTORY": str(odb)})
+    assert not (external / ".git" / "objects").exists()
+    configured = {rr.PRIMARY_ROOT_ENV: str(external), "GIT_OBJECT_DIRECTORY": str(odb)}
+    assert rr.configured_primary_root(configured) == external
+    with pytest.raises(rr.MachineryConfigError, match="not a real Git directory"):
+        rr.configured_primary_root({rr.PRIMARY_ROOT_ENV: str(external)})
 
 
 def test_unset_configuration_keeps_todays_interpreter_order(clean_env, tmp_path: Path) -> None:
