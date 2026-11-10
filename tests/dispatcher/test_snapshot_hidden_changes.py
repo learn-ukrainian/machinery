@@ -114,7 +114,8 @@ def test_assume_unchanged_edit_reads_dirty(work):
 
 def test_flagged_lf_rewrite_under_autocrlf_reads_clean(work):
     """Defect class: a flagged file rewritten with LF under core.autocrlf=true was reported dirty
-    although that difference is the committed form (#100 R82)."""
+    although that difference is the committed form (#100 R82). Stripping CR on both sides then hid a
+    real edit whose stored blob is not that LF form, including a file Git does not convert."""
     _git(work, "config", "core.autocrlf", "true")
     _git(work, "update-index", "--assume-unchanged", "tracked.txt")
     assert _git(work, "status", "--porcelain") == ""
@@ -125,6 +126,34 @@ def test_flagged_lf_rewrite_under_autocrlf_reads_clean(work):
     (work / "tracked.txt").write_bytes(b"committed\r\n")
     assert _dirty(work) is False
     _git(work, "config", "core.autocrlf", "false")
+    assert _dirty(work) is True
+    _git(work, "update-index", "--no-assume-unchanged", "tracked.txt")
+    (work / "tracked.txt").write_bytes(b"committed\r\n")
+    _git(work, "add", "tracked.txt")
+    _git(work, "commit", "-q", "-m", "store crlf")
+    _git(work, "config", "core.autocrlf", "true")
+    _git(work, "update-index", "--assume-unchanged", "tracked.txt")
+    assert _dirty(work) is True
+    (work / "tracked.txt").write_bytes(b"committed\n")
+    assert _dirty(work) is True
+    (work / "tracked.txt").write_bytes(b"a\r\nb\n")
+    _git(work, "update-index", "--no-assume-unchanged", "tracked.txt")
+    _git(work, "config", "core.autocrlf", "false")
+    _git(work, "add", "tracked.txt")
+    _git(work, "commit", "-q", "-m", "mixed")
+    _git(work, "config", "core.autocrlf", "true")
+    _git(work, "update-index", "--assume-unchanged", "tracked.txt")
+    (work / "tracked.txt").write_bytes(b"a\nb\n")
+    assert _dirty(work) is True
+    _git(work, "update-index", "--no-assume-unchanged", "tracked.txt")
+    _git(work, "config", "core.autocrlf", "false")
+    (work / "tracked.txt").write_bytes(b"committed\n")
+    (work / ".gitattributes").write_text((work / ".gitattributes").read_text() + "tracked.txt -text\n")
+    _git(work, "add", "tracked.txt", ".gitattributes")
+    _git(work, "commit", "-q", "-m", "disable conversion")
+    _git(work, "config", "core.autocrlf", "true")
+    _git(work, "update-index", "--assume-unchanged", "tracked.txt", ".gitattributes")
+    (work / "tracked.txt").write_bytes(b"committed\r\n")
     assert _dirty(work) is True
 
 
