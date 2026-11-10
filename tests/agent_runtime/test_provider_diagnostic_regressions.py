@@ -1,8 +1,6 @@
 """#9539 review regressions, using installed CLI/SDK and repository diagnostics.
 
 Positive diagnostic provenance (no paid CLI calls):
-* Kimi: installed @moonshot-ai/kimi-code dist/main.mjs,
-  formatNativeTurnFailure + formatStartupError, and PROVIDER_*_ERROR_CODE.
 * Cursor: installed cursor-agent index.js, requireAuth Error diagnostic.
 * Gemini: test_gemini_adapter_auth.py::TestRateLimitMarkersFromCodexReview;
   scripts/etymology/bulk_ocr_gemini.py's captured TerminalQuotaError.
@@ -78,7 +76,7 @@ PREFIXED_TYPED_DIAGNOSTICS = [
 
 
 @pytest.mark.parametrize(
-    "prefix", ["Error", "opencode", "kimi", "grok", "agy", "gemini", "cursor", "provider", "acp transport"]
+    "prefix", ["Error", "opencode", "grok", "agy", "gemini", "cursor", "provider", "acp transport"]
 )
 @pytest.mark.parametrize("body,expected,trigger", PREFIXED_TYPED_DIAGNOSTICS)
 def test_generic_prefix_admits_immediate_status_label_or_title(prefix, body, expected, trigger):
