@@ -44,6 +44,9 @@ def wt_layout(tmp_path) -> tuple[Path, Path]:
     git_dir = main_repo / ".git" / "worktrees" / "task-123"
 
     git_dir.mkdir(parents=True)
+    for entry in ("objects", "refs"):
+        (main_repo / ".git" / entry).mkdir(parents=True, exist_ok=True)
+    (main_repo / ".git" / "HEAD").write_text("ref: refs/heads/main\n", encoding="utf-8")
     worktree.mkdir(parents=True)
     (worktree / ".git").write_text(f"gitdir: {git_dir}\n")
 
@@ -243,7 +246,10 @@ def unconfigured(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def _primary_checkout(path: Path) -> Path:
-    (path / ".git").mkdir(parents=True)
+    """A primary checkout: a real Git directory (HEAD, objects/ and refs/), as Git requires."""
+    for entry in ("objects", "refs"):
+        (path / ".git" / entry).mkdir(parents=True, exist_ok=True)
+    (path / ".git" / "HEAD").write_text("ref: refs/heads/main\n", encoding="utf-8")
     return path
 
 

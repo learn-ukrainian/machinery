@@ -90,7 +90,9 @@ def seed_supervised_claudex(
     *,
     session_id: str = "official-session-5265",
 ) -> cs.ClaudexSupervisor:
-    (tmp_path / ".git").mkdir(exist_ok=True)
+    for entry in ("objects", "refs"):
+        (tmp_path / ".git" / entry).mkdir(parents=True, exist_ok=True)
+    (tmp_path / ".git" / "HEAD").write_text("ref: refs/heads/main\n", encoding="utf-8")
     monkeypatch.setenv("LEARN_UKRAINIAN_PRIMARY_REPO_ROOT", str(tmp_path))
     (tmp_path / ".venv").symlink_to(Path(project_python()).parent.parent, target_is_directory=True)
     supervisor_env = os.environ.copy()

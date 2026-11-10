@@ -621,7 +621,9 @@ def _make_repo(root, *, epics: list[int]) -> None:
 
 def _configure_audit(root, monkeypatch, *, repository):
     """The audit uses an injected release registry and an explicit primary (#91)."""
-    (root / ".git").mkdir(exist_ok=True)
+    for entry in ("objects", "refs"):
+        (root / ".git" / entry).mkdir(parents=True, exist_ok=True)
+    (root / ".git" / "HEAD").write_text("ref: refs/heads/main\n", encoding="utf-8")
     monkeypatch.setenv("LEARN_UKRAINIAN_PRIMARY_REPO_ROOT", str(root))
     monkeypatch.setenv("LU_PRODUCT_ROOT", str(root))
     monkeypatch.setenv("LEARN_UKRAINIAN_GITHUB_SLUG", repository)
@@ -805,6 +807,9 @@ def test_refresh_lock_repairs_legacy_permissions(tmp_path, monkeypatch):
 def _primary_with_linked_worktree(tmp_path):
     primary = tmp_path / "primary"
     (primary / ".git" / "worktrees" / "wt").mkdir(parents=True)
+    for entry in ("objects", "refs"):
+        (primary / ".git" / entry).mkdir()
+    (primary / ".git" / "HEAD").write_text("ref: refs/heads/main\n", encoding="utf-8")
     worktree = primary / ".worktrees" / "dispatch" / "agent" / "wt"
     worktree.mkdir(parents=True)
     (worktree / ".git").write_text(f"gitdir: {primary / '.git' / 'worktrees' / 'wt'}\n", encoding="utf-8")

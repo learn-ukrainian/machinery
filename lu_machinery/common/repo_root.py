@@ -150,6 +150,10 @@ INSTALLED_PACKAGE_NAME = "lu_machinery"
 # system: a symlinked in-tree package directory keeps the in-tree name.
 _IN_TREE_SOURCE = Path(os.path.abspath(__file__)).parents[1].name != INSTALLED_PACKAGE_NAME
 # GitHub owner (alphanumerics and inner hyphens) / repository name.
+# Git's object-directory override, which its repository test honours in place of objects/.
+_GIT_OBJECT_DIRECTORY_ENV = "GIT_OBJECT_DIRECTORY"
+# A SHA-1 or SHA-256 object ID, as a detached HEAD holds it.
+_GIT_OBJECT_ID_RE = re.compile(r"[0-9a-fA-F]{64}|[0-9a-fA-F]{40}")
 _GITHUB_SLUG_RE = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?/[A-Za-z0-9._-]{1,100}")
 
 
@@ -194,31 +198,55 @@ def _configured_path(name: str, env: Mapping[str, str] | None) -> Path | None:
 def configured_primary_root(env: Mapping[str, str] | None = None) -> Path | None:
     """The primary checkout named by the configuration, or ``None`` for the Git-derived default.
 
-    Only a checkout whose ``.git`` is a real directory (not a symlink) holding no
+    Only a checkout whose ``.git`` is a real Git directory (not a symlink) holding no
     ``commondir`` file is accepted: that is the one shape whose Git common directory is
     its own ``.git``. Anything else (a gitfile, a ``.git`` symlink such as one to a
-    linked worktree's administrative directory, a copied worktree gitdir, or no ``.git``)
-    is refused, since anchoring state there would split task records from the locks
-    closeout reads (#5171 class).
+    linked worktree's administrative directory, a copied worktree gitdir, an empty or
+    stray ``.git`` directory, or no ``.git``) is refused, since anchoring state there
+    would split task records from the locks closeout reads (#5171 class).
     """
     configured = _configured_path(PRIMARY_ROOT_ENV, env)
-    if configured is not None and not _is_primary_git_layout(configured):
+    if configured is not None and not _is_primary_git_layout(configured, env):
         raise MachineryConfigError(
-            f"{PRIMARY_ROOT_ENV} must name a primary checkout, not a linked worktree: "
+            f"{PRIMARY_ROOT_ENV} must name a primary checkout, not a linked worktree or a stray .git: "
             f"{configured}/.git is not a real Git directory of its own"
         )
     return configured
 
 
-def _is_primary_git_layout(checkout: Path) -> bool:
-    """``checkout/.git`` is a non-symlink directory with no ``commondir`` file."""
+def _is_primary_git_layout(checkout: Path, env: Mapping[str, str] | None = None) -> bool:
+    """``checkout/.git`` is a non-symlink Git directory with no ``commondir`` file.
+
+    A Git directory passes Git's own test (``is_git_directory`` in Git's ``setup.c``): a
+    valid ``HEAD`` (:func:`_valid_git_head`), an object directory (``objects``, or
+    ``GIT_OBJECT_DIRECTORY`` when the environment names one) and ``refs``. An empty or
+    stray ``.git`` is not one.
+    """
     git_dir = checkout / ".git"
     try:
         if not stat.S_ISDIR(os.lstat(git_dir).st_mode):
             return False
     except OSError:
         return False
-    return not os.path.lexists(git_dir / "commondir")
+    if os.path.lexists(git_dir / "commondir"):
+        return False
+    objects = _env(env).get(_GIT_OBJECT_DIRECTORY_ENV) or git_dir / "objects"
+    return _valid_git_head(git_dir / "HEAD") and os.path.isdir(objects) and os.path.isdir(git_dir / "refs")
+
+
+def _valid_git_head(head: Path) -> bool:
+    """Git's ``validate_headref``: a symlink into ``refs/`` (its target need not exist yet),
+    a ``ref: refs/...`` symbolic ref, or an object ID (a detached ``HEAD``)."""
+    try:
+        if stat.S_ISLNK(os.lstat(head).st_mode):
+            return os.readlink(head).startswith("refs/")
+        with open(head, "rb") as handle:
+            text = handle.read(255).decode("ascii", "replace")
+    except OSError:
+        return False
+    if text.startswith("ref:"):
+        return text[4:].lstrip().startswith("refs/")
+    return _GIT_OBJECT_ID_RE.match(text) is not None
 
 
 def runtime_primary_root(start: Path | None = None) -> Path:
