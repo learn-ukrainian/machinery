@@ -1849,6 +1849,63 @@ _LONG_TAIL_LONG_VALUES: dict[str, dict[str, bool]] = {
 }
 
 
+# tar options proven not to write in list mode: verbosity and decompression filters.
+# Any other option keeps the conservative long-tail classification.
+_TAR_LIST_SHORT = frozenset("vzjJZ")
+_TAR_LIST_LONG = frozenset(
+    {"verbose", "gzip", "gunzip", "ungzip", "bzip2", "xz", "lzma", "lzip", "lzop", "zstd", "compress", "uncompress"}
+)
+
+
+def _tar_lists_only(args: list[str]) -> bool:
+    """Whether tar only lists an archive (``-t``/``--list``), which reads ``-f`` and writes nothing.
+
+    tar takes a dash-less first word as bundled options (``tar tzf a.tgz``),
+    each value-taking letter consuming the next word. Positional words in list
+    mode are member names, not paths. An expansion or any option outside the
+    list-mode allowlist is not proven read-only.
+    """
+    if any(getattr(arg, "unresolved_at", None) is not None for arg in args):
+        return False
+    words = [str(arg) for arg in args]
+    listed = False
+    i = 0
+    if words and not words[0].startswith("-"):
+        if not words[0].isascii() or not words[0].isalpha():
+            return False
+        i = 1
+        for flag in words[0]:
+            if flag == "f":
+                i += 1
+            elif flag == "t":
+                listed = True
+            elif flag not in _TAR_LIST_SHORT:
+                return False
+    while i < len(words):
+        arg = words[i]
+        i += 1
+        if arg == "--":
+            break
+        if arg.startswith("--"):
+            name, sep, _ = arg[2:].partition("=")
+            if name == "file":
+                i += 0 if sep else 1
+            elif name == "list" and not sep:
+                listed = True
+            elif name not in _TAR_LIST_LONG or sep:
+                return False
+        elif arg.startswith("-") and arg != "-":
+            for offset, flag in enumerate(arg[1:], 1):
+                if flag == "f":
+                    i += 0 if offset + 1 < len(arg) else 1
+                    break
+                if flag == "t":
+                    listed = True
+                elif flag not in _TAR_LIST_SHORT:
+                    return False
+    return listed
+
+
 def _long_tail_targets(args: list[str], command: str) -> list[str]:
     """Path-like argv words, including values attached to options and dot commands."""
     targets: list[str] = []
@@ -2252,7 +2309,9 @@ def _writer_targets(
     if refused is not None:
         raise _UndecidableWrapper(refused)
     cmd, idx = _command_word(segment)
-    if cmd in _LONG_TAIL_WRITERS:
+    if cmd == "tar" and _tar_lists_only(segment[idx + 1 :]):
+        pass  # List mode reads the archive and writes nothing; -x/-c/-r/-u/-A stay below.
+    elif cmd in _LONG_TAIL_WRITERS:
         targets.extend(_long_tail_targets(segment[idx + 1 :], cmd))
         if cmd == "curl" and (_has_short_option(segment[idx + 1 :], cmd, "O") or "--remote-name" in segment[idx + 1 :]):
             targets.extend(
