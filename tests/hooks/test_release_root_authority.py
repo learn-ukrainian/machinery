@@ -163,6 +163,16 @@ def test_dirt_audit_does_not_select_release_as_default_product(release, product)
     )
     assert result.returncode == 2 and "product root unavailable" in result.stderr
 
+    # A missing installed audit dependency remains non-blocking, without a traceback.
+    unavailable = subprocess.run(
+        [sys.executable, "-I", "-S", str(release / HOOKS / name)],
+        input=json.dumps({"tool_name": "Bash", "tool_input": {"command": "echo safe"}}),
+        text=True, capture_output=True, check=False, timeout=10,
+    )
+    assert unavailable.returncode == 0
+    assert "audit skipped" in unavailable.stderr
+    assert "Traceback" not in unavailable.stderr
+
 
 def test_bare_healer_does_not_heal_release_instead_of_product(release, product):
     name = "heal-core-bare.py"

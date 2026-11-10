@@ -156,17 +156,22 @@ def test_issue_9479_literal_redirect_target(monkeypatch, target):
 def test_issue_9479_missing_shared_helper_fails_closed(tmp_path, hook):
     hook_path = HOOK_PATH.parent / hook
     shutil.copy2(hook_path, tmp_path / hook)
-    shutil.copy2(HOOK_PATH.parent / "shell_shlex.py", tmp_path / "shell_shlex.py")
     command = "git switch -c fixture" if "branch" in hook else "gh pr merge 5 --admin"
     result = subprocess.run(
-        [sys.executable, "-I", "-S", str(tmp_path / hook)],
+        [
+            sys.executable, "-I", "-c",
+            "import runpy, sys; "
+            "sys.modules['agents_extensions.shared.hooks.shell_redirects'] = None; "
+            "runpy.run_path(sys.argv[1], run_name='__main__')",
+            str(tmp_path / hook),
+        ],
         input=json.dumps({"tool_input": {"command": command}}),
         capture_output=True,
         text=True,
         timeout=10,
     )
     assert result.returncode == 2
-    assert "guard dependency unavailable: shell_shlex" in result.stderr
+    assert "guard dependency unavailable: shell_redirects" in result.stderr
 
 
 @pytest.mark.parametrize(

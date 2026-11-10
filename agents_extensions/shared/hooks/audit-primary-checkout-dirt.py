@@ -32,10 +32,13 @@ import shlex
 import sys
 from pathlib import Path
 
-from agents_extensions.shared.hooks.tool_names import is_shell_tool
-
 # Don't write __pycache__ next to deployed hooks (#9108).
 sys.dont_write_bytecode = True
+try:
+    from agents_extensions.shared.hooks.tool_names import is_shell_tool
+except ImportError:
+    print("audit-primary-checkout-dirt: installed machinery unavailable; audit skipped.", file=sys.stderr)
+    raise SystemExit(0) from None
 
 MAX_LISTED = 20
 _CLEANUP_MODULE = "lu_machinery.hygiene.primary_dirt_cleanup"
