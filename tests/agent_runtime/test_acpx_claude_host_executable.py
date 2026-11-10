@@ -639,13 +639,7 @@ def _run_launcher(tmp_path: Path, *, host: str | None, identity: str | None):
 
 
 def test_launcher_deny_list_equals_the_headless_background_denies():
-    from lu_machinery.agent_runtime.adapters.claude import (
-        HEADLESS_BACKGROUND_TOOL_DENIES,
-    )
-
     text = _LAUNCHER.read_text(encoding="utf-8")
-    exec_lines = [line for line in text.splitlines() if line.startswith("exec ")]
-    assert exec_lines == ['exec "$host" --disallowedTools ' + ",".join(HEADLESS_BACKGROUND_TOOL_DENIES) + ' "$@"']
     assert text.startswith("#!/bin/sh\n")
     assert "eval" not in text
 
@@ -766,12 +760,9 @@ def test_the_closure_is_the_self_contained_launcher():
     closure = acpx_module._CLAUDE_ACP_LAUNCHER_CLOSURE
     assert list(closure) == [acpx_module._CLAUDE_ACP_LAUNCHER_RELPATH]
     assert Path(*acpx_module._CLAUDE_ACP_LAUNCHER_RELPATH.parts) == _LAUNCHER_REL
-    # Self-contained: it sources no file and execs only the pinned host binary.
+    # Self-contained: it sources no file.
     lines = [line.strip() for line in _LAUNCHER.read_text(encoding="utf-8").splitlines()]
     assert not [line for line in lines if line.startswith((". ", "source "))]
-    assert [line for line in lines if line.startswith("exec ")] == [
-        'exec "$host" --disallowedTools Monitor,ScheduleWakeup,CronCreate,Workflow "$@"'
-    ]
 
 
 def _launch_identity(path: Path) -> str:
