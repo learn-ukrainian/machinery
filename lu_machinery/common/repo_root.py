@@ -10,13 +10,11 @@ directory or ``site-packages`` lookup takes part, so a decoy file cannot change 
 
 - :func:`machinery_root` and :func:`machinery_path`: the package directory, in both
   modes; never configured, and resource paths stay in the package or its shipped shared resource tree.
-- :func:`product_root`: an explicit argument, else ``LU_PRODUCT_ROOT`` when that value
-  is not the inherited derived mark ``LU_PRODUCT_ROOT_DERIVED``; with neither,
+- :func:`product_root`: an explicit argument, else ``LU_PRODUCT_ROOT``; with neither,
   lu_machinery refuses, and only the in-tree copy derives the checkout holding it.
-- :func:`state_root` and :func:`primary_root`: ``LEARN_UKRAINIAN_PRIMARY_REPO_ROOT``
-  when that value is not the inherited derived mark
-  ``LEARN_UKRAINIAN_PRIMARY_REPO_ROOT_DERIVED``; without it, lu_machinery refuses, and
-  only the in-tree copy derives the primary of its own checkout (unchanged).
+- :func:`state_root` and :func:`primary_root`: ``LEARN_UKRAINIAN_PRIMARY_REPO_ROOT``;
+  without it, lu_machinery refuses, and only the in-tree copy derives the primary of its
+  own checkout (unchanged).
 
 Refusals raise :class:`ProductRootError` or :class:`StateRootError` (both
 :class:`MachineryConfigError`, a ``ValueError``) at the call, never at import, so
@@ -63,15 +61,11 @@ contained, package-relative code or shipped resource path), never by spelling th
 Machinery code finds the product's files (curriculum data, product configuration, product
 modules named by product data) through :func:`product_root` (C-4746), never through its
 own location: once the machinery is its own repository, the checkout it runs from is not
-the product. The selection order is an explicit argument, then ``LU_PRODUCT_ROOT``
-unless that value equals the inherited mark ``LU_PRODUCT_ROOT_DERIVED``, then, in the
-in-tree source copy only, the checkout that holds this package (from the unresolved
-module location) when it is a product checkout. A value equal to its mark was derived
-by an ancestor for that ancestor's checkout, so it is not configuration and the reader
-falls through; a mark that names a different path is ignored, and an unmarked value
-keeps its meaning. The first candidate that is given is the only one considered: an
-invalid one raises :class:`ProductRootError` and never falls through to the next.
-Every candidate must be absolute. An explicit or configured product
+the product. The selection order is an explicit argument, then ``LU_PRODUCT_ROOT``, then,
+in the in-tree source copy only, the checkout that holds this package (from the unresolved
+module location) when it is a product checkout. The first candidate that is given is the
+only one considered: an invalid one raises :class:`ProductRootError` and never falls
+through to the next. Every candidate must be absolute. An explicit or configured product
 must be an existing directory and need not be the Ukrainian curriculum (kube-dojo is a
 product too): the operation that reads it validates the files it needs. Only the derived
 in-tree default must carry the product marker ``PRODUCT_MARKER``, which proves the
@@ -86,12 +80,7 @@ snapshot, that is the snapshot itself, never the live checkout.
 
 Shared runtime state is anchored on ``LEARN_UKRAINIAN_PRIMARY_REPO_ROOT``, never on the
 selected product: kube-dojo's worktrees and the shared dispatch state live in different
-places. A value equal to the inherited mark ``LEARN_UKRAINIAN_PRIMARY_REPO_ROOT_DERIVED``
-is not that anchor. The reader treats it as unset and falls through to the in-tree
-``main_checkout_root`` derivation, or to the installed package's refusal when nothing
-is configured. An unmarked value keeps its meaning, and a mark that does not equal the
-value is ignored. The installed package refuses state-dependent use without a configured
-anchor.
+places. The installed package refuses state-dependent use without that anchor.
 """
 
 from __future__ import annotations
@@ -132,7 +121,6 @@ def _install_redacted_environ() -> None:
 _install_redacted_environ()
 
 PRIMARY_ROOT_ENV = "LEARN_UKRAINIAN_PRIMARY_REPO_ROOT"
-PRIMARY_ROOT_DERIVED_ENV = "LEARN_UKRAINIAN_PRIMARY_REPO_ROOT_DERIVED"
 GITHUB_SLUG_ENV = "LEARN_UKRAINIAN_GITHUB_SLUG"
 STATE_ROOT_ENV = "LEARN_UKRAINIAN_STATE_ROOT"
 INTERPRETER_ENV = "LEARN_UKRAINIAN_PYTHON"
@@ -147,7 +135,6 @@ RULES_DIR_REL = "agents_extensions/shared/rules"
 RUNTIME_ROOT = Path(__file__).resolve().parents[2]
 _MACHINERY_ROOT = Path(__file__).resolve().parents[1]
 PRODUCT_ROOT_ENV = "LU_PRODUCT_ROOT"
-PRODUCT_ROOT_DERIVED_ENV = "LU_PRODUCT_ROOT_DERIVED"
 # A file only the product repository has (Sol, C-4746): it proves a checkout's layout.
 PRODUCT_MARKER = "curriculum/l2-uk-en/curriculum.yaml"
 # The checkout that holds this package, from the unresolved module location (design-v1
@@ -205,10 +192,6 @@ def _configured_path(name: str, env: Mapping[str, str] | None) -> Path | None:
 def configured_primary_root(env: Mapping[str, str] | None = None) -> Path | None:
     """The primary checkout named by the configuration, or ``None`` for the Git-derived default.
 
-    A value equal to ``LEARN_UKRAINIAN_PRIMARY_REPO_ROOT_DERIVED`` was derived by an
-    ancestor, not configured, so this returns ``None`` and the caller falls through.
-    A mark that does not equal the value is ignored.
-
     Only a checkout whose ``.git`` is a real directory (not a symlink) holding no
     ``commondir`` file is accepted: that is the one shape whose Git common directory is
     its own ``.git``. Anything else (a gitfile, a ``.git`` symlink such as one to a
@@ -216,11 +199,6 @@ def configured_primary_root(env: Mapping[str, str] | None = None) -> Path | None
     is refused, since anchoring state there would split task records from the locks
     closeout reads (#5171 class).
     """
-    # C-5022/C-5023: equality with the inherited mark means "not configured".
-    mapping = _env(env)
-    inherited = mapping.get(PRIMARY_ROOT_ENV, "")
-    if inherited and inherited == mapping.get(PRIMARY_ROOT_DERIVED_ENV, ""):
-        return None
     configured = _configured_path(PRIMARY_ROOT_ENV, env)
     if configured is not None and not _is_primary_git_layout(configured):
         raise MachineryConfigError(
@@ -261,9 +239,7 @@ def primary_root(start: Path | None = None, env: Mapping[str, str] | None = None
     The fallback exists only in the in-tree source copy. The installed package requires
     ``LEARN_UKRAINIAN_PRIMARY_REPO_ROOT`` and raises :class:`StateRootError` without it,
     whatever ``start`` is: callers pass their own install location there, and a
-    ``site-packages`` directory is never a state anchor. A value equal to
-    ``LEARN_UKRAINIAN_PRIMARY_REPO_ROOT_DERIVED`` counts as unset, so the same fallback
-    applies (C-5022/C-5023).
+    ``site-packages`` directory is never a state anchor.
     """
     configured = configured_primary_root(env)
     if configured is not None:
@@ -440,14 +416,11 @@ def _carries_product_marker(checkout: Path, *, through_primary: bool) -> bool:
 def product_root(explicit: Path | str | None = None, *, env: Mapping[str, str] | None = None) -> Path:
     """The product checkout whose files machinery reads, or raise :class:`ProductRootError`.
 
-    The candidate is ``explicit`` when given, else ``LU_PRODUCT_ROOT`` when set, not
-    empty, and not equal to ``LU_PRODUCT_ROOT_DERIVED``. An equal mark is an inherited
-    derived root, not configuration (C-5022/C-5023): the reader falls through, and a
-    mark that names a different path is ignored. An explicit or configured candidate
-    must be an absolute path to an existing directory; it need not carry
-    ``PRODUCT_MARKER``, since a product other than the Ukrainian curriculum is still a
-    product, and the reading operation validates its own inputs. With neither given,
-    the installed package refuses: it has no implicit product.
+    The candidate is ``explicit`` when given, else ``LU_PRODUCT_ROOT`` when set and not
+    empty. An explicit or configured candidate must be an absolute path to an existing
+    directory; it need not carry ``PRODUCT_MARKER``, since a product other than the
+    Ukrainian curriculum is still a product, and the reading operation validates its own
+    inputs. With neither given, the installed package refuses: it has no implicit product.
     Only the in-tree source copy then derives the checkout that holds this package from the
     unresolved module location; that derived candidate must carry ``PRODUCT_MARKER``, or be
     a linked worktree of a checkout that carries it (see :func:`_carries_product_marker`).
@@ -459,14 +432,10 @@ def product_root(explicit: Path | str | None = None, *, env: Mapping[str, str] |
     before a cache lookup so the cache is keyed by the selected root.
     """
     derived = False
-    mapping = _env(env)
-    configured_product = mapping.get(PRODUCT_ROOT_ENV, "")
-    # C-5022/C-5023: equality with the inherited mark means "not configured".
-    product_configured = bool(configured_product) and configured_product != mapping.get(PRODUCT_ROOT_DERIVED_ENV, "")
     if explicit is not None:
         source, value = "the explicit product root", os.fspath(explicit)
-    elif product_configured:
-        source, value = PRODUCT_ROOT_ENV, configured_product
+    elif _env(env).get(PRODUCT_ROOT_ENV, ""):
+        source, value = PRODUCT_ROOT_ENV, _env(env)[PRODUCT_ROOT_ENV]
     else:
         _require_in_tree_default(
             ProductRootError,
