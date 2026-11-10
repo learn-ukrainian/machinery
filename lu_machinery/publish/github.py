@@ -1568,19 +1568,6 @@ def publish(
         if verb == "pr-merge":
             from lu_machinery.publish.merge_guard import ensure_merge_ready
 
-            # Refuse a blocked supplied subject or body before any GitHub read. With an
-            # override set, the one combined scan below decides, so the override is
-            # offered once for the whole publish.
-            supplied = [key for key in ("subject", "body") if key in fields]
-            if supplied and not environment.get(gate.OVERRIDE, "").strip():
-                try:
-                    gate.check_texts(
-                        dest, [fields[key] for key in supplied], environment=dict(environment), field_names=supplied
-                    )
-                except gate.PublishBlocked:
-                    raise
-                except Exception:
-                    raise gate.PublishBlocked("OPSEC: checker unavailable; write refused.") from None
             fields["match_head"] = ensure_merge_ready(
                 gh_repo,
                 fields["number"],

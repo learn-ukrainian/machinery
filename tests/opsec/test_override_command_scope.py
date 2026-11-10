@@ -19,6 +19,7 @@ import json
 import os
 import subprocess
 import sys
+from pathlib import Path
 import pytest
 from lu_machinery.opsec import prepublish as gate
 from lu_machinery.publish import github as pub
@@ -391,6 +392,7 @@ def test_merge_readiness_reads_and_the_merge_receive_no_override(synthetic_opsec
     monkeypatch.delenv("AGENT_NO_MERGE", raising=False)
     head = "a" * 40
     calls = []
+    queued = []
 
     def runner(args, **kwargs):
         calls.append((args, kwargs["env"]))
@@ -408,9 +410,11 @@ def test_merge_readiness_reads_and_the_merge_receive_no_override(synthetic_opsec
                 assert args[4] == "user?per_page=100"
                 out = json.dumps({"login": "unit"})
         elif args[:2] == ["gh", "api"]:
+            if json.loads(Path(args[args.index("--input") + 1]).read_text())["query"].startswith("mutation"):
+                queued.append(True)
             pull = {
                 "id": "PR_node", "headRefOid": head,
-                "isInMergeQueue": False, "isMergeQueueEnabled": True,
+                "isInMergeQueue": bool(queued), "isMergeQueueEnabled": True,
                 "viewerMergeHeadlineText": "clean (#1)",
                 "viewerMergeBodyText": "* " + TOKEN,
             }
