@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ast
 import json
+import os
 import stat
 from pathlib import Path
 
@@ -163,3 +164,30 @@ def test_settle_default_writers_cannot_bypass_the_public_cause_sink():
     assert writers == {
         "_replace_if_unchanged": "write or write_record_unlocked",
     }
+
+
+def test_diagnostic_open_keeps_stat_error_when_close_fails(tmp_path, monkeypatch, caplog):
+    """Defect class: os.close after a failed diagnostic open replaced the open error."""
+    directory = os.open(tmp_path, os.O_RDONLY | os.O_DIRECTORY)
+    real_close = os.close
+
+    def fail_fstat(fd):
+        raise OSError("injected fstat failure")
+
+    def fail_close(fd):
+        if fd == directory:
+            return real_close(fd)
+        raise OSError("injected fd close failure")
+
+    monkeypatch.setattr(os, "fstat", fail_fstat)
+    monkeypatch.setattr(os, "close", fail_close)
+    try:
+        with (
+            caplog.at_level("WARNING", logger="lu_machinery.orchestration.task_record_causes"),
+            pytest.raises(OSError, match="injected fstat failure") as raised,
+        ):
+            task_record_causes._open_diagnostic(directory, "diag.json")
+        assert any("injected fd close failure" in note for note in raised.value.__notes__)
+        assert "diagnostic fd cleanup failed" in caplog.text
+    finally:
+        real_close(directory)

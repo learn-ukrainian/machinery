@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 import stat
 import subprocess
@@ -434,3 +435,23 @@ def test_receipt_writer_restricts_directory_and_file_permissions(tmp_path: Path)
 
     assert stat.S_IMODE(destination.parent.stat().st_mode) == 0o700
     assert stat.S_IMODE(destination.stat().st_mode) == 0o600
+
+
+def test_write_json_keeps_replace_error_when_unlink_fails(tmp_path, monkeypatch, caplog):
+    """Defect class: temp unlink failure replaced the archive JSON write error."""
+
+    def fail_replace(*args, **kwargs):
+        raise OSError("injected replace failure")
+
+    def fail_unlink(self, missing_ok=False):
+        raise OSError("injected unlink failure")
+
+    monkeypatch.setattr(os, "replace", fail_replace)
+    monkeypatch.setattr(Path, "unlink", fail_unlink)
+    with (
+        caplog.at_level("WARNING", logger="lu_machinery.orchestration.archived_thread_cleanup"),
+        pytest.raises(OSError, match="injected replace failure") as raised,
+    ):
+        cleanup._write_json(tmp_path / "receipt.json", {"status": "ok"})
+    assert any("injected unlink failure" in note for note in raised.value.__notes__)
+    assert "archive json cleanup failed" in caplog.text

@@ -8,6 +8,7 @@ import dataclasses
 import fcntl
 import hashlib
 import json
+import logging
 import os
 import re
 import subprocess
@@ -151,8 +152,19 @@ def _write_json(path: Path, payload: Mapping[str, Any]) -> None:
             os.fsync(directory)
         finally:
             os.close(directory)
-    except BaseException:
-        temporary.unlink(missing_ok=True)
+    except BaseException as exc:
+        try:
+            temporary.unlink(missing_ok=True)
+        except BaseException as cleanup_exc:
+            text = f"{type(cleanup_exc).__name__}: {cleanup_exc}"[:300]
+            logging.getLogger(__name__).warning("archive json cleanup failed: %s", text)
+            try:
+                exc.add_note(f"archive json cleanup failed: {text}")
+            except BaseException as again:
+                logging.getLogger(__name__).warning(
+                    "archive json cleanup failed: %s",
+                    f"{type(again).__name__}: {again}"[:300],
+                )
         raise
 
 

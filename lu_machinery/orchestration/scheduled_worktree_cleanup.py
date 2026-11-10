@@ -25,6 +25,7 @@ import contextlib
 import fcntl
 import hashlib
 import json
+import logging
 import os
 import re
 import signal
@@ -1558,8 +1559,19 @@ def atomic_write(path: Path, content: bytes) -> None:
             os.fsync(handle.fileno())
         os.chmod(temporary, 0o600)
         os.replace(temporary, path)
-    except BaseException:
-        temporary.unlink(missing_ok=True)
+    except BaseException as exc:
+        try:
+            temporary.unlink(missing_ok=True)
+        except BaseException as cleanup_exc:
+            text = f"{type(cleanup_exc).__name__}: {cleanup_exc}"[:300]
+            logging.getLogger(__name__).warning("atomic write cleanup failed: %s", text)
+            try:
+                exc.add_note(f"atomic write cleanup failed: {text}")
+            except BaseException as again:
+                logging.getLogger(__name__).warning(
+                    "atomic write cleanup failed: %s",
+                    f"{type(again).__name__}: {again}"[:300],
+                )
         raise
 
 

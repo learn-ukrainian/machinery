@@ -23,6 +23,7 @@ import dataclasses
 import fcntl
 import hashlib
 import json
+import logging
 import os
 import re
 import subprocess
@@ -168,8 +169,19 @@ def worktree_lock(path: Path | str, *, lock_dir: Path, timeout_s: float | None =
                 time.sleep(_LOCK_POLL_S)
             except OSError as exc:
                 raise WorktreeLockError(f"worktree lock for {canonical} failed: {type(exc).__name__}: {exc}") from exc
-    except BaseException:
-        os.close(fd)
+    except BaseException as exc:
+        try:
+            os.close(fd)
+        except BaseException as cleanup_exc:
+            text = f"{type(cleanup_exc).__name__}: {cleanup_exc}"[:300]
+            logging.getLogger(__name__).warning("worktree lock fd cleanup failed: %s", text)
+            try:
+                exc.add_note(f"worktree lock fd cleanup failed: {text}")
+            except BaseException as again:
+                logging.getLogger(__name__).warning(
+                    "worktree lock fd cleanup failed: %s",
+                    f"{type(again).__name__}: {again}"[:300],
+                )
         raise
     _HELD_LOCKS.add(holder)
     try:

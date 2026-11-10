@@ -5,6 +5,7 @@ from __future__ import annotations
 import contextlib
 import errno
 import hashlib
+import logging
 import os
 import re
 import shlex
@@ -213,9 +214,20 @@ def _open_parent(root_fd: int, dir_parts: tuple[str, ...]) -> tuple[int, bool]:
             fd = child
             owned = True
         return fd, True
-    except BaseException:
-        if owned:
-            os.close(fd)
+    except BaseException as exc:
+        try:
+            if owned:
+                os.close(fd)
+        except BaseException as cleanup_exc:
+            text = f"{type(cleanup_exc).__name__}: {cleanup_exc}"[:300]
+            logging.getLogger(__name__).warning("artifact parent fd cleanup failed: %s", text)
+            try:
+                exc.add_note(f"artifact parent fd cleanup failed: {text}")
+            except BaseException as again:
+                logging.getLogger(__name__).warning(
+                    "artifact parent fd cleanup failed: %s",
+                    f"{type(again).__name__}: {again}"[:300],
+                )
         raise
 
 
