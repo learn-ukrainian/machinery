@@ -410,3 +410,16 @@ def test_reused_pid_with_a_different_start_time_is_reclaimed(area, monkeypatch):
 
 
 
+
+
+def test_a_future_dated_fixture_file_does_not_keep_a_dead_owner_run_forever(area, monkeypatch):
+    """Defect class: a test that dates a file into the future made its abandoned run too_young on every sweep."""
+    root, args = area
+    pid, start = reaped_pid()
+    run = leased(root, "future-mtime", pid=pid, start_time=start, boot_id=current_boot())
+    future = run / "scratch" / "base" / "payload"
+    os.utime(future, (9_000_000_000, 9_000_000_000))
+    later(monkeypatch, 3 * HOUR)
+    use_real_proc(monkeypatch)
+    report = tmp_sweep.sweep(**args, apply=True)["pytest_retention"]
+    assert row_for(report, run)["decision"] == "deleted" and not run.exists()
