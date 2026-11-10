@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import logging
 import os
 import re
 import shlex
@@ -135,8 +136,21 @@ class SafeGitContext:
                     '"' + str(self.objects).replace("\\", "\\\\").replace('"', '\\"') + '"'
                 )
             return self
-        except BaseException:
-            self._scratch.cleanup()
+        except BaseException as exc:
+            # Removing the scratch directory is cleanup. Its own error must not
+            # replace the entry error the caller needs, such as a SnapshotRefusal.
+            try:
+                self._scratch.cleanup()
+            except BaseException as cleanup_exc:
+                text = f"{type(cleanup_exc).__name__}: {cleanup_exc}"[:300]
+                logging.getLogger(__name__).warning("safe git context cleanup failed: %s", text)
+                try:
+                    exc.add_note(f"scratch cleanup failed: {text}")
+                except BaseException as again:
+                    logging.getLogger(__name__).warning(
+                        "safe git context cleanup failed: %s",
+                        f"{type(again).__name__}: {again}"[:300],
+                    )
             raise
 
     def __exit__(self, *_exc) -> None:

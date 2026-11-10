@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 import subprocess
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -175,6 +177,35 @@ def test_scratch_cleanup_does_not_follow_links_or_replace_the_failure(source, tm
         run()
     assert len(roots) == 1 and not roots[0].exists()
     assert outside.is_dir() and sentinel.read_bytes() == b"preserve me\x00\xff"
+
+
+def test_entry_refusal_survives_cleanup_failure(source, tmp_path, monkeypatch, caplog):
+    """Defect class: a cleanup error raised while entering SafeGitContext replaced the entry refusal."""
+    import lu_machinery.orchestration.safe_git_context as safe_git
+
+    def refuse(*_args, **_kwargs):
+        raise SnapshotRefusal("rescue_push_url_unavailable")
+
+    monkeypatch.setattr(safe_git.subprocess, "run", refuse)
+    real_cleanup = tempfile.TemporaryDirectory.cleanup
+
+    def fail_safe_scratch(self):
+        if "lu-safe-git-" in str(self.name):
+            raise OSError("injected scratch cleanup failure")
+        return real_cleanup(self)
+
+    monkeypatch.setattr(tempfile.TemporaryDirectory, "cleanup", fail_safe_scratch)
+    with (
+        caplog.at_level(logging.WARNING, logger="lu_machinery.orchestration.safe_git_context"),
+        pytest.raises(SnapshotRefusal) as raised,
+        context(source, tmp_path),
+    ):
+        pass
+    assert raised.value.code == "rescue_push_url_unavailable"
+    assert str(raised.value) == "rescue_push_url_unavailable"
+    assert any("OSError: injected scratch cleanup failure" in note for note in raised.value.__notes__)
+    assert "safe git context cleanup failed" in caplog.text
+    assert "OSError: injected scratch cleanup failure" in caplog.text
 
 
 @pytest.mark.parametrize("dirty", [False, True])
