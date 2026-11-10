@@ -418,6 +418,7 @@ SESSION_IDENTITY_ENV_VARS = (
     # Dispatch worker identity (scripts/dispatcher/environment.py).
     "LEARN_UKRAINIAN_DISPATCH_TASK_ID",
     "LEARN_UKRAINIAN_DISPATCH_AGENT",
+    "LU_TASK_SCRATCH",
     "LU_X_AGENT_TRAILER",
     "LU_RUNTIME_INITIATOR",
     "LU_RUNTIME_INITIATOR_SOURCE",
