@@ -192,12 +192,20 @@ def test_product_defaults_control_shards_guards_and_stack_names(
 
 
 def test_installed_catalogue_reads_the_product_owner_registries(tmp_path: Path, installed: tuple[Path, Path]) -> None:
-    """Owner keys come from the product's scripts/config, so a valid catalogue searches complete.
+    """Owner keys come from the tree the index holds, so a valid catalogue searches complete.
 
     Reading lu_machinery/config/ from the product index fails, which marks every search
-    incomplete (catalogue_invalid) and every hit uncatalogued.
+    incomplete (catalogue_invalid) and every hit uncatalogued. Machinery's own checkout keeps
+    its registries under lu_machinery/config/; an untracked scripts/ there must not move them.
     """
     root, env = _product(tmp_path, "alpha")
+    machinery = tmp_path / "machinery-checkout"
+    (machinery / "scripts").mkdir(parents=True)
+    (machinery / "scripts" / "untracked.py").write_text("", encoding="utf-8")
+    _git(machinery, "init", "-b", "main")
+    for key, value in (("user.name", "CI fixture"), ("user.email", "ci@example.com"),
+                       ("commit.gpgsign", "false"), ("core.hooksPath", "/dev/null")):
+        _git(machinery, "config", key, value)
     entry = {"kind": "doc_family", "purpose": "fixture documents", "lifecycle": "active",
              "query": [{"surface": "git_grep", "how": "git grep -n -i -F <term> -- docs"}],
              "content_searchable": True}
@@ -213,24 +221,26 @@ def test_installed_catalogue_reads_the_product_owner_registries(tmp_path: Path, 
         ],
         "residual": [],
     }
-    files = {
-        "scripts/config/issue_streams.yaml": "streams:\n  docs-knowledge: {epics: [1]}\n",
-        "scripts/config/area_assignments.yaml": "assignments:\n  infra-harness: {slots: []}\n",
-        "docs/knowledge/catalogue.schema.json": json.dumps({"type": "object"}),
-        "docs/knowledge/catalogue.yaml": json.dumps(catalogue),
-        "docs/guide/workflow.md": "# Workflow\nThe release workflow lands one change at a time.\n",
-    }
-    for name, content in files.items():
-        (root / name).parent.mkdir(parents=True, exist_ok=True)
-        (root / name).write_text(content, encoding="utf-8")
-    _git(root, "add", ".")
-    _git(root, "commit", "-m", "catalogue")
-    result = _run(installed[0], tmp_path, env, "-m", "lu_machinery.docs.find", "workflow", "--json", "--repo", str(root))
-    assert result.returncode == 0, result.stdout + result.stderr
-    found = json.loads(result.stdout)
-    assert found["coverage"]["incomplete"] is False, found["coverage"]["incomplete_reasons"]
-    assert found["coverage"]["catalogue_errors"] == 0
-    assert found["hits"] and {hit["status"] for hit in found["hits"]} == {"current"}, found["hits"]
+    for checkout, tree in ((root, "scripts"), (machinery, "lu_machinery")):
+        files = {
+            f"{tree}/config/issue_streams.yaml": "streams:\n  docs-knowledge: {epics: [1]}\n",
+            f"{tree}/config/area_assignments.yaml": "assignments:\n  infra-harness: {slots: []}\n",
+            "docs/knowledge/catalogue.schema.json": json.dumps({"type": "object"}),
+            "docs/knowledge/catalogue.yaml": json.dumps(catalogue),
+            "docs/guide/workflow.md": "# Workflow\nThe release workflow lands one change at a time.\n",
+        }
+        for name, content in files.items():
+            (checkout / name).parent.mkdir(parents=True, exist_ok=True)
+            (checkout / name).write_text(content, encoding="utf-8")
+            _git(checkout, "add", name)
+        _git(checkout, "commit", "-m", "catalogue")
+        result = _run(installed[0], tmp_path, {**env, "LU_PRODUCT_ROOT": str(checkout)},
+                      "-m", "lu_machinery.docs.find", "workflow", "--json", "--repo", str(checkout))
+        assert result.returncode == 0, result.stdout + result.stderr
+        found = json.loads(result.stdout)
+        assert found["coverage"]["incomplete"] is False, (tree, found["coverage"]["incomplete_reasons"])
+        assert found["coverage"]["catalogue_errors"] == 0
+        assert found["hits"] and {hit["status"] for hit in found["hits"]} == {"current"}, found["hits"]
 
 
 @pytest.mark.parametrize("variant", ["alpha", "beta"])
