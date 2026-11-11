@@ -2008,6 +2008,8 @@ def test_acp_node_spawn_env_drops_node_resolution_controls(tmp_path, monkeypatch
         _stub_grok(monkeypatch, tmp_path)
         plan = _build_grok(AcpxGrokShadowAdapter(), cwd=tmp_path)
     else:
+        # Cursor has no approved model pin (GROK-CANCEL-1110); the spawn-env mechanism runs on the stand-in.
+        _install_cursor_stand_in_pin(monkeypatch)
         monkeypatch.setenv(acpx_module.TRANSPORT_ENV, "active")
         with acpx_module.active_discussion_scope():
             plan = AcpxCursorShadowAdapter().build_invocation(
