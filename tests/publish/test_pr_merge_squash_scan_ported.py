@@ -351,3 +351,60 @@ def test_non_queue_merge_sends_scanned_squash_text_at_approved_head(synthetic_op
     assert "--subject=clean (#1)" in calls[0]["argv"]
     assert calls[0]["body"] == "* clean"
     assert not {"--auto", "--admin", "--delete-branch"}.intersection(calls[0]["argv"])
+
+
+@pytest.mark.parametrize("subject", ["", " ", "\t\n"])
+def test_blank_subject_cannot_bypass_default_headline_scan(synthetic_opsec, subject):
+    """Blank explicit headlines must not publish GitHub's unscanned default headline."""
+    calls, reads = [], []
+    with pytest.raises(gate.PublishBlocked, match="merge subject must not be blank"):
+        pub.publish(
+            "pr-merge", repo="unit/public", number=1, subject=subject,
+            runner=transport(calls, subject=TOKEN + " (#1)", queue=False, reads=reads),
+        )
+    assert calls == []
+    assert reads == []
+
+
+@pytest.mark.parametrize("queue", [False, True])
+def test_squash_body_file_translation_cannot_fall_through_or_enqueue(
+    synthetic_opsec, tmp_path, monkeypatch, queue,
+):
+    """Publisher argv must translate to exact REST text, or refuse a queue flip without a write."""
+    from lu_machinery.common import github_client as gh
+
+    calls, http_calls = [], []
+    base = transport(calls, queue=False)
+
+    def http(method, endpoint, headers, body, timeout):
+        payload = json.loads(body) if body else None
+        http_calls.append((method, endpoint, payload))
+        if endpoint == "graphql":
+            value = {"data": {"repository": {"pullRequest": {
+                "id": "PR_node", "isMergeQueueEnabled": queue,
+            }}}}
+        else:
+            assert method == "PUT" and endpoint == "repos/unit/public/pulls/1/merge"
+            value = {"merged": True}
+        return gh.Response(200, {}, json.dumps(value).encode())
+
+    client = gh.GitHubClient(cache_dir=tmp_path / "github", transport=http, env={})
+
+    def send(args, **kwargs):
+        if args[:3] == ["gh", "pr", "merge"]:
+            return gh.run(args, client=client, **kwargs)
+        return base(args, **kwargs)
+
+    # Read fixtures stay at the publisher boundary; final argv traverses the
+    # real parser and HTTP translator with no injected command runner.
+    monkeypatch.setattr(pub, "_run_transport", send)
+    result = pub.publish("pr-merge", repo="unit/public", number=1)
+    assert result.returncode == (1 if queue else 0)
+    assert result.github_result.error == ("github_queue_changed" if queue else None)
+    writes = [call for call in http_calls if call[1] != "graphql"]
+    assert writes == ([] if queue else [(
+        "PUT", "repos/unit/public/pulls/1/merge",
+        {"merge_method": "squash", "sha": HEAD, "commit_title": "clean (#1)", "commit_message": "* clean"},
+    )])
+    assert len(http_calls) == (1 if queue else 2)
+    assert not calls
