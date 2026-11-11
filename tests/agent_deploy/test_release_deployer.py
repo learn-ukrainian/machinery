@@ -220,19 +220,27 @@ def test_unsafe_retirement_preserves_modified_unknown_and_runtime(consumer, monk
     assert (consumer / ".agent/tmp/scratch").read_text() == "keep"
 
 
-@pytest.mark.parametrize("root", [".claude", ".agent", ".agents", ".codex", ".gemini"])
-@pytest.mark.parametrize("kind", ["directory", "file", "symlink"])
-def test_runtime_siblings_do_not_block_check_or_apply(consumer, tmp_path, monkeypatch, root, kind):
+@pytest.mark.parametrize("root", [".claude", ".agent", ".agents", ".codex", ".gemini", ".cursor"])
+@pytest.mark.parametrize("kind", ["directory", "file", "symlink", "dangling", "fifo"])
+@pytest.mark.parametrize("name", ["sessions", "cache\\key", "session\u200bid"])
+def test_runtime_siblings_do_not_block_check_or_apply(consumer, tmp_path, monkeypatch, root, kind, name):
     """Runtime state outside owned top-levels must never block deployment."""
+    if root == ".cursor":
+        data = json.loads((consumer / plan.DESCRIPTOR).read_text())
+        descriptor(consumer, providers=data["providers"] + ["cursor"])
     outside = write(tmp_path, "outside-runtime", "keep outside\n")
-    runtime = consumer / root / "sessions"
+    runtime = consumer / root / name
     runtime.parent.mkdir(parents=True, exist_ok=True)
     if kind == "directory":
-        write(consumer, root + "/sessions/active", "keep runtime\n")
+        write(consumer, root + "/" + name + "/active", "keep runtime\n")
     elif kind == "file":
         runtime.write_text("keep runtime\n")
-    else:
+    elif kind == "symlink":
         runtime.symlink_to(outside)
+    elif kind == "dangling":
+        runtime.symlink_to(tmp_path / "absent")
+    else:
+        os.mkfifo(runtime)
     before = runtime.lstat()
     assert invoke(monkeypatch, consumer) == 0
     assert invoke(monkeypatch, consumer, check=True) == 0
@@ -252,31 +260,127 @@ def test_runtime_siblings_do_not_block_check_or_apply(consumer, tmp_path, monkey
     ".claude/AGENTS.md", ".gemini/sandbox.Dockerfile",
     ".cursor/cli.json", ".cursor/environment.json", ".cursor/worktrees.json",
     ".gemini/sandbox-macos-team.sb", ".claude/Skills/old/SKILL.md",
+    ".gemini/policies/allow-all.toml", ".gemini/sandbox.bashrc",
+    ".gemini/config.yaml", ".gemini/styleguide.md", ".cursor/BUGBOT.md",
+    ".cursor/sandbox.json", ".cursor/permissions.json", ".cursor/config/bugbot.yaml",
 ])
 @pytest.mark.parametrize("check", [False, True], ids=["apply", "check"])
-def test_provider_discovery_content_cannot_hide_as_runtime(consumer, monkeypatch, capsys, path, check):
+@pytest.mark.parametrize("kind", ["file", "symlink"])
+def test_provider_discovery_content_cannot_hide_as_runtime(consumer, tmp_path, monkeypatch, capsys, path, check, kind):
     """Never-planned discovery content and stale skills must still report drift."""
     if path.startswith(".cursor/"):
         data = json.loads((consumer / plan.DESCRIPTOR).read_text())
         descriptor(consumer, providers=data["providers"] + ["cursor"])
     assert invoke(monkeypatch, consumer) == 0
-    write(consumer, path, 'model = "planted"\n' if path.endswith(".toml") else "planted\n")
+    if kind == "file":
+        write(consumer, path, 'model = "planted"\n' if path.endswith(".toml") else "planted\n")
+    else:
+        outside = write(tmp_path, "outside-discovery", "untouched\n")
+        planted = consumer / path
+        planted.parent.mkdir(parents=True, exist_ok=True)
+        planted.symlink_to(outside)
     before = snapshot(consumer)
-    assert invoke(monkeypatch, consumer, check=check) == 1
+    assert invoke(monkeypatch, consumer, check=check) == (1 if kind == "file" else 2)
     captured = capsys.readouterr()
-    assert "unknown unowned output: " + path in captured.out + captured.err
+    if kind == "file":
+        assert "unknown unowned output: " + path in captured.out + captured.err
+    else:
+        if path == ".codex/config.toml":
+            assert "non-regular deployment output or parent: " + path in captured.err
+        else:
+            assert "symlink or special file" in captured.err
+        assert planted.is_symlink()
+        assert outside.read_text() == "untouched\n"
     assert snapshot(consumer) == before
 
 
+@pytest.mark.parametrize("root,names", [
+    (".claude", "agents agent-memory agent-memory-local commands output-styles plugins skills rules hooks workflows settings.json settings.local.json CLAUDE.md AGENTS.md"),
+    (".codex", "agents prompts plugins skills rules hooks config.toml hooks.json"),
+    (".agent", "agents plugins skills rules workflows hooks hooks.json mcp_config.json settings.json rules.json skills.json agents.json plugins.json AGENTS.md GEMINI.md"),
+    (".agents", "agents plugins skills rules workflows hooks hooks.json mcp_config.json rules.json skills.json agents.json plugins.json AGENTS.md GEMINI.md"),
+    (".gemini", "agents commands extensions skills rules hooks settings.json config.json GEMINI.md AGENTS.md system.md .env sandbox.Dockerfile sandbox.bashrc policies config.yaml styleguide.md"),
+    (".cursor", "agents commands skills rules hooks hooks.json mcp.json cli.json environment.json worktrees.json BUGBOT.md sandbox.json permissions.json config"),
+])
+@pytest.mark.parametrize("kind", ["file", "symlink"])
+def test_every_discovery_name_refuses_unowned_content(tmp_path, root, names, kind):
+    """An omitted discovery entry must fail even without planned or recorded siblings."""
+    assert plan.DISCOVERY[root] == set(names.split())
+    outside = write(tmp_path, "outside-discovery", "untouched\n")
+    empty_plan = plan.Plan(files={}, preserve=[], roots={root}, release="release", configuration="config")
+    fd = os.open(tmp_path, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        tree = plan.Tree(fd)
+        for name in names.split():
+            path = tmp_path / root / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            if kind == "file":
+                path.write_text("planted\n")
+                if (root, name) == (".codex", "skills"):
+                    with pytest.raises(plan.Invalid, match="non-directory deployment path: .codex/skills"):
+                        plan.preflight(tree, empty_plan, {"files": {}}, False)
+                else:
+                    assert plan.preflight(tree, empty_plan, {"files": {}}, False) == [
+                        "unknown unowned output: " + root + "/" + name]
+            else:
+                path.symlink_to(outside)
+                with pytest.raises(plan.Invalid, match="symlink or special file"):
+                    plan.preflight(tree, empty_plan, {"files": {}}, False)
+            path.unlink()
+        assert outside.read_text() == "untouched\n"
+    finally:
+        os.close(fd)
+
+
+@pytest.mark.parametrize("name", ["cache\\key", "session\u200bid"])
+def test_unsafe_names_inside_owned_discovery_still_fail_closed(tmp_path, name):
+    """Ignoring runtime siblings must not bypass validation inside discovery trees."""
+    write(tmp_path, ".claude/rules/" + name, "planted\n")
+    empty_plan = plan.Plan(files={}, preserve=[], roots={".claude"}, release="release", configuration="config")
+    fd = os.open(tmp_path, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        with pytest.raises(plan.Invalid):
+            plan.preflight(plan.Tree(fd), empty_plan, {"files": {}}, False)
+    finally:
+        os.close(fd)
+
+
 @pytest.mark.parametrize("check", [False, True], ids=["apply", "check"])
-def test_future_planned_output_refuses_runtime_collision(consumer, monkeypatch, capsys, check):
-    """A runtime name becoming owned must never adopt or overwrite differing bytes."""
+@pytest.mark.parametrize("kind", ["nested-file", "parent-file", "leaf-directory", "symlink", "dangling", "fifo"])
+def test_future_planned_output_refuses_runtime_collision(consumer, tmp_path, monkeypatch, capsys, check, kind):
+    """New ownership refuses differing bytes and cross-type collisions without crashing."""
     assert invoke(monkeypatch, consumer) == 0
-    write(consumer, ".claude/sessions/active", "runtime bytes\n")
+    target = consumer / ".claude/sessions/active"
+    if kind == "parent-file":
+        write(consumer, ".claude/sessions", "runtime bytes\n")
+    else:
+        target.parent.mkdir(parents=True)
+        if kind == "nested-file":
+            target.write_text("runtime bytes\n")
+        elif kind == "leaf-directory":
+            target.mkdir()
+        elif kind in {"symlink", "dangling"}:
+            outside = tmp_path / "outside-collision"
+            if kind == "symlink":
+                outside.write_text("untouched\n")
+            target.symlink_to(outside)
+        else:
+            os.mkfifo(target)
     write(consumer, "agents_extensions/shared/sessions/active", "planned bytes\n")
     before = snapshot(consumer)
+    with plan.selected_tree(str(consumer), check=check) as tree:
+        with pytest.raises(plan.Invalid):
+            plan.deploy(tree, check=check)
     assert invoke(monkeypatch, consumer, check=check) == 2
-    assert "differing unowned output: .claude/sessions/active" in capsys.readouterr().err
+    error = capsys.readouterr().err
+    if kind == "nested-file":
+        assert "differing unowned output: .claude/sessions/active" in error
+    elif kind == "parent-file":
+        assert "non-directory deployment path: .claude/sessions" in error
+    elif kind == "leaf-directory":
+        assert "non-regular deployment output or parent: .claude/sessions/active" in error
+    else:
+        assert "symlink or special file" in error
     assert snapshot(consumer) == before
 
 

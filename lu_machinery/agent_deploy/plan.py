@@ -23,7 +23,7 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-from lu_machinery.common.safe_open import safe_open_below
+from lu_machinery.common.safe_open import UnsafeEntryError, safe_open_below
 from lu_machinery.lint.lint_agent_skills import _parse_frontmatter, metadata_errors
 
 DESCRIPTOR = "agents_extensions/deployment.v1.json"
@@ -38,13 +38,18 @@ TARGETS = {"claude": ".claude", "codex": ".codex", "agy": ".agent", "gemini": ".
 # https://antigravity.google/docs/{customization-discovery,rules,skills,ide-workflows}
 # https://geminicli.com/docs/reference/configuration/
 # https://cursor.com/docs/{context/rules,cli/reference/configuration,configuration/worktrees,cloud-agent}
+# Additional project configuration: https://geminicli.com/docs/reference/policy-engine/
+# (workspace policies are currently disabled), https://geminicli.com/docs/cli/sandbox/
+# https://docs.cloud.google.com/gemini/docs/code-review/customize-repo-review
+# https://cursor.com/docs/bugbot
+# https://cursor.com/docs/reference/{sandbox,permissions}
 DISCOVERY = {
     ".claude": {"agents", "agent-memory", "agent-memory-local", "commands", "output-styles", "plugins", "skills", "rules", "hooks", "workflows", "settings.json", "settings.local.json", "CLAUDE.md", "AGENTS.md"},
     ".codex": {"agents", "prompts", "plugins", "skills", "rules", "hooks", "config.toml", "hooks.json"},
     ".agent": {"agents", "plugins", "skills", "rules", "workflows", "hooks", "hooks.json", "mcp_config.json", "settings.json", "rules.json", "skills.json", "agents.json", "plugins.json", "AGENTS.md", "GEMINI.md"},
     ".agents": {"agents", "plugins", "skills", "rules", "workflows", "hooks", "hooks.json", "mcp_config.json", "rules.json", "skills.json", "agents.json", "plugins.json", "AGENTS.md", "GEMINI.md"},
-    ".gemini": {"agents", "commands", "extensions", "skills", "rules", "hooks", "settings.json", "config.json", "GEMINI.md", "AGENTS.md", "system.md", ".env", "sandbox.Dockerfile"},
-    ".cursor": {"agents", "commands", "skills", "rules", "hooks", "hooks.json", "mcp.json", "cli.json", "environment.json", "worktrees.json"},
+    ".gemini": {"agents", "commands", "extensions", "skills", "rules", "hooks", "settings.json", "config.json", "GEMINI.md", "AGENTS.md", "system.md", ".env", "sandbox.Dockerfile", "sandbox.bashrc", "policies", "config.yaml", "styleguide.md"},
+    ".cursor": {"agents", "commands", "skills", "rules", "hooks", "hooks.json", "mcp.json", "cli.json", "environment.json", "worktrees.json", "BUGBOT.md", "sandbox.json", "permissions.json", "config"},
 }
 
 
@@ -108,6 +113,8 @@ class Tree:
                 os.close(fd)
                 fd = child
             yield fd
+        except NotADirectoryError as exc:
+            raise Invalid("non-directory deployment path: " + path) from exc
         finally:
             os.close(fd)
 
@@ -129,15 +136,17 @@ class Tree:
                     return file.read(), mode
         except FileNotFoundError:
             return None
+        except UnsafeEntryError as exc:
+            raise Invalid("non-regular deployment output or parent: " + path) from exc
 
     def inventory(self, path: str, *, exclude: Callable[[str], bool] | None = None) -> dict[str, tuple[bytes, int]]:
         found: dict[str, tuple[bytes, int]] = {}
         def visit(fd: int, prefix: str) -> None:
             for name in sorted(os.listdir(fd)):
-                relative(name)
                 key = prefix + name
                 if exclude is not None and exclude(path + "/" + key):
                     continue
+                relative(name)
                 info = os.stat(name, dir_fd=fd, follow_symlinks=False)
                 if stat.S_ISDIR(info.st_mode):
                     child = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
