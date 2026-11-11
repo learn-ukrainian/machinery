@@ -57,6 +57,35 @@ def build(tmp_path, model, mode="read-only", config=None):
     )
 
 
+@pytest.mark.parametrize(
+    "tool_config",
+    [None, {"output_format": "stream-json"}, {"bridge_repo_read": True}, {"mcp_server_names": ["sources"]}],
+    ids=["no-config", "pipeline-config", "bridge-read", "sources-mcp"],
+)
+def test_agy_read_only_without_attempt_boundary_is_refused_not_run_unguarded(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, tool_config: dict | None
+) -> None:
+    """Defect class: AGY read-only off the review route ran with skipped permissions.
+
+    The refusal comes before hook provisioning or any provider subprocess; the lane
+    health probe builds its version-only plan in a mode that needs no review route.
+    """
+    from lu_machinery.agent_runtime import lane_probe
+
+    monkeypatch.setattr(agy, "require_hook_config", lambda *a, **k: pytest.fail("hooks ran before refusal"))
+    with pytest.raises(ValueError, match="agy_read_only_boundary_required"):
+        agy.AgyAdapter().build_invocation(
+            prompt="hello",
+            mode="read-only",
+            cwd=tmp_path,
+            model=None,
+            task_id="t-scoped",
+            session_id=None,
+            tool_config=tool_config,
+        )
+    assert lane_probe._mode_for_probe(agy.AgyAdapter()) == "workspace-write"
+
+
 @pytest.mark.parametrize("slug,label", zip(SLUGS, LABELS, strict=True))
 def test_exact_slug_and_display_label_resolve(slug, label):
     adapter = agy.AgyAdapter()
@@ -88,7 +117,8 @@ def test_other_claude_names_stay_unsupported(model):
         agy.AgyAdapter()._resolve_model_flag(model)
 
 
-@pytest.mark.parametrize("mode", ["read-only", "workspace-write", "danger"])
+# Read-only off the review route is refused; the review route is pinned below.
+@pytest.mark.parametrize("mode", ["workspace-write", "danger"])
 @pytest.mark.parametrize("model", [*SLUGS, *LABELS])
 def test_worker_route_keeps_high_pin_and_existing_permissions(tmp_path, monkeypatch, mode, model):
     monkeypatch.setattr(agy, "require_hook_config", lambda *args, **kwargs: None)

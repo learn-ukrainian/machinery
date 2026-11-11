@@ -16,6 +16,7 @@ from lu_machinery.dispatcher.providers import PROVIDERS, load
 from lu_machinery.dispatcher.runtime_context import read_roots
 from lu_machinery.dispatcher.types import ParsedResult, TaskSpec
 from lu_machinery.lib import rules_core
+from tests.agent_runtime.product_roots import agent_runtime_roots  # noqa: F401
 from tests.helpers.product_tree import configured_roots  # noqa: F401
 from lu_machinery.common.repo_root import machinery_root
 
@@ -1247,6 +1248,56 @@ def test_agy_failed_or_non_sources_mcp_calls_do_not_count():
     parsed = load("agy").parse(stream, "", 0, None)
     assert parsed.error is None
     assert parsed.sources_mcp_call_count == 0
+
+
+
+def test_codex_scoped_config_names_only_stdio_sources(tmp_path, monkeypatch, agent_runtime_roots):  # noqa: F811
+    """Defect class: the scoped Codex TOML launches Sources with argv other than the attempt's isolated .mcp.json.
+
+    ``agent_runtime_roots`` selects the product tree with the review-hooks stand-in the attempt needs.
+    """
+    import stat
+    import tomllib
+
+    from lu_machinery.agent_runtime.review_mcp import (
+        ENV_ATTEMPT_ID,
+        ENV_LEDGER_PATH,
+        ENV_MANIFEST_SHA256,
+        prepare_review_attempt,
+    )
+
+    user_codex = tmp_path / "user-codex"
+    user_codex.mkdir()
+    (user_codex / "auth.json").write_text('{"fixture": true}\n', encoding="utf-8")
+    monkeypatch.setenv("CODEX_HOME", str(user_codex))
+    manifest = tmp_path / "manifest.yaml"
+    manifest.write_text("review_id: rev-test-001\nattempt_id: att-test-001\n", encoding="utf-8")
+    plan = prepare_review_attempt(
+        review_id="rev-codex-001",
+        attempt_id="att-codex-001",
+        manifest_path=manifest,
+        harness="codex",
+        receipts_root=tmp_path / "receipts",
+    )
+    assert plan.codex_home is not None
+    config_toml = plan.codex_home / "config.toml"
+    assert stat.S_IMODE(config_toml.stat().st_mode) == 0o600
+    parsed = tomllib.loads(config_toml.read_text(encoding="utf-8"))
+    assert set(parsed) == {"mcp_servers"}
+    assert set(parsed["mcp_servers"]) == {"sources"}
+    sources = parsed["mcp_servers"]["sources"]
+    assert "url" not in sources
+    mcp_json = json.loads(plan.config_path.read_text(encoding="utf-8"))["mcpServers"]["sources"]
+    assert sources["command"] == mcp_json["command"]
+    assert sources["args"] == mcp_json["args"]
+    assert sources["args"][0] == "-I"
+    assert sources["env"] == mcp_json["env"]
+    assert set(sources["env"]) == {ENV_ATTEMPT_ID, ENV_MANIFEST_SHA256, ENV_LEDGER_PATH, "LU_REVIEW_ACCESS"}
+    assert sources["default_tools_approval_mode"] == "prompt"
+    assert sources["required"] is True
+    auth = plan.codex_home / "auth.json"
+    assert auth.is_symlink()
+    assert Path(os.readlink(auth)) == user_codex / "auth.json"
 
 
 pytestmark = pytest.mark.usefixtures("sources_product_root")
