@@ -7,9 +7,10 @@ with its own ``CODEX_HOME`` (``codex_accounts._require_login``): exit 0 is
 signed in, a non-zero exit that prints ``Not logged in`` is signed out. A row
 carries the label, whether it is signed in, the login method, the plan and the
 sign-in end date. It never carries an email, organization, account id,
-directory or credential. A probe that fails, times out, exits non-zero without
-that answer, or prints more than ``_MAX_OUTPUT_BYTES`` is unknown (``None``),
-never signed in or out; output beyond the cap is never buffered.
+directory or credential. A probe that fails, misses its deadline, exits
+non-zero without that answer, or prints more than ``_MAX_OUTPUT_BYTES`` is
+unknown (``None``), never signed in or out; output beyond the cap is never
+buffered, and the probe's process group is killed on every path (``_run``).
 
 The probes run in one background thread, never on the request path. The
 serving function returns the last snapshot and starts a refresh when the
@@ -25,9 +26,12 @@ host; a missing or invalid file yields an empty mapping and a reason.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
+import selectors
 import shutil
+import signal
 import subprocess
 import threading
 import time
@@ -86,56 +90,76 @@ def _child_env(extra: Mapping[str, str]) -> dict[str, str]:
 
 
 def _run(argv: list[str], env: dict[str, str], cwd: Path, *, with_stderr: bool) -> tuple[int, bytes] | None:
-    """Exit status and output (stdout, plus stderr when asked) of one probe, or ``None``.
+    """Exit status and output (stdout, plus stderr when asked) of one complete probe, or ``None``.
 
-    At most ``_MAX_OUTPUT_BYTES`` are kept: a child that prints more, or runs
-    past ``_PROBE_TIMEOUT_S``, is killed and the probe is ``None``.
+    The pattern of ``claude_account_usage._run_codexbar``: the child leads its
+    own process group, and one deadline covers reading and exit. A probe is
+    complete only when, before the deadline, the leader has exited and every
+    holder of the pipe has closed it with at most ``_MAX_OUTPUT_BYTES``
+    written. Anything else (timeout, overflow, a read error, a descendant still
+    holding the pipe) is ``None``. On every path the whole group is killed
+    before the leader is reaped, and the pipe is closed; no thread is left.
     """
-    stderr = subprocess.STDOUT if with_stderr else subprocess.DEVNULL
+    deadline = time.monotonic() + _PROBE_TIMEOUT_S
     try:
         # Fixed argv from a resolved CLI path, no shell, minimal environment.
         proc = subprocess.Popen(  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit
-            argv, env=env, cwd=cwd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=stderr,
+            argv, env=env, cwd=cwd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT if with_stderr else subprocess.DEVNULL,
+            close_fds=True, start_new_session=True,
         )
     except (OSError, ValueError, subprocess.SubprocessError):
         return None
     output = bytearray()
-    stream = proc.stdout
-    if stream is None:  # not reachable with stdout=PIPE; refuse rather than guess
-        proc.kill()
-        proc.wait()
-        return None
-
-    descriptor = stream.fileno()
-
-    def drain() -> None:
-        while len(output) <= _MAX_OUTPUT_BYTES:
-            try:
-                chunk = os.read(descriptor, _MAX_OUTPUT_BYTES + 1 - len(output))
-            except OSError:
-                return
-            if not chunk:
-                return
-            output.extend(chunk)
-
-    reader = threading.Thread(target=drain, name="account-login-probe-output", daemon=True)
-    reader.start()
-    reader.join(_PROBE_TIMEOUT_S)
     try:
-        if reader.is_alive() or len(output) > _MAX_OUTPUT_BYTES:
-            return None
-        return proc.wait(timeout=_PROBE_TIMEOUT_S), bytes(output)
-    except subprocess.TimeoutExpired:
-        return None
+        complete = _collect(proc, output, deadline)
+    except (AttributeError, OSError):  # no pidfd support, or a read error
+        complete = False
     finally:
-        if proc.poll() is None:
-            proc.kill()
-            proc.wait()
-        # Close only once the reader has seen end of file; closing under a
-        # blocked read (a grandchild still holding the pipe) could block here.
-        reader.join(1)
-        if not reader.is_alive():
-            stream.close()
+        # The leader is running or an unreaped zombie here, so its group id
+        # cannot have been reused yet.
+        with contextlib.suppress(ProcessLookupError, PermissionError):
+            os.killpg(proc.pid, signal.SIGKILL)
+        returncode = proc.wait()
+        if proc.stdout is not None:
+            proc.stdout.close()
+    return (returncode, bytes(output)) if complete else None
+
+
+def _collect(proc: subprocess.Popen[bytes], output: bytearray, deadline: float) -> bool:
+    """Read the probe's pipe until end of file and its leader's exit, without reaping it."""
+    stdout = proc.stdout
+    if stdout is None:
+        return False
+    exit_fd = os.pidfd_open(proc.pid)  # readable once the leader exits; it stays unreaped
+    try:
+        with selectors.DefaultSelector() as selector:
+            selector.register(stdout, selectors.EVENT_READ, "output")
+            selector.register(exit_fd, selectors.EVENT_READ, "exit")
+            pending = 2
+            while pending:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    return False
+                events = selector.select(remaining)
+                if not events:
+                    return False
+                for key, _mask in events:
+                    if key.data == "exit":
+                        selector.unregister(exit_fd)
+                        pending -= 1
+                        continue
+                    chunk = os.read(stdout.fileno(), _MAX_OUTPUT_BYTES + 1 - len(output))
+                    if not chunk:
+                        selector.unregister(stdout)
+                        pending -= 1
+                        continue
+                    output.extend(chunk)
+                    if len(output) > _MAX_OUTPUT_BYTES:
+                        return False
+            return True
+    finally:
+        os.close(exit_fd)
 
 
 def _iso_or_none(value: Any) -> str | None:

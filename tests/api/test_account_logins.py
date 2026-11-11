@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import sys
+import threading
+import time
 from datetime import date
 from pathlib import Path
 
@@ -71,6 +73,49 @@ def test_probe_output_over_the_cap_is_unknown_and_not_kept(tmp_path):
     assert account_logins._run(noisy, {}, tmp_path, with_stderr=True) is None
     quiet = [sys.executable, "-c", "import os, sys; os.write(1, b'ok'); os.write(2, b'warn'); sys.exit(3)"]
     assert account_logins._run(quiet, {}, tmp_path, with_stderr=False) == (3, b"ok")
+
+
+def _gone_or_zombie(pid: int) -> bool:
+    try:
+        state = Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[0]
+    except (FileNotFoundError, ProcessLookupError):
+        return True
+    return state == "Z"
+
+
+def test_incomplete_probe_is_unknown_and_leaves_no_process_or_reader(tmp_path, monkeypatch):
+    """Defect class: a late, failed-read or descendant-held probe reads as complete, or leaks its process or reader."""
+    monkeypatch.setattr(account_logins, "_PROBE_TIMEOUT_S", 1.0)
+    valid = 'os.write(1, b\'{"loggedIn": true}\')'
+    # Output complete and the pipe closed before the deadline, but the exit comes after it.
+    late = [sys.executable, "-c", f"import os, time; {valid}; time.sleep(0.6); os.close(1); time.sleep(0.6)"]
+    started = time.monotonic()
+    assert account_logins._run(late, {}, tmp_path, with_stderr=False) is None
+    assert time.monotonic() - started < 2.5
+    marker = tmp_path / "descendant.pid"
+    holder = [sys.executable, "-c",
+              f"import os, time; {valid}\nif os.fork() == 0:\n    open({str(marker)!r}, 'w').write(str(os.getpid())); "
+              "time.sleep(30)\nos._exit(0)"]
+    before = {thread.name for thread in threading.enumerate()}
+    assert account_logins._run(holder, {}, tmp_path, with_stderr=False) is None
+    descendant = int(marker.read_text())
+    deadline = time.monotonic() + 3
+    while not _gone_or_zombie(descendant) and time.monotonic() < deadline:
+        time.sleep(0.05)
+    assert _gone_or_zombie(descendant)
+    assert {thread.name for thread in threading.enumerate()} <= before
+    # A read error is unknown, never the bytes read so far. Popen's own error
+    # pipe read asks for at most 50000 bytes; the probe asks for more.
+    real_read = account_logins.os.read
+
+    def failing_read(fd: int, size: int) -> bytes:
+        if size > 50000:
+            raise OSError(5, "Input/output error")
+        return real_read(fd, size)
+
+    monkeypatch.setattr(account_logins.os, "read", failing_read)
+    ok = [sys.executable, "-c", f"import os; {valid}"]
+    assert account_logins._run(ok, {}, tmp_path, with_stderr=False) is None
 
 
 @pytest.mark.parametrize(
