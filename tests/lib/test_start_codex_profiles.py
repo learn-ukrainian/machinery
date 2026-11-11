@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pytest
 
+from lu_machinery.common.repo_root import machinery_path
 from tests.helpers.product_tree import configured_roots as configured_roots
 from tests.launcher_sandbox import (
     copy_launcher_sources,
@@ -548,7 +549,7 @@ def test_documented_wrapper_refuses_worktree_or_relative_interpreter(tmp_path: P
     _write_executable(trusted, f'#!/bin/sh\nprintf "%s\\n" "{package}"\n')
     if checkout_kind == "primary":
         _write_executable(root / ".venv/bin/python", trusted.read_text())
-    header = (_REPO_ROOT / "lu_machinery/lib/launcher_core.sh").read_text().split("# Fixed arguments", 1)[0]
+    header = machinery_path("lib/launcher_core.sh").read_text().split("# Fixed arguments", 1)[0]
     recipe = "\n".join(line[2:] for line in header.splitlines() if line.startswith("#   "))
     wrapper = root / "start-codex.sh"
     _write_executable(wrapper, "#!/bin/bash\nset -e\n" + recipe + "\n")

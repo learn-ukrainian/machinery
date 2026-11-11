@@ -18,7 +18,7 @@ from tempfile import TemporaryDirectory
 
 import pytest
 
-from lu_machinery.common.repo_root import PRODUCT_ROOT_ENV, machinery_path
+from lu_machinery.common.repo_root import PRODUCT_ROOT_ENV, machinery_path, machinery_root
 from lu_machinery.common.scratch import ensure_scratch_root
 from lu_machinery.session_streams.db import SessionStreamDatabase
 from lu_machinery.session_streams.model import LeaseHolder, utc_now
@@ -154,7 +154,7 @@ def test_real_launcher_deploy_is_confined_to_temporary_checkout(tmp_path: Path) 
     # The isolated child must deploy this checkout's release, not whichever
     # version happens to be installed in the interpreter's site-packages.
     deploy_code = (
-        f"import sys, runpy; sys.path.insert(0, {str(REPO)!r}); "
+        f"import sys, runpy; sys.path.insert(0, {str(machinery_root().parent)!r}); "
         "runpy.run_module('lu_machinery.agent_deploy', run_name='__main__')"
     )
     deploy_command = shlex.join([sys.executable, "-I", "-c", deploy_code, "--project-root", str(checkout)])
