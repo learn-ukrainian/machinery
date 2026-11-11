@@ -367,6 +367,8 @@ def _validate(verb, fields):
             raise gate.PublishBlocked(f"OPSEC: invalid publisher field {key}.")
     if verb == "pr-create" and any(not fields.get(key) for key in ("base", "head")):
         raise gate.PublishBlocked("OPSEC: PR creation requires explicit base and head names.")
+    if verb == "pr-merge" and "subject" in fields and not fields["subject"].strip():
+        raise gate.PublishBlocked("OPSEC: merge subject must not be blank.")
     for name in ("body", "notes"):
         if name in fields and name + "_file" in fields:
             raise gate.PublishBlocked("OPSEC: use one text input per field.")
