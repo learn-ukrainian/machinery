@@ -1626,13 +1626,19 @@ def supervise(path: Path, options: dict | None = None, hard_timeout: float | Non
             error = parsed.error or (
                 "provider exited unsuccessfully" if exit_code else "provider returned no successful final response"
             )
+        if record["provider_terminal_failure"]:
+            record.update(provider_terminal_status="failed", provider_terminal_error=error)
         validate = status == "done" or (spec.mode == "workspace-write" and record["provider_terminal_failure"])
         if validate and schema is not None and (spec.agent != "agy" or record["provider_terminal_failure"]):
             from lu_machinery.agent_runtime.adapters._output_schema import json_value, structured_result
 
             result = structured_result(json_value(text or ""), schema, returncode=exit_code, terminal_ok=True)
             if not result.ok:
-                status, error = "failed", f"{result.failure_code}: {result.stderr_excerpt}"
+                refusal = f"{result.failure_code}: {result.stderr_excerpt}"
+                if record["provider_terminal_failure"]:
+                    record["provider_failure_rescue_refusal"] = refusal
+                else:
+                    status, error = "failed", refusal
                 record["provider_terminal_failure"] = False
                 return
             text = result.response
@@ -1656,7 +1662,10 @@ def supervise(path: Path, options: dict | None = None, hard_timeout: float | Non
             if not refusal:
                 refusal = _verdict_failure(record, text)
             if refusal:
-                status, error = "failed", refusal
+                if record["provider_terminal_failure"]:
+                    record["provider_failure_rescue_refusal"] = refusal
+                else:
+                    status, error = "failed", refusal
                 record["provider_terminal_failure"] = False
     except _Cancelled:
         status, error = "cancelled", "cancelled by client"
