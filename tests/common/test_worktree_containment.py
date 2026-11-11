@@ -504,6 +504,41 @@ def test_git_write_classified_by_mutated_work_tree_not_cwd(layout: Layout, tmp_p
     assert decision(layout.dispatch_wt, f"{to_primary} checkout --pathspec-from-fil=f HEAD") == 2
 
 
+def test_tar_list_mode_option_word_is_not_a_primary_write(layout: Layout):
+    """Defect class: tar's dash-less option word (``tar tzf``) read as a file written in the primary.
+
+    ``-t`` lists the archive named by ``-f`` and writes nothing; later words are
+    member names. Controls: extracting or creating into the primary is still
+    refused, and so is a listing whose ``TAR_OPTIONS`` the command sets or whose
+    words Bash can expand into other options.
+    """
+    hook = Path(__file__).resolve().parents[2] / "agents_extensions/shared/hooks/guard-primary-checkout-write.py"
+    env = {**_clean_env(), "LU_PRODUCT_ROOT": str(layout.main)}
+
+    def decision(command: str) -> int:
+        payload = {"tool_name": "Bash", "cwd": str(layout.main), "tool_input": {"command": command}}
+        result = subprocess.run(
+            [sys.executable, str(hook)],
+            input=json.dumps(payload),
+            cwd=str(layout.main),
+            capture_output=True,
+            text=True,
+            env=env,
+            timeout=60,
+        )
+        return result.returncode
+
+    archive = layout.outside / "a.tgz"
+    assert decision(f"tar tzf {archive}") == 0
+    assert decision(f"tar tvzf {archive} tracked.txt") == 0
+    assert decision(f"tar xzf {archive}") == 2
+    assert decision(f"tar -xzf {archive} -C {layout.main}") == 2
+    assert decision(f"tar czf {layout.main}/out.tgz pkg") == 2
+    assert decision(f"TAR_OPTIONS=--checkpoint-action=exec=touch tar tzf {archive}") == 2
+    assert decision(f"tar tzf {archive} {{--checkpoint=1,--checkpoint-action=exec=touch}}") == 2
+    assert decision(f"tar tzf {archive} *") == 2
+
+
 def test_relative_gitignored_path_resolved_against_cwd(layout: Layout):
     """#5404: relative write under a gitignored subdir cwd must be allowed."""
     ignored_dir = layout.main / "local_state" / "nested"
