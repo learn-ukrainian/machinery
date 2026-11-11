@@ -405,7 +405,7 @@ def test_merge_readiness_reads_and_the_merge_receive_no_override(synthetic_opsec
             if args[4] == "repos/unit/public/issues/1/comments?per_page=100":
                 out = json.dumps([[recorded_approval(head)]])
             elif args[4] == "repos/unit/public/pulls/1/files?per_page=100":
-                out = json.dumps([[{"filename": "scripts/example.py"}]])
+                out = json.dumps([[{"filename": "scripts/example.py", "status": "modified"}]])
             else:
                 assert args[4] == "user?per_page=100"
                 out = json.dumps({"login": "unit"})
