@@ -529,13 +529,16 @@ def _verification_cause(exc: Exception) -> str:
 
 
 def _enforce_delivery(record: dict) -> None:
-    if record["mode"] == "read-only" or record["status"] != "done":
+    if record["mode"] == "read-only" or record["status"] not in {"done", "failed"}:
         return
+    provider_failed = record["status"] == "failed"
     cause = None
     paths = []
     try:
         owned = ownership.effective_scope(record)
     except (ValueError, TypeError) as exc:
+        if provider_failed:
+            return
         record.update(status="no_deliverable", error=_verification_cause(exc),
                       no_deliverable_reason=_verification_cause(exc))
         return
@@ -559,12 +562,18 @@ def _enforce_delivery(record: dict) -> None:
             cause = "work_not_pushed_or_unknown"
     # Merged work leaves nothing on the task branch to inspect (it may be reset or deleted), so the
     # merged pull request is the evidence; it refuses an outside-owned path the same way.
-    if cause and cause.split(":", 1)[0] in MERGE_RESCUABLE and (
+    if (provider_failed or cause and cause.split(":", 1)[0] in MERGE_RESCUABLE) and (
             record.get("worktree_dirty_on_exit") is False or record.get("worktree_untracked_only_on_exit") is True) and (
             merged := git.merged_delivery(record)):
         paths = merged["paths"]
         cause = _outside_cause(paths, owned) if owned else None
         record["delivery_pr"] = f"{merged['repo']}#{merged['number']}"
+        record["delivery_merge_sha"] = merged["merge_sha"]
+        if provider_failed:
+            record.update(provider_terminal_status=record["status"], provider_terminal_error=record.get("error"))
+        record.update(status="done", error=None)
+    elif provider_failed:
+        return  # absent merged proof, a provider failure keeps its original status and error
     record["owned_path_grants_used"] = ownership.grants_used(record, paths)
     if cause:
         record.update(status="no_deliverable", error=cause, no_deliverable_reason=cause)
