@@ -101,8 +101,6 @@ tiers:
     - scripts/config/review*.yaml
     - lu_machinery/config/fleet_repos.yaml
     - scripts/config/fleet_repos.yaml
-    - lu_machinery/config/attempt_provider_egress.yaml
-    - scripts/config/attempt_provider_egress.yaml
     - lu_machinery/config/*audit-ignore.yaml
     - scripts/config/*audit-ignore.yaml
     - 'lu_machinery/config/model_catalog.yaml'
