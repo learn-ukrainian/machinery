@@ -23,7 +23,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from lu_machinery.common.repo_root import RULES_DIR_REL, ProductRootError, machinery_path, product_root
 from lu_machinery.common.schema_check import check_schema as check_schema_memoised
-from lu_machinery.lib.rules_core import RulesCoreMissing, source_path
+from lu_machinery.lib.rules_core import _PRODUCT_RULES, RulesCoreMissing, source_path
 
 CONTRACT_ROOT = Path("agents_extensions/shared/prompt-contracts")
 REGISTRY_PATH = CONTRACT_ROOT / "registry.v1.yaml"
@@ -160,7 +160,8 @@ def _release_rule(repo_root: Path, relative: str | Path) -> Path | None:
     except RulesCoreMissing as exc:
         raise PromptContractError(f"required prompt contract file is missing: {raw}") from exc
     release_copy = os.path.join(os.path.abspath(machinery_path(RULES_DIR_REL)), raw.removeprefix(f"{RULES_DIR_REL}/"))
-    if selected != release_copy:
+    # A product-owned rule is never a release selection, even when the product root is the release root.
+    if raw in _PRODUCT_RULES or selected != release_copy:
         return None
     if not os.path.isfile(selected):
         raise PromptContractError(f"required prompt contract file is missing: {raw}")
