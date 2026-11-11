@@ -8,16 +8,27 @@ import sqlite3
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from lu_machinery.api.fleet_workers_collect import UNATTRIBUTED_HOST_ID, reset_workers_payload_cache
 from lu_machinery.api.main import app
+from lu_machinery.api import fleet_workers_router
 from lu_machinery.api.observer_presence import PresenceRequest, reset_observer_presence, upsert_presence
 from lu_machinery.api.occupancy_local import write_marker
 from lu_machinery.api.project_state_router import reset_local_document_cache
 from lu_machinery.api.project_state_store import reset_project_state_store
 
-client = TestClient(app, raise_server_exceptions=False)
+def _snapshot_client(ctx=None):
+    snapshot_app = FastAPI()
+    snapshot_app.state.ctx = ctx or app.state.ctx
+    snapshot_app.include_router(fleet_workers_router.router, prefix="/api/fleet")
+    return TestClient(snapshot_app)
+
+
+def _workers_get(path):
+    with _snapshot_client() as running:
+        return running.get(path)
 
 
 def _host_by_id(payload: dict, host_id: str) -> dict:
@@ -64,7 +75,7 @@ def test_unmocked_workers_route_with_fixture_stores(tmp_path: Path, monkeypatch)
     monkeypatch.setenv("MONITOR_OCCUPANCY_MARKERS", str(markers))
     monkeypatch.setattr("lu_machinery.api.delegate_router._tasks_dir", lambda ctx=None: tasks)
 
-    response = client.get("/api/fleet/workers/v1?host_id=host-worker")
+    response = _workers_get("/api/fleet/workers/v1?host_id=host-worker")
     assert response.status_code == 200
     payload = response.json()
     assert payload["schema"] == "monitor-fleet-workers.v1"
@@ -77,7 +88,7 @@ def test_unmocked_workers_route_with_fixture_stores(tmp_path: Path, monkeypatch)
     assert delegate["state"] == "live"
     assert delegate["harness"] is None and delegate["epic"] is None
 
-    observer = _host_by_id(client.get("/api/fleet/workers/v1?host_id=cloud-observer").json(), "cloud-observer")
+    observer = _host_by_id(_workers_get("/api/fleet/workers/v1?host_id=cloud-observer").json(), "cloud-observer")
     assert any(row["kind"] == "observer" for row in observer["workers"])
 
     print(
@@ -139,7 +150,7 @@ def test_unmocked_local_host_driver_lease_in_unattributed_bucket(tmp_path: Path,
     monkeypatch.setenv("MONITOR_OCCUPANCY_HOST_IDS", "teach-box=host-teacher,worker-box=host-worker")
     monkeypatch.setenv("LU_MONITOR_HOST_ID", "host-teacher")
 
-    response = client.get("/api/fleet/workers/v1")
+    response = _workers_get("/api/fleet/workers/v1")
     assert response.status_code == 200
     payload = response.json()
     unattributed = _host_by_id(payload, UNATTRIBUTED_HOST_ID)
@@ -147,7 +158,7 @@ def test_unmocked_local_host_driver_lease_in_unattributed_bucket(tmp_path: Path,
     worker_ids = {row["id"] for row in unattributed["workers"]}
     assert worker_ids == {"inst-local-7265"}
     assert unattributed["freshness"] == "unknown"
-    filtered_response = client.get("/api/fleet/workers/v1?host_id=unattributed")
+    filtered_response = _workers_get("/api/fleet/workers/v1?host_id=unattributed")
     assert filtered_response.status_code == 200
     filtered = filtered_response.json()
     assert [host["host_id"] for host in filtered["hosts"]] == [UNATTRIBUTED_HOST_ID]
@@ -166,3 +177,26 @@ def test_unmocked_local_host_driver_lease_in_unattributed_bucket(tmp_path: Path,
         "UNMOCKED_LOCAL_LEASE_PROBE_OK",
         json.dumps({"live": payload["counts"]["live"], "worker_ids": sorted(worker_ids)}),
     )
+
+
+def test_workers_snapshot_never_collects_on_requests(tmp_path, monkeypatch):
+    """First and expired filtered GETs must not collect workers or local reports."""
+    from lu_machinery.api import fleet_workers_collect, state_helpers
+    from lu_machinery.api.monitor_context import fixture_context
+
+    ctx = fixture_context(tmp_path)
+    tasks = tmp_path / "tasks"
+    tasks.mkdir()
+    monkeypatch.setattr("lu_machinery.api.delegate_router._tasks_dir", lambda ctx=None: tasks)
+    with _snapshot_client(ctx) as running:
+        expected, _ = fleet_workers_router.workers_snapshot(ctx).read()
+        def forbidden(*args, **kwargs):
+            raise AssertionError("request collected workers")
+        monkeypatch.setattr(fleet_workers_collect, "_build_workers_payload", forbidden)
+        monkeypatch.setattr(fleet_workers_router, "get_cached_local_document", forbidden)
+        monkeypatch.setattr(state_helpers, "_ttl_clock", lambda: 1e12)
+        for host_id in (None, "cloud-observer", "unattributed", "unknown-host"):
+            query = "" if host_id is None else f"?host_id={host_id}"
+            response = running.get("/api/fleet/workers/v1" + query)
+            assert response.status_code == 200
+            assert response.json() == expected.get(host_id, expected[""])

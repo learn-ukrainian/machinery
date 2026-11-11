@@ -6,12 +6,26 @@ import json
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 import lu_machinery.api.delegate_router as delegate_router
 from lu_machinery.api.main import app
 
 client = TestClient(app, raise_server_exceptions=False)
+
+
+def _snapshot_client(ctx=None):
+    snapshot_app = FastAPI()
+    snapshot_app.state.ctx = ctx or app.state.ctx
+    snapshot_app.include_router(delegate_router.router, prefix="/api/delegate")
+    return TestClient(snapshot_app)
+
+
+def _active_get():
+    # These legacy clients omit ASGI startup. Exercise the real router lifespan.
+    with _snapshot_client() as snapshot_client:
+        return snapshot_client.get("/api/delegate/active")
 
 
 def _pin_tasks_dir(monkeypatch, tasks_dir: Path):
@@ -143,7 +157,7 @@ def test_active_lists_only_live_running_tasks(tmp_path, monkeypatch):
     _write_task(tasks_dir / "zombie.json", _task_payload("zombie", status="running", pid=222))
     _write_task(tasks_dir / "done.json", _task_payload("done", status="done", pid=333))
 
-    response = client.get("/api/delegate/active")
+    response = _active_get()
 
     assert response.status_code == 200
     data = response.json()
@@ -217,7 +231,7 @@ def test_task_listing_keeps_archived_history_and_active_views_stay_hot(tmp_path,
     done = client.get("/api/delegate/tasks?status=done").json()
     assert sorted(row["task_id"] for row in done["tasks"]) == ["hot-done", "old-done"]
     assert client.get("/api/delegate/tasks?status=needs_finalize").json()["total"] == 0
-    assert client.get("/api/delegate/active").json()["total"] == 0
+    assert _active_get().json()["total"] == 0
 
 
 def test_task_cache_drops_records_that_left_the_hot_directory(tmp_path, monkeypatch):
@@ -242,7 +256,7 @@ def test_task_cache_drops_records_that_left_the_hot_directory(tmp_path, monkeypa
     assert gone_path not in cached
     assert {str(tasks_dir / "keep.json"), archived_path} <= set(cached)
     # A hot-only (active) scan never evicts the archive entries it did not read.
-    client.get("/api/delegate/active")
+    _active_get()
     assert archived_path in delegate_router._TASK_STATE_CACHE
     (tasks_dir / "archive" / "gone.json").unlink()
     assert client.get("/api/delegate/tasks?status=all").json()["total"] == 1
@@ -464,7 +478,7 @@ def test_list_delegate_tasks_repository_filter_before_limit(tmp_path, monkeypatc
     assert "/Users/private/" not in http_blob
     assert "worktree_path" not in http_blob
 
-    active_http = client.get("/api/delegate/active")
+    active_http = _active_get()
     assert active_http.status_code == 200
     active_data = active_http.json()
     _assert_legacy_summary_shape(active_data["tasks"])
@@ -516,7 +530,7 @@ def test_delegate_http_redacts_repository_even_when_task_state_has_private(
     monkeypatch.setattr(delegate_router.os, "kill", lambda pid, sig: None)
 
     tasks_resp = client.get("/api/delegate/tasks?status=all&limit=50")
-    active_resp = client.get("/api/delegate/active")
+    active_resp = _active_get()
     assert tasks_resp.status_code == 200
     assert active_resp.status_code == 200
     tasks_body = tasks_resp.json()
@@ -625,3 +639,86 @@ def test_accounting_conflict_is_unknown_in_list_and_detail(tmp_path, monkeypatch
     for record in (listed.json()["tasks"][0], detail.json()["task"]):
         assert record["model"] == "accounting-model"
         assert {key: record[key] for key in expected} == expected
+
+
+def test_active_snapshot_never_collects_on_requests(tmp_path, monkeypatch):
+    """Cold and expired requests must use the startup snapshot, never scan history."""
+    import threading
+
+    from lu_machinery.api import state_helpers
+
+    tasks = tmp_path / "tasks"
+    ctx = _pin_tasks_dir(monkeypatch, tasks)
+    _write_task(tasks / "live.json", _task_payload("live", status="spawning", pid=None))
+    snapshot = delegate_router.active_snapshot(ctx)
+    snapshot.interval = 0.01
+    entered = threading.Event()
+    release = threading.Event()
+    calls = []
+    def collect():
+        calls.append(True)
+        if len(calls) == 1:
+            return delegate_router.active_delegate_tasks(ctx=ctx)
+        entered.set()
+        assert release.wait(5), "refresh was never released"
+        return {"total": 0, "tasks": []}
+    snapshot.compute = collect
+    with _snapshot_client(ctx) as running:
+        expected, _ = snapshot.read()
+        assert expected["total"] == 1
+        def forbidden(*args, **kwargs):
+            raise AssertionError("request collected task history")
+        monkeypatch.setattr(delegate_router, "active_delegate_tasks", forbidden)
+        monkeypatch.setattr(state_helpers, "_ttl_clock", lambda: 1e12)
+        try:
+            assert entered.wait(5), "periodic refresh never ran"
+            for _ in range(2):
+                response = running.get("/api/delegate/active")
+                assert response.status_code == 200
+                assert response.json() == expected
+        finally:
+            release.set()
+    # Shutdown joins an in-progress collector before its stores can close.
+    assert snapshot.read()[0] == {"total": 0, "tasks": []}
+
+
+def test_snapshot_age_includes_collection_and_failed_refresh(tmp_path, monkeypatch):
+    """Both endpoints expose advancing observation age, including refresh failures."""
+    import asyncio
+
+    import pytest
+    from fastapi import HTTPException
+
+    from lu_machinery.api import fleet_workers_router, state_helpers
+    from lu_machinery.api.monitor_context import fixture_context
+
+    ctx = fixture_context(tmp_path)
+    clock = [100.0]
+    monkeypatch.setattr(state_helpers, "_ttl_clock", lambda: clock[0])
+    for snapshot, route, payload in (
+        (delegate_router.active_snapshot(ctx), lambda: asyncio.run(delegate_router.delegate_active(ctx)), {"tasks": []}),
+        (fleet_workers_router.workers_snapshot(ctx), lambda: fleet_workers_router.get_workers(None, ctx), {None: {}, "": {}}),
+    ):
+        def fail():
+            raise OSError("fixture refresh failed")
+        snapshot.compute = fail
+        async def failed_startup():
+            async with snapshot.lifespan():
+                with pytest.raises(HTTPException) as unavailable:
+                    snapshot.read()
+                assert unavailable.value.status_code == 503
+                assert unavailable.value.headers["X-Snapshot-Age-S"] == "unknown"
+        asyncio.run(failed_startup())
+        def compute():
+            clock[0] += 3
+            return payload
+        snapshot.compute = compute
+        snapshot.refresh()
+        clock[0] += 7
+        response = route()
+        assert response.headers["X-Snapshot-Age-S"] == "10.000"
+        snapshot.compute = fail
+        with pytest.raises(OSError):
+            snapshot.refresh()
+        clock[0] += 2
+        assert snapshot.read()[1] == 12.0
