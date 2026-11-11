@@ -7,7 +7,9 @@ publisher and publishing gh shim also run real child processes.
 
 from __future__ import annotations
 
+import importlib.util
 import json
+import marshal
 import os
 import shutil
 import subprocess
@@ -300,7 +302,8 @@ try:
     verdict = "qualifies"
 except contract_canary.CanaryError as exc:
     verdict = str(exc)
-print(json.dumps({"module": worker.__file__, "code": code, "receipt": verdict}))
+stale = getattr(sys.modules["lu_machinery.dispatcher.git"], "STALE_BYTECODE", False)
+print(json.dumps({"module": worker.__file__, "code": code, "receipt": verdict, "stale": stale}))
 '''
 
 
@@ -324,7 +327,7 @@ def machinery_checkout(tmp_path_factory: pytest.TempPathFactory) -> Path:
 @pytest.mark.parametrize("scenario", [
     "clean_nested_checkout", "linked_worktree", "dirty_tracked_file", "untracked_file", "ignored_file",
     "skip_worktree", "assume_unchanged", "replace_ref", "git_env_override", "symlinked_package",
-    "symlinked_parent", "site_packages_in_checkout",
+    "symlinked_parent", "site_packages_in_checkout", "stale_bytecode", "unresolvable_package_file",
 ])
 def test_dispatcher_code_attests_only_an_unmodified_unlinked_checkout(machinery_checkout, tmp_path, scenario):
     """Defect class: canary dispatcher identity attests code that differs from the reviewed head."""
@@ -379,6 +382,19 @@ def test_dispatcher_code_attests_only_an_unmodified_unlinked_checkout(machinery_
     elif scenario == "symlinked_parent":
         load_from = tmp_path / "link"
         load_from.symlink_to(checkout)
+    elif scenario == "stale_bytecode":
+        # A timestamp cache that matches the source's size and mtime but holds other code runs in its place.
+        source = package / "dispatcher" / "git.py"
+        original = source.stat()
+        code = compile(source.read_text() + "\nSTALE_BYTECODE = True\n", str(source), "exec")
+        cache = Path(importlib.util.cache_from_source(str(source)))
+        cache.parent.mkdir(exist_ok=True)
+        header = (0).to_bytes(4, "little") + (int(original.st_mtime) & 0xFFFFFFFF).to_bytes(4, "little")
+        cache.write_bytes(importlib.util.MAGIC_NUMBER + header + (original.st_size & 0xFFFFFFFF).to_bytes(4, "little")
+                          + marshal.dumps(code))
+    elif scenario == "unresolvable_package_file":
+        (package / "dispatch.py").unlink()
+        (package / "dispatch.py").symlink_to("dispatch.py")  # a link loop
     elif scenario == "site_packages_in_checkout":
         load_from = checkout / ".venv" / "site-packages"
         shutil.copytree(package, load_from / "lu_machinery")
@@ -388,6 +404,7 @@ def test_dispatcher_code_attests_only_an_unmodified_unlinked_checkout(machinery_
     assert result.returncode == 0, result.stdout + result.stderr
     probe = json.loads(result.stdout)
     assert probe["module"] == str(load_from / "lu_machinery" / "dispatcher" / "worker.py")
+    assert probe["stale"] is (scenario == "stale_bytecode")
     if scenario in ("clean_nested_checkout", "linked_worktree", "git_env_override"):
         assert probe["code"] == {"root": str(load_from), "head": head, "clean": True}
         assert probe["receipt"] == "qualifies"

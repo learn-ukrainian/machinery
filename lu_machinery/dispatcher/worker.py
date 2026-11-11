@@ -231,18 +231,22 @@ def _dispatcher_code() -> dict:
 
     ``clean`` compares bytes, never the index or ``git status``: every regular file in HEAD's
     tree under the package (and ``schemas``) must hash to its blob, and every file on disk
-    there must be in that tree, apart from bytecode in ``__pycache__``. Ignore rules,
-    assume-unchanged and skip-worktree flags, filters and replace refs cannot hide a change.
-    Any probe error, link or other tree entry is unclean.
+    there must be in that tree, apart from ``__pycache__``. Ignore rules, assume-unchanged and
+    skip-worktree flags, filters and replace refs cannot hide a change. Python may execute
+    cached bytecode in place of a source, so every file in a ``__pycache__`` directory must be
+    this interpreter's cache of a verified source and unmarshal to the code object that source
+    compiles to. Any probe error, link or other tree entry is unclean.
     """
+    import importlib.util
+    import marshal
+
     from lu_machinery.common.git_context import sanitized_git_env
 
     loaded = os.path.abspath(__file__)
-    root = machinery_path("dispatch.py").parent.parent
+    root = Path(loaded).parents[2]  # <top level>/<package>/dispatcher/worker.py
     package = Path(loaded).parents[1].name  # the machinery package directory
     # Inline config, repository redirects and replace refs cannot steer the probes.
     env = {**sanitized_git_env(strip_config_injection=True), "GIT_NO_REPLACE_OBJECTS": "1"}
-    unattested = {"root": str(root if in_tree_source() else primary_root()), "head": None, "clean": False}
 
     def git_out(*args: str) -> str | None:
         try:
@@ -251,25 +255,14 @@ def _dispatcher_code() -> dict:
         except (OSError, subprocess.SubprocessError, UnicodeDecodeError):
             return None
 
-    top = (git_out("rev-parse", "--show-toplevel") or "").rstrip("\n")
-    if (
-        not top
-        or loaded != os.path.realpath(loaded)  # no link anywhere on the loaded path
-        or loaded != os.path.join(top, package, "dispatcher", "worker.py")
-        or str(root) != top
-    ):
-        # Product Git metadata cannot attest the installed distribution.
-        return unattested
-    head = (git_out("rev-parse", "--verify", "--quiet", "HEAD^{commit}") or "").strip() or None
-    listing = git_out("ls-tree", "-r", "-z", "--full-tree", f"{head}^{{tree}}", "--", package, "schemas") if head else None
-    algorithm = (git_out("rev-parse", "--show-object-format") or "").strip()
-    if listing is None or algorithm not in {"sha1", "sha256"}:
-        return {"root": str(root), "head": head, "clean": False}
+    def read(path: str) -> bytes:
+        with os.fdopen(os.open(path, os.O_RDONLY | os.O_NOFOLLOW), "rb") as handle:
+            return handle.read()
 
     def unreadable(exc: OSError) -> None:
         raise exc
 
-    def unmodified() -> bool:
+    def unmodified(top: str, listing: str, algorithm: str) -> bool:
         blobs: dict[str, str] = {}
         for entry in filter(None, listing.split("\0")):
             meta, _, path = entry.partition("\t")
@@ -280,6 +273,8 @@ def _dispatcher_code() -> dict:
         if f"{package}/dispatcher/worker.py" not in blobs:
             return False
         seen: set[str] = set()
+        sources: dict[str, bytes] = {}  # verified module sources, for their bytecode
+        caches: list[tuple[str, str]] = []
         for directory in (package, "schemas"):
             base = os.path.join(top, directory)
             if directory == "schemas" and not os.path.lexists(base):
@@ -291,25 +286,60 @@ def _dispatcher_code() -> dict:
                         return False
                     if name not in files:
                         continue
-                    relative = os.path.relpath(path, top).replace(os.sep, "/")
-                    if os.path.basename(current) == "__pycache__" and name.endswith(".pyc"):
+                    if os.path.basename(current) == "__pycache__":
+                        caches.append((current, name))
                         continue
+                    relative = os.path.relpath(path, top).replace(os.sep, "/")
                     if relative not in blobs or not stat.S_ISREG(os.lstat(path).st_mode):
                         return False
-                    descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
-                    with os.fdopen(descriptor, "rb") as handle:
-                        data = handle.read()
-                    digest = hashlib.new(algorithm, b"blob %d\0" % len(data) + data).hexdigest()
-                    if digest != blobs[relative]:
+                    data = read(path)
+                    if hashlib.new(algorithm, b"blob %d\0" % len(data) + data).hexdigest() != blobs[relative]:
                         return False
                     seen.add(relative)
-        return seen == set(blobs)
+                    if relative.endswith(".py"):
+                        sources[relative] = data
+        if seen != set(blobs):
+            return False
+        for current, name in caches:
+            # <module>.<cache tag>[.opt-<level>].pyc beside the module's source, as importlib names it.
+            parts = name.split(".")
+            level = parts[2] if len(parts) == 4 else ""
+            if (len(parts) not in {3, 4} or parts[-1] != "pyc" or parts[1] != sys.implementation.cache_tag
+                    or level not in {"", "opt-1", "opt-2"}):
+                return False
+            source = os.path.relpath(os.path.join(os.path.dirname(current), parts[0] + ".py"), top).replace(os.sep, "/")
+            data = read(os.path.join(current, name))
+            if source not in sources or data[:4] != importlib.util.MAGIC_NUMBER:
+                return False
+            expected = compile(sources[source], source, "exec", dont_inherit=True, optimize=int(level[4:] or 0))
+            if marshal.loads(data[16:]) != expected:  # code objects compare by content, not by file name
+                return False
+        return True
+
+    def attest() -> dict | None:
+        top = (git_out("rev-parse", "--show-toplevel") or "").rstrip("\n")
+        if (
+            not top
+            or loaded != os.path.realpath(loaded)  # no link anywhere on the loaded path
+            or loaded != os.path.join(top, package, "dispatcher", "worker.py")
+            or str(root) != top
+        ):
+            return None
+        head = (git_out("rev-parse", "--verify", "--quiet", "HEAD^{commit}") or "").strip() or None
+        listing = git_out("ls-tree", "-r", "-z", "--full-tree", f"{head}^{{tree}}", "--", package, "schemas") if head else None
+        algorithm = (git_out("rev-parse", "--show-object-format") or "").strip()
+        try:
+            clean = listing is not None and algorithm in {"sha1", "sha256"} and unmodified(top, listing, algorithm)
+        except Exception:  # an unreadable or unexpected file is unclean, never a supervisor failure
+            clean = False
+        return {"root": str(root), "head": head, "clean": clean}
 
     try:
-        clean = unmodified()
-    except (OSError, ValueError):
-        clean = False
-    return {"root": str(root), "head": head, "clean": clean}
+        attested = attest()
+    except Exception:  # an unresolvable location attests nothing, never a supervisor failure
+        attested = None
+    # Product Git metadata cannot attest the installed distribution.
+    return attested or {"root": str(root if in_tree_source() else primary_root()), "head": None, "clean": False}
 
 
 def _discard_read_only_scratch(record: dict) -> None:
