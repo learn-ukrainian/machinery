@@ -15,10 +15,10 @@ never fine.
    recipient: claim it with your session identity as `--worker-id`, and a worker escalation
    waits there at most one cycle. Any backlog still queued at a `claude-cto-<id>` name is a
    leftover to drain once, then report it as a producer defect.
-   Only while a notification the CTO sent is still unanswered, search the operator's mail for
-   replies to it (Gmail connector `search_threads` with `from:me newer_than:2d subject:Re:`)
-   and record any answer as an operator order in driver state before deciding anything on that
-   item; skip the search when no sent notification is awaiting an answer.
+   Search the operator's mail for replies to the CTO's notification threads (Gmail connector
+   `search_threads` with `from:me newer_than:2d subject:Re:`) only while a notification the CTO sent is
+   still unanswered, skip it otherwise, and record any answer as an operator order in driver state
+   before deciding anything on that item.
 2. **Every pool's usage**, from the scorecard metrics when present, including unused ones:
    each Claude pool, Codex, Grok and Cursor, AGY and any other catalog pool. A pool with no
    metric gets a hand-read meter, and the gap is logged as a monitoring task. Grok and Cursor
