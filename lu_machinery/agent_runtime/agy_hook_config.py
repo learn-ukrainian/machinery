@@ -23,10 +23,13 @@ from lu_machinery.common.safe_open import safe_open_below
 
 GUARD_NAME = "shell-secret-print-guard"
 GUARD_TIMEOUT_FLOOR = 10
+PRIMARY_GUARD_NAME = "primary-checkout-write-guard"
+PRIMARY_GUARD_ENTRY = "agents_extensions/shared/hooks/guard-primary-checkout-write.py"
 GUARD_MODE = "agy-secret-print"
 # Every mode a product hook manifest may name, in the order of the tail's case.
 NATIVE_HOOK_MODES = (
     GUARD_MODE,
+    "agy-primary-write",
     "agy-pending-orders",
     "agy-hook",
     "agy-stop-hook",
@@ -62,6 +65,11 @@ _HOOK_TAIL = r"""_lu_hook_fail() {
 _lu_hook_mode="$1"
 project_hook_context_resolve 2>/dev/null || _lu_hook_fail "$_lu_hook_mode"
 case "$_lu_hook_mode" in
+    agy-primary-write)
+        _lu_hook_guard="$("$LEARN_UKRAINIAN_PYTHON" -I -c 'from lu_machinery.common.repo_root import machinery_path
+print(machinery_path("agents_extensions/shared/hooks/guard-primary-checkout-write.py"))' </dev/null 2>/dev/null)" || _lu_hook_fail "$_lu_hook_mode"
+        "$LEARN_UKRAINIAN_PYTHON" -I "$_lu_hook_guard" || _lu_hook_fail "$_lu_hook_mode"
+        exit 0 ;;
     agy-secret-print)
         "$LEARN_UKRAINIAN_PYTHON" -I -m lu_machinery.agent_runtime.secret_print_hook --harness agy \
             || _lu_hook_fail "$_lu_hook_mode"
@@ -240,6 +248,36 @@ def guard_registration() -> dict:
     return guard
 
 
+def primary_guard_registration() -> dict:
+    """Register the installed primary-write guard using the native hook contract."""
+    return {"PreToolUse": [{"matcher": "write_file|edit_file|run_command", "hooks": [
+        {"type": "command", "command": native_hook_command("agy-primary-write"), "timeout": 10}
+    ]}]}
+
+
+def require_dispatch_guards(worktree: Path, home: Path) -> None:
+    """Provision and verify both guards before a dispatched workspace-write AGY run."""
+    try:
+        configure_native_hook_roots(worktree)
+    except (OSError, ValueError):
+        raise AgyHookConfigError("hook_context_unavailable") from None
+    try:
+        install_worktree_guard(worktree)
+        result = check_hook_config(hook_locations(worktree, home))
+        if result.passed:
+            registered = _read_config(worktree / ".agents/hooks.json").get(PRIMARY_GUARD_NAME)
+            if registered != primary_guard_registration():
+                result = HookConfigResult("REFUSE", "primary_guard_mismatch")
+            elif not machinery_path(PRIMARY_GUARD_ENTRY).is_file():
+                result = HookConfigResult("REFUSE", "missing_primary_guard_script")
+    except AgyHookConfigError:
+        raise
+    except (OSError, ValueError):
+        raise AgyHookConfigError("install_failed") from None
+    if not result.passed:
+        raise AgyHookConfigError(result.reason)
+
+
 def install_worktree_guard(cwd: Path) -> None:
     """Merge only a missing guard into a dispatch workspace; never write homes."""
     target = cwd.resolve(strict=True)
@@ -287,11 +325,16 @@ def provision_workspace_guard(cwd: Path) -> None:
             raise AgyHookConfigError("invalid_json") from None
         if not isinstance(data, dict):
             raise AgyHookConfigError("invalid_json")
-        if GUARD_NAME in data:
-            return  # Preserve explicitly disabled or invalid user wiring.
-        # Insert only the new member, keeping unrelated hook bytes unchanged.
+        missing = {
+            name: register()
+            for name, register in ((GUARD_NAME, guard_registration), (PRIMARY_GUARD_NAME, primary_guard_registration))
+            if name not in data  # Preserve explicitly disabled or invalid user wiring.
+        }
+        if not missing:
+            return
+        # Insert only missing members, keeping unrelated hook bytes unchanged.
         end = original.rindex("}")
-        member = json.dumps({GUARD_NAME: guard_registration()}, indent=2)[1:-1]
+        member = json.dumps(missing, indent=2)[1:-1]
         payload = original[:end] + ("," if data else "") + member + original[end:]
         temporary = f".hooks-{uuid.uuid4().hex}.tmp"
         fd = safe_open_below(directory_fd, temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL)
