@@ -117,6 +117,77 @@ def test_hook_tree_supplies_its_code_to_a_project_without_machinery(tmp_path: Pa
     assert not (_REPO_ROOT / ".agent" / "sessions" / "isolation-probe.json").exists()
 
 
+def _deploy_lines(project: Path, tmp_path: Path, cwd: Path | None = None) -> list[str]:
+    home = tmp_path / "home"
+    home.mkdir(exist_ok=True)
+    result = _run_hook(cwd=cwd or project, home=home, project=project, pythonpath=None, plant_log=tmp_path / "log")
+    assert result.returncode == 0, result.stderr
+    context = json.loads(result.stdout)["hookSpecificOutput"]["additionalContext"]
+    return [line.strip() for line in context.splitlines() if "DEPLOY DRIFT" in line]
+
+
+def test_session_start_drift_check_matches_the_installed_deployer(tmp_path: Path) -> None:
+    """Defect class: the SessionStart drift check gives false drift on a clean release deployment or hides real drift.
+
+    A consumer deployed by the installed release keeps only its own sources, so only the deployer's check can
+    tell. A clean deployment with preserved runtime state, reached through a symlinked root, and an undeployed
+    linked worktree report nothing; one edited deployed file is drift.
+    """
+    from lu_machinery.agent_deploy.plan import release_inputs
+
+    project = _scratch_project(tmp_path)
+    _files, inventory, _identity = release_inputs()
+    # The runtime this hook writes, and a driver's state directory, are preserved runtime content.
+    preserve = [".claude/atlas-epic", ".agent/sessions", ".agent/claude-thread-lease.json"]
+    descriptor = {"providers": ["claude", "codex", "agy"], "sources": {}, "preserve": preserve + [preserve[2] + ".lock"]}
+    for provider, configs in inventory["required_hooks"].items():
+        source = project / ("product-" + provider)
+        source.mkdir()
+        descriptor["sources"][provider] = {"path": source.name, "required": True}
+        for destination, requirements in configs.items():
+            config: dict = {}
+            for requirement in requirements:
+                current = config
+                for key in requirement["path"][:-1]:
+                    current = current.setdefault(key, {})
+                current.setdefault(requirement["path"][-1], []).append({**requirement["group"], "hooks": requirement["hooks"]})
+            (source / destination.split("/", 1)[1]).write_text(json.dumps(config), encoding="utf-8")
+    # The product's own shared source holds only product files, never the release's fleet files.
+    (project / "agents_extensions/shared/rules").mkdir(parents=True)
+    (project / "agents_extensions/shared/rules/core-curriculum.md").write_text("# Product addendum\n", encoding="utf-8")
+    descriptor["sources"]["shared"] = {"path": "agents_extensions/shared", "required": True}
+    (project / "agents_extensions/deployment.v1.json").write_text(json.dumps(descriptor), encoding="utf-8")
+    deploy = [sys.executable, "-I", "-m", "lu_machinery.agent_deploy", "--project-root", str(project)]
+    applied = subprocess.run(deploy, capture_output=True, text=True, check=False)
+    assert applied.returncode == 0, applied.stderr
+    (project / ".claude/atlas-epic").mkdir()
+    (project / ".claude/atlas-epic/DRIVER-STATE.md").write_text("runtime\n", encoding="utf-8")
+
+    # The second start also sees the session state and lease the first one wrote.
+    assert _deploy_lines(project, tmp_path) == []
+    assert _deploy_lines(project, tmp_path) == []
+    link = tmp_path / "project-link"
+    link.symlink_to(project)
+    assert _deploy_lines(Path(str(link) + "/"), tmp_path, cwd=project) == []
+
+    for path in ("agents_extensions", "product-claude", "product-codex"):
+        subprocess.run(["git", "-C", str(project), "add", path], check=True)
+    subprocess.run(
+        ["git", "-C", str(project), "-c", "user.name=t", "-c", "user.email=t@example.invalid", "commit", "-qm", "c"],
+        check=True,
+    )
+    worktree = tmp_path / "worktree"
+    subprocess.run(["git", "-C", str(project), "worktree", "add", "-q", str(worktree)], check=True)
+    assert (worktree / "agents_extensions/deployment.v1.json").is_file()
+    assert _deploy_lines(worktree, tmp_path) == []
+
+    deployed = next(path for path in sorted((project / ".claude/rules").iterdir()) if path.is_file())
+    deployed.write_bytes(deployed.read_bytes() + b"edited\n")
+    assert _deploy_lines(project, tmp_path) == [
+        "- DEPLOY DRIFT: 1 file(s) differ between agents_extensions/shared/ and .claude/. Run: npm run agents:deploy"
+    ]
+
+
 @pytest.mark.parametrize("pythonpath", [None, ".", ":"], ids=["unset", "dot", "colon"])
 def test_hook_python_children_never_import_from_the_cwd(
     tmp_path: Path, pythonpath: str | None, fake_cursor_bin: Path

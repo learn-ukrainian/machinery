@@ -439,16 +439,29 @@ fi
 # the provider directories, its ownership manifest included; --check writes
 # nothing. A product's checkout holds only its own sources, so a direct diff of
 # agents_extensions/shared/ against .claude/ is not a drift test (machinery #100).
-# A checkout without a deployment descriptor (machinery's own) is not a consumer.
-if [ "$IS_CODEX_SESSION" = "0" ] && [ -f "$PROJECT_DIR/agents_extensions/deployment.v1.json" ]; then
+# Only a checkout that holds a release deployment (its descriptor and the
+# deployer's ownership manifest) is checked: machinery's own checkout has
+# neither, and a product's linked worktree has the tracked descriptor but no
+# deployment of its own.
+if [ "$IS_CODEX_SESSION" = "0" ] \
+  && [ -f "$PROJECT_DIR/agents_extensions/deployment.v1.json" ] \
+  && [ -f "$PROJECT_DIR/.deploy-state/agent-deploy.v1.json" ]; then
   DEPLOY_CHECK_RC=0
-  # Exit 0 verified, 1 drift, 2 invalid or unsafe input. Drift is one
-  # "deployment drift: <problem>; <problem>..." line. Only the problem count is
-  # shown, because the problems name checkout paths. A held deployment lock is
-  # exit 1 too, but it means "not checked", never drift.
-  DEPLOY_CHECK_ERR=$(run_bounded 3 "${PROJECT_PYTHON_COMMAND[@]}" \
-    -m lu_machinery.agent_deploy --project-root "$PROJECT_DIR" --check 2>&1 >/dev/null) || DEPLOY_CHECK_RC=$?
-  DEPLOY_CHECK_ERR="${DEPLOY_CHECK_ERR%%$'\n'*}"
+  DEPLOY_CHECK_ERR=""
+  # The deployer accepts only the physical checkout root; PROJECT_DIR keeps the
+  # selected spelling, which may name a symlink or end in a slash.
+  if DEPLOY_CHECK_ROOT="$(cd -P -- "$PROJECT_DIR" 2>/dev/null && pwd -P)"; then
+    # Exit 0 verified, 1 drift, 2 invalid or unsafe input. Drift is the last
+    # stderr line, "deployment drift: <problem>; <problem>...", after any
+    # interpreter warnings. Only the problem count is shown, because the
+    # problems name checkout paths. A held deployment lock is exit 1 too, but
+    # it means "not checked", never drift.
+    DEPLOY_CHECK_ERR=$(run_bounded 3 "${PROJECT_PYTHON_COMMAND[@]}" \
+      -m lu_machinery.agent_deploy --project-root "$DEPLOY_CHECK_ROOT" --check 2>&1 >/dev/null) || DEPLOY_CHECK_RC=$?
+    DEPLOY_CHECK_ERR="${DEPLOY_CHECK_ERR##*$'\n'}"
+  else
+    DEPLOY_CHECK_RC=2
+  fi
   if [ "$DEPLOY_CHECK_RC" -eq 1 ] && [[ "$DEPLOY_CHECK_ERR" == "deployment drift: "* ]] \
     && [ "$DEPLOY_CHECK_ERR" != "deployment drift: another deployment holds this target's lock" ]; then
     DEPLOY_CHECK_ERR="${DEPLOY_CHECK_ERR#deployment drift: }"
@@ -459,9 +472,9 @@ if [ "$IS_CODEX_SESSION" = "0" ] && [ -f "$PROJECT_DIR/agents_extensions/deploym
     done
     ISSUES+=("DEPLOY DRIFT: $DRIFT_COUNT file(s) differ between agents_extensions/shared/ and .claude/. Run: npm run agents:deploy")
   elif [ "$DEPLOY_CHECK_RC" -ne 0 ]; then
-    ISSUES+=("DEPLOY DRIFT CHECK COULD NOT RUN (rc=$DEPLOY_CHECK_RC): deployed agent extensions are unverified. Detail: .venv/bin/python -I -m lu_machinery.agent_deploy --project-root \"\$PWD\" --check")
+    ISSUES+=("DEPLOY DRIFT CHECK COULD NOT RUN (rc=$DEPLOY_CHECK_RC): deployed agent extensions are unverified. Detail: .venv/bin/python -I -m lu_machinery.agent_deploy --project-root <checkout root> --check")
   fi
-  unset DEPLOY_CHECK_RC DEPLOY_CHECK_ERR DRIFT_COUNT
+  unset DEPLOY_CHECK_RC DEPLOY_CHECK_ERR DEPLOY_CHECK_ROOT DRIFT_COUNT
 fi
 
 if [ "$CODEX_NORMAL_TASK" = "0" ]; then

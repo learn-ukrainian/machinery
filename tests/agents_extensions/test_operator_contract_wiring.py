@@ -41,7 +41,7 @@ def test_deploy_lock_step_lists_include_contract() -> None:
     assert "-m lu_machinery.agent_deploy --check" in checker
     session_setup = machinery_path("agents_extensions/shared/hooks/session-setup.sh").read_text()
     # The SessionStart drift check is the same installed deployer check.
-    assert '-m lu_machinery.agent_deploy --project-root "$PROJECT_DIR" --check' in session_setup
+    assert '-m lu_machinery.agent_deploy --project-root "$DEPLOY_CHECK_ROOT" --check' in session_setup
 
     # #12830: the complete order must reach both rendered seats and boot digests.
     from lu_machinery.lib import rules_core
