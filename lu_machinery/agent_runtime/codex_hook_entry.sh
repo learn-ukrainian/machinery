@@ -23,6 +23,8 @@ bootstrap_failed() {
 # The product, shared-state anchor and interpreter come from the one hook rule,
 # project_hook_context_resolve, before any child starts: LU_PRODUCT_ROOT, else
 # CLAUDE_PROJECT_DIR, else the nearest checkout above the working directory.
+# The interpreter comes only from the configured shared-state anchor
+# (LEARN_UKRAINIAN_PRIMARY_REPO_ROOT); without it the hook refuses.
 # The payload's working directory stays policy input, never bootstrap authority.
 # shellcheck source=lu_machinery/lib/project_interpreter.sh
 source "$SCRIPT_ROOT/lu_machinery/lib/project_interpreter.sh" || bootstrap_failed

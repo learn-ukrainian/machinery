@@ -12,6 +12,7 @@ from pathlib import Path
 
 import pytest
 
+from lu_machinery.agent_runtime.agy_hook_config import native_hook_command
 from lu_machinery.common.repo_root import machinery_root
 
 SOURCE = Path(__file__).resolve().parents[2]
@@ -275,6 +276,7 @@ def test_shell_hook_refuses_location_derived_project(release, product, tmp_path,
         "AB_MONITOR_URL": "http://127.0.0.1:9",
         "LU_MONITOR_LOOPBACK": "http://127.0.0.1:9",
         "AB_DB_PATH": str(tmp_path / "messages.db"),
+        "LEARN_UKRAINIAN_PRIMARY_REPO_ROOT": str(product),
     }
     if layout == "relative-root":
         env["LU_PRODUCT_ROOT"] = "relative"
@@ -306,7 +308,7 @@ def test_shell_hook_runs_the_configured_product(release, product):
     (product / ".venv/bin/python").symlink_to(sys.executable)
     result = run_shell(
         release / HOOKS / "stamp-pytest.sh",
-        env={"LU_PRODUCT_ROOT": str(product),
+        env={"LU_PRODUCT_ROOT": str(product), "LEARN_UKRAINIAN_PRIMARY_REPO_ROOT": str(product),
              "LEARN_UKRAINIAN_PYTHON": str(release.parent / "venv/bin/python")},
         cwd=product.parent,
     )
@@ -365,6 +367,7 @@ def test_deployed_session_setup_runs_installed_release_code(release, product):
         "SESSION_START_BUDGET_SECONDS": "60",
         "LEARN_UKRAINIAN_CLAUDEX_RUN_ID": "release-root-run",
         "LEARN_UKRAINIAN_CLAUDEX_LAUNCH_GENERATION": "1",
+        "LEARN_UKRAINIAN_PRIMARY_REPO_ROOT": str(product),
     }
     result = run_shell(
         hooks / "session-setup.sh",
@@ -512,6 +515,7 @@ def _run_code_hook(hooks, product, tmp_path, name):
         "PATH": os.environ["PATH"],
         "HOME": str(tmp_path),
         "CLAUDE_PROJECT_DIR": str(product),
+        "LEARN_UKRAINIAN_PRIMARY_REPO_ROOT": str(product),
         "LU_TEST_DECOY_LOG": str(decoy_log),
         "LU_TEST_RELEASE_LOG": str(release_log),
         "LU_MONITOR_LOOPBACK": closed,
@@ -559,6 +563,7 @@ def test_codex_entry_hands_hooks_the_payload_project(release, product):
         capture_output=True,
         cwd=product,
         env={"PATH": os.environ["PATH"], "HOME": str(product.parent),
+             "LEARN_UKRAINIAN_PRIMARY_REPO_ROOT": str(product),
              "LEARN_UKRAINIAN_PYTHON": str(release.parent / "venv/bin/python")},
     )
     assert marker.read_text() == "ok", result.stderr
@@ -610,7 +615,56 @@ def test_codex_entry_audit_child_keeps_the_tree_off_sys_path(product, tmp_path):
             "PATH": os.environ["PATH"],
             "HOME": str(tmp_path),
             "LU_PRODUCT_ROOT": str(product),
+            "LEARN_UKRAINIAN_PRIMARY_REPO_ROOT": str(product),
         },
     )
     assert not marker.exists(), result.stderr
     assert result.returncode == 0, result.stderr
+
+
+HOOK_BOOTSTRAP_ENTRIES = {
+    "native-hook": None,
+    "codex-entry": ("lu_machinery/agent_runtime/codex_hook_entry.sh", "pre-tool-use"),
+    "agy-driver-state": ("lu_machinery/agy_hooks/driver_state_inject.sh", "agy-pretool-hook"),
+    "agy-pending-orders": ("lu_machinery/agy_hooks/pending_orders_inject.sh",),
+    "context-rollover-lib": None,
+}
+
+
+@pytest.mark.parametrize("anchor", ["configured", "unset"])
+@pytest.mark.parametrize("entry", sorted(HOOK_BOOTSTRAP_ENTRIES))
+def test_hook_bootstrap_takes_the_interpreter_only_from_the_configured_primary(release, product, tmp_path, entry, anchor):
+    """Defect class: a checkout whose own Git metadata claims to be a primary supplied the hook
+    interpreter; every bootstrap entry must take it only from the configured primary (#100)."""
+    shutil.copytree(release.parent / "venv", product / ".venv", symlinks=True)
+    worktree = product / ".worktrees/dispatch/worker/task"
+    git_env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+    subprocess.run(["git", "-C", str(product), "worktree", "add", "-q", str(worktree), "topic"],
+                   check=True, capture_output=True, env=git_env)
+    (worktree / ".git").unlink()
+    for name in ("objects", "refs"):
+        (worktree / ".git" / name).mkdir(parents=True)
+    (worktree / ".git/HEAD").write_text("ref: refs/heads/main\n")
+    marker = tmp_path / "planted-interpreter-ran"
+    planted = worktree / ".venv/bin/python"
+    planted.parent.mkdir(parents=True)
+    planted.write_text(f"#!/bin/sh\nprintf ran > {shlex.quote(str(marker))}\nexit 1\n")
+    planted.chmod(0o755)
+    env = {"PATH": os.environ["PATH"], "HOME": str(tmp_path), "TMPDIR": str(tmp_path),
+           "LU_PRODUCT_ROOT": str(worktree), "LU_DRIVER_STATE_FILE": str(tmp_path / "driver-state"),
+           "SESSION_HANDOFF_AGENT": "worker"}
+    if anchor == "configured":
+        env["LEARN_UKRAINIAN_PRIMARY_REPO_ROOT"] = str(product)
+    if entry == "native-hook":
+        argv = shlex.split(native_hook_command("codex-pre-tool-use"))
+    elif entry == "context-rollover-lib":
+        argv = ["bash", "-c", 'source "$1" && context_machinery_bootstrap "$2"', "lib",
+                str(release / HOOKS / "context-rollover-lib.sh"), str(worktree)]
+    else:
+        script, *args = HOOK_BOOTSTRAP_ENTRIES[entry]
+        argv = ["bash", str(release / script), *args]
+    payload = {"tool_name": "Bash", "tool_input": {"command": "printf safe"}, "cwd": str(worktree),
+               "hook_event_name": "PreToolUse", "session_id": "bootstrap"}
+    result = subprocess.run(argv, input=json.dumps(payload), text=True, capture_output=True,
+                            cwd=worktree, env=env, timeout=60)
+    assert not marker.exists(), result.stderr

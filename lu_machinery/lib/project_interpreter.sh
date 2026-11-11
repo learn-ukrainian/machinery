@@ -347,19 +347,18 @@ project_hook_roots_resolve() {
 }
 
 # project_hook_context_resolve [<product-root>]
-#   project_hook_roots_resolve, then exports LEARN_UKRAINIAN_PYTHON: the
-#   configured absolute executable, else the product primary's .venv python
-#   (exit 0); exit 1 otherwise. A linked worktree's .venv is never used, and a
-#   product root without a .git entry (a release snapshot, or a configured
-#   subdirectory) never supplies its own: the shared-state primary does.
+#   needs a configured LEARN_UKRAINIAN_PRIMARY_REPO_ROOT; then
+#   project_hook_roots_resolve, and exports LEARN_UKRAINIAN_PYTHON: the
+#   configured absolute executable, else the configured primary's .venv python
+#   (exit 0); exit 1 otherwise, before any interpreter starts. The product's own
+#   Git metadata never names the primary or the interpreter: whoever works in a
+#   checkout can rewrite it, and no local check tells it from a real primary
+#   (#100).
 project_hook_context_resolve() {
-    local interpreter checkout
+    local interpreter
+    [[ -n "${LEARN_UKRAINIAN_PRIMARY_REPO_ROOT:-}" ]] || return 1
     project_hook_roots_resolve "$@" || return 1
-    checkout="$LU_PRODUCT_ROOT"
-    if [[ ! -e "$checkout/.git" && ! -L "$checkout/.git" ]]; then
-        checkout="$LEARN_UKRAINIAN_PRIMARY_REPO_ROOT"
-    fi
-    interpreter="$(project_interpreter_resolve "$checkout")" || return 1
+    interpreter="$(project_interpreter_resolve "$LEARN_UKRAINIAN_PRIMARY_REPO_ROOT")" || return 1
     export LEARN_UKRAINIAN_PYTHON="$interpreter"
 }
 # LU_HOOK_RESOLVERS_END

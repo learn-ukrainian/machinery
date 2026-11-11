@@ -79,8 +79,8 @@ def test_probe_empty_and_error_results(tmp_path, monkeypatch, capsys, state):
     assert list(tmp_path.iterdir()) == ([] if state == "missing" else [db])
 
     if state == "empty":
-        # The installed entry must reach the empty-inbox fast path without
-        # inherited roots, using the nearest primary rather than its own path.
+        # The installed entry must reach the empty-inbox fast path with only
+        # the configured primary, rather than its own path.
         subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
         nested = tmp_path / "nested"
         nested.mkdir()
@@ -89,6 +89,7 @@ def test_probe_empty_and_error_results(tmp_path, monkeypatch, capsys, state):
             cwd=nested, env={
                 "PATH": os.environ["PATH"], "HOME": str(tmp_path),
                 "LEARN_UKRAINIAN_PYTHON": sys.executable,
+                "LEARN_UKRAINIAN_PRIMARY_REPO_ROOT": str(tmp_path),
                 "AB_DB_PATH": str(db), "LEARN_UK_HOOK_RECIPIENT": "codex",
             }, timeout=15,
         )
