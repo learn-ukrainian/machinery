@@ -1161,7 +1161,7 @@ def run(gh: GitHub, state_path: Path, *, apply: bool = False) -> tuple[list[str]
             canary = contract_canary.refusal(files, head)
             verdict = lookup_verdict(
                 comments, head, login, learner_content=learner_content, low_tier=low_tier,
-                second_review=requires_second_review(file_rows),
+                second_review=requires_second_review(file_rows), repository=gh.repository,
             )
             check_rows = gh.checks(head)
             checks = _check_state(check_rows, head)
@@ -1281,7 +1281,7 @@ def run(gh: GitHub, state_path: Path, *, apply: bool = False) -> tuple[list[str]
                     low_tier = classify_pr_files(file_rows) == "low"
                     current_verdict = lookup_verdict(
                         current_comments, head, login, learner_content=learner_content, low_tier=low_tier,
-                        second_review=requires_second_review(file_rows),
+                        second_review=requires_second_review(file_rows), repository=gh.repository,
                     )
                 except KeeperError:
                     current_comments, current_verdict = [], Verdict("unknown", reason=COMMENTS_UNAVAILABLE)

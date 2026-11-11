@@ -45,7 +45,22 @@ It fails when a dependency in `pyproject.toml` has no pin.
 From a machinery `main` commit whose CI Gate is green, with `$V` the version
 in `pyproject.toml` and `$SHA` the full commit:
 
-1. Build once, outside any checkout, with the build pins of the
+1. Check for outstanding Carbon review debt. This command must succeed and print nothing:
+
+   ```bash
+   gh pr list -R learn-ukrainian/machinery --state merged --label carbon-debt
+   ```
+
+   Any result blocks the release. The publisher adds `carbon-debt` before admitting
+   a machinery PR without Carbon's exact-head approval. Only Carbon through AGY counts.
+   Record a completed Carbon review with `record_cf_verdict --second-review --pr <N>`
+   for the PR's merged head, meaning the reviewed PR head at merge, not the squash commit.
+   A timeout or incomplete review does not clear the debt. Reproduce findings and fix every confirmed defect in a follow-up
+   PR before release. Remove the label only after recording that verdict and verifying the
+   fixes. Repeat the check immediately before tagging and publishing, so a debt incurred
+   during the release drill cannot pass unnoticed.
+
+2. Build once, outside any checkout, with the build pins of the
    `Installed wheel` job (`build-requirements.txt` in `ci-gate.yml`):
 
    ```bash
@@ -54,7 +69,7 @@ in `pyproject.toml` and `$SHA` the full commit:
    (cd "$WORK/dist" && sha256sum lu_machinery-"$V"-py3-none-any.whl lu_machinery-"$V".tar.gz > SHA256SUMS)
    ```
 
-2. Assemble a wheelhouse: the wheel plus
+3. Assemble a wheelhouse: the wheel plus
    `pip download --require-hashes --only-binary=:all: --no-deps -r requirements-machinery.lock`.
    The consumer lock is the release line followed by the dependency lock:
 
@@ -64,7 +79,7 @@ in `pyproject.toml` and `$SHA` the full commit:
    <requirements-machinery.lock at $SHA>
    ```
 
-3. Accept it in a clean venv outside any checkout, with `$P` that venv's
+4. Accept it in a clean venv outside any checkout, with `$P` that venv's
    absolute interpreter:
 
    ```bash
@@ -170,7 +185,7 @@ in `pyproject.toml` and `$SHA` the full commit:
    against a scratch consumer is one such path. Import alone is not
    acceptance.
 
-4. Tag and publish. Push the annotated tag `v$V` on `$SHA`, then create the
+5. Tag and publish. Push the annotated tag `v$V` on `$SHA`, then create the
    release with all three assets in one call. The installed publisher resolves
    its repository context from the environment, so set
    `LEARN_UKRAINIAN_PRIMARY_REPO_ROOT` to the absolute primary git checkout
@@ -186,7 +201,7 @@ in `pyproject.toml` and `$SHA` the full commit:
    Download the published assets and compare them with `SHA256SUMS` before
    reporting the release.
 
-5. Install the wheelhouse files on the host (host operation, outside this
+6. Install the wheelhouse files on the host (host operation, outside this
    repository).
 
 ## Consumers
@@ -194,7 +209,7 @@ in `pyproject.toml` and `$SHA` the full commit:
 A consumer adopts a release with one PR that replaces its
 `requirements-machinery.lock` with the consumer lock above. Shared locks name
 packages, versions and hashes only, never a host path. On the server,
-consumers install from the host wheelhouse with the step 3 command. In CI, a
+consumers install from the host wheelhouse with the step 4 command. In CI, a
 consumer downloads the exact release asset into a temporary wheelhouse,
 downloads the locked dependencies into the same directory, and installs with
 the same command. Rolling back restores the previous lock, wheel,
