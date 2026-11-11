@@ -330,7 +330,7 @@ def merged_delivery_world(tmp_path, monkeypatch):
     world = SimpleNamespace(
         prs={}, files={}, listed=[], published=(None, True), lookup_error=None,
         record={
-            "task_id": "merge-probe", "mode": "workspace-write", "status": "done", "error": None,
+            "task_id": "merge-probe", "agent": "claude", "mode": "workspace-write", "status": "done", "error": None,
             "owned_paths": ["docs/owned.md"], "worktree_remote_url": "https://github.com/org/repo.git",
             "worktree_base_ref": "origin/main", "worktree_branch": "claude/merge-probe", "publish_branch": None,
             "started_at": "2026-10-29T08:00:00+00:00", "head_sha": "a" * 40, "commits_ahead": 0,
@@ -342,7 +342,14 @@ def merged_delivery_world(tmp_path, monkeypatch):
         if world.lookup_error:
             raise world.lookup_error
         words = args[1:]
-        out = (json.dumps(world.listed) if words[:2] == ["pr", "list"]
+        out = (json.dumps([{"number": pr["number"],
+                            "head": {"sha": pr["headRefOid"], "repo": {"full_name": "org/repo"}},
+                            "base": {"repo": {"full_name": "other/repo" if pr["isCrossRepository"] else "org/repo"}}}
+                           for pr in world.listed if "headRefOid" in pr])
+               if words[0] == "api" and words[2].endswith("/pulls")
+               else json.dumps("deliver\n\nX-Agent: claude/merge-probe")
+               if words[0] == "api" and words[2].endswith("/commits")
+               else json.dumps(world.listed) if words[:2] == ["pr", "list"]
                else json.dumps(world.prs[int(words[2])]) if words[:2] == ["pr", "view"]
                else "\n".join(json.dumps(name) for name in world.files[int(words[2].split("/")[4])]))
         return SimpleNamespace(returncode=0, stdout=out, stderr="")
@@ -363,4 +370,5 @@ def merged_delivery_world(tmp_path, monkeypatch):
     return world
 
 
-MERGED = {"state": "MERGED", "baseRefName": "main", "mergedAt": "2026-10-29T09:00:00Z"}
+MERGED = {"state": "MERGED", "baseRefName": "main", "mergedAt": "2026-10-29T09:00:00Z",
+          "mergeCommit": {"oid": "c" * 40}, "isCrossRepository": False}

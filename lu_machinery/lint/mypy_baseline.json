@@ -4220,11 +4220,6 @@
     {
       "path": "lu_machinery/dispatcher/worker.py",
       "code": "arg-type",
-      "message": "Argument 1 to \"json_value\" has incompatible type \"None | str\"; expected \"str\""
-    },
-    {
-      "path": "lu_machinery/dispatcher/worker.py",
-      "code": "arg-type",
       "message": "Argument 1 to \"recognized_verdicts\" has incompatible type \"None | str\"; expected \"str\""
     },
     {
