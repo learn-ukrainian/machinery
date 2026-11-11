@@ -53,6 +53,12 @@ DISCOVERY = {
 }
 
 
+# Providers that discover workspace content in the shared .agents tree, so its
+# discovery names stay inventoried whenever one is enabled: Codex and AGY (above),
+# Gemini CLI (.agents/skills alias, https://geminicli.com/docs/cli/skills) and
+# Cursor (.agents/skills, https://cursor.com/docs/context/skills).
+SHARED_DISCOVERY = frozenset({"codex", "agy", "gemini", "cursor"})
+
 
 class Invalid(ValueError):
     """Invalid or unsafe input, exit 2."""
@@ -321,7 +327,7 @@ def build(tree: Tree) -> Plan:
     if not isinstance(sources, dict) or set(sources) - {"shared", *providers}:
         raise Invalid("invalid source groups")
     roots = {TARGETS[p] for p in providers}
-    if "codex" in providers or "agy" in providers:
+    if SHARED_DISCOVERY.intersection(providers):
         roots.add(".agents")
     if not isinstance(preserve, list):
         raise Invalid("preserve must be a list")
