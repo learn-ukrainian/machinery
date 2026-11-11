@@ -31,6 +31,22 @@ STATE = ".deploy-state/agent-deploy.v1.json"
 STAGING = ".deploy-state/agent-deploy.tmp"
 TARGETS = {"claude": ".claude", "codex": ".codex", "agy": ".agent", "gemini": ".gemini", "cursor": ".cursor"}
 
+# Discovery/configuration names remain inventoried even without a planned output.
+# Runtime siblings are outside ownership; explicit descriptor preservation still applies.
+# Provider references: https://code.claude.com/docs/en/{claude-directory,settings,skills,sub-agents,output-styles,plugins,workflows}
+# https://learn.chatgpt.com/docs/{config-file/config-basic,build-skills,hooks}
+# https://antigravity.google/docs/{customization-discovery,rules,skills,ide-workflows}
+# https://geminicli.com/docs/reference/configuration/
+# https://cursor.com/docs/{context/rules,cli/reference/configuration,configuration/worktrees,cloud-agent}
+DISCOVERY = {
+    ".claude": {"agents", "agent-memory", "agent-memory-local", "commands", "output-styles", "plugins", "skills", "rules", "hooks", "workflows", "settings.json", "settings.local.json", "CLAUDE.md", "AGENTS.md"},
+    ".codex": {"agents", "prompts", "plugins", "skills", "rules", "hooks", "config.toml", "hooks.json"},
+    ".agent": {"agents", "plugins", "skills", "rules", "workflows", "hooks", "hooks.json", "mcp_config.json", "settings.json", "rules.json", "skills.json", "agents.json", "plugins.json", "AGENTS.md", "GEMINI.md"},
+    ".agents": {"agents", "plugins", "skills", "rules", "workflows", "hooks", "hooks.json", "mcp_config.json", "rules.json", "skills.json", "agents.json", "plugins.json", "AGENTS.md", "GEMINI.md"},
+    ".gemini": {"agents", "commands", "extensions", "skills", "rules", "hooks", "settings.json", "config.json", "GEMINI.md", "AGENTS.md", "system.md", ".env", "sandbox.Dockerfile"},
+    ".cursor": {"agents", "commands", "skills", "rules", "hooks", "hooks.json", "mcp.json", "cli.json", "environment.json", "worktrees.json"},
+}
+
 
 
 class Invalid(ValueError):
@@ -504,10 +520,17 @@ def preflight(tree: Tree, plan: Plan, old: dict[str, Any], check: bool) -> list[
         if check:
             problems.append("interrupted deployment staging remains")
     roots = plan.roots | {path.split("/")[0] for path in old["files"]}
+    owned = {(path.split("/")[0], path.split("/")[1].casefold()) for path in (*plan.files, *old["files"])}
+    owned.update((root, name.casefold()) for root in roots for name in DISCOVERY.get(root, ()))
+    def excluded(path: str) -> bool:
+        root, name = path.split("/")[:2]
+        # Gemini also loads sandbox-macos-<profile>.sb (configuration reference above).
+        discovery_profile = root == ".gemini" and name.casefold().startswith("sandbox-macos-") and name.casefold().endswith(".sb")
+        return preserved(path, plan) or ((root, name.casefold()) not in owned and not discovery_profile)
     for root in sorted(roots):
         # Exclude runtime entries before stat/open/recursion. Non-preserved
         # links and special files still fail closed inside inventory().
-        for path, actual in tree.inventory(root, exclude=lambda path: preserved(path, plan)).items():
+        for path, actual in tree.inventory(root, exclude=excluded).items():
             full = root + "/" + path
             expected = plan.files.get(full)
             if expected is not None:
