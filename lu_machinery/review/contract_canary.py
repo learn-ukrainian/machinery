@@ -31,16 +31,15 @@ from typing import Any
 _MACHINERY = Path(os.path.abspath(__file__)).parents[1].name
 
 # The one declaration of the review output contract: bound schemas, the receipt gate, the
-# verdict parser, the recorder, settlement, and each reviewer provider's schema or reply handling.
-# Machinery files are named wherever the machinery package is and whatever it is called;
-# the schema is packaged; settlement remains product-owned.
+# verdict parser, the recorder, the dispatcher's settlement, and each reviewer provider's schema
+# or reply handling. Every one is a machinery file, named wherever the machinery package is and
+# whatever it is called; the schema is packaged.
 CONTRACT_PATHS: tuple[str, ...] = (
     f"{_MACHINERY}/review/contract_canary.py",  # this gate: a change to it is proven on live routes too
     f"{_MACHINERY}/schemas/code-review-findings.v1.schema.json",
     f"{_MACHINERY}/review/review_contract.py",
     f"{_MACHINERY}/review/verdict_parser.py",
     f"{_MACHINERY}/review/record_cf_verdict.py",
-    "scripts/review/settle.py",
     f"{_MACHINERY}/dispatcher/worker.py",
     f"{_MACHINERY}/dispatcher/output_schema.py",
     f"{_MACHINERY}/dispatcher/providers/agy.py",
@@ -156,7 +155,8 @@ def _settled_receipt(record: Mapping[str, Any], result: str, *, head: str) -> di
 
     The receipt is bound to the exact head commit, which fixes the contract assets and the
     whole dispatcher tree, to the clean dispatcher checkout at that head that settled the
-    task, and to the route and model. A verdict-bound task settles ``done`` only after that
+    task, read-only from start to settlement so that no process could write code into it,
+    and to the route and model. A verdict-bound task settles ``done`` only after that
     candidate dispatcher's own receipt gate accepted its reply, so the gate, running main's
     code, need not re-parse the reply with main's copy of the contract.
     """
@@ -185,6 +185,8 @@ def _settled_receipt(record: Mapping[str, Any], result: str, *, head: str) -> di
         or record.get("dispatcher_code_start") != code
     ):
         raise CanaryError("task was not supervised by the candidate's clean dispatcher")
+    if code.get("read_only") is not True:  # equal start and settlement records: sealed at both
+        raise CanaryError("task's dispatcher checkout was not a read-only mount")
     route = record.get("agent")
     candidates = _formal_candidates()
     if route not in candidates:
