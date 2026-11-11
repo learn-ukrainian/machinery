@@ -328,9 +328,10 @@ def _dispatcher_code() -> dict:
         # source checkout identifies its project before any Git subprocess runs.
         if not (root / ".git").exists():
             return None
-        if not in_tree_source():
-            if tomllib.loads(read(str(root / "pyproject.toml")).decode()).get("project", {}).get("name") != "lu-machinery":
-                return None
+        if not in_tree_source() and (
+            tomllib.loads(read(str(root / "pyproject.toml")).decode()).get("project", {}).get("name") != "lu-machinery"
+        ):
+            return None
         top = (git_out("rev-parse", "--show-toplevel") or "").rstrip("\n")
         if (
             not top
