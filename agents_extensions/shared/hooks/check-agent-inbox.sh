@@ -44,6 +44,14 @@ source "$(dirname "${BASH_SOURCE[0]}")/context-rollover-lib.sh" \
   || { echo "check-agent-inbox.sh: context-rollover-lib.sh is missing beside this hook" >&2; exit 1; }
 context_machinery_bootstrap "$PROJECT_DIR" || exit 1
 INBOX_PYTHON="$CONTEXT_PROJECT_PYTHON"
+# The one hook-root rule (the release's project_hook_roots_resolve) exports the
+# product and shared-state roots the inbox CLI reads, whichever harness started
+# this hook, so a missing shared-state anchor is derived, not left unset; a
+# parent's configured roots are kept, invalid ones refuse.
+project_hook_roots_resolve 2>/dev/null || {
+  echo "HOOK-BOOTSTRAP-FAILED: product root, shared state, interpreter or machinery unavailable." >&2
+  exit 1
+}
 
 # Fast path: probe the same broker DB the bridge CLI reads
 # (scripts/ai_agent_bridge/_config.py DB_PATH → _messaging.py check_inbox)

@@ -17,7 +17,12 @@ if __package__ in (None, ""):
 from lu_machinery.agent_runtime.agent_identity import seat_read_aliases
 from lu_machinery.ai_agent_bridge._channels import resolve_recipient_alias
 from lu_machinery.common.bridge_paths import configured_bridge_db_path
-from lu_machinery.common.repo_root import state_root
+from lu_machinery.common.repo_root import (
+    HOOK_BOOTSTRAP_DIAGNOSTIC,
+    HOOK_BOOTSTRAP_REASON,
+    configure_native_hook_roots,
+    state_root,
+)
 from lu_machinery.fleet_comms.paths import default_plane_root
 from lu_machinery.lib.readonly_sqlite import open_readonly
 from lu_machinery.orchestration.handoff_slot_registry import is_registered_slot, registry_readable
@@ -178,7 +183,20 @@ def main(argv: list[str] | None = None) -> int:
     try:
         args = parser.parse_args(argv)
         recipient = args.recipient if args.recipient is not None else os.environ.get("SESSION_HANDOFF_AGENT", "")
-        result = hook(sys.stdin.read(), recipient) if args.agy_hook else probe(recipient)
+        if args.agy_hook:
+            stdin_text = sys.stdin.read()
+            # The direct hook boundary: missing roots come from the working directory by the
+            # shared shell rule. A context that cannot resolve is a bootstrap refusal, not an
+            # "unknown" store read.
+            try:
+                configure_native_hook_roots(Path.cwd())
+            except (OSError, ValueError):
+                sys.stderr.write(HOOK_BOOTSTRAP_DIAGNOSTIC + "\n")
+                result = {"decision": "deny", "reason": HOOK_BOOTSTRAP_REASON}
+            else:
+                result = hook(stdin_text, recipient)
+        else:
+            result = probe(recipient)
     except SystemExit as exc:
         if exc.code == 0:
             return 0

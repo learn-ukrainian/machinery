@@ -49,6 +49,10 @@
 # project_python_run <python> (-m <module> | -c <code>) [args...]
 #   runs that command; exit status and streams are the child's
 #
+# project_hook_roots_resolve / project_hook_context_resolve [<product-root>]
+#   the one hook-boundary rule for the product, shared-state and interpreter
+#   roots (see their definitions); exit 0 with the roots exported, else 1
+#
 # Load-bearing tests: tests/test_deploy_extensions.py (real temporary repos),
 # tests/test_launcher_helper_root.py (every launcher helper site),
 # tests/hooks/test_session_setup_isolation.py (every launcher-library child).
@@ -113,6 +117,11 @@ project_python_run() {
     "${PROJECT_PYTHON_COMMAND[@]}" "$@"
 }
 
+# The block between the two marker lines is also the resolver of every native
+# hook command: agent_runtime/agy_hook_config.native_hook_command embeds it
+# verbatim, so a hook validates its interpreter before any Python starts. It
+# must stay self-contained: no function or variable defined outside it.
+# LU_HOOK_RESOLVERS_BEGIN
 # Collapse "." and ".." segments of an absolute path without following
 # symlinks (a symlinked .git must stay visible to the checks below).
 _project_interpreter_normalize() {
@@ -272,3 +281,58 @@ project_interpreter_resolve() {
     echo "Error: project interpreter not found: $tried" >&2
     return 1
 }
+
+# project_hook_roots_resolve [<product-root>]
+#   exports LU_PRODUCT_ROOT and LEARN_UKRAINIAN_PRIMARY_REPO_ROOT (exit 0), or
+#   exports nothing (exit 1). The product is the argument when one is given,
+#   else LU_PRODUCT_ROOT, else CLAUDE_PROJECT_DIR, else the nearest physical
+#   ancestor of the working directory that has a .git entry; never this
+#   library's location. The first candidate given is the only one considered.
+#   The shared-state anchor is LEARN_UKRAINIAN_PRIMARY_REPO_ROOT when set, else
+#   the product's validated primary; it must be a primary checkout (a real .git
+#   directory without commondir), and a set LEARN_UKRAINIAN_STATE_ROOT must name
+#   that same directory. A release snapshot (no .git) therefore needs an explicit
+#   anchor.
+project_hook_roots_resolve() {
+    local root="${1-${LU_PRODUCT_ROOT:-${CLAUDE_PROJECT_DIR:-}}}"
+    local primary state_root state_config
+    if [[ -z "$root" ]]; then
+        root="$(pwd -P)" || return 1
+        while [[ ! -e "$root/.git" && ! -L "$root/.git" ]]; do
+            [[ "$root" != / ]] || return 1
+            root="${root%/*}"
+            [[ -n "$root" ]] || root=/
+        done
+    fi
+    [[ "$root" = /* && -d "$root" ]] || return 1
+    primary="$(project_primary_root_resolve "$root")" || return 1
+    state_root="${LEARN_UKRAINIAN_PRIMARY_REPO_ROOT:-$primary}"
+    [[ "$state_root" = /* && -d "$state_root/.git" && ! -L "$state_root/.git" ]] || return 1
+    [[ ! -e "$state_root/.git/commondir" && ! -L "$state_root/.git/commondir" ]] || return 1
+    state_root="$(cd -P "$state_root" 2>/dev/null && pwd)" || return 1
+    if [[ -n "${LEARN_UKRAINIAN_STATE_ROOT:-}" ]]; then
+        [[ "$LEARN_UKRAINIAN_STATE_ROOT" = /* ]] || return 1
+        state_config="$(cd -P "$LEARN_UKRAINIAN_STATE_ROOT" 2>/dev/null && pwd)" || return 1
+        [[ "$state_config" = "$state_root" ]] || return 1
+    fi
+    export LU_PRODUCT_ROOT="$root"
+    export LEARN_UKRAINIAN_PRIMARY_REPO_ROOT="$state_root"
+}
+
+# project_hook_context_resolve [<product-root>]
+#   project_hook_roots_resolve, then exports LEARN_UKRAINIAN_PYTHON: the
+#   configured absolute executable, else the product primary's .venv python
+#   (exit 0); exit 1 otherwise. A linked worktree's .venv is never used, and a
+#   product root without a .git entry (a release snapshot, or a configured
+#   subdirectory) never supplies its own: the shared-state primary does.
+project_hook_context_resolve() {
+    local interpreter checkout
+    project_hook_roots_resolve "$@" || return 1
+    checkout="$LU_PRODUCT_ROOT"
+    if [[ ! -e "$checkout/.git" && ! -L "$checkout/.git" ]]; then
+        checkout="$LEARN_UKRAINIAN_PRIMARY_REPO_ROOT"
+    fi
+    interpreter="$(project_interpreter_resolve "$checkout")" || return 1
+    export LEARN_UKRAINIAN_PYTHON="$interpreter"
+}
+# LU_HOOK_RESOLVERS_END
