@@ -34,7 +34,8 @@ from functools import cached_property, lru_cache, wraps
 from pathlib import Path
 from threading import RLock
 
-from lu_machinery.common.repo_root import ProductRootError, product_root
+from lu_machinery.common.repo_root import INSTALLED_PACKAGE_NAME, ProductRootError, product_root
+from lu_machinery.lib.readonly_sqlite import PRODUCT_WRITER_DECLARATION
 
 
 def _machinery_top() -> str:
@@ -111,11 +112,16 @@ CONFIGURED_ENTRY_POINTS = {
 CONFIGURED_LOADER = "load_configured_module"
 
 
-def load_allowlist() -> tuple[AllowedReference, ...]:
-    entries = tuple(
-        AllowedReference(**{**row, "calls": tuple(row.get("calls", ())), "functions": tuple(row.get("functions", ()))})
-        for row in json.loads(REFERENCE_MANIFEST.read_text())
-    )
+def load_allowlist(manifest: Path | None = None) -> tuple[AllowedReference, ...]:
+    """Validated rows of ``manifest``; machinery's own packaged manifest by default."""
+    try:
+        entries = tuple(
+            AllowedReference(**{**row, "calls": tuple(row.get("calls", ())), "functions": tuple(row.get("functions", ()))})
+            for row in json.loads((REFERENCE_MANIFEST if manifest is None else manifest).read_text())
+        )
+    except TypeError:
+        # A row missing a required field, or carrying an unknown one.
+        raise ValueError("invalid SQLite allowlist entry: row fields differ from the manifest schema") from None
     if len({entry.path for entry in entries}) != len(entries):
         raise ValueError("duplicate SQLite allowlist path")
     # Product writer rows stay under scripts/. Machinery rows use this package's
@@ -444,6 +450,25 @@ def writer_target_violations(
 
 
 BASELINE = Path(__file__).with_name("store_access_baseline.json")
+# The product checkout's own manifest pair: its writer declaration (the file the
+# runtime guard authorizes product writers from) and its committed baseline.
+PRODUCT_BASELINE = f"scripts/hygiene/{BASELINE.name}"
+
+
+def manifest_pair(root: Path) -> tuple[Path, Path]:
+    """The allowlist and baseline owned by the checkout at ``root``.
+
+    A machinery checkout carries its own pair inside its package directory; any
+    other checkout is a product, whose pair is :data:`PRODUCT_WRITER_DECLARATION`
+    and :data:`PRODUCT_BASELINE`. Machinery's packaged rows never apply to a
+    product checkout, and a missing product file fails the scan.
+    """
+    machinery = root / INSTALLED_PACKAGE_NAME / "hygiene"
+    if (machinery / REFERENCE_MANIFEST.name).is_file():
+        return machinery / REFERENCE_MANIFEST.name, machinery / BASELINE.name
+    return root / PRODUCT_WRITER_DECLARATION, root / PRODUCT_BASELINE
+
+
 STORE_CLASSES = ("store_path", "raw_store_constructor", "test_import_access")
 STORE_NAME = re.compile(r"(?:sources|vesum|vesum_shadow_[^/]*?)\.db(?:$|[?#/])")
 RELATIVE_DATA = re.compile(r"^(?:\./)?data(?:/|$)")
@@ -837,8 +862,9 @@ def source_blob_id(source: str, algorithm: str = "sha1") -> str:
     raw = source.encode("utf-8")
     return hashlib.new(algorithm, b"blob " + str(len(raw)).encode() + b"\0" + raw).hexdigest()
 
-def baseline_entries() -> set[StoreFinding]:
-    return {StoreFinding(**entry) for entry in json.loads(BASELINE.read_text())["entries"]}
+def baseline_entries(baseline: Path | None = None) -> set[StoreFinding]:
+    """Rows of ``baseline``; machinery's own packaged baseline by default."""
+    return {StoreFinding(**entry) for entry in json.loads((BASELINE if baseline is None else baseline).read_text())["entries"]}
 
 
 
@@ -850,11 +876,13 @@ def baseline_policy_violations(root: Path) -> list[str]:
     exactly reproduce the same base. After landing, working-tree, branch and
     CI changes may only shrink available committed versions.
     """
-    if not (root / ".git").exists():
+    baseline = manifest_pair(root)[1]
+    # The policy pins the product's committed baseline (PRODUCT_BASELINE) as before.
+    if not (root / ".git").exists() or baseline != root / PRODUCT_BASELINE:
         return []
-    current = json.loads(BASELINE.read_text())
+    current = json.loads(baseline.read_text())
     current_entries = {StoreFinding(**row) for row in current["entries"]}
-    rel = f"scripts/hygiene/{BASELINE.name}"
+    rel = PRODUCT_BASELINE
     initial_correction = None
     for ref in ("HEAD", "HEAD^", "origin/main"):
         result = subprocess.run(["git", "show", f"{ref}:{rel}"], cwd=root,
@@ -976,11 +1004,12 @@ def find_violations(
             apply_baseline = root == product_root().resolve()
         except ProductRootError:
             apply_baseline = False
-    writers = {writer.path: writer for writer in (load_allowlist() if allowlist is None else allowlist)}
+    manifest, baseline_file = manifest_pair(root)
+    writers = {writer.path: writer for writer in (load_allowlist(manifest) if allowlist is None else allowlist)}
     violations, unreadable = [], []
     seen = set()
-    baseline = baseline_entries() if apply_baseline else set()
-    payload = json.loads(BASELINE.read_text()) if apply_baseline else {}
+    baseline = baseline_entries(baseline_file) if apply_baseline else set()
+    payload = json.loads(baseline_file.read_text()) if apply_baseline else {}
     base_blobs = base_blob_ids(root, payload["base_commit"]) if "base_commit" in payload else {}
     by_path = {}
     for finding in baseline:

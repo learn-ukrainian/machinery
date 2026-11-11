@@ -62,9 +62,10 @@ def _planted_repo(root: Path, monkeypatch) -> None:
     pinned = lint.classify_store_source(files["tests/pinned.py"], "tests/pinned.py")
     stale = lint.classify_store_source(STORE_SOURCE, "scripts/renamed_old.py")
     assert pinned and stale
-    baseline = root / "baseline.json"
+    # The scanned product checkout's own baseline applies, never machinery's packaged one.
+    baseline = root / lint.PRODUCT_BASELINE
+    baseline.parent.mkdir(parents=True, exist_ok=True)
     baseline.write_text(json.dumps({"entries": [f.__dict__ for f in (*pinned, *stale)]}))
-    monkeypatch.setattr(lint, "BASELINE", baseline)
 
 
 class _SpyPool(ProcessPoolExecutor):
