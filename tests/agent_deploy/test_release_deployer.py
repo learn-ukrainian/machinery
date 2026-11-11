@@ -209,7 +209,7 @@ def test_unsafe_retirement_preserves_modified_unknown_and_runtime(consumer, monk
     assert invoke(monkeypatch, consumer) == 1
     assert snapshot(consumer) == before
     victim.write_text(PRODUCT)
-    unknown = write(consumer, ".claude/unknown", "keep")
+    unknown = write(consumer, ".claude/skills/unknown", "keep")
     before = snapshot(consumer)
     assert invoke(monkeypatch, consumer) == 1
     assert snapshot(consumer) == before
@@ -218,6 +218,59 @@ def test_unsafe_retirement_preserves_modified_unknown_and_runtime(consumer, monk
     assert not victim.exists()
     assert not victim.parent.exists()
     assert (consumer / ".agent/tmp/scratch").read_text() == "keep"
+
+
+@pytest.mark.parametrize("root", [".claude", ".agent", ".agents", ".codex", ".gemini"])
+@pytest.mark.parametrize("kind", ["directory", "file", "symlink"])
+def test_runtime_siblings_do_not_block_check_or_apply(consumer, tmp_path, monkeypatch, root, kind):
+    """Runtime state outside owned top-levels must never block deployment."""
+    outside = write(tmp_path, "outside-runtime", "keep outside\n")
+    runtime = consumer / root / "sessions"
+    runtime.parent.mkdir(parents=True, exist_ok=True)
+    if kind == "directory":
+        write(consumer, root + "/sessions/active", "keep runtime\n")
+    elif kind == "file":
+        runtime.write_text("keep runtime\n")
+    else:
+        runtime.symlink_to(outside)
+    before = runtime.lstat()
+    assert invoke(monkeypatch, consumer) == 0
+    assert invoke(monkeypatch, consumer, check=True) == 0
+    assert invoke(monkeypatch, consumer) == 0
+    assert runtime.lstat() == before
+    assert outside.read_text() == "keep outside\n"
+
+
+@pytest.mark.parametrize("path", [
+    ".claude/commands/planted.md", ".claude/agents/planted.md",
+    ".claude/output-styles/planted.md", ".claude/plugins/planted.md",
+    ".claude/skills/old/SKILL.md", ".codex/agents/planted.toml",
+    ".codex/config.toml", ".agents/plugins/planted/plugin.json",
+    ".agents/rules/planted.md", ".agent/workflows/planted.md",
+    ".gemini/commands/planted.toml",
+])
+@pytest.mark.parametrize("check", [False, True], ids=["apply", "check"])
+def test_provider_discovery_content_cannot_hide_as_runtime(consumer, monkeypatch, capsys, path, check):
+    """Never-planned discovery content and stale skills must still report drift."""
+    assert invoke(monkeypatch, consumer) == 0
+    write(consumer, path, 'model = "planted"\n' if path.endswith(".toml") else "planted\n")
+    before = snapshot(consumer)
+    assert invoke(monkeypatch, consumer, check=check) == 1
+    captured = capsys.readouterr()
+    assert "unknown unowned output: " + path in captured.out + captured.err
+    assert snapshot(consumer) == before
+
+
+@pytest.mark.parametrize("check", [False, True], ids=["apply", "check"])
+def test_future_planned_output_refuses_runtime_collision(consumer, monkeypatch, capsys, check):
+    """A runtime name becoming owned must never adopt or overwrite differing bytes."""
+    assert invoke(monkeypatch, consumer) == 0
+    write(consumer, ".claude/sessions/active", "runtime bytes\n")
+    write(consumer, "agents_extensions/shared/sessions/active", "planned bytes\n")
+    before = snapshot(consumer)
+    assert invoke(monkeypatch, consumer, check=check) == 2
+    assert "differing unowned output: .claude/sessions/active" in capsys.readouterr().err
+    assert snapshot(consumer) == before
 
 
 @pytest.mark.parametrize("path", [".agent", ".deploy-state", "agents_extensions/shared", ".claude/hooks"])
