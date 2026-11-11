@@ -858,7 +858,7 @@ def _build_workers_payload(
             }
         )
 
-    payload = {
+    payload: dict[str, Any] = {
         "schema": WORKERS_SCHEMA,
         "observed_at": clock.isoformat().replace("+00:00", "Z"),
         "counts": {
