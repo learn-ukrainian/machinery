@@ -406,12 +406,14 @@ every DNS answer: one non-global, multicast, reserved, unspecified or
 host-interface address rejects the entire request, so host loopback services,
 private networks and cloud metadata stay unreachable. Interface addresses are
 enumerated at startup. Connections use only the validated numeric addresses,
-with no second lookup. Each requested destination and its byte count are
-collected in memory. The AGY dispatch and native Claude shell routes persist
-these records in their sandbox receipts (`egress`). Formal attempts do not
-yet write them to an attempt receipt; persistence for both copies and a bounded
-record list are tracked in
-[issue 12947](https://github.com/learn-ukrainian/learn-ukrainian.github.io/issues/12947).
+with no second lookup. The proxy retains the first 256 distinct canonical
+CONNECT destinations and their aggregate byte counts. Requests outside that
+retained set increment an overflow count, including repeats. Formal attempts
+persist this summary in the task record's `review_attempt_egress` field; see
+[Attempt egress evidence](#attempt-egress-evidence) for its semantics and limits.
+The AGY dispatch and native Claude shell routes persist the retained records
+in their sandbox receipts (`egress`), with omitted requests counted in
+`egress_overflow_count`.
 
 The projected stdlib forwarder (`attempt_forwarder.py`) starts inside the
 namespace before the CLI. It relays bytes from namespace loopback to that Unix
