@@ -179,6 +179,15 @@ def _repo_file(repo_root: Path, raw: str | Path) -> Path:
     return path
 
 
+def _identity_file(repo_root: Path, raw: str | Path) -> Path:
+    """An identity input: a fleet rule comes from the release, every other file from the repository."""
+    try:
+        release = prompt_contracts.release_rule(raw)
+    except prompt_contracts.PromptContractError as exc:
+        raise PilotError(str(exc)) from exc
+    return release if release is not None else _repo_file(repo_root, raw)
+
+
 def _repository_backed_file(repo_root: Path, path: Path) -> Path:
     if not path.is_absolute():
         return _repo_file(repo_root, path)
@@ -316,7 +325,7 @@ def _validate_matrix_semantics(matrix: Mapping[str, Any], repo_root: Path) -> No
         path = Path(str(raw))
         if _is_generated_artifact_path(path):
             raise PilotError(f"generated artifact cannot be a pilot identity input: {raw}")
-        _repo_file(repo_root, str(raw))
+        _identity_file(repo_root, str(raw))
 
     for row in rows:
         transitions = row["transitions"]
@@ -549,7 +558,7 @@ def _report_metrics(matrix: Mapping[str, Any], rows: Sequence[Mapping[str, Any]]
 
 def _source_records(matrix: Mapping[str, Any], repo_root: Path) -> list[dict[str, str]]:
     return [
-        {"path": str(raw), "sha256": _sha256_bytes(_repo_file(repo_root, str(raw)).read_bytes())}
+        {"path": str(raw), "sha256": _sha256_bytes(_identity_file(repo_root, str(raw)).read_bytes())}
         for raw in sorted(matrix["identity_paths"])
     ]
 

@@ -4,14 +4,16 @@
 from __future__ import annotations
 
 import argparse
+import functools
 import hashlib
 import json
+import os
 import re
 import sys
 from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 import yaml
 from jsonschema import Draft202012Validator
@@ -20,8 +22,10 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from lu_machinery.common.repo_root import ProductRootError, product_root
+from lu_machinery.agent_deploy import plan as release_plan
+from lu_machinery.common.repo_root import ProductRootError, machinery_path, product_root
 from lu_machinery.common.schema_check import check_schema as check_schema_memoised
+from lu_machinery.lib.rules_core import _PRODUCT_RULES, RulesCoreMissing, source_path
 
 CONTRACT_ROOT = Path("agents_extensions/shared/prompt-contracts")
 REGISTRY_PATH = CONTRACT_ROOT / "registry.v1.yaml"
@@ -128,32 +132,131 @@ def _reject_json_constant(value: str) -> None:
     raise PromptContractError(f"non-standard JSON constant: {value}")
 
 
-def _repo_file(repo_root: Path, relative: str | Path) -> Path:
+def _declared(relative: str | Path) -> str:
+    """The canonical posix form of a declared repository-relative path; unsafe syntax is refused."""
     raw = str(relative)
     path = Path(raw)
     if not raw or "\\" in raw or path.is_absolute() or ".." in path.parts or raw.startswith("~"):
         raise PromptContractError(f"path must be a safe repository-relative path: {raw!r}")
+    return path.as_posix()
+
+
+def _repo_file(repo_root: Path, relative: str | Path) -> Path:
+    declared = _declared(relative)
     root = repo_root.resolve()
-    candidate = (root / path).resolve()
+    candidate = (root / declared).resolve()
     try:
         candidate.relative_to(root)
     except ValueError as exc:
-        raise PromptContractError(f"path escapes repository root: {raw!r}") from exc
+        raise PromptContractError(f"path escapes repository root: {str(relative)!r}") from exc
     if not candidate.is_file():
-        raise PromptContractError(f"required prompt contract file is missing: {raw}")
+        raise PromptContractError(f"required prompt contract file is missing: {relative}")
     return candidate
 
 
-def _relative(path: Path, repo_root: Path) -> str:
-    return path.resolve().relative_to(repo_root.resolve()).as_posix()
+_SHARED_PREFIX = "agents_extensions/shared/"
+_RELEASE_INVENTORY = "agent_deploy/release.v1.json"
+_RELEASE_MODES = frozenset({0o644, 0o755})
+
+
+def _load_inventory(path: Path) -> frozenset[str]:
+    """The shared-tree paths the release declares, from its inventory, validated like the deployer does."""
+    try:
+        inventory = release_plan.decode(path.read_bytes())
+        files = inventory.get("files") if isinstance(inventory, dict) else None
+        if not isinstance(files, dict) or not files:
+            raise release_plan.Invalid("inventory has no files")
+        for key, record in files.items():
+            release_plan.relative(key)
+            if (
+                not isinstance(record, dict)
+                or record.get("owner") != "fleet"
+                or type(record.get("mode")) is not int
+                or record["mode"] not in _RELEASE_MODES
+                or not isinstance(record.get("targets"), dict)
+            ):
+                raise release_plan.Invalid(f"invalid inventory record: {key}")
+            if f"{_SHARED_PREFIX}{key}" in _PRODUCT_RULES:
+                raise release_plan.Invalid(f"inventory declares a product-owned rule: {key}")
+    except (OSError, ValueError) as exc:  # release_plan.Invalid is a ValueError
+        raise PromptContractError(f"release inventory is invalid: {exc}") from exc
+    return frozenset(files)
+
+
+@functools.cache
+def _validated_inventory(path: str) -> frozenset[str]:
+    """Only a successfully validated inventory is cached, keyed by the installed package's own path."""
+    return _load_inventory(Path(path))
+
+
+def _release_files() -> frozenset[str]:
+    try:
+        path = os.fspath(machinery_path(_RELEASE_INVENTORY))
+    except (OSError, ValueError) as exc:
+        raise PromptContractError(f"release inventory is unavailable: {exc}") from exc
+    return _validated_inventory(path)
+
+
+def _release_rule(declared: str) -> Path | None:
+    """The release copy of a path the release inventory declares, else ``None`` (the file is the product's).
+
+    ``declared`` is canonical (``_declared``). Membership is the release's own declared inventory
+    (``release.v1.json``), never a file-system probe, and a rule ``rules_core.source_path`` routes
+    to the product is never a release rule. A declared path is read from the release or refused:
+    a missing or unreadable file, a lookup error or a different selection never falls back to a
+    product copy. Residual: ``source_path`` routes shared paths without consulting the inventory,
+    so an undeclared physical file in the release tree is, by this inventory, not shipped and is
+    treated as the product's own.
+    """
+    if not declared.startswith(_SHARED_PREFIX) or declared in _PRODUCT_RULES:
+        return None
+    if declared.removeprefix(_SHARED_PREFIX) not in _release_files():
+        return None
+    try:
+        expected = os.path.abspath(machinery_path(declared))
+        selected = os.path.abspath(source_path(declared))
+    except (RulesCoreMissing, OSError, ValueError) as exc:
+        raise PromptContractError(f"release resource is unavailable: {declared} ({exc})") from exc
+    if selected != expected:
+        raise PromptContractError(f"rules source selected an unexpected file for {declared}")
+    if not os.path.isfile(selected):
+        raise PromptContractError(f"required prompt contract file is missing: {declared}")
+    return Path(selected)
+
+
+def release_rule(relative: str | Path) -> Path | None:
+    """The release copy of the fleet rule ``relative`` names, or ``None`` when the file is the product's."""
+    return _release_rule(_declared(relative))
+
+
+class _Selected(NamedTuple):
+    """A contract file and the declared logical repository-relative path recorded as its identity."""
+
+    path: Path
+    logical: str
+
+
+def _under_shared_tree(path: Path, repo_root: Path) -> bool:
+    """Whether the resolved file lies in the product's shared tree (a symlink may not leave it)."""
+    try:
+        return path.relative_to(repo_root.resolve()).as_posix().startswith("agents_extensions/shared/")
+    except ValueError:
+        return False
+
+
+def _shared_selection(repo_root: Path, relative: str | Path, label: str) -> _Selected:
+    declared = _declared(relative)
+    release = _release_rule(declared)
+    if release is not None:
+        return _Selected(release, declared)
+    path = _repo_file(repo_root, declared)  # product containment
+    if not declared.startswith("agents_extensions/shared/") or not _under_shared_tree(path, repo_root):
+        raise PromptContractError(f"{label} must live under agents_extensions/shared: {declared}")
+    return _Selected(path, declared)
 
 
 def _shared_file(repo_root: Path, relative: str | Path, label: str) -> Path:
-    path = _repo_file(repo_root, relative)
-    source = _relative(path, repo_root)
-    if not source.startswith("agents_extensions/shared/"):
-        raise PromptContractError(f"{label} must live under agents_extensions/shared: {source}")
-    return path
+    return _shared_selection(repo_root, relative, label).path
 
 
 def _read_bytes(path: Path) -> bytes:
@@ -303,13 +406,8 @@ def _validate(document: Mapping[str, Any], schema: Mapping[str, Any], label: str
         raise PromptContractError(f"{label} failed schema validation at {location}: {error.message}")
 
 
-def _source_identity(kind: str, source_id: str, path: Path, repo_root: Path) -> SourceIdentity:
-    return SourceIdentity(
-        kind=kind,
-        id=source_id,
-        path=_relative(path, repo_root),
-        sha256=_sha256_bytes(_read_bytes(path)),
-    )
+def _source_identity(kind: str, source_id: str, path: Path, logical: str) -> SourceIdentity:
+    return SourceIdentity(kind=kind, id=source_id, path=logical, sha256=_sha256_bytes(_read_bytes(path)))
 
 
 def load_registry(*, repo_root: Path | None = None) -> dict[str, Any]:
@@ -366,7 +464,8 @@ def load_legacy_migration(*, repo_root: Path | None = None) -> dict[str, Any]:
     )
     for owner, paths in migration["owner_paths"].items():
         for path in paths:
-            _repo_existing(repo_root, path, f"{owner} owner")
+            if release_rule(path) is None:  # a fleet rule is owned by the release
+                _repo_existing(repo_root, path, f"{owner} owner")
     rationale_ids = set(migration["rationales"])
     unknown_rationales = sorted(
         {
@@ -455,7 +554,7 @@ def _load_manifest(
     version: str | None,
     *,
     repo_root: Path,
-) -> tuple[dict[str, Any], Path, str]:
+) -> tuple[dict[str, Any], _Selected, str]:
     registry = load_registry(repo_root=repo_root)
     prompt_record = registry["prompts"].get(prompt_id)
     if not isinstance(prompt_record, Mapping):
@@ -464,8 +563,8 @@ def _load_manifest(
     manifest_ref = prompt_record["versions"].get(resolved_version)
     if not isinstance(manifest_ref, str):
         raise PromptContractError(f"prompt version is not registered: {prompt_id}@{resolved_version}")
-    manifest_path = _shared_file(repo_root, manifest_ref, "executable prompt manifest")
-    manifest = _load_yaml(manifest_path)
+    manifest_path = _shared_selection(repo_root, manifest_ref, "executable prompt manifest")
+    manifest = _load_yaml(manifest_path.path)
     schema = _load_json(_repo_file(repo_root, MANIFEST_SCHEMA_PATH))
     _validate(manifest, schema, f"prompt manifest {prompt_id}@{resolved_version}")
     if manifest["prompt_id"] != prompt_id or manifest["version"] != resolved_version:
@@ -565,10 +664,10 @@ def resolve_prompt(
     if variant_record["family"] not in manifest["compatible"]["families"]:
         raise PromptContractError(f"variant family is not compatible with prompt contract: {variant}")
 
-    input_schema_path = _shared_file(repo_root, manifest["input_schema"], "prompt input schema")
-    output_schema_path = _shared_file(repo_root, manifest["output_schema"], "prompt output schema")
-    input_schema = _load_json(input_schema_path)
-    output_schema = _load_json(output_schema_path)
+    input_schema_file = _shared_selection(repo_root, manifest["input_schema"], "prompt input schema")
+    output_schema_file = _shared_selection(repo_root, manifest["output_schema"], "prompt output schema")
+    input_schema = _load_json(input_schema_file.path)
+    output_schema = _load_json(output_schema_file.path)
     _validate(dict(context), input_schema, "prompt input")
     _check_schema(output_schema, "prompt output")
     input_schema_id = _schema_id(input_schema, "prompt input schema")
@@ -579,27 +678,31 @@ def resolve_prompt(
     ordered_ids = _ordered_fragment_ids(manifest, variant)
     declared_inputs = set((input_schema.get("properties") or {}).keys())
     sources: list[SourceIdentity] = [
-        _source_identity("registry", "prompt-registry.v1", _repo_file(repo_root, REGISTRY_PATH), repo_root),
-        _source_identity("manifest", f"{prompt_id}@{resolved_version}", manifest_path, repo_root),
-        _source_identity("input-schema", input_schema_id, input_schema_path, repo_root),
-        _source_identity("output-schema", output_schema_id, output_schema_path, repo_root),
+        _source_identity(
+            "registry", "prompt-registry.v1", _repo_file(repo_root, REGISTRY_PATH), REGISTRY_PATH.as_posix()
+        ),
+        _source_identity("manifest", f"{prompt_id}@{resolved_version}", manifest_path.path, manifest_path.logical),
+        _source_identity("input-schema", input_schema_id, input_schema_file.path, input_schema_file.logical),
+        _source_identity("output-schema", output_schema_id, output_schema_file.path, output_schema_file.logical),
     ]
     if profile_id is not None:
-        sources.append(_source_identity("profile", profile_id, _repo_file(repo_root, PROFILE_PATH), repo_root))
+        sources.append(
+            _source_identity("profile", profile_id, _repo_file(repo_root, PROFILE_PATH), PROFILE_PATH.as_posix())
+        )
     for policy_id in sorted(manifest["policy_ids"]):
-        policy_path = _shared_file(
+        policy = _shared_selection(
             repo_root,
             manifest["policy_ids"][policy_id],
             f"prompt policy {policy_id}",
         )
-        sources.append(_source_identity("policy", policy_id, policy_path, repo_root))
+        sources.append(_source_identity("policy", policy_id, policy.path, policy.logical))
 
     rendered_fragments: list[str] = []
     for fragment_id in ordered_ids:
         fragment = manifest["fragments"][fragment_id]
-        fragment_path = _shared_file(repo_root, fragment["path"], f"prompt fragment {fragment_id}")
-        sources.append(_source_identity("fragment", fragment_id, fragment_path, repo_root))
-        rendered_fragments.append(_render_fragment(_fragment_text(fragment_path), context, declared_inputs))
+        fragment_file = _shared_selection(repo_root, fragment["path"], f"prompt fragment {fragment_id}")
+        sources.append(_source_identity("fragment", fragment_id, fragment_file.path, fragment_file.logical))
+        rendered_fragments.append(_render_fragment(_fragment_text(fragment_file.path), context, declared_inputs))
 
     rendered_prompt = "\n\n---\n\n".join(rendered_fragments) + "\n"
     prompt_sha256 = _sha256_bytes(rendered_prompt.encode("utf-8"))
