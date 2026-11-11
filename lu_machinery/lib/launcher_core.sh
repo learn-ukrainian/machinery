@@ -684,6 +684,11 @@ launcher_resolve_roots() {
   elif ! LC_DURABLE_HELPER_ROOT="$(project_primary_root_resolve "$LC_ROOT")"; then
     launcher_error "refusing to run launcher helpers from $LC_ROOT; its git metadata does not validate."
     exit 3
+  elif { [ -e "$LC_ROOT/.git" ] || [ -L "$LC_ROOT/.git" ]; } && ! _project_hook_git_layout "$LC_DURABLE_HELPER_ROOT"; then
+    # An empty or stray .git directory resolves as its own primary; only a
+    # real repository may supply the helpers and the exported interpreter.
+    launcher_error "refusing to run launcher helpers from $LC_ROOT; its primary $LC_DURABLE_HELPER_ROOT is not a Git repository."
+    exit 3
   elif [ ! -e "$LC_ROOT/.git" ] && [ ! -L "$LC_ROOT/.git" ] \
     && [ "$LC_DURABLE_HELPER_ROOT" != "$(cd -P "$(dirname "${BASH_SOURCE[0]}")/../.." 2>/dev/null && pwd)" ]; then
     # A root without .git resolves to itself. That is safe only for this
