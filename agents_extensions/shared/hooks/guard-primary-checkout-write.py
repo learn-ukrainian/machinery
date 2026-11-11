@@ -835,11 +835,14 @@ class ShellSegment(list):
         uv_dir_bound: bool = False,
         uv_env_file_bound: bool = False,
         refusal: Optional[str] = None,  # noqa: UP045 - Python 3.9 parser
+        *,
+        simple_command: bool = False,
     ) -> None:
         super().__init__(words)
         self.scope = scope
         self.prev_op = prev_op
         self.next_op = next_op
+        self.simple_command = simple_command
         # The command may have bound ``UV_WORKING_DIR`` or ``UV_ENV_FILE`` before this segment runs.
         self.uv_dir_bound = uv_dir_bound
         self.uv_env_file_bound = uv_env_file_bound
@@ -1136,12 +1139,21 @@ class _Expander:
                 current.append(tok)
                 continue
             if current:
+                # Reserved words and compound frames can defer or repeat this command.
+                simple_command = not self.frames and not self.poisoned
                 words = self._segment(current, prev_op, tok)
                 if words:
                     scope = tuple(int(frame.split(":", 1)[1]) for frame in self.frames if frame.startswith("paren:"))
                     segments.append(
                         ShellSegment(
-                            words, scope, prev_op, tok, self.uv_dir_bound, self.uv_env_file_bound, self.refusal
+                            words,
+                            scope,
+                            prev_op,
+                            tok,
+                            self.uv_dir_bound,
+                            self.uv_env_file_bound,
+                            self.refusal,
+                            simple_command=simple_command and not self.frames and len(words) == len(current),
                         )
                     )
                 current = []
@@ -2304,9 +2316,11 @@ def _writer_targets(
         raise _UndecidableWrapper(refused)
     # GNU tar also reads options from TAR_OPTIONS (a --checkpoint-action can run a program), so
     # list mode is proven read-only only where nothing can have set it: the command's first
-    # top-level segment, outside any nested shell or template, and an unset harness value.
+    # simple top-level segment, outside compound syntax, nested shells or templates,
+    # and an unset harness value.
     tar_environment_fixed = (
         depth == 0
+        and getattr(segment, "simple_command", False)
         and not template
         and getattr(segment, "prev_op", None) == ""
         and getattr(segment, "scope", None) == ()

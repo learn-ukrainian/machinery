@@ -69,3 +69,8 @@ files = [
 
 [tool.setuptools.data-files]
 "share/lu-machinery/node-contract" = ["package.json", "package-lock.json", ".nvmrc"]
+
+[tool.pytest.ini_options]
+markers = [
+    "live_network: opt-out of socket-guard for integration tests requiring outbound network",
+]

@@ -1186,7 +1186,6 @@
  "scripts/config/agent_runtime_failover.yaml": "machinery",
  "scripts/config/agents.yaml": "machinery",
  "scripts/config/area_assignments.yaml": "machinery",
- "scripts/config/attempt_provider_egress.yaml": "machinery",
  "scripts/config/backup-allowlist.json": "machinery",
  "scripts/config/context_profiles.yaml": "machinery",
  "scripts/config/credit_lanes.yaml": "machinery",

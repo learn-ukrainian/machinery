@@ -537,6 +537,15 @@ def test_tar_list_mode_option_word_is_not_a_primary_write(layout: Layout):
     assert decision(f"TAR_OPTIONS=--checkpoint-action=exec=touch tar tzf {archive}") == 2
     assert decision(f"tar tzf {archive} {{--checkpoint=1,--checkpoint-action=exec=touch}}") == 2
     assert decision(f"tar tzf {archive} *") == 2
+    # A first textual segment may execute again or later with a changed environment.
+    for command in (
+        f"while tar tzf {archive}; do export TAR_OPTIONS=--index-file=out; done",
+        f"until tar tzf {archive} && test -e out; do export TAR_OPTIONS=--index-file=out; done",
+        f"function f {{ tar tzf {archive}; }}; TAR_OPTIONS=--index-file=out f",
+        f"while tar tzf {archive}\ndo source env.sh\ndone",
+        f"f() {{ tar tzf {archive}; }}; TAR_OPTIONS=--index-file=out f",
+    ):
+        assert decision(command) == 2, command
 
 
 def test_relative_gitignored_path_resolved_against_cwd(layout: Layout):
