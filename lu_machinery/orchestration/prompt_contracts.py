@@ -130,42 +130,60 @@ def _reject_json_constant(value: str) -> None:
     raise PromptContractError(f"non-standard JSON constant: {value}")
 
 
-def _repo_file(repo_root: Path, relative: str | Path) -> Path:
+def _declared(relative: str | Path) -> str:
+    """The canonical posix form of a declared repository-relative path; unsafe syntax is refused."""
     raw = str(relative)
     path = Path(raw)
     if not raw or "\\" in raw or path.is_absolute() or ".." in path.parts or raw.startswith("~"):
         raise PromptContractError(f"path must be a safe repository-relative path: {raw!r}")
+    return path.as_posix()
+
+
+def _repo_file(repo_root: Path, relative: str | Path) -> Path:
+    declared = _declared(relative)
     root = repo_root.resolve()
-    candidate = (root / path).resolve()
+    candidate = (root / declared).resolve()
     try:
         candidate.relative_to(root)
     except ValueError as exc:
-        raise PromptContractError(f"path escapes repository root: {raw!r}") from exc
+        raise PromptContractError(f"path escapes repository root: {str(relative)!r}") from exc
     if not candidate.is_file():
-        raise PromptContractError(f"required prompt contract file is missing: {raw}")
+        raise PromptContractError(f"required prompt contract file is missing: {relative}")
     return candidate
 
 
-def _release_rule(repo_root: Path, relative: str | Path) -> Path | None:
-    """The release copy of a fleet rule when ``rules_core.source_path`` selects exactly it, else ``None``.
+def _release_rule(declared: str) -> Path | None:
+    """The release copy of a fleet rule, else ``None`` (the file is the product's).
 
-    Fleet rules come from the release; product-owned rules and every other contract file stay in the
-    product, so ``None`` sends the caller to the product containment check.
+    ``declared`` is canonical (``_declared``). A rule is a release rule when it lies in the rules
+    directory, is not one of the product-owned rules ``rules_core.source_path`` routes to the
+    product, and the release carries it. Where the release has the rule it is authoritative: a
+    product copy is never read, and any failure to select it fails closed. Only a rule the release
+    does not carry at all is the product's own.
     """
-    raw = str(relative)
-    if not raw.startswith(f"{RULES_DIR_REL}/"):
+    if not declared.startswith(f"{RULES_DIR_REL}/") or declared in _PRODUCT_RULES:
         return None
     try:
-        selected = os.path.abspath(source_path(raw, repo_root))
-    except RulesCoreMissing as exc:
-        raise PromptContractError(f"required prompt contract file is missing: {raw}") from exc
-    release_copy = os.path.join(os.path.abspath(machinery_path(RULES_DIR_REL)), raw.removeprefix(f"{RULES_DIR_REL}/"))
-    # A product-owned rule is never a release selection, even when the product root is the release root.
-    if raw in _PRODUCT_RULES or selected != release_copy:
-        return None
+        rules_dir = os.path.abspath(machinery_path(RULES_DIR_REL))
+    except (OSError, ValueError) as exc:
+        raise PromptContractError(f"release rules directory is unavailable: {exc}") from exc
+    release_copy = os.path.join(rules_dir, declared.removeprefix(f"{RULES_DIR_REL}/"))
+    if not os.path.lexists(release_copy):
+        return None  # the release does not carry this rule: it is the product's own
+    try:
+        selected = os.path.abspath(source_path(declared))
+    except (RulesCoreMissing, OSError, ValueError) as exc:
+        raise PromptContractError(f"release rule is unavailable: {declared} ({exc})") from exc
+    if selected != release_copy:
+        raise PromptContractError(f"rules source selected an unexpected file for {declared}")
     if not os.path.isfile(selected):
-        raise PromptContractError(f"required prompt contract file is missing: {raw}")
+        raise PromptContractError(f"required prompt contract file is missing: {declared}")
     return Path(selected)
+
+
+def release_rule(relative: str | Path) -> Path | None:
+    """The release copy of the fleet rule ``relative`` names, or ``None`` when the file is the product's."""
+    return _release_rule(_declared(relative))
 
 
 class _Selected(NamedTuple):
@@ -175,15 +193,23 @@ class _Selected(NamedTuple):
     logical: str
 
 
+def _under_shared_tree(path: Path, repo_root: Path) -> bool:
+    """Whether the resolved file lies in the product's shared tree (a symlink may not leave it)."""
+    try:
+        return path.relative_to(repo_root.resolve()).as_posix().startswith("agents_extensions/shared/")
+    except ValueError:
+        return False
+
+
 def _shared_selection(repo_root: Path, relative: str | Path, label: str) -> _Selected:
-    release = _release_rule(repo_root, relative)
+    declared = _declared(relative)
+    release = _release_rule(declared)
     if release is not None:
-        return _Selected(release, str(relative))
-    path = _repo_file(repo_root, relative)  # syntax and product containment checks
-    logical = Path(str(relative)).as_posix()
-    if not logical.startswith("agents_extensions/shared/"):
-        raise PromptContractError(f"{label} must live under agents_extensions/shared: {logical}")
-    return _Selected(path, logical)
+        return _Selected(release, declared)
+    path = _repo_file(repo_root, declared)  # product containment
+    if not declared.startswith("agents_extensions/shared/") or not _under_shared_tree(path, repo_root):
+        raise PromptContractError(f"{label} must live under agents_extensions/shared: {declared}")
+    return _Selected(path, declared)
 
 
 def _shared_file(repo_root: Path, relative: str | Path, label: str) -> Path:
@@ -395,7 +421,8 @@ def load_legacy_migration(*, repo_root: Path | None = None) -> dict[str, Any]:
     )
     for owner, paths in migration["owner_paths"].items():
         for path in paths:
-            _repo_existing(repo_root, path, f"{owner} owner")
+            if _release_rule(Path(str(path)).as_posix()) is None:  # a fleet rule is owned by the release
+                _repo_existing(repo_root, path, f"{owner} owner")
     rationale_ids = set(migration["rationales"])
     unknown_rationales = sorted(
         {
