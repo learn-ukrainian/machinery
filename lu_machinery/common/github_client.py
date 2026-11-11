@@ -2366,13 +2366,15 @@ def _read_command(client, kind, action, options, positional, *, timeout, fresh):
     return result
 
 
-def _write_command(client, kind, action, options, positional, *, timeout, input=None):
+def _write_command(client, kind, action, options, positional, *, timeout, input=None, cwd=None):
     if (
         client.env.get("AGENT_NO_MERGE") == "1"
         and kind == "pr"
         and (action == "merge" or (action == "review" and "--approve" in options))
     ):
         return Result(error="github_worker_write_forbidden")
+    if "--body" in options and "--body-file" in options:
+        return Result(error="github_invalid_command")
     repo = _repo(options, client) if kind != "gist" else ""
     root = f"repos/{repo}"
     number = positional[0] if positional else None
@@ -2382,9 +2384,12 @@ def _write_command(client, kind, action, options, positional, *, timeout, input=
             payload[key] = _opt(options, "--" + key)
     if "--body-file" in options:
         source = _opt(options, "--body-file")
-        payload["body"] = (
-            (input.decode() if isinstance(input, bytes) else input) if source == "-" else Path(source).read_text()
-        )
+        try:
+            payload["body"] = _source_bytes(source, _Stdin(input), cwd or client.cwd).decode("utf-8")
+        except GitHubUnpreparedRequest as exc:
+            return Result(error=exc.code, reason=exc.reason)
+        except UnicodeDecodeError:
+            return Result(error="github_invalid_request", reason="body_unreadable")
     if kind in {"pr", "issue"}:
         endpoint = root + ("/pulls" if kind == "pr" else "/issues")
         if action == "create":
@@ -2721,6 +2726,8 @@ def _translation_options(args):
     ):
         return None
     if not minimum <= len(positional) <= maximum:
+        return None
+    if args[1:3] == ["pr", "merge"] and re.fullmatch(r"[0-9]+", positional[0]) is None:
         return None
     if any(
         len(values) > 1
@@ -3595,7 +3602,7 @@ def _run_command(args, *, runner=None, client=None, fresh=False, allow_stale=Fal
             result = _read_command(client, kind, action, options, positional, timeout=timeout, fresh=fresh)
         else:
             result = _write_command(
-                client, kind, action, options, positional, timeout=timeout, input=kwargs.get("input")
+                client, kind, action, options, positional, timeout=timeout, input=kwargs.get("input"), cwd=kwargs.get("cwd")
             )
     # REST 404 is not gh's "Could not resolve to a PullRequest". Review
     # checkouts encode issue numbers, and only native gh distinguishes that

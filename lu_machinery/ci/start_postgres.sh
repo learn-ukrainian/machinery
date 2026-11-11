@@ -12,7 +12,7 @@ set -euo pipefail
 : "${LEARN_UKRAINIAN_CP_PG_DSN:?LEARN_UKRAINIAN_CP_PG_DSN must be set}"
 : "${RUNNER_TEMP:?RUNNER_TEMP must be set}"
 
-bash "$(dirname "${BASH_SOURCE[0]}")/setup_bubblewrap.sh" postgresql-16 libpq-dev
+bash -- "$(dirname -- "${BASH_SOURCE[0]}")/setup_bubblewrap.sh" postgresql-16 libpq-dev
 
 if ! pg_lsclusters --no-header | grep -q '^16 main '; then
   sudo pg_createcluster 16 main

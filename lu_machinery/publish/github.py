@@ -367,7 +367,7 @@ def _validate(verb, fields):
             raise gate.PublishBlocked(f"OPSEC: invalid publisher field {key}.")
     if verb == "pr-create" and any(not fields.get(key) for key in ("base", "head")):
         raise gate.PublishBlocked("OPSEC: PR creation requires explicit base and head names.")
-    if verb == "pr-merge" and "subject" in fields and not fields["subject"].strip():
+    if verb == "pr-merge" and "subject" in fields and not gate.normalize_for_scan(fields["subject"]).partition("\n")[0].strip():
         raise gate.PublishBlocked("OPSEC: merge subject must not be blank.")
     for name in ("body", "notes"):
         if name in fields and name + "_file" in fields:
@@ -1646,6 +1646,7 @@ def publish(
                     fields[key] = default[key]
                 elif default["queue"]:
                     scan("default_" + key, default[key])
+            _validate(verb, fields)  # Omitted subjects acquired from GitHub need the same validation.
         schema = SCHEMAS[verb][1]
         for key, value in fields.items():
             if schema[key] == "text":
