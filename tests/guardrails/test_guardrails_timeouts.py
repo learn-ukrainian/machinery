@@ -19,6 +19,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+from lu_machinery.common.repo_root import machinery_path
 from lu_machinery.guardrails import assert_primary_on_main as apom
 from lu_machinery.guardrails import primary_write_guard as pwg
 from lu_machinery.guardrails import worktree_containment as wc
@@ -253,15 +254,13 @@ def test_ls_files_success_still_applies_after_timeout_bound(
 
 
 @pytest.fixture
-def installer_root(tmp_path: Path) -> Path:
-    installer = tmp_path / "lu_machinery" / "install_git_hooks.sh"
-    installer.parent.mkdir(parents=True)
-    installer.write_text("#!/usr/bin/env bash\nexit 0\n", encoding="utf-8")
+def hook_primary(tmp_path: Path) -> Path:
+    """The primary checkout the hooks are installed in; the installer itself ships in the package."""
     return tmp_path
 
 
-def test_install_hooks_passes_60s_timeout(installer_root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(pwg, "check_primary_checkout_root", lambda hook_mode=False: installer_root)
+def test_install_hooks_passes_60s_timeout(hook_primary: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(pwg, "check_primary_checkout_root", lambda hook_mode=False: hook_primary)
     calls: list[dict] = []
 
     def fake_run(cmd, **kwargs):
@@ -272,17 +271,18 @@ def test_install_hooks_passes_60s_timeout(installer_root: Path, monkeypatch: pyt
         pwg.install_hooks()
 
     assert len(calls) == 1
-    assert calls[0]["cmd"] == ["bash", str(installer_root / "lu_machinery" / "install_git_hooks.sh")]
+    assert calls[0]["cmd"] == ["bash", str(machinery_path("install_git_hooks.sh"))]
+    assert calls[0]["cwd"] == hook_primary
     assert calls[0]["timeout"] == HOOK_INSTALL_TIMEOUT_S
 
 
 def test_install_hooks_timeout_exits_1_via_existing_handler(
-    installer_root: Path,
+    hook_primary: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     """TimeoutExpired joins the existing (OSError, CalledProcessError) handler."""
-    monkeypatch.setattr(pwg, "check_primary_checkout_root", lambda hook_mode=False: installer_root)
+    monkeypatch.setattr(pwg, "check_primary_checkout_root", lambda hook_mode=False: hook_primary)
 
     def timed_out(cmd, **_kwargs):
         raise subprocess.TimeoutExpired(cmd, HOOK_INSTALL_TIMEOUT_S)

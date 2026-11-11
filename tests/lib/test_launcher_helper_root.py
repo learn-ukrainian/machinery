@@ -17,6 +17,7 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -226,6 +227,11 @@ def _assert_every_site_ran_the_primary(
     assert result.returncode == 0, result.stderr
     assert f"resolved={layout.primary}" in result.stdout
     executions = _site_executions(layout)
+    # Before any site, launcher_resolve_roots asks shared-state admission once, on the
+    # validated primary's interpreter, whether the helper root may be the state anchor.
+    resolving = executions.pop("", [])
+    assert len(resolving) == 1, resolving
+    assert resolving[0].startswith("HONEST -c ") and "configured_primary_root()" in resolving[0], resolving
     assert list(executions) == list(_SITES), executions
     for name in sites:
         ran = executions[name]
@@ -788,7 +794,8 @@ def test_in_tree_core_keeps_its_own_checkout_as_the_product_root(tmp_path: Path)
 
     A package directory named other than lu_machinery inside a product checkout keeps the
     default it always had, the checkout holding it, even with LU_PRODUCT_ROOT naming
-    another primary checkout.
+    another primary checkout. It exports that checkout as LU_PRODUCT_ROOT, so Python
+    helpers and hooks, which read LU_PRODUCT_ROOT first, serve the same product.
     """
     tmp = tmp_path.resolve()
     checkout = _primary_checkout(tmp / "product")
@@ -798,4 +805,190 @@ def test_in_tree_core_keeps_its_own_checkout_as_the_product_root(tmp_path: Path)
     result = _probe_product_root(tmp, checkout / "scripts/lib/launcher_core.sh", LU_PRODUCT_ROOT=str(other))
 
     assert result.returncode == 0, result.stderr
-    assert result.stdout.splitlines() == [f"product-root={checkout}", f"exported={other}"]
+    assert result.stdout.splitlines() == [f"product-root={checkout}", f"exported={checkout}"]
+
+
+# --- the consumers of an installed core's roots -------------------------------
+
+# Runs the launcher's own root steps in launcher_main order (product root, helper
+# roots, publication PATH), then one consumer of the roots they export.
+_INSTALLED_CONSUMER_PROBE = r"""
+source "$1"
+shift
+LC_PROVIDER=codex LC_MODE=driver LC_EPIC=devops LC_DRY_RUN=0
+launcher_resolve_product_root || exit 3
+launcher_resolve_roots
+launcher_publication_path
+cd "$LC_ROOT"
+eval "$1"
+"""
+
+_INSTALLED_CONSUMERS = {
+    # The agent shims the publication PATH puts first: each runs its guard on the
+    # project interpreter before the (stub) real tool.
+    "npm-shim": 'npm --version',
+    "gh-shim": 'gh --version',
+    # The live supervisory watcher keeps its pid lock under the shared-state anchor.
+    "inbox-watcher": '"$LC_MACHINERY_DIR/ai_agent_bridge/inbox_watch.sh" codex --stop',
+}
+
+
+def _installed_release(tmp: Path) -> tuple[Path, Path]:
+    """A site-packages copy of the package and a product primary whose .venv runs it."""
+    site = tmp / "venv" / "lib" / "python3" / "site-packages"
+    shutil.copytree(machinery_root(), site / "lu_machinery", ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+    product = _primary_checkout(tmp / "product")
+    (product / ".venv").symlink_to(Path(sys.prefix))
+    return site / "lu_machinery", product
+
+
+def _stub_tool(tmp: Path, name: str) -> Path:
+    tool = tmp / "real-bin" / name
+    tool.parent.mkdir(parents=True, exist_ok=True)
+    tool.write_text(f"#!/bin/sh\necho real-{name} \"$@\"\n", encoding="utf-8")
+    tool.chmod(0o755)
+    return tool
+
+
+@pytest.mark.parametrize(
+    "consumer",
+    [
+        *_INSTALLED_CONSUMERS,
+        "lane-wrapper-help",
+        "lane-wrapper-scope",
+        "lane-wrapper-successor",
+        "in-tree-export",
+        "token-shaped-product-path",
+        "inadmissible-state-anchor",
+    ],
+)
+def test_installed_release_consumers_serve_only_lu_product_root(tmp_path: Path, consumer: str) -> None:
+    """Defect class: an installed release's consumers deriving roots from site-packages (PR 301 F1-F4).
+
+    A product that sets only LU_PRODUCT_ROOT must get a working launch: the agent
+    shims and the inbox watcher take the interpreter and shared-state anchor the
+    launcher resolved, not their own site-packages location (F1); a packaged lane
+    wrapper shows help with nothing configured, is an allowlisted scope entry and is
+    replayed from the package (F2); the in-tree copy exports the checkout it serves,
+    so Python never follows an ambient LU_PRODUCT_ROOT elsewhere (F3); and the
+    child-environment filter keeps LU_PRODUCT_ROOT when its path has a token-shaped
+    segment (F4). The launcher never exports a state anchor that shared-state admission
+    refuses.
+    """
+    tmp = tmp_path.resolve()
+    package, product = _installed_release(tmp)
+    core = package / "lib/launcher_core.sh"
+    env = _clean_env(
+        HOME=str(tmp),
+        LU_PRODUCT_ROOT=str(product),
+        AGENT_REAL_NPM=str(_stub_tool(tmp, "npm")),
+        AGENT_REAL_GH=str(_stub_tool(tmp, "gh")),
+    )
+    for name in ("LEARN_UKRAINIAN_PYTHON", "LEARN_UKRAINIAN_PRIMARY_REPO_ROOT", "LEARN_UKRAINIAN_STATE_ROOT"):
+        env.pop(name, None)
+
+    def run(*argv: str, **extra: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            list(argv), cwd=tmp, env={**env, **extra}, capture_output=True, text=True, check=False, timeout=120
+        )
+
+    if consumer in _INSTALLED_CONSUMERS:
+        result = run("bash", "-c", _INSTALLED_CONSUMER_PROBE, "bash", str(core), _INSTALLED_CONSUMERS[consumer])
+        assert result.returncode == 0, (result.stdout, result.stderr)
+        expected = {
+            "npm-shim": "real-npm --version",
+            "gh-shim": "real-gh --version",
+            "inbox-watcher": "No inbox watcher lock exists for 'codex'.",
+        }[consumer]
+        assert expected in result.stdout + result.stderr, (result.stdout, result.stderr)
+        return
+    if consumer == "lane-wrapper-help":
+        del env["LU_PRODUCT_ROOT"]
+        for wrapper in ("start-kube-dojo-driver.sh", "start-bio-driver.sh"):
+            result = run("bash", str(package / wrapper), "--help")
+            assert result.returncode == 0, (wrapper, result.stderr)
+            assert result.stdout.startswith("Usage: "), (wrapper, result.stdout)
+        return
+    if consumer == "lane-wrapper-scope":
+        scope = r"""
+source "$1"
+LC_PROVIDER=claude LC_EPIC=kube-dojo LC_MODE="$2"
+launcher_resolve_product_root || exit 3
+source "$LC_MACHINERY_DIR/lib/driver_scope.sh" || exit 6
+driver_scope_invoked_entry || exit 6
+printf '%s %s %s %s\n' "$DS_ENTRY_PATH" "$DS_ENTRY_PROVIDER" "$DS_ENTRY_MODE" "$DS_ENTRY_FILE"
+"""
+        for wrapper, mode in (("start-kube-dojo-driver.sh", "driver"), ("start-bio-driver.sh", "interactive")):
+            result = run("bash", "-c", scope, str(package / wrapper), str(core), mode)
+            assert result.returncode == 0, (wrapper, result.stderr)
+            assert result.stdout.split() == [f"lu_machinery/{wrapper}", "claude", mode, str(package / wrapper)]
+        stray = tmp / "stray" / "start-kube-dojo-driver.sh"
+        stray.parent.mkdir()
+        shutil.copy2(package / "start-kube-dojo-driver.sh", stray)
+        assert run("bash", "-c", scope, str(stray), str(core), "driver").returncode == 6
+        return
+    if consumer == "lane-wrapper-successor":
+        successor = r"""
+source "$1"
+LC_PROVIDER=claude LC_MODE=driver LC_EPIC=kube-dojo
+launcher_resolve_product_root || exit 3
+source "$LC_MACHINERY_DIR/lib/session_supervisor.sh"
+LC_DRIVER_LEASE_CLOSED=1 LC_SUPERVISORY_DELIVERY=delivery-1 SESSION_STREAM_ID=probe
+LC_DRIVER_ORIGINAL_ARGS=(--help)
+session_supervisor_exec_successor
+"""
+        result = run("bash", "-c", successor, str(package / "start-kube-dojo-driver.sh"), str(core))
+        assert result.returncode == 0, result.stderr
+        assert result.stdout.startswith("Usage: "), result.stdout
+        return
+    if consumer == "inadmissible-state-anchor":
+        # The anchor is exported only when shared-state admission accepts it: a primary
+        # checkout gets it; a --separate-git-dir primary, admitted as the Codex canonical
+        # root but refused by configured_primary_root, keeps no anchor, as before.
+        roots = 'printf "python=%s anchor=%s\\n" "${LEARN_UKRAINIAN_PYTHON:+set}" "${LEARN_UKRAINIAN_PRIMARY_REPO_ROOT-unset}"'
+        result = run("bash", "-c", _INSTALLED_CONSUMER_PROBE, "bash", str(core), roots)
+        assert result.returncode == 0, result.stderr
+        assert result.stdout.splitlines() == [f"python=set anchor={product}"]
+        separate = tmp / "separate"
+        separate.mkdir()
+        _git(separate, "init", "-q", "-b", "main", "--separate-git-dir", str(tmp / "separate-git"))
+        _git(separate, "commit", "-q", "--allow-empty", "-m", "init")
+        (separate / ".venv").symlink_to(Path(sys.prefix))
+        result = run(
+            "bash", "-c", _INSTALLED_CONSUMER_PROBE, "bash", str(core), roots,
+            LU_PRODUCT_ROOT=str(separate), CODEX_CANONICAL_REPO_ROOT=str(separate),
+        )
+        assert result.returncode == 0, result.stderr
+        assert result.stdout.splitlines() == ["python=set anchor=unset"]
+        return
+    if consumer == "in-tree-export":
+        shutil.copytree(machinery_root(), product / "scripts", ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+        other = _primary_checkout(tmp / "other")
+        python_root = r"""
+source "$1"
+launcher_resolve_product_root || exit 3
+project_python_run "$2" -c 'from scripts.common.repo_root import product_root; print(product_root())'
+"""
+        result = run(
+            "bash", "-c", python_root, "bash", str(product / "scripts/lib/launcher_core.sh"), sys.executable,
+            LU_PRODUCT_ROOT=str(other),
+        )
+        assert result.returncode == 0, result.stderr
+        assert result.stdout.splitlines() == [str(product)]
+        return
+    # The launcher child keeps every root the launcher exports, and so does a dispatched
+    # agent's environment for the product root.
+    token_shaped = str(tmp / ".worktrees" / "dispatch" / "codex" / "fix-sk-routing")
+    names = ("LU_PRODUCT_ROOT", "LEARN_UKRAINIAN_PYTHON", "LEARN_UKRAINIAN_PRIMARY_REPO_ROOT")
+    sanitize = (
+        "import os, sys\n"
+        "from unittest.mock import patch\n"
+        "from lu_machinery.agent_runtime.env_sanitize import build_agent_env, child_credential_env\n"
+        "child = child_credential_env(os.environ, 'codex', driver_launcher=True)\n"
+        "print(*(child.get(name) for name in sys.argv[1:]), sep='\\n')\n"
+        "with patch('lu_machinery.agent_runtime.agent_github_identity.resolve_agent_github_identity', return_value=None):\n"
+        "    print(build_agent_env(provider='codex', model='gpt-6.1-sol').get('LU_PRODUCT_ROOT'))\n"
+    )
+    result = run(sys.executable, "-I", "-c", sanitize, *names, **dict.fromkeys(names, token_shaped))
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.splitlines() == [token_shaped] * 4

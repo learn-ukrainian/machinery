@@ -659,7 +659,7 @@ def cmd_mint(args: argparse.Namespace) -> int:
     # Delegate freeze to context_canary (legacy path) so scoring stays shared.
     command = [
         sys.executable,
-        str(repo / _MACHINERY / "context_canary.py"),
+        str(machinery_path("context_canary.py")),
         "mint",
         "--facts",
         str(facts_path),
@@ -759,7 +759,7 @@ def cmd_score(args: argparse.Namespace) -> int:
 
     command = [
         sys.executable,
-        str(repo / _MACHINERY / "context_canary.py"),
+        str(machinery_path("context_canary.py")),
         "score",
         "--probe",
         str(probe_path),

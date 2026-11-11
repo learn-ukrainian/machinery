@@ -20,9 +20,11 @@
 # The machinery package's name (its directory name in checkout paths and its
 # import name), from this file's unresolved location (design-v1 amendment 1).
 # Module names handed to Python are this name plus the package-relative suffix.
+# SESSION_SUPERVISOR_PACKAGE_DIR is that package directory, which holds the lane
+# wrappers a successor replays.
 _session_supervisor_lib_dir="$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)" || _session_supervisor_lib_dir=''
-SESSION_SUPERVISOR_PACKAGE="${_session_supervisor_lib_dir%/*}"
-SESSION_SUPERVISOR_PACKAGE="${SESSION_SUPERVISOR_PACKAGE##*/}"
+SESSION_SUPERVISOR_PACKAGE_DIR="${_session_supervisor_lib_dir%/*}"
+SESSION_SUPERVISOR_PACKAGE="${SESSION_SUPERVISOR_PACKAGE_DIR##*/}"
 # Every Python child that runs this package starts through the shared module
 # bootstrap (-I, the package loaded from this tree by spec; #100 R68).
 # shellcheck source=scripts/lib/project_interpreter.sh
@@ -595,12 +597,14 @@ session_supervisor_exec_successor() {
     exec "$LC_CTO_SUCCESSOR_WRAPPER" --here
   fi
   # Other seats replay original argv without the one-shot --force, then make
-  # a fresh Monitor TTL/CAS claim through their existing entrypoint.
-  local entrypoint="start-${LC_PROVIDER}-driver.sh"
+  # a fresh Monitor TTL/CAS claim through their existing entrypoint: a product
+  # wrapper from the product checkout, a lane wrapper from this machinery
+  # package directory (site-packages for an installed release).
+  local entrypoint="$LC_ROOT/start-${LC_PROVIDER}-driver.sh"
   case "${0##*/}" in
-    start-codex-cto.sh) entrypoint="${0##*/}" ;;
+    start-codex-cto.sh) entrypoint="$LC_ROOT/${0##*/}" ;;
     # A lane wrapper adds its fixed lane and instruction to the caller argv (#12553).
-    start-kube-dojo-driver.sh) entrypoint="$SESSION_SUPERVISOR_PACKAGE/${0##*/}" ;;
+    start-kube-dojo-driver.sh) entrypoint="$SESSION_SUPERVISOR_PACKAGE_DIR/${0##*/}" ;;
   esac
-  exec "$LC_ROOT/$entrypoint" "${LC_DRIVER_ORIGINAL_ARGS[@]}"
+  exec "$entrypoint" "${LC_DRIVER_ORIGINAL_ARGS[@]}"
 }

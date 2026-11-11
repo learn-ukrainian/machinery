@@ -7,6 +7,7 @@ import json
 import os
 import re
 import shlex
+import shutil
 import subprocess
 import sys
 from dataclasses import replace
@@ -124,8 +125,14 @@ exit 36
 
 
 def test_kube_dojo_lane_wrapper_is_its_own_supervisory_successor(tmp_path: Path) -> None:
-    """The successor replays the lane wrapper, which re-adds its fixed lane (#12553)."""
-    helper = machinery_path("lib/session_supervisor.sh")
+    """The successor replays the lane wrapper, which re-adds its fixed lane (#12553).
+
+    The wrapper sources the launcher from its own package, so the lane wrapper and the
+    supervisor helper share one package directory, which the successor replays it from.
+    """
+    package = tmp_path / machinery_package()
+    shutil.copytree(machinery_path("lib"), package / "lib", ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+    helper = package / "lib" / "session_supervisor.sh"
     for relative, marker in (("start-claude-driver.sh", "generic"), (f"{machinery_package()}/start-kube-dojo-driver.sh", "lane")):
         entry = tmp_path / relative
         entry.parent.mkdir(parents=True, exist_ok=True)

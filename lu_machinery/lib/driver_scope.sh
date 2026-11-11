@@ -45,15 +45,19 @@ driver_scope_entrypoint() {
 }
 
 driver_scope_invoked_entry() {
-  # The wrapper this shell runs, as a path relative to the checkout. A copy or
-  # alias outside the checkout's root and its machinery package directory is
-  # not an entry point.
-  local dir root
+  # The wrapper this shell runs: DS_ENTRY_PATH is its allowlist name and
+  # DS_ENTRY_FILE the file a scope replays, spelled as the launch spelled its
+  # directory. A product wrapper lives in the product checkout's root (LC_ROOT);
+  # a lane wrapper lives in the machinery package directory that holds this
+  # file: the product's own package in a checkout, site-packages for an
+  # installed release. A copy or alias anywhere else is not an entry point.
+  local dir root package
   dir="$(CDPATH='' cd -P -- "$(dirname -- "$0")" 2>/dev/null && pwd)" || return 1
   root="$(CDPATH='' cd -P -- "${LC_ROOT:-}" 2>/dev/null && pwd)" || return 1
+  package="$(CDPATH='' cd -P -- "${DS_LIB_DIR%/*}" 2>/dev/null && pwd)" || return 1
   case "$dir" in
-    "$root") DS_ENTRY_PATH="${0##*/}" ;;
-    "$root/$DS_PACKAGE") DS_ENTRY_PATH="$DS_PACKAGE/${0##*/}" ;;
+    "$root") DS_ENTRY_PATH="${0##*/}" DS_ENTRY_FILE="$LC_ROOT/${0##*/}" ;;
+    "$package") DS_ENTRY_PATH="$DS_PACKAGE/${0##*/}" DS_ENTRY_FILE="${DS_LIB_DIR%/*}/${0##*/}" ;;
     *) return 1 ;;
   esac
   driver_scope_entrypoint "$DS_ENTRY_PATH"
@@ -294,7 +298,7 @@ launcher_enter_driver_scope() {
     exec systemd-run --user --scope --expand-environment=no --slice=lu-driver.slice --unit="$unit" --collect --quiet \
       --property="MemoryHigh=$DS_HIGH" --property="MemoryMax=$DS_MAX" --property="MemorySwapMax=$DS_SWAP" \
       --property=OOMPolicy=continue -- bash "$DS_LIB_DIR/driver_scope.sh" \
-      --entry "$LC_MODE" "$unit" - "$LC_ROOT/$DS_ENTRY_PATH" ${LC_SCOPE_ORIGINAL_ARGS[@]+"${LC_SCOPE_ORIGINAL_ARGS[@]}"}
+      --entry "$LC_MODE" "$unit" - "$DS_ENTRY_FILE" ${LC_SCOPE_ORIGINAL_ARGS[@]+"${LC_SCOPE_ORIGINAL_ARGS[@]}"}
     exit 6
   fi
   entry="$(mktemp)" || { driver_scope_refuse entry-marker-unavailable; return 6; }
@@ -318,7 +322,7 @@ launcher_enter_driver_scope() {
     exec systemd-run --user --scope --expand-environment=no --slice=lu-driver.slice --unit="$unit" --collect --quiet \
     --property="MemoryHigh=$DS_HIGH" --property="MemoryMax=$DS_MAX" --property="MemorySwapMax=$DS_SWAP" \
     --property=OOMPolicy=continue -- bash "$DS_LIB_DIR/driver_scope.sh" \
-    --entry "$LC_MODE" "$unit" 219 "$LC_ROOT/$DS_ENTRY_PATH" ${LC_SCOPE_ORIGINAL_ARGS[@]+"${LC_SCOPE_ORIGINAL_ARGS[@]}"}
+    --entry "$LC_MODE" "$unit" 219 "$DS_ENTRY_FILE" ${LC_SCOPE_ORIGINAL_ARGS[@]+"${LC_SCOPE_ORIGINAL_ARGS[@]}"}
   ) 0<&0 &
   child=$!
   exec 219>&-
