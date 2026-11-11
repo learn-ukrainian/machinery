@@ -7,12 +7,26 @@
 # installed release's copy of this file. The product interpreter names the
 # release it imports, as the installed hooks find theirs, and the wrapper names
 # its own checkout as the product (launcher_resolve_product_root):
-#   ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+#   ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 #   export LU_PRODUCT_ROOT="$ROOT"
-#   LU_MACHINERY_DIR="$("${LEARN_UKRAINIAN_PYTHON:-$ROOT/.venv/bin/python}" -I -c 'import os, lu_machinery; print(os.path.dirname(os.path.abspath(lu_machinery.__file__)))')"
+#   case "${LEARN_UKRAINIAN_PYTHON:-}" in
+#     /*) LU_PYTHON="$LEARN_UKRAINIAN_PYTHON" ;;
+#     "")
+#       if [ ! -d "$ROOT/.git" ] || [ -L "$ROOT/.git" ]; then
+#         echo "Set LEARN_UKRAINIAN_PYTHON to an absolute trusted interpreter path for a linked worktree" >&2
+#         exit 2
+#       fi
+#       LU_PYTHON="$ROOT/.venv/bin/python"
+#       ;;
+#     *) echo "Set LEARN_UKRAINIAN_PYTHON to an absolute trusted interpreter path" >&2; exit 2 ;;
+#   esac
+#   LU_MACHINERY_DIR="$("$LU_PYTHON" -I -c 'import os, lu_machinery; print(os.path.dirname(os.path.abspath(lu_machinery.__file__)))')"
 #   source "$LU_MACHINERY_DIR/lib/launcher_core.sh"
-# Under `set -e` a failed lookup stops the wrapper before it sources anything. A
-# linked worktree without its own .venv sets LEARN_UKRAINIAN_PYTHON.
+# Under `set -e` a failed lookup stops the wrapper before it sources anything.
+# Primary launches default to their own .venv. A linked worktree (a .git file)
+# requires an operator-configured absolute interpreter even for --help; it never
+# discovers code by executing a worktree-local .venv. A checkout without Git
+# metadata also requires that explicit interpreter.
 
 # Fixed arguments a public wrapper adds to its caller's argv: launcher options
 # (the CTO lane) and leading provider arguments (the bio
@@ -170,9 +184,11 @@ Options:
                              gemini-4-carbon-medium. Claude interactive: omit to use
                              project settings (Sonnet 5.5). Grok: omit to keep
                              last TUI/session model.
-  --effort LEVEL             Session effort when supported (Claude Code --effort; Grok
-                             --reasoning-effort). Claude driver default: high. Otherwise
-                             omit to keep last session selection. Other providers ignore.
+  --effort LEVEL             Session effort when supported (Claude Code/AGY --effort;
+                             Grok --reasoning-effort). Gemini selects the matching model
+                             variant; its driver requires high and forbids forwarded
+                             effort flags. Claude driver default: high. Otherwise omit
+                             to keep last session selection. Other providers ignore.
   --harness HARNESS          Provider harness (default: ${LC_HARNESS}).
   --epic SELECTOR            Driver lane only; for example: devops or atlas.
   --force                    Driver only. Attributed operator release of a live
@@ -886,8 +902,8 @@ launcher_refuse_uncertified_gemini_driver() {
   if [ "$LC_PROVIDER" = gemini ]; then
     for arg in "${LC_FORWARD_ARGS[@]+"${LC_FORWARD_ARGS[@]}"}"; do
       case "$arg" in
-        --model|--model=*)
-          launcher_error "the gemini driver takes its model from the launcher --model, not from forwarded '$arg' (certified: $LC_GEMINI_DRIVER_MODELS)."
+        --model|--model=*|--effort|--effort=*)
+          launcher_error "the gemini driver takes its model and effort from launcher options, not from forwarded '$arg' (certified: $LC_GEMINI_DRIVER_MODELS)."
           exit 4
           ;;
       esac
@@ -895,6 +911,10 @@ launcher_refuse_uncertified_gemini_driver() {
   fi
   case "$LC_PROVIDER:$LC_MODEL" in
     gemini:gemini-3.8-flash-high)
+      if [ -n "${LC_EFFORT:-}" ] && [ "$LC_EFFORT" != high ]; then
+        launcher_error "effort '$LC_EFFORT' is not certified for the gemini driver (requires high)."
+        exit 4
+      fi
       return 0
       ;;
     gemini:*)

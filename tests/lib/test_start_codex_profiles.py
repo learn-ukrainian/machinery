@@ -523,3 +523,44 @@ def test_ambiguous_or_resumed_rollover_fails_before_lease_and_codex(tmp_path: Pa
         assert "MULTIPLE_LIVE_PENDING_ROLLOVERS" in result.stderr
     else:
         assert "already resumed; refusing to reuse it" in result.stderr
+
+
+@pytest.mark.parametrize(
+    ("checkout_kind", "configured"),
+    [("primary", ""), ("primary", "./relative-python"), ("primary", "absolute"),
+     ("linked", ""), ("linked", "./relative-python"), ("linked", "absolute")],
+)
+def test_documented_wrapper_refuses_worktree_or_relative_interpreter(tmp_path: Path, checkout_kind: str, configured: str) -> None:
+    """The installed-release lookup must never execute a planted worktree interpreter."""
+    root = tmp_path / "checkout"
+    root.mkdir()
+    if checkout_kind == "primary":
+        (root / ".git").mkdir()
+    else:
+        (root / ".git").write_text("gitdir: unused\n")
+    marker = tmp_path / "untrusted-executed"
+    planted = f'#!/bin/sh\ntouch "{marker}"\n'
+    _write_executable(root / ".venv/bin/python", planted)
+    _write_executable(root / "relative-python", planted)
+    package = tmp_path / "installed-package"
+    _write_executable(package / "lib/launcher_core.sh", 'printf "trusted-release-loaded\\n"\n')
+    trusted = tmp_path / "trusted-python"
+    _write_executable(trusted, f'#!/bin/sh\nprintf "%s\\n" "{package}"\n')
+    if checkout_kind == "primary":
+        _write_executable(root / ".venv/bin/python", trusted.read_text())
+    header = (_REPO_ROOT / "lu_machinery/lib/launcher_core.sh").read_text().split("# Fixed arguments", 1)[0]
+    recipe = "\n".join(line[2:] for line in header.splitlines() if line.startswith("#   "))
+    wrapper = root / "start-codex.sh"
+    _write_executable(wrapper, "#!/bin/bash\nset -e\n" + recipe + "\n")
+    env = launcher_environment()
+    env.pop("LEARN_UKRAINIAN_PYTHON", None)
+    if configured:
+        env["LEARN_UKRAINIAN_PYTHON"] = str(trusted) if configured == "absolute" else configured
+    result = _run([str(wrapper), "--help"], root, env=env)
+    assert not marker.exists()
+    if configured == "absolute" or (checkout_kind == "primary" and not configured):
+        assert result.returncode == 0, result.stderr
+        assert result.stdout == "trusted-release-loaded\n"
+    else:
+        assert result.returncode == 2
+        assert "absolute trusted interpreter" in result.stderr
