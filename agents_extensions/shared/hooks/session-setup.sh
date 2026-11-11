@@ -434,42 +434,52 @@ if [ -f "$PREDEPLOY_STATUS" ] && head -1 "$PREDEPLOY_STATUS" 2>/dev/null | grep 
   ISSUES+=("PREDEPLOY FAILED at launch (npm run ${PD_SCRIPT:-agents:deploy}, exit ${PD_EXIT:-?}) — deploy targets are STALE, this session may be running outdated hooks/skills/settings. Reason: $PD_REASON")
 fi
 
-# 7. Check agents_extensions/shared/ → .claude/ sync drift
+# 7. Deployment drift. The installed release's deployer recomposes the release
+# fleet files with the product's declared sources and compares the result with
+# the provider directories, its ownership manifest included; --check writes
+# nothing. A product's checkout holds only its own sources, so a direct diff of
+# agents_extensions/shared/ against .claude/ is not a drift test (machinery #100).
+# Only a checkout that holds a release deployment (its descriptor and the
+# deployer's ownership manifest) is checked: machinery's own checkout has
+# neither, and a product's linked worktree has the tracked descriptor but no
+# deployment of its own.
 if [ "$IS_CODEX_SESSION" = "0" ] \
-  && [ -d "$PROJECT_DIR/agents_extensions/shared" ] \
-  && [ -d "$PROJECT_DIR/.claude" ]; then
-  DIFF_EXCLUDES=(".DS_Store")
-  ORPHAN_PATHS_SH="$PROJECT_DIR/lu_machinery/deploy_orphan_paths.sh"
-  if [ -f "$ORPHAN_PATHS_SH" ]; then
-    # shellcheck disable=SC1090
-    source "$ORPHAN_PATHS_SH"
-    # Root-anchored names: a *-epic glob must not hide skills/drive-epic.
-    while IFS= read -r item; do
-      DIFF_EXCLUDES+=("$item")
-    done < <(declared_diff_excludes "$PROJECT_DIR/agents_extensions/shared" "$PROJECT_DIR/.claude" \
-      "$ORPHAN_PATHS_CLAUDE $CLAUDE_RULE_AUTOLOAD_EXCLUDE_PATHS")
+  && [ -f "$PROJECT_DIR/agents_extensions/deployment.v1.json" ] \
+  && [ -f "$PROJECT_DIR/.deploy-state/agent-deploy.v1.json" ]; then
+  DEPLOY_CHECK_RC=0
+  DEPLOY_CHECK_ERR=""
+  # The deployer accepts only the physical checkout root; PROJECT_DIR keeps the
+  # selected spelling, which may name a symlink or end in a slash. The x
+  # sentinel keeps newlines that end the directory name, which command
+  # substitution would strip, so the deployer sees that root and refuses it
+  # instead of checking a sibling checkout.
+  if DEPLOY_CHECK_ROOT="$(cd -P -- "$PROJECT_DIR" 2>/dev/null && pwd -P && printf x)"; then
+    DEPLOY_CHECK_ROOT="${DEPLOY_CHECK_ROOT%x}"
+    DEPLOY_CHECK_ROOT="${DEPLOY_CHECK_ROOT%$'\n'}"
+    # Exit 0 verified, 1 drift, 2 invalid or unsafe input. Drift is the last
+    # stderr line, "deployment drift: <problem>; <problem>...", after any
+    # interpreter warnings. Only the problem count is shown, because the
+    # problems name checkout paths. A held deployment lock is exit 1 too, but
+    # it means "not checked", never drift.
+    DEPLOY_CHECK_ERR=$(run_bounded 3 "${PROJECT_PYTHON_COMMAND[@]}" \
+      -m lu_machinery.agent_deploy --project-root "$DEPLOY_CHECK_ROOT" --check 2>&1 >/dev/null) || DEPLOY_CHECK_RC=$?
+    DEPLOY_CHECK_ERR="${DEPLOY_CHECK_ERR##*$'\n'}"
   else
-    for item in settings.local.json scheduled_tasks.lock worktrees folk-epic bio-epic critical-rules.md non-negotiable-rules.md workflow.md dispatch-must-use-worktree.md cli-help-standard.md model-assignment.md; do
-      DIFF_EXCLUDES+=("$item")
+    DEPLOY_CHECK_RC=2
+  fi
+  if [ "$DEPLOY_CHECK_RC" -eq 1 ] && [[ "$DEPLOY_CHECK_ERR" == "deployment drift: "* ]] \
+    && [ "$DEPLOY_CHECK_ERR" != "deployment drift: another deployment holds this target's lock" ]; then
+    DEPLOY_CHECK_ERR="${DEPLOY_CHECK_ERR#deployment drift: }"
+    DRIFT_COUNT=1
+    while [[ "$DEPLOY_CHECK_ERR" == *"; "* ]]; do
+      DEPLOY_CHECK_ERR="${DEPLOY_CHECK_ERR#*"; "}"
+      DRIFT_COUNT=$((DRIFT_COUNT + 1))
     done
-  fi
-
-  diff_args=(-rq)
-  for ex in "${DIFF_EXCLUDES[@]}"; do
-    diff_args+=("--exclude=$ex")
-  done
-
-  if declare -F filter_pycache_only_diff >/dev/null 2>&1; then
-    DRIFT=$(run_bounded 2 diff "${diff_args[@]}" \
-      "$PROJECT_DIR/agents_extensions/shared/" "$PROJECT_DIR/.claude/" 2>/dev/null | filter_pycache_only_diff | head -5)
-  else
-    DRIFT=$(run_bounded 2 diff "${diff_args[@]}" \
-      "$PROJECT_DIR/agents_extensions/shared/" "$PROJECT_DIR/.claude/" 2>/dev/null | head -5)
-  fi
-  if [ -n "$DRIFT" ]; then
-    DRIFT_COUNT=$(echo "$DRIFT" | wc -l | tr -d ' ')
     ISSUES+=("DEPLOY DRIFT: $DRIFT_COUNT file(s) differ between agents_extensions/shared/ and .claude/. Run: npm run agents:deploy")
+  elif [ "$DEPLOY_CHECK_RC" -ne 0 ]; then
+    ISSUES+=("DEPLOY DRIFT CHECK COULD NOT RUN (rc=$DEPLOY_CHECK_RC): deployed agent extensions are unverified. Detail: .venv/bin/python -I -m lu_machinery.agent_deploy --project-root <checkout root> --check")
   fi
+  unset DEPLOY_CHECK_RC DEPLOY_CHECK_ERR DEPLOY_CHECK_ROOT DRIFT_COUNT
 fi
 
 if [ "$CODEX_NORMAL_TASK" = "0" ]; then

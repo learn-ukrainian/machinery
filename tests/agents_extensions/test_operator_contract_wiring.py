@@ -27,10 +27,9 @@ def test_deploy_lock_step_lists_include_contract() -> None:
     """deploy excludes x drift-checker x idempotency fixtures must move
     together (learned the hard way in #4412 round 3).
 
-    Since #4610 the lock-step lists live in ONE sourceable file
-    (scripts/deploy_orphan_paths.sh) that BOTH consumers source — the
-    contract entry must be in the shared file, and both scripts must
-    actually source it (a copy that drifts is the #4412 bug reborn).
+    The lists live in ONE release inventory that the deployer, the deploy
+    checker and the SessionStart drift check all read through the installed
+    deployer; a second copy that drifts is the #4412 bug reborn.
     """
     # PR #133 replaced shell deployment with one release-owned deployment plan.
     inventory = json.loads(machinery_path("agent_deploy/release.v1.json").read_text())
@@ -41,7 +40,8 @@ def test_deploy_lock_step_lists_include_contract() -> None:
     assert "-m lu_machinery.agent_deploy" in deploy
     assert "-m lu_machinery.agent_deploy --check" in checker
     session_setup = machinery_path("agents_extensions/shared/hooks/session-setup.sh").read_text()
-    assert "deploy_orphan_paths.sh" in session_setup
+    # The SessionStart drift check is the same installed deployer check.
+    assert '-m lu_machinery.agent_deploy --project-root "$DEPLOY_CHECK_ROOT" --check' in session_setup
 
     # #12830: the complete order must reach both rendered seats and boot digests.
     from lu_machinery.lib import rules_core
