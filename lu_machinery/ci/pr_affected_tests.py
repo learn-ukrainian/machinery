@@ -17,6 +17,7 @@ import unicodedata
 import xml.etree.ElementTree as ET
 from contextlib import chdir
 from functools import lru_cache
+from importlib.metadata import PackageNotFoundError, files
 from pathlib import Path, PurePosixPath
 
 from lu_machinery.ci.gate import event_tier
@@ -267,7 +268,21 @@ def importing_tests(
     from lu_machinery.ci import components
     from lu_machinery.common.repo_root import product_root
 
-    scan = candidate_scan(tuple(components.python_sources().items()), tuple(components.tracked_paths()))
+    sources = components.python_sources()
+    if "requirements-machinery.lock" in targets:
+        # Give the existing import scanner targets for the installed dependency.
+        # Only test/conftest sources are parsed; package files need names, not bytes.
+        try:
+            installed = files("lu-machinery")
+        except PackageNotFoundError as exc:
+            raise ValueError("lu-machinery distribution is not installed") from exc
+        machinery = {str(p) for p in installed or ()
+                     if str(p).startswith("lu_machinery/") and str(p).endswith(".py")}
+        if not machinery:
+            raise ValueError("installed lu-machinery Python files are missing")
+        sources = {**dict.fromkeys(machinery, b""), **sources}
+        targets = targets | machinery
+    scan = candidate_scan(tuple(sources.items()), tuple(components.tracked_paths()))
     edges, directories = scan["file_edges"], scan["directory_edges"]
     if deleted:
         tree = {}
