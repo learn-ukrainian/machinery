@@ -290,7 +290,7 @@ function renderComms(metrics) {
 let logins = null;
 const PANELS = [
   {id: "workers", urls: ["/api/delegate/active"], render: renderWorkers},
-  {id: "recent", urls: ["/api/delegate/tasks?limit=40"], render: renderRecent},
+  {id: "recent", urls: ["/api/delegate/recent"], render: renderRecent},
   {id: "usage", urls: ["/api/state/routing-budget", "/api/runtime/logins"],
    render: (budget, current) => { logins = current; return renderUsage(budget, current); }},
   {id: "logins", urls: ["/api/runtime/logins"], render: renderLogins},
