@@ -30,6 +30,7 @@ from lu_machinery.api.occupancy_local import (
     DEFAULT_MARKER_TTL_S,
     OccupancyRead,
     _iter_marker_payloads,
+    driver_seat_host_id,
     markers_root,
     read_markers,
     read_session_streams,
@@ -752,6 +753,7 @@ def _build_workers_payload(
     now_mono: float | None = None,
     presence_store: Any = None,
     report_store: Any = None,
+    host_payloads: dict[str | None, dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     stamp = time.monotonic() if now_mono is None else now_mono
     clock = datetime.now(UTC)
@@ -769,10 +771,15 @@ def _build_workers_payload(
         tally=tally,
     )
     all_unattributed.extend(driver_unattributed)
+    driver_skipped = tally.count
+    host_skipped: dict[str, int] = {}
+    filtered_driver_readable: dict[str, bool] = {}
+    unknown_driver = {"state": "unknown", "count": 0, "reason": "session stream store unreadable"}
 
     for opaque in selected:
         if opaque == UNATTRIBUTED_HOST_ID:
             continue
+        skipped_before = tally.count
         freshness = _host_freshness(
             opaque,
             now_mono=stamp,
@@ -810,11 +817,17 @@ def _build_workers_payload(
                 now=clock,
             )
             if not driver_read.readable:
-                unattributed_burn["driver"] = {
-                    "state": "unknown",
-                    "count": 0,
-                    "reason": "session stream store unreadable",
-                }
+                unattributed_burn["driver"] = dict(unknown_driver)
+            if host_payloads is not None:
+                single_host = {opaque: canonical} if opaque != CLOUD_OBSERVER_HOST_ID else {}
+                if driver_seat_host_id(mapping, selected_map) == driver_seat_host_id(mapping, single_host):
+                    filtered_driver_readable[opaque] = driver_read.readable
+                else:
+                    # Driver affinity depends on the selected hosts. Preserve a
+                    # cold single-host query's health, even with ambiguous aliases.
+                    filtered_driver_readable[opaque] = read_session_streams(
+                        host_id=opaque, mapping=mapping, selected=single_host, db_path=session_db, now=clock,
+                    ).readable
         elif opaque == CLOUD_OBSERVER_HOST_ID:
             workers_status = "reported"
             host_workers.extend(collect_observer_workers(now_mono=stamp, tally=tally, presence_store=presence_store))
@@ -837,6 +850,7 @@ def _build_workers_payload(
                 "reason": reason,
             }
         )
+        host_skipped[opaque] = tally.count - skipped_before
 
     if all_unattributed and (host_id is None or host_id == UNATTRIBUTED_HOST_ID):
         _related_links(all_unattributed, host_id=UNATTRIBUTED_HOST_ID)
@@ -853,7 +867,7 @@ def _build_workers_payload(
             }
         )
 
-    payload = {
+    payload: dict[str, Any] = {
         "schema": WORKERS_SCHEMA,
         "observed_at": clock.isoformat().replace("+00:00", "Z"),
         "counts": {
@@ -864,6 +878,23 @@ def _build_workers_payload(
         "hosts": hosts,
     }
     reconcile_worker_counts(payload)
+    if host_payloads is not None:
+        # Project every supported filter from this one collection. The driver
+        # tally applies to all queries; each host contributes only its own skips.
+        host_payloads[None] = payload
+        for selected_id in [*selected, UNATTRIBUTED_HOST_ID, ""]:
+            filtered = copy.deepcopy(payload)
+            filtered["hosts"] = [host for host in filtered["hosts"] if host["host_id"] == selected_id]
+            if selected_id in filtered_driver_readable:
+                burn = filtered["hosts"][0]["unattributed_burn"]
+                burn.pop("driver", None)
+                if not filtered_driver_readable[selected_id]:
+                    burn["driver"] = dict(unknown_driver)
+            filtered["attention"] = [item for item in attention if item == f"unreported:{selected_id}"]
+            filtered["counts"]["attention"] = len(filtered["attention"])
+            filtered["counts"]["skipped"] = driver_skipped + host_skipped.get(selected_id, 0)
+            reconcile_worker_counts(filtered)
+            host_payloads[selected_id] = filtered
     return payload
 
 
@@ -877,8 +908,9 @@ def workers_payload(
     presence_store: Any = None,
     report_store: Any = None,
 ) -> dict[str, Any]:
-    """Join live workers. Production GETs reuse a short in-process snapshot.
+    """Join workers for Python callers using a short in-process cache.
 
+    HTTP GETs use the router's context-owned lifespan snapshot instead.
     Explicit fixture paths / ``now_mono`` bypass the cache so tests stay hermetic.
     """
     use_cache = tasks_dir is None and session_db is None and markers_root is None and now_mono is None
