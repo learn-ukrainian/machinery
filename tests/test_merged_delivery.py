@@ -18,6 +18,27 @@ def _git(cwd, *args):
     return subprocess.run(["git", "-C", str(cwd), *args], check=True, capture_output=True, text=True).stdout.strip()
 
 
+@pytest.mark.parametrize(("error", "marker"), [
+    ("claude_advisor_executor_unverified", None), ("agy_model_identity_unverified", False),
+    ("review_gate_error", False), ("structured_output_invalid", False),
+])
+def test_merged_delivery_never_waives_dispatcher_integrity_refusals(monkeypatch, error, marker):
+    """Defect class: merged PR evidence erased dispatcher identity, receipt and schema refusals as if
+    they were provider-terminal errors. Neither an absent nor a false provider-origin marker permits rescue.
+    """
+    record = dict(mode="workspace-write", status="failed", error=error, owned_paths=[],
+                  commits_ahead=1, push_state="pushed", worktree_dirty_on_exit=False)
+    if marker is not None:
+        record["provider_terminal_failure"] = marker
+    monkeypatch.setattr(git, "merged_delivery", Mock(return_value={
+        "repo": "org/repo", "number": 7, "merge_sha": "a" * 40, "paths": ["docs/owned.md"],
+    }))
+    worker._enforce_delivery(record)
+    assert (record["status"], record["error"]) == ("failed", error)
+    assert "delivery_pr" not in record
+    assert "provider_terminal_error" not in record
+
+
 @pytest.mark.parametrize(("task", "number", "head", "merge", "status", "verification_error"), [
     ("cto-1949-canary-opus", 336, "18ebfefd3431ffe6938d572439ab54c490bce033",
      "20eee9cf52219bb9d0a2ddaab3bb59fa7a29f100", "done", ValueError("remote delivery tip does not match snapshot")),
@@ -41,6 +62,7 @@ def test_merged_task_survives_missing_branch_search_and_provider_error(
         "worktree_base_ref": "origin/main", "worktree_branch": f"{agent}/{task}",
         "started_at": "2026-11-11T15:00:00+00:00", "head_sha": head, "commits_ahead": 1,
         "push_state": "unpushed", "worktree_dirty_on_exit": False,
+        "provider_terminal_failure": status == "failed",
     }
 
     def gh(args, **_):
@@ -77,6 +99,8 @@ def test_merged_task_survives_missing_branch_search_and_provider_error(
     ("outside", "clean"), ("rename-outside", "clean"), ("wrong-base", "clean"), ("before-start", "clean"),
     ("merged", "untracked"), ("merged", "tracked"), ("merged", "staged"), ("merged", "late-commit"),
     ("foreign-trailer", "clean"), ("foreign-repository", "clean"), ("missing-merge", "clean"),
+    ("history-outside", "clean"),
+    ("commit-unavailable", "clean"),
 ])
 def test_merged_pr_proves_delivery_after_branch_and_pull_ref_are_gone(
         tmp_path, monkeypatch, case, tree, replacement, provider_status):
@@ -101,13 +125,20 @@ def test_merged_pr_proves_delivery_after_branch_and_pull_ref_are_gone(
     (work / "docs" / "owned.md").write_text("delivered\n")
     _git(work, "add", "docs/owned.md")
     _git(work, "commit", "-m", "deliver", "--trailer", "X-Agent: claude/rescue-probe")
+    if case == "history-outside":
+        # The ownership walk sees every commit; the final PR diff omits this reverted change.
+        (work / "outside.md").write_text("outside scope\n")
+        _git(work, "add", "outside.md")
+        _git(work, "commit", "-m", "outside", "--trailer", "X-Agent: claude/rescue-probe")
+        _git(work, "rm", "outside.md")
+        _git(work, "commit", "-m", "revert outside", "--trailer", "X-Agent: claude/rescue-probe")
     head = _git(work, "rev-parse", "HEAD")
     _git(work, "push", "origin", branch)
     # The queue squash-merges the work as a new commit on main, then closeout deletes the task branch.
     _git(work, "switch", "main")
     _git(work, "merge", "--squash", branch)
     _git(work, "commit", "-m", "deliver (#7)")
-    _git(work, "push", "origin", "main", f":{branch}")
+    _git(work, "push", "origin", "main", *([] if case == "history-outside" else [f":{branch}"]))
     # The task worktree stays on its branch, with the canonical origin recorded at dispatch.
     _git(work, "switch", branch)
     _git(work, "remote", "set-url", "origin", "https://github.com/org/repo.git")
@@ -140,6 +171,9 @@ def test_merged_pr_proves_delivery_after_branch_and_pull_ref_are_gone(
         elif words[:2] == ["pr", "view"]:
             out = json.dumps(pr)
         elif words[2].endswith("/pulls"):
+            if case == "commit-unavailable":
+                return SimpleNamespace(returncode=1, stdout="", stderr="",
+                                       github_result=github_client.Result(status=422, error="github_http_error"))
             out = json.dumps({"number": 7, "headRefOid": pr["headRefOid"], "isCrossRepository": False})
         elif words[2].endswith("/commits"):
             out = json.dumps("deliver\n\nX-Agent: claude/" + ("foreign" if case == "foreign-trailer" else "rescue-probe"))
@@ -153,9 +187,9 @@ def test_merged_pr_proves_delivery_after_branch_and_pull_ref_are_gone(
     monkeypatch.setattr(github_client, "run", gh)
     monkeypatch.setattr(pr_ownership, "state_path", lambda: tmp_path / "ownership.json")
     # The ownership walk fetches the deleted branch, as the recorded failures did.
-    if not replacement:
+    if not replacement and case != "history-outside":
         monkeypatch.setattr(git, "ownership_git", Mock(side_effect=subprocess.CalledProcessError(128, ["git", "fetch"])))
-    assert not _git(remote, "for-each-ref", "refs/pull", f"refs/heads/{branch}")
+    assert bool(_git(remote, "for-each-ref", "refs/pull", f"refs/heads/{branch}")) == (case == "history-outside")
     if replacement:
         assert _git(remote, "rev-parse", "refs/heads/claude/rescue-probe") == base
     if tree == "untracked":
@@ -168,19 +202,23 @@ def test_merged_pr_proves_delivery_after_branch_and_pull_ref_are_gone(
     record = {
         "task_id": "rescue-probe", "agent": "claude", "mode": "workspace-write", "status": provider_status,
         "error": "provider failed" if provider_status == "failed" else None,
+        "provider_terminal_failure": provider_status == "failed",
         "owned_paths": ["docs/owned.md"], "worktree_remote_url": "https://github.com/org/repo.git",
         "worktree_base_ref": "origin/main", "worktree_branch": "claude/rescue-probe", "publish_branch": None,
         "started_at": "2026-11-08T12:30:00+00:00", "worktree_base_sha": base, "worktree_path": str(work),
     }
+    if case == "history-outside" and replacement:
+        record["publish_branch"] = branch
     record.update(git.snapshot_delivery(SimpleNamespace(worktree=work, mode="workspace-write"), record))
-    assert (record["head_sha"], record["commits_ahead"], record["worktree_dirty_on_exit"]) == (head, 1, tree != "clean")
+    assert (record["head_sha"], record["commits_ahead"], record["worktree_dirty_on_exit"]) == (
+        head, 3 if case == "history-outside" else 1, tree != "clean")
     if tree == "late-commit":
         # A surviving descendant commits after the exit snapshot: the gate reads the snapshot, not the tree.
         _git(work, "commit", "-am", "further work")
     worker._enforce_delivery(record)
-    if case == "merged" and tree in {"clean", "untracked"}:
+    if (case == "merged" or (case == "commit-unavailable" and not replacement)) and tree in {"clean", "untracked"}:
         assert (record["status"], record["error"], record["delivery_pr"]) == ("done", None, "org/repo#7")
-    elif case in {"outside", "rename-outside"}:
+    elif case in {"outside", "rename-outside", "history-outside"}:
         assert (record["status"], record["error"]) == ("no_deliverable", "outside_owned_paths: outside.md")
     else:
         reason = "remote delivery tip does not match snapshot" if replacement else "git fetch failed"

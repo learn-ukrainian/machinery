@@ -894,7 +894,7 @@ def github_degraded_when(degraded):
         _GITHUB_DEGRADED.reset(token)
 
 
-def _gh(*args: str) -> str:
+def _gh(*args: str, missing_commit: bool = False) -> str:
     from lu_machinery.common import github_client
 
     degraded = _GITHUB_DEGRADED.get()
@@ -904,6 +904,9 @@ def _gh(*args: str) -> str:
     if proc.returncode != 0:
         if github_client.refusal_of(proc) is not None:
             raise GitHubRefused("GitHub admission refused the read")
+        failure = getattr(proc, "github_result", None)
+        if missing_commit and isinstance(failure, github_client.Result) and failure.status in {404, 422}:
+            return ""  # this association lookup cannot find the commit; it is not a transport failure
         raise ValueError("GitHub read failed")
     return proc.stdout
 
@@ -947,7 +950,16 @@ def _delivery_prs(record: dict, repo: str) -> list[int]:
 
 
 def _merged_delivery_candidates(record: dict, repo: str) -> Iterator[int]:
-    """Find an exact-head PR without branch names or the issue-search index, then try recorded candidates."""
+    """Try known candidates before exact-head association, without using the issue-search index."""
+    seen = set()
+    try:
+        for number in _delivery_prs(record, repo):
+            seen.add(number)
+            yield number
+    except GitHubRefused:
+        raise
+    except (OSError, ValueError, KeyError, TypeError, AttributeError, RuntimeError, subprocess.SubprocessError) as exc:
+        record["merged_delivery_lookup"] = f"error:{type(exc).__name__}"
     head = record.get("head_sha")
     # A task that added no commit of its own has nothing to attribute: its head is where it started, which another
     # task's merged pull request can share.
@@ -955,12 +967,12 @@ def _merged_delivery_candidates(record: dict, repo: str) -> Iterator[int]:
     if head and isinstance(commits, int) and commits > 0 and re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", head):
         listed = _gh("api", "--paginate", f"repos/{repo}/commits/{head}/pulls", "--jq",
                      ".[] | {number, headRefOid: .head.sha, "
-                     "isCrossRepository: (.head.repo.full_name != .base.repo.full_name)} | @json")
+                     "isCrossRepository: (.head.repo.full_name != .base.repo.full_name)} | @json", missing_commit=True)
         for line in listed.splitlines():
             pr = json.loads(line)
-            if pr["headRefOid"] == head and not pr["isCrossRepository"]:
+            if pr["number"] not in seen and pr["headRefOid"] == head and not pr["isCrossRepository"]:
+                seen.add(pr["number"])
                 yield pr["number"]
-    yield from _delivery_prs(record, repo)
 
 
 def merged_delivery(record: dict) -> dict | None:
@@ -976,6 +988,7 @@ def merged_delivery(record: dict) -> dict | None:
     ahead of the task start, the PR's final head, or already in the PR or the base), so merged
     work never hides further work that was not pushed.
     """
+    record["merged_delivery_lookup"] = "no_match"
     try:
         repo, base = _repo_and_base(record)
         if repo is None:
@@ -1017,7 +1030,6 @@ def merged_delivery(record: dict) -> dict | None:
         # from an exception. Exception text can contain credentials or private paths, so keep only its type.
         record["merged_delivery_lookup"] = f"error:{type(exc).__name__}"
         return None
-    record["merged_delivery_lookup"] = "no_match"
     return None
 
 

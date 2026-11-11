@@ -39,6 +39,7 @@ def test_dispatch_returns_before_blocked_child_and_client_timeout_does_not_cance
     (sandbox.tasks / f"{task[0]}.release").touch()
     record = sandbox.settle(task)
     assert record["status"] == "done"
+    assert record["provider_terminal_failure"] is False
     assert Path(record["result_file"]).read_text() == "literal final response"
     assert record["returncode"] == 0
     assert "review_branch" not in record
@@ -78,7 +79,8 @@ def test_review_dispatch_resolves_a_running_cursor_author_only_from_its_stream_a
     assert "cursor_no_approved_model_pin" in author.stderr
 
 
-def test_agy_stream_from_another_model_family_settles_as_a_failure(sandbox):
+@pytest.mark.parametrize("terminal", ["SUCCESS", "ERROR"])
+def test_agy_stream_from_another_model_family_settles_as_a_failure(sandbox, terminal):
     """Defect: a silently substituted model was credited as the requested one."""
     import threading
     from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -122,7 +124,7 @@ def test_agy_stream_from_another_model_family_settles_as_a_failure(sandbox):
         binary_dir.mkdir()
         events = [
             {"event": "init", "init": {"model": "gemini-3.8-flash-high"}},
-            {"event": "result", "result": {"status": "SUCCESS", "response": "done"}},
+            {"event": "result", "result": {"status": terminal, "response": "done"}},
         ]
         stdout = "\n".join(json.dumps(event) for event in events) + "\n"
         executable = binary_dir / "agy"
@@ -143,6 +145,7 @@ def test_agy_stream_from_another_model_family_settles_as_a_failure(sandbox):
             "agy_model_identity_unverified: "
             "requested claude-sonnet-5-5-high (anthropic), attested gemini-3.8-flash-high (google)"
         )
+        assert record["provider_terminal_failure"] is False
     finally:
         server.shutdown()
         server.server_close()
@@ -156,6 +159,7 @@ def test_nonzero_error_empty_and_signal_cannot_report_done(sandbox, model, state
     record = sandbox.settle(sandbox.dispatch(model), expected=1)
     assert record["status"] == state
     assert record["returncode"] == code
+    assert record["provider_terminal_failure"] is (state == "failed")
 
 
 def test_provider_capacity_ends_rate_limited(sandbox):
