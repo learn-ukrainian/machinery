@@ -228,20 +228,6 @@ ROUTE_CONTRACTS: tuple[RouteContract, ...] = (
         mutates=False,
     ),
     RouteContract(
-        "/api/fleet/v1",
-        "prefix",
-        "http",
-        "Read-only fleet board with now, epics, agents, roster, budget, PRs, alerts, stats, links, and schema inventory.",
-        "Configured local roster and harness snapshots, in-process delegate and occupancy collectors, and endpoint-specific configured files, directories, and bounded HTTP reads.",
-        "Generated per request; snapshot timestamps and collector results report source age and explicit ok, stale, unavailable, or not_configured status.",
-        ("operators", "agents", "fleet board consumers"),
-        "Distinct from the durable fleet-comms observer under /api/fleet; board snapshots and local activity are projections, not plane authority.",
-        "high if missing or stale snapshots are treated as live fleet state or unread sources are reported healthy",
-        "keep as the host-local, read-only fleet board contract",
-        locality="host_affine",
-        response_schema_version="fleet.v1",
-    ),
-    RouteContract(
         "/api/fleet",
         "prefix",
         "http",
@@ -856,21 +842,6 @@ PAGE_CONTRACTS: tuple[PageContract, ...] = (
         "Complements runtime and channels without adding message composition or control.",
         "medium; body-bearing transcript fetch is loopback-only and no-store",
         "keep as the canonical ACP conversation observer",
-    ),
-    PageContract(
-        "fleet-board.html",
-        "/fleet-board.html",
-        "Read-only fleet board home and epic detail.",
-        "GET /api/fleet/v1/now, /epics, /epics/{epic}, and /agents.",
-        (
-            "Client refreshes every 30s. Each shown payload keeps its own age. "
-            "A stale source, an unavailable roster, or a refresh older than "
-            "2 minutes warns without clearing the last values."
-        ),
-        ("humans", "operators"),
-        "Roster, pull requests, budget, and ops stay placeholders for later slices.",
-        "medium if a missing source is shown as empty instead of not installed",
-        "keep as the fleet board home slice",
     ),
 )
 

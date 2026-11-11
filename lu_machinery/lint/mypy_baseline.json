@@ -1333,71 +1333,6 @@
       "message": "Unsupported operand types for < (\"int\" and \"None\")"
     },
     {
-      "path": "lu_machinery/api/fleet_board/budget.py",
-      "code": "misc",
-      "message": "Cannot infer type of lambda"
-    },
-    {
-      "path": "lu_machinery/api/fleet_board/http_sources.py",
-      "code": "union-attr",
-      "message": "Item \"None\" of \"Any | None | dict[Any, Any]\" has no attribute \"get\""
-    },
-    {
-      "path": "lu_machinery/api/fleet_board/http_sources.py",
-      "code": "union-attr",
-      "message": "Item \"None\" of \"Any | None | dict[Any, Any]\" has no attribute \"get\""
-    },
-    {
-      "path": "lu_machinery/api/fleet_board/http_sources.py",
-      "code": "union-attr",
-      "message": "Item \"None\" of \"Any | None | dict[Any, Any]\" has no attribute \"get\""
-    },
-    {
-      "path": "lu_machinery/api/fleet_board/http_sources.py",
-      "code": "union-attr",
-      "message": "Item \"None\" of \"Any | None | dict[Any, Any]\" has no attribute \"get\""
-    },
-    {
-      "path": "lu_machinery/api/fleet_board/prs.py",
-      "code": "arg-type",
-      "message": "Argument \"body\" to \"Pull\" has incompatible type \"Any | None | str\"; expected \"str\""
-    },
-    {
-      "path": "lu_machinery/api/fleet_board/prs.py",
-      "code": "arg-type",
-      "message": "Argument 3 to \"_epic_tokens\" has incompatible type \"Any | None | str\"; expected \"str\""
-    },
-    {
-      "path": "lu_machinery/api/fleet_board/prs.py",
-      "code": "assignment",
-      "message": "Incompatible types in assignment (expression has type \"None\", variable has type \"str\")"
-    },
-    {
-      "path": "lu_machinery/api/fleet_board/sources.py",
-      "code": "arg-type",
-      "message": "Argument 2 to \"SourceReport\" has incompatible type \"str\"; expected \"Literal['not_configured', 'ok', 'stale', 'unavailable']\""
-    },
-    {
-      "path": "lu_machinery/api/fleet_board/view.py",
-      "code": "arg-type",
-      "message": "Argument 1 to \"get\" of \"Mapping\" has incompatible type \"tuple[str, None | str]\"; expected \"tuple[str, str]\""
-    },
-    {
-      "path": "lu_machinery/api/fleet_board/view.py",
-      "code": "arg-type",
-      "message": "Argument 1 to \"get\" of \"Mapping\" has incompatible type \"tuple[str, None | str]\"; expected \"tuple[str, str]\""
-    },
-    {
-      "path": "lu_machinery/api/fleet_board/view.py",
-      "code": "arg-type",
-      "message": "Argument 1 to \"get\" of \"Mapping\" has incompatible type \"tuple[str, None | str]\"; expected \"tuple[str, str]\""
-    },
-    {
-      "path": "lu_machinery/api/fleet_board/view.py",
-      "code": "union-attr",
-      "message": "Item \"None\" of \"Any | None | dict[Any, Any]\" has no attribute \"get\""
-    },
-    {
       "path": "lu_machinery/api/fleet_router.py",
       "code": "assignment",
       "message": "Incompatible types in assignment (expression has type \"list[str]\", target has type \"None | dict[str, int] | int | list[dict[str, Any]] | str\")"
@@ -1685,52 +1620,7 @@
     {
       "path": "lu_machinery/api/runtime_router.py",
       "code": "arg-type",
-      "message": "Argument 1 to \"_update_comparison_side\" has incompatible type \"object\"; expected \"dict[str, Any]\""
-    },
-    {
-      "path": "lu_machinery/api/runtime_router.py",
-      "code": "arg-type",
-      "message": "Argument 1 to \"_update_comparison_side\" has incompatible type \"object\"; expected \"dict[str, Any]\""
-    },
-    {
-      "path": "lu_machinery/api/runtime_router.py",
-      "code": "arg-type",
       "message": "Argument 1 to \"get\" of \"dict\" has incompatible type \"Any | None\"; expected \"str\""
-    },
-    {
-      "path": "lu_machinery/api/runtime_router.py",
-      "code": "dict-item",
-      "message": "Dict entry 1 has incompatible type \"str\": \"float\"; expected \"str\": \"int\""
-    },
-    {
-      "path": "lu_machinery/api/runtime_router.py",
-      "code": "operator",
-      "message": "Unsupported operand types for + (\"object\" and \"int\")"
-    },
-    {
-      "path": "lu_machinery/api/runtime_router.py",
-      "code": "operator",
-      "message": "Unsupported operand types for + (\"object\" and \"int\")"
-    },
-    {
-      "path": "lu_machinery/api/runtime_router.py",
-      "code": "operator",
-      "message": "Unsupported operand types for + (\"object\" and \"int\")"
-    },
-    {
-      "path": "lu_machinery/api/runtime_router.py",
-      "code": "operator",
-      "message": "Unsupported operand types for + (\"object\" and \"int\")"
-    },
-    {
-      "path": "lu_machinery/api/runtime_router.py",
-      "code": "operator",
-      "message": "Unsupported operand types for + (\"object\" and \"int\")"
-    },
-    {
-      "path": "lu_machinery/api/runtime_router.py",
-      "code": "operator",
-      "message": "Unsupported operand types for + (\"object\" and \"int\")"
     },
     {
       "path": "lu_machinery/api/runtime_router.py",

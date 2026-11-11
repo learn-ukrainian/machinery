@@ -23,20 +23,7 @@ from fastapi.responses import JSONResponse
 from lu_machinery.agent_identity import RETIRED_AGENT_ALIASES
 from lu_machinery.agent_runtime import registry as agent_registry
 from lu_machinery.agent_runtime.accounting import recorded_model_accounting_fields
-from lu_machinery.agent_runtime.adapters.acpx import (
-    ACPX_CLI_COMPATIBILITY_CONTRACT,
-    ACPX_SUPPORTED_PARTICIPANTS,
-    AGY_CLI_COMPATIBILITY_CONTRACT,
-    GROK_CLI_COMPATIBILITY_CONTRACT,
-    GROK_SHADOW_EFFORT,
-    GROK_SHADOW_MODEL,
-    OPENCODE_CLI_COMPATIBILITY_CONTRACT,
-    AcpxAdapter,
-    AcpxGrokShadowAdapter,
-)
-from lu_machinery.agent_runtime.adapters.acpx import (
-    TRANSPORT_ENV as ACPX_TRANSPORT_ENV,
-)
+from lu_machinery.agent_runtime.adapters.acpx import ACPX_SUPPORTED_PARTICIPANTS
 from lu_machinery.agent_runtime.adapters.gemini import has_gemini_oauth_credentials, resolve_gemini_auth_mode
 from lu_machinery.agent_runtime.failure_codes import RUNTIME_FAILURE_CODES
 from lu_machinery.agent_runtime.usage import _iter_usage_records as _iter_usage_file_records
@@ -345,31 +332,6 @@ def _update_outcome_bucket(bucket: dict[str, Any], record: dict[str, Any]) -> No
         bucket["total_duration_s"] = round(bucket["total_duration_s"] + float(duration), 3)
 
 
-def _new_comparison_side() -> dict[str, Any]:
-    side = {key: 0 for key in _KNOWN_OUTCOMES}
-    side.update({"total": 0, "total_duration_s": 0.0, "tokens_observed": 0, "total_tokens": 0})
-    return side
-
-
-def _update_comparison_side(
-    side: dict[str, Any],
-    record: dict[str, Any],
-    *,
-    prefix: str,
-) -> None:
-    outcome = str(record.get(f"{prefix}_outcome") or "")
-    side["total"] += 1
-    if outcome in _KNOWN_OUTCOMES:
-        side[outcome] += 1
-    duration = record.get(f"{prefix}_duration_s")
-    if isinstance(duration, (int, float)) and not isinstance(duration, bool):
-        side["total_duration_s"] = round(side["total_duration_s"] + float(duration), 3)
-    tokens = record.get(f"{prefix}_tokens")
-    if isinstance(tokens, int) and not isinstance(tokens, bool) and tokens >= 0:
-        side["tokens_observed"] += 1
-        side["total_tokens"] += tokens
-
-
 def _last_used_agent_models(
     *, days: int = 7, ctx: MonitorContext | None = None, unreadable: dict[str, int] | None = None
 ) -> dict[str, str]:
@@ -508,137 +470,6 @@ def summarize_runtime_usage(
         "by_agent": dict(by_agent),
         "by_entrypoint": dict(by_entrypoint),
         "unreadable": records.unreadable,
-    }
-
-
-def acpx_shadow_overview(*, days: int = 7, ctx: MonitorContext | None = None) -> dict[str, Any]:
-    """Return a sanitized ACPX shadow posture and evidence snapshot.
-
-    This is deliberately not a transport-health probe. It reads the configured
-    mode plus already-persisted aggregate usage evidence; it never launches an
-    agent, checks credentials, or exposes per-call identifiers and excerpts.
-    """
-    window_days = min(max(1, int(days)), 30)
-    configured_mode = os.environ.get(ACPX_TRANSPORT_ENV, "off").strip().lower()
-    mode = configured_mode if configured_mode in {"off", "shadow"} else "invalid"
-
-    seat_specs = (
-        {
-            "name": AcpxAdapter.name,
-            "target": "codex",
-            "model": AcpxAdapter.default_model,
-            "effort": None,
-        },
-        {
-            "name": AcpxGrokShadowAdapter.name,
-            "target": "grok",
-            "model": GROK_SHADOW_MODEL,
-            "effort": GROK_SHADOW_EFFORT,
-        },
-    )
-    evidence_by_seat = {
-        str(seat["name"]): _new_outcome_bucket()
-        for seat in seat_specs
-    }
-    comparison = {
-        "attempts": 0,
-        "comparisons": 0,
-        "classification_parity": 0,
-        "classification_mismatch": 0,
-        "duplicates_suppressed": 0,
-        "busy_refusals": 0,
-        "native": _new_comparison_side(),
-        "shadow": _new_comparison_side(),
-    }
-    records = _iter_usage_records(_usage_files(days=window_days, ctx=ctx))
-    for record in records:
-        record_agent = str(record.get("agent") or "")
-        if record_agent in evidence_by_seat:
-            _update_outcome_bucket(evidence_by_seat[record_agent], record)
-        if (
-            record_agent == "acpx-shadow-pilot"
-            and record.get("event") == "acpx_shadow_comparison"
-        ):
-            comparison["attempts"] += 1
-            if record.get("duplicate") is True:
-                comparison["duplicates_suppressed"] += 1
-            if record.get("busy") is True:
-                comparison["busy_refusals"] += 1
-            if record.get("executed") is True:
-                comparison["comparisons"] += 1
-                if record.get("classification_parity") is True:
-                    comparison["classification_parity"] += 1
-                elif record.get("classification_parity") is False:
-                    comparison["classification_mismatch"] += 1
-                _update_comparison_side(comparison["native"], record, prefix="native")
-                _update_comparison_side(comparison["shadow"], record, prefix="shadow")
-
-    seats: list[dict[str, Any]] = []
-    for seat in seat_specs:
-        evidence = evidence_by_seat[str(seat["name"])]
-        seats.append({
-            **seat,
-            "read_only": True,
-            "stateless": True,
-            "evidence_state": "observed" if evidence["total"] else "no_evidence",
-            "evidence": {
-                "window_days": window_days,
-                **evidence,
-            },
-        })
-
-    return {
-        "generated_at": _isoformat_z(datetime.now(UTC)),
-        "unreadable": records.unreadable,
-        "transport": {
-            "mode": mode,
-            "scope": "monitor_process",
-            "default_mode": "off",
-            "authority": "native_runtime",
-            "posture": "evidence_only",
-            "writable": False,
-        },
-        "compatibility": {
-            "acpx": {
-                "contract": ACPX_CLI_COMPATIBILITY_CONTRACT,
-                "validation": "before_spawn",
-                "version_policy": "telemetry_only",
-            },
-            "agy_cli": {
-                "contract": AGY_CLI_COMPATIBILITY_CONTRACT,
-                "validation": "before_spawn",
-                "version_policy": "telemetry_only",
-            },
-            "grok_cli": {
-                "contract": GROK_CLI_COMPATIBILITY_CONTRACT,
-                "validation": "before_spawn",
-                "version_policy": "telemetry_only",
-            },
-            "opencode_cli": {
-                "contract": OPENCODE_CLI_COMPATIBILITY_CONTRACT,
-                "validation": "before_spawn",
-                "version_policy": "telemetry_only",
-            },
-        },
-        "comparison_evidence": {
-            "window_days": window_days,
-            "state": "observed" if comparison["attempts"] else "no_evidence",
-            **comparison,
-        },
-        "seats": seats,
-        "safety": {
-            "max_in_flight": 1,
-            "explicit_pilot_only": True,
-            "backlog": False,
-            "retries": False,
-            "sessions": False,
-            "chat": False,
-            "mutations": False,
-            "dispatch_authority": False,
-            "routing_authority": False,
-            "failover_authority": False,
-            "review_authority": False,
-        },
     }
 
 
@@ -1650,12 +1481,6 @@ async def runtime_usage(
     return await asyncio.to_thread(
         summarize_runtime_usage, days=days, agent=agent, entrypoint=entrypoint, ctx=ctx
     )
-
-
-@router.get("/acpx")
-async def runtime_acpx(days: int = Query(7, ge=1, le=30), ctx: MonitorContext = Depends(get_ctx)):
-    """Read-only ACPX shadow posture and aggregate evidence; never probe."""
-    return await asyncio.to_thread(acpx_shadow_overview, days=days, ctx=ctx)
 
 
 @router.get("/acp/conversations")

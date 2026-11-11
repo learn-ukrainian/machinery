@@ -259,12 +259,6 @@ tests/api/test_discussions_router.py
 tests/api/test_dispatch_reader_dashboard.py
 tests/api/test_epics_registry_seed.py
 tests/api/test_epics_router.py
-tests/api/test_fleet_board_files.py
-tests/api/test_fleet_board_ops.py
-tests/api/test_fleet_board_prs.py
-tests/api/test_fleet_board_roster_budget.py
-tests/api/test_fleet_board_v1.py
-tests/api/test_fleet_board_v1_now.py
 tests/api/test_fleet_dashboard_contract.py
 tests/api/test_fleet_health_runtime_activity.py
 tests/api/test_fleet_workers_sanitize.py
