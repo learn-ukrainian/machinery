@@ -319,7 +319,11 @@ project_hook_roots_resolve() {
     local root="${1-${LU_PRODUCT_ROOT:-${CLAUDE_PROJECT_DIR:-}}}"
     local primary state_root state_config invocation
     # Configured roots keep precedence, but cannot hide malformed invocation metadata.
-    invocation="$(pwd -P)" || return 1
+    # The x sentinel keeps a trailing newline $(...) would strip; a pathname with a
+    # newline cannot be checked faithfully by the helpers, so it refuses.
+    invocation="$(pwd -P && printf x)" || return 1
+    invocation="${invocation%$'\n'x}"
+    [[ "$invocation" != *$'\n'* ]] || return 1
     while [[ ! -e "$invocation/.git" && ! -L "$invocation/.git" && "$invocation" != / ]]; do
         invocation="${invocation%/*}"
         [[ -n "$invocation" ]] || invocation=/

@@ -489,9 +489,12 @@ def test_package_imports_and_help_work_with_nothing_configured(tmp_path):
 
 
 @pytest.mark.parametrize("configured", [rr.PRODUCT_ROOT_ENV, "CLAUDE_PROJECT_DIR"])
-@pytest.mark.parametrize("shape", ["symlinked-git", "malformed-gitfile"])
+@pytest.mark.parametrize("shape", ["symlinked-git", "malformed-gitfile", "newline-named"])
 def test_a_configured_product_cannot_hide_a_bad_invocation_git(unconfigured, tmp_path, monkeypatch, shape, configured):
     """Defect class (C3): a configured product root hiding the invocation checkout's symlinked or malformed ``.git``.
+
+    ``newline-named`` is the same symlinked ``.git`` in a directory whose name ends in a
+    newline, which command substitution would strip to a clean sibling name.
 
     Configured precedence stays: a well-formed invocation directory still resolves to the
     configured product. Only the invocation's own Git metadata is refused, at the hook-root
@@ -506,9 +509,9 @@ def test_a_configured_product_cannot_hide_a_bad_invocation_git(unconfigured, tmp
     # Empty, not unset: the gate sets a missing product root, and this restores it.
     monkeypatch.setenv(rr.PRODUCT_ROOT_ENV, "")
     monkeypatch.setenv(configured, str(product))
-    bad = tmp_path / "invocation"
+    bad = tmp_path / ("invocation\n" if shape == "newline-named" else "invocation")
     bad.mkdir()
-    if shape == "symlinked-git":
+    if shape in ("symlinked-git", "newline-named"):
         (bad / ".git").symlink_to(primary / ".git")
     else:
         (bad / ".git").write_text(f"gitdir: {tmp_path / 'elsewhere' / 'x'}\n", encoding="utf-8")
@@ -546,7 +549,7 @@ def test_the_native_hook_contract_bytes_match_the_product_contract():
         "tail": hashlib.sha256(hooks._HOOK_TAIL.encode()).hexdigest(),
     }
     assert digest == {
-        "resolvers": "00a6a4c8f76b7a10f30c40fd49d1298b2ef8a53b5b38445172217674bfddae2e",
+        "resolvers": "918eb7b2bfc8b4136f3f3654a535bfa9af18b87465788364f617081d6b8d402f",
         "tail": "07c159b32db24585e1000733af4b305e1d275b0b9889ba6cc7899f2b438f96da",
     }
     assert "claude-audit-hook" in hooks.NATIVE_HOOK_MODES
