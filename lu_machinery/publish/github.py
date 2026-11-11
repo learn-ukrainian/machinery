@@ -579,7 +579,7 @@ def _refuse_incomplete_seats(dest, number, head, runner, cwd, environment):
         lookup_verdict,
         pr_file_paths,
     )
-    from lu_machinery.review.tiers import classify_pr_files, requires_second_review
+    from lu_machinery.review.tiers import allows_carbon_debt, classify_pr_files, requires_second_review
 
     # The setting is explicit per repository; an absent, ambiguous or non-boolean one is unverifiable.
     rows = [
@@ -620,14 +620,17 @@ def _refuse_incomplete_seats(dest, number, head, runner, cwd, environment):
         raise
     except Exception:
         raise gate.PublishBlocked("OPSEC: merge refused: review seats unverifiable.") from None
+    carbon_debt = False
     if state == NEEDS_SEAT and second and lookup_verdict(
         [item for page in pages for item in page], head, login, learner_content=content, low_tier=low_tier,
     ).state == "APPROVED":
-        raise gate.PublishBlocked(
-            "OPSEC: merge refused: the Carbon second review has not approved this head (High-tier or "
-            "security-sensitive PR). If Carbon is unavailable (an AGY quota 429 or a timeout), re-run it at this "
-            "head after the reset, or escalate to the operator; nothing waives this seat."
-        )
+        if allows_carbon_debt(dest):
+            state, carbon_debt = "APPROVED", True
+        else:
+            raise gate.PublishBlocked(
+                "OPSEC: merge refused: the Carbon second review has not approved this head (High-tier or "
+                "security-sensitive PR). Re-run Carbon at this head after availability returns."
+            )
     if state == NEEDS_SEAT:
         raise gate.PublishBlocked("OPSEC: merge refused: a Ukrainian review seat has not approved this head.")
     if state not in {"APPROVED", "needs-CF"}:
@@ -665,6 +668,8 @@ def _refuse_incomplete_seats(dest, number, head, runner, cwd, environment):
             raise gate.PublishBlocked("OPSEC: merge refused: review seats unverifiable.") from None
         if any(DEFAULT_STATUS_CONTEXT in (row.get("name"), row.get("context")) for row in rows):
             raise gate.PublishBlocked("OPSEC: merge refused: this head's review status has no verdict record.")
+
+    return True if carbon_debt else None
 
 
 def _prepare_recovery(verb, fields, dest, cwd, environment, runner):
@@ -774,7 +779,7 @@ def _prepare_recovery(verb, fields, dest, cwd, environment, runner):
     # The fetched list holds paths only; reading each as modified never lowers its tier.
     second = requires_second_review([{"filename": path, "status": "modified"} for path in files])
     if not isinstance(login, str) or lookup_verdict(
-        comments, head, login, learner_content=content, second_review=second,
+        comments, head, login, learner_content=content, second_review=second, repository=dest,
     ).state != "APPROVED":
         raise gate.PublishBlocked("RECOVERY_APPROVAL_MISSING: exact-head recorded approval required")
     evidence = recovery.evidence_from_comments(
@@ -1839,7 +1844,24 @@ def publish(
             if endpoint == "graphql":
                 argv += _hostname_flag(dest)
         if verb == "pr-merge":
-            _refuse_incomplete_seats(dest, fields["number"], fields["match_head"], readiness_runner, cwd, environment)
+            carbon_debt = _refuse_incomplete_seats(
+                dest, fields["number"], fields["match_head"], readiness_runner, cwd, environment,
+            )
+            if carbon_debt:
+                from lu_machinery.review.tiers import CARBON_DEBT_LABEL
+
+                # One writer, before enqueue. Both writes are idempotent and failures refuse merge.
+                for label_verb, label_fields in (
+                    ("label-create", {"name": CARBON_DEBT_LABEL, "color": "D93F0B", "force": True,
+                                      "description": "Carbon review required before the next machinery release"}),
+                    ("pr-edit", {"number": fields["number"], "add_labels": [CARBON_DEBT_LABEL]}),
+                ):
+                    labelled = publish(
+                        label_verb, repo=dest, runner=runner, cwd=cwd, env=environment,
+                        capture_output=True, text=True, check=False, timeout=timeout, **label_fields,
+                    )
+                    if labelled.returncode:
+                        raise gate.PublishBlocked("OPSEC: merge refused: Carbon debt label could not be recorded.")
         if verb == "run-rerun":
             reservation = _prepare_recovery(verb, fields, dest, cwd, environment, readiness_runner)
             if reservation:

@@ -12,6 +12,8 @@ from lu_machinery.publish import github as publisher
 from lu_machinery.review import record_cf_verdict as recorder
 from lu_machinery.review.tiers import classify_pr_files
 
+_PR_READER = recorder._pr
+
 
 def test_low_same_family_non_author_approve_passes_recorder_and_landing(low_review, tmp_path):
     """A qualified second Sol task must approve a Low head without another family."""
@@ -181,3 +183,89 @@ def test_enqueue_refuses_an_unreviewed_security_pr_where_the_recorder_is_optiona
     files[:] = [{"filename": SECURITY_FILES[0], "status": "modified"}]
     with pytest.raises(publisher.gate.PublishBlocked, match="no cross-family APPROVE"):
         admit()
+
+
+@pytest.mark.parametrize("repository,expected", [
+    ("learn-ukrainian/machinery", "success"),
+    ("learn-ukrainian/learn-ukrainian.github.io", "pending"),
+])
+def test_recorded_status_allows_carbon_debt_only_in_machinery(low_review, tmp_path, monkeypatch, repository, expected):
+    """Defect class: a pending Carbon status stalls machinery before its debt admission can run."""
+    import json
+    from dataclasses import replace
+
+    tasks, _comments, statuses, files, _admit = low_review
+    path = tasks / "review-one.json"
+    task = json.loads(path.read_text())
+    task.update(repository=repository, model="claude-opus-5-5", agent="claude")
+    path.write_text(json.dumps(task))
+    original = recorder.pr_review_facts(None)
+    monkeypatch.setattr(recorder, "pr_review_facts", lambda *_, **__: replace(original, repository=repository))
+    files[:] = [{"filename": "lu_machinery/publish/github.py", "status": "modified"}]
+    assert recorder.record("review-one", pr_number=1, task_root=tasks, lock_root=tmp_path / "locks")["verdict"] == "APPROVED"
+    assert statuses[-1]["state"] == expected
+    # Carbon rejection must still replace success/pending with failure in either repository.
+    name = _carbon_task(tasks)
+    path = tasks / (name + ".json")
+    task = json.loads(path.read_text())
+    task["repository"] = repository
+    path.write_text(json.dumps(task))
+    (tasks / (name + ".result")).write_text("VERDICT: REQUEST_CHANGES")
+    assert recorder.record(name, pr_number=1, task_root=tasks, lock_root=tmp_path / "locks", second_review=True)["verdict"] == "CHANGES_REQUESTED"
+    assert statuses[-1]["state"] == "failure"
+
+
+@pytest.mark.parametrize("repository", ["learn-ukrainian/machinery", "learn-ukrainian/learn-ukrainian.github.io"])
+@pytest.mark.parametrize("state", ["OPEN", "MERGED", "CLOSED"])
+@pytest.mark.parametrize("second", [False, True])
+def test_recording_merged_pr_is_carbon_machinery_only(monkeypatch, repository, state, second):
+    """Defect class: debt cannot be recorded after merge, or merged recording escapes its repository and seat."""
+    payload = {"number": 1, "headRefOid": "a" * 40, "headRefName": "codex/fixture", "state": state}
+    monkeypatch.setattr(recorder, "_run_json", lambda *_: payload)
+    if state == "OPEN" or (state == "MERGED" and second and repository == "learn-ukrainian/machinery"):
+        assert recorder._pr(repository, "codex/fixture", 1, second) == payload
+    else:
+        with pytest.raises(recorder.RecordError, match="PR is not open"):
+            recorder._pr(repository, "codex/fixture", 1, second)
+
+
+def test_carbon_debt_record_uses_merged_pr_head_and_rechecks_under_lock(low_review, tmp_path, monkeypatch):
+    """Defect class: post-merge Carbon recording fails, uses the squash SHA, or misses a moved head under lock."""
+    import json
+
+    tasks, comments, statuses, files, _admit = low_review
+    files[:] = [{"filename": "lu_machinery/publish/github.py", "status": "modified"}]
+    _record_of_record(comments)
+    name = _carbon_task(tasks)
+    path = tasks / (name + ".json")
+    task = json.loads(path.read_text())
+    task["repository"] = "learn-ukrainian/machinery"
+    path.write_text(json.dumps(task))
+    from dataclasses import replace
+
+    facts = recorder.pr_review_facts(None)
+    monkeypatch.setattr(recorder, "pr_review_facts", lambda *_, **__: replace(facts, repository="learn-ukrainian/machinery"))
+    monkeypatch.setattr(recorder, "_pr", _PR_READER)
+    payload = {"number": 1, "headRefOid": "a" * 40, "headRefName": "codex/fixture", "state": "MERGED"}
+    reads = []
+
+    def read(*_):
+        reads.append(True)
+        return payload
+
+    monkeypatch.setattr(recorder, "_run_json", read)
+    result = recorder.record(name, pr_number=1, task_root=tasks, lock_root=tmp_path / "locks", second_review=True)
+    assert result["verdict"] == "APPROVED" and result["head"] == "a" * 40
+    assert len(reads) == 2 and "second_review=carbon" in comments[-1]["body"]
+    assert statuses[-1]["state"] == "success"
+    comments.clear()
+    reads.clear()
+
+    def moved(*_):
+        reads.append(True)
+        return {**payload, "headRefOid": "b" * 40} if len(reads) == 2 else payload
+
+    monkeypatch.setattr(recorder, "_run_json", moved)
+    with pytest.raises(recorder.RecordError, match="PR head moved before publication"):
+        recorder.record(name, pr_number=1, task_root=tasks, lock_root=tmp_path / "locks", second_review=True)
+    assert comments == []

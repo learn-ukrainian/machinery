@@ -78,10 +78,10 @@ CARBON = "gemini-4-carbon-medium"
 
 
 def record(*, task, model="gpt-6.1-sol", family="openai", verdict="APPROVED", second=False,
-           authors=("claude-opus-5-5",), started=START, **extra):
+           authors=("claude-opus-5-5",), started=START, reply="VERDICT: APPROVE", **extra):
     body = build_comment(
         sha=SHA, task_id=task, started=started, verdict=verdict, model=model, family=family,
-        reply="VERDICT: APPROVE", author_models=authors, second_review=second, **extra,
+        reply=reply, author_models=authors, second_review=second, **extra,
     )
     return {
         "id": task, "body": body, "user": {"login": "fleet"}, "author_association": "MEMBER",
@@ -168,7 +168,11 @@ def test_head_that_needs_no_second_review_is_unchanged():
     assert sweep.lookup_verdict(rows, SHA, "fleet").state == "APPROVED"
 
 
-def test_readiness_report_holds_a_security_pr_without_the_carbon_second_review(monkeypatch):
+@pytest.mark.parametrize("repository,expected", [
+    ("unit/public", sweep.NEEDS_SEAT),
+    ("learn-ukrainian/machinery", "APPROVED"),
+])
+def test_readiness_report_holds_a_security_pr_without_the_carbon_second_review(monkeypatch, repository, expected):
     """Defect class: the read-only landing report calls a head ready that the enqueue gate refuses."""
     seen = []
     real = sweep.lookup_verdict
@@ -196,5 +200,29 @@ def test_readiness_report_holds_a_security_pr_without_the_carbon_second_review(m
     monkeypatch.setattr(sweep, "lookup_verdict", spy)
     monkeypatch.setattr(sweep, "changes_learner_content", lambda _paths: False)
     monkeypatch.setattr(sweep, "classify_pr", lambda pr, verdict, **_: verdict)
-    sweep.run(Adapter(), "unit/public")
-    assert [verdict.state for verdict in seen] == [sweep.NEEDS_SEAT]
+    sweep.run(Adapter(), repository)
+    assert [verdict.state for verdict in seen] == [expected]
+
+
+@pytest.mark.parametrize("repository", ["learn-ukrainian/machinery", "learn-ukrainian/learn-ukrainian.github.io"])
+@pytest.mark.parametrize("tokened", [True, False])
+def test_carbon_rejection_blocks_even_with_p3_only_findings(repository, tokened):
+    """Defect class: Carbon REQUEST_CHANGES is downgraded to approval by the P3 residual rule."""
+    import json
+
+    reply = json.dumps({
+        "schema_version": "code-review-findings.v1",
+        "overall": {"correctness": "incorrect", "explanation": "Minor finding remains.", "confidence": 0.9},
+        "findings": [{
+            "id": "F1", "title": "Minor finding", "body": "A minor finding remains.",
+            "priority": "P3", "confidence": 0.9, "category": "correctness",
+            "location": {"path": "lu_machinery/publish/github.py", "start_line": 1, "end_line": 1, "claim_type": "present"},
+            "verbatim": "unit", "why_wrong": "Minor defect.", "smallest_fix": "Correct it.", "sources": ["none"],
+        }],
+    })
+    rejection = record(task="review-carbon", model=CARBON, family="google", verdict="CHANGES_REQUESTED",
+                       reply=reply, second=tokened)
+    assert sweep.recorded_p3_residuals(rejection["body"]) == ("F1",)
+    assert sweep.lookup_verdict(
+        [record(task="review-sol"), rejection], SHA, "fleet", second_review=True, repository=repository,
+    ).state == "CHANGES_REQUESTED"
