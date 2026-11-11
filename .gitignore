@@ -5,6 +5,7 @@ __pycache__/
 .pytest_breadcrumbs/
 .mypy_cache/
 .ruff_cache/
+.agents/
 .venv/
 *.egg-info/
 .coverage
