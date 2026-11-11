@@ -42,13 +42,14 @@ TARGETS = {"claude": ".claude", "codex": ".codex", "agy": ".agent", "gemini": ".
 # (workspace policies are currently disabled), https://geminicli.com/docs/cli/sandbox/
 # https://docs.cloud.google.com/gemini/docs/code-review/customize-repo-review
 # https://cursor.com/docs/bugbot
+# https://cursor.com/docs/reference/{sandbox,permissions}
 DISCOVERY = {
     ".claude": {"agents", "agent-memory", "agent-memory-local", "commands", "output-styles", "plugins", "skills", "rules", "hooks", "workflows", "settings.json", "settings.local.json", "CLAUDE.md", "AGENTS.md"},
     ".codex": {"agents", "prompts", "plugins", "skills", "rules", "hooks", "config.toml", "hooks.json"},
     ".agent": {"agents", "plugins", "skills", "rules", "workflows", "hooks", "hooks.json", "mcp_config.json", "settings.json", "rules.json", "skills.json", "agents.json", "plugins.json", "AGENTS.md", "GEMINI.md"},
     ".agents": {"agents", "plugins", "skills", "rules", "workflows", "hooks", "hooks.json", "mcp_config.json", "rules.json", "skills.json", "agents.json", "plugins.json", "AGENTS.md", "GEMINI.md"},
     ".gemini": {"agents", "commands", "extensions", "skills", "rules", "hooks", "settings.json", "config.json", "GEMINI.md", "AGENTS.md", "system.md", ".env", "sandbox.Dockerfile", "sandbox.bashrc", "policies", "config.yaml", "styleguide.md"},
-    ".cursor": {"agents", "commands", "skills", "rules", "hooks", "hooks.json", "mcp.json", "cli.json", "environment.json", "worktrees.json", "BUGBOT.md"},
+    ".cursor": {"agents", "commands", "skills", "rules", "hooks", "hooks.json", "mcp.json", "cli.json", "environment.json", "worktrees.json", "BUGBOT.md", "sandbox.json", "permissions.json", "config"},
 }
 
 

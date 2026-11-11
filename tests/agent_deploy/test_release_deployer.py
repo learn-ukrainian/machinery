@@ -262,19 +262,35 @@ def test_runtime_siblings_do_not_block_check_or_apply(consumer, tmp_path, monkey
     ".gemini/sandbox-macos-team.sb", ".claude/Skills/old/SKILL.md",
     ".gemini/policies/allow-all.toml", ".gemini/sandbox.bashrc",
     ".gemini/config.yaml", ".gemini/styleguide.md", ".cursor/BUGBOT.md",
+    ".cursor/sandbox.json", ".cursor/permissions.json", ".cursor/config/bugbot.yaml",
 ])
 @pytest.mark.parametrize("check", [False, True], ids=["apply", "check"])
-def test_provider_discovery_content_cannot_hide_as_runtime(consumer, monkeypatch, capsys, path, check):
+@pytest.mark.parametrize("kind", ["file", "symlink"])
+def test_provider_discovery_content_cannot_hide_as_runtime(consumer, tmp_path, monkeypatch, capsys, path, check, kind):
     """Never-planned discovery content and stale skills must still report drift."""
     if path.startswith(".cursor/"):
         data = json.loads((consumer / plan.DESCRIPTOR).read_text())
         descriptor(consumer, providers=data["providers"] + ["cursor"])
     assert invoke(monkeypatch, consumer) == 0
-    write(consumer, path, 'model = "planted"\n' if path.endswith(".toml") else "planted\n")
+    if kind == "file":
+        write(consumer, path, 'model = "planted"\n' if path.endswith(".toml") else "planted\n")
+    else:
+        outside = write(tmp_path, "outside-discovery", "untouched\n")
+        planted = consumer / path
+        planted.parent.mkdir(parents=True, exist_ok=True)
+        planted.symlink_to(outside)
     before = snapshot(consumer)
-    assert invoke(monkeypatch, consumer, check=check) == 1
+    assert invoke(monkeypatch, consumer, check=check) == (1 if kind == "file" else 2)
     captured = capsys.readouterr()
-    assert "unknown unowned output: " + path in captured.out + captured.err
+    if kind == "file":
+        assert "unknown unowned output: " + path in captured.out + captured.err
+    else:
+        if path == ".codex/config.toml":
+            assert "non-regular deployment output or parent: " + path in captured.err
+        else:
+            assert "symlink or special file" in captured.err
+        assert planted.is_symlink()
+        assert outside.read_text() == "untouched\n"
     assert snapshot(consumer) == before
 
 
@@ -284,7 +300,7 @@ def test_provider_discovery_content_cannot_hide_as_runtime(consumer, monkeypatch
     (".agent", "agents plugins skills rules workflows hooks hooks.json mcp_config.json settings.json rules.json skills.json agents.json plugins.json AGENTS.md GEMINI.md"),
     (".agents", "agents plugins skills rules workflows hooks hooks.json mcp_config.json rules.json skills.json agents.json plugins.json AGENTS.md GEMINI.md"),
     (".gemini", "agents commands extensions skills rules hooks settings.json config.json GEMINI.md AGENTS.md system.md .env sandbox.Dockerfile sandbox.bashrc policies config.yaml styleguide.md"),
-    (".cursor", "agents commands skills rules hooks hooks.json mcp.json cli.json environment.json worktrees.json BUGBOT.md"),
+    (".cursor", "agents commands skills rules hooks hooks.json mcp.json cli.json environment.json worktrees.json BUGBOT.md sandbox.json permissions.json config"),
 ])
 @pytest.mark.parametrize("kind", ["file", "symlink"])
 def test_every_discovery_name_refuses_unowned_content(tmp_path, root, names, kind):
