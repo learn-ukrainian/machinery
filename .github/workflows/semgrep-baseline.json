@@ -1500,16 +1500,6 @@
    "sha256": "fbb66c9614adca0efa83db82b55b8ac41a65b25dab6883da5e3a5cb3d6507694"
   },
   {
-   "path": "lu_machinery/hooks/hook_timing.py",
-   "rule": "python.lang.security.audit.dangerous-subprocess-use-audit",
-   "sha256": "baaadedf2f65b9797c0f75017c0b4284fe9165f1333ec967de9d5393d0670ed8"
-  },
-  {
-   "path": "lu_machinery/hooks/hook_timing.py",
-   "rule": "python.lang.security.audit.dangerous-subprocess-use-audit",
-   "sha256": "e861f7d17eaf065da6cf381304518a7f092270704127b9e17ebe00af226daf61"
-  },
-  {
    "path": "lu_machinery/hooks/measure_hook_stack.py",
    "rule": "python.lang.security.audit.dangerous-subprocess-use-audit",
    "sha256": "9c085473b47557c3d51a10c2ed92a8c84eceb5b85c9d171929e962233ff70d86"

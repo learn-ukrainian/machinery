@@ -381,7 +381,6 @@ ROUTED = (
     "lu_machinery/api/run_monitor_api_supervisor.sh",
     "lu_machinery/deploy_prompts.sh",
     "lu_machinery/guardrails/primary_post_checkout_heal.sh",
-    "lu_machinery/hooks/run_hook_timed.sh",
     "lu_machinery/ops/smoketest_bridge_stdout_only.sh",
     "lu_machinery/orchestration/run_mac_observer_heartbeat.sh",
     "lu_machinery/orchestration/run_project_state_reporter.sh",
@@ -646,28 +645,6 @@ def test_remaining_shell_programs_select_the_rule_and_refuse_invalid(tmp_path: P
     assert refused([str(reporter)], cwd=worktree, extra={}).returncode != 0
     assert log.read_text(encoding="utf-8") == ""
 
-    timed = SOURCE / "lu_machinery/hooks/run_hook_timed.sh"
-    hook = _executable(tmp_path / "hook.sh", "#!/bin/sh\nprintf RAN\\n")
-    log.write_text("", encoding="utf-8")
-    timed_primary = _run(
-        [str(timed), str(hook)],
-        cwd=worktree,
-        env={**base, "HOOK_TIMING": "1", "CLAUDE_PROJECT_DIR": str(worktree)},
-    )
-    assert "RAN" in timed_primary.stdout
-    assert str(primary / ".venv/bin/python") in log.read_text(encoding="utf-8")
-    assert str(worktree / ".venv/bin/python") not in log.read_text(encoding="utf-8")
-    relative = _executable(worktree / "python", "#!/bin/sh\nprintf relative >> " + f'"{log}"\n')
-    log.write_text("", encoding="utf-8")
-    relative_run = _run(
-        [str(timed), str(hook)],
-        cwd=worktree,
-        env={**base, "HOOK_TIMING": "1", "CLAUDE_PROJECT_DIR": str(worktree), "LEARN_UKRAINIAN_PYTHON": "python"},
-    )
-    assert "RAN" in relative_run.stdout
-    assert log.read_text(encoding="utf-8") == ""
-    assert str(relative) not in relative_run.stdout
-
     doctor = primary / "lu_machinery/guardrails/assert_primary_on_main.py"
     doctor.parent.mkdir(parents=True)
     doctor.write_text("raise SystemExit(0)\n", encoding="utf-8")
@@ -910,15 +887,6 @@ def test_subdirectory_does_not_select_a_nested_venv(tmp_path: Path) -> None:
     _record(nested / ".venv" / "bin" / "python", nested_log, code=0)
     base = _base_env(tmp_path)
     package = machinery_root()
-    timed = _run(
-        [str(package / "hooks" / "run_hook_timed.sh"), "/bin/false"],
-        cwd=nested,
-        env={**base, "HOOK_TIMING": "1"},
-    )
-    assert timed.returncode != 0, timed.stderr
-    assert nested_log.read_text(encoding="utf-8") == ""
-    assert str(primary / ".venv/bin/python") in log.read_text(encoding="utf-8")
-    log.write_text("", encoding="utf-8")
     codex = _run(
         [str(package / "agent_runtime" / "codex_hook_entry.sh"), "pre-tool-use"],
         cwd=nested,
