@@ -20,6 +20,7 @@ from fastapi.testclient import TestClient
 
 from lu_machinery.common import repo_root
 from lu_machinery.lib import rules_core
+from lu_machinery.orchestration import curriculum_lifecycle_pilot, prompt_contracts
 
 CORE = rules_core.core_text("core")
 ADDENDUM = "# PRODUCT CURRICULUM\n"
@@ -208,3 +209,186 @@ def test_default_binding_bundle_is_the_bounded_core(split) -> None:
     assert plain.text == body["markdown"]
     assert plain.headers["x-rules-scope"] == "core"
     assert api_client.get("/api/rules", headers={"If-None-Match": plain.headers["etag"]}).status_code == 304
+
+
+# Prompt-contract reader: fleet rules come from the release, product files stay in the product (#100).
+_RULES = rules_core.RULES_DIR_REL
+_WORKFLOW = f"{_RULES}/workflow.md"
+
+
+def _contract_product(root: Path) -> Path:
+    """A product tree carrying a decoy of a fleet rule, a product-owned rule and its own rule."""
+    rules = root / _RULES
+    rules.mkdir(parents=True)
+    (rules / "workflow.md").write_text("# PRODUCT DECOY\n", encoding="utf-8")
+    (rules / "core-curriculum.md").write_text("# product rule\n", encoding="utf-8")
+    (rules / "custom-product-policy.md").write_text("# product-own rule\n", encoding="utf-8")
+    fragments = root / "agents_extensions/shared/prompt-contracts/fragments"
+    fragments.mkdir(parents=True)
+    return root
+
+
+def _release_workflow() -> bytes:
+    return (repo_root.machinery_path(_RULES) / "workflow.md").read_bytes()
+
+
+@pytest.mark.parametrize(
+    "declared",
+    [
+        _WORKFLOW,
+        f"./{_WORKFLOW}",
+        _WORKFLOW.replace("agents_extensions/", "agents_extensions/./", 1),
+        _WORKFLOW.replace("agents_extensions/", "agents_extensions//", 1),
+    ],
+)
+def test_noncanonical_fleet_rule_path_never_reads_product_decoy(tmp_path, declared):
+    """Prefix-bypass defect: a non-canonical spelling of a fleet rule must still select the release copy."""
+    product = _contract_product(tmp_path / "product")
+    selected = prompt_contracts._shared_selection(product, declared, "policy")
+    assert selected.path.read_bytes() == _release_workflow()
+    assert selected.logical == _WORKFLOW
+
+
+def test_symlink_out_of_shared_tree_is_refused_not_given_a_forged_identity(tmp_path):
+    """Shared-tree escape defect: a shared file symlinked to a non-shared product file must be refused."""
+    product = _contract_product(tmp_path / "product")
+    secret = product / "docs/secret.md"
+    secret.parent.mkdir(parents=True)
+    secret.write_text("SECRET\n", encoding="utf-8")
+    fragment = product / "agents_extensions/shared/prompt-contracts/fragments/core.md"
+    fragment.symlink_to(secret)
+    with pytest.raises(prompt_contracts.PromptContractError, match="must live under agents_extensions/shared"):
+        prompt_contracts._shared_selection(product, fragment.relative_to(product).as_posix(), "fragment")
+
+
+def test_product_symlink_out_of_the_product_root_is_refused(tmp_path):
+    """Containment defect: a product-owned rule symlinked to a file outside the product stays refused."""
+    product = _contract_product(tmp_path / "product")
+    outside = tmp_path / "outside.md"
+    outside.write_text("OUTSIDE\n", encoding="utf-8")
+    owned = product / _RULES / "core-curriculum.md"
+    owned.unlink()
+    owned.symlink_to(outside)
+    with pytest.raises(prompt_contracts.PromptContractError, match="escapes repository root"):
+        prompt_contracts._shared_selection(product, f"{_RULES}/core-curriculum.md", "policy")
+
+
+def test_product_own_rule_and_relative_product_root_still_resolve(tmp_path, monkeypatch):
+    """Regression defect: a product-own rule absent from the release and a relative root must keep resolving."""
+    product = _contract_product(tmp_path / "product")
+    own = prompt_contracts._shared_selection(product, f"{_RULES}/custom-product-policy.md", "policy")
+    assert own.path.read_text(encoding="utf-8") == "# product-own rule\n"
+    monkeypatch.chdir(tmp_path)
+    owned = prompt_contracts._shared_selection(Path("product"), f"{_RULES}/core-curriculum.md", "policy")
+    assert owned.path.read_text(encoding="utf-8") == "# product rule\n"
+    assert owned.logical == f"{_RULES}/core-curriculum.md"
+
+
+@pytest.mark.parametrize("failure", ["unavailable", "unexpected"])
+def test_release_selection_failure_never_falls_back_to_product_decoy(tmp_path, monkeypatch, failure):
+    """Fail-open defect: when the release carries a rule but cannot select it, a product copy must not be read."""
+    product = _contract_product(tmp_path / "product")
+    decoy = product / _WORKFLOW
+
+    def broken(rel, root=None):
+        if failure == "unavailable":
+            raise rules_core.RulesCoreMissing("release unavailable")
+        return decoy
+
+    monkeypatch.setattr(prompt_contracts, "source_path", broken)
+    with pytest.raises(prompt_contracts.PromptContractError):
+        prompt_contracts._shared_selection(product, _WORKFLOW, "policy")
+
+
+def test_pilot_identity_inputs_and_owner_paths_take_fleet_rules_from_the_release(tmp_path):
+    """Owner-path defect: identity inputs naming a fleet rule must not require a product copy of it."""
+    product = tmp_path / "product"
+    product.mkdir()
+    assert curriculum_lifecycle_pilot._identity_file(product, _WORKFLOW).read_bytes() == _release_workflow()
+    with pytest.raises(curriculum_lifecycle_pilot.PilotError, match="missing"):
+        curriculum_lifecycle_pilot._identity_file(product, "docs/absent.md")
+
+
+def test_release_inventory_declares_fleet_rules_and_no_product_owned_rule():
+    """Membership defect: release membership must come from the declared inventory, not a probe."""
+    declared = prompt_contracts._release_files()
+    assert {"rules/workflow.md", "rules/operator-expectations.md"} <= declared
+    assert not {f"{_SHARED}{key}" for key in declared} & set(rules_core._PRODUCT_RULES)
+
+
+_SHARED = "agents_extensions/shared/"
+_GOOD = {"owner": "fleet", "mode": 0o644, "targets": {}}
+
+
+def _inventory(tmp_path: Path, text: str) -> Path:
+    path = tmp_path / "release.v1.json"
+    path.write_text(text, encoding="utf-8")
+    return path
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "not json",
+        "[]",
+        json.dumps({"files": {}}),
+        '{"files": {"rules/a.md": %s, "rules/a.md": %s}}' % (json.dumps(_GOOD), json.dumps(_GOOD)),
+        json.dumps({"files": {"rules/./a.md": _GOOD}}),
+        json.dumps({"files": {"/rules/a.md": _GOOD}}),
+        json.dumps({"files": {"rules/a.md": {**_GOOD, "owner": "product"}}}),
+        json.dumps({"files": {"rules/a.md": {**_GOOD, "mode": 0o600}}}),
+        json.dumps({"files": {"rules/a.md": {**_GOOD, "mode": True}}}),
+        json.dumps({"files": {"rules/a.md": "record"}}),
+        json.dumps({"files": {"rules/core-curriculum.md": _GOOD}}),
+        '{"files": {"rules/a.md": {"owner": "fleet", "mode": 420, "targets": {"codex": NaN}}}}',
+        '{"files": {"rules/a.md": {"owner": "fleet", "mode": 420, "targets": {"codex": Infinity}}}}',
+        '{"files": {"rules/a.md": {"owner": "fleet", "mode": 420, "targets": {"codex": -Infinity}}}}',
+    ],
+)
+def test_malformed_release_inventory_or_product_ownership_conflict_is_refused(tmp_path, text):
+    """Inventory-validation defect: a malformed inventory or a declared product-owned rule must be refused."""
+    with pytest.raises(prompt_contracts.PromptContractError, match="release inventory is invalid"):
+        prompt_contracts._load_inventory(_inventory(tmp_path, text))
+
+
+def test_only_a_validated_inventory_is_cached(tmp_path):
+    """Cache defect: a failed inventory load must not be remembered once the file is valid."""
+    path = _inventory(tmp_path, "not json")
+    with pytest.raises(prompt_contracts.PromptContractError):
+        prompt_contracts._validated_inventory(str(path))
+    path.write_text(json.dumps({"files": {"rules/a.md": _GOOD}}), encoding="utf-8")
+    assert prompt_contracts._validated_inventory(str(path)) == frozenset({"rules/a.md"})
+
+
+@pytest.mark.parametrize("failure", ["missing", "lookup"])
+def test_declared_release_rule_missing_or_unreadable_never_falls_back_to_product(tmp_path, monkeypatch, failure):
+    """Fail-open defect: a declared release rule that is missing or fails lookup must be refused."""
+    product = _contract_product(tmp_path / "product")
+    ghost = product / _RULES / "ghost-rule.md"
+    ghost.write_text("# PRODUCT DECOY\n", encoding="utf-8")
+    monkeypatch.setattr(prompt_contracts, "_release_files", lambda: frozenset({"rules/ghost-rule.md", "rules/workflow.md"}))
+    declared = f"{_RULES}/ghost-rule.md"
+    if failure == "lookup":
+        real = prompt_contracts.machinery_path
+
+        def denied(rel):
+            if rel.endswith("workflow.md"):
+                raise PermissionError(13, "Permission denied", rel)
+            return real(rel)
+
+        monkeypatch.setattr(prompt_contracts, "machinery_path", denied)
+        declared = _WORKFLOW
+    with pytest.raises(prompt_contracts.PromptContractError, match="unavailable|missing"):
+        prompt_contracts._shared_selection(product, declared, "policy")
+
+
+def test_undeclared_rule_selects_only_the_contained_product_file(tmp_path):
+    """Residual-boundary defect: an undeclared rule is the product's own and stays under product containment."""
+    product = _contract_product(tmp_path / "product")
+    outside = tmp_path / "outside.md"
+    outside.write_text("OUTSIDE\n", encoding="utf-8")
+    own = product / _RULES / "custom-product-policy.md"
+    own.unlink()
+    own.symlink_to(outside)
+    with pytest.raises(prompt_contracts.PromptContractError, match="escapes repository root"):
+        prompt_contracts._shared_selection(product, f"{_RULES}/custom-product-policy.md", "policy")
