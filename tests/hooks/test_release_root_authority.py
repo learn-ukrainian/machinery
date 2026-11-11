@@ -226,6 +226,7 @@ SHELL_HOOKS = (
     "check-agent-inbox.sh",
     "context-monitor.sh",
     "release-thread-lease.sh",
+    "session-setup.sh",
 )
 ADAPTERS = ("deploy_prompts.sh", "check_rules_deployment.sh")
 
@@ -244,14 +245,40 @@ def run_shell(path, *args, env=None, cwd):
 
 
 @pytest.mark.parametrize("name", SHELL_HOOKS)
-def test_shell_hook_refuses_location_derived_project(release, tmp_path, name):
-    """Location-derived project root: unset configuration silently used the release tree."""
-    result = run_shell(release / HOOKS / name, "agents_extensions/x", cwd=tmp_path)
-    assert result.returncode == 1, result.stderr
-    assert (
-        f"{name}: no project root: set CLAUDE_PROJECT_DIR or LU_PRODUCT_ROOT"
-        in result.stderr
+@pytest.mark.parametrize("layout", ["primary", "no-git", "empty-git", "hook-location"])
+def test_shell_hook_refuses_location_derived_project(release, product, tmp_path, name, layout):
+    """Premature root refusal must yield to the rule, without trusting hook location."""
+    cwd = product / "nested" if layout == "primary" else tmp_path / layout
+    cwd.mkdir()
+    if layout == "empty-git":
+        (cwd / ".git").mkdir()
+    hooks = release / HOOKS
+    if layout == "hook-location":
+        hooks = product / ".claude/hooks"
+        shutil.copytree(release / HOOKS, hooks)
+    transcript = tmp_path / "transcript.jsonl"
+    transcript.write_text("x" * 700)
+    env = {
+        "PATH": os.environ["PATH"], "HOME": str(tmp_path),
+        "LEARN_UKRAINIAN_PYTHON": str(release.parent / "venv/bin/python"),
+        "LEARN_UKRAINIAN_CLAUDEX_RUN_ID": "release-root-run",
+        "LEARN_UKRAINIAN_CLAUDEX_LAUNCH_GENERATION": "1",
+        "AB_MONITOR_URL": "http://127.0.0.1:9",
+        "LU_MONITOR_LOOPBACK": "http://127.0.0.1:9",
+        "AB_DB_PATH": str(tmp_path / "messages.db"),
+    }
+    result = subprocess.run(
+        ["bash", "-x", str(hooks / name)],
+        input=json.dumps({"session_id": "release-root", "hook_event_name": "Stop",
+                          "transcript_path": str(transcript)}),
+        text=True, capture_output=True, cwd=cwd, env=env, timeout=30,
     )
+    if layout == "primary":
+        assert result.returncode == 0, result.stderr
+        assert f"export LU_PRODUCT_ROOT={product}\n" in result.stderr
+    else:
+        assert result.returncode == 1, result.stderr
+        assert "export LU_PRODUCT_ROOT=" not in result.stderr
 
 
 def test_shell_hook_runs_the_configured_product(release, product):
@@ -265,7 +292,8 @@ def test_shell_hook_runs_the_configured_product(release, product):
     (product / ".venv/bin/python").symlink_to(sys.executable)
     result = run_shell(
         release / HOOKS / "stamp-pytest.sh",
-        env={"LU_PRODUCT_ROOT": str(product)},
+        env={"LU_PRODUCT_ROOT": str(product),
+             "LEARN_UKRAINIAN_PYTHON": str(release.parent / "venv/bin/python")},
         cwd=product.parent,
     )
     assert result.returncode == 0, result.stderr
@@ -516,7 +544,8 @@ def test_codex_entry_hands_hooks_the_payload_project(release, product):
         text=True,
         capture_output=True,
         cwd=product,
-        env={"PATH": os.environ["PATH"], "HOME": str(product.parent)},
+        env={"PATH": os.environ["PATH"], "HOME": str(product.parent),
+             "LEARN_UKRAINIAN_PYTHON": str(release.parent / "venv/bin/python")},
     )
     assert marker.read_text() == "ok", result.stderr
     assert not (release / ".githooks").exists()

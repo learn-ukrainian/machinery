@@ -18,14 +18,12 @@ if [ "${GEMINI_SESSION:-}" = "1" ] || [ "${LEARN_UKRAINIAN_PIPELINE:-}" = "1" ];
 fi
 
 HOOK_INPUT=$(cat)
-# The project is configured (CLAUDE_PROJECT_DIR from the harness, else
-# LU_PRODUCT_ROOT), never derived from this file's location: an installed
-# release lives in site-packages, not in the project (machinery #100, R51).
-PROJECT_DIR="${CLAUDE_PROJECT_DIR:-${LU_PRODUCT_ROOT:-}}"
-case "$PROJECT_DIR" in
-  /*) [ -d "$PROJECT_DIR" ] || { echo "check-agent-inbox.sh: project root $PROJECT_DIR is not a directory" >&2; exit 1; } ;;
-  *) echo "check-agent-inbox.sh: no project root: set CLAUDE_PROJECT_DIR or LU_PRODUCT_ROOT to an absolute checkout path" >&2; exit 1 ;;
-esac
+# The installed hook-root rule selects the product, never this file's location.
+# shellcheck source=agents_extensions/shared/hooks/context-rollover-lib.sh
+source "$(dirname "${BASH_SOURCE[0]}")/context-rollover-lib.sh" \
+  || { echo "check-agent-inbox.sh: context-rollover-lib.sh is missing beside this hook" >&2; exit 1; }
+context_machinery_bootstrap "${LU_PRODUCT_ROOT:-${CLAUDE_PROJECT_DIR:-}}" || exit 1
+
 RECIPIENT="${LEARN_UK_HOOK_RECIPIENT:-claude}"
 
 case "$RECIPIENT" in
@@ -39,20 +37,7 @@ RECIPIENT_LABEL=$(printf '%s' "$RECIPIENT" | tr '[:lower:]' '[:upper:]')
 # one project interpreter imports, never this file's location. Fails closed: refuse,
 # with the reason on stderr, rather than run code from anywhere else. Exit 1 does
 # not block the provider's prompt submission; a later CLI failure stays silent.
-# shellcheck source=agents_extensions/shared/hooks/context-rollover-lib.sh
-source "$(dirname "${BASH_SOURCE[0]}")/context-rollover-lib.sh" \
-  || { echo "check-agent-inbox.sh: context-rollover-lib.sh is missing beside this hook" >&2; exit 1; }
-context_machinery_bootstrap "$PROJECT_DIR" || exit 1
 INBOX_PYTHON="$CONTEXT_PROJECT_PYTHON"
-# The one hook-root rule (the release's project_hook_roots_resolve) exports the
-# product and shared-state roots the inbox CLI reads, whichever harness started
-# this hook, so a missing shared-state anchor is derived, not left unset; a
-# parent's configured roots are kept, invalid ones refuse.
-project_hook_roots_resolve 2>/dev/null || {
-  echo "HOOK-BOOTSTRAP-FAILED: product root, shared state, interpreter or machinery unavailable." >&2
-  exit 1
-}
-
 # Fast path: probe the same broker DB the bridge CLI reads
 # (scripts/ai_agent_bridge/_config.py DB_PATH → _messaging.py check_inbox)
 # with a read-only, 1 s-bounded unread count. Zero unread → exit silently

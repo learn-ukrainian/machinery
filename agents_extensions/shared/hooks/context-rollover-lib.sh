@@ -103,24 +103,20 @@ _context_import_release() {
   MACHINERY_DIR="$found"
 }
 
-# Set MACHINERY_DIR (the installed release) and CONTEXT_PROJECT_PYTHON (the one
-# project interpreter) and source the release's project_interpreter.sh. The probe
+# Set PROJECT_DIR from the installed hook-root rule, MACHINERY_DIR (the release)
+# and CONTEXT_PROJECT_PYTHON (the one project interpreter). An empty argument
+# lets the rule select the nearest physical cwd ancestor with a .git entry.
+# Source the release's project_interpreter.sh. The probe
 # only finds the release; the release's resolver then decides, and its release is
 # sourced when it differs. Fails closed: on any doubt it says why on stderr and
 # returns 1, and the hook refuses instead of running code from anywhere else.
 context_machinery_bootstrap() {
   local project_dir="$1" probe resolved start candidate parent
   MACHINERY_DIR="" CONTEXT_PROJECT_PYTHON=""
-  # Callers pass the project directory. The probe and the release resolver
-  # receive the checkout root: the directory itself when its .git entry is
-  # present, otherwise the nearest ancestor that has one. A directory that is
-  # not inside a checkout is refused here, before any interpreter runs,
-  # unless LEARN_UKRAINIAN_PYTHON is an absolute path. That operator path
-  # short-circuits the resolver, so the directory's own interpreter cannot
-  # be selected. A canonical-root override does not: the probe would accept
-  # the override and the resolver would then execute this directory's
-  # interpreter, because a missing .git is still a primary there.
-  if ! start="$(cd -P "$project_dir" 2>/dev/null && pwd)"; then
+  # Import the release using the configured interpreter or the cwd's checkout
+  # primary. This probe selects code only. The installed hook rule below
+  # decides the product, shared state and interpreter before callers use them.
+  if ! start="$(cd -P "${project_dir:-.}" 2>/dev/null && pwd)"; then
     echo "${0##*/}: project interpreter not found: untrusted git metadata at ${project_dir}/.git; set LEARN_UKRAINIAN_PYTHON" >&2
     return 1
   fi
@@ -141,7 +137,13 @@ context_machinery_bootstrap() {
   fi
   probe="$(_context_rule_probe "$candidate")" || return 1
   _context_import_release "$probe" || return 1
-  resolved="$(project_interpreter_resolve "$candidate")" || { MACHINERY_DIR=""; return 1; }
+  if [ -n "$project_dir" ]; then
+    project_hook_context_resolve "$project_dir" || { MACHINERY_DIR=""; return 1; }
+  else
+    project_hook_context_resolve || { MACHINERY_DIR=""; return 1; }
+  fi
+  PROJECT_DIR="$LU_PRODUCT_ROOT"
+  resolved="$LEARN_UKRAINIAN_PYTHON"
   if [ "$resolved" != "$probe" ]; then
     _context_import_release "$resolved" || { MACHINERY_DIR=""; return 1; }
   fi
