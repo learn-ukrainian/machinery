@@ -217,30 +217,139 @@ def _observe(record: dict) -> dict:
 
 
 def _dispatcher_code() -> dict:
-    """The checkout whose dispatcher supervises this task: its HEAD and whether its code is unmodified.
+    """The checkout whose dispatcher supervises this task: its HEAD, whether its code is unmodified, and sealed.
 
     Recorded when the supervisor starts and again when it settles. A review-contract canary
-    needs both to be the same clean checkout at the head it reviewed (#12399). An unreadable
-    checkout records ``head`` None, which no canary accepts.
+    needs both to be the same clean, read-only checkout at the head it reviewed (#12399). An
+    unreadable checkout records ``head`` None, which no canary accepts.
+
+    Only a Git checkout attests, and only when this file is loaded through no symbolic link
+    from ``<top level>/<package>/dispatcher/worker.py``, where the top level is the parent
+    of the package directory: the in-tree copy's product checkout, or a standalone or linked
+    machinery worktree. An installed distribution (site-packages, even inside a product
+    checkout's venv) is no such top level, so product Git never attests it.
+
+    ``clean`` compares bytes, never the index or ``git status``: every regular file in HEAD's
+    tree under the package (and ``schemas``) must hash to its blob, and every file on disk
+    there must be in that tree. Ignore rules, assume-unchanged and skip-worktree flags, filters
+    and replace refs cannot hide a change. Python may run cached bytecode in place of a source,
+    so a ``__pycache__`` file is untracked like any other: an attesting dispatcher runs on a
+    fresh checkout without caches. Any probe error, link, file that is not regular, or other
+    tree entry is unclean; an untracked file is never opened.
+
+    ``read_only`` is true only when creating a file in every package directory fails with
+    ``EROFS`` and every file there sits on a read-only mount (``statvfs``), so a writable bind
+    mount over one file is caught: the checkout is a read-only mount for this process (the
+    canary's read-only image), and no participating process, nested sandboxes included, can
+    have written code or a cache there. Any other outcome, including a writable directory or
+    file, or another error, is false.
     """
+    import errno
+
     from lu_machinery.common.git_context import sanitized_git_env
 
-    if not in_tree_source():
-        # Product Git metadata cannot attest the installed distribution.
-        return {"root": str(primary_root()), "head": None, "clean": False}
-    root = machinery_path("dispatch.py").parent.parent
+    loaded = os.path.abspath(__file__)
+    root = Path(loaded).parents[2]  # <top level>/<package>/dispatcher/worker.py
+    package = Path(loaded).parents[1].name  # the machinery package directory
+    # Inline config, repository redirects and replace refs cannot steer the probes.
+    env = {**sanitized_git_env(strip_config_injection=True), "GIT_NO_REPLACE_OBJECTS": "1"}
 
     def git_out(*args: str) -> str | None:
         try:
-            return subprocess.run(["git", *args], cwd=root, env=sanitized_git_env(), capture_output=True,
-                                  text=True, check=True, timeout=30).stdout
-        except (OSError, subprocess.SubprocessError):
+            return subprocess.run(["git", "--no-replace-objects", *args], cwd=root, env=env, capture_output=True,
+                                  check=True, timeout=30).stdout.decode()
+        except (OSError, subprocess.SubprocessError, UnicodeDecodeError):
             return None
 
-    head = (git_out("rev-parse", "HEAD") or "").strip() or None
-    package = Path(os.path.abspath(__file__)).parents[1].name  # the machinery package directory
-    status = git_out("status", "--porcelain", "--", package, "schemas")
-    return {"root": str(root), "head": head, "clean": status == ""}
+    def read(path: str) -> bytes:
+        # A FIFO or device swapped in after the walk's check must not block the open.
+        with os.fdopen(os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK), "rb") as handle:
+            if not stat.S_ISREG(os.fstat(handle.fileno()).st_mode):
+                raise OSError(f"{path} is not a regular file")
+            return handle.read()
+
+    def unreadable(exc: OSError) -> None:
+        raise exc
+
+    def unmodified(top: str, listing: str, algorithm: str) -> bool:
+        blobs: dict[str, str] = {}
+        for entry in filter(None, listing.split("\0")):
+            meta, _, path = entry.partition("\t")
+            mode, kind, oid = meta.split(" ")
+            if kind != "blob" or mode not in {"100644", "100755"}:
+                return False  # a link or submodule is never attested code
+            blobs[path] = oid
+        if f"{package}/dispatcher/worker.py" not in blobs:
+            return False
+        seen: set[str] = set()
+        for directory in (package, "schemas"):
+            base = os.path.join(top, directory)
+            if directory == "schemas" and not os.path.lexists(base):
+                continue
+            for current, dirs, files in os.walk(base, onerror=unreadable):
+                for name in (*dirs, *files):
+                    path = os.path.join(current, name)
+                    if stat.S_ISLNK(os.lstat(path).st_mode):
+                        return False
+                    if name not in files:
+                        continue
+                    relative = os.path.relpath(path, top).replace(os.sep, "/")
+                    if relative not in blobs or not stat.S_ISREG(os.lstat(path).st_mode):
+                        return False
+                    data = read(path)
+                    if hashlib.new(algorithm, b"blob %d\0" % len(data) + data).hexdigest() != blobs[relative]:
+                        return False
+                    seen.add(relative)
+        return seen == set(blobs)
+
+    def sealed(top: str) -> bool:
+        for directory in (package, "schemas"):
+            base = os.path.join(top, directory)
+            if directory == "schemas" and not os.path.lexists(base):
+                continue
+            for current, _dirs, files in os.walk(base, onerror=unreadable):
+                try:
+                    # An unnamed file (O_TMPFILE) leaves nothing behind if the directory is writable.
+                    os.close(os.open(current, os.O_WRONLY | os.O_TMPFILE, 0o600))
+                    return False
+                except OSError as exc:
+                    if exc.errno != errno.EROFS:
+                        return False
+                # A file can be its own mount; statvfs reads that mount's flags without opening the file.
+                if not all(os.statvfs(os.path.join(current, name)).f_flag & os.ST_RDONLY for name in files):
+                    return False
+        return True
+
+    def attest() -> dict | None:
+        top = (git_out("rev-parse", "--show-toplevel") or "").rstrip("\n")
+        if (
+            not top
+            or loaded != os.path.realpath(loaded)  # no link anywhere on the loaded path
+            or loaded != os.path.join(top, package, "dispatcher", "worker.py")
+            or str(root) != top
+        ):
+            return None
+        head = (git_out("rev-parse", "--verify", "--quiet", "HEAD^{commit}") or "").strip() or None
+        listing = git_out("ls-tree", "-r", "-z", "--full-tree", f"{head}^{{tree}}", "--", package, "schemas") if head else None
+        algorithm = (git_out("rev-parse", "--show-object-format") or "").strip()
+        try:
+            clean = listing is not None and algorithm in {"sha1", "sha256"} and unmodified(top, listing, algorithm)
+        except Exception:  # an unreadable or unexpected file is unclean, never a supervisor failure
+            clean = False
+        try:
+            read_only = sealed(top)
+        except Exception:  # no O_TMPFILE, or an unreadable directory: not proven read-only
+            read_only = False
+        return {"root": str(root), "head": head, "clean": clean, "read_only": read_only}
+
+    try:
+        attested = attest()
+    except Exception:  # an unresolvable location attests nothing, never a supervisor failure
+        attested = None
+    # Product Git metadata cannot attest the installed distribution.
+    return attested or {
+        "root": str(root if in_tree_source() else primary_root()), "head": None, "clean": False, "read_only": False,
+    }
 
 
 def _discard_read_only_scratch(record: dict) -> None:
