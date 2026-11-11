@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -126,9 +125,7 @@ def test_mint_score_roundtrip_pass_and_fail(tmp_path: Path, monkeypatch: pytest.
     )
 
     repo = tmp_path / "repo"
-    packaged = repo / "lu_machinery"
-    packaged.mkdir(parents=True)
-    shutil.copy2(machinery_path("context_canary.py"), packaged / "context_canary.py")
+    repo.mkdir()
     subprocess.run(["git", "init", "-q", "-b", "main", str(repo)], check=True, timeout=30)
     rc = gl.main(
         [
@@ -231,7 +228,7 @@ def test_score_offline_preserves_handback_and_launcher_instructions(
     monkeypatch.setenv("SESSION_STREAM_ID", "epic:999999")
 
     def offline_scorer(command, **kwargs):
-        assert command[1] == str(tmp_path / "lu_machinery" / "context_canary.py")
+        assert command[1] == str(machinery_path("context_canary.py"))
         assert command[command.index("--pass-ratio") + 1] == "0.8"
         return subprocess.CompletedProcess(command, score_rc, score_line + "\n", "")
 
