@@ -3229,10 +3229,9 @@ def record(
             # count, so its own verdict does not decide the status.
             current = lookup_verdict(comments, sha, login, low_tier=low_tier, second_review=second_required)
             state = "success" if current.state == "APPROVED" else "failure" if current.state in REJECTED else "pending"
-            if (
-                current.state == NEEDS_SEAT and second_required
-                and lookup_verdict(comments, sha, login, low_tier=low_tier).state == "APPROVED"
-            ):
+            # Every other seat has approved; only the Carbon second review is missing.
+            carbon_wait = second_required and lookup_verdict(comments, sha, login, low_tier=low_tier).state == "APPROVED"
+            if carbon_wait and state == "pending":
                 pending_reason = "; awaiting Carbon second review (quota/timeout: re-run or escalate)"
             elif current.state == NEEDS_SEAT and mixed_pair:
                 pending_reason = "; awaiting Anthropic/OpenAI review pair"
