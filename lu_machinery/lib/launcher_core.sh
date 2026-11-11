@@ -2,6 +2,17 @@
 # Shared lifecycle for the public launcher estate. Provider adapters own every
 # route, credential, endpoint, and binary decision; this file owns only the
 # uniform public CLI and driver lifecycle.
+#
+# A consumer's root wrapper (start-*.sh in the product checkout) loads the
+# installed release's copy of this file. The product interpreter names the
+# release it imports, as the installed hooks find theirs, and the wrapper names
+# its own checkout as the product (launcher_resolve_product_root):
+#   ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+#   export LU_PRODUCT_ROOT="$ROOT"
+#   LU_MACHINERY_DIR="$("${LEARN_UKRAINIAN_PYTHON:-$ROOT/.venv/bin/python}" -I -c 'import os, lu_machinery; print(os.path.dirname(os.path.abspath(lu_machinery.__file__)))')"
+#   source "$LU_MACHINERY_DIR/lib/launcher_core.sh"
+# Under `set -e` a failed lookup stops the wrapper before it sources anything. A
+# linked worktree without its own .venv sets LEARN_UKRAINIAN_PYTHON.
 
 # Fixed arguments a public wrapper adds to its caller's argv: launcher options
 # (the CTO lane) and leading provider arguments (the bio
@@ -124,7 +135,7 @@ launcher_usage() {
   GLMCC_SECRET_FILE        Override path for the file-backed Z.AI key.' ;;
   esac
   case "$LC_PROVIDER:$LC_MODE" in
-    gemini:interactive) example_three='./start-gemini.sh --model gemini-3.8-flash-high' ;;
+    gemini:interactive) example_three='./start-gemini.sh --model gemini-4-carbon-medium' ;;
     glm:interactive) example_three='./start-glmcc.sh --endpoint coding' ;;
     *:driver) example_three="./${name} --epic devops"$'\n'"  ./${name} --epic infra --force" ;;
     *) example_three="./start-${LC_PROVIDER}-driver.sh --epic devops" ;;
@@ -156,7 +167,7 @@ Options:
                              an empty model or a forwarded --model. Gemini driver
                              default: gemini-3.8-flash-high (only certified id);
                              Gemini interactive default:
-                             gemini-3.8-flash-high. Claude interactive: omit to use
+                             gemini-4-carbon-medium. Claude interactive: omit to use
                              project settings (Sonnet 5.5). Grok: omit to keep
                              last TUI/session model.
   --effort LEVEL             Session effort when supported (Claude Code --effort; Grok
@@ -388,8 +399,13 @@ launcher_defaults() {
       LC_HARNESS="${LAUNCHER_HARNESS:-codex}"
       ;;
     gemini)
-      # Both modes use the subscribed Flash pin (operator 2026-10-23).
-      LC_MODEL="${LAUNCHER_MODEL:-gemini-3.8-flash-high}"
+      # The driver keeps the certified Flash seat; interactive sessions use the
+      # Carbon medium work route (operator 2026-11-10).
+      if [ "$LC_MODE" = driver ]; then
+        LC_MODEL="${LAUNCHER_MODEL:-gemini-3.8-flash-high}"
+      else
+        LC_MODEL="${LAUNCHER_MODEL:-gemini-4-carbon-medium}"
+      fi
       LC_HARNESS="${LAUNCHER_HARNESS:-agy}"
       ;;
     muse)
