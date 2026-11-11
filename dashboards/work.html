@@ -161,11 +161,11 @@ button, input, select { font: inherit; }
   <section class="source-strip" aria-label="Source freshness">
     <article class="source-card" id="source-public">
       <strong>public-monitor</strong>
-      <span id="source-public-meta">Loading…</span>
+      <span id="source-public-meta">Choose a lane</span>
     </article>
     <article class="source-card" id="source-private">
       <strong>private-local-adapter</strong>
-      <span id="source-private-meta">Checking capability…</span>
+      <span id="source-private-meta">Choose a lane</span>
     </article>
   </section>
 
@@ -292,7 +292,7 @@ button, input, select { font: inherit; }
 <script>
 (function () {
   const ALLOWED_FILTER_KEYS = new Set(['health', 'kind', 'lifecycle', 'orphan', 'repository_id', 'source_id', 'stream', 'view']);
-  const LANE_STREAMS = ['atlas-practice', 'core-quality', 'corpus-channels', 'curriculum-upgrade', 'devops', 'docs-knowledge', 'epics', 'hramatka', 'infra-harness', 'monitor', 'open-model-data', 'seminars-bio', 'seminars-cross', 'seminars-folk'];
+  const LANE_STREAMS = ['atlas-practice', 'core-quality', 'corpus-channels', 'curriculum-upgrade', 'devops', 'docs-knowledge', 'epics', 'hramatka', 'infra-harness', 'monitor', 'open-model-data', 'practice', 'seminars-bio', 'seminars-cross', 'seminars-folk'];
   const PUBLIC_SINGLETON_REPO = 'learn-ukrainian/learn-ukrainian.github.io';
   const PUBLIC_PROJECTION_URL = '/api/work/v1/projection';
   // Fixed constant — never configurable, never persisted, never rendered into shareable state.
@@ -1176,6 +1176,8 @@ button, input, select { font: inherit; }
       state.selectedId = null;
       state.selectedIndex = -1;
       showError('Choose a lane before loading the work projection.');
+      els.publicMeta.textContent = 'Choose a lane';
+      els.privateMeta.textContent = 'Choose a lane';
       els.list.innerHTML = '<div class="empty">Choose a lane. The full board is not loaded.</div>';
       els.list.removeAttribute('aria-busy');
       renderDetail(null);

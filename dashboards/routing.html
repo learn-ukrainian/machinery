@@ -623,8 +623,8 @@ function renderSubscriptions(routing) {
   agents['codex:a'] = accounts['codex:a'] || agents['codex:a'] || agents.codex;
   const inFlight = {...(routing.in_flight || {})};
   inFlight['codex:a'] = inFlight['codex:a'] ?? inFlight.codex;
-  // Live subscription lanes only — retired gemini CLI / glm stay off the roster.
-  const subscriptionLanes = ['cursor', 'claude', 'codex:a', 'codex:b', 'grok', 'agy'];
+  // Live subscription lanes only — retired gemini CLI, glm and grok stay off the roster.
+  const subscriptionLanes = ['cursor', 'claude', 'codex:a', 'codex:b', 'agy'];
   const rows = subscriptionLanes
     .map(name => {
       const agent = resolveSubscriptionAgent(agents, name) || {};
@@ -634,7 +634,7 @@ function renderSubscriptions(routing) {
       let windowsHtml = '';
 
       if (needLogin) {
-        const labels = isCursor ? ['Cursor Models', 'Other Models', 'Grok Bot'] : ['subscription window'];
+        const labels = isCursor ? ['Cursor Models', 'Other Models'] : ['subscription window'];
         windowsHtml = `<span class="pill need_login">NEED_LOGIN</span>` + labels.map(label =>
           renderWindowBlock(label, {}, { missingLabel: 'NEED_LOGIN', barClass: 'empty' })).join('');
       } else if (isCursor) {
@@ -642,7 +642,6 @@ function renderSubscriptions(routing) {
         windowsHtml = [
           renderWindowBlock('Cursor Models', pw.auto || {}, { missingLabel: needProbe ? 'NEED_PROBE' : 'unknown' }),
           renderWindowBlock('Other Models', pw.api || {}, { missingLabel: needProbe ? 'NEED_PROBE' : 'unknown' }),
-          renderWindowBlock('Grok Bot', pw.grok_bot || {}, { missingLabel: needProbe ? 'NEED_PROBE' : 'unknown' }),
         ].join('');
       } else {
         const allWindows = collectSubscriptionWindows(agent);

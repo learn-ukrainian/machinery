@@ -90,20 +90,18 @@ def test_runtime_panels_paint_independently_and_empty_is_not_error():
         _DOM
         + r"""
 const calls = [], painted = [], banners = {};
-let resolveAcpx;
-const pendingAcpx = new Promise(resolve => {resolveAcpx = resolve;});
+let rejectRouting;
+const pendingRouting = new Promise((resolve, reject) => {rejectRouting = reject;});
 const fetchJson = async url => {
   calls.push(url);
-  if (url.includes('/acpx')) return pendingAcpx;
   if (url.endsWith('/agents')) return {agents: []};
-  if (url.includes('/routing-assignments')) throw new Error('unavailable');
+  if (url.includes('/routing-assignments')) return pendingRouting;
   return {};
 };
 const setBanner = (id, text) => banners[id] = text;
 const renderAgents = () => painted.push('agents');
 const renderUsage = () => painted.push('usage');
 const renderRecent = () => painted.push('recent');
-const renderAcpx = () => painted.push('acpx');
 const renderRoutingAssignments = () => {};
 const renderHeadroom = () => {};
 """
@@ -113,14 +111,14 @@ const renderHeadroom = () => {};
   const first = loadRuntime();
   await tick();
   assert.deepEqual(painted.sort(), ['agents', 'recent', 'usage']);
-  assert.equal(calls.length, 5);
+  assert.equal(calls.length, 4);
   await loadRuntime();
-  assert.equal(calls.length, 5, 'overlap must not duplicate requests');
+  assert.equal(calls.length, 4, 'overlap must not duplicate requests');
   assert.match(document.getElementById('headroom-content').innerHTML, /No runtime agents/);
   assert.equal(banners['headroom-banner'], '');
-  assert.match(document.getElementById('routing-assignments-status').textContent, /unknown/);
-  resolveAcpx({});
+  rejectRouting(new Error('unavailable'));
   await first;
+  assert.match(document.getElementById('routing-assignments-status').textContent, /unknown/);
   assert.match(document.getElementById('last-refresh').textContent, /Refresh attempted/);
 })().catch(e => {console.error(e); process.exitCode = 1;});
 """

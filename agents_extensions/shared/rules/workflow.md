@@ -665,7 +665,7 @@ directory. Canonical text: `docs/best-practices/test-quality.md`.
 Do not write (all qualifiers must hold):
 - **D1** asserts only what a runtime-enforced schema/validator already rejects AND
   another kept test exercises that rejection. Python annotations are not runtime
-  enforcement; schema-rejection tests (e.g. `tests/api/test_fleet_board_v1.py:80-110`) stay.
+  enforcement; schema-rejection tests (e.g. `tests/orchestration/test_task_identity.py:76-89`) stay.
 - **D2** asserts only that a mock was called, where the call is not itself the
   contract. Interaction contracts stay: dispatch destination, read-only access, no
   network/process launch, exactly-once cleanup (e.g. `tests/test_mcp_sources_server.py:823-827`).
@@ -677,7 +677,7 @@ Do not write (all qualifiers must hold):
 - **D5** speed claim (wall-clock "is fast") or fixed real sleep to force ordering.
   Bounded-liveness/stall guards and documented budgets stay until an equivalent
   replacement passes (`tests/api/test_context_cost.py:178-198`,
-  `tests/api/test_fleet_board_ops.py:92-120`). Deterministic-clock tests are never
+  `tests/api/test_github_graphql_budget.py:132-139`). Deterministic-clock tests are never
   "timer" tests.
 - **D6** incidental wording/format assertions. Required CLI help sections and
   exit-code descriptions (`cli-help-standard.md:11-26`; e.g.
