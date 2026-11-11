@@ -67,3 +67,21 @@ def classify_pr_files(rows: object, *, table_path: Path | None = None) -> Review
         return result
     except (OSError, UnicodeError, ValueError, TypeError, yaml.YAMLError):
         return "high"
+
+
+def requires_second_review(rows: object, *, table_path: Path | None = None) -> bool:
+    """Whether landing needs the binding second review (operator 2026-11-11).
+
+    True for a High-tier PR (``classify_pr_files``) or one that changes a security-sensitive
+    path (``security_paths``); the latter lists files the tier table does not. The trigger is
+    the changed paths alone: a declared review risk never adds or removes it. Unreadable or
+    unclassifiable input requires it.
+    """
+    from lu_machinery.review.security_paths import is_security_sensitive_change
+
+    try:
+        if classify_pr_files(rows, table_path=table_path) == "high":
+            return True
+        return is_security_sensitive_change(pr_file_paths(rows))
+    except Exception:  # unreadable input never waives the second review
+        return True

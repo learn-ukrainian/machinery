@@ -50,7 +50,7 @@ def transport(calls, *, subject="clean (#1)", body="* clean", queue=True, head=H
         elif args[:3] == ["gh", "pr", "checks"]:
             value = []
         elif args[:4] == ["gh", "api", "--method", "GET"]:
-            value = ([[{"filename": "scripts/example.py"}]] if "/pulls/1/files" in args[4]
+            value = ([[{"filename": "scripts/example.py", "status": "modified"}]] if "/pulls/1/files" in args[4]
                      else [[recorded_approval(HEAD)]] if "/issues/1/comments" in args[4]
                      else {"login": "unit"})
         elif args[:5] == ["gh", "api", "--method", "POST", "graphql"]:
@@ -270,7 +270,7 @@ def priority_transport(calls, *, labels, timeline):
     queued = []
     base = transport(calls, queue=True, queued=queued)
     approval = recorded_approval(HEAD, "fleet")
-    pages = {"/comments": [[approval]], "/files": [[{"filename": "scripts/example.py"}]], "/timeline": [timeline]}
+    pages = {"/comments": [[approval]], "/files": [[{"filename": "scripts/example.py", "status": "modified"}]], "/timeline": [timeline]}
 
     def send(args, **kwargs):
         if args[:3] == ["gh", "pr", "view"] and "labels" in args[args.index("--json") + 1]:

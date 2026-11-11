@@ -82,7 +82,7 @@ class Transport:
             if "/issues/42/comments" in argv[4]:
                 seats: object = [[approval()]]
             elif "/pulls/42/files" in argv[4]:
-                seats = [[{"filename": "scripts/example.py"}]]
+                seats = [[{"filename": "scripts/example.py", "status": "modified"}]]
             else:
                 seats = {"login": "driver"}
             return subprocess.CompletedProcess(argv, 0, json.dumps(seats), "")

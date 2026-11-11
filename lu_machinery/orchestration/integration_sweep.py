@@ -86,7 +86,8 @@ _ITEM_LIST = rf"{_ITEM_ID}(?:,{_ITEM_ID})*"
 VOID_QUOTE_MISMATCH = "quote-mismatch"
 VOID_REVIEWER_BOOKKEEPING = "reviewer-bookkeeping"
 CHUNK_VOIDS = frozenset({VOID_QUOTE_MISMATCH, VOID_REVIEWER_BOOKKEEPING})
-MARKER = re.compile(
+# Applied with fullmatch to one trailer line: literal-keyed optional tokens, anchored at \Z, no nested quantifier.
+MARKER = re.compile(  # nosemgrep: python.lang.security.audit.regex_dos
     r"<!-- cf-verdict v1 sha=(?P<sha>[0-9a-f]{40}) task=(?P<task>[^\s]+) "
     r"started=(?P<started>[^\s]+) verdict=(?P<verdict>APPROVED|APPROVE|CHANGES_REQUESTED|BLOCKED) "
     r"model=(?P<model>[^\s]+) family=(?P<family>[^\s]+)(?: review_mode=(?P<review_mode>red_team))?"
@@ -95,8 +96,12 @@ MARKER = re.compile(
     r"(?: review_profile=(?P<review_profile>ukrainian))?(?: sources_calls=(?P<sources_calls>[0-9]+))?"
     rf"(?: denominator=(?P<denominator>{_ITEM_LIST}))?(?: coverage=(?P<coverage>-|{_ITEM_LIST}))?"
     rf"(?: void=(?P<void>{VOID_QUOTE_MISMATCH}|{VOID_REVIEWER_BOOKKEEPING}))?"
-    r"(?: review_pair=(?P<review_pair>anthropic_openai) scope_commits=(?P<scope_commits>[0-9a-f]{40}(?:,[0-9a-f]{40})*))? -->\Z"
+    r"(?: review_pair=(?P<review_pair>anthropic_openai) scope_commits=(?P<scope_commits>[0-9a-f]{40}(?:,[0-9a-f]{40})*))?"
+    r"(?: second_review=(?P<second_review>carbon))? -->\Z"
 )
+# The marker token, and its readable line, of a binding second review (operator 2026-11-11).
+SECOND_REVIEW_TOKEN = "carbon"
+SECOND_REVIEW_LINE = f"Second review: {SECOND_REVIEW_TOKEN}"
 MARKER_PREFIX = CF_VERDICT_MARKER_PREFIX
 # Stable reason codes for an ``unknown`` verdict (#11127); consumers may match on them.
 COMMENTS_UNAVAILABLE = "comments-unavailable"  # lookup failed, partial, or not a comment list
@@ -253,6 +258,40 @@ def _edited(comment: Mapping[str, Any]) -> bool:
     return created is None or updated is None or created != updated
 
 
+def second_reviewer_policy() -> Mapping[str, Any]:
+    """The catalog's ``review_scheduler.second_reviewer`` row; ValueError when absent or malformed."""
+    from lu_machinery.review.model_catalog import load_model_catalog
+
+    try:
+        row = (load_model_catalog().get("review_scheduler") or {}).get("second_reviewer")
+    except Exception as error:  # an unreadable catalog never names the second reviewer
+        raise ValueError(f"model catalog unreadable: {type(error).__name__}") from None
+    if (
+        not isinstance(row, Mapping)
+        or not isinstance(row.get("model"), str)
+        or not isinstance(row.get("route"), str)
+        or not isinstance(row.get("not_for_author_families"), list)
+    ):
+        raise ValueError("review_scheduler.second_reviewer is missing or malformed")
+    return row
+
+
+def is_second_reviewer_model(model: object) -> bool:
+    """True when ``model`` names the catalog's second reviewer (any of its wire or runtime ids)."""
+    from lu_machinery.review.model_catalog import resolve_catalog_model_id
+
+    try:
+        expected = second_reviewer_policy()["model"]
+        return isinstance(model, str) and resolve_catalog_model_id(model) == expected
+    except Exception:  # an unreadable catalog or identity never names the second reviewer
+        return False
+
+
+def is_second_review(marker: Mapping[str, Any]) -> bool:
+    """A recorder-verified binding second review (``second_review=carbon``), never the reviewer of record."""
+    return marker.get("second_review") == SECOND_REVIEW_TOKEN
+
+
 def parse_marker(body: str) -> dict[str, Any] | None:
     """Accept an intact terminal marker; Ukrainian reviews need positive Sources calls."""
     match = _terminal_marker(body)
@@ -271,6 +310,7 @@ def parse_marker(body: str) -> dict[str, Any] | None:
     raw_coverage = item.pop("coverage")
     raw_void = item.pop("void")
     pair = item.pop("review_pair")
+    second = item.pop("second_review")
     raw_scope = item.pop("scope_commits")
     scope = raw_scope.split(",") if raw_scope is not None else None
     if scope is not None and (
@@ -287,6 +327,12 @@ def parse_marker(body: str) -> dict[str, Any] | None:
     ):
         return None
     if raw_void is not None and raw_void not in CHUNK_VOIDS:
+        return None
+    # A second review is a whole-head code/infra record of the catalog's second reviewer, nothing else.
+    if second is not None and (
+        pair is not None or profile is not None or raw_denominator is not None or item["review_mode"] is not None
+        or item["family"] != "google" or not is_second_reviewer_model(item["model"])
+    ):
         return None
     # The record's own lines end where the recorder opens the reply, or, in a record
     # without a reply, at the trailer; nothing else in the body can end them early (#12020).
@@ -351,6 +397,8 @@ def parse_marker(body: str) -> dict[str, Any] | None:
         identity.append("Coverage: " + (",".join(coverage or ()) if coverage else "-"))
     if raw_void is not None:
         identity.append(f"Chunk void: {raw_void}")
+    if second is not None:
+        identity.append(SECOND_REVIEW_LINE)
     if any(line not in readable for line in identity):
         return None
     # Every readable line is one the recorder writes for these trailer fields, so an
@@ -379,6 +427,8 @@ def parse_marker(body: str) -> dict[str, Any] | None:
             return None
         item["review_pair"] = pair
         item["scope_commits"] = tuple(scope)
+    if second is not None:
+        item["second_review"] = second
     item["verdict"] = VERDICT_ALIASES.get(item["verdict"], item["verdict"])
     if raw_denominator is not None:
         item["denominator"] = denominator
@@ -586,6 +636,18 @@ def _repair_receipt_blocks(body: str, sha: str) -> bool:
     return False
 
 
+def _second_review_exempt(markers: Sequence[Mapping[str, Any]]) -> bool:
+    """True only when an attested author is of a family the second reviewer may not review.
+
+    Unattested authors, and an unreadable second-reviewer policy, keep the requirement.
+    """
+    try:
+        excluded = set(second_reviewer_policy()["not_for_author_families"])
+    except ValueError:
+        return False
+    return bool(excluded & attested_author_families(markers))
+
+
 def _mixed_pair_pending(candidates: Sequence[tuple[datetime, tuple[datetime, int], dict[str, Any]]]) -> bool:
     """A trusted mixed-family code record needs both scoped exact-head approvals."""
     families = frozenset({"anthropic", "openai"})
@@ -623,6 +685,7 @@ def lookup_verdict(
     complete: bool = True,
     learner_content: bool = False,
     low_tier: bool | None = None,
+    second_review: bool = False,
 ) -> Verdict:
     """Resolve one SHA's verdict; malformed or edited evidence for it poisons it.
 
@@ -644,6 +707,11 @@ def lookup_verdict(
     None preserves the historical reading for callers inspecting prior verdicts.
     Only Low admits an unscoped same-family code approval. Scoped pair records
     never prove whole-head non-authorship at Low; rejections stand at every tier.
+    ``second_review`` (``tiers.requires_second_review`` of the PR's files) also
+    requires a recorder-verified second-review APPROVE (``second_review=carbon``)
+    unless an attested author is of the second reviewer's family. The second
+    reviewer's approvals never approve, win or prove a seat on their own,
+    tokened or not; its rejections stand like any other.
     """
     if not complete or not isinstance(comments, Sequence) or isinstance(comments, (str, bytes)):
         return Verdict("unknown", reason=COMMENTS_UNAVAILABLE)
@@ -743,6 +811,19 @@ def lookup_verdict(
             or is_ukrainian_review(item[2]) or item[2].get("review_pair")
             or item[2]["family"] not in attested_author_families([item[2]])
         ]
+    second_approved = any(
+        is_second_review(item[2]) and item[2]["verdict"] not in REJECTED for item in candidates
+    )
+    # The second reviewer is never the reviewer of record: only its rejections stay candidates.
+    candidates = [
+        item for item in candidates
+        if item[2]["verdict"] in REJECTED
+        or not (is_second_review(item[2]) or is_second_reviewer_model(item[2]["model"]))
+    ]
+    second_pending = (
+        second_review and bool(candidates) and not second_approved
+        and not _second_review_exempt([item[2] for item in candidates])
+    )
     if not candidates:
         state = "CF-unrecorded" if legacy else "CF-stale" if other_head else "needs-CF"
         return Verdict(state, untrusted_markers=tuple(untrusted), superseded_markers=tuple(superseded))
@@ -751,7 +832,7 @@ def lookup_verdict(
         state, marker, seats, reason, index, started = covered
         if reason is not None:
             return unknown(reason, index, comments[index])
-        if state == "APPROVED" and not low_tier and _mixed_pair_pending(candidates):
+        if state == "APPROVED" and ((not low_tier and _mixed_pair_pending(candidates)) or second_pending):
             state = NEEDS_SEAT
         return Verdict(
             state,
@@ -784,6 +865,8 @@ def lookup_verdict(
         # Ukrainian verdict the authors are unattested, so both seats are required (#12181).
         state = NEEDS_SEAT
     if not standing and not low_tier and _mixed_pair_pending(candidates):
+        state = NEEDS_SEAT
+    if state == "APPROVED" and second_pending:
         state = NEEDS_SEAT
     return Verdict(
         state,
@@ -1204,7 +1287,7 @@ class GitHubAdapter:
 
 
 def run(adapter: GitHubAdapter, repository: str, *, now: datetime | None = None) -> list[PRReport]:
-    from lu_machinery.review.tiers import classify_pr_files
+    from lu_machinery.review.tiers import classify_pr_files, requires_second_review
 
     observed = (now or datetime.now(UTC)).isoformat(timespec="microseconds")
     prs = adapter.list_open_prs(repository)
@@ -1224,6 +1307,7 @@ def run(adapter: GitHubAdapter, repository: str, *, now: datetime | None = None)
             content = changes_learner_content(pr_file_paths(files))
             verdict = lookup_verdict(
                 comments, head, login, learner_content=content, low_tier=classify_pr_files(files) == "low",
+                second_review=requires_second_review(files),
             )
         except SweepError:
             verdict = Verdict("unknown", reason=COMMENTS_UNAVAILABLE)

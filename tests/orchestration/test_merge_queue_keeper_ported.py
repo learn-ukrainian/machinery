@@ -135,7 +135,7 @@ class FakeGitHub:
         return list(self.comments_rows)
 
     def pr_file_rows(self, number: int) -> list[dict[str, str]]:
-        return [{"filename": path} for path in self.files]
+        return [{"filename": path, "status": "modified"} for path in self.files]
 
     def pr_files(self, number: int) -> list[str]:
         return list(self.files)
@@ -287,7 +287,12 @@ def test_review_contract_change_without_canary_evidence_is_not_enqueued(tmp_path
     # #12399: an approved green contract change waits for a live canary on every reviewer route.
     fake = FakeGitHub()
     fake.files = ["lu_machinery/example.py", "lu_machinery/review/review_contract.py"]
-    fake.comments_rows = [recorded("APPROVED", "2026-09-23T12:00:00.000001+00:00")]
+    carbon = recorded("APPROVED", "2026-09-23T12:00:00.000001+00:00")
+    carbon["body"] = build_comment(
+        sha=HEAD_A, task_id="review-carbon", started="2026-09-23T12:00:00.000001+00:00", verdict="APPROVED",
+        model="gemini-4-carbon-medium", family="google", reply="VERDICT: APPROVED", second_review=True,
+    )
+    fake.comments_rows = [recorded("APPROVED", "2026-09-23T12:00:00.000001+00:00"), carbon]
     lines, failed = keeper.run(fake, tmp_path / "state.json", apply=True)
     assert not failed
     assert "enqueue" not in mutations(fake)

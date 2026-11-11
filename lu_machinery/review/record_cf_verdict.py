@@ -72,10 +72,13 @@ from lu_machinery.orchestration.integration_sweep import (
     MARKER_PREFIX,
     NEEDS_SEAT,
     REJECTED,
+    SECOND_REVIEW_LINE,
+    SECOND_REVIEW_TOKEN,
     SHA,
     TRUSTED_ASSOCIATIONS,
     GitHubAdapter,
     SweepError,
+    is_second_reviewer_model,
     lookup_verdict,
     parse_marker,
     recorded_p3_residuals,
@@ -128,7 +131,7 @@ from lu_machinery.review.role_resolution import resolve_routing_reference
 from lu_machinery.review.security_paths import git_changed_paths, is_security_sensitive_change
 from lu_machinery.review.subject_seat import prepare_subject_exclusion
 from lu_machinery.review.target_resolution import TargetResolutionError, resolve_review_repository
-from lu_machinery.review.tiers import classify_pr_files
+from lu_machinery.review.tiers import classify_pr_files, requires_second_review
 from lu_machinery.review.ukrainian_seats import (
     UKRAINIAN_SEAT_ROUTES,
     attested_author_families,
@@ -1616,9 +1619,37 @@ def _task_flag_values(task: dict[str, Any], key: str) -> tuple[str, ...]:
     return tuple(value)
 
 
+def _require_second_reviewer(
+    facts: BranchReviewFacts, *, task: dict[str, Any], model: str, family: str, review_mode: str, required: bool,
+) -> None:
+    """Qualify a binding second review (operator 2026-11-11) from the completed task itself.
+
+    Only the catalog's second reviewer, on its catalog route, reviewing the whole head of a
+    PR that needs one (``tiers.requires_second_review``) in cross-family code or infra mode,
+    authored by no family it may not review. It never qualifies as the reviewer of record.
+    """
+    from lu_machinery.orchestration.integration_sweep import second_reviewer_policy
+
+    try:
+        policy = second_reviewer_policy()
+    except ValueError as exc:
+        raise RecordError(f"second review refused: {exc}") from exc
+    if resolve_catalog_model_id(model) != policy["model"] or not is_second_reviewer_model(model):
+        raise RecordError(f"second review refused: {model!r} is not the catalog's second reviewer")
+    if normalize_seat(str(task.get("agent") or "")) != policy["route"]:
+        raise RecordError(f"second review refused: the second reviewer runs only through {policy['route']}")
+    profile = str(task.get("review_profile") or "code").strip().casefold()
+    if review_mode != "cross_family" or profile not in {"code", "infra"} or is_ukrainian_review(task):
+        raise RecordError("second review refused: it is a cross-family code or infra review only")
+    if not required:
+        raise RecordError("second review refused: this PR is neither High tier nor security-sensitive")
+    if family in facts.excluded_families or set(policy["not_for_author_families"]) & set(facts.excluded_families):
+        raise RecordError("second review refused: an author is of the second reviewer's family")
+
+
 def _require_qualified_reviewer(
     facts: BranchReviewFacts, *, task: dict[str, Any], model: str, family: str, review_mode: str = "cross_family",
-    low_tier: bool = False,
+    low_tier: bool = False, second_review: bool = False, second_required: bool = True,
 ) -> None:
     """Evaluate the actual reviewer against the resolver's rules on the branch facts (AC-01).
 
@@ -1628,6 +1659,16 @@ def _require_qualified_reviewer(
     review's recorded ``review_risk`` (the resolver default when absent);
     path inference only raises it.
     """
+    if second_review:
+        _require_second_reviewer(
+            facts, task=task, model=model, family=family, review_mode=review_mode, required=second_required,
+        )
+        return
+    if is_second_reviewer_model(model):
+        raise RecordError(
+            "reviewer not qualified: Carbon is a binding second reviewer only, never the reviewer of record; "
+            "record its review with --second-review"
+        )
     profile = str(task.get("review_profile") or "code").strip().casefold()
     # Seat aliases (``grok-build``) name the canonical route the catalog lists.
     agent = normalize_seat(str(task.get("agent") or "")) or ""
@@ -1746,6 +1787,7 @@ def build_comment(
     residuals: Iterable[str] | None = None,
     repair_withheld: bool = False,
     scope_commits: Iterable[str] | None = None,
+    second_review: bool = False,
 ) -> str:
     if not SHA.fullmatch(sha):
         raise RecordError("reviewed SHA must be a full 40-hex commit SHA")
@@ -1791,10 +1833,16 @@ def build_comment(
         other = next(iter(MIXED_REVIEW_FAMILIES - {family}))
         pair_field = f" review_pair=anthropic_openai scope_commits={scope_token}"
         pair_lines = f"Review pair: anthropic_openai\nScope author family: {other}\nScope commits: {scope_token}\n"
+    second_field = second_line = ""
+    if second_review:
+        if scope_commits is not None or review_mode != "cross_family" or ukrainian or tokens is not None:
+            raise RecordError("a second review is a whole-head cross-family code/infra record")
+        second_field = f" second_review={SECOND_REVIEW_TOKEN}"
+        second_line = f"{SECOND_REVIEW_LINE}\n"
     marker = (
         f"<!-- cf-verdict v1 sha={sha} task={task_id} started={started} verdict={verdict} "
         f"model={model} family={family}{mode_field}{history_field}{authorship_field}{profile_field}{sources_field}"
-        f"{coverage_field}{pair_field} -->"
+        f"{coverage_field}{pair_field}{second_field} -->"
     )
     prefix = (
         ("### Adversarial red-team review\n" if review_mode == "red_team" else "### Cross-family review\n")
@@ -1816,6 +1864,7 @@ def build_comment(
         + f"Task id: {task_id}\n"
         + coverage_lines
         + pair_lines
+        + second_line
         + "\n"
     )
     residual_ids = tuple(residuals or ())
@@ -2872,6 +2921,7 @@ def record(
     lock_root: Path | None = None,
     review_mode: str | None = None,
     red_team_prompt: Path | None = None,
+    second_review: bool = False,
 ) -> dict[str, Any]:
     root = _repo_root() if task_root is None or lock_root is None else None
     task_root = task_root or root / "batch_state" / "tasks"
@@ -2944,14 +2994,21 @@ def record(
             raise RecordError("unknown history conflicts with completed review task")
     if not facts.existing_families:
         raise RecordError("PR has no attributed author commits")
-    low_tier = False
-    if not ukrainian and review_mode == "cross_family":
-        try:
-            low_tier = classify_pr_files(GitHubAdapter(review_root).pr_file_rows(repository, number)) == "low"
-        except SweepError:
-            # Unavailable files never grant the Low-tier exception.
-            low_tier = False
-    mixed_pair = review_mode == "cross_family" and not ukrainian and not low_tier and facts.mixed_family
+    file_rows: list[dict[str, Any]] | None
+    try:
+        file_rows = GitHubAdapter(review_root).pr_file_rows(repository, number)
+    except SweepError:
+        # Unavailable files never grant the Low-tier exception and never waive the second review.
+        file_rows = None
+    low_tier = file_rows is not None and not ukrainian and review_mode == "cross_family" and (
+        classify_pr_files(file_rows) == "low"
+    )
+    second_required = file_rows is None or requires_second_review(file_rows)
+    if second_review and review_mode != "cross_family":
+        raise RecordError("second review refused: it is a cross-family code or infra review only")
+    mixed_pair = (
+        review_mode == "cross_family" and not ukrainian and not low_tier and not second_review and facts.mixed_family
+    )
     scope = facts.reviewer_scope(family) if mixed_pair else facts
     if review_mode == "red_team" or mixed_pair or low_tier:
         if low_tier and any(
@@ -2982,7 +3039,10 @@ def record(
     require_resolved_branch_authors(facts)
     if review_mode != "red_team" and not low_tier and family in scope.excluded_families:
         raise RecordError("reviewer family equals an author family")
-    _require_qualified_reviewer(facts, task=task, model=model, family=family, review_mode=review_mode, low_tier=low_tier)
+    _require_qualified_reviewer(
+        facts, task=task, model=model, family=family, review_mode=review_mode, low_tier=low_tier,
+        second_review=second_review, second_required=second_required,
+    )
     adapter = GitHubAdapter(Path.cwd())
     login = adapter.identity()
     reply = repository_relative_reply(reply, task=task, primary_root=review_root)
@@ -3015,6 +3075,7 @@ def record(
         void=None if chunk is None else chunk.void,
         residuals=residuals,
         scope_commits=tuple(commit.sha for commit in scope.commits) if mixed_pair else None,
+        second_review=second_review,
     )
     comment = build_comment(**comment_fields)
     # A cut reply is not verbatim, so it cannot become an approval.
@@ -3166,9 +3227,13 @@ def record(
             # approval alone: another Ukrainian seat may still be missing (#12020), and a
             # declared item denominator may still be short (#12257). A voided chunk does not
             # count, so its own verdict does not decide the status.
-            current = lookup_verdict(comments, sha, login, low_tier=low_tier)
+            current = lookup_verdict(comments, sha, login, low_tier=low_tier, second_review=second_required)
             state = "success" if current.state == "APPROVED" else "failure" if current.state in REJECTED else "pending"
-            if current.state == NEEDS_SEAT and mixed_pair:
+            # Every other seat has approved; only the Carbon second review is missing.
+            carbon_wait = second_required and lookup_verdict(comments, sha, login, low_tier=low_tier).state == "APPROVED"
+            if carbon_wait and state == "pending":
+                pending_reason = "; awaiting Carbon second review (quota/timeout: re-run or escalate)"
+            elif current.state == NEEDS_SEAT and mixed_pair:
                 pending_reason = "; awaiting Anthropic/OpenAI review pair"
             elif current.state == NEEDS_SEAT:
                 profiled = [
@@ -3469,7 +3534,10 @@ def republish_withheld(
         current_head=False,
     )
     reply = repository_relative_reply(reply, task=task, primary_root=review_root)
-    mixed_pair = review_mode == "cross_family" and not review.ukrainian and facts.mixed_family
+    mixed_pair = (
+        review_mode == "cross_family" and not review.ukrainian and not is_second_reviewer_model(review.model)
+        and facts.mixed_family
+    )
     scope = facts.reviewer_scope(review.family) if mixed_pair else facts
     comment_fields = dict(
         sha=review.sha,
@@ -3487,6 +3555,8 @@ def republish_withheld(
         score=review_score(reply),
         author_models=facts.author_models,
         scope_commits=tuple(commit.sha for commit in scope.commits) if mixed_pair else None,
+        # The second reviewer is recorded only as a second review, so its records carry the token.
+        second_review=is_second_reviewer_model(review.model),
     )
     withheld = build_comment(**{**comment_fields, "reply": ""}, withheld_findings=review.finding_count)
     comment = build_comment(**comment_fields)
@@ -3559,6 +3629,8 @@ def main(argv: list[str] | None = None) -> int:
         epilog=f"{RECORDER_EXAMPLES}  {RECORDER_COMMAND} --task-id review-unit --pr 1\n"
         f"  {RECORDER_COMMAND} --task-id review-unit --pr 1 "
         "--review-mode red_team --red-team-prompt brief.md\n"
+        f"  {RECORDER_COMMAND} --task-id carbon-review-unit --pr 1 --second-review\n"
+        "    (the binding Carbon second review of a High-tier or security-sensitive PR)\n"
         f"  {RECORDER_COMMAND} budget-check --repository owner/name --pr 1\n"
         "    (whether the next review round is admitted, before dispatch; see budget-check --help)\n"
         f"  {RECORDER_COMMAND} republish-withheld --task-id review-unit --pr 1\n"
@@ -3581,10 +3653,17 @@ def main(argv: list[str] | None = None) -> int:
         type=Path,
         help="Prompt file used by the completed red-team task; required for red_team, default: none",
     )
+    parser.add_argument(
+        "--second-review",
+        action="store_true",
+        help="Record the binding second review (the catalog's second reviewer, Carbon) of a High-tier or "
+        "security-sensitive PR; it never records the reviewer of record. Default: off",
+    )
     args = parser.parse_args(argv)
     try:
         result = record(
-            args.task_id, pr_number=args.pr, review_mode=args.review_mode, red_team_prompt=args.red_team_prompt
+            args.task_id, pr_number=args.pr, review_mode=args.review_mode, red_team_prompt=args.red_team_prompt,
+            second_review=args.second_review,
         )
     except (RecordError, SweepError, ValueError) as exc:
         print(f"CF verdict refused: {exc}")

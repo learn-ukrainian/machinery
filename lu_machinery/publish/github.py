@@ -579,7 +579,7 @@ def _refuse_incomplete_seats(dest, number, head, runner, cwd, environment):
         lookup_verdict,
         pr_file_paths,
     )
-    from lu_machinery.review.tiers import classify_pr_files
+    from lu_machinery.review.tiers import classify_pr_files, requires_second_review
 
     # The setting is explicit per repository; an absent, ambiguous or non-boolean one is unverifiable.
     rows = [
@@ -610,18 +610,30 @@ def _refuse_incomplete_seats(dest, number, head, runner, cwd, environment):
         paths = pr_file_paths(file_rows)
         low_tier = classify_pr_files(file_rows) == "low"
         content = changes_learner_content(paths)
-        state = lookup_verdict(
+        second = requires_second_review(file_rows)
+        verdict = lookup_verdict(
             [item for page in pages for item in page], head, login, learner_content=content, low_tier=low_tier,
-        ).state
+            second_review=second,
+        )
+        state = verdict.state
     except github_client.GitHubRateLimited:
         raise
     except Exception:
         raise gate.PublishBlocked("OPSEC: merge refused: review seats unverifiable.") from None
+    if state == NEEDS_SEAT and second and lookup_verdict(
+        [item for page in pages for item in page], head, login, learner_content=content, low_tier=low_tier,
+    ).state == "APPROVED":
+        raise gate.PublishBlocked(
+            "OPSEC: merge refused: the Carbon second review has not approved this head (High-tier or "
+            "security-sensitive PR). If Carbon is unavailable (an AGY quota 429 or a timeout), re-run it at this "
+            "head after the reset, or escalate to the operator; nothing waives this seat."
+        )
     if state == NEEDS_SEAT:
         raise gate.PublishBlocked("OPSEC: merge refused: a Ukrainian review seat has not approved this head.")
     if state not in {"APPROVED", "needs-CF"}:
         raise gate.PublishBlocked(f"OPSEC: merge refused: recorded review verdict is {state} at this head.")
-    if state == "needs-CF" and recorder:
+    # A PR that needs the second review needs a recorded review even where the recorder is optional.
+    if state == "needs-CF" and (recorder or second):
         requirement = "non-author" if low_tier else "cross-family"
         raise gate.PublishBlocked(
             f"OPSEC: merge refused: no {requirement} APPROVE from {_RECORDER} is recorded at {head}."
@@ -659,6 +671,7 @@ def _prepare_recovery(verb, fields, dest, cwd, environment, runner):
     """Resolve live PR/run identities and posted evidence before any recovery write."""
     from lu_machinery.gh_merge_queue_status import extract_pr_number
     from lu_machinery.orchestration.integration_sweep import changes_learner_content, lookup_verdict, pr_file_paths
+    from lu_machinery.review.tiers import requires_second_review
 
     def fetch(name, **selectors):
         unknown = "RECOVERY_LOOKUP_UNKNOWN: live evidence unavailable"
@@ -755,9 +768,14 @@ def _prepare_recovery(verb, fields, dest, cwd, environment, runner):
     if prior:
         raise gate.PublishBlocked(recovery.spent_reason(prior))
     comments = fetch("comments", number=number)
-    content = changes_learner_content(fetch("pr-files", number=number))
+    files = fetch("pr-files", number=number)
+    content = changes_learner_content(files)
     login = fetch("identity").get("login")
-    if not isinstance(login, str) or lookup_verdict(comments, head, login, learner_content=content).state != "APPROVED":
+    # The fetched list holds paths only; reading each as modified never lowers its tier.
+    second = requires_second_review([{"filename": path, "status": "modified"} for path in files])
+    if not isinstance(login, str) or lookup_verdict(
+        comments, head, login, learner_content=content, second_review=second,
+    ).state != "APPROVED":
         raise gate.PublishBlocked("RECOVERY_APPROVAL_MISSING: exact-head recorded approval required")
     evidence = recovery.evidence_from_comments(
         comments, number, head, authenticated_login=login, run_id=fields["number"]

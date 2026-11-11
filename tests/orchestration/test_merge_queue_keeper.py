@@ -415,3 +415,21 @@ def test_low_scoped_pair_cannot_replace_a_whole_head_non_author_approval(tmp_pat
         assert "reason=needs-CF" in lines[0]
         assert "enqueue" not in mutations(fake)
         assert ("dequeue" in mutations(fake)) is queued
+
+
+def test_queued_security_pr_without_carbon_second_review_is_revoked(tmp_path: Path) -> None:
+    """Defect class: the keeper keeps a security-sensitive PR queued on the reviewer of record alone."""
+    fake = FakeGitHub(pr(isInMergeQueue=True))
+    fake.files = ["lu_machinery/publish/github.py"]
+    fake.comments_rows = [recorded("APPROVED", "2026-09-23T12:00:00.000001+00:00")]
+    lines, failed = keeper.run(fake, tmp_path / "state.json", apply=True)
+    assert not failed
+    assert ("dequeue", "PR_node_42") in fake.actions
+    # The keeper reports every missing seat (NEEDS_SEAT included) as needs-CF.
+    assert "#42 revoked: needs-CF" in lines
+    # The same record keeps an ordinary PR queued.
+    ordinary = FakeGitHub(pr(isInMergeQueue=True))
+    ordinary.comments_rows = [recorded("APPROVED", "2026-09-23T12:00:00.000001+00:00")]
+    ordinary_lines, _ = keeper.run(ordinary, tmp_path / "ordinary.json", apply=True)
+    assert ("dequeue", "PR_node_42") not in ordinary.actions
+    assert not any("revoked" in line for line in ordinary_lines)

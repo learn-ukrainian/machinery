@@ -299,3 +299,38 @@ def test_fourth_default_tier_review_dispatch_is_refused_without_any_recorded_ver
 
 
 pytestmark = pytest.mark.usefixtures("configured_roots")
+
+
+def test_mixed_family_head_admits_the_carbon_second_review_dispatch(dispatch, monkeypatch, tmp_path, capsys):
+    """Defect class: the mandatory Carbon second review cannot be dispatched on a mixed-family head.
+
+    Carbon reviews the whole head, so the Anthropic/OpenAI pair narrowing does not apply to it; any
+    other Gemini reviewer is still refused there, and the reviewer-outside-every-author check stays.
+    """
+    repo, origin = tmp_path / "repo", tmp_path / "origin.git"
+    env = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
+    env.update(GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@example.invalid", GIT_COMMITTER_NAME="t",
+               GIT_COMMITTER_EMAIL="t@example.invalid")
+
+    def run(*args):
+        command = ["git", "-C", str(repo), *args]
+        return subprocess.run(command, check=True, capture_output=True, text=True, env=env, timeout=30).stdout.strip()
+
+    repo.mkdir()
+    run("init", "-q")
+    run("commit", "-q", "--allow-empty", "-m", "base")
+    run("init", "-q", "--bare", str(origin))
+    run("--git-dir", str(origin), "symbolic-ref", "HEAD", "refs/heads/main")
+    run("remote", "add", "origin", str(origin))
+    run("push", "-q", "origin", "HEAD:refs/heads/main")
+    for trailer in ("claude/claude-opus-5-5", "codex/gpt-6.1-sol"):
+        run("commit", "-q", "--allow-empty", "-m", f"work\n\nX-Agent: {trailer}")
+    head = run("rev-parse", "HEAD")
+    monkeypatch.setattr(git, "resolve_repo", lambda _: (repo, dict(key="public", github="example/public")))
+    monkeypatch.setattr(git, "review_branch_start", lambda *a, **k: head)
+    monkeypatch.setattr(git, "worktree_plan", lambda *a, **k: (tmp_path, "claude/branch", head))
+    monkeypatch.setattr(checks, "check_branch_author_families", BRANCH_AUTHOR_FAMILIES)
+    review = ("--mode", "read-only", "--branch", "review/target", "--review-profile", "infra", "--risk", "critical")
+    dispatch(*review, agent="agy", model="gemini-3.8-flash-high", expected=2)
+    assert "mixed-family review requires an Anthropic or OpenAI seat" in capsys.readouterr().err
+    assert dispatch(*review, agent="agy", model="gemini-4-carbon-medium")["model"] == "gemini-4-carbon-medium"
