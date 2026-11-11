@@ -6,6 +6,7 @@ Only the helpers that tests in this directory import are copied. Their bodies ar
 
 from __future__ import annotations
 
+import hashlib
 import http.client
 import http.server
 import json
@@ -14,7 +15,11 @@ import string
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+import yaml
+
 from lu_machinery.agent_runtime import attempt_boundary, env_sanitize
+from lu_machinery.agent_runtime.review_mcp import prepare_review_attempt
 
 DEFAULT_ACCOUNT_UUID = "00000000-0000-4000-8000-00000000000a"
 
@@ -188,3 +193,124 @@ def _mock_selected_account_runtime(tmp_path, monkeypatch):
     monkeypatch.setattr(http.client, "HTTPSConnection", ProfileConnection)
     return identities, calls
 
+
+
+
+
+def manifest_world(root: Path, kind: str) -> dict:
+    state = "curriculum/l2-uk-en/evidence/a1/_state/sample"
+    plans = "curriculum/l2-uk-en/lesson-plans/a1"
+    paths = {
+        "plan": f"{plans}/sample.yaml",
+        "pack": "curriculum/l2-uk-en/evidence/a1/sample.yaml",
+        "pack_lock": "curriculum/l2-uk-en/evidence/a1/sample.yaml.lock",
+        "words": "curriculum/l2-uk-en/evidence/a1/_words.yaml",
+        "words_lock": "curriculum/l2-uk-en/evidence/a1/_words.yaml.lock",
+        "decisions": f"{plans}/_decisions.yaml",
+    }
+    lesson = kind != "plan"
+    paths["learner_state"] = f"{state}/{'lesson-1' if lesson else 'plan-review'}.learner-state.yaml"
+    if lesson:
+        paths.update(
+            {
+                "lessons_lock": f"{state}/lessons.lock.yaml",
+                "lesson": "site/src/content/docs/a1/sample/1.mdx",
+                "provenance": f"{state}/lesson-1.provenance.yaml",
+                "gate_report": f"{state}/lesson-1.gates.yaml",
+                "style_card": "docs/style-cards/a1.md",
+            }
+        )
+    else:
+        paths.update(
+            {
+                "requirements": "docs/epics/fresh-build-requirements.md",
+                "arc": f"{plans}/_arc.yaml",
+                "arc_source": "docs/epics/fresh-build-a1-arc.md",
+                "scope": f"{plans}/_scope/sample.yaml",
+                "grammar": f"{plans}/_grammar.yaml",
+                "validate_report": f"{state}/plan-validate.report.json",
+                "pack_verify_report": f"{state}/pack-verify.report.json",
+            }
+        )
+
+    def pin(name: str) -> dict:
+        path = root / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("Authorized current input.\n")
+        return {"path": name, "sha256": hashlib.sha256(path.read_bytes()).hexdigest()}
+
+    doc = {
+        "manifest_schema": 1,
+        "kind": "lesson" if lesson else "plan",
+        "level": "a1",
+        "slug": "sample",
+        "inputs": {name: pin(path) for name, path in paths.items()},
+        "learner_state": {"sha256": "a" * 64, "source": "planned_state"},
+    }
+    if lesson:
+        doc.update(
+            {
+                "lesson": 1,
+                "lesson_kind": "lesson",
+                "recap": False,
+                "review_eligible": True,
+                "blocked_by": [],
+                "lesson_lock_entry": {"path": paths["lesson"], "lesson": 1, "entry_sha256": "a" * 64},
+                "module_digest": pin(f"{state}/digest-upto-1.yaml"),
+                "digest_generator_version": "1",
+                "upstream_lessons": [],
+                "previous_attempt": None,
+                "diff": None,
+            }
+        )
+        doc["inputs"]["activity_data"] = []
+        if kind == "rereview":
+            doc["previous_attempt"] = {
+                "attempt_id": "previous",
+                "review": pin(f"{state}/lesson-1.review.previous.yaml"),
+                "ledger": pin("batch_state/review-receipts/review/previous.jsonl"),
+            }
+            doc["diff"] = pin(f"{state}/lesson-1.diff.previous.{'a' * 16}.patch")
+    else:
+        doc["position"] = 1
+    return doc
+
+
+@pytest.fixture
+def world(tmp_path, monkeypatch):
+    # The curriculum pin policy lives in the product. Supply this test's
+    # already-frozen pins while exercising the real machinery boundary.
+    from lu_machinery.review.product_hooks import attempt_hooks
+
+    hooks = attempt_hooks()
+    monkeypatch.setattr(hooks, "pin_refusals", lambda manifest, root: [], raising=False)
+    monkeypatch.setattr(hooks, "pinned_entries", lambda manifest: list(manifest["inputs"].items()), raising=False)
+    root = tmp_path / "repository"
+    root.mkdir()
+    home = tmp_path / "old-home"
+    (home / ".codex").mkdir(parents=True)
+    (home / ".codex" / "auth.json").write_text("{}")
+    (home / ".codex" / "auth.json").chmod(0o600)
+    token = home / ".gemini" / "antigravity-cli" / "antigravity-oauth-token"
+    token.parent.mkdir(parents=True)
+    token.write_text("{}")
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("CODEX_HOME", str(home / ".codex"))
+    monkeypatch.setenv("AGY_APP_DATA_DIR", str(token.parent))
+    return root, home
+
+
+def attempt_config(root: Path, tmp_path: Path, manifest: dict, agent: str, *, review_access: str = "isolated") -> dict:
+    path = root / "attempt.yaml"
+    path.write_text(yaml.safe_dump(manifest))
+    plan = prepare_review_attempt(
+        "review", "current", path, agent, receipts_root=tmp_path / "receipts", review_access=review_access
+    )
+    return {
+        **plan.adapter_options,
+        "review_id": "review",
+        "attempt_id": "current",
+        "review_manifest": str(path),
+        "review_input_root": str(root),
+        "review_access": review_access,
+    }

@@ -5,7 +5,9 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import ipaddress
+import json
 import socket
+import sys
 import tempfile
 import threading
 import time
@@ -22,6 +24,13 @@ from lu_machinery.agent_runtime.attempt_network import (
     validate_answers,
 )
 from lu_machinery.common.repo_root import machinery_path
+from tests.agent_runtime.product_roots import agent_runtime_roots, configured_roots  # noqa: F401
+from lu_machinery.dispatcher import cli, git, store, worker
+from lu_machinery.dispatcher.types import TaskSpec
+from lu_machinery.agent_runtime import runner
+from lu_machinery.agent_runtime.adapters.base import InvocationPlan
+from lu_machinery.agent_runtime.result import ParseResult
+from tests.agent_runtime.attempt_boundary_support import attempt_config, manifest_world, world  # noqa: F401
 
 # Liveness guard (#9549): the longest a test waits on a child process, socket or
 # event-loop call before declaring it hung. It is never a performance
@@ -164,6 +173,7 @@ def test_success_is_byte_only_and_logs_no_payload(proxy, monkeypatch):
         while proxy.records[0]["bytes"] < 30 and time.monotonic() < deadline:
             time.sleep(.01)
         assert proxy.records == [{"destination": "api.provider.example:443", "bytes": 30}]
+        assert proxy.overflow_count == 0
     finally:
         stopped.set()
         listener.close()
@@ -343,3 +353,204 @@ def test_forwarder_cli_success_refusal_and_argument_contract(proxy, tmp_path, mo
     with pytest.raises(SystemExit) as error:
         attempt_forwarder.main()
     assert error.value.code == 2
+
+
+# Ported from learn-ukrainian PR 12953; exercise the persisted task record.
+
+
+@pytest.fixture(autouse=True)
+def egress_test_roots(agent_runtime_roots, monkeypatch):  # noqa: F811
+    monkeypatch.setenv("LEARN_UKRAINIAN_PYTHON", sys.executable)
+
+
+@pytest.fixture
+def attempt(tmp_path, monkeypatch):
+    monkeypatch.setenv("LU_TASKS_DIR", str(tmp_path / "tasks"))
+    manifest = tmp_path / "manifest.yaml"
+    manifest.write_text("inputs: []\n")
+    return ["--review-id", "review", "--attempt-id", "attempt", "--review-attempt", str(manifest)]
+
+
+@pytest.mark.parametrize("path_status", ["done", "failed", "timeout", "cancelled", "overcap"])
+@pytest.mark.parametrize("harness", ["codex", "claude", "agy"])
+def test_bound_attempt_runs_only_inside_the_attempt_boundary_with_the_exact_prompt(
+    attempt, tmp_path, monkeypatch, path_status, harness,
+):
+    """A bound attempt is claimed, prepared and run by the runtime's boundary, and its record binds the result.
+
+    Defect class: a bound review loses egress evidence on success, provider failure, timeout or cancellation (#12947).
+    """
+    import os
+    import socket
+    import tempfile
+    from pathlib import Path
+    from types import SimpleNamespace
+
+    from lu_machinery.agent_runtime import attempt_boundary, review_mcp, runner
+    from lu_machinery.agent_runtime.attempt_network import AttemptEgress
+
+    from lu_machinery.agent_runtime.errors import AgentTimeoutError, AgentUnavailableError
+    from lu_machinery.dispatcher import headroom
+    from lu_machinery.review.render_contract import trusted_core_context
+
+    destination_limit = 256
+    args = cli.build_parser().parse_args(["dispatch", "--agent", "sol", "--model", "gpt-6.1-sol", *attempt,
+                                          "--review-access", "full"])
+    binding = store.review_binding(vars(args))
+    prefix, dependency = trusted_core_context()
+    rendered = (prefix + "Rendered review prompt\nattempt: review/attempt\n").encode()
+    prompt = cli._PromptPath(tmp_path / "tasks" / "task.prompt")
+    prompt.content = rendered
+    workspace = tmp_path / "checkout"
+    workspace.mkdir()
+    spec = TaskSpec("task", harness, "gpt-6.1-sol", "high", "read-only", workspace, prompt,
+                    tmp_path / "tasks" / "task.result", options=dict(review_attempt=str(tmp_path / "manifest.yaml")))
+    record = store.new_record(spec, dict(key="public", github="example/public"), "codex/task", "a" * 40,
+                              dict(vars(args), research_owned_path=[]), binding=binding)
+    record["review_contract"] = dict(input_root=str(tmp_path), machinery_dependencies={"rules_core": dependency},
+                                     prompt_sha256=store.digest(rendered))
+    path = store.create(record, rendered)
+
+    for name in ("check_plan", "check_runtime"):
+        monkeypatch.setattr(headroom, name, lambda *_a, **_k: None)
+    monkeypatch.setattr(worker, "_reap_settled", lambda *_a, **_k: None)
+    monkeypatch.setattr(worker, "settle_left_worktrees", lambda *_a, **_k: None)
+    monkeypatch.setattr(git, "snapshot_delivery", lambda *_a: {})
+    trees = []
+    monkeypatch.setattr(attempt_boundary, "verify_full_review_tree", lambda *a: trees.append(a))
+    receipts = tmp_path / "review-receipts" / "review"
+
+    def prepare(review_id, attempt_id, manifest, harness, **kwargs):
+        # The supervisor has claimed the attempt before preparing it on that claim.
+        assert (receipts / "attempt.jsonl").read_bytes() == b"" and kwargs["claimed"] is True
+        assert kwargs["receipts_root"] == tmp_path / "review-receipts" and kwargs["review_access"] == "full"
+        config = receipts / "attempt.mcp.json"
+        config.write_text("{}")
+        (receipts / "attempt.jsonl.sha256").write_text(store.digest(b"") + "\n")  # as preparation writes it
+        return review_mcp.ReviewMcpPlan(config, {}, receipts / "attempt.jsonl", receipts / "attempt.jsonl.sha256",
+                                        binding["manifest_sha256"], review_id, attempt_id, harness)
+
+    monkeypatch.setattr(review_mcp, "prepare_review_attempt", prepare)
+    calls = []
+
+    boundaries = []
+
+    def prepare_boundary(agent, mode, session_id, config):
+        # Real proxy + real cleanup; only the provider and OS launch are planted.
+        boundary = object.__new__(attempt_boundary.AttemptBoundary)
+        boundary.temp = tempfile.TemporaryDirectory(prefix="eg-", dir=tmp_path)
+        boundary.workspace = workspace
+        boundary.connection = None
+        boundary.egress_evidence = {}
+        # AF_UNIX paths must stay below the kernel's small length limit.
+        boundary.egress = AttemptEgress(Path(boundary.temp.name) / "egress.sock")
+        boundary.tool_config = config
+        boundaries.append(boundary)
+        return boundary
+
+    def invoke_runtime(agent, text, **kwargs):
+        calls.append((agent, text, kwargs))
+        proxy = boundaries[-1].egress
+
+        async def refuse_dns(host):
+            raise ValueError("planted DNS failure")
+
+        monkeypatch.setattr(proxy, "_resolve", refuse_dns)
+        hosts = ["audit.example"]
+        if path_status == "overcap":
+            hosts = [f"audit-{index}.example" for index in range(destination_limit + 3)]
+            hosts += ["audit-0.example", f"audit-{destination_limit}.example"]
+        for host in hosts:
+            with socket.socket(socket.AF_UNIX) as client:
+                client.settimeout(5)
+                directory = os.open(proxy.endpoint.parent, os.O_RDONLY | os.O_DIRECTORY)
+                try:
+                    client.connect(f"/proc/self/fd/{directory}/{proxy.endpoint.name}")
+                finally:
+                    os.close(directory)
+                client.sendall(f"CONNECT {host}:443 HTTP/1.1\r\n\r\n".encode())
+                assert client.recv(1024).startswith(b"HTTP/1.1 403")
+        if path_status == "failed":
+            raise AgentUnavailableError("planted provider failure")
+        if path_status == "timeout":
+            raise AgentTimeoutError(agent, 60)
+        if path_status == "cancelled":
+            import signal
+
+            os.kill(os.getpid(), signal.SIGTERM)
+            raise AssertionError("supervisor cancellation must unwind")
+        return SimpleNamespace(ok=True, response="review: done\n", identity_state="unknown", observed_model=None,
+                               observed_model_source=None, failure_code=None, stderr_excerpt=None)
+
+    monkeypatch.setattr(attempt_boundary, "prepare_attempt_boundary", prepare_boundary)
+    monkeypatch.setattr(runner, "prepare_trail_isolation", lambda **kwargs: None)
+    monkeypatch.setattr(runner, "_invoke_impl", invoke_runtime)
+    worker.supervise(path, {}, 60)
+
+    assert trees == [(tmp_path / "manifest.yaml", workspace)], store.read("task").get("error")
+    [(agent, text, kwargs)] = calls
+    assert (agent, text) == (harness, rendered.decode())
+    assert kwargs["rules_core_delivery"] is runner.RulesCoreDelivery.BOUND
+    config = kwargs["tool_config"]
+    assert {key: config[key] for key in ("review_id", "attempt_id", "review_access", "review_cwd")} == dict(
+        review_id="review", attempt_id="attempt", review_access="full", review_cwd=str(workspace))
+    assert config["strict_mcp_config"] is True and config["mcp_server_names"] == ["sources"]
+    assert (kwargs["mode"], kwargs["cwd"], kwargs["allow_runner_failover"]) == ("read-only", workspace, False)
+    done = store.read("task")
+    assert done["status"] == ("done" if path_status == "overcap" else path_status), done.get("error")
+    expected_records = [{"destination": "audit.example:443", "bytes": 0}]
+    if path_status == "overcap":
+        expected_records = [{"destination": f"audit-{index}.example:443", "bytes": 0}
+                            for index in range(destination_limit)]
+    assert done["review_attempt_egress"] == {
+        "records": expected_records, "overflow_count": 4 if path_status == "overcap" else 0,
+    }
+    assert not boundaries[0].egress.thread.is_alive()
+    assert not Path(boundaries[0].temp.name).exists()
+    print(json.dumps({"task_record": done}, sort_keys=True))
+    if path_status in {"done", "overcap"}:
+        assert done["resolved_model_known"] is False
+        assert spec.final_file.read_bytes() == b"review: done\n"
+        assert done["result_sha256"] == store.digest(b"review: done\n")
+
+
+@pytest.mark.parametrize("agent", ["agy", "codex"])
+def test_runner_executes_attempt_boundary_and_cleans_after_parse(world, tmp_path, monkeypatch, agent):  # noqa: F811
+    root, home = world
+    forbidden = home / "previous-session.txt"
+    forbidden.write_text("Forbidden")
+    tc = attempt_config(root, tmp_path, manifest_world(root, "plan"), agent)
+    observed = []
+
+    class Adapter:
+        default_model = "fixture-model"
+        supported_modes = frozenset({"read-only"})
+
+        def build_invocation(self, **kwargs):
+            workspace = kwargs["cwd"]
+            boundary = kwargs["tool_config"]["review_attempt_boundary"]
+            observed.append(boundary)
+            script = (
+                "import pathlib,sys\n"
+                f"assert not pathlib.Path({str(forbidden)!r}).exists()\n"
+                "assert pathlib.Path('curriculum/l2-uk-en/lesson-plans/a1/sample.yaml').read_bytes()\n"
+                "print(sys.stdin.read(),flush=True)\n"
+            )
+            return InvocationPlan(cmd=[sys.executable, "-c", script], cwd=workspace, stdin_payload="own return")
+
+        def parse_response(self, **kwargs):
+            assert observed[0].workspace.exists()  # extraction happens before cleanup
+            return ParseResult(ok=kwargs["returncode"] == 0, response=kwargs["stdout"].strip())
+
+        def liveness_signal_paths(self, plan):
+            return ()
+
+    monkeypatch.setattr(runner, "_load_adapter", lambda *args, **kwargs: Adapter())
+    monkeypatch.setattr(runner, "has_headroom", lambda *args, **kwargs: (True, "fixture"))
+    monkeypatch.setattr(runner, "write_record", lambda record: None)
+    evidence = {}
+    result = runner.invoke(agent, "probe", cwd=root, tool_config=tc, model="fixture-model", hard_timeout=30,
+                           attempt_evidence=evidence)
+    assert evidence == {"records": [], "overflow_count": 0}
+    assert result.ok and result.response == "own return"
+    assert observed and not observed[0].workspace.exists()
