@@ -1419,7 +1419,7 @@ async def post_to_channel(name: str, req: ChannelPostRequest, request: Request):
     _ = (name, req, request)
     return JSONResponse(
         status_code=410,
-        content={"error": "browser channel writes retired; /fleet.html is read-only"},
+        content={"error": "browser channel writes retired; the Monitor API is read-only"},
     )
 
 @router.get("/by-module/{track}/{slug}")

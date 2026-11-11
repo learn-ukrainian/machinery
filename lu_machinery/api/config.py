@@ -8,7 +8,7 @@ import os
 from pathlib import Path
 
 from lu_machinery.common.bridge_paths import configured_bridge_db_path
-from lu_machinery.common.repo_root import product_root, state_root
+from lu_machinery.common.repo_root import machinery_path, product_root, state_root
 
 
 def _live_repo_root() -> Path:
@@ -42,7 +42,8 @@ def __getattr__(name: str) -> Path:
     elif name == "CURRICULUM_ROOT":
         selected = __getattr__("PRODUCT_ROOT") / "curriculum" / "l2-uk-en"
     elif name == "DASHBOARDS_DIR":
-        selected = __getattr__("PRODUCT_ROOT") / "dashboards"
+        # The machinery pages ship in the release, never in the product checkout.
+        selected = machinery_path("api/dashboards")
     elif name == "MESSAGE_DB":
         selected = configured_bridge_db_path(state_root())
     elif name == "BATCH_STATE_DIR":

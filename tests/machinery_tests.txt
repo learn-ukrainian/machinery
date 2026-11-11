@@ -23,14 +23,10 @@
 tests/test_driver_state_stop_hook.py
 tests/test_installed_shell_product_roots.py
 tests/repo_contracts/test_catalog_retirement_11327.py
-tests/repo_contracts/test_dashboard_empty_states.py
 tests/repo_contracts/test_deploy_codex_home.py
 tests/repo_contracts/test_digest_codex_rollout.py
-tests/repo_contracts/test_epics_dashboard_contract.py
-tests/repo_contracts/test_epics_map_dashboard_contract.py
 tests/repo_contracts/test_fleet_comms_launcher_awareness.py
 tests/repo_contracts/test_fleet_hramatka_hygiene_check.py
-tests/repo_contracts/test_fleet_occupancy_idle_contract.py
 tests/repo_contracts/test_git_identity.py
 tests/repo_contracts/test_guard_admin_merge.py
 tests/repo_contracts/test_guard_branch_switch_in_main.py
@@ -40,7 +36,6 @@ tests/repo_contracts/test_red_ci_registry_file.py
 tests/repo_contracts/test_secret_redactor_urls.py
 tests/repo_contracts/test_shell_shlex.py
 tests/repo_contracts/test_store_resolver.py
-tests/repo_contracts/test_work_dashboard.py
 
 # PORT-1108 T1, from LU 5aba2adb.
 
@@ -236,6 +231,7 @@ tests/ai_llm/test_ai_llm_codex_call.py
 tests/ai_llm/test_ai_llm_fallback.py
 tests/api/opsec_sweep/test_opsec_sanitize.py
 tests/api/opsec_sweep/test_opsec_scan.py
+tests/api/test_account_logins.py
 tests/api/test_acp_routing_budget.py
 tests/api/test_agent_monitor_router.py
 tests/api/test_agent_success_metrics.py
@@ -256,7 +252,6 @@ tests/api/test_contracts_router_context.py
 tests/api/test_delegate_api.py
 tests/api/test_delegate_router_cache.py
 tests/api/test_discussions_router.py
-tests/api/test_dispatch_reader_dashboard.py
 tests/api/test_epics_registry_seed.py
 tests/api/test_epics_router.py
 tests/api/test_fleet_dashboard_contract.py

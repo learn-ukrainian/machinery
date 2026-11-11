@@ -140,25 +140,16 @@ fleet-comms durable state. Cursor, GLM, and OpenCode consume it through the **ho
 harness** skill tree of the CLI that actually launches them, not
 a model-named extra copy.
 
-### Human overview pages
+### Human overview page
 
-| Page | Canonical observer role | Browser boundary |
-| --- | --- | --- |
-| **ACP Conversations** (`/acp.html`) | Readable Codex↔Grok ACP transcripts plus the operational event rail | Read-only; cannot start, steer, retry, or cancel ACP |
-| **Channels** (`/channels.html`) | Shared channel, thread, context, and delivery visibility | Read-only; send from an agent TUI or the project bridge CLI |
-| **Broker Ops** (`/comms.html`) | Legacy broker messages, zombies, batch progress, and health during migration | Read-only; no browser message composition |
-| **Build Events** (`/build-events.html`) | Active and recent build activity | Replaces the retired duplicate Comms activity feed |
-| **Runtime** (`/runtime.html`) | Runtime health plus the loaded/recent **Routing overview** for initiator, request, selected route/model, outcome, and lifecycle evidence | Read-only; filters, search, details, and load-more never select, retry, cancel, reclaim, or reroute work |
-
-The legacy send, post, and acknowledgement APIs remain available to their
-current project CLI callers. Do not remove those routes or the Broker Ops page
-until caller telemetry proves the old paths are unused and every unique
-operations panel has a canonical replacement.
+The machinery home (`/`) is the one machinery page: live workers and their
+recent outcomes, provider usage with pace and resets, sign-in health and the
+Fleet Comms backlog. It is read-only and never selects, retries, cancels,
+reclaims or reroutes work. Product pages belong to the product.
 
 ### Read the routing overview correctly
 
-Use `/runtime.html` → **Routing overview** for the human view, or query
-`GET /api/runtime/routing-assignments?limit=100` for the same body-free
+Query `GET /api/runtime/routing-assignments?limit=100` for the body-free
 authority projection. The four summary cards, lifecycle groups, filters, and
 route distribution describe only the assignments returned in that loaded
 recent window. They are not all-time fleet totals, configured routing weights,

@@ -18,6 +18,7 @@ from lu_machinery.api import (
     telemetry_router,
 )
 from lu_machinery.api.telemetry import response
+from lu_machinery.common.repo_root import machinery_path
 
 
 @pytest.fixture
@@ -55,7 +56,8 @@ def test_context_keeps_state_stores_out_of_product_and_refreshes_anchor(roots, t
     assert ctx.roots.live_repo_root == product
     assert ctx.roots.curriculum_root == product / "curriculum/l2-uk-en"
     assert ctx.roots.plans_root == product / "curriculum/l2-uk-en/plans"
-    assert ctx.roots.dashboards_dir == product / "dashboards"
+    # Machinery pages ship in the release, not in the product checkout.
+    assert ctx.roots.dashboards_dir == machinery_path("api/dashboards")
     assert ctx.roots.logs_dir == state / "logs"
     assert ctx.roots.queue_dir == state / "agents_extensions/shared/consultation-queue"
     assert ctx.roots.pid_dir == state / ".mcp/servers/message-broker/pids"

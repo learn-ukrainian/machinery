@@ -1871,7 +1871,7 @@ def test_muse_fresh_projection_keeps_binding_headroom():
     assert projected["codexbar"]["windows"]["secondary"]["remaining_pct"] == 70.0
 
 
-def test_muse_probe_reads_muse_usage_json(monkeypatch):
+def test_muse_probe_reads_muse_usage_json(monkeypatch, tmp_path):
     import subprocess
 
     captured: dict = {}
@@ -1910,9 +1910,15 @@ def test_muse_probe_reads_muse_usage_json(monkeypatch):
     assert record["headroom_pct"] == 70.0
     _assert_muse_has_no_account_material(record)
 
+    # Neither on PATH nor in ~/.local/bin (the API service's PATH lacks it).
     monkeypatch.setattr(subscription_usage_mod.shutil, "which", lambda name: None)
+    monkeypatch.setattr(subscription_usage_mod.Path, "home", lambda: tmp_path)
     missing = subscription_usage_mod.fetch_provider_usage("muse", timeout_s=5)
     assert missing["error_code"] == "NO_PROBE"
+    fallback = tmp_path / ".local" / "bin" / "muse"
+    fallback.parent.mkdir(parents=True)
+    fallback.write_text("")
+    assert subscription_usage_mod._muse_bin() == str(fallback)
     assert missing["status"] == "unavailable"
     assert missing["status"] != "healthy"
     assert missing["weekly_used_pct"] is None
@@ -2509,357 +2515,101 @@ def test_public_projection_does_not_trust_cached_provider_metadata(lane):
         ]
 
 
-# Frozen presentation controls for #9869. These execute the shipped renderer.
-def _render_subscription_snapshot(snapshot):
+# Presentation controls (#9869), run against the shipped machinery home renderer.
+def _render_home_usage(budget, logins=None):
     import subprocess
+
+    from lu_machinery.common.repo_root import machinery_path
 
     script = """
     const fs = require('fs');
-    const html = fs.readFileSync('dashboards/routing.html', 'utf8');
+    const html = fs.readFileSync(process.argv[1], 'utf8');
     const start = html.indexOf('function escapeHtml');
-    const end = html.indexOf('function renderAgents');
-    if (start < 0 || end < 0) throw new Error('subscription render helpers not found');
-    let output = '';
-    const document = { getElementById: () => ({ set innerHTML(value) { output = value; } }) };
+    const end = html.indexOf('let logins = null;');
+    if (start < 0 || end < 0) throw new Error('home render helpers not found');
     Date.now = () => Date.parse('2030-01-01T12:00:00Z');
     eval(html.slice(start, end));
-    renderSubscriptions(JSON.parse(fs.readFileSync(0, 'utf8')));
-    console.log(output);
+    const input = JSON.parse(fs.readFileSync(0, 'utf8'));
+    console.log(renderUsage(input.budget, input.logins));
     """
     result = subprocess.run(
-        ['node', '-e', script], input=json.dumps(snapshot), capture_output=True,
+        ['node', '-e', script, str(machinery_path('api/dashboards/index.html'))],
+        input=json.dumps({'budget': budget, 'logins': logins}), capture_output=True,
         text=True, check=True, timeout=30,
     )
     return result.stdout
 
 
-def _subscription_cells(rendered, lane='codex:a'):
+def _home_row(rendered, pool):
     import re
 
-    row = re.search(rf'<tr>\s*<td class="mono">{lane}</td>(.*?)</tr>', rendered, re.S)
+    row = re.search(rf'<tr><td>{re.escape(pool)}</td>(.*?)</tr>', rendered, re.S)
     assert row is not None, rendered
-    return re.findall(r'<td>(.*?)</td>', row.group(1), re.S)
+    return row.group(1)
 
 
-def _subscription_snapshot():
-    return {
-        'generated_at': '2030-01-01T11:59:30Z',
-        'diagnostics': {'stale': False, 'stale_threshold_s': 900},
-        'agents': {'codex': {
-            'status': 'hot', 'status_source': 'weekly_pace',
-            'remaining_pct': 70,
-            'codexbar': {
-                'weekly_used_pct': 30, 'weekly_remaining_pct': 70,
-                'weekly_pace_delta_pct': 20, 'weekly_expected_pct': 10,
-                'pace_summary': '20% in deficit | Expected 10% used',
-                'freshness': 'fresh', 'stale': False, 'age_s': 30,
-                'fetched_at': '2030-01-01T11:59:30Z',
-            },
-            'health': {'healthy': True, 'basis': 'recent_tasks'},
-            'runtime': {'headroom_blocked': False, 'window_s': 300,
-                        'error': 0, 'rate_limited': 0, 'timeout': 0,
-                        'last_outcome_at': '2030-01-01T11:59:30Z'},
-        }},
-        'in_flight': {'codex': 2},
-    }
+def _home_budget(**codex):
+    row = {'remaining_pct': 70, 'resets_at': '2030-01-03T00:00:00Z', 'freshness': 'fresh', 'age_s': 30,
+           'codexbar': {'pace_summary': '20% in deficit | Expected 10% used'}}
+    row.update(codex)
+    return {'diagnostics': {'stale_threshold_s': 900}, 'codex_accounts': {'codex:a': row}, 'agents': {}}
 
 
-def test_subscription_pace_pressure_with_ample_quota():
-    pressure, quota, health, _burn, in_flight = _subscription_cells(
-        _render_subscription_snapshot(_subscription_snapshot())
-    )
-    assert 'usage ahead of pace' in pressure
-    assert 'weekly pace' in pressure
-    assert '20% in deficit' in pressure
-    assert 'near cap' not in pressure
-    assert '30% used · 70% left' in quota
-    assert 'fresh · 30s ago' in quota
-    assert '>healthy</span>' in health
-    assert 'snapshot fresh' in health
-    assert '0 errors' in health
-    assert in_flight == '2'
-
-
-def test_subscription_actual_cap_uses_measured_window():
-    snapshot = _subscription_snapshot()
-    agent = snapshot['agents']['codex']
-    agent['status'] = 'near_cap'
-    agent['codexbar']['windows'] = {
-        'primary': {'window_minutes': 300, 'used_pct': 100, 'remaining_pct': 0},
-        'secondary': {'window_minutes': 10080, 'used_pct': 30, 'remaining_pct': 70},
-    }
-    pressure, quota, health, *_ = _subscription_cells(_render_subscription_snapshot(snapshot))
-    assert 'near cap' in pressure
-    assert 'measured provider window' in pressure
-    assert 'usage ahead of pace' not in pressure
-    assert '5h' in quota and '100% used · 0% left' in quota
-    assert 'weekly' in quota and '30% used · 70% left' in quota
-    assert '>healthy</span>' in health
-    import copy
-    b = copy.deepcopy(agent)
-    b["status"] = "cool"
-    b["codexbar"]["windows"] = {"secondary": {"window_minutes": 10080, "used_pct": 17, "remaining_pct": 83}}
-    snapshot["codex_accounts"] = {"codex:a": agent, "codex:b": b}
-    snapshot["in_flight"]["codex:b"] = 1
-    rendered = _render_subscription_snapshot(snapshot)
-    _, b_quota, _, _, b_flight = _subscription_cells(rendered, "codex:b")
-    assert "17% used · 83% left" in b_quota
-    assert b_flight == "1"
-    assert "100% used · 0% left" in _subscription_cells(rendered)[1]
-
-
-def test_subscription_runtime_failure_keeps_quota_independent():
-    snapshot = _subscription_snapshot()
-    agent = snapshot['agents']['codex']
-    agent['health'] = {'healthy': False, 'basis': 'recent_tasks', 'last_error': 'spawn failed'}
-    agent['runtime'].update(headroom_blocked=True, headroom_reason='recent rate limits', rate_limited=3)
-    pressure, quota, health, *_ = _subscription_cells(_render_subscription_snapshot(snapshot))
-    assert 'runtime pressure' in pressure
-    assert 'runtime health' in pressure and 'recent rate limits' in pressure
-    assert '30% used · 70% left' in quota
-    assert '>unhealthy</span>' in health and 'spawn failed' in health and '3 rate limits' in health
-    agent['status'] = 'error'
-    agent['runtime']['headroom_blocked'] = False
-    pressure = _subscription_cells(_render_subscription_snapshot(snapshot))[0]
-    assert '>error</span>' in pressure and 'spawn failed' in pressure
-
-
-def test_subscription_missing_and_stale_evidence():
-    missing = _subscription_cells(_render_subscription_snapshot({'agents': {}}))
-    assert '>unknown</span>' in missing[0]
-    assert 'freshness unknown' in missing[1]
-    assert '>unknown</span>' in missing[2] and 'snapshot freshness unknown' in missing[2]
-    snapshot = _subscription_snapshot()
-    snapshot['diagnostics']['stale'] = True
-    snapshot['agents']['codex']['codexbar'].update(stale=True, freshness='stale', age_s=1800)
-    pressure, quota, health, *_ = _subscription_cells(_render_subscription_snapshot(snapshot))
-    assert '<div class="stale-note">stale · ' in pressure
-    assert '<div class="stale-note">stale · ' in quota
-    assert 'snapshot stale · ' in health
-    assert '70% left' in quota
-    # A cached fresh flag cannot override elapsed age, even when age_s is missing.
-    snapshot['diagnostics']['stale'] = False
-    snapshot['generated_at'] = '2030-01-01T11:00:00Z'
-    snapshot['agents']['codex']['codexbar'].update(
-        stale=False, freshness='fresh', age_s=None, fetched_at='2030-01-01T11:00:00Z',
-    )
-    pressure, quota, health, *_ = _subscription_cells(_render_subscription_snapshot(snapshot))
-    assert '<div class="stale-note">stale · ' in pressure
-    assert '<div class="stale-note">stale · 1.0h ago' in quota
-    assert 'snapshot stale · 1.0h ago' in health
-    snapshot['diagnostics'].pop('stale_threshold_s')
-    pressure, quota, health, *_ = _subscription_cells(_render_subscription_snapshot(snapshot))
-    assert '<div class="stale-note">freshness unknown · 1.0h ago' in pressure
-    assert '<div class="stale-note">freshness unknown · 1.0h ago' in quota
-    assert 'snapshot freshness unknown · 1.0h ago' in health
+def test_home_usage_fresh_reading_shows_left_pace_and_reset():
+    row = _home_row(_render_home_usage(_home_budget()), 'Codex a')
+    assert '70%' in row and '20% in deficit' in row
+    assert '2030-01-03 00:00Z (in 1d 12h)' in row
+    assert 'fresh, 30s old' in row
 
 
 @pytest.mark.parametrize('invalid', [None, 'bad', '', True, [], {}, '42', -1, 101],
                          ids=['null', 'text', 'empty', 'boolean', 'array', 'object', 'numeric-string', 'negative', 'over-100'])
-def test_subscription_invalid_percentages_are_unknown(invalid):
-    snapshot = _subscription_snapshot()
-    snapshot['agents']['codex']['codexbar']['windows'] = {
-        'primary': {'label': 'test window', 'used_pct': invalid, 'remaining_pct': invalid},
-    }
-    quota = _subscription_cells(_render_subscription_snapshot(snapshot))[1]
-    assert 'test window' in quota and '>unknown</span>' in quota
-    assert '% used' not in quota and '% left' not in quota
-    assert 'class="bar unavailable"' in quota
+def test_home_usage_invalid_percentages_are_unknown(invalid):
+    row = _home_row(_render_home_usage(_home_budget(remaining_pct=invalid)), 'Codex a')
+    assert '%</td>' not in row.split('</td>')[0] + '</td>'
+    assert 'class="bar"' not in row
 
 
-def test_subscription_null_remaining_and_nonnumeric_freshness():
-    snapshot = _subscription_snapshot()
-    agent = snapshot['agents']['codex']
-    agent['codexbar'].update(weekly_remaining_pct=None, age_s='bad', fetched_at='bad timestamp')
-    agent['runtime'].update(error=None, rate_limited='bad', timeout=True)
-    agent['health']['healthy'] = None
-    _, quota, health, *_ = _subscription_cells(_render_subscription_snapshot(snapshot))
-    assert '30% used · unknown remaining' in quota
-    assert '70% left' not in quota and '0% left' not in quota
-    assert 'freshness unknown · age unknown · probe time unknown' in quota
-    assert '>unknown</span>' in health
-    assert 'errors unknown' in health and 'rate limits unknown' in health and 'timeouts unknown' in health
-    agent['codexbar'].update(
-        weekly_used_pct=None, weekly_remaining_pct=70, age_s=30, fetched_at='2030-01-01T11:59:30Z',
-    )
-    snapshot['diagnostics']['stale_threshold_s'] = 'bad'
-    pressure, quota, health, *_ = _subscription_cells(_render_subscription_snapshot(snapshot))
-    assert 'unknown used · 70% left' in quota
-    assert '<div class="stale-note">freshness unknown · 30s ago' in pressure
-    assert '<div class="stale-note">freshness unknown · 30s ago' in quota
-    assert 'snapshot freshness unknown · 30s ago' in health
+def test_home_usage_missing_stale_and_unavailable_are_explicit():
+    missing = _render_home_usage({'agents': {}})
+    assert 'NO READING' in _home_row(missing, 'Claude a') and 'NO READING' in _home_row(missing, 'Codex b')
+    stale = _home_row(_render_home_usage(_home_budget(freshness='stale', age_s=1800)), 'Codex a')
+    assert 'STALE, 30m old' in stale and '70%' in stale
+    # A cached fresh flag cannot override elapsed age.
+    aged = _home_row(_render_home_usage(_home_budget(age_s=3600)), 'Codex a')
+    assert 'STALE, 1h 0m old' in aged and 'fresh' not in aged
+    unknown = _home_row(_render_home_usage(_home_budget(age_s='bad')), 'Codex a')
+    assert 'FRESHNESS UNKNOWN, age unknown' in unknown
+    unavailable = _home_row(_render_home_usage(_home_budget(freshness='unavailable', age_s=None)), 'Codex a')
+    assert 'UNAVAILABLE' in unavailable and '70%' not in unavailable and '2030-01-03' not in unavailable
 
 
-def test_subscription_declared_unavailable_freshness_is_explicit():
-    """A declared unavailable probe must not be relabelled as merely unknown."""
-    snapshot = _subscription_snapshot()
-    snapshot['agents']['codex']['codexbar'].update(
-        freshness='unavailable', age_s=None, fetched_at=None,
-    )
-    quota = _subscription_cells(_render_subscription_snapshot(snapshot))[1]
-    assert 'unavailable' in quota
-    assert 'freshness unknown' not in quota
+@pytest.mark.parametrize('timestamp', [1893628800, 1893628800000], ids=['seconds', 'milliseconds'])
+def test_home_usage_epoch_reset_matches_iso(timestamp):
+    row = _home_row(_render_home_usage(_home_budget(resets_at=timestamp)), 'Codex a')
+    assert '2030-01-03 00:00Z' in row and '1970' not in row
 
 
-@pytest.mark.parametrize('scale', [1, 1000], ids=['seconds', 'milliseconds'])
-def test_subscription_numeric_epoch_fetched_at_is_rendered(scale):
-    snapshot = _subscription_snapshot()
-    epoch = int(datetime(2030, 1, 1, 11, 59, 30, tzinfo=UTC).timestamp()) * scale
-    snapshot['agents']['codex']['codexbar'].update(fetched_at=epoch, age_s=None)
-    quota = _subscription_cells(_render_subscription_snapshot(snapshot))[1]
-    assert 'fresh ·' in quota
-    assert 'probe time unknown' not in quota and '1970' not in quota
+def test_home_usage_unsafe_labels_are_escaped():
+    unsafe = '"><img src=x onerror=alert(1)>&\''
+    budget = _home_budget(codexbar={'pace_summary': unsafe})
+    budget['agents'] = {'muse': {'freshness': 'unavailable', 'codexbar': {'auth_error': unsafe}}}
+    budget['api_accounts'] = {'x': {'balance_probe_state': unsafe, 'freshness': unsafe}}
+    rendered = _render_home_usage(budget, {'subscriptions': {'ends': {}, 'reason': unsafe}})
+    assert '<img' not in rendered
+    assert '&lt;img src=x onerror=alert(1)&gt;&amp;' in rendered
 
 
-def test_subscription_unsafe_labels_are_escaped():
-    unsafe = '\"><img src=x onerror=alert(1)>&\''
-    snapshot = _subscription_snapshot()
-    agent = snapshot['agents']['codex']
-    agent['status'] = unsafe
-    agent['status_source'] = unsafe
-    agent['codexbar'].update(failure_kind=unsafe, last_failure_at=unsafe)
-    agent['codexbar']['windows'] = {
-        'primary': {'label': unsafe, 'used_pct': 30, 'remaining_pct': 70, 'resets_at': unsafe},
-    }
-    agent['health'].update(basis=unsafe, last_error=unsafe)
-    agent['runtime'].update(headroom_blocked=True, headroom_reason=unsafe, last_outcome_at=unsafe)
-    rendered = _render_subscription_snapshot(snapshot)
-    assert unsafe not in rendered and '<img' not in rendered
-    assert '&quot;&gt;&lt;img src=x onerror=alert(1)&gt;&amp;&#39;' in rendered
-    # Weekly-pace summaries are also untrusted labels.
-    agent['status'] = 'hot'
-    agent['status_source'] = 'weekly_pace'
-    agent['runtime']['headroom_blocked'] = False
-    agent['codexbar']['pace_summary'] = unsafe
-    pressure = _subscription_cells(_render_subscription_snapshot(snapshot))[0]
-    assert '<img' not in pressure and '&lt;img' in pressure
+def test_home_usage_ended_subscription_disappears_and_cancelled_is_marked():
+    budget = _home_budget()
+    budget['agents'] = {'grok': {'remaining_pct': 86, 'freshness': 'fresh', 'age_s': 10},
+                        'muse': {'remaining_pct': 15, 'freshness': 'fresh', 'age_s': 10}}
+    ends = {'ends': {'grok': {'ends_on': '2029-12-31', 'ended': True}, 'muse': {'ends_on': None, 'ended': False}},
+            'reason': None}
+    rendered = _render_home_usage(budget, {'subscriptions': ends})
+    assert '<td>Grok</td>' not in rendered
+    assert 'cancelled, end date not configured' in _home_row(rendered, 'Muse')
 
-
-def test_subscription_unaffected_lane_controls():
-    snapshot = _subscription_snapshot()
-    snapshot['agents'].update({
-        'cursor': {'status': 'cool', 'status_source': 'cursor_auto',
-                   'provider_windows': {'auto': {'used_pct': 23, 'remaining_pct': 77},
-                                        'api': {'used_pct': 40, 'remaining_pct': 60}}},
-        'claude': {'status': 'need_login', 'login_state': 'NEED_LOGIN'},
-        'kimi': {'status': 'unknown', 'probe_state': 'NEED_PROBE'},
-        'gemini': {'status': 'cool', 'codexbar': {'weekly_used_pct': 10, 'weekly_remaining_pct': 90}},
-        'glm': {'status': 'cool'},
-    })
-    snapshot['in_flight'].update(gemini=3)
-    snapshot['agents']['codex']['fleet_burn'] = {
-        'windows': {'5h': {'counts': {'total': 1}}, '7d': {'counts': {'total': 3}},
-                    '30d': {'counts': {'total': 10}}},
-    }
-    rendered = _render_subscription_snapshot(snapshot)
-    cursor = _subscription_cells(rendered, 'cursor')[1]
-    assert all(label in cursor for label in ['Cursor Models', 'Other Models', 'Grok Bot'])
-    assert '23% used · 77% left' in cursor and '40% used · 60% left' in cursor
-    claude = _subscription_cells(rendered, 'claude')[1]
-    assert 'NEED_LOGIN' in claude and 'subscription window' in claude
-    assert all(label not in claude for label in ['Cursor Models', 'Other Models', 'Grok Bot'])
-    agy = _subscription_cells(rendered, 'agy')
-    assert '10% used · 90% left' in agy[1] and agy[-1] == '3'
-    assert '>gemini</td>' not in rendered and '>glm</td>' not in rendered
-    assert '5h: 1 · 7d: 3 · 30d: 10' in _subscription_cells(rendered)[3]
-
-
-@pytest.mark.parametrize('status, spent, burn', [('near_cap', 95.6, 95.6), ('hot', 80, 80)])
-def test_subscription_review_ledger_pressure_names_source_and_spend(status, spent, burn):
-    snapshot = _subscription_snapshot()
-    snapshot['agents']['claude'] = {
-        'status': status, 'status_source': 'ledger_burn',
-        'spent_7d_usd': spent, 'weekly_cap_usd': 100, 'burn_pct_7d': burn,
-    }
-    pressure, quota, *_ = _subscription_cells(_render_subscription_snapshot(snapshot), 'claude')
-    assert 'ledger spend' in pressure
-    assert f'USD {spent:.2f} spent' in pressure and 'USD 100.00 weekly cap' in pressure
-    assert f'{burn:g}%' in pressure
-    assert 'unknown (ledger_burn)' not in pressure
-    assert 'measured provider window' not in pressure and 'see measured remaining quota' not in pressure
-    assert '% left' not in quota
-
-
-@pytest.mark.parametrize('source', ['weekly_pace', 'cursor_auto', 'ledger_burn', 'unrecognised', None])
-def test_subscription_review_near_cap_source_is_not_invented(source):
-    snapshot = _subscription_snapshot()
-    snapshot['agents']['codex'].update(status='near_cap', status_source=source)
-    pressure = _subscription_cells(_render_subscription_snapshot(snapshot))[0]
-    assert ('measured provider window' in pressure) == (source in {'weekly_pace', 'cursor_auto'})
-    assert ('see measured remaining quota' in pressure) == (source in {'weekly_pace', 'cursor_auto'})
-
-
-@pytest.mark.parametrize('source', ['weekly_pace', 'cursor_auto', 'ledger_burn'])
-def test_subscription_review_near_cap_without_quota_has_no_empty_cell_reference(source):
-    snapshot = {'agents': {'claude': {'status': 'near_cap', 'status_source': source, 'burn_pct_7d': 95.6}}}
-    pressure, quota, *_ = _subscription_cells(_render_subscription_snapshot(snapshot), 'claude')
-    assert 'see measured remaining quota' not in pressure
-    assert 'measured provider window' not in pressure
-    expected_reason = 'ledger spend' if source == 'ledger_burn' else 'measured remaining quota unavailable'
-    assert expected_reason in pressure
-    assert 'no window data' in quota
-
-
-def test_subscription_review_calm_status_with_runtime_pressure_warns():
-    snapshot = _subscription_snapshot()
-    snapshot['agents']['codex'].update(status='cool')
-    snapshot['agents']['codex']['runtime'].update(headroom_blocked=True, headroom_reason='recent rate limits')
-    pressure, quota, health, *_ = _subscription_cells(_render_subscription_snapshot(snapshot))
-    assert '<span class="pill hot">runtime pressure</span>' in pressure
-    assert 'runtime health' in pressure and 'recent rate limits' in pressure
-    assert '<span class="pill hot">runtime pressure</span>' in health
-    assert '>healthy</span>' not in health and 'recent rate limits' in health
-    assert '30% used · 70% left' in quota
-
-
-@pytest.mark.parametrize('timestamp', [1792649579, 1792649579000], ids=['seconds', 'milliseconds'])
-def test_subscription_review_epoch_reset_matches_iso(timestamp):
-    snapshot = _subscription_snapshot()
-    snapshot['agents']['codex']['codexbar']['weekly_resets_at'] = timestamp
-    quota = _subscription_cells(_render_subscription_snapshot(snapshot))[1]
-    snapshot['agents']['codex']['codexbar']['weekly_resets_at'] = '2026-10-22T06:12:59Z'
-    expected = _subscription_cells(_render_subscription_snapshot(snapshot))[1]
-    assert quota == expected
-    assert '2026' in quota and '1970' not in quota
-
-
-@pytest.mark.parametrize('window_source', ['windows', 'provider_windows'])
-def test_subscription_review_empty_windows_are_omitted(window_source):
-    snapshot = _subscription_snapshot()
-    snapshot['agents']['codex']['codexbar'][window_source] = {
-        'primary': {'used_pct': None, 'remaining_pct': None},
-        'secondary': {'label': 'weekly', 'used_pct': 30, 'remaining_pct': 70},
-        'tertiary': {},
-    }
-    quota = _subscription_cells(_render_subscription_snapshot(snapshot))[1]
-    assert quota.count('class="sub-window"') == 1
-    assert 'weekly' in quota and '30% used · 70% left' in quota
-    assert 'no window data' not in quota
-
-
-@pytest.mark.parametrize('window_source', ['windows', 'provider_windows'])
-def test_subscription_review_all_empty_windows_have_one_named_marker(window_source):
-    snapshot = _subscription_snapshot()
-    snapshot['agents']['codex']['codexbar'][window_source] = {
-        'primary': {'used_pct': None, 'remaining_pct': None},
-        'secondary': {}, 'tertiary': {},
-    }
-    quota = _subscription_cells(_render_subscription_snapshot(snapshot))[1]
-    assert 'no window data' in quota
-    assert quota.count('class="sub-window"') == 1
-    assert '% used' not in quota and '% left' not in quota
-
-
-def test_subscription_review_status_pill_escapes_label():
-    unsafe = '\"><img src=x onerror=alert(1)>&\''
-    snapshot = _subscription_snapshot()
-    snapshot['agents']['codex']['status'] = unsafe
-    pressure = _subscription_cells(_render_subscription_snapshot(snapshot))[0]
-    assert '<img' not in pressure
-    assert '>&quot;&gt;&lt;img src=x onerror=alert(1)&gt;&amp;&#39;</span>' in pressure
-
-
-# --- Codex account b (#12692): one usage row per subscription account ---------
 
 _CODEX_ACCOUNT_KEYS = ("codex", "codex:a", "codex:b")
 
