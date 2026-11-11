@@ -22,6 +22,8 @@ def test_build_agent_env_strips_secret_values_and_keeps_runtime_context(tmp_path
         "GOOGLE_API_KEY": "google-secret",
         "CUSTOM_SECRET": "secret",
         "AB_REPO_ROOT": "/repo",
+        "LU_PRODUCT_ROOT": "/product",
+        "LU_UNRELATED_ROOT": "/drop-me",
         "GEMINI_AUTH_MODE": "subscription",
         "UNRELATED": "drop-me",
     }
@@ -31,6 +33,7 @@ def test_build_agent_env_strips_secret_values_and_keeps_runtime_context(tmp_path
     assert env["HOME"] == "/Users/example"
     assert env["SHELL"] == "/bin/bash"
     assert env["AB_REPO_ROOT"] == "/repo"
+    assert env["LU_PRODUCT_ROOT"] == "/product"
     assert env["GEMINI_AUTH_MODE"] == "subscription"
     assert env["PATH"].startswith(str(Path(tmp_path) / ".venv" / "bin"))
     assert env["PYTHONUNBUFFERED"] == "1"
@@ -40,3 +43,4 @@ def test_build_agent_env_strips_secret_values_and_keeps_runtime_context(tmp_path
     assert "GOOGLE_API_KEY" not in env
     assert "CUSTOM_SECRET" not in env
     assert "UNRELATED" not in env
+    assert "LU_UNRELATED_ROOT" not in env

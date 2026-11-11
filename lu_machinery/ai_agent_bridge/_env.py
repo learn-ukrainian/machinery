@@ -18,6 +18,9 @@ _SAFE_ENV_KEYS = {
     "LC_ALL",
     "LC_CTYPE",
     "LOGNAME",
+    # The exact product-root key, never an LU_ prefix: the detached bridge child is the
+    # installed package, which has no implicit product (its hook gate needs this one).
+    "LU_PRODUCT_ROOT",
     "PATH",
     "PWD",
     "SHELL",
