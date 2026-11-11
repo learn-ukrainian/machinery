@@ -1130,9 +1130,15 @@ def assert_frozen_surfaces(actual, *, surfaces):
                 assert endpoint["models"] == ["gpt-6.1-sol", "gpt-6-astra"]
                 endpoint["models"] = ["gpt-6.1-sol"]
                 value["models"]["gpt-6-astra"] = deepcopy(CURRENT_BASELINE["catalog"]["models"]["gpt-6-astra"])
-            # Carbon is held inventory only; every prior seat and route stays frozen.
+            # Operator decision 2026-11-10: Carbon and Argon are active AGY work models with no
+            # review or advisory role, so they join no seat, review route, ladder or ranking and
+            # every other field stays frozen. Argon's frozen row is its retired record, which
+            # held the catalog id gemini-4-argon-high before that decision.
             carbon = value["models"].pop("gemini-4-carbon")
-            assert hashlib.sha256(encode(carbon)).hexdigest() == "5e7dd56ff656759fae9e85e0120c0eb74ae49ea78122db95c288ad3631c960b7"
+            assert hashlib.sha256(encode(carbon)).hexdigest() == "a419661bdc942a8acba871bb26697901ecfabc35d25a78711c1f7d5819ed8108"
+            argon = value["models"].pop("gemini-4-argon")
+            assert hashlib.sha256(encode(argon)).hexdigest() == "3fb424016416717576cca9f18d85f7d5b5eadcc6ed469ab906c3e4c78202dc58"
+            value["models"]["gemini-4-argon-high"] = deepcopy(CURRENT_BASELINE["catalog"]["models"]["gemini-4-argon-high"])
             # The coder-only Terra addition leaves every frozen seat and review route intact.
             terra = value["models"].pop("gpt-6.1-terra")
             assert hashlib.sha256(encode(terra)).hexdigest() == "5f22691f96e42246fb4cca6a474c8d9dab1465a75ba720ed7bc153f2c47b3f9d"
@@ -1194,6 +1200,8 @@ def refresh_current_baseline():
     capture = deepcopy(_V2_BASELINE)
     catalog = plain(expanded_legacy_view())
     catalog["models"].pop("gemini-4-carbon")
+    catalog["models"].pop("gemini-4-argon")
+    catalog["models"]["gemini-4-argon-high"] = deepcopy(CURRENT_BASELINE["catalog"]["models"]["gemini-4-argon-high"])
     catalog["models"].pop("gpt-6.1-terra")
     catalog["models"].pop("claude-fable-5-2")
     grok = catalog["models"]["grok-4.7"]
