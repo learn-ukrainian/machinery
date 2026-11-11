@@ -299,3 +299,39 @@ def test_deleted_product_data_never_uses_wheel_defaults(
                   stdin="\n".join(FILES) + "\n")
     assert result.returncode != 0, result.stdout + result.stderr
     assert diagnostic in result.stdout + result.stderr
+
+
+def test_lock_only_diff_selects_machinery_consumers(tmp_path: Path, installed: tuple[Path, Path]) -> None:
+    """Defect class: a machinery lock bump selects no test that imports the installed package."""
+    python, _wheel = installed
+    consumer = "from lu_machinery.ci import gate\n\ndef test_ok():\n    assert gate\n"
+    root, env = _product(tmp_path, "alpha", extra={
+        "tests/test_beta.py": consumer, "requirements-machinery.lock": "old\n",
+    })
+    _git(root, "checkout", "-b", "lock")
+    (root / "requirements-machinery.lock").write_text("new\n", encoding="utf-8")
+    _git(root, "commit", "-am", "lock only")
+    _git(root, "checkout", "main")
+    _git(root, "merge", "--no-ff", "lock", "-m", "PR candidate")
+    code = "import json; from lu_machinery.ci.pr_affected_tests import plan; print(json.dumps(plan('HEAD^1', 'HEAD')))"
+    result = _run(python, tmp_path, env, "-c", code)
+    assert result.returncode == 0, result.stderr
+    selected = json.loads(result.stdout)
+    assert selected["changed_test_files"] == []
+    assert selected["importing_test_files"] == ["tests/test_beta.py"]
+    assert "tests/test_beta.py" in selected["run_files"]
+
+
+def test_lock_only_diff_fails_closed_without_the_distribution(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Defect class: an absent lu-machinery distribution escapes as an uncaught PackageNotFoundError."""
+    from importlib.metadata import PackageNotFoundError
+
+    from lu_machinery.ci import components, pr_affected_tests as affected
+
+    def absent(_name: str) -> None:
+        raise PackageNotFoundError(_name)
+
+    monkeypatch.setattr(components, "python_sources", dict)
+    monkeypatch.setattr(affected, "files", absent)
+    with pytest.raises(ValueError, match="lu-machinery distribution is not installed"):
+        affected.importing_tests({"requirements-machinery.lock"}, set(), "HEAD", {})
