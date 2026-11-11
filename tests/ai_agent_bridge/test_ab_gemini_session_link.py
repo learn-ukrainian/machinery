@@ -5,13 +5,13 @@ import json
 import sqlite3
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
 
 
-from lu_machinery.agent_runtime.errors import AgentTimeoutError
-from lu_machinery.ai_agent_bridge import _channels, _db, _gemini_session_link, _inbox
+from lu_machinery.ai_agent_bridge import _channels, _channels_cli, _db, _gemini_session_link, _inbox
 from tests.helpers.product_tree import configured_roots  # noqa: F401
 
 pytestmark = pytest.mark.usefixtures("configured_roots", "bridge_wake_dir")
@@ -190,53 +190,36 @@ def test_find_session_recovery_prefers_brief_match_when_windows_overlap(tmp_path
     assert recovery.text == "right reply"
 
 
-@patch("lu_machinery.ai_agent_bridge._inbox.runtime_invoke")
-def test_run_inbox_gemini_timeout_recovers_session_reply(mock_invoke, tmp_path):
-    thread = _make_thread("gemini", body="please review this carefully")
-    started_at = datetime.now(UTC)
-    _write_session(
-        tmp_path,
-        start_time=started_at,
-        session_id="session-timeout",
-        messages=[
-            {"type": "user", "content": [{"text": "Context\n\nplease review this carefully"}]},
-            {
-                "type": "gemini",
-                "model": "gemini-3.1-pro-preview",
-                "content": [{"text": "Recovered from session file."}],
-            },
-        ],
-        project_name=_inbox._config.REPO_ROOT.name,
+@pytest.mark.parametrize("agent", ["agy", "gemini"])
+def test_run_inbox_refuses_agy_recipient_before_claiming_delivery(agent, monkeypatch):
+    """Defect class: an AGY inbox delivery expired, claimed or terminal-failed before the read-only refusal (#100)."""
+    thread = _make_thread(agent, body="please review this carefully")
+    conn = _db.get_db()
+    try:
+        # Past the channel TTL, so any sweep before the refusal would expire it.
+        conn.execute(
+            "UPDATE channel_messages SET created_at = ? WHERE message_id = ?",
+            ((datetime.now(UTC) - timedelta(hours=48)).isoformat(), str(thread["message_id"])),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    monkeypatch.setenv("FLEET_COMMS_MESSAGE_PLANE", "shadow")
+    args = SimpleNamespace(
+        inbox_command="run", agent=agent, once=True, until_idle=False,
+        max_messages=None, stop_after_seconds=None, deadline=None, auth=None,
     )
-    mock_invoke.side_effect = AgentTimeoutError("gemini", 900)
 
-    with patch("lu_machinery.ai_agent_bridge._gemini_session_link._GEMINI_TMP_ROOT", tmp_path):
-        summary = _inbox.run_inbox("gemini")
+    with (
+        patch("lu_machinery.ai_agent_bridge._inbox.runtime_invoke") as mock_invoke,
+        patch("lu_machinery.ai_agent_bridge._inbox._claim_next_thread") as mock_claim,
+    ):
+        assert _channels_cli._dispatch_inbox_command(args) == 1
+        with pytest.raises(ValueError, match="agy_inbox_unsupported"):
+            _inbox.run_inbox(agent)
 
+    mock_claim.assert_not_called()
+    mock_invoke.assert_not_called()
     row = _delivery_row(str(thread["message_id"]))
-    assert summary.deliveries_delivered == 1
-    assert summary.replies_posted == 1
-    assert row["status"] == "delivered"
-    assert row["error"] == "session-recovery"
-    messages = _channels.read("topic", thread_id=str(thread["thread_id"]))
-    assert len(messages) == 2
-    assert messages[-1]["from_agent"] == "gemini"
-    assert messages[-1]["body"].startswith("[source=session-recovery, model=gemini-3.1-pro-preview]")
-    assert "Recovered from session file." in messages[-1]["body"]
-
-
-@patch("lu_machinery.ai_agent_bridge._inbox.runtime_invoke")
-def test_run_inbox_gemini_timeout_without_session_keeps_delivery_pending(mock_invoke, tmp_path):
-    thread = _make_thread("gemini", body="please review this carefully")
-    mock_invoke.side_effect = AgentTimeoutError("gemini", 900)
-
-    with patch("lu_machinery.ai_agent_bridge._gemini_session_link._GEMINI_TMP_ROOT", tmp_path):
-        summary = _inbox.run_inbox("gemini")
-
-    row = _delivery_row(str(thread["message_id"]))
-    assert summary.deliveries_released == 1
-    assert summary.replies_posted == 0
     assert row["status"] == "pending"
-    assert row["last_error_kind"] == "timeout"
-    messages = _channels.read("topic", thread_id=str(thread["thread_id"]))
-    assert len(messages) == 1
+    assert row["last_error_kind"] is None

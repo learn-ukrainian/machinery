@@ -183,7 +183,12 @@ def _run_agy_via_runtime(
     timeout_s: int | None,
     cwd: Path,
 ) -> AttemptOutcome:
-    """Invoke agy through the runtime adapter without touching the broker DB."""
+    """Invoke agy through the runtime adapter without touching the broker DB.
+
+    AGY read-only exists only on the review route, so this writer runs like a
+    non-review bridge ask: write mode from the out-of-tree scratch workspace,
+    with ``cwd`` named as its read root.
+    """
     call_start_mono = time.monotonic()
     hard_timeout = timeout_s or 24 * 60 * 60
     try:
@@ -194,16 +199,17 @@ def _run_agy_via_runtime(
             AgentUnavailableError,
             RateLimitedError,
         )
+        from lu_machinery.ai_agent_bridge._agy import _agy_ask_scratch_cwd
 
         result = agent_runner.invoke(
             "agy",
             prompt,
-            mode="read-only",
-            cwd=cwd,
+            mode="danger",
+            cwd=_agy_ask_scratch_cwd(),
             model=AGY_GEMINI_MODEL,
             task_id=f"{task_name}-agy-fallback",
             session_id=None,
-            tool_config=None,
+            tool_config={"bridge_repo_read": True, "repo_read_root": str(cwd)},
             entrypoint="fallback-ladder",
             hard_timeout=hard_timeout,
             stall_timeout=min(600, hard_timeout),
