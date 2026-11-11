@@ -168,3 +168,16 @@ def test_enqueue_admits_a_security_pr_with_both_reviews(low_review, tmp_path):
     assert result["verdict"] == "APPROVED"
     assert statuses[-1]["state"] == "success"
     assert admit() is None
+
+
+def test_enqueue_refuses_an_unreviewed_security_pr_where_the_recorder_is_optional(low_review, monkeypatch):
+    """Defect class: a repository's verdict_recorder opt-out waives the Carbon second review."""
+    _tasks, comments, _statuses, files, admit = low_review
+    monkeypatch.setattr(publisher.gate, "catalog", lambda: {
+        "public": {"github": "unit/public", "verdict_recorder": False},
+    })
+    assert comments == []
+    assert admit() is None  # an ordinary PR stays outside the optional recorder's regime
+    files[:] = [{"filename": SECURITY_FILES[0], "status": "modified"}]
+    with pytest.raises(publisher.gate.PublishBlocked, match="no cross-family APPROVE"):
+        admit()

@@ -1287,7 +1287,7 @@ class GitHubAdapter:
 
 
 def run(adapter: GitHubAdapter, repository: str, *, now: datetime | None = None) -> list[PRReport]:
-    from lu_machinery.review.tiers import classify_pr_files
+    from lu_machinery.review.tiers import classify_pr_files, requires_second_review
 
     observed = (now or datetime.now(UTC)).isoformat(timespec="microseconds")
     prs = adapter.list_open_prs(repository)
@@ -1307,6 +1307,7 @@ def run(adapter: GitHubAdapter, repository: str, *, now: datetime | None = None)
             content = changes_learner_content(pr_file_paths(files))
             verdict = lookup_verdict(
                 comments, head, login, learner_content=content, low_tier=classify_pr_files(files) == "low",
+                second_review=requires_second_review(files),
             )
         except SweepError:
             verdict = Verdict("unknown", reason=COMMENTS_UNAVAILABLE)

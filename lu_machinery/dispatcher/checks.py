@@ -411,7 +411,11 @@ def check_branch_author_families(args, repo: Path, repository: dict, head_sha: s
         return
     reviewer = _model_families().get(reviewer_model)
     scope = facts
-    if facts.mixed_family and args.review_profile in {"code", "infra"}:
+    # The catalog's second reviewer (Carbon) reviews the whole head, never one family's commits.
+    from lu_machinery.orchestration.integration_sweep import is_second_reviewer_model
+
+    whole_head = is_second_reviewer_model(reviewer_model)
+    if facts.mixed_family and args.review_profile in {"code", "infra"} and not whole_head:
         try:
             scope = facts.reviewer_scope(reviewer)
         except RecordError as exc:

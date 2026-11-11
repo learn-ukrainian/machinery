@@ -166,3 +166,35 @@ def test_head_that_needs_no_second_review_is_unchanged():
     assert sweep.lookup_verdict([record(task="review-sol")], SHA, "fleet").state == "APPROVED"
     rows = [record(task="review-sol"), carbon()]
     assert sweep.lookup_verdict(rows, SHA, "fleet").state == "APPROVED"
+
+
+def test_readiness_report_holds_a_security_pr_without_the_carbon_second_review(monkeypatch):
+    """Defect class: the read-only landing report calls a head ready that the enqueue gate refuses."""
+    seen = []
+    real = sweep.lookup_verdict
+
+    def spy(*args, **kwargs):
+        seen.append(real(*args, **kwargs))
+        return seen[-1]
+
+    class Adapter:
+        def list_open_prs(self, _repository):
+            return [{"number": 1, "headRefOid": SHA}]
+
+        def identity(self):
+            return "fleet"
+
+        def comments(self, _repository, _number):
+            return [record(task="review-sol")]
+
+        def pr_file_rows(self, _repository, _number):
+            return [{"filename": "lu_machinery/publish/github.py", "status": "modified"}]
+
+        def queue_membership(self, _repository, _pr):
+            return False
+
+    monkeypatch.setattr(sweep, "lookup_verdict", spy)
+    monkeypatch.setattr(sweep, "changes_learner_content", lambda _paths: False)
+    monkeypatch.setattr(sweep, "classify_pr", lambda pr, verdict, **_: verdict)
+    sweep.run(Adapter(), "unit/public")
+    assert [verdict.state for verdict in seen] == [sweep.NEEDS_SEAT]

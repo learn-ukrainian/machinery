@@ -630,7 +630,8 @@ def _refuse_incomplete_seats(dest, number, head, runner, cwd, environment):
         raise gate.PublishBlocked("OPSEC: merge refused: a Ukrainian review seat has not approved this head.")
     if state not in {"APPROVED", "needs-CF"}:
         raise gate.PublishBlocked(f"OPSEC: merge refused: recorded review verdict is {state} at this head.")
-    if state == "needs-CF" and recorder:
+    # A PR that needs the second review needs a recorded review even where the recorder is optional.
+    if state == "needs-CF" and (recorder or second):
         requirement = "non-author" if low_tier else "cross-family"
         raise gate.PublishBlocked(
             f"OPSEC: merge refused: no {requirement} APPROVE from {_RECORDER} is recorded at {head}."
