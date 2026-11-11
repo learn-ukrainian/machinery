@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 from contextlib import asynccontextmanager
+from typing import Any
 
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import JSONResponse
@@ -18,9 +19,11 @@ from lu_machinery.api.state_helpers import PeriodicSnapshot
 WORKERS_SNAPSHOT_REFRESH_S = 2.0
 
 
-def _collect_snapshots(ctx: MonitorContext) -> dict:
-    payloads = {}
+def _collect_snapshots(ctx: MonitorContext) -> dict[str | None, dict[str, Any]]:
+    payloads: dict[str | None, dict[str, Any]] = {}
     workers_collect._build_workers_payload(
+        tasks_dir=workers_collect.delegate_router._tasks_dir(ctx),
+        session_db=ctx.roots.session_streams_db_path,
         presence_store=ctx.stores.presence_store,
         report_store=ctx.stores.report_store,
         host_payloads=payloads,
@@ -39,11 +42,12 @@ def _collect_snapshots(ctx: MonitorContext) -> dict:
     return payloads
 
 
-def workers_snapshot(ctx: MonitorContext) -> PeriodicSnapshot:
-    return ctx.runtime.get_or_create_derived(
+def workers_snapshot(ctx: MonitorContext) -> PeriodicSnapshot[dict[str | None, dict[str, Any]]]:
+    snapshot: PeriodicSnapshot[dict[str | None, dict[str, Any]]] = ctx.runtime.get_or_create_derived(
         "fleet-workers-snapshot",
         lambda: PeriodicSnapshot(lambda: _collect_snapshots(ctx), WORKERS_SNAPSHOT_REFRESH_S),
     )
+    return snapshot
 
 
 @asynccontextmanager

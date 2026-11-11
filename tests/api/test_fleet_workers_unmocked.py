@@ -98,6 +98,7 @@ def test_unmocked_workers_route_with_fixture_stores(tmp_path: Path, monkeypatch)
 
 
 def _seed_local_driver_lease(db_path: Path) -> None:
+    db_path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(db_path)
     conn.executescript(
         """
@@ -146,7 +147,7 @@ def test_unmocked_local_host_driver_lease_in_unattributed_bucket(tmp_path: Path,
 
     db = tmp_path / "session_streams.db"
     _seed_local_driver_lease(db)
-    monkeypatch.setattr("lu_machinery.api.fleet_workers_collect.session_streams_db_path", lambda: db)
+    monkeypatch.setattr(app.state, "ctx", app.state.ctx.with_roots(session_streams_db_path=db))
     monkeypatch.setenv("MONITOR_OCCUPANCY_HOST_IDS", "teach-box=host-teacher,worker-box=host-worker")
     monkeypatch.setenv("LU_MONITOR_HOST_ID", "host-teacher")
 
@@ -185,11 +186,18 @@ def test_workers_snapshot_never_collects_on_requests(tmp_path, monkeypatch):
     from lu_machinery.api.monitor_context import fixture_context
 
     ctx = fixture_context(tmp_path)
-    tasks = tmp_path / "tasks"
-    tasks.mkdir()
-    monkeypatch.setattr("lu_machinery.api.delegate_router._tasks_dir", lambda ctx=None: tasks)
+    tasks = ctx.roots.batch_state_dir / "tasks"
+    tasks.mkdir(parents=True)
+    (tasks / "fixture-task.json").write_text(json.dumps({
+        "task_id": "fixture-task", "schema_version": 2, "agent": "codex", "status": "spawning",
+    }))
+    _seed_local_driver_lease(ctx.roots.session_streams_db_path)
+    monkeypatch.setenv("LU_MONITOR_HOST_ID", "host-teacher")
+    monkeypatch.setenv("MONITOR_OCCUPANCY_HOST_IDS", "fixture=host-teacher")
     with _snapshot_client(ctx) as running:
         expected, _ = fleet_workers_router.workers_snapshot(ctx).read()
+        ids = {row["id"] for host in expected[None]["hosts"] for row in host["workers"]}
+        assert {"fixture-task", "inst-local-7265"} <= ids
         def forbidden(*args, **kwargs):
             raise AssertionError("request collected workers")
         monkeypatch.setattr(fleet_workers_collect, "_build_workers_payload", forbidden)

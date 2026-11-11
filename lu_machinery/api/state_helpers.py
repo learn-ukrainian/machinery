@@ -48,13 +48,13 @@ _ttl_clock: Callable[[], float] = time.monotonic
 T = TypeVar("T")
 
 
-class PeriodicSnapshot:
+class PeriodicSnapshot[T]:
     """One lifespan-owned writer; readers never collect or wait for a refresh."""
 
-    def __init__(self, compute: Callable[[], object], interval: float):
+    def __init__(self, compute: Callable[[], T], interval: float):
         self.compute = compute
         self.interval = interval
-        self._entry: tuple[float, object] | None = None
+        self._entry: tuple[float, T] | None = None
 
     def refresh(self) -> None:
         # Age includes collection time, rather than making a slow scan look new.
@@ -62,7 +62,7 @@ class PeriodicSnapshot:
         value = self.compute()
         self._entry = (started, value)
 
-    def read(self) -> tuple[object, float]:
+    def read(self) -> tuple[T, float]:
         entry = self._entry
         if entry is None:
             raise HTTPException(

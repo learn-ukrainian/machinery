@@ -31,11 +31,12 @@ from .monitor_context import production_context as production_context  # re-expo
 from .state_helpers import PeriodicSnapshot, cache_get_or_compute_async, cache_retain, ctx_scoped_ttl_key
 
 
-def active_snapshot(ctx: MonitorContext) -> PeriodicSnapshot:
-    return ctx.runtime.get_or_create_derived(
+def active_snapshot(ctx: MonitorContext) -> PeriodicSnapshot[dict[str, Any]]:
+    snapshot: PeriodicSnapshot[dict[str, Any]] = ctx.runtime.get_or_create_derived(
         "delegate-active-snapshot",
         lambda: PeriodicSnapshot(lambda: active_delegate_tasks(ctx=ctx), DELEGATE_LIST_TTL_S),
     )
+    return snapshot
 
 
 @asynccontextmanager
