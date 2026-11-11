@@ -900,9 +900,10 @@ launcher_refuse_uncertified_gemini_driver() {
   local arg
   [ "$LC_MODE" = driver ] || return 0
   if [ "$LC_PROVIDER" = gemini ]; then
+    # AGY uses Go-style flags, which also accept a single leading dash.
     for arg in "${LC_FORWARD_ARGS[@]+"${LC_FORWARD_ARGS[@]}"}"; do
       case "$arg" in
-        --model|--model=*|--effort|--effort=*)
+        --model|--model=*|-model|-model=*|--effort|--effort=*|-effort|-effort=*)
           launcher_error "the gemini driver takes its model and effort from launcher options, not from forwarded '$arg' (certified: $LC_GEMINI_DRIVER_MODELS)."
           exit 4
           ;;

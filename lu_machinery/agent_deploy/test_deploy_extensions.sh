@@ -139,7 +139,7 @@ contains "$out" "Agent extensions deployed" "real npm success"
 # --- defect class: npm usage config returns success without executing deploy ---
 # Exercise environment (both spellings) and project npmrc config sources.
 for usage_source in env upper npmrc; do
-  rm -f "$WORK_DIR/ws/root-deployed"
+  rm -f "$WORK_DIR/ws/root-deployed" "$WORK_DIR/ws/.agent/last-deploy-status"
   printf '{"name":"root","scripts":{"agents:deploy":"echo root > root-deployed; exit 29"}}\n' > "$WORK_DIR/ws/package.json"
   rm -f "$WORK_DIR/ws/.npmrc"
   usage_env=()
@@ -154,7 +154,7 @@ for usage_source in env upper npmrc; do
   [[ "$rc" -eq 29 ]] || fail "usage $usage_source: expected script exit 29, got $rc: $out"
   [[ -f "$WORK_DIR/ws/root-deployed" ]] || fail "usage $usage_source: root script did not run"
   contains "$out" "AGENT-EXTENSIONS DEPLOY FAILED" "usage $usage_source failure banner"
-  [[ -f "$WORK_DIR/ws/.agent/last-deploy-status" ]] || fail "usage $usage_source lost failure status"
+  grep -q '^exit_code=29$' "$WORK_DIR/ws/.agent/last-deploy-status" || fail "usage $usage_source lost failure status"
 done
 
 # --- launchers actually use the helper (regression guard on the wiring) ---

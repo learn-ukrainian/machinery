@@ -1489,6 +1489,10 @@ fi
         ("start-gemini-driver.sh", ["--epic", "infra"], {"LAUNCHER_EFFORT": "medium"}, "", 4),
         ("start-gemini-driver.sh", ["--epic", "infra", "--", "--effort", "low"], {}, "", 4),
         ("start-gemini-driver.sh", ["--epic", "infra", "--", "--effort=low"], {}, "", 4),
+        ("start-gemini-driver.sh", ["--epic", "infra", "--", "-effort", "low"], {}, "", 4),
+        ("start-gemini-driver.sh", ["--epic", "infra", "--", "-effort=low"], {}, "", 4),
+        ("start-gemini-driver.sh", ["--epic", "infra", "--", "-model", "gemini-4-carbon-high"], {}, "", 4),
+        ("start-gemini-driver.sh", ["--epic", "infra", "--", "-model=gemini-4-carbon-high"], {}, "", 4),
         ("start-gemini-driver.sh", ["--epic", "infra", "--effort", "high"], {}, "gemini-3.8-flash-high", 0),
     ],
 )
