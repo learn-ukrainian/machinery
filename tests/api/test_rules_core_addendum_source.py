@@ -340,6 +340,9 @@ def _inventory(tmp_path: Path, text: str) -> Path:
         json.dumps({"files": {"rules/a.md": {**_GOOD, "mode": True}}}),
         json.dumps({"files": {"rules/a.md": "record"}}),
         json.dumps({"files": {"rules/core-curriculum.md": _GOOD}}),
+        '{"files": {"rules/a.md": {"owner": "fleet", "mode": 420, "targets": {"codex": NaN}}}}',
+        '{"files": {"rules/a.md": {"owner": "fleet", "mode": 420, "targets": {"codex": Infinity}}}}',
+        '{"files": {"rules/a.md": {"owner": "fleet", "mode": 420, "targets": {"codex": -Infinity}}}}',
     ],
 )
 def test_malformed_release_inventory_or_product_ownership_conflict_is_refused(tmp_path, text):

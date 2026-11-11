@@ -162,7 +162,7 @@ _RELEASE_MODES = frozenset({0o644, 0o755})
 def _load_inventory(path: Path) -> frozenset[str]:
     """The shared-tree paths the release declares, from its inventory, validated like the deployer does."""
     try:
-        inventory = release_plan.decode(path.read_bytes())
+        inventory = _load_json(path)  # strict: duplicate members and non-standard constants are refused
         files = inventory.get("files") if isinstance(inventory, dict) else None
         if not isinstance(files, dict) or not files:
             raise release_plan.Invalid("inventory has no files")
