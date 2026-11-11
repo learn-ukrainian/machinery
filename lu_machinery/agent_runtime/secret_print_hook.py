@@ -21,6 +21,19 @@ HARNESSES = frozenset({"claude", "codex", "grok", "kimi", "cursor", "agy", "open
 DEFAULT_TIMEOUT = 5.0
 MAX_STDIN_BYTES = 1_048_576
 BLOCK_PREFIX = "BLOCKED by guard-secret-print (#M-5): "
+GUARD_RESOURCE = "agents_extensions/shared/hooks/guard-secret-print.py"
+
+
+def guard_path() -> Path:
+    """The shared guard shipped in this release, never a product checkout's copy.
+
+    Raises ``FileNotFoundError`` when the release lacks it and ``ValueError`` when it
+    resolves outside the release; :func:`run_guard` denies on either. Tests replace this
+    function to point at a missing, crashing or overdue guard.
+    """
+    from lu_machinery.common.repo_root import machinery_path
+
+    return machinery_path(GUARD_RESOURCE)
 
 
 class HookParser(argparse.ArgumentParser):
@@ -60,10 +73,12 @@ def run_guard(command: str, *, timeout: float = DEFAULT_TIMEOUT, harness: str = 
         return False, BLOCK_PREFIX + "invalid guard deadline.\n"
     try:
         from lu_machinery.agent_runtime.codex_hook_policy import run_guard as run_guard_process
-        from lu_machinery.common.repo_root import product_root
 
-        guard_path = product_root() / "agents_extensions/shared/hooks/guard-secret-print.py"
-        if not guard_path.is_file():
+        try:
+            guard = guard_path()
+        except FileNotFoundError:
+            return False, BLOCK_PREFIX + "shared guard unavailable.\n"
+        if not guard.is_file():
             return False, BLOCK_PREFIX + "shared guard unavailable.\n"
         payload = json.dumps({"tool_name": "Bash", "tool_input": {"command": command}})
         if harness == "agy":
@@ -71,7 +86,7 @@ def run_guard(command: str, *, timeout: float = DEFAULT_TIMEOUT, harness: str = 
             env.pop("LEARN_UK_SECRETS_OK", None)
             # This process's interpreter and the resolved guard path; argv is a list and no shell runs.
             result = subprocess.run(  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit
-                [sys.executable, "-I", str(guard_path)],
+                [sys.executable, "-I", str(guard)],
                 input=payload,
                 text=True,
                 capture_output=True,
@@ -80,7 +95,7 @@ def run_guard(command: str, *, timeout: float = DEFAULT_TIMEOUT, harness: str = 
                 env=env,
             )
         else:
-            result = run_guard_process(Path(sys.executable), guard_path, payload, timeout)
+            result = run_guard_process(Path(sys.executable), guard, payload, timeout)
     except subprocess.TimeoutExpired:
         return False, BLOCK_PREFIX + "shared guard deadline exceeded.\n"
     except (OSError, ValueError, UnicodeError):
@@ -155,7 +170,7 @@ def main(argv: list[str] | None = None) -> int:
             from lu_machinery.common.repo_root import configure_native_hook_roots
 
             # The direct native boundary: the shared shell rule validates the hook context and
-            # supplies missing roots before the product guard is located; failure denies below.
+            # supplies missing roots before the release guard runs; failure denies below.
             configure_native_hook_roots(Path.cwd())
         allowed, message = (
             (True, "") if command is None else run_guard(command, timeout=options.timeout, harness=harness)

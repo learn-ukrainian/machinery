@@ -1344,7 +1344,7 @@ class AttemptBoundary:
 
                 # The renderer JSON-escapes the path. A raw replace misses quotes, backslashes and non-ASCII.
                 rendered = _render_codex_review_config(Path(proxy_server["command"]), proxy, {})
-                needle = f"args = [{_toml_string(str(proxy))}]"
+                needle = f"args = [{_toml_string('-I')}, {_toml_string(str(proxy))}]"
                 isolated = "args = [" + ", ".join(
                     _toml_string(part) for part in ("-I", str(proxy), str(endpoint))
                 ) + "]"
