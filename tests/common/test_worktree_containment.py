@@ -557,3 +557,42 @@ def test_relative_gitignored_path_resolved_against_cwd(layout: Layout):
     decision = wc.evaluate_write(rel, cwd=ignored_dir)
     assert decision.allowed is True, decision
     assert decision.reason == "gitignored_local_state"
+
+
+@pytest.mark.parametrize("shape", ["agy", "claude"])
+@pytest.mark.parametrize("where", ["primary", "worktree", "malformed"])
+@pytest.mark.parametrize("tool", ["write_file", "edit_file", "run_command"])
+def test_agy_tool_call_shape_cannot_bypass_primary_write_guard(layout: Layout, shape: str, where: str, tool: str):
+    """Defect class: a provider payload shape the guard does not parse is silently allowed.
+
+    AGY sends ``toolCall.args`` and reads a denial only as stdout JSON (exit 0); worktree
+    writes stay allowed. Claude-shaped payloads keep their exit-2 contract unchanged.
+    """
+    cwd = layout.main if where != "worktree" else layout.dispatch_wt
+    target = str(cwd / "tracked.txt")
+    if tool == "run_command":
+        args, claude_tool, claude_input = {"CommandLine": f"echo x > {target}"}, "Bash", {"command": f"echo x > {target}"}
+    else:
+        args = {"Path": target, "Content": "x"} if tool == "write_file" else {"Path": target, "Target": "o", "Replacement": "x"}
+        claude_tool, claude_input = ("Write" if tool == "write_file" else "Edit"), {"file_path": target}
+    if shape == "agy":
+        call = {"id": "t1", "name": tool, "args": "malformed" if where == "malformed" else args}
+        payload = {"hookEventName": "PreToolUse", "cwd": str(cwd), "toolCall": call}
+    else:
+        payload = {"tool_name": claude_tool, "cwd": str(cwd), "tool_input": "malformed" if where == "malformed" else claude_input}
+    hook = Path(__file__).resolve().parents[2] / "agents_extensions/shared/hooks/guard-primary-checkout-write.py"
+    result = subprocess.run(
+        [sys.executable, str(hook)], input=json.dumps(payload), cwd=cwd,
+        env={**_clean_env(), "LU_PRODUCT_ROOT": str(layout.main)},
+        capture_output=True, text=True, timeout=60,
+    )
+    blocked = where != "worktree"
+    if shape == "claude":
+        assert (result.returncode, result.stdout) == (2 if blocked else 0, ""), result.stderr
+    elif blocked:
+        assert result.returncode == 0, result.stderr
+        decision = json.loads(result.stdout)
+        assert decision["decision"] == "deny"
+        assert decision["reason"].startswith("BLOCKED by guard-primary-checkout-write")
+    else:
+        assert (result.returncode, result.stdout) == (0, ""), result.stderr
