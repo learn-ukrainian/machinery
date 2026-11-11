@@ -29,10 +29,16 @@ def adapter() -> CursorAdapter:
     return CursorAdapter()
 
 
+# Cursor has no approved model pin while Grok is retired (GROK-CANCEL-1110). Env plumbing is
+# independent of the pin, so these tests install a stand-in as the only approved pin.
+STAND_IN_PIN = "stand-in-cursor-pin-high"
+
+
 @pytest.fixture(autouse=True)
 def _stub_cursor_agent_binary(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Env plumbing is independent of which Cursor executable is installed."""
+    """Env plumbing is independent of which Cursor executable and approved pin are installed."""
     monkeypatch.setattr(cursor_mod, "resolve_cursor_agent_binary", lambda: "/usr/local/bin/cursor-agent")
+    monkeypatch.setattr("lu_machinery.review.model_catalog.CURSOR_APPROVED_WIRE_PINS", frozenset({STAND_IN_PIN}))
 
 
 def test_cursor_adapter_child_env_when_api_key_in_parent_env(adapter, tmp_path):
@@ -49,7 +55,7 @@ def test_cursor_adapter_child_env_when_api_key_in_parent_env(adapter, tmp_path):
             prompt="test prompt",
             mode="read-only",
             cwd=tmp_path,
-            model="grok-4.7",
+            model=STAND_IN_PIN,
             task_id="test-task",
             session_id=None,
             tool_config={},
@@ -84,7 +90,7 @@ def test_cursor_adapter_child_env_when_api_key_in_file(adapter, tmp_path, monkey
             prompt="test prompt",
             mode="workspace-write",
             cwd=tmp_path,
-            model="grok-4.7",
+            model=STAND_IN_PIN,
             task_id="test-task",
             session_id=None,
             tool_config={},
@@ -119,7 +125,7 @@ def test_cursor_adapter_parent_env_wins_over_file(adapter, tmp_path, monkeypatch
             prompt="test prompt",
             mode="danger",
             cwd=tmp_path,
-            model="grok-4.7",
+            model=STAND_IN_PIN,
             task_id="test-task",
             session_id=None,
             tool_config={},
@@ -143,7 +149,7 @@ def test_cursor_adapter_child_env_no_key_when_both_absent(adapter, tmp_path, mon
             prompt="test prompt",
             mode="read-only",
             cwd=tmp_path,
-            model="grok-4.7",
+            model=STAND_IN_PIN,
             task_id="test-task",
             session_id=None,
             tool_config={},
@@ -177,7 +183,7 @@ def test_cursor_adapter_child_env_does_not_leak_unrelated_or_foreign_credentials
             prompt="test prompt",
             mode="workspace-write",
             cwd=tmp_path,
-            model="grok-4.7",
+            model=STAND_IN_PIN,
             task_id="test-task",
             session_id=None,
             tool_config={},
