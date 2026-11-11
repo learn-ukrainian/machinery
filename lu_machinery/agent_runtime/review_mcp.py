@@ -675,7 +675,7 @@ def _render_codex_review_config(python_bin: Path, sources_server: Path, env: dic
         "",
         "[mcp_servers.sources]",
         f"command = {_toml_string(str(python_bin))}",
-        f"args = [{_toml_string(str(sources_server))}]",
+        "args = [" + ", ".join(_toml_string(arg) for arg in sources_server_args(sources_server)) + "]",
         "required = true",
         f"enabled_tools = {json.dumps(tools)}",
         'default_tools_approval_mode = "prompt"',
@@ -812,6 +812,14 @@ def sources_server_launch() -> tuple[Path, Path]:
     return Path(sys.executable), review_server_checkout() / ".mcp" / "servers" / "sources" / "server.py"
 
 
+def sources_server_args(sources_server: Path) -> list[str]:
+    """The argv after the interpreter for a formal attempt's ``sources`` server, in JSON and Codex TOML alike.
+
+    ``-I``: no ``PYTHON*`` variable, user site or script directory supplies code before the server initializes.
+    """
+    return ["-I", str(sources_server)]
+
+
 def sources_mcp_config(python_bin: Path, sources_server: Path, env: Mapping[str, str] | None = None) -> dict[str, Any]:
     """An MCP configuration defining only a stdio ``sources`` server started from ``python_bin`` and ``sources_server``.
 
@@ -819,7 +827,7 @@ def sources_mcp_config(python_bin: Path, sources_server: Path, env: Mapping[str,
     script directory supplies code before it initializes. Formal attempts pass their recording ``env``.
     An ordinary Claude reviewer uses ``isolated_sources_mcp_config`` instead.
     """
-    server: dict[str, Any] = {"command": str(python_bin), "args": ["-I", str(sources_server)]}
+    server: dict[str, Any] = {"command": str(python_bin), "args": sources_server_args(sources_server)}
     if env is not None:
         server["env"] = dict(env)
     return {"mcpServers": {"sources": server}}
