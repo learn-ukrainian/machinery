@@ -1332,7 +1332,6 @@
  "scripts/deploy/vendor_atlas_tree.py": "product",
  "scripts/deploy/verify_pages_deployment_marker.py": "product",
  "scripts/deploy_codex_home.py": "machinery",
- "scripts/deploy_orphan_paths.sh": "machinery",
  "scripts/deploy_prompts.sh": "machinery",
  "scripts/dev/tokenize_uk_smoke.py": "product",
  "scripts/dispatch.py": "machinery",
