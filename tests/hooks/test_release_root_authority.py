@@ -245,7 +245,7 @@ def run_shell(path, *args, env=None, cwd):
 
 
 @pytest.mark.parametrize("name", SHELL_HOOKS)
-@pytest.mark.parametrize("layout", ["primary", "no-git", "empty-git", "hook-location", "empty-git-planted"])
+@pytest.mark.parametrize("layout", ["primary", "no-git", "empty-git", "hook-location", "empty-git-planted", "relative-root"])
 @pytest.mark.parametrize("interpreter", ["configured", "primary-venv"])
 def test_shell_hook_refuses_location_derived_project(release, product, tmp_path, name, layout, interpreter):
     """Premature root refusal must yield to the rule, without trusting hook location."""
@@ -254,8 +254,10 @@ def test_shell_hook_refuses_location_derived_project(release, product, tmp_path,
     marker = tmp_path / "planted-interpreter-ran"
     if layout in {"empty-git", "empty-git-planted"}:
         (cwd / ".git").mkdir()
-    if layout == "empty-git-planted":
-        planted = cwd / ".venv/bin/python"
+    if layout in {"empty-git-planted", "relative-root"}:
+        if layout == "relative-root":
+            subprocess.run(["git", "init", "-q", str(cwd / "relative")], check=True)
+        planted = (cwd / "relative" if layout == "relative-root" else cwd) / ".venv/bin/python"
         planted.parent.mkdir(parents=True)
         planted.write_text(f"#!/bin/sh\nprintf ran > {shlex.quote(str(marker))}\nexit 1\n")
         planted.chmod(0o755)
@@ -274,6 +276,8 @@ def test_shell_hook_refuses_location_derived_project(release, product, tmp_path,
         "LU_MONITOR_LOOPBACK": "http://127.0.0.1:9",
         "AB_DB_PATH": str(tmp_path / "messages.db"),
     }
+    if layout == "relative-root":
+        env["LU_PRODUCT_ROOT"] = "relative"
     if interpreter == "configured":
         env["LEARN_UKRAINIAN_PYTHON"] = str(release.parent / "venv/bin/python")
     result = subprocess.run(
