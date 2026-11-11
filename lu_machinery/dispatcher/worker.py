@@ -245,6 +245,7 @@ def _dispatcher_code() -> dict:
     file, or another error, is false.
     """
     import errno
+    import tomllib
 
     from lu_machinery.common.git_context import sanitized_git_env
 
@@ -282,16 +283,50 @@ def _dispatcher_code() -> dict:
         if f"{package}/dispatcher/worker.py" not in blobs:
             return False
         seen: set[str] = set()
+        # The import root must contain only tracked entries, apart from Git metadata.
+        # Check top-level files too: they can shadow dependencies before site-packages.
+        root_listing = git_out("ls-tree", "-z", "--full-tree", "HEAD^{tree}")
+        if root_listing is None:
+            return False
+        roots = {}
+        for entry in filter(None, root_listing.split("\0")):
+            meta, _, name = entry.partition("\t")
+            mode, kind, oid = meta.split(" ")
+            roots[name] = (mode, kind, oid)
+        for entry in os.scandir(top):
+            if entry.name == ".git":
+                continue
+            if entry.name not in roots or entry.is_symlink():
+                return False
+            mode, kind, oid = roots[entry.name]
+            if kind == "tree":
+                if not entry.is_dir(follow_symlinks=False):
+                    return False
+            elif kind == "blob" and mode in {"100644", "100755"}:
+                data = read(entry.path)
+                if hashlib.new(algorithm, b"blob %d\0" % len(data) + data).hexdigest() != oid:
+                    return False
+            else:
+                return False
+        if set(roots) != {entry.name for entry in os.scandir(top) if entry.name != ".git"}:
+            return False
+        directories = {str(Path(path).parent).replace(os.sep, "/") for path in blobs}
+        directories = {ancestor for directory in directories for ancestor in
+                       (directory, *(str(parent).replace(os.sep, "/") for parent in Path(directory).parents))}
         for directory in (package, "schemas"):
             base = os.path.join(top, directory)
             if directory == "schemas" and not os.path.lexists(base):
                 continue
+            if stat.S_ISLNK(os.lstat(base).st_mode):
+                return False
             for current, dirs, files in os.walk(base, onerror=unreadable):
                 for name in (*dirs, *files):
                     path = os.path.join(current, name)
                     if stat.S_ISLNK(os.lstat(path).st_mode):
                         return False
                     if name not in files:
+                        if os.path.relpath(path, top).replace(os.sep, "/") not in directories:
+                            return False
                         continue
                     relative = os.path.relpath(path, top).replace(os.sep, "/")
                     if relative not in blobs or not stat.S_ISREG(os.lstat(path).st_mode):
@@ -303,10 +338,21 @@ def _dispatcher_code() -> dict:
         return seen == set(blobs)
 
     def sealed(top: str) -> bool:
+        try:
+            os.close(os.open(top, os.O_WRONLY | os.O_TMPFILE, 0o600))
+            return False
+        except OSError as exc:
+            if exc.errno != errno.EROFS:
+                return False
+        for entry in os.scandir(top):
+            if entry.name != ".git" and not os.statvfs(entry.path).f_flag & os.ST_RDONLY:
+                return False
         for directory in (package, "schemas"):
             base = os.path.join(top, directory)
             if directory == "schemas" and not os.path.lexists(base):
                 continue
+            if stat.S_ISLNK(os.lstat(base).st_mode):
+                return False
             for current, _dirs, files in os.walk(base, onerror=unreadable):
                 try:
                     # An unnamed file (O_TMPFILE) leaves nothing behind if the directory is writable.
@@ -321,6 +367,14 @@ def _dispatcher_code() -> dict:
         return True
 
     def attest() -> dict | None:
+        # Never ask Git to search ancestors of an installed package. A standalone
+        # source checkout identifies its project before any Git subprocess runs.
+        if not (root / ".git").exists():
+            return None
+        if not in_tree_source():
+            with (root / "pyproject.toml").open("rb") as handle:
+                if tomllib.load(handle).get("project", {}).get("name") != "lu-machinery":
+                    return None
         top = (git_out("rev-parse", "--show-toplevel") or "").rstrip("\n")
         if (
             not top

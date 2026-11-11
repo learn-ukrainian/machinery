@@ -325,6 +325,9 @@ def machinery_checkout(tmp_path_factory: pytest.TempPathFactory) -> Path:
     shutil.copytree(machinery_root(), origin / "lu_machinery", ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
     _git(origin.parent, "init", "-q", str(origin))
     (origin / ".gitignore").write_text("__pycache__/\n")  # as the repository ignores bytecode
+    (origin / "pyproject.toml").write_text('[project]\nname = "lu-machinery"\n')
+    (origin / "schemas").mkdir()
+    (origin / "schemas" / "probe.json").write_text('{}\n')
     _git(origin, "add", "-A")
     _git(origin, "commit", "-qm", "fixture")
     return origin
@@ -334,7 +337,8 @@ def machinery_checkout(tmp_path_factory: pytest.TempPathFactory) -> Path:
     "clean_nested_checkout", "linked_worktree", "writable_checkout", "writable_file_mount", "dirty_tracked_file", "untracked_file", "ignored_file",
     "skip_worktree", "assume_unchanged", "replace_ref", "git_env_override", "symlinked_package",
     "symlinked_parent", "site_packages_in_checkout", "stale_bytecode", "nonregular_cache_entry",
-    "unresolvable_package_file",
+    "unresolvable_package_file", "schemas_root_symlink", "writable_top", "top_module",
+    "namespace_directory", "installed_target",
 ])
 def test_dispatcher_code_attests_only_an_unmodified_unlinked_checkout(machinery_checkout, tmp_path, scenario):
     """Defect class: canary dispatcher identity attests code that differs from the reviewed head."""
@@ -380,8 +384,7 @@ def test_dispatcher_code_attests_only_an_unmodified_unlinked_checkout(machinery_
         # Redirects and inline config naming another repository are ignored.
         other = tmp_path / "other"
         _git(tmp_path, "init", "-q", str(other))
-        environment.update(GIT_DIR=str(other / ".git"), GIT_WORK_TREE=str(other), GIT_CONFIG_COUNT="1",
-                           GIT_CONFIG_KEY_0="core.worktree", GIT_CONFIG_VALUE_0=str(other))
+        environment.update(GIT_DIR=str(other / ".git"), GIT_WORK_TREE=str(other), GIT_CONFIG_COUNT="not-an-int")
     elif scenario == "symlinked_package":
         load_from = tmp_path / "links"
         load_from.mkdir()
@@ -410,16 +413,34 @@ def test_dispatcher_code_attests_only_an_unmodified_unlinked_checkout(machinery_
         load_from = checkout / ".venv" / "site-packages"
         shutil.copytree(package, load_from / "lu_machinery")
         (checkout / ".git" / "info" / "exclude").write_text(".venv/\n")
+    elif scenario == "schemas_root_symlink":
+        outside = tmp_path / "outside-schemas"
+        (checkout / "schemas").rename(outside)
+        (checkout / "schemas").symlink_to(outside)
+    elif scenario == "top_module":
+        (checkout / "jsonschema.py").write_text("HIJACKED = True\n")
+    elif scenario == "namespace_directory":
+        (package / "planted_namespace").mkdir()
+    elif scenario == "installed_target":
+        (checkout / "pyproject.toml").write_text('[project]\nname = "product"\n')
     sealed = scenario in ("clean_nested_checkout", "linked_worktree", "git_env_override", "writable_file_mount")
+    if sealed or scenario == "writable_top":
+        capability = subprocess.run(["bwrap", "--ro-bind", "/", "/", "--", "true"],
+                                    capture_output=True, text=True, timeout=10)
+        if capability.returncode:
+            pytest.skip("bubblewrap namespaces unavailable: " + capability.stderr.strip())
     # The canary's seal: the checkout is a read-only bind mount for every process (needs bubblewrap).
     prefix = ["bwrap", "--dev-bind", "/", "/", "--ro-bind", str(load_from), str(load_from), "--die-with-parent"]
+    if scenario == "writable_top":
+        prefix = ["bwrap", "--dev-bind", "/", "/", "--ro-bind", str(package), str(package),
+                  "--ro-bind", str(checkout / "schemas"), str(checkout / "schemas"), "--die-with-parent"]
     if scenario == "writable_file_mount":
         # F5: one tracked file stays writable through its own bind mount under read-only directories.
         writable = tmp_path / "writable-codex.py"
         shutil.copyfile(package / "dispatcher" / "providers" / "codex.py", writable)
         prefix[-1:-1] = ["--bind", str(writable), str(package / "dispatcher" / "providers" / "codex.py")]
     # An attesting dispatcher writes no bytecode: a cache file is untracked and unclean.
-    result = subprocess.run([*(prefix if sealed else []), sys.executable, "-I", "-B", "-c", _ATTEST_PROBE,
+    result = subprocess.run([*(prefix if sealed or scenario == "writable_top" else []), sys.executable, "-I", "-B", "-c", _ATTEST_PROBE,
                              str(load_from), head],
                             cwd=tmp_path, env=environment, capture_output=True, text=True, timeout=120)
     assert result.returncode == 0, result.stdout + result.stderr
@@ -434,11 +455,11 @@ def test_dispatcher_code_attests_only_an_unmodified_unlinked_checkout(machinery_
         assert probe["code"] == {"root": str(load_from), "head": head, "clean": True, "read_only": True}
         assert probe["receipt"] == "qualifies"
         return
-    if scenario == "writable_checkout":  # unmodified, but nothing stopped a process writing code into it
+    if scenario in ("writable_checkout", "writable_top"):  # unmodified, but nothing stopped a process writing code into it
         assert probe["code"] == {"root": str(checkout), "head": head, "clean": True, "read_only": False}
         assert probe["receipt"] == "task's dispatcher checkout was not a read-only mount"
         return
-    if scenario in ("symlinked_package", "symlinked_parent", "site_packages_in_checkout"):
+    if scenario in ("symlinked_package", "symlinked_parent", "site_packages_in_checkout", "installed_target"):
         assert probe["code"] == {"root": str(primary), "head": None, "clean": False, "read_only": False}
     else:
         assert probe["code"] == {"root": str(checkout), "head": head, "clean": False, "read_only": False}
