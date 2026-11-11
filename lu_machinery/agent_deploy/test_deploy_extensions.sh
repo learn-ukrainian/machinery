@@ -33,6 +33,15 @@ trap 'rm -rf "$WORK_DIR"' EXIT
 
 # Fake project with an agents:deploy script + a fake npm shim on PATH whose
 # behaviour is driven by FAKE_NPM_EXIT / FAKE_NPM_OUTPUT.
+# The real npm, found before the fake shim below goes on PATH; agent npm shims
+# are not npm. The workspace case needs npm's own package selection.
+REAL_NPM=""
+IFS=: read -r -a _path_entries <<< "$PATH"
+for _entry in "${_path_entries[@]}"; do
+  case "${_entry%/}" in */agent_runtime/shims|*/dispatcher/npm_shims) continue ;; esac
+  if [[ -x "$_entry/npm" && ! -d "$_entry/npm" ]]; then REAL_NPM="$_entry/npm"; break; fi
+done
+unset _path_entries _entry
 mkdir -p "$WORK_DIR/project" "$WORK_DIR/bin"
 printf '{"scripts": {"agents:deploy": "scripts/deploy_prompts.sh"}}\n' > "$WORK_DIR/project/package.json"
 cat > "$WORK_DIR/bin/npm" <<'FAKE'
@@ -101,6 +110,23 @@ rc=0
 out="$(deploy_agent_extensions "$WORK_DIR/empty" agents:deploy 2>&1)" || rc=$?
 [ "$rc" -ne 0 ] || fail "no-package-json case: expected non-zero exit, got 0"
 contains "$out" "not found" "missing package.json names the missing deploy script"
+
+# --- defect class: an ambient npm workspace selector makes the deploy gate ---
+# --- succeed without running the root script. It must refuse instead.     ---
+# Real npm: a root package with a child workspace, both defining the script.
+[[ -n "$REAL_NPM" ]] || fail "workspace case: real npm not found on PATH"
+mkdir -p "$WORK_DIR/ws/child" "$WORK_DIR/realbin"
+ln -s "$REAL_NPM" "$WORK_DIR/realbin/npm"
+printf '{"name": "root", "private": true, "workspaces": ["child"], "scripts": {"agents:deploy": "echo root > root-deployed"}}\n' \
+  > "$WORK_DIR/ws/package.json"
+printf '{"name": "child", "scripts": {"agents:deploy": "echo child > child-deployed"}}\n' > "$WORK_DIR/ws/child/package.json"
+rc=0
+out="$(PATH="$WORK_DIR/realbin:${PATH#"$WORK_DIR/bin:"}" npm_config_cache="$WORK_DIR/npm-cache" npm_config_workspace=child \
+  deploy_agent_extensions "$WORK_DIR/ws" agents:deploy 2>&1)" || rc=$?
+[ "$rc" -ne 0 ] || fail "workspace case: an ambient workspace selector passed the deploy gate: $out"
+[[ ! -e "$WORK_DIR/ws/child/child-deployed" ]] || fail "workspace case: the child workspace script ran"
+[[ ! -e "$WORK_DIR/ws/root-deployed" ]] || fail "workspace case: the root script ran despite the refusal"
+not_contains "$out" "Agent extensions deployed" "workspace selector never claims success"
 
 # --- launchers actually use the helper (regression guard on the wiring) ---
 # Post-cutover (#5958) the deploy gate lives in the SHARED core so every
