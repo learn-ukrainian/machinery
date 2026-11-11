@@ -20,8 +20,9 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from lu_machinery.common.repo_root import ProductRootError, product_root
+from lu_machinery.common.repo_root import RULES_DIR_REL, ProductRootError, machinery_path, product_root
 from lu_machinery.common.schema_check import check_schema as check_schema_memoised
+from lu_machinery.lib.rules_core import RulesCoreMissing, source_path
 
 CONTRACT_ROOT = Path("agents_extensions/shared/prompt-contracts")
 REGISTRY_PATH = CONTRACT_ROOT / "registry.v1.yaml"
@@ -128,11 +129,16 @@ def _reject_json_constant(value: str) -> None:
     raise PromptContractError(f"non-standard JSON constant: {value}")
 
 
-def _repo_file(repo_root: Path, relative: str | Path) -> Path:
-    raw = str(relative)
+def _repo_file_syntax(raw: str) -> None:
     path = Path(raw)
     if not raw or "\\" in raw or path.is_absolute() or ".." in path.parts or raw.startswith("~"):
         raise PromptContractError(f"path must be a safe repository-relative path: {raw!r}")
+
+
+def _repo_file(repo_root: Path, relative: str | Path) -> Path:
+    raw = str(relative)
+    path = Path(raw)
+    _repo_file_syntax(raw)
     root = repo_root.resolve()
     candidate = (root / path).resolve()
     try:
@@ -145,11 +151,32 @@ def _repo_file(repo_root: Path, relative: str | Path) -> Path:
 
 
 def _relative(path: Path, repo_root: Path) -> str:
-    return path.resolve().relative_to(repo_root.resolve()).as_posix()
+    """The logical repository-relative path; a release-owned fleet rule keeps its product-style path."""
+    resolved = path.resolve()
+    try:
+        return resolved.relative_to(repo_root.resolve()).as_posix()
+    except ValueError:
+        release = machinery_path("agents_extensions/shared").resolve().parents[1]
+        return resolved.relative_to(release).as_posix()
+
+
+def _fleet_rule(repo_root: Path, relative: str | Path) -> Path | None:
+    """A rule file resolved through ``rules_core.source_path`` (fleet rules come from the release)."""
+    raw = str(relative)
+    if not raw.startswith(f"{RULES_DIR_REL}/"):
+        return None
+    _repo_file_syntax(raw)
+    try:
+        path = source_path(raw, repo_root)
+    except RulesCoreMissing as exc:
+        raise PromptContractError(f"required prompt contract file is missing: {raw}") from exc
+    if not path.is_file():
+        raise PromptContractError(f"required prompt contract file is missing: {raw}")
+    return path
 
 
 def _shared_file(repo_root: Path, relative: str | Path, label: str) -> Path:
-    path = _repo_file(repo_root, relative)
+    path = _fleet_rule(repo_root, relative) or _repo_file(repo_root, relative)
     source = _relative(path, repo_root)
     if not source.startswith("agents_extensions/shared/"):
         raise PromptContractError(f"{label} must live under agents_extensions/shared: {source}")
