@@ -4,15 +4,14 @@ from __future__ import annotations
 
 import json
 import subprocess
-from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
 
 from lu_machinery.api import work_router
 from lu_machinery.api.main import app
+from lu_machinery.common.repo_root import machinery_path
 
-ROOT = Path(__file__).resolve().parents[2]
 
 
 def _node(script: str) -> None:
@@ -21,7 +20,7 @@ def _node(script: str) -> None:
 
 
 def _script(page: str, start: str, end: str) -> str:
-    html = (ROOT / "dashboards" / page).read_text()
+    html = (machinery_path("api/dashboards") / page).read_text()
     return html[html.index(start) : html.index(end, html.index(start))]
 
 
@@ -84,94 +83,49 @@ const tick = () => new Promise(resolve => setImmediate(resolve));
 """
 
 
-def test_runtime_panels_paint_independently_and_empty_is_not_error():
-    code = _script("runtime.html", "let runtimeLoading", "\nfunction refreshRuntime")
+def test_home_panels_paint_independently_and_a_failed_panel_clears_old_data():
+    code = _script("index.html", "const inFlight = new Set();", "\nasync function refreshAll")
     _node(
         _DOM
         + r"""
-const calls = [], painted = [], banners = {};
-let resolveAcpx;
-const pendingAcpx = new Promise(resolve => {resolveAcpx = resolve;});
+const calls = [];
+let resolveSlow;
+const slow = new Promise(resolve => {resolveSlow = resolve;});
 const fetchJson = async url => {
   calls.push(url);
-  if (url.includes('/acpx')) return pendingAcpx;
-  if (url.endsWith('/agents')) return {agents: []};
-  if (url.includes('/routing-assignments')) throw new Error('unavailable');
-  return {};
+  if (url === '/slow') return slow;
+  if (url === '/broken') throw new Error('/broken: HTTP 503');
+  return {tasks: []};
 };
-const setBanner = (id, text) => banners[id] = text;
-const renderAgents = () => painted.push('agents');
-const renderUsage = () => painted.push('usage');
-const renderRecent = () => painted.push('recent');
-const renderAcpx = () => painted.push('acpx');
-const renderRoutingAssignments = () => {};
-const renderHeadroom = () => {};
+const escapeHtml = value => String(value);
+const PANELS = [
+  {id: 'fast', urls: ['/fast'], render: data => `fast ${data.tasks.length}`},
+  {id: 'broken', urls: ['/broken'], render: () => 'never'},
+  {id: 'slow', urls: ['/slow'], render: data => `slow ${data.marker}`},
+];
 """
         + code
         + r"""
 (async () => {
-  const first = loadRuntime();
+  const first = Promise.all(PANELS.map(loadPanel));
   await tick();
-  assert.deepEqual(painted.sort(), ['agents', 'recent', 'usage']);
-  assert.equal(calls.length, 5);
-  await loadRuntime();
-  assert.equal(calls.length, 5, 'overlap must not duplicate requests');
-  assert.match(document.getElementById('headroom-content').innerHTML, /No runtime agents/);
-  assert.equal(banners['headroom-banner'], '');
-  assert.match(document.getElementById('routing-assignments-status').textContent, /unknown/);
-  resolveAcpx({});
+  assert.equal(document.getElementById('fast-content').innerHTML, 'fast 0');
+  assert.match(document.getElementById('broken-content').innerHTML, /Unavailable: \/broken: HTTP 503/);
+  assert.doesNotMatch(document.getElementById('broken-content').innerHTML, /old data/);
+  assert.equal(document.getElementById('slow-content').innerHTML, 'old data');
+  await loadPanel(PANELS[2]);
+  assert.equal(calls.filter(url => url === '/slow').length, 1, 'overlap must not duplicate requests');
+  resolveSlow({marker: 'new'});
   await first;
-  assert.match(document.getElementById('last-refresh').textContent, /Refresh attempted/);
-})().catch(e => {console.error(e); process.exitCode = 1;});
-"""
-    )
-
-
-def test_fleet_failed_panels_clear_old_data_and_old_refresh_cannot_overwrite():
-    code = _script("fleet.html", "let fleetGeneration", "\nfunction queueRefresh")
-    _node(
-        _DOM
-        + r"""
-let resolveOld, old = true;
-const errors = [], occupancyAttention = [];
-const oldResponse = new Promise(resolve => {resolveOld = resolve;});
-const fetchJson = async url => {
-  if (old) return oldResponse;
-  if (url === '/api/occupancy' || url === '/api/fleet/health') throw new Error('failed');
-  return {marker: 'new'};
-};
-const query = url => url;
-const setError = text => errors.push(text);
-const renderHealth = data => {document.getElementById('plane-status').textContent = data.marker;};
-const renderOccupancy = data => {document.getElementById('occupancy-content').textContent = data.marker;};
-const renderOccupancyAttention = data => occupancyAttention.push(data);
-const renderOverview = () => {}, renderOperations = () => {}, renderRequests = () => {};
-const renderAuthorityJobs = () => {}, renderReviews = () => {}, renderAcp = () => {};
-const renderDeadLetters = () => {}, renderWorkers = () => {}, renderProjects = () => {};
-const renderActivity = () => {}, renderMessages = () => {}, refreshConversationContext = async () => {};
-"""
-        + code
-        + r"""
-(async () => {
-  const first = refreshFleet();
-  old = false;
-  await refreshFleet();
-  assert.match(document.getElementById('occupancy-content').textContent, /Unavailable/);
-  assert.match(document.getElementById('plane-status').textContent, /Unavailable/);
-  assert.deepEqual(occupancyAttention, [[]]);
-  assert.match(errors.at(-1), /Observer data could not be read/);
-  resolveOld({marker: 'stale'});
-  await first;
-  assert.match(document.getElementById('occupancy-content').textContent, /Unavailable/);
-  assert.match(document.getElementById('plane-status').textContent, /Unavailable/);
+  assert.equal(document.getElementById('slow-content').innerHTML, 'slow new');
 })().catch(e => {console.error(e); process.exitCode = 1;});
 """
     )
 
 
 @pytest.mark.parametrize("body", ["not-json", "null", "[]"])
-def test_fleet_invalid_json_is_an_error(body):
-    code = _script("fleet.html", "async function fetchJson", "\nfunction setError")
+def test_home_invalid_json_is_an_error(body):
+    code = _script("index.html", "async function fetchJson", "\nfunction toDate")
     _node(
         _DOM
         + "const API_TIMEOUT_MS = 1000;\nconst fetch = async () => ({ok: true, text: async () => "
@@ -180,42 +134,5 @@ def test_fleet_invalid_json_is_an_error(body):
         + code
         + r"""
 assert.rejects(fetchJson('/fixture'), /Invalid/).catch(e => {console.error(e); process.exitCode = 1;});
-"""
-    )
-
-
-def test_work_new_refresh_wins_while_private_is_pending():
-    code = _script("work.html", "  let projectionGeneration", "\n  function refilterOnly")
-    _node(
-        _DOM
-        + r"""
-const pending = [], installed = [];
-const PUBLIC_PROJECTION_URL = '/public', PRIVATE_PROJECTION_URL = '/private', PRIVATE_TIMEOUT_MS = 5000;
-const state = {};
-const showError = () => {};
-const installView = doc => installed.push(doc.marker);
-const admitPublicDocument = doc => ({ok: true, doc});
-const fetchJson = url => new Promise((resolve, reject) => pending.push({url, resolve, reject}));
-const classifyPrivateFailure = () => 'unreachable';
-const privateMetaFromCode = code => code;
-const controlsToFilters = () => ({stream: 'monitor'});
-"""
-        + code
-        + r"""
-(async () => {
-  const first = loadProjection();
-  const second = loadProjection();
-  pending[2].resolve({marker: 'new'});
-  await tick();
-  assert.deepEqual(installed, ['new']);
-  assert.equal(state.privateStatusText, 'Checking capability…');
-  pending[0].resolve({marker: 'old'});
-  pending[1].reject(new Error('old private unavailable'));
-  await first;
-  assert.deepEqual(installed, ['new']);
-  pending[3].reject(new Error('private unavailable'));
-  await second;
-  assert.deepEqual(installed, ['new', 'new']);
-})().catch(e => {console.error(e); process.exitCode = 1;});
 """
     )

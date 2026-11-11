@@ -9,13 +9,13 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from pathlib import Path
 
 from lu_machinery.api import claude_account_usage
 from lu_machinery.api.fleet_router import _message_item
 from lu_machinery.api.route_contracts import contract_for_route
+from lu_machinery.common.repo_root import machinery_path
 
-HOME_JS = Path(__file__).resolve().parents[2] / "dashboards" / "fleet-board.js"
+HOME_PAGE = machinery_path("api/dashboards/index.html")
 
 
 def test_d02_unknown_account_windows_are_explicit_unknown() -> None:
@@ -95,6 +95,6 @@ def test_d05_message_metadata_never_fabricates_a_posted_blocker_or_decision() ->
 
 def test_d06_home_reads_exclude_agent_monitor_status() -> None:
     """The home reader must not trigger the reconciling agent-monitor GET."""
-    source = HOME_JS.read_text(encoding="utf-8")
+    source = HOME_PAGE.read_text(encoding="utf-8")
     assert "/api/agent-monitor/status" not in source
     assert "agent-monitor" not in source

@@ -315,6 +315,7 @@ _LEGACY_DELEGATE_SUMMARY_KEYS = {
     "started_at",
     "duration_s",
     "age_s",
+    "updated_at",
     "alive",
     "requested_selector",
     "observed_model",
@@ -332,6 +333,10 @@ _DELEGATE_SUMMARY_OBSERVATION_KEYS = {
     "push_state",
     "commits_ahead",
     "worktree_dirty_on_exit",
+    "claude_account",
+    "codex_account",
+    "delivery_pr",
+    "research_role",
     "error",
 }
 

@@ -93,7 +93,7 @@ DEFAULT_CODEXBAR_CACHE_TTL_S = (
     DEFAULT_CODEXBAR_REFRESH_INTERVAL_S + _CLAUDE_ACCOUNT_PROBE_BUDGET_S + _CLAUDE_ACCOUNT_TTL_SLACK_S
 )
 
-# Native Cursor login + dashboard probe can exceed routing.html's 5s timeout.
+# Native Cursor login + dashboard probe can exceed a dashboard's 5s request timeout.
 # Cache HTTP reads for 10 minutes; background refresh keeps snapshots warm.
 DEFAULT_CURSOR_CACHE_TTL_S = 600.0
 # A NEED_LOGIN probe result gets a much shorter fresh-window than a healthy
@@ -1325,8 +1325,12 @@ def _muse_record_from_codexbar_payload(payload: Any) -> dict[str, Any]:
 
 
 def _muse_bin() -> str | None:
+    """``muse`` on PATH, else in ``~/.local/bin``: the API service's PATH has no ``~/.local/bin``."""
     found = shutil.which("muse")
-    return found if found else None
+    if found:
+        return found
+    fallback = Path.home() / ".local" / "bin" / "muse"
+    return str(fallback) if fallback.is_file() else None
 
 
 def _muse_epoch_iso(value: Any) -> str | None:

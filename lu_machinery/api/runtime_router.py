@@ -35,6 +35,7 @@ from lu_machinery.fleet_comms.message_plane import read_plane_status
 from lu_machinery.lib.readonly_sqlite import SQLiteConnection, import_named_module, open_readonly
 from lu_machinery.orchestration import codex_transport_health
 
+from . import account_logins
 from .monitor_context import MonitorContext, get_ctx, resolve_context
 from .monitor_context import production_context as production_context  # re-export: test monkeypatches
 
@@ -1655,3 +1656,16 @@ async def runtime_auth():
         "codex": codex,
         "checked_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
     }
+
+
+@router.get("/logins")
+async def runtime_logins():
+    """Sign-in health of the subscription accounts and the cancelled subscriptions' end dates.
+
+    ``accounts`` comes from a background snapshot (``account_logins``): signed in
+    or not, login method, plan, and the sign-in end date where the CLI reports
+    one. No email, organization, directory or credential. ``state`` is
+    ``pending`` until the first snapshot exists. ``subscriptions`` holds the
+    operator's end dates for cancelled subscriptions, read from the host config.
+    """
+    return {**account_logins.logins_snapshot(), "subscriptions": account_logins.subscription_ends()}

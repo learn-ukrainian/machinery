@@ -1376,7 +1376,7 @@ def test_health_never_uses_activity_and_pr_rules():
 
 
 def _is_actionable(item: dict) -> bool:
-    """Mirror dashboards/work.html's isActionable() for a Python-side check."""
+    """Python-side actionability check (the rule the retired Work page applied)."""
     if item["health"] in {"OFF_TRACK", "AT_RISK"}:
         return True
     code = item.get("safe_next_action", {}).get("code") or ""

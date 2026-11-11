@@ -39,9 +39,17 @@ def active_snapshot(ctx: MonitorContext) -> PeriodicSnapshot[dict[str, Any]]:
     return snapshot
 
 
+def recent_snapshot(ctx: MonitorContext) -> PeriodicSnapshot[dict[str, Any]]:
+    snapshot: PeriodicSnapshot[dict[str, Any]] = ctx.runtime.get_or_create_derived(
+        "delegate-recent-snapshot",
+        lambda: PeriodicSnapshot(lambda: recent_finished_tasks(ctx=ctx), RECENT_SNAPSHOT_INTERVAL_S),
+    )
+    return snapshot
+
+
 @asynccontextmanager
 async def _active_lifespan(app):
-    async with active_snapshot(app.state.ctx).lifespan():
+    async with active_snapshot(app.state.ctx).lifespan(), recent_snapshot(app.state.ctx).lifespan():
         yield
 
 
@@ -54,6 +62,9 @@ ACTIVE_TASK_STATUSES = {"running", "spawning"}
 # Short enough that a dead pid drops off the active list quickly, long enough
 # that a burst of dashboard polls shares one directory scan.
 DELEGATE_LIST_TTL_S = 2.0
+# The finished list scans the whole history, so it refreshes far less often.
+RECENT_SNAPSHOT_INTERVAL_S = 30.0
+RECENT_FINISHED_LIMIT = 20
 _TASK_SCAN_LOCK = threading.Lock()
 # Authoritative repository-attribution fields on task state. Paths, branch names,
 # cwd, worktree, and task_id are never used for repository matching.
@@ -65,6 +76,7 @@ def _task_observations(task: dict[str, Any]) -> dict[str, Any]:
     fields = (
         "schema_version", "finished_at", "returncode", "head_sha", "remote_head_sha",
         "push_state", "commits_ahead", "worktree_dirty_on_exit",
+        "claude_account", "codex_account", "delivery_pr", "research_role",
     )
     result = {key: task[key] for key in fields if key in task}
     if "error" in task:
@@ -530,7 +542,8 @@ def _delegate_task_rows(
 
 def _task_file_fingerprint(name: str, st: os.stat_result) -> _TaskFileFingerprint:
     # Discard summaries cached before task-record classification.
-    return f"record-v1:{name}", st.st_mtime_ns, st.st_ctime_ns, st.st_size, st.st_ino
+    # v2: summaries also carry the account, delivery PR and role observations.
+    return f"record-v2:{name}", st.st_mtime_ns, st.st_ctime_ns, st.st_size, st.st_ino
 
 
 def _task_generation_token(newest_mtime_ns: int, files: list[tuple[str, os.stat_result]]) -> str:
@@ -729,6 +742,7 @@ def _delegate_task_rows_locked(
             "started_at": summary.get("started_at"),
             "duration_s": summary.get("duration_s"),
             "age_s": _task_age_seconds(summary.get("started_at")),
+            "updated_at": datetime.fromtimestamp(file_stat.st_mtime, UTC).isoformat().replace("+00:00", "Z"),
             "alive": alive,
             "run_nonce": summary.get("run_nonce"),
             **_task_observations(summary),
@@ -840,6 +854,13 @@ def get_delegate_task_detail(
     }, False
 
 
+def recent_finished_tasks(*, ctx: MonitorContext | None = None, limit: int = RECENT_FINISHED_LIMIT) -> dict[str, Any]:
+    """The last ``limit`` tasks that are no longer active, newest finish first."""
+    finished = [row for row in _delegate_task_rows(None, ctx=ctx) if row["status"] not in ACTIVE_TASK_STATUSES]
+    finished.sort(key=lambda row: str(row.get("finished_at") or row.get("started_at") or ""), reverse=True)
+    return {"total": len(finished), "tasks": finished[:limit]}
+
+
 def active_delegate_count(ctx: MonitorContext | None = None) -> int:
     return len(_delegate_task_rows(ACTIVE_TASK_STATUSES, ctx=ctx))
 
@@ -934,6 +955,13 @@ async def delegate_tasks(
 @router.get("/active")
 async def delegate_active(ctx: MonitorContext = Depends(get_ctx)):
     payload, age = active_snapshot(ctx).read()
+    return JSONResponse(content=payload, headers={"X-Snapshot-Age-S": f"{age:.3f}", "Cache-Control": "no-store"})
+
+
+@router.get("/recent")
+async def delegate_recent(ctx: MonitorContext = Depends(get_ctx)):
+    """The most recently finished tasks, newest first, from a 30 s background snapshot."""
+    payload, age = recent_snapshot(ctx).read()
     return JSONResponse(content=payload, headers={"X-Snapshot-Age-S": f"{age:.3f}", "Cache-Control": "no-store"})
 
 

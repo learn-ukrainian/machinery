@@ -1,0 +1,328 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Machinery</title>
+<style>
+  :root { color-scheme: light dark; --fg: #1d1f23; --muted: #6a6f78; --bg: #f7f7f8; --card: #fff; --line: #e3e4e8;
+          --ok: #1a7f37; --warn: #9a6700; --bad: #cf222e; }
+  @media (prefers-color-scheme: dark) {
+    :root { --fg: #e6e7ea; --muted: #9aa0aa; --bg: #15171a; --card: #1d2024; --line: #30343a;
+            --ok: #3fb950; --warn: #d29922; --bad: #f85149; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 14px/1.4 system-ui, sans-serif; color: var(--fg); background: var(--bg); }
+  header { display: flex; align-items: baseline; gap: 16px; padding: 12px 20px; border-bottom: 1px solid var(--line); }
+  header h1 { margin: 0; font-size: 18px; }
+  header .muted { font-size: 12px; }
+  main { display: grid; gap: 16px; padding: 16px 20px; grid-template-columns: repeat(auto-fit, minmax(520px, 1fr)); }
+  section { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; overflow-x: auto; }
+  section.wide { grid-column: 1 / -1; }
+  h2 { margin: 0 0 8px; font-size: 15px; display: flex; gap: 10px; align-items: baseline; }
+  h2 .age { font-weight: normal; font-size: 12px; color: var(--muted); }
+  table { border-collapse: collapse; width: 100%; }
+  th, td { text-align: left; padding: 4px 8px 4px 0; border-bottom: 1px solid var(--line); vertical-align: top; white-space: nowrap; }
+  th { font-size: 12px; color: var(--muted); font-weight: 600; }
+  td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .muted { color: var(--muted); }
+  .ok { color: var(--ok); } .warn { color: var(--warn); } .bad { color: var(--bad); font-weight: 600; }
+  .error { color: var(--bad); }
+  .bar { display: inline-block; width: 70px; height: 8px; background: var(--line); border-radius: 4px; vertical-align: middle; margin-right: 6px; }
+  .bar > span { display: block; height: 100%; border-radius: 4px; }
+  a { color: inherit; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Machinery</h1>
+  <span class="muted" id="last-refresh">Loading…</span>
+  <span class="muted">Refreshes every 30 s. Times are UTC.</span>
+</header>
+<main>
+  <section class="wide"><h2>Live workers <span class="age" id="workers-age"></span></h2><div id="workers-content">Loading…</div></section>
+  <section class="wide"><h2>Usage and resets <span class="age" id="usage-age"></span></h2><div id="usage-content">Loading…</div></section>
+  <section><h2>Sign-ins <span class="age" id="logins-age"></span></h2><div id="logins-content">Loading…</div></section>
+  <section><h2>Fleet Comms <span class="age" id="comms-age"></span></h2><div id="comms-content">Loading…</div></section>
+  <section class="wide"><h2>Recently finished <span class="age" id="recent-age"></span></h2><div id="recent-content">Loading…</div></section>
+</main>
+<script>
+"use strict";
+const API_TIMEOUT_MS = 8000;
+const REFRESH_MS = 30000;
+const ACTIVE = new Set(["spawning", "running", "settling", "needs_finalize"]);
+
+function escapeHtml(value) {
+  return String(value ?? "").replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;").replaceAll("'", "&#39;");
+}
+
+async function fetchJson(url) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
+  try {
+    const response = await fetch(url, {signal: controller.signal, headers: {Accept: "application/json"}});
+    if (!response.ok) throw new Error(`${url}: HTTP ${response.status}`);
+    let data;
+    try { data = JSON.parse(await response.text()); } catch { throw new Error(`${url}: Invalid JSON`); }
+    if (data === null || typeof data !== "object" || Array.isArray(data)) throw new Error(`${url}: Invalid JSON shape`);
+    return data;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function toDate(value) {
+  if (value === null || value === undefined || value === "") return null;
+  const moment = typeof value === "number" ? new Date(value < 1e11 ? value * 1000 : value) : new Date(value);
+  return Number.isNaN(moment.getTime()) ? null : moment;
+}
+
+function utc(value) {
+  const moment = toDate(value);
+  return moment ? moment.toISOString().slice(0, 16).replace("T", " ") + "Z" : "—";
+}
+
+function span(seconds) {
+  if (seconds === null || seconds === undefined || !Number.isFinite(seconds)) return "—";
+  const s = Math.abs(Math.round(seconds));
+  const d = Math.floor(s / 86400), h = Math.floor((s % 86400) / 3600), m = Math.floor((s % 3600) / 60);
+  return d ? `${d}d ${h}h` : h ? `${h}h ${m}m` : m ? `${m}m` : `${s}s`;
+}
+
+function relative(value) {
+  const moment = toDate(value);
+  if (!moment) return "";
+  const seconds = (moment.getTime() - Date.now()) / 1000;
+  return seconds >= 0 ? `in ${span(seconds)}` : `${span(seconds)} ago`;
+}
+
+function validPct(value) {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 100;
+}
+
+function pct(value) {
+  return validPct(value) ? `${Math.round(value)}%` : "—";
+}
+
+function bar(left) {
+  if (!validPct(left)) return "";
+  const width = left;
+  const color = left < 15 ? "var(--bad)" : left < 35 ? "var(--warn)" : "var(--ok)";
+  return `<span class="bar"><span style="width:${width}%;background:${color}"></span></span>`;
+}
+
+function paceClass(pace) {
+  const text = String(pace || "");
+  return /deficit|runs out/i.test(text) ? "warn" : /reserve|lasts/i.test(text) ? "ok" : "muted";
+}
+
+function table(headers, rows) {
+  if (!rows.length) return '<p class="muted">None.</p>';
+  return `<table><thead><tr>${headers.map(h => `<th>${escapeHtml(h)}</th>`).join("")}</tr></thead><tbody>`
+    + rows.map(cells => `<tr>${cells.join("")}</tr>`).join("") + "</tbody></table>";
+}
+
+const td = (html, cls = "") => `<td${cls ? ` class="${cls}"` : ""}>${html}</td>`;
+const text = (value, cls = "") => td(value === null || value === undefined || value === "" ? "—" : escapeHtml(value), cls);
+
+function prCell(task) {
+  const pr = task.delivery_pr;
+  if (!pr) return text(null);
+  const match = /^([\w.-]+\/[\w.-]+)#(\d+)$/.exec(String(pr));
+  if (!match) return text(pr);
+  return td(`<a href="https://github.com/${escapeHtml(match[1])}/pull/${escapeHtml(match[2])}">${escapeHtml(pr)}</a>`);
+}
+
+function account(task) {
+  return task.claude_account ? `claude ${task.claude_account}` : task.codex_account ? `codex ${task.codex_account}` : null;
+}
+
+function modelOf(task) {
+  return task.observed_model || task.model || null;
+}
+
+function renderWorkers(active) {
+  const tasks = Array.isArray(active.tasks) ? active.tasks : [];
+  return table(["Task", "Agent / model", "Account", "Doing", "PR", "Runtime", "Record updated"], tasks.map(task => [
+    text(task.task_id),
+    text([task.agent, modelOf(task)].filter(Boolean).join(" / ")),
+    text(account(task)),
+    text([task.status, task.research_role, task.repository].filter(Boolean).join(" · ")),
+    prCell(task),
+    text(span(task.age_s), "num"),
+    text(task.updated_at ? `${utc(task.updated_at)} (${relative(task.updated_at)})` : null),
+  ]));
+}
+
+function renderRecent(list) {
+  const tasks = (Array.isArray(list.tasks) ? list.tasks : []).filter(task => !ACTIVE.has(task.status));
+  return table(["Task", "Agent / model", "Outcome", "Finished", "Duration", "PR"], tasks.map(task => [
+    text(task.task_id),
+    text([task.agent, modelOf(task)].filter(Boolean).join(" / ")),
+    text(task.status, task.status === "done" ? "ok" : "bad"),
+    text(task.finished_at ? `${utc(task.finished_at)} (${relative(task.finished_at)})` : null),
+    text(span(task.duration_s), "num"),
+    prCell(task),
+  ]));
+}
+
+// A "fresh" flag is believed only with a numeric age inside the threshold;
+// an older reading is stale whatever the flag says.
+function readingState(freshness, ageS, thresholdS) {
+  const aged = typeof ageS === "number" && Number.isFinite(ageS) && ageS >= 0;
+  const limit = typeof thresholdS === "number" && thresholdS > 0 ? thresholdS : 900;
+  if (freshness === "stale" || ((freshness === "fresh") && aged && ageS > limit)) return "stale";
+  if (freshness === "fresh") return aged ? "fresh" : "unknown";
+  return freshness ? String(freshness) : "missing";
+}
+
+function freshnessCell(state, ageS) {
+  const age = typeof ageS === "number" && Number.isFinite(ageS) ? `${span(ageS)} old` : "age unknown";
+  if (state === "fresh") return text(`fresh, ${age}`, "ok");
+  if (state === "stale") return text(`STALE, ${age}`, "bad");
+  if (state === "unknown") return text(`FRESHNESS UNKNOWN, ${age}`, "bad");
+  return text(state === "missing" ? "NO READING" : state.toUpperCase(), "bad");
+}
+
+function usageRows(budget, ends) {
+  const agents = budget.agents || {}, claude = budget.claude_accounts || {}, codex = budget.codex_accounts || {};
+  const rows = [];
+  for (const [key, name] of [["claude:a", "Claude a"], ["claude:b", "Claude b"]]) {
+    const row = claude[key];
+    if (!row) { rows.push({name, freshness: null, note: "no reading"}); continue; }
+    rows.push({name, left: row.weekly?.left_pct, pace: row.weekly?.pace, resets: row.weekly?.resets_at,
+               freshness: row.status !== "ok" ? row.status : row.stale ? "stale" : "fresh", age: row.age_s, note: row.reason});
+  }
+  for (const [key, name] of [["codex:a", "Codex a"], ["codex:b", "Codex b"]]) {
+    const row = codex[key];
+    if (!row) { rows.push({name, freshness: null, note: "no reading"}); continue; }
+    rows.push({name, left: row.remaining_pct, pace: row.codexbar?.pace_summary, resets: row.resets_at,
+               freshness: row.freshness, age: row.age_s});
+  }
+  const lane = (key, name, pool) => {
+    const row = agents[key];
+    if (!row) { rows.push({name, pool, freshness: null, note: "no reading"}); return; }
+    rows.push({name, pool, left: row.remaining_pct, pace: row.codexbar?.pace_summary, resets: row.resets_at,
+               freshness: row.freshness, age: row.age_s, note: row.codexbar?.auth_error});
+  };
+  lane("gemini", "AGY Gemini", "agy");
+  const agy = agents.gemini?.claude_gpt_windows?.weekly;
+  if (agents.gemini) {
+    rows.push({name: "AGY Claude/GPT", pool: "agy", left: agy?.remaining_pct, resets: agy?.resets_at,
+               freshness: agy?.remaining_pct === null || agy?.remaining_pct === undefined ? null : agents.gemini.freshness,
+               age: agents.gemini.age_s});
+  }
+  lane("grok", "Grok", "grok");
+  lane("cursor", "Cursor", "cursor");
+  lane("muse", "Muse", "muse");
+  const threshold = budget.diagnostics?.stale_threshold_s;
+  return rows.filter(row => !(row.pool && ends[row.pool]?.ended)).map(row => {
+    const state = readingState(row.freshness, row.age, threshold);
+    // Numbers are shown only with a reading; a missing or unavailable one has none.
+    if (!["fresh", "stale", "unknown"].includes(state)) row = {...row, left: null, pace: null, resets: null};
+    const end = row.pool && ends[row.pool];
+    const cancelled = end ? (end.ends_on ? `cancelled, ends ${end.ends_on}` : "cancelled, end date not configured") : "";
+    const resets = row.resets ? `${utc(row.resets)} (${relative(row.resets)})` : null;
+    return [
+      text(row.name),
+      td(`${bar(row.left)}${escapeHtml(pct(row.left))}`, "num"),
+      text(row.pace || null, paceClass(row.pace)),
+      text(resets),
+      freshnessCell(state, row.age),
+      text([cancelled, row.note].filter(Boolean).join("; ") || null, cancelled ? "warn" : "muted"),
+    ];
+  });
+}
+
+function apiRows(budget) {
+  const accounts = budget.api_accounts || {};
+  return Object.entries(accounts).map(([name, row]) => {
+    const balance = typeof row.total_balance === "number" ? `${row.total_balance.toFixed(2)} ${row.currency || ""} balance`
+      : typeof row.limit_remaining_usd === "number" ? `$${row.limit_remaining_usd.toFixed(2)} left`
+      : row.balance_probe_state ? `balance ${row.balance_probe_state}` : null;
+    const spent = typeof row.usage_weekly_usd === "number" ? `$${row.usage_weekly_usd.toFixed(2)} this week` : null;
+    return [text(name), text([balance, spent].filter(Boolean).join("; ") || null),
+            freshnessCell(readingState(row.freshness, row.age_s, budget.diagnostics?.stale_threshold_s), row.age_s),
+            text(row.health?.healthy === false ? "unhealthy" : null, "bad")];
+  });
+}
+
+function renderUsage(budget, logins) {
+  const ends = logins?.subscriptions?.ends || {};
+  const endsNote = logins?.subscriptions?.reason
+    ? `<p class="muted">Subscription end dates: ${escapeHtml(logins.subscriptions.reason === "not_configured"
+        ? "end date not configured" : logins.subscriptions.reason)}.</p>` : "";
+  return table(["Pool", "Weekly left", "Pace", "Resets", "Reading", "Note"], usageRows(budget, ends))
+    + endsNote
+    + '<p class="muted">Carbon has no quota reader of its own; it draws on the AGY pools.</p>'
+    + table(["API account", "Balance / spend", "Reading", ""], apiRows(budget));
+}
+
+function renderLogins(logins) {
+  if (logins.state === "pending") return '<p class="muted">Checking sign-ins…</p>';
+  const rows = (logins.accounts || []).map(row => {
+    const signed = row.logged_in === true ? text("signed in", "ok") : row.logged_in === false ? text("SIGNED OUT", "bad")
+      : text(`UNKNOWN${row.error ? ` (${row.error.replaceAll("_", " ")})` : ""}`, "bad");
+    const expires = toDate(row.expires_at);
+    const daysLeft = expires ? (expires.getTime() - Date.now()) / 86400000 : null;
+    const expiry = row.expires_at ? text(`${utc(row.expires_at)} (${relative(row.expires_at)})`, daysLeft < 3 ? "bad" : daysLeft < 7 ? "warn" : "")
+      : text(row.expiry_reported === false ? "not reported by the CLI" : null, "muted");
+    return [text(row.account), signed, text([row.authMethod, row.subscriptionType].filter(Boolean).join(" · ") || null), expiry];
+  });
+  return table(["Account", "Status", "Login", "Sign-in ends"], rows)
+    + `<p class="muted">Checked ${escapeHtml(utc(logins.read_at))}. AGY has no side-effect-free sign-in reader.</p>`;
+}
+
+function renderComms(metrics) {
+  const deliveries = metrics.deliveries || {}, jobs = metrics.jobs || {};
+  const reachable = metrics.store?.reachable;
+  return table(["Measure", "Count"], [
+    [text("Store"), text(reachable ? `${metrics.source || "plane"} reachable` : "UNREACHABLE", reachable ? "ok" : "bad")],
+    [text("Deliveries queued"), text(deliveries.queued, "num")],
+    [text("Dead letters"), text(metrics.dead_letters, metrics.dead_letters ? "num warn" : "num")],
+    [text("Deliveries failed"), text(deliveries.failed, deliveries.failed ? "num warn" : "num")],
+    [text("Jobs queued"), text(jobs.queued, "num")],
+    [text("Jobs failed"), text(jobs.failed, jobs.failed ? "num warn" : "num")],
+  ]);
+}
+
+let logins = null;
+const PANELS = [
+  {id: "workers", urls: ["/api/delegate/active"], render: renderWorkers},
+  {id: "recent", urls: ["/api/delegate/recent"], render: renderRecent},
+  {id: "usage", urls: ["/api/state/routing-budget", "/api/runtime/logins"],
+   render: (budget, current) => { logins = current; return renderUsage(budget, current); }},
+  {id: "logins", urls: ["/api/runtime/logins"], render: renderLogins},
+  {id: "comms", urls: ["/api/comms/v1/metrics"], render: renderComms},
+];
+const inFlight = new Set();
+
+async function loadPanel(panel) {
+  if (inFlight.has(panel.id)) return;
+  inFlight.add(panel.id);
+  const content = document.getElementById(`${panel.id}-content`);
+  const age = document.getElementById(`${panel.id}-age`);
+  try {
+    const data = await Promise.all(panel.urls.map(fetchJson));
+    content.innerHTML = panel.render(...data);
+    age.textContent = `read ${new Date().toISOString().slice(11, 19)}Z`;
+  } catch (error) {
+    content.innerHTML = `<p class="error">Unavailable: ${escapeHtml(error.message || error)}</p>`;
+    age.textContent = "";
+  } finally {
+    inFlight.delete(panel.id);
+  }
+}
+
+async function refreshAll() {
+  await Promise.all(PANELS.map(loadPanel));
+  document.getElementById("last-refresh").textContent = `Refreshed ${new Date().toISOString().slice(11, 19)}Z`;
+  if (logins?.state === "pending") setTimeout(() => loadPanel(PANELS[3]), 3000);
+}
+
+refreshAll();
+setInterval(refreshAll, REFRESH_MS);
+</script>
+</body>
+</html>

@@ -164,9 +164,10 @@ request replays the durable verdict without a provider call or reservation.
 
 ### Diagnose quota concentration
 
-- Open `runtime.html` → **Routing overview**. Start with the lifecycle,
-  automatic-versus-explicit, route-distribution, and failure-cause cards, then
-  filter by lifecycle, mode, route, initiator, model, reviewer, or failure.
+- Query `GET /api/runtime/routing-assignments?limit=100`. Start with the
+  lifecycle, automatic-versus-explicit, route-distribution, and failure-cause
+  fields, then filter by lifecycle, mode, route, initiator, model, reviewer, or
+  failure.
 - Read the decision path as initiator → request → selected route/model →
   outcome. Expand one assignment for the body-free selection trace, quota and
   credential evidence, retry/failover/replay state, authority IDs, and ordered
@@ -272,7 +273,7 @@ from a source search alone. This task does not authorize enabling the old MCP se
 queue cleanup.
 
 The canonical read-only home for zombie, batch-progress, and broker-health
-diagnostics is `GET /api/fleet/operations`, rendered by `dashboards/fleet.html`.
+diagnostics is `GET /api/fleet/operations`.
 `lu_machinery/api/route_contracts.py` documents both contracts. These diagnostics are
 historical projections, not authority or proof that Fleet is healthy.
 `dashboards/comms.html` and `dashboards/channels.html` retain their compatibility

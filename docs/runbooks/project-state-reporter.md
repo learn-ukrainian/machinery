@@ -73,8 +73,8 @@ under `~/.codex/project-state-reporter/logs/`.
   to `unknown` and add a `stale_upstream` attention item.
 - Per service: `state != running` ⇒ drift `unknown`; sibling `work` repo ⇒
   `not_applicable`; release mode compares `serving_sha` to `origin_main_sha`;
-  checkout mode compares `checkout_sha` and is badged `checkout` in
-  `fleet.html`.
+  checkout mode compares `checkout_sha` and reports `checkout` as its
+  serving mode.
 
 Deploying timers on live hosts is an operator step; this repository only ships
 templates and the CLI.
