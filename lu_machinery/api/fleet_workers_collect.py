@@ -752,6 +752,7 @@ def _build_workers_payload(
     now_mono: float | None = None,
     presence_store: Any = None,
     report_store: Any = None,
+    host_payloads: dict[str | None, dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     stamp = time.monotonic() if now_mono is None else now_mono
     clock = datetime.now(UTC)
@@ -769,10 +770,13 @@ def _build_workers_payload(
         tally=tally,
     )
     all_unattributed.extend(driver_unattributed)
+    driver_skipped = tally.count
+    host_skipped: dict[str, int] = {}
 
     for opaque in selected:
         if opaque == UNATTRIBUTED_HOST_ID:
             continue
+        skipped_before = tally.count
         freshness = _host_freshness(
             opaque,
             now_mono=stamp,
@@ -837,6 +841,7 @@ def _build_workers_payload(
                 "reason": reason,
             }
         )
+        host_skipped[opaque] = tally.count - skipped_before
 
     if all_unattributed and (host_id is None or host_id == UNATTRIBUTED_HOST_ID):
         _related_links(all_unattributed, host_id=UNATTRIBUTED_HOST_ID)
@@ -853,7 +858,7 @@ def _build_workers_payload(
             }
         )
 
-    payload = {
+    payload: dict[str, Any] = {
         "schema": WORKERS_SCHEMA,
         "observed_at": clock.isoformat().replace("+00:00", "Z"),
         "counts": {
@@ -864,6 +869,18 @@ def _build_workers_payload(
         "hosts": hosts,
     }
     reconcile_worker_counts(payload)
+    if host_payloads is not None:
+        # Project every supported filter from this one collection. The driver
+        # tally applies to all queries; each host contributes only its own skips.
+        host_payloads[None] = payload
+        for selected_id in [*selected, UNATTRIBUTED_HOST_ID, ""]:
+            filtered = copy.deepcopy(payload)
+            filtered["hosts"] = [host for host in filtered["hosts"] if host["host_id"] == selected_id]
+            filtered["attention"] = [item for item in attention if item == f"unreported:{selected_id}"]
+            filtered["counts"]["attention"] = len(filtered["attention"])
+            filtered["counts"]["skipped"] = driver_skipped + host_skipped.get(selected_id, 0)
+            reconcile_worker_counts(filtered)
+            host_payloads[selected_id] = filtered
     return payload
 
 

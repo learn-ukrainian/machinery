@@ -29,7 +29,10 @@ import logging
 import threading
 import time
 from collections.abc import Callable
+from contextlib import asynccontextmanager, suppress
 from typing import TYPE_CHECKING, TypeVar
+
+from fastapi import HTTPException
 
 if TYPE_CHECKING:
     from .monitor_context import MonitorContext
@@ -43,6 +46,63 @@ _inflight_lock = threading.Lock()
 _ttl_clock: Callable[[], float] = time.monotonic
 
 T = TypeVar("T")
+
+
+class PeriodicSnapshot[T]:
+    """One lifespan-owned writer; readers never collect or wait for a refresh."""
+
+    def __init__(self, compute: Callable[[], T], interval: float):
+        self.compute = compute
+        self.interval = interval
+        self._entry: tuple[float, T] | None = None
+
+    def refresh(self) -> None:
+        # Age includes collection time, rather than making a slow scan look new.
+        started = _ttl_clock()
+        value = self.compute()
+        self._entry = (started, value)
+
+    def read(self) -> tuple[T, float]:
+        entry = self._entry
+        if entry is None:
+            raise HTTPException(
+                status_code=503, detail="snapshot not ready",
+                headers={"X-Snapshot-Age-S": "unknown", "Retry-After": "2", "Cache-Control": "no-store"},
+            )
+        return entry[1], max(0.0, _ttl_clock() - entry[0])
+
+    async def _refresh(self) -> None:
+        work = asyncio.create_task(asyncio.to_thread(self.refresh))
+        try:
+            await asyncio.shield(work)
+        except asyncio.CancelledError:
+            # Join the thread without letting its failure replace cancellation.
+            with suppress(Exception):
+                await work
+            raise
+
+    @asynccontextmanager
+    async def lifespan(self):
+        try:
+            await self._refresh()
+        except Exception:
+            _cache_log.warning("initial snapshot refresh failed", exc_info=True)
+
+        async def repeat() -> None:
+            while True:
+                await asyncio.sleep(self.interval)
+                try:
+                    await self._refresh()
+                except Exception:
+                    _cache_log.warning("periodic snapshot refresh failed", exc_info=True)
+
+        task = asyncio.create_task(repeat(), name="monitor-snapshot-refresh")
+        try:
+            yield
+        finally:
+            task.cancel()
+            with suppress(asyncio.CancelledError):
+                await task
 
 
 def ctx_cache_scope(ctx: MonitorContext | None) -> str:

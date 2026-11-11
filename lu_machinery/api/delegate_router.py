@@ -10,11 +10,13 @@ import os
 import sqlite3
 import threading
 import time
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import JSONResponse
 
 from lu_machinery.agent_runtime.accounting import recorded_model_accounting_fields
 from lu_machinery.lib.readonly_sqlite import SQLiteConnection
@@ -26,9 +28,24 @@ from lu_machinery.work.sources_public import public_repository_id
 from .lane_health import sanitize_error_excerpt
 from .monitor_context import MonitorContext, get_ctx, resolve_context
 from .monitor_context import production_context as production_context  # re-export: test monkeypatches
-from .state_helpers import cache_get_or_compute_async, cache_retain, ctx_scoped_ttl_key
+from .state_helpers import PeriodicSnapshot, cache_get_or_compute_async, cache_retain, ctx_scoped_ttl_key
 
-router = APIRouter(tags=["delegate"])
+
+def active_snapshot(ctx: MonitorContext) -> PeriodicSnapshot[dict[str, Any]]:
+    snapshot: PeriodicSnapshot[dict[str, Any]] = ctx.runtime.get_or_create_derived(
+        "delegate-active-snapshot",
+        lambda: PeriodicSnapshot(lambda: active_delegate_tasks(ctx=ctx), DELEGATE_LIST_TTL_S),
+    )
+    return snapshot
+
+
+@asynccontextmanager
+async def _active_lifespan(app):
+    async with active_snapshot(app.state.ctx).lifespan():
+        yield
+
+
+router = APIRouter(tags=["delegate"], lifespan=_active_lifespan)
 
 RESULT_BYTES_LIMIT = 64 * 1024
 TASK_READ_RETRIES = 2
@@ -916,12 +933,8 @@ async def delegate_tasks(
 
 @router.get("/active")
 async def delegate_active(ctx: MonitorContext = Depends(get_ctx)):
-    cache_key = _delegate_list_cache_key(ctx, "active", status="active", limit=0)
-    return await cache_get_or_compute_async(
-        cache_key,
-        DELEGATE_LIST_TTL_S,
-        lambda: active_delegate_tasks(ctx=ctx),
-    )
+    payload, age = active_snapshot(ctx).read()
+    return JSONResponse(content=payload, headers={"X-Snapshot-Age-S": f"{age:.3f}", "Cache-Control": "no-store"})
 
 
 @router.get("/tasks/{task_id}")

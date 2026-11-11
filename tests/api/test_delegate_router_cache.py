@@ -35,6 +35,7 @@ def test_mixed_records_survive_http_and_worker_collection(tmp_path, monkeypatch,
     for name, record in records.items():
         (tasks / f"{name}.json").write_text(json.dumps(record))
     app = FastAPI()
+    app.state.ctx = ctx
     app.include_router(delegate_router.router, prefix="/api/delegate")
     app.dependency_overrides[delegate_router.get_ctx] = lambda: ctx
     with TestClient(app) as client:
