@@ -66,7 +66,7 @@ class Transport:
         self.pull_reads = 0
         self.writes = []
         self.queued = False
-        self.files = [[{"filename": "lu_machinery/example.py"}]]
+        self.files = [[{"filename": "lu_machinery/example.py", "status": "modified"}]]
         self.compare_rows = {"base_commit": {"sha": "d" * 40}, "merge_base_commit": {"sha": "d" * 40}, "status": "ahead", "files": [{"filename": "lu_machinery/earlier-pr.py"}, {"filename": "lu_machinery/this-pr.py"}]}
         self.candidate_record = {"base_sha": "d" * 40, "head_sha": TESTED, "head_ref": "refs/heads/gh-readonly-queue/main/pr-42-" + "e" * 40, "run_id": 123, "run_attempt": 1}
 

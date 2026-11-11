@@ -1189,7 +1189,7 @@ def test_argon_formal_code_review_is_refused_before_routing_or_launch(monkeypatc
 
 @pytest.mark.parametrize(
     ("agent", "model"),
-    [("agy", "gemini-4-carbon-medium"), ("agy", "gemini-4-argon-low"), ("claude", "claude-fable-5-2")],
+    [("agy", "gemini-4-argon-low"), ("claude", "claude-fable-5-2")],
 )
 def test_work_only_model_is_refused_a_review_typed_dispatch_before_launch(agent, model):
     """Defect class: a model with no catalog review role admitted to a review-typed dispatch.

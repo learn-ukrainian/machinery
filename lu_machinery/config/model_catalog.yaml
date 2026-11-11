@@ -134,6 +134,7 @@ review_scheduler:
       - free_lane_code_review
       - cheap_volume_review
       - ukrainian_review
+      - second_review
     consult:
       - architecture
       - architecture_support
@@ -145,6 +146,14 @@ review_scheduler:
       - recon
       - bounded_investigation
   automatic_near_cap_assignments: false
+  # Operator order 2026-11-11: landing a High-tier or security-sensitive PR
+  # (tiers.requires_second_review) needs this model's recorder-verified exact-head
+  # APPROVE beside the resolver-selected reviewer of record, unless an author is of a
+  # listed family. It never replaces that reviewer, and no outage waives it.
+  second_reviewer:
+    model: gemini-4-carbon
+    route: agy
+    not_for_author_families: [google]
   # Operator decisions 2026-10-02 (#9538), 2026-10-05 (#9769): a listed risk is
   # performed only by these models, on any catalogued review route (Opus 5.5
   # natively; no Claude model through Cursor, #10464). This is an eligibility gate: ladders, explicit
@@ -731,9 +740,11 @@ models:
     # selection only. They are not aliases: dispatch rewrites an alias to the wire
     # id, so an alias would run -medium.
     runtime_model_ids: [gemini-4-carbon-high, gemini-4-carbon-low]
-    # Work roles only. Review, Ukrainian review and advisory roles stay with the
-    # existing seats until a held-out review test reports.
-    roles: [implementation, agentic_coding, subagent_work, multimodal_analysis]
+    # Operator order 2026-11-11 ("make it official now"): second_review makes Carbon the
+    # binding second reviewer of High-tier and security-sensitive code/infra PRs
+    # (review_scheduler.second_reviewer). It is on no ladder or role-order row, so it is
+    # never the reviewer of record; Ukrainian review and advisory roles are unchanged.
+    roles: [implementation, agentic_coding, subagent_work, multimodal_analysis, second_review]
     transports: [agy]
     strengths: [listed_agy_selector, one_million_token_context, terminal_bench_coding]
     weaknesses:
@@ -753,8 +764,13 @@ models:
       gemini-4-carbon-low. Dispatch: `python -m lu_machinery.dispatch dispatch --agent agy
       --model gemini-4-carbon-medium`; -high and -low are explicit selections
       only. Review ladders, review seats, the Ukrainian review route and advisory
-      roles are unchanged until the held-out review test reports; Carbon holds no
-      review role, so it is refused for any review of record. The certified
+      roles are unchanged. Operator order 2026-11-11 ("make it official now"), after
+      non-binding shadow reviews on 2026-11-10/11 in which owners reproduced 23 Carbon
+      findings on PRs the reviewer of record had approved (18 confirmed, 4 partial, 1
+      refuted): Carbon is the binding second reviewer of High-tier and
+      security-sensitive code/infra PRs not authored by a Gemini model. The recorder
+      admits it only as that second review (record_cf_verdict --second-review) and
+      refuses it as the reviewer of record. The certified
       Gemini driver seat (orchestrator_seats.agy) is unchanged. Model card
       (published November 2026): based on Gemini 4 Argon, one 1M-token window
       shared by input and output, knowledge cutoff March 2026, more thinking

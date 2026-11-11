@@ -14,13 +14,22 @@ simpler manual procedure beats new tooling.
 | --- | --- | --- |
 | Low | Deletions of unused code, docs, data, test-only, comments | Required CI green + one exact-head APPROVE from a qualified non-author reviewer (any family); no cross-family seat required |
 | Medium | Ordinary code changes | Required CI + one cross-family review |
-| High | CI workflows, launchers, publishing/merge gates, secrets/credential handling, security tooling, installers | Required CI + cross-family review at critical depth; a second reviewer only here |
+| High | CI workflows, launchers, publishing/merge gates, secrets/credential handling, security tooling, installers | Required CI + cross-family review at critical depth + the binding second review below |
 | Ukrainian content | Learner-facing Ukrainian text | Gemini via AGY with Sources, seated by the [Ukrainian profile](ukrainian.md); deletions of learner-facing content keep this tier |
 
 The tier comes from the paths changed, never from the author. The path-to-tier table lives in
 one place, `lu_machinery/config/review_tiers.yaml`. A PR spanning tiers takes the highest tier it
 touches. Deleting a High-tier path or learner-facing content keeps that path's tier; only
 deletions of other unused code are Low.
+
+**Second review (operator order 2026-11-11).** A High-tier PR, or one that changes a
+security-sensitive path (`lu_machinery/review/security_paths.py`), lands only with two exact-head
+APPROVEs: the resolver-selected reviewer of record, and Carbon (`review_scheduler.second_reviewer`
+in the model catalog, through AGY) recorded with `record_cf_verdict --second-review`. Carbon is
+never the reviewer of record, and its rejection blocks like any other. A PR with a Gemini author
+keeps the reviewer-of-record rule alone. The trigger is the changed paths, never a declared risk.
+A Carbon timeout or outage records no approval, so the PR waits; nothing waives the seat. Both
+verdicts at one head are one round, and a moved head voids both.
 
 ## 3. Findings
 

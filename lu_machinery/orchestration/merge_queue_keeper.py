@@ -47,7 +47,7 @@ from lu_machinery.orchestration.integration_sweep import (
 )
 from lu_machinery.publish.github import Request, request_run
 from lu_machinery.review import contract_canary
-from lu_machinery.review.tiers import classify_pr_files
+from lu_machinery.review.tiers import classify_pr_files, requires_second_review
 
 # This package's import name, from the unresolved file location: never from __package__, which a
 # short import spelling (orchestration.x with scripts/ on sys.path) shortens. Its dotted parts
@@ -1161,6 +1161,7 @@ def run(gh: GitHub, state_path: Path, *, apply: bool = False) -> tuple[list[str]
             canary = contract_canary.refusal(files, head)
             verdict = lookup_verdict(
                 comments, head, login, learner_content=learner_content, low_tier=low_tier,
+                second_review=requires_second_review(file_rows),
             )
             check_rows = gh.checks(head)
             checks = _check_state(check_rows, head)
@@ -1280,6 +1281,7 @@ def run(gh: GitHub, state_path: Path, *, apply: bool = False) -> tuple[list[str]
                     low_tier = classify_pr_files(file_rows) == "low"
                     current_verdict = lookup_verdict(
                         current_comments, head, login, learner_content=learner_content, low_tier=low_tier,
+                        second_review=requires_second_review(file_rows),
                     )
                 except KeeperError:
                     current_comments, current_verdict = [], Verdict("unknown", reason=COMMENTS_UNAVAILABLE)
