@@ -24,6 +24,19 @@ _context_rule_root() {
   # for any directory a caller passed. Only a real .git directory is this
   # checkout; a gitfile is checked below and never by running git.
   if [ -d "$git_path" ]; then
+    # The installed _project_hook_git_layout criteria also fence the probe:
+    # no interpreter under a stray .git may run before the release is imported.
+    [ ! -e "$git_path/commondir" ] && [ ! -L "$git_path/commondir" ] || return 1
+    [ -d "$git_path/objects" ] && [ -d "$git_path/refs" ] || return 1
+    [ -f "$git_path/HEAD" ] && [ ! -L "$git_path/HEAD" ] || return 1
+    IFS= read -r line < "$git_path/HEAD" || true
+    case "$line" in
+      ref:*)
+        line="${line#ref:}"
+        [[ "${line#"${line%%[![:space:]]*}"}" = refs/* ]] || return 1
+        ;;
+      *) [[ "$line" =~ ^[0-9a-fA-F]{40}([0-9a-fA-F]{24})?$ ]] || return 1 ;;
+    esac
     printf '%s\n' "$root"
     return 0
   fi
@@ -60,10 +73,10 @@ _context_rule_root() {
   [ "${pointer##*/}" = .git ] || return 1
   pointed="$(cd -P "${pointer%/*}" 2>/dev/null && pwd)" || return 1
   [ "$pointed" = "$root" ] || return 1
-  printf '%s\n' "${common%/*}"
+  _context_rule_root "${common%/*}"
 }
 _context_rule_probe() {
-  local configured="${LEARN_UKRAINIAN_PYTHON:-}" project_dir="$1" root git_path
+  local configured="${LEARN_UKRAINIAN_PYTHON:-}" project_dir="$1" root
   if [ -n "$configured" ]; then
     case "$configured" in
       /*) ;;
@@ -75,15 +88,14 @@ _context_rule_probe() {
     return 0
   fi
   if [ -n "${CODEX_CANONICAL_REPO_ROOT:-}" ]; then
-    # Operator-set, so a separate-git-dir gitfile stays valid, but a directory
-    # with no .git entry is not a checkout and its interpreter must not run.
+    # The operator-set probe context must also resolve to a validated primary
+    # before its interpreter may import the installed rule.
     if ! root="$(cd -P "$CODEX_CANONICAL_REPO_ROOT" 2>/dev/null && pwd)"; then
       echo "${0##*/}: project interpreter not found: untrusted git metadata at ${CODEX_CANONICAL_REPO_ROOT}/.git; set LEARN_UKRAINIAN_PYTHON" >&2
       return 1
     fi
-    git_path="$root/.git"
-    if [ -L "$git_path" ] || { [ ! -d "$git_path" ] && [ ! -f "$git_path" ]; }; then
-      echo "${0##*/}: project interpreter not found: untrusted git metadata at $git_path; set LEARN_UKRAINIAN_PYTHON" >&2
+    if ! root="$(_context_rule_root "$root")"; then
+      echo "${0##*/}: project interpreter not found: untrusted git metadata at $root/.git; set LEARN_UKRAINIAN_PYTHON" >&2
       return 1
     fi
   elif ! root="$(cd -P "$project_dir" 2>/dev/null && pwd)" || ! root="$(_context_rule_root "$root")"; then

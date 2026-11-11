@@ -22,7 +22,6 @@ fi
 # shellcheck source=agents_extensions/shared/hooks/context-rollover-lib.sh
 source "$(dirname "${BASH_SOURCE[0]}")/context-rollover-lib.sh" \
   || { echo "post-compact.sh: context-rollover-lib.sh is missing beside this hook" >&2; exit 1; }
-context_machinery_bootstrap "${LU_PRODUCT_ROOT:-${CLAUDE_PROJECT_DIR:-}}" || exit 1
 
 # Resolve the primary checkout before choosing an interpreter, exactly as
 # session-setup.sh does: it owns the shared venv and the Claude memory
@@ -37,16 +36,6 @@ git_common_dir() {
     git -C "$PROJECT_DIR" rev-parse --path-format=absolute --git-common-dir 2>/dev/null
   fi
 }
-GIT_COMMON_DIR=$(git_common_dir) || GIT_COMMON_DIR=""
-PRIMARY_ROOT=""
-if [ -n "$GIT_COMMON_DIR" ] && [ "$(basename "$GIT_COMMON_DIR")" = ".git" ]; then
-  PRIMARY_ROOT=$(dirname "$GIT_COMMON_DIR")
-fi
-if [ -n "${CODEX_CANONICAL_REPO_ROOT:-}" ]; then
-  CANONICAL_ROOT="$CODEX_CANONICAL_REPO_ROOT"
-else
-  CANONICAL_ROOT="${PRIMARY_ROOT:-$PROJECT_DIR}"
-fi
 # One interpreter (R66) and code root (machinery #100 R51, R62, R69): the release the
 # one project interpreter imports, never this file's location. Fails closed: refuse,
 # with the reason on stderr, rather than run code from anywhere else.
@@ -54,6 +43,17 @@ BOUNDED_PYTHON=""
 BOUNDED_RUNNER=""
 post_compact_bootstrap() {
   [ -n "$BOUNDED_PYTHON" ] && return 0
+  context_machinery_bootstrap "${LU_PRODUCT_ROOT:-${CLAUDE_PROJECT_DIR:-}}" || exit 1
+  GIT_COMMON_DIR=$(git_common_dir) || GIT_COMMON_DIR=""
+  PRIMARY_ROOT=""
+  if [ -n "$GIT_COMMON_DIR" ] && [ "$(basename "$GIT_COMMON_DIR")" = ".git" ]; then
+    PRIMARY_ROOT=$(dirname "$GIT_COMMON_DIR")
+  fi
+  if [ -n "${CODEX_CANONICAL_REPO_ROOT:-}" ]; then
+    CANONICAL_ROOT="$CODEX_CANONICAL_REPO_ROOT"
+  else
+    CANONICAL_ROOT="${PRIMARY_ROOT:-$PROJECT_DIR}"
+  fi
   BOUNDED_PYTHON="$CONTEXT_PROJECT_PYTHON"
   BOUNDED_RUNNER="${SESSION_BOUNDED_RUNNER:-$MACHINERY_DIR/lu_machinery/agent_runtime/bounded_command.py}"
 }

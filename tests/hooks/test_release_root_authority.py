@@ -245,13 +245,21 @@ def run_shell(path, *args, env=None, cwd):
 
 
 @pytest.mark.parametrize("name", SHELL_HOOKS)
-@pytest.mark.parametrize("layout", ["primary", "no-git", "empty-git", "hook-location"])
-def test_shell_hook_refuses_location_derived_project(release, product, tmp_path, name, layout):
+@pytest.mark.parametrize("layout", ["primary", "no-git", "empty-git", "hook-location", "empty-git-planted"])
+@pytest.mark.parametrize("interpreter", ["configured", "primary-venv"])
+def test_shell_hook_refuses_location_derived_project(release, product, tmp_path, name, layout, interpreter):
     """Premature root refusal must yield to the rule, without trusting hook location."""
     cwd = product / "nested" if layout == "primary" else tmp_path / layout
     cwd.mkdir()
-    if layout == "empty-git":
+    marker = tmp_path / "planted-interpreter-ran"
+    if layout in {"empty-git", "empty-git-planted"}:
         (cwd / ".git").mkdir()
+    if layout == "empty-git-planted":
+        planted = cwd / ".venv/bin/python"
+        planted.parent.mkdir(parents=True)
+        planted.write_text(f"#!/bin/sh\nprintf ran > {shlex.quote(str(marker))}\nexit 1\n")
+        planted.chmod(0o755)
+    shutil.copytree(release.parent / "venv", product / ".venv", symlinks=True)
     hooks = release / HOOKS
     if layout == "hook-location":
         hooks = product / ".claude/hooks"
@@ -260,19 +268,21 @@ def test_shell_hook_refuses_location_derived_project(release, product, tmp_path,
     transcript.write_text("x" * 700)
     env = {
         "PATH": os.environ["PATH"], "HOME": str(tmp_path),
-        "LEARN_UKRAINIAN_PYTHON": str(release.parent / "venv/bin/python"),
         "LEARN_UKRAINIAN_CLAUDEX_RUN_ID": "release-root-run",
         "LEARN_UKRAINIAN_CLAUDEX_LAUNCH_GENERATION": "1",
         "AB_MONITOR_URL": "http://127.0.0.1:9",
         "LU_MONITOR_LOOPBACK": "http://127.0.0.1:9",
         "AB_DB_PATH": str(tmp_path / "messages.db"),
     }
+    if interpreter == "configured":
+        env["LEARN_UKRAINIAN_PYTHON"] = str(release.parent / "venv/bin/python")
     result = subprocess.run(
         ["bash", "-x", str(hooks / name)],
         input=json.dumps({"session_id": "release-root", "hook_event_name": "Stop",
                           "transcript_path": str(transcript)}),
         text=True, capture_output=True, cwd=cwd, env=env, timeout=30,
     )
+    assert not marker.exists(), result.stderr
     if layout == "primary":
         assert result.returncode == 0, result.stderr
         assert f"export LU_PRODUCT_ROOT={product}\n" in result.stderr
