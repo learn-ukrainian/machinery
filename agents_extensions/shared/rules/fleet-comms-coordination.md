@@ -3,7 +3,7 @@
 <critical>
 
 **Cutover issue:** #6159 · **Stream:** #4707 (infra-harness) · **Operator GO:** 2026-08-01
-**Applies to:** every standalone TUI/UI and epic-driver seat (Claude/Sonnet, Cursor, wrappers; AGY/Gemini only as a standalone TUI seat, never an epic-driver seat) — not only agents that load a skill.
+**Applies to:** every standalone TUI/UI and epic-driver seat (Claude/Sonnet, Cursor, AGY/Gemini, wrappers) — not only agents that load a skill.
 
 This is the **shared-context SSOT** for coordination after the fleet-comms authority cutover. It is
 served in `GET /api/rules?scope=task:fleet-comms`, `scope=task:driver`, or `scope=full`.
@@ -151,8 +151,9 @@ Every epic driver session (any harness) MUST:
    and same-family chat are still not the gate.
 5. Treat launcher-claimed stream leases as held — do not open/resume the lease yourself.
 6. **Session health by seat:**
-   - **gemini:** canary mint/score with the seat lane
-     (`.venv/bin/python -m lu_machinery.session_canary.gemini_lane …`); end on
+   - **gemini / codex:** canary mint/score with the seat lane
+     (`.venv/bin/python -m lu_machinery.session_canary.gemini_lane …` or
+     `.venv/bin/python -m lu_machinery.session_canary.codex_lane …`); end on
      FAIL-HANDOFF (&lt;8/10), not compact count.
    - **Claude / Sonnet:** SessionStart / PostCompact + thread-handoff — **no** canary lane
      (do not invent `<model>_lane`).
