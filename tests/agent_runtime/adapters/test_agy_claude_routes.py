@@ -36,6 +36,9 @@ def no_provider_process(monkeypatch):
     def local_git_only(cmd, *args, **kwargs):
         if isinstance(cmd, (list, tuple)) and cmd[0] == "git":
             return popen(cmd, *args, **kwargs)
+        # The shared hook-root resolver (repo_root.native_hook_roots) is local glue, not a provider.
+        if isinstance(cmd, (list, tuple)) and tuple(cmd[:2]) == ("/bin/bash", "-c") and tuple(cmd[3:4]) == ("lu-hook-roots",):
+            return popen(cmd, *args, **kwargs)
         pytest.fail("provider subprocess must not run")
 
     monkeypatch.setattr(agy.subprocess, "Popen", local_git_only)
