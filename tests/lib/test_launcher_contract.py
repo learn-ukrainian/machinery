@@ -94,6 +94,8 @@ def run_launcher(
             checkout = Path(temporary) / "checkout"
             copy_interactive_launcher_checkout(checkout)
             _install_claude_usage_fixture(checkout)
+            # The fixture has no package.json; the deploy gate is not under test here.
+            (checkout / "lu_machinery/lib/deploy_extensions.sh").write_text("deploy_agent_extensions() { :; }\n", encoding="utf-8")
             # Every non-dry launch, interactive or driver, enters a scope (#9624).
             install_scope_sandbox(checkout)
             return run_launcher(name, *args, env=env, dry_run=False, root=checkout)
@@ -353,6 +355,8 @@ def _core_canary_failure_fixture(tmp_path: Path) -> tuple[Path, Path, Path]:
     copy_launcher_sources(root)
     install_scope_sandbox(root)
     install_loader_bypass(root)
+    # The fixture has no package.json; the deploy gate is not under test here.
+    (root / "lu_machinery/lib/deploy_extensions.sh").write_text("deploy_agent_extensions() { :; }\n", encoding="utf-8")
     _install_claude_usage_fixture(root)
     watcher = root / "lu_machinery" / "ai_agent_bridge" / "inbox_watch.sh"
     watcher.parent.mkdir(parents=True, exist_ok=True)
@@ -501,6 +505,8 @@ def _core_driver_exit_fixture(
     copy_launcher_sources(root)
     install_scope_sandbox(root)
     install_loader_bypass(root)
+    # The fixture has no package.json; the deploy gate is not under test here.
+    (root / "lu_machinery/lib/deploy_extensions.sh").write_text("deploy_agent_extensions() { :; }\n", encoding="utf-8")
     _install_claude_usage_fixture(root)
     if forward_ready is not None:
         _append_forward_ready_hook(root / "lu_machinery/lib/launcher_core.sh", forward_ready)
@@ -1066,6 +1072,8 @@ def test_real_store_driver_close_successor_and_expired_recovery(tmp_path: Path) 
     copy_launcher_sources(root)
     install_scope_sandbox(root)
     install_loader_bypass(root)
+    # The fixture has no package.json; the deploy gate is not under test here.
+    (root / "lu_machinery/lib/deploy_extensions.sh").write_text("deploy_agent_extensions() { :; }\n", encoding="utf-8")
     _install_claude_usage_fixture(root)
     watcher = root / "lu_machinery" / "ai_agent_bridge" / "inbox_watch.sh"
     watcher.parent.mkdir(parents=True, exist_ok=True)

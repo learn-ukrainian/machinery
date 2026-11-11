@@ -70,6 +70,8 @@ def _prepare_repo(tmp_path: Path, *, separate_git_dir: bool = False) -> tuple[Pa
     copy_launcher_sources(primary)
     install_scope_sandbox(primary)
     install_loader_bypass(primary)
+    # The fixture has no package.json; the deploy gate is not under test here.
+    (primary / "lu_machinery/lib/deploy_extensions.sh").write_text("deploy_agent_extensions() { :; }\n", encoding="utf-8")
     # Driver launches check their handoff slot against the real roster (#8303).
     copy_slot_registry(primary)
 
