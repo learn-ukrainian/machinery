@@ -30,11 +30,27 @@ _context_rule_root() {
   printf '%s\n' "$root"
 }
 _context_rule_probe() {
-  local configured="${LEARN_UKRAINIAN_PYTHON:-}" anchor="${LEARN_UKRAINIAN_PRIMARY_REPO_ROOT:-}" root
+  local configured="${LEARN_UKRAINIAN_PYTHON:-}" anchor="${LEARN_UKRAINIAN_PRIMARY_REPO_ROOT:-}" root state
+  # The anchor passes the installed rule's checks before any interpreter, even
+  # a configured one, is chosen: an invalid anchor refuses before a process starts.
   case "$anchor" in
     /*) ;;
     *) echo "${0##*/}: project interpreter not found: LEARN_UKRAINIAN_PRIMARY_REPO_ROOT must name the primary checkout" >&2; return 1 ;;
   esac
+  if ! root="$(cd -P "$anchor" 2>/dev/null && pwd)" || ! root="$(_context_rule_root "$root")"; then
+    echo "${0##*/}: project interpreter not found: LEARN_UKRAINIAN_PRIMARY_REPO_ROOT=$anchor is not a primary checkout" >&2
+    return 1
+  fi
+  if [ -n "${LEARN_UKRAINIAN_STATE_ROOT:-}" ]; then
+    case "$LEARN_UKRAINIAN_STATE_ROOT" in
+      /*) state="$(cd -P "$LEARN_UKRAINIAN_STATE_ROOT" 2>/dev/null && pwd)" || state="" ;;
+      *) state="" ;;
+    esac
+    [ "$state" = "$root" ] || {
+      echo "${0##*/}: project interpreter not found: LEARN_UKRAINIAN_STATE_ROOT must name LEARN_UKRAINIAN_PRIMARY_REPO_ROOT" >&2
+      return 1
+    }
+  fi
   if [ -n "$configured" ]; then
     case "$configured" in
       /*) ;;
@@ -44,10 +60,6 @@ _context_rule_probe() {
       || { echo "${0##*/}: LEARN_UKRAINIAN_PYTHON=$configured is not an executable file" >&2; return 1; }
     printf '%s\n' "$configured"
     return 0
-  fi
-  if ! root="$(cd -P "$anchor" 2>/dev/null && pwd)" || ! root="$(_context_rule_root "$root")"; then
-    echo "${0##*/}: project interpreter not found: LEARN_UKRAINIAN_PRIMARY_REPO_ROOT=$anchor is not a primary checkout" >&2
-    return 1
   fi
   [ -f "$root/.venv/bin/python" ] && [ -x "$root/.venv/bin/python" ] \
     || { echo "${0##*/}: project interpreter not found: $root/.venv/bin/python; set LEARN_UKRAINIAN_PYTHON" >&2; return 1; }
