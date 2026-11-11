@@ -20,6 +20,7 @@
 #   Each needs the product checkout, which this repository does not hold.
 
 # [run]
+tests/test_driver_state_stop_hook.py
 tests/test_installed_shell_product_roots.py
 tests/repo_contracts/test_catalog_retirement_11327.py
 tests/repo_contracts/test_dashboard_empty_states.py
