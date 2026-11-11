@@ -2430,6 +2430,15 @@ def _write_command(client, kind, action, options, positional, *, timeout, input=
                 pull = queue.value.get("data", {}).get("repository", {}).get("pullRequest")
                 if not isinstance(pull, dict) or not pull.get("id"):
                     return Result(error="github_queue_unknown")
+                # Explicit squash text is scanned for a direct merge. A queue ignores
+                # it and publishes its own defaults, which this caller did not scan.
+                if (
+                    action == "merge"
+                    and "--disable-auto" not in options
+                    and pull.get("isMergeQueueEnabled")
+                    and {"--squash", "--subject", "--body", "--body-file"}.intersection(options)
+                ):
+                    return Result(error="github_queue_changed")
                 if action == "ready" or "--disable-auto" in options or pull.get("isMergeQueueEnabled"):
                     mutation = (
                         "markPullRequestReadyForReview"
@@ -2629,7 +2638,7 @@ def _translation_options(args):
         shapes[(kind, "close")] = (repo | {"--comment"} | ({"--reason"} if kind == "issue" else set()), None, 1, 1)
         shapes[(kind, "reopen")] = (repo, None, 1, 1)
     shapes[("pr", "merge")] = (
-        repo | {"--squash", "--match-head-commit", "--subject", "--body", "--disable-auto"},
+        repo | {"--squash", "--match-head-commit", "--subject", "--body", "--body-file", "--disable-auto"},
         None,
         1,
         1,

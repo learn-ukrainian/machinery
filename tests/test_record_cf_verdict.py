@@ -3,6 +3,8 @@
 import json
 import os
 import subprocess
+import sys
+from pathlib import Path
 
 import pytest
 
@@ -219,3 +221,52 @@ def test_copies_of_other_repository_and_non_review_records_do_not_refuse(tmp_pat
     write_task(tasks, task_id="mapped", schema_version=2, pr=8, run_nonce={}, repository="owner/other")
     write_task(tasks, schema_version=2, pr=42, run_nonce="nonce-1")
     assert [path.name for path, _ in review_records(tasks, repository="owner/repo")] == ["review-one.json"]
+
+
+@pytest.mark.parametrize("failure", ["missing", "linked", "symlink-loop"])
+@pytest.mark.parametrize("form", ["file", "module"])
+@pytest.mark.parametrize("entry", ["review.record_cf_verdict", "dispatch", "dispatcher.cli"])
+def test_installed_entry_refuses_invalid_configured_primary_before_dependencies(tmp_path, entry, form, failure):
+    """Defect class: an unusable configured primary escaping the bootstrap as a traceback or loading dependencies.
+
+    The recorder keeps its typed RECORDER_PRIMARY_REFUSED (exit 2, empty stderr); the
+    dispatcher entries print their one ``dispatcher:`` reason line (exit 2).
+    """
+    site = Path(recorder.__file__).resolve().parents[2]
+    module = f"lu_machinery.{entry}"
+    if failure == "missing":
+        primary = tmp_path / "missing-primary"
+    elif failure == "linked":
+        primary = tmp_path / "linked-worktree"
+        primary.mkdir()
+        (primary / ".git").write_text(f"gitdir: {tmp_path / 'primary/.git/worktrees/linked'}\n")
+    else:
+        primary, second = tmp_path / "loop-a", tmp_path / "loop-b"
+        primary.symlink_to(second)
+        second.symlink_to(primary)
+    # The bootstrap entries refuse before any dependency loads; dispatcher.cli imports its own at module top.
+    poisoned = tmp_path / "poisoned"
+    poisoned.mkdir()
+    if entry != "dispatcher.cli":
+        (poisoned / "yaml.py").write_text("raise RuntimeError('dependency loaded before the refusal')\n")
+    target = [str(site / module.replace(".", "/")) + ".py"] if form == "file" else ["-m", module]
+    argv = ["budget-check", "--repository", "owner/repo", "--pr", "42"] if entry.startswith("review") else ["list"]
+    done = subprocess.run(
+        [sys.executable, *target, *argv],
+        cwd=tmp_path,
+        env={**os.environ, "PYTHONPATH": os.pathsep.join([str(poisoned), str(site)]),
+             "LEARN_UKRAINIAN_PRIMARY_REPO_ROOT": str(primary)},
+        text=True, capture_output=True, check=False, timeout=60,
+    )
+    reason = f"LEARN_UKRAINIAN_PRIMARY_REPO_ROOT must name a primary checkout, not a linked worktree or a stray .git: {primary}/.git"
+    assert done.returncode == 2, done.stderr
+    if entry.startswith("review"):
+        assert done.stderr == ""
+        [line] = done.stdout.splitlines()
+        refusal = json.loads(line)
+        assert refusal["admitted"] is False
+        assert refusal["refusal"].startswith(f"RECORDER_PRIMARY_REFUSED: {reason}")
+    else:
+        assert done.stdout == ""
+        [line] = done.stderr.splitlines()
+        assert line.startswith(f"dispatcher: {reason}")

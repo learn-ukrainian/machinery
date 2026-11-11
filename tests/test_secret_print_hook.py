@@ -203,6 +203,7 @@ def test_native_timeout(harness, monkeypatch, capsys):
 @pytest.mark.parametrize("harness", HARNESS_NAMES)
 @pytest.mark.parametrize("failure", ["missing_guard", "launch", "crash", "stdout", "stderr"])
 def test_native_guard_failures(harness, failure, monkeypatch, capsys):
+    """Each guard failure reaches run_guard and denies with its own reason."""
     from lu_machinery.agent_runtime import codex_hook_policy
     from lu_machinery.agent_runtime import secret_print_hook as hook
 
@@ -210,8 +211,13 @@ def test_native_guard_failures(harness, failure, monkeypatch, capsys):
         # The release resolver itself refuses a resource the release does not ship.
         monkeypatch.setattr(hook, "guard_path", lambda: machinery_path("agents_extensions/shared/hooks/absent-guard.py"))
     else:
+        real_run = subprocess.run
+        guard = str(hook.guard_path())
 
         def broken_run(*args, **kwargs):
+            # Only the guard launch fails; hook-root setup keeps its real subprocess.
+            if guard not in map(str, args[0]):
+                return real_run(*args, **kwargs)
             if failure == "launch":
                 raise OSError(SENTINEL)
             return subprocess.CompletedProcess(
@@ -226,6 +232,8 @@ def test_native_guard_failures(harness, failure, monkeypatch, capsys):
     code = hook.main(["--harness", harness])
     captured = capsys.readouterr()
     assert_decision(harness, code, captured.out, captured.err, False)
+    reason = {"missing_guard": "unavailable", "launch": "could not run"}.get(failure, "failed")
+    assert captured.err == f"BLOCKED by guard-secret-print (#M-5): shared guard {reason}.\n"
 
 
 @pytest.mark.parametrize("timed_out", [False, True])

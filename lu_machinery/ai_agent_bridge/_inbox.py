@@ -886,9 +886,16 @@ def run_inbox(
     # Inbox replies are consults and discussions; a Kimi inbox is refused
     # before any claim, lease, telemetry or delivery write.
     from lu_machinery.agent_runtime.retired_seat_admission import ACP_MODE
-    from lu_machinery.agent_runtime.target_admission import resolve_and_admit
+    from lu_machinery.agent_runtime.target_admission import COMPAT_TARGETS, resolve_and_admit
 
-    resolve_and_admit((agent,), mode=ACP_MODE)
+    (target,) = resolve_and_admit((agent,), mode=ACP_MODE)
+    if "agy" in {target.recipient, COMPAT_TARGETS.get(agent)}:
+        # Gemini replies also run on AGY. AGY read-only runs only on the review route,
+        # so a reply would be refused after its deliveries were claimed; leave them pending.
+        raise ValueError(
+            f"agy_inbox_unsupported: {agent!r} inbox replies run on AGY, which has no read-only "
+            "discussion boundary; use Fleet Comms (ACP)"
+        )
     _validate_agent(agent)
     if max_messages is not None and max_messages <= 0:
         raise ValueError("max_messages must be > 0 when provided")

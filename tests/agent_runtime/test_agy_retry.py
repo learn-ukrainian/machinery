@@ -836,3 +836,41 @@ def test_preparation_deadline_refuses_first_launch(tmp_path, monkeypatch):
     once.assert_not_called()
     assert result.parse.agy_telemetry.task_fields()["agy_attempt_count"] == 0
     assert result.parse.agy_telemetry.retry_disposition == "deadline_exhausted"
+
+
+@pytest.mark.parametrize("caller", ["wiki-writer", "gemini-ask"])
+def test_off_review_agy_caller_runs_bounded_or_refuses_before_launch(tmp_path, monkeypatch, caller):
+    """Defect class: an off-review AGY caller asks for read-only and the boundary refuses it (#100)."""
+    from lu_machinery.agent_runtime.adapters import agy
+    from lu_machinery.ai_agent_bridge import _agy, _gemini
+    from lu_machinery.ai_llm import fallback
+
+    if caller == "gemini-ask":
+        invoke = Mock()
+        monkeypatch.setattr(_gemini, "runtime_invoke", invoke)
+        refused = _gemini._run_gemini_attempt(
+            {"task_id": "fixture-task"}, 1, "gemini-3.8-flash-high", "gemini-3.8-flash-high", "prompt",
+            60, True, None, True, 0, 1, 0, {}, None, allow_write=False,
+        )
+        assert refused is False
+        invoke.assert_not_called()
+        return
+
+    repo, scratch = tmp_path / "repo", tmp_path / "scratch"
+    repo.mkdir()
+    scratch.mkdir()
+    register_agy_hooks(scratch, home=tmp_path / "home")
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    monkeypatch.setattr(_agy, "_agy_ask_scratch_cwd", lambda: scratch)
+    monkeypatch.setattr(agy, "_require_background_wait_support", Mock())
+    monkeypatch.setattr(agy, "_build_log_path", lambda *_: tmp_path / "agy.log")
+    monkeypatch.setattr(runner, "has_headroom", Mock(return_value=(True, "")))
+    once = Mock(return_value=_outcome(ok=True, stderr=""))
+    monkeypatch.setattr(runner, "_execute_invocation_once", once)
+
+    outcome = fallback._run_agy_via_runtime("prompt", task_name="wiki", timeout_s=60, cwd=repo)
+
+    assert (outcome.status, outcome.stderr_excerpt) == ("success", None)
+    plan = once.call_args.kwargs["plan"]
+    assert plan.cwd == scratch.resolve()
+    assert plan.cmd[plan.cmd.index("--add-dir") + 1] == str(repo)

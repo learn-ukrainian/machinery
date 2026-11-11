@@ -128,6 +128,35 @@ out="$(PATH="$WORK_DIR/realbin:${PATH#"$WORK_DIR/bin:"}" npm_config_cache="$WORK
 [[ ! -e "$WORK_DIR/ws/root-deployed" ]] || fail "workspace case: the root script ran despite the refusal"
 not_contains "$out" "Agent extensions deployed" "workspace selector never claims success"
 
+# --- defect class: a broken npm command must not pass the real-npm fixtures ---
+# workspaces=true must still execute the root script, not merely return zero.
+out="$(PATH="$WORK_DIR/realbin:${PATH#"$WORK_DIR/bin:"}" npm_config_cache="$WORK_DIR/npm-cache" npm_config_workspaces=true \
+  deploy_agent_extensions "$WORK_DIR/ws" agents:deploy 2>&1)" || fail "root workspace deploy failed: $out"
+[[ -f "$WORK_DIR/ws/root-deployed" ]] || fail "real npm did not execute the root script"
+[[ ! -e "$WORK_DIR/ws/child/child-deployed" ]] || fail "real npm executed the child script"
+contains "$out" "Agent extensions deployed" "real npm success"
+
+# --- defect class: npm usage config returns success without executing deploy ---
+# Exercise environment (both spellings) and project npmrc config sources.
+for usage_source in env upper npmrc; do
+  rm -f "$WORK_DIR/ws/root-deployed" "$WORK_DIR/ws/.agent/last-deploy-status"
+  printf '{"name":"root","scripts":{"agents:deploy":"echo root > root-deployed; exit 29"}}\n' > "$WORK_DIR/ws/package.json"
+  rm -f "$WORK_DIR/ws/.npmrc"
+  usage_env=()
+  case "$usage_source" in
+    env) usage_env=(npm_config_usage=true) ;;
+    upper) usage_env=(NPM_CONFIG_USAGE=true) ;;
+    npmrc) printf 'usage=true\n' > "$WORK_DIR/ws/.npmrc" ;;
+  esac
+  rc=0
+  out="$(if [ "${#usage_env[@]}" -gt 0 ]; then export "${usage_env[@]}"; fi; PATH="$WORK_DIR/realbin:${PATH#"$WORK_DIR/bin:"}" npm_config_cache="$WORK_DIR/npm-cache" \
+    deploy_agent_extensions "$WORK_DIR/ws" agents:deploy 2>&1)" || rc=$?
+  [[ "$rc" -eq 29 ]] || fail "usage $usage_source: expected script exit 29, got $rc: $out"
+  [[ -f "$WORK_DIR/ws/root-deployed" ]] || fail "usage $usage_source: root script did not run"
+  contains "$out" "AGENT-EXTENSIONS DEPLOY FAILED" "usage $usage_source failure banner"
+  grep -q '^exit_code=29$' "$WORK_DIR/ws/.agent/last-deploy-status" || fail "usage $usage_source lost failure status"
+done
+
 # --- launchers actually use the helper (regression guard on the wiring) ---
 # Post-cutover (#5958) the deploy gate lives in the SHARED core so every
 # provider launcher refuses to run against stale extensions.
@@ -159,7 +188,7 @@ grep -q 'branch --show-current' "$REPO_ROOT/$codex_adapter" \
   || fail "$codex_adapter no longer requires canonical main"
 grep -q 'GIT_OPTIONAL_LOCKS=0' "$REPO_ROOT/$codex_adapter" \
   || fail "$codex_adapter no longer suppresses optional primary-index locks"
-if grep -Eq 'codex-interactive|git worktree add|checkout --detach' "$REPO_ROOT/start-codex.sh"; then
+if grep -Eq 'codex-interactive|git worktree add|checkout --detach' "$REPO_ROOT/$codex_adapter"; then
   fail "start-codex.sh reintroduced a detached interactive worktree"
 fi
 

@@ -18,7 +18,7 @@ from tempfile import TemporaryDirectory
 
 import pytest
 
-from lu_machinery.common.repo_root import PRODUCT_ROOT_ENV, machinery_path
+from lu_machinery.common.repo_root import PRODUCT_ROOT_ENV, machinery_path, machinery_root
 from lu_machinery.common.scratch import ensure_scratch_root
 from lu_machinery.session_streams.db import SessionStreamDatabase
 from lu_machinery.session_streams.model import LeaseHolder, utc_now
@@ -151,7 +151,14 @@ def test_real_launcher_deploy_is_confined_to_temporary_checkout(tmp_path: Path) 
                 current.setdefault(requirement["path"][-1], []).append({**requirement["group"], "hooks": requirement["hooks"]})
             (source / destination.split("/", 1)[1]).write_text(json.dumps(config))
     (checkout / "agents_extensions/deployment.v1.json").write_text(json.dumps(descriptor))
-    (checkout / "package.json").write_text(json.dumps({"scripts": {"agents:deploy": shlex.quote(sys.executable) + " -I -m lu_machinery.agent_deploy --project-root " + shlex.quote(str(checkout))}}))
+    # The isolated child must deploy this checkout's release, not whichever
+    # version happens to be installed in the interpreter's site-packages.
+    deploy_code = (
+        f"import sys, runpy; sys.path.insert(0, {str(machinery_root().parent)!r}); "
+        "runpy.run_module('lu_machinery.agent_deploy', run_name='__main__')"
+    )
+    deploy_command = shlex.join([sys.executable, "-I", "-c", deploy_code, "--project-root", str(checkout)])
+    (checkout / "package.json").write_text(json.dumps({"scripts": {"agents:deploy": deploy_command}}))
     _install_claude_usage_fixture(checkout)
     install_scope_sandbox(checkout)
     binary = tmp_path / "bin" / "claude"
@@ -1470,3 +1477,36 @@ fi
         with suppress(ProcessLookupError):
             os.killpg(process.pid, signal.SIGKILL)
         process.communicate(timeout=10)
+
+
+@pytest.mark.parametrize(
+    ("name", "args", "env", "model", "code"),
+    [
+        ("start-gemini.sh", [], {}, "gemini-4-carbon-medium", 0),
+        ("start-gemini.sh", ["--effort", "high"], {}, "gemini-4-carbon-high", 0),
+        ("start-gemini.sh", [], {"LAUNCHER_EFFORT": "low"}, "gemini-4-carbon-low", 0),
+        ("start-gemini-driver.sh", ["--epic", "infra", "--effort", "low"], {}, "", 4),
+        ("start-gemini-driver.sh", ["--epic", "infra"], {"LAUNCHER_EFFORT": "medium"}, "", 4),
+        ("start-gemini-driver.sh", ["--epic", "infra", "--", "--effort", "low"], {}, "", 4),
+        ("start-gemini-driver.sh", ["--epic", "infra", "--", "--effort=low"], {}, "", 4),
+        ("start-gemini-driver.sh", ["--epic", "infra", "--", "-effort", "low"], {}, "", 4),
+        ("start-gemini-driver.sh", ["--epic", "infra", "--", "-effort=low"], {}, "", 4),
+        ("start-gemini-driver.sh", ["--epic", "infra", "--", "-model", "gemini-4-carbon-high"], {}, "", 4),
+        ("start-gemini-driver.sh", ["--epic", "infra", "--", "-model=gemini-4-carbon-high"], {}, "", 4),
+        ("start-gemini-driver.sh", ["--epic", "infra", "--effort", "high"], {}, "gemini-3.8-flash-high", 0),
+    ],
+)
+def test_gemini_effort_does_not_conflict_or_bypass_driver_certification(name, args, env, model, code):
+    """Conflicting AGY variants and uncertified driver efforts must not reach spawn."""
+    result = run_launcher(name, *args, env=env)
+    assert result.returncode == code, result.stdout + result.stderr
+    if code:
+        assert "effort" in result.stderr
+        assert "would claim lease" not in result.stdout
+        assert "would exec" not in result.stdout
+    else:
+        command = result.stdout.split("would exec ", 1)[1]
+        # launcher_print_argv uses Bash quoting for the multiline rules prompt.
+        # The unquoted model/effort prefix is sufficient to pin AGY selection.
+        assert command.startswith(f"agy --model {model} ")
+        assert not command.startswith(f"agy --model {model} --effort ")
