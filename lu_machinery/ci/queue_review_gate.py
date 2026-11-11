@@ -361,8 +361,8 @@ def head_facts(post: Post, event: Event, members: list[Member]) -> dict[str, Hea
     declarations = "".join(f", $h{index}: GitObjectID!" for index in range(len(members)))
     fields = "".join(
         f" h{index}: object(oid: $h{index}) {{ ... on Commit {{ oid"
-        " status { context(name: $context) { state } }"
-        " checkSuites(first: 100) { totalCount nodes { createdAt } } } }"
+        + " status { context(name: $context) { state } }"
+        + " checkSuites(first: 100) { totalCount nodes { createdAt } } } }"
         for index in range(len(members))
     )
     query = f"query($owner: String!, $name: String!, $context: String!{declarations}) {{ repository(owner: $owner, name: $name) {{{fields} }} }}"
