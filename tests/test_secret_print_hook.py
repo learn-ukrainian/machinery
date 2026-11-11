@@ -6,7 +6,6 @@ import io
 import json
 import os
 import subprocess
-import shutil
 import sys
 
 import pytest
@@ -24,6 +23,7 @@ from tests.agents_extensions.test_guard_secret_print import (
 
 HARNESS_NAMES = ["claude", "codex", "grok", "kimi", "cursor", "agy", "opencode"]
 ADAPTER = machinery_path("agent_runtime/secret_print_hook.py")
+RELEASE_GUARD = machinery_path("agents_extensions/shared/hooks/guard-secret-print.py")
 SENTINEL = "synthetic_adapter_value_91b8"
 
 
@@ -202,12 +202,13 @@ def test_native_timeout(harness, monkeypatch, capsys):
 
 @pytest.mark.parametrize("harness", HARNESS_NAMES)
 @pytest.mark.parametrize("failure", ["missing_guard", "launch", "crash", "stdout", "stderr"])
-def test_native_guard_failures(harness, failure, monkeypatch, capsys, tmp_path, secret_print_product):
+def test_native_guard_failures(harness, failure, monkeypatch, capsys):
     from lu_machinery.agent_runtime import codex_hook_policy
     from lu_machinery.agent_runtime import secret_print_hook as hook
 
     if failure == "missing_guard":
-        (secret_print_product / "agents_extensions/shared/hooks/guard-secret-print.py").unlink()
+        # The release resolver itself refuses a resource the release does not ship.
+        monkeypatch.setattr(hook, "guard_path", lambda: machinery_path("agents_extensions/shared/hooks/absent-guard.py"))
     else:
 
         def broken_run(*args, **kwargs):
@@ -247,7 +248,7 @@ def test_shared_runner_pins_guard_and_sanitizes_timeout(timed_out, monkeypatch, 
     )
     assert calls == [
         (
-            [sys.executable, "-I", str(secret_print_product / "agents_extensions/shared/hooks/guard-secret-print.py")],
+            [sys.executable, "-I", str(RELEASE_GUARD)],
             {
                 "input": json.dumps({"tool_name": "Bash", "tool_input": {"command": command}}),
                 "text": True,
@@ -293,7 +294,7 @@ def test_actual_guard_stderr_is_forwarded(harness, monkeypatch, capsys, secret_p
 
     command = 'echo "$ARBITRARY_TOKEN"'
     guard = subprocess.run(
-        [sys.executable, "-I", str(secret_print_product / "agents_extensions/shared/hooks/guard-secret-print.py")],
+        [sys.executable, "-I", str(RELEASE_GUARD)],
         input=json.dumps(event("claude", command)),
         text=True,
         capture_output=True,
@@ -420,16 +421,18 @@ def test_agy_invalid_stdin_subprocess(raw):
 
 
 @pytest.mark.parametrize("failure", ["missing", "crash", "deadline"])
-def test_agy_detector_failure_real_subprocess(tmp_path, failure, secret_print_product):
-    guard = secret_print_product / "agents_extensions/shared/hooks/guard-secret-print.py"
-    guard.unlink()
+def test_agy_detector_failure_real_subprocess(tmp_path, failure):
+    guard = tmp_path / "guard-secret-print.py"
     if failure != "missing":
         guard.write_text(
             "raise RuntimeError('synthetic crash')\n" if failure == "crash" else "import time\ntime.sleep(30)\n"
         )
     wrapper = tmp_path / "hook_probe.py"
+    # guard_path is the supported seam for a missing, crashing or overdue guard.
     wrapper.write_text(
+        "from pathlib import Path\n"
         "from lu_machinery.agent_runtime import secret_print_hook as hook\n"
+        f"hook.guard_path = lambda: Path({str(guard)!r})\n"
         "raise SystemExit(hook.main(['--harness', 'agy']))\n"
     )
     result = subprocess.run(
@@ -443,14 +446,26 @@ def test_agy_detector_failure_real_subprocess(tmp_path, failure, secret_print_pr
     assert failure != "deadline" or "deadline" in result.stderr
 
 
+def test_guard_resolves_from_release_without_product_copy(monkeypatch, capsys, secret_print_product):
+    """A product without its own agents_extensions copy keeps a working, release-pinned guard."""
+    from lu_machinery.agent_runtime import secret_print_hook as hook
+
+    assert not (secret_print_product / "agents_extensions").exists()
+    assert hook.guard_path() == RELEASE_GUARD
+    for harness in HARNESS_NAMES:
+        for command, allowed in (("printf OK", True), ('echo "$ARBITRARY_TOKEN"', False)):
+            monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps(event(harness, command))))
+            code = hook.main(["--harness", harness])
+            captured = capsys.readouterr()
+            assert_decision(harness, code, captured.out, captured.err, allowed)
+            assert "unavailable" not in captured.err
+
+
 @pytest.fixture(autouse=True)
 def secret_print_product(tmp_path, monkeypatch):
-    """Give the adapter its configured product guard, without reading a live checkout."""
+    """Select a product checkout that has no guard copy: the adapter must run the release's guard."""
     product = tmp_path / "guard-product"
-    hooks = product / "agents_extensions/shared/hooks"
-    hooks.mkdir(parents=True)
-    for name in ("guard-secret-print.py", "shell_shlex.py", "shell_redirects.py"):
-        shutil.copyfile(machinery_path("agents_extensions/shared/hooks/" + name), hooks / name)
+    product.mkdir()
     # A primary checkout: the adapter validates its hook context by the shared root rule.
     # A minimal environment: pytest's PYTEST_CURRENT_TEST can exceed the per-argument limit.
     git_env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": str(tmp_path), "GIT_CONFIG_NOSYSTEM": "1"}

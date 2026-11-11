@@ -102,6 +102,10 @@ os.environ["LU_PRODUCT_ROOT"] = sys.argv[1]
 result["shared_with_product"] = str(r.source_path("agents_extensions/shared").resolve())
 result["core_with_product"] = r.core_text()
 result["shell"] = str(__import__("pathlib").Path(r.__file__).with_suffix(".sh"))
+# The shell no-print guard runs from the release even though this product has no hooks copy.
+from lu_machinery.agent_runtime import secret_print_hook as guard
+result["guard"] = str(guard.guard_path().resolve())
+result["guard_decisions"] = [guard.run_guard(command)[0] for command in ("printf OK", "env")]
 os.environ.pop("LU_PRODUCT_ROOT")
 try:
     r.core_text("content")
@@ -141,6 +145,10 @@ print(json.dumps(result))
     assert data["shared_with_product"] == data["shared_without_product"]
     assert Path(data["shared_without_product"]).is_relative_to(executable.parent.parent)
     assert data["core_with_product"] == core
+    assert not (product / SHARED / "hooks").exists()
+    assert Path(data["guard"]).is_relative_to(executable.parent.parent)
+    assert Path(data["guard"]).read_bytes() == (REPO / SHARED / "hooks/guard-secret-print.py").read_bytes()
+    assert data["guard_decisions"] == [True, False]
     expected_block = (
         f'<rules-core seat="core" sha256="{hashlib.sha256(core.encode()).hexdigest()}">\n{core}</rules-core>'
     )
