@@ -159,11 +159,10 @@ def _contained_file(repo_root: Path, candidate: Path, raw: str) -> Path:
 def _relative(path: Path, repo_root: Path) -> str:
     """The logical repository-relative path; a release-owned fleet rule keeps its product-style path."""
     resolved = path.resolve()
-    try:
-        return resolved.relative_to(repo_root.resolve()).as_posix()
-    except ValueError:
-        release = machinery_path("agents_extensions/shared").resolve().parents[1]
-        return resolved.relative_to(release).as_posix()
+    release_rules = machinery_path(RULES_DIR_REL).resolve()
+    if resolved.is_relative_to(release_rules) and not resolved.is_relative_to((repo_root / RULES_DIR_REL).resolve()):
+        return f"{RULES_DIR_REL}/{resolved.relative_to(release_rules).as_posix()}"
+    return resolved.relative_to(repo_root.resolve()).as_posix()
 
 
 def _fleet_rule(repo_root: Path, relative: str | Path) -> Path | None:
