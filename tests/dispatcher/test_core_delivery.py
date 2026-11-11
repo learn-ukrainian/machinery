@@ -21,7 +21,10 @@ from tests.helpers.product_tree import configured_roots  # noqa: F401
 
 def spec_at(tmp_path, provider):
     checkout = tmp_path / "checkout"
-    checkout.mkdir()
+    if provider == "muse":
+        subprocess.run(["git", "init", str(tmp_path)], check=True, capture_output=True, timeout=30)
+        checkout = tmp_path / ".worktrees/dispatch/muse/delivery"
+    checkout.mkdir(parents=True)
     brief = tmp_path / "brief"
     brief.write_bytes(b"Original brief\r\n")
     return TaskSpec("delivery", provider, "stub", "high", "workspace-write", checkout, brief, tmp_path / "result")
@@ -149,6 +152,60 @@ def test_dry_run_constructs_context_transport_without_writes(tmp_path, provider)
         assert "--append-system-prompt-file" in invocation.argv
     if provider == "muse":
         assert "--prompt-file" in invocation.argv
+
+
+@pytest.mark.parametrize("contributor", ["on", "off", None])
+def test_muse_cli_forwards_contributor_mode_and_keeps_auditable_record(sandbox, contributor):
+    """Defect class: forced-off execution loses the requested mode or misstates the effective mode."""
+    args = ["dispatch", "--agent", "muse", "--model", "muse-wonder-full-1.0", "--prompt", "public input"]
+    if contributor is not None:
+        args += ["--contributor-mode", contributor]
+    plan = json.loads(sandbox.cli(*args, "--dry-run").stdout)
+    argv = plan["argv"]
+    assert argv[argv.index("--contributor-mode") + 1] == "off"
+    assert not sandbox.tasks.exists()
+    assert not Path(plan["worktree"]).exists()
+
+    # Keep the real confinement, file transport and parser; replace only the
+    # paid runtime with the launcher's supported exact native-file layout.
+    binary_dir = sandbox.repo.parent / "bin"
+    binary_dir.mkdir(exist_ok=True)
+    version = "0.0.0-R1"
+    (binary_dir / ".muse-version").write_text(version)
+    executable = binary_dir / "muse"
+    executable.write_text('#!/bin/sh\nexec "$(dirname "$0")/muse-bin-0.0.0-R1" "$@"\n')
+    native = binary_dir / f"muse-bin-{version}"
+    native.write_text(r'''#!/bin/sh
+set -eu
+contributor=missing
+while [ "$#" -gt 0 ]; do
+    if [ "$1" = "--prompt-file" ]; then
+        shift
+        prompt=$(cat "$1")
+    elif [ "$1" = "--contributor-mode" ]; then
+        shift
+        contributor=$1
+    fi
+    shift
+done
+test "$contributor" = off
+case "$prompt" in '<rules-core seat="core"'*) ;; *) exit 1 ;; esac
+case "$prompt" in *'</rules-core>'*'public input') ;; *) exit 1 ;; esac
+printf '%s\n' '{"payload_type":"run.terminal.completed","payload":{"text":"Finished."}}'
+''')
+    executable.chmod(0o755)
+    native.chmod(0o755)
+    home = sandbox.repo.parent / "synthetic-home"
+    home.mkdir()
+    sandbox.env.update(HOME=str(home), XDG_CONFIG_HOME=str(home / ".config"))
+    sandbox.env["PATH"] = str(binary_dir) + os.pathsep + sandbox.env["PATH"]
+    task = sandbox.cli(*args).stdout.splitlines()
+    record = sandbox.settle(task)
+    assert record["contributor_mode"] == "off"
+    assert record["requested_contributor_mode"] == (contributor or "off")
+    persisted = json.loads((sandbox.tasks / f"{task[0]}.json").read_text())
+    assert persisted["contributor_mode"] == "off"
+    assert persisted["requested_contributor_mode"] == (contributor or "off")
 
 
 pytestmark = pytest.mark.usefixtures("sources_product_root")

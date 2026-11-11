@@ -7,6 +7,8 @@ import os
 import subprocess
 import sys
 from dataclasses import replace
+from pathlib import Path
+from types import SimpleNamespace
 import pytest
 from lu_machinery.dispatcher.providers import cursor, load, muse, opencode
 from lu_machinery.dispatcher.types import TaskSpec
@@ -79,14 +81,12 @@ def test_muse_argv(spec, stub_env, model, mode, effort, contributor, monkeypatch
     monkeypatch.setattr(muse, "confined_muse_argv", lambda argv, *args: argv)
     options = {} if contributor is None else {"contributor_mode": contributor}
     spec = replace(spec, model=model, mode=mode, effort=effort, options=options)
-    if mode == "workspace-write":
-        with pytest.raises(ValueError, match=r"^muse_write_mode_unconfined$"):
-            muse.build(spec, stub_env)
-        return
     invocation = muse.build(spec, stub_env)
     expected = [
         "exec",
         "--json",
+        "--provider",
+        "meta",
         "--model",
         model,
         "--disable-web-tools",
@@ -97,14 +97,18 @@ def test_muse_argv(spec, stub_env, model, mode, effort, contributor, monkeypatch
         "--prompt-file",
         str(spec.prompt_file),
         "--contributor-mode",
-        contributor or "off",
+        "off",
     ]
     if effort:
         expected += ["--reasoning-effort", effort]
     if mode == "workspace-write":
-        expected += ["--permission-profile", ":unrestricted"]
+        expected += ["--permission-profile", ":ask-me", "--disable-shell",
+                     "--disable-reminders", "--disable-request-user-input", "--no-foreign-personal-context",
+                     "--config", 'run.toolset=["read_file", "write_file", "edit_file"]']
     else:
-        expected += ["--permission-profile", ":read-only", "--disable-write", "--disable-shell"]
+        expected += ["--permission-profile", ":read-only", "--disable-shell",
+                     "--disable-reminders", "--disable-request-user-input", "--no-foreign-personal-context",
+                     "--config", 'run.toolset=["read_file"]', "--disable-write"]
     assert run_stub(invocation, spec) == expected
     assert invocation.env["MUSE_NO_AUTO_UPDATE"] == "1"
     assert "MUSE_NO_AUTO_UPDATE" not in stub_env
@@ -340,11 +344,13 @@ def test_muse_provider_cannot_bypass_file_sandbox(tmp_path, monkeypatch):
 
     from lu_machinery.agent_runtime.adapters.muse import confined_muse_argv
     from lu_machinery.common.repo_root import project_interpreter
+    from lu_machinery.guardrails.worktree_containment import NotAGitRepositoryError
 
     if not shutil.which("bwrap"):
         pytest.skip("bubblewrap is required for the real file boundary")
-    workspace = tmp_path / "workspace"
-    workspace.mkdir()
+    subprocess.run(["git", "init", str(tmp_path)], check=True, capture_output=True, timeout=30)
+    workspace = tmp_path / ".worktrees/dispatch/muse/containment"
+    workspace.mkdir(parents=True)
     outside = tmp_path / "outside.txt"
     outside.write_text("outside")
     (workspace / "inside.txt").write_text("inside")
@@ -364,6 +370,10 @@ def test_muse_provider_cannot_bypass_file_sandbox(tmp_path, monkeypatch):
         'if cat ../outside.txt 2>/dev/null; then exit 21; fi\n'
         'if cat escape 2>/dev/null; then exit 22; fi\n'
         'if printf changed > inside.txt 2>/dev/null; then exit 23; fi\n'
+        f'if printf bad > "{outside}" 2>/dev/null; then exit 24; fi\n'
+        'if printf bad > ../outside.txt 2>/dev/null; then exit 25; fi\n'
+        'if printf bad > escape 2>/dev/null; then exit 26; fi\n'
+        'if printf bad > "$HOME/.config/muse/auth.json" 2>/dev/null; then exit 27; fi\n'
     )
     native.chmod(0o700)
     source_home = tmp_path / "empty-home"
@@ -379,29 +389,14 @@ def test_muse_provider_cannot_bypass_file_sandbox(tmp_path, monkeypatch):
     prompt = tmp_path / "brief.txt"
     prompt.write_text("fixture")
     spec = TaskSpec("muse-containment", "muse", MODELS[0], None, "read-only", workspace, prompt, tmp_path / "final")
-    from lu_machinery.agent_runtime.adapters import muse as adapter_module
-
-    def no_provider_execution(*args, **kwargs):
-        raise AssertionError("write refusal must precede provider execution")
-
-    with monkeypatch.context() as refusal:
-        refusal.setattr(subprocess, "run", no_provider_execution)
-        with pytest.raises(ValueError, match=r"^muse_write_mode_unconfined$"):
-            muse.build(replace(spec, mode="workspace-write"), {})
-        with pytest.raises(ValueError, match=r"^muse_write_mode_unconfined$"):
-            adapter_module.MuseAdapter().build_invocation(
-                prompt="", mode="workspace-write", cwd=workspace, model=None,
-                task_id=None, session_id=None, tool_config=None,
-            )
-        with pytest.raises(ValueError, match=r"^muse_write_mode_unconfined$"):
-            adapter_module.MuseAdapter().preview_invocation(
-                prompt="", mode="workspace-write", cwd=workspace, model=None,
-                task_id="refused", run_nonce="0123456789abcdef", scratch_root=str(scratch), effort=None,
-            )
-        with pytest.raises(ValueError, match=r"^muse_write_mode_unconfined$"):
-            confined_muse_argv([], workspace, "workspace-write", "refused")
-        with pytest.raises(ValueError, match=r"^muse_write_mode_unconfined$"):
-            adapter_module.sandbox_main(["govern", "refused", "workspace-write", str(workspace), str(scratch)])
+    # Defect class: direct sandbox callers mount a primary or symlink target writable.
+    for rejected in (tmp_path, tmp_path / ".worktrees", tmp_path / "install"):
+        with pytest.raises(ValueError, match="muse_dispatch_worktree_required"):
+            muse.build(replace(spec, mode="workspace-write", worktree=rejected), {})
+    linked = tmp_path / "linked-workspace"
+    linked.symlink_to(workspace, target_is_directory=True)
+    with pytest.raises(NotAGitRepositoryError, match="symlink or not a directory"):
+        muse.build(replace(spec, mode="workspace-write", worktree=linked), {})
     # child_env forwards the configured project interpreter to the read-only launcher child.
     invocation = muse.build(spec, {
         "PATH": str(install) + os.pathsep + os.defpath, "HOME": str(source_home),
@@ -413,6 +408,310 @@ def test_muse_provider_cannot_bypass_file_sandbox(tmp_path, monkeypatch):
     assert result.stdout == "inside"
     assert (workspace / "inside.txt").read_text() == "inside"
     assert not list(scratch.glob("task-scratch/*/scratch"))
+
+    # The same OS boundary permits only task-worktree writes in write mode.
+    host_git = tmp_path / "host-git"
+    host_git.mkdir()
+    (host_git / "private-marker").write_text("host-only")
+    original_pointer = f"gitdir: {host_git}\n"
+    # Defect class: invalid Git markers permit a workspace-write launch.
+    marker = workspace / ".git"
+    for invalid in ("directory", "symlink"):
+        if invalid == "directory":
+            marker.mkdir()
+        else:
+            marker.symlink_to(host_git, target_is_directory=True)
+        invocation = muse.build(replace(spec, mode="workspace-write"),
+                                {"PATH": str(install) + os.pathsep + os.defpath, "HOME": str(source_home)})
+        result = subprocess.run(invocation.argv, cwd=workspace, env=invocation.env,
+                                capture_output=True, text=True, timeout=30)
+        assert result.returncode != 0
+        assert "muse_worktree_git_pointer_refused" in result.stderr
+        marker.rmdir() if invalid == "directory" else marker.unlink()
+    (workspace / ".git").write_text(original_pointer)
+    native.write_text(
+        '#!/bin/sh\n'
+        'test "$(cat "$HOME/.config/muse/auth.json")" = synthetic-auth-only || exit 19\n'
+        'pointer=$(cat .git)\n'
+        'gitdir=${pointer#gitdir: }\n'
+        'test -d "$gitdir" || exit 29\n'
+        'test ! -e "$gitdir/private-marker" || exit 30\n'
+        'if printf bad > .git 2>/dev/null; then exit 31; fi\n'
+        'if printf bad > "$gitdir/config" 2>/dev/null; then exit 32; fi\n'
+        'printf changed > inside.txt || exit 23\n'
+        f'if printf bad > "{outside}" 2>/dev/null; then exit 24; fi\n'
+        'if printf bad > ../outside.txt 2>/dev/null; then exit 25; fi\n'
+        'if printf bad > escape 2>/dev/null; then exit 26; fi\n'
+        'if printf bad > "$HOME/.config/muse/auth.json" 2>/dev/null; then exit 27; fi\n'
+        'if rm "$HOME/.config/muse/auth.json" 2>/dev/null; then exit 28; fi\n'
+        'cat inside.txt\n'
+    )
+    invocation = muse.build(replace(spec, mode="workspace-write"),
+                            {"PATH": str(install) + os.pathsep + os.defpath, "HOME": str(source_home)})
+    result = subprocess.run(invocation.argv, cwd=workspace, env=invocation.env,
+                            capture_output=True, text=True, timeout=30)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == "changed"
+    assert (workspace / "inside.txt").read_text() == "changed"
+    assert outside.read_text() == "outside"
+    assert auth.read_text() == "synthetic-auth-only"
+    assert (workspace / ".git").read_text() == original_pointer
+    assert (host_git / "private-marker").read_text() == "host-only"
+    assert not list(scratch.glob("task-scratch/*/scratch"))
+
+
+def _muse_stream_fixture(tmp_path, model="muse-wonder-full-1.0", *, observations=False, write_observation=False):
+    """Native envelope shared only by the granted Muse protocol cases."""
+    from lu_machinery.agent_runtime.adapters.base import InvocationPlan
+
+    session = "11111111-1111-4111-8111-111111111111"
+    command = "22222222-2222-4222-8222-222222222222"
+    task = "33333333-3333-4333-8333-333333333333"
+    plan = InvocationPlan(cmd=["fixture-muse"], cwd=tmp_path, metadata={
+        "task_id": "muse-interface", "run_nonce": "0123456789abcdef",
+        "provider_session_id": session, "model": model, "workspace": str(tmp_path),
+        "mode": "read-only", "permission_profile": ":read-only", "toolset": ["read_file"],
+        "cli_version": "Muse Code 1.4.11 (1.4.11-R6667.1)",
+        "cli_sha256": "a" * 64, "prompt_sha256": "b" * 64, "preview": False,
+    })
+    records = []
+    tool_name = "edit_file" if write_observation else "read_file"
+    if write_observation:
+        plan.metadata.update(mode="workspace-write", permission_profile=":ask-me",
+                             toolset=["read_file", "write_file", "edit_file"])
+
+    def event(kind, payload, stream="session"):
+        number = len(records) + 1
+        records.append({
+            "schema_version": 1, "payload_schema_version": 1,
+            "id": f"00000000-0000-4000-8000-{number:012d}",
+            "stream": {"kind": stream, "id": session},
+            "sequence": 1 + sum(r["stream"]["kind"] == stream for r in records),
+            "causation_id": command, "payload_type": kind,
+            "payload": {"command_id": command, "run_stream": {"kind": "run", "id": command}, **payload},
+        })
+
+    event("runtime.command.accepted", {"kind": "command_accepted", "command_kind": "turn.submit"})
+    event("session.run.linked", {})
+    if observations:
+        event("run.model.configured", {"kind": "run_model_configured", "model_id": model, "provider_id": "meta"})
+    event("session.workspace_branch.observed", {
+        "record": {"command_id": command, "workspace_root": str(tmp_path)},
+    })
+    event("run.lifecycle.started", {})
+    event("task.stream.linked", {"task_id": task, "task_stream": {"kind": "task", "id": task}})
+    for stage in ("proposed", "accepted", "scheduled", "side_effect_intent", "started", "completed"):
+        task_event = {"task_id": task, "kind": stage}
+        if observations and stage == "side_effect_intent":
+            task_event.update(operation="tool:" + tool_name, idempotency_key="tool:call_fixture")
+        event(f"task.lifecycle.{stage}", {
+            "task_id": task, "task_stream": {"kind": "task", "id": task}, "event": task_event,
+        })
+        if observations and stage == "started":
+            for kind, detail in (("status", {"message": "reading"}),
+                                 ("output", {"chunk": "fixture file text", "final_result": True})):
+                event(f"task.lifecycle.{kind}", {
+                    "kind": "task_lifecycle", "task_id": task, "task_stream": {"kind": "task", "id": task},
+                    "event": {"task_id": task, "kind": kind, **detail},
+                })
+            if write_observation:
+                event("task.lifecycle.tool_output_ref", {
+                    "kind": "task_lifecycle", "task_id": task, "task_stream": {"kind": "task", "id": task},
+                    "event": {"task_id": task, "kind": "tool_output_ref", "availability": "available",
+                              "output_ref": {"kind": "tool_patch", "media_type": "application/json",
+                                             "id": "tool_patch-fixture", "path": "/synthetic/patch.json",
+                                             "uri": "tool-output://local/fixture", "digest": None,
+                                             "byte_len": 240, "patch_summary": {"added": 1, "files": 1, "removed": 1}}},
+                })
+    if observations:
+        event("tool.result", {"kind": "tool_result", "call_id": "call_fixture", "text": "fixture file text",
+                              "correlation_facts": {"outcome": "success", "tool_name": tool_name}})
+    event("run.usage", {
+        "kind": "run_usage", "children_included": False, "failed_calls": 0, "cancelled_calls": 0,
+        "calls": 1, "completed_calls": 1,
+        "models": [{"model": model, "calls": 1, "input_tokens": 100, "output_tokens": 20,
+                    "cached_tokens": 30, "reasoning_tokens": 5}],
+    }, "exec.usage")
+    event("run.terminal.completed", {"kind": "run_terminal", "terminal": "completed", "text": "READY\n"})
+    return plan, records
+
+
+@pytest.mark.parametrize("model", ["muse-wonder-full-1.0", "muse-spark-1.3"])
+def test_muse_complete_stream_preserves_bound_token_accounting(tmp_path, model):
+    """M01: retain usage and reject forged or cross-session write observations."""
+    import hashlib
+
+    from lu_machinery.agent_runtime.adapters.muse import MuseAdapter
+
+    # Legacy and Muse 1.4.15 observation shapes, qualified from the synthetic
+    # native exec capture. MSP notifications are not the exec contract.
+    for observations, write_observation in ((False, False), (True, False), (True, True)):
+        plan, records = _muse_stream_fixture(tmp_path, model, observations=observations,
+                                            write_observation=write_observation)
+        result = MuseAdapter().parse_response(
+            stdout="\n".join(json.dumps(record) for record in records),
+            stderr="", returncode=0, output_file=None, plan=plan,
+        )
+        assert result.ok is True
+        assert result.response == "READY\n"
+        assert result.tokens == 120
+    import copy
+
+    for kind, field, value in (
+        ("run.model.configured", "model_id", "foreign-model"),
+        ("task.lifecycle.status", "message", None),
+        ("task.lifecycle.output", "final_result", 1),
+        ("tool.result", "call_id", "foreign-call"),
+    ):
+        invalid = copy.deepcopy(records)
+        payload = next(r["payload"] for r in invalid if r["payload_type"] == kind)
+        (payload["event"] if kind.startswith("task.") else payload)[field] = value
+        rejected = MuseAdapter().parse_response(
+            stdout="\n".join(json.dumps(record) for record in invalid),
+            stderr="", returncode=0, output_file=None, plan=plan,
+        )
+        assert rejected.ok is False
+        assert rejected.tokens is None
+    # Defect class: forged or cross-session write observation accepted.
+    for field, value in (("task_id", "44444444-4444-4444-8444-444444444444"), ("output_ref", {})):
+        invalid = copy.deepcopy(records)
+        payload = next(r["payload"] for r in invalid if r["payload_type"] == "task.lifecycle.tool_output_ref")
+        payload["event"][field] = value
+        rejected = MuseAdapter().parse_response(
+            stdout="\n".join(json.dumps(record) for record in invalid),
+            stderr="", returncode=0, output_file=None, plan=plan,
+        )
+        assert rejected.ok is False
+        assert rejected.tokens is None
+    # Defect class: read-only or unbound tasks attest write-patch observations.
+    for mismatch in ("read-only", "read-intent", "foreign-session"):
+        invalid = copy.deepcopy(records)
+        invalid_plan = copy.deepcopy(plan)
+        if mismatch == "read-only":
+            invalid_plan.metadata.update(mode="read-only", permission_profile=":read-only", toolset=["read_file"])
+        if mismatch in {"read-only", "read-intent"}:
+            next(r["payload"]["event"] for r in invalid
+                 if r["payload_type"] == "task.lifecycle.side_effect_intent")["operation"] = "tool:read_file"
+            next(r["payload"] for r in invalid if r["payload_type"] == "tool.result")[
+                "correlation_facts"]["tool_name"] = "read_file"
+        else:
+            next(r for r in invalid if r["payload_type"] == "task.lifecycle.tool_output_ref")[
+                "stream"]["id"] = "44444444-4444-4444-8444-444444444444"
+        assert MuseAdapter().parse_response(
+            stdout="\n".join(json.dumps(record) for record in invalid),
+            stderr="", returncode=0, output_file=None, plan=invalid_plan,
+        ).ok is False
+    unknown = copy.deepcopy(records)
+    unknown[2]["payload_type"] = "future.unknown"
+    assert MuseAdapter().parse_response(
+        stdout="\n".join(json.dumps(record) for record in unknown),
+        stderr="", returncode=0, output_file=None, plan=plan,
+    ).ok is False
+
+    assert result.ok is True
+    assert result.response == "READY\n"
+    assert result.tokens == 120
+    assert result.session_id == "11111111-1111-4111-8111-111111111111"
+    companion = result.muse_run.projection()
+    assert companion["task_id"] == "muse-interface"
+    assert companion["run_nonce"] == "0123456789abcdef"
+    assert companion["provider_session_id"] == "11111111-1111-4111-8111-111111111111"
+    assert companion["provider_run_id"] == "22222222-2222-4222-8222-222222222222"
+    assert companion["requested_selector"] == model
+    assert companion["usage_model"] == model
+    assert companion["input_tokens"] == 100
+    assert companion["output_tokens"] == 20
+    assert companion["cached_tokens"] == 30
+    assert companion["reasoning_tokens"] == 5
+    assert companion["total_tokens"] == 120
+    assert companion["observed_model"] is None
+    assert companion["identity_state"] == "unknown"
+    assert companion["effective_permissions"] == "unknown"
+    assert companion["cli_sha256"] == [170] * 32
+    assert companion["prompt_sha256"] == [187] * 32
+    assert bytes(companion["cli_sha256"]).hex() == plan.metadata["cli_sha256"]
+    assert bytes(companion["prompt_sha256"]).hex() == plan.metadata["prompt_sha256"]
+    fields = {key: value for key, value in companion.items() if key not in {"receipt_ref", "receipt_sha256"}}
+    assert bytes(companion["receipt_sha256"]) == hashlib.sha256(
+        json.dumps(fields, sort_keys=True, separators=(",", ":")).encode(),
+    ).digest()
+    assert companion["receipt_ref"] == (
+        "muse-run:11111111-1111-4111-8111-111111111111:22222222-2222-4222-8222-222222222222"
+    )
+
+
+def _muse_planning_fixture(tmp_path, monkeypatch, version):
+    from lu_machinery.agent_runtime.adapters import muse
+
+    subprocess.run(["git", "init", str(tmp_path)], check=True, capture_output=True, timeout=30)
+    workspace = tmp_path / ".worktrees" / "dispatch" / "codex" / "muse-interface"
+    workspace.mkdir(parents=True)
+    scratch = tmp_path / "private-scratch"
+    scratch.mkdir()
+    binary = tmp_path / "fixture-muse"
+    binary.write_text("fixture only\n")
+    monkeypatch.setattr(muse, "require_muse_execution_model", lambda model: model)
+    monkeypatch.setattr(muse, "validate_read_only_tmp_root", lambda *a, **kw: scratch)
+    monkeypatch.setattr(muse.shutil, "which", lambda name: str(binary))
+    probes = []
+
+    def probe(cmd, **kwargs):
+        probes.append(cmd)
+        assert cmd == [str(binary), "--version"]
+        return SimpleNamespace(stdout=version)
+
+    monkeypatch.setattr(muse, "subprocess", SimpleNamespace(run=probe))
+    return muse.MuseAdapter(), workspace, scratch, probes
+
+
+@pytest.mark.parametrize("mode,role", [("read-only", "investigation"), ("workspace-write", "implementation")])
+def test_muse_installed_cli_preserves_explicit_permissions(tmp_path, monkeypatch, mode, role):
+    """M05: preserve permissions and prevent symlink-package bootstrap or interpreter-anchor loss."""
+    adapter, workspace, scratch, probes = _muse_planning_fixture(
+        tmp_path, monkeypatch, "Muse Code 1.4.12 (1.4.12-R6668.1)",
+    )
+    plan = adapter.build_invocation(
+        prompt="fixture", mode=mode, cwd=workspace, model="muse-wonder-full-1.0",
+        task_id="muse-interface", session_id=None, effort="high",
+        tool_config={"muse_worker": True, "muse_role": role,
+                     "run_nonce": "0123456789abcdef", "muse_tmp_root": str(scratch)},
+    )
+    assert len(probes) == 1
+    assert plan.metadata["cli_version"] == "Muse Code 1.4.12 (1.4.12-R6668.1)"
+    assert plan.cmd[plan.cmd.index("--permission-profile") + 1] == (
+        ":read-only" if mode == "read-only" else ":ask-me"
+    )
+    assert ("--disable-write" in plan.cmd) is (mode == "read-only")
+    assert plan.cmd[plan.cmd.index("--workspace") + 1] == str(workspace)
+    assert plan.cmd[plan.cmd.index("--worktree") + 1] == "off"
+    assert plan.cmd[plan.cmd.index("--contributor-mode") + 1] == "off"
+    assert plan.cmd[plan.cmd.index("--config") + 1] == (
+        'run.toolset=["read_file"]' if mode == "read-only"
+        else 'run.toolset=["read_file", "write_file", "edit_file"]'
+    )
+    assert {"--disable-shell", "--disable-web-tools", "--disable-reminders",
+            "--disable-request-user-input", "--no-foreign-personal-context"} <= set(plan.cmd)
+    assert plan.env_overrides == {"MUSE_NO_AUTO_UPDATE": "1"}
+    assert "GH_TOKEN" in plan.env_unsets
+    assert Path(plan.cmd[-1]).read_text() == "fixture"
+    from lu_machinery.agent_runtime.adapters import muse as muse_module
+
+    package = tmp_path / "machinery/lu_machinery"
+    (package / "agent_runtime/adapters").mkdir(parents=True)
+    for directory in (package, package / "agent_runtime", package / "agent_runtime/adapters"):
+        (directory / "__init__.py").write_text("")
+    (package / "agent_runtime/adapters/muse.py").write_text(
+        'import os\ndef sandbox_main(args):\n'
+        '    return 0 if os.environ.get("LEARN_UKRAINIAN_PYTHON") else 23\n'
+    )
+    product = tmp_path / "product"
+    product.mkdir()
+    (product / "scripts").symlink_to(package, target_is_directory=True)
+    monkeypatch.setattr(muse_module, "__file__", str(product / "scripts/agent_runtime/adapters/muse.py"))
+    bootstrap = muse_module.confined_muse_argv(["fixture"], workspace, mode, "symlink-bootstrap", scratch)
+    completed = subprocess.run(bootstrap, cwd=workspace, env={"PATH": os.defpath},
+                               capture_output=True, text=True, timeout=30)
+    assert completed.returncode == 0, completed.stderr
 
 
 pytestmark = pytest.mark.usefixtures("configured_roots")
