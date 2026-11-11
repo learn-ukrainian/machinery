@@ -2609,6 +2609,13 @@ def test_home_usage_ended_subscription_disappears_and_cancelled_is_marked():
     rendered = _render_home_usage(budget, {'subscriptions': ends})
     assert '<td>Grok</td>' not in rendered
     assert 'cancelled, end date not configured' in _home_row(rendered, 'Muse')
+    # Both AGY rows belong to one subscription.
+    budget['agents']['gemini'] = {'remaining_pct': 40, 'freshness': 'fresh', 'age_s': 10,
+                                  'claude_gpt_windows': {'weekly': {'remaining_pct': 50}}}
+    ended = _render_home_usage(budget, {'subscriptions': {'ends': {'agy': {'ends_on': '2029-12-31', 'ended': True}}}})
+    assert '<td>AGY Gemini</td>' not in ended and '<td>AGY Claude/GPT</td>' not in ended
+    cancelled = _render_home_usage(budget, {'subscriptions': {'ends': {'agy': {'ends_on': None, 'ended': False}}}})
+    assert cancelled.count('cancelled, end date not configured') == 2
 
 
 _CODEX_ACCOUNT_KEYS = ("codex", "codex:a", "codex:b")

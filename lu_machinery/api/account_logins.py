@@ -3,10 +3,13 @@
 Each Claude subscription label is asked ``claude auth status --json`` with its
 own ``CLAUDE_CONFIG_DIR`` (the probe dispatcher admission runs before every
 labelled launch). Each Codex subscription label is asked ``codex login status``
-with its own ``CODEX_HOME``, and only the exit status is read
-(``codex_accounts._require_login``). A row carries the label, whether it is
-signed in, the login method, the plan and the sign-in end date. It never
-carries an email, organization, account id, directory or credential.
+with its own ``CODEX_HOME`` (``codex_accounts._require_login``): exit 0 is
+signed in, a non-zero exit that prints ``Not logged in`` is signed out. A row
+carries the label, whether it is signed in, the login method, the plan and the
+sign-in end date. It never carries an email, organization, account id,
+directory or credential. A probe that fails, times out, exits non-zero without
+that answer, or prints more than ``_MAX_OUTPUT_BYTES`` is unknown (``None``),
+never signed in or out; output beyond the cap is never buffered.
 
 The probes run in one background thread, never on the request path. The
 serving function returns the last snapshot and starts a refresh when the
@@ -56,6 +59,8 @@ _SUBSCRIPTION_ENDS_MAX_BYTES = 4096
 _CLAUDE_NAMES = {DEFAULT_CLAUDE_ACCOUNT: "Claude a", "b": "Claude b"}
 _CODEX_NAMES = {DEFAULT_CODEX_ACCOUNT: "Codex a", "b-sub": "Codex b"}
 _CLAUDE_TEXT_FIELDS = ("authMethod", "subscriptionType")
+# The line ``codex login status`` prints, with a non-zero exit, for a home without a login.
+_CODEX_SIGNED_OUT = "Not logged in"
 
 _lock = threading.Lock()
 _snapshot: dict[str, Any] | None = None
@@ -80,15 +85,57 @@ def _child_env(extra: Mapping[str, str]) -> dict[str, str]:
     return env
 
 
-def _run(argv: list[str], env: dict[str, str], cwd: Path) -> subprocess.CompletedProcess[bytes] | None:
+def _run(argv: list[str], env: dict[str, str], cwd: Path, *, with_stderr: bool) -> tuple[int, bytes] | None:
+    """Exit status and output (stdout, plus stderr when asked) of one probe, or ``None``.
+
+    At most ``_MAX_OUTPUT_BYTES`` are kept: a child that prints more, or runs
+    past ``_PROBE_TIMEOUT_S``, is killed and the probe is ``None``.
+    """
+    stderr = subprocess.STDOUT if with_stderr else subprocess.DEVNULL
     try:
         # Fixed argv from a resolved CLI path, no shell, minimal environment.
-        return subprocess.run(  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit
-            argv, env=env, cwd=cwd, stdin=subprocess.DEVNULL, capture_output=True,
-            timeout=_PROBE_TIMEOUT_S, check=False,
+        proc = subprocess.Popen(  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit
+            argv, env=env, cwd=cwd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=stderr,
         )
-    except (OSError, subprocess.SubprocessError):
+    except (OSError, ValueError, subprocess.SubprocessError):
         return None
+    output = bytearray()
+    stream = proc.stdout
+    if stream is None:  # not reachable with stdout=PIPE; refuse rather than guess
+        proc.kill()
+        proc.wait()
+        return None
+
+    descriptor = stream.fileno()
+
+    def drain() -> None:
+        while len(output) <= _MAX_OUTPUT_BYTES:
+            try:
+                chunk = os.read(descriptor, _MAX_OUTPUT_BYTES + 1 - len(output))
+            except OSError:
+                return
+            if not chunk:
+                return
+            output.extend(chunk)
+
+    reader = threading.Thread(target=drain, name="account-login-probe-output", daemon=True)
+    reader.start()
+    reader.join(_PROBE_TIMEOUT_S)
+    try:
+        if reader.is_alive() or len(output) > _MAX_OUTPUT_BYTES:
+            return None
+        return proc.wait(timeout=_PROBE_TIMEOUT_S), bytes(output)
+    except subprocess.TimeoutExpired:
+        return None
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+            proc.wait()
+        # Close only once the reader has seen end of file; closing under a
+        # blocked read (a grandchild still holding the pipe) could block here.
+        reader.join(1)
+        if not reader.is_alive():
+            stream.close()
 
 
 def _iso_or_none(value: Any) -> str | None:
@@ -118,11 +165,14 @@ def _claude_row(label: str) -> dict[str, Any]:
     claude = _cli("claude")
     if claude is None:
         return {**row, "logged_in": None, "error": "claude_cli_not_found"}
-    result = _run([claude, "auth", "status", "--json"], _child_env({"CLAUDE_CONFIG_DIR": str(config_dir)}), config_dir)
-    if result is None:
+    result = _run(
+        [claude, "auth", "status", "--json"], _child_env({"CLAUDE_CONFIG_DIR": str(config_dir)}), config_dir,
+        with_stderr=False,
+    )
+    if result is None or result[0] != 0:
         return {**row, "logged_in": None, "error": "probe_failed"}
     try:
-        data = json.loads(result.stdout[:_MAX_OUTPUT_BYTES])
+        data = json.loads(result[1])
     except ValueError:
         data = None
     if not isinstance(data, dict) or not isinstance(data.get("loggedIn"), bool):
@@ -143,11 +193,18 @@ def _codex_row(label: str) -> dict[str, Any]:
     codex = _cli("codex")
     if codex is None:
         return {**row, "logged_in": None, "error": "codex_cli_not_found"}
-    result = _run([codex, "login", "status"], _child_env({"CODEX_HOME": str(home)}), home)
+    result = _run([codex, "login", "status"], _child_env({"CODEX_HOME": str(home)}), home, with_stderr=True)
     if result is None:
         return {**row, "logged_in": None, "error": "probe_failed"}
+    returncode, output = result
+    if returncode == 0:
+        logged_in: bool | None = True
+    elif _CODEX_SIGNED_OUT in output.decode("utf-8", "replace").splitlines():
+        logged_in = False
+    else:
+        return {**row, "logged_in": None, "error": "probe_failed"}
     # Codex reports no sign-in end date; the row says so rather than guessing.
-    return {**row, "logged_in": result.returncode == 0, "expires_at": None, "expiry_reported": False}
+    return {**row, "logged_in": logged_in, "expires_at": None, "expiry_reported": False}
 
 
 def _probe_all() -> list[dict[str, Any]]:

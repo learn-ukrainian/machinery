@@ -156,7 +156,7 @@ function renderWorkers(active) {
 }
 
 function renderRecent(list) {
-  const tasks = (Array.isArray(list.tasks) ? list.tasks : []).filter(task => !ACTIVE.has(task.status)).slice(0, 15);
+  const tasks = (Array.isArray(list.tasks) ? list.tasks : []).filter(task => !ACTIVE.has(task.status));
   return table(["Task", "Agent / model", "Outcome", "Finished", "Duration", "PR"], tasks.map(task => [
     text(task.task_id),
     text([task.agent, modelOf(task)].filter(Boolean).join(" / ")),
@@ -209,7 +209,7 @@ function usageRows(budget, ends) {
   lane("gemini", "AGY Gemini", "agy");
   const agy = agents.gemini?.claude_gpt_windows?.weekly;
   if (agents.gemini) {
-    rows.push({name: "AGY Claude/GPT", left: agy?.remaining_pct, resets: agy?.resets_at,
+    rows.push({name: "AGY Claude/GPT", pool: "agy", left: agy?.remaining_pct, resets: agy?.resets_at,
                freshness: agy?.remaining_pct === null || agy?.remaining_pct === undefined ? null : agents.gemini.freshness,
                age: agents.gemini.age_s});
   }

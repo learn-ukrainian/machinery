@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-import subprocess
+import sys
 from datetime import date
 from pathlib import Path
 
@@ -12,8 +12,8 @@ import pytest
 from lu_machinery.api import account_logins
 
 
-def _completed(stdout: bytes = b"", returncode: int = 0) -> subprocess.CompletedProcess[bytes]:
-    return subprocess.CompletedProcess(["probe"], returncode, stdout=stdout, stderr=b"")
+def _completed(stdout: bytes = b"", returncode: int = 0) -> tuple[int, bytes]:
+    return returncode, stdout
 
 
 @pytest.fixture
@@ -33,7 +33,7 @@ def test_claude_row_publishes_no_identity_and_unreadable_is_unknown(probe_env, m
         "orgId": "org-secret-id", "orgName": "Private Org", "accountUuid": "acct-secret-uuid",
         "configDirectory": "/private/claude",
     }
-    monkeypatch.setattr(account_logins, "_run", lambda *a: _completed(json.dumps(status).encode()))
+    monkeypatch.setattr(account_logins, "_run", lambda *a, **k: _completed(json.dumps(status).encode()))
     row = account_logins._claude_row("a")
     assert row == {"account": "Claude a", "provider": "claude", "logged_in": True, "authMethod": "claude.ai",
                    "subscriptionType": "max", "expires_at": "2030-01-02T03:04:05Z"}
@@ -42,20 +42,35 @@ def test_claude_row_publishes_no_identity_and_unreadable_is_unknown(probe_env, m
         assert private not in published
 
     for stdout in (b"not json", b"[]", json.dumps({"loggedIn": "yes"}).encode()):
-        monkeypatch.setattr(account_logins, "_run", lambda *a, out=stdout: _completed(out))
+        monkeypatch.setattr(account_logins, "_run", lambda *a, out=stdout, **k: _completed(out))
         unreadable = account_logins._claude_row("a")
         assert unreadable["logged_in"] is None and unreadable["error"] == "unreadable_status"
-    monkeypatch.setattr(account_logins, "_run", lambda *a: None)
+    # A failed probe is unknown even when its stdout claims a sign-in.
+    monkeypatch.setattr(account_logins, "_run", lambda *a, **k: _completed(b'{"loggedIn": true}', returncode=2))
+    assert account_logins._claude_row("a")["logged_in"] is None
+    monkeypatch.setattr(account_logins, "_run", lambda *a, **k: None)
     assert account_logins._claude_row("a")["logged_in"] is None
 
 
-def test_codex_nonzero_login_status_is_signed_out(probe_env, monkeypatch):
-    """Defect class: a failed or refused login check reads as signed in."""
-    monkeypatch.setattr(account_logins, "_run", lambda *a: _completed(returncode=1))
+def test_codex_signed_out_only_on_its_answer_and_failures_are_unknown(probe_env, monkeypatch):
+    """Defect class: a failed or refused login check reads as signed in, or a failure as signed out."""
+    monkeypatch.setattr(account_logins, "_run", lambda *a, **k: _completed(b"Not logged in\n", returncode=1))
     row = account_logins._codex_row("sub")
     assert row["logged_in"] is False and row["expires_at"] is None and row["expiry_reported"] is False
-    monkeypatch.setattr(account_logins, "_run", lambda *a: None)
-    assert account_logins._codex_row("b-sub")["logged_in"] is None
+    monkeypatch.setattr(account_logins, "_run", lambda *a, **k: _completed(b"Logged in using ChatGPT\n"))
+    assert account_logins._codex_row("sub")["logged_in"] is True
+    for failure in (_completed(b"error: config unreadable\n", returncode=2), _completed(returncode=1), None):
+        monkeypatch.setattr(account_logins, "_run", lambda *a, out=failure, **k: out)
+        assert account_logins._codex_row("b-sub")["logged_in"] is None
+
+
+def test_probe_output_over_the_cap_is_unknown_and_not_kept(tmp_path):
+    """Defect class: an unbounded CLI output is buffered whole in the API process."""
+    cap = account_logins._MAX_OUTPUT_BYTES
+    noisy = [sys.executable, "-c", f"import os; os.write(1, b'x' * {cap + 1}); os.write(2, b'e' * {cap + 1})"]
+    assert account_logins._run(noisy, {}, tmp_path, with_stderr=True) is None
+    quiet = [sys.executable, "-c", "import os, sys; os.write(1, b'ok'); os.write(2, b'warn'); sys.exit(3)"]
+    assert account_logins._run(quiet, {}, tmp_path, with_stderr=False) == (3, b"ok")
 
 
 @pytest.mark.parametrize(
