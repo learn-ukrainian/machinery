@@ -39,6 +39,7 @@ def test_dispatch_returns_before_blocked_child_and_client_timeout_does_not_cance
     (sandbox.tasks / f"{task[0]}.release").touch()
     record = sandbox.settle(task)
     assert record["status"] == "done"
+    assert record["provider_terminal_failure"] is False
     assert Path(record["result_file"]).read_text() == "literal final response"
     assert record["returncode"] == 0
     assert "review_branch" not in record
@@ -78,7 +79,11 @@ def test_review_dispatch_resolves_a_running_cursor_author_only_from_its_stream_a
     assert "cursor_no_approved_model_pin" in author.stderr
 
 
-def test_agy_stream_from_another_model_family_settles_as_a_failure(sandbox):
+@pytest.mark.parametrize(
+    ("terminal", "attested_model"),
+    [("SUCCESS", "gemini-3.8-flash-high"), ("ERROR", "gemini-3.8-flash-high"), ("ERROR", None)],
+)
+def test_agy_stream_from_another_model_family_settles_as_a_failure(sandbox, terminal, attested_model):
     """Defect: a silently substituted model was credited as the requested one."""
     import threading
     from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -120,10 +125,8 @@ def test_agy_stream_from_another_model_family_settles_as_a_failure(sandbox):
     try:
         binary_dir = sandbox.repo.parent / "bin"
         binary_dir.mkdir()
-        events = [
-            {"event": "init", "init": {"model": "gemini-3.8-flash-high"}},
-            {"event": "result", "result": {"status": "SUCCESS", "response": "done"}},
-        ]
+        events = ([{"event": "init", "init": {"model": attested_model}}] if attested_model else [])
+        events.append({"event": "result", "result": {"status": terminal, "response": "done"}})
         stdout = "\n".join(json.dumps(event) for event in events) + "\n"
         executable = binary_dir / "agy"
         executable.write_text(f"#!{sys.executable}\nimport sys\nsys.stdin.read()\nprint({stdout!r}, end='')\n")
@@ -136,13 +139,21 @@ def test_agy_stream_from_another_model_family_settles_as_a_failure(sandbox):
         record = sandbox.settle(dispatched.stdout.splitlines(), expected=1)
         assert record["status"] == "failed"
         assert record["model"] == "claude-sonnet-5-5-high"
-        assert record["resolved_model"] == "gemini-3.8-flash-high"
-        assert record["resolved_model_known"] is True
-        assert record["resolved_model_source"] == "agy-stream-json"
-        assert record["error"] == (
+        assert record["resolved_model"] == (attested_model or "unknown")
+        assert record["resolved_model_known"] is (attested_model is not None)
+        assert record["resolved_model_source"] == ("agy-stream-json" if attested_model else "pending")
+        refusal = (
             "agy_model_identity_unverified: "
-            "requested claude-sonnet-5-5-high (anthropic), attested gemini-3.8-flash-high (google)"
+            "requested claude-sonnet-5-5-high (anthropic), attested "
+            + ("gemini-3.8-flash-high (google)" if attested_model else "none (unknown)")
         )
+        if terminal == "ERROR":
+            provider_error = "agy: terminal result unsuccessful (ERROR)"
+            assert record["error"] == record["provider_terminal_error"] == provider_error
+            assert record["provider_failure_rescue_refusal"] == refusal
+        else:
+            assert record["error"] == refusal
+        assert record["provider_terminal_failure"] is False
     finally:
         server.shutdown()
         server.server_close()
@@ -156,6 +167,7 @@ def test_nonzero_error_empty_and_signal_cannot_report_done(sandbox, model, state
     record = sandbox.settle(sandbox.dispatch(model), expected=1)
     assert record["status"] == state
     assert record["returncode"] == code
+    assert record["provider_terminal_failure"] is (state == "failed")
 
 
 def test_provider_capacity_ends_rate_limited(sandbox):
