@@ -596,3 +596,103 @@ def test_agy_tool_call_shape_cannot_bypass_primary_write_guard(layout: Layout, s
         assert decision["reason"].startswith("BLOCKED by guard-primary-checkout-write")
     else:
         assert (result.returncode, result.stdout) == (0, ""), result.stderr
+
+
+@pytest.mark.parametrize(
+    "command,expected",
+    [
+        ("trap 'touch tracked.txt' EXIT", 2),
+        ("trap -- 'touch tracked.txt' EXIT", 2),
+        ("trap 'git reset --hard' EXIT", 2),
+        ("trap 'touch $HOME/tracked.txt' EXIT; HOME=<primary>", 2),
+        ("trap 'touch ~/tracked.txt' EXIT; HOME=<primary>", 2),
+        ("coproc git reset --hard", 2),
+        ("coproc cd <dispatch>; touch tracked.txt", 2),
+        ("trap 'tar xzf archive.tgz' EXIT", 2),
+        ("coproc touch tracked.txt", 2),
+        ("coproc tar xzf archive.tgz", 2),
+        ("coproc { touch tracked.txt; }", 2),
+        ("coproc WORKER { touch tracked.txt; }", 2),
+        ("coproc WORKER { tar xzf archive.tgz; }", 2),
+        ("coproc WORKER while touch tracked.txt; do :; done", 2),
+        ("coproc WORKER if tar xzf archive.tgz; then :; fi", 2),
+        ("coproc ( touch tracked.txt )", 2),
+        ("bash -c \"trap 'touch tracked.txt' EXIT\"", 2),
+        ("eval \"coproc touch tracked.txt\"", 2),
+        ("coproc { coproc touch tracked.txt; }", 2),
+        ("cd <dispatch>; export UV_WORKING_DIR=<primary>; coproc uv run touch tracked.txt", 2),
+        (
+            "cd <dispatch>; trap 'cd <dispatch>; uv run touch tracked.txt' EXIT; export UV_WORKING_DIR=<primary>",
+            2,
+        ),
+        ("env UV_WORKING_DIR=<dispatch> bash -c 'coproc uv run touch tracked.txt'", 0),
+        ("coproc printf done", 0),
+        ("trap -p", 0),
+        ("trap '' EXIT", 0),
+    ],
+)
+def test_trap_coproc_primary_write_bypass_refused(layout: Layout, command: str, expected: int):
+    """R34: deferred trap actions and asynchronous coprocesses must expose writers."""
+    repo = layout.main
+    command = command.replace("<dispatch>", str(repo / ".worktrees/dispatch/claude/task-1")).replace(
+        "<primary>", str(repo)
+    )
+    payload = {"tool_name": "Bash", "cwd": str(repo), "tool_input": {"command": command}}
+    hook_path = Path(__file__).resolve().parents[2] / "agents_extensions/shared/hooks/guard-primary-checkout-write.py"
+    env = {
+        key: value for key, value in _clean_env().items()
+        if key not in {"LEARN_UK_ALLOW_PRIMARY_GIT_WRITE", "LEARN_UK_ALLOW_PRIMARY_WRITE"}
+    }
+    env["LU_PRODUCT_ROOT"] = str(repo)
+    result = subprocess.run(
+        [sys.executable, str(hook_path)],
+        input=json.dumps(payload),
+        cwd=repo,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=60,
+    )
+    assert result.returncode == expected, result.stderr
+
+
+@pytest.mark.parametrize(
+    "timing,nested",
+    [("inherited", True), ("inherited", False), ("before", True), ("after", True)],
+)
+def test_deferred_trap_envfile_cannot_clear_uv_context(layout: Layout, timing: str, nested: bool):
+    """Deferred dotenv bindings must survive unsetting only UV_WORKING_DIR."""
+    repo = layout.main
+    dispatch = layout.dispatch_wt
+    env_file = dispatch / "uv.env"
+    env_file.write_text(f"UV_WORKING_DIR={repo}\n")
+    writer = 'sh -c "uv run touch tracked.txt"' if nested else "touch tracked.txt"
+    action = f"cd {dispatch}; env -u UV_WORKING_DIR uv run {writer}"
+    command = f"cd {dispatch}; trap '{action}' EXIT"
+    if timing == "before":
+        command = f"export UV_ENV_FILE={env_file}; {command}"
+    elif timing == "after":
+        command += f"; export UV_ENV_FILE={env_file}"
+    env = {
+        key: value for key, value in _clean_env().items()
+        if key not in {
+            "LEARN_UK_ALLOW_PRIMARY_GIT_WRITE", "LEARN_UK_ALLOW_PRIMARY_WRITE", "UV_WORKING_DIR", "UV_ENV_FILE"
+        }
+    }
+    env["LU_PRODUCT_ROOT"] = str(repo)
+    if timing == "inherited":
+        env["UV_ENV_FILE"] = str(env_file)
+    payload = {"tool_name": "Bash", "cwd": str(repo), "tool_input": {"command": command}}
+    hook_path = Path(__file__).resolve().parents[2] / "agents_extensions/shared/hooks/guard-primary-checkout-write.py"
+    result = subprocess.run(
+        [sys.executable, str(hook_path)],
+        input=json.dumps(payload),
+        cwd=repo,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=60,
+    )
+    assert result.returncode == 2, result.stderr
