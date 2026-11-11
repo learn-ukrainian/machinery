@@ -247,11 +247,18 @@ def test_runtime_siblings_do_not_block_check_or_apply(consumer, tmp_path, monkey
     ".claude/skills/old/SKILL.md", ".codex/agents/planted.toml",
     ".codex/config.toml", ".agents/plugins/planted/plugin.json",
     ".agents/rules/planted.md", ".agent/workflows/planted.md",
-    ".gemini/commands/planted.toml",
+    ".gemini/commands/planted.toml", ".claude/workflows/planted.js",
+    ".claude/agent-memory/reviewer/MEMORY.md", ".claude/agent-memory-local/reviewer/MEMORY.md",
+    ".claude/AGENTS.md", ".gemini/sandbox.Dockerfile",
+    ".cursor/cli.json", ".cursor/environment.json", ".cursor/worktrees.json",
+    ".gemini/sandbox-macos-team.sb", ".claude/Skills/old/SKILL.md",
 ])
 @pytest.mark.parametrize("check", [False, True], ids=["apply", "check"])
 def test_provider_discovery_content_cannot_hide_as_runtime(consumer, monkeypatch, capsys, path, check):
     """Never-planned discovery content and stale skills must still report drift."""
+    if path.startswith(".cursor/"):
+        data = json.loads((consumer / plan.DESCRIPTOR).read_text())
+        descriptor(consumer, providers=data["providers"] + ["cursor"])
     assert invoke(monkeypatch, consumer) == 0
     write(consumer, path, 'model = "planted"\n' if path.endswith(".toml") else "planted\n")
     before = snapshot(consumer)
