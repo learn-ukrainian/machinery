@@ -34,7 +34,7 @@ from functools import cached_property, lru_cache, wraps
 from pathlib import Path
 from threading import RLock
 
-from lu_machinery.common.repo_root import ProductRootError, in_tree_source, product_root
+from lu_machinery.common.repo_root import PRODUCT_MARKER, ProductRootError, in_tree_source, product_root
 from lu_machinery.lib.readonly_sqlite import (
     PRODUCT_WRITER_DECLARATION,
     _DeclarationUnusable,
@@ -466,13 +466,33 @@ def manifest_pair(root: Path) -> tuple[Path, Path]:
 
     Only the machinery checkout that holds this running package scans with
     machinery's packaged pair; a manifest file inside the scanned checkout never
-    selects it. Every other checkout is a product, whose pair is
+    selects it. A checkout carrying the product tree (``scripts``, which a
+    machinery checkout never has) or the product marker is a product even when it
+    holds the running package. Every product's pair is
     :data:`PRODUCT_WRITER_DECLARATION` and :data:`PRODUCT_BASELINE`; a missing or
     unusable product declaration fails the scan.
     """
-    if not in_tree_source() and root.resolve() == REFERENCE_MANIFEST.resolve().parents[2]:
+    product = any(os.path.lexists(root / rel) for rel in ("scripts", PRODUCT_MARKER))
+    if not product and _hosts_running_package(root):
         return REFERENCE_MANIFEST, BASELINE
     return root / PRODUCT_WRITER_DECLARATION, root / PRODUCT_BASELINE
+
+
+def _hosts_running_package(root: Path) -> bool:
+    """``root`` is the checkout holding this running, installed-name package."""
+    return not in_tree_source() and root.resolve() == REFERENCE_MANIFEST.resolve().parents[2]
+
+
+def _hosted_package_rows(root: Path, rows: list) -> list:
+    """Machinery's own rows of ``rows`` when a product at ``root`` hosts the running package.
+
+    Those rows cover only the package's own files (its directory prefix), which
+    are this running package's files; product files keep only the product's authority.
+    """
+    if not _hosts_running_package(root):
+        return []
+    prefix = _mp("")
+    return [row for row in rows if row["path"].startswith(prefix)]
 
 
 def load_scan_allowlist(root: Path) -> tuple[AllowedReference, ...]:
@@ -489,7 +509,7 @@ def load_scan_allowlist(root: Path) -> tuple[AllowedReference, ...]:
         rows = product_declaration_rows(os.path.realpath(root))
     except _DeclarationUnusable as exc:
         raise ValueError(f"unusable product SQLite declaration {PRODUCT_WRITER_DECLARATION}: {exc.reason}") from None
-    return load_allowlist(rows=rows)
+    return load_allowlist(rows=[*rows, *_hosted_package_rows(root, json.loads(REFERENCE_MANIFEST.read_text()))])
 
 
 STORE_CLASSES = ("store_path", "raw_store_constructor", "test_import_access")
@@ -1032,6 +1052,8 @@ def find_violations(
     violations, unreadable = [], []
     seen = set()
     baseline = baseline_entries(baseline_file) if apply_baseline else set()
+    if apply_baseline and baseline_file != BASELINE:
+        baseline |= {StoreFinding(**row) for row in _hosted_package_rows(root, json.loads(BASELINE.read_text())["entries"])}
     payload = json.loads(baseline_file.read_text()) if apply_baseline else {}
     base_blobs = base_blob_ids(root, payload["base_commit"]) if "base_commit" in payload else {}
     by_path = {}

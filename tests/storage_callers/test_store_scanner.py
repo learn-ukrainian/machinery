@@ -97,6 +97,10 @@ def test_manifest_pair_tracks_scan_root_without_product_authority_leak(tmp_path,
     (shadow / lint.REFERENCE_MANIFEST.name).write_text(json.dumps([row("scripts/writer.py"), row("scripts/rogue.py")]))
     (shadow / lint.BASELINE.name).write_text(json.dumps({"entries": []}))
     assert lint.manifest_pair(product) == (declaration, baseline)
+    # The running package placed inside the product does not make it machinery's checkout either.
+    monkeypatch.setattr(lint, "REFERENCE_MANIFEST", shadow / lint.REFERENCE_MANIFEST.name)
+    monkeypatch.setattr(lint, "BASELINE", shadow / lint.BASELINE.name)
+    assert lint.manifest_pair(product) == (declaration, baseline)
     declaration.write_text(json.dumps([row("scripts/writer.py")]))
     monkeypatch.setenv("LU_PRODUCT_ROOT", str(product))
 
