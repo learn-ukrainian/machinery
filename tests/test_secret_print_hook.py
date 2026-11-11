@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import io
 import json
+import os
 import subprocess
 import shutil
 import sys
@@ -450,6 +451,10 @@ def secret_print_product(tmp_path, monkeypatch):
     hooks.mkdir(parents=True)
     for name in ("guard-secret-print.py", "shell_shlex.py", "shell_redirects.py"):
         shutil.copyfile(machinery_path("agents_extensions/shared/hooks/" + name), hooks / name)
+    # A primary checkout: the adapter validates its hook context by the shared root rule.
+    # A minimal environment: pytest's PYTEST_CURRENT_TEST can exceed the per-argument limit.
+    git_env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": str(tmp_path), "GIT_CONFIG_NOSYSTEM": "1"}
+    subprocess.run(["git", "init", "-q", str(product)], check=True, capture_output=True, env=git_env)
     monkeypatch.setenv("LU_PRODUCT_ROOT", str(product))
     monkeypatch.setitem(NATIVE_ENV, "LU_PRODUCT_ROOT", str(product))
     return product

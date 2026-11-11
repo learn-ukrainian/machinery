@@ -363,7 +363,7 @@ class _Args:
 
 
 def test_full_suite_classification(tmp_path: Path) -> None:
-    root = repository_root()
+    root = repository_root(tmp_path)  # a configured product wins over any invocation directory
     assert root == Path(os.environ["LU_PRODUCT_ROOT"])
     foreign = _foreign_rootdir(tmp_path)
     source = _Args("args", [], foreign).ArgsSource

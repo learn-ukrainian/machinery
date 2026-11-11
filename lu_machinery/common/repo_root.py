@@ -614,3 +614,74 @@ def resolve_repo_root(script_path: Path, parents: int) -> Path:
     supplied script's ancestor as a repository or state root.
     """
     return state_root(script_path.resolve().parents[parents] if in_tree_source() else None)
+
+
+# Hook-boundary bridge (machinery #100, E3a). Fixed texts every native hook entry
+# uses for a context that cannot resolve; they hold no payload or environment value.
+HOOK_BOOTSTRAP_DIAGNOSTIC = "HOOK-BOOTSTRAP-FAILED: product root, shared state, interpreter or machinery unavailable."
+HOOK_BOOTSTRAP_REASON = "HOOK-BOOTSTRAP-FAILED: hook context unavailable."
+# Sources the packaged library ($1) and prints the two roots NUL-terminated.
+_HOOK_ROOTS_SCRIPT = (
+    'source "$1" || exit 1; project_hook_roots_resolve || exit 1; '
+    'printf "%s\\0%s\\0" "$LU_PRODUCT_ROOT" "$LEARN_UKRAINIAN_PRIMARY_REPO_ROOT"'
+)
+# The only environment the shell rule reads (PATH for dirname/basename).
+_HOOK_ROOTS_ENV = ("PATH", PRODUCT_ROOT_ENV, "CLAUDE_PROJECT_DIR", PRIMARY_ROOT_ENV, STATE_ROOT_ENV)
+
+
+def native_hook_roots(invocation_dir: Path) -> tuple[Path, Path]:
+    """The product and shared-state roots for ``invocation_dir`` by the one hook rule; read-only.
+
+    Glue only: it runs ``project_hook_roots_resolve`` from the packaged
+    ``lib/project_interpreter.sh`` with an argv (no shell text from data), stdin
+    disconnected, ``invocation_dir`` as the working directory and only the variables
+    that rule reads. Configured roots take part as the rule says; nothing is set
+    here. A refusal, a timeout or a malformed answer raises :class:`ProductRootError`.
+    """
+    import subprocess
+
+    library = machinery_path("lib/project_interpreter.sh")
+    env = {name: os.environ[name] for name in _HOOK_ROOTS_ENV if name in os.environ}
+    try:
+        # Fixed /bin/bash argv; the library path and directory are arguments, never shell text.
+        result = subprocess.run(  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit
+            ["/bin/bash", "-c", _HOOK_ROOTS_SCRIPT, "lu-hook-roots", os.fspath(library)],
+            cwd=invocation_dir,
+            env=env,
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            timeout=10,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        raise ProductRootError(f"no hook context resolves from {invocation_dir}: the root resolver did not run") from None
+    fields = result.stdout.split(b"\0")
+    if result.returncode != 0 or len(fields) != 3 or fields[2] or not all(fields[:2]):
+        raise ProductRootError(
+            f"no hook context resolves from {invocation_dir}: set {PRODUCT_ROOT_ENV} to the product checkout "
+            f"and {PRIMARY_ROOT_ENV} to its primary checkout"
+        )
+    product, primary = (Path(os.fsdecode(field)) for field in fields[:2])
+    if not product.is_absolute() or not primary.is_absolute():
+        raise ProductRootError(f"no hook context resolves from {invocation_dir}: the resolver answered a relative root")
+    return product, primary
+
+
+def configure_native_hook_roots(invocation_dir: Path) -> None:
+    """At a direct hook or provider boundary, validate the hook context and set missing roots.
+
+    Every call applies the shared shell rule (:func:`native_hook_roots` for
+    ``invocation_dir``, the caller's explicit invocation directory, never a payload's
+    working directory), so configured roots get the same Git-metadata checks as the
+    generated hook command; a refusal raises :class:`ProductRootError`. Configured
+    ``LU_PRODUCT_ROOT`` and ``LEARN_UKRAINIAN_PRIMARY_REPO_ROOT`` values are kept; only
+    missing ones are set. The in-process validators then run as well. Call it only from
+    a hook or launch boundary, never at import.
+    """
+    product, primary = native_hook_roots(invocation_dir)
+    if not os.environ.get(PRODUCT_ROOT_ENV):
+        os.environ[PRODUCT_ROOT_ENV] = os.fspath(product)
+    if not os.environ.get(PRIMARY_ROOT_ENV):
+        os.environ[PRIMARY_ROOT_ENV] = os.fspath(primary)
+    product_root()
+    state_root()

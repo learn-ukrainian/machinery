@@ -47,9 +47,12 @@ PHASES = {"PreToolUse": "pre", "PostToolUse": "post", "PostToolUseFailure": "pos
 
 
 def _repo_root() -> Path:
-    from lu_machinery.common.repo_root import product_root
+    from lu_machinery.common.repo_root import configure_native_hook_roots, product_root
     from lu_machinery.guardrails.worktree_containment import resolve_main_root
 
+    # The direct hook boundary: missing roots come from the working directory by the
+    # shared shell rule, whichever harness started this hook.
+    configure_native_hook_roots(Path.cwd())
     return resolve_main_root(product_root())
 
 
