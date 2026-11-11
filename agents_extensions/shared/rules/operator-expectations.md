@@ -141,7 +141,7 @@ are the tie-breakers.
 9. **Maximum Ukrainian immersion — with the A1 exception.** Learners learn Ukrainian IN
    Ukrainian. **A1 is the deliberate exception**: absolute beginners need English
    scaffolding, so A1 has intentionally LOW immersion bands — authoritative values live in
-   `IMMERSION_POLICIES` / `compute_immersion_band()` in `scripts/config.py` (banded, e.g.
+   `IMMERSION_POLICIES` / `compute_immersion_band()` in `scripts/curriculum/pedagogy_config.py` (banded, e.g.
    ULP S1 ~40–55%, later A1 bands lower/higher per design) — scaffolding is a design
    feature there, not a defect to fix. From A2 immersion is graduated UP:
    `a2-bridge` 75–100% → `a2-ramp`+ 85–100% (easy-UA teaching voice; English shrinks to
