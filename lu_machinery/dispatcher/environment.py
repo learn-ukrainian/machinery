@@ -123,12 +123,12 @@ def child_env(spec: TaskSpec) -> dict[str, str]:
     if spec.mode == "read-only":
         # Restrict explicit URLs too; a worktree or ref snapshot cannot observe an arbitrary remote push.
         env["GIT_ALLOW_PROTOCOL"] = "file"
-    # Read-only AGY and Claude run this launcher as the child. It calls project_interpreter(), which
+    # Read-only AGY, Claude and Muse run a launcher as the child. It calls project_interpreter(), which
     # honours a configured interpreter only when LEARN_UKRAINIAN_PYTHON is present, and it reads the
     # Sources server from the product checkout named by LU_PRODUCT_ROOT when this checkout has none.
     # Both values are already configured. The bubblewrap environment is built separately and does
-    # not receive them.
-    if spec.mode == "read-only" and spec.agent in {"agy", "claude"}:
+    # not receive them. Muse runs only read-only; its write mode is refused before launch.
+    if spec.mode == "read-only" and spec.agent in {"agy", "claude", "muse"}:
         for name in (INTERPRETER_ENV, PRODUCT_ROOT_ENV):
             configured = os.environ.get(name, "")
             if configured:
