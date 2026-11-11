@@ -408,3 +408,60 @@ def test_squash_body_file_translation_cannot_fall_through_or_enqueue(
     )])
     assert len(http_calls) == (1 if queue else 2)
     assert not calls
+
+
+@pytest.mark.parametrize("phase", ["plan", "run"])
+def test_installed_shard_helper_is_not_relative_to_product_cwd(tmp_path, phase):
+    """Both runner commands must find the shipped helper outside a machinery checkout."""
+    import os
+    import shutil
+    import sys
+
+    from lu_machinery.common.repo_root import machinery_path
+
+    installed = tmp_path / "installed" / "lu_machinery" / "ci"
+    installed.mkdir(parents=True)
+    for name in ("pytest_shards.py", "_location.py"):
+        shutil.copyfile(machinery_path("ci/" + name), installed / name)
+    product = tmp_path / "product"
+    product.mkdir()
+    lines = machinery_path("ci/cursor_cloud_full_pytest.sh").read_text().splitlines()
+    directory = next((line for line in lines if line.startswith("SCRIPT_DIR=")), "")
+    if phase == "plan":
+        command = next(line for line in lines if line.startswith("PLAN_ARGS="))
+        invoke = command + '\n"${PLAN_ARGS[@]}" --help\n'
+    else:
+        command = next(line.strip() for line in lines if "pytest_shards.py" in line and " run --nodeids" in line)
+        invoke = command.split(" --nodeids", 1)[0] + " --help\n"
+    probe = installed / "probe.sh"
+    probe.write_text("set -eu\n" + directory + "\n" + invoke)
+    result = subprocess.run(
+        ["bash", str(probe)], cwd=product, capture_output=True, text=True, check=False,
+        env={**os.environ, "PYTHON": sys.executable, "PLAN_DIR": str(tmp_path / "plan")},
+        timeout=30,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "usage:" in result.stdout and phase in result.stdout
+
+
+@pytest.mark.parametrize("directory", ["ci", "-ci"])
+def test_environment_sibling_resolution_does_not_parse_path_as_options(tmp_path, directory):
+    """The actual postgres task must resolve its sibling even under a leading-hyphen path."""
+    import os
+    import shutil
+
+    from lu_machinery.common.repo_root import machinery_path
+
+    sibling = tmp_path / directory
+    sibling.mkdir()
+    shutil.copyfile(machinery_path("ci/test_env.sh"), sibling / "test_env.sh")
+    (sibling / "start_postgres.sh").write_text("printf 'sibling reached\\n'\n")
+    env = {**os.environ, "RUNNER_TEMP": str(tmp_path / "state"), "TEST_ENV_WAIT_TIMEOUT_S": "5"}
+    argv = ["bash", "--", directory + "/test_env.sh"]
+    started = subprocess.run(argv + ["start", "postgres"], cwd=tmp_path, env=env,
+                             capture_output=True, text=True, check=False, timeout=30)
+    assert started.returncode == 0, started.stderr
+    result = subprocess.run(argv + ["wait"], cwd=tmp_path, env=env,
+                            capture_output=True, text=True, check=False, timeout=30)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "sibling reached" in (tmp_path / "state/test-env/postgres.log").read_text()
