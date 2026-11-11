@@ -49,6 +49,20 @@ CONTRACT_PATHS: tuple[str, ...] = (
     f"{_MACHINERY}/dispatcher/providers/cursor.py",
     f"{_MACHINERY}/dispatcher/providers/muse.py",
     f"{_MACHINERY}/dispatcher/providers/stream_json.py",
+    # Product PRs retain the in-tree scripts layout until extraction is complete.
+    "scripts/review/contract_canary.py",
+    "scripts/schemas/code-review-findings.v1.schema.json",
+    "scripts/review/review_contract.py",
+    "scripts/review/verdict_parser.py",
+    "scripts/review/record_cf_verdict.py",
+    "scripts/dispatcher/worker.py",
+    "scripts/dispatcher/output_schema.py",
+    "scripts/dispatcher/providers/agy.py",
+    "scripts/dispatcher/providers/claude.py",
+    "scripts/dispatcher/providers/codex.py",
+    "scripts/dispatcher/providers/cursor.py",
+    "scripts/dispatcher/providers/muse.py",
+    "scripts/dispatcher/providers/stream_json.py",
 )
 
 REASON = "needs-contract-canary"
