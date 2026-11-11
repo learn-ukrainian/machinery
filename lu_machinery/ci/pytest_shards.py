@@ -29,6 +29,7 @@ from pathlib import Path
 from typing import Any
 
 if __package__ in (None, ""):
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
     from _location import checkout_relative
 else:
     from lu_machinery.ci._location import checkout_relative
