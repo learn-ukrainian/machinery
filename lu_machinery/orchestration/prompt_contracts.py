@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import re
 import sys
 from collections.abc import Mapping, Sequence
@@ -139,15 +140,20 @@ def _repo_file(repo_root: Path, relative: str | Path) -> Path:
     raw = str(relative)
     path = Path(raw)
     _repo_file_syntax(raw)
+    return _contained_file(repo_root, repo_root / path, raw)
+
+
+def _contained_file(repo_root: Path, candidate: Path, raw: str) -> Path:
+    """The resolved file, which must lie inside ``repo_root`` (a symlink may not leave it)."""
     root = repo_root.resolve()
-    candidate = (root / path).resolve()
+    resolved = candidate.resolve()
     try:
-        candidate.relative_to(root)
+        resolved.relative_to(root)
     except ValueError as exc:
         raise PromptContractError(f"path escapes repository root: {raw!r}") from exc
-    if not candidate.is_file():
+    if not resolved.is_file():
         raise PromptContractError(f"required prompt contract file is missing: {raw}")
-    return candidate
+    return resolved
 
 
 def _relative(path: Path, repo_root: Path) -> str:
@@ -172,7 +178,10 @@ def _fleet_rule(repo_root: Path, relative: str | Path) -> Path | None:
         raise PromptContractError(f"required prompt contract file is missing: {raw}") from exc
     if not path.is_file():
         raise PromptContractError(f"required prompt contract file is missing: {raw}")
-    return path
+    if Path(os.path.abspath(path)).is_relative_to(os.path.abspath(machinery_path(RULES_DIR_REL))):
+        return path
+    # source_path chose the product for this rule: keep the product containment check.
+    return _contained_file(repo_root, path, raw)
 
 
 def _shared_file(repo_root: Path, relative: str | Path, label: str) -> Path:
