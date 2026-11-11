@@ -684,6 +684,20 @@ launcher_resolve_roots() {
   elif ! LC_DURABLE_HELPER_ROOT="$(project_primary_root_resolve "$LC_ROOT")"; then
     launcher_error "refusing to run launcher helpers from $LC_ROOT; its git metadata does not validate."
     exit 3
+  elif [ ! -e "$LC_ROOT/.git" ] && [ ! -L "$LC_ROOT/.git" ] \
+    && [ "$LC_DURABLE_HELPER_ROOT" != "$(cd -P "$(dirname "${BASH_SOURCE[0]}")/../.." 2>/dev/null && pwd)" ]; then
+    # A root without .git resolves to itself. That is safe only for this
+    # launcher's own code tree (#9121: it grants nothing new). A product named
+    # by LU_PRODUCT_ROOT is not that tree, and its own .venv would become the
+    # interpreter every child trusts. So the helper root is the shared-state
+    # primary, validated by the one hook-root rule
+    # (project_hook_roots_resolve, which needs an explicit anchor for such a
+    # root), else the launch refuses.
+    if ! LC_DURABLE_HELPER_ROOT="$(project_hook_roots_resolve "$LC_ROOT" 2>/dev/null \
+      && printf '%s\n' "$LEARN_UKRAINIAN_PRIMARY_REPO_ROOT")" || [ -z "$LC_DURABLE_HELPER_ROOT" ]; then
+      launcher_error "refusing to run launcher helpers from $LC_ROOT: a product root without .git needs LEARN_UKRAINIAN_PRIMARY_REPO_ROOT naming its primary checkout."
+      exit 3
+    fi
   fi
   export LC_SESSION_ROOT LC_DURABLE_HELPER_ROOT
   # Every child of this launch (the agent shims put on PATH next, the inbox
