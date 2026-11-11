@@ -697,12 +697,20 @@ launcher_resolve_roots() {
   # - LEARN_UKRAINIAN_PRIMARY_REPO_ROOT, the shared-state anchor, is the helper
   #   root every launcher helper already anchors on. Only the installed package
   #   needs it (the in-tree copy derives the same primary) and an operator-set
-  #   value is kept.
+  #   value is kept. It is exported only when the shared-state admission
+  #   (common/repo_root.py configured_primary_root, asked once here) accepts
+  #   it: an anchor that admission refuses, such as a --separate-git-dir
+  #   primary, would turn "no anchor" into a different refusal its callers do
+  #   not expect, so such a launch keeps no anchor, as before.
   local python
   if python="$(launcher_project_python 2>/dev/null)"; then
     export LEARN_UKRAINIAN_PYTHON="$python"
   fi
-  if [ "$LC_MACHINERY_PACKAGE" = lu_machinery ] && [ -z "${LEARN_UKRAINIAN_PRIMARY_REPO_ROOT:-}" ]; then
+  if [ "$LC_MACHINERY_PACKAGE" = lu_machinery ] && [ -z "${LEARN_UKRAINIAN_PRIMARY_REPO_ROOT:-}" ] \
+    && [ -n "${LEARN_UKRAINIAN_PYTHON:-}" ] && project_python_command "$LEARN_UKRAINIAN_PYTHON" \
+    && LEARN_UKRAINIAN_PRIMARY_REPO_ROOT="$LC_DURABLE_HELPER_ROOT" "${PROJECT_PYTHON_COMMAND[@]}" -c \
+      "from $LC_MACHINERY_PACKAGE.common.repo_root import configured_primary_root; configured_primary_root()" \
+      >/dev/null 2>&1; then
     export LEARN_UKRAINIAN_PRIMARY_REPO_ROOT="$LC_DURABLE_HELPER_ROOT"
   fi
 }

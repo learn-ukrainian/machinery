@@ -227,6 +227,11 @@ def _assert_every_site_ran_the_primary(
     assert result.returncode == 0, result.stderr
     assert f"resolved={layout.primary}" in result.stdout
     executions = _site_executions(layout)
+    # Before any site, launcher_resolve_roots asks shared-state admission once, on the
+    # validated primary's interpreter, whether the helper root may be the state anchor.
+    resolving = executions.pop("", [])
+    assert len(resolving) == 1, resolving
+    assert resolving[0].startswith("HONEST -c ") and "configured_primary_root()" in resolving[0], resolving
     assert list(executions) == list(_SITES), executions
     for name in sites:
         ran = executions[name]
@@ -854,6 +859,7 @@ def _stub_tool(tmp: Path, name: str) -> Path:
         "lane-wrapper-successor",
         "in-tree-export",
         "token-shaped-product-path",
+        "inadmissible-state-anchor",
     ],
 )
 def test_installed_release_consumers_serve_only_lu_product_root(tmp_path: Path, consumer: str) -> None:
@@ -866,7 +872,8 @@ def test_installed_release_consumers_serve_only_lu_product_root(tmp_path: Path, 
     replayed from the package (F2); the in-tree copy exports the checkout it serves,
     so Python never follows an ambient LU_PRODUCT_ROOT elsewhere (F3); and the
     child-environment filter keeps LU_PRODUCT_ROOT when its path has a token-shaped
-    segment (F4).
+    segment (F4). The launcher never exports a state anchor that shared-state admission
+    refuses.
     """
     tmp = tmp_path.resolve()
     package, product = _installed_release(tmp)
@@ -933,6 +940,26 @@ session_supervisor_exec_successor
         result = run("bash", "-c", successor, str(package / "start-kube-dojo-driver.sh"), str(core))
         assert result.returncode == 0, result.stderr
         assert result.stdout.startswith("Usage: "), result.stdout
+        return
+    if consumer == "inadmissible-state-anchor":
+        # The anchor is exported only when shared-state admission accepts it: a primary
+        # checkout gets it; a --separate-git-dir primary, admitted as the Codex canonical
+        # root but refused by configured_primary_root, keeps no anchor, as before.
+        roots = 'printf "python=%s anchor=%s\\n" "${LEARN_UKRAINIAN_PYTHON:+set}" "${LEARN_UKRAINIAN_PRIMARY_REPO_ROOT-unset}"'
+        result = run("bash", "-c", _INSTALLED_CONSUMER_PROBE, "bash", str(core), roots)
+        assert result.returncode == 0, result.stderr
+        assert result.stdout.splitlines() == [f"python=set anchor={product}"]
+        separate = tmp / "separate"
+        separate.mkdir()
+        _git(separate, "init", "-q", "-b", "main", "--separate-git-dir", str(tmp / "separate-git"))
+        _git(separate, "commit", "-q", "--allow-empty", "-m", "init")
+        (separate / ".venv").symlink_to(Path(sys.prefix))
+        result = run(
+            "bash", "-c", _INSTALLED_CONSUMER_PROBE, "bash", str(core), roots,
+            LU_PRODUCT_ROOT=str(separate), CODEX_CANONICAL_REPO_ROOT=str(separate),
+        )
+        assert result.returncode == 0, result.stderr
+        assert result.stdout.splitlines() == ["python=set anchor=unset"]
         return
     if consumer == "in-tree-export":
         shutil.copytree(machinery_root(), product / "scripts", ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
