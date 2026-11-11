@@ -178,9 +178,10 @@ def _fleet_rule(repo_root: Path, relative: str | Path) -> Path | None:
         raise PromptContractError(f"required prompt contract file is missing: {raw}") from exc
     if not path.is_file():
         raise PromptContractError(f"required prompt contract file is missing: {raw}")
-    if Path(os.path.abspath(path)).is_relative_to(os.path.abspath(machinery_path(RULES_DIR_REL))):
-        return path
-    # source_path chose the product for this rule: keep the product containment check.
+    release_copy = os.path.join(os.path.abspath(machinery_path(RULES_DIR_REL)), raw.removeprefix(f"{RULES_DIR_REL}/"))
+    if os.path.abspath(path) == release_copy:
+        return path  # source_path chose exactly the release copy of this rule
+    # Any other selection came from the product: keep the product containment check.
     return _contained_file(repo_root, path, raw)
 
 
