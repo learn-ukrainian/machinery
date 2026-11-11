@@ -449,8 +449,13 @@ if [ "$IS_CODEX_SESSION" = "0" ] \
   DEPLOY_CHECK_RC=0
   DEPLOY_CHECK_ERR=""
   # The deployer accepts only the physical checkout root; PROJECT_DIR keeps the
-  # selected spelling, which may name a symlink or end in a slash.
-  if DEPLOY_CHECK_ROOT="$(cd -P -- "$PROJECT_DIR" 2>/dev/null && pwd -P)"; then
+  # selected spelling, which may name a symlink or end in a slash. The x
+  # sentinel keeps newlines that end the directory name, which command
+  # substitution would strip, so the deployer sees that root and refuses it
+  # instead of checking a sibling checkout.
+  if DEPLOY_CHECK_ROOT="$(cd -P -- "$PROJECT_DIR" 2>/dev/null && pwd -P && printf x)"; then
+    DEPLOY_CHECK_ROOT="${DEPLOY_CHECK_ROOT%x}"
+    DEPLOY_CHECK_ROOT="${DEPLOY_CHECK_ROOT%$'\n'}"
     # Exit 0 verified, 1 drift, 2 invalid or unsafe input. Drift is the last
     # stderr line, "deployment drift: <problem>; <problem>...", after any
     # interpreter warnings. Only the problem count is shown, because the

@@ -169,6 +169,13 @@ def test_session_start_drift_check_matches_the_installed_deployer(tmp_path: Path
     link = tmp_path / "project-link"
     link.symlink_to(project)
     assert _deploy_lines(Path(str(link) + "/"), tmp_path, cwd=project) == []
+    # A root whose name ends in a newline is unsafe input: it is never checked as its clean namesake.
+    unsafe = tmp_path / "project\n"
+    shutil.copytree(project, unsafe, symlinks=True)
+    rule = next(path for path in sorted((unsafe / ".claude/rules").iterdir()) if path.is_file())
+    rule.write_bytes(rule.read_bytes() + b"edited\n")
+    unsafe_lines = _deploy_lines(unsafe, tmp_path, cwd=unsafe)
+    assert len(unsafe_lines) == 1 and unsafe_lines[0].startswith("- DEPLOY DRIFT CHECK COULD NOT RUN (rc=2):"), unsafe_lines
 
     for path in ("agents_extensions", "product-claude", "product-codex"):
         subprocess.run(["git", "-C", str(project), "add", path], check=True)
