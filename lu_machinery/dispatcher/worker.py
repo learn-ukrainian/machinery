@@ -222,25 +222,94 @@ def _dispatcher_code() -> dict:
     Recorded when the supervisor starts and again when it settles. A review-contract canary
     needs both to be the same clean checkout at the head it reviewed (#12399). An unreadable
     checkout records ``head`` None, which no canary accepts.
+
+    Only a Git checkout attests, and only when this file is loaded through no symbolic link
+    from ``<top level>/<package>/dispatcher/worker.py``, where the top level is the parent
+    of the package directory: the in-tree copy's product checkout, or a standalone or linked
+    machinery worktree. An installed distribution (site-packages, even inside a product
+    checkout's venv) is no such top level, so product Git never attests it.
+
+    ``clean`` compares bytes, never the index or ``git status``: every regular file in HEAD's
+    tree under the package (and ``schemas``) must hash to its blob, and every file on disk
+    there must be in that tree, apart from bytecode in ``__pycache__``. Ignore rules,
+    assume-unchanged and skip-worktree flags, filters and replace refs cannot hide a change.
+    Any probe error, link or other tree entry is unclean.
     """
     from lu_machinery.common.git_context import sanitized_git_env
 
-    if not in_tree_source():
-        # Product Git metadata cannot attest the installed distribution.
-        return {"root": str(primary_root()), "head": None, "clean": False}
+    loaded = os.path.abspath(__file__)
     root = machinery_path("dispatch.py").parent.parent
+    package = Path(loaded).parents[1].name  # the machinery package directory
+    # Inline config, repository redirects and replace refs cannot steer the probes.
+    env = {**sanitized_git_env(strip_config_injection=True), "GIT_NO_REPLACE_OBJECTS": "1"}
+    unattested = {"root": str(root if in_tree_source() else primary_root()), "head": None, "clean": False}
 
     def git_out(*args: str) -> str | None:
         try:
-            return subprocess.run(["git", *args], cwd=root, env=sanitized_git_env(), capture_output=True,
-                                  text=True, check=True, timeout=30).stdout
-        except (OSError, subprocess.SubprocessError):
+            return subprocess.run(["git", "--no-replace-objects", *args], cwd=root, env=env, capture_output=True,
+                                  check=True, timeout=30).stdout.decode()
+        except (OSError, subprocess.SubprocessError, UnicodeDecodeError):
             return None
 
-    head = (git_out("rev-parse", "HEAD") or "").strip() or None
-    package = Path(os.path.abspath(__file__)).parents[1].name  # the machinery package directory
-    status = git_out("status", "--porcelain", "--", package, "schemas")
-    return {"root": str(root), "head": head, "clean": status == ""}
+    top = (git_out("rev-parse", "--show-toplevel") or "").rstrip("\n")
+    if (
+        not top
+        or loaded != os.path.realpath(loaded)  # no link anywhere on the loaded path
+        or loaded != os.path.join(top, package, "dispatcher", "worker.py")
+        or str(root) != top
+    ):
+        # Product Git metadata cannot attest the installed distribution.
+        return unattested
+    head = (git_out("rev-parse", "--verify", "--quiet", "HEAD^{commit}") or "").strip() or None
+    listing = git_out("ls-tree", "-r", "-z", "--full-tree", f"{head}^{{tree}}", "--", package, "schemas") if head else None
+    algorithm = (git_out("rev-parse", "--show-object-format") or "").strip()
+    if listing is None or algorithm not in {"sha1", "sha256"}:
+        return {"root": str(root), "head": head, "clean": False}
+
+    def unreadable(exc: OSError) -> None:
+        raise exc
+
+    def unmodified() -> bool:
+        blobs: dict[str, str] = {}
+        for entry in filter(None, listing.split("\0")):
+            meta, _, path = entry.partition("\t")
+            mode, kind, oid = meta.split(" ")
+            if kind != "blob" or mode not in {"100644", "100755"}:
+                return False  # a link or submodule is never attested code
+            blobs[path] = oid
+        if f"{package}/dispatcher/worker.py" not in blobs:
+            return False
+        seen: set[str] = set()
+        for directory in (package, "schemas"):
+            base = os.path.join(top, directory)
+            if directory == "schemas" and not os.path.lexists(base):
+                continue
+            for current, dirs, files in os.walk(base, onerror=unreadable):
+                for name in (*dirs, *files):
+                    path = os.path.join(current, name)
+                    if stat.S_ISLNK(os.lstat(path).st_mode):
+                        return False
+                    if name not in files:
+                        continue
+                    relative = os.path.relpath(path, top).replace(os.sep, "/")
+                    if os.path.basename(current) == "__pycache__" and name.endswith(".pyc"):
+                        continue
+                    if relative not in blobs or not stat.S_ISREG(os.lstat(path).st_mode):
+                        return False
+                    descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+                    with os.fdopen(descriptor, "rb") as handle:
+                        data = handle.read()
+                    digest = hashlib.new(algorithm, b"blob %d\0" % len(data) + data).hexdigest()
+                    if digest != blobs[relative]:
+                        return False
+                    seen.add(relative)
+        return seen == set(blobs)
+
+    try:
+        clean = unmodified()
+    except (OSError, ValueError):
+        clean = False
+    return {"root": str(root), "head": head, "clean": clean}
 
 
 def _discard_read_only_scratch(record: dict) -> None:

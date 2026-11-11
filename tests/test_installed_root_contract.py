@@ -7,6 +7,7 @@ publisher and publishing gh shim also run real child processes.
 
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import subprocess
@@ -280,3 +281,119 @@ def test_installed_entry_points_never_use_package_ancestors_as_roots(installed_s
     )
     assert result.returncode == 0, result.stdout + result.stderr
     assert result.stdout.strip().endswith("root contract verified: " + scenario)
+
+
+_ATTEST_PROBE = r'''
+import hashlib, json, sys
+sys.path.insert(0, sys.argv[1])
+from lu_machinery.dispatcher import worker
+from lu_machinery.review import contract_canary
+code = worker._dispatcher_code()
+head = sys.argv[2]
+record = {"status": "done", "mode": "read-only", "require_review_verdict": True, "schema_version": 2,
+          "review_profile": "code", "worktree_start_sha": head, "head_sha": head, "agent": "codex",
+          "model": "gpt-6.1-sol", "resolved_model_known": True, "resolved_model": "gpt-6.1-sol",
+          "result_sha256": hashlib.sha256(b"reply").hexdigest(), "task_id": "attest-probe",
+          "dispatcher_code": code, "dispatcher_code_start": dict(code)}
+try:
+    contract_canary._settled_receipt(record, "reply", head=head)
+    verdict = "qualifies"
+except contract_canary.CanaryError as exc:
+    verdict = str(exc)
+print(json.dumps({"module": worker.__file__, "code": code, "receipt": verdict}))
+'''
+
+
+def _git(cwd: Path, *args: str) -> str:
+    return subprocess.run(["git", "-c", "user.email=test@example.invalid", "-c", "user.name=Test", *args],
+                          cwd=cwd, check=True, capture_output=True, text=True).stdout.strip()
+
+
+@pytest.fixture(scope="module")
+def machinery_checkout(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """A committed standalone machinery checkout holding a copy of this package."""
+    origin = tmp_path_factory.mktemp("attest-origin") / "machinery"
+    shutil.copytree(machinery_root(), origin / "lu_machinery", ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+    _git(origin.parent, "init", "-q", str(origin))
+    (origin / ".gitignore").write_text("__pycache__/\n")  # as the repository ignores bytecode
+    _git(origin, "add", "-A")
+    _git(origin, "commit", "-qm", "fixture")
+    return origin
+
+
+@pytest.mark.parametrize("scenario", [
+    "clean_nested_checkout", "linked_worktree", "dirty_tracked_file", "untracked_file", "ignored_file",
+    "skip_worktree", "assume_unchanged", "replace_ref", "git_env_override", "symlinked_package",
+    "symlinked_parent", "site_packages_in_checkout",
+])
+def test_dispatcher_code_attests_only_an_unmodified_unlinked_checkout(machinery_checkout, tmp_path, scenario):
+    """Defect class: canary dispatcher identity attests code that differs from the reviewed head."""
+    tmp_path = tmp_path.resolve()  # a link on the loaded path is refused by design
+    outer = tmp_path / "product"  # a Git repository around the checkout: a nested one must prove its own files
+    _git(tmp_path, "init", "-q", str(outer))
+    checkout = outer / "machinery"
+    _git(tmp_path, "clone", "-q", str(machinery_checkout), str(checkout))
+    primary = tmp_path / "primary"
+    _git(tmp_path, "init", "-q", str(primary))
+    head = _git(checkout, "rev-parse", "HEAD")
+    package = checkout / "lu_machinery"
+    worker_file = package / "dispatcher" / "worker.py"
+    load_from = checkout
+    environment = {key: value for key, value in os.environ.items()
+                   if key != "LEARN_UKRAINIAN_STATE_ROOT" and not key.startswith("GIT_")}
+    environment.update(LEARN_UKRAINIAN_PRIMARY_REPO_ROOT=str(primary))
+    if scenario == "linked_worktree":
+        load_from = tmp_path / "linked"
+        _git(checkout, "worktree", "add", "-q", "--detach", str(load_from), head)
+    elif scenario == "dirty_tracked_file":
+        worker_file.write_text(worker_file.read_text() + "\n# modified\n")
+    elif scenario == "untracked_file":
+        (package / "planted.py").write_text("")
+    elif scenario == "ignored_file":
+        (checkout / ".git" / "info" / "exclude").write_text("planted.py\n")
+        (package / "planted.py").write_text("")
+        assert _git(checkout, "status", "--porcelain") == ""
+    elif scenario in ("skip_worktree", "assume_unchanged"):
+        _git(checkout, "update-index", f"--{scenario.replace('_', '-')}", "lu_machinery/dispatcher/git.py")
+        target = package / "dispatcher" / "git.py"
+        target.write_text(target.read_text() + "\n# hidden\n")
+        assert _git(checkout, "status", "--porcelain") == ""
+    elif scenario == "replace_ref":
+        # A replacement commit whose tree matches the modified disk: only the real HEAD tree is evidence.
+        worker_file.write_text(worker_file.read_text() + "\n# replaced\n")
+        _git(checkout, "commit", "-qam", "replacement")
+        replacement = _git(checkout, "rev-parse", "HEAD")
+        _git(checkout, "update-ref", "--no-deref", "HEAD", head)
+        _git(checkout, "replace", head, replacement)
+        assert _git(checkout, "status", "--porcelain") == ""
+    elif scenario == "git_env_override":
+        # Redirects and inline config naming another repository are ignored.
+        other = tmp_path / "other"
+        _git(tmp_path, "init", "-q", str(other))
+        environment.update(GIT_DIR=str(other / ".git"), GIT_WORK_TREE=str(other), GIT_CONFIG_COUNT="1",
+                           GIT_CONFIG_KEY_0="core.worktree", GIT_CONFIG_VALUE_0=str(other))
+    elif scenario == "symlinked_package":
+        load_from = tmp_path / "links"
+        load_from.mkdir()
+        (load_from / "lu_machinery").symlink_to(package)
+    elif scenario == "symlinked_parent":
+        load_from = tmp_path / "link"
+        load_from.symlink_to(checkout)
+    elif scenario == "site_packages_in_checkout":
+        load_from = checkout / ".venv" / "site-packages"
+        shutil.copytree(package, load_from / "lu_machinery")
+        (checkout / ".git" / "info" / "exclude").write_text(".venv/\n")
+    result = subprocess.run([sys.executable, "-I", "-c", _ATTEST_PROBE, str(load_from), head],
+                            cwd=tmp_path, env=environment, capture_output=True, text=True, timeout=120)
+    assert result.returncode == 0, result.stdout + result.stderr
+    probe = json.loads(result.stdout)
+    assert probe["module"] == str(load_from / "lu_machinery" / "dispatcher" / "worker.py")
+    if scenario in ("clean_nested_checkout", "linked_worktree", "git_env_override"):
+        assert probe["code"] == {"root": str(load_from), "head": head, "clean": True}
+        assert probe["receipt"] == "qualifies"
+        return
+    if scenario in ("symlinked_package", "symlinked_parent", "site_packages_in_checkout"):
+        assert probe["code"] == {"root": str(primary), "head": None, "clean": False}
+    else:
+        assert probe["code"] == {"root": str(checkout), "head": head, "clean": False}
+    assert probe["receipt"] == "task was not supervised by the candidate's clean dispatcher"
