@@ -433,3 +433,29 @@ def test_queued_security_pr_without_carbon_second_review_is_revoked(tmp_path: Pa
     ordinary_lines, _ = keeper.run(ordinary, tmp_path / "ordinary.json", apply=True)
     assert ("dequeue", "PR_node_42") not in ordinary.actions
     assert not any("revoked" in line for line in ordinary_lines)
+
+
+@pytest.mark.parametrize("queued", [False, True])
+@pytest.mark.parametrize("rejected", [False, True])
+def test_machinery_carbon_debt_admission_preserves_rejections(tmp_path: Path, queued, rejected) -> None:
+    """Defect class: machinery missing Carbon is revoked, or Carbon rejection is waived as debt."""
+    fake = FakeGitHub(pr(isInMergeQueue=queued))
+    fake.repository = "github.com/learn-ukrainian/machinery"
+    fake.files = ["lu_machinery/publish/github.py"]
+    if rejected:
+        fake.comments_rows.append({
+            **fake.comments_rows[0],
+            "body": build_comment(
+                sha=HEAD_A, task_id="review-carbon", started="2026-09-23T12:00:00.000001+00:00",
+                verdict="CHANGES_REQUESTED", model="gemini-4-carbon-medium", family="google",
+                reply="VERDICT: REQUEST_CHANGES", second_review=True, author_models=("gpt-6.1-sol",),
+            ),
+        })
+    _lines, failed = keeper.run(fake, tmp_path / "state.json", apply=True)
+    assert not failed
+    if rejected:
+        assert "enqueue" not in mutations(fake)
+        assert ("dequeue" in mutations(fake)) is queued
+    else:
+        assert "dequeue" not in mutations(fake)
+        assert ("enqueue" in mutations(fake)) is (not queued)

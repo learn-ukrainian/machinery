@@ -540,13 +540,20 @@ def _verification_cause(exc: Exception) -> str:
 
 
 def _enforce_delivery(record: dict) -> None:
-    if record["mode"] == "read-only" or record["status"] != "done":
+    if record["mode"] == "read-only":
         return
+    provider_failed = record["status"] == "failed" and record.get("provider_terminal_failure") is True
+    if record["status"] != "done" and not provider_failed:
+        return
+    if provider_failed:
+        record.update(provider_terminal_status="failed", provider_terminal_error=record.get("error"))
     cause = None
     paths = []
     try:
         owned = ownership.effective_scope(record)
     except (ValueError, TypeError) as exc:
+        if provider_failed:
+            return
         record.update(status="no_deliverable", error=_verification_cause(exc),
                       no_deliverable_reason=_verification_cause(exc))
         return
@@ -570,12 +577,17 @@ def _enforce_delivery(record: dict) -> None:
             cause = "work_not_pushed_or_unknown"
     # Merged work leaves nothing on the task branch to inspect (it may be reset or deleted), so the
     # merged pull request is the evidence; it refuses an outside-owned path the same way.
-    if cause and cause.split(":", 1)[0] in MERGE_RESCUABLE and (
+    rescuable = cause is None or cause.split(":", 1)[0] in MERGE_RESCUABLE
+    if (provider_failed or cause) and rescuable and (
             record.get("worktree_dirty_on_exit") is False or record.get("worktree_untracked_only_on_exit") is True) and (
             merged := git.merged_delivery(record)):
         paths = merged["paths"]
         cause = _outside_cause(paths, owned) if owned else None
         record["delivery_pr"] = f"{merged['repo']}#{merged['number']}"
+        record["delivery_merge_sha"] = merged["merge_sha"]
+        record.update(status="done", error=None)
+    elif provider_failed and rescuable:
+        return  # absent merged proof, a provider failure keeps its original status and error
     record["owned_path_grants_used"] = ownership.grants_used(record, paths)
     if cause:
         record.update(status="no_deliverable", error=cause, no_deliverable_reason=cause)
@@ -1615,41 +1627,57 @@ def supervise(path: Path, options: dict | None = None, hard_timeout: float | Non
             # Before the schema check, which would record the same terminal failure as invalid output.
             status, error = "rate_limited", parsed.error
             return
-        if schema is not None and spec.agent != "agy" and exit_code == 0 and not parsed.error:
-            from lu_machinery.agent_runtime.adapters._output_schema import json_value, structured_result
-
-            result = structured_result(json_value(text), schema, returncode=exit_code, terminal_ok=True)
-            if not result.ok:
-                error = f"{result.failure_code}: {result.stderr_excerpt}"
-                status = "failed"
-                return
-            text = result.response
         status = "done" if exit_code == 0 and not parsed.error and text and text.strip() else "failed"
         if exit_code < 0:
             status = "crashed"
+        # A provider failure can be answered by merged delivery only after the same integrity
+        # gates as success. Read-only failures retain their existing failure path.
+        record["provider_terminal_failure"] = status == "failed"
         if status != "done":
             error = parsed.error or (
                 "provider exited unsuccessfully" if exit_code else "provider returned no successful final response"
             )
-        if status == "done" and source == "agy-stream-json":
-            from lu_machinery.dispatcher.providers.agy import identity_failure
+        if record["provider_terminal_failure"]:
+            record.update(provider_terminal_status="failed", provider_terminal_error=error)
+        validate = status == "done" or (spec.mode == "workspace-write" and record["provider_terminal_failure"])
+        if validate and schema is not None and (spec.agent != "agy" or record["provider_terminal_failure"]):
+            from lu_machinery.agent_runtime.adapters._output_schema import json_value, structured_result
 
-            if refusal := identity_failure(spec.model, resolved_model):
-                status, error = "failed", refusal
-        if status == "done" and spec.agent == "claude":
-            # An advised run attests its executor from its own result; another model never settles done (#12094).
-            from lu_machinery.dispatcher.providers.claude import MODEL_USAGE_SOURCE, executor_failure
+            result = structured_result(json_value(text or ""), schema, returncode=exit_code, terminal_ok=True)
+            if not result.ok:
+                refusal = f"{result.failure_code}: {result.stderr_excerpt}"
+                if record["provider_terminal_failure"]:
+                    record["provider_failure_rescue_refusal"] = refusal
+                else:
+                    status, error = "failed", refusal
+                record["provider_terminal_failure"] = False
+                return
+            text = result.response
+        if validate:
+            refusal = None
+            if source == "agy-stream-json":
+                from lu_machinery.dispatcher.providers.agy import identity_failure
 
-            if (attested := executor_failure(spec, stdout)) is not None:
-                record.update(_stream_attestation(MODEL_USAGE_SOURCE, attested[0]))
-                if attested[1]:
-                    status, error = "failed", attested[1]
-        if status == "done" and locked is not None and (refusal := _corrected_reply_refusal(locked, text)):
-            status, error = "failed", refusal
-        if status == "done" and (refusal := _receipt_failure(record, text)):
-            status, error = "failed", refusal
-        if status == "done" and (refusal := _verdict_failure(record, text)):
-            status, error = "failed", refusal
+                refusal = identity_failure(spec.model, resolved_model)
+            if not refusal and spec.agent == "claude":
+                # Another executor model never settles done, including after a provider error (#12094).
+                from lu_machinery.dispatcher.providers.claude import MODEL_USAGE_SOURCE, executor_failure
+
+                if (attested := executor_failure(spec, stdout)) is not None:
+                    record.update(_stream_attestation(MODEL_USAGE_SOURCE, attested[0]))
+                    refusal = attested[1]
+            if not refusal and locked is not None:
+                refusal = _corrected_reply_refusal(locked, text)
+            if not refusal:
+                refusal = _receipt_failure(record, text)
+            if not refusal:
+                refusal = _verdict_failure(record, text)
+            if refusal:
+                if record["provider_terminal_failure"]:
+                    record["provider_failure_rescue_refusal"] = refusal
+                else:
+                    status, error = "failed", refusal
+                record["provider_terminal_failure"] = False
     except _Cancelled:
         status, error = "cancelled", "cancelled by client"
     except DeadlineExpired as exc:

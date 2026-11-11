@@ -23,13 +23,22 @@ touches. Deleting a High-tier path or learner-facing content keeps that path's t
 deletions of other unused code are Low.
 
 **Second review (operator order 2026-11-11).** A High-tier PR, or one that changes a
-security-sensitive path (`lu_machinery/review/security_paths.py`), lands only with two exact-head
-APPROVEs: the resolver-selected reviewer of record, and Carbon (`review_scheduler.second_reviewer`
-in the model catalog, through AGY) recorded with `record_cf_verdict --second-review`. Carbon is
-never the reviewer of record, and its rejection blocks like any other. A PR with a Gemini author
-keeps the reviewer-of-record rule alone. The trigger is the changed paths, never a declared risk.
-A Carbon timeout or outage records no approval, so the PR waits; nothing waives the seat. Both
-verdicts at one head are one round, and a moved head voids both.
+security-sensitive path (`lu_machinery/review/security_paths.py`), needs the resolver-selected
+reviewer-of-record exact-head APPROVE and green CI. Carbon (`review_scheduler.second_reviewer`
+in the model catalog, through AGY) is the second reviewer, recorded with
+`record_cf_verdict --second-review`, and never the reviewer of record. No other model counts
+as Carbon. A Carbon rejection at the head blocks merge in every repository.
+
+Repositories whose changes go live on merge still require Carbon's exact-head APPROVE.
+Only `learn-ukrainian/machinery`, which ships through a released wheel, may enqueue and merge
+without a Carbon verdict at that head. The publisher first records the durable `carbon-debt`
+label. An outage or timeout can therefore defer Carbon approval only in machinery. A release
+must not be cut while any merged machinery PR has that label. Remove it only after Carbon's
+verdict on the PR's merged head is recorded and any confirmed defect is fixed by a follow-up
+PR before release. See [Cut a release](../../../../../docs/release.md#cut-a-release).
+
+A PR with a Gemini author keeps the reviewer-of-record rule alone. The trigger is the changed
+paths, never a declared risk. Both verdicts at one head are one round, and a moved head voids both.
 
 ## 3. Findings
 

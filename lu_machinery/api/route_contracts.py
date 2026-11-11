@@ -228,20 +228,6 @@ ROUTE_CONTRACTS: tuple[RouteContract, ...] = (
         mutates=False,
     ),
     RouteContract(
-        "/api/fleet/v1",
-        "prefix",
-        "http",
-        "Read-only fleet board with now, epics, agents, roster, budget, PRs, alerts, stats, links, and schema inventory.",
-        "Configured local roster and harness snapshots, in-process delegate and occupancy collectors, and endpoint-specific configured files, directories, and bounded HTTP reads.",
-        "Generated per request; snapshot timestamps and collector results report source age and explicit ok, stale, unavailable, or not_configured status.",
-        ("operators", "agents", "fleet board consumers"),
-        "Distinct from the durable fleet-comms observer under /api/fleet; board snapshots and local activity are projections, not plane authority.",
-        "high if missing or stale snapshots are treated as live fleet state or unread sources are reported healthy",
-        "keep as the host-local, read-only fleet board contract",
-        locality="host_affine",
-        response_schema_version="fleet.v1",
-    ),
-    RouteContract(
         "/api/fleet",
         "prefix",
         "http",
@@ -333,6 +319,18 @@ ROUTE_CONTRACTS: tuple[RouteContract, ...] = (
         "keep",
         locality="mixed",
         response_schema_version="comms.v2",
+    ),
+    RouteContract(
+        "/api/delegate/active",
+        "exact",
+        "http",
+        "Active delegated task summaries without a request-time history scan.",
+        "Context-owned snapshot of task JSON and process liveness, warmed during startup.",
+        "One background writer waits 2 seconds between collections. X-Snapshot-Age-S includes collection time and grows after refresh failures. Before the first successful collection: 503, unknown age, Retry-After 2. Requests retain the last good snapshot.",
+        ("delegate.html", "index.html", "agents"),
+        "Active view of /api/delegate/tasks.",
+        "Observation can lag by the refresh delay plus collection time; inspect the age header.",
+        "keep",
     ),
     RouteContract(
         "/api/delegate",
@@ -721,7 +719,7 @@ ROUTE_CONTRACTS: tuple[RouteContract, ...] = (
         "http",
         "Per opaque host AI worker map: one row per source identity (driver, delegate, observer, job, marker, project_state), host freshness plus its own report age_s, workers_status reported|unreported, unattributed host bucket for hostless leases, related links only with proof.",
         "Cache-only adapters: session-stream leases, local batch_state delegate tasks, observer presence, atlas-job registry, occupancy markers, and pushed project-state workers; never calls occupancy load refresh or SSH probes.",
-        "Fresh hosts count toward counts.live; expired project-state reports yield freshness unknown and workers unreported; stale upstream does not synthesize worker rows.",
+        "Context-owned snapshot warmed during startup; one background writer waits 2 seconds between collections. X-Snapshot-Age-S includes collection time and grows after refresh failures. Before the first successful collection: 503, unknown age, Retry-After 2. Requests retain the last good snapshot. Fresh hosts count toward counts.live; expired project-state reports yield freshness unknown and workers unreported; stale upstream does not synthesize worker rows.",
         ("operators", "dispatch", "tests", "fleet.html"),
         "Complements GET /api/occupancy burn board without merging identities across sources.",
         "low",
@@ -856,21 +854,6 @@ PAGE_CONTRACTS: tuple[PageContract, ...] = (
         "Complements runtime and channels without adding message composition or control.",
         "medium; body-bearing transcript fetch is loopback-only and no-store",
         "keep as the canonical ACP conversation observer",
-    ),
-    PageContract(
-        "fleet-board.html",
-        "/fleet-board.html",
-        "Read-only fleet board home and epic detail.",
-        "GET /api/fleet/v1/now, /epics, /epics/{epic}, and /agents.",
-        (
-            "Client refreshes every 30s. Each shown payload keeps its own age. "
-            "A stale source, an unavailable roster, or a refresh older than "
-            "2 minutes warns without clearing the last values."
-        ),
-        ("humans", "operators"),
-        "Roster, pull requests, budget, and ops stay placeholders for later slices.",
-        "medium if a missing source is shown as empty instead of not installed",
-        "keep as the fleet board home slice",
     ),
 )
 

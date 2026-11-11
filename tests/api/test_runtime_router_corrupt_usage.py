@@ -6,7 +6,7 @@ counter instead of raising or being silently dropped. Valid rows from the
 same file and from later files still count, and runtime API totals over the
 valid rows are unchanged. Every production caller surfaces the counts in the
 #9868 evidence shape (``{"files", "lines", "records", "total"}``): the usage,
-recent, acpx, and agents responses read them off the returned list's
+recent, and agents responses read them off the returned list's
 ``unreadable`` attribute, and the headroom response reads them off the
 ``has_headroom`` counter keyword.
 """
@@ -262,19 +262,6 @@ def test_recent_api_reports_unreadable_and_counts_valid_rows(
     data = response.json()
     assert len(data["records"]) == 1
     assert data["records"][0]["agent"] == "codex"
-    assert data["unreadable"] == ONE_UNREADABLE_LINE
-
-
-def test_acpx_api_reports_unreadable(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """GET /api/runtime/acpx surfaces the unreadable counts of its evidence read."""
-    usage_dir = _usage_api_dir(tmp_path)
-    _today_file(usage_dir).write_bytes(_line(_record("codex", "ok")) + _corrupt_line("invalid-json"))
-    monkeypatch.setattr(app.state, "ctx", _ctx_with_batch_state_dir(tmp_path))
-
-    response = client.get("/api/runtime/acpx?days=1")
-
-    assert response.status_code == 200
-    data = response.json()
     assert data["unreadable"] == ONE_UNREADABLE_LINE
 
 

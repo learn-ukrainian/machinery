@@ -894,7 +894,7 @@ def github_degraded_when(degraded):
         _GITHUB_DEGRADED.reset(token)
 
 
-def _gh(*args: str) -> str:
+def _gh(*args: str, missing_commit: bool = False) -> str:
     from lu_machinery.common import github_client
 
     degraded = _GITHUB_DEGRADED.get()
@@ -904,6 +904,9 @@ def _gh(*args: str) -> str:
     if proc.returncode != 0:
         if github_client.refusal_of(proc) is not None:
             raise GitHubRefused("GitHub admission refused the read")
+        failure = getattr(proc, "github_result", None)
+        if missing_commit and isinstance(failure, github_client.Result) and failure.status in {404, 422}:
+            return ""  # this association lookup cannot find the commit; it is not a transport failure
         raise ValueError("GitHub read failed")
     return proc.stdout
 
@@ -947,16 +950,27 @@ def _delivery_prs(record: dict, repo: str) -> list[int]:
 
 
 def _merged_delivery_candidates(record: dict, repo: str) -> Iterator[int]:
-    """Try recorded PRs first, then canonical merged PRs whose final head equals the exit snapshot."""
-    yield from _delivery_prs(record, repo)
+    """Try known candidates before exact-head association, without using the issue-search index."""
+    seen = set()
+    try:
+        for number in _delivery_prs(record, repo):
+            seen.add(number)
+            yield number
+    except GitHubRefused:
+        raise
+    except (OSError, ValueError, KeyError, TypeError, AttributeError, RuntimeError, subprocess.SubprocessError) as exc:
+        record["merged_delivery_lookup"] = f"error:{type(exc).__name__}"
     head = record.get("head_sha")
     # A task that added no commit of its own has nothing to attribute: its head is where it started, which another
     # task's merged pull request can share.
     commits = record.get("commits_ahead")
     if head and isinstance(commits, int) and commits > 0 and re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", head):
-        listed = json.loads(_gh("pr", "list", "--repo", repo, "--search", head, "--state", "merged",
-                                "--json", "number,isCrossRepository,headRefOid"))
-        yield from (pr["number"] for pr in listed if pr["headRefOid"] == head and not pr["isCrossRepository"])
+        listed = _gh("api", "--paginate", f"repos/{repo}/commits/{head}/pulls", missing_commit=True)
+        for pr in json.loads(listed or "[]"):
+            if (pr["number"] not in seen and pr["head"]["sha"] == head
+                    and (pr["head"]["repo"] or {}).get("full_name") == (pr["base"]["repo"] or {}).get("full_name")):
+                seen.add(pr["number"])
+                yield pr["number"]
 
 
 def merged_delivery(record: dict) -> dict | None:
@@ -965,12 +979,14 @@ def merged_delivery(record: dict) -> dict | None:
     A task that ends with its work merged has nothing left on its own branch to inspect: the
     PR it accepted, or the one opened from its branch, is the delivery, and a worker may have
     reset or deleted the branch after the merge. A candidate counts only when GitHub reports
-    it MERGED into the task's base after the task started. Any lookup failure is None, so the
+    it MERGED into the task's base after the task started, with a merge commit and a task-authored
+    commit (or an explicit task acceptance when it added no commits). Any lookup failure is None, so the
     caller falls back to refusing on the local evidence. ``paths`` is every path the PR
     changed, rename sources included. The task's own head must also be published (nothing
     ahead of the task start, the PR's final head, or already in the PR or the base), so merged
     work never hides further work that was not pushed.
     """
+    record["merged_delivery_lookup"] = "no_match"
     try:
         repo, base = _repo_and_base(record)
         if repo is None:
@@ -978,10 +994,21 @@ def merged_delivery(record: dict) -> dict | None:
         started = datetime.fromisoformat(record["started_at"].replace("Z", "+00:00"))
         for number in _merged_delivery_candidates(record, repo):
             pr = json.loads(_gh("pr", "view", str(number), "--repo", repo, "--json",
-                                "state,baseRefName,mergedAt,headRefOid"))
+                                "state,baseRefName,mergedAt,headRefOid,mergeCommit,isCrossRepository"))
             if (pr["state"] != "MERGED" or pr["baseRefName"] != base
+                    or pr["isCrossRepository"] or not pr["mergeCommit"]
+                    or not re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", pr["mergeCommit"]["oid"])
                     or datetime.fromisoformat(pr["mergedAt"].replace("Z", "+00:00")) < started):
                 continue
+            if record.get("commits_ahead") == 0:
+                if number not in _accepted_prs(record["task_id"], repo):
+                    continue  # a matching branch name alone never attributes another task's work
+            else:
+                messages = _gh("api", "--paginate", f"repos/{repo}/pulls/{number}/commits", "--jq",
+                               ".[] | .commit.message | @json")
+                trailer = f"X-Agent: {record['agent']}/{record['task_id']}"
+                if not any(trailer in json.loads(line).splitlines() for line in messages.splitlines()):
+                    continue
             # A merged PR whose final head is the task's head proves the push, even once its branch and its
             # refs/pull/N/head are gone from the remote and a squash merge left that head out of the base.
             if record.get("commits_ahead") != 0 and pr["headRefOid"] != record["head_sha"]:
@@ -992,9 +1019,14 @@ def merged_delivery(record: dict) -> dict | None:
             # One JSON string per line keeps a name with a newline or quote whole.
             changed = _gh("api", "--paginate", f"repos/{repo}/pulls/{number}/files",
                           "--jq", ".[] | (.filename, (.previous_filename // empty)) | @json")
+            record.pop("merged_delivery_lookup", None)
             return dict(repo=repo, number=number, merged_at=pr["mergedAt"],
+                        merge_sha=pr["mergeCommit"]["oid"],
                         paths=sorted({json.loads(line) for line in changed.split("\n") if line}))
-    except (OSError, ValueError, KeyError, TypeError, AttributeError, RuntimeError, subprocess.SubprocessError):
+    except (OSError, ValueError, KeyError, TypeError, AttributeError, RuntimeError, subprocess.SubprocessError) as exc:
+        # The refusal remains fail-closed, but a later investigation can distinguish an empty lookup
+        # from an exception. Exception text can contain credentials or private paths, so keep only its type.
+        record["merged_delivery_lookup"] = f"error:{type(exc).__name__}"
         return None
     return None
 

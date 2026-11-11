@@ -510,3 +510,68 @@ def test_environment_sibling_resolution_does_not_parse_path_as_options(tmp_path,
     assert result.returncode == 1, result.stdout + result.stderr
     assert "exit 73" in result.stdout + result.stderr
     assert "sibling reached" in (tmp_path / "state/test-env/postgres.log").read_text()
+
+
+@pytest.mark.parametrize("repo", ["learn-ukrainian/machinery", "learn-ukrainian/learn-ukrainian.github.io"])
+@pytest.mark.parametrize("carbon_verdict", [None, "APPROVED", "CHANGES_REQUESTED", "other-model", "stale", "label-create-fails", "label-edit-fails"])
+def test_carbon_debt_labels_only_release_gated_missing_reviews(synthetic_opsec, monkeypatch, repo, carbon_verdict):
+    """Defect class: absent Carbon stalls machinery or admits product; rejection/substitution bypasses the gate."""
+    from lu_machinery.review.record_cf_verdict import build_comment
+
+    monkeypatch.setattr(gate, "catalog", lambda: {
+        "public": {**CATALOG["public"], "github": repo},
+    })
+    comments = []
+    for second in (False, True):
+        if second and carbon_verdict in (None, "label-create-fails", "label-edit-fails"):
+            continue
+        carbon = second and carbon_verdict != "other-model"
+        body = build_comment(
+            sha="b" * 40 if second and carbon_verdict == "stale" else HEAD,
+            task_id="review-carbon" if carbon else "review-one",
+            started="2026-10-29T10:00:00.000001+00:00",
+            verdict="CHANGES_REQUESTED" if second and carbon_verdict == "CHANGES_REQUESTED" else "APPROVED",
+            model="gemini-4-carbon-medium" if carbon else "gpt-6.1-sol",
+            family="google" if carbon else "openai", second_review=carbon,
+            author_models=("claude-opus-5-5",), reply="VERDICT: APPROVE",
+        )
+        comments.append({**recorded_approval(HEAD), "body": body})
+    calls, labels = [], []
+    base = transport(calls)
+
+    def send(args, **kwargs):
+        if args[:3] == ["gh", "label", "create"] or args[:3] == ["gh", "pr", "edit"]:
+            labels.append(args)
+            failed_label = carbon_verdict == "label-create-fails" or (
+                carbon_verdict == "label-edit-fails" and args[:3] == ["gh", "pr", "edit"]
+            )
+            return subprocess.CompletedProcess(args, 1 if failed_label else 0, "", "")
+        if args[:4] == ["gh", "api", "--method", "GET"]:
+            if "/pulls/1/files" in args[4]:
+                return subprocess.CompletedProcess(args, 0, json.dumps([[{
+                    "filename": "lu_machinery/publish/github.py", "status": "modified",
+                }]]), "")
+            if "/issues/1/comments" in args[4]:
+                return subprocess.CompletedProcess(args, 0, json.dumps([comments]), "")
+        if args[:3] == ["gh", "pr", "checks"]:
+            return subprocess.CompletedProcess(args, 0, json.dumps([{"name": "CI Gate", "bucket": "pass"}]), "")
+        return base(args, **kwargs)
+
+    debt = repo == "learn-ukrainian/machinery" and carbon_verdict in (None, "other-model", "stale")
+    if repo == "learn-ukrainian/machinery" and carbon_verdict in ("label-create-fails", "label-edit-fails"):
+        with pytest.raises(gate.PublishBlocked, match="Carbon debt label could not be recorded"):
+            pub.publish("pr-merge", repo=repo, number=1, match_head=HEAD, runner=send)
+        assert not calls
+        assert len(labels) == (1 if carbon_verdict == "label-create-fails" else 2)
+    elif carbon_verdict == "APPROVED" or debt:
+        pub.publish("pr-merge", repo=repo, number=1, match_head=HEAD, runner=send)
+        assert len(calls) == 1  # the enqueue mutation succeeded
+        assert len(labels) == (2 if debt else 0)
+        if debt:
+            assert labels[0][-1] == "carbon-debt" and "--force" in labels[0]
+            assert "--add-label=carbon-debt" in labels[1]
+    else:
+        reason = "CHANGES_REQUESTED" if carbon_verdict == "CHANGES_REQUESTED" else "Carbon second review has not approved"
+        with pytest.raises(gate.PublishBlocked, match=reason):
+            pub.publish("pr-merge", repo=repo, number=1, match_head=HEAD, runner=send)
+        assert not calls and not labels

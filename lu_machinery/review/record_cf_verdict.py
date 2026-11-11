@@ -131,7 +131,7 @@ from lu_machinery.review.role_resolution import resolve_routing_reference
 from lu_machinery.review.security_paths import git_changed_paths, is_security_sensitive_change
 from lu_machinery.review.subject_seat import prepare_subject_exclusion
 from lu_machinery.review.target_resolution import TargetResolutionError, resolve_review_repository
-from lu_machinery.review.tiers import classify_pr_files, requires_second_review
+from lu_machinery.review.tiers import allows_carbon_debt, classify_pr_files, requires_second_review
 from lu_machinery.review.ukrainian_seats import (
     UKRAINIAN_SEAT_ROUTES,
     attested_author_families,
@@ -2063,7 +2063,7 @@ def _task(task_id: str, task_root: Path) -> tuple[dict[str, Any], str]:
     return task, reply
 
 
-def _pr(repository: str, branch: str, number: int | None) -> dict[str, Any]:
+def _pr(repository: str, branch: str, number: int | None, second_review: bool = False) -> dict[str, Any]:
     if number is None:
         matches = _run_json(
             [
@@ -2088,7 +2088,9 @@ def _pr(repository: str, branch: str, number: int | None) -> dict[str, Any]:
     data = _run_json(
         ["gh", "pr", "view", str(number), "--repo", repository, "--json", "number,headRefOid,headRefName,state"]
     )
-    if not isinstance(data, dict) or data.get("state") != "OPEN":
+    # Debt is reviewed after merge, at GitHub's retained final PR head, never the squash SHA.
+    allowed_states = {"OPEN", "MERGED"} if second_review and allows_carbon_debt(repository) else {"OPEN"}
+    if not isinstance(data, dict) or data.get("state") not in allowed_states:
         raise RecordError("PR is not open")
     return data
 
@@ -2956,7 +2958,7 @@ def record(
     ukrainian, sources_count, started = review.ukrainian, review.sources_count, review.started
     if ukrainian and stated == "APPROVED":
         _require_ukrainian_claim_support(task, reply, task_id, task_root)
-    pr = _pr(repository, branch, pr_number)
+    pr = _pr(repository, branch, pr_number, second_review)
     if pr.get("headRefName") != branch:
         raise RecordError("review branch does not match PR head ref")
     if pr.get("headRefOid") != sha:
@@ -3049,7 +3051,7 @@ def record(
     chunk = _item_chunk(task, reply, stated, source_claims_validated=ukrainian and stated == "APPROVED")
     # The reply stays REQUEST_CHANGES. A pure findings object whose entries are all P3 is an
     # approval with residuals; any other reply keeps its verdict and names why (#12409).
-    p3 = p3_reading(reply) if stated == "CHANGES_REQUESTED" else P3Reading()
+    p3 = p3_reading(reply) if stated == "CHANGES_REQUESTED" and not second_review else P3Reading()
     residuals, p3_refused = p3.ids, p3.reason
     verdict = "APPROVED" if residuals else stated
     # A P3 residual upgrade is still an approval, so it takes the same captured-claim check.
@@ -3106,7 +3108,7 @@ def record(
     posted = False
     with pr_lock(repository, number, lock_root):
         # The PR may move while an earlier recorder owns the lock.
-        current = _pr(repository, branch, number)
+        current = _pr(repository, branch, number, second_review)
         if current.get("headRefOid") != sha:
             raise RecordError("PR head moved before publication")
         try:
@@ -3227,7 +3229,9 @@ def record(
             # approval alone: another Ukrainian seat may still be missing (#12020), and a
             # declared item denominator may still be short (#12257). A voided chunk does not
             # count, so its own verdict does not decide the status.
-            current = lookup_verdict(comments, sha, login, low_tier=low_tier, second_review=second_required)
+            current = lookup_verdict(
+                comments, sha, login, low_tier=low_tier, second_review=second_required, repository=repository,
+            )
             state = "success" if current.state == "APPROVED" else "failure" if current.state in REJECTED else "pending"
             # Every other seat has approved; only the Carbon second review is missing.
             carbon_wait = second_required and lookup_verdict(comments, sha, login, low_tier=low_tier).state == "APPROVED"
@@ -3642,7 +3646,7 @@ def main(argv: list[str] | None = None) -> int:
         "Exit codes: 0: recorded; 1: refused or status publication failed; 2: primary bootstrap refused.\nRelated: #9297, #9951",
     )
     parser.add_argument("--task-id", required=True, help="Completed branch-pinned review task id")
-    parser.add_argument("--pr", type=int, help="Open PR number; otherwise resolve from review branch")
+    parser.add_argument("--pr", type=int, help="PR number; merged machinery PRs accept --second-review only; otherwise resolve an open PR from the branch")
     parser.add_argument(
         "--review-mode",
         choices=("cross_family", "red_team"),

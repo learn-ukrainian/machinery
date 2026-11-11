@@ -686,6 +686,7 @@ def lookup_verdict(
     learner_content: bool = False,
     low_tier: bool | None = None,
     second_review: bool = False,
+    repository: str | None = None,
 ) -> Verdict:
     """Resolve one SHA's verdict; malformed or edited evidence for it poisons it.
 
@@ -709,7 +710,8 @@ def lookup_verdict(
     never prove whole-head non-authorship at Low; rejections stand at every tier.
     ``second_review`` (``tiers.requires_second_review`` of the PR's files) also
     requires a recorder-verified second-review APPROVE (``second_review=carbon``)
-    unless an attested author is of the second reviewer's family. The second
+    unless an attested author is of the second reviewer's family or the explicit
+    repository allows Carbon debt. The enqueue publisher records that debt. The second
     reviewer's approvals never approve, win or prove a seat on their own,
     tokened or not; its rejections stand like any other.
     """
@@ -791,6 +793,7 @@ def lookup_verdict(
         recorded = marker
         if (
             marker["verdict"] == "CHANGES_REQUESTED"
+            and not (is_second_review(marker) or is_second_reviewer_model(marker["model"]))
             and recorded_p3_residuals(body) is not None
             and not _repair_receipt_blocks(body, marker["sha"])
         ):
@@ -820,8 +823,10 @@ def lookup_verdict(
         if item[2]["verdict"] in REJECTED
         or not (is_second_review(item[2]) or is_second_reviewer_model(item[2]["model"]))
     ]
+    from lu_machinery.review.tiers import allows_carbon_debt
+
     second_pending = (
-        second_review and bool(candidates) and not second_approved
+        second_review and not allows_carbon_debt(repository) and bool(candidates) and not second_approved
         and not _second_review_exempt([item[2] for item in candidates])
     )
     if not candidates:
@@ -1307,7 +1312,7 @@ def run(adapter: GitHubAdapter, repository: str, *, now: datetime | None = None)
             content = changes_learner_content(pr_file_paths(files))
             verdict = lookup_verdict(
                 comments, head, login, learner_content=content, low_tier=classify_pr_files(files) == "low",
-                second_review=requires_second_review(files),
+                second_review=requires_second_review(files), repository=repository,
             )
         except SweepError:
             verdict = Verdict("unknown", reason=COMMENTS_UNAVAILABLE)
