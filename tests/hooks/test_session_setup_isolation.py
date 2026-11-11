@@ -74,6 +74,7 @@ def _run_hook(
     pythonpath: str | None,
     plant_log: Path,
     hook: Path = _HOOK,
+    primary: Path | None = None,
 ) -> subprocess.CompletedProcess[str]:
     env = {
         "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
@@ -87,6 +88,7 @@ def _run_hook(
     }
     if project is not None:
         env["CLAUDE_PROJECT_DIR"] = str(project)
+    env["LEARN_UKRAINIAN_PRIMARY_REPO_ROOT"] = str(primary or project or cwd)
     if pythonpath is not None:
         env["PYTHONPATH"] = pythonpath
     return subprocess.run(
@@ -117,10 +119,12 @@ def test_hook_tree_supplies_its_code_to_a_project_without_machinery(tmp_path: Pa
     assert not (_REPO_ROOT / ".agent" / "sessions" / "isolation-probe.json").exists()
 
 
-def _deploy_lines(project: Path, tmp_path: Path, cwd: Path | None = None) -> list[str]:
+def _deploy_lines(project: Path, tmp_path: Path, cwd: Path | None = None, primary: Path | None = None) -> list[str]:
     home = tmp_path / "home"
     home.mkdir(exist_ok=True)
-    result = _run_hook(cwd=cwd or project, home=home, project=project, pythonpath=None, plant_log=tmp_path / "log")
+    result = _run_hook(
+        cwd=cwd or project, home=home, project=project, pythonpath=None, plant_log=tmp_path / "log", primary=primary
+    )
     assert result.returncode == 0, result.stderr
     context = json.loads(result.stdout)["hookSpecificOutput"]["additionalContext"]
     return [line.strip() for line in context.splitlines() if "DEPLOY DRIFT" in line]
@@ -186,7 +190,7 @@ def test_session_start_drift_check_matches_the_installed_deployer(tmp_path: Path
     worktree = tmp_path / "worktree"
     subprocess.run(["git", "-C", str(project), "worktree", "add", "-q", str(worktree)], check=True)
     assert (worktree / "agents_extensions/deployment.v1.json").is_file()
-    assert _deploy_lines(worktree, tmp_path) == []
+    assert _deploy_lines(worktree, tmp_path, primary=project) == []
 
     deployed = next(path for path in sorted((project / ".claude/rules").iterdir()) if path.is_file())
     deployed.write_bytes(deployed.read_bytes() + b"edited\n")

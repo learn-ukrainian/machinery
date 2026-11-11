@@ -52,14 +52,19 @@ def _primary_with_worktree(tmp_path: Path) -> tuple[Path, Path]:
     return primary, worktree
 
 
-def _run_hook(worktree: Path, **overrides: str) -> str:
+def _run_hook(worktree: Path, primary: Path, **overrides: str) -> str:
     environment = {
         key: value
         for key, value in os.environ.items()
         if not key.startswith(("CODEX_", "CLAUDE_", "SESSION_", "GROK_", "GEMINI_", "THREAD_ROLLOVER_"))
         and key != "LEARN_UKRAINIAN_PIPELINE"
     }
-    environment.update(CLAUDE_PROJECT_DIR=str(worktree), SESSION_HANDOFF_AGENT="claude", **overrides)
+    environment.update(
+        CLAUDE_PROJECT_DIR=str(worktree),
+        LEARN_UKRAINIAN_PRIMARY_REPO_ROOT=str(primary),
+        SESSION_HANDOFF_AGENT="claude",
+        **overrides,
+    )
     result = subprocess.run(
         ["bash", str(HOOK)],
         env=environment,
@@ -86,7 +91,7 @@ def test_post_compact_uses_the_primary_checkout_venv_with_production_defaults(tm
     venv_python.symlink_to(sys.executable)
     assert not (worktree / ".venv").exists()
 
-    context = _run_hook(worktree)
+    context = _run_hook(worktree, primary)
 
     memory = _line(context, "MEMORY:")
     assert f"/{_key(str(primary.resolve()))}/memory/MEMORY.md" in memory
@@ -103,5 +108,5 @@ def test_post_compact_uses_the_primary_checkout_venv_with_production_defaults(tm
     # and the stub echoes the arguments the hook passed.
     stub = tmp_path / "rollover-stub.py"
     stub.write_text(ROLLOVER_STUB)
-    stubbed = _line(_run_hook(worktree, THREAD_ROLLOVER_SCRIPT=str(stub)), "Thread rollover health")
+    stubbed = _line(_run_hook(worktree, primary, THREAD_ROLLOVER_SCRIPT=str(stub)), "Thread rollover health")
     assert f"rollover-stub --repo-root {primary.resolve()} detect --agent claude" in stubbed

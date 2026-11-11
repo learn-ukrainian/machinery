@@ -195,6 +195,7 @@ def test_session_setup_interpreter_matrix(tmp_path: Path) -> None:
         env = {
             **_base_env(tmp_path),
             "CLAUDE_PROJECT_DIR": str(project),
+            "LEARN_UKRAINIAN_PRIMARY_REPO_ROOT": str(primary),
             "SESSION_START_BUDGET_SECONDS": "60",
             "LEARN_UKRAINIAN_CLAUDEX_RUN_ID": "interpreter-rule",
             "LEARN_UKRAINIAN_CLAUDEX_LAUNCH_GENERATION": "1",
@@ -235,6 +236,7 @@ def test_session_setup_interpreter_matrix(tmp_path: Path) -> None:
         env={
             **_base_env(tmp_path),
             "CLAUDE_PROJECT_DIR": str(bare_worktree),
+            "LEARN_UKRAINIAN_PRIMARY_REPO_ROOT": str(_bare_primary),
             "SESSION_START_BUDGET_SECONDS": "60",
         },
         input=SESSION_STDIN,
@@ -356,7 +358,7 @@ def test_deployed_probe_does_not_execute_a_worktree_venv_when_git_cannot_name_th
         check=False,
     )
     assert result.returncode == 1, result.stderr
-    assert "untrusted git metadata" in result.stderr
+    assert "LEARN_UKRAINIAN_PRIMARY_REPO_ROOT must name the primary checkout" in result.stderr
     assert not log.exists()
 
 
@@ -680,10 +682,11 @@ def test_remaining_shell_programs_select_the_rule_and_refuse_invalid(tmp_path: P
 
     codex = SOURCE / "lu_machinery/agent_runtime/codex_hook_entry.sh"
     payload = '{"cwd": "' + str(worktree) + '"}'
-    codex_refused = refused([str(codex), "pre-tool-use"], cwd=worktree, extra={"CLAUDE_PROJECT_DIR": str(worktree)}, stdin=payload)
+    codex_extra = {"CLAUDE_PROJECT_DIR": str(worktree), "LEARN_UKRAINIAN_PRIMARY_REPO_ROOT": str(primary)}
+    codex_refused = refused([str(codex), "pre-tool-use"], cwd=worktree, extra=codex_extra, stdin=payload)
     assert codex_refused.returncode != 0
     assert log.read_text(encoding="utf-8") == ""
-    codex_selected = selected([str(codex), "pre-tool-use"], cwd=worktree, extra={"CLAUDE_PROJECT_DIR": str(worktree)}, stdin=payload)
+    codex_selected = selected([str(codex), "pre-tool-use"], cwd=worktree, extra=codex_extra, stdin=payload)
     assert str(override) in log.read_text(encoding="utf-8"), codex_selected.stderr
 
     deploy = str(SOURCE / "lu_machinery/deploy_prompts.sh")
@@ -704,9 +707,9 @@ def test_remaining_shell_programs_select_the_rule_and_refuse_invalid(tmp_path: P
         (SOURCE / "lu_machinery/dispatcher/npm_shims/npx", ["--version"], "", {}),
         (SOURCE / "lu_machinery/agy_hooks/driver_state_inject.sh", [], "{}",
          {"LU_DRIVER_STATE_FILE": str(tmp_path / "state"), "SESSION_HANDOFF_AGENT": "probe",
-          "LU_DRIVER_STATE_PYTHON": str(decoy)}),
+          "LU_DRIVER_STATE_PYTHON": str(decoy), "LEARN_UKRAINIAN_PRIMARY_REPO_ROOT": str(primary)}),
         (SOURCE / "lu_machinery/agy_hooks/pending_orders_inject.sh", [], "{}",
-         {"LU_DRIVER_STATE_PYTHON": str(decoy)}),
+         {"LU_DRIVER_STATE_PYTHON": str(decoy), "LEARN_UKRAINIAN_PRIMARY_REPO_ROOT": str(primary)}),
     ):
         run = selected(["bash", str(script), *argv], cwd=worktree, extra=extra, stdin=stdin)
         assert str(override) in log.read_text(encoding="utf-8"), (script, run.returncode, run.stderr)
@@ -919,7 +922,7 @@ def test_subdirectory_does_not_select_a_nested_venv(tmp_path: Path) -> None:
     codex = _run(
         [str(package / "agent_runtime" / "codex_hook_entry.sh"), "pre-tool-use"],
         cwd=nested,
-        env=base,
+        env={**base, "LEARN_UKRAINIAN_PRIMARY_REPO_ROOT": str(primary)},
         stdin=json.dumps({"tool_input": {"workdir": str(nested)}}),
     )
     assert nested_log.read_text(encoding="utf-8") == "", codex.stderr
