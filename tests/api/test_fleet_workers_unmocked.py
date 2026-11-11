@@ -182,7 +182,7 @@ def test_unmocked_local_host_driver_lease_in_unattributed_bucket(tmp_path: Path,
 
 def test_workers_snapshot_never_collects_on_requests(tmp_path, monkeypatch):
     """First and expired filtered GETs must not collect workers or local reports."""
-    from lu_machinery.api import fleet_workers_collect, state_helpers
+    from lu_machinery.api import fleet_workers_collect, occupancy_local, state_helpers
     from lu_machinery.api.monitor_context import fixture_context
 
     ctx = fixture_context(tmp_path)
@@ -200,11 +200,28 @@ def test_workers_snapshot_never_collects_on_requests(tmp_path, monkeypatch):
         assert {"fixture-task", "inst-local-7265"} <= ids
         def forbidden(*args, **kwargs):
             raise AssertionError("request collected workers")
-        monkeypatch.setattr(fleet_workers_collect, "_build_workers_payload", forbidden)
-        monkeypatch.setattr(fleet_workers_router, "get_cached_local_document", forbidden)
-        monkeypatch.setattr(state_helpers, "_ttl_clock", lambda: 1e12)
-        for host_id in (None, "cloud-observer", "unattributed", "unknown-host"):
-            query = "" if host_id is None else f"?host_id={host_id}"
-            response = running.get("/api/fleet/workers/v1" + query)
+        with monkeypatch.context() as reads:
+            reads.setattr(fleet_workers_collect, "_build_workers_payload", forbidden)
+            reads.setattr(fleet_workers_router, "get_cached_local_document", forbidden)
+            reads.setattr(state_helpers, "_ttl_clock", lambda: 1e12)
+            for host_id in (None, "cloud-observer", "unattributed", "unknown-host"):
+                query = "" if host_id is None else f"?host_id={host_id}"
+                response = running.get("/api/fleet/workers/v1" + query)
+                assert response.status_code == 200
+                assert response.json() == expected.get(host_id, expected[""])
+
+    # A single-host filter can resolve driver affinity that is ambiguous in
+    # the all-host view. An unreadable store must retain that cold diagnostic.
+    monkeypatch.setenv("MONITOR_OCCUPANCY_HOST_IDS", "fixture=host-teacher,alias=host-worker")
+    monkeypatch.delenv(occupancy_local.ENV_DRIVER_HOST_ID, raising=False)
+    monkeypatch.setattr(fleet_workers_collect, "_self_host_ids", lambda: {"host-teacher", "host-worker"})
+    monkeypatch.setattr(occupancy_local, "self_host_opaque_ids", lambda mapping: {"host-teacher", "host-worker"})
+    missing = ctx.with_roots(session_streams_db_path=tmp_path / "missing.db")
+    with _snapshot_client(missing) as running:
+        for host_id in ("host-teacher", "host-worker"):
+            response = running.get(f"/api/fleet/workers/v1?host_id={host_id}")
             assert response.status_code == 200
-            assert response.json() == expected.get(host_id, expected[""])
+            host = _host_by_id(response.json(), host_id)
+            assert host["unattributed_burn"] == {
+                "driver": {"state": "unknown", "count": 0, "reason": "session stream store unreadable"},
+            }
