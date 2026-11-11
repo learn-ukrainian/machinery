@@ -325,7 +325,7 @@ def machinery_checkout(tmp_path_factory: pytest.TempPathFactory) -> Path:
 
 
 @pytest.mark.parametrize("scenario", [
-    "clean_nested_checkout", "linked_worktree", "writable_checkout", "dirty_tracked_file", "untracked_file", "ignored_file",
+    "clean_nested_checkout", "linked_worktree", "writable_checkout", "writable_file_mount", "dirty_tracked_file", "untracked_file", "ignored_file",
     "skip_worktree", "assume_unchanged", "replace_ref", "git_env_override", "symlinked_package",
     "symlinked_parent", "site_packages_in_checkout", "stale_bytecode", "nonregular_cache_entry",
     "unresolvable_package_file",
@@ -404,9 +404,14 @@ def test_dispatcher_code_attests_only_an_unmodified_unlinked_checkout(machinery_
         load_from = checkout / ".venv" / "site-packages"
         shutil.copytree(package, load_from / "lu_machinery")
         (checkout / ".git" / "info" / "exclude").write_text(".venv/\n")
-    sealed = scenario in ("clean_nested_checkout", "linked_worktree", "git_env_override")
+    sealed = scenario in ("clean_nested_checkout", "linked_worktree", "git_env_override", "writable_file_mount")
     # The canary's seal: the checkout is a read-only bind mount for every process (needs bubblewrap).
     prefix = ["bwrap", "--dev-bind", "/", "/", "--ro-bind", str(load_from), str(load_from), "--die-with-parent"]
+    if scenario == "writable_file_mount":
+        # F5: one tracked file stays writable through its own bind mount under read-only directories.
+        writable = tmp_path / "writable-codex.py"
+        shutil.copyfile(package / "dispatcher" / "providers" / "codex.py", writable)
+        prefix[-1:-1] = ["--bind", str(writable), str(package / "dispatcher" / "providers" / "codex.py")]
     # An attesting dispatcher writes no bytecode: a cache file is untracked and unclean.
     result = subprocess.run([*(prefix if sealed else []), sys.executable, "-I", "-B", "-c", _ATTEST_PROBE,
                              str(load_from), head],
@@ -415,6 +420,10 @@ def test_dispatcher_code_attests_only_an_unmodified_unlinked_checkout(machinery_
     probe = json.loads(result.stdout)
     assert probe["module"] == str(load_from / "lu_machinery" / "dispatcher" / "worker.py")
     assert probe["stale"] is (scenario == "stale_bytecode")
+    if scenario == "writable_file_mount":  # same bytes as H, but that file can change before it is imported
+        assert probe["code"] == {"root": str(checkout), "head": head, "clean": True, "read_only": False}
+        assert probe["receipt"] == "task's dispatcher checkout was not a read-only mount"
+        return
     if sealed:
         assert probe["code"] == {"root": str(load_from), "head": head, "clean": True, "read_only": True}
         assert probe["receipt"] == "qualifies"

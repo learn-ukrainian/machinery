@@ -238,9 +238,11 @@ def _dispatcher_code() -> dict:
     tree entry is unclean; an untracked file is never opened.
 
     ``read_only`` is true only when creating a file in every package directory fails with
-    ``EROFS``: the checkout is a read-only mount (the canary's bubblewrap ``--ro-bind``), so no
-    participating process, nested sandboxes included, can have written a cache or file there.
-    Any other outcome, including a writable directory or another error, is false.
+    ``EROFS`` and every file there sits on a read-only mount (``statvfs``), so a writable bind
+    mount over one file is caught: the checkout is a read-only mount for this process (the
+    canary's read-only image), and no participating process, nested sandboxes included, can
+    have written code or a cache there. Any other outcome, including a writable directory or
+    file, or another error, is false.
     """
     import errno
 
@@ -305,14 +307,17 @@ def _dispatcher_code() -> dict:
             base = os.path.join(top, directory)
             if directory == "schemas" and not os.path.lexists(base):
                 continue
-            for current, _dirs, _files in os.walk(base, onerror=unreadable):
+            for current, _dirs, files in os.walk(base, onerror=unreadable):
                 try:
                     # An unnamed file (O_TMPFILE) leaves nothing behind if the directory is writable.
                     os.close(os.open(current, os.O_WRONLY | os.O_TMPFILE, 0o600))
+                    return False
                 except OSError as exc:
-                    if exc.errno == errno.EROFS:
-                        continue
-                return False
+                    if exc.errno != errno.EROFS:
+                        return False
+                # A file can be its own mount; statvfs reads that mount's flags without opening the file.
+                if not all(os.statvfs(os.path.join(current, name)).f_flag & os.ST_RDONLY for name in files):
+                    return False
         return True
 
     def attest() -> dict | None:
