@@ -65,15 +65,12 @@ def test_manifest_pair_tracks_scan_root_without_product_authority_leak(tmp_path,
     """Defect class: a scan reading another checkout's manifest pair (machinery #338).
 
     Machinery's packaged rows must neither be stale in a product scan nor
-    authorize a product writer; the product's own declaration decides there, and
-    a missing or malformed product declaration fails the scan.
+    authorize a product writer. A package manifest planted in the product does
+    not replace the product's declaration, which is read as the runtime guard
+    reads it: a missing, incomplete or guard-refused declaration fails the scan.
     """
-    machinery = tmp_path / "machinery"
-    hygiene = machinery / "lu_machinery" / "hygiene"
-    hygiene.mkdir(parents=True)
-    for manifest in (lint.REFERENCE_MANIFEST, lint.BASELINE):
-        (hygiene / manifest.name).write_bytes(manifest.read_bytes())
-    assert lint.manifest_pair(machinery) == (hygiene / lint.REFERENCE_MANIFEST.name, hygiene / lint.BASELINE.name)
+    checkout = lint.REFERENCE_MANIFEST.resolve().parents[2]
+    assert lint.manifest_pair(checkout) == (lint.REFERENCE_MANIFEST, lint.BASELINE)
     packaged = [row["path"] for row in json.loads(lint.REFERENCE_MANIFEST.read_text())]
     packaged += [row["path"] for row in json.loads(lint.BASELINE.read_text())["entries"]]
     assert packaged and not [path for path in packaged if path.startswith("scripts/")]
@@ -89,18 +86,33 @@ def test_manifest_pair_tracks_scan_root_without_product_authority_leak(tmp_path,
     declaration.parent.mkdir(parents=True)
     baseline.parent.mkdir(parents=True)
     baseline.write_text(json.dumps({"entries": []}))
-    declaration.write_text(json.dumps([{
-        "path": "scripts/writer.py", "reference_count": 1, "kind": "writer",
-        "target_db": "fixture", "reason": "fixture", "calls": ["sqlite3.connect(PATH)"]}]))
+
+    def row(path, **changes):
+        return {"path": path, "reference_count": 1, "kind": "writer", "target_db": "fixture",
+                "reason": "fixture", "calls": ["sqlite3.connect(PATH)"], **changes}
+
+    # A planted package pair that authorizes the rogue writer is not the product's authority.
+    shadow = product / "lu_machinery" / "hygiene"
+    shadow.mkdir(parents=True)
+    (shadow / lint.REFERENCE_MANIFEST.name).write_text(json.dumps([row("scripts/writer.py"), row("scripts/rogue.py")]))
+    (shadow / lint.BASELINE.name).write_text(json.dumps({"entries": []}))
+    assert lint.manifest_pair(product) == (declaration, baseline)
+    declaration.write_text(json.dumps([row("scripts/writer.py")]))
     monkeypatch.setenv("LU_PRODUCT_ROOT", str(product))
 
     violations, unreadable = lint.find_violations()
     assert unreadable == []
     assert violations == ["scripts/rogue.py:2: constructor reference: c = sqlite3.connect(PATH)"]
 
-    declaration.write_text(json.dumps([{"path": "scripts/rogue.py", "kind": "writer"}]))
-    with pytest.raises(ValueError, match="invalid SQLite allowlist entry"):
-        lint.find_violations()
+    for refused in (
+        json.dumps([{"path": "scripts/rogue.py", "kind": "writer"}]),
+        json.dumps([row("scripts/rogue.py")]).replace('"fixture"', "NaN", 1),
+        json.dumps([row("scripts/rogue.py")]).replace('"kind": "writer"', '"kind": "writer", "kind": "writer"'),
+        json.dumps([row("scripts/./rogue.py")]),
+    ):
+        declaration.write_text(refused)
+        with pytest.raises(ValueError, match="invalid SQLite allowlist entry|product_declaration_malformed"):
+            lint.find_violations()
     declaration.unlink()
-    with pytest.raises(FileNotFoundError):
+    with pytest.raises(ValueError, match="product_declaration_missing"):
         lint.find_violations()

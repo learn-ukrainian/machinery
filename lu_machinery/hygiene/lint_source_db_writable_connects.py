@@ -34,8 +34,12 @@ from functools import cached_property, lru_cache, wraps
 from pathlib import Path
 from threading import RLock
 
-from lu_machinery.common.repo_root import INSTALLED_PACKAGE_NAME, ProductRootError, product_root
-from lu_machinery.lib.readonly_sqlite import PRODUCT_WRITER_DECLARATION
+from lu_machinery.common.repo_root import ProductRootError, in_tree_source, product_root
+from lu_machinery.lib.readonly_sqlite import (
+    PRODUCT_WRITER_DECLARATION,
+    _DeclarationUnusable,
+    product_declaration_rows,
+)
 
 
 def _machinery_top() -> str:
@@ -112,12 +116,14 @@ CONFIGURED_ENTRY_POINTS = {
 CONFIGURED_LOADER = "load_configured_module"
 
 
-def load_allowlist(manifest: Path | None = None) -> tuple[AllowedReference, ...]:
-    """Validated rows of ``manifest``; machinery's own packaged manifest by default."""
+def load_allowlist(manifest: Path | None = None, *, rows: list | None = None) -> tuple[AllowedReference, ...]:
+    """Validated ``rows``, else the rows of ``manifest``; machinery's own packaged manifest by default."""
+    if rows is None:
+        rows = json.loads((REFERENCE_MANIFEST if manifest is None else manifest).read_text())
     try:
         entries = tuple(
             AllowedReference(**{**row, "calls": tuple(row.get("calls", ())), "functions": tuple(row.get("functions", ()))})
-            for row in json.loads((REFERENCE_MANIFEST if manifest is None else manifest).read_text())
+            for row in rows
         )
     except TypeError:
         # A row missing a required field, or carrying an unknown one.
@@ -458,15 +464,32 @@ PRODUCT_BASELINE = f"scripts/hygiene/{BASELINE.name}"
 def manifest_pair(root: Path) -> tuple[Path, Path]:
     """The allowlist and baseline owned by the checkout at ``root``.
 
-    A machinery checkout carries its own pair inside its package directory; any
-    other checkout is a product, whose pair is :data:`PRODUCT_WRITER_DECLARATION`
-    and :data:`PRODUCT_BASELINE`. Machinery's packaged rows never apply to a
-    product checkout, and a missing product file fails the scan.
+    Only the machinery checkout that holds this running package scans with
+    machinery's packaged pair; a manifest file inside the scanned checkout never
+    selects it. Every other checkout is a product, whose pair is
+    :data:`PRODUCT_WRITER_DECLARATION` and :data:`PRODUCT_BASELINE`; a missing or
+    unusable product declaration fails the scan.
     """
-    machinery = root / INSTALLED_PACKAGE_NAME / "hygiene"
-    if (machinery / REFERENCE_MANIFEST.name).is_file():
-        return machinery / REFERENCE_MANIFEST.name, machinery / BASELINE.name
+    if not in_tree_source() and root.resolve() == REFERENCE_MANIFEST.resolve().parents[2]:
+        return REFERENCE_MANIFEST, BASELINE
     return root / PRODUCT_WRITER_DECLARATION, root / PRODUCT_BASELINE
+
+
+def load_scan_allowlist(root: Path) -> tuple[AllowedReference, ...]:
+    """The allowlist of the checkout at ``root``, read as :func:`manifest_pair` selects it.
+
+    A product declaration is read and checked exactly as the runtime guard reads
+    it (:func:`readonly_sqlite.product_declaration_rows`), so a declaration the
+    guard refuses fails the scan.
+    """
+    manifest = manifest_pair(root)[0]
+    if manifest == REFERENCE_MANIFEST:
+        return load_allowlist()
+    try:
+        rows = product_declaration_rows(os.path.realpath(root))
+    except _DeclarationUnusable as exc:
+        raise ValueError(f"unusable product SQLite declaration {PRODUCT_WRITER_DECLARATION}: {exc.reason}") from None
+    return load_allowlist(rows=rows)
 
 
 STORE_CLASSES = ("store_path", "raw_store_constructor", "test_import_access")
@@ -1004,8 +1027,8 @@ def find_violations(
             apply_baseline = root == product_root().resolve()
         except ProductRootError:
             apply_baseline = False
-    manifest, baseline_file = manifest_pair(root)
-    writers = {writer.path: writer for writer in (load_allowlist(manifest) if allowlist is None else allowlist)}
+    baseline_file = manifest_pair(root)[1]
+    writers = {writer.path: writer for writer in (load_scan_allowlist(root) if allowlist is None else allowlist)}
     violations, unreadable = [], []
     seen = set()
     baseline = baseline_entries(baseline_file) if apply_baseline else set()

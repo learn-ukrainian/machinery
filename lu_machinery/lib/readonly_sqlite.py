@@ -390,9 +390,15 @@ def _unique_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
 
 
 def _product_writer_paths(product: str) -> frozenset[str]:
-    """Writer paths the product checkout at real path ``product`` declares.
+    """Writer paths the product checkout at real path ``product`` declares."""
+    return frozenset(row["path"] for row in product_declaration_rows(product) if row["kind"] == "writer")
 
-    Raises :class:`_DeclarationUnusable` when the declaration is missing,
+
+def product_declaration_rows(product: str) -> list[dict[str, Any]]:
+    """The rows of the declaration of the product checkout at real path ``product``.
+
+    The runtime guard and the static lint both read the declaration here, so a
+    declaration the guard refuses never passes the lint. Raises :class:`_DeclarationUnusable` when the declaration is missing,
     unreadable, not a regular file reached without a symlink, too large or
     malformed (not strict UTF-8 JSON, a duplicate key, a row without a string
     ``path`` and ``kind``, a non-canonical or repeated ``path``).
@@ -409,7 +415,6 @@ def _product_writer_paths(product: str) -> frozenset[str]:
     if not isinstance(rows, list):
         raise _DeclarationUnusable("product_declaration_malformed")
     seen: set[str] = set()
-    writers: set[str] = set()
     for row in rows:
         path = row.get("path") if isinstance(row, dict) else None
         kind = row.get("kind") if isinstance(row, dict) else None
@@ -422,9 +427,7 @@ def _product_writer_paths(product: str) -> frozenset[str]:
         ):
             raise _DeclarationUnusable("product_declaration_malformed")
         seen.add(path)
-        if kind == "writer":
-            writers.add(path)
-    return frozenset(writers)
+    return rows
 
 
 def _within(root: str, real: str) -> bool:
