@@ -1,6 +1,8 @@
 """Exercise the inbox hook's embedded stdlib SQLite probe (#9662)."""
 
+import os
 import sqlite3
+import subprocess
 import sys
 from contextlib import closing
 from pathlib import Path
@@ -75,3 +77,22 @@ def test_probe_empty_and_error_results(tmp_path, monkeypatch, capsys, state):
     assert captured.err == ""
     assert (db.read_bytes() if db.exists() else None) == before
     assert list(tmp_path.iterdir()) == ([] if state == "missing" else [db])
+
+    if state == "empty":
+        # The installed entry must reach the empty-inbox fast path without
+        # inherited roots, using the nearest primary rather than its own path.
+        subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+        nested = tmp_path / "nested"
+        nested.mkdir()
+        result = subprocess.run(
+            ["bash", str(HOOK)], input="{}", text=True, capture_output=True,
+            cwd=nested, env={
+                "PATH": os.environ["PATH"], "HOME": str(tmp_path),
+                "LEARN_UKRAINIAN_PYTHON": sys.executable,
+                "AB_DB_PATH": str(db), "LEARN_UK_HOOK_RECIPIENT": "codex",
+            }, timeout=15,
+        )
+        assert result.returncode == 0, result.stderr
+        assert result.stdout == ""
+        assert result.stderr == ""
+        assert db.read_bytes() == before

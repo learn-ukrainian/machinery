@@ -75,26 +75,12 @@ fi
 # so no session inherits a broken tree. Runs BEFORE the headless-skip because
 # pipeline jobs need a work tree too. See issue #2842.
 #
-# The project is configured (CLAUDE_PROJECT_DIR from the harness, else
-# LU_PRODUCT_ROOT). A checkout whose hook path is agents_extensions/shared/hooks
-# still accepts the cwd when neither is set, because the harness runs that copy
-# with the project as cwd (R44). The code never comes from this file's location:
-# context_machinery_bootstrap, below, uses the release the project interpreter
-# imports (machinery #100, R51, R62).
-_HOOK_DIR="$(cd "$(dirname "$0")" && pwd)"
-case "$_HOOK_DIR" in
-  */agents_extensions/shared/hooks)
-    PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$(pwd)}"
-    ;;
-  *)
-    PROJECT_DIR="${CLAUDE_PROJECT_DIR:-${LU_PRODUCT_ROOT:-}}"
-    case "$PROJECT_DIR" in
-      /*) [ -d "$PROJECT_DIR" ] || { echo "session-setup.sh: project root $PROJECT_DIR is not a directory" >&2; exit 1; } ;;
-      *) echo "session-setup.sh: no project root: set CLAUDE_PROJECT_DIR or LU_PRODUCT_ROOT to an absolute checkout path" >&2; exit 1 ;;
-    esac
-    ;;
-esac
-unset _HOOK_DIR
+# The installed hook-root rule selects the product, never this file's location.
+# shellcheck source=agents_extensions/shared/hooks/context-rollover-lib.sh
+source "$(dirname "${BASH_SOURCE[0]}")/context-rollover-lib.sh" \
+  || { echo "session-setup.sh: context-rollover-lib.sh is missing beside this hook" >&2; exit 1; }
+context_machinery_bootstrap "${LU_PRODUCT_ROOT:-${CLAUDE_PROJECT_DIR:-}}" || exit 1
+
 _LU_REPO="$PROJECT_DIR"
 if [ "$(_hook_deadline 2 git -C "$_LU_REPO" config --get core.bare 2>/dev/null)" = "true" ]; then
   _hook_deadline 2 git -C "$_LU_REPO" config --local core.bare false 2>/dev/null \
@@ -174,10 +160,6 @@ fi
 # One interpreter (R66) and code root (machinery #100 R51, R62, R69): the release
 # the one project interpreter imports, never this file's location. Fails closed:
 # refuse, with the reason on stderr, rather than run code from anywhere else.
-# shellcheck source=agents_extensions/shared/hooks/context-rollover-lib.sh
-source "$(dirname "${BASH_SOURCE[0]}")/context-rollover-lib.sh" \
-  || { echo "session-setup.sh: context-rollover-lib.sh is missing beside this hook" >&2; exit 1; }
-context_machinery_bootstrap "$PROJECT_DIR" || exit 1
 SHARED_PYTHON="$CONTEXT_PROJECT_PYTHON"
 BOUNDED_PYTHON="$SHARED_PYTHON"
 project_python_command "$BOUNDED_PYTHON" || exit 1

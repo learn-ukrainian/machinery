@@ -362,6 +362,11 @@ def _run_session_setup_hook(tmp_path: Path, session_epic: str, driver_state: str
     hook_path = machinery_path("agents_extensions/shared/hooks") / "session-setup.sh"
     project_dir = tmp_path / "project"
     project_dir.mkdir()
+    subprocess.run(
+        ["git", "init", "-q", "--initial-branch=main", str(project_dir)],
+        check=True, capture_output=True,
+        env={key: value for key, value in os.environ.items() if not key.startswith("GIT_")},
+    )
 
     if driver_state is not None:
         state = project_dir / ".claude" / f"{session_epic}-epic" / "DRIVER-STATE.md"
@@ -392,8 +397,9 @@ def _run_session_setup_hook(tmp_path: Path, session_epic: str, driver_state: str
         "CLAUDE_PROFILE_RESOLVER_SH": str(machinery_path('lib/profile_resolver.sh')),
         "CLAUDE_PROFILE_RESOLVER_PY": str(machinery_path('lib/context_profiles.py')),
         "LEARN_UKRAINIAN_PYTHON": sys.executable,
-        "LEARN_UKRAINIAN_PRIMARY_REPO_ROOT": os.environ["LEARN_UKRAINIAN_PRIMARY_REPO_ROOT"],
-        "LU_PRODUCT_ROOT": os.environ["LU_PRODUCT_ROOT"],
+        "LEARN_UKRAINIAN_PRIMARY_REPO_ROOT": str(project_dir),
+        "LEARN_UKRAINIAN_STATE_ROOT": str(project_dir),
+        "LU_PRODUCT_ROOT": str(project_dir),
         "CLAUDE_SESSION_RECORD_SCRIPT": str(machinery_path('lib/session_record.py')),
         "CLAUDE_SESSION_RECORD_PYTHON": sys.executable,
         "SESSION_BOUNDED_RUNNER": str(machinery_path('agent_runtime/bounded_command.py')),

@@ -38,6 +38,11 @@ def state_module():
 def hook_case(tmp_path):
     project = tmp_path / "project"
     project.mkdir()
+    subprocess.run(
+        ["git", "init", "-q", "--initial-branch=main", str(project)],
+        check=True, capture_output=True,
+        env={key: value for key, value in os.environ.items() if not key.startswith("GIT_")},
+    )
     record = tmp_path / "record.json"
     record.write_text(
         json.dumps(
@@ -78,6 +83,7 @@ def hook_case(tmp_path):
     env.update(
         {
             "CLAUDE_PROJECT_DIR": str(project),
+            "LU_PRODUCT_ROOT": str(project),
             "LEARN_UKRAINIAN_SESSION_RECORD": str(record),
             "LEARN_UKRAINIAN_PYTHON": sys.executable,
             "LEARN_UKRAINIAN_PRIMARY_REPO_ROOT": str(project),
@@ -366,6 +372,7 @@ def test_invalid_worktree_metadata_refuses_interpreter(hook_case):
     (scripts / "project_interpreter.sh").symlink_to(machinery_path("lib/project_interpreter.sh"))
     # A fixture worktree with real Git metadata, pointing to this repository's
     # canonical shared interpreter; no worktree-local interpreter is created.
+    shutil.rmtree(project / ".git")
     (project / ".git").write_text(f"gitdir: {canonical / '.git'}\n")
     # Invalid metadata must fail closed, rather than select a planted Python.
     run_hook(hook_case, refused="project interpreter not found")

@@ -33,17 +33,12 @@ if [ -n "$CLAUDE_NON_INTERACTIVE" ] || [ -n "$LEARN_UKRAINIAN_PIPELINE" ] || [ -
   exit 0
 fi
 
-# The project is configured (CLAUDE_PROJECT_DIR from the harness, else
-# LU_PRODUCT_ROOT), never derived from this file's location: an installed
-# release lives in site-packages, not in the project (machinery #100, R51).
-PROJECT_DIR="${CLAUDE_PROJECT_DIR:-${LU_PRODUCT_ROOT:-}}"
-case "$PROJECT_DIR" in
-  /*) [ -d "$PROJECT_DIR" ] || { echo "goal-driver-stop.sh: project root $PROJECT_DIR is not a directory" >&2; exit 1; } ;;
-  *) echo "goal-driver-stop.sh: no project root: set CLAUDE_PROJECT_DIR or LU_PRODUCT_ROOT to an absolute checkout path" >&2; exit 1 ;;
-esac
+# The installed hook-root rule selects the product, never this file's location.
 # shellcheck source=agents_extensions/shared/hooks/context-rollover-lib.sh
 source "$(dirname "${BASH_SOURCE[0]}")/context-rollover-lib.sh" \
   || { echo "goal-driver-stop.sh: context-rollover-lib.sh is missing beside this hook" >&2; exit 1; }
+context_machinery_bootstrap "${LU_PRODUCT_ROOT:-${CLAUDE_PROJECT_DIR:-}}" || exit 1
+
 # Canonical checkout owns the shared state: linked worktrees share the primary's
 # (F001 r5 on #5896: the PROJECT_DIR default silently skipped this hook in
 # every worktree session).
@@ -51,7 +46,6 @@ CANONICAL_ROOT=$(context_canonical_root "$PROJECT_DIR")
 # One interpreter (R66) and code root (machinery #100 R51, R62, R69): the release the
 # one project interpreter imports, never this file's location. Fails closed: refuse,
 # with the reason on stderr, rather than run code from anywhere else. Exit 1 does not block Stop.
-context_machinery_bootstrap "$PROJECT_DIR" || exit 1
 PYTHON="$CONTEXT_PROJECT_PYTHON"
 
 # The modules run from the code root above, never the cwd; the project root stays

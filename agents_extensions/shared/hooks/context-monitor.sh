@@ -35,29 +35,23 @@ if [ -n "${GROK_AGENT:-}" ] || [ "${SESSION_HANDOFF_AGENT:-}" = "grok" ] \
 fi
 
 command -v jq >/dev/null 2>&1 || exit 0
-# shellcheck source=agents_extensions/shared/hooks/context-rollover-lib.sh
-source "$(dirname "${BASH_SOURCE[0]}")/context-rollover-lib.sh" \
-  || { echo "context-monitor.sh: context-rollover-lib.sh is missing beside this hook" >&2; exit 1; }
 
 INPUT=$(cat)
 SESSION_ID=$(printf '%s' "$INPUT" | jq -r '.session_id // empty' 2>/dev/null)
 [ -z "$SESSION_ID" ] && SESSION_ID="${LEARN_UKRAINIAN_SESSION_ID:-${CODEX_THREAD_ID:-}}"
 [ -z "$SESSION_ID" ] && exit 0
 
-# The project is configured (CLAUDE_PROJECT_DIR from the harness, else
-# LU_PRODUCT_ROOT), never derived from this file's location: an installed
-# release lives in site-packages, not in the project (machinery #100, R51).
-PROJECT_DIR="${CLAUDE_PROJECT_DIR:-${LU_PRODUCT_ROOT:-}}"
-case "$PROJECT_DIR" in
-  /*) [ -d "$PROJECT_DIR" ] || { echo "context-monitor.sh: project root $PROJECT_DIR is not a directory" >&2; exit 1; } ;;
-  *) echo "context-monitor.sh: no project root: set CLAUDE_PROJECT_DIR or LU_PRODUCT_ROOT to an absolute checkout path" >&2; exit 1 ;;
-esac
+# The installed hook-root rule selects the product, never this file's location.
+# shellcheck source=agents_extensions/shared/hooks/context-rollover-lib.sh
+source "$(dirname "${BASH_SOURCE[0]}")/context-rollover-lib.sh" \
+  || { echo "context-monitor.sh: context-rollover-lib.sh is missing beside this hook" >&2; exit 1; }
+context_machinery_bootstrap "${LU_PRODUCT_ROOT:-${CLAUDE_PROJECT_DIR:-}}" || exit 1
+
 TRANSCRIPT=$(printf '%s' "$INPUT" | jq -r '.transcript_path // empty' 2>/dev/null)
 [ -z "$TRANSCRIPT" ] || [ ! -f "$TRANSCRIPT" ] && exit 0
 # Code root (machinery #100 R51, R62, R69, R66): the release the one project
 # interpreter imports, never this file's location. Fails closed: refuse, with the
 # reason on stderr, rather than run code from anywhere else.
-context_machinery_bootstrap "$PROJECT_DIR" || exit 1
 
 # Prefer the latest assistant input/cache usage. Output tokens are not current
 # context usage and therefore are deliberately excluded.

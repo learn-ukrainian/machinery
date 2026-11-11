@@ -5,17 +5,11 @@
 
 # The machinery code root (#100 R51, R62, R69, R66): the release the one project
 # interpreter imports, never this file's location and never <project>/lu_machinery.
-# The rule is lib/project_interpreter.sh, which lives inside the release it has to
-# find, so the first probe writes the same rule out, with that file's gitfile
-# checks and without asking git (a rewritten gitfile or commondir must not choose
-# the interpreter that runs first): LEARN_UKRAINIAN_PYTHON when it is an absolute
-# executable file; else the .venv of the operator-set CODEX_CANONICAL_REPO_ROOT
-# when that directory's .git is a real directory or a gitfile, not a symlink and
-# not absent; else the .venv of the primary checkout, which is the project itself
-# when its .git is a real directory, or the <primary> of a linked worktree whose
-# gitfile names a real <primary>/.git/worktrees/<name> that points back at it;
-# else refuse. A directory with no .git entry is not a checkout. An invalid
-# override does not fall back.
+# Before importing that release, the probe accepts an absolute executable
+# LEARN_UKRAINIAN_PYTHON, or resolves the canonical/configured/cwd context to
+# a primary whose .git passes the installed rule's layout criteria. Linked
+# worktrees must have a valid backlink and a validated primary; their .venv
+# is never selected. Invalid configuration does not fall back.
 _context_rule_root() {
   local root="$1" git_path line gitdir worktrees common pointer pointed
   git_path="$root/.git"
@@ -24,6 +18,19 @@ _context_rule_root() {
   # for any directory a caller passed. Only a real .git directory is this
   # checkout; a gitfile is checked below and never by running git.
   if [ -d "$git_path" ]; then
+    # The installed _project_hook_git_layout criteria also fence the probe:
+    # no interpreter under a stray .git may run before the release is imported.
+    [ ! -e "$git_path/commondir" ] && [ ! -L "$git_path/commondir" ] || return 1
+    [ -d "$git_path/objects" ] && [ -d "$git_path/refs" ] || return 1
+    [ -f "$git_path/HEAD" ] && [ ! -L "$git_path/HEAD" ] || return 1
+    IFS= read -r line < "$git_path/HEAD" || true
+    case "$line" in
+      ref:*)
+        line="${line#ref:}"
+        [[ "${line#"${line%%[![:space:]]*}"}" = refs/* ]] || return 1
+        ;;
+      *) [[ "$line" =~ ^[0-9a-fA-F]{40}([0-9a-fA-F]{24})?$ ]] || return 1 ;;
+    esac
     printf '%s\n' "$root"
     return 0
   fi
@@ -60,10 +67,10 @@ _context_rule_root() {
   [ "${pointer##*/}" = .git ] || return 1
   pointed="$(cd -P "${pointer%/*}" 2>/dev/null && pwd)" || return 1
   [ "$pointed" = "$root" ] || return 1
-  printf '%s\n' "${common%/*}"
+  _context_rule_root "${common%/*}"
 }
 _context_rule_probe() {
-  local configured="${LEARN_UKRAINIAN_PYTHON:-}" project_dir="$1" root git_path
+  local configured="${LEARN_UKRAINIAN_PYTHON:-}" project_dir="$1" root
   if [ -n "$configured" ]; then
     case "$configured" in
       /*) ;;
@@ -75,15 +82,14 @@ _context_rule_probe() {
     return 0
   fi
   if [ -n "${CODEX_CANONICAL_REPO_ROOT:-}" ]; then
-    # Operator-set, so a separate-git-dir gitfile stays valid, but a directory
-    # with no .git entry is not a checkout and its interpreter must not run.
+    # The operator-set probe context must also resolve to a validated primary
+    # before its interpreter may import the installed rule.
     if ! root="$(cd -P "$CODEX_CANONICAL_REPO_ROOT" 2>/dev/null && pwd)"; then
       echo "${0##*/}: project interpreter not found: untrusted git metadata at ${CODEX_CANONICAL_REPO_ROOT}/.git; set LEARN_UKRAINIAN_PYTHON" >&2
       return 1
     fi
-    git_path="$root/.git"
-    if [ -L "$git_path" ] || { [ ! -d "$git_path" ] && [ ! -f "$git_path" ]; }; then
-      echo "${0##*/}: project interpreter not found: untrusted git metadata at $git_path; set LEARN_UKRAINIAN_PYTHON" >&2
+    if ! root="$(_context_rule_root "$root")"; then
+      echo "${0##*/}: project interpreter not found: untrusted git metadata at ${CODEX_CANONICAL_REPO_ROOT}/.git; set LEARN_UKRAINIAN_PYTHON" >&2
       return 1
     fi
   elif ! root="$(cd -P "$project_dir" 2>/dev/null && pwd)" || ! root="$(_context_rule_root "$root")"; then
@@ -103,24 +109,25 @@ _context_import_release() {
   MACHINERY_DIR="$found"
 }
 
-# Set MACHINERY_DIR (the installed release) and CONTEXT_PROJECT_PYTHON (the one
-# project interpreter) and source the release's project_interpreter.sh. The probe
+# Set PROJECT_DIR from the installed hook-root rule, MACHINERY_DIR (the release)
+# and CONTEXT_PROJECT_PYTHON (the one project interpreter). An empty argument
+# lets the rule select the nearest physical cwd ancestor with a .git entry.
+# Source the release's project_interpreter.sh. The probe
 # only finds the release; the release's resolver then decides, and its release is
 # sourced when it differs. Fails closed: on any doubt it says why on stderr and
 # returns 1, and the hook refuses instead of running code from anywhere else.
 context_machinery_bootstrap() {
   local project_dir="$1" probe resolved start candidate parent
   MACHINERY_DIR="" CONTEXT_PROJECT_PYTHON=""
-  # Callers pass the project directory. The probe and the release resolver
-  # receive the checkout root: the directory itself when its .git entry is
-  # present, otherwise the nearest ancestor that has one. A directory that is
-  # not inside a checkout is refused here, before any interpreter runs,
-  # unless LEARN_UKRAINIAN_PYTHON is an absolute path. That operator path
-  # short-circuits the resolver, so the directory's own interpreter cannot
-  # be selected. A canonical-root override does not: the probe would accept
-  # the override and the resolver would then execute this directory's
-  # interpreter, because a missing .git is still a primary there.
-  if ! start="$(cd -P "$project_dir" 2>/dev/null && pwd)"; then
+  # Preserve the rule's refusal of nonempty relative roots before any import.
+  case "$project_dir" in
+    ''|/*) ;;
+    *) echo "${0##*/}: project root must be an absolute checkout path" >&2; return 1 ;;
+  esac
+  # Import the release using the configured interpreter or the cwd's checkout
+  # primary. This probe selects code only. The installed hook rule below
+  # decides the product, shared state and interpreter before callers use them.
+  if ! start="$(cd -P "${project_dir:-.}" 2>/dev/null && pwd)"; then
     echo "${0##*/}: project interpreter not found: untrusted git metadata at ${project_dir}/.git; set LEARN_UKRAINIAN_PYTHON" >&2
     return 1
   fi
@@ -141,7 +148,19 @@ context_machinery_bootstrap() {
   fi
   probe="$(_context_rule_probe "$candidate")" || return 1
   _context_import_release "$probe" || return 1
-  resolved="$(project_interpreter_resolve "$candidate")" || { MACHINERY_DIR=""; return 1; }
+  if [ -n "$project_dir" ]; then
+    project_hook_context_resolve "$project_dir" || {
+      echo "${0##*/}: HOOK-BOOTSTRAP-FAILED: product root, shared state or interpreter unavailable" >&2
+      MACHINERY_DIR=""; return 1;
+    }
+  else
+    project_hook_context_resolve || {
+      echo "${0##*/}: HOOK-BOOTSTRAP-FAILED: product root, shared state or interpreter unavailable" >&2
+      MACHINERY_DIR=""; return 1;
+    }
+  fi
+  PROJECT_DIR="$LU_PRODUCT_ROOT"
+  resolved="$LEARN_UKRAINIAN_PYTHON"
   if [ "$resolved" != "$probe" ]; then
     _context_import_release "$resolved" || { MACHINERY_DIR=""; return 1; }
   fi

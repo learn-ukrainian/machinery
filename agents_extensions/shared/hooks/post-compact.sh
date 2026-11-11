@@ -18,14 +18,10 @@ if [ -n "${LEARN_UKRAINIAN_DISPATCH_TASK_ID:-}" ]; then
   unset SESSION_EPIC
 fi
 
-# The project is configured (CLAUDE_PROJECT_DIR from the harness, else
-# LU_PRODUCT_ROOT), never derived from this file's location: an installed
-# release lives in site-packages, not in the project (machinery #100, R51).
-PROJECT_DIR="${CLAUDE_PROJECT_DIR:-${LU_PRODUCT_ROOT:-}}"
-case "$PROJECT_DIR" in
-  /*) [ -d "$PROJECT_DIR" ] || { echo "post-compact.sh: project root $PROJECT_DIR is not a directory" >&2; exit 1; } ;;
-  *) echo "post-compact.sh: no project root: set CLAUDE_PROJECT_DIR or LU_PRODUCT_ROOT to an absolute checkout path" >&2; exit 1 ;;
-esac
+# The installed hook-root rule selects the product, never this file's location.
+# shellcheck source=agents_extensions/shared/hooks/context-rollover-lib.sh
+source "$(dirname "${BASH_SOURCE[0]}")/context-rollover-lib.sh" \
+  || { echo "post-compact.sh: context-rollover-lib.sh is missing beside this hook" >&2; exit 1; }
 
 # Resolve the primary checkout before choosing an interpreter, exactly as
 # session-setup.sh does: it owns the shared venv and the Claude memory
@@ -40,29 +36,24 @@ git_common_dir() {
     git -C "$PROJECT_DIR" rev-parse --path-format=absolute --git-common-dir 2>/dev/null
   fi
 }
-GIT_COMMON_DIR=$(git_common_dir) || GIT_COMMON_DIR=""
-PRIMARY_ROOT=""
-if [ -n "$GIT_COMMON_DIR" ] && [ "$(basename "$GIT_COMMON_DIR")" = ".git" ]; then
-  PRIMARY_ROOT=$(dirname "$GIT_COMMON_DIR")
-fi
-if [ -n "${CODEX_CANONICAL_REPO_ROOT:-}" ]; then
-  CANONICAL_ROOT="$CODEX_CANONICAL_REPO_ROOT"
-else
-  CANONICAL_ROOT="${PRIMARY_ROOT:-$PROJECT_DIR}"
-fi
-# shellcheck source=agents_extensions/shared/hooks/context-rollover-lib.sh
-source "$(dirname "${BASH_SOURCE[0]}")/context-rollover-lib.sh" \
-  || { echo "post-compact.sh: context-rollover-lib.sh is missing beside this hook" >&2; exit 1; }
 # One interpreter (R66) and code root (machinery #100 R51, R62, R69): the release the
 # one project interpreter imports, never this file's location. Fails closed: refuse,
-# with the reason on stderr, rather than run code from anywhere else. Called at top
-# level just before machinery code first runs, so the thin Grok path and native
-# Codex compaction start no interpreter.
+# with the reason on stderr, rather than run code from anywhere else.
 BOUNDED_PYTHON=""
 BOUNDED_RUNNER=""
 post_compact_bootstrap() {
   [ -n "$BOUNDED_PYTHON" ] && return 0
-  context_machinery_bootstrap "$PROJECT_DIR" || exit 1
+  context_machinery_bootstrap "${LU_PRODUCT_ROOT:-${CLAUDE_PROJECT_DIR:-}}" || exit 1
+  GIT_COMMON_DIR=$(git_common_dir) || GIT_COMMON_DIR=""
+  PRIMARY_ROOT=""
+  if [ -n "$GIT_COMMON_DIR" ] && [ "$(basename "$GIT_COMMON_DIR")" = ".git" ]; then
+    PRIMARY_ROOT=$(dirname "$GIT_COMMON_DIR")
+  fi
+  if [ -n "${CODEX_CANONICAL_REPO_ROOT:-}" ]; then
+    CANONICAL_ROOT="$CODEX_CANONICAL_REPO_ROOT"
+  else
+    CANONICAL_ROOT="${PRIMARY_ROOT:-$PROJECT_DIR}"
+  fi
   BOUNDED_PYTHON="$CONTEXT_PROJECT_PYTHON"
   BOUNDED_RUNNER="${SESSION_BOUNDED_RUNNER:-$MACHINERY_DIR/lu_machinery/agent_runtime/bounded_command.py}"
 }
