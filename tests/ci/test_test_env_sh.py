@@ -137,3 +137,26 @@ def test_finished_task_failure_unchanged(tmp_path: Path) -> None:
     assert "::group::npm setup (exit 1)\nnpm boom\n::endgroup::" in result.stdout
     assert "::error::npm setup failed (exit 1); see its log group above" in result.stdout
     assert "did not finish" not in result.stdout
+
+
+def test_postgres_start_resolves_sibling_from_foreign_cwd(tmp_path: Path) -> None:
+    """Installed shell resources must find siblings outside the caller's checkout."""
+    resources = tmp_path / "installed resources"
+    resources.mkdir()
+    script = resources / "test_env.sh"
+    script.write_bytes(SCRIPT.read_bytes())
+    (resources / "start_postgres.sh").write_text('echo "sibling postgres started"\n')
+    caller = tmp_path / "product"
+    caller.mkdir()
+    env = {**os.environ, "RUNNER_TEMP": str(tmp_path)}
+    started = subprocess.run(
+        ["bash", str(script), "start", "postgres"], cwd=caller, env=env,
+        capture_output=True, text=True, timeout=60, check=False,
+    )
+    assert started.returncode == 0
+    result = subprocess.run(
+        ["bash", str(script), "wait"], cwd=caller, env=env,
+        capture_output=True, text=True, timeout=60, check=False,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "sibling postgres started" in result.stdout
