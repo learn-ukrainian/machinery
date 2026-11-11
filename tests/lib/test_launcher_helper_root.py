@@ -483,6 +483,43 @@ def test_snapshot_resolves_only_to_the_launcher_root(layout: Layout, via: str) -
     assert str(layout.attacker) not in "\n".join(ran)
 
 
+@pytest.mark.parametrize("anchored", [True, False], ids=["state-anchor", "no-anchor"])
+def test_product_root_without_git_never_exports_its_own_venv(layout: Layout, anchored: bool) -> None:
+    """Defect class: interpreter laundering through the launcher (#304 round 3, F3).
+
+    A product named by LU_PRODUCT_ROOT that has no ``.git`` (a product subdirectory)
+    resolved as its own primary, so the launcher exported its planted ``.venv`` as
+    ``LEARN_UKRAINIAN_PYTHON``, which every hook then trusts as the operator override.
+    Only the launcher's own code tree may resolve to itself (the #9121 snapshot rule
+    above); any other such root takes the validated shared-state primary, else refuses.
+    """
+    sub = layout.primary / "sub"
+    sub.mkdir()
+    _stub_python(sub, "PLANTED", layout.log)
+    script = (
+        'LC_ROOT="$1"; source "$2/lu_machinery/lib/launcher_core.sh"; launcher_resolve_roots; '
+        'printf "resolved=%s\\npython=%s\\n" "$LC_DURABLE_HELPER_ROOT" "${LEARN_UKRAINIAN_PYTHON:-}"'
+    )
+    env = _clean_env(HOME=str(layout.tmp / "home"))
+    env.pop("LEARN_UKRAINIAN_PYTHON", None)
+    env.pop("LEARN_UKRAINIAN_PRIMARY_REPO_ROOT", None)
+    if anchored:
+        env["LEARN_UKRAINIAN_PRIMARY_REPO_ROOT"] = str(layout.primary)
+    result = subprocess.run(
+        ["bash", "-c", script, "bash", str(sub), str(layout.worktree)],
+        cwd=layout.tmp, env=env, capture_output=True, text=True, check=False, timeout=60,
+    )
+    assert str(sub / ".venv") not in result.stdout, result.stdout
+    assert "PLANTED" not in layout.owners()
+    if anchored:
+        assert result.returncode == 0, result.stderr
+        assert f"resolved={layout.primary}\n" in result.stdout
+        assert f"python={layout.primary}/.venv/bin/python\n" in result.stdout
+    else:
+        assert result.returncode == 3, result.stderr
+        assert "needs LEARN_UKRAINIAN_PRIMARY_REPO_ROOT" in result.stderr
+
+
 # --- operator-set CODEX_CANONICAL_REPO_ROOT override --------------------------
 
 
