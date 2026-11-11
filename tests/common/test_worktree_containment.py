@@ -620,6 +620,12 @@ def test_agy_tool_call_shape_cannot_bypass_primary_write_guard(layout: Layout, s
         ("bash -c \"trap 'touch tracked.txt' EXIT\"", 2),
         ("eval \"coproc touch tracked.txt\"", 2),
         ("coproc { coproc touch tracked.txt; }", 2),
+        ("cd <dispatch>; export UV_WORKING_DIR=<primary>; coproc uv run touch tracked.txt", 2),
+        (
+            "cd <dispatch>; trap 'cd <dispatch>; uv run touch tracked.txt' EXIT; export UV_WORKING_DIR=<primary>",
+            2,
+        ),
+        ("env UV_WORKING_DIR=<dispatch> bash -c 'coproc uv run touch tracked.txt'", 0),
         ("coproc printf done", 0),
         ("trap -p", 0),
         ("trap '' EXIT", 0),

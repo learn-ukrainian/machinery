@@ -2427,7 +2427,13 @@ def _writer_targets(
         script = _trap_coproc_script(segment)
         if script is not None:
             targets.extend(
-                bash_write_targets(script, cwd=None if cmd == "trap" else cwd, main_root=main_root, depth=depth + 1)
+                bash_write_targets(
+                    script,
+                    cwd=None if cmd == "trap" else cwd,
+                    main_root=main_root,
+                    depth=depth + 1,
+                    uv_env=_UV_DIR_UNKNOWN if cmd == "trap" else uv_env,
+                )
             )
     elif cmd == "eval":
         args = segment[idx + 1 :]
