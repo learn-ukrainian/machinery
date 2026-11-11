@@ -6,12 +6,13 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import re
 import sys
 from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 import yaml
 from jsonschema import Draft202012Validator
@@ -20,8 +21,9 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from lu_machinery.common.repo_root import ProductRootError, product_root
+from lu_machinery.common.repo_root import RULES_DIR_REL, ProductRootError, machinery_path, product_root
 from lu_machinery.common.schema_check import check_schema as check_schema_memoised
+from lu_machinery.lib.rules_core import RulesCoreMissing, source_path
 
 CONTRACT_ROOT = Path("agents_extensions/shared/prompt-contracts")
 REGISTRY_PATH = CONTRACT_ROOT / "registry.v1.yaml"
@@ -144,16 +146,47 @@ def _repo_file(repo_root: Path, relative: str | Path) -> Path:
     return candidate
 
 
-def _relative(path: Path, repo_root: Path) -> str:
-    return path.resolve().relative_to(repo_root.resolve()).as_posix()
+def _release_rule(repo_root: Path, relative: str | Path) -> Path | None:
+    """The release copy of a fleet rule when ``rules_core.source_path`` selects exactly it, else ``None``.
+
+    Fleet rules come from the release; product-owned rules and every other contract file stay in the
+    product, so ``None`` sends the caller to the product containment check.
+    """
+    raw = str(relative)
+    if not raw.startswith(f"{RULES_DIR_REL}/"):
+        return None
+    try:
+        selected = os.path.abspath(source_path(raw, repo_root))
+    except RulesCoreMissing as exc:
+        raise PromptContractError(f"required prompt contract file is missing: {raw}") from exc
+    release_copy = os.path.join(os.path.abspath(machinery_path(RULES_DIR_REL)), raw.removeprefix(f"{RULES_DIR_REL}/"))
+    if selected != release_copy:
+        return None
+    if not os.path.isfile(selected):
+        raise PromptContractError(f"required prompt contract file is missing: {raw}")
+    return Path(selected)
+
+
+class _Selected(NamedTuple):
+    """A contract file and the declared logical repository-relative path recorded as its identity."""
+
+    path: Path
+    logical: str
+
+
+def _shared_selection(repo_root: Path, relative: str | Path, label: str) -> _Selected:
+    release = _release_rule(repo_root, relative)
+    if release is not None:
+        return _Selected(release, str(relative))
+    path = _repo_file(repo_root, relative)  # syntax and product containment checks
+    logical = Path(str(relative)).as_posix()
+    if not logical.startswith("agents_extensions/shared/"):
+        raise PromptContractError(f"{label} must live under agents_extensions/shared: {logical}")
+    return _Selected(path, logical)
 
 
 def _shared_file(repo_root: Path, relative: str | Path, label: str) -> Path:
-    path = _repo_file(repo_root, relative)
-    source = _relative(path, repo_root)
-    if not source.startswith("agents_extensions/shared/"):
-        raise PromptContractError(f"{label} must live under agents_extensions/shared: {source}")
-    return path
+    return _shared_selection(repo_root, relative, label).path
 
 
 def _read_bytes(path: Path) -> bytes:
@@ -303,13 +336,8 @@ def _validate(document: Mapping[str, Any], schema: Mapping[str, Any], label: str
         raise PromptContractError(f"{label} failed schema validation at {location}: {error.message}")
 
 
-def _source_identity(kind: str, source_id: str, path: Path, repo_root: Path) -> SourceIdentity:
-    return SourceIdentity(
-        kind=kind,
-        id=source_id,
-        path=_relative(path, repo_root),
-        sha256=_sha256_bytes(_read_bytes(path)),
-    )
+def _source_identity(kind: str, source_id: str, path: Path, logical: str) -> SourceIdentity:
+    return SourceIdentity(kind=kind, id=source_id, path=logical, sha256=_sha256_bytes(_read_bytes(path)))
 
 
 def load_registry(*, repo_root: Path | None = None) -> dict[str, Any]:
@@ -455,7 +483,7 @@ def _load_manifest(
     version: str | None,
     *,
     repo_root: Path,
-) -> tuple[dict[str, Any], Path, str]:
+) -> tuple[dict[str, Any], _Selected, str]:
     registry = load_registry(repo_root=repo_root)
     prompt_record = registry["prompts"].get(prompt_id)
     if not isinstance(prompt_record, Mapping):
@@ -464,8 +492,8 @@ def _load_manifest(
     manifest_ref = prompt_record["versions"].get(resolved_version)
     if not isinstance(manifest_ref, str):
         raise PromptContractError(f"prompt version is not registered: {prompt_id}@{resolved_version}")
-    manifest_path = _shared_file(repo_root, manifest_ref, "executable prompt manifest")
-    manifest = _load_yaml(manifest_path)
+    manifest_path = _shared_selection(repo_root, manifest_ref, "executable prompt manifest")
+    manifest = _load_yaml(manifest_path.path)
     schema = _load_json(_repo_file(repo_root, MANIFEST_SCHEMA_PATH))
     _validate(manifest, schema, f"prompt manifest {prompt_id}@{resolved_version}")
     if manifest["prompt_id"] != prompt_id or manifest["version"] != resolved_version:
@@ -565,10 +593,10 @@ def resolve_prompt(
     if variant_record["family"] not in manifest["compatible"]["families"]:
         raise PromptContractError(f"variant family is not compatible with prompt contract: {variant}")
 
-    input_schema_path = _shared_file(repo_root, manifest["input_schema"], "prompt input schema")
-    output_schema_path = _shared_file(repo_root, manifest["output_schema"], "prompt output schema")
-    input_schema = _load_json(input_schema_path)
-    output_schema = _load_json(output_schema_path)
+    input_schema_file = _shared_selection(repo_root, manifest["input_schema"], "prompt input schema")
+    output_schema_file = _shared_selection(repo_root, manifest["output_schema"], "prompt output schema")
+    input_schema = _load_json(input_schema_file.path)
+    output_schema = _load_json(output_schema_file.path)
     _validate(dict(context), input_schema, "prompt input")
     _check_schema(output_schema, "prompt output")
     input_schema_id = _schema_id(input_schema, "prompt input schema")
@@ -579,27 +607,31 @@ def resolve_prompt(
     ordered_ids = _ordered_fragment_ids(manifest, variant)
     declared_inputs = set((input_schema.get("properties") or {}).keys())
     sources: list[SourceIdentity] = [
-        _source_identity("registry", "prompt-registry.v1", _repo_file(repo_root, REGISTRY_PATH), repo_root),
-        _source_identity("manifest", f"{prompt_id}@{resolved_version}", manifest_path, repo_root),
-        _source_identity("input-schema", input_schema_id, input_schema_path, repo_root),
-        _source_identity("output-schema", output_schema_id, output_schema_path, repo_root),
+        _source_identity(
+            "registry", "prompt-registry.v1", _repo_file(repo_root, REGISTRY_PATH), REGISTRY_PATH.as_posix()
+        ),
+        _source_identity("manifest", f"{prompt_id}@{resolved_version}", manifest_path.path, manifest_path.logical),
+        _source_identity("input-schema", input_schema_id, input_schema_file.path, input_schema_file.logical),
+        _source_identity("output-schema", output_schema_id, output_schema_file.path, output_schema_file.logical),
     ]
     if profile_id is not None:
-        sources.append(_source_identity("profile", profile_id, _repo_file(repo_root, PROFILE_PATH), repo_root))
+        sources.append(
+            _source_identity("profile", profile_id, _repo_file(repo_root, PROFILE_PATH), PROFILE_PATH.as_posix())
+        )
     for policy_id in sorted(manifest["policy_ids"]):
-        policy_path = _shared_file(
+        policy = _shared_selection(
             repo_root,
             manifest["policy_ids"][policy_id],
             f"prompt policy {policy_id}",
         )
-        sources.append(_source_identity("policy", policy_id, policy_path, repo_root))
+        sources.append(_source_identity("policy", policy_id, policy.path, policy.logical))
 
     rendered_fragments: list[str] = []
     for fragment_id in ordered_ids:
         fragment = manifest["fragments"][fragment_id]
-        fragment_path = _shared_file(repo_root, fragment["path"], f"prompt fragment {fragment_id}")
-        sources.append(_source_identity("fragment", fragment_id, fragment_path, repo_root))
-        rendered_fragments.append(_render_fragment(_fragment_text(fragment_path), context, declared_inputs))
+        fragment_file = _shared_selection(repo_root, fragment["path"], f"prompt fragment {fragment_id}")
+        sources.append(_source_identity("fragment", fragment_id, fragment_file.path, fragment_file.logical))
+        rendered_fragments.append(_render_fragment(_fragment_text(fragment_file.path), context, declared_inputs))
 
     rendered_prompt = "\n\n---\n\n".join(rendered_fragments) + "\n"
     prompt_sha256 = _sha256_bytes(rendered_prompt.encode("utf-8"))
