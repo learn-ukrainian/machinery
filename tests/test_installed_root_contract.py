@@ -229,8 +229,7 @@ elif scenario == 'compatibility_resolvers':
 elif scenario == 'unconfigured':
     for key in (*rr.MACHINERY_ENV_VARS, rr.PRODUCT_ROOT_ENV):
         os.environ.pop(key, None)
-    for call in (lambda: admission.post_disk_alert('refuse', 'refuse'),
-                 lambda: dispatcher_primary.exec_primary(['list']), worker._dispatcher_code,
+    for call in (lambda: admission.post_disk_alert('refuse', 'refuse'), worker._dispatcher_code,
                  rr.project_interpreter):
         try:
             call()
@@ -238,6 +237,13 @@ elif scenario == 'unconfigured':
             pass
         else:
             raise AssertionError('unconfigured state did not refuse')
+    # The dispatcher bootstrap turns the same refusal into its typed exit, not a traceback.
+    try:
+        dispatcher_primary.exec_primary(['list'])
+    except SystemExit as exc:
+        assert exc.code == 2, exc.code
+    else:
+        raise AssertionError('unconfigured dispatcher bootstrap did not refuse')
     from lu_machinery.ops import host_stack_drift as drift
     try:
         drift.main([])

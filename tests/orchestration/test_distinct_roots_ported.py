@@ -473,11 +473,13 @@ def test_unset_configuration_keeps_todays_interpreter_order(clean_env, tmp_path:
     assert rr.project_interpreter(checkout) == own
 
 
-def test_installed_dispatch_without_primary_refuses_reexec(clean_env, monkeypatch, tmp_path: Path) -> None:
+def test_installed_dispatch_without_primary_refuses_reexec(clean_env, monkeypatch, tmp_path: Path, capsys) -> None:
     _, tree = _linked_worktree(tmp_path)
     calls = _observe_reexec(monkeypatch, tree)
-    with pytest.raises(rr.StateRootError, match="no shared-state anchor is configured"):
+    with pytest.raises(SystemExit) as refused:
         dispatcher_primary.exec_primary(["list"])
+    assert refused.value.code == 2
+    assert capsys.readouterr().err.startswith("dispatcher: no shared-state anchor is configured")
     assert calls == []
 
 
