@@ -14,10 +14,13 @@ from lu_machinery.common.repo_root import machinery_path
 from lu_machinery.dispatcher import git, store
 from lu_machinery.dispatcher.types import TaskSpec
 from lu_machinery.review.model_catalog import (
+    CURSOR_APPROVED_WIRE_PINS,
+    CURSOR_NO_APPROVED_PIN_CODE,
     REVIEW_ACTIVITY,
     activity_role_refusal,
     advisory_role_policy,
     canonical_model_id,
+    cursor_pinned_models,
     is_cursor_auto_selector,
     load_model_catalog,
     retired_model_refusal,
@@ -163,6 +166,13 @@ def check_model_admission(agent: str, model: str, mode: str, options: dict, prom
     from lu_machinery.agent_runtime.model_pause import dispatch_roles
 
     catalog = load_model_catalog()
+    # Cursor's only pin, grok-4.7, retired with every Grok model (GROK-CANCEL-1110). With no
+    # approved pin, no Cursor dispatch runs, Auto included; a new pin is an operator decision.
+    if agent == "cursor" and not (cursor_pinned_models(catalog) or CURSOR_APPROVED_WIRE_PINS):
+        raise ValueError(
+            f"there is no approved Cursor model pin ({CURSOR_NO_APPROVED_PIN_CODE}); "
+            "a new pin is an operator decision (GROK-CANCEL-1110)"
+        )
     identity = canonical_model_id(_normalize_native_claude_alias(agent, model), catalog)
     if identity is None and not (agent == "cursor" and is_cursor_auto_selector(model)):
         raise ValueError(unknown_model_refusal(model))
