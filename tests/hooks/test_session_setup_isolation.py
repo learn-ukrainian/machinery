@@ -130,16 +130,16 @@ def test_session_start_drift_check_matches_the_installed_deployer(tmp_path: Path
     """Defect class: the SessionStart drift check gives false drift on a clean release deployment or hides real drift.
 
     A consumer deployed by the installed release keeps only its own sources, so only the deployer's check can
-    tell. A clean deployment with preserved runtime state, reached through a symlinked root, and an undeployed
+    tell. A clean deployment with runtime state beside it, reached through a symlinked root, and an undeployed
     linked worktree report nothing; one edited deployed file is drift.
     """
     from lu_machinery.agent_deploy.plan import release_inputs
 
     project = _scratch_project(tmp_path)
     _files, inventory, _identity = release_inputs()
-    # The runtime this hook writes, and a driver's state directory, are preserved runtime content.
-    preserve = [".claude/atlas-epic", ".agent/sessions", ".agent/claude-thread-lease.json"]
-    descriptor = {"providers": ["claude", "codex", "agy"], "sources": {}, "preserve": preserve + [preserve[2] + ".lock"]}
+    # No preserve entry: the session state and lease this hook writes, and a driver's state directory, are
+    # runtime siblings the deployer leaves out of its check.
+    descriptor = {"providers": ["claude", "codex", "agy"], "sources": {}, "preserve": []}
     for provider, configs in inventory["required_hooks"].items():
         source = project / ("product-" + provider)
         source.mkdir()
