@@ -636,7 +636,9 @@ def native_hook_roots(invocation_dir: Path) -> tuple[Path, Path]:
     ``lib/project_interpreter.sh`` with an argv (no shell text from data), stdin
     disconnected, ``invocation_dir`` as the working directory and only the variables
     that rule reads. Configured roots take part as the rule says; nothing is set
-    here. A refusal, a timeout or a malformed answer raises :class:`ProductRootError`.
+    here. The rule checks ``invocation_dir``'s own nearest ``.git`` entry even when a
+    product is configured, so a symlinked or malformed ``.git`` there refuses.
+    A refusal, a timeout or a malformed answer raises :class:`ProductRootError`.
     """
     import subprocess
 
@@ -655,7 +657,8 @@ def native_hook_roots(invocation_dir: Path) -> tuple[Path, Path]:
         )
     except (OSError, subprocess.SubprocessError):
         raise ProductRootError(f"no hook context resolves from {invocation_dir}: the root resolver did not run") from None
-    fields = result.stdout.split(b"\0")
+    # Bytes from run(); a str only from a caller that replaced subprocess.run (fsencode takes both).
+    fields = os.fsencode(result.stdout).split(b"\0")
     if result.returncode != 0 or len(fields) != 3 or fields[2] or not all(fields[:2]):
         raise ProductRootError(
             f"no hook context resolves from {invocation_dir}: set {PRODUCT_ROOT_ENV} to the product checkout "

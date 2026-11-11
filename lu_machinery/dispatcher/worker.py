@@ -230,21 +230,22 @@ def _dispatcher_code() -> dict:
     checkout's venv) is no such top level, so product Git never attests it.
 
     ``clean`` compares bytes, never the index or ``git status``: every regular file in HEAD's
-    tree under the package (and ``schemas``) must hash to its blob, and every file on disk
-    there must be in that tree. Ignore rules, assume-unchanged and skip-worktree flags, filters
+    tree must hash to its blob, and every file on disk outside root Git metadata must be
+    in that tree. Ignore rules, assume-unchanged and skip-worktree flags, filters
     and replace refs cannot hide a change. Python may run cached bytecode in place of a source,
     so a ``__pycache__`` file is untracked like any other: an attesting dispatcher runs on a
     fresh checkout without caches. Any probe error, link, file that is not regular, or other
     tree entry is unclean; an untracked file is never opened.
 
-    ``read_only`` is true only when creating a file in every package directory fails with
-    ``EROFS`` and every file there sits on a read-only mount (``statvfs``), so a writable bind
+    ``read_only`` is true only when creating a file in every checkout directory fails with
+    ``EROFS`` and every file outside Git metadata sits on a read-only mount (``statvfs``), so a writable bind
     mount over one file is caught: the checkout is a read-only mount for this process (the
     canary's read-only image), and no participating process, nested sandboxes included, can
     have written code or a cache there. Any other outcome, including a writable directory or
     file, or another error, is false.
     """
     import errno
+    import tomllib
 
     from lu_machinery.common.git_context import sanitized_git_env
 
@@ -281,46 +282,56 @@ def _dispatcher_code() -> dict:
             blobs[path] = oid
         if f"{package}/dispatcher/worker.py" not in blobs:
             return False
+        directories = {str(parent).replace(os.sep, "/") for path in blobs for parent in Path(path).parents}
         seen: set[str] = set()
-        for directory in (package, "schemas"):
-            base = os.path.join(top, directory)
-            if directory == "schemas" and not os.path.lexists(base):
-                continue
-            for current, dirs, files in os.walk(base, onerror=unreadable):
-                for name in (*dirs, *files):
-                    path = os.path.join(current, name)
-                    if stat.S_ISLNK(os.lstat(path).st_mode):
+        # Any tracked top-level tree can shadow an import, not only the package.
+        for current, dirs, files in os.walk(top, onerror=unreadable):
+            if current == top:
+                dirs[:] = [name for name in dirs if name != ".git"]
+                files = [name for name in files if name != ".git"]
+            for name in (*dirs, *files):
+                path = os.path.join(current, name)
+                if stat.S_ISLNK(os.lstat(path).st_mode):
+                    return False
+                relative = os.path.relpath(path, top).replace(os.sep, "/")
+                if name in dirs:
+                    if relative not in directories:
                         return False
-                    if name not in files:
-                        continue
-                    relative = os.path.relpath(path, top).replace(os.sep, "/")
-                    if relative not in blobs or not stat.S_ISREG(os.lstat(path).st_mode):
-                        return False
-                    data = read(path)
-                    if hashlib.new(algorithm, b"blob %d\0" % len(data) + data).hexdigest() != blobs[relative]:
-                        return False
-                    seen.add(relative)
+                    continue
+                if relative not in blobs or not stat.S_ISREG(os.lstat(path).st_mode):
+                    return False
+                data = read(path)
+                if hashlib.new(algorithm, b"blob %d\0" % len(data) + data).hexdigest() != blobs[relative]:
+                    return False
+                seen.add(relative)
         return seen == set(blobs)
 
     def sealed(top: str) -> bool:
-        for directory in (package, "schemas"):
-            base = os.path.join(top, directory)
-            if directory == "schemas" and not os.path.lexists(base):
-                continue
-            for current, _dirs, files in os.walk(base, onerror=unreadable):
-                try:
-                    # An unnamed file (O_TMPFILE) leaves nothing behind if the directory is writable.
-                    os.close(os.open(current, os.O_WRONLY | os.O_TMPFILE, 0o600))
+        for current, dirs, files in os.walk(top, onerror=unreadable):
+            if current == top:
+                dirs[:] = [name for name in dirs if name != ".git"]
+                files = [name for name in files if name != ".git"]
+            try:
+                # An unnamed file leaves nothing behind if the directory is writable.
+                os.close(os.open(current, os.O_WRONLY | os.O_TMPFILE, 0o600))
+                return False
+            except OSError as exc:
+                if exc.errno != errno.EROFS:
                     return False
-                except OSError as exc:
-                    if exc.errno != errno.EROFS:
-                        return False
-                # A file can be its own mount; statvfs reads that mount's flags without opening the file.
-                if not all(os.statvfs(os.path.join(current, name)).f_flag & os.ST_RDONLY for name in files):
-                    return False
+            # A file can be its own mount, even below an otherwise sealed tree.
+            if not all(os.statvfs(os.path.join(current, name)).f_flag & os.ST_RDONLY for name in files):
+                return False
         return True
 
     def attest() -> dict | None:
+        # Never ask Git to search ancestors of an installed package. A standalone
+        # source checkout identifies its project before any Git subprocess runs.
+        if not (root / ".git").exists():
+            return None
+        if not in_tree_source() and (
+            tomllib.loads(read(str(root / "pyproject.toml")).decode()).get("project", {}).get("name") != "lu-machinery"
+        ):
+            return None
         top = (git_out("rev-parse", "--show-toplevel") or "").rstrip("\n")
         if (
             not top
@@ -330,7 +341,7 @@ def _dispatcher_code() -> dict:
         ):
             return None
         head = (git_out("rev-parse", "--verify", "--quiet", "HEAD^{commit}") or "").strip() or None
-        listing = git_out("ls-tree", "-r", "-z", "--full-tree", f"{head}^{{tree}}", "--", package, "schemas") if head else None
+        listing = git_out("ls-tree", "-r", "-z", "--full-tree", f"{head}^{{tree}}") if head else None
         algorithm = (git_out("rev-parse", "--show-object-format") or "").strip()
         try:
             clean = listing is not None and algorithm in {"sha1", "sha256"} and unmodified(top, listing, algorithm)

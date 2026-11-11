@@ -132,6 +132,42 @@ def test_worker_route_keeps_high_pin_and_existing_permissions(tmp_path, monkeypa
     assert "--effort" not in plan.cmd
 
 
+@pytest.mark.parametrize("overlay", ["absent", "edited"])
+def test_out_of_tree_scratch_guard_never_reads_the_product_overlay(tmp_path, monkeypatch, overlay):
+    """Defect class (C2): the AGY guard registration read from the product checkout.
+
+    The bridge's out-of-tree scratch is provisioned, then gated, with a product that has no
+    AGY overlay (an external product) or a worktree-edited one. Both must give the same
+    machinery-owned registration and pass the real startup gate.
+    """
+    from lu_machinery.agent_runtime import agy_hook_config
+
+    product = tmp_path / "product"
+    product.mkdir()
+    if overlay == "edited":
+        manifest = product / "agents_extensions" / "agy" / "hooks.json"
+        manifest.parent.mkdir(parents=True)
+        edited = {"PreToolUse": [{"matcher": "never", "hooks": [{"type": "command", "command": "true", "timeout": 1}]}]}
+        manifest.write_text(json.dumps({agy_hook_config.GUARD_NAME: edited}), encoding="utf-8")
+    monkeypatch.setenv("LU_PRODUCT_ROOT", str(product))
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setenv("HOME", str(home))
+    scratch = tmp_path / "scratch" / "agy"
+    scratch.mkdir(parents=True)
+    monkeypatch.setattr(agy, "_require_background_wait_support", lambda *args: None)
+    monkeypatch.setattr(agy, "_build_log_path", lambda *args: tmp_path / "agy.log")
+    agy_hook_config.provision_workspace_guard(scratch)
+    registered = json.loads((scratch / ".agents" / "hooks.json").read_text(encoding="utf-8"))
+    hook = registered[agy_hook_config.GUARD_NAME]["PreToolUse"][0]
+    assert hook["matcher"] == "run_command"
+    assert hook["hooks"] == [
+        {"type": "command", "command": agy_hook_config.native_hook_command("agy-secret-print"), "timeout": 10}
+    ]
+    plan = build(scratch, SLUGS[0], "workspace-write")
+    assert plan.cmd[plan.cmd.index("--model") + 1] == SLUGS[0]
+
+
 @pytest.mark.parametrize("owned", [["scripts/delegate.py"], ["lu_machinery/agent_runtime/"], ["scripts/"]])
 def test_sonnet_worker_security_floor_precedes_hooks_and_cli(tmp_path, monkeypatch, owned):
     monkeypatch.setattr(agy, "require_hook_config", lambda *a, **k: pytest.fail("hooks ran before security refusal"))
