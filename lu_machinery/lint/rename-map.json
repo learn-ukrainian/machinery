@@ -4434,6 +4434,7 @@
  "tests/test_driver_blockers.py": "machinery",
  "tests/test_driver_breadth_report.py": "machinery",
  "tests/test_driver_state.py": "product",
+ "tests/test_driver_state_stop_hook.py": "machinery",
  "tests/test_dsl_to_mdx.py": "product",
  "tests/test_efficiency_metrics.py": "machinery",
  "tests/test_end_dictionaries.py": "product",
