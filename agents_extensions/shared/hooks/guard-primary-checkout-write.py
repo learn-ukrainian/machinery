@@ -3487,11 +3487,16 @@ def _agy_payload(payload: dict) -> dict | None:
     tool_name, source, key = mapped
     args, cwd = call.get("args"), payload.get("cwd")
     value = args.get(source) if isinstance(args, dict) else None
-    if not isinstance(value, str) or (key == "file_path" and not value) or not isinstance(cwd, str) or not cwd:
+    if (
+        not isinstance(value, str)
+        or (key == "file_path" and not value)
+        or not isinstance(cwd, str)
+        or not os.path.isabs(cwd)
+    ):
         return None
     tool_input = {key: value}
     if "Cwd" in args:
-        if not isinstance(args["Cwd"], str) or not args["Cwd"]:
+        if not isinstance(args["Cwd"], str) or not os.path.isabs(args["Cwd"]):
             return None
         tool_input["cwd"] = args["Cwd"]
     return {"tool_name": tool_name, "cwd": cwd, "tool_input": tool_input}
