@@ -103,6 +103,8 @@ _PUSH_CREDENTIAL_NAMES = (
 # before the value-pattern filter. Their names remain narrowly allowlisted.
 # The #7827 dispatch markers ride here for the same reason: a task id
 # containing ``sk-`` must still reach the worker's SessionStart gate.
+# ``LU_PRODUCT_ROOT`` names the product checkout (often a worktree named after a
+# task) that hooks and the installed package serve.
 _SAFE_VALUE_NAME_ALLOWLIST = {
     "LEARN_UKRAINIAN_DISPATCH_AGENT",
     "LEARN_UKRAINIAN_DISPATCH_TASK_ID",
@@ -110,6 +112,7 @@ _SAFE_VALUE_NAME_ALLOWLIST = {
     "PYTHONPYCACHEPREFIX",
     "RUFF_CACHE_DIR",
     "TMPDIR",
+    "LU_PRODUCT_ROOT",
     "LU_RUNTIME_TMP_BASE_ROOT",
     "LU_RUNTIME_TMP_ROOT",
     "LU_TASK_EVIDENCE_DIR",
@@ -613,9 +616,11 @@ def child_credential_env(
             or route_auth
             or route_counter
             or driver_identity
-            # Launcher paths can contain token-shaped task names. The dispatcher
-            # applies its existing value filter again in build_agent_env.
-            or name in {"PATH", "HOME", "PWD"}
+            # Launcher paths can contain token-shaped task names, including the
+            # interpreter and shared-state anchor the launcher exports for its
+            # children. The dispatcher applies its existing value filter again
+            # in build_agent_env.
+            or name in {"PATH", "HOME", "PWD", "LEARN_UKRAINIAN_PYTHON", "LEARN_UKRAINIAN_PRIMARY_REPO_ROOT"}
             or _is_safe_value_name(name)
         ):
             env[name] = value

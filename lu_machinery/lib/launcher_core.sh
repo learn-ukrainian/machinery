@@ -637,14 +637,17 @@ LC_GIT_LOCAL_ENV_VARS=(
 #   machinery checkout) derives no product from its own location. The wrapper
 #   names the product with LU_PRODUCT_ROOT, selected by the shared
 #   project_product_root_resolve rule (an absolute path of an existing
-#   directory); unset or invalid refuses before any side effect. The value is
-#   exported so every helper selects the same product.
-# Either way launcher_resolve_roots then decides, once, whether LC_ROOT's Git
+#   directory); unset or invalid refuses before any side effect.
+# Either way the chosen LC_ROOT is exported as LU_PRODUCT_ROOT, so every helper,
+# hook and provider child selects this product, never an ambient value naming
+# another checkout (common/repo_root.py product_root reads LU_PRODUCT_ROOT
+# first). launcher_resolve_roots then decides, once, whether LC_ROOT's Git
 # metadata is trusted and which primary checkout supplies the helpers.
 launcher_resolve_product_root() {
   local root
   if [ "$LC_MACHINERY_PACKAGE" != lu_machinery ]; then
     LC_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+    export LU_PRODUCT_ROOT="$LC_ROOT"
     return 0
   fi
   if [ -z "${LU_PRODUCT_ROOT:-}" ]; then
@@ -683,6 +686,25 @@ launcher_resolve_roots() {
     exit 3
   fi
   export LC_SESSION_ROOT LC_DURABLE_HELPER_ROOT
+  # Every child of this launch (the agent shims put on PATH next, the inbox
+  # watcher, the canaries, hooks and the provider) takes the interpreter and the
+  # shared-state anchor from the roots resolved here, never from its own
+  # location: an installed package's children sit in site-packages, from which
+  # nothing can be derived (common/repo_root.py names a launcher as a supplier).
+  # - LEARN_UKRAINIAN_PYTHON, the project interpreter (R66), is exported as the
+  #   configured one. Nothing is exported when it does not resolve; each helper
+  #   site then refuses with its own error.
+  # - LEARN_UKRAINIAN_PRIMARY_REPO_ROOT, the shared-state anchor, is the helper
+  #   root every launcher helper already anchors on. Only the installed package
+  #   needs it (the in-tree copy derives the same primary) and an operator-set
+  #   value is kept.
+  local python
+  if python="$(launcher_project_python 2>/dev/null)"; then
+    export LEARN_UKRAINIAN_PYTHON="$python"
+  fi
+  if [ "$LC_MACHINERY_PACKAGE" = lu_machinery ] && [ -z "${LEARN_UKRAINIAN_PRIMARY_REPO_ROOT:-}" ]; then
+    export LEARN_UKRAINIAN_PRIMARY_REPO_ROOT="$LC_DURABLE_HELPER_ROOT"
+  fi
 }
 
 # Prints the physical path of an operator-named primary checkout, or explains
@@ -1711,7 +1733,6 @@ launcher_main() {
   # Re-entry must retain --force for the first actual lease acquisition;
   # successor arguments intentionally drop it later in this same startup.
   LC_SCOPE_ORIGINAL_ARGS=("$@")
-  launcher_resolve_product_root || exit 3
   # Keep route selection self-contained for minimal/synthetic launchers while
   # sourcing the richer cold-start clause whenever the full checkout is
   # present. Neither path starts an ACP process.
@@ -1727,6 +1748,9 @@ launcher_main() {
     launcher_error "${0##*/} fixes the lane '$LC_WRAPPER_FIXED_EPIC'; refusing the caller's lane '$LC_EPIC'."
     exit 2
   fi
+  # Help and usage errors need no product checkout, so they come first; every
+  # later step serves LC_ROOT.
+  launcher_resolve_product_root || exit 3
   LC_FORWARD_ARGS=(
     ${LC_WRAPPER_PROVIDER_ARGS[@]+"${LC_WRAPPER_PROVIDER_ARGS[@]}"}
     ${LC_FORWARD_ARGS[@]+"${LC_FORWARD_ARGS[@]}"}

@@ -3,11 +3,8 @@
 from __future__ import annotations
 
 import json
-import shutil
 import subprocess
 from pathlib import Path
-
-from lu_machinery.common.repo_root import machinery_path
 
 import pytest
 from lu_machinery.session_canary import diary, grok_lane, muse_lane
@@ -90,9 +87,7 @@ def test_mint_and_score_real_ten_anchor_pass_and_fail(
     handoff.write_text("## Next drive order\n- Score canary at rollover\n## Hands-off\n- Foreign lanes\n")
     canary = tmp_path / "canary"
     repo = tmp_path / "repo"
-    packaged = repo / "lu_machinery"
-    packaged.mkdir(parents=True)
-    shutil.copy2(machinery_path("context_canary.py"), packaged / "context_canary.py")
+    repo.mkdir()
     subprocess.run(["git", "init", "-q", "-b", "main", str(repo)], check=True, timeout=30)
     common = ["--repo", str(repo)]
     assert (

@@ -23,10 +23,10 @@ except ImportError:
 
 # The product checkout the guard protects. A direct file-path launch has no package on sys.path.
 try:
-    from lu_machinery.common.repo_root import MachineryConfigError, product_root
+    from lu_machinery.common.repo_root import MachineryConfigError, machinery_path, product_root
 except ImportError:
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-    from lu_machinery.common.repo_root import MachineryConfigError, product_root
+    from lu_machinery.common.repo_root import MachineryConfigError, machinery_path, product_root
 
 try:
     from lu_machinery.common.git_context import sanitized_git_env
@@ -44,11 +44,6 @@ except ImportError:
 
 # These guards run inside git hooks; a wedged git or hook installer must exit
 # loudly instead of hanging the session (#7213).
-# The machinery package's directory name, which is also its import name and the first component
-# of its files' checkout paths. Taken from this file's unresolved location, so neither a short
-# import spelling nor a symlinked directory changes it.
-_MACHINERY = Path(os.path.abspath(__file__)).parents[1].name
-
 _GIT_TIMEOUT_S = 30
 _HOOK_INSTALL_TIMEOUT_S = 60
 
@@ -257,9 +252,14 @@ def check_guard() -> None:
 
 
 def install_hooks() -> None:
-    """Delegate hook installation to the repository's tracked hook installer."""
+    """Delegate hook installation to the machinery's hook installer, run on the primary checkout.
+
+    The installer ships in this package and configures the repository it runs in, so it is
+    found beside this code, never under the product checkout (an installed release has none
+    there).
+    """
     main_root = check_primary_checkout_root(hook_mode=False)
-    installer = main_root / _MACHINERY / "install_git_hooks.sh"
+    installer = machinery_path("install_git_hooks.sh")
     if not installer.is_file():
         print(f"Tracked Git hook installer not found at {installer}", file=sys.stderr)
         sys.exit(1)
