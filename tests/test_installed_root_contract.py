@@ -327,7 +327,8 @@ def machinery_checkout(tmp_path_factory: pytest.TempPathFactory) -> Path:
 @pytest.mark.parametrize("scenario", [
     "clean_nested_checkout", "linked_worktree", "dirty_tracked_file", "untracked_file", "ignored_file",
     "skip_worktree", "assume_unchanged", "replace_ref", "git_env_override", "symlinked_package",
-    "symlinked_parent", "site_packages_in_checkout", "stale_bytecode", "unresolvable_package_file",
+    "symlinked_parent", "site_packages_in_checkout", "stale_bytecode", "nonregular_cache_entry",
+    "unresolvable_package_file",
 ])
 def test_dispatcher_code_attests_only_an_unmodified_unlinked_checkout(machinery_checkout, tmp_path, scenario):
     """Defect class: canary dispatcher identity attests code that differs from the reviewed head."""
@@ -392,6 +393,10 @@ def test_dispatcher_code_attests_only_an_unmodified_unlinked_checkout(machinery_
         header = (0).to_bytes(4, "little") + (int(original.st_mtime) & 0xFFFFFFFF).to_bytes(4, "little")
         cache.write_bytes(importlib.util.MAGIC_NUMBER + header + (original.st_size & 0xFFFFFFFF).to_bytes(4, "little")
                           + marshal.dumps(code))
+    elif scenario == "nonregular_cache_entry":
+        # A FIFO named like a cache file: opening it would block the supervisor.
+        (package / "__pycache__").mkdir()
+        os.mkfifo(package / "__pycache__" / f"planted.{sys.implementation.cache_tag}.pyc")
     elif scenario == "unresolvable_package_file":
         (package / "dispatch.py").unlink()
         (package / "dispatch.py").symlink_to("dispatch.py")  # a link loop
@@ -399,7 +404,8 @@ def test_dispatcher_code_attests_only_an_unmodified_unlinked_checkout(machinery_
         load_from = checkout / ".venv" / "site-packages"
         shutil.copytree(package, load_from / "lu_machinery")
         (checkout / ".git" / "info" / "exclude").write_text(".venv/\n")
-    result = subprocess.run([sys.executable, "-I", "-c", _ATTEST_PROBE, str(load_from), head],
+    # An attesting dispatcher writes no bytecode: a cache file is untracked and unclean.
+    result = subprocess.run([sys.executable, "-I", "-B", "-c", _ATTEST_PROBE, str(load_from), head],
                             cwd=tmp_path, env=environment, capture_output=True, text=True, timeout=120)
     assert result.returncode == 0, result.stdout + result.stderr
     probe = json.loads(result.stdout)

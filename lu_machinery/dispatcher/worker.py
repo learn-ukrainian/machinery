@@ -231,15 +231,13 @@ def _dispatcher_code() -> dict:
 
     ``clean`` compares bytes, never the index or ``git status``: every regular file in HEAD's
     tree under the package (and ``schemas``) must hash to its blob, and every file on disk
-    there must be in that tree, apart from ``__pycache__``. Ignore rules, assume-unchanged and
-    skip-worktree flags, filters and replace refs cannot hide a change. Python may execute
-    cached bytecode in place of a source, so every file in a ``__pycache__`` directory must be
-    this interpreter's cache of a verified source and unmarshal to the code object that source
-    compiles to. Any probe error, link or other tree entry is unclean.
+    there must be in that tree. Ignore rules, assume-unchanged and skip-worktree flags, filters
+    and replace refs cannot hide a change. Python may run cached bytecode in place of a source,
+    so a ``__pycache__`` file is untracked like any other: an attesting dispatcher runs on a
+    checkout without caches, from an interpreter that writes none (``-B``, or
+    ``sys.dont_write_bytecode`` for its ``-I`` supervisor). Any probe error, link, file that is
+    not regular, or other tree entry is unclean; an untracked file is never opened.
     """
-    import importlib.util
-    import marshal
-
     from lu_machinery.common.git_context import sanitized_git_env
 
     loaded = os.path.abspath(__file__)
@@ -256,7 +254,10 @@ def _dispatcher_code() -> dict:
             return None
 
     def read(path: str) -> bytes:
-        with os.fdopen(os.open(path, os.O_RDONLY | os.O_NOFOLLOW), "rb") as handle:
+        # A FIFO or device swapped in after the walk's check must not block the open.
+        with os.fdopen(os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK), "rb") as handle:
+            if not stat.S_ISREG(os.fstat(handle.fileno()).st_mode):
+                raise OSError(f"{path} is not a regular file")
             return handle.read()
 
     def unreadable(exc: OSError) -> None:
@@ -273,8 +274,6 @@ def _dispatcher_code() -> dict:
         if f"{package}/dispatcher/worker.py" not in blobs:
             return False
         seen: set[str] = set()
-        sources: dict[str, bytes] = {}  # verified module sources, for their bytecode
-        caches: list[tuple[str, str]] = []
         for directory in (package, "schemas"):
             base = os.path.join(top, directory)
             if directory == "schemas" and not os.path.lexists(base):
@@ -286,9 +285,6 @@ def _dispatcher_code() -> dict:
                         return False
                     if name not in files:
                         continue
-                    if os.path.basename(current) == "__pycache__":
-                        caches.append((current, name))
-                        continue
                     relative = os.path.relpath(path, top).replace(os.sep, "/")
                     if relative not in blobs or not stat.S_ISREG(os.lstat(path).st_mode):
                         return False
@@ -296,25 +292,7 @@ def _dispatcher_code() -> dict:
                     if hashlib.new(algorithm, b"blob %d\0" % len(data) + data).hexdigest() != blobs[relative]:
                         return False
                     seen.add(relative)
-                    if relative.endswith(".py"):
-                        sources[relative] = data
-        if seen != set(blobs):
-            return False
-        for current, name in caches:
-            # <module>.<cache tag>[.opt-<level>].pyc beside the module's source, as importlib names it.
-            parts = name.split(".")
-            level = parts[2] if len(parts) == 4 else ""
-            if (len(parts) not in {3, 4} or parts[-1] != "pyc" or parts[1] != sys.implementation.cache_tag
-                    or level not in {"", "opt-1", "opt-2"}):
-                return False
-            source = os.path.relpath(os.path.join(os.path.dirname(current), parts[0] + ".py"), top).replace(os.sep, "/")
-            data = read(os.path.join(current, name))
-            if source not in sources or data[:4] != importlib.util.MAGIC_NUMBER:
-                return False
-            expected = compile(sources[source], source, "exec", dont_inherit=True, optimize=int(level[4:] or 0))
-            if marshal.loads(data[16:]) != expected:  # code objects compare by content, not by file name
-                return False
-        return True
+        return seen == set(blobs)
 
     def attest() -> dict | None:
         top = (git_out("rev-parse", "--show-toplevel") or "").rstrip("\n")
