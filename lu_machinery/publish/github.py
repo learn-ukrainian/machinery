@@ -1723,8 +1723,8 @@ def publish(
         elif verb == "issue-close":
             option("comment")
             option("reason")
-        elif verb == "pr-merge":
-            # Enqueue only. gh pr merge can arm auto-merge on a non-ready PR.
+        elif verb == "pr-merge" and recovery_queue:
+            # Queue repositories must enqueue without arming auto-merge.
             frozen = temp / "enqueue.json"
             frozen.write_bytes(json.dumps({
                 "query": "mutation($id:ID!,$head:GitObjectID!){enqueuePullRequest(input:"
@@ -1733,6 +1733,11 @@ def publish(
                 "variables": {"id": default["id"], "head": fields["match_head"]},
             }).encode("utf-8"))
             argv = ["gh", "api", "--method", "POST", "graphql", "--input", str(frozen), *_hostname_flag(dest)]
+        elif verb == "pr-merge":
+            argv.append("--squash")
+            option("subject")
+            option("match_head", "--match-head-commit")
+            body_file("body")
         elif verb in {"pr-update-branch", "pr-ready", "pr-close", "issue-reopen", "run-cancel"}:
             pass
         elif verb == "run-rerun":
@@ -1840,7 +1845,7 @@ def publish(
             )
             if not capture_output:
                 print(str(result.stdout or "").strip())
-        if verb == "pr-merge" and not already_queued and result.returncode == 0:
+        if verb == "pr-merge" and recovery_queue and not already_queued and result.returncode == 0:
             _confirm_enqueued(
                 gh_repo, fields["number"], fields["match_head"], dest, temp, (readiness_runner, runner), cwd, environment,
             )

@@ -328,3 +328,26 @@ def test_label_applied_after_an_earlier_heads_approval_does_not_jump(synthetic_o
 
 
 pytestmark = pytest.mark.usefixtures("configured_roots")
+
+
+def test_non_queue_merge_sends_scanned_squash_text_at_approved_head(synthetic_opsec):
+    """Non-queue landing must avoid enqueue-only regression and pin scanned squash text and head."""
+    calls, reads = [], []
+    base = transport(calls, queue=False, reads=reads)
+
+    def send(args, **kwargs):
+        if args[:3] == ["gh", "pr", "merge"]:
+            calls.append({"argv": args, "body": Path(args[args.index("--body-file") + 1]).read_text()})
+            return subprocess.CompletedProcess(args, 0, "", "")
+        assert not calls, "non-queue merge must not probe enqueue confirmation"
+        return base(args, **kwargs)
+
+    result = pub.publish("pr-merge", repo="unit/public", number=1, runner=send)
+    assert result.returncode == 0
+    assert len(calls) == 1
+    assert calls[0]["argv"][:6] == ["gh", "pr", "merge", "1", "--repo", "unit/public"]
+    assert "--squash" in calls[0]["argv"]
+    assert "--match-head-commit=" + HEAD in calls[0]["argv"]
+    assert "--subject=clean (#1)" in calls[0]["argv"]
+    assert calls[0]["body"] == "* clean"
+    assert not {"--auto", "--admin", "--delete-branch"}.intersection(calls[0]["argv"])

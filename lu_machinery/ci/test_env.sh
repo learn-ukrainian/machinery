@@ -84,7 +84,7 @@ npm_install() {
 
 run_task() {
   case "$1" in
-    postgres) bash lu_machinery/ci/start_postgres.sh ;;
+    postgres) bash "$(dirname "${BASH_SOURCE[0]}")/start_postgres.sh" ;;
     npm) npm_install ;;
     *)
       echo "unknown task: $1" >&2
