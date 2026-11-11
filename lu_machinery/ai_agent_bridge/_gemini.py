@@ -493,6 +493,12 @@ def _run_gemini_attempt(
     classification. The retry loop stays here because it's higher-level
     policy (multiple attempts with backoff).
     """
+    if not allow_write:
+        # Gemini runs only through AGY, whose read-only mode exists only on the
+        # review route (#100): refuse before any launch; the caller's ``finally``
+        # records the failure without acknowledging the message.
+        print("❌ ask-gemini refused: read-only Gemini has no AGY read-only boundary; use ask-agy (ACP) or a channel")
+        return False
     if not stdout_only:
         # In stdout_only mode the caller is parsing our stdout as Gemini's
         # response (e.g., scripts/wiki/compile.py captures it for the
@@ -511,16 +517,12 @@ def _run_gemini_attempt(
     if output_path:
         pre_snapshot = _git_status_snapshot()
 
-    # Runtime write-mode tracks write *intent*, decoupled from the CLI approval
-    # flag (#4446): only ``--allow-write`` callers (curriculum writers) need
-    # ``workspace-write`` (→ gemini ``--approval-mode=yolo``); plain Q&A / review
-    # runs ``read-only`` like the codex/agy bridges, so an ``ask-gemini`` query
-    # can no longer silently mutate the primary checkout. The runner's #4446
-    # guard rejects a write-capable spawn in a protected primary checkout, so
-    # write-intent invocations must run from an isolated worktree.
-    # Tool config is None because the bridge doesn't restrict MCP tools the way
-    # dispatch.py does.
-    runtime_mode = "workspace-write" if allow_write else "read-only"
+    # Only ``--allow-write`` callers (curriculum writers) reach the runtime, in
+    # ``workspace-write``. The runner's #4446 guard rejects a write-capable spawn
+    # in a protected primary checkout, so they must run from an isolated
+    # worktree. Tool config is None because the bridge doesn't restrict MCP
+    # tools the way dispatch.py does.
+    runtime_mode = "workspace-write"
     tool_config = {"auth_mode": auth_mode} if auth_mode else None
     try:
         result = runtime_invoke(
