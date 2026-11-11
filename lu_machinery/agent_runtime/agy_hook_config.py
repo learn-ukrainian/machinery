@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import copy
 import json
 import os
 import re
@@ -17,7 +16,6 @@ from lu_machinery.common.repo_root import (
     configure_native_hook_roots,
     machinery_path,
     main_checkout_root,
-    product_root,
 )
 from lu_machinery.common.safe_open import safe_open_below
 
@@ -36,6 +34,7 @@ NATIVE_HOOK_MODES = (
     "agy-pretool-hook",
     "claude-hook",
     "claude-stop-hook",
+    "claude-audit-hook",
     "codex-pre-tool-use",
     "codex-post-tool-use",
     "codex-user-prompt-submit",
@@ -69,6 +68,10 @@ case "$_lu_hook_mode" in
         _lu_hook_guard="$("$LEARN_UKRAINIAN_PYTHON" -I -c 'from lu_machinery.common.repo_root import machinery_path
 print(machinery_path("agents_extensions/shared/hooks/guard-primary-checkout-write.py"))' </dev/null 2>/dev/null)" || _lu_hook_fail "$_lu_hook_mode"
         "$LEARN_UKRAINIAN_PYTHON" -I "$_lu_hook_guard" || _lu_hook_fail "$_lu_hook_mode"
+        exit 0 ;;
+    claude-audit-hook)
+        "$LEARN_UKRAINIAN_PYTHON" -I -m agents_extensions.shared.hooks.audit-primary-checkout-dirt \
+            || exit "$?"
         exit 0 ;;
     agy-secret-print)
         "$LEARN_UKRAINIAN_PYTHON" -I -m lu_machinery.agent_runtime.secret_print_hook --harness agy \
@@ -236,16 +239,16 @@ def check_hook_config(locations: tuple[Path, ...]) -> HookConfigResult:
 
 
 def guard_registration() -> dict:
-    """The tracked overlay's guard, with the one generated guard command.
+    """Register the installed secret-print guard; read no product configuration.
 
-    The overlay is product configuration, read from the product checkout ``product_root``
-    selects (C-4746); its other hook metadata is kept. The command is
-    ``native_hook_command(GUARD_MODE)``, the exact bytes ``_check_file`` accepts, so the
-    hook resolves its interpreter by the shared shell rule, never from this process.
+    The registration is machinery's own: the one generated guard command, the exact
+    bytes ``_check_file`` accepts, on ``run_command`` with the timeout floor. No product
+    file takes part, so an out-of-tree workspace or a product without the AGY overlay
+    is provisioned the same way, and a worktree-writable overlay cannot change it.
     """
-    guard = copy.deepcopy(_read_config(product_root() / "agents_extensions/agy/hooks.json")[GUARD_NAME])
-    guard["PreToolUse"][0]["hooks"][0]["command"] = native_hook_command(GUARD_MODE)
-    return guard
+    return {"PreToolUse": [{"matcher": "run_command", "hooks": [
+        {"type": "command", "command": native_hook_command(GUARD_MODE), "timeout": GUARD_TIMEOUT_FLOOR}
+    ]}]}
 
 
 def primary_guard_registration() -> dict:

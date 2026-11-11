@@ -317,7 +317,17 @@ _project_hook_git_layout() {
 #   (no .git) therefore needs an explicit anchor.
 project_hook_roots_resolve() {
     local root="${1-${LU_PRODUCT_ROOT:-${CLAUDE_PROJECT_DIR:-}}}"
-    local primary state_root state_config
+    local primary state_root state_config invocation
+    # Configured roots keep precedence, but cannot hide malformed invocation metadata.
+    invocation="$(pwd -P)" || return 1
+    while [[ ! -e "$invocation/.git" && ! -L "$invocation/.git" && "$invocation" != / ]]; do
+        invocation="${invocation%/*}"
+        [[ -n "$invocation" ]] || invocation=/
+    done
+    if [[ -e "$invocation/.git" || -L "$invocation/.git" ]]; then
+        primary="$(project_primary_root_resolve "$invocation")" || return 1
+        _project_hook_git_layout "$primary" || return 1
+    fi
     if [[ -z "$root" ]]; then
         root="$(pwd -P)" || return 1
         while [[ ! -e "$root/.git" && ! -L "$root/.git" ]]; do
