@@ -2432,7 +2432,7 @@ def _writer_targets(
                     cwd=None if cmd == "trap" else cwd,
                     main_root=main_root,
                     depth=depth + 1,
-                    uv_env=_UV_DIR_UNKNOWN if cmd == "trap" else uv_env,
+                    uv_env=_UV_DIR_ENV_FILE if cmd == "trap" else uv_env,
                 )
             )
     elif cmd == "eval":

@@ -655,3 +655,44 @@ def test_trap_coproc_primary_write_bypass_refused(layout: Layout, command: str, 
         timeout=60,
     )
     assert result.returncode == expected, result.stderr
+
+
+@pytest.mark.parametrize(
+    "timing,nested",
+    [("inherited", True), ("inherited", False), ("before", True), ("after", True)],
+)
+def test_deferred_trap_envfile_cannot_clear_uv_context(layout: Layout, timing: str, nested: bool):
+    """Deferred dotenv bindings must survive unsetting only UV_WORKING_DIR."""
+    repo = layout.main
+    dispatch = layout.dispatch_wt
+    env_file = dispatch / "uv.env"
+    env_file.write_text(f"UV_WORKING_DIR={repo}\n")
+    writer = 'sh -c "uv run touch tracked.txt"' if nested else "touch tracked.txt"
+    action = f"cd {dispatch}; env -u UV_WORKING_DIR uv run {writer}"
+    command = f"cd {dispatch}; trap '{action}' EXIT"
+    if timing == "before":
+        command = f"export UV_ENV_FILE={env_file}; {command}"
+    elif timing == "after":
+        command += f"; export UV_ENV_FILE={env_file}"
+    env = {
+        key: value for key, value in _clean_env().items()
+        if key not in {
+            "LEARN_UK_ALLOW_PRIMARY_GIT_WRITE", "LEARN_UK_ALLOW_PRIMARY_WRITE", "UV_WORKING_DIR", "UV_ENV_FILE"
+        }
+    }
+    env["LU_PRODUCT_ROOT"] = str(repo)
+    if timing == "inherited":
+        env["UV_ENV_FILE"] = str(env_file)
+    payload = {"tool_name": "Bash", "cwd": str(repo), "tool_input": {"command": command}}
+    hook_path = Path(__file__).resolve().parents[2] / "agents_extensions/shared/hooks/guard-primary-checkout-write.py"
+    result = subprocess.run(
+        [sys.executable, str(hook_path)],
+        input=json.dumps(payload),
+        cwd=repo,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=60,
+    )
+    assert result.returncode == 2, result.stderr
