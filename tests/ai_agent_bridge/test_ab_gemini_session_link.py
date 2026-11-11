@@ -5,12 +5,13 @@ import json
 import sqlite3
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
 
 
-from lu_machinery.ai_agent_bridge import _channels, _db, _gemini_session_link, _inbox
+from lu_machinery.ai_agent_bridge import _channels, _channels_cli, _db, _gemini_session_link, _inbox
 from tests.helpers.product_tree import configured_roots  # noqa: F401
 
 pytestmark = pytest.mark.usefixtures("configured_roots", "bridge_wake_dir")
@@ -190,16 +191,32 @@ def test_find_session_recovery_prefers_brief_match_when_windows_overlap(tmp_path
 
 
 @pytest.mark.parametrize("agent", ["agy", "gemini"])
-def test_run_inbox_refuses_agy_recipient_before_claiming_delivery(agent):
-    """Defect class: an AGY inbox delivery claimed, then terminal-failed by the read-only boundary (#100)."""
+def test_run_inbox_refuses_agy_recipient_before_claiming_delivery(agent, monkeypatch):
+    """Defect class: an AGY inbox delivery expired, claimed or terminal-failed before the read-only refusal (#100)."""
     thread = _make_thread(agent, body="please review this carefully")
+    conn = _db.get_db()
+    try:
+        # Past the channel TTL, so any sweep before the refusal would expire it.
+        conn.execute(
+            "UPDATE channel_messages SET created_at = ? WHERE message_id = ?",
+            ((datetime.now(UTC) - timedelta(hours=48)).isoformat(), str(thread["message_id"])),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    monkeypatch.setenv("FLEET_COMMS_MESSAGE_PLANE", "shadow")
+    args = SimpleNamespace(
+        inbox_command="run", agent=agent, once=True, until_idle=False,
+        max_messages=None, stop_after_seconds=None, deadline=None, auth=None,
+    )
 
     with (
         patch("lu_machinery.ai_agent_bridge._inbox.runtime_invoke") as mock_invoke,
         patch("lu_machinery.ai_agent_bridge._inbox._claim_next_thread") as mock_claim,
-        pytest.raises(ValueError, match="agy_inbox_unsupported"),
     ):
-        _inbox.run_inbox(agent)
+        assert _channels_cli._dispatch_inbox_command(args) == 1
+        with pytest.raises(ValueError, match="agy_inbox_unsupported"):
+            _inbox.run_inbox(agent)
 
     mock_claim.assert_not_called()
     mock_invoke.assert_not_called()

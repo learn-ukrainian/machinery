@@ -1452,8 +1452,6 @@ def _handle_inbox_run(args) -> int:
     if _reject_non_cli_agent(args.agent, "ab inbox run"):
         return 1
 
-    _channels.expire_stale_deliveries()
-
     until_idle = not args.once
     if args.until_idle:
         until_idle = True
