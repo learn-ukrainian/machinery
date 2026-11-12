@@ -176,7 +176,7 @@ def test_gemini_authored_required_head_takes_the_next_listed_family():
                     started="2026-09-23T12:00:00.000002+00:00")
     assert sweep.lookup_verdict([*rows, reused], SHA, "fleet", second_review=True).state == sweep.NEEDS_SEAT
     # Authors of every listed family leave no eligible second reviewer.
-    every = (MUSE, "gemini-4-carbon-medium", "claude-opus-5-5", "gpt-6.1-sol")
+    every = (MUSE, "gemini-4-carbon-medium", "grok-4.7", "claude-opus-5-5", "gpt-6.1-sol")
     assert sweep.lookup_verdict([record(task="review-sol", authors=every)], SHA, "fleet",
                                 second_review=True).state == "APPROVED"
 
