@@ -1033,10 +1033,12 @@ def merged_delivery(record: dict) -> dict | None:
             # The net file list omits a change a later commit reverted, so settlement's own walk also reads
             # every commit the PR's final head adds to the base it merged into (the merge's first parent).
             with ownership_git(record, head=pr["headRefOid"]) as run:
+                start = record.get("worktree_start_sha", record["worktree_base_sha"])
+                # The exit snapshot may be a reset to the squash merge. Count the PR head's own range.
+                commits_expected = bool(run("rev-list", "--max-count=1", f"{start}..{pr['headRefOid']}"))
                 history = ownership.delivered_paths(
                     run, pr["headRefOid"], run("rev-parse", "--verify", pr["mergeCommit"]["oid"] + "^1"),
-                    record.get("worktree_start_sha", record["worktree_base_sha"]),
-                    commits_expected=record.get("commits_ahead") != 0)
+                    start, commits_expected=commits_expected)
             record.pop("merged_delivery_lookup", None)
             return dict(repo=repo, number=number, merged_at=pr["mergedAt"],
                         merge_sha=pr["mergeCommit"]["oid"],

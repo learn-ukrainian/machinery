@@ -93,7 +93,7 @@ def test_runtime_substitution_matches_only_requested_model_ids(requested, runtim
 @pytest.mark.parametrize("roles", [[], ["not-a-role"], ["critical_review"]])
 def test_candidate_suitability_roles_must_be_nonempty_and_held(roles):
     catalog = deepcopy(load_model_catalog())
-    catalog["review_candidates"]["muse"]["suitability_roles"] = roles
+    catalog["review_candidates"]["claude-sonnet-5-5"]["suitability_roles"] = roles
     with pytest.raises(ModelCatalogError, match="suitability_roles"):
         validate_catalog(catalog)
 
@@ -290,8 +290,8 @@ def test_recon_models_consult_but_never_review():
 def test_unknown_activity_and_unknown_model():
     """An unknown id still has no activity refusal, and dispatch refuses it before any exemption.
 
-    Cursor has no approved model pin (GROK-CANCEL-1110), so every Cursor dispatch, ``auto``
-    and the former Grok pins included, is refused first. A bare Claude alias is normalized
+    C-5307 restores Grok's explicit Cursor pin. Model admission recognizes its
+    exact wire pin and refuses Auto and other models. A bare Claude alias is normalized
     first, so ``opus`` stays admitted. A newer minor version is not an effort suffix.
     """
     from lu_machinery.dispatcher.checks import check_model_admission
@@ -299,9 +299,10 @@ def test_unknown_activity_and_unknown_model():
     assert activity_role_refusal("not-a-catalog-model", "review") is None
     with pytest.raises(ValueError, match="unknown activity"):
         activity_role_refusal("claude-opus-5-5", "approve")
-    for mode, model in (("workspace-write", "auto"), ("read-only", "grok-4.7-build"), ("read-only", "grok-4.7-high")):
-        with pytest.raises(ValueError, match="cursor_no_approved_model_pin"):
+    for mode, model in (("workspace-write", "auto"), ("read-only", "grok-4.7-build"), ("read-only", "claude-opus-5-5")):
+        with pytest.raises(ValueError, match=r"cursor_auto_outside_coding_task|CURSOR_MODEL_NOT_APPROVED|CURSOR_CLAUDE_REFUSED"):
             check_model_admission("cursor", model, mode, {}, b"")
+    check_model_admission("cursor", "grok-4.7-high", "read-only", {}, b"")
     check_model_admission("claude", "opus", "read-only", {}, b"")
     check_model_admission("claude", "sonnet[1m]", "read-only", {}, b"")
     check_model_admission("claude", "fable", "read-only", {}, b"")
@@ -675,13 +676,16 @@ def test_cursor_non_dispatch_model_refusal_is_typed(model: str | None, code: str
 
 
 @pytest.mark.parametrize("model", ["grok-4.7", "grok-4.7-high"])
-def test_cursor_non_dispatch_model_refusal_refuses_the_retired_grok_pins(model: str, monkeypatch):
+def test_cursor_non_dispatch_model_refusal_requires_a_driver_pin_context(model: str, monkeypatch):
     refusal = cursor_non_dispatch_model_refusal(model)
     assert refusal is not None
     assert "(cursor_no_approved_model_pin)" in refusal
-    # Even with another approved pin, a retired Grok id is not an approved Cursor pin.
+    # A driver context admits the restored exact wire pin, never its bare selector.
     catalog = _catalog_with_approved_cursor_pin(monkeypatch)
-    assert "(cursor_model_not_approved)" in cursor_non_dispatch_model_refusal(model, catalog)
+    if model == "grok-4.7-high":
+        assert cursor_non_dispatch_model_refusal(model, catalog) is None
+    else:
+        assert "(cursor_model_not_approved)" in cursor_non_dispatch_model_refusal(model, catalog)
     assert cursor_non_dispatch_model_refusal(_SIMULATED_CURSOR_PIN, catalog) is None
 
 
@@ -693,9 +697,8 @@ def test_catalog_rejects_cursor_auto_as_formal_review_identity():
     broken_ep["review_scheduler"]["endpoints"]["cursor"]["models"] = ["composer-2.5"]
     with pytest.raises(ModelCatalogError, match="references retired model"):
         validate_catalog(broken_ep)
-    # The live Cursor endpoint is not formal (no approved pin, GROK-CANCEL-1110); making it
-    # formal without a pin must fail.
-    assert load_model_catalog()["review_scheduler"]["endpoints"]["cursor"]["formal_review_eligible"] is False
+    # C-5307 restores the formal endpoint; removing its exact pin must still fail.
+    assert load_model_catalog()["review_scheduler"]["endpoints"]["cursor"]["formal_review_eligible"] is True
     unpinned_ep = deepcopy(load_model_catalog())
     unpinned_ep["review_scheduler"]["endpoints"]["cursor"]["formal_review_eligible"] = True
     unpinned_ep["review_scheduler"]["endpoints"]["cursor"]["models"] = []

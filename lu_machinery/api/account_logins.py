@@ -216,12 +216,15 @@ def _claude_row(label: str) -> dict[str, Any]:
         return {**row, "logged_in": None, "error": exc.code}
     except OSError:
         return {**row, "logged_in": None, "error": "probe_failed"}
-    if result is None or result[0] != 0:
+    if result is None:
         return {**row, "logged_in": None, "error": "probe_failed"}
     try:
         data = json.loads(result[1])
     except ValueError:
         data = None
+    # Claude exits 1 for its normal signed-out answer. No other failed probe is a reading.
+    if result[0] != 0 and not (result[0] == 1 and isinstance(data, dict) and data.get("loggedIn") is False):
+        return {**row, "logged_in": None, "error": "probe_failed"}
     if not isinstance(data, dict) or not isinstance(data.get("loggedIn"), bool):
         return {**row, "logged_in": None, "error": "unreadable_status"}
     if data["loggedIn"] and (
