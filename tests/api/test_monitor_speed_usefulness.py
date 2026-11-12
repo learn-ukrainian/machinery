@@ -90,7 +90,8 @@ def test_home_panels_paint_independently_and_a_failed_panel_clears_old_data():
         + r"""
 const calls = [];
 const REFRESH_MS = 30000;
-let logins = null;
+const latest = {};
+const OPTIONAL = new Set();
 let loginPolls = 0;
 const setTimeout = (fn, ms) => {if (ms === 3000) loginPolls++;};
 let resolveSlow;
@@ -107,7 +108,7 @@ const PANELS = [
   {id: 'fast', urls: ['/fast'], render: data => `fast ${data.tasks.length}`},
   {id: 'broken', urls: ['/broken'], render: () => 'never'},
   {id: 'slow', urls: ['/slow'], render: data => `slow ${data.marker}`},
-  {id: 'logins', urls: ['/login'], render: data => data.state},
+  {id: 'logins', urls: ['/login'], render: data => data.state, retry: data => data.state === 'pending'},
 ];
 """
         + code
@@ -117,7 +118,7 @@ const PANELS = [
   await tick();
   assert.equal(document.getElementById('fast-content').innerHTML, 'fast 0');
   assert.equal(document.getElementById('fast-age').textContent, 'Source age 900s');
-  assert.equal(document.getElementById('fast-age').className, 'bad');
+  assert.equal(document.getElementById('fast-age').className, 'age bad');
   assert.equal(loginPolls, 1, 'pending login retries independently of another failed panel');
   assert.match(document.getElementById('broken-content').innerHTML, /Unavailable: \/broken: HTTP 503/);
   assert.doesNotMatch(document.getElementById('broken-content').innerHTML, /old data/);

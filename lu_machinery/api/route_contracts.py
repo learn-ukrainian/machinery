@@ -152,6 +152,18 @@ ROUTE_CONTRACTS: tuple[RouteContract, ...] = (
         response_schema_version="load-samples.v1",
     ),
     RouteContract(
+        "/api/ops/v1/alerts",
+        "exact",
+        "http",
+        "Alerts firing now in the host Alertmanager: name, severity, owner lane, repository class, start time, summary and action; the dead-man heartbeat as a flag.",
+        "The loopback Alertmanager v2 alerts API (active, not silenced, not inhibited).",
+        "Read at most every 15 seconds per Monitor process; an unreachable Alertmanager returns status unknown with a reason, never an empty list.",
+        ("index.html", "operators"),
+        "Complements Prometheus and the alert relay; labels naming hosts or scrape targets (instance, job) and the generator URL are never returned.",
+        "low; read-only and allow-listed",
+        "keep as the machinery home's alerts reading",
+    ),
+    RouteContract(
         "/api/contracts/routes",
         "exact",
         "http",
@@ -598,6 +610,18 @@ ROUTE_CONTRACTS: tuple[RouteContract, ...] = (
         mutates=True,
     ),
     RouteContract(
+        "/api/git/pull-requests",
+        "exact",
+        "http",
+        "Open pull requests per fleet repository (machinery, learn-ukrainian, infra-private): number, draft, age, CI rollup, cross-family review status and merge-queue position.",
+        "One GitHub GraphQL read through the shared GitHub client.",
+        "Refreshed at most every 120 seconds per Monitor process; a failed read returns status unknown with a reason, never an empty list.",
+        ("index.html", "operators"),
+        "A private repository returns counts and states only: titles and branch names are withheld.",
+        "medium if a two-minute-old queue position is read as live",
+        "keep as the machinery home's PR and merge-queue reading",
+    ),
+    RouteContract(
         "/api/git",
         "prefix",
         "http",
@@ -768,7 +792,7 @@ ROUTE_CONTRACTS: tuple[RouteContract, ...] = (
         "exact",
         "http",
         "Static dashboard file serving catch-all.",
-        "lu_machinery/api/dashboards/ (the machinery home at /), then the files the product entry declares (scripts/project_api/static/).",
+        "lu_machinery/api/dashboards/ (the machinery home at /machinery, and at / when the product declares no home), then the files the product entry declares (scripts/project_api/static/).",
         "Static FileResponse; dashboard freshness comes from client-side API calls.",
         ("humans",),
         "Can hide missing page contracts unless dashboard files are scanned separately.",
@@ -781,9 +805,9 @@ ROUTE_CONTRACTS: tuple[RouteContract, ...] = (
 PAGE_CONTRACTS: tuple[PageContract, ...] = (
     PageContract(
         "index.html",
-        "/",
-        "Machinery home: live agent workers and recent outcomes, per-account subscription usage with pace, resets and plan facts, sign-in health, Fleet Comms backlog.",
-        "GET /api/delegate/active, /api/delegate/recent, /api/runtime/subscriptions, /api/state/routing-budget, /api/runtime/logins and /api/comms/v1/metrics.",
+        "/machinery",
+        "Machinery home: live agent workers and recent outcomes, per-account subscription usage with pace, resets, sign-in and plan facts, open PRs and the merge queue, firing alerts, Fleet Comms backlog.",
+        "GET /api/delegate/active, /api/delegate/recent, /api/runtime/subscriptions, /api/runtime/logins, /api/git/pull-requests, /api/ops/v1/alerts and /api/comms/v1/metrics.",
         "Client refreshes every 30s; each panel shows its own source age and draws stale, missing or unavailable readings as such.",
         ("humans", "operators"),
         "The only machinery page; product pages are the product's.",
@@ -801,9 +825,13 @@ def all_route_contracts(product: ProductContribution | None = None) -> tuple[Rou
 
 
 def all_page_contracts(product: ProductContribution | None = None) -> tuple[PageContract, ...]:
-    """Product declarations replace machinery contracts for the same static page."""
+    """Product declarations replace machinery contracts for the same URL.
+
+    The machinery home lives at ``/machinery``, so a product home at ``/`` that
+    reuses the file name ``index.html`` does not hide its contract.
+    """
     pages = (installed_product() if product is None else product).page_contracts
-    return (*(page for page in PAGE_CONTRACTS if not any(p.file == page.file for p in pages)), *pages)
+    return (*(page for page in PAGE_CONTRACTS if not any(p.url == page.url for p in pages)), *pages)
 
 
 def contracts_for_route(path: str, kind: ContractKind = "http") -> list[RouteContract]:

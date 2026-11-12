@@ -64,3 +64,61 @@ def test_route_reports_a_missing_or_disabled_pool_without_creating_it(
     assert failed["age_s"] is None
     assert failed["requested_at"].endswith("Z")
     assert not (tmp_path / "pool").exists()
+
+
+def test_alerts_route_emits_only_allowlisted_fields(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Defect class: Alertmanager labels, annotations or URLs that name hosts or scrape targets leak to the page."""
+    from lu_machinery.api import ops_router
+    from lu_machinery.api.state_helpers import cache_invalidate
+
+    alerts = [
+        {"labels": {"alertname": "ApprovedNotLanded30m", "severity": "warning", "owner_lane": "cto",
+                    "instance": "leak-instance:9100", "job": "leak-job", "repo": "public"},
+         "annotations": {"summary": "An approved PR has not merged", "action": "Land it", "runbook": "leak-runbook"},
+         "startsAt": "2030-01-01T00:00:00Z", "status": {"state": "active"},
+         "generatorURL": "http://leak-host:9090/graph", "fingerprint": "leak-fingerprint",
+         "receivers": [{"name": "leak-receiver"}]},
+        {"labels": {"alertname": "Watchdog", "severity": "none"}, "annotations": {},
+         "startsAt": "2030-01-01T00:00:00Z", "status": {"state": "active"}},
+    ]
+
+    class Response:
+        status = 200
+
+        def read(self, _limit):
+            return json.dumps(alerts).encode()
+
+    class Connection:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        def request(self, *_args, **_kwargs):
+            pass
+
+        def getresponse(self):
+            return Response()
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(ops_router.http.client, "HTTPConnection", Connection)
+    cache_invalidate()
+    response = client.get("/api/ops/v1/alerts")
+    cache_invalidate()
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "ok" and body["heartbeat"] is True
+    assert [row["alertname"] for row in body["alerts"]] == ["ApprovedNotLanded30m"]
+    assert set(body["alerts"][0]) == {"alertname", "severity", "owner_lane", "repo", "summary", "action", "starts_at"}
+    assert "leak" not in response.text
+    # One malformed item makes the whole reading unknown, never a healthy "nothing firing".
+    for bad in ({}, None, {"labels": {"alertname": "X"}}, {"labels": {"alertname": "X"}, "status": {}},
+                {"labels": {"alertname": "X"}, "status": {"state": None}},
+                {"labels": {"alertname": "X"}, "status": {"state": []}},
+                {"labels": {"alertname": "X"}, "status": {"state": {}}},
+                {"labels": {"alertname": "X"}, "status": {"state": "active"}, "annotations": None}):
+        alerts[:] = [bad]
+        cache_invalidate()
+        body = client.get("/api/ops/v1/alerts").json()
+        assert (body["status"], body["reason"], body["alerts"]) == ("unknown", "alertmanager_invalid_response", [])
+    cache_invalidate()

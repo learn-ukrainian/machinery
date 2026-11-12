@@ -4,50 +4,72 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Machinery</title>
+<link rel="icon" href="data:,">
 <style>
-  :root { color-scheme: light dark; --fg: #1d1f23; --muted: #6a6f78; --bg: #f7f7f8; --card: #fff; --line: #e3e4e8;
-          --ok: #1a7f37; --warn: #9a6700; --bad: #cf222e; }
+  :root { color-scheme: light dark; --fg: #1d1f23; --muted: #646a73; --bg: #f4f5f7; --card: #fff; --line: #e3e4e8;
+          --ok: #1a7f37; --warn: #9a6700; --bad: #cf222e; --link: #0969da; }
   @media (prefers-color-scheme: dark) {
     :root { --fg: #e6e7ea; --muted: #9aa0aa; --bg: #15171a; --card: #1d2024; --line: #30343a;
-            --ok: #3fb950; --warn: #d29922; --bad: #f85149; }
+            --ok: #3fb950; --warn: #d29922; --bad: #f85149; --link: #58a6ff; }
   }
   * { box-sizing: border-box; }
-  body { margin: 0; font: 14px/1.4 system-ui, sans-serif; color: var(--fg); background: var(--bg); }
-  header { display: flex; align-items: baseline; gap: 16px; padding: 12px 20px; border-bottom: 1px solid var(--line); }
+  body { margin: 0; font: 14px/1.45 system-ui, sans-serif; color: var(--fg); background: var(--bg); }
+  header { position: sticky; top: 0; z-index: 1; background: var(--card); border-bottom: 1px solid var(--line);
+           padding: 10px 20px; display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; }
   header h1 { margin: 0; font-size: 18px; }
-  header .muted { font-size: 12px; }
-  main { display: grid; gap: 16px; padding: 16px 20px; grid-template-columns: repeat(auto-fit, minmax(520px, 1fr)); }
-  section { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; overflow-x: auto; }
+  nav.sites { display: flex; gap: 12px; font-size: 13px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip { border: 1px solid var(--line); border-radius: 999px; padding: 1px 10px; font-size: 13px; color: inherit; text-decoration: none; }
+  .chip b { font-variant-numeric: tabular-nums; }
+  .chip.bad { border-color: var(--bad); color: var(--bad); }
+  .chip.warn { border-color: var(--warn); color: var(--warn); }
+  #last-refresh { margin-left: auto; font-size: 12px; }
+  main { display: grid; gap: 14px; padding: 14px 20px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 560px), 1fr)); }
+  section { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 10px 14px; overflow-x: auto; min-width: 0; }
   section.wide { grid-column: 1 / -1; }
-  h2 { margin: 0 0 8px; font-size: 15px; display: flex; gap: 10px; align-items: baseline; }
+  h2 { margin: 0 0 6px; font-size: 15px; display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
   h2 .age { font-weight: normal; font-size: 12px; color: var(--muted); }
+  h2 .age.bad { color: var(--bad); }
+  h3 { margin: 10px 0 4px; font-size: 13px; color: var(--muted); font-weight: 600; }
   table { border-collapse: collapse; width: 100%; }
-  th, td { text-align: left; padding: 4px 8px 4px 0; border-bottom: 1px solid var(--line); vertical-align: top; white-space: nowrap; }
-  th { font-size: 12px; color: var(--muted); font-weight: 600; }
-  td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  th, td { text-align: left; padding: 4px 10px 4px 0; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { font-size: 12px; color: var(--muted); font-weight: 600; white-space: nowrap; }
+  td.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  p { margin: 6px 0; }
+  details { margin: 8px 0; } summary { cursor: pointer; }
   .muted { color: var(--muted); }
   .ok { color: var(--ok); } .warn { color: var(--warn); } .bad { color: var(--bad); font-weight: 600; }
   .error { color: var(--bad); }
-  .bar { display: inline-block; width: 70px; height: 8px; background: var(--line); border-radius: 4px; vertical-align: middle; margin-right: 6px; }
+  .bar { display: inline-block; width: 64px; height: 8px; background: var(--line); border-radius: 4px; vertical-align: middle; margin-right: 6px; }
   .bar > span { display: block; height: 100%; border-radius: 4px; }
-  a { color: inherit; }
-  table.subs td { white-space: normal; min-width: 4.5em; }
-  table.subs td.num { white-space: nowrap; }
+  a { color: var(--link); }
+  table.subs td { min-width: 4.5em; }
   table.subs th[colspan] { padding-top: 8px; color: var(--fg); }
+  @media (max-width: 640px) {
+    header { padding: 8px 10px; } main { padding: 10px; gap: 10px; } section { padding: 8px 10px; }
+    #last-refresh { margin-left: 0; }
+    /* One line per row; each card scrolls sideways instead of the page growing tall. */
+    th, td { white-space: nowrap; }
+    td br { display: none; }
+  }
 </style>
 </head>
 <body>
 <header>
   <h1>Machinery</h1>
+  <nav class="sites"><a href="/">Learn Ukrainian</a><a href="http://localhost:8768/">KubeDojo</a></nav>
+  <div class="chips" id="chips"></div>
   <span class="muted" id="last-refresh">Loading…</span>
-  <span class="muted">Refreshes every 30 s. Times are UTC.</span>
 </header>
 <main>
-  <section class="wide"><h2>Live workers <span class="age" id="workers-age"></span></h2><div id="workers-content">Loading…</div></section>
-  <section class="wide"><h2>Subscriptions: usage, pace and resets <span class="age" id="usage-age"></span></h2><div id="usage-content">Loading…</div></section>
-  <section><h2>Sign-ins <span class="age" id="logins-age"></span></h2><div id="logins-content">Loading…</div></section>
-  <section><h2>Fleet Comms <span class="age" id="comms-age"></span></h2><div id="comms-content">Loading…</div></section>
-  <section class="wide"><h2>Recently finished <span class="age" id="recent-age"></span></h2><div id="recent-content">Loading…</div></section>
+  <section class="wide" id="fleet"><h2>Agent fleet <span class="age" id="workers-age"></span></h2>
+    <div id="workers-content">Loading…</div>
+    <h3>Recently finished <span class="age muted" id="recent-age"></span></h3>
+    <div id="recent-content">Loading…</div></section>
+  <section class="wide" id="subs"><h2>Subscriptions: usage, pace, resets and sign-in <span class="age" id="usage-age"></span></h2><div id="usage-content">Loading…</div></section>
+  <section id="prs"><h2>Pull requests and merge queue <span class="age" id="prs-age"></span></h2><div id="prs-content">Loading…</div></section>
+  <section id="alerts"><h2>Alerts firing <span class="age" id="alerts-age"></span></h2><div id="alerts-content">Loading…</div></section>
+  <section id="comms"><h2>Fleet Comms <span class="age" id="comms-age"></span></h2><div id="comms-content">Loading…</div></section>
 </main>
 <script>
 "use strict";
@@ -113,14 +135,8 @@ function pct(value) {
 
 function bar(left) {
   if (!validPct(left)) return "";
-  const width = left;
   const color = left < 15 ? "var(--bad)" : left < 35 ? "var(--warn)" : "var(--ok)";
-  return `<span class="bar"><span style="width:${width}%;background:${color}"></span></span>`;
-}
-
-function paceClass(pace) {
-  const text = String(pace || "");
-  return /deficit|runs out/i.test(text) ? "warn" : /reserve|lasts/i.test(text) ? "ok" : "muted";
+  return `<span class="bar"><span style="width:${left}%;background:${color}"></span></span>`;
 }
 
 function table(headers, rows) {
@@ -131,52 +147,7 @@ function table(headers, rows) {
 
 const td = (html, cls = "") => `<td${cls ? ` class="${cls}"` : ""}>${html}</td>`;
 const text = (value, cls = "") => td(value === null || value === undefined || value === "" ? "—" : escapeHtml(value), cls);
-
-function prCell(task) {
-  const pr = task.delivery_pr;
-  if (!pr) return text(null);
-  const match = /^([\w.-]+\/[\w.-]+)#(\d+)$/.exec(String(pr));
-  if (!match) return text(pr);
-  return td(`<a href="https://github.com/${escapeHtml(match[1])}/pull/${escapeHtml(match[2])}">${escapeHtml(pr)}</a>`);
-}
-
-function account(task) {
-  return task.claude_account ? `claude ${task.claude_account}` : task.codex_account ? `codex ${task.codex_account}` : null;
-}
-
-function modelOf(task) {
-  return task.observed_model || task.model || null;
-}
-
-function renderWorkers(active) {
-  const tasks = Array.isArray(active.tasks) ? active.tasks : [];
-  return table(["Task", "Agent / model", "Account", "Doing", "PR", "Runtime", "Record updated"], tasks.map(task => [
-    text(task.task_id),
-    text([task.agent, modelOf(task)].filter(Boolean).join(" / ")),
-    text(account(task)),
-    text([task.status, task.research_role, task.repository].filter(Boolean).join(" · ")),
-    prCell(task),
-    text(span(task.age_s), "num"),
-    text(task.updated_at ? `${utc(task.updated_at)} (${relative(task.updated_at)})` : null),
-  ]));
-}
-
-function renderRecent(list) {
-  const tasks = (Array.isArray(list.tasks) ? list.tasks : []).filter(task => !ACTIVE.has(task.status));
-  const attention = list.needs_attention || {};
-  const pending = Array.isArray(attention.tasks) ? attention.tasks : [];
-  const attentionHtml = attention.total ? `<p class="bad">${escapeHtml(attention.total)} unfinished task records need attention. Showing up to ${pending.length}.</p>`
-    + table(["Task", "Agent / model", "State"], pending.map(task => [text(task.task_id),
-      text([task.agent, modelOf(task)].filter(Boolean).join(" / ")), text(task.status, "bad")])) : "";
-  return attentionHtml + table(["Task", "Agent / model", "Outcome", "Finished", "Duration", "PR"], tasks.map(task => [
-    text(task.task_id),
-    text([task.agent, modelOf(task)].filter(Boolean).join(" / ")),
-    text(task.status, task.status === "done" ? "ok" : "bad"),
-    text(task.finished_at ? `${utc(task.finished_at)} (${relative(task.finished_at)})` : null),
-    text(span(task.duration_s), "num"),
-    prCell(task),
-  ]));
-}
+const unknown = reason => `<p class="muted">Unknown: ${escapeHtml(String(reason || "no reason given").replaceAll("_", " "))}.</p>`;
 
 // A "fresh" flag is believed only with a numeric age inside the threshold;
 // an older reading is stale whatever the flag says.
@@ -217,7 +188,7 @@ function weeklyResetCell(window) {
   if (!window || window.status !== "ok") return text("unknown", "muted");
   if (!toDate(window.resets_at)) return text("not reported", "muted");
   if (window.reset_passed) return text(`passed; awaiting a new reading (${utc(window.resets_at)})`, "warn");
-  return td(`<strong>${escapeHtml(relative(window.resets_at))}</strong><br><span class="muted">${escapeHtml(utc(window.resets_at))}</span>`);
+  return td(`<strong>${escapeHtml(relative(window.resets_at))}</strong> <br><span class="muted">${escapeHtml(utc(window.resets_at))}</span>`);
 }
 
 function paceCell(pace) {
@@ -281,10 +252,29 @@ function readingCell(reading, staleAfter) {
   return freshnessCell(state, reading?.age_s);
 }
 
-const SUBSCRIPTION_HEADERS = ["Account", "Weekly resets", "Weekly left", "Pace", "5-hour", "Other windows",
-  "Credits", "Banked resets", "Plan · renews or ends", "Reading"];
+// Sign-in state joins the subscriptions row by account label ("Claude a").
+function signInCell(account, logins) {
+  if (!logins) return text("unknown", "muted");
+  if (logins.state === "pending") return text("checking…", "muted");
+  const row = (Array.isArray(logins.accounts) ? logins.accounts : []).find(item => item.account === account);
+  if (!row) return text("no reader", "muted");
+  if (row.logged_in === false) return text("SIGNED OUT", "bad");
+  if (row.logged_in !== true) return text(`UNKNOWN${row.error ? ` (${String(row.error).replaceAll("_", " ")})` : ""}`, "bad");
+  const expires = toDate(row.expires_at);
+  if (!expires) return text("signed in", "ok");
+  const daysLeft = (expires.getTime() - Date.now()) / 86400000;
+  return text(`signed in · ends ${relative(row.expires_at)}`, daysLeft < 3 ? "bad" : daysLeft < 7 ? "warn" : "ok");
+}
 
-function subscriptionRows(subs) {
+const SUBSCRIPTION_HEADERS = ["Account", "Weekly resets", "Weekly left", "Pace", "5-hour", "Other windows",
+  "Credits", "Banked resets", "Plan · renews or ends", "Sign-in", "Reading"];
+
+function liveAccounts(subs) {
+  return (Array.isArray(subs?.providers) ? subs.providers : [])
+    .flatMap(provider => Array.isArray(provider.accounts) ? provider.accounts : []).filter(row => !row.plan?.ended);
+}
+
+function subscriptionRows(subs, logins) {
   const staleAfter = subs.stale_after_s;
   const hidden = [];
   const groups = (Array.isArray(subs.providers) ? subs.providers : []).map(provider => {
@@ -306,6 +296,7 @@ function subscriptionRows(subs) {
           creditsCell(row.credits),
           bankedCell(row.banked_resets),
           planCell(row.plan),
+          signInCell(row.account, logins),
           readingCell(row.reading, staleAfter),
         ].join("")}</tr>`;
       }).join("");
@@ -326,8 +317,8 @@ function apiRows(budget) {
   });
 }
 
-function renderUsage(subs, budget) {
-  const {groups, hidden} = subscriptionRows(subs);
+function renderUsage(subs, budget, logins) {
+  const {groups, hidden} = subscriptionRows(subs, logins);
   const facts = subs.sources?.plan_facts;
   const notes = [];
   if (facts?.reason) {
@@ -336,28 +327,174 @@ function renderUsage(subs, budget) {
   const cache = subs.sources?.usage_cache;
   if (cache && cache.status !== "ok") notes.push(`Usage cache: ${cache.status}.`);
   if (hidden.length) notes.push(`Hidden, subscription ended: ${hidden.join(", ")}.`);
+  if (logins === null || logins === undefined) notes.push("Sign-in state unknown: the sign-in reader did not answer.");
   notes.push("Headroom and deficit are percentage points against an even pace to the weekly reset. Carbon draws on the AGY pools. "
-    + "The Codex API credits belong to Codex a and renew with its monthly turnover.");
+    + "The Codex API credits belong to Codex a and renew with its monthly turnover. AGY has no side-effect-free sign-in reader.");
   const head = `<thead><tr>${SUBSCRIPTION_HEADERS.map(h => `<th>${escapeHtml(h)}</th>`).join("")}</tr></thead>`;
+  const api = budget ? table(["API account", "Balance / spend", "Reading", ""], apiRows(budget))
+    : unknown("API account balances: the routing budget did not answer");
   return (groups ? `<table class="subs">${head}<tbody>${groups}</tbody></table>` : '<p class="muted">None.</p>')
-    + notes.map(note => `<p class="muted">${escapeHtml(note)}</p>`).join("")
-    + table(["API account", "Balance / spend", "Reading", ""], apiRows(budget || {}));
+    + notes.map(note => `<p class="muted">${escapeHtml(note)}</p>`).join("") + api;
 }
 
-function renderLogins(logins) {
-  if (logins.state === "pending") return '<p class="muted">Checking sign-ins…</p>';
-  const rows = (logins.accounts || []).map(row => {
-    const signed = row.logged_in === true ? text("signed in", "ok") : row.logged_in === false ? text("SIGNED OUT", "bad")
-      : text(`UNKNOWN${row.error ? ` (${row.error.replaceAll("_", " ")})` : ""}`, "bad");
-    const expires = toDate(row.expires_at);
-    const daysLeft = expires ? (expires.getTime() - Date.now()) / 86400000 : null;
-    const expiry = row.expires_at ? text(`${utc(row.expires_at)} (${relative(row.expires_at)})`, daysLeft < 3 ? "bad" : daysLeft < 7 ? "warn" : "")
-      : text(row.expiry_reported === false ? "not reported by the CLI" : null, "muted");
-    return [text(row.account), signed, text([row.authMethod, row.subscriptionType].filter(Boolean).join(" · ") || null), expiry];
-  });
-  return table(["Account", "Status", "Login", "Sign-in ends"], rows)
-    + `<p class="muted">Checked ${escapeHtml(utc(logins.read_at))}. AGY has no side-effect-free sign-in reader.</p>`;
+// ---- Agent fleet ----
+
+// The newest data of each panel, for the summary chips and the fleet PR column.
+const latest = {};
+
+// Account labels are shown only from this allow-list; any other recorded value is "other".
+const CLAUDE_ACCOUNTS = {a: "Claude a", b: "Claude b"};
+const CODEX_ACCOUNTS = {sub: "Codex a", "b-sub": "Codex b", api: "Codex API"};
+
+function account(task) {
+  if (task.claude_account) return Object.hasOwn(CLAUDE_ACCOUNTS, task.claude_account) ? CLAUDE_ACCOUNTS[task.claude_account] : "Claude, other account";
+  if (task.codex_account) return Object.hasOwn(CODEX_ACCOUNTS, task.codex_account) ? CODEX_ACCOUNTS[task.codex_account] : "Codex, other account";
+  return task.agent === "agy" ? "AGY" : task.agent === "muse" ? "Muse" : null;
 }
+
+function modelOf(task) {
+  return task.observed_model || task.model || null;
+}
+
+// Open PRs from the public repositories, by head branch; private ones carry no branch.
+function prIndex(prs) {
+  const index = [];
+  for (const repo of Array.isArray(prs?.repositories) ? prs.repositories : []) {
+    for (const pr of Array.isArray(repo.pull_requests) ? repo.pull_requests : []) {
+      if (pr.head_branch) index.push({repo: repo.name, ...pr});
+    }
+  }
+  return index;
+}
+
+function prLink(repo, pr) {
+  const label = `${repo}#${pr.number}`;
+  return pr.url ? `<a href="${escapeHtml(pr.url)}">${escapeHtml(label)}</a>` : escapeHtml(label);
+}
+
+function ciLabel(state) {
+  if (state === "success") return ["CI green", "ok"];
+  if (state === "failure" || state === "error") return ["CI red", "bad"];
+  if (state === "pending" || state === "expected") return ["CI running", "warn"];
+  return ["no CI yet", "muted"];
+}
+
+// The open PR whose branch is exactly this task's own, "<agent>/<task id>". Nothing looser:
+// a prefix or suffix match can name another task's PR.
+function ownPr(task, index) {
+  const id = String(task.task_id || "");
+  return id ? index.find(pr => pr.head_branch.split("/").pop() === id) || null : null;
+}
+
+function taskPrCell(task, index) {
+  let open = ownPr(task, index);
+  // A recorded delivery PR is authoritative; a different open PR never replaces it.
+  if (open && task.delivery_pr && task.delivery_pr !== `#${open.number}`) open = null;
+  if (open) {
+    const [label, cls] = ciLabel(open.ci);
+    return td(`${prLink(open.repo, open)} <span class="${cls}">${escapeHtml(label)}</span>`
+      + (open.queue ? ` <span class="ok">queued ${escapeHtml(open.queue.position ?? "")}</span>` : ""));
+  }
+  return text(task.delivery_pr || null, task.delivery_pr ? "" : "muted");
+}
+
+function doing(task) {
+  const review = /-review-(\d+)-r(\d+)$/.exec(task.task_id || "");
+  const role = review ? `reviewing PR ${review[1]}, round ${review[2]}` : task.research_role || task.status;
+  const progress = typeof task.commits_ahead === "number" ? `${task.commits_ahead} commits ahead` : null;
+  const touched = task.updated_at ? `record updated ${relative(task.updated_at)}` : null;
+  return [role, progress, task.push_state && task.push_state !== "unknown" ? task.push_state : null, touched]
+    .filter(Boolean).join(" · ");
+}
+
+function renderWorkers(active, prs = latest.prs) {
+  const tasks = Array.isArray(active.tasks) ? active.tasks : [];
+  const index = prIndex(prs);
+  return table(["Task", "Model", "Account", "Running", "Doing", "PR"], tasks.map(task => [
+    text(task.task_id),
+    text(modelOf(task) || task.agent),
+    text(account(task)),
+    text(span(task.age_s), task.age_s > 3 * 3600 ? "num bad" : task.age_s > 2 * 3600 ? "num warn" : "num"),
+    text(doing(task)),
+    taskPrCell(task, index),
+  ]));
+}
+
+const OUTCOME_CLASS = {done: "ok", failed: "bad", crashed: "bad", timeout: "bad", no_deliverable: "warn",
+  cancelled: "muted", rate_limited: "warn"};
+
+function renderRecent(list) {
+  const tasks = (Array.isArray(list.tasks) ? list.tasks : []).filter(task => !ACTIVE.has(task.status));
+  const attention = list.needs_attention || {};
+  const pending = Array.isArray(attention.tasks) ? attention.tasks : [];
+  // Old unfinished records are a ledger-hygiene backlog, not live work: folded away by default.
+  const attentionHtml = attention.total ? `<details><summary class="warn">${escapeHtml(attention.total)} unfinished task records need attention. Showing up to ${pending.length}.</summary>`
+    + table(["Task", "Model", "State"], pending.map(task => [text(task.task_id),
+      text(modelOf(task) || task.agent), text(task.status, "bad")])) + "</details>" : "";
+  return table(["Task", "Model", "Outcome", "Finished", "Took", "PR"], tasks.map(task => [
+    text(task.task_id),
+    text(modelOf(task) || task.agent),
+    text(task.status, OUTCOME_CLASS[task.status] || "bad"),
+    text(task.finished_at ? relative(task.finished_at) : null, "num"),
+    text(span(task.duration_s), "num"),
+    text(task.delivery_pr || null, task.delivery_pr ? "" : "muted"),
+  ])) + attentionHtml;
+}
+
+// ---- Pull requests ----
+
+function reviewLabel(state) {
+  if (state === "success") return ["approved", "ok"];
+  if (state === "failure" || state === "error") return ["changes / refused", "bad"];
+  if (state === "pending") return ["pending", "warn"];
+  return ["none", "muted"];
+}
+
+function renderPrs(prs) {
+  if (prs.status !== "ok") return unknown(prs.reason);
+  return (Array.isArray(prs.repositories) ? prs.repositories : []).map(repo => {
+    const title = `<h3>${escapeHtml(repo.name)}${typeof repo.open_total === "number" ? ` · ${repo.open_total} open` : ""}</h3>`;
+    if (repo.status !== "ok") return title + unknown(repo.reason);
+    const rows = (Array.isArray(repo.pull_requests) ? repo.pull_requests : []).map(pr => {
+      const [ci, ciClass] = ciLabel(pr.ci);
+      const [review, reviewClass] = reviewLabel(pr.review);
+      const name = repo.private ? text("title withheld (private repository)", "muted")
+        : text(`${pr.draft ? "[draft] " : ""}${pr.title || ""}`);
+      return [td(pr.url ? `<a href="${escapeHtml(pr.url)}">#${escapeHtml(pr.number)}</a>` : `#${escapeHtml(pr.number)}`),
+        name, text(ci, ciClass), text(review, reviewClass),
+        pr.queue ? text(`position ${pr.queue.position ?? "?"}${pr.queue.state ? ` · ${pr.queue.state.replaceAll("_", " ")}` : ""}`, "ok")
+          : text(null, "muted"),
+        text(pr.created_at ? span((Date.now() - toDate(pr.created_at)) / 1000) : null, "num")];
+    });
+    return title + table(["PR", "Title", "CI", "Review", "Queue", "Age"], rows);
+  }).join("");
+}
+
+// ---- Alerts ----
+
+function renderAlerts(alerts) {
+  if (alerts.status !== "ok") return unknown(alerts.reason);
+  const groups = new Map();
+  for (const alert of Array.isArray(alerts.alerts) ? alerts.alerts : []) {
+    const key = `${alert.alertname}|${alert.severity}`;
+    const group = groups.get(key) || {...alert, count: 0, oldest: alert.starts_at, summaries: []};
+    group.count += 1;
+    if (toDate(alert.starts_at) && (!toDate(group.oldest) || toDate(alert.starts_at) < toDate(group.oldest))) group.oldest = alert.starts_at;
+    if (alert.summary && !group.summaries.includes(alert.summary)) group.summaries.push(alert.summary);
+    groups.set(key, group);
+  }
+  const rows = [...groups.values()].map(group => [
+    td(`${escapeHtml(group.alertname)}${group.summaries.length ? ` <br><span class="muted">${group.summaries.map(escapeHtml).join("<br>")}</span>` : ""}`),
+    text(group.severity, group.severity === "critical" ? "bad" : group.severity === "warning" ? "warn" : ""),
+    text(group.oldest ? span((Date.now() - toDate(group.oldest)) / 1000) : null, "num"),
+    text(group.count, "num"),
+  ]);
+  const beat = alerts.heartbeat ? '<p class="ok">Alertmanager heartbeat present.</p>'
+    : '<p class="bad">Alertmanager heartbeat (Watchdog) missing: alerting may be down.</p>';
+  return (rows.length ? table(["Alert", "Severity", "Since", "Count"], rows) : '<p class="ok">Nothing firing.</p>') + beat;
+}
+
+// ---- Fleet Comms ----
 
 function renderComms(metrics) {
   const deliveries = metrics.deliveries || {}, jobs = metrics.jobs || {};
@@ -372,15 +509,62 @@ function renderComms(metrics) {
   ]);
 }
 
-let logins = null;
+// ---- Summary chips ----
+
+function chip(href, count, label, cls = "") {
+  return `<a class="chip${cls ? ` ${cls}` : ""}" href="${href}"><b>${escapeHtml(count)}</b> ${escapeHtml(label)}</a>`;
+}
+
+function renderChips(latest) {
+  const out = [];
+  if (latest.workers) out.push(chip("#fleet", (latest.workers.tasks || []).length, "live workers"));
+  if (latest.usage) {
+    const accounts = liveAccounts(latest.usage);
+    const short = accounts.filter(row => row.pace?.status === "ok" && row.pace.lasts_to_reset === false).length;
+    out.push(chip("#subs", short, short === 1 ? "account runs out before reset" : "accounts run out before reset", short ? "bad" : ""));
+    const out_ = (latest.logins?.accounts || []).filter(row => row.logged_in === false).length;
+    if (out_) out.push(chip("#subs", out_, "signed out", "bad"));
+  }
+  if (latest.prs?.status === "ok") {
+    const repos = latest.prs.repositories || [];
+    const open = repos.reduce((sum, repo) => sum + (typeof repo.open_total === "number" ? repo.open_total : 0), 0);
+    const queued = repos.reduce((sum, repo) => sum + (repo.pull_requests || []).filter(pr => pr.queue).length, 0);
+    const partial = repos.some(repo => repo.status !== "ok");
+    out.push(chip("#prs", open, `open PRs · ${queued} queued${partial ? " (a repository is unknown)" : ""}`, partial ? "warn" : ""));
+  } else if (latest.prs) out.push(chip("#prs", "?", "PRs unknown", "warn"));
+  if (latest.alerts?.status === "ok") {
+    const firing = (latest.alerts.alerts || []).length;
+    const critical = (latest.alerts.alerts || []).some(alert => alert.severity === "critical");
+    out.push(chip("#alerts", firing, "alerts firing", critical ? "bad" : firing ? "warn" : ""));
+  } else if (latest.alerts) out.push(chip("#alerts", "?", "alerts unknown", "bad"));
+  if (latest.comms) out.push(chip("#comms", latest.comms.dead_letters ?? "?", "dead letters", latest.comms.dead_letters ? "warn" : ""));
+  return out.join("");
+}
+
+// ---- Panels ----
+
+const OPTIONAL = new Set(["/api/git/pull-requests", "/api/state/routing-budget", "/api/runtime/logins"]);
 const PANELS = [
   {id: "workers", urls: ["/api/delegate/active"], render: renderWorkers},
   {id: "recent", urls: ["/api/delegate/recent"], render: renderRecent},
-  {id: "usage", urls: ["/api/runtime/subscriptions", "/api/state/routing-budget"], render: renderUsage},
-  {id: "logins", urls: ["/api/runtime/logins"], render: renderLogins},
+  {id: "usage", urls: ["/api/runtime/subscriptions", "/api/state/routing-budget", "/api/runtime/logins"], render: renderUsage,
+   retry: (subs, budget, logins) => !budget || !logins || logins.state === "pending"},
+  {id: "prs", urls: ["/api/git/pull-requests"], render: renderPrs},
+  {id: "alerts", urls: ["/api/ops/v1/alerts"], render: renderAlerts},
   {id: "comms", urls: ["/api/comms/v1/metrics"], render: renderComms},
 ];
 const inFlight = new Set();
+
+// A secondary source that fails, or is slower than OPTIONAL_WAIT_MS, leaves its part unknown
+// until the next refresh; only the first source decides the panel.
+const OPTIONAL_WAIT_MS = 1500;
+const RETRY_LIMIT = 10;
+function readSource(url, index) {
+  if (index === 0 || !OPTIONAL.has(url)) return fetchJson(url);
+  const missing = {data: null, age: null, snapshot: false};
+  return Promise.race([fetchJson(url).catch(() => missing),
+    new Promise(resolve => setTimeout(() => resolve(missing), OPTIONAL_WAIT_MS))]);
+}
 
 async function loadPanel(panel) {
   if (inFlight.has(panel.id)) return;
@@ -388,21 +572,30 @@ async function loadPanel(panel) {
   const content = document.getElementById(`${panel.id}-content`);
   const age = document.getElementById(`${panel.id}-age`);
   try {
-    const readings = await Promise.all(panel.urls.map(fetchJson));
-    content.innerHTML = panel.render(...readings.map(reading => reading.data));
+    const readings = await Promise.all(panel.urls.map(readSource));
+    const data = readings.map(reading => reading.data);
+    content.innerHTML = panel.render(...data);
+    latest[panel.id] = data[0];
+    if (panel.id === "usage") latest.logins = data[2];
+    // The PR column of the fleet table joins the PR reading whenever either arrives.
+    if (panel.id === "prs" && latest.workers) document.getElementById("workers-content").innerHTML = renderWorkers(latest.workers);
     const snapshots = readings.filter(reading => reading.snapshot);
     age.textContent = snapshots.some(reading => reading.age === null) ? "Source age unknown"
       : snapshots.length ? `Source age ${Math.ceil(Math.max(...snapshots.map(reading => reading.age)))}s`
       : `read ${new Date().toISOString().slice(11, 19)}Z`;
-    age.className = snapshots.some(reading => reading.age === null || reading.age > REFRESH_MS / 1000)
-      ? "bad" : "";
-    if (panel.id === "logins") {
-      logins = readings[0].data;
-      if (logins.state === "pending") setTimeout(() => loadPanel(panel), 3000);
+    age.className = snapshots.some(reading => reading.age === null || reading.age > REFRESH_MS / 1000 * 5)
+      ? "age bad" : "age";
+    // A pending or missing secondary source is read again shortly, at most RETRY_LIMIT times in a row.
+    if (panel.retry && panel.retry(...data)) {
+      panel.retries = (panel.retries || 0) + 1;
+      if (panel.retries <= RETRY_LIMIT) setTimeout(() => loadPanel(panel), 3000);
+    } else {
+      panel.retries = 0;
     }
   } catch (error) {
     content.innerHTML = `<p class="error">Unavailable: ${escapeHtml(error.message || error)}</p>`;
     age.textContent = "";
+    latest[panel.id] = null;
   } finally {
     inFlight.delete(panel.id);
   }
@@ -410,7 +603,8 @@ async function loadPanel(panel) {
 
 async function refreshAll() {
   await Promise.all(PANELS.map(loadPanel));
-  document.getElementById("last-refresh").textContent = `Refreshed ${new Date().toISOString().slice(11, 19)}Z`;
+  document.getElementById("chips").innerHTML = renderChips(latest);
+  document.getElementById("last-refresh").textContent = `Updated ${new Date().toISOString().slice(11, 19)}Z · every 30 s · times UTC`;
 }
 
 refreshAll();
