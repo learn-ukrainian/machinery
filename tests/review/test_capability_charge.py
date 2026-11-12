@@ -64,6 +64,35 @@ def exempt_r3():
     return {"task": "r3", "started": R3_STARTED, "run_nonce": "r3-run", "head": H3, "seat": ("openai", "code")}
 
 
+@pytest.mark.parametrize("historical_verdict", ["CHANGES_REQUESTED", "APPROVED"])
+def test_unavailable_historical_head_does_not_abort_repair_or_supply_approval(historical_verdict):
+    """An irrelevant missing historical Git object must not abort budget repair evaluation or prove approval."""
+    comments = [recorded_verdict(H1, historical_verdict, task_id="round-1"),
+                recorded_verdict(H2, "CHANGES_REQUESTED", task_id="round-2"),
+                recorded_verdict(H3, "APPROVED", task_id="round-3")]
+    repairs = []
+
+    def context(head):
+        if head == H1:
+            raise recorder.BranchFactsError(recorder.FACTS_TARGET_UNKNOWN, "historical head unavailable")
+        return {"second_review": False}
+
+    def repair():
+        repairs.append(True)
+        return {"receipt": "verified-repair"}
+
+    assert recorder.require_review_round_within_budget(
+        comments, NEXT, "fleet", budget=3, pr=42, prove_merge_only=lambda *_: None,
+        approval_context=context, repair=repair,
+    ) == {"repair_round": {"receipt": "verified-repair"}}
+    assert repairs == [True]
+    # A missing historical classification supplies no anchor, even with an optimistic merge prover.
+    assert recorder.budget_exempt_heads(
+        comments[:1], NEXT, "fleet", prove=lambda *_: ["a" * 40], approval_context=context,
+    ) == {}
+    assert not recorder._fully_approved(comments, NEXT, "fleet", second_review=False)
+
+
 def test_the_one_replacement_must_be_the_exempt_runs_seat():
     """Defect class: another reviewer takes the replacement round freed for the seat that lacked a capability."""
     comments = [recorded_verdict(H1, "CHANGES_REQUESTED", task_id="round-1"),
