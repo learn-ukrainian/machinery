@@ -45,15 +45,18 @@ It fails when a dependency in `pyproject.toml` has no pin.
 From a machinery `main` commit whose CI Gate is green, with `$V` the version
 in `pyproject.toml` and `$SHA` the full commit:
 
-1. Check for outstanding Carbon review debt. This command must succeed and print nothing:
+1. Check for outstanding second-review debt (label `carbon-debt`). This command must succeed and print nothing:
 
    ```bash
    gh pr list -R learn-ukrainian/machinery --state merged --label carbon-debt
    ```
 
    Any result blocks the release. The publisher adds `carbon-debt` before admitting
-   a machinery PR without Carbon's exact-head approval. Only Carbon through AGY counts.
-   Record a completed Carbon review with `record_cf_verdict --second-review --pr <N>`
+   a machinery PR without an exact-head second review. Only a model of the catalog's
+   ordered `review_scheduler.second_reviewer` list (Muse, Carbon, then Sol and Opus as last
+   resort) on its listed route counts, eligible by the list's family rules
+   ([review policy](../agents_extensions/shared/skills/review-loop/references/policy.md)).
+   Record a completed second review with `record_cf_verdict --second-review --pr <N>`
    for the PR's merged head, meaning the reviewed PR head at merge, not the squash commit.
    A timeout or incomplete review does not clear the debt. Reproduce findings and fix every confirmed defect in a follow-up
    PR before release. Remove the label only after recording that verdict and verifying the

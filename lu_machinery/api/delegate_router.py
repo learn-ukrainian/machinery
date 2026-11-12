@@ -600,7 +600,7 @@ def _delegate_task_rows_locked(
             directory_cache.clear()
         if task_generation is not None:
             task_generation.append("missing")
-        return rows
+        return [_public_task_metadata(row) for row in rows]
 
     # Routing's generation must describe the records this locked scan reads,
     # including a task that disappears before the budget finishes computing.
@@ -787,7 +787,7 @@ def _delegate_task_rows_locked(
         or datetime.min.replace(tzinfo=UTC),
         reverse=True,
     )
-    return rows
+    return [_public_task_metadata(row) for row in rows]
 
 
 def list_delegate_tasks(
@@ -813,6 +813,11 @@ def list_delegate_tasks(
     statuses = None if status == "all" else {status}
     rows = _delegate_task_rows(statuses, repository=repository, ctx=ctx)
     return {"total": len(rows), "tasks": rows[:task_limit]}
+
+
+def _public_task_metadata(task: dict[str, Any]) -> dict[str, Any]:
+    """Keep accounting facts; selectors and substitution diagnostics are private."""
+    return {key: value for key, value in task.items() if key not in {"substitution", "requested_selector"}}
 
 
 def get_delegate_task_detail(
@@ -852,7 +857,7 @@ def get_delegate_task_detail(
                 truncated = True
 
     return task, {
-        "task": {**task, **recorded_model_accounting_fields(task), **_task_observations(task)},
+        "task": _public_task_metadata({**task, **recorded_model_accounting_fields(task), **_task_observations(task)}),
         "result": result_text,
         "result_truncated": truncated,
         "alive": alive,

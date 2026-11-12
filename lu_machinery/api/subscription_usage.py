@@ -11,6 +11,7 @@ import functools
 import importlib.util
 import io
 import json
+import logging
 import math
 import os
 import shutil
@@ -29,6 +30,10 @@ from lu_machinery.agent_runtime.adapters.cursor import (
     probe_cursor_login,
     probe_cursor_provider_windows,
 )
+from lu_machinery.agent_runtime.codex_accounts import (
+    CODEX_SUBSCRIPTION_ACCOUNTS,
+    DEFAULT_CODEX_ACCOUNT,
+)
 from lu_machinery.agent_runtime.env_sanitize import (
     _looks_sensitive_name,
     _looks_sensitive_value,
@@ -38,6 +43,9 @@ from lu_machinery.api.state_helpers import cache_get_with_age, cache_invalidate,
 from lu_machinery.common.repo_root import state_root
 from lu_machinery.common.scratch import make_scratch_dir
 from lu_machinery.fleet.credit_lane import SUBSCRIPTION_NEAR_CAP_USED_PCT
+
+# Public diagnostic marker. Provider messages belong only in server logs.
+PROVIDER_ERROR = "provider_error"
 
 WEEKLY_WINDOW_MINUTES = 10080
 # Reject monthly/long windows when no exact weekly window exists (e.g. 43200 min).
@@ -51,11 +59,6 @@ ON_PACE_BAND_PCT = 2.0
 SESSION_WINDOW_MAX_MINUTES = 300
 HEADROOM_DELTA_PCT = -15.0
 HEADROOM_SPEED_MULTIPLIER = 1.5
-
-from lu_machinery.agent_runtime.codex_accounts import (
-    CODEX_SUBSCRIPTION_ACCOUNTS,
-    DEFAULT_CODEX_ACCOUNT,
-)
 
 # Live-measured 2026-08-04: `codexbar usage --json --provider claude` took
 # ~17s end-to-end twice in a row (its own dashboard-fetch latency, not a
@@ -464,9 +467,12 @@ def _private_api_account(provider: str, *, timeout_s: float) -> dict[str, Any]:
     if module is not None:
         result = module.probe_api_account(provider, timeout_s=timeout_s)
         if isinstance(result, dict):
+            if result.get("auth_error"):
+                logging.getLogger(__name__).warning("Provider %s account probe failed: %s", provider, result["auth_error"])
+                result = {**result, "auth_error": PROVIDER_ERROR}
             return result
     result = _empty_openrouter_account() if provider == "openrouter" else _empty_deepseek_account()
-    result["auth_error"] = "private usage tooling unavailable"
+    result["auth_error"] = PROVIDER_ERROR
     return result
 
 
@@ -2526,7 +2532,7 @@ def _normalize_provider_error(provider: str, error: Any) -> dict[str, Any]:
     The CLI can return an error instead of usage, e.g. expired Kimi credentials:
         [{"source":"auto","provider":"kimi","error":{"code":1,"message":"...","kind":"provider"}}]
 
-    This MUST surface as status='unknown' with the message carried (auth_error),
+    This MUST surface as unavailable with a fixed auth_error marker;
     NEVER as 0% remaining and never as a silently absent row for a subscription lane.
     Mirrors _normalize_provider_data's shape so consumers see a uniform record.
     """
@@ -2538,6 +2544,9 @@ def _normalize_provider_error(provider: str, error: Any) -> dict[str, Any]:
         message = error.get("message")
         code = error.get("code")
         kind = error.get("kind")
+
+    if message:
+        logging.getLogger(__name__).warning("Provider %s usage probe failed: %s", provider, message)
 
     empty_win = {
         "used_pct": None,
@@ -2567,7 +2576,7 @@ def _normalize_provider_error(provider: str, error: Any) -> dict[str, Any]:
         "source": "native_probe",
         "fetched_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
         "status": "unavailable",
-        "auth_error": message,
+        "auth_error": PROVIDER_ERROR,
         "error_kind": kind or "unavailable",
         "error_code": code,
     }

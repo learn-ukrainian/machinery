@@ -65,7 +65,7 @@ def test_mixed_pr_takes_highest_tier():
     assert classify_pr_files(files) == "high"
 
 
-# Binding Carbon second review (operator 2026-11-11).
+# Binding second review (operator 2026-11-11; ordered list Muse, Carbon, Sol, Opus since 2026-11-12).
 SECURITY_FILES = (
     "scripts/audit/secret_scan_local.py",
     "scripts/ocr/_credentials.py",
@@ -120,9 +120,9 @@ def test_carbon_is_refused_as_the_reviewer_of_record(low_review, tmp_path):
 @pytest.mark.parametrize(
     ("agent", "model", "paths", "reason"),
     [
-        ("claude", "claude-opus-5-5", SECURITY_FILES[:1], "not the catalog's second reviewer"),
+        ("claude", "claude-sonnet-5-5", SECURITY_FILES[:1], "not a listed second reviewer"),
         ("agy", "gemini-4-argon-medium", SECURITY_FILES[:1], "holds no review"),
-        ("claude", "gemini-4-carbon-medium", SECURITY_FILES[:1], "runs only through agy"),
+        ("claude", "gemini-4-carbon-medium", SECURITY_FILES[:1], "second only through agy"),
         ("agy", "gemini-4-carbon-medium", ("docs/example.md",), "neither High tier nor security-sensitive"),
     ],
 )
@@ -156,7 +156,7 @@ def test_enqueue_refuses_a_security_pr_without_the_carbon_second_review(low_revi
     _tasks, comments, _statuses, files, admit = low_review
     files[:] = [{"filename": SECURITY_FILES[0], "status": "modified"}]
     _record_of_record(comments)
-    with pytest.raises(publisher.gate.PublishBlocked, match="Carbon second review has not approved"):
+    with pytest.raises(publisher.gate.PublishBlocked, match="binding second review has not approved"):
         admit()
 
 

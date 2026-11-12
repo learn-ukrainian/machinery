@@ -73,7 +73,7 @@ def test_head_and_branch_mismatch_refused(monkeypatch, low_review, tmp_path):
     assert result["verdict"] == "APPROVED" and statuses[-1]["state"] == "pending"
     assert sweep.lookup_verdict(comments, task["worktree_base_sha"], "fleet", second_review=True,
                                 learner_content=True).state == "needs-seat"
-    with pytest.raises(recorder.RecordError, match="not the catalog"):
+    with pytest.raises(recorder.RecordError, match="not a listed second reviewer"):
         recorder._require_second_reviewer(facts_for({"anthropic"}), task=task, model="gemini-4-carbon-low",
                                           family="google", review_mode="cross_family", required=True)
     assert "-m lu_machinery.review.record_cf_verdict" in recorder.RECORDER_COMMAND

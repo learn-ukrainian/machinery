@@ -103,8 +103,8 @@ LUNA_ESCALATION_TRIGGERS = frozenset(
 )
 CURSOR_AUTO_EXPECTED_ATTESTATION_RULE: str = "driver_of_record_requires_attested_resolved_model"
 CURSOR_AUTO_EXPECTED_RESOLUTION: str = "cursor_family"
-# Cursor has no approved model pin: its only pin, grok-4.7, retired with every Grok
-# model (operator order GROK-CANCEL-1110, 2026-11-10). A new pin is an operator decision.
+# Cursor Auto has no approved driver pin. C-5307 restores only the explicit
+# Grok review wire pin below, without reinstating the Auto allowlist.
 CURSOR_AUTO_EXPECTED_ALLOWLIST: tuple[str, ...] = ()
 # Operator decision 2026-09-30 (#9274): Cursor Auto runs only a well-defined coding
 # task; every other Cursor use runs the seat's concrete pin or another allowlisted pin.
@@ -113,8 +113,8 @@ CURSOR_AUTO_EXPECTED_SCOPE: str = "write_implementation_dispatch_with_green_dor"
 CURSOR_AUTO_OUTSIDE_CODING_TASK_CODE = "cursor_auto_outside_coding_task"
 CURSOR_MODEL_UNPINNED_CODE = "cursor_model_unpinned"
 CURSOR_MODEL_NOT_APPROVED_CODE = "cursor_model_not_approved"
-# Wire pins shared with the launcher contract; its test rejects any drift.
-CURSOR_APPROVED_WIRE_PINS: frozenset[str] = frozenset()
+# C-5307 restores the exact pre-4ee3de75 explicit review pin.
+CURSOR_APPROVED_WIRE_PINS: frozenset[str] = frozenset({"grok-4.7-high"})
 # Typed refusal when Cursor has no approved model pin at all.
 CURSOR_NO_APPROVED_PIN_CODE = "cursor_no_approved_model_pin"
 # Families never pinned as formal reviewers on the Cursor endpoint (#9488):
@@ -467,17 +467,29 @@ def _validate_review_scheduler(raw: Any, models: dict[str, Any]) -> None:
     if "second_reviewer" in scheduler or "second_review" in (scheduler.get("activity_roles") or {}).get("review", []):
         label = "review_scheduler.second_reviewer"
         second = _require_mapping(scheduler.get("second_reviewer"), label)
-        model_id = _require_string(second.get("model"), f"{label}.model")
-        _require_routable_model(models, model_id, f"{label}.model")
-        entry = models[model_id]
-        if entry["lifecycle"] != "active" or "second_review" not in entry["roles"]:
-            raise ModelCatalogError(f"{label}.model must be active and hold second_review")
-        route = _require_string(second.get("route"), f"{label}.route")
-        if route not in entry["transports"]:
-            raise ModelCatalogError(f"{label}.route is not supported by its model")
-        families = _require_string_list(second.get("not_for_author_families"), f"{label}.not_for_author_families")
-        if not set(families) <= {model["family"] for model in models.values()}:
-            raise ModelCatalogError(f"{label}.not_for_author_families names an unknown family")
+        rows = second.get("models")
+        if set(second) != {"models"} or not isinstance(rows, list) or not rows:
+            raise ModelCatalogError(f"{label} must hold exactly a non-empty ordered models list")
+        review_roles = set((scheduler.get("activity_roles") or {}).get("review", []))
+        listed: set[str] = set()
+        for index, row in enumerate(rows):
+            row_label = f"{label}.models[{index}]"
+            row = _require_mapping(row, row_label)
+            if set(row) != {"model", "route", "independence"}:
+                raise ModelCatalogError(f"{row_label} must hold exactly model, route and independence")
+            if row.get("independence") not in {"third_family", "last_resort"}:
+                raise ModelCatalogError(f"{row_label}.independence must be third_family or last_resort")
+            model_id = _require_string(row.get("model"), f"{row_label}.model")
+            _require_routable_model(models, model_id, f"{row_label}.model")
+            entry = models[model_id]
+            # A listed model reviews: it holds a review role (second_review alone for a second-only model).
+            if entry["lifecycle"] != "active" or (review_roles and not review_roles & set(entry["roles"])):
+                raise ModelCatalogError(f"{row_label}.model must be active and hold a review role")
+            if _require_string(row.get("route"), f"{row_label}.route") not in entry["transports"]:
+                raise ModelCatalogError(f"{row_label}.route is not supported by its model")
+            if model_id in listed:
+                raise ModelCatalogError(f"{row_label}.model is listed twice")
+            listed.add(model_id)
     activity_roles = _require_mapping(scheduler.get("activity_roles"), "review_scheduler.activity_roles")
     if set(activity_roles) != ACTIVITIES:
         raise ModelCatalogError(f"review_scheduler.activity_roles must define exactly {sorted(ACTIVITIES)}")

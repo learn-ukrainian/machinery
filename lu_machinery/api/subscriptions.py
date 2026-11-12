@@ -49,6 +49,7 @@ from typing import Any
 
 from . import account_logins
 from .subscription_usage import (
+    PROVIDER_ERROR,
     compute_usage_pace,
     format_usage_pace_summary,
     get_provider_usage_data,
@@ -67,6 +68,9 @@ _MAX_ETA_S = 400 * 86400  # beyond any monthly or weekly window
 _CLOCK_SKEW_S = 300  # a reading timestamped further ahead than this is not believed
 # The cache writer records ``<ExceptionName>: <message>``; only a bare exception name is published.
 _ERROR_KIND = re.compile(r"[A-Z][A-Za-z0-9]{1,39}")
+# Only named usage counters and percentage values are public breakdown data.
+_BREAKDOWN_LABELS = frozenset({"Cursor", "Grok", "Gemini", "Claude/GPT"})
+_BREAKDOWN_PERCENT = re.compile(r"(?:100|[0-9]{1,2})(?:\.[0-9]+)?%")
 _EMAIL_SHAPED = re.compile(r"[^\s@]+@[^\s@]+\.[^\s@]+")
 
 # provider id, provider label, accounts: (account, plan-facts key, source, source key)
@@ -379,7 +383,10 @@ def _cache_usage(entry: Mapping[str, Any], read_at: datetime, now: datetime, *, 
     rows = []
     for group in _items(usage.get("details")):
         for row in _items(group.get("rows")) if isinstance(group, dict) else []:
-            if isinstance(row, dict) and _text(row.get("label")) and _text(row.get("value")):
+            if (isinstance(row, dict) and isinstance(row.get("label"), str)
+                    and row["label"] in _BREAKDOWN_LABELS
+                    and isinstance(row.get("value"), str)
+                    and _BREAKDOWN_PERCENT.fullmatch(row["value"])):
                 rows.append({"label": row["label"], "value": row["value"]})
     result["breakdown"] = rows[:_MAX_LIST]
     result["provider_plan"] = _text(usage.get("loginMethod"), 40)
@@ -424,7 +431,7 @@ def _monitor_account(record: Mapping[str, Any] | None, now: datetime) -> dict[st
         if not record or (record.get("last_failure_at") is None and record.get("failure_kind") in (None, "unavailable")):
             reason = NO_MONITOR_READING  # nothing read in this process yet (or no Monitor here)
         else:
-            reason = _text(record.get("auth_error"), 80) or _text(record.get("error_code"), 40) or "no_reading"
+            reason = PROVIDER_ERROR if record.get("auth_error") or record.get("error_code") else "no_reading"
         reading = {**_reading(None, now), "reason": reason}
         return {"reading": reading, **_blank_usage("no_reading")}
     reading = _reading(read_at, now, stale=freshness != "fresh")

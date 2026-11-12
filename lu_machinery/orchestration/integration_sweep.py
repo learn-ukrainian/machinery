@@ -100,6 +100,8 @@ MARKER = re.compile(  # nosemgrep: python.lang.security.audit.regex_dos
     r"(?: second_review=(?P<second_review>carbon))? -->\Z"
 )
 # The marker token, and its readable line, of a binding second review (operator 2026-11-11).
+# The token is a fixed wire value, whichever model is the second reviewer: renaming it
+# would void every second review already recorded.
 SECOND_REVIEW_TOKEN = "carbon"
 SECOND_REVIEW_LINE = f"Second review: {SECOND_REVIEW_TOKEN}"
 MARKER_PREFIX = CF_VERDICT_MARKER_PREFIX
@@ -259,29 +261,76 @@ def _edited(comment: Mapping[str, Any]) -> bool:
 
 
 def second_reviewer_policy() -> Mapping[str, Any]:
-    """The catalog's ``review_scheduler.second_reviewer`` row; ValueError when absent or malformed."""
+    """The catalog's ``review_scheduler.second_reviewer`` row; ValueError when absent or malformed.
+
+    Its ``models`` is the ordered second-reviewer list (operator 2026-11-12): each row names a
+    catalog model, the route it runs on and its ``independence``: ``third_family`` (its family
+    differs from the reviewer of record's too) or ``last_resort`` (it may share that family).
+    """
     from lu_machinery.review.model_catalog import load_model_catalog
 
     try:
         row = (load_model_catalog().get("review_scheduler") or {}).get("second_reviewer")
     except Exception as error:  # an unreadable catalog never names the second reviewer
         raise ValueError(f"model catalog unreadable: {type(error).__name__}") from None
+    if not isinstance(row, Mapping):
+        raise ValueError("review_scheduler.second_reviewer is missing or malformed")
+    rows = row.get("models")
     if (
-        not isinstance(row, Mapping)
-        or not isinstance(row.get("model"), str)
-        or not isinstance(row.get("route"), str)
-        or not isinstance(row.get("not_for_author_families"), list)
+        not isinstance(rows, list) or not rows
+        or not all(isinstance(item, Mapping) and isinstance(item.get("model"), str)
+                   and isinstance(item.get("route"), str)
+                   and item.get("independence") in {"third_family", "last_resort"} for item in rows)
     ):
         raise ValueError("review_scheduler.second_reviewer is missing or malformed")
     return row
 
 
-def is_second_reviewer_model(model: object) -> bool:
-    """True when ``model`` names the catalog's second reviewer (any of its wire or runtime ids)."""
+def second_reviewer_entry(model: object) -> Mapping[str, Any] | None:
+    """The second-reviewer list row of ``model`` (any of its wire or runtime ids); None when unlisted."""
     from lu_machinery.review.model_catalog import resolve_catalog_model_id
 
-    expected = second_reviewer_policy()["model"]
-    return isinstance(model, str) and resolve_catalog_model_id(model) == expected
+    resolved = resolve_catalog_model_id(model) if isinstance(model, str) else None
+    return next((row for row in second_reviewer_policy()["models"] if resolved and row["model"] == resolved), None)
+
+
+def is_second_reviewer_model(model: object) -> bool:
+    """True when ``model`` is on the catalog's second-reviewer list."""
+    return second_reviewer_entry(model) is not None
+
+
+def reviews_of_record(model: object) -> bool:
+    """Whether ``model`` holds a catalog review role besides ``second_review``.
+
+    A listed model with one (Muse, Sol, Opus) keeps its reviewer-of-record seat: only a review
+    recorded with ``--second-review`` is its second review. One without (Carbon) never reviews of record.
+    """
+    from lu_machinery.review.model_catalog import load_model_catalog, resolve_catalog_model_id
+
+    try:
+        catalog = load_model_catalog()
+        model_id = resolve_catalog_model_id(model, catalog) if isinstance(model, str) else None
+        review = set(catalog["review_scheduler"]["activity_roles"]["review"]) - {"second_review"}
+        return model_id is not None and bool(review & set(catalog["models"][model_id]["roles"]))
+    except Exception:  # an unreadable catalog admits no reviewer of record
+        return False
+
+
+def is_second_review_only(model: object) -> bool:
+    """A listed second reviewer that is never a reviewer of record (Carbon)."""
+    return is_second_reviewer_model(model) and not reviews_of_record(model)
+
+
+def model_family(model: object) -> str | None:
+    """The catalog family of ``model``; None when the catalog does not know it."""
+    from lu_machinery.review.model_catalog import load_model_catalog, resolve_catalog_model_id
+
+    try:
+        catalog = load_model_catalog()
+        model_id = resolve_catalog_model_id(model, catalog) if isinstance(model, str) else None
+        return catalog["models"][model_id]["family"] if model_id is not None else None
+    except Exception:  # an unreadable catalog names no family
+        return None
 
 
 def is_second_review(marker: Mapping[str, Any]) -> bool:
@@ -328,7 +377,7 @@ def parse_marker(body: str) -> dict[str, Any] | None:
     # A second review is a whole-head code/infra record of the catalog's second reviewer, nothing else.
     if second is not None and (
         pair is not None or profile is not None or raw_denominator is not None or item["review_mode"] is not None
-        or item["family"] != "google" or not is_second_reviewer_model(item["model"])
+        or not is_second_reviewer_model(item["model"]) or item["family"] != model_family(item["model"])
     ):
         return None
     # The record's own lines end where the recorder opens the reply, or, in a record
@@ -633,16 +682,34 @@ def _repair_receipt_blocks(body: str, sha: str) -> bool:
     return False
 
 
-def _second_review_exempt(markers: Sequence[Mapping[str, Any]]) -> bool:
-    """True only when an attested author is of a family the second reviewer may not review.
+def _independence(model: object) -> str | None:
+    """The listed ``independence`` of ``model``; None when it is not a listed second reviewer."""
+    try:
+        entry = second_reviewer_entry(model)
+    except ValueError:
+        return None
+    return entry["independence"] if entry is not None else None
+
+
+def _second_review_exempt(markers: Sequence[Mapping[str, Any]], record_families: set[str]) -> bool:
+    """True only when no listed second reviewer may give the second review: every listed family
+    is an attested author family, or (third_family rows) the reviewer of record's family.
 
     Unattested authors, and an unreadable second-reviewer policy, keep the requirement.
     """
     try:
-        excluded = set(second_reviewer_policy()["not_for_author_families"])
+        rows = second_reviewer_policy()["models"]
     except ValueError:
         return False
-    return bool(excluded & attested_author_families(markers))
+    authors = attested_author_families(markers)
+    for row in rows:
+        family = model_family(row["model"])
+        if family is None:
+            return False
+        excluded = authors if row["independence"] == "last_resort" else authors | record_families
+        if family not in excluded:
+            return False
+    return True
 
 
 def _mixed_pair_pending(candidates: Sequence[tuple[datetime, tuple[datetime, int], dict[str, Any]]]) -> bool:
@@ -706,11 +773,14 @@ def lookup_verdict(
     Only Low admits an unscoped same-family code approval. Scoped pair records
     never prove whole-head non-authorship at Low; rejections stand at every tier.
     ``second_review`` (``tiers.requires_second_review`` of the PR's files) also
-    requires a recorder-verified second-review APPROVE (``second_review=carbon``)
-    unless an attested author is of the second reviewer's family or the explicit
-    repository allows Carbon debt. The enqueue publisher records that debt. The second
-    reviewer's approvals never approve, win or prove a seat on their own,
-    tokened or not; its rejections stand like any other.
+    requires a recorder-verified second-review APPROVE (``second_review=carbon``, the
+    fixed wire token) by a listed second reviewer whose family differs from the
+    approving reviewer of record's, unless no listed family is outside the attested
+    authors' and that reviewer's, or the explicit repository allows Carbon debt. The
+    enqueue publisher records that debt. A second review never approves, wins or proves
+    a seat on its own; its rejections stand like any other. A listed model that holds no
+    other review role (Carbon) never approves, tokened or not; any other model's untokened
+    review is an ordinary review.
     """
     if not complete or not isinstance(comments, Sequence) or isinstance(comments, (str, bytes)):
         return Verdict("unknown", reason=COMMENTS_UNAVAILABLE)
@@ -790,7 +860,7 @@ def lookup_verdict(
         recorded = marker
         if (
             marker["verdict"] == "CHANGES_REQUESTED"
-            and not (is_second_review(marker) or is_second_reviewer_model(marker["model"]))
+            and not (is_second_review(marker) or is_second_review_only(marker["model"]))
             and recorded_p3_residuals(body) is not None
             and not _repair_receipt_blocks(body, marker["sha"])
         ):
@@ -811,20 +881,30 @@ def lookup_verdict(
             or is_ukrainian_review(item[2]) or item[2].get("review_pair")
             or item[2]["family"] not in attested_author_families([item[2]])
         ]
-    second_approved = any(
-        is_second_review(item[2]) and item[2]["verdict"] not in REJECTED for item in candidates
-    )
-    # The second reviewer is never the reviewer of record: only its rejections stay candidates.
+    second_approvals = [
+        item[2] for item in candidates if is_second_review(item[2]) and item[2]["verdict"] not in REJECTED
+    ]
+    # A second review is never the reviewer of record: only its rejections stay candidates.
     candidates = [
         item for item in candidates
         if item[2]["verdict"] in REJECTED
-        or not (is_second_review(item[2]) or is_second_reviewer_model(item[2]["model"]))
+        or not (is_second_review(item[2]) or is_second_review_only(item[2]["model"]))
     ]
+    # A third_family second reviewer counts only from a family other than the reviewer of
+    # record's; a last_resort one may share it, but never as the reviewer-of-record run itself.
+    record_approvals = [item[2] for item in candidates if item[2]["verdict"] not in REJECTED]
+    record_families = {marker["family"] for marker in record_approvals}
+    record_tasks = {marker["task"] for marker in record_approvals}
+    second_approved = any(
+        marker["task"] not in record_tasks
+        and (_independence(marker["model"]) == "last_resort" or marker["family"] not in record_families)
+        for marker in second_approvals
+    )
     from lu_machinery.review.tiers import allows_carbon_debt
 
     second_pending = (
         second_review and not allows_carbon_debt(repository) and bool(candidates) and not second_approved
-        and not _second_review_exempt([item[2] for item in candidates])
+        and not _second_review_exempt([item[2] for item in candidates], record_families)
     )
     if not candidates:
         state = "CF-unrecorded" if legacy else "CF-stale" if other_head else "needs-CF"
