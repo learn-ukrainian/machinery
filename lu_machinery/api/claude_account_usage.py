@@ -37,9 +37,9 @@ the whole probe; afterwards the binding must validate again to the same
 generation (directory identity and bound account), and credentials rewritten in
 between must be proven the bound account's too, or the sample is refused. An
 account id CodexBar names must be the bound account; any other identity it
-names is compared only across labels. When two served samples share an
-account, one names its account and another does not, or one cannot be
-identified, every served row is withheld as ``account_ambiguous``.
+names is compared only across labels. Optional CodexBar identity may be absent
+even when ownership is proven. When two served samples share an account
+fingerprint, every served row is withheld as ``account_ambiguous``.
 
 Serving: every read, parse and provider question runs in the background. Each
 sample keeps the cheap stat facts of every file its validation read (type,
@@ -1122,8 +1122,6 @@ def _ambiguous(samples: Mapping[str, _Sample]) -> bool:
     if len(samples) < 2:
         return False
     attributions = [sample.accounts for sample in samples.values()]
-    if len({accounts.named for accounts in attributions}) > 1:
-        return True  # one answer named its account and another did not
     fingerprints = [accounts.fingerprints for accounts in attributions]  # each holds its proven account
     return any(
         fingerprints[i] & fingerprints[j] for i in range(len(fingerprints)) for j in range(i + 1, len(fingerprints))

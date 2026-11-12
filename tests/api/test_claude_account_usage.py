@@ -1462,17 +1462,16 @@ def test_named_account_matching_the_binding_is_published(bound):
     assert {row["status"] for row in cau.claude_accounts_snapshot().values()} == {"ok"}
 
 
-# Fails on e75cb7e113: one answer named its account and the other named none, and
-# both rows were published ``ok``.
-def test_named_answer_beside_an_unnamed_one_is_withheld(bound):
+def test_named_answer_beside_an_unnamed_one_is_published(bound):
+    """Optional display identity must not withhold distinct, ownership-proven samples."""
     payload = bound.payload("b")
     payload[0]["usage"]["identity"] = {"accountID": _ACCOUNT_B}
     bound.answer("b", payload)
     cau.refresh_claude_account_usage()
     fields = cau.routing_budget_fields()
     for label in ("a", "b"):
-        _assert_withheld(_row(fields["claude_accounts"], label), "account_ambiguous")
-    assert fields["preferred_claude_account"] is None
+        assert _row(fields["claude_accounts"], label)["status"] == "ok"
+    assert fields["preferred_claude_account"] == "b"
 
 
 # Fails on e75cb7e113: samples were keyed by label only, so a sample measured under
