@@ -2376,14 +2376,16 @@ def budget_exempt_heads(
         for index, marker in markers:
             if index < start:
                 latest[marker["sha"]] = index
-        anchor = next(
-            (
-                candidate
-                for candidate, _ in sorted(latest.items(), key=lambda item: item[1], reverse=True)
-                if _fully_approved(prefix, candidate, login, **(approval_context(candidate) if approval_context else {}))
-            ),
-            None,
-        )
+        anchor = None
+        for candidate, _ in sorted(latest.items(), key=lambda item: item[1], reverse=True):
+            try:
+                context = approval_context(candidate) if approval_context else {}
+            except RecordError:
+                # Unavailable historical facts prove no anchor; they do not prevent a repair round.
+                continue
+            if _fully_approved(prefix, candidate, login, **context):
+                anchor = candidate
+                break
         if anchor is None:
             continue
         merges = prove(anchor, head)
