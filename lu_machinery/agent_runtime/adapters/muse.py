@@ -32,9 +32,8 @@ _EFFORTS = frozenset({"low", "medium", "high", "xhigh", "max"})
 _MAX_JSONL_BYTES = 16 * 1024 * 1024
 _TOOLS = {
     "read-only": ("read_file",),
-    "workspace-write": ("read_file", "write_file", "edit_file"),
 }
-_PROFILES = {"read-only": ":read-only", "workspace-write": ":ask-me"}
+_PROFILES = {"read-only": ":read-only"}
 _PASSIVE_EVENTS = frozenset(
     {
         "runtime.command.accepted",
@@ -59,8 +58,8 @@ def confined_muse_argv(
     cmd: list[str], workspace: Path, mode: str, task_id: str, scratch_root: Path | str | None = None,
 ) -> list[str]:
     """Use the existing governed scratch and file sandbox for every Muse run."""
-    if mode == "workspace-write":
-        raise ValueError("muse_write_mode_unconfined")
+    if mode != "read-only":
+        raise ValueError("muse_worker_mode_refused")
     from lu_machinery.common.repo_root import project_interpreter
     from lu_machinery.common.scratch import resolve_scratch_root
 
@@ -83,8 +82,8 @@ def sandbox_main(args: list[str]) -> int:
     from lu_machinery.review.isolation import prepare_host_sandbox, stage_engine_auth, wrap_argv_with_sandbox
 
     phase, task_id, mode, raw_workspace, scratch_root, *cmd = args
-    if mode == "workspace-write":
-        raise ValueError("muse_write_mode_unconfined")
+    if mode != "read-only":
+        raise ValueError("muse_worker_mode_refused")
     workspace = Path(raw_workspace).resolve(strict=True)
     if mode not in _TOOLS or phase not in {"govern", "child"}:
         raise ValueError("muse_sandbox_launch_refused")
@@ -271,12 +270,10 @@ class MuseAdapter:
         tool_config: dict | None,
         effort: str | None = None,
     ) -> InvocationPlan:
-        if mode == "workspace-write":
-            raise ValueError("muse_write_mode_unconfined")
+        if mode != "read-only":
+            raise ValueError("muse_worker_mode_refused")
         model = resolve_muse_model(model)
         config = tool_config or {}
-        if mode not in self.supported_modes:
-            raise ValueError("muse_worker_mode_refused")
         if effort is not None and effort not in _EFFORTS:
             raise ValueError("muse_worker_effort_refused")
         if session_id or config.get("muse_worker") is not True or not task_id:
@@ -290,7 +287,7 @@ class MuseAdapter:
             raise ValueError("muse_worker_configuration_refused")
         require_muse_execution_model(model)
         if model != self.default_model or (config.get("muse_role"), mode) not in {
-            ("implementation", "workspace-write"), ("investigation", "read-only"),
+            ("investigation", "read-only"),
         }:
             raise ValueError("muse_worker_role_mode_refused")
         nonce = config.get("run_nonce")
@@ -321,8 +318,8 @@ class MuseAdapter:
         effort: str | None,
     ) -> InvocationPlan:
         """Plan a not-yet-created worktree without granting execution admission."""
-        if mode == "workspace-write":
-            raise ValueError("muse_write_mode_unconfined")
+        if mode != "read-only":
+            raise ValueError("muse_worker_mode_refused")
         return self._plan(
             prompt=prompt,
             mode=mode,
@@ -350,10 +347,10 @@ class MuseAdapter:
         max_model_steps: object = None,
         max_tool_output_bytes: object = None,
     ) -> InvocationPlan:
-        if mode == "workspace-write":
-            raise ValueError("muse_write_mode_unconfined")
-        if mode not in self.supported_modes or (effort is not None and effort not in _EFFORTS):
-            raise ValueError("muse_worker_mode_or_effort_refused")
+        if mode != "read-only":
+            raise ValueError("muse_worker_mode_refused")
+        if effort is not None and effort not in _EFFORTS:
+            raise ValueError("muse_worker_effort_refused")
         if not task_id:
             raise ValueError("muse_delegate_worker_required")
         if max_model_steps is not None and (type(max_model_steps) is not int or max_model_steps < 1):
@@ -364,7 +361,7 @@ class MuseAdapter:
         ):
             raise ValueError("muse_tool_output_budget_invalid")
         require_muse_execution_model(model)
-        # Use the existing lease validator for both modes' private transport.
+        # Use the existing lease validator for the private transport.
         scratch = validate_read_only_tmp_root(
             {"read_only_tmp_root": scratch_root}, workspace, "read-only", adapter="muse"
         )
@@ -416,8 +413,7 @@ class MuseAdapter:
             "--config",
             "run.toolset=" + json.dumps(_TOOLS[mode]),
         ]
-        if mode == "read-only":
-            cmd.append("--disable-write")
+        cmd.append("--disable-write")
         if max_model_steps is not None:
             cmd.extend(["--max-model-steps", str(max_model_steps)])
         if max_tool_output_bytes is not None:
