@@ -42,8 +42,8 @@ from lu_machinery.research.registry import research_manifest_component
 from lu_machinery.telemetry.cost_report import CostRecord, load_cost_records
 
 from . import delegate_router as delegate_api
-from . import state_helpers
-from .claude_account_usage import revalidated_routing_budget_fields
+from . import panel_values, state_helpers
+from .claude_account_usage import ROW_REASON_CODES, revalidated_routing_budget_fields
 from .claude_account_usage import routing_budget_fields as claude_account_routing_fields
 from .codexbar_usage import (
     compute_weekly_pace_delta_pct,
@@ -2275,6 +2275,130 @@ def _routing_budget_compute(
     return _compute
 
 
+# The HTTP response is a projection, never a recursive copy of provider JSON.
+# Numeric and boolean fields are named explicitly; nested provider labels and
+# model lists do not become keys or prose in an external response.
+_ROUTING_NUMBERS = frozenset({
+    "spent_7d_usd", "weekly_cap_usd", "burn_pct_7d", "spent_cycle_usd", "monthly_cap_usd",
+    "burn_pct_cycle", "remaining_pct", "in_flight", "age_s", "data_age_s", "stale_threshold_s",
+    "records_loaded", "missing_cost_records", "runtime_usage_records_7d", "reset_imminent_hours",
+    "codexbar_max_age_s", "notebook_report_max_age_s", "total_balance", "limit_remaining_usd",
+    "usage_weekly_usd", "usage_daily_usd", "usage_monthly_usd", "usage_total_usd", "total_usage",
+    "limit", "limit_remaining", "limit_usd", "usage_usd", "granted_balance", "topped_up_balance", "credit_balance", "reset_credits", "monthly_used_usd",
+    "primary_used_pct", "primary_remaining_pct", "secondary_used_pct", "secondary_remaining_pct",
+    "tertiary_used_pct", "tertiary_remaining_pct", "weekly_used_pct", "weekly_remaining_pct",
+    "weekly_pace_delta_pct", "weekly_expected_pct", "headroom_pct", "used_pct", "left_pct",
+    "remaining_usd", "window_minutes", "window_s", "ok", "error", "rate_limited", "timeout", "other", "total",
+    "count", "cooldown_s", "leftover_pct", "pace_delta_pct", "available_count", "remaining_resets",
+    "plan_remaining_pct", "near_cap_remaining_pct", "rate_limited_count", "rate_limit_window_s",
+    "hours_to_natural_reset", "free_resets_available", "hold_hours", "account_remaining_usd",
+})
+_ROUTING_FLAGS = frozenset({
+    "healthy", "eligible", "active", "promo_active", "stale", "will_last_to_reset", "deficit",
+    "headroom_blocked", "runtime_data_available", "codexbar_data_available", "budget_ledger_empty",
+    "fresh_codexbar_requested", "fresh_codexbar_blocking", "fleet_burn_available", "notebook_report_available",
+    "uncovered", "available", "exhausted", "verified", "blocked", "observed", "forbidden",
+    "allowlist_applies", "raw_deficit", "model_allowed", "snapshot_stale", "window_exhausted", "credit_relief",
+    "model_permission", "pace_visible", "is_free_tier", "local_only", "is_available",
+})
+_ROUTING_TIMES = frozenset({
+    "generated_at", "window_start", "starts_on", "resets_at", "weekly_resets_at", "fetched_at",
+    "last_failure_at", "last_outcome_at", "last_rate_limited_at", "limit_reset", "observed_at", "updated",
+    "confirmed_at", "expires_at", "natural_reset_at", "credit_fetched_at", "rate_limits_checked_at",
+})
+_ROUTING_CONTAINERS = frozenset({
+    "agents", "api_accounts", "codex_accounts", "in_flight", "diagnostics", "recommendation",
+    "interactive", "agentic_pool", "health", "runtime", "codexbar", "windows", "provider_windows",
+    "primary", "secondary", "tertiary", "weekly", "five_hour", "session5h", "auto", "api", "total", "session",
+    "claude_accounts", "a", "b", "claude:a", "claude:b", "codex:a", "codex:b", "fleet_burn", "counts", "5m", "1h", "24h", "7d",
+    "credit", "routing", "pace_deficit", "reset_reserve", "evidence", "reset_advice", "reset_credits", "claude_usage", "claude_gpt_windows", "fable_weekly",
+})
+_CREDIT_STATES = {
+    credit_lane.NOT_CONFIGURED, credit_lane.POLICY_ERROR, credit_lane.PLAN_UNKNOWN, credit_lane.PLAN_HEALTHY,
+    credit_lane.CREDIT_BALANCE_PRESENT, credit_lane.CREDITS_EXHAUSTED, credit_lane.CREDITS_UNVERIFIED,
+    credit_lane.CREDIT_USE_UNCONFIRMED,
+}
+_ROUTING_ENUMS = {
+    "status": {"cool", "warm", "hot", "near_cap", "unknown", "unavailable", "pre_launch", "need_login",
+               "ok", "fresh", "stale", "blocked", "eligible", "expired", "pending", "avoid", "credit"},
+    "freshness": {"fresh", "stale", "stale_last_good", "unavailable", "unknown"},
+    "probe_state": {"healthy", "NEED_LOGIN", "NEED_KEY", "NEED_PROBE", "unknown", "unavailable", "error", "ok"},
+    "login_state": {"authenticated", "NEED_LOGIN", "unknown", "unavailable"},
+    "balance_probe_state": {"ok", "NEED_KEY", "NEED_PROBE", "unknown", "unavailable", "unsupported", "error", "fresh", "stale"},
+    "currency": {"USD", "EUR", "credits"},
+    "kind": {"prepaid_credits"},
+    "type": {"subscription", "api"},
+    "lane": panel_values.AGENTS | {"codex:a", "codex:b"},
+    "primary_agent_for_code": panel_values.AGENTS,
+    "codex_account": {"sub", "b-sub", "api"},
+    "preferred_claude_account": {"a", "b"},
+    "pace": {"reserve", "deficit", "on_pace", "ahead", "behind", "on_track"},
+    "state": _CREDIT_STATES,
+    "credit_state": _CREDIT_STATES,
+    "provider": panel_values.AGENTS,
+    "transport": {"dispatch", "acp"},
+    "advice": {credit_lane.USE_RESET_NOW, credit_lane.HOLD_RESET, credit_lane.NOT_APPLICABLE},
+    "capacity": {"verified", "unknown_stale", "unknown", "avoid"},
+    "health": {"healthy", "unhealthy", "unknown"},
+    "snapshot_freshness": {"fresh", "stale", "unknown"},
+    "probe_freshness": {"fresh", "stale", "unknown"},
+    "observation_freshness": {"fresh", "stale", "unknown"},
+    "status_source": {"ledger_burn", "weekly_pace", "cursor_auto", "notebook-report"},
+    "source": {"codexbar", "agent_runtime_jsonl", "notebook-report", "cursor_native", "provider", "computed"},
+}
+
+
+def _public_routing_budget(raw: object, *, _depth: int = 0) -> dict[str, Any]:
+    if _depth > 8:
+        return {}
+    row = panel_values.mapping(raw)
+    out = panel_values.scalars(row, numbers=_ROUTING_NUMBERS, flags=_ROUTING_FLAGS, times=_ROUTING_TIMES)
+    for key, allowed in _ROUTING_ENUMS.items():
+        if key in row:
+            out[key] = panel_values.choice(row[key], allowed, "unknown" if key in {"status", "freshness"} else None)
+    for key in _ROUTING_CONTAINERS | panel_values.AGENTS:
+        if key in row and isinstance(row[key], dict):
+            out[key] = _public_routing_budget(row[key], _depth=_depth + 1)
+        elif key in row and key in panel_values.AGENTS | {"codex:a", "codex:b"}:
+            out[key] = panel_values.number(row[key])
+    if "ranked_by_headroom" in row:
+        out["ranked_by_headroom"] = [_public_routing_budget(item, _depth=_depth + 1)
+                                     for item in panel_values.rows(row["ranked_by_headroom"], 32)]
+    for key in ("allowed_models", "models_rate_limited", "credit_models"):
+        if key in row:
+            values = row[key] if isinstance(row[key], list) else []
+            out[key] = [model for value in values[:64] if (model := panel_values.model(value)) is not None]
+    if "covered_by" in row:
+        values = row["covered_by"] if isinstance(row["covered_by"], list) else []
+        out["covered_by"] = [value for value in values[:8]
+                             if panel_values.choice(value, {"credits", "reset_reserve", "free_reset", "credit_balance"})]
+    for key in ("free_reset_expires_at", "expires_at"):
+        if isinstance(row.get(key), list):
+            out[key] = [panel_values.timestamp(value) for value in row[key][:64]]
+    if "usage_sources" in row:
+        values = panel_values.mapping(row["usage_sources"])
+        out["usage_sources"] = {key: panel_values.choice(values[key], {
+            "codexbar", "notebook-report", "codexbar+notebook-report", "codexbar+cursor_native", "agent_runtime_jsonl",
+        }) for key in ("allotment", "burn_rate_limit", "fleet_burn") if key in values}
+    if "codexbar_freshness" in row:
+        values = panel_values.mapping(row["codexbar_freshness"])
+        out["codexbar_freshness"] = {key: panel_values.choice(value, _ROUTING_ENUMS["freshness"], "unknown")
+                                    for key, value in values.items() if key in panel_values.AGENTS}
+    if "primary_agent_for_code" in row:
+        out["reason_code"] = "capacity_available" if out.get("primary_agent_for_code") else "capacity_unavailable"
+    # Free-form explanations are intentionally removed, including warnings,
+    # pace_summary, health.last_error, auth_error and telemetry summary_error.
+    if any(row.get(key) for key in ("error", "last_error", "summary_error", "auth_error")):
+        out["reason_code"] = "provider_error"
+        if panel_values.number(row.get("error")) is None:
+            out.pop("error", None)
+    elif "reason" in row:
+        out["reason_code"] = panel_values.reason(row["reason"], ROW_REASON_CODES)
+    elif row.get("headroom_reason"):
+        out["reason_code"] = "capacity_unavailable"
+    return out
+
+
 @router.get("/routing-budget")
 async def routing_budget(
     fresh_codexbar: bool = Query(False),
@@ -2316,20 +2440,20 @@ async def routing_budget(
         schedule_cache_refresh(cache_key, ROUTING_BUDGET_TTL_S, _compute, should_refresh=_needs_refresh)
         value = await _with_live_lane_errors(value, tasks_dir, cache_key)
         claude_fields = await revalidated_routing_budget_fields()
-        return _aged_routing_budget(
+        return _public_routing_budget(_aged_routing_budget(
             value,
             state_helpers._ttl_clock() - observed.started_at,
             stale=age_s >= ROUTING_BUDGET_TTL_S or observed.invalidated.is_set(),
             claude_fields=claude_fields,
-        )
+        ))
     observed, value = await cache_get_or_compute_async(cache_key, ROUTING_BUDGET_TTL_S, _compute)
     claude_fields = await revalidated_routing_budget_fields()
-    return _aged_routing_budget(
+    return _public_routing_budget(_aged_routing_budget(
         value,
         state_helpers._ttl_clock() - observed.started_at,
         stale=observed.invalidated.is_set(),
         claude_fields=claude_fields,
-    )
+    ))
 
 
 @router.get("/github-budget")

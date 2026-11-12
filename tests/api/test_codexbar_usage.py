@@ -2593,8 +2593,8 @@ def test_home_usage_invalid_percentages_are_unknown(invalid):
 
 def test_home_usage_missing_stale_and_unavailable_are_explicit():
     missing = _home_row(_render_home_usage(_home_subs(
-        reading={'status': 'unknown', 'read_at': None, 'age_s': None, 'reason': 'no_reading'},
-        weekly={'status': 'unknown', 'reason': 'no_reading'}, pace={'status': 'unknown', 'reason': 'no_reading'})), 'Codex a')
+        reading={'status': 'unknown', 'read_at': None, 'age_s': None, 'reason_code': 'no_reading'},
+        weekly={'status': 'unknown', 'reason_code': 'no_reading'}, pace={'status': 'unknown', 'reason_code': 'no_reading'})), 'Codex a')
     assert 'NO READING (no reading)' in missing and '70%' not in missing and '2030-01-03' not in missing
     stale = _home_row(_render_home_usage(_home_subs(
         reading={'status': 'stale', 'read_at': '2030-01-01T11:30:00Z', 'age_s': 1800})), 'Codex a')

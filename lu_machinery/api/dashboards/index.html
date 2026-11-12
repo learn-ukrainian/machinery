@@ -205,7 +205,7 @@ function paceCell(pace) {
 
 function sessionCell(window) {
   if (!window || window.status === "none") return text("none", "muted");
-  if (window.status !== "ok" && window.reason === "not_reported") return text("not reported", "muted");
+  if (window.status !== "ok" && window.reason_code === "not_reported") return text("not reported", "muted");
   if (window.status !== "ok" || !validPct(window.left_pct)) return text("unknown", "muted");
   return text(`${pct(window.left_pct)} left · ${resetText(window)}`);
 }
@@ -227,7 +227,7 @@ function creditsCell(credits) {
 }
 
 function planCell(plan) {
-  const name = plan?.name || "plan unknown";
+  const name = "plan";
   if (!plan || plan.status !== "ok") return text(`${name} · renewal unknown`, "muted");
   if (plan.cancelled) {
     return text(`${name} · ${plan.ends_on ? `${plan.ended ? "ENDED" : "cancelled, ends"} ${plan.ends_on} (${plan.days_to_end} d)`
@@ -247,7 +247,7 @@ function bankedCell(banked) {
 function readingCell(reading, staleAfter) {
   const state = readingState(reading?.status, reading?.age_s, staleAfter);
   if (state === "missing" || state === "unknown" && !reading?.read_at) {
-    return text(`NO READING${reading?.reason ? ` (${String(reading.reason).replaceAll("_", " ")})` : ""}`, "bad");
+    return text(`NO READING${reading?.reason_code ? ` (${String(reading.reason_code).replaceAll("_", " ")})` : ""}`, "bad");
   }
   return freshnessCell(state, reading?.age_s);
 }
@@ -259,7 +259,7 @@ function signInCell(account, logins) {
   const row = (Array.isArray(logins.accounts) ? logins.accounts : []).find(item => item.account === account);
   if (!row) return text("no reader", "muted");
   if (row.logged_in === false) return text("SIGNED OUT", "bad");
-  if (row.logged_in !== true) return text(`UNKNOWN${row.error ? ` (${String(row.error).replaceAll("_", " ")})` : ""}`, "bad");
+  if (row.logged_in !== true) return text(`UNKNOWN${row.reason_code ? ` (${String(row.reason_code).replaceAll("_", " ")})` : ""}`, "bad");
   const expires = toDate(row.expires_at);
   if (!expires) return text("signed in", "ok");
   const daysLeft = (expires.getTime() - Date.now()) / 86400000;
@@ -324,8 +324,8 @@ function renderUsage(subs, budget, logins) {
   const {groups, hidden} = subscriptionRows(subs, logins);
   const facts = subs.sources?.plan_facts;
   const notes = [];
-  if (facts?.reason) {
-    notes.push(`Plan facts: ${facts.reason === "not_configured" ? "not configured" : facts.reason}; renewal, plan and banked resets show unknown.`);
+  if (facts?.reason_code) {
+    notes.push(`Plan facts: ${facts.reason_code === "not_configured" ? "not configured" : facts.reason_code}; renewal, plan and banked resets show unknown.`);
   }
   const cache = subs.sources?.usage_cache;
   if (cache && cache.status !== "ok") notes.push(`Usage cache: ${cache.status}.`);
@@ -359,12 +359,12 @@ function modelOf(task) {
   return task.observed_model || task.model || null;
 }
 
-// Open PRs from the public repositories, by head branch; private ones carry no branch.
+// Opaque task references join public PRs to task rows without exposing branch prose.
 function prIndex(prs) {
   const index = [];
   for (const repo of Array.isArray(prs?.repositories) ? prs.repositories : []) {
     for (const pr of Array.isArray(repo.pull_requests) ? repo.pull_requests : []) {
-      if (pr.head_branch) index.push({repo: repo.name, ...pr});
+      if (pr.task_reference) index.push({repo: repo.name, ...pr});
     }
   }
   return index;
@@ -382,11 +382,10 @@ function ciLabel(state) {
   return ["no CI yet", "muted"];
 }
 
-// The open PR whose branch is exactly this task's own, "<agent>/<task id>". Nothing looser:
-// a prefix or suffix match can name another task's PR.
+// The server gives tasks and matching public PR branches the same opaque reference.
 function ownPr(task, index) {
   const id = String(task.task_id || "");
-  return id ? index.find(pr => pr.head_branch.split("/").pop() === id) || null : null;
+  return id ? index.find(pr => pr.task_reference === id) || null : null;
 }
 
 function taskPrCell(task, index) {
@@ -461,33 +460,31 @@ function renderPrs(prs) {
     const rows = (Array.isArray(repo.pull_requests) ? repo.pull_requests : []).map(pr => {
       const [ci, ciClass] = ciLabel(pr.ci);
       const [review, reviewClass] = reviewLabel(pr.review);
-      const name = repo.private ? text("title withheld (private repository)", "muted")
-        : text(`${pr.draft ? "[draft] " : ""}${pr.title || ""}`);
+      const name = text(pr.draft ? "draft" : "ready for review");
       return [td(pr.url ? `<a href="${escapeHtml(pr.url)}">#${escapeHtml(pr.number)}</a>` : `#${escapeHtml(pr.number)}`),
         name, text(ci, ciClass), text(review, reviewClass),
         pr.queue ? text(`position ${pr.queue.position ?? "?"}${pr.queue.state ? ` · ${pr.queue.state.replaceAll("_", " ")}` : ""}`, "ok")
           : text(null, "muted"),
         text(pr.created_at ? span((Date.now() - toDate(pr.created_at)) / 1000) : null, "num")];
     });
-    return title + table(["PR", "Title", "CI", "Review", "Queue", "Age"], rows);
+    return title + table(["PR", "State", "CI", "Review", "Queue", "Age"], rows);
   }).join("");
 }
 
 // ---- Alerts ----
 
 function renderAlerts(alerts) {
-  if (alerts.status !== "ok") return unknown(alerts.reason);
+  if (alerts.status !== "ok") return unknown(alerts.reason_code);
   const groups = new Map();
   for (const alert of Array.isArray(alerts.alerts) ? alerts.alerts : []) {
     const key = `${alert.alertname}|${alert.severity}`;
-    const group = groups.get(key) || {...alert, count: 0, oldest: alert.starts_at, summaries: []};
+    const group = groups.get(key) || {...alert, count: 0, oldest: alert.starts_at};
     group.count += 1;
     if (toDate(alert.starts_at) && (!toDate(group.oldest) || toDate(alert.starts_at) < toDate(group.oldest))) group.oldest = alert.starts_at;
-    if (alert.summary && !group.summaries.includes(alert.summary)) group.summaries.push(alert.summary);
     groups.set(key, group);
   }
   const rows = [...groups.values()].map(group => [
-    td(`${escapeHtml(group.alertname)}${group.summaries.length ? ` <br><span class="muted">${group.summaries.map(escapeHtml).join("<br>")}</span>` : ""}`),
+    text(group.alertname),
     text(group.severity, group.severity === "critical" ? "bad" : group.severity === "warning" ? "warn" : ""),
     text(group.oldest ? span((Date.now() - toDate(group.oldest)) / 1000) : null, "num"),
     text(group.count, "num"),

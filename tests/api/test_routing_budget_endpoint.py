@@ -277,8 +277,7 @@ _ROUTING_BUDGET_TOP_LEVEL_KEYS = frozenset(
 _ROUTING_BUDGET_RECOMMENDATION_KEYS = frozenset(
     {
         "primary_agent_for_code",
-        "rationale",
-        "warnings",
+        "reason_code",
     }
 )
 _ROUTING_BUDGET_DIAGNOSTIC_KEYS = frozenset(
@@ -1493,7 +1492,7 @@ def test_endpoint_stays_200_when_one_account_probe_fails(monkeypatch, tmp_path):
     assert rows["claude:a"]["status"] == "ok"
     assert rows["claude:a"]["weekly"]["leftover_pct"] == 0
     assert rows["claude:b"]["status"] == "unknown"
-    assert rows["claude:b"]["reason"] == "timeout"
+    assert rows["claude:b"]["reason_code"] == "timeout"
     assert rows["claude:b"]["weekly"]["left_pct"] is None
     assert response.json()["preferred_claude_account"] is None
 
@@ -1596,7 +1595,7 @@ def test_warm_snapshot_serves_live_account_rows(monkeypatch, tmp_path):
     row_b = warm["claude_accounts"]["claude:b"]
     assert row_b["status"] == "ok"
     assert row_b["stale"] is False
-    assert row_b["reason"] == "timeout"
+    assert row_b["reason_code"] == "timeout"
     assert warm["preferred_claude_account"] == "b"
 
 
@@ -1616,7 +1615,7 @@ def test_warm_snapshot_withholds_a_row_whose_binding_was_removed(monkeypatch, tm
     assert warm["diagnostics"] == first["diagnostics"]  # served from the routing cache
     row_b = warm["claude_accounts"]["claude:b"]
     # Background revalidation resolved the missing binding before publication.
-    assert (row_b["status"], row_b["reason"]) == ("unknown", "claude_account_binding_missing")
+    assert (row_b["status"], row_b["reason_code"]) == ("unknown", "claude_account_binding_missing")
     assert row_b["weekly"]["left_pct"] is None
     assert warm["claude_accounts"]["claude:a"]["status"] == "ok"
     assert warm["preferred_claude_account"] is None
@@ -1626,7 +1625,7 @@ def test_warm_snapshot_withholds_a_row_whose_binding_was_removed(monkeypatch, tm
     revalidation.join(timeout=30)  # the background revalidation read the binding
     later = client.get("/api/state/routing-budget").json()
     row_b = later["claude_accounts"]["claude:b"]
-    assert (row_b["status"], row_b["reason"]) == ("unknown", "claude_account_binding_missing")
+    assert (row_b["status"], row_b["reason_code"]) == ("unknown", "claude_account_binding_missing")
     assert later["preferred_claude_account"] is None
 
 
@@ -1681,7 +1680,7 @@ def test_account_rows_refuse_a_scratch_root_inside_a_git_checkout(monkeypatch, t
 
     rows = _routing_client(tmp_path).get("/api/state/routing-budget").json()["claude_accounts"]
 
-    assert {(row["status"], row["reason"]) for row in rows.values()} == {("unknown", "sandbox_unavailable")}
+    assert {(row["status"], row["reason_code"]) for row in rows.values()} == {("unknown", "sandbox_unavailable")}
 
 
 def test_startup_warmup_fills_dispatch_routing_budget_key_cold_start_timeout(monkeypatch, tmp_path):

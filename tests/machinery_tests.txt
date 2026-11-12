@@ -292,6 +292,7 @@ tests/api/test_rollover_api.py
 tests/api/test_rollover_bundle_router.py
 tests/api/test_route_contracts.py
 tests/api/test_route_locality.py
+tests/api/test_panel_data_hygiene.py
 tests/api/test_routing_budget.py
 tests/api/test_routing_budget_endpoint.py
 tests/api/test_routing_budget_runtime_diagnostics.py

@@ -171,7 +171,7 @@ for (const reading of [{...row.reading, age_s: 1800}, {...row.reading, status: '
   assert.deepEqual([/17× reset/.test(html), /<b>[01]<\/b> accounts? runs? out before reset/.test(chips(reading))],
     [false, false]);
   assert.doesNotMatch(html, /70%|61%|84%|91 units|37\.2|2099-01-02|18 pp|lasts to reset/);
-  assert.match(html, /Fixture plan/);
+  assert.match(html, /plan · renewal unknown/);
   assert.match(chips(reading), /<b>\?<\/b> accounts run out before reset/);
 }
 const configured = {...row, reading: {...row.reading, status: 'stale'},

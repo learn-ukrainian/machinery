@@ -37,6 +37,7 @@ from lu_machinery.common import github_client
 from lu_machinery.common.git_context import sanitized_git_env
 from lu_machinery.orchestration.task_record_store import read_task_record
 
+from . import panel_values
 from .monitor_context import MonitorContext, get_ctx, resolve_context
 from .state_helpers import cache_get_or_compute_async, cache_get_stored, ctx_scoped_ttl_key, schedule_cache_refresh
 
@@ -774,7 +775,7 @@ PULL_REQUESTS_TIMEOUT_S = 20.0
 PULL_REQUESTS_PER_REPOSITORY = 50
 REVIEW_STATUS_CONTEXT = "fleet/cross-family-review"
 _PR_FIELDS = (
-    "number title url isDraft createdAt headRefName mergeStateStatus"
+    "number isDraft createdAt headRefName mergeStateStatus"
     " mergeQueueEntry { position state }"
     " commits(last: 1) { nodes { commit { statusCheckRollup { state }"
     f' status {{ context(name: "{REVIEW_STATUS_CONTEXT}") {{ state }} }} }} }} }}'
@@ -808,28 +809,31 @@ def _last_commit(node: dict[str, Any]) -> dict[str, Any]:
     return _mapping(_mapping(last).get("commit"))
 
 
-def _pull_request_row(node: dict[str, Any], *, private: bool) -> dict[str, Any]:
+def _pull_request_row(node: dict[str, Any], *, private: bool, repository: str) -> dict[str, Any]:
     commit = _last_commit(node)
     rollup = _mapping(commit.get("statusCheckRollup"))
     review = _mapping(_mapping(commit.get("status")).get("context"))
     queue = node.get("mergeQueueEntry") if isinstance(node.get("mergeQueueEntry"), dict) else None
-    number = node.get("number") if isinstance(node.get("number"), int) else None
-    url = node.get("url") if isinstance(node.get("url"), str) and node["url"].startswith("https://github.com/") else None
+    raw_number = node.get("number")
+    number = raw_number if type(raw_number) is int and 0 < raw_number < 1_000_000_000 else None
+    branch = node.get("headRefName")
+    task_id = branch.rsplit("/", 1)[-1] if isinstance(branch, str) and len(branch) <= 512 else None
     return {
         "number": number,
-        "url": url,
-        # A private repository's titles and branch names are its content; the
-        # Monitor shows only its counts and states.
-        "title": None if private else (node.get("title") if isinstance(node.get("title"), str) else None),
-        "head_branch": None if private else (node.get("headRefName") if isinstance(node.get("headRefName"), str) else None),
+        "url": f"https://github.com/{repository}/pull/{number}" if number is not None else None,
+        "task_reference": None if private else panel_values.task_reference(task_id),
         "draft": node.get("isDraft") is True,
-        "created_at": node.get("createdAt") if isinstance(node.get("createdAt"), str) else None,
-        "merge_state": _lower(node.get("mergeStateStatus")),
-        "ci": _lower(rollup.get("state")),
-        "review": _lower(review.get("state")),
+        "created_at": panel_values.timestamp(node.get("createdAt")),
+        "merge_state": panel_values.choice(_lower(node.get("mergeStateStatus")), {
+            "behind", "blocked", "clean", "dirty", "draft", "has_hooks", "unknown", "unstable",
+        }, "unknown"),
+        "ci": panel_values.choice(_lower(rollup.get("state")), {"success", "failure", "error", "pending", "expected"}),
+        "review": panel_values.choice(_lower(review.get("state")), {"success", "failure", "error", "pending", "expected"}),
         "queue": {
-            "position": queue.get("position") if isinstance(queue.get("position"), int) else None,
-            "state": _lower(queue.get("state")),
+            "position": panel_values.number(queue.get("position")),
+            "state": panel_values.choice(_lower(queue.get("state")), {
+                "queued", "awaiting_checks", "locked", "mergeable", "unmergeable",
+            }, "unknown"),
         } if queue else None,
     }
 
@@ -885,7 +889,7 @@ def compute_pull_requests(project_root: Path) -> dict[str, Any]:
             "reason": None,
             "private": private,
             "open_total": total if isinstance(total, int) else None,
-            "pull_requests": [_pull_request_row(node, private=private) for node in nodes],
+            "pull_requests": [_pull_request_row(node, private=private, repository=f"{owner}/{name}") for node in nodes[:PULL_REQUESTS_PER_REPOSITORY]],
         })
     return {"status": "ok", "reason": None, "observed_at": observed_at, "repositories": repositories}
 
