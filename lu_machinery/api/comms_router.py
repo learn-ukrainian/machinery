@@ -28,9 +28,6 @@ import threading
 import time
 import uuid
 from datetime import UTC, datetime
-
-logger = logging.getLogger(__name__)
-
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, Query, Request, Response
@@ -59,9 +56,12 @@ from lu_machinery.fleet_comms.opsec_store import (
 from lu_machinery.fleet_comms.paths import default_plane_root
 from lu_machinery.lib.readonly_sqlite import SQLiteConnection
 
+from . import panel_values
 from .monitor_context import MonitorContext, get_ctx, resolve_context
 from .state_helpers import cache_get, cache_set
 from .telemetry.legacy_comms import LegacyCommsTelemetryRoute
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["comms"], route_class=LegacyCommsTelemetryRoute)
 
@@ -1810,6 +1810,105 @@ async def comms_v1_dead_letters(
     return payload
 
 
+_METRIC_STATES = frozenset({
+    "pending", "processing", "dispatched", "delivered", "failed", "queued", "leased",
+    "running", "done", "complete", "completed", "succeeded", "cancelled", "expired", "dead_lettered",
+    "dead_letter", "acknowledged", "sent", "received", "open", "closed", "resolved", "unknown",
+})
+_MESSAGE_TYPES = frozenset({
+    "request", "response", "reply", "notification", "message", "task", "result", "error",
+    "query", "answer", "context", "status", "command", "event", "ack", "handoff", "review",
+})
+
+
+def _metric_counts(raw: object, allowed: frozenset[str]) -> dict[str, int | float]:
+    """Preserve the denominator, folding arbitrary database labels into unknown."""
+    out: dict[str, int | float] = {}
+    for key, value in panel_values.mapping(raw).items():
+        count = panel_values.number(value)
+        if count is None or count < 0:
+            continue
+        label = panel_values.choice(key, allowed, "unknown")
+        out[label] = min(1e15, out.get(label, 0) + count)
+    return out
+
+
+def _public_agent_success(raw: object) -> dict:
+    # Summary field names are authored here, not copied from task identities.
+    from lu_machinery.fleet_comms import agent_success_metrics as metrics  # noqa: PLC0415
+
+    fields = frozenset({
+        "tasks", "roles", "review", "authoring", "other", "model_sources", "resolved", "requested",
+        "status", "success", "terminal_success", "no_deliverable_reasons", "failure_classes",
+        "median_wall_seconds", "reviews", "verdicts", "changes_requested", "rounds_to_approval",
+        "findings", "finding_severities", "confirmed_findings", "confirmation_rate", "unobserved_finding_reviews",
+        "tokens", "pr_opened", "pr_merged", "merge_group_ci_failures", "cost_usd", "value", "observed",
+        "total", "coverage", "numerator", "denominator", "rate", "percent", "n", "count", "median", "rubric_agreement",
+        "hot_records", "archive_records", "excluded_legacy", "excluded_dry_run", "invalid_records", "undated_records",
+        "outside_window", "duplicate_runs", "unreadable_directories", "model_catalog_unavailable", "unknown",
+    }) | set(metrics.STATUSES) | set(metrics.REASONS) | set(metrics.ERROR_CLASSES) | set(metrics.SEVERITIES) | set(metrics.TOKEN_ALIASES) | set(metrics.VERDICTS.values())
+
+    def summary(value: object, depth: int = 0):
+        if depth > 8:
+            return None
+        if isinstance(value, dict):
+            return {key: summary(child, depth + 1) for key, child in value.items() if key in fields}
+        return "unknown" if value == "unknown" else panel_values.number(value)
+
+    row = panel_values.mapping(raw)
+    out = {"schema_version": "agent-success.v1", "content_included": False, "source": "dispatch_v2",
+           **panel_values.scalars(row, numbers=("tasks",), flags=("available", "complete")),
+           "coverage": summary(row.get("coverage")),
+           "window": {**panel_values.scalars(panel_values.mapping(row.get("window")), times=("since", "until")),
+                      "cohort": "started_at", "bounds": "[since,until)"}}
+    for dimension in ("by_agent", "by_model"):
+        groups = panel_values.mapping(row.get(dimension))
+        out[dimension] = {
+            key: summary(value) for key, value in groups.items()
+            if key == "unknown" or (key in panel_values.AGENTS if dimension == "by_agent" else panel_values.model(key) == key)
+        }
+    scores = panel_values.mapping(row.get("review_scores"))
+    out["review_scores"] = {dimension: {key: summary(value) for key, value in panel_values.mapping(scores.get(dimension)).items()
+                                       if key == "unknown" or panel_values.model(key) == key}
+                            for dimension in ("by_reviewer_model", "by_author_model")}
+    return out
+
+
+def _public_comms_metrics(raw: object) -> dict:
+    row = panel_values.mapping(raw)
+    out = {"response_schema_version": COMMS_RESPONSE_SCHEMA_VERSION, "content_included": False,
+           **panel_values.scalars(row, numbers=("dead_letters",), flags=("db_missing",))}
+    if "source" in row:
+        out["source"] = panel_values.choice(row["source"], {"authority", "legacy"}, "unknown")
+    if row.get("db_error"):
+        out["db_error"] = "collector_unavailable"
+        out["reason_code"] = "collector_unavailable"
+    store = panel_values.mapping(row.get("store"))
+    out["store"] = {"kind": panel_values.choice(store.get("kind"), {"comms-plane", "legacy-broker"}, "unknown"),
+                    "reachable": store.get("reachable") is True}
+    for key in ("deliveries", "jobs", "requests"):
+        if key in row:
+            out[key] = _metric_counts(row[key], _METRIC_STATES)
+    if "messages_legacy" in row:
+        legacy = panel_values.mapping(row["messages_legacy"])
+        out["messages_legacy"] = {
+            **panel_values.scalars(legacy, numbers=("distinct_task_ids",)),
+            "by_status": _metric_counts(legacy.get("by_status"), _METRIC_STATES),
+            "by_message_type": _metric_counts(legacy.get("by_message_type"), _MESSAGE_TYPES),
+        }
+    if "retired_endpoint_pending" in row:
+        out["retired_endpoint_pending"] = panel_values.scalars(
+            panel_values.mapping(row["retired_endpoint_pending"]), numbers=("gemini",))
+    if "latency_seconds" in row:
+        latency = panel_values.mapping(row["latency_seconds"])
+        out["latency_seconds"] = {
+            key: panel_values.scalars(panel_values.mapping(latency[key]), numbers=("n", "avg", "min", "max"))
+            for key in ("delivery_dispatch_to_done", "delivery_created_to_done") if key in latency}
+    if "agent_success" in row:
+        out["agent_success"] = _public_agent_success(row["agent_success"])
+    return out
+
+
 @router.get("/v1/metrics")
 async def comms_v1_metrics(ctx: MonitorContext = Depends(get_ctx), include_agent_success: bool = False) -> dict:
     """Efficiency metrics from durable timestamps (no content). Sol PR-M / #7486 switch-aware."""
@@ -1821,19 +1920,19 @@ async def comms_v1_metrics(ctx: MonitorContext = Depends(get_ctx), include_agent
     if resolve_metrics_source() == "authority":
         payload = _authority_metrics_payload(collect_efficiency_metrics_authority, ctx)
         payload.update(extra)
-        return payload
+        return _public_comms_metrics(payload)
     message_db = ctx.roots.message_db_path
     store = legacy_broker_store(reachable=message_db.is_file())
     if not message_db.exists():
-        return {
+        return _public_comms_metrics({
             "response_schema_version": COMMS_RESPONSE_SCHEMA_VERSION,
             "content_included": False,
             **extra,
             "db_missing": True,
             "store": store,
-        }
+        })
     payload = collect_efficiency_metrics(message_db)
     payload.update(extra)
     payload["response_schema_version"] = COMMS_RESPONSE_SCHEMA_VERSION
     payload["store"] = store
-    return payload
+    return _public_comms_metrics(payload)

@@ -484,7 +484,10 @@ def test_list_delegate_tasks_repository_filter_before_limit(tmp_path, monkeypatc
     active_http = _active_get()
     assert active_http.status_code == 200
     active_data = active_http.json()
-    _assert_legacy_summary_shape(active_data["tasks"])
+    assert active_data["total"] == 2
+    assert {row["task_id"] for row in active_data["tasks"]} == {
+        "public-spawning", "public-running"}
+    assert all("cli_version" not in row and "reason_code" in row for row in active_data["tasks"])
     active_http_blob = json.dumps(active_data)
     assert "repository" not in active_http_blob
     assert "repository_id" not in active_http_blob
@@ -544,7 +547,8 @@ def test_delegate_http_redacts_repository_even_when_task_state_has_private(
     assert tasks_body["total"] == 2
     assert active_body["total"] == 1
     _assert_legacy_summary_shape(tasks_body["tasks"])
-    _assert_legacy_summary_shape(active_body["tasks"])
+    assert active_body["tasks"][0]["status"] == "running"
+    assert "cli_version" not in active_body["tasks"][0]
     assert {row["delivery_pr"] for row in tasks_body["tasks"]} == {"#42", "#43"}
     for body in (tasks_body, active_body, recent_body):
         blob = json.dumps(body)
@@ -715,6 +719,8 @@ def test_active_snapshot_never_collects_on_requests(tmp_path, monkeypatch):
     with _snapshot_client(ctx) as running:
         expected, _ = snapshot.read()
         assert expected["total"] == 1
+        expected_http = running.get("/api/delegate/active").json()
+        assert expected_http["total"] == 1
         def forbidden(*args, **kwargs):
             raise AssertionError("request collected task history")
         monkeypatch.setattr(delegate_router, "active_delegate_tasks", forbidden)
@@ -724,7 +730,7 @@ def test_active_snapshot_never_collects_on_requests(tmp_path, monkeypatch):
             for _ in range(2):
                 response = running.get("/api/delegate/active")
                 assert response.status_code == 200
-                assert response.json() == expected
+                assert response.json() == expected_http
         finally:
             release.set()
     # Shutdown joins an in-progress collector before its stores can close.

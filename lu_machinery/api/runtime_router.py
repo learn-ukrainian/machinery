@@ -25,6 +25,7 @@ from lu_machinery.agent_runtime import registry as agent_registry
 from lu_machinery.agent_runtime.accounting import recorded_model_accounting_fields
 from lu_machinery.agent_runtime.adapters.acpx import ACPX_SUPPORTED_PARTICIPANTS
 from lu_machinery.agent_runtime.adapters.gemini import has_gemini_oauth_credentials, resolve_gemini_auth_mode
+from lu_machinery.agent_runtime.attempt_boundary import CLAUDE_ACCOUNT_REFUSAL_CODES
 from lu_machinery.agent_runtime.failure_codes import RUNTIME_FAILURE_CODES
 from lu_machinery.agent_runtime.usage import _iter_usage_records as _iter_usage_file_records
 from lu_machinery.agent_runtime.usage import has_headroom
@@ -35,7 +36,7 @@ from lu_machinery.fleet_comms.message_plane import read_plane_status
 from lu_machinery.lib.readonly_sqlite import SQLiteConnection, import_named_module, open_readonly
 from lu_machinery.orchestration import codex_transport_health
 
-from . import account_logins, subscriptions
+from . import account_logins, panel_values, subscriptions
 from .monitor_context import MonitorContext, get_ctx, resolve_context
 from .monitor_context import production_context as production_context  # re-export: test monkeypatches
 
@@ -1658,17 +1659,128 @@ async def runtime_auth():
     }
 
 
+
+# These HTTP views deliberately do not publish provider-authored prose. The
+# scheduler/CLI readers retain their private diagnostics for local operators.
+_SUBSCRIPTION_REASONS = frozenset({
+    "not_configured", "unreadable", "invalid", "not_in_plan_facts", "no_reading",
+    "not_reported", "no_weekly_window", "balance_not_read", "no_monitor_reading",
+    "unreadable_reading", "read_time_in_future", "usage_cache_missing",
+    "usage_cache_invalid", "usage_cache_unreadable", "usage_cache_not_configured",
+    "provider_error", "expired", "not_probed", "too_early_in_window",
+})
+_LOGIN_REASON_CODES = CLAUDE_ACCOUNT_REFUSAL_CODES | {
+    code.replace("claude_account", "codex_account") for code in CLAUDE_ACCOUNT_REFUSAL_CODES
+} | {
+    "probe_failed", "probe_timeout", "unreadable_status", "claude_cli_not_found", "codex_cli_not_found",
+    "codex_account_binding_invalid", "codex_account_unbound", "codex_account_login_unverified",
+    "codex_account_not_logged_in", "codex_account_home_not_private", "codex_account_binding_shared",
+    "codex_account_home_unavailable",
+}
+_WINDOW_LABELS = frozenset({
+    "Weekly", "Session", "Primary", "Secondary", "Tertiary", "primary", "secondary", "tertiary",
+    "Code review", "Gemini weekly", "Gemini 5-hour", "Claude/GPT weekly", "Claude/GPT 5-hour",
+    "Claude", "Codex", "Grok", "Cursor", "Gemini", "Claude/GPT", "Auto", "API", "Total",
+})
+
+
+def _subscription_section(raw: object) -> dict[str, Any]:
+    row = panel_values.mapping(raw)
+    out = panel_values.scalars(
+        row,
+        numbers=("age_s", "window_minutes", "used_pct", "left_pct", "resets_in_s", "headroom_pct",
+                 "expected_used_pct", "runs_out_in_s", "balance", "count", "days_to_end", "days_to_renewal"),
+        flags=("reset_passed", "lasts_to_reset", "expired", "cancelled", "ended"),
+        times=("read_at", "resets_at", "runs_out_at", "renews_on", "ends_on", "next_renewal_on", "expires_on"),
+    )
+    for key, allowed in {
+        "status": {"ok", "none", "unknown", "fresh", "stale", "missing", "invalid", "unreadable", "not_configured"},
+        "state": {"on_pace", "deficit", "reserve"},
+        "source": {"provider", "computed", "plan_facts", "usage_cache", "monitor"},
+        "label": _WINDOW_LABELS,
+        "unit": {"credits", "USD"},
+        "kind": {"weekly reset", "session reset", "weekly", "session", "reset", "5-hour"},
+    }.items():
+        if key in row:
+            out[key] = panel_values.choice(row[key], allowed)
+    if "reason" in row:
+        out["reason_code"] = panel_values.reason(row.get("reason"), _SUBSCRIPTION_REASONS)
+    if "items" in row:
+        out["items"] = [_subscription_section(item) for item in panel_values.rows(row["items"], 10)]
+    # name, summary and reset_description are arbitrary provider or plan-facts text.
+    return out
+
+
+def _public_subscriptions(raw: object) -> dict[str, Any]:
+    snapshot = panel_values.mapping(raw)
+    providers = []
+    identities = {provider: (label, {account: key for account, key, *_ in accounts})
+                  for provider, label, accounts in subscriptions.PROVIDERS}
+    for provider in panel_values.rows(snapshot.get("providers"), 16):
+        provider_id = provider.get("provider")
+        identity = identities.get(provider_id) if isinstance(provider_id, str) else None
+        if identity is None:
+            continue
+        label, accounts = identity
+        rows = []
+        for account in panel_values.rows(provider.get("accounts"), 16):
+            name = panel_values.choice(account.get("account"), accounts)
+            if name is None:
+                continue
+            row: dict[str, Any] = {"account": name, "plan_key": accounts[name],
+                   "source": panel_values.choice(account.get("source"), {"usage_cache", "monitor"})}
+            for section in ("reading", "weekly", "session", "pace", "credits", "banked_resets", "plan"):
+                row[section] = _subscription_section(account.get(section))
+            row["extra_windows"] = [_subscription_section(window)
+                                    for window in panel_values.rows(account.get("extra_windows"), 20)]
+            # Percent breakdown labels have their own closed vocabulary in the reader.
+            row["breakdown"] = [
+                {"label": item["label"], "value": item["value"]}
+                for item in panel_values.rows(account.get("breakdown"), 10)
+                if panel_values.choice(item.get("label"), {"Cursor", "Grok", "Gemini", "Claude/GPT"})
+                and isinstance(item.get("value"), str)
+                and re.fullmatch(r"(?:100|[0-9]{1,2})(?:\.[0-9]{1,2})?%", item["value"])
+            ]
+            rows.append(row)
+        providers.append({"provider": provider["provider"], "label": label, "accounts": rows})
+    sources = panel_values.mapping(snapshot.get("sources"))
+    return {**panel_values.scalars(snapshot, numbers=("stale_after_s",), times=("generated_at",)),
+            "sources": {key: _subscription_section(sources.get(key)) for key in ("usage_cache", "plan_facts")},
+            "providers": providers}
+
+
+def _public_logins(raw: object, ends: object) -> dict[str, Any]:
+    snapshot = panel_values.mapping(raw)
+    rows = []
+    names = {"Claude a": "claude", "Claude b": "claude", "Codex a": "codex", "Codex b": "codex"}
+    for row in panel_values.rows(snapshot.get("accounts"), 8):
+        name = panel_values.choice(row.get("account"), names)
+        if name is None:
+            continue
+        rows.append({"account": name, "provider": names[name],
+                     **panel_values.scalars(row, flags=("logged_in", "expiry_reported"), times=("expires_at",)),
+                     "reason_code": panel_values.reason(row.get("error"), _LOGIN_REASON_CODES)})
+    subscriptions_ends = panel_values.mapping(ends)
+    return {"state": panel_values.choice(snapshot.get("state"), {"pending", "ok"}, "unknown"),
+            **panel_values.scalars(snapshot, times=("read_at",)), "accounts": rows,
+            "subscriptions": {"ends": {key: panel_values.scalars(panel_values.mapping(value),
+                                                                          flags=("ended",), times=("ends_on",))
+                                        for key, value in panel_values.mapping(subscriptions_ends.get("ends")).items()
+                                        if key in {"claude_a", "claude_b", "codex_a", "codex_b", "agy", "grok", "muse"}},
+                              "reason_code": panel_values.reason(subscriptions_ends.get("reason"),
+                                                                 {"not_configured", "unreadable", "invalid"})}}
+
+
 @router.get("/logins")
 async def runtime_logins():
     """Sign-in health of the subscription accounts and the cancelled subscriptions' end dates.
 
     ``accounts`` comes from a background snapshot (``account_logins``): signed in
-    or not, login method, plan, and the sign-in end date where the CLI reports
-    one. No email, organization, directory or credential. ``state`` is
+    or not, and the sign-in end date where the CLI reports one. No email, organization, directory or credential. ``state`` is
     ``pending`` until the first snapshot exists. ``subscriptions`` holds the
     operator's end dates for cancelled subscriptions, read from the host config.
     """
-    return {**account_logins.logins_snapshot(), "subscriptions": account_logins.subscription_ends()}
+    return _public_logins(account_logins.logins_snapshot(), account_logins.subscription_ends())
 
 
 @router.get("/subscriptions")
@@ -1680,8 +1792,8 @@ def runtime_subscriptions():
     ``subscriptions.subscriptions_snapshot`` from the host's usage cache, the
     Monitor's in-memory Muse reading and the operator's plan-facts file; it
     never calls a provider. A missing value is ``null`` in a section
-    whose ``status`` is ``unknown`` with a ``reason``; a reading older than
-    15 minutes is ``stale``. The console command
-    ``python -m lu_machinery.api.subscriptions --json`` prints the same JSON.
+    whose ``status`` is ``unknown`` with a ``reason_code``; a reading older than
+    15 minutes is ``stale``. Provider prose and plan names are omitted from HTTP;
+    the local console reader retains its private diagnostic view.
     """
-    return subscriptions.subscriptions_snapshot()
+    return _public_subscriptions(subscriptions.subscriptions_snapshot())

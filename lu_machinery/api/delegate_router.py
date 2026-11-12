@@ -20,12 +20,14 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import JSONResponse
 
 from lu_machinery.agent_runtime.accounting import recorded_model_accounting_fields
+from lu_machinery.agent_runtime.codex_accounts import CODEX_ACCOUNT_ALIASES, CODEX_ACCOUNT_LABELS, DEFAULT_CODEX_ACCOUNT
 from lu_machinery.lib.readonly_sqlite import SQLiteConnection
 from lu_machinery.orchestration.task_record_store import ARCHIVE_DIR_NAME as TASK_ARCHIVE_DIR_NAME
 from lu_machinery.orchestration.task_record_store import iter_task_records, parse_task_record
 from lu_machinery.orchestration.worktree_claims import RELEASED_TASK_STATUSES
 from lu_machinery.work.sources_public import public_repository_id
 
+from . import panel_values
 from .lane_health import sanitize_error_excerpt
 from .monitor_context import MonitorContext, get_ctx, resolve_context
 from .monitor_context import production_context as production_context  # re-export: test monkeypatches
@@ -969,17 +971,63 @@ async def delegate_tasks(
     )
 
 
+
+def _panel_task(raw: object) -> dict[str, Any]:
+    """Task accounting with dispatcher-valid identifiers; no diagnostic prose."""
+    row = panel_values.mapping(raw)
+    out = panel_values.scalars(
+        row, numbers=("age_s", "duration_s", "commits_ahead", "returncode"),
+        flags=("alive", "worktree_dirty_on_exit"), times=("started_at", "finished_at", "updated_at"),
+    )
+    account = row.get("codex_account")
+    if account is None and row.get("agent") == "codex":
+        account = DEFAULT_CODEX_ACCOUNT
+    elif isinstance(account, str):
+        account = CODEX_ACCOUNT_ALIASES.get(account, account)
+    out.update({
+        "task_id": panel_values.task_reference(row.get("task_id")),
+        "agent": panel_values.choice(row.get("agent"), panel_values.AGENTS, "unknown"),
+        "model": panel_values.model(row.get("model")),
+        "observed_model": panel_values.model(row.get("observed_model")),
+        "status": panel_values.choice(row.get("status"), {
+            "running", "spawning", "done", "failed", "timeout", "rate_limited", "cancelled", "crashed",
+            "no_deliverable", "needs_finalize", "settling", "zombie", "dry_run", "blocked",
+        }, "unknown"),
+        "push_state": panel_values.choice(row.get("push_state"), {"pushed", "unpushed", "unknown"}, "unknown"),
+        "claude_account": panel_values.choice(row.get("claude_account"), {"a", "b"}),
+        "codex_account": panel_values.choice(account, CODEX_ACCOUNT_LABELS),
+        "research_role": panel_values.choice(row.get("research_role"), {
+            "implementer", "reviewer", "quality", "researcher", "orchestrator", "author", "driver", "recon",
+        }),
+        "reason_code": "task_failed" if row.get("error") else None,
+    })
+    pr = row.get("delivery_pr")
+    out["delivery_pr"] = pr if isinstance(pr, str) and re.fullmatch(r"#[1-9][0-9]{0,8}", pr) else None
+    return out
+
+
+def _panel_tasks(raw: object) -> dict[str, Any]:
+    payload = panel_values.mapping(raw)
+    result: dict[str, Any] = {"total": panel_values.number(payload.get("total")),
+              "tasks": [_panel_task(row) for row in panel_values.rows(payload.get("tasks"), 500)]}
+    if "needs_attention" in payload:
+        attention = panel_values.mapping(payload["needs_attention"])
+        result["needs_attention"] = {"total": panel_values.number(attention.get("total")),
+                                     "tasks": [_panel_task(row) for row in panel_values.rows(attention.get("tasks"), 500)]}
+    return result
+
+
 @router.get("/active")
 async def delegate_active(ctx: MonitorContext = Depends(get_ctx)):
     payload, age = active_snapshot(ctx).read()
-    return JSONResponse(content=payload, headers={"X-Snapshot-Age-S": f"{age:.3f}", "Cache-Control": "no-store"})
+    return JSONResponse(content=_panel_tasks(payload), headers={"X-Snapshot-Age-S": f"{age:.3f}", "Cache-Control": "no-store"})
 
 
 @router.get("/recent")
 async def delegate_recent(ctx: MonitorContext = Depends(get_ctx)):
     """The most recently finished tasks, newest first, from a 30 s background snapshot."""
     payload, age = recent_snapshot(ctx).read()
-    return JSONResponse(content=payload, headers={"X-Snapshot-Age-S": f"{age:.3f}", "Cache-Control": "no-store"})
+    return JSONResponse(content=_panel_tasks(payload), headers={"X-Snapshot-Age-S": f"{age:.3f}", "Cache-Control": "no-store"})
 
 
 @router.get("/tasks/{task_id}")

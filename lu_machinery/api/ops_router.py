@@ -13,7 +13,7 @@ from fastapi.responses import JSONResponse
 
 from lu_machinery.common import test_slots
 
-from . import load_samples
+from . import load_samples, panel_values
 from .monitor_context import MonitorContext, get_ctx
 from .state_helpers import cache_get_or_compute_async, cache_get_with_age, ctx_scoped_ttl_key
 
@@ -112,12 +112,7 @@ ALERTS_TIMEOUT_S = 3.0
 HEARTBEAT_ALERTNAMES = frozenset({"Watchdog"})
 # Alertmanager v2 alert states; anything else is a malformed reading.
 ALERT_STATES = frozenset({"active", "suppressed", "unprocessed"})
-_ALERT_LABELS = ("alertname", "severity", "owner_lane", "repo")
-_ALERT_ANNOTATIONS = ("summary", "action")
-
-
-def _alert_text(value: object, limit: int = 300) -> str | None:
-    return value[:limit] if isinstance(value, str) and value else None
+_ALERT_NAMES = frozenset({"ApprovedNotLanded30m", "Watchdog"})
 
 
 def _alerts_reading() -> dict:
@@ -139,10 +134,10 @@ def _alerts_reading() -> dict:
             connection.close()
     except (OSError, ValueError, http.client.HTTPException) as exc:
         logger.warning("alertmanager read failed: %s", type(exc).__name__)
-        return {"status": "unknown", "reason": "alertmanager_unreachable", "observed_at": observed_at,
+        return {"status": "unknown", "reason_code": "alertmanager_unreachable", "observed_at": observed_at,
                 "heartbeat": None, "alerts": []}
     if not isinstance(raw, list):
-        return {"status": "unknown", "reason": "alertmanager_invalid_response", "observed_at": observed_at,
+        return {"status": "unknown", "reason_code": "alertmanager_invalid_response", "observed_at": observed_at,
                 "heartbeat": None, "alerts": []}
     alerts: list[dict] = []
     heartbeat = False
@@ -160,19 +155,21 @@ def _alerts_reading() -> dict:
             or state not in ALERT_STATES
             or not isinstance(annotations, dict)
         ):
-            return {"status": "unknown", "reason": "alertmanager_invalid_response", "observed_at": observed_at,
+            return {"status": "unknown", "reason_code": "alertmanager_invalid_response", "observed_at": observed_at,
                     "heartbeat": None, "alerts": []}
         if state != "active":
             continue
         if labels["alertname"] in HEARTBEAT_ALERTNAMES:
             heartbeat = True
             continue
-        row = {key: _alert_text(labels.get(key), 120) for key in _ALERT_LABELS}
-        row.update({key: _alert_text(annotations.get(key)) for key in _ALERT_ANNOTATIONS})
-        row["starts_at"] = _alert_text(item.get("startsAt"), 40)
+        row = {
+            "alertname": panel_values.choice(labels.get("alertname"), _ALERT_NAMES, "UnrecognizedAlert"),
+            "severity": panel_values.choice(labels.get("severity"), {"critical", "warning", "info", "none"}, "unknown"),
+            "starts_at": panel_values.timestamp(item.get("startsAt")),
+        }
         alerts.append(row)
     alerts.sort(key=lambda row: (row.get("severity") != "critical", row.get("starts_at") or ""))
-    return {"status": "ok", "reason": None, "observed_at": observed_at, "heartbeat": heartbeat, "alerts": alerts}
+    return {"status": "ok", "reason_code": None, "observed_at": observed_at, "heartbeat": heartbeat, "alerts": alerts}
 
 
 @router.get("/v1/alerts")

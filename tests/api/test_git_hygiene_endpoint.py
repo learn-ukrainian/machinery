@@ -178,12 +178,13 @@ def test_pull_requests_route_hides_private_repo_titles_and_branches(monkeypatch,
     _graphql_result(monkeypatch, 0, json.dumps({"data": repos}))
     payload = git_hygiene_router.compute_pull_requests(tmp_path)
     public, private, unstated = payload["repositories"]
-    assert public["pull_requests"][0]["title"] == "secret-title"
+    assert "title" not in public["pull_requests"][0]
+    assert public["pull_requests"][0]["task_reference"] == "secret-branch"
     assert public["pull_requests"][0]["queue"] == {"position": 1, "state": "queued"}
     for repo in (private, unstated):
         assert repo["private"] is True
-        assert repo["pull_requests"][0]["title"] is None
-        assert repo["pull_requests"][0]["head_branch"] is None
+        assert "title" not in repo["pull_requests"][0]
+        assert repo["pull_requests"][0]["task_reference"] is None
         assert "secret" not in json.dumps(repo)
 
 

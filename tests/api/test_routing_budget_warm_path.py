@@ -45,7 +45,7 @@ def test_warm_lane_error_never_scans_tasks_on_event_loop(monkeypatch, tmp_path):
             for _ in range(2):
                 warm = await client.get("/api/state/routing-budget")
                 assert warm.status_code == 200
-                assert warm.json()["agents"]["codex"]["health"]["error"] == "fixture scan failure"
+                assert warm.json()["agents"]["codex"]["health"]["reason_code"] == "provider_error"
         assert scan_threads, "live lane errors were never refreshed"
         assert loop_thread not in scan_threads, "warm lane-error scan blocked the event loop"
 

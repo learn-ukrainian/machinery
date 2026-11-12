@@ -1,9 +1,8 @@
 """Lane-health served fields redact host names, private paths, addresses and credential URLs (#9899).
 
-Raw provider diagnostics stay in the local task record by design; the
-lane-health view is where they leave that context, so every free-text field
-it serves passes through the shared secret redactor followed by diagnostic
-rules confined to lane health.
+Private diagnostics retain their local redaction behavior. The routing-budget
+HTTP view now removes every diagnostic excerpt and publishes a reason code.
+The endpoint cases below exercise that stricter contract with the same inputs.
 """
 
 from __future__ import annotations
@@ -369,8 +368,8 @@ _REVIEW_SHAPES = [
 
 @pytest.mark.parametrize(("excerpt", "marker", "expected"), _REVIEW_SHAPES)
 @pytest.mark.parametrize("field", ["last_error", "error"])
-def test_endpoint_redacts_review_shapes_in_each_served_field(monkeypatch, tmp_path, excerpt, marker, expected, field):
-    """Synthetic task records and .diag bytes survive the production response boundary."""
+def test_endpoint_omits_review_shapes_in_each_diagnostic_field(monkeypatch, tmp_path, excerpt, marker, expected, field):
+    """Diagnostic text never escapes HTTP, and source task/diag bytes are preserved."""
     _configure(monkeypatch, tmp_path, [])
     tasks_dir = tmp_path / "batch_state" / "tasks"
     tasks_dir.mkdir(parents=True)
@@ -397,7 +396,10 @@ def test_endpoint_redacts_review_shapes_in_each_served_field(monkeypatch, tmp_pa
 
     assert response.status_code == 200
     assert marker not in response.text
-    assert response.json()["agents"]["claude"]["health"][field] == expected
+    health = response.json()["agents"]["claude"]["health"]
+    assert field not in health
+    assert health["reason_code"] == "provider_error"
+    assert excerpt not in response.text
     assert {path: path.read_bytes() for path in tasks_dir.iterdir()} == files_before
 
 
@@ -412,7 +414,7 @@ def test_endpoint_redacts_review_shapes_in_each_served_field(monkeypatch, tmp_pa
     ],
 )
 @pytest.mark.parametrize("field", ["last_error", "error"])
-def test_endpoint_preserves_safe_text_and_placeholder_boundaries(monkeypatch, tmp_path, excerpt, field):
+def test_endpoint_omits_even_safe_diagnostic_prose(monkeypatch, tmp_path, excerpt, field):
     _configure(monkeypatch, tmp_path, [])
     tasks_dir = tmp_path / "batch_state" / "tasks"
     tasks_dir.mkdir(parents=True)
@@ -429,10 +431,10 @@ def test_endpoint_preserves_safe_text_and_placeholder_boundaries(monkeypatch, tm
     app.include_router(state_router.router, prefix="/api/state")
     response = TestClient(app).get("/api/state/routing-budget")
     assert response.status_code == 200
-    expected = excerpt
-    if excerpt.startswith("x" * 190):
-        expected = "x" * 190 + " [redacted-path] denied" if field == "error" else "x" * 190
-    assert response.json()["agents"]["claude"]["health"][field] == expected
+    health = response.json()["agents"]["claude"]["health"]
+    assert field not in health
+    assert health["reason_code"] == "provider_error"
+    assert excerpt not in response.text
 
 
 @pytest.mark.parametrize(
@@ -449,7 +451,7 @@ def test_endpoint_preserves_safe_text_and_placeholder_boundaries(monkeypatch, tm
         ),
     ],
 )
-def test_endpoint_never_splits_any_placeholder(monkeypatch, tmp_path, marker, prefix_text, placeholder, served_prefix):
+def test_endpoint_omits_diagnostics_at_every_placeholder_boundary(monkeypatch, tmp_path, marker, prefix_text, placeholder, served_prefix):
     """Probe every interior cutoff position through the production handler."""
     _configure(monkeypatch, tmp_path, [])
     tasks_dir = tmp_path / "batch_state" / "tasks"
@@ -467,9 +469,7 @@ def test_endpoint_never_splits_any_placeholder(monkeypatch, tmp_path, marker, pr
                 _write_task(tasks_dir, f"c-{index}", "claude", now - timedelta(minutes=minutes), excerpt)
             response = client.get("/api/state/routing-budget")
             assert response.status_code == 200
-            # A second serve-time pass also hides any incomplete URL authority
-            # left before the truncated credential placeholder.
-            expected = (prefix + served_prefix).rstrip()
-            if len(expected) > MAX_ERROR_EXCERPT_CHARS:
-                expected = (prefix + "https://").rstrip()
-            assert response.json()["agents"]["claude"]["health"]["last_error"] == expected
+            health = response.json()["agents"]["claude"]["health"]
+            assert "last_error" not in health
+            assert health["reason_code"] == "provider_error"
+            assert excerpt not in response.text
