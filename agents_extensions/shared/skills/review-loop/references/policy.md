@@ -14,7 +14,7 @@ simpler manual procedure beats new tooling.
 | --- | --- | --- |
 | Low | Deletions of unused code, docs, data, test-only, comments | Required CI green + one exact-head APPROVE from a qualified non-author reviewer (any family); no cross-family seat required |
 | Medium | Ordinary code changes | Required CI + one cross-family review |
-| High | CI workflows, launchers, publishing/merge gates, secrets/credential handling, security tooling, installers | Required CI + cross-family review at critical depth + the binding second review below |
+| High | CI workflows, launchers, publishing/merge gates, secrets/credential handling, security tooling, installers | Required CI + one exact-head cross-family review at critical depth (Opus or Sol) |
 | Ukrainian content | Learner-facing Ukrainian text | Gemini via AGY with Sources, seated by the [Ukrainian profile](ukrainian.md); deletions of learner-facing content keep this tier |
 
 The tier comes from the paths changed, never from the author. The path-to-tier table lives in
@@ -22,32 +22,8 @@ one place, `lu_machinery/config/review_tiers.yaml`. A PR spanning tiers takes th
 touches. Deleting a High-tier path or learner-facing content keeps that path's tier; only
 deletions of other unused code are Low.
 
-**Second review (operator orders 2026-11-11 and 2026-11-12).** A High-tier PR, or one that
-changes a security-sensitive path (`lu_machinery/review/security_paths.py`), needs the
-resolver-selected reviewer-of-record exact-head APPROVE, green CI and a second review. The
-second reviewer is the ordered list `review_scheduler.second_reviewer` in the model catalog:
-Muse (native), Carbon (AGY), then Sol (Codex) and Opus (native Claude) as last resort.
-Dispatch the first available eligible listed model on its listed route and record its verdict
-with `record_cf_verdict --second-review`. Every listed model's family must differ from every
-author family. Muse's and Carbon's (`third_family`) must also differ from the reviewer of
-record's. Sol and Opus (`last_resort`) may share it, but only as a separate exact-head run with
-its own task id, never the reviewer-of-record run reused. It is never the reviewer of record. Only a review
-recorded with `--second-review` on a PR that needs one is a second review: every other review,
-including Muse's low/medium reviews of record, is ordinary. A rejection from any listed second
-reviewer at the head blocks merge in every repository. Carbon second reviews recorded before
-2026-11-12 stay valid, since Carbon stays on the list.
-
-Repositories whose changes go live on merge still require that exact-head second-review APPROVE.
-Only `learn-ukrainian/machinery`, which ships through a released wheel, may enqueue and merge
-without a second-review verdict at that head. The publisher first records the durable
-`carbon-debt` label (the name is kept for continuity). An outage or timeout can therefore defer
-the second review only in machinery. A release must not be cut while any merged machinery PR has
-that label. Remove it only after a second review of the PR's merged head is recorded and any
-confirmed defect is fixed by a follow-up PR before release. See
-[Cut a release](../../../../../docs/release.md#cut-a-release).
-
-When no listed model is eligible by those rules, the reviewer-of-record rule stands alone. The trigger is the changed paths,
-never a declared risk. Both verdicts at one head are one round, and a moved head voids both.
+One exact-head cross-family review per change (owner decision C-5345, 2026-11-12).
+High and critical risk keep an Opus or Sol reviewer. There is no second review.
 
 ## 3. Findings
 

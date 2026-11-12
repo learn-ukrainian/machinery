@@ -581,7 +581,7 @@ def _refuse_incomplete_seats(dest, number, head, runner, cwd, environment):
         lookup_verdict,
         pr_file_paths,
     )
-    from lu_machinery.review.tiers import allows_carbon_debt, classify_pr_files, requires_second_review
+    from lu_machinery.review.tiers import classify_pr_files
 
     # The setting is explicit per repository; an absent, ambiguous or non-boolean one is unverifiable.
     rows = [
@@ -612,33 +612,19 @@ def _refuse_incomplete_seats(dest, number, head, runner, cwd, environment):
         paths = pr_file_paths(file_rows)
         low_tier = classify_pr_files(file_rows) == "low"
         content = changes_learner_content(paths)
-        second = requires_second_review(file_rows)
         verdict = lookup_verdict(
             [item for page in pages for item in page], head, login, learner_content=content, low_tier=low_tier,
-            second_review=second,
         )
         state = verdict.state
     except github_client.GitHubRateLimited:
         raise
     except Exception:
         raise gate.PublishBlocked("OPSEC: merge refused: review seats unverifiable.") from None
-    carbon_debt = False
-    if state == NEEDS_SEAT and second and lookup_verdict(
-        [item for page in pages for item in page], head, login, learner_content=content, low_tier=low_tier,
-    ).state == "APPROVED":
-        if allows_carbon_debt(dest):
-            state, carbon_debt = "APPROVED", True
-        else:
-            raise gate.PublishBlocked(
-                "OPSEC: merge refused: the binding second review has not approved this head (High-tier or "
-                "security-sensitive PR). Re-run the catalog's second reviewer at this head after availability returns."
-            )
     if state == NEEDS_SEAT:
         raise gate.PublishBlocked("OPSEC: merge refused: a Ukrainian review seat has not approved this head.")
     if state not in {"APPROVED", "needs-CF"}:
         raise gate.PublishBlocked(f"OPSEC: merge refused: recorded review verdict is {state} at this head.")
-    # A PR that needs the second review needs a recorded review even where the recorder is optional.
-    if state == "needs-CF" and (recorder or second):
+    if state == "needs-CF" and recorder:
         requirement = "non-author" if low_tier else "cross-family"
         raise gate.PublishBlocked(
             f"OPSEC: merge refused: no {requirement} APPROVE from {_RECORDER} is recorded at {head}."
@@ -670,15 +656,13 @@ def _refuse_incomplete_seats(dest, number, head, runner, cwd, environment):
             raise gate.PublishBlocked("OPSEC: merge refused: review seats unverifiable.") from None
         if any(DEFAULT_STATUS_CONTEXT in (row.get("name"), row.get("context")) for row in rows):
             raise gate.PublishBlocked("OPSEC: merge refused: this head's review status has no verdict record.")
-
-    return True if carbon_debt else None
+    return None
 
 
 def _prepare_recovery(verb, fields, dest, cwd, environment, runner):
     """Resolve live PR/run identities and posted evidence before any recovery write."""
     from lu_machinery.gh_merge_queue_status import extract_pr_number
     from lu_machinery.orchestration.integration_sweep import changes_learner_content, lookup_verdict, pr_file_paths
-    from lu_machinery.review.tiers import requires_second_review
 
     def fetch(name, **selectors):
         unknown = "RECOVERY_LOOKUP_UNKNOWN: live evidence unavailable"
@@ -778,10 +762,8 @@ def _prepare_recovery(verb, fields, dest, cwd, environment, runner):
     files = fetch("pr-files", number=number)
     content = changes_learner_content(files)
     login = fetch("identity").get("login")
-    # The fetched list holds paths only; reading each as modified never lowers its tier.
-    second = requires_second_review([{"filename": path, "status": "modified"} for path in files])
     if not isinstance(login, str) or lookup_verdict(
-        comments, head, login, learner_content=content, second_review=second, repository=dest,
+        comments, head, login, learner_content=content,
     ).state != "APPROVED":
         raise gate.PublishBlocked("RECOVERY_APPROVAL_MISSING: exact-head recorded approval required")
     evidence = recovery.evidence_from_comments(
@@ -1848,24 +1830,9 @@ def publish(
             if endpoint == "graphql":
                 argv += _hostname_flag(dest)
         if verb == "pr-merge":
-            carbon_debt = _refuse_incomplete_seats(
+            _refuse_incomplete_seats(
                 dest, fields["number"], fields["match_head"], readiness_runner, cwd, environment,
             )
-            if carbon_debt:
-                from lu_machinery.review.tiers import CARBON_DEBT_LABEL
-
-                # One writer, before enqueue. Both writes are idempotent and failures refuse merge.
-                for label_verb, label_fields in (
-                    ("label-create", {"name": CARBON_DEBT_LABEL, "color": "D93F0B", "force": True,
-                                      "description": "Second review required before the next machinery release"}),
-                    ("pr-edit", {"number": fields["number"], "add_labels": [CARBON_DEBT_LABEL]}),
-                ):
-                    labelled = publish(
-                        label_verb, repo=dest, runner=runner, cwd=cwd, env=environment,
-                        capture_output=True, text=True, check=False, timeout=timeout, **label_fields,
-                    )
-                    if labelled.returncode:
-                        raise gate.PublishBlocked("OPSEC: merge refused: Carbon debt label could not be recorded.")
         if verb == "run-rerun":
             reservation = _prepare_recovery(verb, fields, dest, cwd, environment, readiness_runner)
             if reservation:

@@ -123,16 +123,17 @@ def test_a_same_head_or_older_witness_supersedes_nothing(orphan_head, orphan_min
 
 
 def test_an_approval_at_the_candidate_head_never_supersedes_to_prove_the_approved_head(monkeypatch):
-    # Missing Carbon at a High head cannot certify lineage or a clean-base exemption.
+    # One exact-head approval certifies the head. A historical second-review rejection on
+    # another SHA does not, and an unpublished review still refuses lineage.
     sol_run, sol_comment = review("sol-high", APPROVED, "VERDICT: APPROVE", minute=2,
                                   author_models=["claude-opus-5-5"])
-    with pytest.raises(LineageRefused, match="needs-seat"):
-        check_lineage(runs=[sol_run], comments=[sol_comment], login="fleet", approved=APPROVED, second_review=True)
-    assert not recorder._fully_approved([sol_comment], APPROVED, "fleet")
+    assert check_lineage(runs=[sol_run], comments=[sol_comment], login="fleet", approved=APPROVED,
+                         second_review=True) == ["openai"]
+    assert recorder._fully_approved([sol_comment], APPROVED, "fleet")
     assert recorder.budget_exempt_heads(
         [sol_comment], CANDIDATE, "fleet", prove=lambda *_: ["b" * 40],
         approval_context=lambda _: {"second_review": True},
-    ) == {}
+    )[CANDIDATE]["approved_head"] == APPROVED
     monkeypatch.setitem(SEATS, "google", ("gemini-4-carbon-medium", "agy"))
     carbon_run, carbon_comment = review("carbon-old", EARLY, "VERDICT: REQUEST_CHANGES", minute=1,
                                         family="google", second_review=True, author_models=["claude-opus-5-5"])

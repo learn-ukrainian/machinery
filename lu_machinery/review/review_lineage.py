@@ -516,7 +516,9 @@ def check_lineage(
                 continue
             verdict = recorder._review_verdict_and_count(run.reply)[0]
             # The recorder's own attestation and formal-reviewer rules decide who reviewed.
-            model, family = recorder.reviewer_identity(run.record)
+            model, family = recorder.reviewer_identity(
+                run.record, historical_second_review=bool(published) and all(recorder.is_second_review(m) for m in published),
+            )
         except LineageRefused:
             raise
         except recorder.RecordError as exc:
@@ -548,9 +550,9 @@ def check_lineage(
         raise LineageRefused(f"approved head {approved} reads as {current.state}, not APPROVED")
     latest: dict[str, dict[str, Any]] = {}
     for _, marker in sorted(markers, key=lambda item: item[0]):
-        # Carbon may cease to apply at A. Its historical rejection still had to belong
-        # to a real run above, but only the current head's required seats decide approval.
-        if recorder.is_second_review(marker) and marker["sha"] != approved:
+        # A historical second review is not a seat. A rejection on this head already
+        # failed the lookup above; an approval must not become the reviewer of record.
+        if recorder.is_second_review(marker):
             continue
         latest[marker["family"]] = marker
     for family, marker in sorted(latest.items()):

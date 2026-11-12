@@ -120,7 +120,7 @@ def test_catalog_lists_no_cursor_grok_after_opus(risk):
         assert catalog["review_candidates"][name]["transport"] == "cursor"
     grok = catalog["models"]["grok-4.7"]
     assert (grok["lifecycle"], grok["transports"], grok["roles"]) == (
-        "active", ["native_grok", "cursor"], ["coding", "standard_review", "second_review"],
+        "active", ["native_grok", "cursor"], ["coding", "standard_review"],
     )
     validate_catalog(_catalog())
 
