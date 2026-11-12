@@ -25,6 +25,7 @@ from lu_machinery.agent_runtime import registry as agent_registry
 from lu_machinery.agent_runtime.accounting import recorded_model_accounting_fields
 from lu_machinery.agent_runtime.adapters.acpx import ACPX_SUPPORTED_PARTICIPANTS
 from lu_machinery.agent_runtime.adapters.gemini import has_gemini_oauth_credentials, resolve_gemini_auth_mode
+from lu_machinery.agent_runtime.attempt_boundary import CLAUDE_ACCOUNT_REFUSAL_CODES
 from lu_machinery.agent_runtime.failure_codes import RUNTIME_FAILURE_CODES
 from lu_machinery.agent_runtime.usage import _iter_usage_records as _iter_usage_file_records
 from lu_machinery.agent_runtime.usage import has_headroom
@@ -1666,8 +1667,16 @@ _SUBSCRIPTION_REASONS = frozenset({
     "not_reported", "no_weekly_window", "balance_not_read", "no_monitor_reading",
     "unreadable_reading", "read_time_in_future", "usage_cache_missing",
     "usage_cache_invalid", "usage_cache_unreadable", "usage_cache_not_configured",
-    "provider_error", "expired", "not_probed",
+    "provider_error", "expired", "not_probed", "too_early_in_window",
 })
+_LOGIN_REASON_CODES = CLAUDE_ACCOUNT_REFUSAL_CODES | {
+    code.replace("claude_account", "codex_account") for code in CLAUDE_ACCOUNT_REFUSAL_CODES
+} | {
+    "probe_failed", "probe_timeout", "unreadable_status", "claude_cli_not_found", "codex_cli_not_found",
+    "codex_account_binding_invalid", "codex_account_unbound", "codex_account_login_unverified",
+    "codex_account_not_logged_in", "codex_account_home_not_private", "codex_account_binding_shared",
+    "codex_account_home_unavailable",
+}
 _WINDOW_LABELS = frozenset({
     "Weekly", "Session", "Primary", "Secondary", "Tertiary", "primary", "secondary", "tertiary",
     "Code review", "Gemini weekly", "Gemini 5-hour", "Claude/GPT weekly", "Claude/GPT 5-hour",
@@ -1708,7 +1717,8 @@ def _public_subscriptions(raw: object) -> dict[str, Any]:
     identities = {provider: (label, {account: key for account, key, *_ in accounts})
                   for provider, label, accounts in subscriptions.PROVIDERS}
     for provider in panel_values.rows(snapshot.get("providers"), 16):
-        identity = identities.get(provider.get("provider")) if isinstance(provider.get("provider"), str) else None
+        provider_id = provider.get("provider")
+        identity = identities.get(provider_id) if isinstance(provider_id, str) else None
         if identity is None:
             continue
         label, accounts = identity
@@ -1717,7 +1727,7 @@ def _public_subscriptions(raw: object) -> dict[str, Any]:
             name = panel_values.choice(account.get("account"), accounts)
             if name is None:
                 continue
-            row = {"account": name, "plan_key": accounts[name],
+            row: dict[str, Any] = {"account": name, "plan_key": accounts[name],
                    "source": panel_values.choice(account.get("source"), {"usage_cache", "monitor"})}
             for section in ("reading", "weekly", "session", "pace", "credits", "banked_resets", "plan"):
                 row[section] = _subscription_section(account.get(section))
@@ -1749,15 +1759,12 @@ def _public_logins(raw: object, ends: object) -> dict[str, Any]:
             continue
         rows.append({"account": name, "provider": names[name],
                      **panel_values.scalars(row, flags=("logged_in", "expiry_reported"), times=("expires_at",)),
-                     "reason_code": panel_values.reason(row.get("error"), {
-                         "probe_failed", "unreadable_status", "claude_cli_not_found", "codex_cli_not_found",
-                         "claude_account_auth_method_conflict", "claude_account_unverified",
-                         "codex_account_unverified", "claude_account_identity_unavailable",
-                     })})
+                     "reason_code": panel_values.reason(row.get("error"), _LOGIN_REASON_CODES)})
     subscriptions_ends = panel_values.mapping(ends)
     return {"state": panel_values.choice(snapshot.get("state"), {"pending", "ok"}, "unknown"),
             **panel_values.scalars(snapshot, times=("read_at",)), "accounts": rows,
-            "subscriptions": {"ends": {key: panel_values.timestamp(value)
+            "subscriptions": {"ends": {key: panel_values.scalars(panel_values.mapping(value),
+                                                                          flags=("ended",), times=("ends_on",))
                                         for key, value in panel_values.mapping(subscriptions_ends.get("ends")).items()
                                         if key in {"claude_a", "claude_b", "codex_a", "codex_b", "agy", "grok", "muse"}},
                               "reason_code": panel_values.reason(subscriptions_ends.get("reason"),

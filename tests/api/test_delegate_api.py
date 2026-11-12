@@ -162,7 +162,7 @@ def test_active_lists_only_live_running_tasks(tmp_path, monkeypatch):
     assert response.status_code == 200
     data = response.json()
     assert data["total"] == 1
-    assert data["tasks"][0]["task_id"] == "task-c071cf5f5ed6f884cc70155b"
+    assert data["tasks"][0]["task_id"] == "running"
 
 
 def test_task_state_path_stays_under_tasks_dir(tmp_path, monkeypatch):
@@ -486,7 +486,7 @@ def test_list_delegate_tasks_repository_filter_before_limit(tmp_path, monkeypatc
     active_data = active_http.json()
     assert active_data["total"] == 2
     assert {row["task_id"] for row in active_data["tasks"]} == {
-        "task-648f9948adebf920e54039bb", "task-9a61ee48766a5505b69f03c9"}
+        "public-spawning", "public-running"}
     assert all("cli_version" not in row and "reason_code" in row for row in active_data["tasks"])
     active_http_blob = json.dumps(active_data)
     assert "repository" not in active_http_blob

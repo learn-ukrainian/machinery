@@ -20,6 +20,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import JSONResponse
 
 from lu_machinery.agent_runtime.accounting import recorded_model_accounting_fields
+from lu_machinery.agent_runtime.codex_accounts import CODEX_ACCOUNT_ALIASES, CODEX_ACCOUNT_LABELS, DEFAULT_CODEX_ACCOUNT
 from lu_machinery.lib.readonly_sqlite import SQLiteConnection
 from lu_machinery.orchestration.task_record_store import ARCHIVE_DIR_NAME as TASK_ARCHIVE_DIR_NAME
 from lu_machinery.orchestration.task_record_store import iter_task_records, parse_task_record
@@ -972,12 +973,17 @@ async def delegate_tasks(
 
 
 def _panel_task(raw: object) -> dict[str, Any]:
-    """Task accounting only. Identifiers are opaque; diagnostics never leave the reader."""
+    """Task accounting with dispatcher-valid identifiers; no diagnostic prose."""
     row = panel_values.mapping(raw)
     out = panel_values.scalars(
         row, numbers=("age_s", "duration_s", "commits_ahead", "returncode"),
         flags=("alive", "worktree_dirty_on_exit"), times=("started_at", "finished_at", "updated_at"),
     )
+    account = row.get("codex_account")
+    if account is None and row.get("agent") == "codex":
+        account = DEFAULT_CODEX_ACCOUNT
+    elif isinstance(account, str):
+        account = CODEX_ACCOUNT_ALIASES.get(account, account)
     out.update({
         "task_id": panel_values.task_reference(row.get("task_id")),
         "agent": panel_values.choice(row.get("agent"), panel_values.AGENTS, "unknown"),
@@ -989,7 +995,7 @@ def _panel_task(raw: object) -> dict[str, Any]:
         }, "unknown"),
         "push_state": panel_values.choice(row.get("push_state"), {"pushed", "unpushed", "unknown"}, "unknown"),
         "claude_account": panel_values.choice(row.get("claude_account"), {"a", "b"}),
-        "codex_account": panel_values.choice(row.get("codex_account"), {"sub", "b-sub", "api"}),
+        "codex_account": panel_values.choice(account, CODEX_ACCOUNT_LABELS),
         "research_role": panel_values.choice(row.get("research_role"), {
             "implementer", "reviewer", "quality", "researcher", "orchestrator", "author", "driver", "recon",
         }),
@@ -1002,7 +1008,7 @@ def _panel_task(raw: object) -> dict[str, Any]:
 
 def _panel_tasks(raw: object) -> dict[str, Any]:
     payload = panel_values.mapping(raw)
-    result = {"total": panel_values.number(payload.get("total")),
+    result: dict[str, Any] = {"total": panel_values.number(payload.get("total")),
               "tasks": [_panel_task(row) for row in panel_values.rows(payload.get("tasks"), 500)]}
     if "needs_attention" in payload:
         attention = panel_values.mapping(payload["needs_attention"])

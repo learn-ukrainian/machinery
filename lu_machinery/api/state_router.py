@@ -2367,11 +2367,11 @@ def _public_routing_budget(raw: object, *, _depth: int = 0) -> dict[str, Any]:
     for key in ("allowed_models", "models_rate_limited", "credit_models"):
         if key in row:
             values = row[key] if isinstance(row[key], list) else []
-            out[key] = [model for value in values[:64] if (model := panel_values.model(value)) is not None]
+            out[key] = None if row[key] is None else [model for value in values[:64] if (model := panel_values.model(value)) is not None]
     if "covered_by" in row:
         values = row["covered_by"] if isinstance(row["covered_by"], list) else []
         out["covered_by"] = [value for value in values[:8]
-                             if panel_values.choice(value, {"credits", "reset_reserve", "free_reset", "credit_balance"})]
+                             if panel_values.choice(value, {"credits", "free full reset"})]
     for key in ("free_reset_expires_at", "expires_at"):
         if isinstance(row.get(key), list):
             out[key] = [panel_values.timestamp(value) for value in row[key][:64]]

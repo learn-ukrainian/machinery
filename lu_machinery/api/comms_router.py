@@ -28,7 +28,6 @@ import threading
 import time
 import uuid
 from datetime import UTC, datetime
-
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, Query, Request, Response
@@ -1813,7 +1812,7 @@ async def comms_v1_dead_letters(
 
 _METRIC_STATES = frozenset({
     "pending", "processing", "dispatched", "delivered", "failed", "queued", "leased",
-    "running", "done", "completed", "succeeded", "cancelled", "expired", "dead_lettered",
+    "running", "done", "complete", "completed", "succeeded", "cancelled", "expired", "dead_lettered",
     "dead_letter", "acknowledged", "sent", "received", "open", "closed", "resolved", "unknown",
 })
 _MESSAGE_TYPES = frozenset({

@@ -13,8 +13,7 @@ from fastapi.responses import JSONResponse
 
 from lu_machinery.common import test_slots
 
-from . import load_samples
-from . import panel_values
+from . import load_samples, panel_values
 from .monitor_context import MonitorContext, get_ctx
 from .state_helpers import cache_get_or_compute_async, cache_get_with_age, ctx_scoped_ttl_key
 
@@ -142,7 +141,7 @@ def _alerts_reading() -> dict:
                 "heartbeat": None, "alerts": []}
     alerts: list[dict] = []
     heartbeat = False
-    for item in raw[:1000]:
+    for item in raw:
         labels = item.get("labels") if isinstance(item, dict) else None
         status = item.get("status") if isinstance(item, dict) else None
         state = status.get("state") if isinstance(status, dict) else None

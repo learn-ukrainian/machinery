@@ -62,11 +62,11 @@
   <span class="muted" id="last-refresh">Loading…</span>
 </header>
 <main>
+  <section class="wide" id="subs"><h2>Subscriptions: usage, pace, resets and sign-in <span class="age" id="usage-age"></span></h2><div id="usage-content">Loading…</div></section>
   <section class="wide" id="fleet"><h2>Agent fleet <span class="age" id="workers-age"></span></h2>
     <div id="workers-content">Loading…</div>
     <h3>Recently finished <span class="age muted" id="recent-age"></span></h3>
     <div id="recent-content">Loading…</div></section>
-  <section class="wide" id="subs"><h2>Subscriptions: usage, pace, resets and sign-in <span class="age" id="usage-age"></span></h2><div id="usage-content">Loading…</div></section>
   <section id="prs"><h2>Pull requests and merge queue <span class="age" id="prs-age"></span></h2><div id="prs-content">Loading…</div></section>
   <section id="alerts"><h2>Alerts firing <span class="age" id="alerts-age"></span></h2><div id="alerts-content">Loading…</div></section>
   <section id="comms"><h2>Fleet Comms <span class="age" id="comms-age"></span></h2><div id="comms-content">Loading…</div></section>
@@ -347,7 +347,7 @@ const latest = {};
 
 // Account labels are shown only from this allow-list; any other recorded value is "other".
 const CLAUDE_ACCOUNTS = {a: "Claude a", b: "Claude b"};
-const CODEX_ACCOUNTS = {sub: "Codex a", "b-sub": "Codex b", api: "Codex API"};
+const CODEX_ACCOUNTS = {sub: "Codex a", "b-sub": "Codex b", api: "Codex API", "b-api": "Codex b API"};
 
 function account(task) {
   if (task.claude_account) return Object.hasOwn(CLAUDE_ACCOUNTS, task.claude_account) ? CLAUDE_ACCOUNTS[task.claude_account] : "Claude, other account";
@@ -359,7 +359,7 @@ function modelOf(task) {
   return task.observed_model || task.model || null;
 }
 
-// Opaque task references join public PRs to task rows without exposing branch prose.
+// Validated task references join public PRs to task rows without exposing branch prose.
 function prIndex(prs) {
   const index = [];
   for (const repo of Array.isArray(prs?.repositories) ? prs.repositories : []) {
@@ -382,7 +382,7 @@ function ciLabel(state) {
   return ["no CI yet", "muted"];
 }
 
-// The server gives tasks and matching public PR branches the same opaque reference.
+// The server gives tasks and matching public PR branches the same validated identifier.
 function ownPr(task, index) {
   const id = String(task.task_id || "");
   return id ? index.find(pr => pr.task_reference === id) || null : null;

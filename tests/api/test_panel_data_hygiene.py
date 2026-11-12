@@ -48,7 +48,7 @@ def panel_client(tmp_path, monkeypatch, synthetic_opsec):
 
 
 def _inputs(monkeypatch, ctx, dirty):
-    task = {"task_id": dirty, "agent": "codex", "model": "gpt-6.1-sol", "status": "running",
+    task = {"task_id": "unvetted " + dirty, "agent": "codex", "model": "gpt-6.1-sol", "status": "running",
             "observed_model": dirty, "started_at": STAMP, "finished_at": dirty, "duration_s": 17,
             "age_s": 10, "alive": True, "error": dirty, "cli_version": dirty, "run_nonce": dirty,
             "codex_account": dirty, "claude_account": dirty, "research_role": dirty,
@@ -75,12 +75,15 @@ def _inputs(monkeypatch, ctx, dirty):
                       "error": dirty, "authMethod": dirty, "subscriptionType": dirty,
                       "expires_at": dirty, "email": dirty, "path": dirty}]})
     monkeypatch.setattr(runtime_router.account_logins, "subscription_ends", lambda: {
-        "ends": {"codex_a": dirty, dirty: dirty}, "reason": dirty})
+        "ends": {"codex_a": {"ends_on": dirty, "ended": True, "private": dirty},
+                 "claude_b": {"ends_on": "2030-02-01", "ended": False}, dirty: dirty}, "reason": dirty})
 
     def budget(**kwargs):
         kwargs["task_generation"].append(state_router._tasks_content_token(kwargs["tasks_dir"]))
         return {"generated_at": STAMP, "agents": {"codex": {
                     "status": "cool", "weekly_cap_usd": 100, "eligible": True,
+                    "routing": {"covered_by": ["free full reset"], "credit_models": None},
+                    "credit": {"state": "credit_balance_present", "allowed_models": [dirty, "gpt-6.1-sol"]},
                     "codexbar": {"pace_summary": dirty, "windows": {dirty: window}, "source": dirty},
                     "runtime": {"summary_error": dirty, "headroom_reason": dirty, "models_rate_limited": [dirty]},
                     "health": {"last_error": dirty, "error": dirty}, "model": dirty}},
@@ -93,7 +96,7 @@ def _inputs(monkeypatch, ctx, dirty):
 
     monkeypatch.setattr(state_router, "compute_routing_budget", budget)
     monkeypatch.setattr(state_router, "scan_lane_health", lambda *_args, **_kwargs: {})
-    node = {"number": 7, "title": dirty, "headRefName": "codex/" + dirty, "url": "https://github.com/" + dirty,
+    node = {"number": 7, "title": dirty, "headRefName": "codex/unvetted " + dirty, "url": "https://github.com/" + dirty,
             "createdAt": dirty, "mergeStateStatus": dirty, "mergeQueueEntry": {"state": dirty, "position": 1},
             "commits": {"nodes": [{"commit": {"statusCheckRollup": {"state": dirty},
                                               "status": {"context": {"state": dirty}}}}]}}
@@ -131,10 +134,7 @@ def test_panel_response_never_echoes_unvetted_provider_values(panel_client, monk
     if route.startswith("/api/delegate/"):
         assert data["total"] == 1 and data["tasks"][0]["duration_s"] == 17
         assert data["tasks"][0]["model"] == "gpt-6.1-sol"
-        if len(dirty) > 512:
-            assert data["tasks"][0]["task_id"] is None
-        else:
-            assert data["tasks"][0]["task_id"].startswith("task-")
+        assert data["tasks"][0]["task_id"] is None
     elif route.endswith("subscriptions"):
         assert data["providers"][0]["accounts"][0]["weekly"]["left_pct"] == 75
         assert data["providers"][0]["accounts"][0]["weekly"]["reason_code"] == "provider_error"
@@ -142,9 +142,14 @@ def test_panel_response_never_echoes_unvetted_provider_values(panel_client, monk
         assert data["api_accounts"]["deepseek"]["total_balance"] == 2.5
         assert data["agents"]["codex"]["weekly_cap_usd"] == 100
         assert data["in_flight"]["codex"] == 1
+        assert data["agents"]["codex"]["routing"]["covered_by"] == ["free full reset"]
+        assert data["agents"]["codex"]["routing"]["credit_models"] is None
+        assert data["agents"]["codex"]["credit"]["allowed_models"] == ["gpt-6.1-sol"]
     elif route.endswith("logins"):
         assert data["accounts"][0]["logged_in"] is True
         assert data["accounts"][0]["reason_code"] == "provider_error"
+        assert data["subscriptions"]["ends"]["codex_a"] == {"ended": True, "ends_on": None}
+        assert data["subscriptions"]["ends"]["claude_b"] == {"ended": False, "ends_on": "2030-02-01"}
     elif route.endswith("pull-requests"):
         assert data["repositories"][0]["pull_requests"][0]["number"] == 7
         assert data["repositories"][0]["pull_requests"][0]["url"] == "https://github.com/learn-ukrainian/machinery/pull/7"
@@ -171,3 +176,54 @@ def test_metrics_optional_model_groups_cannot_echo_dirty_keys(panel_client, monk
     assert response.status_code == 200
     assert TOKEN not in response.text
     assert response.json()["agent_success"]["by_model"]["gpt-6.1-sol"]["success"]["percent"] == 100
+
+
+def test_panel_metadata_preserves_internal_worktree_guard_and_account_load(panel_client, monkeypatch, tmp_path):
+    """Dispatcher-valid API IDs must protect worktrees; prose IDs must be withheld."""
+    from io import BytesIO
+
+    from lu_machinery.fleet import capacity_pick
+    from lu_machinery.orchestration import worktree_git
+
+    client, _ctx = panel_client
+    task_id = "fixture-review-47-r2"
+    payload = {"total": 1, "tasks": [{"task_id": task_id, "agent": "codex", "model": "gpt-6.1-sol",
+                                    "status": "spawning", "codex_account": "b"}]}
+    monkeypatch.setattr(delegate_router, "active_snapshot", lambda _ctx: SimpleNamespace(read=lambda: (payload, 0)))
+    response = client.get("/api/delegate/active")
+    assert response.status_code == 200
+    task = response.json()["tasks"][0]
+    assert task["codex_account"] == "b-sub"
+    assert task["task_id"] == task_id
+    monkeypatch.setattr(capacity_pick.urllib.request, "urlopen", lambda *_args, **_kwargs: BytesIO(response.content))
+    assert capacity_pick.fetch_active_in_flight() == {"codex:b": 1}
+    active_ids = worktree_git._active_task_ids()
+    monkeypatch.setattr(worktree_git, "primary_checkout_root", lambda _root: tmp_path)
+    monkeypatch.setattr(worktree_git.worktree_claims, "control_plane_root", lambda _root: tmp_path)
+    monkeypatch.setattr(worktree_git.worktree_claims, "active_worktree_claim_refusal", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(worktree_git, "_dispatch_task_id", lambda *_args: task_id)
+    reason = worktree_git._activity_reason(repo_root=tmp_path, info=SimpleNamespace(path=tmp_path),
+                                         active_ids=active_ids, live_cwds=set())
+    assert reason == "active dispatch task-id=fixture-review-47-r2"
+    payload["tasks"][0].pop("codex_account")
+    response = client.get("/api/delegate/active")
+    assert response.json()["tasks"][0]["codex_account"] == "sub"
+    assert capacity_pick.fetch_active_in_flight() == {"codex": 1}
+    payload["tasks"][0]["task_id"] = "private prompt " + TOKEN
+    response = client.get("/api/delegate/active")
+    assert response.json()["tasks"][0]["task_id"] is None
+    assert TOKEN not in response.text
+
+
+def test_panel_known_probe_reasons_remain_typed_codes(panel_client, monkeypatch):
+    """Known non-error states must not be mislabeled as provider failures."""
+    client, ctx = panel_client
+    _inputs(monkeypatch, ctx, TOKEN)
+    snapshot = runtime_router.subscriptions.subscriptions_snapshot()
+    snapshot["providers"][0]["accounts"][0]["pace"] = {"status": "unknown", "reason": "too_early_in_window"}
+    monkeypatch.setattr(runtime_router.subscriptions, "subscriptions_snapshot", lambda: snapshot)
+    monkeypatch.setattr(runtime_router.account_logins, "logins_snapshot", lambda: {
+        "state": "ok", "accounts": [{"account": "Codex a", "logged_in": None, "error": "probe_timeout"}]})
+    subscriptions = client.get("/api/runtime/subscriptions").json()
+    assert subscriptions["providers"][0]["accounts"][0]["pace"]["reason_code"] == "too_early_in_window"
+    assert client.get("/api/runtime/logins").json()["accounts"][0]["reason_code"] == "probe_timeout"

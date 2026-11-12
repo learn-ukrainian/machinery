@@ -6,13 +6,13 @@ keys or provider labels are admitted by a text-shape heuristic.
 
 from __future__ import annotations
 
-import hashlib
 import math
 from collections.abc import Collection
 from datetime import UTC, date, datetime
 from functools import lru_cache
-from typing import Any
+from typing import Any, overload
 
+from lu_machinery.dispatcher.agy_sandbox import _TASK_ID
 from lu_machinery.review.model_catalog import ModelCatalogError, canonical_model_id, load_model_catalog
 
 AGENTS = frozenset({"claude", "codex", "gemini", "agy", "grok", "cursor", "muse", "opencode", "openrouter", "deepseek"})
@@ -26,6 +26,14 @@ def rows(value: object, limit: int) -> list[dict[str, Any]]:
     return [item for item in value[:limit] if isinstance(item, dict)] if isinstance(value, list) else []
 
 
+@overload
+def choice(value: object, allowed: Collection[str], default: str) -> str: ...
+
+
+@overload
+def choice(value: object, allowed: Collection[str], default: None = None) -> str | None: ...
+
+
 def choice(value: object, allowed: Collection[str], default: str | None = None) -> str | None:
     return value if isinstance(value, str) and value in allowed else default
 
@@ -36,7 +44,7 @@ def reason(value: object, allowed: Collection[str]) -> str | None:
 
 def number(value: object) -> int | float | None:
     # Bound JSON magnitudes as well as length; bool is not a measured number.
-    if type(value) not in (int, float) or not -1e15 <= value <= 1e15 or not math.isfinite(value):
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not -1e15 <= value <= 1e15 or not math.isfinite(value):
         return None
     return value
 
@@ -59,21 +67,15 @@ def scalars(
     row: dict[str, Any], *, numbers: Collection[str] = (),
     flags: Collection[str] = (), times: Collection[str] = (),
 ) -> dict[str, Any]:
-    result = {key: number(row[key]) for key in numbers if key in row}
+    result: dict[str, Any] = {key: number(row[key]) for key in numbers if key in row}
     result.update({key: row[key] if type(row[key]) is bool else None for key in flags if key in row})
     result.update({key: timestamp(row[key]) for key in times if key in row})
     return result
 
 
 def task_reference(value: object) -> str | None:
-    """Join tasks to PRs without publishing user-supplied task/branch prose."""
-    if not isinstance(value, str) or not 0 < len(value) <= 512:
-        return None
-    try:
-        encoded = value.encode()
-    except UnicodeEncodeError:
-        return None
-    return "task-" + hashlib.sha256(encoded).hexdigest()[:24]
+    """Only dispatcher-validated identifier tokens can cross the public boundary."""
+    return value if isinstance(value, str) and _TASK_ID.fullmatch(value) else None
 
 
 @lru_cache(maxsize=1)
