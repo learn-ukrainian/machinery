@@ -347,8 +347,8 @@ const CLAUDE_ACCOUNTS = {a: "Claude a", b: "Claude b"};
 const CODEX_ACCOUNTS = {sub: "Codex a", "b-sub": "Codex b", api: "Codex API"};
 
 function account(task) {
-  if (task.claude_account) return CLAUDE_ACCOUNTS[task.claude_account] || "Claude, other account";
-  if (task.codex_account) return CODEX_ACCOUNTS[task.codex_account] || "Codex, other account";
+  if (task.claude_account) return Object.hasOwn(CLAUDE_ACCOUNTS, task.claude_account) ? CLAUDE_ACCOUNTS[task.claude_account] : "Claude, other account";
+  if (task.codex_account) return Object.hasOwn(CODEX_ACCOUNTS, task.codex_account) ? CODEX_ACCOUNTS[task.codex_account] : "Codex, other account";
   return task.agent === "agy" ? "AGY" : task.agent === "muse" ? "Muse" : null;
 }
 
@@ -379,12 +379,28 @@ function ciLabel(state) {
   return ["no CI yet", "muted"];
 }
 
-function taskPrCell(task, index) {
-  // Branches are "<agent>/<task id>", sometimes with a "-<suffix>" after the id.
-  const open = index.find(pr => {
-    const tail = pr.head_branch.split("/").pop();
-    return tail === task.task_id || tail.startsWith(`${task.task_id}-`);
-  });
+// The open PR whose branch is this task's own: "<agent>/<task id>", or that name with a
+// numeric suffix ("-084") when exactly one such branch exists and it is not itself the id
+// of another known task. A task whose id merely starts with this one never matches.
+function ownPr(task, index, knownIds) {
+  const id = String(task.task_id || "");
+  if (!id) return null;
+  const tail = pr => pr.head_branch.split("/").pop();
+  const exact = index.find(pr => tail(pr) === id);
+  if (exact) return exact;
+  const numbered = index.filter(pr => tail(pr).startsWith(id) && /^-\d+$/.test(tail(pr).slice(id.length))
+    && !knownIds.has(tail(pr)));
+  return numbered.length === 1 ? numbered[0] : null;
+}
+
+function knownTaskIds() {
+  return new Set([...(latest.workers?.tasks || []), ...(latest.recent?.tasks || [])].map(task => task.task_id));
+}
+
+function taskPrCell(task, index, knownIds = knownTaskIds()) {
+  let open = ownPr(task, index, knownIds);
+  // A recorded delivery PR is authoritative; a different open PR never replaces it.
+  if (open && task.delivery_pr && task.delivery_pr !== `#${open.number}`) open = null;
   if (open) {
     const [label, cls] = ciLabel(open.ci);
     return td(`${prLink(open.repo, open)} <span class="${cls}">${escapeHtml(label)}</span>`
@@ -405,13 +421,14 @@ function doing(task) {
 function renderWorkers(active, prs = latest.prs) {
   const tasks = Array.isArray(active.tasks) ? active.tasks : [];
   const index = prIndex(prs);
+  const known = new Set([...tasks.map(task => task.task_id), ...knownTaskIds()]);
   return table(["Task", "Model", "Account", "Running", "Doing", "PR"], tasks.map(task => [
     text(task.task_id),
     text(modelOf(task) || task.agent),
     text(account(task)),
     text(span(task.age_s), task.age_s > 3 * 3600 ? "num bad" : task.age_s > 2 * 3600 ? "num warn" : "num"),
     text(doing(task)),
-    taskPrCell(task, index),
+    taskPrCell(task, index, known),
   ]));
 }
 
