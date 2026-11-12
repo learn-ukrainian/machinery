@@ -285,15 +285,16 @@ function subscriptionRows(subs, logins) {
     if (!accounts.length) return "";
     return `<tr><th colspan="${SUBSCRIPTION_HEADERS.length}">${escapeHtml(provider.label || provider.provider)}</th></tr>`
       + accounts.map(row => {
-        const weekly = row.weekly || {};
+        const usage = readingState(row.reading?.status, row.reading?.age_s, staleAfter) === "fresh" ? row : {};
+        const weekly = usage.weekly || {};
         return `<tr>${[
           text(row.account),
           weeklyResetCell(weekly),
           windowLeft(weekly),
-          paceCell(row.pace),
-          sessionCell(row.session),
-          extraCell(row),
-          creditsCell(row.credits),
+          paceCell(usage.pace),
+          sessionCell(usage.session),
+          extraCell(usage),
+          creditsCell(usage.credits),
           bankedCell(row.banked_resets),
           planCell(row.plan),
           signInCell(row.account, logins),
@@ -307,12 +308,14 @@ function subscriptionRows(subs, logins) {
 function apiRows(budget) {
   const accounts = budget.api_accounts || {};
   return Object.entries(accounts).map(([name, row]) => {
+    const state = readingState(row.freshness, row.age_s, budget.diagnostics?.stale_threshold_s);
     const balance = typeof row.total_balance === "number" ? `${row.total_balance.toFixed(2)} ${row.currency || ""} balance`
       : typeof row.limit_remaining_usd === "number" ? `$${row.limit_remaining_usd.toFixed(2)} left`
       : row.balance_probe_state ? `balance ${row.balance_probe_state}` : null;
     const spent = typeof row.usage_weekly_usd === "number" ? `$${row.usage_weekly_usd.toFixed(2)} this week` : null;
-    return [text(name), text([balance, spent].filter(Boolean).join("; ") || null),
-            freshnessCell(readingState(row.freshness, row.age_s, budget.diagnostics?.stale_threshold_s), row.age_s),
+    const values = state === "fresh" ? [balance, spent].filter(Boolean).join("; ") || null : "unknown";
+    return [text(name), text(values, state === "fresh" ? "" : "muted"),
+            freshnessCell(state, row.age_s),
             text(row.health?.healthy === false ? "unhealthy" : null, "bad")];
   });
 }
@@ -497,6 +500,7 @@ function renderAlerts(alerts) {
 // ---- Fleet Comms ----
 
 function renderComms(metrics) {
+  if (metrics.db_error || metrics.db_missing) return unknown("Fleet Comms is unavailable");
   const deliveries = metrics.deliveries || {}, jobs = metrics.jobs || {};
   const reachable = metrics.store?.reachable;
   return table(["Measure", "Count"], [

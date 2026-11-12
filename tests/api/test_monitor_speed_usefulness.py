@@ -146,6 +146,49 @@ assert.doesNotMatch(renderWorkers({tasks: []}), /unfinished|zombie/);
 """)
 
 
+def test_home_hides_stale_subscription_quota_and_api_balances():
+    """Stale or unverified readings must not render actionable quota, pace, reset or balance numbers."""
+    code = _script("index.html", "function escapeHtml", "// ---- Summary chips ----")
+    _node(_DOM + code + r"""
+const row = {account: 'Fixture', reading: {status: 'fresh', age_s: 60, read_at: '2026-11-12T00:00:00Z'},
+  weekly: {status: 'ok', left_pct: 70, resets_at: '2099-01-02T03:04:00Z'},
+  pace: {status: 'ok', state: 'reserve', headroom_pct: 18, lasts_to_reset: true},
+  session: {status: 'ok', left_pct: 61, resets_at: '2099-01-02T03:04:00Z'},
+  extra_windows: [{label: 'Extra', status: 'ok', left_pct: 84}], breakdown: [{label: 'Used', value: '91 units'}],
+  credits: {status: 'ok', balance: 37.2}, plan: {name: 'Fixture plan'}};
+const render = reading => subscriptionRows({stale_after_s: 900,
+  providers: [{provider: 'fixture', accounts: [{...row, reading}]}]}, null).groups;
+assert.match(render(row.reading), /70%/);
+for (const reading of [{...row.reading, age_s: 1800}, {...row.reading, status: 'stale'},
+    {...row.reading, status: 'unknown'}, {...row.reading, age_s: null}]) {
+  const html = render(reading);
+  assert.doesNotMatch(html, /70%|61%|84%|91 units|37\.2|2099-01-02|18 pp|lasts to reset/);
+  assert.match(html, /Fixture plan/);
+}
+const apiAccountRow = {freshness: 'fresh', age_s: 60, total_balance: 42, currency: 'USD', usage_weekly_usd: 9};
+const api = reading => apiRows({api_accounts: {Fixture: {...apiAccountRow, ...reading}},
+  diagnostics: {stale_threshold_s: 900}}).flat().join('');
+assert.match(api({}), /42\.00 USD balance/);
+assert.match(api({}), /9\.00 this week/);
+for (const reading of [{age_s: 1800}, {freshness: 'stale'}, {freshness: 'stale_last_good'},
+    {freshness: 'unknown'}, {age_s: null}]) assert.doesNotMatch(api(reading), /42\.00|9\.00/);
+""")
+
+
+def test_home_comms_collection_errors_are_unavailable_even_when_store_exists():
+    """A collector failure must not appear as successful plane access just because the database exists."""
+    code = _script("index.html", "function escapeHtml", "// ---- Summary chips ----")
+    _node(_DOM + code + r"""
+const metrics = {source: 'authority', store: {reachable: true}, deliveries: {queued: 99}};
+assert.match(renderComms(metrics), /authority reachable/);
+for (const failure of [{db_error: 'DatabaseError'}, {db_missing: true}]) {
+  const html = renderComms({...metrics, ...failure});
+  assert.match(html, /unavailable/i);
+  assert.doesNotMatch(html, /authority reachable|class="ok"|99/);
+}
+""")
+
+
 @pytest.mark.parametrize("body", ["not-json", "null", "[]"])
 def test_home_invalid_json_is_an_error(body):
     code = _script("index.html", "async function fetchJson", "\nfunction toDate")
