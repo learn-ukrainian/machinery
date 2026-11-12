@@ -15,6 +15,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
 import pytest
+import yaml
 from lu_machinery.dispatcher import environment, store, worker
 from lu_machinery.dispatcher.types import TaskSpec
 from tests.dispatcher.conftest import SOURCE, await_file, run_git
@@ -63,13 +64,17 @@ def test_review_gate_prevents_false_completion_and_preserves_results(sandbox, te
 )
 def test_schemaless_reviewer_missing_verdict_gets_one_correction_turn(sandbox, second):
     """Case 3: a reply from a reviewer that cannot bind a schema, with no recognised VERDICT line, gets one
-    format correction. Muse is that reviewer now; Cursor, which had this path, has no approved pin while
-    Grok is retired (GROK-CANCEL-1110).
+    format correction. The dormant Muse adapter supplies this protocol through a local stub;
+    its model is admitted only in this disposable sandbox, never the production catalog.
 
     The second reply is accepted only when it is valid findings JSON and keeps the
     first reply's decision. A changed or still-invalid second reply fails closed,
     and there is no third launch.
     """
+    catalog_path = sandbox.repo / "lu_machinery/config/model_catalog.yaml"
+    catalog = yaml.safe_load(catalog_path.read_text())
+    catalog["models"]["muse-wonder-full-1.0"].update(lifecycle="active", transports=["native_muse"])
+    catalog_path.write_text(yaml.safe_dump(catalog, sort_keys=False))
     findings = (
         '{"schema_version":"code-review-findings.v1",'
         '"overall":{"correctness":"correct","explanation":"No defects.","confidence":0.9},'

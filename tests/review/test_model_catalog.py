@@ -735,9 +735,7 @@ def test_muse_seat_overlay_changes_only_unknown_seat_receipts():
 
     for model in ("muse-wonder-full-1.0", "muse-spark-1.3"):
         for activity in ("review", "consult"):
-            assert (activity_role_refusal(model, activity, load_model_catalog()) is None) == (
-                model == "muse-wonder-full-1.0"
-            )
+            assert activity_role_refusal(model, activity, load_model_catalog()) is not None
         plan = InvocationPlan(
             cmd=["/fixture/muse", "exec", "--model", model, "--reasoning-effort", "high"],
             cwd=Path("/fixture/workspace"),
@@ -893,12 +891,14 @@ def test_sources_tool_overlay_adds_only_approved_read_only_grants(configuration)
 
 
 def test_grok_ukrainian_role_confers_no_ukrainian_review_route():
-    """No Grok review route exists, so none lists the ukrainian profile (#10835; GROK-CANCEL-1110)."""
+    """C-5307 restores native second review without admitting Ukrainian review."""
     source = Path(__file__).resolve().parents[2]
-    catalog = yaml.safe_load((source / "scripts/config/model_catalog.yaml").read_text(encoding="utf-8"))
+    catalog = yaml.safe_load((source / machinery_package() / "config/model_catalog.yaml").read_text(encoding="utf-8"))
     assert "ukrainian_review" not in catalog["models"]["grok-4.7"]["roles"]
-    assert catalog["models"]["grok-4.7"]["lifecycle"] == "retired"
-    assert not [seat for seat in catalog["seats"].values() if seat.get("model_id") == "grok-4.7"]
+    assert catalog["models"]["grok-4.7"]["lifecycle"] == "active"
+    assert catalog["models"]["grok-4.7"]["roles"] == ["coding", "standard_review", "second_review"]
+    assert catalog["models"]["grok-4.7"]["transports"] == ["native_grok", "cursor"]
+    assert catalog["seats"]["xai_reviewer"]["routes"]["cursor_fallback"]["review_profiles"] == ["code", "infra"]
 
 
 def guard_policy(settings):
@@ -967,7 +967,7 @@ def test_catalog_authorizes_no_claude_review_through_cursor():
         routes = catalog["roles"][f"code_review_{risk}"]["routes"]
         assert not [route for route in routes if route.endswith("/cursor_fallback")]
     assert list(catalog["seats"]["anthropic_authority"]["routes"]) == ["native", "agy"]
-    assert "xai_reviewer" not in catalog["seats"]
+    assert catalog["seats"]["xai_reviewer"]["model_id"] == "grok-4.7"
     opus = catalog["models"]["claude-opus-5-5"]
     assert (opus["routing_wire_ids"], opus["transports"]) == (
         {"native_claude": "claude-opus-5-5", "agy": "claude-opus-5-5-high"},
@@ -984,7 +984,7 @@ def test_catalog_authorizes_no_claude_review_through_cursor():
 # the #10262 explicit AGY review-risk refusals in both configurations, and the #10630
 # capture-driver account; see SPEC.md.
 PINNED_DIGESTS = {
-    "v2-baseline.json.gz": "0785d3963aae8da5bfad29ef03aa46942ea5816e1ec8bb57f32d3f2131a90765",
+    "v2-baseline.json.gz": "70fde5bcd1ecf095a668a4b4221feb8e76d3d1f88495267afc18f3dba88b154d",
     "routing-10263.json.gz": "3385853a0070ab9a2f77e1fb40d9178ce195e44e7fd6b8c8245702ec529b7d16",
     "SHA256SUMS": "4cba22dff8338f75c8ae96b35119c3da2bea3b3d7d6418c49e466ddc0ddf73a8",
     "SPEC.md": "ed7438340b60df7dcf51271dac1b03952fe96617edd249f14aaed1ecb33a0ede",
@@ -1037,10 +1037,16 @@ def assert_frozen_routing_fixture_pinned(root: Path) -> None:
 # The current fixture contains only the expanded catalog and the existing 1432
 # reviewer cases. It was computed with pure resolver calls, without launching workers.
 _V2_BASELINE_PATH = FIXTURE / "v2-baseline.json.gz"
-assert hashlib.sha256(_V2_BASELINE_PATH.read_bytes()).hexdigest() == "0785d3963aae8da5bfad29ef03aa46942ea5816e1ec8bb57f32d3f2131a90765"
+assert hashlib.sha256(_V2_BASELINE_PATH.read_bytes()).hexdigest() == "70fde5bcd1ecf095a668a4b4221feb8e76d3d1f88495267afc18f3dba88b154d"
 _V2_BASELINE = json.loads(gzip.decompress(_V2_BASELINE_PATH.read_bytes()))
 CURRENT_BASELINE = _V2_BASELINE["baseline"]
 CURRENT_INPUTS = _V2_BASELINE["inputs"]
+
+GROK_REVIEW_CANDIDATE = {
+    "model_id": "grok-4.7", "route": "cursor", "transport": "cursor",
+    "invocation": ".venv/bin/python scripts/dispatch.py dispatch --agent cursor --model grok-4.7-high --effort high",
+    "review_profiles": ["code", "infra"], "capabilities": ["code_review"], "suitability_roles": ["standard_review"],
+}
 
 MUSE_REVIEW_CANDIDATE = {
     "model_id": "muse-wonder-full-1.0", "route": "muse", "transport": "native_muse",
@@ -1136,13 +1142,27 @@ def assert_frozen_surfaces(actual, *, surfaces):
             assert hashlib.sha256(encode(carbon)).hexdigest() == "ed6aae685a0b4f5931a49236101c1f76611b241f802224b28ab16e3581c312b8"
             scheduler = value.get("review_scheduler") or {}
             assert scheduler.pop("second_reviewer") == {"models": [
-                {"model": "muse-wonder-full-1.0", "route": "native_muse", "independence": "third_family"},
                 {"model": "gemini-4-carbon", "route": "agy", "independence": "third_family"},
+                {"model": "grok-4.7", "route": "cursor", "independence": "third_family"},
                 {"model": "gpt-6.1-sol", "route": "native_codex", "independence": "last_resort"},
                 {"model": "claude-opus-5-5", "route": "native_claude", "independence": "last_resort"},
             ]}
             review_roles = scheduler["activity_roles"]["review"]
             assert review_roles.pop() == "second_review"
+            # C-5307 restores native coding and the exact Cursor review pin. Every
+            # other catalog field, reviewer-of-record ladder and route stays pinned.
+            grok = value["models"]["grok-4.7"]
+            assert hashlib.sha256(encode(grok)).hexdigest() == "6d4084057a90d6a6ee0f25dc46596f7dbb28c807ef968b7c57973fb5f952980d"
+            value["models"]["grok-4.7"] = deepcopy(expected["models"]["grok-4.7"])
+            assert value["review_candidates"].pop("grok-4.7-cursor-fallback") == GROK_REVIEW_CANDIDATE
+            for endpoint, digest in (
+                ("grok", "b893f62c29fe61370e891af14a3c78f55765641c18d60618f735a1fd917425cf"),
+                ("cursor", "463273701fe08a057c071c23c74ce941ba626097e990b01477e1c58d2bb33e22"),
+            ):
+                assert hashlib.sha256(encode(scheduler["endpoints"][endpoint])).hexdigest() == digest
+                scheduler["endpoints"][endpoint] = deepcopy(expected["review_scheduler"]["endpoints"][endpoint])
+            assert hashlib.sha256(encode(value["policy"]["notes"][2])).hexdigest() == "a174ddfb734a78533bde59538553826d3a0f04b01f8b4975de4d8e57aa1b9e25"
+            value["policy"]["notes"][2] = expected["policy"]["notes"][2]
             argon = value["models"].pop("gemini-4-argon")
             assert hashlib.sha256(encode(argon)).hexdigest() == "3fb424016416717576cca9f18d85f7d5b5eadcc6ed469ab906c3e4c78202dc58"
             value["models"]["gemini-4-argon-high"] = deepcopy(CURRENT_BASELINE["catalog"]["models"]["gemini-4-argon-high"])
@@ -1155,16 +1175,16 @@ def assert_frozen_surfaces(actual, *, surfaces):
             assert hashlib.sha256(encode(fable52)).hexdigest() == "04ee0a6324bb7c8afa5259b2a9fe503a1673854df2dc0844209bd11120c08d84"
             # The advisory_roles section moves no seat, route or review ranking.
             _pop_advisory_roles(value)
-            # Muse operator decision 2026-11-01: low/medium review ladders and contributor mode off
-            if value["review_ladders"]["low"] and value["review_ladders"]["low"][-1] == ["muse"]:
-                assert value["review_ladders"]["low"].pop() == ["muse"]
-            if value["review_ladders"]["medium"] and value["review_ladders"]["medium"][-1] == ["muse"]:
-                assert value["review_ladders"]["medium"].pop() == ["muse"]
-            muse_cand = value["review_candidates"]["muse"]
-            assert hashlib.sha256(encode(muse_cand)).hexdigest() == "641cdce0844039c04aadcbff572b54eed2c6927a243cfe172eefbddb802b9b5b"
-            # MUSE-SECOND-REVIEW-1112 adds the second_review role and its note to the Muse row only.
+            # C-5241/C-5245 retire Muse execution while retaining its historical model row.
+            assert "muse" not in value["review_candidates"]
+            for risk in ("low", "medium"):
+                assert all("muse" not in rung for rung in value["review_ladders"][risk])
+            assert value["review_scheduler"]["endpoints"]["muse"]["models"] == []
+            value["review_scheduler"]["endpoints"]["muse"]["models"] = deepcopy(
+                expected["review_scheduler"]["endpoints"]["muse"]["models"]
+            )
             muse_model = value["models"]["muse-wonder-full-1.0"]
-            assert hashlib.sha256(encode(muse_model)).hexdigest() == "b91a8eafc458d3677bcdd7bf85f9ad5f60bdaa2b3c77d87e6287806d603136bd"
+            assert hashlib.sha256(encode(muse_model)).hexdigest() == "1fc780ed6e4825a55d2617a651659729a08d5827180752ddc0adf59db4572c0d"
             value["review_candidates"]["muse"] = deepcopy(CURRENT_BASELINE["catalog"]["review_candidates"]["muse"])
             value["models"]["muse-wonder-full-1.0"] = deepcopy(CURRENT_BASELINE["catalog"]["models"]["muse-wonder-full-1.0"])
             # REMOVE-UNNEEDED-1107: prose-only correction of two stale "Gemma retired" policy notes
@@ -1212,8 +1232,10 @@ def refresh_current_baseline():
     catalog["review_candidates"].pop("openai_red_team_exception")
     catalog["review_scheduler"]["endpoints"]["codex"]["models"] = ["gpt-6.1-sol"]
     catalog["models"]["gpt-6-astra"] = deepcopy(CURRENT_BASELINE["catalog"]["models"]["gpt-6-astra"])
-    for risk in ("low", "medium"):
-        assert catalog["review_ladders"][risk].pop() == ["muse"]
+    assert "muse" not in catalog["review_candidates"]
+    catalog["review_scheduler"]["endpoints"]["muse"]["models"] = deepcopy(
+        CURRENT_BASELINE["catalog"]["review_scheduler"]["endpoints"]["muse"]["models"]
+    )
     catalog["review_candidates"]["muse"] = deepcopy(CURRENT_BASELINE["catalog"]["review_candidates"]["muse"])
     catalog["models"]["muse-wonder-full-1.0"] = deepcopy(CURRENT_BASELINE["catalog"]["models"]["muse-wonder-full-1.0"])
     capture["baseline"]["catalog"] = catalog
