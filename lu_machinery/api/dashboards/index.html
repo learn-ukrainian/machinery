@@ -379,26 +379,15 @@ function ciLabel(state) {
   return ["no CI yet", "muted"];
 }
 
-// The open PR whose branch is this task's own: "<agent>/<task id>", or that name with a
-// numeric suffix ("-084") when exactly one such branch exists and it is not itself the id
-// of another known task. A task whose id merely starts with this one never matches.
-function ownPr(task, index, knownIds) {
+// The open PR whose branch is exactly this task's own, "<agent>/<task id>". Nothing looser:
+// a prefix or suffix match can name another task's PR.
+function ownPr(task, index) {
   const id = String(task.task_id || "");
-  if (!id) return null;
-  const tail = pr => pr.head_branch.split("/").pop();
-  const exact = index.find(pr => tail(pr) === id);
-  if (exact) return exact;
-  const numbered = index.filter(pr => tail(pr).startsWith(id) && /^-\d+$/.test(tail(pr).slice(id.length))
-    && !knownIds.has(tail(pr)));
-  return numbered.length === 1 ? numbered[0] : null;
+  return id ? index.find(pr => pr.head_branch.split("/").pop() === id) || null : null;
 }
 
-function knownTaskIds() {
-  return new Set([...(latest.workers?.tasks || []), ...(latest.recent?.tasks || [])].map(task => task.task_id));
-}
-
-function taskPrCell(task, index, knownIds = knownTaskIds()) {
-  let open = ownPr(task, index, knownIds);
+function taskPrCell(task, index) {
+  let open = ownPr(task, index);
   // A recorded delivery PR is authoritative; a different open PR never replaces it.
   if (open && task.delivery_pr && task.delivery_pr !== `#${open.number}`) open = null;
   if (open) {
@@ -421,14 +410,13 @@ function doing(task) {
 function renderWorkers(active, prs = latest.prs) {
   const tasks = Array.isArray(active.tasks) ? active.tasks : [];
   const index = prIndex(prs);
-  const known = new Set([...tasks.map(task => task.task_id), ...knownTaskIds()]);
   return table(["Task", "Model", "Account", "Running", "Doing", "PR"], tasks.map(task => [
     text(task.task_id),
     text(modelOf(task) || task.agent),
     text(account(task)),
     text(span(task.age_s), task.age_s > 3 * 3600 ? "num bad" : task.age_s > 2 * 3600 ? "num warn" : "num"),
     text(doing(task)),
-    taskPrCell(task, index, known),
+    taskPrCell(task, index),
   ]));
 }
 
