@@ -148,23 +148,35 @@ assert.doesNotMatch(renderWorkers({tasks: []}), /unfinished|zombie/);
 
 def test_home_hides_stale_subscription_quota_and_api_balances():
     """Stale or unverified readings must not render actionable quota, pace, reset or balance numbers."""
-    code = _script("index.html", "function escapeHtml", "// ---- Summary chips ----")
+    code = _script("index.html", "function escapeHtml", "// ---- Panels ----")
     _node(_DOM + code + r"""
 const row = {account: 'Fixture', reading: {status: 'fresh', age_s: 60, read_at: '2026-11-12T00:00:00Z'},
   weekly: {status: 'ok', left_pct: 70, resets_at: '2099-01-02T03:04:00Z'},
   pace: {status: 'ok', state: 'reserve', headroom_pct: 18, lasts_to_reset: true},
   session: {status: 'ok', left_pct: 61, resets_at: '2099-01-02T03:04:00Z'},
   extra_windows: [{label: 'Extra', status: 'ok', left_pct: 84}], breakdown: [{label: 'Used', value: '91 units'}],
-  credits: {status: 'ok', balance: 37.2}, plan: {name: 'Fixture plan'}};
+  credits: {status: 'ok', balance: 37.2}, plan: {name: 'Fixture plan'},
+  banked_resets: {status: 'ok', source: 'provider', count: 17,
+    items: [{kind: 'reset', count: 17, expires_on: '2099-02-03'}]}};
 const render = reading => subscriptionRows({stale_after_s: 900,
   providers: [{provider: 'fixture', accounts: [{...row, reading}]}]}, null).groups;
 assert.match(render(row.reading), /70%/);
+assert.match(render(row.reading), /17× reset/);
+const chips = reading => renderChips({usage: {stale_after_s: 900,
+  providers: [{accounts: [{...row, reading}]}]}});
+assert.match(chips(row.reading), /<b>0<\/b> accounts run out before reset/);
 for (const reading of [{...row.reading, age_s: 1800}, {...row.reading, status: 'stale'},
     {...row.reading, status: 'unknown'}, {...row.reading, age_s: null}]) {
   const html = render(reading);
+  assert.deepEqual([/17× reset/.test(html), /<b>[01]<\/b> accounts? runs? out before reset/.test(chips(reading))],
+    [false, false]);
   assert.doesNotMatch(html, /70%|61%|84%|91 units|37\.2|2099-01-02|18 pp|lasts to reset/);
   assert.match(html, /Fixture plan/);
+  assert.match(chips(reading), /<b>\?<\/b> accounts run out before reset/);
 }
+const configured = {...row, reading: {...row.reading, status: 'stale'},
+  banked_resets: {...row.banked_resets, source: 'plan_facts'}};
+assert.match(subscriptionRows({providers: [{accounts: [configured]}]}, null).groups, /17× reset/);
 const apiAccountRow = {freshness: 'fresh', age_s: 60, total_balance: 42, currency: 'USD', usage_weekly_usd: 9};
 const api = reading => apiRows({api_accounts: {Fixture: {...apiAccountRow, ...reading}},
   diagnostics: {stale_threshold_s: 900}}).flat().join('');

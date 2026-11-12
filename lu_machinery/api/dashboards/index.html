@@ -295,7 +295,7 @@ function subscriptionRows(subs, logins) {
           sessionCell(usage.session),
           extraCell(usage),
           creditsCell(usage.credits),
-          bankedCell(row.banked_resets),
+          bankedCell(row.banked_resets?.source === "provider" ? usage.banked_resets : row.banked_resets),
           planCell(row.plan),
           signInCell(row.account, logins),
           readingCell(row.reading, staleAfter),
@@ -524,8 +524,9 @@ function renderChips(latest) {
   if (latest.workers) out.push(chip("#fleet", (latest.workers.tasks || []).length, "live workers"));
   if (latest.usage) {
     const accounts = liveAccounts(latest.usage);
-    const short = accounts.filter(row => row.pace?.status === "ok" && row.pace.lasts_to_reset === false).length;
-    out.push(chip("#subs", short, short === 1 ? "account runs out before reset" : "accounts run out before reset", short ? "bad" : ""));
+    const fresh = accounts.every(row => readingState(row.reading?.status, row.reading?.age_s, latest.usage.stale_after_s) === "fresh");
+    const short = fresh ? accounts.filter(row => row.pace?.status === "ok" && row.pace.lasts_to_reset === false).length : "?";
+    out.push(chip("#subs", short, short === 1 ? "account runs out before reset" : "accounts run out before reset", short === "?" ? "warn" : short ? "bad" : ""));
     const out_ = (latest.logins?.accounts || []).filter(row => row.logged_in === false).length;
     if (out_) out.push(chip("#subs", out_, "signed out", "bad"));
   }
