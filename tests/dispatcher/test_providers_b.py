@@ -571,11 +571,15 @@ def test_agy_partial_stderr_rejects_incomplete_runs_with_safe_reason(stderr, err
     """agy-partial-stderr: native incomplete signals override SUCCESS without exposing stderr."""
     stderr = "private diagnostic\n" + stderr + "\nprivate diagnostic"
     assert load("agy").parse(SUCCESS["agy"], stderr, 0, None) == ParsedResult(
-        "Finished.", {"input_tokens": 7, "output_tokens": 3}, error, sources_mcp_call_count=0
+        "Finished.", {"input_tokens": 7, "output_tokens": 3}, error, sources_mcp_call_count=0,
+        incomplete=error is not None,
     )
     if error:
-        assert load("agy").parse(SUCCESS["agy"], stderr, 9, None).error == "agy: exited with status 9"
-        assert load("agy").parse("{broken\n" + SUCCESS["agy"], stderr, 0, None).error == "agy: invalid JSON stream"
+        # Another error leads the message; the run still counts as unfinished, so merged work never settles it.
+        exited = load("agy").parse(SUCCESS["agy"], stderr, 9, None)
+        assert (exited.error, exited.incomplete) == ("agy: exited with status 9", True)
+        broken = load("agy").parse("{broken\n" + SUCCESS["agy"], stderr, 0, None)
+        assert (broken.error, broken.incomplete) == ("agy: invalid JSON stream", True)
 
 
 def test_agy_success_while_background_work_is_open_is_incomplete():
@@ -589,6 +593,7 @@ def test_agy_success_while_background_work_is_open_is_incomplete():
     parsed = load("agy").parse(stdout, "", 0, None)
     assert parsed.error == "agy: incomplete run"
     assert parsed.text == "I will pause."
+    assert parsed.incomplete is True
 
 
 @pytest.mark.parametrize(

@@ -667,7 +667,8 @@ def test_a_run_settling_while_a_task_it_dispatched_still_runs_names_that_task(sa
 
 
 def test_agy_write_run_does_not_settle_while_its_child_is_running(sandbox, monkeypatch):
-    """Defect class: an AGY workspace-write run that exits 0 on an interim reply while a child task is still active settles done or no_deliverable.
+    """Defect class: an AGY workspace-write run that exits 0 on an interim reply while a child task is still active settles done or no_deliverable,
+    including when a merged pull request is offered as its delivery (R16).
 
     The supervisor returns at its 2s deadline, a little over 2s. A bound of 8 sat a few
     seconds above that. The bound is 15s: above that deadline on a loaded runner, and below
@@ -680,6 +681,9 @@ def test_agy_write_run_does_not_settle_while_its_child_is_running(sandbox, monke
     monkeypatch.setattr(worker, "_reap_settled", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(worker.headroom, "check_plan", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(worker.headroom, "check_runtime", lambda *_args, **_kwargs: None)
+    # Merged work is offered as the delivery; an unfinished run must not take it as its result.
+    monkeypatch.setattr(worker.git, "merged_delivery", lambda _record: {
+        "repo": "org/repo", "number": 7, "merge_sha": "a" * 40, "paths": []})
     code = (
         "import json\n"
         "print(json.dumps({'event': 'init', 'init': {'model': 'gemini-3.8-flash-high'}}), flush=True)\n"
@@ -715,6 +719,7 @@ def test_agy_write_run_does_not_settle_while_its_child_is_running(sandbox, monke
     result = json.loads(path.read_text())
     assert result["status"] not in {"done", "no_deliverable"}
     assert "agy-write-review" in (result.get("error") or "")
+    assert "delivery_pr" not in result
     assert elapsed < 15, (
         f"elapsed={elapsed:.2f}s; a run held to the 30s terminal grace or the default hard timeout must not pass"
     )

@@ -471,8 +471,9 @@ def parse(
             error or (f"{structured.failure_code}: {structured.stderr_excerpt}" if not structured.ok else None),
             one_model(models),
             sources_mcp_call_count=len(sources_calls),
+            incomplete=incomplete,
         )
     return ParsedResult(
         text, usage, error or (None if text else "agy: missing final text"), one_model(models),
-        sources_mcp_call_count=len(sources_calls),
+        sources_mcp_call_count=len(sources_calls), incomplete=incomplete,
     )

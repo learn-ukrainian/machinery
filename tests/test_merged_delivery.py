@@ -21,12 +21,10 @@ def _git(cwd, *args):
 @pytest.mark.parametrize(("error", "marker"), [
     ("claude_advisor_executor_unverified", None), ("agy_model_identity_unverified", False),
     ("review_gate_error", False), ("structured_output_invalid", False),
-    ("agy_child_still_running: child-1", True), ("agy: incomplete run", True),
 ])
 def test_merged_delivery_never_waives_dispatcher_integrity_refusals(monkeypatch, error, marker):
     """Defect class: merged PR evidence erased dispatcher identity, receipt and schema refusals as if
-    they were provider-terminal errors. Neither an absent nor a false provider-origin marker permits rescue, and
-    an AGY run that closed with its child task or background work still open is unfinished, not a rescuable failure.
+    they were provider-terminal errors. Neither an absent nor a false provider-origin marker permits rescue.
     """
     record = dict(mode="workspace-write", status="failed", error=error, owned_paths=[],
                   commits_ahead=1, push_state="pushed", worktree_dirty_on_exit=False)

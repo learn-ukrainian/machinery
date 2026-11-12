@@ -47,3 +47,4 @@ class ParsedResult:
     resolved_model: str | None = None  # runtime observation only; None includes conflicting reports
     rate_limited: bool = False  # the provider's own terminal event says it is out of capacity; error holds its message
     sources_mcp_call_count: int | None = None  # completed Sources MCP calls; None when the provider cannot tell
+    incomplete: bool = False  # the run ended with its work still open, whatever error the message reports
