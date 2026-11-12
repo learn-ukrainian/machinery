@@ -26,17 +26,16 @@ RETIRED_MODEL_IDS = {
     model_id for model_id, entry in load_model_catalog()["models"].items()
     if entry["lifecycle"] == "retired"
 }
-# The launcher's seat pin. Every Grok model is retired (GROK-CANCEL-1110), so a launch that
-# falls back to this pin is refused before any other gate runs.
-RETIRED_SEAT_PIN = "grok-4.7-high"
+# C-5307 restores Grok review dispatches, without reinstating a Cursor driver pin.
+REVIEW_WIRE_PIN = "grok-4.7-high"
 # A non-retired model that is not an approved Cursor pin: it passes the retired-model check, so
 # the launcher's later gates (epic, content slots, forwarded models) stay reachable in tests.
 UNAPPROVED_MODEL = "cursor-unknown"
 
 
-def _assert_retired_pin_refused(result) -> None:
-    assert result.returncode == 2, result.stdout + result.stderr
-    assert f"model '{RETIRED_SEAT_PIN}' is retired in the model catalog" in result.stderr
+def _assert_driver_pin_refused(result) -> None:
+    assert result.returncode == 4, result.stdout + result.stderr
+    assert "CURSOR_MODEL_NOT_APPROVED" in result.stderr
     assert "would claim lease" not in result.stdout
     assert "would exec" not in result.stdout
 
@@ -71,7 +70,7 @@ def test_cursor_driver_rejects_dummy_agent_on_path(tmp_path: Path) -> None:
 
     # The retired seat pin refuses the launch before any binary is chosen, so no agent runs.
     result = run_launcher(DRIVER, "--epic", "infra", env={"PATH": probe_path})
-    _assert_retired_pin_refused(result)
+    _assert_driver_pin_refused(result)
     assert "would exec agent" not in result.stdout
 
 
@@ -102,7 +101,7 @@ def test_cursor_launcher_refuses_decoy_agent_when_cursor_agent_is_missing(tmp_pa
         dry_run=False,
     )
     assert result.returncode != 0, result.stdout + result.stderr
-    assert f"model '{RETIRED_SEAT_PIN}' is retired in the model catalog" in result.stderr
+    assert "CURSOR_MODEL_NOT_APPROVED" in result.stderr
     assert not marker.exists()
     assert "ran" not in result.stdout
 
@@ -116,9 +115,9 @@ def test_cursor_driver_requires_epic_fail_closed() -> None:
 
 @pytest.mark.parametrize("selector", ("infra", "devops", "atlas", "corpus"))
 def test_cursor_driver_claims_lease_for_supported_selectors(selector: str) -> None:
-    """With no approved Cursor pin (GROK-CANCEL-1110), no selector claims a lease."""
+    """With no approved Cursor driver pin, no selector claims a lease."""
     result = run_launcher(DRIVER, "--epic", selector)
-    _assert_retired_pin_refused(result)
+    _assert_driver_pin_refused(result)
     assert "would bind drive-epic" not in result.stdout
 
 
@@ -138,9 +137,9 @@ def test_cursor_driver_rejects_uncertified_model_and_foreign_harness() -> None:
     harness = run_launcher(DRIVER, "--epic", "devops", "--harness", "agy")
     assert uncertified.returncode == 4
     assert "not certified" in uncertified.stderr
-    assert "cursor_no_approved_model_pin" in uncertified.stderr
+    assert "CURSOR_MODEL_NOT_APPROVED" in uncertified.stderr
     # The retired seat pin refuses the launch before the harness check is reached.
-    _assert_retired_pin_refused(harness)
+    _assert_driver_pin_refused(harness)
 
 
 def test_cursor_launcher_pin_list_matches_python_admission() -> None:
@@ -156,13 +155,15 @@ def test_cursor_launcher_pin_list_matches_python_admission() -> None:
     assert 'case "$model" in' in function[1]
     case_arms = re.findall(r"^\s*(.*?)\) return 0 ;;", function[1], re.MULTILINE)
     shell_pins = {pin.replace("\\", "") for arm in case_arms for pin in arm.split("|")}
-    expected = CURSOR_APPROVED_WIRE_PINS | {apply_cursor_model_pins(pin) for pin in cursor_pinned_models()}
+    expected = {apply_cursor_model_pins(pin) for pin in cursor_pinned_models()}
     assert shell_pins == expected
-    # The retired former pin is certified on neither side (GROK-CANCEL-1110).
-    assert RETIRED_SEAT_PIN not in expected
+    # C-5307 restores the explicit dispatch/review pin, not a Cursor driver.
+    assert CURSOR_APPROVED_WIRE_PINS == {REVIEW_WIRE_PIN}
+    assert apply_cursor_model_pins(REVIEW_WIRE_PIN) == REVIEW_WIRE_PIN
+    assert REVIEW_WIRE_PIN not in expected
     retired = subprocess.run(
         ["bash", "-c", 'source "$1"; launcher_cursor_model_certified "$2"', "pin-check",
-         str(machinery_path('lib/launcher_core.sh')), RETIRED_SEAT_PIN],
+         str(machinery_path('lib/launcher_core.sh')), REVIEW_WIRE_PIN],
         capture_output=True, text=True, check=False, timeout=10,
         env=launcher_environment(),
     )
@@ -186,11 +187,11 @@ def test_cursor_launcher_pin_list_matches_python_admission() -> None:
         "grok-4.7-high",
     ),
 )
-def test_cursor_driver_refuses_the_retired_former_pins(model: str) -> None:
-    """The former Grok pins are retired (GROK-CANCEL-1110) and never launch."""
+def test_cursor_driver_refuses_the_review_only_pins(model: str) -> None:
+    """An active review pin grants no Cursor driver authority (C-5307)."""
     result = run_launcher(DRIVER, "--epic", "infra", "--model", model)
-    assert result.returncode == 2, result.stdout + result.stderr
-    assert f"model '{model}' is retired in the model catalog" in result.stderr
+    assert result.returncode == 4, result.stdout + result.stderr
+    assert "CURSOR_MODEL_NOT_APPROVED" in result.stderr
     assert "would claim lease" not in result.stdout
     assert "would exec" not in result.stdout
 
@@ -228,8 +229,8 @@ def test_cursor_driver_refuses_auto_fast_and_previous_generation_pins(model: str
         run_launcher(DRIVER, "--epic", "infra", "--model", model),
         run_launcher(DRIVER, "--epic", "infra", env={"LAUNCHER_MODEL": model}),
     ):
-        # Every Grok variant names a retired catalog model or a retired prefix (GROK-CANCEL-1110).
-        if model.partition("[")[0] in RETIRED_MODEL_IDS or model.startswith(("composer-2.5", "grok-")):
+        # Older models stay retired; variants of the active Grok pin fail certification.
+        if model.partition("[")[0] in RETIRED_MODEL_IDS or model.startswith(("composer-2.5", "grok-4.6", "grok-4.5")):
             assert result.returncode == 2, result.stdout + result.stderr
             assert "is retired in the model catalog" in result.stderr
             assert model in result.stderr
@@ -249,9 +250,9 @@ def test_cursor_driver_refuses_an_empty_model() -> None:
 
 
 def test_cursor_driver_empty_env_model_falls_back_to_the_pin() -> None:
-    """An empty LAUNCHER_MODEL falls back to the seat pin, which is retired and refused."""
+    """An empty LAUNCHER_MODEL falls back to the seat pin, which has no driver authority."""
     result = run_launcher(DRIVER, "--epic", "infra", env={"LAUNCHER_MODEL": ""})
-    _assert_retired_pin_refused(result)
+    _assert_driver_pin_refused(result)
 
 
 @pytest.mark.parametrize(
@@ -327,11 +328,11 @@ def _run_interactive(tmp_path: Path, *args: str, env: dict[str, str] | None = No
 
 
 def test_cursor_interactive_defaults_to_the_concrete_pin(tmp_path: Path) -> None:
-    """The interactive default is the seat pin; it is retired, so neither run starts cursor-agent."""
+    """The interactive default is the seat pin; it is not a driver pin, so neither run starts cursor-agent."""
     for name, dry_run in (("dry", True), ("live", False)):
         result, argv = _run_interactive(tmp_path / name, env={"LAUNCHER_MODEL": ""}, dry_run=dry_run)
-        assert result.returncode == 2, result.stdout + result.stderr
-        assert f"model '{RETIRED_SEAT_PIN}' is retired in the model catalog" in result.stderr
+        assert result.returncode == 4, result.stdout + result.stderr
+        assert "CURSOR_MODEL_NOT_APPROVED" in result.stderr
         assert "would exec" not in result.stdout
         assert argv is None
         assert "mock deploy" not in result.stdout
@@ -358,7 +359,7 @@ def test_cursor_interactive_refuses_auto_empty_fast_and_forwarded_models(
     args = ("--model", UNAPPROVED_MODEL, *selection) if selection[0] == "--" else selection
     result, argv = _run_interactive(tmp_path, *args)
     if selection[0] == "--model" and (
-        selection[1].partition("[")[0] in RETIRED_MODEL_IDS or selection[1].startswith("grok-")
+        selection[1].partition("[")[0] in RETIRED_MODEL_IDS
     ):
         assert result.returncode == 2, result.stdout + result.stderr
         assert "is retired in the model catalog" in result.stderr
@@ -378,14 +379,9 @@ def test_cursor_interactive_refuses_auto_empty_fast_and_forwarded_models(
 @pytest.mark.parametrize("model", ("auto", "grok-4.7-high-fast"))
 def test_cursor_interactive_refuses_auto_and_fast_from_the_environment(tmp_path: Path, model: str) -> None:
     result, argv = _run_interactive(tmp_path, env={"LAUNCHER_MODEL": model})
-    if model.startswith("grok-"):
-        # A Grok variant names a retired prefix (GROK-CANCEL-1110).
-        assert result.returncode == 2, result.stdout + result.stderr
-        assert "is retired in the model catalog" in result.stderr
-    else:
-        assert result.returncode == 4, result.stdout + result.stderr
-        assert "not certified for the cursor interactive session" in result.stderr
-        assert "CURSOR_MODEL_NOT_APPROVED" in result.stderr
+    assert result.returncode == 4, result.stdout + result.stderr
+    assert "not certified for the cursor interactive session" in result.stderr
+    assert "CURSOR_MODEL_NOT_APPROVED" in result.stderr
     assert argv is None
 
 

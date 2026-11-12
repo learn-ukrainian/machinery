@@ -197,7 +197,8 @@ def test_provider_error_forwarding_drops_secrets(monkeypatch, tmp_path, capsys, 
     result, _ = _probe(monkeypatch, payloads, lane, error=(status, {"error": SENTINEL}, IDENTIFIER + SENTINEL))
     budget, human = _api_cli(monkeypatch, tmp_path, capsys, lane, result)
     assert result["status"] == "unavailable"
-    assert str(status) in result["auth_error"]
+    assert result["auth_error"] == "provider_error"
+    assert result["error_code"] == status
     assert SENTINEL not in json.dumps(budget) + human
     assert IDENTIFIER not in json.dumps(budget) + human
 
