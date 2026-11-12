@@ -386,7 +386,10 @@ def _pool_facts(value: Any, today: date) -> dict[str, Any]:
         anchor = _fact_day(value["renews_on"])
         facts["renews_on"] = anchor.isoformat()
         if not facts["cancelled"]:  # a cancelled plan does not renew
-            renewal = _next_monthly(anchor, today)
+            try:
+                renewal = _next_monthly(anchor, today)
+            except (OverflowError, ValueError):  # no representable renewal date after today
+                raise _InvalidFacts from None
             facts.update(next_renewal_on=renewal.isoformat(), days_to_renewal=(renewal - today).days)
     if "banked_resets" in value:
         facts["banked_resets"] = _banked(value["banked_resets"], today)

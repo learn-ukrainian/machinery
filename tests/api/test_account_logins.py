@@ -371,7 +371,15 @@ def test_subscriptions_cli_prints_every_account_without_the_api(usage_files):
     running (AGY and Muse must print unknown while the cache pools print their numbers)."""
     import os
     import subprocess
+    from datetime import UTC, datetime, timedelta
 
+    # The command runs on the real clock, so its reading is one minute old now.
+    read_at = (datetime.now(UTC) - timedelta(minutes=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    cache = json.loads(usage_files.cache.read_text())
+    for pool in cache["pools"].values():
+        if pool["read_at"]:
+            pool["read_at"] = read_at
+    usage_files.cache.write_text(json.dumps(cache))
     env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": str(usage_files.tmp),
            "LU_USAGE_CACHE_FILE": str(usage_files.cache),
            "LU_SUBSCRIPTION_ENDS_FILE": os.environ["LU_SUBSCRIPTION_ENDS_FILE"],
@@ -382,7 +390,7 @@ def test_subscriptions_cli_prints_every_account_without_the_api(usage_files):
     for account in ("Claude a", "Claude b", "Codex a", "Codex b", "AGY Gemini", "AGY Claude/GPT", "Grok+Cursor", "Muse"):
         assert f"\n{account}  [" in text, account
     assert "AGY and Muse readings live only in the Monitor API process" in text
-    assert "Weekly       64% left" in text
+    assert "Weekly       64% left" in text and "Claude a  [fresh, read 1m ago]" in text
     as_json = subprocess.run([sys.executable, "-m", "lu_machinery.api.subscriptions", "--json"], env=env,
                              capture_output=True, text=True, timeout=60, check=True).stdout
     rows = _accounts(json.loads(as_json))

@@ -56,6 +56,7 @@ _ON_PACE_BAND_PCT = 2.0  # CodexBar's "On pace" band
 _MAX_LIST = 10
 _MAX_COUNT = 999
 _MAX_ETA_S = 400 * 86400  # beyond any monthly or weekly window
+_CLOCK_SKEW_S = 300  # a reading timestamped further ahead than this is not believed
 # The cache writer records ``<ExceptionName>: <message>``; only a bare exception name is published.
 _ERROR_KIND = re.compile(r"[A-Z][A-Za-z0-9]{1,39}")
 
@@ -130,7 +131,10 @@ def _after(moment: datetime, seconds: float | None) -> datetime | None:
     """``moment`` plus a non-negative number of seconds, or ``None`` when absent or out of range."""
     if seconds is None or not 0 <= seconds <= _MAX_ETA_S:
         return None
-    return moment + timedelta(seconds=seconds)
+    try:
+        return moment + timedelta(seconds=seconds)
+    except OverflowError:  # past the last representable date
+        return None
 
 
 def _pct(value: Any) -> float | None:
@@ -205,6 +209,16 @@ def _reading(read_at: datetime | None, now: datetime, *, stale: bool = False) ->
     age = max(0, int((now - read_at).total_seconds()))
     status = "stale" if stale or age > STALE_AFTER_S else "fresh"
     return {"status": status, "read_at": _iso(read_at), "age_s": age, "reason": None}
+
+
+def _read_time(value: Any, now: datetime) -> tuple[datetime | None, str]:
+    """The reading's time, or ``None`` and why: absent, unparseable or ahead of the clock."""
+    read_at = _moment(value)
+    if read_at is None:
+        return None, "no_reading"
+    if (read_at - now).total_seconds() > _CLOCK_SKEW_S:
+        return None, "read_time_in_future"
+    return read_at, ""
 
 
 def _blank_usage(reason: str) -> dict[str, Any]:
@@ -301,15 +315,18 @@ def _cache_usage(entry: Mapping[str, Any], read_at: datetime, now: datetime) -> 
         result["banked_resets"] = {"status": "ok", "source": "provider", "count": banked, "items": []}
     elif isinstance(banked, dict):
         listed = banked.get("credits")
+        # A list counts only when complete and every entry carries a readable status.
+        readable = (isinstance(listed, list) and len(listed) <= _MAX_LIST
+                    and all(isinstance(c, dict) and _text(c.get("status"), 40) for c in listed))
         items = []
-        for credit in _items(listed):
-            if isinstance(credit, dict) and credit.get("status") == "available":
+        for credit in _items(listed) if readable else []:
+            if credit.get("status") == "available":
                 expires = _moment(credit.get("expires_at"))
                 items.append({"kind": _text(credit.get("title")) or _text(credit.get("reset_type")), "count": 1,
                               "expires_on": _iso(expires) if expires else None, "expired": bool(expires and expires < now)})
         count = _count(banked.get("availableCount"))
-        if count is None and isinstance(listed, list) and len(listed) <= _MAX_LIST:
-            count = len(items)  # derived only from a complete, readable list
+        if count is None and readable:
+            count = len(items)
         if count is not None:
             result["banked_resets"] = {"status": "ok", "source": "provider", "count": count, "items": items}
 
@@ -326,8 +343,10 @@ def _cache_usage(entry: Mapping[str, Any], read_at: datetime, now: datetime) -> 
 def _cache_account(entry: Any, now: datetime) -> dict[str, Any]:
     if not isinstance(entry, dict):
         return {"reading": _reading(None, now), **_blank_usage("no_reading")}
-    read_at = _moment(entry.get("read_at"))
+    read_at, why = _read_time(entry.get("read_at"), now)
     reading = _reading(read_at, now)
+    if read_at is None:
+        reading["reason"] = why
     error_at = _moment(entry.get("error_at"))
     if entry.get("error") and error_at:
         # Only the error's kind: the message can carry provider output.
@@ -335,7 +354,7 @@ def _cache_account(entry: Any, now: datetime) -> dict[str, Any]:
         kind = head if separator and _ERROR_KIND.fullmatch(head) else "error"
         reading["last_refresh_error"] = {"at": _iso(error_at), "kind": kind}
     if read_at is None:
-        return {"reading": reading, **_blank_usage("no_reading")}
+        return {"reading": reading, **_blank_usage(why)}
     return {"reading": reading, **_cache_usage(entry, read_at, now)}
 
 
@@ -364,7 +383,9 @@ def _monitor_pace(weekly: Mapping[str, Any], read_at: datetime, now: datetime) -
 def _monitor_account(record: Mapping[str, Any] | None, source: str, now: datetime) -> dict[str, Any]:
     record = record if isinstance(record, Mapping) else {}
     freshness = record.get("freshness")
-    read_at = _moment(record.get("fetched_at"))
+    read_at, why = _read_time(record.get("fetched_at"), now)
+    if why == "read_time_in_future":
+        return {"reading": {**_reading(None, now), "reason": why}, **_blank_usage(why)}
     if freshness not in ("fresh", "stale_last_good") or read_at is None:
         if not record or (record.get("last_failure_at") is None and record.get("failure_kind") in (None, "unavailable")):
             reason = NO_MONITOR_READING  # nothing read in this process yet (or no Monitor here)
@@ -427,17 +448,21 @@ def subscriptions_snapshot(*, now: datetime | None = None, monitor_reader: Monit
     for provider, label, accounts in PROVIDERS:
         rows = []
         for account, key, source, source_key in accounts:
-            if source == "cache":
-                usage = _cache_account(cache.get(source_key), now)
-                if cache_status["status"] != "ok" and usage["reading"]["status"] == "unknown":
-                    usage["reading"]["reason"] = f"usage_cache_{cache_status['status']}"
-            else:
-                if source_key not in monitor:
-                    try:
-                        monitor[source_key] = reader(source_key)
-                    except Exception:  # one broken reading must not blank the others
-                        monitor[source_key] = None
-                usage = _monitor_account(monitor[source_key], source, now)
+            if source != "cache" and source_key not in monitor:
+                try:
+                    monitor[source_key] = reader(source_key)
+                except Exception:  # one broken reading must not blank the others
+                    monitor[source_key] = None
+            try:
+                if source == "cache":
+                    usage = _cache_account(cache.get(source_key), now)
+                    if cache_status["status"] != "ok" and usage["reading"]["status"] == "unknown":
+                        usage["reading"]["reason"] = f"usage_cache_{cache_status['status']}"
+                else:
+                    usage = _monitor_account(monitor[source_key], source, now)
+            except Exception:  # an unforeseen malformed reading is unknown for this account only
+                usage = {"reading": {**_reading(None, now), "reason": "unreadable_reading"},
+                         **_blank_usage("unreadable_reading")}
             provider_plan = usage.pop("provider_plan")
             if usage["banked_resets"].get("status") != "ok":
                 usage["banked_resets"] = _banked_from_facts(facts, key)
