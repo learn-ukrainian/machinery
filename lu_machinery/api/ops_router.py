@@ -110,6 +110,8 @@ ALERTS_TIMEOUT_S = 3.0
 # The dead-man heartbeat fires all the time by design; it proves Alertmanager
 # is evaluating, so it is reported as a flag and not listed as a firing alert.
 HEARTBEAT_ALERTNAMES = frozenset({"Watchdog"})
+# Alertmanager v2 alert states; anything else is a malformed reading.
+ALERT_STATES = frozenset({"active", "suppressed", "unprocessed"})
 _ALERT_LABELS = ("alertname", "severity", "owner_lane", "repo")
 _ALERT_ANNOTATIONS = ("summary", "action")
 
@@ -147,15 +149,19 @@ def _alerts_reading() -> dict:
     for item in raw:
         labels = item.get("labels") if isinstance(item, dict) else None
         status = item.get("status") if isinstance(item, dict) else None
+        state = status.get("state") if isinstance(status, dict) else None
+        annotations = item.get("annotations", {}) if isinstance(item, dict) else None
         # A malformed item means the reading cannot be trusted as a whole: an
         # "ok" reading with a dropped alert would show "Nothing firing".
-        if not isinstance(labels, dict) or not isinstance(labels.get("alertname"), str) or not isinstance(status, dict):
+        if (
+            not isinstance(labels, dict)
+            or not isinstance(labels.get("alertname"), str)
+            or state not in ALERT_STATES
+            or not isinstance(annotations, dict)
+        ):
             return {"status": "unknown", "reason": "alertmanager_invalid_response", "observed_at": observed_at,
                     "heartbeat": None, "alerts": []}
-        annotations = item.get("annotations")
-        if not isinstance(annotations, dict):
-            annotations = {}
-        if status.get("state") != "active":
+        if state != "active":
             continue
         if labels["alertname"] in HEARTBEAT_ALERTNAMES:
             heartbeat = True

@@ -524,7 +524,8 @@ function renderChips(latest) {
     const repos = latest.prs.repositories || [];
     const open = repos.reduce((sum, repo) => sum + (typeof repo.open_total === "number" ? repo.open_total : 0), 0);
     const queued = repos.reduce((sum, repo) => sum + (repo.pull_requests || []).filter(pr => pr.queue).length, 0);
-    out.push(chip("#prs", open, `open PRs · ${queued} queued`));
+    const partial = repos.some(repo => repo.status !== "ok");
+    out.push(chip("#prs", open, `open PRs · ${queued} queued${partial ? " (a repository is unknown)" : ""}`, partial ? "warn" : ""));
   } else if (latest.prs) out.push(chip("#prs", "?", "PRs unknown", "warn"));
   if (latest.alerts?.status === "ok") {
     const firing = (latest.alerts.alerts || []).length;

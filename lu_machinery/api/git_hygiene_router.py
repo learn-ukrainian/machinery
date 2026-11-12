@@ -869,15 +869,20 @@ def compute_pull_requests(project_root: Path) -> dict[str, Any]:
             continue
         # Fail closed: anything but an explicit public repository is treated as private.
         private = repo.get("isPrivate") is not False
-        nodes = repo["pullRequests"].get("nodes") or []
+        nodes = repo["pullRequests"].get("nodes")
         total = repo["pullRequests"].get("totalCount")
+        # A missing or null PR node would silently read as fewer open PRs.
+        if not isinstance(nodes, list) or not all(isinstance(node, dict) for node in nodes):
+            repositories.append({**entry, "status": "unknown", "reason": "github_invalid_response", "private": private,
+                                 "open_total": None, "pull_requests": []})
+            continue
         repositories.append({
             **entry,
             "status": "ok",
             "reason": None,
             "private": private,
             "open_total": total if isinstance(total, int) else None,
-            "pull_requests": [_pull_request_row(node, private=private) for node in nodes if isinstance(node, dict)],
+            "pull_requests": [_pull_request_row(node, private=private) for node in nodes],
         })
     return {"status": "ok", "reason": None, "observed_at": observed_at, "repositories": repositories}
 

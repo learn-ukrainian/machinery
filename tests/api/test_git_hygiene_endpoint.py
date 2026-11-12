@@ -203,4 +203,10 @@ def test_pull_requests_route_reports_unknown_when_github_fails(monkeypatch, tmp_
     _graphql_result(monkeypatch, 0, json.dumps({"data": repos}))
     rows = git_hygiene_router.compute_pull_requests(tmp_path)["repositories"][0]["pull_requests"]
     assert [(row["number"], row["ci"], row["review"]) for row in rows] == [(1, None, None), (2, None, None)]
-
+    # A null PR node or a non-list connection marks that repository unknown, never "fewer PRs".
+    repos["r1"] = {"isPrivate": False, "pullRequests": {"totalCount": 2, "nodes": [node, None]}}
+    repos["r2"] = {"isPrivate": False, "pullRequests": {"totalCount": 2, "nodes": None}}
+    _graphql_result(monkeypatch, 0, json.dumps({"data": repos}))
+    _ok, null_node, no_list = git_hygiene_router.compute_pull_requests(tmp_path)["repositories"]
+    for repo in (null_node, no_list):
+        assert (repo["status"], repo["reason"], repo["pull_requests"]) == ("unknown", "github_invalid_response", [])
