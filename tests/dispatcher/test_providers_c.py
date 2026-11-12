@@ -80,7 +80,7 @@ def test_muse_argv(spec, stub_env, model, mode, effort, contributor, monkeypatch
     options = {} if contributor is None else {"contributor_mode": contributor}
     spec = replace(spec, model=model, mode=mode, effort=effort, options=options)
     if mode == "workspace-write":
-        with pytest.raises(ValueError, match=r"^muse_worker_mode_refused$"):
+        with pytest.raises(ValueError, match=r"^muse_write_mode_unconfined$"):
             muse.build(spec, stub_env)
         return
     invocation = muse.build(spec, stub_env)
@@ -101,9 +101,10 @@ def test_muse_argv(spec, stub_env, model, mode, effort, contributor, monkeypatch
     ]
     if effort:
         expected += ["--reasoning-effort", effort]
-    expected += ["--permission-profile", ":read-only", "--disable-shell",
-                 "--disable-reminders", "--disable-request-user-input", "--no-foreign-personal-context",
-                 "--config", 'run.toolset=["read_file"]', "--disable-write"]
+    if mode == "workspace-write":
+        expected += ["--permission-profile", ":unrestricted"]
+    else:
+        expected += ["--permission-profile", ":read-only", "--disable-write", "--disable-shell"]
     assert run_stub(invocation, spec) == expected
     assert invocation.env["MUSE_NO_AUTO_UPDATE"] == "1"
     assert "MUSE_NO_AUTO_UPDATE" not in stub_env
@@ -385,21 +386,21 @@ def test_muse_provider_cannot_bypass_file_sandbox(tmp_path, monkeypatch):
 
     with monkeypatch.context() as refusal:
         refusal.setattr(subprocess, "run", no_provider_execution)
-        with pytest.raises(ValueError, match=r"^muse_worker_mode_refused$"):
+        with pytest.raises(ValueError, match=r"^muse_write_mode_unconfined$"):
             muse.build(replace(spec, mode="workspace-write"), {})
-        with pytest.raises(ValueError, match=r"^muse_worker_mode_refused$"):
+        with pytest.raises(ValueError, match=r"^muse_write_mode_unconfined$"):
             adapter_module.MuseAdapter().build_invocation(
                 prompt="", mode="workspace-write", cwd=workspace, model=None,
                 task_id=None, session_id=None, tool_config=None,
             )
-        with pytest.raises(ValueError, match=r"^muse_worker_mode_refused$"):
+        with pytest.raises(ValueError, match=r"^muse_write_mode_unconfined$"):
             adapter_module.MuseAdapter().preview_invocation(
                 prompt="", mode="workspace-write", cwd=workspace, model=None,
                 task_id="refused", run_nonce="0123456789abcdef", scratch_root=str(scratch), effort=None,
             )
-        with pytest.raises(ValueError, match=r"^muse_worker_mode_refused$"):
+        with pytest.raises(ValueError, match=r"^muse_write_mode_unconfined$"):
             confined_muse_argv([], workspace, "workspace-write", "refused")
-        with pytest.raises(ValueError, match=r"^muse_worker_mode_refused$"):
+        with pytest.raises(ValueError, match=r"^muse_write_mode_unconfined$"):
             adapter_module.sandbox_main(["govern", "refused", "workspace-write", str(workspace), str(scratch)])
     # child_env forwards the configured project interpreter to the read-only launcher child.
     invocation = muse.build(spec, {
