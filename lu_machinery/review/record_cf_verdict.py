@@ -81,13 +81,13 @@ from lu_machinery.orchestration.integration_sweep import (
     GitHubAdapter,
     SweepError,
     is_second_review,
-    is_second_reviewer_model,
     is_second_review_only,
-    reviews_of_record,
+    is_second_reviewer_model,
     lookup_verdict,
     parse_marker,
     pr_file_paths,
     recorded_p3_residuals,
+    reviews_of_record,
 )
 from lu_machinery.orchestration.task_record_store import (
     ARCHIVE_DIR_NAME,

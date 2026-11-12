@@ -196,9 +196,11 @@ def check_model_admission(agent: str, model: str, mode: str, options: dict, prom
         # review. Other listed models (Muse, Sol, Opus) are admitted as reviewers; the recorder
         # decides from --second-review and the PR's files which review it is.
         if reviewed and "second_review" in roles and not roles & record_roles:
-            listed = [row for row in catalog["review_scheduler"]["second_reviewer"]["models"] if row["model"] == identity]
+            second_rows = [
+                row for row in catalog["review_scheduler"]["second_reviewer"]["models"] if row["model"] == identity
+            ]
             endpoint = catalog["review_scheduler"].get("endpoints", {}).get(agent) or {}
-            if (not listed or listed[0]["route"] not in {agent, endpoint.get("catalog_transport")}
+            if (not second_rows or second_rows[0]["route"] not in {agent, endpoint.get("catalog_transport")}
                     or mode != "read-only" or model.endswith("-low")
                     or options.get("effort") == "low"
                     or (options.get("review_profile") or "code") not in {"code", "infra"}

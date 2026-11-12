@@ -273,7 +273,9 @@ def second_reviewer_policy() -> Mapping[str, Any]:
         row = (load_model_catalog().get("review_scheduler") or {}).get("second_reviewer")
     except Exception as error:  # an unreadable catalog never names the second reviewer
         raise ValueError(f"model catalog unreadable: {type(error).__name__}") from None
-    rows = row.get("models") if isinstance(row, Mapping) else None
+    if not isinstance(row, Mapping):
+        raise ValueError("review_scheduler.second_reviewer is missing or malformed")
+    rows = row.get("models")
     if (
         not isinstance(rows, list) or not rows
         or not all(isinstance(item, Mapping) and isinstance(item.get("model"), str)
