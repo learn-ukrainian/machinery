@@ -735,9 +735,7 @@ def test_muse_seat_overlay_changes_only_unknown_seat_receipts():
 
     for model in ("muse-wonder-full-1.0", "muse-spark-1.3"):
         for activity in ("review", "consult"):
-            assert (activity_role_refusal(model, activity, load_model_catalog()) is None) == (
-                model == "muse-wonder-full-1.0"
-            )
+            assert activity_role_refusal(model, activity, load_model_catalog()) is not None
         plan = InvocationPlan(
             cmd=["/fixture/muse", "exec", "--model", model, "--reasoning-effort", "high"],
             cwd=Path("/fixture/workspace"),
@@ -1144,7 +1142,6 @@ def assert_frozen_surfaces(actual, *, surfaces):
             assert hashlib.sha256(encode(carbon)).hexdigest() == "ed6aae685a0b4f5931a49236101c1f76611b241f802224b28ab16e3581c312b8"
             scheduler = value.get("review_scheduler") or {}
             assert scheduler.pop("second_reviewer") == {"models": [
-                {"model": "muse-wonder-full-1.0", "route": "native_muse", "independence": "third_family"},
                 {"model": "gemini-4-carbon", "route": "agy", "independence": "third_family"},
                 {"model": "grok-4.7", "route": "cursor", "independence": "third_family"},
                 {"model": "gpt-6.1-sol", "route": "native_codex", "independence": "last_resort"},
@@ -1178,16 +1175,16 @@ def assert_frozen_surfaces(actual, *, surfaces):
             assert hashlib.sha256(encode(fable52)).hexdigest() == "04ee0a6324bb7c8afa5259b2a9fe503a1673854df2dc0844209bd11120c08d84"
             # The advisory_roles section moves no seat, route or review ranking.
             _pop_advisory_roles(value)
-            # Muse operator decision 2026-11-01: low/medium review ladders and contributor mode off
-            if value["review_ladders"]["low"] and value["review_ladders"]["low"][-1] == ["muse"]:
-                assert value["review_ladders"]["low"].pop() == ["muse"]
-            if value["review_ladders"]["medium"] and value["review_ladders"]["medium"][-1] == ["muse"]:
-                assert value["review_ladders"]["medium"].pop() == ["muse"]
-            muse_cand = value["review_candidates"]["muse"]
-            assert hashlib.sha256(encode(muse_cand)).hexdigest() == "641cdce0844039c04aadcbff572b54eed2c6927a243cfe172eefbddb802b9b5b"
-            # MUSE-SECOND-REVIEW-1112 adds the second_review role and its note to the Muse row only.
+            # C-5241/C-5245 retire Muse execution while retaining its historical model row.
+            assert "muse" not in value["review_candidates"]
+            for risk in ("low", "medium"):
+                assert all("muse" not in rung for rung in value["review_ladders"][risk])
+            assert value["review_scheduler"]["endpoints"]["muse"]["models"] == []
+            value["review_scheduler"]["endpoints"]["muse"]["models"] = deepcopy(
+                expected["review_scheduler"]["endpoints"]["muse"]["models"]
+            )
             muse_model = value["models"]["muse-wonder-full-1.0"]
-            assert hashlib.sha256(encode(muse_model)).hexdigest() == "b91a8eafc458d3677bcdd7bf85f9ad5f60bdaa2b3c77d87e6287806d603136bd"
+            assert hashlib.sha256(encode(muse_model)).hexdigest() == "1fc780ed6e4825a55d2617a651659729a08d5827180752ddc0adf59db4572c0d"
             value["review_candidates"]["muse"] = deepcopy(CURRENT_BASELINE["catalog"]["review_candidates"]["muse"])
             value["models"]["muse-wonder-full-1.0"] = deepcopy(CURRENT_BASELINE["catalog"]["models"]["muse-wonder-full-1.0"])
             # REMOVE-UNNEEDED-1107: prose-only correction of two stale "Gemma retired" policy notes
@@ -1235,8 +1232,10 @@ def refresh_current_baseline():
     catalog["review_candidates"].pop("openai_red_team_exception")
     catalog["review_scheduler"]["endpoints"]["codex"]["models"] = ["gpt-6.1-sol"]
     catalog["models"]["gpt-6-astra"] = deepcopy(CURRENT_BASELINE["catalog"]["models"]["gpt-6-astra"])
-    for risk in ("low", "medium"):
-        assert catalog["review_ladders"][risk].pop() == ["muse"]
+    assert "muse" not in catalog["review_candidates"]
+    catalog["review_scheduler"]["endpoints"]["muse"]["models"] = deepcopy(
+        CURRENT_BASELINE["catalog"]["review_scheduler"]["endpoints"]["muse"]["models"]
+    )
     catalog["review_candidates"]["muse"] = deepcopy(CURRENT_BASELINE["catalog"]["review_candidates"]["muse"])
     catalog["models"]["muse-wonder-full-1.0"] = deepcopy(CURRENT_BASELINE["catalog"]["models"]["muse-wonder-full-1.0"])
     capture["baseline"]["catalog"] = catalog
