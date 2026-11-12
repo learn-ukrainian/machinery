@@ -32,6 +32,7 @@ import argparse
 import json
 import math
 import os
+import re
 import sys
 from collections.abc import Callable, Mapping
 from datetime import UTC, datetime, timedelta
@@ -53,6 +54,10 @@ _WEEKLY_MINUTES = 10080
 _SESSION_MINUTES = 300
 _ON_PACE_BAND_PCT = 2.0  # CodexBar's "On pace" band
 _MAX_LIST = 10
+_MAX_COUNT = 999
+_MAX_ETA_S = 400 * 86400  # beyond any monthly or weekly window
+# The cache writer records ``<ExceptionName>: <message>``; only a bare exception name is published.
+_ERROR_KIND = re.compile(r"[A-Z][A-Za-z0-9]{1,39}")
 
 # provider id, provider label, accounts: (account, plan-facts key, source, source key)
 PROVIDERS: tuple[tuple[str, str, tuple[tuple[str, str, str, str], ...]], ...] = (
@@ -87,25 +92,45 @@ def _moment(value: Any) -> datetime | None:
     if isinstance(value, bool):
         return None
     if isinstance(value, (int, float)):
-        if not math.isfinite(value) or value <= 0:
+        seconds = _number(value)
+        if seconds is None or seconds <= 0:
             return None
         try:
-            return datetime.fromtimestamp(value / 1000 if value > 1e11 else value, UTC)
+            return datetime.fromtimestamp(seconds / 1000 if seconds > 1e11 else seconds, UTC)
         except (OverflowError, OSError, ValueError):
             return None
     if not isinstance(value, str) or not 0 < len(value) <= 40:
         return None
     try:
         moment = datetime.fromisoformat(value.replace("Z", "+00:00"))
-    except ValueError:
+        return moment.astimezone(UTC) if moment.tzinfo is not None else None
+    except (OverflowError, ValueError):  # out of range once normalized to UTC
         return None
-    return moment.astimezone(UTC) if moment.tzinfo is not None else None
 
 
 def _number(value: Any) -> float | None:
-    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+    """A finite float, else ``None`` (an integer too large for a float is ``None``)."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
         return None
-    return float(value)
+    try:
+        number = float(value)
+    except OverflowError:
+        return None
+    return number if math.isfinite(number) else None
+
+
+def _count(value: Any) -> int | None:
+    """A non-negative integer count, else ``None``."""
+    if isinstance(value, bool) or not isinstance(value, int) or not 0 <= value <= _MAX_COUNT:
+        return None
+    return value
+
+
+def _after(moment: datetime, seconds: float | None) -> datetime | None:
+    """``moment`` plus a non-negative number of seconds, or ``None`` when absent or out of range."""
+    if seconds is None or not 0 <= seconds <= _MAX_ETA_S:
+        return None
+    return moment + timedelta(seconds=seconds)
 
 
 def _pct(value: Any) -> float | None:
@@ -156,8 +181,9 @@ def _window(label: str | None, used: Any, resets_at: Any, minutes: Any, now: dat
 
 def _pace(delta: float | None, expected: float | None, lasts: Any, runs_out: datetime | None,
           summary: Any, now: datetime) -> dict[str, Any]:
-    if delta is None:
+    if delta is None or not -100 <= delta <= 100:
         return _unknown("not_reported")
+    expected = _pct(expected)
     state = "on_pace" if abs(delta) <= _ON_PACE_BAND_PCT else "deficit" if delta > 0 else "reserve"
     lasts_to_reset = lasts if isinstance(lasts, bool) else None
     return {
@@ -231,10 +257,12 @@ def _cache_usage(entry: Mapping[str, Any], read_at: datetime, now: datetime) -> 
     labels = _dict(report.get("rateWindowLabels"))
     windows = _cache_windows(usage)
 
+    def window_from(label: str | None, raw: Mapping[str, Any]) -> dict[str, Any]:
+        return _window(label, raw.get("usedPercent"), raw.get("resetsAt"), raw.get("windowMinutes"), now,
+                       raw.get("resetDescription"))
+
     def window(key: str) -> dict[str, Any]:
-        raw = windows[key]
-        return _window(_text(labels.get(key)) or key, raw.get("usedPercent"), raw.get("resetsAt"),
-                       raw.get("windowMinutes"), now, raw.get("resetDescription"))
+        return window_from(_text(labels.get(key)) or key, windows[key])
 
     weekly_key = next((k for k in ("secondary", "primary", "tertiary")
                        if windows.get(k, {}).get("windowMinutes") == _WEEKLY_MINUTES), None)
@@ -246,38 +274,44 @@ def _cache_usage(entry: Mapping[str, Any], read_at: datetime, now: datetime) -> 
     result["extra_windows"] = [window(k) for k in windows if k not in (weekly_key, session_key)]
     for extra in _items(usage.get("extraRateWindows")):
         if isinstance(extra, dict) and isinstance(extra.get("window"), dict):
-            raw = extra["window"]
-            result["extra_windows"].append(_window(_text(extra.get("title")), raw.get("usedPercent"), raw.get("resetsAt"),
-                                                   raw.get("windowMinutes"), now, raw.get("resetDescription")))
+            result["extra_windows"].append(window_from(_text(extra.get("title")), extra["window"]))
+
+    review = _dict(_dict(report.get("openaiDashboard")).get("codeReviewLimit"))
+    if review:
+        result["extra_windows"].append(window_from("Code review", review))
 
     pace = _dict(report.get("pace")).get(weekly_key) if weekly_key else None
     if isinstance(pace, dict):
-        eta = _number(pace.get("etaSeconds"))
-        runs_out = read_at + timedelta(seconds=eta) if eta is not None and eta >= 0 else None
+        runs_out = _after(read_at, _number(pace.get("etaSeconds")))
         result["pace"] = _pace(_number(pace.get("deltaPercent")), _number(pace.get("expectedUsedPercent")),
                                pace.get("willLastToReset"), runs_out, pace.get("summary"), now)
 
     credits = report.get("credits")
+    balance = _number(credits.get("remaining")) if isinstance(credits, dict) else None
     if not isinstance(credits, dict):
         result["credits"] = {"status": "none"}
-    elif credits.get("balanceReadSucceeded") is True and _number(credits.get("remaining")) is not None:
-        result["credits"] = {"status": "ok", "balance": round(_number(credits["remaining"]) or 0.0, 1), "unit": "credits",
-                             "renews_on": None}
-    else:
+    elif credits.get("balanceReadSucceeded") is False or balance is None or balance < 0:
+        # Older CodexBar reports omit the success flag; only an explicit failure voids the balance.
         result["credits"] = _unknown("balance_not_read")
+    else:
+        result["credits"] = {"status": "ok", "balance": round(balance, 1), "unit": "credits", "renews_on": None}
 
     banked = usage.get("codexResetCredits")
-    if isinstance(banked, dict):
+    if _count(banked) is not None:  # older CodexBar reports a bare count
+        result["banked_resets"] = {"status": "ok", "source": "provider", "count": banked, "items": []}
+    elif isinstance(banked, dict):
+        listed = banked.get("credits")
         items = []
-        for credit in _items(banked.get("credits")):
+        for credit in _items(listed):
             if isinstance(credit, dict) and credit.get("status") == "available":
                 expires = _moment(credit.get("expires_at"))
                 items.append({"kind": _text(credit.get("title")) or _text(credit.get("reset_type")), "count": 1,
                               "expires_on": _iso(expires) if expires else None, "expired": bool(expires and expires < now)})
-        count = banked.get("availableCount")
-        if isinstance(count, bool) or not isinstance(count, int) or count < 0:
-            count = len(items)
-        result["banked_resets"] = {"status": "ok", "source": "provider", "count": count, "items": items}
+        count = _count(banked.get("availableCount"))
+        if count is None and isinstance(listed, list) and len(listed) <= _MAX_LIST:
+            count = len(items)  # derived only from a complete, readable list
+        if count is not None:
+            result["banked_resets"] = {"status": "ok", "source": "provider", "count": count, "items": items}
 
     rows = []
     for group in _items(usage.get("details")):
@@ -297,8 +331,9 @@ def _cache_account(entry: Any, now: datetime) -> dict[str, Any]:
     error_at = _moment(entry.get("error_at"))
     if entry.get("error") and error_at:
         # Only the error's kind: the message can carry provider output.
-        kind = str(entry["error"]).split(":", 1)[0]
-        reading["last_refresh_error"] = {"at": _iso(error_at), "kind": _text(kind, 40) or "error"}
+        head, separator, _ = str(entry["error"]).partition(":")
+        kind = head if separator and _ERROR_KIND.fullmatch(head) else "error"
+        reading["last_refresh_error"] = {"at": _iso(error_at), "kind": kind}
     if read_at is None:
         return {"reading": reading, **_blank_usage("no_reading")}
     return {"reading": reading, **_cache_usage(entry, read_at, now)}
@@ -321,8 +356,7 @@ def _monitor_pace(weekly: Mapping[str, Any], read_at: datetime, now: datetime) -
                               now=read_at)
     if pace is None or not pace_is_visible(pace):
         return _unknown("too_early_in_window")
-    eta = pace.get("eta_seconds")
-    runs_out = read_at + timedelta(seconds=eta) if isinstance(eta, (int, float)) else None
+    runs_out = _after(read_at, _number(pace.get("eta_seconds")))
     return _pace(pace["delta_pct"], pace["expected_pct"], pace["will_last_to_reset"], runs_out,
                  format_usage_pace_summary(pace), now)
 
