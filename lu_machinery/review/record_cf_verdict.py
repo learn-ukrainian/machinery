@@ -45,6 +45,7 @@ if __name__ == "__main__":
 import yaml
 
 from lu_machinery.agent_identity import normalize_seat
+from lu_machinery.ci.deploy_paths import DeployPathsError
 from lu_machinery.common.jsonl import jsonl_lines
 from lu_machinery.common.repo_root import machinery_path
 from lu_machinery.fleet.claude_account_lane import ClaudeAccount, account_from_record
@@ -65,6 +66,7 @@ from lu_machinery.opsec.prepublish import (
     publication_boundary,
     publication_cli,
 )
+from lu_machinery.orchestration import integration_sweep
 from lu_machinery.orchestration.fleet_repos import FleetRepoError, load_fleet_repos
 from lu_machinery.orchestration.integration_sweep import (
     CHUNK_VOIDS,
@@ -78,7 +80,6 @@ from lu_machinery.orchestration.integration_sweep import (
     TRUSTED_ASSOCIATIONS,
     GitHubAdapter,
     SweepError,
-    changes_learner_content,
     is_second_review,
     is_second_reviewer_model,
     lookup_verdict,
@@ -2289,22 +2290,37 @@ def _clean_merge_descent_prover(
     return prove
 
 
+def _learner_content(paths: Iterable[str]) -> bool:
+    """An unreadable product policy cannot waive the learner seats."""
+    try:
+        return integration_sweep.changes_learner_content(paths)
+    except DeployPathsError:
+        return True
+
+
 def head_approval_context(repo_root: Path, head: str, *, repository: str, fetch: bool = True) -> dict[str, Any]:
     """Classify this historical head's own diff, rather than the PR's later file list."""
     _, base = default_branch_review_base(repo_root, head, fetch=fetch)
-    paths = git_changed_paths(repo_root, base, head)
-    # Treat deletions conservatively as modifications. High/security and learner triggers
-    # depend on paths; no deleted sensitive path disappears from this evidence.
-    rows = [{"filename": path, "status": "modified"} for path in paths]
+    raw = _facts_git(
+        repo_root, ["diff", "--no-renames", "--name-status", "-z", base, head, "--"],
+        deadline=time.monotonic() + BRANCH_FACTS_TIMEOUT_S, code=FACTS_TARGET_UNKNOWN,
+    )
+    fields = raw.decode("utf-8").split("\0")
+    if fields.pop() != "" or len(fields) % 2:
+        raise RecordError("historical review file statuses unavailable")
+    statuses = {"A": "added", "D": "removed", "M": "modified", "T": "changed"}
+    rows = [{"filename": path, "status": statuses.get(status, status)}
+            for status, path in zip(fields[::2], fields[1::2], strict=True)]
+    paths = pr_file_paths(rows)
     return {
         "second_review": requires_second_review(rows), "repository": repository,
-        "learner_content": changes_learner_content(paths), "low_tier": classify_pr_files(rows) == "low",
+        "learner_content": _learner_content(paths), "low_tier": classify_pr_files(rows) == "low",
     }
 
 
 def _fully_approved(
     comments: Sequence[Mapping[str, Any]], head: str, login: str, *, second_review: bool = True,
-    repository: str | None = None, learner_content: bool | None = None, low_tier: bool | None = None,
+    repository: str | None = None, learner_content: bool = False, low_tier: bool | None = None,
 ) -> bool:
     """Whether the keeper reads ``head`` as APPROVED, which needs every seat its profile requires (#12020)."""
     return lookup_verdict(
@@ -2959,7 +2975,7 @@ def record(
     from lu_machinery.common.task_store_paths import tasks_dir
 
     task_root = task_root or tasks_dir()
-    lock_root = lock_root or root / "batch_state" / "locks"
+    lock_root = lock_root or task_root.parent / "locks"
     task, reply = _task(task_id, task_root)
     review_mode = review_mode if review_mode is not None else task.get("review_mode", "cross_family")
     if not isinstance(review_mode, str) or review_mode not in {"cross_family", "red_team"}:
@@ -3038,6 +3054,7 @@ def record(
         classify_pr_files(file_rows) == "low"
     )
     second_required = file_rows is None or requires_second_review(file_rows)
+    learner_content = file_rows is None or _learner_content(pr_file_paths(file_rows))
     if second_review and review_mode != "cross_family":
         raise RecordError("second review refused: it is a cross-family code or infra review only")
     mixed_pair = (
@@ -3264,13 +3281,13 @@ def record(
             # count, so its own verdict does not decide the status.
             current = lookup_verdict(
                 comments, sha, login, low_tier=low_tier, second_review=second_required, repository=repository,
-                learner_content=file_rows is None or changes_learner_content(pr_file_paths(file_rows)),
+                learner_content=learner_content,
             )
             state = "success" if current.state == "APPROVED" else "failure" if current.state in REJECTED else "pending"
             # Every other seat has approved; only the Carbon second review is missing.
             carbon_wait = second_required and lookup_verdict(
                 comments, sha, login, low_tier=low_tier,
-                learner_content=file_rows is None or changes_learner_content(pr_file_paths(file_rows)),
+                learner_content=learner_content,
             ).state == "APPROVED"
             if carbon_wait and state == "pending":
                 pending_reason = "; awaiting Carbon second review (quota/timeout: re-run or escalate)"
@@ -3547,7 +3564,7 @@ def republish_withheld(
     from lu_machinery.common.task_store_paths import tasks_dir
 
     task_root = task_root or tasks_dir()
-    lock_root = lock_root or root / "batch_state" / "locks"
+    lock_root = lock_root or task_root.parent / "locks"
     task, reply = _task(task_id, task_root)
     if not isinstance(task.get("result_sha256"), str):
         raise RecordError("republication requires the review task's sealed reply digest")

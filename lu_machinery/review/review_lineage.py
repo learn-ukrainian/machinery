@@ -462,7 +462,7 @@ def check_lineage(
     approved: str,
     exclude_head: str | None = None,
     second_review: bool = True, repository: str | None = None,
-    learner_content: bool | None = None, low_tier: bool | None = None,
+    learner_content: bool = False, low_tier: bool | None = None,
 ) -> list[str]:
     """Return the seats (reviewer families) whose latest verdict is the approved head's APPROVE.
 

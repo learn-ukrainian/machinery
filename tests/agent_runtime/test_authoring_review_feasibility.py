@@ -242,6 +242,8 @@ def record_verdict(
     base, head = repo.sha("origin/main"), repo.sha("feature")
     review_root = caller / "batch_state" / "tasks" if cli else tmp_path / "review-tasks"
     review_root.mkdir(parents=True, exist_ok=True)
+    if cli:
+        monkeypatch.setenv("LU_TASKS_DIR", str(review_root))
     fields = {
         "repository": REPOSITORY,
         "worktree_branch": "feature",
