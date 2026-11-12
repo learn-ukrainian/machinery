@@ -566,11 +566,13 @@ def _refuse_incomplete_seats(dest, number, head, runner, cwd, environment):
     status at all. Every reading but an exact-head approval refuses: an incomplete seat
     set, a rejection, unverifiable evidence and reviews of other heads only. In a
     repository whose registry row sets ``verdict_recorder: true``, a head with no recorded
-    approval is refused too (#12031). Where it is false, a PR with no recorded review is
-    outside the recorder's regime and is not refused here, unless the head's own rollup
-    carries the recorder's status: then its record was removed or rewritten, and the
-    status alone is unverifiable. A PR whose files change learner content takes its
-    Ukrainian seats even with no Ukrainian verdict recorded yet (#12181). A change to the
+    approval is refused too (#12031). Where it is false, an ordinary PR with no recorded
+    review is outside the recorder's regime and is not refused here, unless the head's own
+    rollup carries the recorder's status: then its record was removed or rewritten, and the
+    status alone is unverifiable. A High-tier or security-sensitive change still needs that
+    one recorded approval where the recorder is off. There is no second seat. A PR whose
+    files change learner content takes its Ukrainian seats even with no Ukrainian verdict
+    recorded yet (#12181). A change to the
     review output contract is refused until its canary evidence covers every reviewer route
     (``scripts.review.contract_canary``, #12399).
     """
@@ -610,7 +612,8 @@ def _refuse_incomplete_seats(dest, number, head, runner, cwd, environment):
             raise ValueError
         file_rows = [item for page in files for item in page]
         paths = pr_file_paths(file_rows)
-        low_tier = classify_pr_files(file_rows) == "low"
+        tier = classify_pr_files(file_rows)
+        low_tier = tier == "low"
         content = changes_learner_content(paths)
         verdict = lookup_verdict(
             [item for page in pages for item in page], head, login, learner_content=content, low_tier=low_tier,
@@ -624,7 +627,15 @@ def _refuse_incomplete_seats(dest, number, head, runner, cwd, environment):
         raise gate.PublishBlocked("OPSEC: merge refused: a Ukrainian review seat has not approved this head.")
     if state not in {"APPROVED", "needs-CF"}:
         raise gate.PublishBlocked(f"OPSEC: merge refused: recorded review verdict is {state} at this head.")
-    if state == "needs-CF" and recorder:
+    needs_approval = bool(recorder) or tier == "high"
+    if not needs_approval:
+        try:
+            from lu_machinery.review.security_paths import is_security_sensitive_change
+
+            needs_approval = is_security_sensitive_change(paths)
+        except Exception:
+            needs_approval = True
+    if state == "needs-CF" and needs_approval:
         requirement = "non-author" if low_tier else "cross-family"
         raise gate.PublishBlocked(
             f"OPSEC: merge refused: no {requirement} APPROVE from {_RECORDER} is recorded at {head}."

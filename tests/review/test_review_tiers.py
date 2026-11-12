@@ -202,16 +202,18 @@ def test_archived_task_path_alias_cannot_supply_both_review_runs(low_review, tmp
     assert admit() is None
 
 
-def test_optional_recorder_does_not_require_a_second_review(low_review, monkeypatch):
-    """Defect class: turning the verdict recorder off grows a second-review requirement."""
+def test_optional_recorder_still_requires_one_review_on_a_security_path(low_review, monkeypatch):
+    """Defect class: turning the verdict recorder off admits an unreviewed security PR."""
     _tasks, comments, _statuses, files, admit = low_review
     monkeypatch.setattr(publisher.gate, "catalog", lambda: {
         "public": {"github": "unit/public", "verdict_recorder": False},
     })
     assert comments == []
     assert admit() is None
-    files[:] = [{"filename": SECURITY_FILES[0], "status": "modified"}]
-    assert admit() is None
+    for path in (SECURITY_FILES[0], ".github/workflows/ci.yml"):
+        files[:] = [{"filename": path, "status": "modified"}]
+        with pytest.raises(publisher.gate.PublishBlocked, match="no cross-family APPROVE"):
+            admit()
 
 
 @pytest.mark.parametrize("repository", [
