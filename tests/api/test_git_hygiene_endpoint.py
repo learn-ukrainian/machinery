@@ -1,3 +1,4 @@
+import json
 import os
 import subprocess
 from pathlib import Path
@@ -165,7 +166,6 @@ def _graphql_result(monkeypatch, returncode: int, stdout: str) -> None:
 
 def test_pull_requests_route_hides_private_repo_titles_and_branches(monkeypatch, tmp_path: Path) -> None:
     """Defect class: a private repository's PR titles or branch names leak through the Monitor."""
-    import json
 
     node = {"number": 7, "title": "secret-title", "url": "https://github.com/o/r/pull/7", "isDraft": False,
             "createdAt": "2030-01-01T00:00:00Z", "headRefName": "codex/secret-branch", "mergeStateStatus": "CLEAN",
@@ -188,7 +188,7 @@ def test_pull_requests_route_hides_private_repo_titles_and_branches(monkeypatch,
 
 
 def test_pull_requests_route_reports_unknown_when_github_fails(monkeypatch, tmp_path: Path) -> None:
-    """Defect class: a failed GitHub read renders as "no open PRs" instead of unknown."""
+    """Defect class: a failed or malformed GitHub read renders as "no open PRs" or crashes the route."""
     _graphql_result(monkeypatch, 1, '{"error": "github_rate_limited"}')
     payload = git_hygiene_router.compute_pull_requests(tmp_path)
     assert payload["status"] == "unknown"
@@ -196,3 +196,11 @@ def test_pull_requests_route_reports_unknown_when_github_fails(monkeypatch, tmp_
     assert payload["repositories"] == []
     _graphql_result(monkeypatch, 0, "not json")
     assert git_hygiene_router.compute_pull_requests(tmp_path)["reason"] == "github_invalid_response"
+    # GitHub's nullable commit nodes and contexts read as "no CI yet", never an exception.
+    node = {"number": 1, "commits": {"nodes": [None]}}
+    nulls = {"number": 2, "commits": {"nodes": [{"commit": {"statusCheckRollup": None, "status": None}}]}}
+    repos = {f"r{i}": {"isPrivate": False, "pullRequests": {"totalCount": 2, "nodes": [node, nulls]}} for i in range(3)}
+    _graphql_result(monkeypatch, 0, json.dumps({"data": repos}))
+    rows = git_hygiene_router.compute_pull_requests(tmp_path)["repositories"][0]["pull_requests"]
+    assert [(row["number"], row["ci"], row["review"]) for row in rows] == [(1, None, None), (2, None, None)]
+

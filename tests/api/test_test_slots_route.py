@@ -111,3 +111,10 @@ def test_alerts_route_emits_only_allowlisted_fields(client: TestClient, monkeypa
     assert [row["alertname"] for row in body["alerts"]] == ["ApprovedNotLanded30m"]
     assert set(body["alerts"][0]) == {"alertname", "severity", "owner_lane", "repo", "summary", "action", "starts_at"}
     assert "leak" not in response.text
+    # One malformed item makes the whole reading unknown, never a healthy "nothing firing".
+    for bad in ({}, None, {"labels": {"alertname": "X"}}):
+        alerts[:] = [bad]
+        cache_invalidate()
+        body = client.get("/api/ops/v1/alerts").json()
+        assert (body["status"], body["reason"], body["alerts"]) == ("unknown", "alertmanager_invalid_response", [])
+    cache_invalidate()

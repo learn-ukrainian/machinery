@@ -796,10 +796,22 @@ def _lower(value: object) -> str | None:
     return value.lower() if isinstance(value, str) and value else None
 
 
+def _mapping(value: object) -> dict[str, Any]:
+    """``value`` when it is a JSON object, else an empty one (GitHub nullables included)."""
+    return value if isinstance(value, dict) else {}
+
+
+def _last_commit(node: dict[str, Any]) -> dict[str, Any]:
+    # PullRequestCommitConnection.nodes is a list of nullable commits.
+    nodes = _mapping(node.get("commits")).get("nodes")
+    last = nodes[-1] if isinstance(nodes, list) and nodes else None
+    return _mapping(_mapping(last).get("commit"))
+
+
 def _pull_request_row(node: dict[str, Any], *, private: bool) -> dict[str, Any]:
-    commit = ((node.get("commits") or {}).get("nodes") or [{}])[-1].get("commit") or {}
-    rollup = commit.get("statusCheckRollup") or {}
-    review = ((commit.get("status") or {}).get("context") or {}) if isinstance(commit.get("status"), dict) else {}
+    commit = _last_commit(node)
+    rollup = _mapping(commit.get("statusCheckRollup"))
+    review = _mapping(_mapping(commit.get("status")).get("context"))
     queue = node.get("mergeQueueEntry") if isinstance(node.get("mergeQueueEntry"), dict) else None
     number = node.get("number") if isinstance(node.get("number"), int) else None
     url = node.get("url") if isinstance(node.get("url"), str) and node["url"].startswith("https://github.com/") else None
@@ -890,7 +902,8 @@ async def pull_requests(ctx: MonitorContext = Depends(get_ctx)) -> JSONResponse:
         payload = await cache_get_or_compute_async(key, PULL_REQUESTS_TTL_S, compute)
         age = 0.0
     else:
-        payload, age = stored
+        value, age = stored
+        payload = value if isinstance(value, dict) else _unknown_pull_requests("cache_invalid", datetime.now(UTC).isoformat().replace("+00:00", "Z"))
         if age >= PULL_REQUESTS_TTL_S:
             schedule_cache_refresh(key, PULL_REQUESTS_TTL_S, compute)
     return JSONResponse(content=payload, headers={"Cache-Control": "no-store", "X-Snapshot-Age-S": f"{age:.3f}"})

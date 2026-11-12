@@ -145,14 +145,19 @@ def _alerts_reading() -> dict:
     alerts: list[dict] = []
     heartbeat = False
     for item in raw:
-        if not isinstance(item, dict):
+        labels = item.get("labels") if isinstance(item, dict) else None
+        status = item.get("status") if isinstance(item, dict) else None
+        # A malformed item means the reading cannot be trusted as a whole: an
+        # "ok" reading with a dropped alert would show "Nothing firing".
+        if not isinstance(labels, dict) or not isinstance(labels.get("alertname"), str) or not isinstance(status, dict):
+            return {"status": "unknown", "reason": "alertmanager_invalid_response", "observed_at": observed_at,
+                    "heartbeat": None, "alerts": []}
+        annotations = item.get("annotations")
+        if not isinstance(annotations, dict):
+            annotations = {}
+        if status.get("state") != "active":
             continue
-        labels = item.get("labels") if isinstance(item.get("labels"), dict) else {}
-        annotations = item.get("annotations") if isinstance(item.get("annotations"), dict) else {}
-        state = (item.get("status") or {}).get("state") if isinstance(item.get("status"), dict) else None
-        if state != "active":
-            continue
-        if labels.get("alertname") in HEARTBEAT_ALERTNAMES:
+        if labels["alertname"] in HEARTBEAT_ALERTNAMES:
             heartbeat = True
             continue
         row = {key: _alert_text(labels.get(key), 120) for key in _ALERT_LABELS}

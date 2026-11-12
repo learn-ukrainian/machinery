@@ -825,9 +825,13 @@ def all_route_contracts(product: ProductContribution | None = None) -> tuple[Rou
 
 
 def all_page_contracts(product: ProductContribution | None = None) -> tuple[PageContract, ...]:
-    """Product declarations replace machinery contracts for the same static page."""
+    """Product declarations replace machinery contracts for the same URL.
+
+    The machinery home lives at ``/machinery``, so a product home at ``/`` that
+    reuses the file name ``index.html`` does not hide its contract.
+    """
     pages = (installed_product() if product is None else product).page_contracts
-    return (*(page for page in PAGE_CONTRACTS if not any(p.file == page.file for p in pages)), *pages)
+    return (*(page for page in PAGE_CONTRACTS if not any(p.url == page.url for p in pages)), *pages)
 
 
 def contracts_for_route(path: str, kind: ContractKind = "http") -> list[RouteContract]:
