@@ -107,12 +107,13 @@ def _get(url: str) -> bytes:
 
 @pytest.mark.timeout(120)
 def test_product_release_serves_product_from_snapshot_and_machinery_from_install(tmp_path: Path, monkeypatch) -> None:
-    """Defect class: the snapshot requires or archives the machinery package, so a product commit cannot be served.
+    """Defect class: the snapshot requires machinery code or dashboards in the product checkout.
 
     Installed 0.1.4 refused every product commit ("has no lu_machinery/ directory"), so the
     supervisor's snapshot mode could not start the product's Monitor API.
     """
     repo_root, sha = _product_checkout(tmp_path)
+    assert not (repo_root / "dashboards").exists()
     port = _free_port()
     origins_path = tmp_path / "origins.json"
     # The supervisor's child inherits its shared-state primary; here that is the live product checkout.
@@ -126,6 +127,7 @@ def test_product_release_serves_product_from_snapshot_and_machinery_from_install
     release_dir = repo_root.resolve() / ".runtime" / "api" / "releases" / sha
     assert launch_dir == release_dir
     assert is_release_root(release_dir)
+    assert not (release_dir / "dashboards").exists()
     assert release_line.startswith(f"release: {sha} reused: False")
     assert sorted(path.name for path in release_dir.iterdir() if not path.is_symlink()) == [
         ".release-manifest.json",
