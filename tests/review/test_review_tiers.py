@@ -172,6 +172,56 @@ def test_enqueue_admits_a_security_pr_with_both_reviews(low_review, tmp_path):
     assert admit() is None
 
 
+def test_archived_task_path_alias_cannot_supply_both_review_runs(low_review, tmp_path, monkeypatch):
+    """Defect class: one sealed provider run fills both seats through an archive path alias."""
+    import hashlib
+    import json
+    from dataclasses import replace
+
+    from lu_machinery.orchestration import integration_sweep as sweep
+
+    tasks, comments, statuses, files, admit = low_review
+    facts = recorder.pr_review_facts(None)
+    monkeypatch.setattr(recorder, "pr_review_facts", lambda *_, **__: replace(
+        facts, commits=(replace(facts.commits[0], family="anthropic", author_models=("claude-opus-5-5",)),),
+        existing_families=frozenset({"anthropic"}),
+    ))
+    files[:] = [{"filename": SECURITY_FILES[0], "status": "modified"}]
+    path = tasks / "review-one.json"
+    task = json.loads(path.read_text())
+    task.update(run_nonce="one-provider-run", result_sha256=hashlib.sha256(
+        (tasks / "review-one.result").read_bytes(),
+    ).hexdigest())
+    path.write_text(json.dumps(task))
+    archive = tasks / "archive"
+    archive.mkdir()
+    path.rename(archive / path.name)
+    (tasks / "review-one.result").rename(archive / "review-one.result")
+    assert recorder.record("review-one", pr_number=1, task_root=tasks, lock_root=tmp_path / "locks")["verdict"] == "APPROVED"
+
+    with pytest.raises(recorder.RecordError, match="canonical task identity"):
+        recorder.record("archive/review-one", pr_number=1, task_root=tasks,
+                        lock_root=tmp_path / "locks", second_review=True)
+    assert len(comments) == 1
+
+    # Existing comments from the vulnerable recorder must also fail at the gate.
+    alias = {**comments[0], "body": recorder.build_comment(
+        sha="a" * 40, task_id="archive/review-one", started=task["started_at"],
+        verdict="APPROVED", model=task["model"], family="openai", reply="VERDICT: APPROVE",
+        author_models=("claude-opus-5-5",), second_review=True,
+    )}
+    assert sweep.lookup_verdict([*comments, alias], "a" * 40, "fleet", second_review=True).state != "APPROVED"
+    # A separate last-resort Sol invocation still fills the second seat.
+    second = {**task, "task_id": "review-two", "run_nonce": "another-provider-run",
+              "started_at": "2026-09-23T12:00:01.000001+00:00"}
+    (tasks / "review-two.json").write_text(json.dumps(second))
+    (tasks / "review-two.result").write_bytes((archive / "review-one.result").read_bytes())
+    assert recorder.record("review-two", pr_number=1, task_root=tasks,
+                           lock_root=tmp_path / "locks", second_review=True)["verdict"] == "APPROVED"
+    assert statuses[-1]["state"] == "success"
+    assert admit() is None
+
+
 def test_enqueue_refuses_an_unreviewed_security_pr_where_the_recorder_is_optional(low_review, monkeypatch):
     """Defect class: a repository's verdict_recorder opt-out waives the Carbon second review."""
     _tasks, comments, _statuses, files, admit = low_review

@@ -623,7 +623,7 @@ def test_missing_credentials_returns_need_login(monkeypatch):
     assert res["status"] == "unavailable"
     assert res["error_kind"] == "need_login"
     assert res["probe_state"] == "NEED_LOGIN"
-    assert "credential" in res["auth_error"].lower()
+    assert res["auth_error"] == "provider_error"
 
 
 def test_native_probe_unavailable_missing_credentials(monkeypatch):
@@ -640,7 +640,7 @@ def test_native_probe_unavailable_missing_credentials(monkeypatch):
     res = codexbar_usage_mod.fetch_codexbar_usage("codex", timeout_s=1.0)
     assert res["status"] == "unavailable"
     assert res["error_kind"] == "need_login"
-    assert "credential" in res["auth_error"].lower()
+    assert res["auth_error"] == "provider_error"
 
     now = datetime(2026, 5, 13, 20, 30, tzinfo=UTC)
     record = CostRecord(
@@ -686,7 +686,7 @@ def test_codexbar_unavailable_timeout(monkeypatch):
     res = codexbar_usage_mod.fetch_codexbar_usage("codex", timeout_s=1.0)
     assert res["status"] == "unavailable"
     assert res["error_kind"] == "fetch_error"
-    assert "timed out" in res["auth_error"].lower()
+    assert res["auth_error"] == "provider_error"
 
     now = datetime(2026, 5, 13, 20, 30, tzinfo=UTC)
     record = CostRecord(
@@ -1655,7 +1655,7 @@ def test_agy_nonzero_exit_does_not_leak_stdout_stderr(monkeypatch, tmp_path):
     res = su._probe_antigravity_native(timeout_s=5)
     assert res["status"] == "unavailable"
     assert marker not in str(res.get("auth_error") or "")
-    assert "exit 7" in str(res.get("auth_error") or "")
+    assert res["auth_error"] == "provider_error"
 
 
 def test_compute_usage_pace_rejects_expired_and_out_of_window():
@@ -1797,7 +1797,7 @@ def test_muse_provider_error_drops_message_text():
     assert record["status"] == "unavailable"
     assert record["error_kind"] == "provider"
     assert record["error_code"] == 1
-    assert record["auth_error"] == "Muse usage probe failed"
+    assert record["auth_error"] == "provider_error"
     assert record["weekly_remaining_pct"] is None
 
 
@@ -2598,7 +2598,7 @@ def test_home_usage_missing_stale_and_unavailable_are_explicit():
     assert 'NO READING (no reading)' in missing and '70%' not in missing and '2030-01-03' not in missing
     stale = _home_row(_render_home_usage(_home_subs(
         reading={'status': 'stale', 'read_at': '2030-01-01T11:30:00Z', 'age_s': 1800})), 'Codex a')
-    assert 'STALE, 30m old' in stale and '70%' in stale
+    assert 'STALE, 30m old' in stale and '70%' not in stale and '2030-01-03' not in stale
     # A fresh flag cannot override elapsed age.
     aged = _home_row(_render_home_usage(_home_subs(
         reading={'status': 'fresh', 'read_at': '2030-01-01T11:00:00Z', 'age_s': 3600})), 'Codex a')
@@ -2781,7 +2781,7 @@ def test_absent_private_binding_subscription_fails_closed(private_binding, provi
     result = subscription_usage_mod.fetch_provider_usage(provider, timeout_s=1)
     assert result["error_code"] == "PRIVATE_TOOLING_UNAVAILABLE"
     assert result["error_kind"] == "unavailable"
-    assert result["auth_error"] == "private usage tooling unavailable"
+    assert result["auth_error"] == "provider_error"
     assert result["primary_used_pct"] is None and result["weekly_used_pct"] is None
     assert subscription_usage_mod._probe_glm_native(timeout_s=1)["error_code"] == "PRIVATE_TOOLING_UNAVAILABLE"
 
@@ -2790,7 +2790,7 @@ def test_absent_private_binding_subscription_fails_closed(private_binding, provi
 def test_absent_private_binding_prepaid_needs_probe(private_binding, provider):
     result = subscription_usage_mod._probe_api_account_live(provider, timeout_s=1)
     assert result["probe_state"] == "NEED_PROBE"
-    assert result["auth_error"] == "private usage tooling unavailable"
+    assert result["auth_error"] == "provider_error"
     assert result.get("total_balance") is None and result.get("account_remaining_usd") is None
 
 

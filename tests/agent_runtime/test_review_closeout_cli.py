@@ -110,7 +110,7 @@ def test_full_flow_target_freeze_expansion_cycle_reviewer_findings(tmp_path):
 
     cycle_proc = _run_cli(state_file, "record-cycle", "--outstanding-count", "5")
     assert json.loads(cycle_proc.stdout)["triggered"] is False
-    cycle_proc2 = _run_cli(state_file, "record-cycle", "--outstanding-count", "5")
+    _run_cli(state_file, "record-cycle", "--outstanding-count", "5")
     cycle_proc3 = _run_cli(state_file, "record-cycle", "--outstanding-count", "5")
     assert json.loads(cycle_proc3.stdout)["triggered"] is True
 
@@ -291,8 +291,7 @@ def test_resolve_reviewer_cli_excludes_grok_for_grok_adapter_path(tmp_path, monk
     # Grok into the effective ladder that the resolver actually walks.
     risk = "high" if injected_grok else "medium"
     if injected_grok:
-        # Grok retired (GROK-CANCEL-1110) and has no candidate: a caller-supplied
-        # rung restoring the former Cursor Grok seat must still be refused.
+        # A caller-supplied Grok rung must still respect subject exclusion.
         restored = replace(
             reviewer_resolver.REVIEW_CANDIDATES["openai_frontier"],
             name="grok-4.7-cursor-fallback", concrete_model="grok-4.7", family="xai", route="cursor", transport="cursor",
@@ -324,7 +323,8 @@ def test_resolve_reviewer_cli_excludes_grok_for_grok_adapter_path(tmp_path, monk
         assert {entry["name"] for entry in grok_entries} == {"grok-4.7-cursor-fallback"}
         for grok in grok_entries:
             assert grok["status"] == "excluded"
-            assert "is retired" in grok["reason"]
+            assert "subject exclusion" in grok["reason"]
+            assert "subject seat grok" in grok["reason"]
     else:
         # The automatic ladders list no Grok seat at all.
         assert grok_entries == []
@@ -1131,11 +1131,12 @@ def test_pr_mode_target_keeps_the_base_name_for_authorship_exclusion(tmp_path, m
 # Restoring the path spelling in the stdout reproduces the previous digests.
 # Re-pinned for GROK-CANCEL-1110: each receipt only drops its retired grok-4.7-cursor-fallback
 # trace row; every other field is unchanged.
+# Muse retirement re-pins the low/medium receipts after its candidate leaves the trace.
 @pytest.mark.parametrize(
     "author,risk,path,digest",
     [
-        ("gpt-6.1-sol", "medium", "ordinary.py", "ee148d3475495c1310b25cf0dab7f4c7a7e5b762b3edd7d5885b4ec58634f69c"),
-        ("claude-opus-5-5", "low", "ordinary.py", "f5aa81ce57b8f3970a9370c0fb70b6b14db8ebeb68b29a1a7db883bc10b101f7"),
+        ("gpt-6.1-sol", "medium", "ordinary.py", "3fafd5450dd16ee556005e9023d1cb9e5e01ce654b0f3c1e8c21d550b5391045"),
+        ("claude-opus-5-5", "low", "ordinary.py", "b1e645d6fe8e9913d8667175c8d812d9d975f2d57be684058759ccad44bd12bf"),
         (
             "gpt-6.1-sol",
             "low",

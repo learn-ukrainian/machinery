@@ -114,11 +114,11 @@ def test_reviewer_capacity_and_ranking_read_shared_allowance(monkeypatch):
     from lu_machinery.review.capacity import review_capacity
     from lu_machinery.review.reviewer_scheduler import _route_record, metrics_for
 
-    # The Cursor Grok candidate retired; the Muse route shares a simulated meter instead.
-    _simulate_usage_pool(monkeypatch, ("grok", "muse"))
+    # Retired seats cannot supply a candidate; an active AGY route shares the simulated meter.
+    _simulate_usage_pool(monkeypatch, ("grok", "agy"))
     budget = snapshot()
-    budget["agents"]["muse"] = {**budget["agents"]["cursor"]}
-    candidate = REVIEW_CANDIDATES["muse"]
+    budget["agents"]["agy"] = {**budget["agents"]["cursor"]}
+    candidate = REVIEW_CANDIDATES["gemini-3.8-flash-high"]
     record = _route_record(candidate, budget, prefer_route=True)
     assert review_capacity(record, budget["diagnostics"]).remaining_pct == 1
     assert review_capacity(record, budget["diagnostics"]).near_cap

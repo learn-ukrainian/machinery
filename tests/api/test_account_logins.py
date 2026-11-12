@@ -34,6 +34,17 @@ def probe_env(monkeypatch, tmp_path):
     return tmp_path
 
 
+def test_claude_signed_out_exit_one_is_valid_but_other_failures_stay_unknown(probe_env, monkeypatch):
+    """Claude's valid loggedIn=false exit 1 must not be mistaken for a broken sign-in probe."""
+    monkeypatch.setattr(account_logins, "_run", lambda *a, **k: _completed(b'{"loggedIn":false}', returncode=1))
+    row = account_logins._claude_row("a")
+    assert row["logged_in"] is False and "error" not in row
+    for stdout, returncode in ((b'{"loggedIn":false}', 2), (b'{"loggedIn":true}', 1),
+                               (b'{"loggedIn":0}', 1), (b'not json', 1)):
+        monkeypatch.setattr(account_logins, "_run", lambda *a, out=stdout, rc=returncode, **k: _completed(out, rc))
+        assert account_logins._claude_row("a")["logged_in"] is None
+
+
 def test_claude_row_publishes_no_identity_and_unreadable_is_unknown(probe_env, monkeypatch):
     """Defect class: an email, org or account id leaks; an unreadable status reads as signed in."""
     status = {
