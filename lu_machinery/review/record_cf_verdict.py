@@ -74,6 +74,7 @@ from lu_machinery.orchestration.integration_sweep import (
     MARKER_PREFIX,
     NEEDS_SEAT,
     REJECTED,
+    REVIEW_TASK_ID,
     SECOND_REVIEW_LINE,
     SECOND_REVIEW_TOKEN,
     SHA,
@@ -2056,8 +2057,8 @@ def _task(task_id: str, task_root: Path) -> tuple[dict[str, Any], str]:
 
     A deliberate same-user writer can also replace the record's stored hash.
     """
-    if not TASK_ID.fullmatch(task_id):
-        raise RecordError("invalid task id")
+    if not REVIEW_TASK_ID.fullmatch(task_id) or ".." in task_id:
+        raise RecordError("invalid canonical task identity")
     task_path = _hot_or_archived(task_root, f"{task_id}.json")
     # An archived review keeps its reply beside its record.
     result_path = task_path.with_suffix(".result")
@@ -2068,6 +2069,9 @@ def _task(task_id: str, task_root: Path) -> tuple[dict[str, Any], str]:
         raise RecordError("review task record or reply unavailable") from exc
     if not isinstance(task, dict):
         raise RecordError("review task record malformed")
+    # Legacy records have no embedded id; their canonical basename is still authoritative.
+    if task.get("task_id", task_path.stem) != task_id:
+        raise RecordError("review task record conflicts with canonical task identity")
     if task.get("status") != "done":
         raise RecordError("review task is not done")
     expected = task.get("result_sha256")

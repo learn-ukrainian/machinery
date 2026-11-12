@@ -78,6 +78,8 @@ _MODULE = f"{_PACKAGE}.{Path(__file__).stem}"
 
 Runner = Callable[[list[str]], str]
 SHA = re.compile(r"[0-9a-f]{40}\Z")
+# Dispatch identities are basenames, never task-store locators such as archive/task.
+REVIEW_TASK_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}\Z")
 # Item ids on a coverage marker. One token, no spaces; the recorder uses ITEM_ID_RE.
 _ITEM_ID = r"[A-Za-z0-9][A-Za-z0-9._:-]{0,63}"
 ITEM_ID_RE = re.compile(_ITEM_ID + r"\Z")
@@ -344,6 +346,8 @@ def parse_marker(body: str) -> dict[str, Any] | None:
     if match is None:
         return None
     item: dict[str, Any] = match.groupdict()
+    if not REVIEW_TASK_ID.fullmatch(item["task"]) or ".." in item["task"]:
+        return None
     sources = item["sources_calls"]
     try:
         item["sources_calls"] = int(sources) if sources is not None else None
