@@ -688,6 +688,26 @@ def test_claude_unclean_capacity_stream_stays_failed(stdout):
     assert (result.rate_limited, result.error) == (False, "claude: exited with status 1")
 
 
+_VERDICT_SCHEMA = {"type": "object", "required": ["verdict"], "properties": {"verdict": {"type": "string"}}}
+
+
+@pytest.mark.parametrize(("result", "structured", "reply"), [
+    ('{"verdict": "ok"}', {"verdict": "reject"}, '{"verdict": "reject"}'),  # a schema-valid result string
+    ("", {"verdict": "ok"}, '{"verdict": "ok"}'),
+    ("Here is the review.", {"verdict": "ok"}, '{"verdict": "ok"}'),  # a preamble
+    ('{"verdict": "ok"}', None, None),  # no receipt at all
+])
+def test_claude_schema_failure_reply_is_structured_output_not_result_string(result, structured, reply):
+    """Defect class: a failed schema-bound Claude run hands the merged-delivery rescue gate the result string
+    instead of structured_output, so a disagreeing result string passes and a valid receipt is refused (#374).
+    """
+    event = {"type": "result", "subtype": "success", "is_error": False, "result": result}
+    if structured is not None:
+        event["structured_output"] = structured
+    parsed = load("claude").parse(json.dumps(event), "", 17, None, _VERDICT_SCHEMA)
+    assert (parsed.text, parsed.error) == (reply, "claude: exited with status 17")
+
+
 # AGY ends a quota refusal with one terminal result and one structured AGY_ERROR line.
 # The record carries only the fixed quota class; AGY's message stays in the retained stream (#12408).
 _AGY_QUOTA = (
@@ -794,6 +814,21 @@ def test_agy_provider_text_never_reaches_the_task_record(tmp_path, field, return
     assert _CANARY not in repr(replace(parsed, text=None))
     assert _CANARY not in json.dumps(record, indent=2)
     assert _CANARY not in json.dumps(record, ensure_ascii=False)
+
+
+@pytest.mark.parametrize(("status", "structured", "reply", "error"), [
+    ("SUCCESS", {"verdict": "ok"}, '{"verdict": "ok"}', "agy: exited with status 17"),
+    ("SUCCESS", {"other": 1}, "", "agy: exited with status 17"),  # an invalid payload stays refused
+    ("ERROR", {"verdict": "ok"}, "", "agy: exited with status 17; terminal result unsuccessful (ERROR)"),
+])
+def test_agy_exit_only_failure_keeps_structured_output(status, structured, reply, error):
+    """Defect class: an AGY run whose only failure is the process exit loses its schema payload, so the
+    merged-delivery rescue gate can never accept it (#374).
+    """
+    terminal = {"status": status, "response": "Finished.", "structured_output": structured}
+    stdout = json.dumps({"event": "result", "result": terminal}) + "\n"
+    parsed = load("agy").parse(stdout, "", 17, None, output_schema=_VERDICT_SCHEMA)
+    assert (parsed.text, parsed.error) == (reply, error)
 
 
 def test_agy_usage_keeps_only_known_non_negative_integer_counters():
