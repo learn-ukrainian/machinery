@@ -1645,8 +1645,11 @@ def supervise(path: Path, options: dict | None = None, hard_timeout: float | Non
 
             # A provider failure is already recorded in provider_terminal_error; for its merged-delivery
             # rescue this gate checks only the reply's content, so the exit code alone cannot refuse it.
-            returncode = 0 if record["provider_terminal_failure"] else exit_code
-            result = structured_result(json_value(text or ""), schema, returncode=returncode, terminal_ok=True)
+            # The provider's own exit code stays recorded (returncode) for lane health.
+            result = structured_result(
+                json_value(text or ""), schema,
+                returncode=0 if record["provider_terminal_failure"] else exit_code, terminal_ok=True,
+            )
             if not result.ok:
                 refusal = f"{result.failure_code}: {result.stderr_excerpt}"
                 if record["provider_terminal_failure"]:

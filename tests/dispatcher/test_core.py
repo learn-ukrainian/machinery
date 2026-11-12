@@ -739,6 +739,7 @@ def test_schema_bound_write_failure_is_rescued_only_by_its_reply_content(sandbox
     result = json.loads(path.read_text())
     assert result["status"] == status
     assert result["provider_terminal_error"] == "provider exited unsuccessfully"
+    assert result["returncode"] == 17  # the provider's own exit stays recorded for lane health
     if status == "done":
         assert (result["error"], result["delivery_pr"]) == (None, "org/repo#7")
         assert "provider_failure_rescue_refusal" not in result

@@ -8203,16 +8203,6 @@
       "message": "Need type annotation for \"empty\""
     },
     {
-      "path": "lu_machinery/review/capability_failure.py",
-      "code": "operator",
-      "message": "Unsupported left operand type for / (\"None\")"
-    },
-    {
-      "path": "lu_machinery/review/capability_failure.py",
-      "code": "operator",
-      "message": "Unsupported left operand type for / (\"None\")"
-    },
-    {
       "path": "lu_machinery/review/contract_canary.py",
       "code": "return-value",
       "message": "Incompatible return value type (got \"tuple[None | dict[Any, Any], str]\", expected \"tuple[dict[Any, Any], str]\")"
