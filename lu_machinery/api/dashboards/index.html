@@ -225,13 +225,16 @@ function paceCell(pace) {
   const head = pace.state === "on_pace" ? "on pace"
     : pace.state === "reserve" ? `${pp(pace.headroom_pct)} headroom` : `${pp(pace.headroom_pct)} deficit`;
   const tail = pace.lasts_to_reset === true ? "lasts to reset"
-    : pace.lasts_to_reset === false ? (toDate(pace.runs_out_at) ? `runs out ${utc(pace.runs_out_at)} (${relative(pace.runs_out_at)})` : "runs out before reset")
+    : pace.lasts_to_reset === false ? (!toDate(pace.runs_out_at) ? "runs out before reset"
+      : toDate(pace.runs_out_at).getTime() <= Date.now() ? `ran out ${utc(pace.runs_out_at)} (${relative(pace.runs_out_at)})`
+      : `runs out ${utc(pace.runs_out_at)} (${relative(pace.runs_out_at)})`)
     : "last-to-reset unknown";
   return text(`${head} · ${tail}`, pace.state === "deficit" ? (pace.lasts_to_reset === false ? "bad" : "warn") : "ok");
 }
 
 function sessionCell(window) {
   if (!window || window.status === "none") return text("none", "muted");
+  if (window.status !== "ok" && window.reason === "not_reported") return text("not reported", "muted");
   if (window.status !== "ok" || !validPct(window.left_pct)) return text("unknown", "muted");
   return text(`${pct(window.left_pct)} left · ${resetText(window)}`);
 }

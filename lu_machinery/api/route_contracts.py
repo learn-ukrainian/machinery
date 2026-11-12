@@ -386,7 +386,7 @@ ROUTE_CONTRACTS: tuple[RouteContract, ...] = (
         "exact",
         "http",
         "Every subscription account's weekly usage, pace (headroom or deficit, run-out time), 5-hour and scoped windows, credits, banked resets and plan renewal or end, one row per account grouped by provider.",
-        "The host usage cache written by the usage-cache timer (Claude, Codex, Grok+Cursor), the Monitor's in-memory AGY and Muse readings, and the operator's host plan-facts file.",
+        "The host usage cache written by the usage-cache timer (Claude, Codex, AGY, Grok+Cursor), the Monitor's in-memory Muse reading, and the operator's host plan-facts file.",
         "Generated per request from those caches and files only, never a provider call; each account carries its read time and is stale after 15 minutes; missing values are typed unknown.",
         ("index.html", "agents", "operators"),
         "Complements /api/state/routing-budget, which decides routing; this route reports plan state for people and planners. The console command python -m lu_machinery.api.subscriptions prints the same snapshot.",
