@@ -189,6 +189,12 @@ def test_in_tree_product_writer_requires_product_declaration(tmp_path, monkeypat
     )
     monkeypatch.setattr(readonly_sqlite, "in_tree_source", lambda: True)
     monkeypatch.setattr(readonly_sqlite, "machinery_root", lambda: checkout / "scripts")
+    monkeypatch.setattr(readonly_sqlite, "machinery_path", lambda relative: checkout / "scripts" / relative)
+    monkeypatch.setattr(readonly_sqlite, "_declared_writer_paths", readonly_sqlite._declared_writer_paths.__wrapped__)
+    machinery_declaration = checkout / "scripts/hygiene/sqlite_reference_allowlist.json"
+    machinery_declaration.parent.mkdir(parents=True)
+    machinery_declaration.write_text(json.dumps([{"path": "scripts/vocab/vocab_init.py", "kind": "writer"}]))
+    assert "scripts/vocab/vocab_init.py" in readonly_sqlite._declared_writer_paths()
     monkeypatch.setenv("LU_PRODUCT_ROOT", str(checkout))
     spec = importlib.util.spec_from_file_location("in_tree_vocab_init", writer)
     assert spec is not None and spec.loader is not None

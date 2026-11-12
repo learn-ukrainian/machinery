@@ -465,15 +465,15 @@ PRODUCT_BASELINE = f"scripts/hygiene/{BASELINE.name}"
 def manifest_pair(root: Path) -> tuple[Path, Path]:
     """The allowlist and baseline owned by the checkout at ``root``.
 
-    Only the machinery source checkout that holds this running package scans
-    with machinery's packaged pair: its ``pyproject.toml`` names the
+    A machinery source checkout scans with its own pair: its ``pyproject.toml`` names the
     ``lu-machinery`` project. A manifest file inside the scanned checkout never
     selects it, and a product that merely hosts the package is still a product.
     Every product's pair is :data:`PRODUCT_WRITER_DECLARATION` and
     :data:`PRODUCT_BASELINE`; a missing or unusable product declaration fails the scan.
     """
-    if _hosts_running_package(root) and _machinery_project(root):
-        return REFERENCE_MANIFEST, BASELINE
+    if _machinery_project(root):
+        directory = root / _mp("hygiene")
+        return directory / REFERENCE_MANIFEST.name, directory / BASELINE.name
     return root / PRODUCT_WRITER_DECLARATION, root / PRODUCT_BASELINE
 
 
@@ -514,12 +514,14 @@ def load_scan_allowlist(root: Path) -> tuple[AllowedReference, ...]:
     guard refuses fails the scan.
     """
     manifest = manifest_pair(root)[0]
-    if manifest == REFERENCE_MANIFEST:
-        return load_allowlist()
+    if _machinery_project(root):
+        return load_allowlist(manifest)
     try:
         rows = product_declaration_rows(os.path.realpath(root))
     except _DeclarationUnusable as exc:
         raise ValueError(f"unusable product SQLite declaration {PRODUCT_WRITER_DECLARATION}: {exc.reason}") from None
+    if not in_tree_source() and any(row["path"].startswith(_mp("")) for row in rows):
+        raise ValueError("product SQLite declaration cannot authorize machinery package files")
     return load_allowlist(rows=[*rows, *_hosted_package_rows(root, json.loads(REFERENCE_MANIFEST.read_text()))])
 
 
@@ -982,9 +984,9 @@ class _FileScan:
     unreadable: bool = False
 
 
-def _scan_file(job: tuple[str, str, AllowedReference | None, list[StoreFinding], str | None, int]) -> _FileScan:
+def _scan_file(job: tuple[str, str, AllowedReference | None, list[StoreFinding], str | None, int, bool]) -> _FileScan:
     """Classify one file exactly as the serial pass did; no cross-file state."""
-    rel, source, entry, pinned, oid, pinned_count = job
+    rel, source, entry, pinned, oid, pinned_count, trusted_reader = job
     store_findings: list[StoreFinding] = []
     violations: list[str] = []
     try:
@@ -1000,7 +1002,7 @@ def _scan_file(job: tuple[str, str, AllowedReference | None, list[StoreFinding],
         if entry is not None and entry.kind == "store_resolver":
             # This kind never exempts constructor references.
             entry = None
-        if rel == READER_BOUNDARY:
+        if rel == READER_BOUNDARY and trusted_reader:
             return _FileScan(store_findings, violations)
         syntax = syntax if syntax is not None else _Syntax(source, rel)
         references = classify_source(source, rel, syntax=syntax)
@@ -1074,6 +1076,8 @@ def find_violations(
     if apply_baseline:
         violations.extend(baseline_policy_violations(root))
     order: list[tuple[str, tuple | None]] = []  # (rel, job); job None = unreadable on disk
+    trusted_reader = (_machinery_project(root)
+                      or (root / READER_BOUNDARY).resolve() == Path(__file__).resolve().parents[1] / "lib/readonly_sqlite.py")
     for path in iter_scan_paths(root):
         rel = path.relative_to(root).as_posix()
         seen.add(rel)
@@ -1084,7 +1088,7 @@ def find_violations(
             order.append((rel, None))
             continue
         order.append((rel, (rel, source, writers.get(rel), by_path.get(rel, []), base_blobs.get(rel),
-                            payload.get("file_counts", {}).get(rel, 0))))
+                            payload.get("file_counts", {}).get(rel, 0), trusted_reader)))
     scans = iter(_scan_all([job for _, job in order if job is not None]))
     for rel, job in order:
         if job is None:

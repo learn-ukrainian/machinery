@@ -112,14 +112,49 @@ def test_manifest_pair_tracks_scan_root_without_product_authority_leak(tmp_path,
     monkeypatch.setattr(lint, "REFERENCE_MANIFEST", machinery / "lu_machinery/hygiene" / real_pair[0].name)
     monkeypatch.setattr(lint, "BASELINE", machinery / "lu_machinery/hygiene" / real_pair[1].name)
     assert lint.manifest_pair(machinery) == (lint.REFERENCE_MANIFEST, lint.BASELINE)
+    # Another checkout owns its pair even when the executing package lives elsewhere.
     monkeypatch.setattr(lint, "REFERENCE_MANIFEST", real_pair[0])
     monkeypatch.setattr(lint, "BASELINE", real_pair[1])
+    machinery_pair = (machinery / "lu_machinery/hygiene" / real_pair[0].name,
+                      machinery / "lu_machinery/hygiene" / real_pair[1].name)
+    assert lint.manifest_pair(machinery) == machinery_pair
+    machinery_pair[0].write_text(json.dumps([row("lu_machinery/writer.py")]))
+    machinery_pair[1].write_text(json.dumps({"entries": []}))
+    (machinery / "lu_machinery/writer.py").write_text(connect)
+    assert [entry.path for entry in lint.load_scan_allowlist(machinery)] == ["lu_machinery/writer.py"]
+    assert lint.find_violations(machinery) == ([], [])
     declaration.write_text(json.dumps([row("scripts/writer.py")]))
     monkeypatch.setenv("LU_PRODUCT_ROOT", str(product))
 
+    # Exercise the hosted-package branch throughout the scan, not just pair selection.
+    monkeypatch.setattr(lint, "REFERENCE_MANIFEST", shadow / real_pair[0].name)
+    monkeypatch.setattr(lint, "BASELINE", shadow / real_pair[1].name)
+    assert lint._hosts_running_package(product)
     violations, unreadable = lint.find_violations()
     assert unreadable == []
     assert violations == ["scripts/rogue.py:2: constructor reference: c = sqlite3.connect(PATH)"]
+    monkeypatch.setattr(lint, "REFERENCE_MANIFEST", real_pair[0])
+    monkeypatch.setattr(lint, "BASELINE", real_pair[1])
+
+    for unauthorized in (
+        row("lu_machinery/rogue.py"),
+        row("lu_machinery/storage/topology.py", kind="store_resolver", reference_count=0,
+            target_db=None, calls=[], functions=["resolve_store"]),
+        row("lu_machinery/ops/product_entry.py", kind="configured_entry_point", target_db=None),
+    ):
+        declaration.write_text(json.dumps([unauthorized]))
+        with pytest.raises(ValueError, match="cannot authorize machinery package files"):
+            lint.find_violations()
+    declaration.write_text(json.dumps([row("scripts/writer.py")]))
+    reader = product / lint.READER_BOUNDARY
+    reader.parent.mkdir(parents=True)
+    reader.write_text(connect)
+    violations, unreadable = lint.find_violations()
+    assert unreadable == []
+    assert violations == [
+        "lu_machinery/lib/readonly_sqlite.py:2: constructor reference: c = sqlite3.connect(PATH)",
+        "scripts/rogue.py:2: constructor reference: c = sqlite3.connect(PATH)",
+    ]
 
     for refused in (
         json.dumps([{"path": "scripts/rogue.py", "kind": "writer"}]),
