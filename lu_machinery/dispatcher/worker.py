@@ -542,7 +542,8 @@ def _verification_cause(exc: Exception) -> str:
 def _enforce_delivery(record: dict) -> None:
     if record["mode"] == "read-only":
         return
-    provider_failed = record["status"] == "failed" and record.get("provider_terminal_failure") is True
+    provider_failed = (record["status"] == "failed" and record.get("provider_terminal_failure") is True
+                       and not str(record.get("error")).startswith(AGY_UNFINISHED))
     if record["status"] != "done" and not provider_failed:
         return
     if provider_failed:
@@ -592,6 +593,10 @@ def _enforce_delivery(record: dict) -> None:
     if cause:
         record.update(status="no_deliverable", error=cause, no_deliverable_reason=cause)
 
+
+# An AGY run that closed while a task it dispatched or its own background work was still open did not finish;
+# merged work is not its result, so these provider failures keep their status and error (#12156).
+AGY_UNFINISHED = ("agy_child_still_running: ", "agy: incomplete run")
 
 # Refusals that a merged pull request answers: the local branch could not show the delivery, or the tree
 # held only untracked files (worktree_untracked_only_on_exit), which settlement's removal preserves.

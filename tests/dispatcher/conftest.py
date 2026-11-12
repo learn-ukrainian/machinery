@@ -9,12 +9,13 @@ import sysconfig
 import time
 import venv
 from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
 import pytest
 import yaml
-from lu_machinery.dispatcher import git, worker
+from lu_machinery.dispatcher import git, ownership, worker
 from tests.dispatcher.worker_reap import Reaper, reap_root
 from lu_machinery.common.repo_root import machinery_root
 
@@ -333,7 +334,8 @@ def merged_delivery_world(tmp_path, monkeypatch):
             "task_id": "merge-probe", "agent": "claude", "mode": "workspace-write", "status": "done", "error": None,
             "owned_paths": ["docs/owned.md"], "worktree_remote_url": "https://github.com/org/repo.git",
             "worktree_base_ref": "origin/main", "worktree_branch": "claude/merge-probe", "publish_branch": None,
-            "started_at": "2026-10-29T08:00:00+00:00", "head_sha": "a" * 40, "commits_ahead": 0,
+            "started_at": "2026-10-29T08:00:00+00:00", "worktree_base_sha": "c" * 40, "head_sha": "a" * 40,
+            "commits_ahead": 0,
             "push_state": "unpushed", "worktree_dirty_on_exit": False,
         },
     )
@@ -358,8 +360,14 @@ def merged_delivery_world(tmp_path, monkeypatch):
     monkeypatch.setattr(pr_ownership, "state_path", lambda: state)
     monkeypatch.setattr(github_client, "run", gh)
     monkeypatch.setattr(git, "_canonical_publication", lambda *_: world.published)
-    monkeypatch.setattr(git, "ownership_git", Mock(side_effect=subprocess.CalledProcessError(
-        128, ["git", "fetch"], stderr="branch gone")))
+    @contextmanager
+    def ownership_git(_record, head=None):
+        if head is None:
+            raise subprocess.CalledProcessError(128, ["git", "fetch"], stderr="branch gone")
+        yield Mock(return_value="b" * 40)  # the merged head, fetched by id, adds no path beyond its file list
+
+    monkeypatch.setattr(git, "ownership_git", ownership_git)
+    monkeypatch.setattr(ownership, "delivered_paths", Mock(return_value=[]))
 
     def accept(*numbers):
         history = [{"event": "accepted", "pr": f"org/repo#{n}", "successor": "merge-probe"} for n in numbers]
@@ -370,5 +378,5 @@ def merged_delivery_world(tmp_path, monkeypatch):
     return world
 
 
-MERGED = {"state": "MERGED", "baseRefName": "main", "mergedAt": "2026-10-29T09:00:00Z",
+MERGED = {"state": "MERGED", "baseRefName": "main", "mergedAt": "2026-10-29T09:00:00Z", "headRefOid": "d" * 40,
           "mergeCommit": {"oid": "c" * 40}, "isCrossRepository": False}
