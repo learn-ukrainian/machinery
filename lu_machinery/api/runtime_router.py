@@ -1678,8 +1678,8 @@ def runtime_subscriptions():
     One row per account, grouped by provider (``providers[].accounts[]``), for
     the home page and for dispatch planning. Built by
     ``subscriptions.subscriptions_snapshot`` from the host's usage cache, the
-    Monitor's in-memory AGY and Muse readings and the operator's plan-facts
-    file; it never calls a provider. A missing value is ``null`` in a section
+    Monitor's in-memory Muse reading and the operator's plan-facts file; it
+    never calls a provider. A missing value is ``null`` in a section
     whose ``status`` is ``unknown`` with a ``reason``; a reading older than
     15 minutes is ``stale``. The console command
     ``python -m lu_machinery.api.subscriptions --json`` prints the same JSON.

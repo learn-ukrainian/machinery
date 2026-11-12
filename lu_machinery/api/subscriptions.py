@@ -9,21 +9,29 @@ provider can be compared side by side. The reader takes its data only from:
 * the background usage cache that the host's usage-cache timer writes every
   five minutes (``~/.cache/lu-usage/codexbar.json``; ``LU_USAGE_CACHE_FILE``
   overrides, empty means none). It holds one CodexBar reading per pool:
-  Claude a and b, Codex a and b, and Grok+Cursor;
-* the Monitor's in-memory AGY and Muse readings
+  Claude a and b, Codex a and b, AGY and Grok+Cursor. The AGY pool carries two
+  quota groups, Gemini and Claude/GPT, as titled weekly and 5-hour windows;
+  each group is its own row;
+* the Monitor's in-memory Muse reading
   (``get_provider_usage_data(..., kick_refresh=False)``, which never probes).
   A process without the Monitor's scheduler, such as the console command,
-  has none of these, and they show as unknown;
+  has none, and Muse shows as unknown;
 * the operator's plan-facts file (``account_logins.plan_facts``).
 
 It never calls CodexBar, a provider or the HTTP API. The fields follow
 CodexBar's report: the weekly window, the pace (reserve or deficit, and
 whether it lasts to the reset or when it runs out), the 5-hour session
 window, the scoped windows (for example Fable only), credits and banked
-resets. Each section carries a ``status``: ``ok``, ``none`` (the provider has
-no such thing) or ``unknown`` with a ``reason``. A missing number is ``null``,
-never zero. A reading older than ``STALE_AFTER_S`` is ``stale``; its numbers
-stay, marked as such.
+resets. Where CodexBar reports no pace for a weekly window (AGY), the pace is
+computed with the same algorithm (``compute_usage_pace``, a port of CodexBar's)
+and marked ``source: computed``. Claude and Codex report no real 5-hour window,
+so theirs is always ``unknown`` with reason ``not_reported``, never a number.
+Free text from the cache that looks like an email address is dropped.
+
+Each section carries a ``status``: ``ok``, ``none`` (the provider has no such
+thing) or ``unknown`` with a ``reason``. A missing number is ``null``, never
+zero. A reading older than ``STALE_AFTER_S`` is ``stale``; its numbers stay,
+marked as such.
 """
 
 from __future__ import annotations
@@ -59,16 +67,21 @@ _MAX_ETA_S = 400 * 86400  # beyond any monthly or weekly window
 _CLOCK_SKEW_S = 300  # a reading timestamped further ahead than this is not believed
 # The cache writer records ``<ExceptionName>: <message>``; only a bare exception name is published.
 _ERROR_KIND = re.compile(r"[A-Z][A-Za-z0-9]{1,39}")
+_EMAIL_SHAPED = re.compile(r"[^\s@]+@[^\s@]+\.[^\s@]+")
 
 # provider id, provider label, accounts: (account, plan-facts key, source, source key)
 PROVIDERS: tuple[tuple[str, str, tuple[tuple[str, str, str, str], ...]], ...] = (
     ("claude", "Claude", (("Claude a", "claude_a", "cache", "Claude a"), ("Claude b", "claude_b", "cache", "Claude b"))),
     ("codex", "Codex", (("Codex a", "codex_a", "cache", "Codex a"), ("Codex b", "codex_b", "cache", "Codex b"))),
-    ("agy", "AGY", (("AGY Gemini", "agy", "monitor", "gemini"), ("AGY Claude/GPT", "agy", "monitor_claude_gpt", "gemini"))),
+    ("agy", "AGY", (("AGY Gemini", "agy", "cache", "AGY"), ("AGY Claude/GPT", "agy", "cache", "AGY"))),
     ("grok", "Grok", (("Grok+Cursor", "grok", "cache", "Grok+Cursor"),)),
     ("muse", "Muse", (("Muse", "muse", "monitor", "muse"),)),
 )
 NO_MONITOR_READING = "no_monitor_reading"
+# A pool with quota groups: each account reads its group's titled "<group> weekly" and "<group> 5-hour" windows.
+_CACHE_GROUPS = {"AGY Gemini": "Gemini", "AGY Claude/GPT": "Claude/GPT"}
+# Providers without a real 5-hour window (CodexBar 0.69's "Session" mirrored the weekly percent).
+_NO_SESSION_PROVIDERS = frozenset({"claude", "codex"})
 _ACCOUNT_NOTES = {
     "AGY Gemini": "Carbon draws on the AGY pools.",
     "Codex a": "The Codex API credits belong to this account and renew with its monthly turnover.",
@@ -143,7 +156,7 @@ def _pct(value: Any) -> float | None:
 
 
 def _text(value: Any, limit: int = 60) -> str | None:
-    if isinstance(value, str) and 0 < len(value) <= limit and value.isprintable():
+    if isinstance(value, str) and 0 < len(value) <= limit and value.isprintable() and not _EMAIL_SHAPED.search(value):
         return value
     return None
 
@@ -184,7 +197,7 @@ def _window(label: str | None, used: Any, resets_at: Any, minutes: Any, now: dat
 
 
 def _pace(delta: float | None, expected: float | None, lasts: Any, runs_out: datetime | None,
-          summary: Any, now: datetime) -> dict[str, Any]:
+          summary: Any, now: datetime, *, source: str = "provider") -> dict[str, Any]:
     if delta is None or not -100 <= delta <= 100:
         return _unknown("not_reported")
     expected = _pct(expected)
@@ -200,6 +213,7 @@ def _pace(delta: float | None, expected: float | None, lasts: Any, runs_out: dat
         "runs_out_at": _iso(runs_out) if runs_out and lasts_to_reset is False else None,
         "runs_out_in_s": int((runs_out - now).total_seconds()) if runs_out and lasts_to_reset is False else None,
         "summary": _text(summary, 160),
+        "source": source,
     }
 
 
@@ -229,7 +243,20 @@ def _blank_usage(reason: str) -> dict[str, Any]:
     }
 
 
-# --- the usage cache (Claude, Codex, Grok+Cursor) ---------------------------------------------------
+def _computed_pace(weekly: Mapping[str, Any], read_at: datetime, now: datetime) -> dict[str, Any]:
+    """CodexBar's pace algorithm applied to a weekly window, at the reading's time."""
+    if weekly.get("status") != "ok" or weekly.get("resets_at") is None:
+        return _unknown("not_reported")
+    pace = compute_usage_pace(weekly["used_pct"], weekly["resets_at"], window_minutes=weekly.get("window_minutes"),
+                              now=read_at)
+    if pace is None or not pace_is_visible(pace):
+        return _unknown("too_early_in_window")
+    runs_out = _after(read_at, _number(pace.get("eta_seconds")))
+    return _pace(pace["delta_pct"], pace["expected_pct"], pace["will_last_to_reset"], runs_out,
+                 format_usage_pace_summary(pace), now, source="computed")
+
+
+# --- the usage cache (Claude, Codex, AGY, Grok+Cursor) ----------------------------------------------
 
 
 def _cache_path() -> Path | None:
@@ -265,7 +292,8 @@ def _cache_windows(usage: Mapping[str, Any]) -> dict[str, Mapping[str, Any]]:
     return {key: usage[key] for key in ("primary", "secondary", "tertiary") if isinstance(usage.get(key), dict)}
 
 
-def _cache_usage(entry: Mapping[str, Any], read_at: datetime, now: datetime) -> dict[str, Any]:
+def _cache_usage(entry: Mapping[str, Any], read_at: datetime, now: datetime, *, provider: str,
+                 group: str | None) -> dict[str, Any]:
     report = _dict(entry.get("usage"))
     usage = _dict(report.get("usage"))
     labels = _dict(report.get("rateWindowLabels"))
@@ -278,20 +306,36 @@ def _cache_usage(entry: Mapping[str, Any], read_at: datetime, now: datetime) -> 
     def window(key: str) -> dict[str, Any]:
         return window_from(_text(labels.get(key)) or key, windows[key])
 
-    weekly_key = next((k for k in ("secondary", "primary", "tertiary")
-                       if windows.get(k, {}).get("windowMinutes") == _WEEKLY_MINUTES), None)
-    session_key = next((k for k in ("primary", "secondary", "tertiary")
-                        if windows.get(k, {}).get("windowMinutes") == _SESSION_MINUTES), None)
-    result = _blank_usage("not_reported")
-    result["weekly"] = window(weekly_key) if weekly_key else _unknown("no_weekly_window")
-    result["session"] = window(session_key) if session_key else {"status": "none"}
-    result["extra_windows"] = [window(k) for k in windows if k not in (weekly_key, session_key)]
+    def shown(raw: Mapping[str, Any]) -> bool:
+        """Claude and Codex have no real 5-hour window: none of their 300-minute windows is published."""
+        return not (provider in _NO_SESSION_PROVIDERS and _number(raw.get("windowMinutes")) == _SESSION_MINUTES)
+
+    titled = {}
     for extra in _items(usage.get("extraRateWindows")):
-        if isinstance(extra, dict) and isinstance(extra.get("window"), dict):
-            result["extra_windows"].append(window_from(_text(extra.get("title")), extra["window"]))
+        if isinstance(extra, dict) and isinstance(extra.get("window"), dict) and _text(extra.get("title")):
+            titled[extra["title"]] = extra["window"]
+    result = _blank_usage("not_reported")
+    weekly_key = None
+    if group is not None:
+        # One quota group of a shared pool: only its own titled windows; the plain windows repeat them.
+        weekly_raw, session_raw = titled.get(f"{group} weekly"), titled.get(f"{group} 5-hour")
+        result["weekly"] = window_from("Weekly", weekly_raw) if weekly_raw else _unknown("no_weekly_window")
+        result["session"] = window_from("Session", session_raw) if session_raw else {"status": "none"}
+    else:
+        weekly_key = next((k for k in ("secondary", "primary", "tertiary")
+                           if windows.get(k, {}).get("windowMinutes") == _WEEKLY_MINUTES), None)
+        session_key = next((k for k in ("primary", "secondary", "tertiary")
+                            if windows.get(k, {}).get("windowMinutes") == _SESSION_MINUTES), None)
+        result["weekly"] = window(weekly_key) if weekly_key else _unknown("no_weekly_window")
+        if provider in _NO_SESSION_PROVIDERS:
+            result["session"] = _unknown("not_reported")
+        else:
+            result["session"] = window(session_key) if session_key else {"status": "none"}
+        result["extra_windows"] = [window(k) for k in windows if k not in (weekly_key, session_key) and shown(windows[k])]
+        result["extra_windows"] += [window_from(title, raw) for title, raw in titled.items() if shown(raw)]
 
     review = _dict(_dict(report.get("openaiDashboard")).get("codeReviewLimit"))
-    if review:
+    if review and shown(review):
         result["extra_windows"].append(window_from("Code review", review))
 
     pace = _dict(report.get("pace")).get(weekly_key) if weekly_key else None
@@ -299,6 +343,8 @@ def _cache_usage(entry: Mapping[str, Any], read_at: datetime, now: datetime) -> 
         runs_out = _after(read_at, _number(pace.get("etaSeconds")))
         result["pace"] = _pace(_number(pace.get("deltaPercent")), _number(pace.get("expectedUsedPercent")),
                                pace.get("willLastToReset"), runs_out, pace.get("summary"), now)
+    else:  # CodexBar gives no pace for this window (AGY): the same algorithm, computed here
+        result["pace"] = _computed_pace(result["weekly"], read_at, now)
 
     credits = report.get("credits")
     balance = _number(credits.get("remaining")) if isinstance(credits, dict) else None
@@ -340,7 +386,7 @@ def _cache_usage(entry: Mapping[str, Any], read_at: datetime, now: datetime) -> 
     return result
 
 
-def _cache_account(entry: Any, now: datetime) -> dict[str, Any]:
+def _cache_account(entry: Any, now: datetime, *, provider: str, group: str | None = None) -> dict[str, Any]:
     if not isinstance(entry, dict):
         return {"reading": _reading(None, now), **_blank_usage("no_reading")}
     read_at, why = _read_time(entry.get("read_at"), now)
@@ -355,10 +401,10 @@ def _cache_account(entry: Any, now: datetime) -> dict[str, Any]:
         reading["last_refresh_error"] = {"at": _iso(error_at), "kind": kind}
     if read_at is None:
         return {"reading": reading, **_blank_usage(why)}
-    return {"reading": reading, **_cache_usage(entry, read_at, now)}
+    return {"reading": reading, **_cache_usage(entry, read_at, now, provider=provider, group=group)}
 
 
-# --- the Monitor's in-memory readings (AGY, Muse) ---------------------------------------------------
+# --- the Monitor's in-memory reading (Muse) ----------------------------------------------------------
 
 
 def _monitor_window(label: str, raw: Any, read_at: datetime, now: datetime) -> dict[str, Any]:
@@ -368,19 +414,7 @@ def _monitor_window(label: str, raw: Any, read_at: datetime, now: datetime) -> d
                    raw.get("reset_description"))
 
 
-def _monitor_pace(weekly: Mapping[str, Any], read_at: datetime, now: datetime) -> dict[str, Any]:
-    if weekly.get("status") != "ok" or weekly.get("resets_at") is None:
-        return _unknown("not_reported")
-    pace = compute_usage_pace(weekly["used_pct"], weekly["resets_at"], window_minutes=weekly.get("window_minutes"),
-                              now=read_at)
-    if pace is None or not pace_is_visible(pace):
-        return _unknown("too_early_in_window")
-    runs_out = _after(read_at, _number(pace.get("eta_seconds")))
-    return _pace(pace["delta_pct"], pace["expected_pct"], pace["will_last_to_reset"], runs_out,
-                 format_usage_pace_summary(pace), now)
-
-
-def _monitor_account(record: Mapping[str, Any] | None, source: str, now: datetime) -> dict[str, Any]:
+def _monitor_account(record: Mapping[str, Any] | None, now: datetime) -> dict[str, Any]:
     record = record if isinstance(record, Mapping) else {}
     freshness = record.get("freshness")
     read_at, why = _read_time(record.get("fetched_at"), now)
@@ -395,16 +429,12 @@ def _monitor_account(record: Mapping[str, Any] | None, source: str, now: datetim
         return {"reading": reading, **_blank_usage("no_reading")}
     reading = _reading(read_at, now, stale=freshness != "fresh")
     result = _blank_usage("not_reported")
-    if source == "monitor_claude_gpt":
-        groups = _dict(record.get("claude_gpt_windows"))
-        weekly_raw, session_raw = groups.get("weekly"), groups.get("five_hour")
-    else:
-        windows = _dict(record.get("windows"))
-        found = {raw.get("window_minutes"): raw for raw in windows.values() if isinstance(raw, dict)}
-        weekly_raw, session_raw = found.get(_WEEKLY_MINUTES), found.get(_SESSION_MINUTES)
+    windows = _dict(record.get("windows"))
+    found = {raw.get("window_minutes"): raw for raw in windows.values() if isinstance(raw, dict)}
+    weekly_raw, session_raw = found.get(_WEEKLY_MINUTES), found.get(_SESSION_MINUTES)
     result["weekly"] = _monitor_window("Weekly", weekly_raw, read_at, now)
     result["session"] = _monitor_window("Session", session_raw, read_at, now) if session_raw else {"status": "none"}
-    result["pace"] = _monitor_pace(result["weekly"], read_at, now)
+    result["pace"] = _computed_pace(result["weekly"], read_at, now)
     result["credits"] = {"status": "none"}
     return {"reading": reading, **result}
 
@@ -455,11 +485,12 @@ def subscriptions_snapshot(*, now: datetime | None = None, monitor_reader: Monit
                     monitor[source_key] = None
             try:
                 if source == "cache":
-                    usage = _cache_account(cache.get(source_key), now)
+                    usage = _cache_account(cache.get(source_key), now, provider=provider,
+                                           group=_CACHE_GROUPS.get(account))
                     if cache_status["status"] != "ok" and usage["reading"]["status"] == "unknown":
                         usage["reading"]["reason"] = f"usage_cache_{cache_status['status']}"
                 else:
-                    usage = _monitor_account(monitor[source_key], source, now)
+                    usage = _monitor_account(monitor[source_key], now)
             except Exception:  # an unforeseen malformed reading is unknown for this account only
                 usage = {"reading": {**_reading(None, now), "reason": "unreadable_reading"},
                          **_blank_usage("unreadable_reading")}
@@ -509,7 +540,7 @@ def _window_text(window: Mapping[str, Any], *, with_reset: bool = True) -> str:
     if status == "none":
         return "none"
     if status != "ok":
-        return f"unknown ({window.get('reason')})"
+        return "not reported" if window.get("reason") == "not_reported" else f"unknown ({window.get('reason')})"
     usage = f"{window['left_pct']:g}% left ({window['used_pct']:g}% used)"
     if not with_reset:
         return usage
@@ -526,7 +557,10 @@ def _pace_text(pace: Mapping[str, Any]) -> str:
     if pace["lasts_to_reset"] is True:
         return f"{head}, lasts to reset"
     if pace["lasts_to_reset"] is False:
-        return f"{head}, runs out {_when(pace['runs_out_at'], pace['runs_out_in_s'])}"
+        seconds = pace["runs_out_in_s"]
+        if isinstance(seconds, int) and seconds <= 0:
+            return f"{head}, ran out {_span(seconds)} ago ({str(pace['runs_out_at'])[:16].replace('T', ' ')}Z)"
+        return f"{head}, runs out {_when(pace['runs_out_at'], seconds)}"
     return f"{head}, last-to-reset unknown"
 
 
@@ -561,7 +595,7 @@ def render_text(snapshot: Mapping[str, Any]) -> str:
                 else f"unknown ({sources['plan_facts']['reason']})")]
     if any(row["reading"].get("reason") == NO_MONITOR_READING
            for provider in snapshot["providers"] for row in provider["accounts"]):
-        lines.append("AGY and Muse readings live only in the Monitor API process; this process has none.")
+        lines.append("The Muse reading lives only in the Monitor API process; this process has none.")
     for provider in snapshot["providers"]:
         lines.append("")
         lines.append(f"== {provider['label']} ==")
@@ -598,7 +632,7 @@ def _parser() -> argparse.ArgumentParser:
             "Print every subscription account's weekly usage, pace (headroom or deficit), 5-hour window,\n"
             "scoped windows, credits, banked resets and plan renewal, grouped by provider.\n"
             "Use it on the host console when the machinery home page is not reachable; it never calls\n"
-            "the HTTP API, CodexBar or a provider, so AGY and Muse (read only inside the Monitor API) show unknown."
+            "the HTTP API, CodexBar or a provider, so Muse (read only inside the Monitor API) shows unknown."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
