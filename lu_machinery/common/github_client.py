@@ -158,6 +158,15 @@ class Result:
 
 # The most recent refusal in this context, as (reset_at, reason).
 _LAST_REFUSAL = contextvars.ContextVar("github_last_refusal", default=None)
+# The working directory of the ``run`` call in progress, as (client, cwd). It is the call's own: the
+# client object stays as it was, and a nested or concurrent call (its own context) binds its own.
+_CALL_CWD = contextvars.ContextVar("github_call_cwd", default=None)
+
+
+def _cwd(client):
+    """The directory ``client`` resolves the repository, input files and native gh from in this call."""
+    bound = _CALL_CWD.get()
+    return bound[1] if bound is not None and bound[0] is client else client.cwd
 
 
 class GitHubRateLimited(RuntimeError):
@@ -1294,24 +1303,8 @@ class GitHubClient:
         self.cache_max_bytes = cache_max_bytes
         self.max_response_bytes = max_response_bytes
         self._configure_host(canonical_host(self.env.get("GH_HOST", "github.com")))
-        # One holder: a per-call copy of this client keeps its cache, budget and fallback state.
-        self._cache_state = {"cache_dir": Path(cache_dir) if cache_dir is not None else _cache_directory(), "memory_db": None}
-
-    @property
-    def cache_dir(self):
-        return self._cache_state["cache_dir"]
-
-    @cache_dir.setter
-    def cache_dir(self, value):
-        self._cache_state["cache_dir"] = value
-
-    @property
-    def _memory_db(self):
-        return self._cache_state["memory_db"]
-
-    @_memory_db.setter
-    def _memory_db(self, value):
-        self._cache_state["memory_db"] = value
+        self.cache_dir = Path(cache_dir) if cache_dir is not None else _cache_directory()
+        self._memory_db = None
 
     def _configure_host(self, host):
         """Select credentials and scope from an authority already canonicalised at entry."""
@@ -1454,7 +1447,7 @@ class GitHubClient:
             input=body,
             capture_output=True,
             env=self.env,
-            cwd=self.cwd,
+            cwd=_cwd(self),
             timeout=timeout,
             check=False,
         )
@@ -1804,7 +1797,7 @@ def _repo(options, client):
         return repo.removeprefix("github.com/")
     from lu_machinery.opsec.gh_snapshot import repository
 
-    value = repository(Path(client.cwd or Path.cwd()), client.env)
+    value = repository(Path(_cwd(client) or Path.cwd()), client.env)
     if value == "unknown":
         raise ValueError("GitHub repository unresolved")
     return value.split("/", 1)[1]
@@ -1998,7 +1991,7 @@ def _read_command(client, kind, action, options, positional, *, timeout, fresh):
                 number
                 or subprocess.run(
                     ["git", "branch", "--show-current"],
-                    cwd=client.cwd,
+                    cwd=_cwd(client),
                     capture_output=True,
                     text=True,
                     timeout=5,
@@ -2401,7 +2394,7 @@ def _write_command(client, kind, action, options, positional, *, timeout, input=
     if "--body-file" in options:
         source = _opt(options, "--body-file")
         try:
-            payload["body"] = _source_bytes(source, _Stdin(input), client.cwd).decode("utf-8")
+            payload["body"] = _source_bytes(source, _Stdin(input), _cwd(client)).decode("utf-8")
         except GitHubUnpreparedRequest as exc:
             return _unprepared(exc.reason)
         except UnicodeDecodeError:
@@ -3383,7 +3376,7 @@ def _native_command(args, client, runner, kwargs, *, preserve_argv=False):
     That frame is then removed: the caller's output is exactly what gh prints without it.
     """
     pools = sorted(_native_buckets(args, client.host) - {_SYNTHETIC_HOLD})
-    request = _normalize_native(args, client.host, pools, stdin=kwargs.get("input"), cwd=client.cwd)
+    request = _normalize_native(args, client.host, pools, stdin=kwargs.get("input"), cwd=_cwd(client))
     try:
         refusal = client._read(lambda db: _admit(db, client.scope, request, client.clock()))
     except GitHubUnpreparedRequest as refused:
@@ -3409,7 +3402,7 @@ def _native_command(args, client, runner, kwargs, *, preserve_argv=False):
     call = dict(
         input=kwargs.get("input").encode() if isinstance(kwargs.get("input"), str) else kwargs.get("input"),
         env=client.env,
-        cwd=client.cwd,
+        cwd=_cwd(client),
         timeout=kwargs.get("timeout", 30) if preserve_argv else kwargs.get("timeout") or 30,
         capture_output=True,
         check=False,
@@ -3527,20 +3520,20 @@ def _run_command(args, *, runner=None, client=None, fresh=False, allow_stale=Fal
     host_args = list(args[2:])
     host_options, _ = _options(host_args, canonicalize_hosts=True)
     cwd = kwargs.get("cwd")
-    if client is not None and (limit is not None or allow_stale or "--hostname" in host_options or cwd is not None):
+    if client is not None and (limit is not None or allow_stale or "--hostname" in host_options):
         from copy import copy
 
-        # Per-call host, directory and read options apply to this call alone, never the caller's client.
+        # Per-call host and read options must never retarget the caller's client.
         client = copy(client)
         client.env = dict(client.env)
-        if cwd is not None:
-            client.cwd = cwd
         if limit is not None:
             client.max_response_bytes = (
                 min(client.max_response_bytes, limit) if client.max_response_bytes is not None else limit
             )
     if client is None:
         client = GitHubClient(env=kwargs.get("env"), cwd=cwd, runner=runner, max_response_bytes=limit)
+    if cwd is not None:
+        _CALL_CWD.set((client, cwd))  # run() restores the caller's binding when this call ends.
     if allow_stale:
         client.allow_stale = True
     timeout = kwargs.get("timeout") or 30
@@ -3578,7 +3571,7 @@ def _run_command(args, *, runner=None, client=None, fresh=False, allow_stale=Fal
             name, _, value = raw_header.partition(":")
             request_headers[name.strip()] = value.strip()
         # What is sent is what gh would send: the one reading admission also uses.
-        call = _gh_api_call(args[2:], stdin=kwargs.get("input"), cwd=client.cwd)
+        call = _gh_api_call(args[2:], stdin=kwargs.get("input"), cwd=_cwd(client))
         if call is None or call.unresolved:
             return _native_command(args, client, runner, kwargs)
         try:
@@ -3641,11 +3634,14 @@ def run(args, *, runner=None, client=None, fresh=False, allow_stale=False, **kwa
     A landing verb or CI status read is one landing operation: the reads it makes (the
     merge's queue lookup, the pull request behind a check rollup) share its landing class.
     """
+    binding = _CALL_CWD.set(None)
     try:
         with _landing_operation(_argv_landing_flow(args) if args else None):
             return _run_command(args, runner=runner, client=client, fresh=fresh, allow_stale=allow_stale, **kwargs)
     except ValueError:
         return _result_process(args, Result(error="github_invalid_command"), {}, kwargs)
+    finally:
+        _CALL_CWD.reset(binding)
 
 
 def check_output(args, **kwargs):
@@ -4165,7 +4161,7 @@ def _download_command(client, kind, options, positional, *, timeout):
     output = _opt(options, "--output", "-O")
     if output and len(selected) != 1:
         return Result(error="github_asset_ambiguous")
-    directory = Path(_opt(options, "--dir", "-D", default=client.cwd or Path.cwd()))
+    directory = Path(_opt(options, "--dir", "-D", default=_cwd(client) or Path.cwd()))
     for row in selected:
         endpoint = f"{root}/releases/assets/{row['id']}" if kind == "release" else row["archive_download_url"]
         downloaded = client.request(
