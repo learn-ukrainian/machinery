@@ -69,8 +69,6 @@ def test_manifest_pair_tracks_scan_root_without_product_authority_leak(tmp_path,
     not replace the product's declaration, which is read as the runtime guard
     reads it: a missing, incomplete or guard-refused declaration fails the scan.
     """
-    checkout = lint.REFERENCE_MANIFEST.resolve().parents[2]
-    assert lint.manifest_pair(checkout) == (lint.REFERENCE_MANIFEST, lint.BASELINE)
     packaged = [row["path"] for row in json.loads(lint.REFERENCE_MANIFEST.read_text())]
     packaged += [row["path"] for row in json.loads(lint.BASELINE.read_text())["entries"]]
     assert packaged and not [path for path in packaged if path.startswith("scripts/")]
@@ -97,10 +95,25 @@ def test_manifest_pair_tracks_scan_root_without_product_authority_leak(tmp_path,
     (shadow / lint.REFERENCE_MANIFEST.name).write_text(json.dumps([row("scripts/writer.py"), row("scripts/rogue.py")]))
     (shadow / lint.BASELINE.name).write_text(json.dumps({"entries": []}))
     assert lint.manifest_pair(product) == (declaration, baseline)
-    # The running package placed inside the product does not make it machinery's checkout either.
+    # The running package placed inside the product, even one without a scripts/
+    # tree, does not make it machinery's checkout; machinery's project file does.
+    real_pair = (lint.REFERENCE_MANIFEST, lint.BASELINE)
     monkeypatch.setattr(lint, "REFERENCE_MANIFEST", shadow / lint.REFERENCE_MANIFEST.name)
     monkeypatch.setattr(lint, "BASELINE", shadow / lint.BASELINE.name)
     assert lint.manifest_pair(product) == (declaration, baseline)
+    markerless = tmp_path / "markerless"
+    (markerless / "lu_machinery" / "hygiene").mkdir(parents=True)
+    monkeypatch.setattr(lint, "REFERENCE_MANIFEST", markerless / "lu_machinery/hygiene" / real_pair[0].name)
+    monkeypatch.setattr(lint, "BASELINE", markerless / "lu_machinery/hygiene" / real_pair[1].name)
+    assert lint.manifest_pair(markerless)[0] == markerless / "scripts/config/sqlite_reference_allowlist.json"
+    machinery = tmp_path / "machinery"
+    (machinery / "lu_machinery" / "hygiene").mkdir(parents=True)
+    (machinery / "pyproject.toml").write_text('[project]\nname = "lu-machinery"\n')
+    monkeypatch.setattr(lint, "REFERENCE_MANIFEST", machinery / "lu_machinery/hygiene" / real_pair[0].name)
+    monkeypatch.setattr(lint, "BASELINE", machinery / "lu_machinery/hygiene" / real_pair[1].name)
+    assert lint.manifest_pair(machinery) == (lint.REFERENCE_MANIFEST, lint.BASELINE)
+    monkeypatch.setattr(lint, "REFERENCE_MANIFEST", real_pair[0])
+    monkeypatch.setattr(lint, "BASELINE", real_pair[1])
     declaration.write_text(json.dumps([row("scripts/writer.py")]))
     monkeypatch.setenv("LU_PRODUCT_ROOT", str(product))
 

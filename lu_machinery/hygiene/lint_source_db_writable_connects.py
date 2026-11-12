@@ -27,6 +27,7 @@ import os
 import re
 import subprocess
 import sys
+import tomllib
 from collections import Counter
 from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass
@@ -34,7 +35,7 @@ from functools import cached_property, lru_cache, wraps
 from pathlib import Path
 from threading import RLock
 
-from lu_machinery.common.repo_root import PRODUCT_MARKER, ProductRootError, in_tree_source, product_root
+from lu_machinery.common.repo_root import ProductRootError, in_tree_source, product_root
 from lu_machinery.lib.readonly_sqlite import (
     PRODUCT_WRITER_DECLARATION,
     _DeclarationUnusable,
@@ -464,23 +465,33 @@ PRODUCT_BASELINE = f"scripts/hygiene/{BASELINE.name}"
 def manifest_pair(root: Path) -> tuple[Path, Path]:
     """The allowlist and baseline owned by the checkout at ``root``.
 
-    Only the machinery checkout that holds this running package scans with
-    machinery's packaged pair; a manifest file inside the scanned checkout never
-    selects it. A checkout carrying the product tree (``scripts``, which a
-    machinery checkout never has) or the product marker is a product even when it
-    holds the running package. Every product's pair is
-    :data:`PRODUCT_WRITER_DECLARATION` and :data:`PRODUCT_BASELINE`; a missing or
-    unusable product declaration fails the scan.
+    Only the machinery source checkout that holds this running package scans
+    with machinery's packaged pair: its ``pyproject.toml`` names the
+    ``lu-machinery`` project. A manifest file inside the scanned checkout never
+    selects it, and a product that merely hosts the package is still a product.
+    Every product's pair is :data:`PRODUCT_WRITER_DECLARATION` and
+    :data:`PRODUCT_BASELINE`; a missing or unusable product declaration fails the scan.
     """
-    product = any(os.path.lexists(root / rel) for rel in ("scripts", PRODUCT_MARKER))
-    if not product and _hosts_running_package(root):
+    if _hosts_running_package(root) and _machinery_project(root):
         return REFERENCE_MANIFEST, BASELINE
     return root / PRODUCT_WRITER_DECLARATION, root / PRODUCT_BASELINE
+
+
+MACHINERY_PROJECT = "lu-machinery"
 
 
 def _hosts_running_package(root: Path) -> bool:
     """``root`` is the checkout holding this running, installed-name package."""
     return not in_tree_source() and root.resolve() == REFERENCE_MANIFEST.resolve().parents[2]
+
+
+def _machinery_project(root: Path) -> bool:
+    """``root/pyproject.toml`` declares the ``lu-machinery`` project."""
+    try:
+        project = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8")).get("project")
+    except (OSError, UnicodeDecodeError, tomllib.TOMLDecodeError):
+        return False
+    return isinstance(project, dict) and project.get("name") == MACHINERY_PROJECT
 
 
 def _hosted_package_rows(root: Path, rows: list) -> list:
