@@ -156,6 +156,7 @@ def _alerts_reading() -> dict:
         if (
             not isinstance(labels, dict)
             or not isinstance(labels.get("alertname"), str)
+            or not isinstance(state, str)
             or state not in ALERT_STATES
             or not isinstance(annotations, dict)
         ):

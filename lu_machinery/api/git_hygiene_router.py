@@ -827,7 +827,10 @@ def _pull_request_row(node: dict[str, Any], *, private: bool) -> dict[str, Any]:
         "merge_state": _lower(node.get("mergeStateStatus")),
         "ci": _lower(rollup.get("state")),
         "review": _lower(review.get("state")),
-        "queue": {"position": queue.get("position"), "state": _lower(queue.get("state"))} if queue else None,
+        "queue": {
+            "position": queue.get("position") if isinstance(queue.get("position"), int) else None,
+            "state": _lower(queue.get("state")),
+        } if queue else None,
     }
 
 

@@ -114,6 +114,8 @@ def test_alerts_route_emits_only_allowlisted_fields(client: TestClient, monkeypa
     # One malformed item makes the whole reading unknown, never a healthy "nothing firing".
     for bad in ({}, None, {"labels": {"alertname": "X"}}, {"labels": {"alertname": "X"}, "status": {}},
                 {"labels": {"alertname": "X"}, "status": {"state": None}},
+                {"labels": {"alertname": "X"}, "status": {"state": []}},
+                {"labels": {"alertname": "X"}, "status": {"state": {}}},
                 {"labels": {"alertname": "X"}, "status": {"state": "active"}, "annotations": None}):
         alerts[:] = [bad]
         cache_invalidate()
