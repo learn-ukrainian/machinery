@@ -73,8 +73,7 @@ def test_edited_or_unparseable_marker_makes_sha_unknown(bad):
     assert sweep.lookup_verdict([item], SHA, "fleet").state == "unknown"
 
 
-# Binding second review (operator 2026-11-11; ordered list Muse, Carbon, Sol, Opus since
-# 2026-11-12): High-tier and security-sensitive PRs.
+# Binding second review: Carbon, Sol, Opus after Muse retirement (C-5241/C-5245).
 CARBON = "gemini-4-carbon-medium"
 MUSE = "muse-wonder-full-1.0"
 
@@ -95,8 +94,8 @@ def carbon(verdict="APPROVED", **kwargs):
     return record(task="review-carbon", model=CARBON, family="google", verdict=verdict, second=True, **kwargs)
 
 
-def muse(verdict="APPROVED", **kwargs):
-    return record(task="review-muse", model=MUSE, family="meta", verdict=verdict, second=True, **kwargs)
+def opus(verdict="APPROVED", **kwargs):
+    return record(task="review-opus", model="claude-opus-5-5", family="anthropic", verdict=verdict, second=True, **kwargs)
 
 
 def test_second_review_missing_holds_a_required_head_at_needs_seat():
@@ -123,8 +122,8 @@ def test_untokened_carbon_approval_is_not_a_reviewer_of_record_or_second_review(
     assert sweep.lookup_verdict([untokened], SHA, "fleet").state == "needs-CF"
     rows = [record(task="review-sol"), untokened]
     assert sweep.lookup_verdict(rows, SHA, "fleet", second_review=True).state == sweep.NEEDS_SEAT
-    # A listed model that also reviews of record (Muse) keeps that seat when untokened.
-    ordinary = record(task="review-muse", model=MUSE, family="meta")
+    # A listed model that also reviews of record (Opus) keeps that seat when untokened.
+    ordinary = record(task="review-opus", model="claude-opus-5-5", family="anthropic")
     assert sweep.lookup_verdict([ordinary], SHA, "fleet").state == "APPROVED"
     assert sweep.lookup_verdict([record(task="review-sol"), ordinary], SHA, "fleet",
                                 second_review=True).state == sweep.NEEDS_SEAT
@@ -159,7 +158,8 @@ def test_second_review_is_required_on_the_coverage_path():
     assert sweep.lookup_verdict(rows, SHA, "fleet", second_review=True).state == sweep.NEEDS_SEAT
     # The second review counts only from a family other than every approving reviewer of record's.
     assert sweep.lookup_verdict([*rows, carbon()], SHA, "fleet", second_review=True).state == sweep.NEEDS_SEAT
-    assert sweep.lookup_verdict([*rows, muse()], SHA, "fleet", second_review=True).state == "APPROVED"
+    assert sweep.lookup_verdict([*rows, record(task="review-sol-second", second=True)], SHA, "fleet",
+                                second_review=True).state == "APPROVED"
 
 
 def test_gemini_authored_required_head_takes_the_next_listed_family():
@@ -167,7 +167,7 @@ def test_gemini_authored_required_head_takes_the_next_listed_family():
     or is held for one no listed family may give."""
     rows = [record(task="review-sol", authors=("gemini-4-carbon-medium",))]
     assert sweep.lookup_verdict(rows, SHA, "fleet", second_review=True).state == sweep.NEEDS_SEAT
-    assert sweep.lookup_verdict([*rows, muse(authors=("gemini-4-carbon-medium",))], SHA, "fleet",
+    assert sweep.lookup_verdict([*rows, opus(authors=("gemini-4-carbon-medium",))], SHA, "fleet",
                                 second_review=True).state == "APPROVED"
     # A last_resort model may share the reviewer of record's family as its own run, never as that run.
     sol = record(task="review-sol-second", authors=("gemini-4-carbon-medium",), second=True)

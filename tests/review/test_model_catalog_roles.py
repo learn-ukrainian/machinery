@@ -33,7 +33,6 @@ from tests.review.test_model_catalog import (
 )
 from tests.review.test_model_catalog import (
     FIXED_NOW,
-    MUSE_REVIEW_CANDIDATE,
     assert_frozen_surfaces,
     encode,
     observed,
@@ -112,7 +111,7 @@ def test_wire_ids_belong_to_identity_and_transport_and_opus_has_native_and_agy_p
         "agy": "claude-opus-5-5-high",
     }
     assert approved_dispatcher_spelling(expanded_legacy_view(catalog)["review_candidates"]) == {
-        **APPROVED_BASELINE["catalog"]["review_candidates"], "muse": MUSE_REVIEW_CANDIDATE,
+        **{name: row for name, row in APPROVED_BASELINE["catalog"]["review_candidates"].items() if name != "muse"},
         "openai_red_team_exception": {
             "model_id": "gpt-6-astra", "route": "codex", "transport": "native_codex",
             "invocation": ".venv/bin/python scripts/dispatch.py dispatch --agent codex --model gpt-6-astra --effort high",
@@ -129,7 +128,6 @@ def test_launch_explicitly_pins_current_review_models():
         "claude-opus-5-5",
         "claude-sonnet-5-5",
         "gemini-3.8-flash-high",
-        "muse-wonder-full-1.0",
     }
     for row in launched.candidates:
         assert row.argv.count("--model") == 1
@@ -450,7 +448,7 @@ def test_frozen_complete_reviewer_receipts(index, tmp_path, monkeypatch):
     expected = json.loads(json.dumps(APPROVED_BASELINE["reviewer"][index]).replace(
         "gemma, glm, grok, kimi, muse", "gemma, glm, grok, muse"
     ).replace("scripts/agent_runtime/", "lu_machinery/agent_runtime/"))
-    trace = res.get("value", {}).get("trace")
-    if trace and trace[-1].get("name") == "muse" and "muse" not in [r.get("name") for r in expected.get("value", {}).get("trace", [])]:
-        trace.pop()
+    trace = expected.get("value", {}).get("trace")
+    if trace:
+        trace[:] = [row for row in trace if row.get("name") != "muse"]
     assert res == expected
