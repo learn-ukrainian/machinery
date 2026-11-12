@@ -35,7 +35,7 @@ from lu_machinery.fleet_comms.message_plane import read_plane_status
 from lu_machinery.lib.readonly_sqlite import SQLiteConnection, import_named_module, open_readonly
 from lu_machinery.orchestration import codex_transport_health
 
-from . import account_logins
+from . import account_logins, subscriptions
 from .monitor_context import MonitorContext, get_ctx, resolve_context
 from .monitor_context import production_context as production_context  # re-export: test monkeypatches
 
@@ -1669,3 +1669,19 @@ async def runtime_logins():
     operator's end dates for cancelled subscriptions, read from the host config.
     """
     return {**account_logins.logins_snapshot(), "subscriptions": account_logins.subscription_ends()}
+
+
+@router.get("/subscriptions")
+def runtime_subscriptions():
+    """Every subscription account's usage, pace, windows, credits, banked resets and plan facts.
+
+    One row per account, grouped by provider (``providers[].accounts[]``), for
+    the home page and for dispatch planning. Built by
+    ``subscriptions.subscriptions_snapshot`` from the host's usage cache, the
+    Monitor's in-memory AGY and Muse readings and the operator's plan-facts
+    file; it never calls a provider. A missing value is ``null`` in a section
+    whose ``status`` is ``unknown`` with a ``reason``; a reading older than
+    15 minutes is ``stale``. The console command
+    ``python -m lu_machinery.api.subscriptions --json`` prints the same JSON.
+    """
+    return subscriptions.subscriptions_snapshot()
