@@ -178,8 +178,12 @@ def _claude_row(label: str) -> dict[str, Any]:
     if claude is None:
         return {**row, "logged_in": None, "error": "claude_cli_not_found"}
     try:
-        with account_binding(label) as binding, _open_claude_directory(binding.config_dir) as directory:
-            _refuse_claude_launch(directory, binding.account, os.environ)
+        with account_binding(label) as binding, contextlib.ExitStack() as checked:
+            # The default login is bound to the host's sibling .claude.json by account_binding;
+            # only a separately bound label has an in-directory global config to admit.
+            if label != DEFAULT_CLAUDE_ACCOUNT:
+                directory = checked.enter_context(_open_claude_directory(binding.config_dir))
+                _refuse_claude_launch(directory, binding.account, os.environ)
             with tempfile.TemporaryDirectory(prefix="lu-login-", dir=ensure_scratch_root()) as home:
                 sandbox = Path(home)
                 result = _run(

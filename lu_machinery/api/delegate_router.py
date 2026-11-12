@@ -59,7 +59,7 @@ router = APIRouter(tags=["delegate"], lifespan=_active_lifespan)
 RESULT_BYTES_LIMIT = 64 * 1024
 TASK_READ_RETRIES = 2
 TASK_READ_RETRY_SECONDS = 0.01
-ACTIVE_TASK_STATUSES = {"running", "spawning", "settling", "needs_finalize"}
+ACTIVE_TASK_STATUSES = {"running", "spawning"}
 # Short enough that a dead pid drops off the active list quickly, long enough
 # that a burst of dashboard polls shares one directory scan.
 DELEGATE_LIST_TTL_S = 2.0
@@ -861,10 +861,16 @@ def get_delegate_task_detail(
 
 def recent_finished_tasks(*, ctx: MonitorContext | None = None, limit: int = RECENT_FINISHED_LIMIT) -> dict[str, Any]:
     """The last ``limit`` tasks that are no longer active, newest finish first."""
-    finished = [row for row in _delegate_task_rows(None, ctx=ctx) if row["status"] in RELEASED_TASK_STATUSES]
+    rows = _delegate_task_rows(None, ctx=ctx)
+    finished = [row for row in rows if row["status"] in RELEASED_TASK_STATUSES]
     finished.sort(key=lambda row: _parse_iso_datetime(row.get("finished_at"))
                   or _parse_iso_datetime(row.get("started_at")) or datetime.min.replace(tzinfo=UTC), reverse=True)
-    return {"total": len(finished), "tasks": finished[:limit]}
+    # Unfinished records need attention, but they are neither finished work nor in-flight capacity.
+    attention = [row for row in rows if row["status"] in {"needs_finalize", "settling", "zombie"}]
+    attention.sort(key=lambda row: _parse_iso_datetime(row.get("started_at"))
+                   or datetime.min.replace(tzinfo=UTC), reverse=True)
+    return {"total": len(finished), "tasks": finished[:limit],
+            "needs_attention": {"total": len(attention), "tasks": attention[:limit]}}
 
 
 def active_delegate_count(ctx: MonitorContext | None = None) -> int:

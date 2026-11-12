@@ -130,6 +130,19 @@ const PANELS = [
 })().catch(e => {console.error(e); process.exitCode = 1;});
 """
     )
+    page = machinery_path("api/dashboards/index.html").read_text()
+    script = page.split("<script>", 1)[1].split("\nrefreshAll();", 1)[0]
+    _node(_DOM + script + r"""
+const recent = renderRecent({tasks: [{task_id: 'finished', status: 'done'}],
+  needs_attention: {total: 1530, tasks: [{task_id: 'unfinished', status: 'needs_finalize'},
+    {task_id: 'crashed', status: 'zombie'}]}});
+assert.match(recent, /1530 unfinished task records need attention/);
+assert.match(recent, /Showing up to 2/);
+assert.match(recent, /needs_finalize/);
+assert.match(recent, /zombie/);
+assert.match(recent, /finished/);
+assert.doesNotMatch(renderWorkers({tasks: []}), /unfinished|zombie/);
+""")
 
 
 @pytest.mark.parametrize("body", ["not-json", "null", "[]"])

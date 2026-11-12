@@ -649,13 +649,20 @@ def test_recent_finished_tasks_orders_instants_and_excludes_unsettled(tmp_path, 
         ("later", "done", "2026-11-12T04:05:00.500000+00:00"),
         ("finalize", "needs_finalize", "2026-11-12T04:10:00Z"),
         ("settling", "settling", "2026-11-12T04:11:00Z"),
+        ("dead", "running", "2026-11-12T04:12:00Z"),
     ):
         _write_task(tasks / f"{task_id}.json", _task_payload(task_id, status=status, finished_at=finished))
+    monkeypatch.setattr(delegate_router, "_pid_alive", lambda pid: False)
     recent = delegate_router.recent_finished_tasks(ctx=ctx, limit=1)
     assert recent["total"] == 2
     assert [t["task_id"] for t in recent["tasks"]] == ["later"]
+    assert recent["needs_attention"]["total"] == 3
+    assert len(recent["needs_attention"]["tasks"]) == 1
+    all_recent = delegate_router.recent_finished_tasks(ctx=ctx)
+    assert {t["status"] for t in all_recent["needs_attention"]["tasks"]} == {"needs_finalize", "settling", "zombie"}
     active = delegate_router.active_delegate_tasks(ctx=ctx)
-    assert {t["task_id"] for t in active["tasks"]} == {"finalize", "settling"}
+    assert active["total"] == 0
+    assert delegate_router.active_delegate_count(ctx=ctx) == 0
 
 
 def test_accounting_conflict_is_unknown_in_list_and_detail(tmp_path, monkeypatch):

@@ -77,6 +77,10 @@ def test_claude_row_publishes_no_identity_and_unreadable_is_unknown(probe_env, m
         return _completed(json.dumps(status).encode())
 
     monkeypatch.setattr(account_logins, "_run", isolated_probe)
+    # A normal default account has no second global config inside its login directory.
+    assert not (probe_env / ".claude/.claude.json").exists()
+    monkeypatch.setattr(account_logins, "_open_claude_directory", lambda *a: pytest.fail("default got labelled gate"))
+    monkeypatch.setattr(account_logins, "_refuse_claude_launch", lambda *a: pytest.fail("default got labelled gate"))
     assert account_logins._claude_row("a")["logged_in"] is True
     monkeypatch.setattr(account_logins, "_run", lambda *a, **k: None)
     assert account_logins._claude_row("a")["logged_in"] is None

@@ -160,7 +160,12 @@ function renderWorkers(active) {
 
 function renderRecent(list) {
   const tasks = (Array.isArray(list.tasks) ? list.tasks : []).filter(task => !ACTIVE.has(task.status));
-  return table(["Task", "Agent / model", "Outcome", "Finished", "Duration", "PR"], tasks.map(task => [
+  const attention = list.needs_attention || {};
+  const pending = Array.isArray(attention.tasks) ? attention.tasks : [];
+  const attentionHtml = attention.total ? `<p class="bad">${escapeHtml(attention.total)} unfinished task records need attention. Showing up to ${pending.length}.</p>`
+    + table(["Task", "Agent / model", "State"], pending.map(task => [text(task.task_id),
+      text([task.agent, modelOf(task)].filter(Boolean).join(" / ")), text(task.status, "bad")])) : "";
+  return attentionHtml + table(["Task", "Agent / model", "Outcome", "Finished", "Duration", "PR"], tasks.map(task => [
     text(task.task_id),
     text([task.agent, modelOf(task)].filter(Boolean).join(" / ")),
     text(task.status, task.status === "done" ? "ok" : "bad"),
