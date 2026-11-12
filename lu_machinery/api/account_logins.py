@@ -33,6 +33,7 @@ import selectors
 import shutil
 import signal
 import subprocess
+import tempfile
 import threading
 import time
 from collections.abc import Callable, Mapping
@@ -44,8 +45,9 @@ from lu_machinery.agent_runtime.attempt_boundary import (
     CLAUDE_SUBSCRIPTION_ACCOUNT_LABELS,
     DEFAULT_CLAUDE_ACCOUNT,
     ClaudeAccountRefused,
+    _open_claude_directory,
+    _refuse_claude_launch,
     _user_config_file,
-    load_claude_account_binding,
 )
 from lu_machinery.agent_runtime.codex_accounts import (
     CODEX_SUBSCRIPTION_ACCOUNTS,
@@ -53,6 +55,9 @@ from lu_machinery.agent_runtime.codex_accounts import (
     CodexAccountRefused,
     codex_account_home,
 )
+from lu_machinery.common.scratch import ensure_scratch_root
+
+from .claude_account_usage import _await_exit, _ProbeFailed, account_binding, child_env
 
 TTL_S = 600.0
 _PROBE_TIMEOUT_S = 30
@@ -113,7 +118,7 @@ def _run(argv: list[str], env: dict[str, str], cwd: Path, *, with_stderr: bool) 
     output = bytearray()
     try:
         complete = _collect(proc, output, deadline)
-    except (AttributeError, OSError):  # no pidfd support, or a read error
+    except (AttributeError, OSError, _ProbeFailed):
         complete = False
     finally:
         # The leader is running or an unreaped zombie here, so its group id
@@ -131,35 +136,22 @@ def _collect(proc: subprocess.Popen[bytes], output: bytearray, deadline: float) 
     stdout = proc.stdout
     if stdout is None:
         return False
-    exit_fd = os.pidfd_open(proc.pid)  # readable once the leader exits; it stays unreaped
-    try:
-        with selectors.DefaultSelector() as selector:
-            selector.register(stdout, selectors.EVENT_READ, "output")
-            selector.register(exit_fd, selectors.EVENT_READ, "exit")
-            pending = 2
-            while pending:
-                remaining = deadline - time.monotonic()
-                if remaining <= 0:
-                    return False
-                events = selector.select(remaining)
-                if not events:
-                    return False
-                for key, _mask in events:
-                    if key.data == "exit":
-                        selector.unregister(exit_fd)
-                        pending -= 1
-                        continue
-                    chunk = os.read(stdout.fileno(), _MAX_OUTPUT_BYTES + 1 - len(output))
-                    if not chunk:
-                        selector.unregister(stdout)
-                        pending -= 1
-                        continue
-                    output.extend(chunk)
-                    if len(output) > _MAX_OUTPUT_BYTES:
-                        return False
-            return True
-    finally:
-        os.close(exit_fd)
+    with selectors.DefaultSelector() as selector:
+        selector.register(stdout, selectors.EVENT_READ)
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0 or not selector.select(remaining):
+                return False
+            chunk = os.read(stdout.fileno(), _MAX_OUTPUT_BYTES + 1 - len(output))
+            if not chunk:
+                break
+            output.extend(chunk)
+            if len(output) > _MAX_OUTPUT_BYTES:
+                return False
+    # The existing portable wait reserves the leader's PID until group cleanup.
+    # No pidfd API is required, and pipe EOF alone never proves leader completion.
+    _await_exit(proc.pid, deadline)
+    return True
 
 
 def _iso_or_none(value: Any) -> str | None:
@@ -182,17 +174,27 @@ def _short_text(value: Any) -> str | None:
 
 def _claude_row(label: str) -> dict[str, Any]:
     row: dict[str, Any] = {"account": _CLAUDE_NAMES.get(label, f"Claude {label}"), "provider": "claude"}
-    try:
-        config_dir = Path.home() / ".claude" if label == DEFAULT_CLAUDE_ACCOUNT else load_claude_account_binding(label).config_dir
-    except ClaudeAccountRefused as exc:
-        return {**row, "logged_in": None, "error": exc.code}
     claude = _cli("claude")
     if claude is None:
         return {**row, "logged_in": None, "error": "claude_cli_not_found"}
-    result = _run(
-        [claude, "auth", "status", "--json"], _child_env({"CLAUDE_CONFIG_DIR": str(config_dir)}), config_dir,
-        with_stderr=False,
-    )
+    try:
+        with account_binding(label) as binding, contextlib.ExitStack() as checked:
+            # The default login is bound to the host's sibling .claude.json by account_binding;
+            # only a separately bound label has an in-directory global config to admit.
+            if label != DEFAULT_CLAUDE_ACCOUNT:
+                directory = checked.enter_context(_open_claude_directory(binding.config_dir))
+                _refuse_claude_launch(directory, binding.account, os.environ)
+            with tempfile.TemporaryDirectory(prefix="lu-login-", dir=ensure_scratch_root()) as home:
+                sandbox = Path(home)
+                result = _run(
+                    [claude, "--setting-sources", "project,local", "auth", "status", "--json"],
+                    child_env(binding.config_dir, sandbox=sandbox), sandbox, with_stderr=False,
+                )
+            expected_directory, expected_account = binding.config_dir, binding.account
+    except ClaudeAccountRefused as exc:
+        return {**row, "logged_in": None, "error": exc.code}
+    except OSError:
+        return {**row, "logged_in": None, "error": "probe_failed"}
     if result is None or result[0] != 0:
         return {**row, "logged_in": None, "error": "probe_failed"}
     try:
@@ -201,6 +203,12 @@ def _claude_row(label: str) -> dict[str, Any]:
         data = None
     if not isinstance(data, dict) or not isinstance(data.get("loggedIn"), bool):
         return {**row, "logged_in": None, "error": "unreadable_status"}
+    if data["loggedIn"] and (
+        data.get("authMethod") != "claude.ai" or data.get("apiProvider") != "firstParty"
+        or data.get("configDirectory") != str(expected_directory)
+        or data.get("accountUuid", expected_account) != expected_account
+    ):
+        return {**row, "logged_in": None, "error": "claude_account_auth_method_conflict"}
     row["logged_in"] = data["loggedIn"]
     for name in _CLAUDE_TEXT_FIELDS:
         row[name] = _short_text(data.get(name))

@@ -89,19 +89,25 @@ def test_home_panels_paint_independently_and_a_failed_panel_clears_old_data():
         _DOM
         + r"""
 const calls = [];
+const REFRESH_MS = 30000;
+let logins = null;
+let loginPolls = 0;
+const setTimeout = (fn, ms) => {if (ms === 3000) loginPolls++;};
 let resolveSlow;
 const slow = new Promise(resolve => {resolveSlow = resolve;});
 const fetchJson = async url => {
   calls.push(url);
   if (url === '/slow') return slow;
   if (url === '/broken') throw new Error('/broken: HTTP 503');
-  return {tasks: []};
+  if (url === '/login') return {data: {state: 'pending'}, age: null, snapshot: false};
+  return {data: {tasks: []}, age: 900, snapshot: true};
 };
 const escapeHtml = value => String(value);
 const PANELS = [
   {id: 'fast', urls: ['/fast'], render: data => `fast ${data.tasks.length}`},
   {id: 'broken', urls: ['/broken'], render: () => 'never'},
   {id: 'slow', urls: ['/slow'], render: data => `slow ${data.marker}`},
+  {id: 'logins', urls: ['/login'], render: data => data.state},
 ];
 """
         + code
@@ -110,17 +116,33 @@ const PANELS = [
   const first = Promise.all(PANELS.map(loadPanel));
   await tick();
   assert.equal(document.getElementById('fast-content').innerHTML, 'fast 0');
+  assert.equal(document.getElementById('fast-age').textContent, 'Source age 900s');
+  assert.equal(document.getElementById('fast-age').className, 'bad');
+  assert.equal(loginPolls, 1, 'pending login retries independently of another failed panel');
   assert.match(document.getElementById('broken-content').innerHTML, /Unavailable: \/broken: HTTP 503/);
   assert.doesNotMatch(document.getElementById('broken-content').innerHTML, /old data/);
   assert.equal(document.getElementById('slow-content').innerHTML, 'old data');
   await loadPanel(PANELS[2]);
   assert.equal(calls.filter(url => url === '/slow').length, 1, 'overlap must not duplicate requests');
-  resolveSlow({marker: 'new'});
+  resolveSlow({data: {marker: 'new'}, age: null, snapshot: false});
   await first;
   assert.equal(document.getElementById('slow-content').innerHTML, 'slow new');
 })().catch(e => {console.error(e); process.exitCode = 1;});
 """
     )
+    page = machinery_path("api/dashboards/index.html").read_text()
+    script = page.split("<script>", 1)[1].split("\nrefreshAll();", 1)[0]
+    _node(_DOM + script + r"""
+const recent = renderRecent({tasks: [{task_id: 'finished', status: 'done'}],
+  needs_attention: {total: 1530, tasks: [{task_id: 'unfinished', status: 'needs_finalize'},
+    {task_id: 'crashed', status: 'zombie'}]}});
+assert.match(recent, /1530 unfinished task records need attention/);
+assert.match(recent, /Showing up to 2/);
+assert.match(recent, /needs_finalize/);
+assert.match(recent, /zombie/);
+assert.match(recent, /finished/);
+assert.doesNotMatch(renderWorkers({tasks: []}), /unfinished|zombie/);
+""")
 
 
 @pytest.mark.parametrize("body", ["not-json", "null", "[]"])

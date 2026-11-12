@@ -6,8 +6,10 @@ import json
 import sys
 import threading
 import time
+from contextlib import nullcontext
 from datetime import date
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -24,16 +26,21 @@ def probe_env(monkeypatch, tmp_path):
     (tmp_path / ".claude").mkdir()
     monkeypatch.setattr(account_logins, "_cli", lambda name: f"/opt/{name}")
     monkeypatch.setattr(account_logins, "codex_account_home", lambda label: tmp_path / f"codex-{label}")
+    monkeypatch.setattr(account_logins, "account_binding", lambda label: nullcontext(
+        SimpleNamespace(config_dir=tmp_path / ".claude", account="acct-secret-uuid")))
+    monkeypatch.setattr(account_logins, "_open_claude_directory", lambda path: nullcontext(1))
+    monkeypatch.setattr(account_logins, "_refuse_claude_launch", lambda *args: {})
+    monkeypatch.setattr(account_logins, "ensure_scratch_root", lambda: tmp_path)
     return tmp_path
 
 
 def test_claude_row_publishes_no_identity_and_unreadable_is_unknown(probe_env, monkeypatch):
     """Defect class: an email, org or account id leaks; an unreadable status reads as signed in."""
     status = {
-        "loggedIn": True, "authMethod": "claude.ai", "subscriptionType": "max",
+        "loggedIn": True, "authMethod": "claude.ai", "apiProvider": "firstParty", "subscriptionType": "max",
         "loginExpiresAt": "2030-01-02T03:04:05.678Z", "email": "person@example.invalid",
         "orgId": "org-secret-id", "orgName": "Private Org", "accountUuid": "acct-secret-uuid",
-        "configDirectory": "/private/claude",
+        "configDirectory": str(probe_env / ".claude"),
     }
     monkeypatch.setattr(account_logins, "_run", lambda *a, **k: _completed(json.dumps(status).encode()))
     row = account_logins._claude_row("a")
@@ -50,6 +57,31 @@ def test_claude_row_publishes_no_identity_and_unreadable_is_unknown(probe_env, m
     # A failed probe is unknown even when its stdout claims a sign-in.
     monkeypatch.setattr(account_logins, "_run", lambda *a, **k: _completed(b'{"loggedIn": true}', returncode=2))
     assert account_logins._claude_row("a")["logged_in"] is None
+    for key, wrong in (("authMethod", "api_key_helper"), ("apiProvider", "other"),
+                       ("accountUuid", "other-account"), ("configDirectory", "/other")):
+        monkeypatch.setattr(account_logins, "_run", lambda *a, **k: _completed(json.dumps({**status, key: wrong}).encode()))
+        assert account_logins._claude_row("a")["logged_in"] is None
+
+    def refuse(*args):
+        raise account_logins.ClaudeAccountRefused("claude_account_binding_is_default")
+
+    monkeypatch.setattr(account_logins, "_refuse_claude_launch", refuse)
+    monkeypatch.setattr(account_logins, "_run", lambda *a, **k: pytest.fail("refused account launched"))
+    assert account_logins._claude_row("b")["error"] == "claude_account_binding_is_default"
+    monkeypatch.setattr(account_logins, "_refuse_claude_launch", lambda *args: {})
+
+    def isolated_probe(argv, env, cwd, **kwargs):
+        assert argv[1:3] == ["--setting-sources", "project,local"]
+        assert env["HOME"] == str(cwd) and cwd != probe_env
+        assert env["CLAUDE_CONFIG_DIR"] == str(probe_env / ".claude")
+        return _completed(json.dumps(status).encode())
+
+    monkeypatch.setattr(account_logins, "_run", isolated_probe)
+    # A normal default account has no second global config inside its login directory.
+    assert not (probe_env / ".claude/.claude.json").exists()
+    monkeypatch.setattr(account_logins, "_open_claude_directory", lambda *a: pytest.fail("default got labelled gate"))
+    monkeypatch.setattr(account_logins, "_refuse_claude_launch", lambda *a: pytest.fail("default got labelled gate"))
+    assert account_logins._claude_row("a")["logged_in"] is True
     monkeypatch.setattr(account_logins, "_run", lambda *a, **k: None)
     assert account_logins._claude_row("a")["logged_in"] is None
 
@@ -66,12 +98,14 @@ def test_codex_signed_out_only_on_its_answer_and_failures_are_unknown(probe_env,
         assert account_logins._codex_row("b-sub")["logged_in"] is None
 
 
-def test_probe_output_over_the_cap_is_unknown_and_not_kept(tmp_path):
+def test_probe_output_over_the_cap_is_unknown_and_not_kept(tmp_path, monkeypatch):
     """Defect class: an unbounded CLI output is buffered whole in the API process."""
     cap = account_logins._MAX_OUTPUT_BYTES
     noisy = [sys.executable, "-c", f"import os; os.write(1, b'x' * {cap + 1}); os.write(2, b'e' * {cap + 1})"]
     assert account_logins._run(noisy, {}, tmp_path, with_stderr=True) is None
     quiet = [sys.executable, "-c", "import os, sys; os.write(1, b'ok'); os.write(2, b'warn'); sys.exit(3)"]
+    # The portable completion proof also works on Python builds without pidfd_open.
+    monkeypatch.delattr(account_logins.os, "pidfd_open", raising=False)
     assert account_logins._run(quiet, {}, tmp_path, with_stderr=False) == (3, b"ok")
 
 
