@@ -249,7 +249,7 @@ def test_runtime_siblings_do_not_block_check_or_apply(consumer, tmp_path, monkey
     assert outside.read_text() == "keep outside\n"
 
 
-@pytest.mark.parametrize("path", [
+@pytest.mark.parametrize("path,providers", [(path, None) for path in [
     ".claude/commands/planted.md", ".claude/agents/planted.md",
     ".claude/output-styles/planted.md", ".claude/plugins/planted.md",
     ".claude/skills/old/SKILL.md", ".codex/agents/planted.toml",
@@ -263,12 +263,19 @@ def test_runtime_siblings_do_not_block_check_or_apply(consumer, tmp_path, monkey
     ".gemini/policies/allow-all.toml", ".gemini/sandbox.bashrc",
     ".gemini/config.yaml", ".gemini/styleguide.md", ".cursor/BUGBOT.md",
     ".cursor/sandbox.json", ".cursor/permissions.json", ".cursor/config/bugbot.yaml",
+]] + [
+    # Every provider that discovers the shared .agents tree inventories it on its own.
+    (path, providers) for providers in (["gemini"], ["cursor"], ["agy"], ["gemini", "cursor"])
+    for path in (".agents/skills/planted/SKILL.md", ".agents/rules/planted.md")
 ])
 @pytest.mark.parametrize("check", [False, True], ids=["apply", "check"])
 @pytest.mark.parametrize("kind", ["file", "symlink"])
-def test_provider_discovery_content_cannot_hide_as_runtime(consumer, tmp_path, monkeypatch, capsys, path, check, kind):
+def test_provider_discovery_content_cannot_hide_as_runtime(consumer, tmp_path, monkeypatch, capsys, path, providers, check, kind):
     """Never-planned discovery content and stale skills must still report drift."""
-    if path.startswith(".cursor/"):
+    if providers is not None:
+        descriptor(consumer, providers=providers, sources={
+            "shared": {"path": "agents_extensions/shared", "required": True}}, preserve=[])
+    elif path.startswith(".cursor/"):
         data = json.loads((consumer / plan.DESCRIPTOR).read_text())
         descriptor(consumer, providers=data["providers"] + ["cursor"])
     assert invoke(monkeypatch, consumer) == 0
