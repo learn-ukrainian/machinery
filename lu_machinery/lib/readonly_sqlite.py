@@ -24,7 +24,7 @@ from types import ModuleType
 from typing import Any, Protocol, Self
 from urllib.parse import parse_qs, unquote, urlsplit
 
-from lu_machinery.common.repo_root import machinery_path, machinery_root
+from lu_machinery.common.repo_root import in_tree_source, machinery_path, machinery_root
 
 
 class SQLiteConnection(Protocol):
@@ -241,7 +241,9 @@ _GUARD_PATH = _checkout_relative("lib/readonly_sqlite.py")
 # Product corpus writers (W1, machinery #100). The product declares its own
 # writers in a file it owns, in the bound product checkout
 # (``repo_root.product_root``); machinery's declaration lists only machinery's
-# writers. The format is the writer allowlist's: a JSON list of objects whose
+# writers. In the in-tree source copy the package directory is the product's
+# own tree, so there the product's declaration alone authorizes a frame.
+# The format is the writer allowlist's: a JSON list of objects whose
 # ``path`` is checkout-relative and whose ``kind`` is ``writer`` for a writer.
 PRODUCT_WRITER_DECLARATION = "scripts/config/sqlite_reference_allowlist.json"
 _MAX_DECLARATION_BYTES = 1024 * 1024
@@ -388,9 +390,15 @@ def _unique_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
 
 
 def _product_writer_paths(product: str) -> frozenset[str]:
-    """Writer paths the product checkout at real path ``product`` declares.
+    """Writer paths the product checkout at real path ``product`` declares."""
+    return frozenset(row["path"] for row in product_declaration_rows(product) if row["kind"] == "writer")
 
-    Raises :class:`_DeclarationUnusable` when the declaration is missing,
+
+def product_declaration_rows(product: str) -> list[dict[str, Any]]:
+    """The rows of the declaration of the product checkout at real path ``product``.
+
+    The runtime guard and the static lint both read the declaration here, so a
+    declaration the guard refuses never passes the lint. Raises :class:`_DeclarationUnusable` when the declaration is missing,
     unreadable, not a regular file reached without a symlink, too large or
     malformed (not strict UTF-8 JSON, a duplicate key, a row without a string
     ``path`` and ``kind``, a non-canonical or repeated ``path``).
@@ -407,7 +415,6 @@ def _product_writer_paths(product: str) -> frozenset[str]:
     if not isinstance(rows, list):
         raise _DeclarationUnusable("product_declaration_malformed")
     seen: set[str] = set()
-    writers: set[str] = set()
     for row in rows:
         path = row.get("path") if isinstance(row, dict) else None
         kind = row.get("kind") if isinstance(row, dict) else None
@@ -420,9 +427,7 @@ def _product_writer_paths(product: str) -> frozenset[str]:
         ):
             raise _DeclarationUnusable("product_declaration_malformed")
         seen.add(path)
-        if kind == "writer":
-            writers.add(path)
-    return frozenset(writers)
+    return rows
 
 
 def _within(root: str, real: str) -> bool:
@@ -439,8 +444,10 @@ def _stack_refusal(factory: str | None) -> str | None:
     """``None`` when an ingest function or a declared writer file is on the stack, else a path-free reason.
 
     Each frame is judged by its real path (symlinks resolved). A frame inside
-    the machinery package counts only when machinery's declaration lists it. Any
-    other frame counts only when it is inside the bound product checkout
+    the installed or standalone machinery package counts only when machinery's
+    declaration lists it. Any other frame, and in the in-tree source copy (whose
+    package directory is the product's tree) every frame, counts only when it is
+    inside the bound product checkout
     (``repo_root.product_root``, resolved) and the product's declaration
     (:data:`PRODUCT_WRITER_DECLARATION`) lists it. An unbound
     product or an unusable declaration authorizes no product frame; its reason
@@ -454,6 +461,7 @@ def _stack_refusal(factory: str | None) -> str | None:
     """
     from lu_machinery.common.repo_root import ProductRootError, product_root
 
+    in_tree = in_tree_source()
     machinery_writers = _declared_writer_paths()
     package = os.path.realpath(machinery_root())
     package_parent = os.path.dirname(package)
@@ -468,9 +476,13 @@ def _stack_refusal(factory: str | None) -> str | None:
             real = os.path.realpath(frame.filename)
         except (OSError, ValueError):
             continue
-        if _within(package, real):
+        in_package = _within(package, real)
+        if in_package:
             rel = os.path.relpath(real, package_parent).replace(os.sep, "/")
-            if rel == _GUARD_PATH or (rel, frame.function) in _SEAM_FUNCTIONS or rel not in machinery_writers:
+            if rel == _GUARD_PATH or (rel, frame.function) in _SEAM_FUNCTIONS:
+                continue
+        if in_package and not in_tree:
+            if rel not in machinery_writers:
                 continue
         else:
             if not product_looked_up:

@@ -1,9 +1,12 @@
 """Writer boundary rejects unsafe locations before any caller can mutate them."""
 
+import importlib.util
+import json
 from pathlib import Path
 
 import pytest
 
+from lu_machinery.lib import readonly_sqlite
 from lu_machinery.storage import topology as t
 
 
@@ -166,3 +169,43 @@ def test_sqlite_uri_encodes_filename_without_query_injection(stores, tmp_path, n
 def test_placeholder_and_read_bindings_never_become_write_targets(stores):
     assert t.resolve_store_for_write("vesum", stores, intent="update", target=t.StoreBinding("vesum", stores / "data" / "vesum.db"), env={}) == t.StoreRefusal("vesum", "invalid_binding")
     assert t.resolve_store_for_write("vesum", stores, intent="update", target=t.ExplicitStoreWriteTarget(t.unavailable_store_path("vesum")), env={}) == t.StoreRefusal("vesum", "store_missing")
+
+
+def test_in_tree_product_writer_requires_product_declaration(tmp_path, monkeypatch):
+    """Defect class: in-tree package rows authorizing a product writer (machinery #338).
+
+    In the in-tree source copy the package directory is the product's tree, so a
+    writer there is authorized by the product's declaration alone: a missing or
+    revoked declaration refuses, a valid one allows. No database is opened.
+    """
+    checkout = tmp_path / "product"
+    writer = checkout / "scripts" / "vocab" / "vocab_init.py"
+    writer.parent.mkdir(parents=True)
+    writer.write_text(
+        "from lu_machinery.lib.readonly_sqlite import refuse_writable_corpus_database\n\n\n"
+        "def ingest(path):\n"
+        "    refuse_writable_corpus_database(path)\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(readonly_sqlite, "in_tree_source", lambda: True)
+    monkeypatch.setattr(readonly_sqlite, "machinery_root", lambda: checkout / "scripts")
+    monkeypatch.setenv("LU_PRODUCT_ROOT", str(checkout))
+    spec = importlib.util.spec_from_file_location("in_tree_vocab_init", writer)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    database = str(tmp_path / "data" / "vesum.db")
+    declaration = checkout / readonly_sqlite.PRODUCT_WRITER_DECLARATION
+
+    with pytest.raises(readonly_sqlite.ProductWriterDeclarationRefused) as missing:
+        module.ingest(database)
+    assert missing.value.reason == "product_declaration_missing"
+
+    declaration.parent.mkdir(parents=True)
+    declaration.write_text(json.dumps([{"path": "scripts/vocab/vocab_init.py", "kind": "writer"}]), encoding="utf-8")
+    module.ingest(database)
+
+    declaration.write_text(json.dumps([{"path": "scripts/vocab/other.py", "kind": "writer"}]), encoding="utf-8")
+    with pytest.raises(readonly_sqlite.CorpusDatabaseWriteRefused, match=r"vesum\.db"):
+        module.ingest(database)
+    assert not (tmp_path / "data").exists()
