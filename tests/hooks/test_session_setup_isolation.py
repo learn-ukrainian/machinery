@@ -173,12 +173,15 @@ def test_session_start_drift_check_matches_the_installed_deployer(tmp_path: Path
     link = tmp_path / "project-link"
     link.symlink_to(project)
     assert _deploy_lines(Path(str(link) + "/"), tmp_path, cwd=project) == []
-    # A root whose name ends in a newline is unsafe input: the hook bootstrap refuses it before any
-    # interpreter starts, so it is never checked as its clean namesake.
+    # A root whose name ends in a newline is unsafe input, so its clean namesake (the valid project
+    # beside it) is never checked in its place: as the anchor it refuses before any interpreter
+    # starts, and as the configured product it refuses at the hook bootstrap, even from a clean cwd.
     unsafe = tmp_path / "project\n"
     shutil.copytree(project, unsafe, symlinks=True)
-    refused = _run_hook(cwd=unsafe, home=tmp_path / "home", project=unsafe, pythonpath=None, plant_log=tmp_path / "log")
-    assert refused.returncode != 0 and "HOOK-BOOTSTRAP-FAILED" in refused.stderr, refused.stderr
+    for cwd, primary, refusal in ((unsafe, None, "is not a primary checkout"), (project, project, "HOOK-BOOTSTRAP-FAILED")):
+        refused = _run_hook(cwd=cwd, home=tmp_path / "home", project=unsafe, pythonpath=None, plant_log=tmp_path / "log",
+                            primary=primary)
+        assert refused.returncode != 0 and refusal in refused.stderr, (cwd, refused.stderr)
 
     for path in ("agents_extensions", "product-claude", "product-codex"):
         subprocess.run(["git", "-C", str(project), "add", path], check=True)

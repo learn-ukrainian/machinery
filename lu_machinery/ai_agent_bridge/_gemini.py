@@ -145,6 +145,14 @@ def ask_gemini(
     accepted on the AGY ACP route; other explicit Gemini models fail clearly.
     """
     require_core_or_exit("ask-gemini")
+    if not allow_write:
+        # Gemini runs only through AGY, whose read-only mode exists only on the review
+        # route (#100): refuse before the message is written, acknowledged or invoked.
+        print(
+            "❌ ask-gemini refused: read-only Gemini has no AGY read-only boundary; use ask-agy (ACP) or a channel",
+            file=sys.stderr,
+        )
+        return None
     from ._acp_compat import resolve_compat_model
 
     selected = resolve_compat_model("gemini", model)

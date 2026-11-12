@@ -528,27 +528,36 @@ def test_ambiguous_or_resumed_rollover_fails_before_lease_and_codex(tmp_path: Pa
 
 @pytest.mark.parametrize(
     ("checkout_kind", "configured"),
-    [("primary", ""), ("primary", "./relative-python"), ("primary", "absolute"),
-     ("linked", ""), ("linked", "./relative-python"), ("linked", "absolute")],
+    [(kind, configured) for kind in ("primary", "forged", "linked") for configured in ("", "./relative-python", "absolute")],
 )
 def test_documented_wrapper_refuses_worktree_or_relative_interpreter(tmp_path: Path, checkout_kind: str, configured: str) -> None:
-    """The installed-release lookup must never execute a planted worktree interpreter."""
+    """Defect class: the installed-release lookup executing a checkout-local interpreter (#100).
+
+    No local check tells a real primary from a checkout whose Git metadata was rewritten
+    into a primary-shaped ``.git`` directory (``forged``), so every checkout kind needs the
+    configured absolute interpreter, and that interpreter wins over the checkout's own
+    planted ``.venv`` even in a real primary.
+    """
     root = tmp_path / "checkout"
     root.mkdir()
     if checkout_kind == "primary":
-        (root / ".git").mkdir()
+        subprocess.run(["git", "init", "-q", str(root)], check=True, capture_output=True,
+                       env={k: v for k, v in os.environ.items() if not k.startswith("GIT_")})
+    elif checkout_kind == "forged":
+        for name in ("objects", "refs"):
+            (root / ".git" / name).mkdir(parents=True)
+        (root / ".git/HEAD").write_text("ref: refs/heads/main\n")
     else:
         (root / ".git").write_text("gitdir: unused\n")
     marker = tmp_path / "untrusted-executed"
-    planted = f'#!/bin/sh\ntouch "{marker}"\n'
+    planted = f'#!/bin/sh\ntouch "{marker}"\nprintf "%s\\n" "{tmp_path / 'planted-package'}"\n'
     _write_executable(root / ".venv/bin/python", planted)
     _write_executable(root / "relative-python", planted)
+    _write_executable(tmp_path / "planted-package/lib/launcher_core.sh", 'printf "planted-release-loaded\\n"\n')
     package = tmp_path / "installed-package"
     _write_executable(package / "lib/launcher_core.sh", 'printf "trusted-release-loaded\\n"\n')
     trusted = tmp_path / "trusted-python"
     _write_executable(trusted, f'#!/bin/sh\nprintf "%s\\n" "{package}"\n')
-    if checkout_kind == "primary":
-        _write_executable(root / ".venv/bin/python", trusted.read_text())
     header = machinery_path("lib/launcher_core.sh").read_text().split("# Fixed arguments", 1)[0]
     recipe = "\n".join(line[2:] for line in header.splitlines() if line.startswith("#   "))
     wrapper = root / "start-codex.sh"
@@ -559,9 +568,10 @@ def test_documented_wrapper_refuses_worktree_or_relative_interpreter(tmp_path: P
         env["LEARN_UKRAINIAN_PYTHON"] = str(trusted) if configured == "absolute" else configured
     result = _run([str(wrapper), "--help"], root, env=env)
     assert not marker.exists()
-    if configured == "absolute" or (checkout_kind == "primary" and not configured):
+    if configured == "absolute":
         assert result.returncode == 0, result.stderr
         assert result.stdout == "trusted-release-loaded\n"
     else:
         assert result.returncode == 2
         assert "absolute trusted interpreter" in result.stderr
+        assert "release-loaded" not in result.stdout

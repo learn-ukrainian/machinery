@@ -190,9 +190,13 @@ def test_find_session_recovery_prefers_brief_match_when_windows_overlap(tmp_path
     assert recovery.text == "right reply"
 
 
-@pytest.mark.parametrize("agent", ["agy", "gemini"])
-def test_run_inbox_refuses_agy_recipient_before_claiming_delivery(agent, monkeypatch):
-    """Defect class: an AGY inbox delivery expired, claimed or terminal-failed before the read-only refusal (#100)."""
+@pytest.mark.parametrize("agent", ["agy", "gemini", "gemini-infra"])
+def test_run_inbox_refuses_agy_recipient_before_claiming_delivery(agent, monkeypatch, capsys):
+    """Defect class: an AGY inbox delivery expired, claimed or terminal-failed before the read-only refusal (#100).
+
+    A Gemini role slot (``gemini-infra``) is no runtime agent, so it refuses the same way;
+    ``ab sync --all`` drains no AGY inbox, so it never reports that refusal.
+    """
     thread = _make_thread(agent, body="please review this carefully")
     conn = _db.get_db()
     try:
@@ -223,3 +227,10 @@ def test_run_inbox_refuses_agy_recipient_before_claiming_delivery(agent, monkeyp
     row = _delivery_row(str(thread["message_id"]))
     assert row["status"] == "pending"
     assert row["last_error_kind"] is None
+
+    capsys.readouterr()
+    with patch("lu_machinery.ai_agent_bridge._channels_cli._handle_inbox_run", return_value=0) as drain:
+        assert _channels_cli._handle_sync(SimpleNamespace(all=True, agent=None, auth=None)) == 0
+    drained = {call.args[0].agent for call in drain.call_args_list}
+    assert drained and not drained & {"agy", "gemini", "gemini-infra"}
+    assert "agy_inbox_unsupported" not in capsys.readouterr().err

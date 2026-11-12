@@ -104,10 +104,12 @@ _PUSH_CREDENTIAL_NAMES = (
 # The #7827 dispatch markers ride here for the same reason: a task id
 # containing ``sk-`` must still reach the worker's SessionStart gate.
 # ``LU_PRODUCT_ROOT`` names the product checkout (often a worktree named after a
-# task) that hooks and the installed package serve.
+# task) that hooks and the installed package serve. ``LEARN_UKRAINIAN_PRIMARY_REPO_ROOT``
+# is the configured shared-state anchor, without which every hook bootstrap refuses.
 _SAFE_VALUE_NAME_ALLOWLIST = {
     "LEARN_UKRAINIAN_DISPATCH_AGENT",
     "LEARN_UKRAINIAN_DISPATCH_TASK_ID",
+    "LEARN_UKRAINIAN_PRIMARY_REPO_ROOT",
     "MYPY_CACHE_DIR",
     "PYTHONPYCACHEPREFIX",
     "RUFF_CACHE_DIR",

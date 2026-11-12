@@ -1,5 +1,7 @@
 """The provider environment carries the sense-proof directory and nothing else that is ambient."""
 
+from dataclasses import replace
+
 import pytest
 from lu_machinery.dispatcher import environment
 from lu_machinery.dispatcher.types import TaskSpec
@@ -31,6 +33,12 @@ def test_child_env_carries_sense_proof_dir_and_strips_logins(tmp_path, monkeypat
 
     monkeypatch.delenv(PROOF_DIR)
     assert PROOF_DIR not in environment.child_env(spec)
+
+    # Every worker's hooks refuse without the configured shared-state anchor (#100), so it
+    # reaches each provider in either mode.
+    monkeypatch.setenv("LEARN_UKRAINIAN_PRIMARY_REPO_ROOT", str(tmp_path))
+    for mode in ("read-only", "workspace-write"):
+        assert environment.child_env(replace(spec, mode=mode))["LEARN_UKRAINIAN_PRIMARY_REPO_ROOT"] == str(tmp_path)
 
 
 pytestmark = pytest.mark.usefixtures("configured_roots")

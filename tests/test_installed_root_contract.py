@@ -183,7 +183,11 @@ elif scenario in ('gh_shim', 'guarded_gh_shim'):
         os.environ[rr.INTERPRETER_ENV] = str(python)
     with patch('lu_machinery.agent_runtime.agent_github_identity.resolve_agent_github_identity', return_value=None):
         source = build_agent_env(provider='claude', model='claude-opus-5-5')
-    assert rr.PRIMARY_ROOT_ENV not in source and rr.INTERPRETER_ENV not in source
+    # The anchor reaches the child, since every hook bootstrap there refuses without it (#100), but
+    # only as the configured primary passed in: never the package's ancestors or a checkout (#177).
+    assert source[rr.PRIMARY_ROOT_ENV] == str(primary) == str(rr.configured_primary_root())
+    assert not Path(site).is_relative_to(source[rr.PRIMARY_ROOT_ENV])
+    assert rr.INTERPRETER_ENV not in source
     environment = _apply_merge_guard(mode='danger' if scenario == 'guarded_gh_shim' else 'safe', env=source)
     assert environment[rr.INTERPRETER_ENV] == str(python)
     result = subprocess.run(['gh', 'auth', 'status'], cwd=product, env=environment,

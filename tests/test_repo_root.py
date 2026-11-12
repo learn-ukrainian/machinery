@@ -494,7 +494,7 @@ def test_a_configured_product_cannot_hide_a_bad_invocation_git(unconfigured, tmp
     """Defect class (C3): a configured product root hiding the invocation checkout's symlinked or malformed ``.git``.
 
     ``newline-named`` is the same symlinked ``.git`` in a directory whose name ends in a
-    newline, which command substitution would strip to a clean sibling name.
+    newline, beside a clean-named real primary that command substitution would strip it to.
 
     Configured precedence stays: a well-formed invocation directory still resolves to the
     configured product. Only the invocation's own Git metadata is refused, at the hook-root
@@ -511,6 +511,9 @@ def test_a_configured_product_cannot_hide_a_bad_invocation_git(unconfigured, tmp
     monkeypatch.setenv(configured, str(product))
     bad = tmp_path / ("invocation\n" if shape == "newline-named" else "invocation")
     bad.mkdir()
+    if shape == "newline-named":
+        # The clean namesake is a valid primary: checking it instead of ``bad`` would accept.
+        _primary_checkout(tmp_path / "invocation")
     if shape in ("symlinked-git", "newline-named"):
         (bad / ".git").symlink_to(primary / ".git")
     else:
@@ -549,7 +552,7 @@ def test_the_native_hook_contract_bytes_match_the_product_contract():
         "tail": hashlib.sha256(hooks._HOOK_TAIL.encode()).hexdigest(),
     }
     assert digest == {
-        "resolvers": "918eb7b2bfc8b4136f3f3654a535bfa9af18b87465788364f617081d6b8d402f",
+        "resolvers": "b1b82bb91cd13de0179bb42ba08a4c85f9866534bacaad715dda0548863bb311",
         "tail": "07c159b32db24585e1000733af4b305e1d275b0b9889ba6cc7899f2b438f96da",
     }
     assert "claude-audit-hook" in hooks.NATIVE_HOOK_MODES

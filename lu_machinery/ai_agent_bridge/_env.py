@@ -92,6 +92,9 @@ def build_agent_env(
     if repo_root is not None:
         venv_bin = str(repo_root / ".venv" / "bin")
         env["PATH"] = f"{venv_bin}:{env.get('PATH', raw.get('PATH', ''))}"
+        # The repository the bridge resolved (AB_REPO_ROOT or the configured product) is the
+        # product its detached children serve: their hook gate derives none from a scratch cwd.
+        env.setdefault("LU_PRODUCT_ROOT", str(repo_root))
 
     env.setdefault("PATH", raw.get("PATH", ""))
     env.setdefault("HOME", raw.get("HOME", str(Path.home())))

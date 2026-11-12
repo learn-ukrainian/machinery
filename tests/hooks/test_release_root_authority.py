@@ -537,8 +537,14 @@ def _run_code_hook(hooks, product, tmp_path, name):
         )
 
 
-def test_codex_entry_hands_hooks_the_payload_project(release, product):
-    """Location-derived project: the Codex entry gave PostToolUse hooks its own tree (R70)."""
+@pytest.mark.parametrize("checkout", ["primary", "linked-worktree"])
+def test_codex_entry_hands_hooks_the_payload_project(release, product, checkout):
+    """Location-derived project: the Codex entry gave PostToolUse hooks its own tree (R70).
+
+    The stamp helper the hook runs is the configured primary's, never the product
+    checkout's: a linked worktree's tracked copy is the worker's to rewrite, and the hook
+    runs outside any provider sandbox (#100).
+    """
     marker = product / "stamped"
     (product / ".githooks").mkdir()
     (product / ".githooks/pytest_stamp.py").write_text(
@@ -546,10 +552,17 @@ def test_codex_entry_hands_hooks_the_payload_project(release, product):
     )
     (product / ".venv/bin").mkdir(parents=True)
     (product / ".venv/bin/python").symlink_to(sys.executable)
+    checkout_root, planted = product, product / "planted-stamp-ran"
+    if checkout == "linked-worktree":
+        checkout_root = product / ".worktrees/dispatch/worker/task"
+        subprocess.run(["git", "-C", str(product), "worktree", "add", "-q", str(checkout_root), "topic"], check=True,
+                       capture_output=True, env={k: v for k, v in os.environ.items() if not k.startswith("GIT_")})
+        (checkout_root / ".githooks").mkdir()
+        (checkout_root / ".githooks/pytest_stamp.py").write_text(f"open({str(planted)!r}, 'w').write('ran')\n")
     payload = {
         "tool_name": "Bash",
         "tool_input": {"command": "true"},
-        "cwd": str(product),
+        "cwd": str(checkout_root),
         "session_id": "r70",
     }
     result = subprocess.run(
@@ -561,12 +574,14 @@ def test_codex_entry_hands_hooks_the_payload_project(release, product):
         input=json.dumps(payload),
         text=True,
         capture_output=True,
-        cwd=product,
+        cwd=checkout_root,
         env={"PATH": os.environ["PATH"], "HOME": str(product.parent),
+             "LU_PRODUCT_ROOT": str(checkout_root),
              "LEARN_UKRAINIAN_PRIMARY_REPO_ROOT": str(product),
              "LEARN_UKRAINIAN_PYTHON": str(release.parent / "venv/bin/python")},
     )
     assert marker.read_text() == "ok", result.stderr
+    assert not planted.exists(), result.stderr
     assert not (release / ".githooks").exists()
 
 
@@ -668,3 +683,11 @@ def test_hook_bootstrap_takes_the_interpreter_only_from_the_configured_primary(r
     result = subprocess.run(argv, input=json.dumps(payload), text=True, capture_output=True,
                             cwd=worktree, env=env, timeout=60)
     assert not marker.exists(), result.stderr
+    # Without the anchor every entry refuses (a non-zero exit, or AGY's deny answer); with it,
+    # each one runs. Marker absence alone would also pass a fail-open or always-refusing hook.
+    refused = result.returncode != 0 or '"decision":"deny"' in result.stdout
+    if anchor == "configured":
+        assert not refused and "HOOK-BOOTSTRAP-FAILED" not in result.stdout + result.stderr, (
+            result.returncode, result.stdout, result.stderr)
+    else:
+        assert refused, (result.returncode, result.stdout, result.stderr)

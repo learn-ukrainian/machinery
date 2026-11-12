@@ -183,75 +183,20 @@ def _run_agy_via_runtime(
     timeout_s: int | None,
     cwd: Path,
 ) -> AttemptOutcome:
-    """Invoke agy through the runtime adapter without touching the broker DB.
+    """Refuse a text-only AGY call before any launch: a terminal ``fatal`` outcome.
 
-    AGY read-only exists only on the review route, so this writer runs like a
-    non-review bridge ask: write mode from the out-of-tree scratch workspace,
-    with ``cwd`` named as its read root.
+    AGY has a read-only boundary only on the review route. Off review it would run
+    with write access over ``cwd``, which a caller that only wants text never needs,
+    so no workspace is provisioned and no provider is invoked (#100). The signature
+    stays for the product callers that import it.
     """
-    call_start_mono = time.monotonic()
-    hard_timeout = timeout_s or 24 * 60 * 60
-    try:
-        from lu_machinery.agent_runtime import runner as agent_runner
-        from lu_machinery.agent_runtime.errors import (
-            AgentStalledError,
-            AgentTimeoutError,
-            AgentUnavailableError,
-            RateLimitedError,
-        )
-        from lu_machinery.ai_agent_bridge._agy import _agy_ask_scratch_cwd
-
-        result = agent_runner.invoke(
-            "agy",
-            prompt,
-            mode="danger",
-            cwd=_agy_ask_scratch_cwd(),
-            model=AGY_GEMINI_MODEL,
-            task_id=f"{task_name}-agy-fallback",
-            session_id=None,
-            tool_config={"bridge_repo_read": True, "repo_read_root": str(cwd)},
-            entrypoint="fallback-ladder",
-            hard_timeout=hard_timeout,
-            stall_timeout=min(600, hard_timeout),
-        )
-    except RateLimitedError as exc:
-        return AttemptOutcome(
-            status="rate_limited",
-            elapsed_s=time.monotonic() - call_start_mono,
-            stderr_excerpt=str(exc),
-        )
-    except (AgentStalledError, AgentUnavailableError) as exc:
-        return AttemptOutcome(
-            status="retryable_error",
-            elapsed_s=time.monotonic() - call_start_mono,
-            stderr_excerpt=str(exc),
-        )
-    except AgentTimeoutError as exc:
-        return AttemptOutcome(
-            status="timeout",
-            elapsed_s=time.monotonic() - call_start_mono,
-            stderr_excerpt=str(exc),
-        )
-    except Exception as exc:
-        return AttemptOutcome(
-            status="retryable_error",
-            elapsed_s=time.monotonic() - call_start_mono,
-            stderr_excerpt=f"{type(exc).__name__}: {exc}",
-        )
-
-    if result.ok and result.response:
-        return AttemptOutcome(
-            status="success",
-            elapsed_s=result.duration_s,
-            response_text=result.response,
-            stderr_excerpt=result.stderr_excerpt,
-            returncode=result.returncode,
-        )
     return AttemptOutcome(
-        status="rate_limited" if result.rate_limited else "retryable_error",
-        elapsed_s=result.duration_s,
-        stderr_excerpt=result.stderr_excerpt or "Agy returned no final message",
-        returncode=result.returncode,
+        status="fatal",
+        elapsed_s=0.0,
+        stderr_excerpt=(
+            f"agy_off_review_refused: {task_name}: AGY has no read-only boundary off the review "
+            "route; use a review dispatch or another writer"
+        ),
     )
 
 

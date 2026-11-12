@@ -1485,6 +1485,13 @@ fi
         ("start-gemini.sh", [], {}, "gemini-4-carbon-medium", 0),
         ("start-gemini.sh", ["--effort", "high"], {}, "gemini-4-carbon-high", 0),
         ("start-gemini.sh", [], {"LAUNCHER_EFFORT": "low"}, "gemini-4-carbon-low", 0),
+        # An effort never replaces a chosen model or names a variant AGY lacks.
+        ("start-gemini.sh", ["--model", "gemini-4-carbon-high", "--effort", "high"], {}, "gemini-4-carbon-high", 0),
+        ("start-gemini.sh", ["--model", "gemini-4-carbon-high"], {"LAUNCHER_EFFORT": "low"}, "", 2),
+        ("start-gemini.sh", ["--effort", "low", "--model", "gemini-4-carbon-high"], {}, "", 2),
+        ("start-gemini.sh", [], {"LAUNCHER_MODEL": "gemini-3.8-flash-high", "LAUNCHER_EFFORT": "medium"}, "", 2),
+        ("start-gemini.sh", ["--effort", "xhigh"], {}, "", 2),
+        ("start-gemini.sh", ["--effort", "max"], {}, "", 2),
         ("start-gemini-driver.sh", ["--epic", "infra", "--effort", "low"], {}, "", 4),
         ("start-gemini-driver.sh", ["--epic", "infra"], {"LAUNCHER_EFFORT": "medium"}, "", 4),
         ("start-gemini-driver.sh", ["--epic", "infra", "--", "--effort", "low"], {}, "", 4),

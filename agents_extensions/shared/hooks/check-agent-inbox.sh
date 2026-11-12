@@ -43,13 +43,9 @@ INBOX_PYTHON="$CONTEXT_PROJECT_PYTHON"
 # with a read-only, 1 s-bounded unread count. Zero unread → exit silently
 # without paying the Python bridge startup. DB missing/locked/error, schema
 # drift, or an inconclusive result → fall through to the live CLI below.
-DB_FILE="${AB_DB_PATH:-}"
-if [ -z "$DB_FILE" ]; then
-  GIT_COMMON_DIR=$(git -C "$PROJECT_DIR" rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)
-  if [ -n "$GIT_COMMON_DIR" ]; then
-    DB_FILE="$(dirname "$GIT_COMMON_DIR")/.mcp/servers/message-broker/messages.db"
-  fi
-fi
+# The DB is the configured shared-state anchor's (common/bridge_paths.py), as the
+# CLI's is; the product checkout's own Git metadata never names it (#100).
+DB_FILE="${AB_DB_PATH:-$LEARN_UKRAINIAN_PRIMARY_REPO_ROOT/.mcp/servers/message-broker/messages.db}"
 
 if [ -n "$DB_FILE" ] && [ -f "$DB_FILE" ]; then
   # Mirror check_inbox recipient resolution for the seats this hook serves:
