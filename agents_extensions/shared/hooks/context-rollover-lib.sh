@@ -29,6 +29,17 @@ _context_rule_root() {
   esac
   printf '%s\n' "$root"
 }
+# The physical path of directory $1, or return 1; as the installed rule's
+# _project_physical_dir: the x sentinel keeps a trailing newline $(...) would
+# strip, and a path with a newline refuses rather than being checked as its
+# clean namesake.
+_context_physical_dir() {
+  local dir
+  dir="$(cd -P "$1" 2>/dev/null && pwd -P && printf x)" || return 1
+  dir="${dir%$'\n'x}"
+  [[ "$dir" != *$'\n'* ]] || return 1
+  printf '%s\n' "$dir"
+}
 _context_rule_probe() {
   local configured="${LEARN_UKRAINIAN_PYTHON:-}" anchor="${LEARN_UKRAINIAN_PRIMARY_REPO_ROOT:-}" root state
   # The anchor passes the installed rule's checks before any interpreter, even
@@ -37,13 +48,13 @@ _context_rule_probe() {
     /*) ;;
     *) echo "${0##*/}: project interpreter not found: LEARN_UKRAINIAN_PRIMARY_REPO_ROOT must name the primary checkout" >&2; return 1 ;;
   esac
-  if ! root="$(cd -P "$anchor" 2>/dev/null && pwd)" || ! root="$(_context_rule_root "$root")"; then
+  if ! root="$(_context_physical_dir "$anchor")" || ! root="$(_context_rule_root "$root")"; then
     echo "${0##*/}: project interpreter not found: LEARN_UKRAINIAN_PRIMARY_REPO_ROOT=$anchor is not a primary checkout" >&2
     return 1
   fi
   if [ -n "${LEARN_UKRAINIAN_STATE_ROOT:-}" ]; then
     case "$LEARN_UKRAINIAN_STATE_ROOT" in
-      /*) state="$(cd -P "$LEARN_UKRAINIAN_STATE_ROOT" 2>/dev/null && pwd)" || state="" ;;
+      /*) state="$(_context_physical_dir "$LEARN_UKRAINIAN_STATE_ROOT")" || state="" ;;
       *) state="" ;;
     esac
     [ "$state" = "$root" ] || {

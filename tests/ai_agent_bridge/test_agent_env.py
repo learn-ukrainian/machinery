@@ -44,3 +44,9 @@ def test_build_agent_env_strips_secret_values_and_keeps_runtime_context(tmp_path
     assert "CUSTOM_SECRET" not in env
     assert "UNRELATED" not in env
     assert "LU_UNRELATED_ROOT" not in env
+
+    # The resolved bridge repository names the product a detached child serves when none
+    # is configured (its hook gate derives none from a scratch cwd); a configured one stays.
+    unconfigured = {k: v for k, v in source.items() if k != "LU_PRODUCT_ROOT"}
+    assert build_agent_env(unconfigured, repo_root=tmp_path)["LU_PRODUCT_ROOT"] == str(tmp_path)
+    assert "LU_PRODUCT_ROOT" not in build_agent_env(unconfigured)

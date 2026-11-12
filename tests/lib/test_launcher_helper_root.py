@@ -1019,6 +1019,11 @@ project_python_run "$2" -c 'from scripts.common.repo_root import product_root; p
         )
         assert result.returncode == 0, result.stderr
         assert result.stdout.splitlines() == [str(product)]
+        # The in-tree copy exports the shared-state anchor as well: its hooks refuse without it (#100).
+        roots = 'printf "pkg=%s anchor=%s\\n" "$LC_MACHINERY_PACKAGE" "${LEARN_UKRAINIAN_PRIMARY_REPO_ROOT-unset}"'
+        result = run("bash", "-c", _INSTALLED_CONSUMER_PROBE, "bash", str(product / "scripts/lib/launcher_core.sh"), roots)
+        assert result.returncode == 0, result.stderr
+        assert result.stdout.splitlines() == [f"pkg=scripts anchor={product}"]
         return
     # The launcher child keeps every root the launcher exports, and so does a dispatched
     # agent's environment for the product root.
@@ -1031,8 +1036,10 @@ project_python_run "$2" -c 'from scripts.common.repo_root import product_root; p
         "child = child_credential_env(os.environ, 'codex', driver_launcher=True)\n"
         "print(*(child.get(name) for name in sys.argv[1:]), sep='\\n')\n"
         "with patch('lu_machinery.agent_runtime.agent_github_identity.resolve_agent_github_identity', return_value=None):\n"
-        "    print(build_agent_env(provider='codex', model='gpt-6.1-sol').get('LU_PRODUCT_ROOT'))\n"
+        "    agent = build_agent_env(provider='codex', model='gpt-6.1-sol')\n"
+        "print(agent.get('LU_PRODUCT_ROOT'), agent.get('LEARN_UKRAINIAN_PRIMARY_REPO_ROOT'), sep='\\n')\n"
     )
     result = run(sys.executable, "-I", "-c", sanitize, *names, **dict.fromkeys(names, token_shaped))
     assert result.returncode == 0, result.stderr
-    assert result.stdout.splitlines() == [token_shaped] * 4
+    # The agent keeps the shared-state anchor too: every hook bootstrap refuses without it (#100).
+    assert result.stdout.splitlines() == [token_shaped] * 5

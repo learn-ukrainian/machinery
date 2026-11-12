@@ -1607,12 +1607,16 @@ def _handle_sync(args) -> int:
         print("❌ sync requires an agent or --all", file=sys.stderr)
         return 2
 
-    # Kimi seats never drain an inbox (consults and discussions are refused), so --all skips them.
+    # Kimi seats never drain an inbox (consults and discussions are refused), and an
+    # AGY inbox has no read-only discussion boundary (run_inbox refuses it), so --all
+    # skips both.
+    from lu_machinery.agent_runtime.target_admission import COMPAT_TARGETS
+
     agents = (
         [
             agent
             for agent in _channels.get_valid_agents()
-            if _cli_available_agent(agent) and not is_kimi_seat(agent)
+            if _cli_available_agent(agent) and not is_kimi_seat(agent) and COMPAT_TARGETS.get(agent) != "agy"
         ]
         if args.all
         else [args.agent]

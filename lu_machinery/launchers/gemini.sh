@@ -16,19 +16,13 @@ launcher_adapter_exec() {
     # Extension deployment precedes this read-only gate. No AGY probe may run first.
     (cd "$LC_ROOT" && "$py" -m lu_machinery.agent_runtime.agy_hook_config --cwd "$LC_ROOT") || return 3
   fi
-  # AGY effort-suffixed variants conflict with a different --effort. Resolve
-  # the requested effort into one variant instead of emitting conflicting argv.
-  local model="$LC_MODEL" effort="${LC_EFFORT:-}"
-  if [ -n "$effort" ]; then
-    case "$model" in
-      *-low|*-medium|*-high|*-xhigh|*-max)
-        model="${model%-*}-$effort"
-        effort=""
-        ;;
-    esac
-  fi
-  local cmd=(agy --model "$model")
-  if [ -n "$effort" ]; then cmd+=(--effort "$effort"); fi
+  # A variant model carries its effort: launcher_normalize_effort already chose
+  # the variant or refused a conflicting one, so no second --effort is emitted.
+  local cmd=(agy --model "$LC_MODEL")
+  case "$LC_MODEL" in
+    *-low|*-medium|*-high) ;;
+    *) if [ -n "${LC_EFFORT:-}" ]; then cmd+=(--effort "$LC_EFFORT"); fi ;;
+  esac
   local arg prompt_flag="" core_placed=0
   local -a rest=()
   # AGY has no system-prompt flag and its GEMINI.md loading is unproven, so the

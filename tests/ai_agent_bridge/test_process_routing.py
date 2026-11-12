@@ -382,21 +382,22 @@ def test_ask_gemini_resolves_registry_pin_and_tracks_rotation(monkeypatch) -> No
         lambda _msg_id, model=None, **kwargs: captured.update(model=model) or "resp",
     )
 
-    # 1. Bare call (model=None) resolves to rotated pin
-    ask_gemini("hello", task_id="t-1")
+    # 1. Bare call (model=None) resolves to rotated pin. Read-only Gemini is refused before
+    # any write (#100), so routing is pinned on the write path, the only one that runs.
+    ask_gemini("hello", task_id="t-1", allow_write=True)
     assert captured["model"] == "gemini-9.9-flash-high"
 
     # 2. A legacy Flash alias keeps following the registry pin.
-    ask_gemini("hello", task_id="t-1", model="gemini-2.0-flash")
+    ask_gemini("hello", task_id="t-1", model="gemini-2.0-flash", allow_write=True)
     assert captured["model"] == "gemini-9.9-flash-high"
 
     # 3. Non-gemini model passes through
-    ask_gemini("hello", task_id="t-1", model="custom-provider/model-x")
+    ask_gemini("hello", task_id="t-1", model="custom-provider/model-x", allow_write=True)
     assert captured["model"] == "custom-provider/model-x"
 
     # 4. Env override takes precedence
     monkeypatch.setenv("AB_GEMINI_MODEL", "env-model-override")
-    ask_gemini("hello", task_id="t-1")
+    ask_gemini("hello", task_id="t-1", allow_write=True)
     assert captured["model"] == "env-model-override"
 
 
@@ -413,7 +414,7 @@ def test_ask_gemini_preserves_env_model_override_through_process_and_respond(bri
 
     monkeypatch.setattr("lu_machinery.ai_agent_bridge._gemini._run_gemini_sync", _fake_run_sync)
 
-    ask_gemini("hello", task_id="issue-6959")
+    ask_gemini("hello", task_id="issue-6959", allow_write=True)
     assert captured["model"] == "gemini-3.1-pro-high"
 
 

@@ -11,22 +11,16 @@
 #   export LU_PRODUCT_ROOT="$ROOT"
 #   case "${LEARN_UKRAINIAN_PYTHON:-}" in
 #     /*) LU_PYTHON="$LEARN_UKRAINIAN_PYTHON" ;;
-#     "")
-#       if [ ! -d "$ROOT/.git" ] || [ -L "$ROOT/.git" ]; then
-#         echo "Set LEARN_UKRAINIAN_PYTHON to an absolute trusted interpreter path for a linked worktree" >&2
-#         exit 2
-#       fi
-#       LU_PYTHON="$ROOT/.venv/bin/python"
-#       ;;
 #     *) echo "Set LEARN_UKRAINIAN_PYTHON to an absolute trusted interpreter path" >&2; exit 2 ;;
 #   esac
 #   LU_MACHINERY_DIR="$("$LU_PYTHON" -I -c 'import os, lu_machinery; print(os.path.dirname(os.path.abspath(lu_machinery.__file__)))')"
 #   source "$LU_MACHINERY_DIR/lib/launcher_core.sh"
 # Under `set -e` a failed lookup stops the wrapper before it sources anything.
-# Primary launches default to their own .venv. A linked worktree (a .git file)
-# requires an operator-configured absolute interpreter even for --help; it never
-# discovers code by executing a worktree-local .venv. A checkout without Git
-# metadata also requires that explicit interpreter.
+# Every launch, from a primary checkout or a linked worktree, requires an
+# operator-configured absolute interpreter, even for --help. The wrapper never
+# discovers code by executing a checkout-local .venv: whoever works in a checkout
+# can rewrite its Git metadata into a primary-shaped .git directory, and no local
+# check tells that from a real primary (#100).
 
 # Fixed arguments a public wrapper adds to its caller's argv: launcher options
 # (the CTO lane) and leading provider arguments (the bio
@@ -642,10 +636,29 @@ launcher_normalize_effort() {
     return 0
   fi
   case "$LC_EFFORT" in
-    low|medium|high|xhigh|max) return 0 ;;
+    low|medium|high|xhigh|max) ;;
     *)
       launcher_error "unknown --effort '$LC_EFFORT' (expected low|medium|high|xhigh|max)."
       exit 2
+      ;;
+  esac
+  [ "$LC_PROVIDER" = gemini ] || return 0
+  # AGY offers each Gemini model as low|medium|high variants and refuses an
+  # --effort that names another variant. Before any side effect, an effort
+  # selects the variant of the default model; it never replaces a model the
+  # caller chose (--model or LAUNCHER_MODEL) and never names a variant AGY lacks.
+  case "$LC_EFFORT" in
+    low|medium|high) ;;
+    *) launcher_error "effort '$LC_EFFORT' is not offered for Gemini (AGY variants: low|medium|high)."; exit 2 ;;
+  esac
+  case "$LC_MODEL" in
+    *-low|*-medium|*-high)
+      [ "${LC_MODEL##*-}" != "$LC_EFFORT" ] || return 0
+      if [ "${LC_MODEL_CLI:-0}" = 1 ] || [ -n "${LAUNCHER_MODEL:-}" ]; then
+        launcher_error "effort '$LC_EFFORT' conflicts with the chosen model '$LC_MODEL'; choose ${LC_MODEL%-*}-$LC_EFFORT or drop the effort."
+        exit 2
+      fi
+      LC_MODEL="${LC_MODEL%-*}-$LC_EFFORT"
       ;;
   esac
 }
@@ -746,9 +759,9 @@ launcher_resolve_roots() {
   #   configured one. Nothing is exported when it does not resolve; each helper
   #   site then refuses with its own error.
   # - LEARN_UKRAINIAN_PRIMARY_REPO_ROOT, the shared-state anchor, is the helper
-  #   root every launcher helper already anchors on. Only the installed package
-  #   needs it (the in-tree copy derives the same primary) and an operator-set
-  #   value is kept. It is exported only when the shared-state admission
+  #   root every launcher helper already anchors on. Every hook bootstrap needs
+  #   it, in-tree copy or installed package (#100), and an operator-set value is
+  #   kept. It is exported only when the shared-state admission
   #   (common/repo_root.py configured_primary_root, asked once here) accepts
   #   it: an anchor that admission refuses, such as a --separate-git-dir
   #   primary, would turn "no anchor" into a different refusal its callers do
@@ -757,7 +770,7 @@ launcher_resolve_roots() {
   if python="$(launcher_project_python 2>/dev/null)"; then
     export LEARN_UKRAINIAN_PYTHON="$python"
   fi
-  if [ "$LC_MACHINERY_PACKAGE" = lu_machinery ] && [ -z "${LEARN_UKRAINIAN_PRIMARY_REPO_ROOT:-}" ] \
+  if [ -z "${LEARN_UKRAINIAN_PRIMARY_REPO_ROOT:-}" ] \
     && [ -n "${LEARN_UKRAINIAN_PYTHON:-}" ] && project_python_command "$LEARN_UKRAINIAN_PYTHON" \
     && LEARN_UKRAINIAN_PRIMARY_REPO_ROOT="$LC_DURABLE_HELPER_ROOT" "${PROJECT_PYTHON_COMMAND[@]}" -c \
       "from $LC_MACHINERY_PACKAGE.common.repo_root import configured_primary_root; configured_primary_root()" \

@@ -1464,7 +1464,8 @@ def _dispatch_command(args):
         # None (the default) lets converse_gemini apply the live registry pin;
         # legacy gemini* slugs map to that same pin (#6929).
         selected = resolve_compat_model("gemini", getattr(args, "model", None))
-        converse_gemini(content, args.task_id, selected, getattr(args, "no_github", False))
+        if converse_gemini(content, args.task_id, selected, getattr(args, "no_github", False)) is None:
+            sys.exit(1)
     elif args.command == "process-all":
         process_all_gemini(args.model)
     elif args.command == "process-claude-all":

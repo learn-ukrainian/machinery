@@ -5,7 +5,7 @@ import sys
 from pathlib import Path
 
 from lu_machinery.agent_runtime.read_only_tmp import dispatch_lease
-from lu_machinery.common.repo_root import INTERPRETER_ENV, PRODUCT_ROOT_ENV, project_interpreter
+from lu_machinery.common.repo_root import INTERPRETER_ENV, PRIMARY_ROOT_ENV, PRODUCT_ROOT_ENV, project_interpreter
 from lu_machinery.common.task_store_paths import tasks_dir
 from lu_machinery.dispatcher import store
 from lu_machinery.dispatcher.types import TaskSpec
@@ -123,6 +123,10 @@ def child_env(spec: TaskSpec) -> dict[str, str]:
     if spec.mode == "read-only":
         # Restrict explicit URLs too; a worktree or ref snapshot cannot observe an arbitrary remote push.
         env["GIT_ALLOW_PROTOCOL"] = "file"
+    # Every worker's hooks take the interpreter only from the configured shared-state anchor and
+    # refuse without it (#100), so a configured anchor reaches every child, whatever its mode.
+    if os.environ.get(PRIMARY_ROOT_ENV, ""):
+        env[PRIMARY_ROOT_ENV] = os.environ[PRIMARY_ROOT_ENV]
     # Read-only AGY, Claude and Muse run a launcher as the child. It calls project_interpreter(), which
     # honours a configured interpreter only when LEARN_UKRAINIAN_PYTHON is present, and it reads the
     # Sources server from the product checkout named by LU_PRODUCT_ROOT when this checkout has none.
