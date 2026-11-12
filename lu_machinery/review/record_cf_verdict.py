@@ -82,6 +82,8 @@ from lu_machinery.orchestration.integration_sweep import (
     SweepError,
     is_second_review,
     is_second_reviewer_model,
+    is_second_review_only,
+    reviews_of_record,
     lookup_verdict,
     parse_marker,
     pr_file_paths,
@@ -1623,32 +1625,44 @@ def _task_flag_values(task: dict[str, Any], key: str) -> tuple[str, ...]:
     return tuple(value)
 
 
+def _on_route(agent: str, route: str) -> bool:
+    """Whether a task's dispatch ``agent`` is the catalog route: the seat itself or its catalog transport."""
+    from lu_machinery.review.model_catalog import load_model_catalog
+
+    seat = normalize_seat(agent) or ""
+    try:
+        endpoint = load_model_catalog()["review_scheduler"]["endpoints"].get(seat) or {}
+    except Exception:  # an unreadable catalog proves no route
+        return False
+    return route in {seat, endpoint.get("catalog_transport")}
+
+
 def _require_second_reviewer(
     facts: BranchReviewFacts, *, task: dict[str, Any], model: str, family: str, review_mode: str, required: bool,
 ) -> None:
-    """Qualify a binding second review (operator 2026-11-11) from the completed task itself.
+    """Qualify a binding second review (operator 2026-11-11, list 2026-11-12) from the completed task itself.
 
-    Only the catalog's second reviewer, on its catalog route, reviewing the whole head of a
-    PR that needs one (``tiers.requires_second_review``) in cross-family code or infra mode,
-    authored by no family it may not review. It never qualifies as the reviewer of record.
+    Only a model on the catalog's second-reviewer list, on its listed route, reviewing the
+    whole head of a PR that needs one (``tiers.requires_second_review``) in cross-family code
+    or infra mode, authored by no model of its family. The lookup also requires its family to
+    differ from the reviewer of record's. It never qualifies as the reviewer of record.
     """
-    from lu_machinery.orchestration.integration_sweep import second_reviewer_policy
+    from lu_machinery.orchestration.integration_sweep import model_family, second_reviewer_entry
 
     try:
-        policy = second_reviewer_policy()
+        entry = second_reviewer_entry(model)
     except ValueError as exc:
         raise RecordError(f"second review refused: {exc}") from exc
-    if (resolve_catalog_model_id(model) != policy["model"] or not is_second_reviewer_model(model)
-            or model.endswith("-low") or task.get("effort") == "low"):
-        raise RecordError(f"second review refused: {model!r} is not the catalog's second reviewer")
-    if normalize_seat(str(task.get("agent") or "")) != policy["route"]:
-        raise RecordError(f"second review refused: the second reviewer runs only through {policy['route']}")
+    if entry is None or model.endswith("-low") or task.get("effort") == "low":
+        raise RecordError(f"second review refused: {model!r} is not a listed second reviewer at medium or high effort")
+    if not _on_route(str(task.get("agent") or ""), entry["route"]):
+        raise RecordError(f"second review refused: {entry['model']} reviews second only through {entry['route']}")
     profile = str(task.get("review_profile") or "code").strip().casefold()
     if review_mode != "cross_family" or profile not in {"code", "infra"} or is_ukrainian_review(task):
         raise RecordError("second review refused: it is a cross-family code or infra review only")
     if not required:
         raise RecordError("second review refused: this PR is neither High tier nor security-sensitive")
-    if family in facts.excluded_families or set(policy["not_for_author_families"]) & set(facts.excluded_families):
+    if family != model_family(model) or family in facts.excluded_families:
         raise RecordError("second review refused: an author is of the second reviewer's family")
 
 
@@ -1669,9 +1683,9 @@ def _require_qualified_reviewer(
             facts, task=task, model=model, family=family, review_mode=review_mode, required=second_required,
         )
         return
-    if is_second_reviewer_model(model):
+    if is_second_review_only(model):
         raise RecordError(
-            "reviewer not qualified: Carbon is a binding second reviewer only, never the reviewer of record; "
+            "reviewer not qualified: this model is a binding second reviewer only, never the reviewer of record; "
             "record its review with --second-review"
         )
     profile = str(task.get("review_profile") or "code").strip().casefold()
@@ -2449,7 +2463,7 @@ def require_review_round_within_budget(
         # The same decision with the exempt run charged, through every admission path.
         decide({marker["sha"] for _, marker in markers}, heads | {uncharged["head"]}, None)
     except RecordError:
-        # Only the exemption admits this round. A Carbon replacement needs its companion
+        # Only the exemption admits this round. A second-review replacement needs its companion
         # reviewer of record too; an ordinary replacement still belongs to its failed seat.
         if (recording_seat is not None and recording_seat != uncharged["seat"]
                 and not uncharged.get("second_review")):
@@ -2562,7 +2576,9 @@ def _charging(
         exemption = {
             "task": key[0], "started": key[1], "run_nonce": run.record.get("run_nonce"),
             "head": run.record.get("worktree_base_sha"), "seat": seat, "source": "capability-failure-event",
-            "second_review": is_second_reviewer_model(run.record.get("model")),
+            # Only a second-review-only model's run is surely a second review; any other
+            # model's failed run keeps its seat for the replacement.
+            "second_review": is_second_review_only(run.record.get("model")),
         }
     rounds = dispatched_rounds(runs=runs, comments=comments, login=login, exclude_head=sha)
     return _Charging(rounds, exemption)
@@ -3284,13 +3300,13 @@ def record(
                 learner_content=learner_content,
             )
             state = "success" if current.state == "APPROVED" else "failure" if current.state in REJECTED else "pending"
-            # Every other seat has approved; only the Carbon second review is missing.
+            # Every other seat has approved; only the binding second review is missing.
             carbon_wait = second_required and lookup_verdict(
                 comments, sha, login, low_tier=low_tier,
                 learner_content=learner_content,
             ).state == "APPROVED"
             if carbon_wait and state == "pending":
-                pending_reason = "; awaiting Carbon second review (quota/timeout: re-run or escalate)"
+                pending_reason = "; awaiting the binding second review (quota/timeout: re-run or escalate)"
             elif current.state == NEEDS_SEAT and mixed_pair:
                 pending_reason = "; awaiting Anthropic/OpenAI review pair"
             elif current.state == NEEDS_SEAT:
@@ -3596,33 +3612,48 @@ def republish_withheld(
         current_head=False,
     )
     reply = repository_relative_reply(reply, task=task, primary_root=review_root)
-    mixed_pair = (
-        review_mode == "cross_family" and not review.ukrainian and not is_second_reviewer_model(review.model)
-        and facts.mixed_family
-    )
-    scope = facts.reviewer_scope(review.family) if mixed_pair else facts
-    comment_fields = dict(
-        sha=review.sha,
-        task_id=task_id,
-        started=review.started,
-        verdict=review.verdict,
-        model=review.model,
-        family=review.family,
-        reply=reply,
-        review_mode=review_mode,
-        review_profile="ukrainian" if review.ukrainian else "code",
-        sources_mcp_call_count=review.sources_count,
-        unknown_history=facts.unknown_history,
-        app_bot=bool(facts.app_bot_commits),
-        score=review_score(reply),
-        author_models=facts.author_models,
-        scope_commits=tuple(commit.sha for commit in scope.commits) if mixed_pair else None,
-        # The second reviewer is recorded only as a second review, so its records carry the token.
-        second_review=is_second_reviewer_model(review.model),
-    )
-    withheld = build_comment(**{**comment_fields, "reply": ""}, withheld_findings=review.finding_count)
-    comment = build_comment(**comment_fields)
-    check_texts(normalize_repository(review.repository), [comment], environment={})
+
+    def rendered(second: bool) -> tuple[str, str]:
+        """The withheld and full comments the recorder publishes for this task as a second review or not."""
+        mixed_pair = review_mode == "cross_family" and not review.ukrainian and not second and facts.mixed_family
+        scope = facts.reviewer_scope(review.family) if mixed_pair else facts
+        comment_fields = dict(
+            sha=review.sha,
+            task_id=task_id,
+            started=review.started,
+            verdict=review.verdict,
+            model=review.model,
+            family=review.family,
+            reply=reply,
+            review_mode=review_mode,
+            review_profile="ukrainian" if review.ukrainian else "code",
+            sources_mcp_call_count=review.sources_count,
+            unknown_history=facts.unknown_history,
+            app_bot=bool(facts.app_bot_commits),
+            score=review_score(reply),
+            author_models=facts.author_models,
+            scope_commits=tuple(commit.sha for commit in scope.commits) if mixed_pair else None,
+            second_review=second,
+        )
+        withheld = build_comment(**{**comment_fields, "reply": ""}, withheld_findings=review.finding_count)
+        comment = build_comment(**comment_fields)
+        check_texts(normalize_repository(review.repository), [comment], environment={})
+        return withheld, comment
+
+    # A listed second reviewer without another review role (Carbon) is recorded only as a second
+    # review. Any other listed model's review is a second review only where it was recorded with
+    # --second-review, so the republished comment follows the form already published for this task.
+    if not is_second_reviewer_model(review.model):
+        forms = [rendered(False)]
+    elif not reviews_of_record(review.model):
+        forms = [rendered(True)]
+    else:
+        forms = []
+        for second in (False, True):
+            try:
+                forms.append(rendered(second))
+            except RecordError:  # a form the recorder could not have published (no pair scope)
+                continue
     adapter = GitHubAdapter(Path.cwd())
     login = adapter.identity()
     result = {"pr": pr_number, "head": review.sha, "task": task_id, "verdict": review.verdict}
@@ -3638,8 +3669,10 @@ def republish_withheld(
             raise RecordError("no verdict of this task is recorded at its head")
         if any(item.get("created_at") != item.get("updated_at") for item in own):
             raise RecordError("existing verdict marker was edited")
-        if any(item["body"] not in (withheld, comment) for item in own):
+        matching = [form for form in forms if all(item["body"] in form for item in own)]
+        if len(matching) != 1:
             raise RecordError("a recorded verdict of this task does not match its record and sealed reply")
+        _, comment = matching[0]
         if any(item["body"] == comment for item in own):
             return {**result, "comment": "existing"}
         if comments[markers[-1][0]] is not own[-1]:
@@ -3691,8 +3724,8 @@ def main(argv: list[str] | None = None) -> int:
         epilog=f"{RECORDER_EXAMPLES}  {RECORDER_COMMAND} --task-id review-unit --pr 1\n"
         f"  {RECORDER_COMMAND} --task-id review-unit --pr 1 "
         "--review-mode red_team --red-team-prompt brief.md\n"
-        f"  {RECORDER_COMMAND} --task-id carbon-review-unit --pr 1 --second-review\n"
-        "    (the binding Carbon second review of a High-tier or security-sensitive PR)\n"
+        f"  {RECORDER_COMMAND} --task-id second-review-unit --pr 1 --second-review\n"
+        "    (the binding second review of a High-tier or security-sensitive PR)\n"
         f"  {RECORDER_COMMAND} budget-check --repository owner/name --pr 1\n"
         "    (whether the next review round is admitted, before dispatch; see budget-check --help)\n"
         f"  {RECORDER_COMMAND} republish-withheld --task-id review-unit --pr 1\n"
@@ -3718,7 +3751,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--second-review",
         action="store_true",
-        help="Record the binding second review (the catalog's second reviewer, Carbon) of a High-tier or "
+        help="Record the binding second review (the catalog's second reviewer, review_scheduler.second_reviewer) of a High-tier or "
         "security-sensitive PR; it never records the reviewer of record. Default: off",
     )
     args = parser.parse_args(argv)

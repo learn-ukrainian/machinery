@@ -1128,14 +1128,19 @@ def assert_frozen_surfaces(actual, *, surfaces):
             # review or advisory role, so they join no seat, review route, ladder or ranking and
             # every other field stays frozen. Argon's frozen row is its retired record, which
             # held the catalog id gemini-4-argon-high before that decision.
-            # Operator order 2026-11-11: Carbon's second_review role makes it the binding second
+            # Operator order 2026-11-11: Carbon's second_review role makes it a binding second
             # reviewer (review_scheduler.second_reviewer); it still joins no seat, route or ladder.
+            # Operator order 2026-11-12 (MUSE-SECOND-REVIEW-1112): the second reviewer is an
+            # ordered list; its notes name Muse first. No seat, ladder or ranking moves.
             carbon = value["models"].pop("gemini-4-carbon")
-            assert hashlib.sha256(encode(carbon)).hexdigest() == "0060c612bbef0f3eb8d4832552609dd84580b9faed6af2e89567e1a2e2243b1a"
+            assert hashlib.sha256(encode(carbon)).hexdigest() == "ed6aae685a0b4f5931a49236101c1f76611b241f802224b28ab16e3581c312b8"
             scheduler = value.get("review_scheduler") or {}
-            assert scheduler.pop("second_reviewer") == {
-                "model": "gemini-4-carbon", "route": "agy", "not_for_author_families": ["google"],
-            }
+            assert scheduler.pop("second_reviewer") == {"models": [
+                {"model": "muse-wonder-full-1.0", "route": "native_muse"},
+                {"model": "gemini-4-carbon", "route": "agy"},
+                {"model": "gpt-6.1-sol", "route": "native_codex"},
+                {"model": "claude-opus-5-5", "route": "native_claude"},
+            ]}
             review_roles = scheduler["activity_roles"]["review"]
             assert review_roles.pop() == "second_review"
             argon = value["models"].pop("gemini-4-argon")
@@ -1157,8 +1162,9 @@ def assert_frozen_surfaces(actual, *, surfaces):
                 assert value["review_ladders"]["medium"].pop() == ["muse"]
             muse_cand = value["review_candidates"]["muse"]
             assert hashlib.sha256(encode(muse_cand)).hexdigest() == "641cdce0844039c04aadcbff572b54eed2c6927a243cfe172eefbddb802b9b5b"
+            # MUSE-SECOND-REVIEW-1112 adds the second_review role and its note to the Muse row only.
             muse_model = value["models"]["muse-wonder-full-1.0"]
-            assert hashlib.sha256(encode(muse_model)).hexdigest() == "72ee5f7017790c3dd0fc3ebfbe47fa40c883010ff444875ad6403ca80fa305e5"
+            assert hashlib.sha256(encode(muse_model)).hexdigest() == "b91a8eafc458d3677bcdd7bf85f9ad5f60bdaa2b3c77d87e6287806d603136bd"
             value["review_candidates"]["muse"] = deepcopy(CURRENT_BASELINE["catalog"]["review_candidates"]["muse"])
             value["models"]["muse-wonder-full-1.0"] = deepcopy(CURRENT_BASELINE["catalog"]["models"]["muse-wonder-full-1.0"])
             # REMOVE-UNNEEDED-1107: prose-only correction of two stale "Gemma retired" policy notes

@@ -623,7 +623,7 @@ def test_carbon_debt_labels_only_release_gated_missing_reviews(synthetic_opsec, 
             assert labels[0][-1] == "carbon-debt" and "--force" in labels[0]
             assert "--add-label=carbon-debt" in labels[1]
     else:
-        reason = "CHANGES_REQUESTED" if carbon_verdict == "CHANGES_REQUESTED" else "Carbon second review has not approved"
+        reason = "CHANGES_REQUESTED" if carbon_verdict == "CHANGES_REQUESTED" else "binding second review has not approved"
         with pytest.raises(gate.PublishBlocked, match=reason):
             pub.publish("pr-merge", repo=repo, number=1, match_head=HEAD, runner=send)
         assert not calls and not labels

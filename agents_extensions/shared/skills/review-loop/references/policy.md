@@ -22,23 +22,31 @@ one place, `lu_machinery/config/review_tiers.yaml`. A PR spanning tiers takes th
 touches. Deleting a High-tier path or learner-facing content keeps that path's tier; only
 deletions of other unused code are Low.
 
-**Second review (operator order 2026-11-11).** A High-tier PR, or one that changes a
-security-sensitive path (`lu_machinery/review/security_paths.py`), needs the resolver-selected
-reviewer-of-record exact-head APPROVE and green CI. Carbon (`review_scheduler.second_reviewer`
-in the model catalog, through AGY) is the second reviewer, recorded with
-`record_cf_verdict --second-review`, and never the reviewer of record. No other model counts
-as Carbon. A Carbon rejection at the head blocks merge in every repository.
+**Second review (operator orders 2026-11-11 and 2026-11-12).** A High-tier PR, or one that
+changes a security-sensitive path (`lu_machinery/review/security_paths.py`), needs the
+resolver-selected reviewer-of-record exact-head APPROVE, green CI and a second review. The
+second reviewer is the ordered list `review_scheduler.second_reviewer` in the model catalog:
+Muse (native), Carbon (AGY), Sol (Codex), Opus (native Claude). Dispatch the first available
+listed model whose family differs from every author family and from the reviewer of record's,
+on its listed route, and record its verdict with `record_cf_verdict --second-review`. Its
+APPROVE counts only from such a family, and it is never the reviewer of record. Only a review
+recorded with `--second-review` on a PR that needs one is a second review: every other review,
+including Muse's low/medium reviews of record, is ordinary. A rejection from any listed second
+reviewer at the head blocks merge in every repository. Carbon second reviews recorded before
+2026-11-12 stay valid, since Carbon stays on the list.
 
-Repositories whose changes go live on merge still require Carbon's exact-head APPROVE.
+Repositories whose changes go live on merge still require that exact-head second-review APPROVE.
 Only `learn-ukrainian/machinery`, which ships through a released wheel, may enqueue and merge
-without a Carbon verdict at that head. The publisher first records the durable `carbon-debt`
-label. An outage or timeout can therefore defer Carbon approval only in machinery. A release
-must not be cut while any merged machinery PR has that label. Remove it only after Carbon's
-verdict on the PR's merged head is recorded and any confirmed defect is fixed by a follow-up
-PR before release. See [Cut a release](../../../../../docs/release.md#cut-a-release).
+without a second-review verdict at that head. The publisher first records the durable
+`carbon-debt` label (the name is kept for continuity). An outage or timeout can therefore defer
+the second review only in machinery. A release must not be cut while any merged machinery PR has
+that label. Remove it only after a second review of the PR's merged head is recorded and any
+confirmed defect is fixed by a follow-up PR before release. See
+[Cut a release](../../../../../docs/release.md#cut-a-release).
 
-A PR with a Gemini author keeps the reviewer-of-record rule alone. The trigger is the changed
-paths, never a declared risk. Both verdicts at one head are one round, and a moved head voids both.
+When authors and the reviewer of record cover every listed family, no listed model can give the
+second review and the reviewer-of-record rule stands alone. The trigger is the changed paths,
+never a declared risk. Both verdicts at one head are one round, and a moved head voids both.
 
 ## 3. Findings
 
