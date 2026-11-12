@@ -2,8 +2,45 @@
 
 Consumers install `lu-machinery` from a released wheel, pinned by version and
 SHA-256 in their own `requirements-machinery.lock`. There is no editable
-install and no machinery checkout on `PYTHONPATH`. Releases are manual, cut
-when a consumer needs a change; there is no release schedule or automation.
+install and no machinery checkout on `PYTHONPATH`.
+
+## Release train
+
+Owner decision C-5345 (ONE-REVIEW-FAST-RELEASE-1112, 2026-11-12). One machinery
+release per day, at 06:00 UTC. The person cutting the release runs this
+runbook by hand. Cut from `main` only when `main` has moved since the last
+tag and that commit's CI Gate is green. An urgent bug gets an immediate
+hotfix release: the same commands, as soon as the fix is on a green `main`,
+without waiting for 06:00. Any other bug is fixed in a follow-up PR and rides
+the next train that meets the conditions. Do not rebuild or replace a version
+that was already published, and do not move a tag.
+
+There is no 06:00 job. Build, wheelhouse, acceptance, tag and
+`release-create` are separate commands, not one script. A scheduler would
+need one command that refuses to publish unless `main` differs from the last
+tag and the CI Gate on that commit is green, then runs the cut below.
+
+Confirm the two conditions before tagging:
+
+```bash
+git fetch origin main --tags
+git rev-parse origin/main
+git rev-list -n 1 "$(git describe --tags --abbrev=0 origin/main)"
+gh run list -R learn-ukrainian/machinery --branch main --workflow "CI Gate" --limit 5 \
+  --json headSha,conclusion,status,databaseId,event
+```
+
+The two SHAs must differ. The CI Gate row for `origin/main` must be
+`conclusion: success`. If either is not, do not cut.
+
+## Rollback
+
+Rollback is to the previous pin. Restore the previous consumer lock, wheel,
+configuration, the matching Node prefix and generated deployments, then
+verify behaviour, including the ACP known-answer checks. Reverting the lock
+alone is not a rollback. The host wheelhouse keeps the previous release's
+wheel and dependencies so that restore can be done offline. The steps are
+under Consumers.
 
 ## Identity
 
@@ -42,28 +79,10 @@ It fails when a dependency in `pyproject.toml` has no pin.
 
 ## Cut a release
 
-From a machinery `main` commit whose CI Gate is green, with `$V` the version
-in `pyproject.toml` and `$SHA` the full commit:
+From the `main` commit identified above, with `$V` the version in
+`pyproject.toml` and `$SHA` the full commit:
 
-1. Check for outstanding second-review debt (label `carbon-debt`). This command must succeed and print nothing:
-
-   ```bash
-   gh pr list -R learn-ukrainian/machinery --state merged --label carbon-debt
-   ```
-
-   Any result blocks the release. The publisher adds `carbon-debt` before admitting
-   a machinery PR without an exact-head second review. Only a model of the catalog's
-   ordered `review_scheduler.second_reviewer` list (Muse, Carbon, then Sol and Opus as last
-   resort) on its listed route counts, eligible by the list's family rules
-   ([review policy](../agents_extensions/shared/skills/review-loop/references/policy.md)).
-   Record a completed second review with `record_cf_verdict --second-review --pr <N>`
-   for the PR's merged head, meaning the reviewed PR head at merge, not the squash commit.
-   A timeout or incomplete review does not clear the debt. Reproduce findings and fix every confirmed defect in a follow-up
-   PR before release. Remove the label only after recording that verdict and verifying the
-   fixes. Repeat the check immediately before tagging and publishing, so a debt incurred
-   during the release drill cannot pass unnoticed.
-
-2. Build once, outside any checkout, with the build pins of the
+1. Build once, outside any checkout, with the build pins of the
    `Installed wheel` job (`build-requirements.txt` in `ci-gate.yml`):
 
    ```bash
@@ -72,7 +91,7 @@ in `pyproject.toml` and `$SHA` the full commit:
    (cd "$WORK/dist" && sha256sum lu_machinery-"$V"-py3-none-any.whl lu_machinery-"$V".tar.gz > SHA256SUMS)
    ```
 
-3. Assemble a wheelhouse: the wheel plus
+2. Assemble a wheelhouse: the wheel plus
    `pip download --require-hashes --only-binary=:all: --no-deps -r requirements-machinery.lock`.
    The consumer lock is the release line followed by the dependency lock:
 
@@ -82,7 +101,7 @@ in `pyproject.toml` and `$SHA` the full commit:
    <requirements-machinery.lock at $SHA>
    ```
 
-4. Accept it in a clean venv outside any checkout, with `$P` that venv's
+3. Accept it in a clean venv outside any checkout, with `$P` that venv's
    absolute interpreter:
 
    ```bash
@@ -188,7 +207,7 @@ in `pyproject.toml` and `$SHA` the full commit:
    against a scratch consumer is one such path. Import alone is not
    acceptance.
 
-5. Tag and publish. Push the annotated tag `v$V` on `$SHA`, then create the
+4. Tag and publish. Push the annotated tag `v$V` on `$SHA`, then create the
    release with all three assets in one call. The installed publisher resolves
    its repository context from the environment, so set
    `LEARN_UKRAINIAN_PRIMARY_REPO_ROOT` to the absolute primary git checkout
@@ -204,7 +223,7 @@ in `pyproject.toml` and `$SHA` the full commit:
    Download the published assets and compare them with `SHA256SUMS` before
    reporting the release.
 
-6. Install the wheelhouse files on the host (host operation, outside this
+5. Install the wheelhouse files on the host (host operation, outside this
    repository).
 
 ## Consumers
@@ -212,7 +231,8 @@ in `pyproject.toml` and `$SHA` the full commit:
 A consumer adopts a release with one PR that replaces its
 `requirements-machinery.lock` with the consumer lock above. Shared locks name
 packages, versions and hashes only, never a host path. On the server,
-consumers install from the host wheelhouse with the step 4 command. In CI, a
+consumers install from the host wheelhouse with the accept command under
+Cut a release. In CI, a
 consumer downloads the exact release asset into a temporary wheelhouse,
 downloads the locked dependencies into the same directory, and installs with
 the same command. Rolling back restores the previous lock, wheel,

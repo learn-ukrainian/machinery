@@ -891,12 +891,12 @@ def test_sources_tool_overlay_adds_only_approved_read_only_grants(configuration)
 
 
 def test_grok_ukrainian_role_confers_no_ukrainian_review_route():
-    """C-5307 restores native second review without admitting Ukrainian review."""
+    """C-5307 restores native review without admitting Ukrainian review."""
     source = Path(__file__).resolve().parents[2]
     catalog = yaml.safe_load((source / machinery_package() / "config/model_catalog.yaml").read_text(encoding="utf-8"))
     assert "ukrainian_review" not in catalog["models"]["grok-4.7"]["roles"]
     assert catalog["models"]["grok-4.7"]["lifecycle"] == "active"
-    assert catalog["models"]["grok-4.7"]["roles"] == ["coding", "standard_review", "second_review"]
+    assert catalog["models"]["grok-4.7"]["roles"] == ["coding", "standard_review"]
     assert catalog["models"]["grok-4.7"]["transports"] == ["native_grok", "cursor"]
     assert catalog["seats"]["xai_reviewer"]["routes"]["cursor_fallback"]["review_profiles"] == ["code", "infra"]
 
@@ -1130,29 +1130,17 @@ def assert_frozen_surfaces(actual, *, surfaces):
                 assert endpoint["models"] == ["gpt-6.1-sol", "gpt-6-astra"]
                 endpoint["models"] = ["gpt-6.1-sol"]
                 value["models"]["gpt-6-astra"] = deepcopy(CURRENT_BASELINE["catalog"]["models"]["gpt-6-astra"])
-            # Operator decision 2026-11-10: Carbon and Argon are active AGY work models with no
-            # review or advisory role, so they join no seat, review route, ladder or ranking and
-            # every other field stays frozen. Argon's frozen row is its retired record, which
-            # held the catalog id gemini-4-argon-high before that decision.
-            # Operator order 2026-11-11: Carbon's second_review role makes it a binding second
-            # reviewer (review_scheduler.second_reviewer); it still joins no seat, route or ladder.
-            # Operator order 2026-11-12 (MUSE-SECOND-REVIEW-1112): the second reviewer is an
-            # ordered list; its notes name Muse first. No seat, ladder or ranking moves.
+            # C-5345: one review. Carbon stays off every seat, route and ladder, and the
+            # catalog no longer names a second reviewer.
             carbon = value["models"].pop("gemini-4-carbon")
-            assert hashlib.sha256(encode(carbon)).hexdigest() == "ed6aae685a0b4f5931a49236101c1f76611b241f802224b28ab16e3581c312b8"
+            assert hashlib.sha256(encode(carbon)).hexdigest() == "e60a475d7144a58fbb5a411711576d60c47188f7c49a7e463291d1f7a8e019a8"
             scheduler = value.get("review_scheduler") or {}
-            assert scheduler.pop("second_reviewer") == {"models": [
-                {"model": "gemini-4-carbon", "route": "agy", "independence": "third_family"},
-                {"model": "grok-4.7", "route": "cursor", "independence": "third_family"},
-                {"model": "gpt-6.1-sol", "route": "native_codex", "independence": "last_resort"},
-                {"model": "claude-opus-5-5", "route": "native_claude", "independence": "last_resort"},
-            ]}
-            review_roles = scheduler["activity_roles"]["review"]
-            assert review_roles.pop() == "second_review"
+            assert "second_reviewer" not in scheduler
+            assert "second_review" not in scheduler["activity_roles"]["review"]
             # C-5307 restores native coding and the exact Cursor review pin. Every
             # other catalog field, reviewer-of-record ladder and route stays pinned.
             grok = value["models"]["grok-4.7"]
-            assert hashlib.sha256(encode(grok)).hexdigest() == "6d4084057a90d6a6ee0f25dc46596f7dbb28c807ef968b7c57973fb5f952980d"
+            assert hashlib.sha256(encode(grok)).hexdigest() == "3d655f93b3913b8de9f1d752d350ab4743f97a4396056e14153e2ac5505a9310"
             value["models"]["grok-4.7"] = deepcopy(expected["models"]["grok-4.7"])
             assert value["review_candidates"].pop("grok-4.7-cursor-fallback") == GROK_REVIEW_CANDIDATE
             for endpoint, digest in (
@@ -1161,7 +1149,7 @@ def assert_frozen_surfaces(actual, *, surfaces):
             ):
                 assert hashlib.sha256(encode(scheduler["endpoints"][endpoint])).hexdigest() == digest
                 scheduler["endpoints"][endpoint] = deepcopy(expected["review_scheduler"]["endpoints"][endpoint])
-            assert hashlib.sha256(encode(value["policy"]["notes"][2])).hexdigest() == "a174ddfb734a78533bde59538553826d3a0f04b01f8b4975de4d8e57aa1b9e25"
+            assert hashlib.sha256(encode(value["policy"]["notes"][2])).hexdigest() == "64a2f1c9ca4555cb01b2e3889f09df253c05b23c39238a2572e19b531ef91628"
             value["policy"]["notes"][2] = expected["policy"]["notes"][2]
             argon = value["models"].pop("gemini-4-argon")
             assert hashlib.sha256(encode(argon)).hexdigest() == "3fb424016416717576cca9f18d85f7d5b5eadcc6ed469ab906c3e4c78202dc58"
@@ -1184,7 +1172,7 @@ def assert_frozen_surfaces(actual, *, surfaces):
                 expected["review_scheduler"]["endpoints"]["muse"]["models"]
             )
             muse_model = value["models"]["muse-wonder-full-1.0"]
-            assert hashlib.sha256(encode(muse_model)).hexdigest() == "1fc780ed6e4825a55d2617a651659729a08d5827180752ddc0adf59db4572c0d"
+            assert hashlib.sha256(encode(muse_model)).hexdigest() == "0b3ddf462fdf22956bac01e2a7bf86a0bf917ef93fd5b461a19e78e5fd9acc10"
             value["review_candidates"]["muse"] = deepcopy(CURRENT_BASELINE["catalog"]["review_candidates"]["muse"])
             value["models"]["muse-wonder-full-1.0"] = deepcopy(CURRENT_BASELINE["catalog"]["models"]["muse-wonder-full-1.0"])
             # REMOVE-UNNEEDED-1107: prose-only correction of two stale "Gemma retired" policy notes

@@ -609,21 +609,11 @@ def test_carbon_debt_labels_only_release_gated_missing_reviews(synthetic_opsec, 
             return subprocess.CompletedProcess(args, 0, json.dumps([{"name": "CI Gate", "bucket": "pass"}]), "")
         return base(args, **kwargs)
 
-    debt = repo == "learn-ukrainian/machinery" and carbon_verdict in (None, "other-model", "stale")
-    if repo == "learn-ukrainian/machinery" and carbon_verdict in ("label-create-fails", "label-edit-fails"):
-        with pytest.raises(gate.PublishBlocked, match="Carbon debt label could not be recorded"):
-            pub.publish("pr-merge", repo=repo, number=1, match_head=HEAD, runner=send)
-        assert not calls
-        assert len(labels) == (1 if carbon_verdict == "label-create-fails" else 2)
-    elif carbon_verdict == "APPROVED" or debt:
-        pub.publish("pr-merge", repo=repo, number=1, match_head=HEAD, runner=send)
-        assert len(calls) == 1  # the enqueue mutation succeeded
-        assert len(labels) == (2 if debt else 0)
-        if debt:
-            assert labels[0][-1] == "carbon-debt" and "--force" in labels[0]
-            assert "--add-label=carbon-debt" in labels[1]
-    else:
-        reason = "CHANGES_REQUESTED" if carbon_verdict == "CHANGES_REQUESTED" else "binding second review has not approved"
-        with pytest.raises(gate.PublishBlocked, match=reason):
+    if carbon_verdict == "CHANGES_REQUESTED":
+        with pytest.raises(gate.PublishBlocked, match="CHANGES_REQUESTED"):
             pub.publish("pr-merge", repo=repo, number=1, match_head=HEAD, runner=send)
         assert not calls and not labels
+    else:
+        pub.publish("pr-merge", repo=repo, number=1, match_head=HEAD, runner=send)
+        assert len(calls) == 1
+        assert labels == []

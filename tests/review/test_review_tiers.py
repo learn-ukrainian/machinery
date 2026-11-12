@@ -12,8 +12,6 @@ from lu_machinery.publish import github as publisher
 from lu_machinery.review import record_cf_verdict as recorder
 from lu_machinery.review.tiers import classify_pr_files
 
-_PR_READER = recorder._pr
-
 
 def test_low_same_family_non_author_approve_passes_recorder_and_landing(low_review, tmp_path):
     """A qualified second Sol task must approve a Low head without another family."""
@@ -74,15 +72,11 @@ SECURITY_FILES = (
 
 
 @pytest.mark.parametrize("path", SECURITY_FILES)
-def test_security_path_outside_the_high_table_requires_second_review(path):
-    """Defect class: a security-sensitive file the High table misses lands without Carbon."""
-    from lu_machinery.review.tiers import requires_second_review
-
+def test_security_paths_still_classify_without_a_second_review(path):
+    """Defect class: removing the second-review gate changes how a security path is tiered."""
     rows = [{"filename": path, "status": "modified"}]
-    assert requires_second_review(rows) is True
-    if path.startswith("packages/"):
-        assert classify_pr_files(rows) == "medium"
-    assert requires_second_review([{"filename": "docs/example.md", "status": "modified"}]) is False
+    assert classify_pr_files(rows) in {"medium", "high"}
+    assert classify_pr_files([{"filename": "docs/example.md", "status": "modified"}]) != "high"
 
 
 def _carbon_task(tasks, name="review-carbon", *, agent="agy", model="gemini-4-carbon-medium"):
@@ -112,32 +106,23 @@ def test_carbon_is_refused_as_the_reviewer_of_record(low_review, tmp_path):
     tasks, comments, statuses, files, _admit = low_review
     files[:] = [{"filename": SECURITY_FILES[0], "status": "modified"}]
     name = _carbon_task(tasks)
-    with pytest.raises(recorder.RecordError, match="never the reviewer of record"):
+    with pytest.raises(recorder.RecordError, match="holds no review"):
         recorder.record(name, pr_number=1, task_root=tasks, lock_root=tmp_path / "locks")
     assert comments == [] and statuses == []
 
 
-@pytest.mark.parametrize(
-    ("agent", "model", "paths", "reason"),
-    [
-        ("claude", "claude-sonnet-5-5", SECURITY_FILES[:1], "not a listed second reviewer"),
-        ("agy", "gemini-4-argon-medium", SECURITY_FILES[:1], "holds no review"),
-        ("claude", "gemini-4-carbon-medium", SECURITY_FILES[:1], "second only through agy"),
-        ("agy", "gemini-4-carbon-medium", ("docs/example.md",), "neither High tier nor security-sensitive"),
-    ],
-)
-def test_second_review_token_needs_completed_task_provenance(low_review, tmp_path, agent, model, paths, reason):
-    """Defect class: --second-review issues the Carbon token for another model, route or an unrequired PR."""
+def test_second_review_is_not_recorded(low_review, tmp_path):
+    """Defect class: a new record still issues the historical second-review token."""
     tasks, comments, statuses, files, _admit = low_review
-    files[:] = [{"filename": path, "status": "modified"} for path in paths]
-    name = _carbon_task(tasks, agent=agent, model=model)
-    with pytest.raises(recorder.RecordError, match=reason):
+    files[:] = [{"filename": SECURITY_FILES[0], "status": "modified"}]
+    name = _carbon_task(tasks)
+    with pytest.raises(recorder.RecordError, match="second review is not recorded"):
         recorder.record(name, pr_number=1, task_root=tasks, lock_root=tmp_path / "locks", second_review=True)
     assert comments == [] and statuses == []
 
 
-def test_unreadable_pr_files_keep_the_second_review_required(low_review, tmp_path, monkeypatch):
-    """Defect class: a file-list failure defaults the requirement to false and waives Carbon."""
+def test_unreadable_pr_files_do_not_record_a_second_review(low_review, tmp_path, monkeypatch):
+    """Defect class: a file-list failure still records a second review."""
     tasks, comments, statuses, _files, _admit = low_review
 
     def unavailable(*_args, **_kwargs):
@@ -145,30 +130,29 @@ def test_unreadable_pr_files_keep_the_second_review_required(low_review, tmp_pat
 
     monkeypatch.setattr(recorder.GitHubAdapter, "pr_file_rows", unavailable)
     name = _carbon_task(tasks)
-    result = recorder.record(name, pr_number=1, task_root=tasks, lock_root=tmp_path / "locks", second_review=True)
-    assert result["verdict"] == "APPROVED" and "second_review=carbon" in comments[-1]["body"]
-    # Carbon alone never approves: the status waits for the reviewer of record.
-    assert statuses[-1]["state"] == "pending"
+    with pytest.raises(recorder.RecordError, match="second review is not recorded"):
+        recorder.record(name, pr_number=1, task_root=tasks, lock_root=tmp_path / "locks", second_review=True)
+    assert comments == [] and statuses == []
 
 
-def test_enqueue_refuses_a_security_pr_without_the_carbon_second_review(low_review):
-    """Defect class: a security-sensitive PR enqueues on the reviewer of record alone."""
+def test_enqueue_admits_a_security_pr_on_one_cross_family_review(low_review):
+    """Defect class: a security-sensitive PR is held for a second review."""
     _tasks, comments, _statuses, files, admit = low_review
     files[:] = [{"filename": SECURITY_FILES[0], "status": "modified"}]
     _record_of_record(comments)
-    with pytest.raises(publisher.gate.PublishBlocked, match="binding second review has not approved"):
-        admit()
+    assert admit() is None
 
 
-def test_enqueue_admits_a_security_pr_with_both_reviews(low_review, tmp_path):
-    """Defect class: a correctly double-reviewed security PR is refused at enqueue."""
+def test_recording_a_second_review_does_not_add_a_seat(low_review, tmp_path):
+    """Defect class: a second-review record is still accepted beside the reviewer of record."""
     tasks, comments, statuses, files, admit = low_review
     files[:] = [{"filename": SECURITY_FILES[0], "status": "modified"}]
     _record_of_record(comments)
     name = _carbon_task(tasks)
-    result = recorder.record(name, pr_number=1, task_root=tasks, lock_root=tmp_path / "locks", second_review=True)
-    assert result["verdict"] == "APPROVED"
-    assert statuses[-1]["state"] == "success"
+    before = len(comments)
+    with pytest.raises(recorder.RecordError, match="second review is not recorded"):
+        recorder.record(name, pr_number=1, task_root=tasks, lock_root=tmp_path / "locks", second_review=True)
+    assert len(comments) == before and statuses == []
     assert admit() is None
 
 
@@ -180,7 +164,7 @@ def test_archived_task_path_alias_cannot_supply_both_review_runs(low_review, tmp
 
     from lu_machinery.orchestration import integration_sweep as sweep
 
-    tasks, comments, statuses, files, admit = low_review
+    tasks, comments, _statuses, files, admit = low_review
     facts = recorder.pr_review_facts(None)
     monkeypatch.setattr(recorder, "pr_review_facts", lambda *_, **__: replace(
         facts, commits=(replace(facts.commits[0], family="anthropic", author_models=("claude-opus-5-5",)),),
@@ -199,52 +183,49 @@ def test_archived_task_path_alias_cannot_supply_both_review_runs(low_review, tmp
     (tasks / "review-one.result").rename(archive / "review-one.result")
     assert recorder.record("review-one", pr_number=1, task_root=tasks, lock_root=tmp_path / "locks")["verdict"] == "APPROVED"
 
-    with pytest.raises(recorder.RecordError, match="canonical task identity"):
+    with pytest.raises(recorder.RecordError, match="second review is not recorded"):
         recorder.record("archive/review-one", pr_number=1, task_root=tasks,
                         lock_root=tmp_path / "locks", second_review=True)
     assert len(comments) == 1
 
-    # Existing comments from the vulnerable recorder must also fail at the gate.
+    # A historical second-review approval is not itself the reviewer of record.
     alias = {**comments[0], "body": recorder.build_comment(
         sha="a" * 40, task_id="archive/review-one", started=task["started_at"],
         verdict="APPROVED", model=task["model"], family="openai", reply="VERDICT: APPROVE",
         author_models=("claude-opus-5-5",), second_review=True,
     )}
-    assert sweep.lookup_verdict([*comments, alias], "a" * 40, "fleet", second_review=True).state != "APPROVED"
-    # A separate last-resort Sol invocation still fills the second seat.
-    second = {**task, "task_id": "review-two", "run_nonce": "another-provider-run",
-              "started_at": "2026-09-23T12:00:01.000001+00:00"}
-    (tasks / "review-two.json").write_text(json.dumps(second))
-    (tasks / "review-two.result").write_bytes((archive / "review-one.result").read_bytes())
-    assert recorder.record("review-two", pr_number=1, task_root=tasks,
-                           lock_root=tmp_path / "locks", second_review=True)["verdict"] == "APPROVED"
-    assert statuses[-1]["state"] == "success"
+    assert sweep.lookup_verdict([alias], "a" * 40, "fleet").state != "APPROVED"
+    assert sweep.lookup_verdict(comments, "a" * 40, "fleet").state == "APPROVED"
+    with pytest.raises(recorder.RecordError, match="second review is not recorded"):
+        recorder.record("review-two", pr_number=1, task_root=tasks,
+                        lock_root=tmp_path / "locks", second_review=True)
     assert admit() is None
 
 
-def test_enqueue_refuses_an_unreviewed_security_pr_where_the_recorder_is_optional(low_review, monkeypatch):
-    """Defect class: a repository's verdict_recorder opt-out waives the Carbon second review."""
+def test_optional_recorder_still_requires_one_review_on_a_security_path(low_review, monkeypatch):
+    """Defect class: turning the verdict recorder off admits an unreviewed security PR."""
     _tasks, comments, _statuses, files, admit = low_review
     monkeypatch.setattr(publisher.gate, "catalog", lambda: {
         "public": {"github": "unit/public", "verdict_recorder": False},
     })
     assert comments == []
-    assert admit() is None  # an ordinary PR stays outside the optional recorder's regime
-    files[:] = [{"filename": SECURITY_FILES[0], "status": "modified"}]
-    with pytest.raises(publisher.gate.PublishBlocked, match="no cross-family APPROVE"):
-        admit()
+    assert admit() is None
+    for path in (SECURITY_FILES[0], ".github/workflows/ci.yml"):
+        files[:] = [{"filename": path, "status": "modified"}]
+        with pytest.raises(publisher.gate.PublishBlocked, match="no cross-family APPROVE"):
+            admit()
 
 
-@pytest.mark.parametrize("repository,expected", [
-    ("learn-ukrainian/machinery", "success"),
-    ("learn-ukrainian/learn-ukrainian.github.io", "pending"),
+@pytest.mark.parametrize("repository", [
+    "learn-ukrainian/machinery",
+    "learn-ukrainian/learn-ukrainian.github.io",
 ])
-def test_recorded_status_allows_carbon_debt_only_in_machinery(low_review, tmp_path, monkeypatch, repository, expected):
-    """Defect class: a pending Carbon status stalls machinery before its debt admission can run."""
+def test_recorded_approval_is_success_without_a_second_seat(low_review, tmp_path, monkeypatch, repository):
+    """Defect class: one exact-head approval stays pending until a second review is recorded."""
     import json
     from dataclasses import replace
 
-    tasks, _comments, statuses, files, _admit = low_review
+    tasks, comments, statuses, files, _admit = low_review
     path = tasks / "review-one.json"
     task = json.loads(path.read_text())
     task.update(repository=repository, model="claude-opus-5-5", agent="claude")
@@ -253,34 +234,28 @@ def test_recorded_status_allows_carbon_debt_only_in_machinery(low_review, tmp_pa
     monkeypatch.setattr(recorder, "pr_review_facts", lambda *_, **__: replace(original, repository=repository))
     files[:] = [{"filename": "lu_machinery/publish/github.py", "status": "modified"}]
     assert recorder.record("review-one", pr_number=1, task_root=tasks, lock_root=tmp_path / "locks")["verdict"] == "APPROVED"
-    assert statuses[-1]["state"] == expected
-    # Carbon rejection must still replace success/pending with failure in either repository.
+    assert statuses[-1]["state"] == "success"
     name = _carbon_task(tasks)
-    path = tasks / (name + ".json")
-    task = json.loads(path.read_text())
-    task["repository"] = repository
-    path.write_text(json.dumps(task))
-    (tasks / (name + ".result")).write_text("VERDICT: REQUEST_CHANGES")
-    assert recorder.record(name, pr_number=1, task_root=tasks, lock_root=tmp_path / "locks", second_review=True)["verdict"] == "CHANGES_REQUESTED"
-    assert statuses[-1]["state"] == "failure"
+    with pytest.raises(recorder.RecordError, match="second review is not recorded"):
+        recorder.record(name, pr_number=1, task_root=tasks, lock_root=tmp_path / "locks", second_review=True)
+    assert len(comments) == 1 and statuses[-1]["state"] == "success"
 
 
 @pytest.mark.parametrize("repository", ["learn-ukrainian/machinery", "learn-ukrainian/learn-ukrainian.github.io"])
 @pytest.mark.parametrize("state", ["OPEN", "MERGED", "CLOSED"])
-@pytest.mark.parametrize("second", [False, True])
-def test_recording_merged_pr_is_carbon_machinery_only(monkeypatch, repository, state, second):
-    """Defect class: debt cannot be recorded after merge, or merged recording escapes its repository and seat."""
+def test_recording_requires_an_open_pr(monkeypatch, repository, state):
+    """Defect class: a merged or closed PR can still be recorded."""
     payload = {"number": 1, "headRefOid": "a" * 40, "headRefName": "codex/fixture", "state": state}
     monkeypatch.setattr(recorder, "_run_json", lambda *_: payload)
-    if state == "OPEN" or (state == "MERGED" and second and repository == "learn-ukrainian/machinery"):
-        assert recorder._pr(repository, "codex/fixture", 1, second) == payload
+    if state == "OPEN":
+        assert recorder._pr(repository, "codex/fixture", 1) == payload
     else:
         with pytest.raises(recorder.RecordError, match="PR is not open"):
-            recorder._pr(repository, "codex/fixture", 1, second)
+            recorder._pr(repository, "codex/fixture", 1)
 
 
-def test_carbon_debt_record_uses_merged_pr_head_and_rechecks_under_lock(low_review, tmp_path, monkeypatch):
-    """Defect class: post-merge Carbon recording fails, uses the squash SHA, or misses a moved head under lock."""
+def test_second_review_is_refused_before_a_merged_pr_is_read(low_review, tmp_path):
+    """Defect class: a second review is still recorded against a merged PR."""
     import json
 
     tasks, comments, statuses, files, _admit = low_review
@@ -291,31 +266,7 @@ def test_carbon_debt_record_uses_merged_pr_head_and_rechecks_under_lock(low_revi
     task = json.loads(path.read_text())
     task["repository"] = "learn-ukrainian/machinery"
     path.write_text(json.dumps(task))
-    from dataclasses import replace
-
-    facts = recorder.pr_review_facts(None)
-    monkeypatch.setattr(recorder, "pr_review_facts", lambda *_, **__: replace(facts, repository="learn-ukrainian/machinery"))
-    monkeypatch.setattr(recorder, "_pr", _PR_READER)
-    payload = {"number": 1, "headRefOid": "a" * 40, "headRefName": "codex/fixture", "state": "MERGED"}
-    reads = []
-
-    def read(*_):
-        reads.append(True)
-        return payload
-
-    monkeypatch.setattr(recorder, "_run_json", read)
-    result = recorder.record(name, pr_number=1, task_root=tasks, lock_root=tmp_path / "locks", second_review=True)
-    assert result["verdict"] == "APPROVED" and result["head"] == "a" * 40
-    assert len(reads) == 2 and "second_review=carbon" in comments[-1]["body"]
-    assert statuses[-1]["state"] == "success"
-    comments.clear()
-    reads.clear()
-
-    def moved(*_):
-        reads.append(True)
-        return {**payload, "headRefOid": "b" * 40} if len(reads) == 2 else payload
-
-    monkeypatch.setattr(recorder, "_run_json", moved)
-    with pytest.raises(recorder.RecordError, match="PR head moved before publication"):
+    before = len(comments)
+    with pytest.raises(recorder.RecordError, match="second review is not recorded"):
         recorder.record(name, pr_number=1, task_root=tasks, lock_root=tmp_path / "locks", second_review=True)
-    assert comments == []
+    assert len(comments) == before and statuses == []

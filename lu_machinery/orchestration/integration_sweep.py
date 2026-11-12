@@ -262,50 +262,38 @@ def _edited(comment: Mapping[str, Any]) -> bool:
     return created is None or updated is None or created != updated
 
 
-def second_reviewer_policy() -> Mapping[str, Any]:
-    """The catalog's ``review_scheduler.second_reviewer`` row; ValueError when absent or malformed.
-
-    Its ``models`` is the ordered second-reviewer list (operator 2026-11-12): each row names a
-    catalog model, the route it runs on and its ``independence``: ``third_family`` (its family
-    differs from the reviewer of record's too) or ``last_resort`` (it may share that family).
-    """
-    from lu_machinery.review.model_catalog import load_model_catalog
-
-    try:
-        row = (load_model_catalog().get("review_scheduler") or {}).get("second_reviewer")
-    except Exception as error:  # an unreadable catalog never names the second reviewer
-        raise ValueError(f"model catalog unreadable: {type(error).__name__}") from None
-    if not isinstance(row, Mapping):
-        raise ValueError("review_scheduler.second_reviewer is missing or malformed")
-    rows = row.get("models")
-    if (
-        not isinstance(rows, list) or not rows
-        or not all(isinstance(item, Mapping) and isinstance(item.get("model"), str)
-                   and isinstance(item.get("route"), str)
-                   and item.get("independence") in {"third_family", "last_resort"} for item in rows)
-    ):
-        raise ValueError("review_scheduler.second_reviewer is missing or malformed")
-    return row
+# Catalog ids whose already-recorded ``second_review=carbon`` markers still parse.
+# Not a seat and not a scheduler: nothing is dispatched from this set (C-5345).
+_HISTORICAL_SECOND_REVIEW_MODELS = frozenset({
+    "claude-opus-5-5",
+    "gemini-4-carbon",
+    "gpt-6.1-sol",
+    "grok-4.7",
+    "muse-wonder-full-1.0",
+})
 
 
-def second_reviewer_entry(model: object) -> Mapping[str, Any] | None:
-    """The second-reviewer list row of ``model`` (any of its wire or runtime ids); None when unlisted."""
+def _catalog_model_id(model: object) -> str | None:
     from lu_machinery.review.model_catalog import resolve_catalog_model_id
 
-    resolved = resolve_catalog_model_id(model) if isinstance(model, str) else None
-    return next((row for row in second_reviewer_policy()["models"] if resolved and row["model"] == resolved), None)
+    if not isinstance(model, str):
+        return None
+    try:
+        return resolve_catalog_model_id(model)
+    except Exception:  # an unreadable catalog names no historical reviewer
+        return None
 
 
 def is_second_reviewer_model(model: object) -> bool:
-    """True when ``model`` is on the catalog's second-reviewer list."""
-    return second_reviewer_entry(model) is not None
+    """True when ``model`` is one whose recorded second-review token still parses."""
+    return _catalog_model_id(model) in _HISTORICAL_SECOND_REVIEW_MODELS
 
 
 def reviews_of_record(model: object) -> bool:
-    """Whether ``model`` holds a catalog review role besides ``second_review``.
+    """Whether ``model`` holds a catalog review role.
 
-    A listed model with one (Muse, Sol, Opus) keeps its reviewer-of-record seat: only a review
-    recorded with ``--second-review`` is its second review. One without (Carbon) never reviews of record.
+    Carbon holds none, so an untokened Carbon marker never approves. A ``second_review`` role,
+    if a catalog still carries one, is not a reviewer-of-record role.
     """
     from lu_machinery.review.model_catalog import load_model_catalog, resolve_catalog_model_id
 
@@ -319,7 +307,7 @@ def reviews_of_record(model: object) -> bool:
 
 
 def is_second_review_only(model: object) -> bool:
-    """A listed second reviewer that is never a reviewer of record (Carbon)."""
+    """A historical second reviewer that is never a reviewer of record (Carbon)."""
     return is_second_reviewer_model(model) and not reviews_of_record(model)
 
 
@@ -686,36 +674,6 @@ def _repair_receipt_blocks(body: str, sha: str) -> bool:
     return False
 
 
-def _independence(model: object) -> str | None:
-    """The listed ``independence`` of ``model``; None when it is not a listed second reviewer."""
-    try:
-        entry = second_reviewer_entry(model)
-    except ValueError:
-        return None
-    return entry["independence"] if entry is not None else None
-
-
-def _second_review_exempt(markers: Sequence[Mapping[str, Any]], record_families: set[str]) -> bool:
-    """True only when no listed second reviewer may give the second review: every listed family
-    is an attested author family, or (third_family rows) the reviewer of record's family.
-
-    Unattested authors, and an unreadable second-reviewer policy, keep the requirement.
-    """
-    try:
-        rows = second_reviewer_policy()["models"]
-    except ValueError:
-        return False
-    authors = attested_author_families(markers)
-    for row in rows:
-        family = model_family(row["model"])
-        if family is None:
-            return False
-        excluded = authors if row["independence"] == "last_resort" else authors | record_families
-        if family not in excluded:
-            return False
-    return True
-
-
 def _mixed_pair_pending(candidates: Sequence[tuple[datetime, tuple[datetime, int], dict[str, Any]]]) -> bool:
     """A trusted mixed-family code record needs both scoped exact-head approvals."""
     families = frozenset({"anthropic", "openai"})
@@ -774,22 +732,19 @@ def lookup_verdict(
     the module docstring for the threat model (#11127).
     Landing callers must pass ``low_tier`` from the shared path/status table.
     None preserves the historical reading for callers inspecting prior verdicts.
-    Only Low admits an unscoped same-family code approval. Scoped pair records
+    Only Low admits an unscoped same-family code approval.     Scoped pair records
     never prove whole-head non-authorship at Low; rejections stand at every tier.
-    ``second_review`` (``tiers.requires_second_review`` of the PR's files) also
-    requires a recorder-verified second-review APPROVE (``second_review=carbon``, the
-    fixed wire token) by a listed second reviewer whose family differs from the
-    approving reviewer of record's, unless no listed family is outside the attested
-    authors' and that reviewer's, or the explicit repository allows Carbon debt. The
-    enqueue publisher records that debt. A second review never approves, wins or proves
-    a seat on its own; its rejections stand like any other. A listed model that holds no
-    other review role (Carbon) never approves, tokened or not; any other model's untokened
-    review is an ordinary review.
+    ``second_review`` and ``repository`` are accepted and ignored: one review is the
+    seat (C-5345). A historical ``second_review=carbon`` marker still parses. It never
+    approves on its own, and its rejection still stands. Carbon never approves, tokened
+    or not.
     """
     if not complete or not isinstance(comments, Sequence) or isinstance(comments, (str, bytes)):
         return Verdict("unknown", reason=COMMENTS_UNAVAILABLE)
     if not SHA.fullmatch(sha):
         return Verdict("unknown", reason=HEAD_INVALID)
+    # Retained for callers. Neither argument adds a seat.
+    del second_review, repository
     if not authenticated_login:
         return Verdict("unknown", reason=IDENTITY_UNAVAILABLE)
     candidates: list[tuple[datetime, tuple[datetime, int], dict[str, Any]]] = []
@@ -885,31 +840,12 @@ def lookup_verdict(
             or is_ukrainian_review(item[2]) or item[2].get("review_pair")
             or item[2]["family"] not in attested_author_families([item[2]])
         ]
-    second_approvals = [
-        item[2] for item in candidates if is_second_review(item[2]) and item[2]["verdict"] not in REJECTED
-    ]
-    # A second review is never the reviewer of record: only its rejections stay candidates.
+    # A historical second review is never the reviewer of record: only its rejections stay candidates.
     candidates = [
         item for item in candidates
         if item[2]["verdict"] in REJECTED
         or not (is_second_review(item[2]) or is_second_review_only(item[2]["model"]))
     ]
-    # A third_family second reviewer counts only from a family other than the reviewer of
-    # record's; a last_resort one may share it, but never as the reviewer-of-record run itself.
-    record_approvals = [item[2] for item in candidates if item[2]["verdict"] not in REJECTED]
-    record_families = {marker["family"] for marker in record_approvals}
-    record_tasks = {marker["task"] for marker in record_approvals}
-    second_approved = any(
-        marker["task"] not in record_tasks
-        and (_independence(marker["model"]) == "last_resort" or marker["family"] not in record_families)
-        for marker in second_approvals
-    )
-    from lu_machinery.review.tiers import allows_carbon_debt
-
-    second_pending = (
-        second_review and not allows_carbon_debt(repository) and bool(candidates) and not second_approved
-        and not _second_review_exempt([item[2] for item in candidates], record_families)
-    )
     if not candidates:
         state = "CF-unrecorded" if legacy else "CF-stale" if other_head else "needs-CF"
         return Verdict(state, untrusted_markers=tuple(untrusted), superseded_markers=tuple(superseded))
@@ -918,7 +854,7 @@ def lookup_verdict(
         state, marker, seats, reason, index, started = covered
         if reason is not None:
             return unknown(reason, index, comments[index])
-        if state == "APPROVED" and ((not low_tier and _mixed_pair_pending(candidates)) or second_pending):
+        if state == "APPROVED" and not low_tier and _mixed_pair_pending(candidates):
             state = NEEDS_SEAT
         return Verdict(
             state,
@@ -951,8 +887,6 @@ def lookup_verdict(
         # Ukrainian verdict the authors are unattested, so both seats are required (#12181).
         state = NEEDS_SEAT
     if not standing and not low_tier and _mixed_pair_pending(candidates):
-        state = NEEDS_SEAT
-    if state == "APPROVED" and second_pending:
         state = NEEDS_SEAT
     return Verdict(
         state,
@@ -1373,7 +1307,7 @@ class GitHubAdapter:
 
 
 def run(adapter: GitHubAdapter, repository: str, *, now: datetime | None = None) -> list[PRReport]:
-    from lu_machinery.review.tiers import classify_pr_files, requires_second_review
+    from lu_machinery.review.tiers import classify_pr_files
 
     observed = (now or datetime.now(UTC)).isoformat(timespec="microseconds")
     prs = adapter.list_open_prs(repository)
@@ -1393,7 +1327,6 @@ def run(adapter: GitHubAdapter, repository: str, *, now: datetime | None = None)
             content = changes_learner_content(pr_file_paths(files))
             verdict = lookup_verdict(
                 comments, head, login, learner_content=content, low_tier=classify_pr_files(files) == "low",
-                second_review=requires_second_review(files), repository=repository,
             )
         except SweepError:
             verdict = Verdict("unknown", reason=COMMENTS_UNAVAILABLE)

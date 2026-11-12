@@ -197,25 +197,6 @@ def check_model_admission(agent: str, model: str, mode: str, options: dict, prom
         # Review typing is the one dispatch role admission infers: every review flag, --risk,
         # --review-mode, --language-lane, the subject selectors and a review research role.
         reviewed = identity is not None and "review" in dispatch_roles(options)
-        roles = set(catalog["models"].get(identity, {}).get("roles", []))
-        record_roles = set(catalog["review_scheduler"]["activity_roles"][REVIEW_ACTIVITY]) - {"second_review"}
-        # A listed second reviewer with no other review role (Carbon) runs only as the second
-        # review. Other listed models (Muse, Sol, Opus) are admitted as reviewers; the recorder
-        # decides from --second-review and the PR's files which review it is.
-        if reviewed and "second_review" in roles and not roles & record_roles:
-            second_rows = [
-                row for row in catalog["review_scheduler"]["second_reviewer"]["models"] if row["model"] == identity
-            ]
-            endpoint = catalog["review_scheduler"].get("endpoints", {}).get(agent) or {}
-            if (not second_rows or second_rows[0]["route"] not in {agent, endpoint.get("catalog_transport")}
-                    or mode != "read-only" or model.endswith("-low")
-                    or options.get("effort") == "low"
-                    or (options.get("review_profile") or "code") not in {"code", "infra"}
-                    or (options.get("review_mode") or "cross_family") != "cross_family"
-                    or options.get("language_lane") or options.get("review_attempt")
-                    or options.get("advisory_role") or options.get("advisory_task")
-                    or options.get("advisory_binding")):
-                raise ValueError("second reviewer admission requires a High/security second review, code or infra, at medium or high effort")
         if reviewed and (refusal := activity_role_refusal(identity, REVIEW_ACTIVITY, catalog)):
             raise ValueError(refusal)
         return
@@ -437,23 +418,7 @@ def check_branch_author_families(args, repo: Path, repository: dict, head_sha: s
         return
     reviewer = _model_families().get(reviewer_model)
     scope = facts
-    # A listed second reviewer outside every author family reviews the whole head of a PR that
-    # needs the second review, never one family's commits. A listed model of an author family
-    # (Sol or Opus on a mixed head) is dispatched as an ordinary reviewer, and one that holds no
-    # other review role (Carbon) is refused outside the second review.
-    from lu_machinery.orchestration.integration_sweep import is_second_review_only, is_second_reviewer_model
-
-    whole_head = False
-    if is_second_reviewer_model(reviewer_model):
-        from lu_machinery.review.tiers import requires_second_review
-
-        whole_head = reviewer not in facts.excluded_families and requires_second_review(
-            [{"filename": path, "status": "modified"} for path in facts.changed_paths]
-        )
-        if not whole_head and is_second_review_only(reviewer_model):
-            raise ValueError("second reviewer admission requires a High-tier or security-sensitive changed path")
-
-    if facts.mixed_family and args.review_profile in {"code", "infra"} and not whole_head:
+    if facts.mixed_family and args.review_profile in {"code", "infra"}:
         try:
             scope = facts.reviewer_scope(reviewer)
         except RecordError as exc:

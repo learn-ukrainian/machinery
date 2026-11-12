@@ -464,32 +464,6 @@ def _validate_review_scheduler(raw: Any, models: dict[str, Any]) -> None:
             raise ModelCatalogError(f"{label} must be a non-empty list of model ids")
         for model_id in allowed:
             _require_routable_model(models, model_id, label)
-    if "second_reviewer" in scheduler or "second_review" in (scheduler.get("activity_roles") or {}).get("review", []):
-        label = "review_scheduler.second_reviewer"
-        second = _require_mapping(scheduler.get("second_reviewer"), label)
-        rows = second.get("models")
-        if set(second) != {"models"} or not isinstance(rows, list) or not rows:
-            raise ModelCatalogError(f"{label} must hold exactly a non-empty ordered models list")
-        review_roles = set((scheduler.get("activity_roles") or {}).get("review", []))
-        listed: set[str] = set()
-        for index, row in enumerate(rows):
-            row_label = f"{label}.models[{index}]"
-            row = _require_mapping(row, row_label)
-            if set(row) != {"model", "route", "independence"}:
-                raise ModelCatalogError(f"{row_label} must hold exactly model, route and independence")
-            if row.get("independence") not in {"third_family", "last_resort"}:
-                raise ModelCatalogError(f"{row_label}.independence must be third_family or last_resort")
-            model_id = _require_string(row.get("model"), f"{row_label}.model")
-            _require_routable_model(models, model_id, f"{row_label}.model")
-            entry = models[model_id]
-            # A listed model reviews: it holds a review role (second_review alone for a second-only model).
-            if entry["lifecycle"] != "active" or (review_roles and not review_roles & set(entry["roles"])):
-                raise ModelCatalogError(f"{row_label}.model must be active and hold a review role")
-            if _require_string(row.get("route"), f"{row_label}.route") not in entry["transports"]:
-                raise ModelCatalogError(f"{row_label}.route is not supported by its model")
-            if model_id in listed:
-                raise ModelCatalogError(f"{row_label}.model is listed twice")
-            listed.add(model_id)
     activity_roles = _require_mapping(scheduler.get("activity_roles"), "review_scheduler.activity_roles")
     if set(activity_roles) != ACTIVITIES:
         raise ModelCatalogError(f"review_scheduler.activity_roles must define exactly {sorted(ACTIVITIES)}")

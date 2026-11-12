@@ -98,15 +98,16 @@ def opus(verdict="APPROVED", **kwargs):
     return record(task="review-opus", model="claude-opus-5-5", family="anthropic", verdict=verdict, second=True, **kwargs)
 
 
-def test_second_review_missing_holds_a_required_head_at_needs_seat():
-    """Defect class: a High-tier or security PR lands on the reviewer of record alone."""
-    assert sweep.lookup_verdict([record(task="review-sol")], SHA, "fleet", second_review=True).state == sweep.NEEDS_SEAT
+def test_one_review_of_record_approves_without_a_second_seat():
+    """Defect class: a recorded exact-head review is held for a seat that no longer exists."""
+    assert sweep.lookup_verdict([record(task="review-sol")], SHA, "fleet", second_review=True).state == "APPROVED"
 
 
-def test_second_review_and_reviewer_of_record_together_approve():
-    """Defect class: a correctly double-reviewed head is still refused."""
+def test_historical_second_review_approval_does_not_replace_the_reviewer_of_record():
+    """Defect class: a historical Carbon approval is required, or stands in for the reviewer of record."""
     rows = [record(task="review-sol"), carbon()]
     assert sweep.lookup_verdict(rows, SHA, "fleet", second_review=True).state == "APPROVED"
+    assert sweep.lookup_verdict([carbon()], SHA, "fleet").state == "needs-CF"
 
 
 def test_second_review_alone_never_approves():
@@ -116,21 +117,20 @@ def test_second_review_alone_never_approves():
         assert verdict.state == "needs-CF"
 
 
-def test_untokened_carbon_approval_is_not_a_reviewer_of_record_or_second_review():
-    """Defect class: a Carbon record without the recorder's second-review token counts as either seat."""
+def test_untokened_carbon_approval_is_not_a_reviewer_of_record():
+    """Defect class: a Carbon record without the historical token counts as the reviewer of record."""
     untokened = record(task="review-carbon", model=CARBON, family="google")
     assert sweep.lookup_verdict([untokened], SHA, "fleet").state == "needs-CF"
     rows = [record(task="review-sol"), untokened]
-    assert sweep.lookup_verdict(rows, SHA, "fleet", second_review=True).state == sweep.NEEDS_SEAT
-    # A listed model that also reviews of record (Opus) keeps that seat when untokened.
+    assert sweep.lookup_verdict(rows, SHA, "fleet", second_review=True).state == "APPROVED"
+    # A model that reviews of record (Opus) keeps that seat when untokened.
     ordinary = record(task="review-opus", model="claude-opus-5-5", family="anthropic")
     assert sweep.lookup_verdict([ordinary], SHA, "fleet").state == "APPROVED"
-    assert sweep.lookup_verdict([record(task="review-sol"), ordinary], SHA, "fleet",
-                                second_review=True).state == sweep.NEEDS_SEAT
+    assert sweep.lookup_verdict([record(task="review-sol"), ordinary], SHA, "fleet").state == "APPROVED"
 
 
 def test_second_review_token_on_another_model_poisons_instead_of_approving():
-    """Defect class: a forged token on a non-Carbon record satisfies the Carbon seat."""
+    """Defect class: a forged token on a non-historical model parses as a second review."""
     forged = record(task="review-sol-2", model=CARBON, family="google", second=True)
     forged["body"] = forged["body"].replace(CARBON, "gemini-4-argon-medium")
     assert sweep.parse_marker(forged["body"]) is None
@@ -138,15 +138,15 @@ def test_second_review_token_on_another_model_poisons_instead_of_approving():
     assert sweep.lookup_verdict(rows, SHA, "fleet", second_review=True).state == "unknown"
 
 
-def test_second_review_rejection_stands_over_both_approvals():
-    """Defect class: a Carbon CHANGES_REQUESTED (or a timeout's BLOCKED) is outvoted by approvals."""
+def test_second_review_rejection_stands_over_an_approval():
+    """Defect class: a historical Carbon CHANGES_REQUESTED (or a timeout's BLOCKED) is outvoted."""
     for rejection in ("CHANGES_REQUESTED", "BLOCKED"):
         rows = [record(task="review-sol"), carbon(verdict=rejection)]
         assert sweep.lookup_verdict(rows, SHA, "fleet", second_review=True).state == rejection
 
 
-def test_second_review_is_required_on_the_coverage_path():
-    """Defect class: an item-denominator head skips the second-review rule."""
+def test_coverage_path_does_not_grow_a_second_seat():
+    """Defect class: an item-denominator head is held for a second review."""
     def seat(task, model, family):
         return record(
             task=task, model=model, family=family, review_profile="ukrainian", sources_mcp_call_count=3,
@@ -155,51 +155,41 @@ def test_second_review_is_required_on_the_coverage_path():
 
     rows = [seat("review-uk-g", "gemini-3.8-flash-high", "google"), seat("review-uk-o", "gpt-6.1-sol", "openai")]
     assert sweep.lookup_verdict(rows, SHA, "fleet").state == "APPROVED"
-    assert sweep.lookup_verdict(rows, SHA, "fleet", second_review=True).state == sweep.NEEDS_SEAT
-    # The second review counts only from a family other than every approving reviewer of record's.
-    assert sweep.lookup_verdict([*rows, carbon()], SHA, "fleet", second_review=True).state == sweep.NEEDS_SEAT
-    assert sweep.lookup_verdict([*rows, record(task="review-sol-second", second=True)], SHA, "fleet",
-                                second_review=True).state == "APPROVED"
+    assert sweep.lookup_verdict(rows, SHA, "fleet", second_review=True).state == "APPROVED"
+    assert sweep.lookup_verdict([*rows, carbon()], SHA, "fleet").state == "APPROVED"
+    assert sweep.lookup_verdict([*rows, record(task="review-sol-second", second=True)], SHA, "fleet").state == "APPROVED"
 
 
-def test_gemini_authored_required_head_takes_the_next_listed_family():
-    """Defect class: a Gemini-authored PR waives the second review another listed family can give,
-    or is held for one no listed family may give."""
+def test_author_family_does_not_add_a_second_seat():
+    """Defect class: author families hold a head for a second reviewer that is no longer required."""
     rows = [record(task="review-sol", authors=("gemini-4-carbon-medium",))]
-    assert sweep.lookup_verdict(rows, SHA, "fleet", second_review=True).state == sweep.NEEDS_SEAT
-    assert sweep.lookup_verdict([*rows, opus(authors=("gemini-4-carbon-medium",))], SHA, "fleet",
-                                second_review=True).state == "APPROVED"
-    # A last_resort model may share the reviewer of record's family as its own run, never as that run.
+    assert sweep.lookup_verdict(rows, SHA, "fleet", second_review=True).state == "APPROVED"
+    assert sweep.lookup_verdict([*rows, opus(authors=("gemini-4-carbon-medium",))], SHA, "fleet").state == "APPROVED"
     sol = record(task="review-sol-second", authors=("gemini-4-carbon-medium",), second=True)
-    assert sweep.lookup_verdict([*rows, sol], SHA, "fleet", second_review=True).state == "APPROVED"
+    assert sweep.lookup_verdict([*rows, sol], SHA, "fleet").state == "APPROVED"
     reused = record(task="review-sol", authors=("gemini-4-carbon-medium",), second=True,
                     started="2026-09-23T12:00:00.000002+00:00")
-    assert sweep.lookup_verdict([*rows, reused], SHA, "fleet", second_review=True).state == sweep.NEEDS_SEAT
-    # Authors of every listed family leave no eligible second reviewer.
+    assert sweep.lookup_verdict([*rows, reused], SHA, "fleet").state == "APPROVED"
     every = (MUSE, "gemini-4-carbon-medium", "grok-4.7", "claude-opus-5-5", "gpt-6.1-sol")
-    assert sweep.lookup_verdict([record(task="review-sol", authors=every)], SHA, "fleet",
-                                second_review=True).state == "APPROVED"
+    assert sweep.lookup_verdict([record(task="review-sol", authors=every)], SHA, "fleet").state == "APPROVED"
 
 
-def test_unattested_authors_keep_the_second_review_required():
-    """Defect class: a record with no author attestation waives the second review."""
+def test_unattested_authors_do_not_add_a_second_seat():
+    """Defect class: a record with no author attestation is held for a second review."""
     rows = [record(task="review-sol", authors=())]
-    assert sweep.lookup_verdict(rows, SHA, "fleet", second_review=True).state == sweep.NEEDS_SEAT
+    assert sweep.lookup_verdict(rows, SHA, "fleet", second_review=True).state == "APPROVED"
 
 
 def test_head_that_needs_no_second_review_is_unchanged():
-    """Defect class: the second-review rule leaks onto ordinary PRs."""
+    """Defect class: reading a historical second-review approval changes an ordinary PR."""
     assert sweep.lookup_verdict([record(task="review-sol")], SHA, "fleet").state == "APPROVED"
     rows = [record(task="review-sol"), carbon()]
     assert sweep.lookup_verdict(rows, SHA, "fleet").state == "APPROVED"
 
 
-@pytest.mark.parametrize("repository,expected", [
-    ("unit/public", sweep.NEEDS_SEAT),
-    ("learn-ukrainian/machinery", "APPROVED"),
-])
-def test_readiness_report_holds_a_security_pr_without_the_carbon_second_review(monkeypatch, repository, expected):
-    """Defect class: the read-only landing report calls a head ready that the enqueue gate refuses."""
+@pytest.mark.parametrize("repository", ["unit/public", "learn-ukrainian/machinery"])
+def test_readiness_report_does_not_hold_a_security_pr_for_carbon(monkeypatch, repository):
+    """Defect class: the read-only landing report holds a reviewed head for a second seat."""
     seen = []
     real = sweep.lookup_verdict
 
@@ -227,7 +217,7 @@ def test_readiness_report_holds_a_security_pr_without_the_carbon_second_review(m
     monkeypatch.setattr(sweep, "changes_learner_content", lambda _paths: False)
     monkeypatch.setattr(sweep, "classify_pr", lambda pr, verdict, **_: verdict)
     sweep.run(Adapter(), repository)
-    assert [verdict.state for verdict in seen] == [expected]
+    assert [verdict.state for verdict in seen] == ["APPROVED"]
 
 
 @pytest.mark.parametrize("repository", ["learn-ukrainian/machinery", "learn-ukrainian/learn-ukrainian.github.io"])

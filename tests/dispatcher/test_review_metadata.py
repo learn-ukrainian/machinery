@@ -3,6 +3,7 @@
 import json
 import os
 import subprocess
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
@@ -299,12 +300,8 @@ def test_fourth_default_tier_review_dispatch_is_refused_without_any_recorded_ver
 pytestmark = pytest.mark.usefixtures("configured_roots")
 
 
-def test_mixed_family_head_admits_the_carbon_second_review_dispatch(dispatch, monkeypatch, tmp_path, capsys):
-    """Defect class: the mandatory Carbon second review cannot be dispatched on a mixed-family head.
-
-    Carbon reviews the whole head, so the Anthropic/OpenAI pair narrowing does not apply to it; any
-    other Gemini reviewer is still refused there, and the reviewer-outside-every-author check stays.
-    """
+def test_mixed_family_head_refuses_carbon(dispatch, monkeypatch, tmp_path, capsys):
+    """Defect class: Carbon is still admitted as a second reviewer of a mixed-family head."""
     repo, origin = tmp_path / "repo", tmp_path / "origin.git"
     env = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
     env.update(GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@example.invalid", GIT_COMMITTER_NAME="t",
@@ -328,7 +325,9 @@ def test_mixed_family_head_admits_the_carbon_second_review_dispatch(dispatch, mo
     monkeypatch.setattr(git, "review_branch_start", lambda *a, **k: head)
     monkeypatch.setattr(git, "worktree_plan", lambda *a, **k: (tmp_path, "claude/branch", head))
     monkeypatch.setattr(checks, "check_branch_author_families", BRANCH_AUTHOR_FAMILIES)
+    monkeypatch.setenv("LEARN_UKRAINIAN_PYTHON", sys.executable)
     review = ("--mode", "read-only", "--branch", "review/target", "--review-profile", "infra", "--risk", "critical")
     dispatch(*review, agent="agy", model="gemini-3.8-flash-high", expected=2)
     assert "mixed-family review requires an Anthropic or OpenAI seat" in capsys.readouterr().err
-    assert dispatch(*review, agent="agy", model="gemini-4-carbon-medium")["model"] == "gemini-4-carbon-medium"
+    dispatch(*review, agent="agy", model="gemini-4-carbon-medium", expected=2)
+    assert "holds no review" in capsys.readouterr().err
