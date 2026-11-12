@@ -743,7 +743,7 @@ def _agy_follow_up(spec: TaskSpec, record: dict, parsed: ParsedResult, started: 
         children = _children_at(record, deadline, checkpoint)
     if children:
         named = ", ".join(children)
-        return None, replace(parsed, error=f"agy_child_still_running: {named}")
+        return None, replace(parsed, error=f"agy_child_still_running: {named}", incomplete=True)
     if resumes >= CONTINUATION_LIMIT or time.monotonic() >= deadline:
         return None, _agy_unfinished(parsed)
     if not incomplete and not saw_children:
@@ -757,9 +757,7 @@ def _agy_follow_up(spec: TaskSpec, record: dict, parsed: ParsedResult, started: 
 
 def _agy_unfinished(parsed: ParsedResult) -> ParsedResult:
     """An interim success is not final when no continuation produced a later result."""
-    if parsed.error:
-        return parsed
-    return replace(parsed, error="agy: incomplete run")
+    return replace(parsed, error=parsed.error or "agy: incomplete run", incomplete=True)
 
 
 # Dispositions that can change once other processes end, the tree is committed or reverted, the work is
@@ -1631,8 +1629,10 @@ def supervise(path: Path, options: dict | None = None, hard_timeout: float | Non
         if exit_code < 0:
             status = "crashed"
         # A provider failure can be answered by merged delivery only after the same integrity
-        # gates as success. Read-only failures retain their existing failure path.
-        record["provider_terminal_failure"] = status == "failed"
+        # gates as success. Read-only failures retain their existing failure path. A run that ended
+        # with its work still open (a child task or background command) did not finish, so merged work
+        # is not its result (#12156).
+        record["provider_terminal_failure"] = status == "failed" and not parsed.incomplete
         if status != "done":
             error = parsed.error or (
                 "provider exited unsuccessfully" if exit_code else "provider returned no successful final response"

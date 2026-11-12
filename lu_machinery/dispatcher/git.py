@@ -168,8 +168,11 @@ def verifiable_origin_base(ref: str) -> str:
 
 
 @contextmanager
-def ownership_git(record: dict):
+def ownership_git(record: dict, head: str | None = None):
     """Walk trusted remote objects in a private config/ref namespace.
+
+    The delivery is the task's recorded branch, or ``head``, a full commit id fetched by id (a merged
+    pull request's final head, which the remote still serves after its branch is deleted).
 
     A command-line include.path override is not a local-config sandbox. A fresh
     bare Git directory excludes both worker config and config.worktree,
@@ -200,6 +203,10 @@ def ownership_git(record: dict):
     # Ignore unrecorded branch names so an observed ref cannot widen delivery trust.
     if record.get("remote_ref") in allowed_refs:
         delivery_ref = record["remote_ref"]
+    if head is not None:
+        if not re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", head):
+            raise ValueError("delivery head must be a full object name")
+        delivery_ref = head
     base_ref = f"refs/heads/{base.removeprefix('origin/')}"
     # Distinct refs are required to keep the base independent of the delivery.
     if delivery_ref == base_ref:
@@ -226,7 +233,7 @@ def ownership_git(record: dict):
                 raise ValueError("full history could not be fetched")
             if not _complete_since_task_base(run, shallow, task_base):
                 raise ValueError("task base is not reachable from the remote tips")
-        if run("rev-parse", "--verify", "refs/heads/delivery^{commit}") != record["head_sha"]:
+        if run("rev-parse", "--verify", "refs/heads/delivery^{commit}") != (head or record["head_sha"]):
             raise ValueError("remote delivery tip does not match snapshot")
         yield run
 
@@ -982,10 +989,13 @@ def merged_delivery(record: dict) -> dict | None:
     it MERGED into the task's base after the task started, with a merge commit and a task-authored
     commit (or an explicit task acceptance when it added no commits). Any lookup failure is None, so the
     caller falls back to refusing on the local evidence. ``paths`` is every path the PR
-    changed, rename sources included. The task's own head must also be published (nothing
+    changed, rename sources included, plus every path any commit of the task's touched, as the
+    settlement walk reads them from the PR's final head (a reverted change still counts). The task's own head must also be published (nothing
     ahead of the task start, the PR's final head, or already in the PR or the base), so merged
     work never hides further work that was not pushed.
     """
+    from lu_machinery.dispatcher import ownership
+
     record["merged_delivery_lookup"] = "no_match"
     try:
         repo, base = _repo_and_base(record)
@@ -1000,10 +1010,11 @@ def merged_delivery(record: dict) -> dict | None:
                     or not re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", pr["mergeCommit"]["oid"])
                     or datetime.fromisoformat(pr["mergedAt"].replace("Z", "+00:00")) < started):
                 continue
-            if record.get("commits_ahead") == 0:
-                if number not in _accepted_prs(record["task_id"], repo):
-                    continue  # a matching branch name alone never attributes another task's work
-            else:
+            # An accepted pull request is the task's whatever it committed; otherwise a commit of its own must carry
+            # its trailer, and a matching branch name alone never attributes another task's work.
+            if number not in _accepted_prs(record["task_id"], repo):
+                if record.get("commits_ahead") == 0:
+                    continue
                 messages = _gh("api", "--paginate", f"repos/{repo}/pulls/{number}/commits", "--jq",
                                ".[] | .commit.message | @json")
                 trailer = f"X-Agent: {record['agent']}/{record['task_id']}"
@@ -1019,10 +1030,17 @@ def merged_delivery(record: dict) -> dict | None:
             # One JSON string per line keeps a name with a newline or quote whole.
             changed = _gh("api", "--paginate", f"repos/{repo}/pulls/{number}/files",
                           "--jq", ".[] | (.filename, (.previous_filename // empty)) | @json")
+            # The net file list omits a change a later commit reverted, so settlement's own walk also reads
+            # every commit the PR's final head adds to the base it merged into (the merge's first parent).
+            with ownership_git(record, head=pr["headRefOid"]) as run:
+                history = ownership.delivered_paths(
+                    run, pr["headRefOid"], run("rev-parse", "--verify", pr["mergeCommit"]["oid"] + "^1"),
+                    record.get("worktree_start_sha", record["worktree_base_sha"]),
+                    commits_expected=record.get("commits_ahead") != 0)
             record.pop("merged_delivery_lookup", None)
             return dict(repo=repo, number=number, merged_at=pr["mergedAt"],
                         merge_sha=pr["mergeCommit"]["oid"],
-                        paths=sorted({json.loads(line) for line in changed.split("\n") if line}))
+                        paths=sorted({json.loads(line) for line in changed.split("\n") if line} | set(history) - {""}))
     except (OSError, ValueError, KeyError, TypeError, AttributeError, RuntimeError, subprocess.SubprocessError) as exc:
         # The refusal remains fail-closed, but a later investigation can distinguish an empty lookup
         # from an exception. Exception text can contain credentials or private paths, so keep only its type.

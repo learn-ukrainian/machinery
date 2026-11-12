@@ -10,7 +10,7 @@ from unittest.mock import Mock
 import pytest
 
 from lu_machinery.common import github_client
-from lu_machinery.dispatcher import git, worker
+from lu_machinery.dispatcher import git, ownership, worker
 from lu_machinery.orchestration import pr_ownership
 
 
@@ -60,7 +60,7 @@ def test_merged_task_survives_missing_branch_search_and_provider_error(
         "task_id": task, "agent": agent, "mode": "workspace-write", "status": status, "error": provider_error,
         "owned_paths": ["docs/owned.md"], "worktree_remote_url": "https://github.com/org/repo.git",
         "worktree_base_ref": "origin/main", "worktree_branch": f"{agent}/{task}",
-        "started_at": "2026-11-11T15:00:00+00:00", "head_sha": head, "commits_ahead": 1,
+        "started_at": "2026-11-11T15:00:00+00:00", "worktree_base_sha": "c" * 40, "head_sha": head, "commits_ahead": 1,
         "push_state": "unpushed", "worktree_dirty_on_exit": False,
         "provider_terminal_failure": status == "failed",
     }
@@ -82,9 +82,17 @@ def test_merged_task_survives_missing_branch_search_and_provider_error(
             out = json.dumps("docs/owned.md")
         return SimpleNamespace(returncode=0, stdout=out, stderr="")
 
+    @contextmanager
+    def ownership_git(walked, head=None):
+        if head is None:
+            raise verification_error  # the branch walk fails; the merged PR's head is still served by id
+        assert head == walked["head_sha"]
+        yield Mock(return_value=merge)
+
     monkeypatch.setattr(github_client, "run", gh)
     monkeypatch.setattr(pr_ownership, "state_path", lambda: tmp_path / "ownership.json")
-    monkeypatch.setattr(git, "ownership_git", Mock(side_effect=verification_error))
+    monkeypatch.setattr(git, "ownership_git", ownership_git)
+    monkeypatch.setattr(ownership, "delivered_paths", Mock(return_value=["docs/owned.md"]))
     worker._enforce_delivery(record)
     assert (record["status"], record["error"], record.get("delivery_pr")) == ("done", None, f"org/repo#{number}")
     assert record["delivery_merge_sha"] == merge
@@ -99,7 +107,8 @@ def test_merged_task_survives_missing_branch_search_and_provider_error(
     ("merged", "clean"), ("open", "clean"), ("merged-other-head", "clean"),
     ("outside", "clean"), ("rename-outside", "clean"), ("wrong-base", "clean"), ("before-start", "clean"),
     ("merged", "untracked"), ("merged", "tracked"), ("merged", "staged"), ("merged", "late-commit"),
-    ("foreign-trailer", "clean"), ("foreign-repository", "clean"), ("missing-merge", "clean"),
+    ("foreign-trailer", "clean"), ("accepted-foreign-trailer", "clean"), ("foreign-repository", "clean"),
+    ("missing-merge", "clean"),
     ("history-outside", "clean"),
     ("commit-unavailable", "clean"),
 ])
@@ -111,6 +120,8 @@ def test_merged_pr_proves_delivery_after_branch_and_pull_ref_are_gone(
     after the exit snapshot still refuses."""
     remote, work = tmp_path / "remote.git", tmp_path / "work"
     _git(tmp_path, "init", "--bare", "-b", "main", str(remote))
+    # GitHub still serves a merged pull request's commits by id after its branch is deleted.
+    _git(remote, "config", "uploadpack.allowAnySHA1InWant", "true")
     _git(tmp_path, "clone", str(remote), str(work))
     for key, value in (("user.name", "t"), ("user.email", "t@example.invalid"), ("commit.gpgsign", "false")):
         _git(work, "config", key, value)
@@ -139,7 +150,7 @@ def test_merged_pr_proves_delivery_after_branch_and_pull_ref_are_gone(
     _git(work, "switch", "main")
     _git(work, "merge", "--squash", branch)
     _git(work, "commit", "-m", "deliver (#7)")
-    _git(work, "push", "origin", "main", *([] if case == "history-outside" else [f":{branch}"]))
+    _git(work, "push", "origin", "main", f":{branch}")
     # The task worktree stays on its branch, with the canonical origin recorded at dispatch.
     _git(work, "switch", branch)
     _git(work, "remote", "set-url", "origin", "https://github.com/org/repo.git")
@@ -188,7 +199,7 @@ def test_merged_pr_proves_delivery_after_branch_and_pull_ref_are_gone(
             out = json.dumps([{"number": 7, "head": {"sha": pr["headRefOid"], "repo": {"full_name": "org/repo"}},
                                "base": {"repo": {"full_name": "org/repo"}}}])
         elif words[2].endswith("/commits"):
-            out = json.dumps("deliver\n\nX-Agent: claude/" + ("foreign" if case == "foreign-trailer" else "rescue-probe"))
+            out = json.dumps("deliver\n\nX-Agent: claude/" + ("foreign" if "foreign-trailer" in case else "rescue-probe"))
         else:
             out = json.dumps("outside.md" if case == "outside" else "docs/owned.md")
             if case == "rename-outside":
@@ -198,10 +209,22 @@ def test_merged_pr_proves_delivery_after_branch_and_pull_ref_are_gone(
     monkeypatch.setattr(git, "_private_remote_git", private_remote)
     monkeypatch.setattr(github_client, "run", gh)
     monkeypatch.setattr(pr_ownership, "state_path", lambda: tmp_path / "ownership.json")
-    # The ownership walk fetches the deleted branch, as the recorded failures did.
-    if not replacement and case != "history-outside":
-        monkeypatch.setattr(git, "ownership_git", Mock(side_effect=subprocess.CalledProcessError(128, ["git", "fetch"])))
-    assert bool(_git(remote, "for-each-ref", "refs/pull", f"refs/heads/{branch}")) == (case == "history-outside")
+    if case == "accepted-foreign-trailer":
+        # A takeover accepted the PR; its commits carry only the predecessor's trailer.
+        (tmp_path / "ownership.json").write_text(json.dumps({
+            "schema": 1, "last_tick": None, "episodes": {}, "handoffs": {}, "outbox": [],
+            "history": [{"event": "accepted", "pr": "org/repo#7", "successor": "rescue-probe"}]}))
+    # The ownership walk fetches the deleted branch, as the recorded failures did; the merged head is fetched by id.
+    if not replacement:
+        walk = git.ownership_git
+
+        def ownership_git(walked, head=None):
+            if head is None:
+                raise subprocess.CalledProcessError(128, ["git", "fetch"])
+            return walk(walked, head=head)
+
+        monkeypatch.setattr(git, "ownership_git", ownership_git)
+    assert not _git(remote, "for-each-ref", "refs/pull", f"refs/heads/{branch}")
     if replacement:
         assert _git(remote, "rev-parse", "refs/heads/claude/rescue-probe") == base
     if tree == "untracked":
@@ -219,8 +242,6 @@ def test_merged_pr_proves_delivery_after_branch_and_pull_ref_are_gone(
         "worktree_base_ref": "origin/main", "worktree_branch": "claude/rescue-probe", "publish_branch": None,
         "started_at": "2026-11-08T12:30:00+00:00", "worktree_base_sha": base, "worktree_path": str(work),
     }
-    if case == "history-outside" and replacement:
-        record["publish_branch"] = branch
     record.update(git.snapshot_delivery(SimpleNamespace(worktree=work, mode="workspace-write"), record))
     assert (record["head_sha"], record["commits_ahead"], record["worktree_dirty_on_exit"]) == (
         head, 3 if case == "history-outside" else 1, tree != "clean")
@@ -230,7 +251,8 @@ def test_merged_pr_proves_delivery_after_branch_and_pull_ref_are_gone(
     worker._enforce_delivery(record)
     if case == "commit-unavailable":
         assert association_requests == ([f"repos/org/repo/commits/{head}/pulls"] if replacement else [])
-    if (case == "merged" or (case == "commit-unavailable" and not replacement)) and tree in {"clean", "untracked"}:
+    if (case in {"merged", "accepted-foreign-trailer"} or (case == "commit-unavailable" and not replacement)
+            ) and tree in {"clean", "untracked"}:
         assert (record["status"], record["error"], record["delivery_pr"]) == ("done", None, "org/repo#7")
     elif case in {"outside", "rename-outside", "history-outside"}:
         assert (record["status"], record["error"]) == ("no_deliverable", "outside_owned_paths: outside.md")
