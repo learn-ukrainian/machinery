@@ -107,7 +107,8 @@ def test_merged_task_survives_missing_branch_search_and_provider_error(
     ("merged", "clean"), ("open", "clean"), ("merged-other-head", "clean"),
     ("outside", "clean"), ("rename-outside", "clean"), ("wrong-base", "clean"), ("before-start", "clean"),
     ("merged", "untracked"), ("merged", "tracked"), ("merged", "staged"), ("merged", "late-commit"),
-    ("foreign-trailer", "clean"), ("accepted-foreign-trailer", "clean"), ("foreign-repository", "clean"),
+    ("foreign-trailer", "clean"), ("accepted-foreign-trailer", "clean"), ("accepted-reset", "clean"),
+    ("foreign-repository", "clean"),
     ("missing-merge", "clean"),
     ("history-outside", "clean"),
     ("commit-unavailable", "clean"),
@@ -117,7 +118,8 @@ def test_merged_pr_proves_delivery_after_branch_and_pull_ref_are_gone(
     """Defect class: a squash-merged task whose branch closeout deleted, and whose refs/pull/N/head the remote
     no longer advertises, or whose tree held only untracked scratch, settled no_deliverable. An open PR, a
     merged PR whose head is not the task's head, a tracked or staged change left in the tree, or one committed
-    after the exit snapshot still refuses."""
+    after the exit snapshot still refuses. An unchanged accepted takeover can reset to the squash merge
+    without making the PR's legitimately empty ownership range a refusal."""
     remote, work = tmp_path / "remote.git", tmp_path / "work"
     _git(tmp_path, "init", "--bare", "-b", "main", str(remote))
     # GitHub still serves a merged pull request's commits by id after its branch is deleted.
@@ -209,7 +211,7 @@ def test_merged_pr_proves_delivery_after_branch_and_pull_ref_are_gone(
     monkeypatch.setattr(git, "_private_remote_git", private_remote)
     monkeypatch.setattr(github_client, "run", gh)
     monkeypatch.setattr(pr_ownership, "state_path", lambda: tmp_path / "ownership.json")
-    if case == "accepted-foreign-trailer":
+    if case in {"accepted-foreign-trailer", "accepted-reset"}:
         # A takeover accepted the PR; its commits carry only the predecessor's trailer.
         (tmp_path / "ownership.json").write_text(json.dumps({
             "schema": 1, "last_tick": None, "episodes": {}, "handoffs": {}, "outbox": [],
@@ -242,16 +244,20 @@ def test_merged_pr_proves_delivery_after_branch_and_pull_ref_are_gone(
         "worktree_base_ref": "origin/main", "worktree_branch": "claude/rescue-probe", "publish_branch": None,
         "started_at": "2026-11-08T12:30:00+00:00", "worktree_base_sha": base, "worktree_path": str(work),
     }
+    if case == "accepted-reset":
+        record["worktree_start_sha"] = head
+        _git(work, "reset", "--hard", "main")
     record.update(git.snapshot_delivery(SimpleNamespace(worktree=work, mode="workspace-write"), record))
     assert (record["head_sha"], record["commits_ahead"], record["worktree_dirty_on_exit"]) == (
-        head, 3 if case == "history-outside" else 1, tree != "clean")
+        pr["mergeCommit"]["oid"] if case == "accepted-reset" else head,
+        3 if case == "history-outside" else 1, tree != "clean")
     if tree == "late-commit":
         # A surviving descendant commits after the exit snapshot: the gate reads the snapshot, not the tree.
         _git(work, "commit", "-am", "further work")
     worker._enforce_delivery(record)
     if case == "commit-unavailable":
         assert association_requests == ([f"repos/org/repo/commits/{head}/pulls"] if replacement else [])
-    if (case in {"merged", "accepted-foreign-trailer"} or (case == "commit-unavailable" and not replacement)
+    if (case in {"merged", "accepted-foreign-trailer", "accepted-reset"} or (case == "commit-unavailable" and not replacement)
             ) and tree in {"clean", "untracked"}:
         assert (record["status"], record["error"], record["delivery_pr"]) == ("done", None, "org/repo#7")
     elif case in {"outside", "rename-outside", "history-outside"}:

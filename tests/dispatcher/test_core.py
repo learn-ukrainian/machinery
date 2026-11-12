@@ -666,6 +666,44 @@ def test_a_run_settling_while_a_task_it_dispatched_still_runs_names_that_task(sa
     assert "orphaned_child_tasks" not in sandbox.settle(child)
 
 
+def test_agy_open_command_without_terminal_result_cannot_use_merged_rescue(sandbox, monkeypatch):
+    """An interrupted AGY stream with an ACTIVE command must not settle done through merged rescue."""
+    from lu_machinery.dispatcher.providers import agy
+    from lu_machinery.dispatcher.types import Invocation
+
+    monkeypatch.setenv("LU_TASKS_DIR", str(sandbox.tasks))
+    monkeypatch.setenv("LEARN_UKRAINIAN_PYTHON", sys.executable)
+    monkeypatch.setattr(worker, "_reap_settled", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(worker.headroom, "check_plan", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(worker.headroom, "check_runtime", lambda *_args, **_kwargs: None)
+    rescue = Mock(return_value={"repo": "org/repo", "number": 7, "merge_sha": "a" * 40, "paths": []})
+    monkeypatch.setattr(worker.git, "merged_delivery", rescue)
+    code = (
+        "import json\n"
+        "print(json.dumps({'event': 'init', 'init': {'model': 'gemini-3.8-flash-high'}}), flush=True)\n"
+        "print(json.dumps({'event': 'step_update', 'step_update': "
+        "{'step_index': 4, 'state': 'ACTIVE', 'tool_name': 'run_command'}}), flush=True)\n"
+        "raise SystemExit(9)\n"
+    )
+    monkeypatch.setattr(agy, "build", lambda _spec, env: Invocation(
+        [sys.executable, "-c", code],
+        b'{"event":"user","message":{"role":"user","content":[{"type":"text","text":""}]}}\n', env, None))
+    spec = TaskSpec("agy-open-command", "agy", "gemini-3.8-flash-high", None, "workspace-write", sandbox.repo,
+                    sandbox.repo / "agy-open-command.prompt", sandbox.tasks / "agy-open-command.result")
+    spec.prompt_file.write_bytes(b"literal parent request")
+    record = store.new_record(spec, {"key": "public", "github": str(sandbox.remote)}, "main",
+                              run_git(sandbox.repo, "rev-parse", "HEAD"), {"research_owned_path": []})
+    record["prompt_file"] = str(sandbox.tasks / "agy-open-command.prompt")
+    path = store.create(record, b"literal parent request")
+    (sandbox.tasks / "logs").mkdir()
+    worker.supervise(path, {}, 2)
+    result = json.loads(path.read_text())
+    assert (result["status"], result["error"]) == ("failed", "agy: exited with status 9")
+    assert result["provider_terminal_failure"] is False
+    assert "delivery_pr" not in result
+    rescue.assert_not_called()
+
+
 def test_agy_write_run_does_not_settle_while_its_child_is_running(sandbox, monkeypatch):
     """Defect class: an AGY workspace-write run that exits 0 on an interim reply while a child task is still active settles done or no_deliverable,
     including when a merged pull request is offered as its delivery (R16).

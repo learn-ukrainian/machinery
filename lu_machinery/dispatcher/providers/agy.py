@@ -416,7 +416,7 @@ def parse(
     text = text if isinstance(text, str) and text.strip() else None
     usage = _usage(result.get("usage"))
     incomplete = bool(
-        open_at_result
+        (open_at_result if open_at_result is not None else open_steps)
         or _PRINT_TIMEOUT_PARTIAL_RE.search(stderr)
         or any(int(match["count"]) > 0 for match in _BACKGROUND_TERMINATED_RE.finditer(stderr))
     )
