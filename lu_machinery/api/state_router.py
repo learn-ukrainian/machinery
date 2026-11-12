@@ -887,6 +887,8 @@ def _build_api_accounts_payload(
         # API lanes live outside the subscription ``agents`` dict, so their
         # lane-health record must be attached here or prepaid consumers
         # (capacity_pick) never see spawn-phase failures (#8514).
+        if accounts[lane].get("auth_error"):
+            accounts[lane]["auth_error"] = "provider_error"
         accounts[lane]["health"] = _lane_health_record(health_records, lane)
     return accounts
 
@@ -1333,7 +1335,7 @@ def _compute_dispatch_routing_budget(
             agents[lane]["codexbar"] = {
                 "probe_state": "NEED_PROBE",
                 "provider_windows": cb_data.get("provider_windows"),
-                "auth_error": cb_data.get("auth_error"),
+                "auth_error": "provider_error" if cb_data.get("auth_error") else None,
                 "error_kind": cb_data.get("error_kind"),
                 "fetched_at": cb_data.get("fetched_at"),
                 "status": "unknown",
@@ -1343,9 +1345,6 @@ def _compute_dispatch_routing_budget(
             # Retain ledger-derived burn_pct_7d/remaining_pct/status if available (or "unknown" if no cap/records).
             # Do NOT overwrite agents[lane]["status"] to "unavailable", which creates a contradictory
             # status vs health ("healthy: True, status: unavailable").
-            err_msg = (
-                cb_data.get("auth_error") if isinstance(cb_data, dict) else None
-            ) or "CodexBar usage data unavailable"
             err_kind = (cb_data.get("error_kind") if isinstance(cb_data, dict) else None) or "unavailable"
             err_code = cb_data.get("error_code") if isinstance(cb_data, dict) else None
             agents[lane]["codexbar"] = {
@@ -1370,7 +1369,7 @@ def _compute_dispatch_routing_budget(
                 "age_s": cb_data.get("age_s") if isinstance(cb_data, dict) else None,
                 "fetched_at": cb_data.get("fetched_at") if isinstance(cb_data, dict) else None,
                 "status": "unavailable",
-                "auth_error": err_msg,
+                "auth_error": "provider_error",
                 "error_kind": err_kind,
                 "error_code": err_code,
                 "failure_kind": cb_data.get("failure_kind", err_kind) if isinstance(cb_data, dict) else err_kind,
