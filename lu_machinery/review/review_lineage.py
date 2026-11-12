@@ -461,6 +461,8 @@ def check_lineage(
     login: str,
     approved: str,
     exclude_head: str | None = None,
+    second_review: bool = True, repository: str | None = None,
+    learner_content: bool = False, low_tier: bool | None = None,
 ) -> list[str]:
     """Return the seats (reviewer families) whose latest verdict is the approved head's APPROVE.
 
@@ -538,11 +540,18 @@ def check_lineage(
     for event in failures:
         if (event.task, event.started) not in classified:
             raise LineageRefused(f"capability failure of task {event.task} has no finished review run on record")
-    current = lookup_verdict(list(comments), approved, login)
+    current = lookup_verdict(
+        list(comments), approved, login, second_review=second_review, repository=repository,
+        learner_content=learner_content, low_tier=low_tier,
+    )
     if current.state != "APPROVED":
         raise LineageRefused(f"approved head {approved} reads as {current.state}, not APPROVED")
     latest: dict[str, dict[str, Any]] = {}
     for _, marker in sorted(markers, key=lambda item: item[0]):
+        # Carbon may cease to apply at A. Its historical rejection still had to belong
+        # to a real run above, but only the current head's required seats decide approval.
+        if recorder.is_second_review(marker) and marker["sha"] != approved:
+            continue
         latest[marker["family"]] = marker
     for family, marker in sorted(latest.items()):
         if marker["sha"] != approved or marker["verdict"] in REJECTED:

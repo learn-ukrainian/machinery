@@ -45,6 +45,7 @@ if __name__ == "__main__":
 import yaml
 
 from lu_machinery.agent_identity import normalize_seat
+from lu_machinery.ci.deploy_paths import DeployPathsError
 from lu_machinery.common.jsonl import jsonl_lines
 from lu_machinery.common.repo_root import machinery_path
 from lu_machinery.fleet.claude_account_lane import ClaudeAccount, account_from_record
@@ -65,6 +66,7 @@ from lu_machinery.opsec.prepublish import (
     publication_boundary,
     publication_cli,
 )
+from lu_machinery.orchestration import integration_sweep
 from lu_machinery.orchestration.fleet_repos import FleetRepoError, load_fleet_repos
 from lu_machinery.orchestration.integration_sweep import (
     CHUNK_VOIDS,
@@ -78,9 +80,11 @@ from lu_machinery.orchestration.integration_sweep import (
     TRUSTED_ASSOCIATIONS,
     GitHubAdapter,
     SweepError,
+    is_second_review,
     is_second_reviewer_model,
     lookup_verdict,
     parse_marker,
+    pr_file_paths,
     recorded_p3_residuals,
 )
 from lu_machinery.orchestration.task_record_store import (
@@ -1634,7 +1638,8 @@ def _require_second_reviewer(
         policy = second_reviewer_policy()
     except ValueError as exc:
         raise RecordError(f"second review refused: {exc}") from exc
-    if resolve_catalog_model_id(model) != policy["model"] or not is_second_reviewer_model(model):
+    if (resolve_catalog_model_id(model) != policy["model"] or not is_second_reviewer_model(model)
+            or model.endswith("-low") or task.get("effort") == "low"):
         raise RecordError(f"second review refused: {model!r} is not the catalog's second reviewer")
     if normalize_seat(str(task.get("agent") or "")) != policy["route"]:
         raise RecordError(f"second review refused: the second reviewer runs only through {policy['route']}")
@@ -2285,9 +2290,43 @@ def _clean_merge_descent_prover(
     return prove
 
 
-def _fully_approved(comments: Sequence[Mapping[str, Any]], head: str, login: str) -> bool:
+def _learner_content(paths: Iterable[str]) -> bool:
+    """An unreadable product policy cannot waive the learner seats."""
+    try:
+        return integration_sweep.changes_learner_content(paths)
+    except DeployPathsError:
+        return True
+
+
+def head_approval_context(repo_root: Path, head: str, *, repository: str, fetch: bool = True) -> dict[str, Any]:
+    """Classify this historical head's own diff, rather than the PR's later file list."""
+    _, base = default_branch_review_base(repo_root, head, fetch=fetch)
+    raw = _facts_git(
+        repo_root, ["diff", "--no-renames", "--name-status", "-z", base, head, "--"],
+        deadline=time.monotonic() + BRANCH_FACTS_TIMEOUT_S, code=FACTS_TARGET_UNKNOWN,
+    )
+    fields = raw.decode("utf-8").split("\0")
+    if fields.pop() != "" or len(fields) % 2:
+        raise RecordError("historical review file statuses unavailable")
+    statuses = {"A": "added", "D": "removed", "M": "modified", "T": "changed"}
+    rows = [{"filename": path, "status": statuses.get(status, status)}
+            for status, path in zip(fields[::2], fields[1::2], strict=True)]
+    paths = pr_file_paths(rows)
+    return {
+        "second_review": requires_second_review(rows), "repository": repository,
+        "learner_content": _learner_content(paths), "low_tier": classify_pr_files(rows) == "low",
+    }
+
+
+def _fully_approved(
+    comments: Sequence[Mapping[str, Any]], head: str, login: str, *, second_review: bool = True,
+    repository: str | None = None, learner_content: bool = False, low_tier: bool | None = None,
+) -> bool:
     """Whether the keeper reads ``head`` as APPROVED, which needs every seat its profile requires (#12020)."""
-    return lookup_verdict(comments, head, login).state == "APPROVED"
+    return lookup_verdict(
+        comments, head, login, second_review=second_review, repository=repository,
+        learner_content=learner_content, low_tier=low_tier,
+    ).state == "APPROVED"
 
 
 def budget_exempt_heads(
@@ -2297,6 +2336,7 @@ def budget_exempt_heads(
     *,
     prove: Callable[[str, str], list[str] | None],
     unrecorded: Iterable[str] = (),
+    approval_context: Callable[[str], dict[str, Any]] | None = None,
 ) -> dict[str, dict[str, Any]]:
     """The reviewed heads, and ``sha``, that consume no review round, each with its receipt.
 
@@ -2326,7 +2366,7 @@ def budget_exempt_heads(
             (
                 candidate
                 for candidate, _ in sorted(latest.items(), key=lambda item: item[1], reverse=True)
-                if _fully_approved(prefix, candidate, login)
+                if _fully_approved(prefix, candidate, login, **(approval_context(candidate) if approval_context else {}))
             ),
             None,
         )
@@ -2352,6 +2392,7 @@ def require_review_round_within_budget(
     exemption: Callable[[], dict[str, Any] | None] | None = None,
     recording_seat: tuple[str, str] | None = None,
     recording_run: tuple[str, str] | None = None,
+    approval_context: Callable[[str], dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Refuse a verdict that would open a review round beyond this PR's budget.
 
@@ -2398,7 +2439,7 @@ def require_review_round_within_budget(
     heads = recorded | (dispatched_heads() if dispatched_heads is not None else frozenset())
     decide = partial(
         _round_decision, comments, sha, login, budget=budget, pr=pr, prove_merge_only=prove_merge_only,
-        repair=repair, repair_heads=repair_heads,
+        repair=repair, repair_heads=repair_heads, approval_context=approval_context,
     )
     receipt = decide(recorded, heads, exempt_key)
     if uncharged is None or uncharged["head"] == sha or uncharged["head"] in heads:
@@ -2408,8 +2449,10 @@ def require_review_round_within_budget(
         # The same decision with the exempt run charged, through every admission path.
         decide({marker["sha"] for _, marker in markers}, heads | {uncharged["head"]}, None)
     except RecordError:
-        # Only the exemption admits this round, so it is the one replacement and must be the exempt run's seat.
-        if recording_seat is not None and recording_seat != uncharged["seat"]:
+        # Only the exemption admits this round. A Carbon replacement needs its companion
+        # reviewer of record too; an ordinary replacement still belongs to its failed seat.
+        if (recording_seat is not None and recording_seat != uncharged["seat"]
+                and not uncharged.get("second_review")):
             raise RecordError(
                 f"CAPABILITY_REPLACEMENT_REFUSED: PR #{pr}'s one replacement for the capability failure of "
                 f"{uncharged['task']} must be its seat {uncharged['seat']}, not {recording_seat}"
@@ -2431,12 +2474,13 @@ def _round_decision(
     prove_merge_only: Callable[[str, str], list[str] | None] | None,
     repair: Callable[[], dict[str, Any] | None] | None,
     repair_heads: frozenset[str],
+    approval_context: Callable[[str], dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """:func:`require_review_round_within_budget`'s decision for one count of the charged heads."""
     if len(heads) < budget:
         return {}
     exempt = (
-        budget_exempt_heads(comments, sha, login, prove=prove_merge_only, unrecorded=heads - recorded)
+        budget_exempt_heads(comments, sha, login, prove=prove_merge_only, unrecorded=heads - recorded, approval_context=approval_context)
         if prove_merge_only
         else {}
     )
@@ -2518,6 +2562,7 @@ def _charging(
         exemption = {
             "task": key[0], "started": key[1], "run_nonce": run.record.get("run_nonce"),
             "head": run.record.get("worktree_base_sha"), "seat": seat, "source": "capability-failure-event",
+            "second_review": is_second_reviewer_model(run.record.get("model")),
         }
     rounds = dispatched_rounds(runs=runs, comments=comments, login=login, exclude_head=sha)
     return _Charging(rounds, exemption)
@@ -2572,6 +2617,7 @@ def budget_admission(
         budget=repository_review_rounds(repository),
         pr=number,
         prove_merge_only=_clean_merge_descent_prover(review_root, sha, fetch=fetch),
+        approval_context=cache(partial(head_approval_context, review_root, repository=repository, fetch=fetch)),
         repair=partial(
             _repair_round,
             repository=repository,
@@ -2926,8 +2972,10 @@ def record(
     second_review: bool = False,
 ) -> dict[str, Any]:
     root = _repo_root() if task_root is None or lock_root is None else None
-    task_root = task_root or root / "batch_state" / "tasks"
-    lock_root = lock_root or root / "batch_state" / "locks"
+    from lu_machinery.common.task_store_paths import tasks_dir
+
+    task_root = task_root or tasks_dir()
+    lock_root = lock_root or task_root.parent / "locks"
     task, reply = _task(task_id, task_root)
     review_mode = review_mode if review_mode is not None else task.get("review_mode", "cross_family")
     if not isinstance(review_mode, str) or review_mode not in {"cross_family", "red_team"}:
@@ -3006,6 +3054,7 @@ def record(
         classify_pr_files(file_rows) == "low"
     )
     second_required = file_rows is None or requires_second_review(file_rows)
+    learner_content = file_rows is None or _learner_content(pr_file_paths(file_rows))
     if second_review and review_mode != "cross_family":
         raise RecordError("second review refused: it is a cross-family code or infra review only")
     mixed_pair = (
@@ -3187,6 +3236,7 @@ def record(
                         or marker["model"] != model
                         or marker["family"] != family
                         or marker.get("review_mode", "cross_family") != review_mode
+                        or is_second_review(marker) != second_review
                         or marker.get("unknown_history", []) != list(facts.unknown_history)
                         or marker.get("authorship") != (VERIFIED_APP_BOT if facts.app_bot_commits else None)
                         or marker.get("review_profile", "code") != ("ukrainian" if ukrainian else "code")
@@ -3231,10 +3281,14 @@ def record(
             # count, so its own verdict does not decide the status.
             current = lookup_verdict(
                 comments, sha, login, low_tier=low_tier, second_review=second_required, repository=repository,
+                learner_content=learner_content,
             )
             state = "success" if current.state == "APPROVED" else "failure" if current.state in REJECTED else "pending"
             # Every other seat has approved; only the Carbon second review is missing.
-            carbon_wait = second_required and lookup_verdict(comments, sha, login, low_tier=low_tier).state == "APPROVED"
+            carbon_wait = second_required and lookup_verdict(
+                comments, sha, login, low_tier=low_tier,
+                learner_content=learner_content,
+            ).state == "APPROVED"
             if carbon_wait and state == "pending":
                 pending_reason = "; awaiting Carbon second review (quota/timeout: re-run or escalate)"
             elif current.state == NEEDS_SEAT and mixed_pair:
@@ -3321,7 +3375,9 @@ def budget_check(
     when given, must be the PR's current head.
     """
     root = _repo_root()
-    task_root = task_root or root / "batch_state" / "tasks"
+    from lu_machinery.common.task_store_paths import tasks_dir
+
+    task_root = task_root or tasks_dir()
     pr = _run_json(["gh", "pr", "view", str(number), "--repo", repository, "--json", "headRefOid,headRefName,state"])
     if not isinstance(pr, dict) or pr.get("state") != "OPEN":
         raise RecordError(f"PR #{number} is not open")
@@ -3458,7 +3514,7 @@ def dispatch_budget_check(
     return budget_check(repository, number, task_root=task_root, head=head)
 
 
-RECORDER_COMMAND = f'"$PRIMARY_REPO/.venv/bin/python" "$PRIMARY_REPO/{RECORDER_PATH}"'
+RECORDER_COMMAND = '"$PRIMARY_REPO/.venv/bin/python" -m lu_machinery.review.record_cf_verdict'
 RECORDER_EXAMPLES = (
     'Examples:\n  PRIMARY_REPO="$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")"\n'
 )
@@ -3505,8 +3561,10 @@ def republish_withheld(
     and the reply passes the publication scan.
     """
     root = _repo_root() if task_root is None or lock_root is None else None
-    task_root = task_root or root / "batch_state" / "tasks"
-    lock_root = lock_root or root / "batch_state" / "locks"
+    from lu_machinery.common.task_store_paths import tasks_dir
+
+    task_root = task_root or tasks_dir()
+    lock_root = lock_root or task_root.parent / "locks"
     task, reply = _task(task_id, task_root)
     if not isinstance(task.get("result_sha256"), str):
         raise RecordError("republication requires the review task's sealed reply digest")

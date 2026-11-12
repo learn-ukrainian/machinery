@@ -8635,26 +8635,6 @@
     {
       "path": "lu_machinery/review/record_cf_verdict.py",
       "code": "operator",
-      "message": "Unsupported left operand type for / (\"None\")"
-    },
-    {
-      "path": "lu_machinery/review/record_cf_verdict.py",
-      "code": "operator",
-      "message": "Unsupported left operand type for / (\"None\")"
-    },
-    {
-      "path": "lu_machinery/review/record_cf_verdict.py",
-      "code": "operator",
-      "message": "Unsupported left operand type for / (\"None\")"
-    },
-    {
-      "path": "lu_machinery/review/record_cf_verdict.py",
-      "code": "operator",
-      "message": "Unsupported left operand type for / (\"None\")"
-    },
-    {
-      "path": "lu_machinery/review/record_cf_verdict.py",
-      "code": "operator",
       "message": "Unsupported operand types for in (\"Any | None\" and \"Iterable[str]\")"
     },
     {

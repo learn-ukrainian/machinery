@@ -26,6 +26,7 @@ def test_formal_reviewer_still_admits_opus_and_sol(model, family):
     recorder._require_formal_reviewer(cursor=False, reported=model, model=model, family=family)
 
 
+
 def test_head_and_branch_mismatch_refused(monkeypatch, low_review, tmp_path):
     tasks, comments, statuses, _files, _admit = low_review
     monkeypatch.setattr(recorder, "_pr", lambda *_: {
@@ -39,6 +40,71 @@ def test_head_and_branch_mismatch_refused(monkeypatch, low_review, tmp_path):
     with pytest.raises(recorder.RecordError, match="branch does not match"):
         recorder.record("review-one", pr_number=1, task_root=tasks, lock_root=tmp_path / "locks")
     assert comments == [] and statuses == []
+
+    # R08: an untokened Carbon marker is not idempotent with a binding second review.
+    from lu_machinery.orchestration import integration_sweep as sweep
+    from tests.review.record_support import facts_for
+    task = json.loads((tasks / "review-one.json").read_text())
+    task.update(model="gemini-4-carbon-medium", agent="agy")
+    (tasks / "review-one.json").write_text(json.dumps(task))
+    monkeypatch.setattr(recorder, "_pr", lambda *_: {
+        "number": 1, "headRefOid": task["worktree_base_sha"], "headRefName": task["worktree_branch"],
+    })
+    monkeypatch.setattr(recorder, "pr_review_facts", lambda *_, **__: facts_for({"anthropic"}))
+    _files[:] = [{"filename": ".github/workflows/ci.yml", "status": "modified"},
+                 {"filename": "curriculum/l2-uk-en/a1/example.md", "status": "modified"}]
+    marker_fields = dict(sha=task["worktree_base_sha"], task_id="review-one", started=task["started_at"],
+                         verdict="APPROVED", model=task["model"], family="google", reply="VERDICT: APPROVE",
+                         author_models=["claude-opus-5-5"])
+    stamp = "2026-09-23T13:00:00Z"
+    comments.append({"body": recorder.build_comment(**marker_fields), "user": {"login": "fleet"},
+                     "author_association": "MEMBER", "created_at": stamp, "updated_at": stamp})
+    with pytest.raises(recorder.RecordError, match="conflicts with task"):
+        recorder.record("review-one", pr_number=1, task_root=tasks, lock_root=tmp_path / "locks", second_review=True)
+    assert len(comments) == 1 and statuses == []
+
+    # R08: after both code seats approve, missing learner seats keep the status pending.
+    comments[0]["body"] = recorder.build_comment(**{**marker_fields, "task_id": "carbon", "second_review": True})
+    task.update(model="gpt-6.1-sol", agent="codex")
+    (tasks / "review-one.json").write_text(json.dumps(task))
+    # This fixture's product-independent policy must be shared with the recorder as well.
+    monkeypatch.setattr(sweep, "changes_learner_content", lambda paths: any(p.startswith("curriculum/") for p in paths))
+    result = recorder.record("review-one", pr_number=1, task_root=tasks, lock_root=tmp_path / "locks")
+    assert result["verdict"] == "APPROVED" and statuses[-1]["state"] == "pending"
+    assert sweep.lookup_verdict(comments, task["worktree_base_sha"], "fleet", second_review=True,
+                                learner_content=True).state == "needs-seat"
+    with pytest.raises(recorder.RecordError, match="not the catalog"):
+        recorder._require_second_reviewer(facts_for({"anthropic"}), task=task, model="gemini-4-carbon-low",
+                                          family="google", review_mode="cross_family", required=True)
+    assert "-m lu_machinery.review.record_cf_verdict" in recorder.RECORDER_COMMAND
+    # The shared store override wins even when Git's primary belongs to machinery.
+    monkeypatch.setenv("LU_TASKS_DIR", str(tasks))
+    monkeypatch.setattr(recorder, "_repo_root", lambda: tmp_path / "other-primary")
+    retry = recorder.record("review-one", pr_number=1, lock_root=tmp_path / "locks")
+    assert retry["verdict"] == "APPROVED" and len(comments) == 2
+    # A historical deletion must retain its Low tier for same-family approval accounting.
+    monkeypatch.setattr(recorder, "default_branch_review_base", lambda *_, **__: ("b" * 40, "b" * 40))
+    monkeypatch.setattr(recorder, "_facts_git", lambda *_, **__: b"D\0lu_machinery/common/unit.py\0")
+    context = recorder.head_approval_context(tmp_path, "a" * 40, repository="owner/repo", fetch=False)
+    assert context == {"second_review": False, "repository": "owner/repo", "learner_content": False, "low_tier": True}
+    # A missing product policy cannot crash after publication or waive learner seats.
+    monkeypatch.setattr(sweep, "changes_learner_content",
+                        lambda _: (_ for _ in ()).throw(sweep.DeployPathsError("policy unavailable")))
+    unknown = recorder.record("review-one", pr_number=1, lock_root=tmp_path / "locks")
+    assert unknown["verdict"] == "APPROVED" and statuses[-1]["state"] == "pending" and len(comments) == 2
+    assert recorder.head_approval_context(tmp_path, "a" * 40, repository="owner/repo", fetch=False)["learner_content"] is True
+    # Default locks accompany the shared task store, independent of target Git discovery.
+    from shutil import copytree
+    shared = tmp_path / "shared-state" / "batch_state" / "tasks"
+    copytree(tasks, shared)
+    monkeypatch.setenv("LU_TASKS_DIR", str(shared))
+    recorder.record("review-one", pr_number=1)
+    assert (shared.parent / "locks").is_dir()
+    assert not (tmp_path / "other-primary" / "batch_state" / "locks").exists()
+
+
+
+
 
 
 def test_ci_fix_uses_the_repository_required_workflow(monkeypatch, tmp_path):

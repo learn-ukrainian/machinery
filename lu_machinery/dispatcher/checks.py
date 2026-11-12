@@ -190,6 +190,16 @@ def check_model_admission(agent: str, model: str, mode: str, options: dict, prom
         # Review typing is the one dispatch role admission infers: every review flag, --risk,
         # --review-mode, --language-lane, the subject selectors and a review research role.
         reviewed = identity is not None and "review" in dispatch_roles(options)
+        if reviewed and "second_review" in catalog["models"].get(identity, {}).get("roles", []):
+            policy = catalog["review_scheduler"]["second_reviewer"]
+            if (agent != policy["route"] or mode != "read-only" or model.endswith("-low")
+                    or options.get("effort") == "low"
+                    or (options.get("review_profile") or "code") not in {"code", "infra"}
+                    or (options.get("review_mode") or "cross_family") != "cross_family"
+                    or options.get("language_lane") or options.get("review_attempt")
+                    or options.get("advisory_role") or options.get("advisory_task")
+                    or options.get("advisory_binding")):
+                raise ValueError("Carbon review admission requires a High/security second review, code or infra, at medium or high effort")
         if reviewed and (refusal := activity_role_refusal(identity, REVIEW_ACTIVITY, catalog)):
             raise ValueError(refusal)
         return
@@ -415,6 +425,12 @@ def check_branch_author_families(args, repo: Path, repository: dict, head_sha: s
     from lu_machinery.orchestration.integration_sweep import is_second_reviewer_model
 
     whole_head = is_second_reviewer_model(reviewer_model)
+    if whole_head:
+        from lu_machinery.review.tiers import requires_second_review
+
+        if not requires_second_review([{"filename": path, "status": "modified"} for path in facts.changed_paths]):
+            raise ValueError("Carbon review admission requires a High-tier or security-sensitive changed path")
+
     if facts.mixed_family and args.review_profile in {"code", "infra"} and not whole_head:
         try:
             scope = facts.reviewer_scope(reviewer)

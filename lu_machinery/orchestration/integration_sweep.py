@@ -280,11 +280,8 @@ def is_second_reviewer_model(model: object) -> bool:
     """True when ``model`` names the catalog's second reviewer (any of its wire or runtime ids)."""
     from lu_machinery.review.model_catalog import resolve_catalog_model_id
 
-    try:
-        expected = second_reviewer_policy()["model"]
-        return isinstance(model, str) and resolve_catalog_model_id(model) == expected
-    except Exception:  # an unreadable catalog or identity never names the second reviewer
-        return False
+    expected = second_reviewer_policy()["model"]
+    return isinstance(model, str) and resolve_catalog_model_id(model) == expected
 
 
 def is_second_review(marker: Mapping[str, Any]) -> bool:

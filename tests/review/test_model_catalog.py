@@ -1133,12 +1133,11 @@ def assert_frozen_surfaces(actual, *, surfaces):
             carbon = value["models"].pop("gemini-4-carbon")
             assert hashlib.sha256(encode(carbon)).hexdigest() == "0060c612bbef0f3eb8d4832552609dd84580b9faed6af2e89567e1a2e2243b1a"
             scheduler = value.get("review_scheduler") or {}
-            if "second_reviewer" in scheduler:
-                assert scheduler.pop("second_reviewer") == {
-                    "model": "gemini-4-carbon", "route": "agy", "not_for_author_families": ["google"],
-                }
-                review_roles = scheduler["activity_roles"]["review"]
-                assert review_roles.pop() == "second_review"
+            assert scheduler.pop("second_reviewer") == {
+                "model": "gemini-4-carbon", "route": "agy", "not_for_author_families": ["google"],
+            }
+            review_roles = scheduler["activity_roles"]["review"]
+            assert review_roles.pop() == "second_review"
             argon = value["models"].pop("gemini-4-argon")
             assert hashlib.sha256(encode(argon)).hexdigest() == "3fb424016416717576cca9f18d85f7d5b5eadcc6ed469ab906c3e4c78202dc58"
             value["models"]["gemini-4-argon-high"] = deepcopy(CURRENT_BASELINE["catalog"]["models"]["gemini-4-argon-high"])
