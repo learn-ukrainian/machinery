@@ -305,22 +305,33 @@ def parse(
     usage = result.get("usage")
     if overloaded and stream_clean and terminals == 1 and error == "claude: terminal result unsuccessful" and isinstance(result.get("result"), str):
         return ParsedResult(None, None, f"claude: {result['result']}", rate_limited=True)
+    # A schema-bound run returns the receipt on structured_output. The result
+    # string can be empty or a preamble; neither one is the receipt.
+    receipt = output_schema is not None and error is None and result.get("subtype") == "success" and result.get("is_error") is not True
     if returncode:
         error = f"claude: exited with status {returncode}"
-    elif output_schema is not None and error is None and result.get("subtype") == "success" and result.get("is_error") is not True:
-        # A schema-bound run returns the receipt on structured_output. The result
-        # string can be empty or a preamble; neither one is the receipt.
-        structured = result.get("structured_output") if "structured_output" in result else None
-        if isinstance(structured, str) and structured.strip():
-            text = structured
-        elif isinstance(structured, dict):
-            text = json.dumps(structured)
-        else:
-            text, error = None, "claude: missing structured output"
+        if output_schema is not None:
+            # The exit error stays; the reply is still the receipt, never the result string, because a
+            # workspace-write run's merged-delivery rescue checks this reply's content alone (#374).
+            text = _structured_text(result) if receipt else None
+    elif receipt:
+        text = _structured_text(result)
+        if text is None:
+            error = "claude: missing structured output"
     return ParsedResult(
         text, usage if isinstance(usage, dict) else None, error or (None if text else "claude: missing final text"),
         sources_mcp_call_count=len(sources_calls & completed),
     )
+
+
+def _structured_text(result: dict) -> str | None:
+    """The terminal result's structured_output as reply text; None when it carries none."""
+    structured = result.get("structured_output") if "structured_output" in result else None
+    if isinstance(structured, str) and structured.strip():
+        return structured
+    if isinstance(structured, dict):
+        return json.dumps(structured)
+    return None
 
 
 def _content(event: dict) -> list[dict]:

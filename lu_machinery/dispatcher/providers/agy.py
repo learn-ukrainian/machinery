@@ -455,6 +455,8 @@ def parse(
         # AGY refused the --model before any init or turn: the model is not offered to this
         # account (an unlisted id, or one withheld in its region). A typed refusal, not a run failure.
         return ParsedResult(None, None, _MODEL_UNAVAILABLE)
+    # The process exit is the run's only failure: the stream and its terminal result succeeded.
+    exit_only = bool(returncode) and error is None
     if returncode:
         # The exit status leads; AGY's own terminal status and error class stay readable after it.
         detail = terminal_failed and error != _BARE_UNSUCCESSFUL
@@ -462,9 +464,12 @@ def parse(
     if output_schema is not None:
         from lu_machinery.agent_runtime.adapters._output_schema import structured_result
 
+        # When only the exit failed, the exit error stays and the schema payload stays the reply, because a
+        # workspace-write run's merged-delivery rescue checks this reply's content alone (#374).
         structured = structured_result(
-            result.get("structured_output"), output_schema, returncode=returncode,
-            terminal_ok=not error and stream_clean and "structured_output" in result and result.get("status") == "SUCCESS",
+            result.get("structured_output"), output_schema, returncode=0 if exit_only else returncode,
+            terminal_ok=(exit_only or not error) and stream_clean and "structured_output" in result
+            and result.get("status") == "SUCCESS",
         )
         return ParsedResult(
             structured.response, usage,
