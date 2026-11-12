@@ -306,6 +306,10 @@ def _cache_usage(entry: Mapping[str, Any], read_at: datetime, now: datetime, *, 
     def window(key: str) -> dict[str, Any]:
         return window_from(_text(labels.get(key)) or key, windows[key])
 
+    def shown(raw: Mapping[str, Any]) -> bool:
+        """Claude and Codex have no real 5-hour window: none of their 300-minute windows is published."""
+        return not (provider in _NO_SESSION_PROVIDERS and _number(raw.get("windowMinutes")) == _SESSION_MINUTES)
+
     titled = {}
     for extra in _items(usage.get("extraRateWindows")):
         if isinstance(extra, dict) and isinstance(extra.get("window"), dict) and _text(extra.get("title")):
@@ -327,11 +331,11 @@ def _cache_usage(entry: Mapping[str, Any], read_at: datetime, now: datetime, *, 
             result["session"] = _unknown("not_reported")
         else:
             result["session"] = window(session_key) if session_key else {"status": "none"}
-        result["extra_windows"] = [window(k) for k in windows if k not in (weekly_key, session_key)]
-        result["extra_windows"] += [window_from(title, raw) for title, raw in titled.items()]
+        result["extra_windows"] = [window(k) for k in windows if k not in (weekly_key, session_key) and shown(windows[k])]
+        result["extra_windows"] += [window_from(title, raw) for title, raw in titled.items() if shown(raw)]
 
     review = _dict(_dict(report.get("openaiDashboard")).get("codeReviewLimit"))
-    if review:
+    if review and shown(review):
         result["extra_windows"].append(window_from("Code review", review))
 
     pace = _dict(report.get("pace")).get(weekly_key) if weekly_key else None

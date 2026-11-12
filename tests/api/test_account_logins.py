@@ -312,6 +312,11 @@ def usage_files(tmp_path, monkeypatch):
         "Grok+Cursor": _cache_pool("2030-01-01T11:58:00Z", 14),
         "AGY": _agy_pool("2030-01-01T11:57:00Z"),
     }}
+    # A Claude or Codex 300-minute window is never published, wherever the cache puts it.
+    claude_usage = cache["pools"]["Claude a"]["usage"]
+    claude_usage["usage"]["tertiary"] = {"windowMinutes": 300, "usedPercent": 70}
+    claude_usage["usage"]["extraRateWindows"].append({"title": "Session", "window": {"windowMinutes": 300, "usedPercent": 60}})
+    claude_usage["openaiDashboard"] = {"codeReviewLimit": {"windowMinutes": 300, "usedPercent": 77}}
     # Email-shaped free text is dropped wherever it appears.
     cache["pools"]["Grok+Cursor"]["usage"]["usage"]["details"] = [
         {"rows": [{"label": "Cursor", "value": "14%"}, {"label": "person@example.invalid", "value": "1%"}]}]
