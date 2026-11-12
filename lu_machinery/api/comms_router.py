@@ -984,8 +984,7 @@ async def live_activity(
     """What's being built RIGHT NOW — module-level live feed.
 
     DEPRECATED (GH #1309): use ``/api/state/build-status`` for a
-    typed, tested view of what each track is doing, and consume the
-    ``build_events_router`` stream for live module-level events. This
+    typed, tested view of what each track is doing. This
     handler remains for backwards compatibility but will be removed.
 
     Responses carry ``X-Deprecated: true`` and ``X-Deprecated-Use``
@@ -999,7 +998,7 @@ async def live_activity(
     response.headers["X-Deprecated"] = "true"
     response.headers["X-Deprecated-Use"] = "/api/state/build-status"
     response.headers["Warning"] = (
-        '299 - "This endpoint is deprecated; migrate to /api/state/build-status + /api/build/events (#1309)"'
+        '299 - "This endpoint is deprecated; migrate to /api/state/build-status (#1309)"'
     )
 
     acts, completions = await asyncio.gather(
