@@ -1643,7 +1643,13 @@ def supervise(path: Path, options: dict | None = None, hard_timeout: float | Non
         if validate and schema is not None and (spec.agent != "agy" or record["provider_terminal_failure"]):
             from lu_machinery.agent_runtime.adapters._output_schema import json_value, structured_result
 
-            result = structured_result(json_value(text or ""), schema, returncode=exit_code, terminal_ok=True)
+            # A provider failure is already recorded in provider_terminal_error; for its merged-delivery
+            # rescue this gate checks only the reply's content, so the exit code alone cannot refuse it.
+            # The provider's own exit code stays recorded (returncode) for lane health.
+            result = structured_result(
+                json_value(text or ""), schema,
+                returncode=0 if record["provider_terminal_failure"] else exit_code, terminal_ok=True,
+            )
             if not result.ok:
                 refusal = f"{result.failure_code}: {result.stderr_excerpt}"
                 if record["provider_terminal_failure"]:

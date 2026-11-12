@@ -462,12 +462,18 @@ def test_the_verb_never_replaces_a_published_verdict_or_another_event(monkeypatc
 
 
 def test_the_verb_is_reachable_from_the_recorder_cli(monkeypatch, tmp_path, opsec_rules, capsys):
+    """Defect class: the capability-failure writer read another task store or took another PR lock than the
+    verdict recorder, so the two writers of one run no longer serialize (#365 F2)."""
     tasks, comments, _calls = verb_case(monkeypatch, tmp_path)
-    monkeypatch.setattr(cf.recorder, "_repo_root", lambda: tmp_path)
-    (tmp_path / "batch_state").mkdir()
-    tasks.rename(tmp_path / "batch_state" / "tasks")
+    # The cwd Git root differs from the shared task store the recorder uses.
+    monkeypatch.setattr(cf.recorder, "_repo_root", lambda: tmp_path / "cwd-checkout")
+    (tmp_path / "state").mkdir()
+    tasks.rename(tmp_path / "state" / "tasks")
+    monkeypatch.setenv("LU_TASKS_DIR", str(tmp_path / "state" / "tasks"))
     argv = ["capability-failure", "--task-id", "review-blocked", "--pr", "42", "--capability", "test-execution"]
     assert recorder.main([*argv, "--authority", "claude-cto"]) == 0
     assert json.loads(capsys.readouterr().out)["comment"] == "posted" and len(comments) == 1
+    assert [path.suffix for path in (tmp_path / "state" / "locks").iterdir()] == [".lock"]
+    assert not (tmp_path / "cwd-checkout").exists()
     assert recorder.main([*argv, "--authority", "operator"]) == 1
     assert "CAPABILITY_FAILURE_REFUSED[authority]" in capsys.readouterr().out

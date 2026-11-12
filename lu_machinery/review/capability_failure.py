@@ -321,9 +321,11 @@ def record_capability_failure(
     lock_root: Path | None = None,
 ) -> dict[str, Any]:
     """Append the capability-failure event of a finished, unpublished review run to its open PR."""
-    root = recorder._repo_root() if task_root is None or lock_root is None else None
-    task_root = task_root or root / "batch_state" / "tasks"
-    lock_root = lock_root or root / "batch_state" / "locks"
+    from lu_machinery.common.task_store_paths import tasks_dir
+
+    # The recorder's own defaults: both writers must read one task store and serialize on one PR lock.
+    task_root = task_root or tasks_dir()
+    lock_root = lock_root or task_root.parent / "locks"
     record, reply = recorder._task(task_id, task_root)
     failure = classify(task_id, record, reply, capability=capability, authority=authority)
     repository, branch = record.get("repository"), recorder._review_branch(record)

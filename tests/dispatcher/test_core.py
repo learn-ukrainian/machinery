@@ -704,6 +704,52 @@ def test_agy_open_command_without_terminal_result_cannot_use_merged_rescue(sandb
     rescue.assert_not_called()
 
 
+@pytest.mark.parametrize(("reply", "status"), [('{"verdict": "ok"}', "done"), ('{"other": 1}', "failed")])
+def test_schema_bound_write_failure_is_rescued_only_by_its_reply_content(sandbox, monkeypatch, reply, status):
+    """Defect class: a schema-bound write run whose provider exits nonzero after its PR merged is refused on the
+    exit code alone, so merged delivery can never rescue it and the refusal names a schema defect it does not have.
+    """
+    from lu_machinery.dispatcher import output_schema
+    from lu_machinery.dispatcher.providers import codex
+    from tests.dispatcher import stub_provider
+
+    monkeypatch.setenv("LU_TASKS_DIR", str(sandbox.tasks))
+    monkeypatch.setenv("LEARN_UKRAINIAN_PYTHON", sys.executable)
+    monkeypatch.setattr(worker, "_reap_settled", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(worker.headroom, "check_plan", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(worker.headroom, "check_runtime", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(codex, "build", stub_provider.build)
+    monkeypatch.setattr(codex, "parse", stub_provider.parse)
+    rescue = Mock(return_value={"repo": "org/repo", "number": 7, "merge_sha": "a" * 40, "paths": []})
+    monkeypatch.setattr(worker.git, "merged_delivery", rescue)
+    schema = sandbox.repo.parent / "schemas" / "verdict.json"
+    schema.parent.mkdir()
+    schema.write_text('{"type": "object", "required": ["verdict"]}')
+    options = output_schema.bind(str(schema), sandbox.repo)
+    # The stub "fail" model echoes the request as its reply and exits 17.
+    spec = TaskSpec("schema-fail", "codex", "fail", None, "workspace-write", sandbox.repo,
+                    sandbox.repo / "schema-fail.prompt", sandbox.tasks / "schema-fail.result", options=options)
+    spec.prompt_file.write_bytes(reply.encode())
+    record = store.new_record(spec, {"key": "public", "github": str(sandbox.remote)}, "main",
+                              run_git(sandbox.repo, "rev-parse", "HEAD"), {"research_owned_path": []})
+    record["prompt_file"] = str(sandbox.tasks / "schema-fail.prompt")
+    path = store.create(record, reply.encode())
+    (sandbox.tasks / "logs").mkdir()
+    worker.supervise(path, options, 2)
+    result = json.loads(path.read_text())
+    assert result["status"] == status
+    assert result["provider_terminal_error"] == "provider exited unsuccessfully"
+    assert result["returncode"] == 17  # the provider's own exit stays recorded for lane health
+    if status == "done":
+        assert (result["error"], result["delivery_pr"]) == (None, "org/repo#7")
+        assert "provider_failure_rescue_refusal" not in result
+    else:
+        assert result["provider_failure_rescue_refusal"] == (
+            "structured_output_invalid: structured output does not match schema (required)")
+        assert "delivery_pr" not in result
+        rescue.assert_not_called()
+
+
 def test_agy_write_run_does_not_settle_while_its_child_is_running(sandbox, monkeypatch):
     """Defect class: an AGY workspace-write run that exits 0 on an interim reply while a child task is still active settles done or no_deliverable,
     including when a merged pull request is offered as its delivery (R16).

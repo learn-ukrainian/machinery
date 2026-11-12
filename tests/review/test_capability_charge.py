@@ -91,6 +91,13 @@ def test_unavailable_historical_head_does_not_abort_repair_or_supply_approval(hi
         comments[:1], NEXT, "fleet", prove=lambda *_: ["a" * 40], approval_context=context,
     ) == {}
     assert not recorder._fully_approved(comments, NEXT, "fleet", second_review=False)
+    # The anchor search moves past the unavailable latest head to an older approved one (it must not stop there).
+    older_approved = [recorded_verdict(H3, "APPROVED", task_id="round-3"),
+                      recorded_verdict(H1, historical_verdict, task_id="round-1")]
+    assert recorder.budget_exempt_heads(
+        older_approved, NEXT, "fleet", approval_context=context,
+        prove=lambda anchor, head: ["a" * 40] if (anchor, head) == (H3, NEXT) else None,
+    ) == {NEXT: {"approved_head": H3, "base_merges": ["a" * 40]}}
 
 
 def test_the_one_replacement_must_be_the_exempt_runs_seat():
