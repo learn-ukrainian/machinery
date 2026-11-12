@@ -120,8 +120,11 @@ const PANELS = [
   assert.equal(document.getElementById('fast-age').textContent, 'Source age 900s');
   assert.equal(document.getElementById('fast-age').className, 'age bad');
   assert.equal(loginPolls, 1, 'pending login retries independently of another failed panel');
-  assert.match(document.getElementById('broken-content').innerHTML, /Unavailable: \/broken: HTTP 503/);
-  assert.doesNotMatch(document.getElementById('broken-content').innerHTML, /old data/);
+  const broken = document.getElementById('broken-content').innerHTML;
+  assert.match(broken, /This panel couldn't load/);
+  assert.match(broken, /\/broken: HTTP 503/);
+  assert.doesNotMatch(broken.split('<details>')[0], /\/broken/);
+  assert.doesNotMatch(broken, /old data/);
   assert.equal(document.getElementById('slow-content').innerHTML, 'old data');
   await loadPanel(PANELS[2]);
   assert.equal(calls.filter(url => url === '/slow').length, 1, 'overlap must not duplicate requests');
@@ -212,5 +215,127 @@ def test_home_invalid_json_is_an_error(body):
         + code
         + r"""
 assert.rejects(fetchJson('/fixture'), /Invalid/).catch(e => {console.error(e); process.exitCode = 1;});
+"""
+    )
+
+
+def test_failing_panel_shows_a_calm_sentence_retry_and_hidden_detail():
+    """Defect class: a failed panel shows a raw API path, omits Retry, or leaves its age blank."""
+    code = _script("index.html", "const inFlight = new Set();", "\nasync function refreshAll")
+    _node(
+        _DOM
+        + r"""
+const REFRESH_MS = 30000;
+const latest = {};
+const OPTIONAL = new Set();
+const setTimeout = () => {};
+const fetchJson = async url => { throw new Error(`${url}: HTTP 403`); };
+const escapeHtml = value => String(value).replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
+const PANELS = [{id: 'usage', label: 'Subscriptions', urls: ['/api/runtime/subscriptions'], render: () => 'never'}];
+"""
+        + code
+        + r"""
+(async () => {
+  await loadPanel(PANELS[0]);
+  const html = document.getElementById('usage-content').innerHTML;
+  const visible = html.split('<details>')[0];
+  assert.match(visible, /This panel couldn't load: the source refused the request\./);
+  assert.match(visible, /<button[^>]*>Retry<\/button>/);
+  assert.doesNotMatch(visible, /\/api\/runtime\/subscriptions/);
+  assert.match(html, /<details><summary>Technical detail<\/summary>/);
+  assert.match(html, /\/api\/runtime\/subscriptions: HTTP 403/);
+  const age = document.getElementById('usage-age').textContent;
+  assert.notEqual(age, '');
+  assert.match(age, /^last attempt \d{2}:\d{2}:\d{2} UTC$/);
+  assert.equal(document.getElementById('usage-status').textContent, "Subscriptions couldn't load.");
+})().catch(error => {console.error(error); process.exitCode = 1;});
+"""
+    )
+
+
+def test_refresh_header_names_a_failure_and_claims_updated_only_after_success():
+    """Defect class: the header says Updated when a panel refresh failed."""
+    page = machinery_path("api/dashboards/index.html").read_text()
+    script = page.split("<script>", 1)[1].split("\nrefreshAll();", 1)[0]
+    _node(
+        _DOM
+        + r"""
+const realSetTimeout = setTimeout;
+setTimeout = (fn, ms, ...args) => ms === 1500 || ms === 3000 ? 0 : realSetTimeout(fn, ms, ...args);
+let failSubscriptions = true;
+globalThis.fetch = async (url) => {
+  const refused = failSubscriptions && String(url).includes('/api/runtime/subscriptions');
+  return {ok: !refused, status: refused ? 403 : 200, text: async () => '{}', headers: {get: () => '2'}};
+};
+"""
+        + script
+        + r"""
+(async () => {
+  await refreshAll();
+  const status = document.getElementById('last-refresh');
+  const retry = document.getElementById('refresh-retry');
+  assert.match(status.textContent, /^Couldn't refresh, last attempt \d{2}:\d{2}:\d{2} UTC$/);
+  assert.equal(retry.hidden, false);
+  assert.doesNotMatch(status.textContent, /Updated/);
+  assert.match(document.getElementById('usage-content').innerHTML, /couldn't load/i);
+  assert.doesNotMatch(document.getElementById('workers-content').innerHTML, /couldn't load/i);
+  failSubscriptions = false;
+  await refreshAll();
+  assert.match(status.textContent, /^Updated \d{2}:\d{2}:\d{2} UTC \u00b7 every 30 s$/);
+  assert.equal(retry.hidden, true);
+  assert.doesNotMatch(status.textContent, /Couldn't refresh/);
+  assert.doesNotMatch(document.getElementById('usage-content').innerHTML, /couldn't load/i);
+})().catch(error => {console.error(error); process.exitCode = 1;});
+"""
+    )
+
+
+def test_home_announces_panel_status_and_has_skip_purpose_and_sites_label():
+    """Defect class: a panel status change is silent, or the skip link, sites label, or purpose line is missing."""
+    page = machinery_path("api/dashboards/index.html").read_text()
+    assert 'class="skip" href="#main"' in page
+    assert '<main id="main" tabindex="-1">' in page
+    assert 'aria-label="Sites"' in page
+    assert page.count('aria-live="polite"') == 6
+    assert "Which subscription is near its limit, when it resets, and whether anything is signed out." in page
+    script = page.split("<script>", 1)[1].split("\nrefreshAll();", 1)[0]
+    _node(
+        r"""
+const assert = require('node:assert/strict');
+const announced = [];
+const elements = new Map();
+const document = {getElementById(id) {
+  if (!elements.has(id)) {
+    let text = '';
+    const el = {innerHTML: '', className: '', hidden: true, setAttribute() {}, classList: {toggle() {}, add() {}, remove() {}}};
+    Object.defineProperty(el, 'textContent', {
+      get() { return text; },
+      set(next) { text = String(next); if (id.endsWith('-status')) announced.push(text); },
+    });
+    elements.set(id, el);
+  }
+  return elements.get(id);
+}};
+const realSetTimeout = setTimeout;
+setTimeout = (fn, ms, ...args) => ms === 1500 || ms === 3000 ? 0 : realSetTimeout(fn, ms, ...args);
+let failSubscriptions = true;
+globalThis.fetch = async (url) => {
+  const refused = failSubscriptions && String(url).includes('/api/runtime/subscriptions');
+  return {ok: !refused, status: refused ? 403 : 200, text: async () => '{}', headers: {get: () => '2'}};
+};
+"""
+        + script
+        + r"""
+(async () => {
+  await refreshAll();
+  assert.ok(announced.indexOf('Loading Subscriptions.') < announced.indexOf("Subscriptions couldn't load."));
+  assert.equal(announced.filter(item => item === 'Agent fleet loaded.').length, 1);
+  failSubscriptions = false;
+  await refreshAll();
+  assert.equal(announced.filter(item => item === 'Subscriptions loaded.').length, 1);
+  await refreshAll();
+  assert.equal(announced.filter(item => item === 'Subscriptions loaded.').length, 1);
+  assert.equal(announced.filter(item => item === 'Agent fleet loaded.').length, 1);
+})().catch(error => {console.error(error); process.exitCode = 1;});
 """
     )
