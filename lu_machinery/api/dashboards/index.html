@@ -17,15 +17,25 @@
   header { position: sticky; top: 0; z-index: 1; background: var(--card); border-bottom: 1px solid var(--line);
            padding: 10px 20px; display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; }
   header h1 { margin: 0; font-size: 18px; }
+  .title { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 10px; min-width: 0; flex: 1 1 16rem; max-width: 100%; }
+  .purpose { margin: 0; flex: 1 1 16rem; min-width: 0; font-size: 13px; color: var(--muted); }
   nav.sites { display: flex; gap: 12px; font-size: 13px; }
   .chips { display: flex; flex-wrap: wrap; gap: 6px; }
   .chip { border: 1px solid var(--line); border-radius: 999px; padding: 1px 10px; font-size: 13px; color: inherit; text-decoration: none; }
   .chip b { font-variant-numeric: tabular-nums; }
   .chip.bad { border-color: var(--bad); color: var(--bad); }
   .chip.warn { border-color: var(--warn); color: var(--warn); }
-  #last-refresh { margin-left: auto; font-size: 12px; }
+  .refresh { margin-left: auto; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; font-size: 12px; max-width: 100%; }
+  #last-refresh { font-size: inherit; }
+  button.retry { font: inherit; font-size: 13px; color: var(--fg); background: var(--card); border: 1px solid var(--line);
+                 border-radius: 6px; padding: 2px 10px; cursor: pointer; }
+  .skip { position: absolute; left: 8px; top: 8px; transform: translateY(-150%); z-index: 3; background: var(--card);
+          color: var(--fg); padding: 6px 10px; border: 1px solid var(--line); border-radius: 6px; }
+  .skip:focus { transform: none; }
+  .visually-hidden { position: absolute; left: 0; top: 0; width: 1px; height: 1px; padding: 0; margin: -1px;
+                     overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; border: 0; }
   main { display: grid; gap: 14px; padding: 14px 20px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 560px), 1fr)); }
-  section { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 10px 14px; overflow-x: auto; min-width: 0; }
+  section { position: relative; background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 10px 14px; overflow-x: auto; min-width: 0; }
   section.wide { grid-column: 1 / -1; }
   h2 { margin: 0 0 6px; font-size: 15px; display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
   h2 .age { font-weight: normal; font-size: 12px; color: var(--muted); }
@@ -47,7 +57,7 @@
   table.subs th[colspan] { padding-top: 8px; color: var(--fg); }
   @media (max-width: 640px) {
     header { padding: 8px 10px; } main { padding: 10px; gap: 10px; } section { padding: 8px 10px; }
-    #last-refresh { margin-left: 0; }
+    .refresh { margin-left: 0; }
     /* One line per row; each card scrolls sideways instead of the page growing tall. */
     th, td { white-space: nowrap; }
     td br { display: none; }
@@ -55,21 +65,30 @@
 </style>
 </head>
 <body>
+<a class="skip" href="#main">Skip to main content</a>
 <header>
-  <h1>Machinery</h1>
-  <nav class="sites"><a href="/">Learn Ukrainian</a><a href="http://localhost:8768/">KubeDojo</a></nav>
+  <div class="title">
+    <h1>Machinery</h1>
+    <p class="purpose">Which subscription is near its limit, when it resets, and whether anything is signed out.</p>
+  </div>
+  <nav class="sites" aria-label="Sites"><a href="/">Learn Ukrainian</a><a href="http://localhost:8768/">KubeDojo</a></nav>
   <div class="chips" id="chips"></div>
-  <span class="muted" id="last-refresh">Loading…</span>
+  <div class="refresh">
+    <span class="muted" id="last-refresh">Loading…</span>
+    <button type="button" class="retry" id="refresh-retry" hidden onclick="refreshAll()" aria-label="Retry refresh">Retry</button>
+  </div>
 </header>
-<main>
-  <section class="wide" id="subs"><h2>Subscriptions: usage, pace, resets and sign-in <span class="age" id="usage-age"></span></h2><div id="usage-content">Loading…</div></section>
-  <section class="wide" id="fleet"><h2>Agent fleet <span class="age" id="workers-age"></span></h2>
+<main id="main" tabindex="-1">
+  <section class="wide" id="subs"><h2>Subscriptions: usage, pace, resets and sign-in <span class="age" id="usage-age">Loading…</span></h2><p id="usage-status" class="visually-hidden" aria-live="polite" aria-atomic="true"></p><div id="usage-content">Loading…</div></section>
+  <section class="wide" id="fleet"><h2>Agent fleet <span class="age" id="workers-age">Loading…</span></h2>
+    <p id="workers-status" class="visually-hidden" aria-live="polite" aria-atomic="true"></p>
     <div id="workers-content">Loading…</div>
-    <h3>Recently finished <span class="age muted" id="recent-age"></span></h3>
+    <h3>Recently finished <span class="age muted" id="recent-age">Loading…</span></h3>
+    <p id="recent-status" class="visually-hidden" aria-live="polite" aria-atomic="true"></p>
     <div id="recent-content">Loading…</div></section>
-  <section id="prs"><h2>Pull requests and merge queue <span class="age" id="prs-age"></span></h2><div id="prs-content">Loading…</div></section>
-  <section id="alerts"><h2>Alerts firing <span class="age" id="alerts-age"></span></h2><div id="alerts-content">Loading…</div></section>
-  <section id="comms"><h2>Fleet Comms <span class="age" id="comms-age"></span></h2><div id="comms-content">Loading…</div></section>
+  <section id="prs"><h2>Pull requests and merge queue <span class="age" id="prs-age">Loading…</span></h2><p id="prs-status" class="visually-hidden" aria-live="polite" aria-atomic="true"></p><div id="prs-content">Loading…</div></section>
+  <section id="alerts"><h2>Alerts firing <span class="age" id="alerts-age">Loading…</span></h2><p id="alerts-status" class="visually-hidden" aria-live="polite" aria-atomic="true"></p><div id="alerts-content">Loading…</div></section>
+  <section id="comms"><h2>Fleet Comms <span class="age" id="comms-age">Loading…</span></h2><p id="comms-status" class="visually-hidden" aria-live="polite" aria-atomic="true"></p><div id="comms-content">Loading…</div></section>
 </main>
 <script>
 "use strict";
@@ -547,13 +566,13 @@ function renderChips(latest) {
 
 const OPTIONAL = new Set(["/api/git/pull-requests", "/api/state/routing-budget", "/api/runtime/logins"]);
 const PANELS = [
-  {id: "workers", urls: ["/api/delegate/active"], render: renderWorkers},
-  {id: "recent", urls: ["/api/delegate/recent"], render: renderRecent},
-  {id: "usage", urls: ["/api/runtime/subscriptions", "/api/state/routing-budget", "/api/runtime/logins"], render: renderUsage,
+  {id: "workers", label: "Agent fleet", urls: ["/api/delegate/active"], render: renderWorkers},
+  {id: "recent", label: "Recently finished", urls: ["/api/delegate/recent"], render: renderRecent},
+  {id: "usage", label: "Subscriptions", urls: ["/api/runtime/subscriptions", "/api/state/routing-budget", "/api/runtime/logins"], render: renderUsage,
    retry: (subs, budget, logins) => !budget || !logins || logins.state === "pending"},
-  {id: "prs", urls: ["/api/git/pull-requests"], render: renderPrs},
-  {id: "alerts", urls: ["/api/ops/v1/alerts"], render: renderAlerts},
-  {id: "comms", urls: ["/api/comms/v1/metrics"], render: renderComms},
+  {id: "prs", label: "Pull requests", urls: ["/api/git/pull-requests"], render: renderPrs},
+  {id: "alerts", label: "Alerts", urls: ["/api/ops/v1/alerts"], render: renderAlerts},
+  {id: "comms", label: "Fleet Comms", urls: ["/api/comms/v1/metrics"], render: renderComms},
 ];
 const inFlight = new Set();
 
@@ -568,11 +587,60 @@ function readSource(url, index) {
     new Promise(resolve => setTimeout(() => resolve(missing), OPTIONAL_WAIT_MS))]);
 }
 
+function clockUtc() {
+  return new Date().toISOString().slice(11, 19) + " UTC";
+}
+
+// Announce only when the status changes, so a healthy 30 s refresh stays quiet.
+function announce(panel, state) {
+  if (panel.state === state) return;
+  panel.state = state;
+  const region = document.getElementById(`${panel.id}-status`);
+  if (!region) return;
+  const name = panel.label || panel.id;
+  region.textContent = state === "loading" ? `Loading ${name}.`
+    : state === "ready" ? `${name} loaded.`
+    : `${name} couldn't load.`;
+}
+
+function failureSentence(error) {
+  const message = String(error && error.message ? error.message : error);
+  const status = /HTTP (\d{3})/.exec(message);
+  if (status) {
+    const code = Number(status[1]);
+    if (code === 401 || code === 403) return "This panel couldn't load: the source refused the request.";
+    if (code === 404) return "This panel couldn't load: the source was not found.";
+    if (code >= 500) return "This panel couldn't load: the source failed.";
+    return "This panel couldn't load: the source rejected the request.";
+  }
+  if (/abort|timeout|timed out/i.test(message)) return "This panel couldn't load: the source did not answer in time.";
+  if (/JSON/i.test(message)) return "This panel couldn't load: the source returned data this page could not read.";
+  return "This panel couldn't load.";
+}
+
+function panelError(panel, error) {
+  const name = escapeHtml(panel.label || panel.id);
+  const detail = escapeHtml(error && error.message ? error.message : error);
+  return `<p class="error">${failureSentence(error)}</p>`
+    + `<p><button type="button" class="retry" onclick="retryPanel('${panel.id}')" aria-label="Retry ${name}">Retry</button></p>`
+    + `<details><summary>Technical detail</summary><p class="muted">${detail}</p></details>`;
+}
+
+function showRefresh(ok) {
+  const status = document.getElementById("last-refresh");
+  const retry = document.getElementById("refresh-retry");
+  if (!status) return;
+  status.textContent = ok ? `Updated ${clockUtc()} · every 30 s` : `Couldn't refresh, last attempt ${clockUtc()}`;
+  if (retry) retry.hidden = Boolean(ok);
+}
+
 async function loadPanel(panel) {
   if (inFlight.has(panel.id)) return;
   inFlight.add(panel.id);
   const content = document.getElementById(`${panel.id}-content`);
   const age = document.getElementById(`${panel.id}-age`);
+  if (!age.textContent) age.textContent = "Loading…";
+  if (panel.state !== "ready") announce(panel, "loading");
   try {
     const readings = await Promise.all(panel.urls.map(readSource));
     const data = readings.map(reading => reading.data);
@@ -587,6 +655,8 @@ async function loadPanel(panel) {
       : `read ${new Date().toISOString().slice(11, 19)}Z`;
     age.className = snapshots.some(reading => reading.age === null || reading.age > REFRESH_MS / 1000 * 5)
       ? "age bad" : "age";
+    panel.ok = true;
+    announce(panel, "ready");
     // A pending or missing secondary source is read again shortly, at most RETRY_LIMIT times in a row.
     if (panel.retry && panel.retry(...data)) {
       panel.retries = (panel.retries || 0) + 1;
@@ -595,18 +665,29 @@ async function loadPanel(panel) {
       panel.retries = 0;
     }
   } catch (error) {
-    content.innerHTML = `<p class="error">Unavailable: ${escapeHtml(error.message || error)}</p>`;
-    age.textContent = "";
+    content.innerHTML = panelError(panel, error);
+    age.textContent = `last attempt ${clockUtc()}`;
+    age.className = "age bad";
     latest[panel.id] = null;
+    panel.ok = false;
+    announce(panel, "error");
   } finally {
     inFlight.delete(panel.id);
   }
 }
 
+async function retryPanel(id) {
+  const panel = PANELS.find(item => item.id === id);
+  if (!panel) return;
+  await loadPanel(panel);
+  document.getElementById("chips").innerHTML = renderChips(latest);
+  showRefresh(PANELS.every(item => item.ok === true));
+}
+
 async function refreshAll() {
   await Promise.all(PANELS.map(loadPanel));
   document.getElementById("chips").innerHTML = renderChips(latest);
-  document.getElementById("last-refresh").textContent = `Updated ${new Date().toISOString().slice(11, 19)}Z · every 30 s · times UTC`;
+  showRefresh(PANELS.every(panel => panel.ok === true));
 }
 
 refreshAll();
