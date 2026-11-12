@@ -31,6 +31,9 @@
   .bar { display: inline-block; width: 70px; height: 8px; background: var(--line); border-radius: 4px; vertical-align: middle; margin-right: 6px; }
   .bar > span { display: block; height: 100%; border-radius: 4px; }
   a { color: inherit; }
+  table.subs td { white-space: normal; min-width: 4.5em; }
+  table.subs td.num { white-space: nowrap; }
+  table.subs th[colspan] { padding-top: 8px; color: var(--fg); }
 </style>
 </head>
 <body>
@@ -41,7 +44,7 @@
 </header>
 <main>
   <section class="wide"><h2>Live workers <span class="age" id="workers-age"></span></h2><div id="workers-content">Loading…</div></section>
-  <section class="wide"><h2>Usage and resets <span class="age" id="usage-age"></span></h2><div id="usage-content">Loading…</div></section>
+  <section class="wide"><h2>Subscriptions: usage, pace and resets <span class="age" id="usage-age"></span></h2><div id="usage-content">Loading…</div></section>
   <section><h2>Sign-ins <span class="age" id="logins-age"></span></h2><div id="logins-content">Loading…</div></section>
   <section><h2>Fleet Comms <span class="age" id="comms-age"></span></h2><div id="comms-content">Loading…</div></section>
   <section class="wide"><h2>Recently finished <span class="age" id="recent-age"></span></h2><div id="recent-content">Loading…</div></section>
@@ -193,54 +196,118 @@ function freshnessCell(state, ageS) {
   return text(state === "missing" ? "NO READING" : state.toUpperCase(), "bad");
 }
 
-function usageRows(budget, ends) {
-  const agents = budget.agents || {}, claude = budget.claude_accounts || {}, codex = budget.codex_accounts || {};
-  const rows = [];
-  for (const [key, name] of [["claude:a", "Claude a"], ["claude:b", "Claude b"]]) {
-    const row = claude[key];
-    if (!row) { rows.push({name, freshness: null, note: "no reading"}); continue; }
-    rows.push({name, left: row.weekly?.left_pct, pace: row.weekly?.pace, resets: row.weekly?.resets_at,
-               freshness: row.status !== "ok" ? row.status : row.stale ? "stale" : "fresh", age: row.age_s, note: row.reason});
+function pp(value) {
+  return typeof value === "number" && Number.isFinite(value) ? `${Math.round(Math.abs(value))} pp` : null;
+}
+
+function windowLeft(window) {
+  if (!window || window.status === "none") return text("none", "muted");
+  if (window.status !== "ok" || !validPct(window.left_pct)) return text("unknown", "muted");
+  return td(`${bar(window.left_pct)}${escapeHtml(pct(window.left_pct))}`, "num");
+}
+
+function resetText(window) {
+  if (!window || window.status !== "ok") return null;
+  if (!toDate(window.resets_at)) return "reset not reported";
+  if (window.reset_passed) return `${utc(window.resets_at)} (passed; awaiting a new reading)`;
+  return `${utc(window.resets_at)} (${relative(window.resets_at)})`;
+}
+
+function weeklyResetCell(window) {
+  if (!window || window.status !== "ok") return text("unknown", "muted");
+  if (!toDate(window.resets_at)) return text("not reported", "muted");
+  if (window.reset_passed) return text(`passed; awaiting a new reading (${utc(window.resets_at)})`, "warn");
+  return td(`<strong>${escapeHtml(relative(window.resets_at))}</strong><br><span class="muted">${escapeHtml(utc(window.resets_at))}</span>`);
+}
+
+function paceCell(pace) {
+  if (!pace || pace.status !== "ok") return text("unknown", "muted");
+  const head = pace.state === "on_pace" ? "on pace"
+    : pace.state === "reserve" ? `${pp(pace.headroom_pct)} headroom` : `${pp(pace.headroom_pct)} deficit`;
+  const tail = pace.lasts_to_reset === true ? "lasts to reset"
+    : pace.lasts_to_reset === false ? (toDate(pace.runs_out_at) ? `runs out ${utc(pace.runs_out_at)} (${relative(pace.runs_out_at)})` : "runs out before reset")
+    : "last-to-reset unknown";
+  return text(`${head} · ${tail}`, pace.state === "deficit" ? (pace.lasts_to_reset === false ? "bad" : "warn") : "ok");
+}
+
+function sessionCell(window) {
+  if (!window || window.status === "none") return text("none", "muted");
+  if (window.status !== "ok" || !validPct(window.left_pct)) return text("unknown", "muted");
+  return text(`${pct(window.left_pct)} left · ${resetText(window)}`);
+}
+
+function extraCell(row) {
+  if (!row.reading?.read_at) return text("unknown", "muted");
+  const windows = (Array.isArray(row.extra_windows) ? row.extra_windows : []).map(window =>
+    `${window.label || "window"} ${window.status === "ok" && validPct(window.left_pct) ? `${pct(window.left_pct)} left` : "unknown"}`);
+  const breakdown = (Array.isArray(row.breakdown) ? row.breakdown : []).map(item => `${item.label} ${item.value}`);
+  return text([...windows, ...breakdown].join("; ") || "none", windows.length || breakdown.length ? "" : "muted");
+}
+
+function creditsCell(credits) {
+  if (credits?.status === "ok" && typeof credits.balance === "number") {
+    const balance = credits.balance.toLocaleString("en-US", {maximumFractionDigits: 1});
+    return text(credits.renews_on ? `${balance} (renew ${credits.renews_on} with the plan)` : balance);
   }
-  for (const [key, name] of [["codex:a", "Codex a"], ["codex:b", "Codex b"]]) {
-    const row = codex[key];
-    if (!row) { rows.push({name, freshness: null, note: "no reading"}); continue; }
-    rows.push({name, left: row.remaining_pct, pace: row.codexbar?.pace_summary, resets: row.resets_at,
-               freshness: row.freshness, age: row.age_s});
+  return credits?.status === "none" ? text("none", "muted") : text("unknown", "muted");
+}
+
+function planCell(plan) {
+  const name = plan?.name || "plan unknown";
+  if (!plan || plan.status !== "ok") return text(`${name} · renewal unknown`, "muted");
+  if (plan.cancelled) {
+    return text(`${name} · ${plan.ends_on ? `${plan.ended ? "ENDED" : "cancelled, ends"} ${plan.ends_on} (${plan.days_to_end} d)`
+      : "cancelled, end date not configured"}`, "warn");
   }
-  const lane = (key, name, pool) => {
-    const row = agents[key];
-    if (!row) { rows.push({name, pool, freshness: null, note: "no reading"}); return; }
-    rows.push({name, pool, left: row.remaining_pct, pace: row.codexbar?.pace_summary, resets: row.resets_at,
-               freshness: row.freshness, age: row.age_s, note: row.codexbar?.auth_error});
-  };
-  lane("gemini", "AGY Gemini", "agy");
-  const agy = agents.gemini?.claude_gpt_windows?.weekly;
-  if (agents.gemini) {
-    rows.push({name: "AGY Claude/GPT", pool: "agy", left: agy?.remaining_pct, resets: agy?.resets_at,
-               freshness: agy?.remaining_pct === null || agy?.remaining_pct === undefined ? null : agents.gemini.freshness,
-               age: agents.gemini.age_s});
+  if (!plan.next_renewal_on) return text(`${name} · renewal not configured`, "muted");
+  return text(`${name} · renews ${plan.next_renewal_on} (in ${plan.days_to_renewal} d)`, plan.days_to_renewal <= 3 ? "warn" : "muted");
+}
+
+function bankedCell(banked) {
+  if (!banked || banked.status !== "ok" || typeof banked.count !== "number") return text("unknown", "muted");
+  const items = (Array.isArray(banked.items) ? banked.items : []).filter(item => !item.expired)
+    .map(item => `${item.count}× ${item.kind || "reset"}${item.expires_on ? `, expires ${String(item.expires_on).slice(0, 10)}` : ""}`);
+  return text(`${banked.count}${items.length ? ` (${items.join("; ")})` : ""}`, banked.count ? "ok" : "");
+}
+
+function readingCell(reading, staleAfter) {
+  const state = readingState(reading?.status, reading?.age_s, staleAfter);
+  if (state === "missing" || state === "unknown" && !reading?.read_at) {
+    return text(`NO READING${reading?.reason ? ` (${String(reading.reason).replaceAll("_", " ")})` : ""}`, "bad");
   }
-  lane("grok", "Grok", "grok");
-  lane("cursor", "Cursor", "cursor");
-  lane("muse", "Muse", "muse");
-  const threshold = budget.diagnostics?.stale_threshold_s;
-  return rows.filter(row => !(row.pool && ends[row.pool]?.ended)).map(row => {
-    const state = readingState(row.freshness, row.age, threshold);
-    // Numbers are shown only with a reading; a missing or unavailable one has none.
-    if (!["fresh", "stale", "unknown"].includes(state)) row = {...row, left: null, pace: null, resets: null};
-    const end = row.pool && ends[row.pool];
-    const cancelled = end ? (end.ends_on ? `cancelled, ends ${end.ends_on}` : "cancelled, end date not configured") : "";
-    const resets = row.resets ? `${utc(row.resets)} (${relative(row.resets)})` : null;
-    return [
-      text(row.name),
-      td(`${bar(row.left)}${escapeHtml(pct(row.left))}`, "num"),
-      text(row.pace || null, paceClass(row.pace)),
-      text(resets),
-      freshnessCell(state, row.age),
-      text([cancelled, row.note].filter(Boolean).join("; ") || null, cancelled ? "warn" : "muted"),
-    ];
-  });
+  return freshnessCell(state, reading?.age_s);
+}
+
+const SUBSCRIPTION_HEADERS = ["Account", "Weekly resets", "Weekly left", "Pace", "5-hour", "Other windows",
+  "Credits", "Banked resets", "Plan · renews or ends", "Reading"];
+
+function subscriptionRows(subs) {
+  const staleAfter = subs.stale_after_s;
+  const hidden = [];
+  const groups = (Array.isArray(subs.providers) ? subs.providers : []).map(provider => {
+    const accounts = (Array.isArray(provider.accounts) ? provider.accounts : []).filter(row => {
+      if (row.plan?.ended) { hidden.push(`${row.account} (ended ${row.plan.ends_on})`); return false; }
+      return true;
+    });
+    if (!accounts.length) return "";
+    return `<tr><th colspan="${SUBSCRIPTION_HEADERS.length}">${escapeHtml(provider.label || provider.provider)}</th></tr>`
+      + accounts.map(row => {
+        const weekly = row.weekly || {};
+        return `<tr>${[
+          text(row.account),
+          weeklyResetCell(weekly),
+          windowLeft(weekly),
+          paceCell(row.pace),
+          sessionCell(row.session),
+          extraCell(row),
+          creditsCell(row.credits),
+          bankedCell(row.banked_resets),
+          planCell(row.plan),
+          readingCell(row.reading, staleAfter),
+        ].join("")}</tr>`;
+      }).join("");
+  }).join("");
+  return {groups, hidden};
 }
 
 function apiRows(budget) {
@@ -256,15 +323,22 @@ function apiRows(budget) {
   });
 }
 
-function renderUsage(budget, logins) {
-  const ends = logins?.subscriptions?.ends || {};
-  const endsNote = logins?.subscriptions?.reason
-    ? `<p class="muted">Subscription end dates: ${escapeHtml(logins.subscriptions.reason === "not_configured"
-        ? "end date not configured" : logins.subscriptions.reason)}.</p>` : "";
-  return table(["Pool", "Weekly left", "Pace", "Resets", "Reading", "Note"], usageRows(budget, ends))
-    + endsNote
-    + '<p class="muted">Carbon has no quota reader of its own; it draws on the AGY pools.</p>'
-    + table(["API account", "Balance / spend", "Reading", ""], apiRows(budget));
+function renderUsage(subs, budget) {
+  const {groups, hidden} = subscriptionRows(subs);
+  const facts = subs.sources?.plan_facts;
+  const notes = [];
+  if (facts?.reason) {
+    notes.push(`Plan facts: ${facts.reason === "not_configured" ? "not configured" : facts.reason}; renewal, plan and banked resets show unknown.`);
+  }
+  const cache = subs.sources?.usage_cache;
+  if (cache && cache.status !== "ok") notes.push(`Usage cache: ${cache.status}.`);
+  if (hidden.length) notes.push(`Hidden, subscription ended: ${hidden.join(", ")}.`);
+  notes.push("Headroom and deficit are percentage points against an even pace to the weekly reset. Carbon draws on the AGY pools. "
+    + "The Codex API credits belong to Codex a and renew with its monthly turnover.");
+  const head = `<thead><tr>${SUBSCRIPTION_HEADERS.map(h => `<th>${escapeHtml(h)}</th>`).join("")}</tr></thead>`;
+  return (groups ? `<table class="subs">${head}<tbody>${groups}</tbody></table>` : '<p class="muted">None.</p>')
+    + notes.map(note => `<p class="muted">${escapeHtml(note)}</p>`).join("")
+    + table(["API account", "Balance / spend", "Reading", ""], apiRows(budget || {}));
 }
 
 function renderLogins(logins) {
@@ -299,8 +373,7 @@ let logins = null;
 const PANELS = [
   {id: "workers", urls: ["/api/delegate/active"], render: renderWorkers},
   {id: "recent", urls: ["/api/delegate/recent"], render: renderRecent},
-  {id: "usage", urls: ["/api/state/routing-budget", "/api/runtime/logins"],
-   render: (budget, current) => { logins = current; return renderUsage(budget, current); }},
+  {id: "usage", urls: ["/api/runtime/subscriptions", "/api/state/routing-budget"], render: renderUsage},
   {id: "logins", urls: ["/api/runtime/logins"], render: renderLogins},
   {id: "comms", urls: ["/api/comms/v1/metrics"], render: renderComms},
 ];

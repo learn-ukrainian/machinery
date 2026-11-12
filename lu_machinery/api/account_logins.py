@@ -17,15 +17,33 @@ serving function returns the last snapshot and starts a refresh when the
 snapshot is missing or older than ``TTL_S``. Until the first snapshot exists,
 ``state`` is ``pending``.
 
-``subscription_ends`` reads the operator's end dates for cancelled
-subscriptions from ``subscription_ends.json`` in the user's learn-ukrainian
-config directory (``{"grok": "YYYY-MM-DD", "muse": null, ...}``; ``null`` is a
-cancelled subscription whose end date is not yet known). The dates stay on the
-host; a missing or invalid file yields an empty mapping and a reason.
+``plan_facts`` reads the plan facts no tool can read (plan name, monthly
+renewal, banked resets, the end date of a cancelled plan) from
+``subscription_ends.json`` in the user's learn-ukrainian config directory
+(``LU_SUBSCRIPTION_ENDS_FILE`` overrides; empty means none). Each top-level key
+is a pool (``claude_a``, ``claude_b``, ``codex_a``, ``codex_b``, ``agy``,
+``grok``, ``muse``). Its value is either the old form, an end date or
+``null`` (cancelled, end date not yet known), or an object. The values below
+are placeholders:
+
+    {"claude_a": {"plan": "Example plan", "renews_on": "2000-01-15",
+                  "banked_resets": [{"kind": "weekly reset", "count": 1, "expires_on": "2000-02-01"}]},
+     "grok": {"plan": "Example plan", "ends_on": "2000-01-31"},
+     "muse": "2000-01-31"}
+
+``renews_on`` is any past or future renewal date; the next monthly renewal is
+derived from it. ``ends_on`` marks a cancelled plan (``null``: end date not yet
+known), which has no renewal. ``banked_resets`` lists what is banked (an empty
+list is a known zero); ``expires_on`` may be ``null``. Every field is
+optional; an unknown field, a bad value or a file over 4 KiB makes the whole
+file invalid, so nothing is half-read. The facts stay on the host; a missing
+or invalid file yields no facts and a reason. ``subscription_ends`` keeps the
+older view: the cancelled pools and their end dates.
 """
 
 from __future__ import annotations
 
+import calendar
 import contextlib
 import json
 import os
@@ -64,6 +82,9 @@ _PROBE_TIMEOUT_S = 30
 _MAX_OUTPUT_BYTES = 64 * 1024
 _SUBSCRIPTION_ENDS_FILE = "subscription_ends.json"
 _SUBSCRIPTION_ENDS_MAX_BYTES = 4096
+_PLAN_FIELDS = frozenset({"plan", "renews_on", "ends_on", "banked_resets"})
+_MAX_BANKED_ENTRIES = 10
+_MAX_BANKED_COUNT = 999
 # Display names: account a/b, the names the usage rows use.
 _CLAUDE_NAMES = {DEFAULT_CLAUDE_ACCOUNT: "Claude a", "b": "Claude b"}
 _CODEX_NAMES = {DEFAULT_CODEX_ACCOUNT: "Codex a", "b-sub": "Codex b"}
@@ -288,37 +309,125 @@ def logins_snapshot() -> dict[str, Any]:
     return {"state": "ok", **snapshot}
 
 
-def subscription_ends(today: date | None = None) -> dict[str, Any]:
-    """Operator-supplied end dates of cancelled subscriptions; ended ones are flagged, never invented."""
+class _InvalidFacts(ValueError):
+    """A plan-facts value outside the documented schema."""
+
+
+def _fact_day(value: Any) -> date:
+    if not isinstance(value, str) or len(value) != 10:
+        raise _InvalidFacts
+    try:
+        return date.fromisoformat(value)
+    except ValueError:
+        raise _InvalidFacts from None
+
+
+def _fact_date(value: Any) -> date | None:
+    """A date, or ``None`` for an explicit ``null``."""
+    return None if value is None else _fact_day(value)
+
+
+def _fact_text(value: Any) -> str:
+    text = _short_text(value)
+    if text is None:
+        raise _InvalidFacts
+    return text
+
+
+def _next_monthly(anchor: date, today: date) -> date:
+    """The first monthly recurrence of ``anchor`` on or after ``today`` (day clamped to the month's end)."""
+    months = max(0, (today.year - anchor.year) * 12 + today.month - anchor.month)
+    while True:
+        year, month = divmod(anchor.month - 1 + months, 12)
+        year, month = anchor.year + year, month + 1
+        candidate = date(year, month, min(anchor.day, calendar.monthrange(year, month)[1]))
+        if candidate >= today:
+            return candidate
+        months += 1
+
+
+def _banked(value: Any, today: date) -> list[dict[str, Any]]:
+    if not isinstance(value, list) or len(value) > _MAX_BANKED_ENTRIES:
+        raise _InvalidFacts
+    items = []
+    for entry in value:
+        if not isinstance(entry, dict) or set(entry) - {"kind", "count", "expires_on"} or "count" not in entry:
+            raise _InvalidFacts
+        count = entry["count"]
+        if isinstance(count, bool) or not isinstance(count, int) or not 0 <= count <= _MAX_BANKED_COUNT:
+            raise _InvalidFacts
+        expires = _fact_date(entry.get("expires_on"))
+        items.append({
+            "kind": _fact_text(entry["kind"]) if "kind" in entry else None,
+            "count": count,
+            "expires_on": expires.isoformat() if expires else None,
+            "expired": bool(expires and expires < today),
+        })
+    return items
+
+
+def _pool_facts(value: Any, today: date) -> dict[str, Any]:
+    facts: dict[str, Any] = {
+        "plan": None, "renews_on": None, "next_renewal_on": None, "days_to_renewal": None,
+        "cancelled": False, "ends_on": None, "days_to_end": None, "ended": False, "banked_resets": None,
+    }
+    if value is None or isinstance(value, str):  # the older form: a cancelled plan's end date
+        value = {"ends_on": value}
+    if not isinstance(value, dict) or set(value) - _PLAN_FIELDS:
+        raise _InvalidFacts
+    if "plan" in value:
+        facts["plan"] = _fact_text(value["plan"])
+    if "ends_on" in value:
+        end = _fact_date(value["ends_on"])
+        facts["cancelled"] = True
+        if end is not None:
+            facts.update(ends_on=end.isoformat(), days_to_end=(end - today).days, ended=end < today)
+    if "renews_on" in value:
+        anchor = _fact_day(value["renews_on"])
+        facts["renews_on"] = anchor.isoformat()
+        if not facts["cancelled"]:  # a cancelled plan does not renew
+            renewal = _next_monthly(anchor, today)
+            facts.update(next_renewal_on=renewal.isoformat(), days_to_renewal=(renewal - today).days)
+    if "banked_resets" in value:
+        facts["banked_resets"] = _banked(value["banked_resets"], today)
+    return facts
+
+
+def plan_facts(today: date | None = None) -> dict[str, Any]:
+    """The operator's per-pool plan facts; a missing or invalid file yields none and a reason, never a guess."""
     path = _user_config_file(None, "LU_SUBSCRIPTION_ENDS_FILE", _SUBSCRIPTION_ENDS_FILE)
     if path is None:
-        return {"ends": {}, "reason": "not_configured"}
+        return {"pools": {}, "reason": "not_configured"}
     try:
         with path.open("rb") as handle:
             raw = handle.read(_SUBSCRIPTION_ENDS_MAX_BYTES + 1)
     except FileNotFoundError:
-        return {"ends": {}, "reason": "not_configured"}
+        return {"pools": {}, "reason": "not_configured"}
     except OSError:
-        return {"ends": {}, "reason": "unreadable"}
+        return {"pools": {}, "reason": "unreadable"}
     try:
         data = json.loads(raw) if len(raw) <= _SUBSCRIPTION_ENDS_MAX_BYTES else None
     except ValueError:
         data = None
     if not isinstance(data, dict):
-        return {"ends": {}, "reason": "invalid"}
+        return {"pools": {}, "reason": "invalid"}
     current = today or datetime.now(UTC).date()
-    ends: dict[str, dict[str, Any]] = {}
+    pools: dict[str, dict[str, Any]] = {}
     for pool, value in data.items():
         if not isinstance(pool, str) or not pool.isidentifier() or len(pool) > 32:
-            return {"ends": {}, "reason": "invalid"}
-        if value is None:  # cancelled, end date not yet known
-            ends[pool] = {"ends_on": None, "ended": False}
-            continue
-        if not isinstance(value, str):
-            return {"ends": {}, "reason": "invalid"}
+            return {"pools": {}, "reason": "invalid"}
         try:
-            end = date.fromisoformat(value)
-        except ValueError:
-            return {"ends": {}, "reason": "invalid"}
-        ends[pool] = {"ends_on": end.isoformat(), "ended": end < current}
-    return {"ends": ends, "reason": None}
+            pools[pool] = _pool_facts(value, current)
+        except _InvalidFacts:
+            return {"pools": {}, "reason": "invalid"}
+    return {"pools": pools, "reason": None}
+
+
+def subscription_ends(today: date | None = None) -> dict[str, Any]:
+    """Operator-supplied end dates of cancelled subscriptions; ended ones are flagged, never invented."""
+    facts = plan_facts(today)
+    ends = {
+        pool: {"ends_on": row["ends_on"], "ended": row["ended"]}
+        for pool, row in facts["pools"].items() if row["cancelled"]
+    }
+    return {"ends": ends, "reason": facts["reason"]}

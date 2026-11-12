@@ -2516,7 +2516,7 @@ def test_public_projection_does_not_trust_cached_provider_metadata(lane):
 
 
 # Presentation controls (#9869), run against the shipped machinery home renderer.
-def _render_home_usage(budget, logins=None):
+def _render_home_usage(subs, budget=None):
     import subprocess
 
     from lu_machinery.common.repo_root import machinery_path
@@ -2530,11 +2530,11 @@ def _render_home_usage(budget, logins=None):
     Date.now = () => Date.parse('2030-01-01T12:00:00Z');
     eval(html.slice(start, end));
     const input = JSON.parse(fs.readFileSync(0, 'utf8'));
-    console.log(renderUsage(input.budget, input.logins));
+    console.log(renderUsage(input.subs, input.budget));
     """
     result = subprocess.run(
         ['node', '-e', script, str(machinery_path('api/dashboards/index.html'))],
-        input=json.dumps({'budget': budget, 'logins': logins}), capture_output=True,
+        input=json.dumps({'subs': subs, 'budget': budget}), capture_output=True,
         text=True, check=True, timeout=30,
     )
     return result.stdout
@@ -2548,73 +2548,99 @@ def _home_row(rendered, pool):
     return row.group(1)
 
 
-def _home_budget(**codex):
-    row = {'remaining_pct': 70, 'resets_at': '2030-01-03T00:00:00Z', 'freshness': 'fresh', 'age_s': 30,
-           'codexbar': {'pace_summary': '20% in deficit | Expected 10% used'}}
-    row.update(codex)
-    return {'diagnostics': {'stale_threshold_s': 900}, 'codex_accounts': {'codex:a': row}, 'agents': {}}
+def _home_account(account, **fields):
+    row = {
+        'account': account,
+        'reading': {'status': 'fresh', 'read_at': '2030-01-01T11:59:30Z', 'age_s': 30, 'reason': None},
+        'weekly': {'status': 'ok', 'left_pct': 70, 'used_pct': 30, 'resets_at': '2030-01-03T00:00:00Z',
+                   'reset_passed': False},
+        'pace': {'status': 'ok', 'state': 'deficit', 'headroom_pct': -20, 'lasts_to_reset': False,
+                 'runs_out_at': '2030-01-02T00:00:00Z'},
+        'session': {'status': 'none'}, 'extra_windows': [], 'breakdown': [],
+        'credits': {'status': 'none'}, 'banked_resets': {'status': 'unknown', 'reason': 'not_configured'},
+        'plan': {'status': 'unknown', 'reason': 'not_configured', 'name': None},
+    }
+    row.update(fields)
+    return row
+
+
+def _home_subs(*providers, **codex):
+    groups = list(providers) or [{'provider': 'codex', 'label': 'Codex', 'accounts': [_home_account('Codex a', **codex)]}]
+    return {'stale_after_s': 900, 'providers': groups,
+            'sources': {'usage_cache': {'status': 'ok'}, 'plan_facts': {'status': 'ok', 'reason': None}}}
+
+
+def _weekly(**fields):
+    return {'status': 'ok', 'left_pct': 70, 'used_pct': 30, 'resets_at': '2030-01-03T00:00:00Z', 'reset_passed': False,
+            **fields}
 
 
 def test_home_usage_fresh_reading_shows_left_pace_and_reset():
-    row = _home_row(_render_home_usage(_home_budget()), 'Codex a')
-    assert '70%' in row and '20% in deficit' in row
-    assert '2030-01-03 00:00Z (in 1d 12h)' in row
+    row = _home_row(_render_home_usage(_home_subs()), 'Codex a')
+    assert '70%' in row and '20 pp deficit' in row
+    assert 'runs out 2030-01-02 00:00Z (in 12h 0m)' in row
+    assert '<strong>in 1d 12h</strong>' in row and '2030-01-03 00:00Z' in row
     assert 'fresh, 30s old' in row
 
 
 @pytest.mark.parametrize('invalid', [None, 'bad', '', True, [], {}, '42', -1, 101],
                          ids=['null', 'text', 'empty', 'boolean', 'array', 'object', 'numeric-string', 'negative', 'over-100'])
 def test_home_usage_invalid_percentages_are_unknown(invalid):
-    row = _home_row(_render_home_usage(_home_budget(remaining_pct=invalid)), 'Codex a')
+    row = _home_row(_render_home_usage(_home_subs(weekly=_weekly(left_pct=invalid))), 'Codex a')
     assert '%</td>' not in row.split('</td>')[0] + '</td>'
     assert 'class="bar"' not in row
 
 
 def test_home_usage_missing_stale_and_unavailable_are_explicit():
-    missing = _render_home_usage({'agents': {}})
-    assert 'NO READING' in _home_row(missing, 'Claude a') and 'NO READING' in _home_row(missing, 'Codex b')
-    stale = _home_row(_render_home_usage(_home_budget(freshness='stale', age_s=1800)), 'Codex a')
+    missing = _home_row(_render_home_usage(_home_subs(
+        reading={'status': 'unknown', 'read_at': None, 'age_s': None, 'reason': 'no_reading'},
+        weekly={'status': 'unknown', 'reason': 'no_reading'}, pace={'status': 'unknown', 'reason': 'no_reading'})), 'Codex a')
+    assert 'NO READING (no reading)' in missing and '70%' not in missing and '2030-01-03' not in missing
+    stale = _home_row(_render_home_usage(_home_subs(
+        reading={'status': 'stale', 'read_at': '2030-01-01T11:30:00Z', 'age_s': 1800})), 'Codex a')
     assert 'STALE, 30m old' in stale and '70%' in stale
-    # A cached fresh flag cannot override elapsed age.
-    aged = _home_row(_render_home_usage(_home_budget(age_s=3600)), 'Codex a')
+    # A fresh flag cannot override elapsed age.
+    aged = _home_row(_render_home_usage(_home_subs(
+        reading={'status': 'fresh', 'read_at': '2030-01-01T11:00:00Z', 'age_s': 3600})), 'Codex a')
     assert 'STALE, 1h 0m old' in aged and 'fresh' not in aged
-    unknown = _home_row(_render_home_usage(_home_budget(age_s='bad')), 'Codex a')
+    unknown = _home_row(_render_home_usage(_home_subs(
+        reading={'status': 'fresh', 'read_at': '2030-01-01T11:00:00Z', 'age_s': 'bad'})), 'Codex a')
     assert 'FRESHNESS UNKNOWN, age unknown' in unknown
-    unavailable = _home_row(_render_home_usage(_home_budget(freshness='unavailable', age_s=None)), 'Codex a')
-    assert 'UNAVAILABLE' in unavailable and '70%' not in unavailable and '2030-01-03' not in unavailable
 
 
 @pytest.mark.parametrize('timestamp', [1893628800, 1893628800000], ids=['seconds', 'milliseconds'])
 def test_home_usage_epoch_reset_matches_iso(timestamp):
-    row = _home_row(_render_home_usage(_home_budget(resets_at=timestamp)), 'Codex a')
+    row = _home_row(_render_home_usage(_home_subs(weekly=_weekly(resets_at=timestamp))), 'Codex a')
     assert '2030-01-03 00:00Z' in row and '1970' not in row
 
 
 def test_home_usage_unsafe_labels_are_escaped():
     unsafe = '"><img src=x onerror=alert(1)>&\''
-    budget = _home_budget(codexbar={'pace_summary': unsafe})
-    budget['agents'] = {'muse': {'freshness': 'unavailable', 'codexbar': {'auth_error': unsafe}}}
-    budget['api_accounts'] = {'x': {'balance_probe_state': unsafe, 'freshness': unsafe}}
-    rendered = _render_home_usage(budget, {'subscriptions': {'ends': {}, 'reason': unsafe}})
+    account = _home_account(unsafe, extra_windows=[_weekly(label=unsafe)], breakdown=[{'label': unsafe, 'value': unsafe}],
+                            plan={'status': 'ok', 'name': unsafe, 'next_renewal_on': unsafe, 'days_to_renewal': 9},
+                            banked_resets={'status': 'ok', 'count': 1, 'items': [{'count': 1, 'kind': unsafe}]})
+    subs = _home_subs({'provider': 'x', 'label': unsafe, 'accounts': [account]})
+    subs['sources']['plan_facts'] = {'status': 'unknown', 'reason': unsafe}
+    budget = {'api_accounts': {'x': {'balance_probe_state': unsafe, 'freshness': unsafe}}}
+    rendered = _render_home_usage(subs, budget)
     assert '<img' not in rendered
     assert '&lt;img src=x onerror=alert(1)&gt;&amp;' in rendered
 
 
 def test_home_usage_ended_subscription_disappears_and_cancelled_is_marked():
-    budget = _home_budget()
-    budget['agents'] = {'grok': {'remaining_pct': 86, 'freshness': 'fresh', 'age_s': 10},
-                        'muse': {'remaining_pct': 15, 'freshness': 'fresh', 'age_s': 10}}
-    ends = {'ends': {'grok': {'ends_on': '2029-12-31', 'ended': True}, 'muse': {'ends_on': None, 'ended': False}},
-            'reason': None}
-    rendered = _render_home_usage(budget, {'subscriptions': ends})
-    assert '<td>Grok</td>' not in rendered
+    ended = {'status': 'ok', 'name': 'Plan', 'cancelled': True, 'ends_on': '2029-12-31', 'days_to_end': -1, 'ended': True}
+    open_end = {'status': 'ok', 'name': 'Plan', 'cancelled': True, 'ends_on': None, 'ended': False}
+    rendered = _render_home_usage(_home_subs(
+        {'provider': 'grok', 'label': 'Grok', 'accounts': [_home_account('Grok+Cursor', plan=ended)]},
+        {'provider': 'muse', 'label': 'Muse', 'accounts': [_home_account('Muse', plan=open_end)]}))
+    assert '<td>Grok+Cursor</td>' not in rendered and 'Hidden, subscription ended: Grok+Cursor (ended 2029-12-31)' in rendered
     assert 'cancelled, end date not configured' in _home_row(rendered, 'Muse')
     # Both AGY rows belong to one subscription.
-    budget['agents']['gemini'] = {'remaining_pct': 40, 'freshness': 'fresh', 'age_s': 10,
-                                  'claude_gpt_windows': {'weekly': {'remaining_pct': 50}}}
-    ended = _render_home_usage(budget, {'subscriptions': {'ends': {'agy': {'ends_on': '2029-12-31', 'ended': True}}}})
-    assert '<td>AGY Gemini</td>' not in ended and '<td>AGY Claude/GPT</td>' not in ended
-    cancelled = _render_home_usage(budget, {'subscriptions': {'ends': {'agy': {'ends_on': None, 'ended': False}}}})
+    agy = [_home_account('AGY Gemini', plan=ended), _home_account('AGY Claude/GPT', plan=ended)]
+    gone = _render_home_usage(_home_subs({'provider': 'agy', 'label': 'AGY', 'accounts': agy}))
+    assert '<td>AGY Gemini</td>' not in gone and '<td>AGY Claude/GPT</td>' not in gone
+    agy = [_home_account('AGY Gemini', plan=open_end), _home_account('AGY Claude/GPT', plan=open_end)]
+    cancelled = _render_home_usage(_home_subs({'provider': 'agy', 'label': 'AGY', 'accounts': agy}))
     assert cancelled.count('cancelled, end date not configured') == 2
 
 
