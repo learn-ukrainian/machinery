@@ -1697,13 +1697,11 @@ async def serve_static(path: str, request: Request, ctx: MonitorContext = Depend
     """
     dashboards_dir = ctx.roots.dashboards_dir
     product = getattr(request.app.state, "product", None)
-    if not path or path == "/":
-        machinery_index = dashboards_dir / "index.html"
-        if machinery_index.is_file():
-            return FileResponse(machinery_index)
+    if not path or path in {"/", "index.html"}:
         product_index = product_file(product, "index.html")
         if product_index is not None:
             return FileResponse(product_index)
+        machinery_index = dashboards_dir / "index.html"
         return FileResponse(machinery_index)
     file_path = _safe_join(dashboards_dir, path)
     if file_path is None:

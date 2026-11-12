@@ -66,7 +66,10 @@ async function fetchJson(url) {
     let data;
     try { data = JSON.parse(await response.text()); } catch { throw new Error(`${url}: Invalid JSON`); }
     if (data === null || typeof data !== "object" || Array.isArray(data)) throw new Error(`${url}: Invalid JSON shape`);
-    return data;
+    const rawAge = response.headers.get("X-Snapshot-Age-S");
+    const age = rawAge === null ? null : Number(rawAge);
+    return {data, age: age !== null && Number.isFinite(age) && age >= 0 ? age : null,
+      snapshot: rawAge !== null};
   } finally {
     clearTimeout(timer);
   }
@@ -304,9 +307,18 @@ async function loadPanel(panel) {
   const content = document.getElementById(`${panel.id}-content`);
   const age = document.getElementById(`${panel.id}-age`);
   try {
-    const data = await Promise.all(panel.urls.map(fetchJson));
-    content.innerHTML = panel.render(...data);
-    age.textContent = `read ${new Date().toISOString().slice(11, 19)}Z`;
+    const readings = await Promise.all(panel.urls.map(fetchJson));
+    content.innerHTML = panel.render(...readings.map(reading => reading.data));
+    const snapshots = readings.filter(reading => reading.snapshot);
+    age.textContent = snapshots.some(reading => reading.age === null) ? "Source age unknown"
+      : snapshots.length ? `Source age ${Math.ceil(Math.max(...snapshots.map(reading => reading.age)))}s`
+      : `read ${new Date().toISOString().slice(11, 19)}Z`;
+    age.className = snapshots.some(reading => reading.age === null || reading.age > REFRESH_MS / 1000)
+      ? "bad" : "";
+    if (panel.id === "logins") {
+      logins = readings[0].data;
+      if (logins.state === "pending") setTimeout(() => loadPanel(panel), 3000);
+    }
   } catch (error) {
     content.innerHTML = `<p class="error">Unavailable: ${escapeHtml(error.message || error)}</p>`;
     age.textContent = "";
@@ -318,7 +330,6 @@ async function loadPanel(panel) {
 async function refreshAll() {
   await Promise.all(PANELS.map(loadPanel));
   document.getElementById("last-refresh").textContent = `Refreshed ${new Date().toISOString().slice(11, 19)}Z`;
-  if (logins?.state === "pending") setTimeout(() => loadPanel(PANELS[3]), 3000);
 }
 
 refreshAll();

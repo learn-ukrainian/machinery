@@ -520,6 +520,7 @@ def test_delegate_http_redacts_repository_even_when_task_state_has_private(
             started_at=_iso(now),
             repository=private_repo,
             repository_id=private_repo,
+            delivery_pr=f"{private_repo}#42",
             cwd=f"/Users/private/{private_repo}",
         ),
     )
@@ -530,6 +531,7 @@ def test_delegate_http_redacts_repository_even_when_task_state_has_private(
             status="done",
             started_at=_iso(now - timedelta(minutes=1)),
             repository=public_repo,
+            delivery_pr=f"{public_repo}#43",
         ),
     )
     monkeypatch.setattr(delegate_router.os, "kill", lambda pid, sig: None)
@@ -540,11 +542,13 @@ def test_delegate_http_redacts_repository_even_when_task_state_has_private(
     assert active_resp.status_code == 200
     tasks_body = tasks_resp.json()
     active_body = active_resp.json()
+    recent_body = delegate_router.recent_finished_tasks()
     assert tasks_body["total"] == 2
     assert active_body["total"] == 1
     _assert_legacy_summary_shape(tasks_body["tasks"])
     _assert_legacy_summary_shape(active_body["tasks"])
-    for body in (tasks_body, active_body):
+    assert {row["delivery_pr"] for row in tasks_body["tasks"]} == {"#42", "#43"}
+    for body in (tasks_body, active_body, recent_body):
         blob = json.dumps(body)
         assert "repository" not in blob
         assert "repository_id" not in blob
@@ -586,7 +590,8 @@ def test_accounting_projection_survives_task_cache_restart_and_upgrade(tmp_path,
         "identity_state": "observed", "observed_model_source": "provider-init",
         "observed_model_provenance": {"requested_model": "attempt-model", "invocation_id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"},
     }
-    _write_task(tasks_dir / "observed.json", _task_payload("observed", model="accounting-model", **expected))
+    _write_task(tasks_dir / "observed.json", _task_payload("observed", model="accounting-model",
+                codex_account="b-sub", research_role="reviewer", delivery_pr="unit/public#12", **expected))
     _write_task(tasks_dir / "legacy.json", _task_payload("legacy", model="legacy-model"))
 
     def assert_rows():
@@ -594,6 +599,9 @@ def test_accounting_projection_survives_task_cache_restart_and_upgrade(tmp_path,
         assert response.status_code == 200
         rows = {row["task_id"]: row for row in response.json()["tasks"]}
         assert rows["observed"]["model"] == "accounting-model"
+        assert rows["observed"]["codex_account"] == "b-sub"
+        assert rows["observed"]["research_role"] == "reviewer"
+        assert rows["observed"]["delivery_pr"] == "#12"
         assert {key: rows["observed"][key] for key in expected} == expected
         assert {key: rows["legacy"][key] for key in expected} == {
             "requested_selector": None, "observed_model": None,
@@ -611,6 +619,17 @@ def test_accounting_projection_survives_task_cache_restart_and_upgrade(tmp_path,
     monkeypatch.setattr(delegate_router, "_read_task_state", lambda *a: (_ for _ in ()).throw(AssertionError("unexpected reread")))
     assert_rows()
     monkeypatch.setattr(delegate_router, "_read_task_state", read_task)
+    # Persisted pre-upgrade projections can be non-null but lack the added observations.
+    conn = delegate_router._init_task_cache_db(delegate_router._task_cache_db_path(str(tasks_dir)), ctx)
+    for path, fingerprint in conn.execute("SELECT path, fingerprint FROM task_cache").fetchall():
+        old = json.loads(fingerprint)
+        old[0] = old[0].replace("record-v3:", "record-v2:")
+        conn.execute("UPDATE task_cache SET fingerprint=?, observations=? WHERE path=?",
+                     (json.dumps(old), '{"schema_version": 2}', path))
+    conn.commit()
+    conn.close()
+    delegate_router._TASK_STATE_CACHE.clear()
+    assert_rows()
     # Entries from the old schema lack projections and must reload real tasks.
     conn = delegate_router._init_task_cache_db(delegate_router._task_cache_db_path(str(tasks_dir)), ctx)
     conn.execute("UPDATE task_cache SET model_accounting=NULL")
@@ -619,6 +638,24 @@ def test_accounting_projection_survives_task_cache_restart_and_upgrade(tmp_path,
     assert delegate_router._load_task_cache_from_db(str(tasks_dir), ctx) == {}
     delegate_router._TASK_STATE_CACHE.clear()
     assert_rows()
+
+
+def test_recent_finished_tasks_orders_instants_and_excludes_unsettled(tmp_path, monkeypatch):
+    """Defect class: lexical timestamps and nonterminal rows corrupt the recent list before limiting."""
+    tasks = tmp_path / "tasks"
+    ctx = _pin_tasks_dir(monkeypatch, tasks)
+    for task_id, status, finished in (
+        ("earlier", "done", "2026-11-12T04:05:00Z"),
+        ("later", "done", "2026-11-12T04:05:00.500000+00:00"),
+        ("finalize", "needs_finalize", "2026-11-12T04:10:00Z"),
+        ("settling", "settling", "2026-11-12T04:11:00Z"),
+    ):
+        _write_task(tasks / f"{task_id}.json", _task_payload(task_id, status=status, finished_at=finished))
+    recent = delegate_router.recent_finished_tasks(ctx=ctx, limit=1)
+    assert recent["total"] == 2
+    assert [t["task_id"] for t in recent["tasks"]] == ["later"]
+    active = delegate_router.active_delegate_tasks(ctx=ctx)
+    assert {t["task_id"] for t in active["tasks"]} == {"finalize", "settling"}
 
 
 def test_accounting_conflict_is_unknown_in_list_and_detail(tmp_path, monkeypatch):

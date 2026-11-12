@@ -744,7 +744,7 @@ ROUTE_CONTRACTS: tuple[RouteContract, ...] = (
         "exact",
         "http",
         "Dashboard root static page.",
-        "The product home, scripts/project_api/static/index.html, unless dashboards/index.html exists.",
+        "The declared product home, otherwise the machinery dashboard index.html.",
         "Static FileResponse; page fetches live API data client-side.",
         ("humans",),
         "Catch-all static route also serves other dashboard files.",
@@ -789,8 +789,9 @@ def all_route_contracts(product: ProductContribution | None = None) -> tuple[Rou
 
 
 def all_page_contracts(product: ProductContribution | None = None) -> tuple[PageContract, ...]:
-    """Machinery page contracts, then the product's (the installed product when none is given)."""
-    return (*PAGE_CONTRACTS, *(installed_product() if product is None else product).page_contracts)
+    """Product declarations replace machinery contracts for the same static page."""
+    pages = (installed_product() if product is None else product).page_contracts
+    return (*(page for page in PAGE_CONTRACTS if not any(p.file == page.file for p in pages)), *pages)
 
 
 def contracts_for_route(path: str, kind: ContractKind = "http") -> list[RouteContract]:

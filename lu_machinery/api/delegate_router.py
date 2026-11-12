@@ -7,6 +7,7 @@ import contextlib
 import hashlib
 import json
 import os
+import re
 import sqlite3
 import threading
 import time
@@ -58,7 +59,7 @@ router = APIRouter(tags=["delegate"], lifespan=_active_lifespan)
 RESULT_BYTES_LIMIT = 64 * 1024
 TASK_READ_RETRIES = 2
 TASK_READ_RETRY_SECONDS = 0.01
-ACTIVE_TASK_STATUSES = {"running", "spawning"}
+ACTIVE_TASK_STATUSES = {"running", "spawning", "settling", "needs_finalize"}
 # Short enough that a dead pid drops off the active list quickly, long enough
 # that a burst of dashboard polls shares one directory scan.
 DELEGATE_LIST_TTL_S = 2.0
@@ -79,6 +80,10 @@ def _task_observations(task: dict[str, Any]) -> dict[str, Any]:
         "claude_account", "codex_account", "delivery_pr", "research_role",
     )
     result = {key: task[key] for key in fields if key in task}
+    if "delivery_pr" in result:
+        # Generic summaries carry no repository identity, including inside a PR reference.
+        match = re.fullmatch(r"(?:[\w.-]+/[\w.-]+)?#([1-9][0-9]*)", str(result["delivery_pr"]))
+        result["delivery_pr"] = f"#{match[1]}" if match else None
     if "error" in task:
         result["error"] = sanitize_error_excerpt(task["error"])
     return result
@@ -542,8 +547,8 @@ def _delegate_task_rows(
 
 def _task_file_fingerprint(name: str, st: os.stat_result) -> _TaskFileFingerprint:
     # Discard summaries cached before task-record classification.
-    # v2: summaries also carry the account, delivery PR and role observations.
-    return f"record-v2:{name}", st.st_mtime_ns, st.st_ctime_ns, st.st_size, st.st_ino
+    # v3 invalidates persisted pre-observation summaries and repository-bearing PR references.
+    return f"record-v3:{name}", st.st_mtime_ns, st.st_ctime_ns, st.st_size, st.st_ino
 
 
 def _task_generation_token(newest_mtime_ns: int, files: list[tuple[str, os.stat_result]]) -> str:
@@ -856,8 +861,9 @@ def get_delegate_task_detail(
 
 def recent_finished_tasks(*, ctx: MonitorContext | None = None, limit: int = RECENT_FINISHED_LIMIT) -> dict[str, Any]:
     """The last ``limit`` tasks that are no longer active, newest finish first."""
-    finished = [row for row in _delegate_task_rows(None, ctx=ctx) if row["status"] not in ACTIVE_TASK_STATUSES]
-    finished.sort(key=lambda row: str(row.get("finished_at") or row.get("started_at") or ""), reverse=True)
+    finished = [row for row in _delegate_task_rows(None, ctx=ctx) if row["status"] in RELEASED_TASK_STATUSES]
+    finished.sort(key=lambda row: _parse_iso_datetime(row.get("finished_at"))
+                  or _parse_iso_datetime(row.get("started_at")) or datetime.min.replace(tzinfo=UTC), reverse=True)
     return {"total": len(finished), "tasks": finished[:limit]}
 
 
