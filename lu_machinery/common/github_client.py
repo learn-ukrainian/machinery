@@ -1294,8 +1294,24 @@ class GitHubClient:
         self.cache_max_bytes = cache_max_bytes
         self.max_response_bytes = max_response_bytes
         self._configure_host(canonical_host(self.env.get("GH_HOST", "github.com")))
-        self.cache_dir = Path(cache_dir) if cache_dir is not None else _cache_directory()
-        self._memory_db = None
+        # One holder: a per-call copy of this client keeps its cache, budget and fallback state.
+        self._cache_state = {"cache_dir": Path(cache_dir) if cache_dir is not None else _cache_directory(), "memory_db": None}
+
+    @property
+    def cache_dir(self):
+        return self._cache_state["cache_dir"]
+
+    @cache_dir.setter
+    def cache_dir(self, value):
+        self._cache_state["cache_dir"] = value
+
+    @property
+    def _memory_db(self):
+        return self._cache_state["memory_db"]
+
+    @_memory_db.setter
+    def _memory_db(self, value):
+        self._cache_state["memory_db"] = value
 
     def _configure_host(self, host):
         """Select credentials and scope from an authority already canonicalised at entry."""

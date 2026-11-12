@@ -16,27 +16,36 @@ put ``not slow`` in global addopts (nightly would inherit it).
 
 from __future__ import annotations
 
+import os
+import sys
+
+# Direct file execution runs pytest in this process, so this copy must put
+# nothing on the runner's import path. Its own directory (sys.path[0], absent
+# under -P) goes before any import can search it.
+if (
+    __package__ in (None, "")
+    and sys.path
+    and sys.path[0]
+    and os.path.realpath(sys.path[0]) == os.path.dirname(os.path.realpath(__file__))
+):
+    del sys.path[0]
+
 import argparse
 import hashlib
 import json
 import math
 import re
 import statistics
-import sys
 import xml.etree.ElementTree as element_tree
 from collections.abc import Iterable, Sequence
 from pathlib import Path
 from typing import Any
 
 if __package__ in (None, ""):
-    # Direct file execution runs pytest in this process, so this copy must put
-    # nothing on the runner's import path: drop its own directory (sys.path[0],
-    # absent under -P) and load its two standard-library-only siblings by file.
+    # Its two standard-library-only siblings load from this copy, by file.
     import importlib.util
 
     _HERE = Path(__file__).resolve().parent
-    if sys.path and sys.path[0] and Path(sys.path[0]).resolve() == _HERE:
-        del sys.path[0]
 
     def _sibling(name: str) -> Any:
         spec = importlib.util.spec_from_file_location(f"_pytest_shards_{name}", _HERE / f"{name}.py")

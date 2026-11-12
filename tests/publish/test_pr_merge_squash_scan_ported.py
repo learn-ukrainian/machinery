@@ -490,6 +490,8 @@ def test_installed_shard_helper_is_not_relative_to_product_cwd(tmp_path, phase):
     (installed.parent.parent / "probe_dependency.py").write_text('ORIGIN = "outer-controller"\n')
     (installed.parent.parent / "controller_only.py").write_text("")
     (installed / "probe_shadow.py").write_text('ORIGIN = "controller-directory"\n')
+    # The helper itself imports statistics: a module cached before cleanup would reach pytest too.
+    (installed / "statistics.py").write_text("def mean(values):\n    return -999\n")
     runner_site = tmp_path / "runner-site"
     (runner_site / "lu_machinery" / "ci").mkdir(parents=True)
     (runner_site / "probe_dependency.py").write_text('ORIGIN = "locked-runner"\n')
@@ -502,8 +504,9 @@ def test_installed_shard_helper_is_not_relative_to_product_cwd(tmp_path, phase):
     expected = {f"tests/test_probe_{index}.py::test_runner_dependency" for index in range(4)}
     for index in range(4):  # The runner's four shards each require a nonempty file group.
         (product / "tests" / f"test_probe_{index}.py").write_text(
-            'import importlib.util, lu_machinery, probe_dependency, probe_shadow\n'
+            'import importlib.util, lu_machinery, probe_dependency, probe_shadow, statistics\n'
             'assert probe_dependency.ORIGIN == probe_shadow.ORIGIN == "locked-runner"\n'
+            'assert statistics.mean([1, 2]) == 1.5\n'
             'assert importlib.util.find_spec("controller_only") is None\n'
             f'assert lu_machinery.__file__.startswith({str(runner_site)!r})\n'
             'def test_runner_dependency():\n    assert probe_dependency.ORIGIN == "locked-runner"\n'

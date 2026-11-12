@@ -267,11 +267,25 @@ def test_native_rate_limit_stderr_never_blocks_landing(tmp_path):
     ["120", lambda: email.utils.formatdate(NOW + 120, usegmt=True)],
     ids=["delay-seconds", "http-date"],
 )
-def test_github_retry_after_creates_an_authentic_hold(tmp_path, retry_after):
+@pytest.mark.parametrize("observed", ["client", "per_call_cwd", "per_call_limit"])
+def test_github_retry_after_creates_an_authentic_hold(tmp_path, retry_after, observed):
+    """A hold observed through a per-call copy of the client (its own cwd or byte limit) is the client's hold.
+
+    Defect class: per-call copies losing the caller's Retry-After hold or in-memory fallback cache.
+    """
     value = retry_after() if callable(retry_after) else retry_after
     wire = Wire(_limited_reply(403, {"Retry-After": value, "X-RateLimit-Remaining": "77", "X-RateLimit-Reset": "9000"}))
-    client = store(tmp_path, wire)
-    refused(client.request("POST", "repos/o/r/issues/1/comments", payload={"body": "x"}), "retry_after", NOW + 120)
+    if observed == "client":
+        client = store(tmp_path, wire)
+        refused(client.request("POST", "repos/o/r/issues/1/comments", payload={"body": "x"}), "retry_after", NOW + 120)
+    else:
+        # A fresh client whose cache directory is unusable keeps its state in memory, created lazily.
+        (tmp_path / "not-a-directory").write_text("")
+        client = gh.GitHubClient(cache_dir=tmp_path / "not-a-directory", transport=wire.transport,
+                                 runner=wire.runner, clock=lambda: NOW, env={}, cwd=str(tmp_path))
+        per_call = {"cwd": str(tmp_path)} if observed == "per_call_cwd" else {"max_response_bytes": 1 << 20}
+        argv = ["gh", "api", "--method", "POST", "repos/o/r/issues/1/comments", "-f", "body=x"]
+        refused(gh.run(argv, client=client, capture_output=True, **per_call), "retry_after", NOW + 120)
     refused(LANDING["rest"](client), "retry_after", NOW + 120)
     refused(LANDING["native"](client), "retry_after", NOW + 120)
     assert len(wire.sent) == 1

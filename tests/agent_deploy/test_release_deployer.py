@@ -266,7 +266,8 @@ def test_runtime_siblings_do_not_block_check_or_apply(consumer, tmp_path, monkey
 ]] + [
     # Every provider that discovers the shared .agents tree inventories it on its own,
     # from a fresh apply too (no earlier deployment state names .agents).
-    (path, providers) for providers in (["codex"], ["agy"], ["gemini"], ["cursor"], ["gemini", "cursor"])
+    # Claude alone never discovers it: the negative control.
+    (path, providers) for providers in (["codex"], ["agy"], ["gemini"], ["cursor"], ["gemini", "cursor"], ["claude"])
     for path in (".agents/skills/planted/SKILL.md", ".agents/rules/planted.md")
 ])
 @pytest.mark.parametrize("check", [False, True], ids=["apply", "check"])
@@ -291,6 +292,15 @@ def test_provider_discovery_content_cannot_hide_as_runtime(consumer, tmp_path, m
         planted.parent.mkdir(parents=True, exist_ok=True)
         planted.symlink_to(outside)
     before = snapshot(consumer)
+    if providers == ["claude"]:
+        # Content Claude does not discover is not its deployment: no drift, left untouched.
+        assert invoke(monkeypatch, consumer) == 0
+        assert invoke(monkeypatch, consumer, check=check) == 0
+        assert (consumer / path).is_symlink() == (kind == "symlink")
+        assert {name: before[name] for name in before if name.startswith(".agents/")} == {
+            name: value for name, value in snapshot(consumer).items() if name.startswith(".agents/")
+        }
+        return
     assert invoke(monkeypatch, consumer, check=check) == (1 if kind == "file" else 2)
     captured = capsys.readouterr()
     if kind == "file":
