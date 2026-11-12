@@ -8,7 +8,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+
 import pytest
+
 from lu_machinery.review import capability_failure as cf
 from lu_machinery.review import record_cf_verdict as recorder
 from lu_machinery.review.review_lineage import ReviewRun, capability_exemption, dispatched_rounds
@@ -19,10 +21,6 @@ from tests.review.record_support import (
     recorder_matcher,  # noqa: F401 - autouse publication scanner rules
     write_task,
 )
-
-
-
-
 
 H1, H2, H3, NEXT = "1" * 40, "2" * 40, "3" * 40, "4" * 40
 R3_STARTED = "2026-09-23T10:00:00.000001+00:00"
@@ -79,6 +77,14 @@ def test_the_one_replacement_must_be_the_exempt_runs_seat():
     with pytest.raises(recorder.RecordError, match="CAPABILITY_REPLACEMENT_REFUSED"):
         decide(("anthropic", "code"))
     assert decide(("openai", "code"))["capability_exemption"]["task"] == "r3"
+    # A Carbon failure frees one head for the complete review, including its companion
+    # reviewer of record. It does not give an ordinary failed seat's round to another seat.
+    carbon = {**exempt_r3(), "seat": ("google", "code"), "second_review": True}
+    result = recorder.require_review_round_within_budget(
+        comments, NEXT, "fleet", budget=3, pr=42, exemption=lambda: carbon, recording_seat=("openai", "code"),
+    )
+    assert result["capability_exemption"] == carbon
+
 
 
 # 1. Repeated BLOCKED replies.

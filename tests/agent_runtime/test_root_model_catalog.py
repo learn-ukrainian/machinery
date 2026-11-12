@@ -283,6 +283,7 @@ def test_opus_sol_and_reviewers_are_admitted_every_activity(model, activity):
 def test_recon_models_consult_but_never_review():
 
     assert activity_role_refusal("gpt-6-luna", "consult") is None
+    assert activity_role_refusal("gemini-4-carbon-medium", "consult") is not None
     assert "holds no review" in activity_role_refusal("gpt-6-luna", "review")
 
 
@@ -389,8 +390,15 @@ def test_unknown_google_ais_gemma_stays_refused_under_the_routing_override(monke
             lambda c: c["models"]["gpt-6.1-sol"]["roles"].remove("bounded_advisory_envelope"),
             r"advisor\.model_id 'gpt-6\.1-sol' does not hold the 'bounded_advisory_envelope' role",
         ),
+        (lambda c: c["review_scheduler"].pop("second_reviewer"), "second_reviewer"),
+        (lambda c: c["review_scheduler"]["second_reviewer"].update(model="missing-model"), "second_reviewer.model"),
+        (lambda c: c["review_scheduler"]["second_reviewer"].update(route="bogus"), "second_reviewer.route"),
+        (lambda c: c["review_scheduler"]["second_reviewer"].update(model="gpt-6.1-sol"), "hold second_review"),
+        (lambda c: c["review_scheduler"]["second_reviewer"].update(not_for_author_families="google"), "second_reviewer.not_for_author_families"),
+        (lambda c: c["review_scheduler"]["second_reviewer"].update(not_for_author_families=["unknown"]), "unknown family"),
     ],
-    ids=["missing", "missing-activity", "unheld-role", "candidate", "endpoint", "risk-model", "advisor"],
+    ids=["missing", "missing-activity", "unheld-role", "candidate", "endpoint", "risk-model", "advisor",
+         "second-missing", "second-model", "second-route", "second-role", "second-families-type", "second-family"],
 )
 def test_catalog_requires_activity_roles_for_reviewers_and_the_advisor(mutate, message):
     catalog = deepcopy(load_model_catalog())
@@ -1191,7 +1199,7 @@ def test_argon_formal_code_review_is_refused_before_routing_or_launch(monkeypatc
     ("agent", "model"),
     [("agy", "gemini-4-argon-low"), ("claude", "claude-fable-5-2")],
 )
-def test_work_only_model_is_refused_a_review_typed_dispatch_before_launch(agent, model):
+def test_work_only_model_is_refused_a_review_typed_dispatch_before_launch(agent, model, monkeypatch):
     """Defect class: a model with no catalog review role admitted to a review-typed dispatch.
 
     Dispatch admission must refuse it before any worktree or provider starts; the verdict
@@ -1207,6 +1215,35 @@ def test_work_only_model_is_refused_a_review_typed_dispatch_before_launch(agent,
     with pytest.raises(ValueError, match="holds no review"):
         checks.check_model_admission(agent, model, "read-only", review, b"review the change")
     checks.check_model_admission(agent, model, "read-only", {}, b"implement the change")
+    carbon = "gemini-4-carbon-medium"
+    for rejected in (
+        {**review, "language_lane": "uk"}, {**review, "review_profile": "ukrainian"},
+        {**review, "review_attempt": "attempt.yaml"}, {**review, "effort": "low"},
+        {**review, "review_mode": "red_team"},
+    ):
+        with pytest.raises(ValueError, match="Carbon review admission"):
+            checks.check_model_admission("agy", carbon, "read-only", rejected, b"review")
+    with pytest.raises(ValueError, match="Carbon review admission"):
+        checks.check_model_admission("agy", "gemini-4-carbon-low", "read-only", review, b"review")
+    checks.check_model_admission("agy", carbon, "read-only", {**review, "review_mode": None}, b"second review")
+    # Declared risk never changes the path-derived second-review trigger.
+    from types import SimpleNamespace
+
+    from lu_machinery.review import record_cf_verdict as recorder
+    from tests.review.record_support import facts_for
+    monkeypatch.setattr(recorder, "default_branch_review_base", lambda *_: ("a" * 40, "b" * 40))
+    monkeypatch.setattr(recorder, "refuse_excluded_only_range", lambda *_, **__: None)
+    args = SimpleNamespace(review_mode=None, review_profile="infra", branch="unit", risk="medium")
+    for paths, allowed in ((("docs/example.md",), False), (("lu_machinery/review/record_cf_verdict.py",), True)):
+        monkeypatch.setattr(recorder, "collect_branch_review_facts",
+                            lambda *_, paths=paths, **__: facts_for({"anthropic"}, changed_paths=paths))
+        if allowed:
+            checks.check_branch_author_families(args, Path.cwd(), {"github": "owner/repo"}, "a" * 40, carbon)
+        else:
+            with pytest.raises(ValueError, match="High-tier or security-sensitive changed path"):
+                checks.check_branch_author_families(args, Path.cwd(), {"github": "owner/repo"}, "a" * 40, carbon)
+
+
 
 
 def test_sol_defaults_and_escalations_use_high_across_catalog():

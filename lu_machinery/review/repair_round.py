@@ -392,7 +392,10 @@ def admit_repair_round(
             )
     try:
         runs = lineage_runs(task_root, repository=repository, number=number, branch=branch)
-        seats = check_lineage(runs=runs, comments=comments, login=login, approved=approved, exclude_head=head)
+        seats = check_lineage(
+            runs=runs, comments=comments, login=login, approved=approved, exclude_head=head,
+            **recorder.head_approval_context(repo_root, approved, repository=repository, fetch=fetch),
+        )
     except LineageRefused as exc:
         raise RepairRefused(
             LINEAGE, f"the last reviewed head {approved} is not an approval of record: {exc.detail}"

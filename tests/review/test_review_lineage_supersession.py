@@ -3,11 +3,9 @@
 from __future__ import annotations
 
 import pytest
+
 from lu_machinery.review import record_cf_verdict as recorder
 from lu_machinery.review.review_lineage import LineageRefused, ReviewRun, check_lineage, superseded_runs
-
-
-
 
 EARLY = "1" * 40
 APPROVED = "2" * 40
@@ -64,7 +62,7 @@ def review(task, sha, reply, *, minute, family="openai", profile="code", status=
 def lineage(*pairs, approved=APPROVED, exclude_head=None):
     runs = [run for run, _ in pairs]
     comments = sorted((comment for _, comment in pairs if comment), key=lambda item: item["created_at"])
-    seats = check_lineage(runs=runs, comments=comments, login="fleet", approved=approved, exclude_head=exclude_head)
+    seats = check_lineage(runs=runs, comments=comments, login="fleet", approved=approved, exclude_head=exclude_head, second_review=False)
     return seats, superseded_runs(runs=runs, comments=comments, login="fleet", exclude_head=exclude_head)
 
 
@@ -124,7 +122,24 @@ def test_a_same_head_or_older_witness_supersedes_nothing(orphan_head, orphan_min
         lineage(orphan, witness)
 
 
-def test_an_approval_at_the_candidate_head_never_supersedes_to_prove_the_approved_head():
+def test_an_approval_at_the_candidate_head_never_supersedes_to_prove_the_approved_head(monkeypatch):
+    # Missing Carbon at a High head cannot certify lineage or a clean-base exemption.
+    sol_run, sol_comment = review("sol-high", APPROVED, "VERDICT: APPROVE", minute=2,
+                                  author_models=["claude-opus-5-5"])
+    with pytest.raises(LineageRefused, match="needs-seat"):
+        check_lineage(runs=[sol_run], comments=[sol_comment], login="fleet", approved=APPROVED, second_review=True)
+    assert not recorder._fully_approved([sol_comment], APPROVED, "fleet")
+    assert recorder.budget_exempt_heads(
+        [sol_comment], CANDIDATE, "fleet", prove=lambda *_: ["b" * 40],
+        approval_context=lambda _: {"second_review": True},
+    ) == {}
+    monkeypatch.setitem(SEATS, "google", ("gemini-4-carbon-medium", "agy"))
+    carbon_run, carbon_comment = review("carbon-old", EARLY, "VERDICT: REQUEST_CHANGES", minute=1,
+                                        family="google", second_review=True, author_models=["claude-opus-5-5"])
+    exempt_run, exempt_comment = review("sol-exempt", APPROVED, "VERDICT: APPROVE", minute=2,
+                                        author_models=["gemini-4-carbon-medium"])
+    assert check_lineage(runs=[carbon_run, exempt_run], comments=[carbon_comment, exempt_comment],
+                         login="fleet", approved=APPROVED, second_review=True) == ["openai"]
     opus = review("opus-r2", APPROVED, "VERDICT: APPROVE", minute=2, family="anthropic")
     orphan = review("sol-r2", APPROVED, "VERDICT: APPROVE", minute=2, publish=False)
     at_candidate = review("sol-r3", CANDIDATE, "VERDICT: APPROVE", minute=3)

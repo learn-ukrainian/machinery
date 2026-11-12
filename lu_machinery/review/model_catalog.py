@@ -464,6 +464,20 @@ def _validate_review_scheduler(raw: Any, models: dict[str, Any]) -> None:
             raise ModelCatalogError(f"{label} must be a non-empty list of model ids")
         for model_id in allowed:
             _require_routable_model(models, model_id, label)
+    if "second_reviewer" in scheduler or "second_review" in (scheduler.get("activity_roles") or {}).get("review", []):
+        label = "review_scheduler.second_reviewer"
+        second = _require_mapping(scheduler.get("second_reviewer"), label)
+        model_id = _require_string(second.get("model"), f"{label}.model")
+        _require_routable_model(models, model_id, f"{label}.model")
+        entry = models[model_id]
+        if entry["lifecycle"] != "active" or "second_review" not in entry["roles"]:
+            raise ModelCatalogError(f"{label}.model must be active and hold second_review")
+        route = _require_string(second.get("route"), f"{label}.route")
+        if route not in entry["transports"]:
+            raise ModelCatalogError(f"{label}.route is not supported by its model")
+        families = _require_string_list(second.get("not_for_author_families"), f"{label}.not_for_author_families")
+        if not set(families) <= {model["family"] for model in models.values()}:
+            raise ModelCatalogError(f"{label}.not_for_author_families names an unknown family")
     activity_roles = _require_mapping(scheduler.get("activity_roles"), "review_scheduler.activity_roles")
     if set(activity_roles) != ACTIVITIES:
         raise ModelCatalogError(f"review_scheduler.activity_roles must define exactly {sorted(ACTIVITIES)}")
@@ -1413,6 +1427,7 @@ def activity_role_refusal(
     activity_roles = catalog["review_scheduler"]["activity_roles"]
     admitted = set(activity_roles[REVIEW_ACTIVITY])
     if activity == CONSULT_ACTIVITY:
+        admitted.discard("second_review")
         admitted |= set(activity_roles[CONSULT_ACTIVITY])
     elif activity != REVIEW_ACTIVITY:
         raise ValueError(f"unknown activity {activity!r}; expected one of {sorted(ACTIVITIES)}")

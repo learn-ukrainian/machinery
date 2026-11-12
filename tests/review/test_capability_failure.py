@@ -226,7 +226,7 @@ def test_the_event_carries_no_verdict_and_round_trips():
 
 
 def lineage(*runs, comments, approved=SHA, exclude_head=None):
-    return check_lineage(runs=list(runs), comments=comments, login="fleet", approved=approved, exclude_head=exclude_head)
+    return check_lineage(runs=list(runs), comments=comments, login="fleet", approved=approved, exclude_head=exclude_head, second_review=False)
 
 
 def approving_run():
