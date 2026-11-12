@@ -353,17 +353,24 @@ def test_non_queue_merge_sends_scanned_squash_text_at_approved_head(synthetic_op
     assert not {"--auto", "--admin", "--delete-branch"}.intersection(calls[0]["argv"])
 
 
-@pytest.mark.parametrize("subject", ["", " ", "\t\n", "\u200b", "\ufeff", "\u2800", "\nclean"])
-@pytest.mark.parametrize("source", ["explicit", "default"])
+@pytest.mark.parametrize("subject", [
+    "", " ", "\t\n", "\u200b", "\ufeff", "\u2800", "\nclean",
+    # Every line break str.splitlines() honours ends the first line, not only LF.
+    "\rclean", "\r\nclean", "\u2028clean", "\u2029clean", "\x85clean", "\x0bclean", "\x0cclean",
+])
+@pytest.mark.parametrize("source", ["explicit", "default", "queue_default"])
 def test_blank_subject_cannot_bypass_default_headline_scan(synthetic_opsec, subject, source):
-    """Invisible or blank first lines must not publish an unscanned default headline."""
+    """Invisible or blank first lines must not publish an unscanned default headline.
+
+    A merge queue publishes its own default headline, so a visible explicit subject cannot vouch for it.
+    """
     calls, reads = [], []
     with pytest.raises(gate.PublishBlocked, match="merge subject must not be blank"):
         pub.publish(
             "pr-merge", repo="unit/public", number=1,
-            **({"subject": subject} if source == "explicit" else {}),
+            **({"subject": subject} if source == "explicit" else {"subject": "clean"} if source == "queue_default" else {}),
             runner=transport(calls, subject=TOKEN + " (#1)" if source == "explicit" else subject,
-                             queue=False, reads=reads),
+                             queue=source == "queue_default", reads=reads),
         )
     assert calls == []
     if source == "explicit":
@@ -371,11 +378,17 @@ def test_blank_subject_cannot_bypass_default_headline_scan(synthetic_opsec, subj
 
 
 @pytest.mark.parametrize("queue", [False, True])
-@pytest.mark.parametrize("scenario", ["publisher", "empty_stdin", "relative_cwd", "conflict"])
+@pytest.mark.parametrize(
+    "scenario", ["publisher", "empty_stdin", "relative_cwd", "repo_from_cwd", "conflict", "unreadable", "invalid_utf8"]
+)
 def test_squash_body_file_translation_cannot_fall_through_or_enqueue(
     synthetic_opsec, tmp_path, monkeypatch, queue, scenario,
 ):
-    """Publisher argv must translate to exact REST text, or refuse a queue flip without a write."""
+    """Publisher argv must translate to exact REST text, or refuse a queue flip without a write.
+
+    A per-call cwd reaches every request of an explicit client (repository and body alike) and never
+    retargets that client; an unreadable body source is a typed, status-400 refusal before any send.
+    """
     from lu_machinery.common import github_client as gh
 
     calls, http_calls = [], []
@@ -385,6 +398,7 @@ def test_squash_body_file_translation_cannot_fall_through_or_enqueue(
         payload = json.loads(body) if body else None
         http_calls.append((method, endpoint, payload))
         if endpoint == "graphql":
+            assert {payload["variables"][key] for key in ("owner", "name")} == {"unit", "public"}
             value = {"data": {"repository": {"pullRequest": {
                 "id": "PR_node", "isMergeQueueEnabled": queue,
             }}}}
@@ -393,7 +407,16 @@ def test_squash_body_file_translation_cannot_fall_through_or_enqueue(
             value = {"merged": True}
         return gh.Response(200, {}, json.dumps(value).encode())
 
-    client = gh.GitHubClient(cache_dir=tmp_path / "github", transport=http, env={})
+    other = tmp_path / "client-cwd"
+    if scenario == "repo_from_cwd":
+        # The client's own directory names another repository and holds another body.
+        other.mkdir()
+        subprocess.run(["git", "init", "-q", str(other)], check=True)
+        subprocess.run(["git", "-C", str(other), "remote", "add", "origin", "https://github.com/unit/wrong.git"], check=True)
+        (other / "body.txt").write_text("body from client cwd")
+    client = gh.GitHubClient(
+        cache_dir=tmp_path / "github", transport=http, env={}, cwd=other if scenario == "repo_from_cwd" else None
+    )
 
     def send(args, **kwargs):
         if args[:3] == ["gh", "pr", "merge"]:
@@ -409,16 +432,29 @@ def test_squash_body_file_translation_cannot_fall_through_or_enqueue(
     else:
         directory = tmp_path / "command-cwd"
         directory.mkdir()
-        (directory / "body.txt").write_text("body from command cwd")
-        source = "-" if scenario == "empty_stdin" else "body.txt"
+        if scenario == "repo_from_cwd":
+            subprocess.run(["git", "init", "-q", str(directory)], check=True)
+            subprocess.run(
+                ["git", "-C", str(directory), "remote", "add", "origin", "https://github.com/unit/public.git"], check=True
+            )
+        (directory / "body.txt").write_bytes(b"\xff\xfe" if scenario == "invalid_utf8" else b"body from command cwd")
+        source = {"empty_stdin": "-", "unreadable": "missing.txt"}.get(scenario, "body.txt")
         expected_body = "" if scenario == "empty_stdin" else "body from command cwd"
         argv = ["gh", "pr", "merge", "1", "--repo", "unit/public", "--squash",
                 "--match-head-commit=" + HEAD, "--subject=clean (#1)", "--body-file", source]
+        if scenario == "repo_from_cwd":
+            argv[4:6] = []
         if scenario == "conflict":
             argv += ["--body=inline"]
         result = gh.run(argv, client=client, cwd=directory, capture_output=True, text=True)
-    if scenario == "conflict":
-        assert result.returncode == 1 and result.github_result.error == "github_invalid_command"
+        assert client.cwd == (other if scenario == "repo_from_cwd" else None)
+    if scenario in {"conflict", "unreadable", "invalid_utf8"}:
+        refused = result.github_result
+        assert result.returncode == 1
+        if scenario == "conflict":
+            assert refused.error == "github_invalid_command"
+        else:
+            assert (refused.error, refused.reason, refused.status) == ("github_invalid_request", "body_unreadable", 400)
         assert http_calls == [] and calls == []
         return
     assert result.returncode == (1 if queue else 0)
@@ -434,7 +470,11 @@ def test_squash_body_file_translation_cannot_fall_through_or_enqueue(
 
 @pytest.mark.parametrize("phase", ["plan", "run"])
 def test_installed_shard_helper_is_not_relative_to_product_cwd(tmp_path, phase):
-    """Defect class: installed controller paths override locked runner dependencies in plan/run."""
+    """Defect class: installed controller paths override locked runner dependencies in plan/run.
+
+    Direct execution must put neither the controller's site root nor its own directory on the
+    runner's path, and must load its own siblings whatever ``lu_machinery`` the runner has locked.
+    """
     import os
     import shutil
     import sys
@@ -448,15 +488,24 @@ def test_installed_shard_helper_is_not_relative_to_product_cwd(tmp_path, phase):
     (installed.parent / "__init__.py").write_text("")
     (installed / "__init__.py").write_text("")
     (installed.parent.parent / "probe_dependency.py").write_text('ORIGIN = "outer-controller"\n')
+    (installed.parent.parent / "controller_only.py").write_text("")
+    (installed / "probe_shadow.py").write_text('ORIGIN = "controller-directory"\n')
     runner_site = tmp_path / "runner-site"
-    runner_site.mkdir()
+    (runner_site / "lu_machinery" / "ci").mkdir(parents=True)
     (runner_site / "probe_dependency.py").write_text('ORIGIN = "locked-runner"\n')
+    (runner_site / "probe_shadow.py").write_text('ORIGIN = "locked-runner"\n')
+    # An older locked release: its package has neither of the helper's siblings.
+    (runner_site / "lu_machinery" / "__init__.py").write_text("")
+    (runner_site / "lu_machinery" / "ci" / "__init__.py").write_text("")
     product = tmp_path / "product"
     (product / "tests").mkdir(parents=True)
     expected = {f"tests/test_probe_{index}.py::test_runner_dependency" for index in range(4)}
     for index in range(4):  # The runner's four shards each require a nonempty file group.
         (product / "tests" / f"test_probe_{index}.py").write_text(
-            'import probe_dependency\nassert probe_dependency.ORIGIN == "locked-runner"\n'
+            'import importlib.util, lu_machinery, probe_dependency, probe_shadow\n'
+            'assert probe_dependency.ORIGIN == probe_shadow.ORIGIN == "locked-runner"\n'
+            'assert importlib.util.find_spec("controller_only") is None\n'
+            f'assert lu_machinery.__file__.startswith({str(runner_site)!r})\n'
             'def test_runner_dependency():\n    assert probe_dependency.ORIGIN == "locked-runner"\n'
         )
     nodeids = tmp_path / "nodeids.txt"

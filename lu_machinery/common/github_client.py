@@ -2366,7 +2366,7 @@ def _read_command(client, kind, action, options, positional, *, timeout, fresh):
     return result
 
 
-def _write_command(client, kind, action, options, positional, *, timeout, input=None, cwd=None):
+def _write_command(client, kind, action, options, positional, *, timeout, input=None):
     if (
         client.env.get("AGENT_NO_MERGE") == "1"
         and kind == "pr"
@@ -2385,11 +2385,11 @@ def _write_command(client, kind, action, options, positional, *, timeout, input=
     if "--body-file" in options:
         source = _opt(options, "--body-file")
         try:
-            payload["body"] = _source_bytes(source, _Stdin(input), cwd or client.cwd).decode("utf-8")
+            payload["body"] = _source_bytes(source, _Stdin(input), client.cwd).decode("utf-8")
         except GitHubUnpreparedRequest as exc:
-            return Result(error=exc.code, reason=exc.reason)
+            return _unprepared(exc.reason)
         except UnicodeDecodeError:
-            return Result(error="github_invalid_request", reason="body_unreadable")
+            return _unprepared("body_unreadable")
     if kind in {"pr", "issue"}:
         endpoint = root + ("/pulls" if kind == "pr" else "/issues")
         if action == "create":
@@ -3510,18 +3510,21 @@ def _run_command(args, *, runner=None, client=None, fresh=False, allow_stale=Fal
         raise ValueError("invalid GitHub response byte limit")
     host_args = list(args[2:])
     host_options, _ = _options(host_args, canonicalize_hosts=True)
-    if client is not None and (limit is not None or allow_stale or "--hostname" in host_options):
+    cwd = kwargs.get("cwd")
+    if client is not None and (limit is not None or allow_stale or "--hostname" in host_options or cwd is not None):
         from copy import copy
 
-        # Per-call host and read options must never retarget the caller's client.
+        # Per-call host, directory and read options apply to this call alone, never the caller's client.
         client = copy(client)
         client.env = dict(client.env)
+        if cwd is not None:
+            client.cwd = cwd
         if limit is not None:
             client.max_response_bytes = (
                 min(client.max_response_bytes, limit) if client.max_response_bytes is not None else limit
             )
     if client is None:
-        client = GitHubClient(env=kwargs.get("env"), cwd=kwargs.get("cwd"), runner=runner, max_response_bytes=limit)
+        client = GitHubClient(env=kwargs.get("env"), cwd=cwd, runner=runner, max_response_bytes=limit)
     if allow_stale:
         client.allow_stale = True
     timeout = kwargs.get("timeout") or 30
@@ -3602,7 +3605,7 @@ def _run_command(args, *, runner=None, client=None, fresh=False, allow_stale=Fal
             result = _read_command(client, kind, action, options, positional, timeout=timeout, fresh=fresh)
         else:
             result = _write_command(
-                client, kind, action, options, positional, timeout=timeout, input=kwargs.get("input"), cwd=kwargs.get("cwd")
+                client, kind, action, options, positional, timeout=timeout, input=kwargs.get("input")
             )
     # REST 404 is not gh's "Could not resolve to a PullRequest". Review
     # checkouts encode issue numbers, and only native gh distinguishes that

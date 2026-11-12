@@ -29,9 +29,29 @@ from pathlib import Path
 from typing import Any
 
 if __package__ in (None, ""):
-    sys.path.append(str(Path(__file__).resolve().parents[2]))
+    # Direct file execution runs pytest in this process, so this copy must put
+    # nothing on the runner's import path: drop its own directory (sys.path[0],
+    # absent under -P) and load its two standard-library-only siblings by file.
+    import importlib.util
 
-from lu_machinery.ci._location import checkout_relative
+    _HERE = Path(__file__).resolve().parent
+    if sys.path and sys.path[0] and Path(sys.path[0]).resolve() == _HERE:
+        del sys.path[0]
+
+    def _sibling(name: str) -> Any:
+        spec = importlib.util.spec_from_file_location(f"_pytest_shards_{name}", _HERE / f"{name}.py")
+        if spec is None or spec.loader is None:
+            raise ImportError(f"cannot load sibling module {name}")
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = module  # dataclasses look their module up by name
+        spec.loader.exec_module(module)
+        return module
+
+    checkout_relative = _sibling("_location").checkout_relative
+    StallWatcher = _sibling("stall_watch").StallWatcher
+else:
+    from lu_machinery.ci._location import checkout_relative
+    from lu_machinery.ci.stall_watch import StallWatcher
 
 SHARD_COUNT = 4
 PLAYGROUND_PERF_TEST = "tests/test_playground_api_stability.py::test_playground_primary_endpoints_keep_health_fast"
@@ -563,8 +583,6 @@ def _write_execution_receipt(
 def run_nodeids(nodeids_path: Path, pytest_args: Sequence[str], receipt_path: Path | None = None) -> int:
     """Invoke pytest with a shard-produced node-ID list (not shell @file)."""
     import pytest
-
-    from lu_machinery.ci.stall_watch import StallWatcher
 
     nodeids = [line.strip() for line in nodeids_path.read_text(encoding="utf-8").splitlines() if line.strip()]
     if not nodeids:

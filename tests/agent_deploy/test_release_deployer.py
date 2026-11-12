@@ -264,8 +264,9 @@ def test_runtime_siblings_do_not_block_check_or_apply(consumer, tmp_path, monkey
     ".gemini/config.yaml", ".gemini/styleguide.md", ".cursor/BUGBOT.md",
     ".cursor/sandbox.json", ".cursor/permissions.json", ".cursor/config/bugbot.yaml",
 ]] + [
-    # Every provider that discovers the shared .agents tree inventories it on its own.
-    (path, providers) for providers in (["gemini"], ["cursor"], ["agy"], ["gemini", "cursor"])
+    # Every provider that discovers the shared .agents tree inventories it on its own,
+    # from a fresh apply too (no earlier deployment state names .agents).
+    (path, providers) for providers in (["codex"], ["agy"], ["gemini"], ["cursor"], ["gemini", "cursor"])
     for path in (".agents/skills/planted/SKILL.md", ".agents/rules/planted.md")
 ])
 @pytest.mark.parametrize("check", [False, True], ids=["apply", "check"])
@@ -274,11 +275,14 @@ def test_provider_discovery_content_cannot_hide_as_runtime(consumer, tmp_path, m
     """Never-planned discovery content and stale skills must still report drift."""
     if providers is not None:
         descriptor(consumer, providers=providers, sources={
-            "shared": {"path": "agents_extensions/shared", "required": True}}, preserve=[])
+            "shared": {"path": "agents_extensions/shared", "required": True},
+            **({"codex": {"path": "agents_extensions/codex", "required": True}} if "codex" in providers else {}),
+        }, preserve=[])
     elif path.startswith(".cursor/"):
         data = json.loads((consumer / plan.DESCRIPTOR).read_text())
         descriptor(consumer, providers=data["providers"] + ["cursor"])
-    assert invoke(monkeypatch, consumer) == 0
+    if providers is None:
+        assert invoke(monkeypatch, consumer) == 0
     if kind == "file":
         write(consumer, path, 'model = "planted"\n' if path.endswith(".toml") else "planted\n")
     else:
