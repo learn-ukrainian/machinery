@@ -90,6 +90,9 @@ def approved_findings_path(tmp_path: Path) -> Path:
                 task_id="rollout-gemini",
                 from_llm="test",
                 async_mode=True,
+                # Read-only Gemini is refused before any write (#100), so the dual write is
+                # pinned on the write path, the only one that records a message.
+                allow_write=True,
             ),
         ),
     ],
