@@ -94,7 +94,7 @@ def test_tasks_lists_state_files(tmp_path, monkeypatch):
     assert data["tasks"][0]["model"] == "gpt-5.5"
     assert data["tasks"][0]["effort"] == "high"
     assert data["tasks"][0]["cli_version"] == "0.123.0"
-    assert data["tasks"][0]["substitution"] is None
+    assert "substitution" not in data["tasks"][0]
 
 
 def test_tasks_status_filter(tmp_path, monkeypatch):
@@ -310,14 +310,12 @@ _LEGACY_DELEGATE_SUMMARY_KEYS = {
     "model",
     "effort",
     "cli_version",
-    "substitution",
     "status",
     "started_at",
     "duration_s",
     "age_s",
     "updated_at",
     "alive",
-    "requested_selector",
     "observed_model",
     "identity_state",
     "observed_model_source",
@@ -586,12 +584,12 @@ def test_accounting_projection_survives_task_cache_restart_and_upgrade(tmp_path,
     tasks_dir = tmp_path / "tasks"
     ctx = _pin_tasks_dir(monkeypatch, tasks_dir)
     expected = {
-        "requested_selector": "requested-model", "observed_model": "observed-model",
+        "observed_model": "observed-model",
         "identity_state": "observed", "observed_model_source": "provider-init",
         "observed_model_provenance": {"requested_model": "attempt-model", "invocation_id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"},
     }
     _write_task(tasks_dir / "observed.json", _task_payload("observed", model="accounting-model",
-                codex_account="b-sub", research_role="reviewer", delivery_pr="unit/public#12", **expected))
+                requested_selector="requested-model", codex_account="b-sub", research_role="reviewer", delivery_pr="unit/public#12", **expected))
     _write_task(tasks_dir / "legacy.json", _task_payload("legacy", model="legacy-model"))
 
     def assert_rows():
@@ -604,7 +602,7 @@ def test_accounting_projection_survives_task_cache_restart_and_upgrade(tmp_path,
         assert rows["observed"]["delivery_pr"] == "#12"
         assert {key: rows["observed"][key] for key in expected} == expected
         assert {key: rows["legacy"][key] for key in expected} == {
-            "requested_selector": None, "observed_model": None,
+            "observed_model": None,
             "identity_state": "unknown", "observed_model_source": None, "observed_model_provenance": None,
         }
 
@@ -682,7 +680,7 @@ def test_accounting_conflict_is_unknown_in_list_and_detail(tmp_path, monkeypatch
 
     assert listed.status_code == detail.status_code == 200
     expected = {
-        "requested_selector": "requested-model", "observed_model": None,
+        "observed_model": None,
         "identity_state": "unknown", "observed_model_source": None, "observed_model_provenance": None,
     }
     for record in (listed.json()["tasks"][0], detail.json()["task"]):
@@ -807,3 +805,65 @@ def test_snapshot_age_includes_collection_and_failed_refresh(tmp_path, monkeypat
             snapshot.refresh()
         clock[0] += 2
         assert snapshot.read()[1] == 12.0
+
+
+def test_provider_diagnostics_and_breakdown_cannot_leak_credentials_or_paths(tmp_path, monkeypatch, caplog):
+    """Private provider text must not escape through usage or delegate responses."""
+    from lu_machinery.api import state_helpers, state_router, subscription_usage, subscriptions
+
+    secret = "/private/account/token=sk-test-only-do-not-use"
+    error = subscription_usage._normalize_provider_error(
+        "muse", {"message": secret, "kind": "fetch_error", "code": "PROBE_FAILED"},
+    )
+    assert error["auth_error"] == "provider_error"
+    assert secret in caplog.text
+    monkeypatch.setattr(state_router, "get_api_account_data", lambda lane: {
+        "auth_error": secret, "total_balance": 25.0, "usage_usd": 1.0, "probe_state": "NEED_PROBE",
+    })
+    monkeypatch.setattr(state_router, "get_provider_usage_data", lambda lane: error)
+    monkeypatch.setattr(state_router, "get_cursor_lane_usage", lambda **kw: {"probe_state": "NEED_PROBE"})
+    monkeypatch.setattr(state_router, "load_cost_records", lambda **kw: [])
+    budget_file = tmp_path / "budgets.yaml"
+    budget_file.write_text("codex:\n  weekly_cap_usd: 1000\n")
+    state_helpers.cache_invalidate()
+    budget = state_router.compute_routing_budget(
+        datetime.now(UTC), budget_config_path=budget_file, tasks_dir=tmp_path / "tasks",
+        project_root=tmp_path, curriculum_root=tmp_path, batch_state_dir=tmp_path,
+    )
+    assert secret not in json.dumps(budget)
+    assert budget["api_accounts"]["deepseek"]["total_balance"] == 25.0
+    assert budget["api_accounts"]["openrouter"]["usage_usd"] == 1.0
+
+    now = datetime.now(UTC)
+    cache_file = tmp_path / "usage-cache.json"
+    cache_file.write_text(json.dumps({"pools": {"Grok+Cursor": {
+        "read_at": _iso(now), "usage": {"usage": {
+            "secondary": {"windowMinutes": 10080, "usedPercent": 14},
+            "details": [{"rows": [{"label": secret, "value": "3%"},
+                                    {"label": "Cursor", "value": secret},
+                                    {"label": "Cursor", "value": "14%"}]}],
+        }},
+    }}}))
+    monkeypatch.setenv("LU_USAGE_CACHE_FILE", str(cache_file))
+    snapshot = subscriptions.subscriptions_snapshot(now=now, monitor_reader=lambda lane: {
+        **error, "auth_error": secret, "failure_kind": "fetch_error", "last_failure_at": _iso(now),
+    })
+    assert secret not in json.dumps(snapshot)
+    grok = next(p for p in snapshot["providers"] if p["provider"] == "grok")["accounts"][0]
+    assert grok["weekly"]["left_pct"] == 86.0
+    assert grok["breakdown"] == [{"label": "Cursor", "value": "14%"}]
+
+    tasks_dir = tmp_path / "tasks"
+    _pin_tasks_dir(monkeypatch, tasks_dir)
+    _write_task(tasks_dir / "private.json", _task_payload(
+        "private", requested_selector=secret, substitution={"reason": secret}, duration_s=30.0,
+    ))
+    for url in ("/api/delegate/tasks", "/api/delegate/tasks/private"):
+        response = client.get(url)
+        assert response.status_code == 200
+        assert secret not in response.text
+        payload = response.json()
+        task = payload["tasks"][0] if "tasks" in payload else payload["task"]
+        assert "requested_selector" not in task and "substitution" not in task
+        assert task["duration_s"] == 30.0
+    state_helpers.cache_invalidate()
