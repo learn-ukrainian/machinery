@@ -630,8 +630,8 @@ def _refuse_incomplete_seats(dest, number, head, runner, cwd, environment):
             state, carbon_debt = "APPROVED", True
         else:
             raise gate.PublishBlocked(
-                "OPSEC: merge refused: the Carbon second review has not approved this head (High-tier or "
-                "security-sensitive PR). Re-run Carbon at this head after availability returns."
+                "OPSEC: merge refused: the binding second review has not approved this head (High-tier or "
+                "security-sensitive PR). Re-run the catalog's second reviewer at this head after availability returns."
             )
     if state == NEEDS_SEAT:
         raise gate.PublishBlocked("OPSEC: merge refused: a Ukrainian review seat has not approved this head.")
@@ -1857,7 +1857,7 @@ def publish(
                 # One writer, before enqueue. Both writes are idempotent and failures refuse merge.
                 for label_verb, label_fields in (
                     ("label-create", {"name": CARBON_DEBT_LABEL, "color": "D93F0B", "force": True,
-                                      "description": "Carbon review required before the next machinery release"}),
+                                      "description": "Second review required before the next machinery release"}),
                     ("pr-edit", {"number": fields["number"], "add_labels": [CARBON_DEBT_LABEL]}),
                 ):
                     labelled = publish(

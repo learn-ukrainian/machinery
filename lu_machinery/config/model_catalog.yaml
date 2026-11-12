@@ -147,13 +147,23 @@ review_scheduler:
       - bounded_investigation
   automatic_near_cap_assignments: false
   # Operator order 2026-11-11: landing a High-tier or security-sensitive PR
-  # (tiers.requires_second_review) needs this model's recorder-verified exact-head
-  # APPROVE beside the resolver-selected reviewer of record, unless an author is of a
-  # listed family. It never replaces that reviewer, and no outage waives it.
+  # (tiers.requires_second_review) needs a recorder-verified exact-head second-review
+  # APPROVE beside the resolver-selected reviewer of record. It never replaces that
+  # reviewer, and no outage waives it.
+  # Operator order 2026-11-12 (MUSE-SECOND-REVIEW-1112, backup reviewers): the second
+  # reviewer is this ordered list; dispatch the first available eligible model. Every listed
+  # model's family must differ from every author family. A third_family model's must also
+  # differ from the reviewer of record's; a last_resort model's may share it, as a separate
+  # run with its own task id. Its APPROVE, recorded with record_cf_verdict --second-review,
+  # is the second review; a rejection from any listed second reviewer blocks. Only a review
+  # recorded with --second-review on a PR that needs one is a second review; every other
+  # review is ordinary, so a listed model keeps any reviewer-of-record seat it holds.
   second_reviewer:
-    model: gemini-4-carbon
-    route: agy
-    not_for_author_families: [google]
+    models:
+      - {model: {role: legacy_reviewers, seat: meta_reviewer}, route: native_muse, independence: third_family}
+      - {model: gemini-4-carbon, route: agy, independence: third_family}
+      - {model: {role: openai_frontier_coder}, route: native_codex, independence: last_resort}
+      - {model: {role: anthropic_authority_reviewer}, route: native_claude, independence: last_resort}
   # Operator decisions 2026-10-02 (#9538), 2026-10-05 (#9769): a listed risk is
   # performed only by these models, on any catalogued review route (Opus 5.5
   # natively; no Claude model through Cursor, #10464). This is an eligibility gate: ladders, explicit
@@ -330,7 +340,7 @@ models:
     # Minimum admitted code-review tier; runtime qualification remains pending.
     tier: economical
     lifecycle: active
-    roles: [coding, standard_review, routine_review]
+    roles: [coding, standard_review, routine_review, second_review]
     routing_wire_ids: {native_muse: muse-wonder-full-1.0}
     transports: [native_muse]
     strengths: [explicit_native_worker]
@@ -340,6 +350,11 @@ models:
       Private inputs are allowed only with contributor mode off (operator order C-2401).
       No driver, automatic fallback, Ukrainian or security-final authority.
       Formal reviewer for low- and medium-risk code and infra reviews (operator decision 2026-11-01).
+      First binding second reviewer of High-tier and security-sensitive code/infra PRs
+      not authored by a Meta model (review_scheduler.second_reviewer, operator order
+      2026-11-12, ahead of Gemini 4 Carbon): recorded with record_cf_verdict
+      --second-review on such a PR, which never makes it that PR's reviewer of record
+      or its security final sign-off.
       Catalog eligibility does not attest provider-origin identity or effective permissions.
     sources: [https://dev.meta.ai/docs/muse-code]
   muse-spark-1.3:
@@ -740,10 +755,11 @@ models:
     # selection only. They are not aliases: dispatch rewrites an alias to the wire
     # id, so an alias would run -medium.
     runtime_model_ids: [gemini-4-carbon-high, gemini-4-carbon-low]
-    # Operator order 2026-11-11 ("make it official now"): second_review makes Carbon the
+    # Operator order 2026-11-11 ("make it official now"): second_review makes Carbon a
     # binding second reviewer of High-tier and security-sensitive code/infra PRs
-    # (review_scheduler.second_reviewer). It is on no ladder or role-order row, so it is
-    # never the reviewer of record; Ukrainian review and advisory roles are unchanged.
+    # (review_scheduler.second_reviewer; since 2026-11-12 second in that list, after Muse).
+    # It is on no ladder or role-order row, so it is never the reviewer of record;
+    # Ukrainian review and advisory roles are unchanged.
     roles: [implementation, agentic_coding, subagent_work, multimodal_analysis, second_review]
     transports: [agy]
     strengths: [listed_agy_selector, one_million_token_context, terminal_bench_coding]
@@ -767,10 +783,11 @@ models:
       roles are unchanged. Operator order 2026-11-11 ("make it official now"), after
       non-binding shadow reviews on 2026-11-10/11 in which owners reproduced 23 Carbon
       findings on PRs the reviewer of record had approved (18 confirmed, 4 partial, 1
-      refuted): Carbon is the binding second reviewer of High-tier and
-      security-sensitive code/infra PRs not authored by a Gemini model. The recorder
-      admits it only as that second review (record_cf_verdict --second-review) and
-      refuses it as the reviewer of record. The certified
+      refuted): Carbon is a binding second reviewer of High-tier and
+      security-sensitive code/infra PRs not authored by a Gemini model; operator
+      order 2026-11-12 put Muse first in the second-reviewer list and Carbon second.
+      The recorder admits it only as that second review (record_cf_verdict
+      --second-review) and refuses it as the reviewer of record. The certified
       Gemini driver seat (orchestrator_seats.agy) is unchanged. Model card
       (published November 2026): based on Gemini 4 Argon, one 1M-token window
       shared by input and output, knowledge cutoff March 2026, more thinking

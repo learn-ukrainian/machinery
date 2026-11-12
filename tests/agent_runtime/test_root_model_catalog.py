@@ -391,14 +391,19 @@ def test_unknown_google_ais_gemma_stays_refused_under_the_routing_override(monke
             r"advisor\.model_id 'gpt-6\.1-sol' does not hold the 'bounded_advisory_envelope' role",
         ),
         (lambda c: c["review_scheduler"].pop("second_reviewer"), "second_reviewer"),
-        (lambda c: c["review_scheduler"]["second_reviewer"].update(model="missing-model"), "second_reviewer.model"),
-        (lambda c: c["review_scheduler"]["second_reviewer"].update(route="bogus"), "second_reviewer.route"),
-        (lambda c: c["review_scheduler"]["second_reviewer"].update(model="gpt-6.1-sol"), "hold second_review"),
-        (lambda c: c["review_scheduler"]["second_reviewer"].update(not_for_author_families="google"), "second_reviewer.not_for_author_families"),
-        (lambda c: c["review_scheduler"]["second_reviewer"].update(not_for_author_families=["unknown"]), "unknown family"),
+        (lambda c: c["review_scheduler"]["second_reviewer"]["models"][0].update(model="missing-model"),
+         r"second_reviewer\.models\[0\]\.model"),
+        (lambda c: c["review_scheduler"]["second_reviewer"]["models"][0].update(route="bogus"),
+         r"second_reviewer\.models\[0\]\.route"),
+        (lambda c: c["review_scheduler"]["second_reviewer"]["models"][0].update(model="gemini-4-argon", route="agy"),
+         "hold a review role"),
+        (lambda c: c["review_scheduler"]["second_reviewer"].update(models={"model": "muse-wonder-full-1.0"}),
+         "non-empty ordered models list"),
+        (lambda c: c["review_scheduler"]["second_reviewer"]["models"].append(
+            dict(c["review_scheduler"]["second_reviewer"]["models"][0])), "listed twice"),
     ],
     ids=["missing", "missing-activity", "unheld-role", "candidate", "endpoint", "risk-model", "advisor",
-         "second-missing", "second-model", "second-route", "second-role", "second-families-type", "second-family"],
+         "second-missing", "second-model", "second-route", "second-role", "second-list-type", "second-duplicate"],
 )
 def test_catalog_requires_activity_roles_for_reviewers_and_the_advisor(mutate, message):
     catalog = deepcopy(load_model_catalog())
@@ -1221,9 +1226,9 @@ def test_work_only_model_is_refused_a_review_typed_dispatch_before_launch(agent,
         {**review, "review_attempt": "attempt.yaml"}, {**review, "effort": "low"},
         {**review, "review_mode": "red_team"},
     ):
-        with pytest.raises(ValueError, match="Carbon review admission"):
+        with pytest.raises(ValueError, match="second reviewer admission"):
             checks.check_model_admission("agy", carbon, "read-only", rejected, b"review")
-    with pytest.raises(ValueError, match="Carbon review admission"):
+    with pytest.raises(ValueError, match="second reviewer admission"):
         checks.check_model_admission("agy", "gemini-4-carbon-low", "read-only", review, b"review")
     checks.check_model_admission("agy", carbon, "read-only", {**review, "review_mode": None}, b"second review")
     # Declared risk never changes the path-derived second-review trigger.
