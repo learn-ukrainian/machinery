@@ -3,7 +3,9 @@
 Mounted at /api/git in main.py.
 
 Endpoints:
-    GET /api/git/hygiene      Dirty-file taxonomy with remediation hints
+    GET /api/git/hygiene        Dirty-file taxonomy with remediation hints
+    GET /api/git/cleanup        Stale branches and removable worktrees
+    GET /api/git/pull-requests  Open PRs and merge-queue state per fleet repository
 
 Performance benchmark: ``tests/test_git_hygiene_endpoint.py`` creates a
 fixture repository with 1000 non-exempt untracked files and asserts
@@ -17,6 +19,7 @@ from __future__ import annotations
 
 import asyncio
 import fnmatch
+import json
 import os
 import shlex
 import subprocess
@@ -27,12 +30,15 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Depends
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
+from lu_machinery.common import github_client
 from lu_machinery.common.git_context import sanitized_git_env
 from lu_machinery.orchestration.task_record_store import read_task_record
 
 from .monitor_context import MonitorContext, get_ctx, resolve_context
+from .state_helpers import cache_get_or_compute_async, cache_get_stored, ctx_scoped_ttl_key, schedule_cache_refresh
 
 router = APIRouter(tags=["git"])
 FALLBACK_EXEMPTION_PATTERNS = (
@@ -754,6 +760,140 @@ def compute_git_hygiene(
         "health": health,
         "performance_ms": round((time.perf_counter() - started) * 1000, 2),
     }
+
+
+# Open pull requests and merge-queue state for the repositories the fleet lands in.
+# (owner, repository, display name)
+PULL_REQUEST_REPOSITORIES = (
+    ("learn-ukrainian", "machinery", "machinery"),
+    ("learn-ukrainian", "learn-ukrainian.github.io", "learn-ukrainian"),
+    ("learn-ukrainian", "learn-ukrainian-infra-private", "infra-private"),
+)
+PULL_REQUESTS_TTL_S = 120.0
+PULL_REQUESTS_TIMEOUT_S = 20.0
+PULL_REQUESTS_PER_REPOSITORY = 50
+REVIEW_STATUS_CONTEXT = "fleet/cross-family-review"
+_PR_FIELDS = (
+    "number title url isDraft createdAt headRefName mergeStateStatus"
+    " mergeQueueEntry { position state }"
+    " commits(last: 1) { nodes { commit { statusCheckRollup { state }"
+    f' status {{ context(name: "{REVIEW_STATUS_CONTEXT}") {{ state }} }} }} }} }}'
+)
+
+
+def _pull_requests_query() -> str:
+    pulls = (
+        f"pullRequests(states: OPEN, first: {PULL_REQUESTS_PER_REPOSITORY}, orderBy: {{field: CREATED_AT, direction: DESC}})"
+    )
+    blocks = []
+    for index, (owner, name, _display) in enumerate(PULL_REQUEST_REPOSITORIES):
+        header = f'r{index}: repository(owner: "{owner}", name: "{name}")'
+        blocks.append(f"{header} {{ isPrivate {pulls} {{ totalCount nodes {{ {_PR_FIELDS} }} }} }}")
+    return "query { " + " ".join(blocks) + " }"
+
+
+def _lower(value: object) -> str | None:
+    return value.lower() if isinstance(value, str) and value else None
+
+
+def _pull_request_row(node: dict[str, Any], *, private: bool) -> dict[str, Any]:
+    commit = ((node.get("commits") or {}).get("nodes") or [{}])[-1].get("commit") or {}
+    rollup = commit.get("statusCheckRollup") or {}
+    review = ((commit.get("status") or {}).get("context") or {}) if isinstance(commit.get("status"), dict) else {}
+    queue = node.get("mergeQueueEntry") if isinstance(node.get("mergeQueueEntry"), dict) else None
+    number = node.get("number") if isinstance(node.get("number"), int) else None
+    url = node.get("url") if isinstance(node.get("url"), str) and node["url"].startswith("https://github.com/") else None
+    return {
+        "number": number,
+        "url": url,
+        # A private repository's titles and branch names are its content; the
+        # Monitor shows only its counts and states.
+        "title": None if private else (node.get("title") if isinstance(node.get("title"), str) else None),
+        "head_branch": None if private else (node.get("headRefName") if isinstance(node.get("headRefName"), str) else None),
+        "draft": node.get("isDraft") is True,
+        "created_at": node.get("createdAt") if isinstance(node.get("createdAt"), str) else None,
+        "merge_state": _lower(node.get("mergeStateStatus")),
+        "ci": _lower(rollup.get("state")),
+        "review": _lower(review.get("state")),
+        "queue": {"position": queue.get("position"), "state": _lower(queue.get("state"))} if queue else None,
+    }
+
+
+def _unknown_pull_requests(reason: str, observed_at: str) -> dict[str, Any]:
+    return {"status": "unknown", "reason": reason, "observed_at": observed_at, "repositories": []}
+
+
+def compute_pull_requests(project_root: Path) -> dict[str, Any]:
+    """Read open PRs for every fleet repository in one GraphQL call; never raises."""
+    observed_at = datetime.now(UTC).isoformat().replace("+00:00", "Z")
+    try:
+        proc = github_client.run(
+            ["gh", "api", "graphql", "-f", f"query={_pull_requests_query()}"],
+            cwd=project_root,
+            capture_output=True,
+            text=True,
+            timeout=PULL_REQUESTS_TIMEOUT_S,
+            check=False,
+        )
+    except subprocess.TimeoutExpired:
+        return _unknown_pull_requests("github_timeout", observed_at)
+    except OSError:
+        return _unknown_pull_requests("github_unavailable", observed_at)
+    if proc.returncode != 0:
+        return _unknown_pull_requests("github_unavailable", observed_at)
+    try:
+        data = json.loads(proc.stdout or "")["data"]
+    except (ValueError, KeyError, TypeError):
+        return _unknown_pull_requests("github_invalid_response", observed_at)
+    if not isinstance(data, dict):
+        return _unknown_pull_requests("github_invalid_response", observed_at)
+    repositories = []
+    for index, (owner, name, display) in enumerate(PULL_REQUEST_REPOSITORIES):
+        repo = data.get(f"r{index}")
+        entry: dict[str, Any] = {"repository": f"{owner}/{name}", "name": display}
+        if not isinstance(repo, dict) or not isinstance(repo.get("pullRequests"), dict):
+            repositories.append({**entry, "status": "unknown", "reason": "not_readable", "private": None,
+                                 "open_total": None, "pull_requests": []})
+            continue
+        # Fail closed: anything but an explicit public repository is treated as private.
+        private = repo.get("isPrivate") is not False
+        nodes = repo["pullRequests"].get("nodes") or []
+        total = repo["pullRequests"].get("totalCount")
+        repositories.append({
+            **entry,
+            "status": "ok",
+            "reason": None,
+            "private": private,
+            "open_total": total if isinstance(total, int) else None,
+            "pull_requests": [_pull_request_row(node, private=private) for node in nodes if isinstance(node, dict)],
+        })
+    return {"status": "ok", "reason": None, "observed_at": observed_at, "repositories": repositories}
+
+
+@router.get("/pull-requests")
+async def pull_requests(ctx: MonitorContext = Depends(get_ctx)) -> JSONResponse:
+    """Open PRs, CI rollup, cross-family review status and merge-queue position per fleet repository.
+
+    One GraphQL call refreshed at most every two minutes. An expired reading is
+    served at once with its true age while one background read replaces it, so
+    a page never waits on GitHub after the first read. ``status: unknown`` with
+    a ``reason`` when GitHub cannot be read, never an empty "no PRs" list.
+    """
+    key = ctx_scoped_ttl_key(ctx, "git", "pull-requests")
+    project_root = ctx.roots.project_root
+
+    def compute() -> dict[str, Any]:
+        return compute_pull_requests(project_root)
+
+    stored = cache_get_stored(key)
+    if stored is None:
+        payload = await cache_get_or_compute_async(key, PULL_REQUESTS_TTL_S, compute)
+        age = 0.0
+    else:
+        payload, age = stored
+        if age >= PULL_REQUESTS_TTL_S:
+            schedule_cache_refresh(key, PULL_REQUESTS_TTL_S, compute)
+    return JSONResponse(content=payload, headers={"Cache-Control": "no-store", "X-Snapshot-Age-S": f"{age:.3f}"})
 
 
 @router.get("/hygiene")

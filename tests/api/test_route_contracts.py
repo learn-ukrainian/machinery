@@ -41,3 +41,21 @@ def test_product_home_replaces_machinery_index_and_contract(tmp_path, monkeypatc
     assert contracts == [page]
     request.app.state.product = EMPTY
     assert asyncio.run(main.serve_static("", request, context)).path == machinery_index
+
+
+def test_machinery_path_serves_machinery_home_when_product_owns_root(tmp_path, monkeypatch):
+    """Defect class: a product that declares its own home at ``/`` hides the machinery page."""
+    from lu_machinery.api import main
+    from lu_machinery.api.product_contribution import ProductContribution
+
+    monkeypatch.setattr(main.config, "PRODUCT_ROOT", tmp_path)
+    product_index = tmp_path / "product.html"
+    product_index.write_text("product home")
+    machinery_index = tmp_path / "index.html"
+    machinery_index.write_text("machinery home")
+    product = ProductContribution(static_files={"index.html": product_index})
+    request = Request({"type": "http", "app": SimpleNamespace(state=SimpleNamespace(product=product))})
+    context = SimpleNamespace(roots=SimpleNamespace(dashboards_dir=tmp_path))
+    assert asyncio.run(main.serve_static("", request, context)).path == product_index
+    for path in ("machinery", "machinery/"):
+        assert asyncio.run(main.serve_static(path, request, context)).path == machinery_index

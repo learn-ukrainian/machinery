@@ -151,3 +151,48 @@ def test_hygiene_marks_deleted_python_as_blocked_imports(tmp_path: Path) -> None
 
     assert result["health"] == "blocked_imports"
     assert result["dirty_total"] == 1
+
+
+def _graphql_result(monkeypatch, returncode: int, stdout: str) -> None:
+    from types import SimpleNamespace
+
+    monkeypatch.setattr(
+        git_hygiene_router.github_client,
+        "run",
+        lambda *_args, **_kwargs: SimpleNamespace(returncode=returncode, stdout=stdout, stderr=""),
+    )
+
+
+def test_pull_requests_route_hides_private_repo_titles_and_branches(monkeypatch, tmp_path: Path) -> None:
+    """Defect class: a private repository's PR titles or branch names leak through the Monitor."""
+    import json
+
+    node = {"number": 7, "title": "secret-title", "url": "https://github.com/o/r/pull/7", "isDraft": False,
+            "createdAt": "2030-01-01T00:00:00Z", "headRefName": "codex/secret-branch", "mergeStateStatus": "CLEAN",
+            "mergeQueueEntry": {"position": 1, "state": "QUEUED"},
+            "commits": {"nodes": [{"commit": {"statusCheckRollup": {"state": "SUCCESS"},
+                                              "status": {"context": {"state": "SUCCESS"}}}}]}}
+    repos = {"r0": {"isPrivate": False, "pullRequests": {"totalCount": 1, "nodes": [node]}},
+             "r1": {"isPrivate": True, "pullRequests": {"totalCount": 1, "nodes": [node]}},
+             "r2": {"pullRequests": {"totalCount": 1, "nodes": [node]}}}
+    _graphql_result(monkeypatch, 0, json.dumps({"data": repos}))
+    payload = git_hygiene_router.compute_pull_requests(tmp_path)
+    public, private, unstated = payload["repositories"]
+    assert public["pull_requests"][0]["title"] == "secret-title"
+    assert public["pull_requests"][0]["queue"] == {"position": 1, "state": "queued"}
+    for repo in (private, unstated):
+        assert repo["private"] is True
+        assert repo["pull_requests"][0]["title"] is None
+        assert repo["pull_requests"][0]["head_branch"] is None
+        assert "secret" not in json.dumps(repo)
+
+
+def test_pull_requests_route_reports_unknown_when_github_fails(monkeypatch, tmp_path: Path) -> None:
+    """Defect class: a failed GitHub read renders as "no open PRs" instead of unknown."""
+    _graphql_result(monkeypatch, 1, '{"error": "github_rate_limited"}')
+    payload = git_hygiene_router.compute_pull_requests(tmp_path)
+    assert payload["status"] == "unknown"
+    assert payload["reason"] == "github_unavailable"
+    assert payload["repositories"] == []
+    _graphql_result(monkeypatch, 0, "not json")
+    assert git_hygiene_router.compute_pull_requests(tmp_path)["reason"] == "github_invalid_response"

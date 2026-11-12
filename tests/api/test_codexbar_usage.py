@@ -2525,7 +2525,7 @@ def _render_home_usage(subs, budget=None):
     const fs = require('fs');
     const html = fs.readFileSync(process.argv[1], 'utf8');
     const start = html.indexOf('function escapeHtml');
-    const end = html.indexOf('let logins = null;');
+    const end = html.indexOf('const OPTIONAL = new Set(');
     if (start < 0 || end < 0) throw new Error('home render helpers not found');
     Date.now = () => Date.parse('2030-01-01T12:00:00Z');
     eval(html.slice(start, end));

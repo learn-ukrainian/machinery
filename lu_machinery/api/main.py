@@ -1679,6 +1679,9 @@ def _attach_cold_start_research(response: dict[str, Any], role: str | None) -> N
 # ==================== STATIC FILES (MUST BE LAST) ====================
 
 
+MACHINERY_HOME_PATHS = frozenset({"machinery", "machinery/"})
+
+
 def _safe_join(base: Path, *parts: str | Path) -> Path | None:
     try:
         return safe_join(base, *parts)
@@ -1693,10 +1696,15 @@ async def serve_static(path: str, request: Request, ctx: MonitorContext = Depend
     Machinery files come from ``ctx.roots.dashboards_dir`` with traversal and
     symlink confinement. A product page or asset is served only when the
     product contribution declares its URL path; ``/`` is the product home
-    unless the machinery directory has its own ``index.html``.
+    when the product declares one, else the machinery home, which is always
+    at ``/machinery``.
     """
     dashboards_dir = ctx.roots.dashboards_dir
     product = getattr(request.app.state, "product", None)
+    if path in MACHINERY_HOME_PATHS:
+        # The machinery home has its own address, so a product that owns ``/``
+        # never hides it.
+        return FileResponse(dashboards_dir / "index.html")
     if not path or path in {"/", "index.html"}:
         product_index = product_file(product, "index.html")
         if product_index is not None:
