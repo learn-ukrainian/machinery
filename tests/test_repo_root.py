@@ -553,6 +553,7 @@ def test_the_native_hook_contract_bytes_match_the_product_contract():
     }
     assert digest == {
         "resolvers": "b1b82bb91cd13de0179bb42ba08a4c85f9866534bacaad715dda0548863bb311",
-        "tail": "07c159b32db24585e1000733af4b305e1d275b0b9889ba6cc7899f2b438f96da",
+        "tail": "b91d03befcfe7f3be0878d2445caa6957c8d4904fd5ab5712aff5aa68abb9f8e",
     }
-    assert "claude-audit-hook" in hooks.NATIVE_HOOK_MODES
+    # The native Claude audit mode was removed before 0.1.10; Claude audits use the legacy delegator.
+    assert "claude-audit-hook" not in hooks.NATIVE_HOOK_MODES

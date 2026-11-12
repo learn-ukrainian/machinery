@@ -34,7 +34,6 @@ NATIVE_HOOK_MODES = (
     "agy-pretool-hook",
     "claude-hook",
     "claude-stop-hook",
-    "claude-audit-hook",
     "codex-pre-tool-use",
     "codex-post-tool-use",
     "codex-user-prompt-submit",
@@ -68,10 +67,6 @@ case "$_lu_hook_mode" in
         _lu_hook_guard="$("$LEARN_UKRAINIAN_PYTHON" -I -c 'from lu_machinery.common.repo_root import machinery_path
 print(machinery_path("agents_extensions/shared/hooks/guard-primary-checkout-write.py"))' </dev/null 2>/dev/null)" || _lu_hook_fail "$_lu_hook_mode"
         "$LEARN_UKRAINIAN_PYTHON" -I "$_lu_hook_guard" || _lu_hook_fail "$_lu_hook_mode"
-        exit 0 ;;
-    claude-audit-hook)
-        "$LEARN_UKRAINIAN_PYTHON" -I -m agents_extensions.shared.hooks.audit-primary-checkout-dirt \
-            || exit "$?"
         exit 0 ;;
     agy-secret-print)
         "$LEARN_UKRAINIAN_PYTHON" -I -m lu_machinery.agent_runtime.secret_print_hook --harness agy \
