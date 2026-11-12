@@ -353,22 +353,27 @@ def test_non_queue_merge_sends_scanned_squash_text_at_approved_head(synthetic_op
     assert not {"--auto", "--admin", "--delete-branch"}.intersection(calls[0]["argv"])
 
 
-@pytest.mark.parametrize("subject", ["", " ", "\t\n"])
-def test_blank_subject_cannot_bypass_default_headline_scan(synthetic_opsec, subject):
-    """Blank explicit headlines must not publish GitHub's unscanned default headline."""
+@pytest.mark.parametrize("subject", ["", " ", "\t\n", "\u200b", "\ufeff", "\u2800", "\nclean"])
+@pytest.mark.parametrize("source", ["explicit", "default"])
+def test_blank_subject_cannot_bypass_default_headline_scan(synthetic_opsec, subject, source):
+    """Invisible or blank first lines must not publish an unscanned default headline."""
     calls, reads = [], []
     with pytest.raises(gate.PublishBlocked, match="merge subject must not be blank"):
         pub.publish(
-            "pr-merge", repo="unit/public", number=1, subject=subject,
-            runner=transport(calls, subject=TOKEN + " (#1)", queue=False, reads=reads),
+            "pr-merge", repo="unit/public", number=1,
+            **({"subject": subject} if source == "explicit" else {}),
+            runner=transport(calls, subject=TOKEN + " (#1)" if source == "explicit" else subject,
+                             queue=False, reads=reads),
         )
     assert calls == []
-    assert reads == []
+    if source == "explicit":
+        assert reads == []
 
 
 @pytest.mark.parametrize("queue", [False, True])
+@pytest.mark.parametrize("scenario", ["publisher", "empty_stdin", "relative_cwd", "conflict"])
 def test_squash_body_file_translation_cannot_fall_through_or_enqueue(
-    synthetic_opsec, tmp_path, monkeypatch, queue,
+    synthetic_opsec, tmp_path, monkeypatch, queue, scenario,
 ):
     """Publisher argv must translate to exact REST text, or refuse a queue flip without a write."""
     from lu_machinery.common import github_client as gh
@@ -398,13 +403,30 @@ def test_squash_body_file_translation_cannot_fall_through_or_enqueue(
     # Read fixtures stay at the publisher boundary; final argv traverses the
     # real parser and HTTP translator with no injected command runner.
     monkeypatch.setattr(pub, "_run_transport", send)
-    result = pub.publish("pr-merge", repo="unit/public", number=1)
+    expected_body = "* clean"
+    if scenario == "publisher":
+        result = pub.publish("pr-merge", repo="unit/public", number=1)
+    else:
+        directory = tmp_path / "command-cwd"
+        directory.mkdir()
+        (directory / "body.txt").write_text("body from command cwd")
+        source = "-" if scenario == "empty_stdin" else "body.txt"
+        expected_body = "" if scenario == "empty_stdin" else "body from command cwd"
+        argv = ["gh", "pr", "merge", "1", "--repo", "unit/public", "--squash",
+                "--match-head-commit=" + HEAD, "--subject=clean (#1)", "--body-file", source]
+        if scenario == "conflict":
+            argv += ["--body=inline"]
+        result = gh.run(argv, client=client, cwd=directory, capture_output=True, text=True)
+    if scenario == "conflict":
+        assert result.returncode == 1 and result.github_result.error == "github_invalid_command"
+        assert http_calls == [] and calls == []
+        return
     assert result.returncode == (1 if queue else 0)
     assert result.github_result.error == ("github_queue_changed" if queue else None)
     writes = [call for call in http_calls if call[1] != "graphql"]
     assert writes == ([] if queue else [(
         "PUT", "repos/unit/public/pulls/1/merge",
-        {"merge_method": "squash", "sha": HEAD, "commit_title": "clean (#1)", "commit_message": "* clean"},
+        {"merge_method": "squash", "sha": HEAD, "commit_title": "clean (#1)", "commit_message": expected_body},
     )])
     assert len(http_calls) == (1 if queue else 2)
     assert not calls
@@ -412,7 +434,7 @@ def test_squash_body_file_translation_cannot_fall_through_or_enqueue(
 
 @pytest.mark.parametrize("phase", ["plan", "run"])
 def test_installed_shard_helper_is_not_relative_to_product_cwd(tmp_path, phase):
-    """Both runner commands must find the shipped helper outside a machinery checkout."""
+    """Defect class: installed controller paths override locked runner dependencies in plan/run."""
     import os
     import shutil
     import sys
@@ -421,27 +443,46 @@ def test_installed_shard_helper_is_not_relative_to_product_cwd(tmp_path, phase):
 
     installed = tmp_path / "installed" / "lu_machinery" / "ci"
     installed.mkdir(parents=True)
-    for name in ("pytest_shards.py", "_location.py"):
+    for name in ("pytest_shards.py", "_location.py", "stall_watch.py"):
         shutil.copyfile(machinery_path("ci/" + name), installed / name)
+    (installed.parent / "__init__.py").write_text("")
+    (installed / "__init__.py").write_text("")
+    (installed.parent.parent / "probe_dependency.py").write_text('ORIGIN = "outer-controller"\n')
+    runner_site = tmp_path / "runner-site"
+    runner_site.mkdir()
+    (runner_site / "probe_dependency.py").write_text('ORIGIN = "locked-runner"\n')
     product = tmp_path / "product"
-    product.mkdir()
+    (product / "tests").mkdir(parents=True)
+    expected = {f"tests/test_probe_{index}.py::test_runner_dependency" for index in range(4)}
+    for index in range(4):  # The runner's four shards each require a nonempty file group.
+        (product / "tests" / f"test_probe_{index}.py").write_text(
+            'import probe_dependency\nassert probe_dependency.ORIGIN == "locked-runner"\n'
+            'def test_runner_dependency():\n    assert probe_dependency.ORIGIN == "locked-runner"\n'
+        )
+    nodeids = tmp_path / "nodeids.txt"
+    nodeids.write_text("\n".join(sorted(expected)) + "\n")
+    plan_dir = tmp_path / "plan"
     lines = machinery_path("ci/cursor_cloud_full_pytest.sh").read_text().splitlines()
     directory = next((line for line in lines if line.startswith("SCRIPT_DIR=")), "")
     if phase == "plan":
         command = next(line for line in lines if line.startswith("PLAN_ARGS="))
-        invoke = command + '\n"${PLAN_ARGS[@]}" --help\n'
+        invoke = command + '\n"${PLAN_ARGS[@]}"\n'
     else:
         command = next(line.strip() for line in lines if "pytest_shards.py" in line and " run --nodeids" in line)
-        invoke = command.split(" --nodeids", 1)[0] + " --help\n"
+        invoke = command.split(" --nodeids", 1)[0] + ' --nodeids "${NODEIDS}" -- -q\n'
     probe = installed / "probe.sh"
     probe.write_text("set -eu\n" + directory + "\n" + invoke)
     result = subprocess.run(
         ["bash", str(probe)], cwd=product, capture_output=True, text=True, check=False,
-        env={**os.environ, "PYTHON": sys.executable, "PLAN_DIR": str(tmp_path / "plan")},
-        timeout=30,
+        env={**os.environ, "PYTHON": sys.executable, "PLAN_DIR": str(plan_dir),
+             "NODEIDS": str(nodeids), "PYTHONPATH": str(runner_site)}, timeout=30,
     )
-    assert result.returncode == 0, result.stderr
-    assert "usage:" in result.stdout and phase in result.stdout
+    assert result.returncode == 0, result.stdout + result.stderr
+    if phase == "plan":
+        planned = {line for path in plan_dir.rglob("test-nodeids.txt") for line in path.read_text().splitlines()}
+        assert planned == expected
+    else:
+        assert "4 passed" in result.stdout
 
 
 @pytest.mark.parametrize("directory", ["ci", "-ci"])
@@ -455,15 +496,19 @@ def test_environment_sibling_resolution_does_not_parse_path_as_options(tmp_path,
     sibling = tmp_path / directory
     sibling.mkdir()
     shutil.copyfile(machinery_path("ci/test_env.sh"), sibling / "test_env.sh")
-    (sibling / "start_postgres.sh").write_text("printf 'sibling reached\\n'\n")
-    env = {**os.environ, "RUNNER_TEMP": str(tmp_path / "state"), "TEST_ENV_WAIT_TIMEOUT_S": "5"}
+    shutil.copyfile(machinery_path("ci/start_postgres.sh"), sibling / "start_postgres.sh")
+    (sibling / "setup_bubblewrap.sh").write_text("printf 'sibling reached\\n'\nexit 73\n")
+    env = {**os.environ, "RUNNER_TEMP": str(tmp_path / "state"), "TEST_ENV_WAIT_TIMEOUT_S": "5",
+           "LEARN_UKRAINIAN_CP_PG_DSN": "fixture"}
     argv = ["bash", "--", directory + "/test_env.sh"]
     started = subprocess.run(argv + ["start", "postgres"], cwd=tmp_path, env=env,
                              capture_output=True, text=True, check=False, timeout=30)
     assert started.returncode == 0, started.stderr
     result = subprocess.run(argv + ["wait"], cwd=tmp_path, env=env,
                             capture_output=True, text=True, check=False, timeout=30)
-    assert result.returncode == 0, result.stdout + result.stderr
+    # The sentinel stops before any real package installation or PostgreSQL operation.
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert "exit 73" in result.stdout + result.stderr
     assert "sibling reached" in (tmp_path / "state/test-env/postgres.log").read_text()
 
 

@@ -29,7 +29,7 @@ from pathlib import Path
 from typing import Any
 
 if __package__ in (None, ""):
-    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+    sys.path.append(str(Path(__file__).resolve().parents[2]))
 
 from lu_machinery.ci._location import checkout_relative
 
@@ -564,10 +564,6 @@ def run_nodeids(nodeids_path: Path, pytest_args: Sequence[str], receipt_path: Pa
     """Invoke pytest with a shard-produced node-ID list (not shell @file)."""
     import pytest
 
-    if __package__ in (None, ""):
-        # Invoked directly as `python scripts/ci/pytest_shards.py`, so the repo
-        # root (needed for `scripts.ci.stall_watch`) is not yet on sys.path.
-        sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
     from lu_machinery.ci.stall_watch import StallWatcher
 
     nodeids = [line.strip() for line in nodeids_path.read_text(encoding="utf-8").splitlines() if line.strip()]
