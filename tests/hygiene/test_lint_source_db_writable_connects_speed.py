@@ -45,6 +45,7 @@ def _planted_repo(root: Path, monkeypatch) -> None:
     (root / "scripts").mkdir()
     (root / "tests").mkdir()
     files = {
+        "lu_machinery/lib/readonly_sqlite.py": "import sqlite3\nc = sqlite3.connect('planted.db')\n",
         "scripts/writer.py": "import sqlite3\nc = sqlite3.connect(PATH)\n",
         "scripts/writer_bad.py": "import sqlite3\nc = sqlite3.connect(OTHER)\n",
         "scripts/planted_connect.py": "import sqlite3\nsqlite3.connect('x.db')\n",
@@ -57,6 +58,7 @@ def _planted_repo(root: Path, monkeypatch) -> None:
     }
     files.update({f"scripts/clean_{i}.py": f"VALUE = {i}\n" for i in range(12)})
     for rel, source in files.items():
+        (root / rel).parent.mkdir(parents=True, exist_ok=True)
         (root / rel).write_text(source)
     (root / "scripts" / "dangling.py").symlink_to(root / "missing-target")
     pinned = lint.classify_store_source(files["tests/pinned.py"], "tests/pinned.py")
@@ -93,6 +95,7 @@ def test_parallel_scan_matches_serial_scan_on_planted_repo(tmp_path, monkeypatch
     assert parallel == serial
     violations, unreadable = parallel
     joined = "\n".join(violations)
+    assert "lu_machinery/lib/readonly_sqlite.py:2: constructor reference" in joined
     assert "scripts/planted_connect.py:2: constructor reference" in joined
     assert "scripts/planted_path.py: store_path" in joined
     assert "scripts/renamed_new.py: store_path" in joined
