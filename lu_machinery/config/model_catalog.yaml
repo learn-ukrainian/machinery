@@ -151,18 +151,19 @@ review_scheduler:
   # APPROVE beside the resolver-selected reviewer of record. It never replaces that
   # reviewer, and no outage waives it.
   # Operator order 2026-11-12 (MUSE-SECOND-REVIEW-1112, backup reviewers): the second
-  # reviewer is this ordered list. Dispatch the first available listed model whose family
-  # differs from every author family and from the reviewer of record's; an APPROVE from any
-  # such listed model, recorded with record_cf_verdict --second-review, is the second review.
-  # A rejection from any listed second reviewer blocks. Only a review recorded with
-  # --second-review on a PR that needs one is a second review; every other review is
-  # ordinary, so a listed model keeps any reviewer-of-record seat it holds.
+  # reviewer is this ordered list; dispatch the first available eligible model. Every listed
+  # model's family must differ from every author family. A third_family model's must also
+  # differ from the reviewer of record's; a last_resort model's may share it, as a separate
+  # run with its own task id. Its APPROVE, recorded with record_cf_verdict --second-review,
+  # is the second review; a rejection from any listed second reviewer blocks. Only a review
+  # recorded with --second-review on a PR that needs one is a second review; every other
+  # review is ordinary, so a listed model keeps any reviewer-of-record seat it holds.
   second_reviewer:
     models:
-      - {model: {role: legacy_reviewers, seat: meta_reviewer}, route: native_muse}
-      - {model: gemini-4-carbon, route: agy}
-      - {model: {role: openai_frontier_coder}, route: native_codex}
-      - {model: {role: anthropic_authority_reviewer}, route: native_claude}
+      - {model: {role: legacy_reviewers, seat: meta_reviewer}, route: native_muse, independence: third_family}
+      - {model: gemini-4-carbon, route: agy, independence: third_family}
+      - {model: {role: openai_frontier_coder}, route: native_codex, independence: last_resort}
+      - {model: {role: anthropic_authority_reviewer}, route: native_claude, independence: last_resort}
   # Operator decisions 2026-10-02 (#9538), 2026-10-05 (#9769): a listed risk is
   # performed only by these models, on any catalogued review route (Opus 5.5
   # natively; no Claude model through Cursor, #10464). This is an eligibility gate: ladders, explicit

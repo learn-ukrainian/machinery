@@ -169,8 +169,14 @@ def test_gemini_authored_required_head_takes_the_next_listed_family():
     assert sweep.lookup_verdict(rows, SHA, "fleet", second_review=True).state == sweep.NEEDS_SEAT
     assert sweep.lookup_verdict([*rows, muse(authors=("gemini-4-carbon-medium",))], SHA, "fleet",
                                 second_review=True).state == "APPROVED"
-    # Authors of every listed family but the reviewer of record's leave no second reviewer.
-    every = (MUSE, "gemini-4-carbon-medium", "claude-opus-5-5")
+    # A last_resort model may share the reviewer of record's family as its own run, never as that run.
+    sol = record(task="review-sol-second", authors=("gemini-4-carbon-medium",), second=True)
+    assert sweep.lookup_verdict([*rows, sol], SHA, "fleet", second_review=True).state == "APPROVED"
+    reused = record(task="review-sol", authors=("gemini-4-carbon-medium",), second=True,
+                    started="2026-09-23T12:00:00.000002+00:00")
+    assert sweep.lookup_verdict([*rows, reused], SHA, "fleet", second_review=True).state == sweep.NEEDS_SEAT
+    # Authors of every listed family leave no eligible second reviewer.
+    every = (MUSE, "gemini-4-carbon-medium", "claude-opus-5-5", "gpt-6.1-sol")
     assert sweep.lookup_verdict([record(task="review-sol", authors=every)], SHA, "fleet",
                                 second_review=True).state == "APPROVED"
 

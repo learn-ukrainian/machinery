@@ -1136,10 +1136,10 @@ def assert_frozen_surfaces(actual, *, surfaces):
             assert hashlib.sha256(encode(carbon)).hexdigest() == "ed6aae685a0b4f5931a49236101c1f76611b241f802224b28ab16e3581c312b8"
             scheduler = value.get("review_scheduler") or {}
             assert scheduler.pop("second_reviewer") == {"models": [
-                {"model": "muse-wonder-full-1.0", "route": "native_muse"},
-                {"model": "gemini-4-carbon", "route": "agy"},
-                {"model": "gpt-6.1-sol", "route": "native_codex"},
-                {"model": "claude-opus-5-5", "route": "native_claude"},
+                {"model": "muse-wonder-full-1.0", "route": "native_muse", "independence": "third_family"},
+                {"model": "gemini-4-carbon", "route": "agy", "independence": "third_family"},
+                {"model": "gpt-6.1-sol", "route": "native_codex", "independence": "last_resort"},
+                {"model": "claude-opus-5-5", "route": "native_claude", "independence": "last_resort"},
             ]}
             review_roles = scheduler["activity_roles"]["review"]
             assert review_roles.pop() == "second_review"

@@ -53,8 +53,9 @@ in `pyproject.toml` and `$SHA` the full commit:
 
    Any result blocks the release. The publisher adds `carbon-debt` before admitting
    a machinery PR without an exact-head second review. Only a model of the catalog's
-   ordered `review_scheduler.second_reviewer` list (Muse, Carbon, Sol, Opus) on its listed
-   route counts, from a family outside the PR's authors' and its reviewer of record's.
+   ordered `review_scheduler.second_reviewer` list (Muse, Carbon, then Sol and Opus as last
+   resort) on its listed route counts, eligible by the list's family rules
+   ([review policy](../agents_extensions/shared/skills/review-loop/references/policy.md)).
    Record a completed second review with `record_cf_verdict --second-review --pr <N>`
    for the PR's merged head, meaning the reviewed PR head at merge, not the squash commit.
    A timeout or incomplete review does not clear the debt. Reproduce findings and fix every confirmed defect in a follow-up

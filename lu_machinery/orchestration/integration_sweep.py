@@ -264,7 +264,8 @@ def second_reviewer_policy() -> Mapping[str, Any]:
     """The catalog's ``review_scheduler.second_reviewer`` row; ValueError when absent or malformed.
 
     Its ``models`` is the ordered second-reviewer list (operator 2026-11-12): each row names a
-    catalog model and the route it runs on.
+    catalog model, the route it runs on and its ``independence``: ``third_family`` (its family
+    differs from the reviewer of record's too) or ``last_resort`` (it may share that family).
     """
     from lu_machinery.review.model_catalog import load_model_catalog
 
@@ -276,7 +277,8 @@ def second_reviewer_policy() -> Mapping[str, Any]:
     if (
         not isinstance(rows, list) or not rows
         or not all(isinstance(item, Mapping) and isinstance(item.get("model"), str)
-                   and isinstance(item.get("route"), str) for item in rows)
+                   and isinstance(item.get("route"), str)
+                   and item.get("independence") in {"third_family", "last_resort"} for item in rows)
     ):
         raise ValueError("review_scheduler.second_reviewer is missing or malformed")
     return row
@@ -678,17 +680,34 @@ def _repair_receipt_blocks(body: str, sha: str) -> bool:
     return False
 
 
+def _independence(model: object) -> str | None:
+    """The listed ``independence`` of ``model``; None when it is not a listed second reviewer."""
+    try:
+        entry = second_reviewer_entry(model)
+    except ValueError:
+        return None
+    return entry["independence"] if entry is not None else None
+
+
 def _second_review_exempt(markers: Sequence[Mapping[str, Any]], record_families: set[str]) -> bool:
-    """True only when no listed second reviewer's family is outside the attested author families
-    and the reviewer of record's families, so no listed model may give the second review.
+    """True only when no listed second reviewer may give the second review: every listed family
+    is an attested author family, or (third_family rows) the reviewer of record's family.
 
     Unattested authors, and an unreadable second-reviewer policy, keep the requirement.
     """
     try:
-        listed = {model_family(row["model"]) for row in second_reviewer_policy()["models"]}
+        rows = second_reviewer_policy()["models"]
     except ValueError:
         return False
-    return None not in listed and listed <= attested_author_families(markers) | record_families
+    authors = attested_author_families(markers)
+    for row in rows:
+        family = model_family(row["model"])
+        if family is None:
+            return False
+        excluded = authors if row["independence"] == "last_resort" else authors | record_families
+        if family not in excluded:
+            return False
+    return True
 
 
 def _mixed_pair_pending(candidates: Sequence[tuple[datetime, tuple[datetime, int], dict[str, Any]]]) -> bool:
@@ -869,9 +888,16 @@ def lookup_verdict(
         if item[2]["verdict"] in REJECTED
         or not (is_second_review(item[2]) or is_second_review_only(item[2]["model"]))
     ]
-    # The second review counts only from a family other than the reviewer of record's.
-    record_families = {item[2]["family"] for item in candidates if item[2]["verdict"] not in REJECTED}
-    second_approved = any(marker["family"] not in record_families for marker in second_approvals)
+    # A third_family second reviewer counts only from a family other than the reviewer of
+    # record's; a last_resort one may share it, but never as the reviewer-of-record run itself.
+    record_approvals = [item[2] for item in candidates if item[2]["verdict"] not in REJECTED]
+    record_families = {marker["family"] for marker in record_approvals}
+    record_tasks = {marker["task"] for marker in record_approvals}
+    second_approved = any(
+        marker["task"] not in record_tasks
+        and (_independence(marker["model"]) == "last_resort" or marker["family"] not in record_families)
+        for marker in second_approvals
+    )
     from lu_machinery.review.tiers import allows_carbon_debt
 
     second_pending = (

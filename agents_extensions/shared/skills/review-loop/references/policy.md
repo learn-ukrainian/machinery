@@ -26,10 +26,12 @@ deletions of other unused code are Low.
 changes a security-sensitive path (`lu_machinery/review/security_paths.py`), needs the
 resolver-selected reviewer-of-record exact-head APPROVE, green CI and a second review. The
 second reviewer is the ordered list `review_scheduler.second_reviewer` in the model catalog:
-Muse (native), Carbon (AGY), Sol (Codex), Opus (native Claude). Dispatch the first available
-listed model whose family differs from every author family and from the reviewer of record's,
-on its listed route, and record its verdict with `record_cf_verdict --second-review`. Its
-APPROVE counts only from such a family, and it is never the reviewer of record. Only a review
+Muse (native), Carbon (AGY), then Sol (Codex) and Opus (native Claude) as last resort.
+Dispatch the first available eligible listed model on its listed route and record its verdict
+with `record_cf_verdict --second-review`. Every listed model's family must differ from every
+author family. Muse's and Carbon's (`third_family`) must also differ from the reviewer of
+record's. Sol and Opus (`last_resort`) may share it, but only as a separate exact-head run with
+its own task id, never the reviewer-of-record run reused. It is never the reviewer of record. Only a review
 recorded with `--second-review` on a PR that needs one is a second review: every other review,
 including Muse's low/medium reviews of record, is ordinary. A rejection from any listed second
 reviewer at the head blocks merge in every repository. Carbon second reviews recorded before
@@ -44,8 +46,7 @@ that label. Remove it only after a second review of the PR's merged head is reco
 confirmed defect is fixed by a follow-up PR before release. See
 [Cut a release](../../../../../docs/release.md#cut-a-release).
 
-When authors and the reviewer of record cover every listed family, no listed model can give the
-second review and the reviewer-of-record rule stands alone. The trigger is the changed paths,
+When no listed model is eligible by those rules, the reviewer-of-record rule stands alone. The trigger is the changed paths,
 never a declared risk. Both verdicts at one head are one round, and a moved head voids both.
 
 ## 3. Findings

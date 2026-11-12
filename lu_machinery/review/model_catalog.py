@@ -475,8 +475,10 @@ def _validate_review_scheduler(raw: Any, models: dict[str, Any]) -> None:
         for index, row in enumerate(rows):
             row_label = f"{label}.models[{index}]"
             row = _require_mapping(row, row_label)
-            if set(row) != {"model", "route"}:
-                raise ModelCatalogError(f"{row_label} must hold exactly model and route")
+            if set(row) != {"model", "route", "independence"}:
+                raise ModelCatalogError(f"{row_label} must hold exactly model, route and independence")
+            if row.get("independence") not in {"third_family", "last_resort"}:
+                raise ModelCatalogError(f"{row_label}.independence must be third_family or last_resort")
             model_id = _require_string(row.get("model"), f"{row_label}.model")
             _require_routable_model(models, model_id, f"{row_label}.model")
             entry = models[model_id]

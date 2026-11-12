@@ -136,10 +136,10 @@ def test_an_approval_at_the_candidate_head_never_supersedes_to_prove_the_approve
     monkeypatch.setitem(SEATS, "google", ("gemini-4-carbon-medium", "agy"))
     carbon_run, carbon_comment = review("carbon-old", EARLY, "VERDICT: REQUEST_CHANGES", minute=1,
                                         family="google", second_review=True, author_models=["claude-opus-5-5"])
-    # Authors of every listed second-reviewer family but the reviewer of record's exempt the head.
+    # Authors of every listed second-reviewer family exempt the head.
     exempt_run, exempt_comment = review("sol-exempt", APPROVED, "VERDICT: APPROVE", minute=2,
                                         author_models=["muse-wonder-full-1.0", "gemini-4-carbon-medium",
-                                                       "claude-opus-5-5"])
+                                                       "claude-opus-5-5", "gpt-6.1-sol"])
     assert check_lineage(runs=[carbon_run, exempt_run], comments=[carbon_comment, exempt_comment],
                          login="fleet", approved=APPROVED, second_review=True) == ["openai"]
     opus = review("opus-r2", APPROVED, "VERDICT: APPROVE", minute=2, family="anthropic")
