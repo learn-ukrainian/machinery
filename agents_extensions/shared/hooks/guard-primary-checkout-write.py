@@ -3050,14 +3050,13 @@ def _renamed_program(
             if not sep or name.removesuffix("+") != "PATH":  # an assignment or an append
                 continue
             # A PATH this command sets finds bare names too; its inherited part
-            # is the hook's own. Any other unknown entry could hold any program.
+            # is the hook's own. Any other unknown entry could hold any program
+            # under any name, so no bare word in the command is identified.
             if name.endswith("+"):
                 value = value.removeprefix(":")  # the separator after the inherited part
             entries = [entry for entry in value.split(":") if entry not in {"$PATH", "${PATH}"}]
             if any("$" in entry or "`" in entry or not entry.startswith("/") for entry in entries):
-                return any(
-                    _named_program(str(other)) for other_segment, _, _ in segments for other in other_segment
-                )
+                return True
             lookups.append(lambda name, path=":".join(entries): shutil.which(name, path=path))
     known: dict[tuple[int, int], tuple[Path, int, set[str]]] | None = None
     for segment, run_cwd, shell_cwd in segments:

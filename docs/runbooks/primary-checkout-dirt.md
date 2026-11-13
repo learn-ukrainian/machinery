@@ -68,7 +68,8 @@ stays in a worktree:
   command, even as an operand;
 - anywhere, a word that runs a shell, launcher or writer under another name
   (one shell under another shell's name, and a multi-call program's own
-  installed file, are not renamed);
+  installed file, are not renamed), and any command that sets `PATH` with an
+  entry the guard cannot know, other than the inherited `$PATH`;
 - anywhere, a root-changing launcher (`chroot`, `unshare`, `nsenter`, `bwrap`,
   `proot` and the like), and a relative path in a command run by
   `find -execdir`/`-okdir` or `env --chdir`, because the program it names is
