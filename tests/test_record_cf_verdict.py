@@ -14,8 +14,8 @@ from lu_machinery.review import repair_round
 from tests.review.record_support import write_task
 
 
-def test_repair_receipts_stay_private_on_admission_and_consumption(tmp_path):
-    """Defect class: initial and replaced repair receipts expose operational evidence to other users."""
+def test_repair_receipts_stay_private_on_admission_and_consumption(tmp_path, monkeypatch):
+    """Defect class: receipt replacement leaks evidence, leaves partial files or fails on stale PID temps."""
     receipt = {
         "schema": repair_round.RECEIPT_SCHEMA,
         "repository": "example/public",
@@ -29,10 +29,24 @@ def test_repair_receipts_stay_private_on_admission_and_consumption(tmp_path):
         repair_round.record_admission(tmp_path, receipt)
         path, = tmp_path.glob("*.json")
         assert path.stat().st_mode & 0o777 == 0o600
+        stale = tmp_path / f".{path.name}.{os.getpid()}.tmp"
+        stale.write_text("unrelated stale fixture")
+
+        def failed_replace(source, destination):
+            assert Path(source).stat().st_mode & 0o777 == 0o600
+            raise OSError("replace failure fixture")
+
+        with monkeypatch.context() as patch:
+            patch.setattr(repair_round.os, "replace", failed_replace)
+            with pytest.raises(OSError, match="replace failure fixture"):
+                repair_round.record_consumption(tmp_path, receipt, comment="fixture")
+        assert json.loads(path.read_text())["state"] == "admitted"
+        assert set(tmp_path.iterdir()) == {path, stale}
         repair_round.record_consumption(tmp_path, receipt, comment="https://github.com/example/public/pull/1#issuecomment-1")
         assert path.stat().st_mode & 0o777 == 0o600
         assert json.loads(path.read_text())["state"] == "consumed"
-        assert list(tmp_path.iterdir()) == [path]
+        assert set(tmp_path.iterdir()) == {path, stale}
+        assert stale.read_text() == "unrelated stale fixture"
     finally:
         os.umask(previous)
 
