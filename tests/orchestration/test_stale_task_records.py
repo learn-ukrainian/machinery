@@ -252,20 +252,52 @@ def test_classifies_every_class_like_the_report(tasks_dir, mixed):
     assert rows["dirty.json"]["evidence"]["worktree_dirty"] is True
     assert rows["clean-detached.json"]["class"] == "D"
     assert rows["no-repo.json"]["class"] == "D"
-    assert all("outcome" not in row and row["action"] == "report" for row in rows.values())
-    assert mixed["pager"].calls == []
+    assert rows["merged.json"]["outcome"] == "done"
+    assert rows["merged.json"]["merged_pr"]["number"] == 7
+    assert rows["no-commits.json"]["outcome"] == "no_deliverable"
+    assert rows["crashed.json"]["outcome"] == "failed"
+    assert rows["stale-pr.json"]["outcome"] == "failed"
+    assert report["outcomes"] == {"done": 1, "no_deliverable": 1, "failed": 2}
+    assert report["actions"] == {"would_settle": 4, "report": 5}
+    assert mixed["pager"].calls == [(SLUG, 1)]
 
 
-@pytest.mark.parametrize("apply", [False, True])
-def test_dry_run_writes_nothing(tasks_dir, mixed, apply):
+def test_dry_run_writes_nothing(tasks_dir, mixed):
     before = _snapshot(tasks_dir)
-    report = _run(tasks_dir, mixed, apply=apply)
-    assert report["mode"] == "read-only"
-    assert report["actions"] == {"report": 9}
+    report = _run(tasks_dir, mixed)
+    assert report["mode"] == "dry-run"
+    assert report["actions"]["would_settle"] == 4
     assert _snapshot(tasks_dir) == before
 
 
-def test_retired_recovery_never_fetches_pull_lists(tasks_dir, mixed):
+def test_apply_settles_class_c_and_leaves_other_classes(tasks_dir, mixed):
+    """Defect class: settling a needs_finalize record rewrites a class that still has work."""
+    untouched = ["published.json", "local-only.json", "dirty.json", "clean-detached.json", "no-repo.json", "young.json"]
+    before = {name: (tasks_dir / name).read_bytes() for name in untouched}
+    report = _run(tasks_dir, mixed, apply=True)
+    assert report["actions"] == {"settled": 4, "report": 5}
+    for name in untouched:
+        assert (tasks_dir / name).read_bytes() == before[name], name
+    merged = json.loads((tasks_dir / "merged.json").read_text())
+    assert merged["status"] == "done"
+    assert merged["needs_finalize"] is False
+    assert merged["settled_by"] == "settle-stale"
+    assert merged["settled_at"] == NOW.isoformat()
+    assert "PR #7" in merged["settle_reason"]
+    no_commits = json.loads((tasks_dir / "no-commits.json").read_text())
+    assert no_commits["status"] == "no_deliverable"
+    assert no_commits["no_deliverable_reason"] == "unclassified_error"
+    assert no_commits["settle_reason"] in (tasks_dir / "no-commits.diag").read_text(encoding="utf-8")
+    assert json.loads((tasks_dir / "crashed.json").read_text())["status"] == "failed"
+    assert all(
+        json.loads((tasks_dir / name).read_text())["status"] in worktree_claims.RELEASED_TASK_STATUSES
+        for name in ("merged.json", "no-commits.json", "crashed.json", "stale-pr.json")
+    )
+
+
+def test_pull_list_failure_settles_nothing(tasks_dir, mixed):
+    """Defect class: a missing pull list settles an orphaned record without its evidence."""
+
     def broken(_slug, _page):
         raise RuntimeError("gh api failed: HTTP 502")
 
@@ -273,8 +305,124 @@ def test_retired_recovery_never_fetches_pull_lists(tasks_dir, mixed):
     report = str_mod.settle_stale(tasks_dir, repo_checkouts={SLUG: mixed["repo"]}, pager=broken, now=NOW, apply=True)
     assert report["classes"]["C"] == 4
     assert "settled" not in report["actions"]
-    assert all("outcome" not in row for row in report["records"])
+    assert all("pull request list unavailable" in row["skip_reason"] for row in report["records"] if row["class"] == "C")
     assert _snapshot(tasks_dir) == before
+
+
+def test_rescue_ref_settles_failed_and_the_ref_stays(tasks_dir, repo):
+    """Defect class: a reaper pin is treated as live unpushed work, or settlement deletes the pin."""
+    sha = _orphan_commit(repo, "rescued")
+    _git(repo, "update-ref", f"refs/reaper-rescue/stamp/rescued-{sha[:12]}", sha)
+    _record(tasks_dir, "rescued", commits_ahead=1, worktree_dirty_on_exit=True, auto_finalize=_auto_finalized(sha))
+    live = _orphan_commit(repo, "live-branch")
+    _git(repo, "branch", "codex/live-branch", live)
+    _record(tasks_dir, "live-branch", commits_ahead=1, worktree_dirty_on_exit=True, auto_finalize=_auto_finalized(live))
+    report = _settle(tasks_dir, repo, [], apply=True)
+    rows = _by_file(report)
+    assert rows["rescued.json"]["outcome"] == "failed"
+    assert rows["rescued.json"]["action"] == "settled"
+    assert rows["live-branch.json"]["class"] == "B"
+    assert rows["live-branch.json"]["action"] == "report"
+    rescued = json.loads((tasks_dir / "rescued.json").read_text())
+    assert rescued["status"] == "failed"
+    assert rescued["failure_reason"] == "unpushed work - needs rescue"
+    assert _git(repo, "rev-parse", f"refs/reaper-rescue/stamp/rescued-{sha[:12]}") == sha
+    assert json.loads((tasks_dir / "live-branch.json").read_text())["status"] == "needs_finalize"
+
+
+def test_base_sha_is_not_tied_to_a_parent_pull_request(tasks_dir, repo):
+    """Defect class: a stacked task whose final head is its base is settled done via the parent's pull request."""
+    parent = _orphan_commit(repo, "parent")
+    _record(
+        tasks_dir,
+        "stacked",
+        commits_ahead=1,
+        final_branch_head_commit=parent,
+        worktree_base_sha=parent,
+        worktree_branch="codex/stacked",
+    )
+    report = _settle(
+        tasks_dir,
+        repo,
+        [_merged("codex/parent", 41, OLD_FINISH + timedelta(hours=1), head_sha=parent)],
+        apply=True,
+    )
+    row = _by_file(report)["stacked.json"]
+    assert row["class"] == "D"
+    assert "outcome" not in row
+    assert json.loads((tasks_dir / "stacked.json").read_text())["status"] == "needs_finalize"
+
+
+def test_rescue_ref_with_a_merged_pull_request_is_done(tasks_dir, repo):
+    """Defect class: squash-merged work pinned by the reaper is settled failed as unpushed."""
+    sha = _orphan_commit(repo, "landed")
+    _git(repo, "update-ref", f"refs/reaper-rescue/stamp/landed-{sha[:12]}", sha)
+    _record(tasks_dir, "landed", commits_ahead=1, worktree_dirty_on_exit=True, auto_finalize=_auto_finalized(sha))
+    report = _settle(
+        tasks_dir,
+        repo,
+        [_merged("codex/landed", 9, OLD_FINISH + timedelta(hours=1), head_sha=sha)],
+        apply=True,
+    )
+    row = _by_file(report)["landed.json"]
+    assert row["outcome"] == "done"
+    assert row["action"] == "settled"
+    assert json.loads((tasks_dir / "landed.json").read_text())["status"] == "done"
+    assert _git(repo, "rev-parse", f"refs/reaper-rescue/stamp/landed-{sha[:12]}") == sha
+
+
+def test_rescue_ref_is_not_written_when_the_pull_list_fails(tasks_dir, repo):
+    """Defect class: a rescue pin is settled when the pull list that could show it landed is missing."""
+    sha = _orphan_commit(repo, "unlisted")
+    _git(repo, "update-ref", f"refs/reaper-rescue/stamp/unlisted-{sha[:12]}", sha)
+    _record(tasks_dir, "unlisted", commits_ahead=1, worktree_dirty_on_exit=True, auto_finalize=_auto_finalized(sha))
+
+    def broken(_slug, _page):
+        raise RuntimeError("gh api failed: HTTP 502")
+
+    report = str_mod.settle_stale(tasks_dir, repo_checkouts={SLUG: repo}, pager=broken, now=NOW, apply=True)
+    row = _by_file(report)["unlisted.json"]
+    assert row["class"] == "C"
+    assert "outcome" not in row
+    assert "pull request list unavailable" in row["skip_reason"]
+    assert json.loads((tasks_dir / "unlisted.json").read_text())["status"] == "needs_finalize"
+    assert _git(repo, "rev-parse", f"refs/reaper-rescue/stamp/unlisted-{sha[:12]}") == sha
+
+
+def test_detached_worktree_head_with_a_rescue_ref_stays_class_b(tasks_dir, repo):
+    """Defect class: a detached checkout that still holds a rescued commit, including one commit later, is settled."""
+    sha = _orphan_commit(repo, "detached")
+    _git(repo, "update-ref", f"refs/reaper-rescue/stamp/detached-{sha[:12]}", sha)
+    worktree = repo.parent / "detached-wt"
+    _git(repo, "worktree", "add", "--detach", str(worktree), sha)
+    (worktree / "newer.txt").write_text("newer\n")
+    _git(worktree, "add", "newer.txt")
+    _git(worktree, "commit", "-m", "newer")
+    _record(tasks_dir, "detached", commits_ahead=1, worktree_dirty_on_exit=True, auto_finalize=_auto_finalized(sha))
+    report = _settle(tasks_dir, repo, [], apply=True)
+    row = _by_file(report)["detached.json"]
+    assert row["class"] == "B"
+    assert row["action"] == "report"
+    assert json.loads((tasks_dir / "detached.json").read_text())["status"] == "needs_finalize"
+    assert _git(repo, "rev-parse", f"refs/reaper-rescue/stamp/detached-{sha[:12]}") == sha
+
+
+def test_record_changed_since_classification_is_skipped(tasks_dir, mixed):
+    """Defect class: settlement overwrites a record a live writer changed after classification."""
+    target = tasks_dir / "crashed.json"
+
+    def live_writer(_candidates):
+        record = json.loads(target.read_text())
+        record["heartbeat"] = "live writer"
+        target.write_text(json.dumps(record))
+        stat = target.stat()
+        os.utime(target, ns=(stat.st_atime_ns, stat.st_mtime_ns + 1_000_000_000))
+
+    report = _run(tasks_dir, mixed, apply=True, before_apply=live_writer)
+    assert _by_file(report)["crashed.json"]["action"] == "skipped"
+    assert json.loads(target.read_text())["status"] == "needs_finalize"
+    assert json.loads(target.read_text())["heartbeat"] == "live writer"
+    assert _by_file(report)["merged.json"]["action"] == "settled"
 
 
 def test_unavailable_repository_evidence_is_class_d(tasks_dir, mixed, tmp_path):
@@ -364,8 +512,9 @@ def test_zero_commit_final_head_is_not_work(tasks_dir, repo):
     row = _by_file(report)["no-work-head.json"]
 
     assert row["class"] == "C"
+    assert row["outcome"] == "no_deliverable"
     assert row["evidence"]["recorded_commits"] == []
-    assert json.loads((tasks_dir / "no-work-head.json").read_text())["status"] == "needs_finalize"
+    assert json.loads((tasks_dir / "no-work-head.json").read_text())["status"] == "no_deliverable"
 
 
 def test_final_head_differs_from_base_with_zero_ahead_count(tasks_dir, repo):
