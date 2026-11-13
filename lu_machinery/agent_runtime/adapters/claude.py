@@ -349,8 +349,9 @@ _AUTH_STATUS_OVERRIDE_KEYS = frozenset({"apiKeySource", "allowedProviders", "for
 # date the stored sign-in ends (``loginExpiresAt``). Since 2.1.319 a
 # ``claude.ai`` login also carries ``storedClaudeAiLogin``, which that branch
 # sets to ``true`` and nothing else, and ``planTier``; the two are always
-# reported together. Since 2.1.325 it may carry ``consoleProfileSignInOffered``,
-# an offer flag that changes no credential, provider or endpoint.
+# reported together. Since 2.1.325 it may carry ``consoleProfileSignInOffered``
+# (boolean only; any other value refuses), an offer flag that changes no
+# credential, provider or endpoint.
 #
 # Any other key is admitted and its name (never its value) reported once in the
 # run's task record: the checks below do not depend on refusing unknown keys
@@ -372,7 +373,9 @@ _LABELLED_PLAN_TIERS = {"pro": frozenset({"pro"}), "max": frozenset({"max_5x", "
 # those), so any other line refuses.
 _LABELLED_STATUS_TEXT_LABELS = frozenset({"Login method", "Organization", "Email", "Sign-in ends"})
 # An API-key label's run (C-2643): the key helper from its bound settings file and nothing else.
-# Claude Code 2.1.312 reports exactly these keys and the one text line below for it.
+# Claude Code 2.1.312 reports these keys and the one text line below for it. Since
+# 2.1.325 the same status object may also carry boolean ``consoleProfileSignInOffered``.
+# Any other JSON key is admitted and reported by name, as for a login.
 _API_KEY_AUTH_STATUS = {
     "loggedIn": True,
     "authMethod": "api_key_helper",
@@ -1390,9 +1393,11 @@ def _verify_labelled_auth_method(
         if api_key
         else (_LABELLED_AUTH_STATUS, _LABELLED_AUTH_STATUS_KEYS)
     )
+    offered = parsed.get("consoleProfileSignInOffered", False)
     if (
         any(parsed.get(key) != value for key, value in expected.items())
         or not (_AUTH_STATUS_OVERRIDE_KEYS - set(expected)).isdisjoint(parsed)
+        or ("consoleProfileSignInOffered" in parsed and not isinstance(offered, bool))
         or not (isinstance(directory, str) and Path(directory) == Path(login_dir))
     ):
         raise ClaudeAccountRefused("claude_account_auth_method_conflict")

@@ -159,7 +159,8 @@ _FAKE_CLAUDE = textwrap.dedent(
             for item in mode[len("status_set:"):].split(";"):
                 name, _, value = item.partition("=")
                 status[name] = json.loads(value)
-                if status[name] is None:
+                # null drops historical keys; a null offer must stay so a non-boolean refuses
+                if status[name] is None and name != "consoleProfileSignInOffered":
                     del status[name]
         # Keys a later Claude Code may add, beside whatever the mode reports.
         status.update(json.loads(os.environ.get("LU_FAKE_CLAUDE_STATUS_EXTRA", "{}")))
@@ -803,6 +804,13 @@ def test_bound_label_checkout_setting_that_changes_auth_is_refused(accounts, nam
         ('status_set:allowedProviders=["firstParty"]', "claude_account_auth_method_conflict"),
         ('status_set:forcedLoginMethod="console"', "claude_account_auth_method_conflict"),
         ('status_set:forcedLoginMethod="claudeai"', "claude_account_auth_method_conflict"),
+        # 2.1.325 admits only a boolean offer; every other JSON value refuses.
+        ('status_set:consoleProfileSignInOffered="true"', "claude_account_auth_method_conflict"),
+        ("status_set:consoleProfileSignInOffered=1", "claude_account_auth_method_conflict"),
+        ("status_set:consoleProfileSignInOffered=0", "claude_account_auth_method_conflict"),
+        ("status_set:consoleProfileSignInOffered=null", "claude_account_auth_method_conflict"),
+        ("status_set:consoleProfileSignInOffered=[]", "claude_account_auth_method_conflict"),
+        ("status_set:consoleProfileSignInOffered={}", "claude_account_auth_method_conflict"),
         # 2.1.319 sets the login marker to true, always beside the plan tier.
         ("status_set:storedClaudeAiLogin=false", "claude_account_auth_method_conflict"),
         ('status_set:storedClaudeAiLogin="true"', "claude_account_auth_method_conflict"),
@@ -843,6 +851,7 @@ def test_bound_label_unconfirmed_auth_status_is_refused(accounts, monkeypatch, m
         ("status_set:storedClaudeAiLogin=null;planTier=null", None),  # 2.1.318 reports neither key
         # 2.1.325's offer flag is reviewed; a key nobody reviewed runs and is reported by name only.
         ("status_set:consoleProfileSignInOffered=true", None),
+        ("status_set:consoleProfileSignInOffered=false", None),
         ("unknown_key", ["gatewaySignInOffered"]),
         (
             'status_set:fixtureFutureFlag=false;fixtureFutureNote="fixture-unrecorded-value"',
