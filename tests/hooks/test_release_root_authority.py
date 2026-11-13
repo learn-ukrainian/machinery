@@ -737,10 +737,19 @@ def test_hook_shell_ordinary_session_falls_back_without_temporary_files(release,
     assert result.returncode == 0, result.stderr
     assert json.loads(result.stdout) == {"decision": "allow"}
     assert result.stderr == ""
-    env.update(LU_DRIVER_STATE_FILE=str(tmp_path / "driver-state"), SESSION_HANDOFF_AGENT="worker")
-    refused = subprocess.run(shlex.split(native_hook_command("agy-stop-hook")),
-                             input="{}", text=True, capture_output=True,
-                             cwd=product, env=env, timeout=30)
-    assert refused.returncode == 0
-    assert json.loads(refused.stdout)["decision"] == "continue"
-    assert "HOOK-BOOTSTRAP-FAILED" in refused.stderr
+
+
+def test_hook_driver_without_tmpdir_uses_the_system_temporary_directory(release, product, tmp_path):
+    """Defect class: an ordinary unset TMPDIR refused a driver hook before it ran."""
+    env = {"PATH": "/usr/bin:/bin", "HOME": str(tmp_path),
+           "LU_PRODUCT_ROOT": str(product),
+           "LEARN_UKRAINIAN_PRIMARY_REPO_ROOT": str(product),
+           "LEARN_UKRAINIAN_PYTHON": str(release.parent / "venv/bin/python"),
+           "LU_DRIVER_STATE_FILE": str(tmp_path / "driver-state"),
+           "SESSION_HANDOFF_AGENT": "worker"}
+    result = subprocess.run(shlex.split(native_hook_command("agy-stop-hook")),
+                            input="{}", text=True, capture_output=True,
+                            cwd=product, env=env, timeout=30)
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout) == {"decision": "allow"}
+    assert result.stderr == ""

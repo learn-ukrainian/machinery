@@ -538,7 +538,7 @@ def test_a_configured_product_cannot_hide_a_bad_invocation_git(unconfigured, tmp
 
 
 def test_the_native_hook_contract_bytes_match_the_product_contract():
-    """Defect class: the installed hook resolver block or tail drifting from the product's 0.1.10 contract.
+    """Defect class: the installed hook resolver block or tail drifting from the product's coordinated contract.
 
     Product manifests carry these exact bytes and the installed validator compares them
     byte for byte, so a change on one side alone refuses every product hook registration.
@@ -553,9 +553,9 @@ def test_the_native_hook_contract_bytes_match_the_product_contract():
         "audit_tail": hashlib.sha256(hooks._AUDIT_HOOK_TAIL.encode()).hexdigest(),
     }
     assert digest == {
-        "resolvers": "b1b82bb91cd13de0179bb42ba08a4c85f9866534bacaad715dda0548863bb311",
-        "tail": "b91d03befcfe7f3be0878d2445caa6957c8d4904fd5ab5712aff5aa68abb9f8e",
-        "audit_tail": "14fee23821032b96b4c3723834096e1f1feba0d9e6535253bd52489a4f69ecc5",
+        "resolvers": "14fd6464950653da6ec18ddc09445077532975999f1e54bdca8a6e109a34b0d5",
+        "tail": "54569cfc49db1ec65191d713492a0e765cdc3b04b46ecba77b3dc8a39884c1a8",
+        "audit_tail": "1924ef1b52e5de1eef216e8976048723e7a3ae58207c486dbde5db12447424a1",
     }
     # Product PR 13005 retains this audit extension until machinery owns it.
     assert "claude-audit-hook" in hooks.NATIVE_HOOK_MODES
