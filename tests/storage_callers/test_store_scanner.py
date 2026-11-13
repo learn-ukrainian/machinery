@@ -206,6 +206,9 @@ def test_imported_connection_subclass_calls_are_reported_except_resolver_scope(t
         "scripts/extra.py": "import sqlite3\nclass ScriptConnection(sqlite3.Connection):\n    pass\n",
         "scripts/dbapi_parent.py": "from sqlite3 import dbapi2 as db\nclass DbapiParent(db.Connection):\n    pass\n",
         "scripts/alias_parent.py": "import sqlite3\nsql = sqlite3\nclass AliasParent(sql.Connection):\n    pass\n",
+        "scripts/dbapi_chain.py": "import sqlite3\nsql = sqlite3\nclass ChainParent(sql.dbapi2.Connection):\n    pass\n",
+        "scripts/dbapi_assign.py": "import sqlite3\ndb = sqlite3.dbapi2\nclass AssignedParent(db.Connection):\n    pass\n",
+        "scripts/dbapi_indirect.py": "import sqlite3\nsql = sqlite3\ndb = sql.dbapi2\nclass IndirectParent(db.Connection):\n    pass\n",
         "scripts/ann_parent.py": "import sqlite3\nBase: type = sqlite3.Connection\nclass AnnParent(Base):\n    pass\n",
         "scripts/tab_parent.py": "import sqlite3\nclass\tTabParent(sqlite3.Connection):\n    pass\n",
         "lu_machinery/child.py": (
@@ -222,6 +225,9 @@ def test_imported_connection_subclass_calls_are_reported_except_resolver_scope(t
             "from scripts.extra import ScriptConnection\n"
             "from scripts.dbapi_parent import DbapiParent\n"
             "from scripts.alias_parent import AliasParent\n"
+            "from scripts.dbapi_chain import ChainParent\n"
+            "from scripts.dbapi_assign import AssignedParent\n"
+            "from scripts.dbapi_indirect import IndirectParent\n"
             "from scripts.ann_parent import AnnParent\n"
             "from scripts.tab_parent import TabParent\n"
             "def open_dynamic(path, name):\n"
@@ -238,6 +244,12 @@ def test_imported_connection_subclass_calls_are_reported_except_resolver_scope(t
             "    return DbapiParent(path)\n"
             "def open_module_alias(path):\n"
             "    return AliasParent(path)\n"
+            "def open_dbapi_chain(path):\n"
+            "    return ChainParent(path)\n"
+            "def open_dbapi_assign(path):\n"
+            "    return AssignedParent(path)\n"
+            "def open_dbapi_indirect(path):\n"
+            "    return IndirectParent(path)\n"
             "def open_annotated(path):\n"
             "    return AnnParent(path)\n"
             "def open_tab(path):\n"
@@ -290,6 +302,9 @@ def test_imported_connection_subclass_calls_are_reported_except_resolver_scope(t
         "return SerializedConnection(other)",
         "return DbapiParent(path)",
         "return AliasParent(path)",
+        "return ChainParent(path)",
+        "return AssignedParent(path)",
+        "return IndirectParent(path)",
         "return AnnParent(path)",
         "return TabParent(path)",
         "return TimedSQLiteConnection(explicit)",

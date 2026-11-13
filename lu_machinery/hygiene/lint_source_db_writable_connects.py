@@ -311,8 +311,17 @@ def _subclass_class_names(tree: ast.AST, known: frozenset[str] | set[str]) -> se
             for target in targets:
                 if not isinstance(target, ast.Name) or value is None:
                     continue
-                if isinstance(value, ast.Name) and value.id in modules and target.id not in modules:
+                dotted_value = _dotted(value) if isinstance(value, (ast.Name, ast.Attribute)) else ""
+                # An assignment of sqlite3 or sqlite3.dbapi2 is the same module.
+                # Aliasing sqlite3 keeps its dbapi2 member, so sql.dbapi2.Connection
+                # is still a Connection base.
+                if dotted_value and dotted_value in modules and target.id not in modules:
                     modules.add(target.id)
+                    changed = True
+                sibling = f"{dotted_value}.dbapi2" if dotted_value else ""
+                aliased = f"{target.id}.dbapi2"
+                if sibling and sibling in modules and aliased not in modules:
+                    modules.add(aliased)
                     changed = True
                 names_base = isinstance(value, (ast.Name, ast.Attribute)) and (
                     is_connection_base(value) or (isinstance(value, ast.Name) and value.id in bound)
