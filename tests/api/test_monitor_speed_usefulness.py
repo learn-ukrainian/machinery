@@ -200,10 +200,27 @@ assert.doesNotMatch(lastGood, /STALE_LAST_GOOD|NEED_KEY/);
 assert.match(lastGood, /class="warn">Last good reading/);
 const named = renderAlerts({status: 'ok', heartbeat: true, alerts: [
   {alertname: 'UnrecognizedAlert', severity: 'warning', starts_at: '2026-11-01T00:00:00Z', fingerprint: 'abc'},
-  {alertname: 'ApprovedNotLanded30m', severity: 'warning', starts_at: '2026-11-12T00:00:00Z'}]});
+  {alertname: 'ApprovedNotLanded30m', severity: 'warning', starts_at: '2026-11-12T00:00:00Z'},
+  {alertname: 'ApprovedNotLanded30m', severity: 'warning', starts_at: '2026-11-11T00:00:00Z'},
+  {alertname: 'UnrecognizedAlert', severity: 'warning', fingerprint: 'alpha'},
+  {alertname: 'UnrecognizedAlert', severity: 'warning', fingerprint: 'beta'},
+  {alertname: 'UnrecognizedAlert', severity: 'warning', alert_id: 17},
+  {alertname: 'UnrecognizedAlert', severity: 'warning', fingerprint: 'alpha'}]});
 assert.match(named, /Unrecognised alert \(fingerprint abc\)/);
 assert.match(named, /ApprovedNotLanded30m/);
 assert.doesNotMatch(named, /UnrecognizedAlert/);
+const rowFor = marker => {
+  const row = named.split("<tr>").find(part => part.includes(marker));
+  assert.ok(row, marker);
+  return row;
+};
+const countOf = row => row.match(/<td class="num">([^<]*)<\/td>/g).at(-1);
+assert.equal((named.match(/fingerprint alpha/g) || []).length, 1);
+assert.equal(countOf(rowFor('fingerprint alpha')), '<td class="num">2</td>');
+assert.equal(countOf(rowFor('fingerprint beta')), '<td class="num">1</td>');
+assert.equal(countOf(rowFor('alert id 17')), '<td class="num">1</td>');
+assert.equal((named.match(/ApprovedNotLanded30m/g) || []).length, 1);
+assert.equal(countOf(rowFor('ApprovedNotLanded30m')), '<td class="num">2</td>');
 """)
 
 

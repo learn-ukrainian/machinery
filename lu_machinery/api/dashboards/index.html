@@ -531,6 +531,18 @@ function renderPrs(prs) {
 
 // ---- Alerts ----
 
+function alertIdentity(alert) {
+  const skip = new Set(["alertname", "severity", "starts_at"]);
+  const parts = [];
+  for (const [key, value] of Object.entries(alert)) {
+    if (skip.has(key) || value === null || value === undefined || value === "") continue;
+    if (typeof value !== "string" && typeof value !== "number") continue;
+    parts.push([key, value]);
+  }
+  parts.sort((a, b) => a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0);
+  return JSON.stringify(parts);
+}
+
 function alertTitle(group) {
   const plain = group.alertname && group.alertname !== "UnrecognizedAlert" ? String(group.alertname) : "Unrecognised alert";
   const skip = new Set(["alertname", "severity", "starts_at", "count", "oldest"]);
@@ -547,7 +559,7 @@ function renderAlerts(alerts) {
   if (alerts.status !== "ok") return unknown(alerts.reason_code);
   const groups = new Map();
   for (const alert of Array.isArray(alerts.alerts) ? alerts.alerts : []) {
-    const key = `${alert.alertname}|${alert.severity}`;
+    const key = `${alert.alertname}|${alert.severity}|${alertIdentity(alert)}`;
     const group = groups.get(key) || {...alert, count: 0, oldest: alert.starts_at};
     group.count += 1;
     if (toDate(alert.starts_at) && (!toDate(group.oldest) || toDate(alert.starts_at) < toDate(group.oldest))) group.oldest = alert.starts_at;
