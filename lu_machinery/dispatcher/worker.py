@@ -199,21 +199,27 @@ def _task_caches(task_id: str, *, remove: bool) -> tuple[list[str], list[str]]:
 def _clear_task_caches(record: dict) -> bool:
     """Remove a finished task's re-creatable caches from its own output directories; True when the record changed.
 
-    The caller holds the task state lock. Whatever could not be walked or removed is recorded in
-    ``task_cache_residue`` and retried by the scheduled settlement sweep.
+    The caller holds the task state lock. ``task_cache_residue`` records the result: whatever could not
+    be walked or removed, which the scheduled settlement sweep retries, or an empty list once nothing
+    is left, which ends the sweep's walks of this task's output directories (PR298-F3). The empty list
+    is recorded only when the provider was proven gone before the walk; while it may still run and
+    write a cache, no result is recorded and the sweep walks again.
     """
     if record.get("status") in store.ACTIVE:
         return False
     try:
+        gone = _provider_alive(record) is False
+    except Exception:  # unknown liveness is not proof the provider is gone
+        gone = False
+    try:
         residue = _task_caches(record["task_id"], remove=True)[1]
     except Exception as exc:  # cache removal never stops the worktree settlement that follows it
         residue = [f"scan: {type(exc).__name__}"]
-    if residue == record.get("task_cache_residue", []):
+    if not residue and not gone:
+        return record.pop("task_cache_residue", None) is not None
+    if residue == record.get("task_cache_residue"):
         return False
-    if residue:
-        record["task_cache_residue"] = residue
-    else:
-        record.pop("task_cache_residue")
+    record["task_cache_residue"] = residue
     return True
 
 
@@ -1214,46 +1220,50 @@ def _reap_worktree(record: dict, patience: float = 0, salvage: bool = False) -> 
     deadline = time.monotonic() + patience
     record.pop("worktree_disposition_detail", None)  # a retry replaces an earlier attempt's detail
     stopped = _end_own_scope(record)
-    _clear_task_caches(record)
-    if record.get("launch_mode") == "popen-fallback" and stopped is not None and not stopped.ok:
-        # Only the process group's id is recorded for a fallback launch, so a descendant that left it is
-        # invisible to the liveness check below. Name each survivor so a later retry still sees it.
-        survivors = {str(proc.pid): identity for proc in stopped.survivors if (identity := _identity(proc.pid))}
-        record["fallback_survivors"] = survivors
-        record.update(worktree_disposition="retained",
-                      worktree_disposition_reason="provider_processes_alive" if survivors else "provider_liveness_unknown")
-        return
-    while (alive := _provider_alive(record)) and time.monotonic() < deadline:
-        time.sleep(0.05)
-    if alive is not False:
-        reason = "provider_processes_alive" if alive else "provider_liveness_unknown"
-        record.update(worktree_disposition="retained", worktree_disposition_reason=reason)
-        return
-
-    def borrowed() -> bool:
-        return (salvage and _provider_alive(record) is not False) or _borrowed(record)
-
     try:
-        record.update(git.settle_worktree(record, borrowed=borrowed, salvage=salvage))
-    except ImportError as exc:
-        # Settlement's code could not be loaded: keep the tree and let the scheduled cleanup, a fresh process, finish.
-        record.update(worktree_disposition="retained", worktree_disposition_reason=git.CODE_UNAVAILABLE,
-                      worktree_disposition_detail=f"{type(exc).__name__}: {exc}")
-    except Exception:
-        record.update(worktree_disposition="error", worktree_disposition_reason="settlement_failed")
+        if record.get("launch_mode") == "popen-fallback" and stopped is not None and not stopped.ok:
+            # Only the process group's id is recorded for a fallback launch, so a descendant that left it is
+            # invisible to the liveness check below. Name each survivor so a later retry still sees it.
+            survivors = {str(proc.pid): identity for proc in stopped.survivors if (identity := _identity(proc.pid))}
+            record["fallback_survivors"] = survivors
+            record.update(worktree_disposition="retained",
+                          worktree_disposition_reason="provider_processes_alive" if survivors else "provider_liveness_unknown")
+            return
+        while (alive := _provider_alive(record)) and time.monotonic() < deadline:
+            time.sleep(0.05)
+        if alive is not False:
+            reason = "provider_processes_alive" if alive else "provider_liveness_unknown"
+            record.update(worktree_disposition="retained", worktree_disposition_reason=reason)
+            return
+
+        def borrowed() -> bool:
+            return (salvage and _provider_alive(record) is not False) or _borrowed(record)
+
+        try:
+            record.update(git.settle_worktree(record, borrowed=borrowed, salvage=salvage))
+        except ImportError as exc:
+            # Settlement's code could not be loaded: keep the tree and let the scheduled cleanup, a fresh process, finish.
+            record.update(worktree_disposition="retained", worktree_disposition_reason=git.CODE_UNAVAILABLE,
+                          worktree_disposition_detail=f"{type(exc).__name__}: {exc}")
+        except Exception:
+            record.update(worktree_disposition="error", worktree_disposition_reason="settlement_failed")
+    finally:
+        # After the liveness decision, so the recorded result is not taken while the provider can still
+        # write a cache; a retained tree is retried by the sweep, and its caches with it (PR298-F3).
+        _clear_task_caches(record)
 
 
 def _holds_task_caches(record: dict) -> bool:
-    """Whether a finished task still has caches to remove, or a walk or removal failure to retry."""
+    """Whether a finished task may still have caches to remove, or a walk or removal failure to retry.
+
+    Decided from the record, without a walk: an empty ``task_cache_residue`` is settlement's empty-cache
+    result, anything else recorded is residue to retry, and a record without one (settled before the
+    result was recorded, never reaped, or with a provider not yet proven gone) is walked by the locked
+    removal, which records its result.
+    """
     if record.get("status") in store.ACTIVE:
         return False
-    try:
-        found, failed = _task_caches(record["task_id"], remove=False)
-    except (KeyError, TypeError, ValueError):
-        return False  # no valid task identity, so no output directories of its own
-    except OSError:
-        return True
-    return bool(found or failed or "task_cache_residue" in record)
+    return bool(record.get("task_cache_residue") != [])
 
 
 def _unsettled(record: dict) -> bool:
