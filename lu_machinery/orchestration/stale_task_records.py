@@ -523,14 +523,24 @@ def _refs_containing(checkout: Path, sha: str) -> list[str]:
     return proc.stdout.split() if proc is not None and proc.returncode == 0 else []
 
 
-def _is_ancestor(checkout: Path, ancestor: str, descendant: str) -> bool:
-    """True only when git proves ``ancestor`` is in ``descendant``'s history."""
+def _ancestor_status(checkout: Path, ancestor: str, descendant: str) -> bool | None:
+    """True when ``ancestor`` is in ``descendant``'s history, False when it is not, None on error.
+
+    Git uses exit 1 for "not an ancestor". Any other failure is unknown, not a no.
+    """
     proc = _git(
         ["merge-base", "--is-ancestor", ancestor, descendant],
         cwd=checkout,
         timeout=DEFAULT_GIT_TIMEOUT_S,
     )
-    return proc is not None and proc.returncode == 0
+    if proc is None or proc.returncode not in (0, 1):
+        return None
+    return proc.returncode == 0
+
+
+def _is_ancestor(checkout: Path, ancestor: str, descendant: str) -> bool:
+    """True only when git proves ``ancestor`` is in ``descendant``'s history."""
+    return _ancestor_status(checkout, ancestor, descendant) is True
 
 
 # ---------------------------------------------------------------------------
@@ -846,16 +856,45 @@ def _apply_commit_facts(candidate: Candidate, commits: CommitFacts, facts: RepoF
         # The reaper already pinned the commit and no other ref has it. A live
         # checkout can still hold it on a detached HEAD, which for-each-ref misses.
         heads, head_error = _load_worktree_heads(facts)
+        base_sha = str(candidate.record.get("worktree_base_sha") or "").strip().lower()
+        default_ref = f"{scan_prefix}/{base}" if scan_prefix else ""
+        held_by_head: bool | None = False
         if head_error:
-            candidate.klass = "D"
+            held_by_head = None
             candidate.skip_reason = f"worktree list unavailable: {head_error}"
-        elif any(sha in heads for sha in full):
+        elif facts.checkout is not None:
+            for head in heads:
+                contains = False
+                for sha in full:
+                    status = _ancestor_status(facts.checkout, sha, head)
+                    if status is None:
+                        held_by_head = None
+                        break
+                    contains = contains or status
+                if held_by_head is None:
+                    break
+                if not contains:
+                    continue
+                # A checkout of the default branch is published history. The
+                # landed decision below covers it. Any other HEAD is unpushed.
+                on_default = _ancestor_status(facts.checkout, head, default_ref) if default_ref else False
+                if on_default is None:
+                    held_by_head = None
+                    break
+                if not on_default:
+                    held_by_head = True
+                    break
+            if held_by_head is None and not candidate.skip_reason:
+                candidate.skip_reason = (
+                    "worktree ancestry unavailable; cannot prove a checkout does not hold the commit"
+                )
+        if held_by_head is None:
+            candidate.klass = "D"
+        elif held_by_head:
             candidate.klass = "B"
             candidate.skip_reason = "possible unpushed work: a worktree HEAD still holds the recorded commit"
         else:
             evidence["recovery_refs"] = rescue_refs
-            base_sha = str(candidate.record.get("worktree_base_sha") or "").strip().lower()
-            default_ref = f"{scan_prefix}/{base}" if scan_prefix else ""
             evidence["landed_on_default_branch"] = bool(
                 facts.checkout is not None
                 and default_ref

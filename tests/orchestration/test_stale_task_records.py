@@ -390,11 +390,14 @@ def test_rescue_ref_is_not_written_when_the_pull_list_fails(tasks_dir, repo):
 
 
 def test_detached_worktree_head_with_a_rescue_ref_stays_class_b(tasks_dir, repo):
-    """Defect class: a detached checkout that still holds a rescued commit is settled."""
+    """Defect class: a detached checkout that still holds a rescued commit, including one commit later, is settled."""
     sha = _orphan_commit(repo, "detached")
     _git(repo, "update-ref", f"refs/reaper-rescue/stamp/detached-{sha[:12]}", sha)
     worktree = repo.parent / "detached-wt"
     _git(repo, "worktree", "add", "--detach", str(worktree), sha)
+    (worktree / "newer.txt").write_text("newer\n")
+    _git(worktree, "add", "newer.txt")
+    _git(worktree, "commit", "-m", "newer")
     _record(tasks_dir, "detached", commits_ahead=1, worktree_dirty_on_exit=True, auto_finalize=_auto_finalized(sha))
     report = _settle(tasks_dir, repo, [], apply=True)
     row = _by_file(report)["detached.json"]
