@@ -1467,7 +1467,8 @@ def _publish_through_broker(verb, fields, *, cwd, env, stdin, capture_output, te
     names = BROKER_FORWARDED[verb]
     if verb == "pr-merge" and "match_head" not in fields:
         raise gate.PublishBlocked("WRITE_BOUNDARY: inside the write boundary pr-merge needs --match-head.")
-    extra = sorted(set(fields) - set(names) - {"repo", "body_file"})
+    # --body-file is read here only for a verb whose broker request carries a body (pr-merge's does not).
+    extra = sorted(set(fields) - set(names) - {"repo"} - ({"body_file"} if "body" in names else set()))
     if extra:
         raise gate.PublishBlocked(
             f"WRITE_BOUNDARY: inside the write boundary {verb} cannot carry "
