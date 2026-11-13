@@ -13,9 +13,11 @@
 #   lint settings (the extracted tree has no Ruff configuration yet); compileall
 #   of lu_machinery on Python 3.12; the mypy ratchet (lu_machinery.lint.mypy_ratchet:
 #   new errors fail, the baseline only shrinks); actionlint (with a pinned ShellCheck) and zizmor (offline) over
-#   .github/workflows/; the TruffleHog secret scan and the Semgrep SAST scan.
-#   The secret-scan and sast jobs below are the only definition of each scan
-#   for the machinery repository. installed-wheel builds the release wheel
+#   .github/workflows/; the TruffleHog secret scan and the Semgrep SAST scan;
+#   dependency-audit (pip-audit of requirements-machinery.lock, npm audit of
+#   package-lock.json). The secret-scan and sast jobs below are the only
+#   definition of each scan for the machinery repository; CodeQL code scanning
+#   is codeql.yml beside this file, outside the gate. installed-wheel builds the release wheel
 #   from the tracked tree, installs it offline with requirements-machinery.lock
 #   (pip --require-hashes) into a clean venv and imports every lu_machinery
 #   module from it. pytest calls tests.yml for the full six-shard suite on
@@ -40,7 +42,8 @@
 # - Hosted runners only (ubuntu-24.04). Every tool is downloaded at a pinned
 #   version and checked against a pinned SHA-256 before it runs: release
 #   tarballs for actionlint and ShellCheck, hash-pinned PyPI wheels
-#   (pip --require-hashes --only-binary=:all:) for Ruff, mypy, zizmor and Semgrep.
+#   (pip --require-hashes --only-binary=:all:) for Ruff, mypy, zizmor, Semgrep
+#   and pip-audit; npm audit uses the hosted runner's npm.
 #   Install steps run from the job temp directory with isolated interpreters
 #   (python -I), so no Python module in the checkout is imported while installing.
 # - Read-only contents permission (none for CI Gate), no kept checkout token,
@@ -82,6 +85,7 @@ env:
   RUFF_VERSION: "0.15.21"
   MYPY_VERSION: "2.1.0"
   ZIZMOR_VERSION: "1.31.1"
+  PIP_AUDIT_VERSION: "2.10.1"
   ACTIONLINT_VERSION: "1.7.12"
   ACTIONLINT_RELEASE_ASSET_ID: "384924896"
   ACTIONLINT_LINUX_AMD64_SHA256: 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
@@ -1155,6 +1159,161 @@ jobs:
           rm -rf "$RUNNER_TEMP/sast" "$RUNNER_TEMP/semgrep-rules"
           "$RUNNER_TEMP/semgrep-venv" "$RUNNER_TEMP/semgrep-requirements.txt"
 
+  # Blocking vulnerability audit of the release inputs, as the source
+  # repository's dependency-audit job does it (pip-audit, then npm audit of the
+  # production dependencies at high and above), on every event.
+  # - Python: pip-audit reads requirements-machinery.lock as written
+  #   (--disable-pip --require-hashes: no resolver, no install) and fails on any
+  #   known vulnerability; --strict also fails a pin it cannot look up.
+  # - Node: npm audit reads package-lock.json only (--package-lock-only) and
+  #   fails on a high or critical advisory, or on any audit error.
+  # - pip-audit and its dependency closure are hash-pinned wheels (pins.txt);
+  #   npm is the hosted runner's. Both run under `env -i`.
+  # - A suppression is an `--ignore-vuln ID` argument below with its reason,
+  #   reviewed in the diff like every other suppression.
+  dependency-audit:
+    name: Dependency audit
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          check-latest: false
+
+      - name: Install pip-audit (hash-pinned wheels)
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          venv="$RUNNER_TEMP/pip-audit-venv"
+          rm -rf "$venv"
+          python -I -m venv "$venv"
+          requirements="$RUNNER_TEMP/pip-audit-requirements.txt"
+          cat > "$requirements" <<'REQUIREMENTS'
+          boolean-py==5.0 \
+              --hash=sha256:ef28a70bd43115208441b53a045d1549e2f0ec6e3d08a9d142cbc41c1938e8d9
+          cachecontrol==0.14.4 \
+              --hash=sha256:b7ac014ff72ee199b5f8af1de29d60239954f223e948196fa3d84adaffc71d2b
+          certifi==2026.10.23 \
+              --hash=sha256:e9b54de76e530bb6cf0ccd036787103acb58fd42ba930ea8bf948ddbaa2f61d1
+          charset-normalizer==3.5.2 \
+              --hash=sha256:3d31298449090ab8d47b7b1b2a555ff73cac7ed438a08b7ac160980c7ebed649
+          cyclonedx-python-lib==11.12.0 \
+              --hash=sha256:0e807521a921a5c3cb8ce1153f8a61d29eedfe76a46aac2796b7c6b573391a54
+          defusedxml==0.7.1 \
+              --hash=sha256:a352e7e428770286cc899e2542b6cdaedb2b4953ff269a210103ec58f6198a61
+          filelock==4.2.10 \
+              --hash=sha256:9479aaeb4db20b5a53e3da28493edd24720b66b8a0b84030aa56ccdf243d6857
+          idna==3.20 \
+              --hash=sha256:ab7ae7122974553370f0bdb919e1a960b2cd1bc1ef0276416d896db81c14582c
+          license-expression==30.4.4 \
+              --hash=sha256:421788fdcadb41f049d2dc934ce666626265aeccefddd25e162a26f23bcbf8a4
+          markdown-it-py==4.3.0 \
+              --hash=sha256:7aa1511a46c39138de78d9eba92ce47e63124d8003fc98b3a351909e04239efa
+          mdurl==0.1.2 \
+              --hash=sha256:84008a41e51615a49fc9966191ff91509e3c40b939176e643fd50a5c2196b8f8
+          msgpack==1.2.4 \
+              --hash=sha256:c4d5bbdbea8f5669b3a734d6c226772804fb120848f99cbe63a0ddee63b049c9
+          packageurl-python==0.17.6 \
+              --hash=sha256:31a85c2717bc41dd818f3c62908685ff9eebcb68588213745b14a6ee9e7df7c9
+          packaging==26.3 \
+              --hash=sha256:d7193f7c8e4e93f444fde0262bf90af30e16fa0ad0ad44cb553c87339b23cd1c
+          pip==26.3 \
+              --hash=sha256:f3b60b20ffaadd4415ed7957212a38ac63fa4c5fa375bd0f4a797777940fad13
+          pip-api==0.0.35 \
+              --hash=sha256:66990d0da25378555cbb538db79384bab92d4617c6350dfd7a2126ba2a3a9894
+          pip-audit==2.10.1 \
+              --hash=sha256:99ef3f600a317c1945f1e89e227ef26e1c2d618429b8bd3fa6f4f7c440c4611a
+          pip-requirements-parser==32.0.1 \
+              --hash=sha256:4659bc2a667783e7a15d190f6fccf8b2486685b6dba4c19c3876314769c57526
+          platformdirs==4.14.5 \
+              --hash=sha256:8e778c6fa421516f4d3369449f8df3b0e1b72c0e0005fe88e3ec772d0a14e750
+          py-serializable==2.2.0 \
+              --hash=sha256:2cce775abc5aac12115f9ff572a145c7276d04a770090334bd4e51ed9c782415
+          pygments==2.21.0 \
+              --hash=sha256:2363c69b61c4a97c838da3b130dcd6468f4848992b21a82f2a63ec34377137d9
+          pyparsing==3.3.3 \
+              --hash=sha256:ece8c00a69cf01b45d0b1dedabb469c90d8caf996d4fda40f147627a122849a4
+          requests==2.34.2 \
+              --hash=sha256:2a0d60c172f83ac6ab31e4554906c0f3b3588d37b5cb939b1c061f4907e278e0
+          rich==15.0.0 \
+              --hash=sha256:33bd4ef74232fb73fe9279a257718407f169c09b78a87ad3d296f548e27de0bb
+          sortedcontainers==2.4.0 \
+              --hash=sha256:a163dcaede0f1c021485e957a39245190e74249897e2ae4b2aa38595db237ee0
+          tomli==2.5.0 \
+              --hash=sha256:6cf74416bdc94ae458b14e37286c1073081850ac8459a00d0c5efef5d44294c6
+          tomli-w==1.2.0 \
+              --hash=sha256:188306098d013b691fcadc011abd66727d3c414c571bb01b1a174ba8c983cf90
+          typing-extensions==4.16.0 \
+              --hash=sha256:481caa481374e813c1b176ada14e97f1f67a4539ce9cfeb3f350d78d6370c2e8
+          urllib3==2.8.0 \
+              --hash=sha256:0cf3cae568d36aa9576b28dfb35f11328f1cb974ca7647d9475ebb86c75ac6e3
+          REQUIREMENTS
+          "$venv/bin/python" -I -m pip install --no-cache-dir --disable-pip-version-check \
+            --no-input --require-hashes --only-binary=:all: --requirement "$requirements"
+          reported="$("$venv/bin/pip-audit" --version)"
+          if [ "$reported" != "pip-audit ${PIP_AUDIT_VERSION}" ]; then
+            echo "::error::Expected pip-audit ${PIP_AUDIT_VERSION}, got: ${reported}"
+            exit 1
+          fi
+
+      - name: Audit requirements-machinery.lock (pip-audit)
+        run: |
+          set -euo pipefail
+          lock="$PWD/requirements-machinery.lock"
+          if [ ! -f "$lock" ]; then
+            echo "::error::requirements-machinery.lock is missing; nothing would be audited"
+            exit 1
+          fi
+          pins="$(grep -cE '^[A-Za-z0-9][A-Za-z0-9._-]*==' "$lock" || true)"
+          echo "pip-audit checks ${pins} pinned package(s) in requirements-machinery.lock."
+          if [ "$pins" -eq 0 ]; then
+            echo "::error::requirements-machinery.lock pins no package"
+            exit 1
+          fi
+          work="$RUNNER_TEMP/pip-audit"
+          rm -rf "$work"
+          mkdir -p "$work/home"
+          # Any known vulnerability, unknown package or tool error fails the job.
+          env -i PATH=/usr/bin:/bin HOME="$work/home" \
+            "$RUNNER_TEMP/pip-audit-venv/bin/pip-audit" --strict --disable-pip --require-hashes \
+            --progress-spinner=off --desc --requirement "$lock"
+
+      - name: Audit package-lock.json (npm audit)
+        run: |
+          set -euo pipefail
+          for file in package.json package-lock.json; do
+            if [ ! -f "$file" ]; then
+              echo "::error::${file} is missing; nothing would be audited"
+              exit 1
+            fi
+          done
+          packages="$(jq '[.packages // {} | to_entries[] | select(.key != "" and (.value.dev | not))] | length' package-lock.json)"
+          echo "npm audit checks ${packages} locked non-dev package(s) in package-lock.json."
+          if [ "$packages" -eq 0 ]; then
+            echo "::error::package-lock.json locks no package"
+            exit 1
+          fi
+          npm_bin="$(command -v npm)"
+          node_dir="$(dirname "$(command -v node)")"
+          echo "$("$npm_bin" --version) (npm), $(node --version) (node)"
+          work="$RUNNER_TEMP/npm-audit"
+          rm -rf "$work"
+          mkdir -p "$work/home"
+          # A high or critical advisory, or any audit error, fails the job.
+          env -i PATH="$node_dir:/usr/bin:/bin" HOME="$work/home" \
+            "$npm_bin" audit --package-lock-only --omit=dev --audit-level=high
+
+      - name: Remove tools
+        if: always()
+        run: >-
+          rm -rf "$RUNNER_TEMP/pip-audit" "$RUNNER_TEMP/npm-audit"
+          "$RUNNER_TEMP/pip-audit-venv" "$RUNNER_TEMP/pip-audit-requirements.txt"
+
   # The release path of docs/release.md on a hosted runner: build sdist and
   # wheel from the tracked tree with pinned tools, fill a temporary wheelhouse
   # with the wheel and every locked dependency, install offline with hashes
@@ -1318,7 +1477,7 @@ jobs:
     # always(): a job skipped because a dependency failed would otherwise count
     # as a passing required check.
     if: always()
-    needs: [ruff, compileall, mypy, actionlint, zizmor, secret-scan, sast, installed-wheel, pytest, pr-affected]
+    needs: [ruff, compileall, mypy, actionlint, zizmor, secret-scan, sast, dependency-audit, installed-wheel, pytest, pr-affected]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions: {}
@@ -1334,7 +1493,7 @@ jobs:
           # suite and must succeed; pr-affected must be skipped. On pull_request
           # the reverse holds. Failed, cancelled, skipped and missing required
           # results all fail this gate.
-          common=(actionlint compileall installed-wheel mypy ruff sast secret-scan zizmor)
+          common=(actionlint compileall dependency-audit installed-wheel mypy ruff sast secret-scan zizmor)
           case "$EVENT_NAME" in
             pull_request)
               must_succeed=(pr-affected "${common[@]}")

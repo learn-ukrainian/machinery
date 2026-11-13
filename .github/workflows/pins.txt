@@ -145,6 +145,28 @@ SHELLCHECK_LINUX_X86_64_SHA256=b7af85e41cc99489dcc21d66c6d5f3685138f06d34651e6d3
 #   shellcheck-v0.11.0.linux.x86_64.tar.gz. The release publishes no checksum
 #   file; this equals the GitHub release asset digest and the downloaded file.
 
+# CodeQL code scanning (codeql.yml) and the dependency-audit job of ci-gate.yml.
+# codeql.yml and ci-gate.yml carry these values; bump them here and there together.
+# Upstream checks below were made on 2026-11-13.
+GITHUB_CODEQL_ACTION=33d7b85da1a04171e211befe2c739303b9a4c066
+#   github/codeql-action tag v4.39.3 (annotated tag object
+#   f3bbb05694c2f74569081c28664c0866d64dec21), published 2026-11-04, the latest
+#   v4 release and past the 7-day cooldown; checked with
+#   `gh api repos/github/codeql-action/git/ref/tags/v4.39.3` and the tag object.
+#   https://github.com/github/codeql-action/releases/tag/v4.39.3
+#   codeql.yml uses its init and analyze sub-actions at this commit.
+PIP_AUDIT_VERSION=2.10.1
+#   https://pypi.org/project/pip-audit/2.10.1/ (uploaded 2026-06-10), the latest
+#   release. The dependency-audit job pins its 29-package dependency closure for
+#   CPython 3.12 on x86_64 Linux by SHA-256, one wheel each: the wheels pip
+#   selects there, resolved with `uv pip compile --python-version 3.12
+#   --python-platform x86_64-manylinux_2_39 --only-binary :all:`.
+PIP_AUDIT_WHEEL_PY3_NONE_ANY_SHA256=99ef3f600a317c1945f1e89e227ef26e1c2d618429b8bd3fa6f4f7c440c4611a
+#   pip-audit runs with --disable-pip --require-hashes --strict on
+#   requirements-machinery.lock; its default vulnerability service is the
+#   PyPI JSON API (OSV data). npm audit uses the hosted runner's npm and the npm
+#   registry's advisory database.
+
 # Pre-publication gate (prepublication-gate.sh beside this file)
 #   Run once on the rewritten clone before the first content push, with the
 #   exact refs to be pushed, then verify the clearance immediately before the
