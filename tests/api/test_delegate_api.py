@@ -662,6 +662,14 @@ def test_recent_finished_tasks_orders_instants_and_excludes_unsettled(tmp_path, 
     assert len(recent["needs_attention"]["tasks"]) == 1
     all_recent = delegate_router.recent_finished_tasks(ctx=ctx)
     assert {t["status"] for t in all_recent["needs_attention"]["tasks"]} == {"needs_finalize", "settling", "zombie"}
+    # Settlement must leave the warning even when an old boolean flag survives.
+    _write_task(tasks / "finalize.json", _task_payload("finalize", status="failed",
+                finished_at="2026-11-12T04:10:00Z", needs_finalize=True))
+    settled = delegate_router.recent_finished_tasks(ctx=ctx)
+    assert settled["needs_attention"]["total"] == 2
+    assert "finalize" not in {t["task_id"] for t in settled["needs_attention"]["tasks"]}
+    assert "finalize" in {t["task_id"] for t in settled["tasks"]}
+
     active = delegate_router.active_delegate_tasks(ctx=ctx)
     assert active["total"] == 0
     assert delegate_router.active_delegate_count(ctx=ctx) == 0

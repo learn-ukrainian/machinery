@@ -69,3 +69,35 @@ service or add the entry point to its existing private lane-wake service,
 then set `LU_STALLED_WORK_ROUTE_ENABLED=1` in that service's environment.
 Host/private configuration and live enablement are outside this public change.
 Verify a report first, then inspect the tick's Fleet message receipts.
+
+## Old unfinished records
+
+For `needs_finalize` records at least seven days old, use the existing settlement
+command before deciding whether surviving work should be kept or closed:
+
+```bash
+.venv/bin/python -m lu_machinery.orchestration.stale_task_records settle-stale --json
+.venv/bin/python -m lu_machinery.orchestration.stale_task_records settle-stale --apply --json
+```
+
+The first command is a dry run. Its `classes`, `outcomes`, and `needs_decision`
+fields show the proposed settlements and remaining decisions. `keep_close`
+contains one row per remaining record, with task id, repository, branch,
+recovery locations, open PRs, and age. The text report prints the same rows
+with a `KEEP/CLOSE` prefix. A missing or incomplete PR listing is reported as
+unknown, never as proof that no PR exists.
+
+A former class D record settles `failed` only when its worktree and runtime
+paths are absent, no ref names its branch or task, no recorded work commit is
+reachable, no matching open PR survives, and merged PR history provides no
+evidence that the work was delivered. A matching merged PR keeps the record
+for a delivery decision, including when its head commit is no longer local. Git and filesystem failures leave
+it unresolved. Local refs and commit reachability are checked again under the
+record lock before writing. Historical counts of commits or dirty files at
+exit do not establish a current recovery location. Settlement deletes no
+branch, ref, or worktree. Those require a separate decision.
+
+The machinery page counts current unresolved statuses. Settled records move
+to recent outcomes and leave the keep/close warning, even if an old boolean
+flag still says `needs_finalize`. The page does not run a Git census or write
+records during a request; the settlement command performs that work.

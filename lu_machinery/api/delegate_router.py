@@ -872,7 +872,8 @@ def recent_finished_tasks(*, ctx: MonitorContext | None = None, limit: int = REC
     finished = [row for row in rows if row["status"] in RELEASED_TASK_STATUSES]
     finished.sort(key=lambda row: _parse_iso_datetime(row.get("finished_at"))
                   or _parse_iso_datetime(row.get("started_at")) or datetime.min.replace(tzinfo=UTC), reverse=True)
-    # Unfinished records need attention, but they are neither finished work nor in-flight capacity.
+    # Count current unresolved statuses, never the legacy needs_finalize flag.
+    # settle-stale terminalizes provably empty records; they leave this decision list.
     attention = [row for row in rows if row["status"] in {"needs_finalize", "settling", "zombie"}]
     attention.sort(key=lambda row: _parse_iso_datetime(row.get("started_at"))
                    or datetime.min.replace(tzinfo=UTC), reverse=True)
