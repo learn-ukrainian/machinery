@@ -7,3 +7,4 @@ codex lease
 cursor 92c4b72a
 cursor lease
 opencode 781b2d99
+opencode lease
