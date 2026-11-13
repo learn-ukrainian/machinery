@@ -201,14 +201,22 @@ def _clear_task_caches(record: dict) -> bool:
 
     The caller holds the task state lock. ``task_cache_residue`` records the result: whatever could not
     be walked or removed, which the scheduled settlement sweep retries, or an empty list once nothing
-    is left, which ends the sweep's walks of this task's output directories (PR298-F3).
+    is left, which ends the sweep's walks of this task's output directories (PR298-F3). The empty list
+    is recorded only when the provider was proven gone before the walk; while it may still run and
+    write a cache, no result is recorded and the sweep walks again.
     """
     if record.get("status") in store.ACTIVE:
         return False
     try:
+        gone = _provider_alive(record) is False
+    except Exception:  # unknown liveness is not proof the provider is gone
+        gone = False
+    try:
         residue = _task_caches(record["task_id"], remove=True)[1]
     except Exception as exc:  # cache removal never stops the worktree settlement that follows it
         residue = [f"scan: {type(exc).__name__}"]
+    if not residue and not gone:
+        return record.pop("task_cache_residue", None) is not None
     if residue == record.get("task_cache_residue"):
         return False
     record["task_cache_residue"] = residue
@@ -1246,23 +1254,16 @@ def _reap_worktree(record: dict, patience: float = 0, salvage: bool = False) -> 
 
 
 def _holds_task_caches(record: dict) -> bool:
-    """Whether a finished task still has caches to remove, or a walk or removal failure to retry.
+    """Whether a finished task may still have caches to remove, or a walk or removal failure to retry.
 
-    A recorded result decides without a walk: an empty list is settlement's empty-cache result, and
-    anything else is residue to retry. Only a record without one (settled before the result was
-    recorded, or never reaped) is walked.
+    Decided from the record, without a walk: an empty ``task_cache_residue`` is settlement's empty-cache
+    result, anything else recorded is residue to retry, and a record without one (settled before the
+    result was recorded, never reaped, or with a provider not yet proven gone) is walked by the locked
+    removal, which records its result.
     """
     if record.get("status") in store.ACTIVE:
         return False
-    if "task_cache_residue" in record:
-        return record["task_cache_residue"] != []
-    try:
-        found, failed = _task_caches(record["task_id"], remove=False)
-    except (KeyError, TypeError, ValueError):
-        return False  # no valid task identity, so no output directories of its own
-    except OSError:
-        return True
-    return bool(found or failed)
+    return bool(record.get("task_cache_residue") != [])
 
 
 def _unsettled(record: dict) -> bool:

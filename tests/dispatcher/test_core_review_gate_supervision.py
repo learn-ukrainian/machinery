@@ -373,7 +373,37 @@ def test_settlement_removes_only_recreatable_caches_from_the_task_output_directo
     sandbox.sweep()
     assert not (artifacts / ".venv").exists()
     assert json.loads((sandbox.tasks / f"{task[0]}.json").read_text())["task_cache_residue"] == []
+    # A record without a result (settled before results were recorded) is walked once and gets one.
+    disk = json.loads((sandbox.tasks / f"{task[0]}.json").read_text())
+    del disk["task_cache_residue"]
+    (sandbox.tasks / f"{task[0]}.json").write_text(json.dumps(disk))
+    sandbox.sweep()
+    assert json.loads((sandbox.tasks / f"{task[0]}.json").read_text())["task_cache_residue"] == []
     assert {path: path.read_text() for path in kept} == kept
+
+
+def test_cache_result_is_recorded_only_once_the_provider_is_proven_gone(monkeypatch, tmp_path):
+    """Defect class (PR298-F3): an empty cache result that ends the hourly walks was recorded while the
+    provider could still write a cache, or never recorded for a record without one, so its walks never
+    ended. A live or unknown provider leaves no result and the sweep keeps the task; a gone provider
+    records the empty result, and the sweep then decides without a walk."""
+    monkeypatch.setenv("LU_TASKS_DIR", str(tmp_path))
+    cache = tmp_path / "task-1.artifacts" / "node_modules"
+    cache.mkdir(parents=True)
+    record = {"task_id": "task-1", "status": "done", "provider_pgid": os.getpgrp()}  # this live group
+    assert worker._holds_task_caches(record)  # no recorded result yet
+    assert worker._clear_task_caches(record) is False
+    assert not cache.exists() and "task_cache_residue" not in record
+    assert worker._holds_task_caches(record)
+
+    record["task_cache_residue"] = [f"{cache}: PermissionError"]
+    assert worker._clear_task_caches(record) is True and "task_cache_residue" not in record
+
+    record["provider_pgid"] = None  # the provider is proven gone
+    assert worker._clear_task_caches(record) is True and record["task_cache_residue"] == []
+    walks = []
+    monkeypatch.setattr(worker, "_task_caches", lambda *args, **kwargs: walks.append(args) or ([], []))
+    assert not worker._holds_task_caches(record) and walks == []
 
 
 def _record_residue(sandbox, task, residue: list[str]) -> None:
