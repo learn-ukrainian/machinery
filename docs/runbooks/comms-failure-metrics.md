@@ -17,6 +17,8 @@ rows remain represented by the separate dead-letter measure.
 
 A request job inherits its message's recipient only when there is exactly one.
 Other jobs use `authority-job`, so fan-out never multiplies the event count.
+Older PostgreSQL job schemas without subject metadata also use `authority-job`;
+when they lack `completed_at`, the reader uses `updated_at`.
 The CLI preserves exact recipients. Public JSON and Prometheus retain fixed
 agent names, `claude-cto`, `kimi` and `authority-job`, combining other identities
 in `other`. They do not expose private session identities or unbounded labels.

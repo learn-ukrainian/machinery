@@ -515,6 +515,7 @@ def _authority_failure_windows(conn: Any, *, now: datetime | None = None) -> dic
     lifetime: dict[str, int] = {}
     deliveries = _table_exists(conn, "authority_deliveries")
     jobs = _table_exists(conn, "authority_jobs")
+    job_columns = _column_names(conn, "authority_jobs") if jobs else set()
     sources = {}
     if deliveries:
         sources["failed_deliveries"] = """SELECT recipient, COALESCE(completed_at, updated_at) AS event_time
@@ -526,8 +527,11 @@ def _authority_failure_windows(conn: Any, *, now: datetime | None = None) -> dic
                 WHERE message_id = j.subject_id AND j.job_kind = 'request') AS recipient,
                 COALESCE(j.completed_at, j.updated_at) AS event_time
                 FROM authority_jobs j WHERE j.state = 'failed'"""
-            if deliveries else
+            if deliveries and {"subject_id", "job_kind", "completed_at"} <= job_columns else
             """SELECT 'authority-job' AS recipient, COALESCE(completed_at, updated_at) AS event_time
+                FROM authority_jobs WHERE state = 'failed'"""
+            if "completed_at" in job_columns else
+            """SELECT 'authority-job' AS recipient, updated_at AS event_time
                 FROM authority_jobs WHERE state = 'failed'"""
         )
     if _table_exists(conn, "authority_dead_letters"):
@@ -540,7 +544,7 @@ def _authority_failure_windows(conn: Any, *, now: datetime | None = None) -> dic
                 FROM authority_dead_letters l
                 LEFT JOIN authority_deliveries d ON d.delivery_id = l.delivery_id
                 LEFT JOIN authority_jobs j ON j.job_id = l.job_id"""
-            if deliveries and jobs else
+            if deliveries and {"subject_id", "job_kind"} <= job_columns else
             """SELECT COALESCE(d.recipient, 'authority-job') AS recipient, l.created_at AS event_time
                 FROM authority_dead_letters l
                 LEFT JOIN authority_deliveries d ON d.delivery_id = l.delivery_id"""
