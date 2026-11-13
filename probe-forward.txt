@@ -3,3 +3,4 @@ claude 746bded0
 claude 07c40143
 claude 3bd5d7af
 codex 8b1f0c69
+codex lease
