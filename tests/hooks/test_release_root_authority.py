@@ -726,7 +726,7 @@ def test_hook_bootstrap_takes_the_interpreter_only_from_the_configured_primary(r
         if entry == "git-hook-lib":
             assert "Git hook error: hook context unavailable" in result.stderr
             step = "interpreter" if anchor == "missing-interpreter" else "state"
-            assert f"Hook bootstrap error: step={step}" in result.stderr
+            assert f"step={step}" in result.stderr
 
 
 def test_hook_shell_ordinary_session_falls_back_without_temporary_files(release, product, tmp_path):

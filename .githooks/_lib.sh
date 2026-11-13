@@ -24,7 +24,7 @@ fi
 # shellcheck source=lu_machinery/lib/project_interpreter.sh
 source "$project_interpreter"
 project_hook_context_resolve "$worktree_root" || {
-  echo "Git hook error: hook context unavailable; configure the primary-state anchor and interpreter." >&2
+  echo "Git hook error: hook context unavailable (step=${PROJECT_HOOK_BOOTSTRAP_STEP:-unknown}); configure the primary-state anchor and interpreter." >&2
   exit 127
 }
 main_root="$(project_primary_root_resolve "$worktree_root")" || {

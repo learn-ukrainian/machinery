@@ -112,8 +112,10 @@ Dispatched write providers receive the configured primary, product
 (`LU_PRODUCT_ROOT`), interpreter, and optional state-root paths. These paths
 also remain in the contained provider environment, so Git hooks need no manual
 export. Credentials remain subject to the provider-specific allowlist.
-`project_hook_context_resolve` refuses with `Hook bootstrap error: step=state`,
-`step=root`, or `step=interpreter` on stderr when that bootstrap step fails.
+The Git hook entry includes `step=state`, `step=root`, or `step=interpreter`
+in its stderr refusal when that bootstrap step fails. Its shared resolver block
+stays byte-identical to the frozen product hook contract; diagnostics belong in
+the entry, outside that block.
 
 `UserPromptSubmit` invokes the inbox hook with recipient `codex`; the shared
 script retains `claude` as its default for Claude settings. A Codex session now

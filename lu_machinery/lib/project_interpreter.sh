@@ -383,14 +383,10 @@ project_hook_roots_resolve() {
 project_hook_context_resolve() {
     local interpreter
     PROJECT_HOOK_BOOTSTRAP_STEP=state
-    if [[ -n "${LEARN_UKRAINIAN_PRIMARY_REPO_ROOT:-}" ]] && project_hook_roots_resolve "$@"; then
-        PROJECT_HOOK_BOOTSTRAP_STEP=interpreter
-        if interpreter="$(project_interpreter_resolve "$LEARN_UKRAINIAN_PRIMARY_REPO_ROOT")"; then
-            export LEARN_UKRAINIAN_PYTHON="$interpreter"
-            return 0
-        fi
-    fi
-    printf 'Hook bootstrap error: step=%s\n' "$PROJECT_HOOK_BOOTSTRAP_STEP" >&2
-    return 1
+    [[ -n "${LEARN_UKRAINIAN_PRIMARY_REPO_ROOT:-}" ]] || return 1
+    project_hook_roots_resolve "$@" || return 1
+    PROJECT_HOOK_BOOTSTRAP_STEP=interpreter
+    interpreter="$(project_interpreter_resolve "$LEARN_UKRAINIAN_PRIMARY_REPO_ROOT")" || return 1
+    export LEARN_UKRAINIAN_PYTHON="$interpreter"
 }
 # LU_HOOK_RESOLVERS_END
