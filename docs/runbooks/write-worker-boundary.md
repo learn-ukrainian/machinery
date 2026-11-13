@@ -74,6 +74,48 @@ Everything else the worker wrote into Git metadata is dropped: other local branc
 remote-tracking refs (fetch them again), stashes and per-worktree configuration. A worker that moved its
 worktree off the dispatched branch is recorded as `head_moved`.
 
+## Host Git and worker hooks
+
+Host publication never runs hooks from a worker tree. Settlement and the broker use
+`write_boundary._git`, which pins `core.hooksPath=/dev/null` and `core.fsmonitor=false`.
+Before a push, that transport runs `opsec.git_push.main` explicitly on one immutable
+object ID, destination ref and expected remote ID. The scanner's caller-hook chain is
+disabled. The same IDs form the push refspec and lease; automatic tag following and
+recursive submodule pushes are disabled. Scan failure or an unexpected push shape
+refuses publication. Hook suppression also covers remote-tracking ref updates.
+
+Settlement requires the named branch to be the worktree's current branch, one origin
+push URL, and a fast-forward update. After publication it records the tracking ref and
+upstream with hooks disabled. Cleanup deletions use the same transport and an exact
+lease, with the scanner's native deletion record. No caller hook runs after a clean scan.
+The worker shim's hook chaining remains inside the worker's credential-free boundary.
+
+The host push/fetch inventory is reproducible with
+`rg -n '"(push|fetch)"' lu_machinery --glob '*.py'` and inspection of each runner and cwd:
+
+| Call sites | Execution contract |
+| --- | --- |
+| `orchestration/dispatch_settle.push_and_maybe_open_pr`; `dispatcher/write_boundary._Broker._push` | Shared hook-disabled transport and explicit exact-update scan. |
+| `dispatcher/write_boundary._Broker._fetch_base`; `_Boundary.fetch_objects` | Existing `_git` transport disables hooks, including local imports. |
+| `hygiene/branch_sweep._git`; `orchestration/scheduled_worktree_cleanup._run_git` | These accept worker checkouts. Fetches disable hooks; leased deletion pushes use the shared scanner and transport. |
+| `ai_agent_bridge/_agy.list_commit_changed_paths` and `list_branch_changed_paths` | Both fetch invocations pin `core.hooksPath=/dev/null`. |
+| `review/target_resolution._ensure_commit_available`; `review/record_cf_verdict.default_branch_review_base` | Their Git runners pin `core.hooksPath=/dev/null`. |
+| `ci/check_large_files.prefetch_missing_blobs`; `ci/data_tier.prepare_test_worktree` | Fetches in the supplied or newly created worker checkout disable hooks. |
+| `orchestration/merge_closeout._fetch_live_pr_head`; `orchestration/orchestrator_control`; `orchestration/task_family/git_safety` | Existing `execution_safe_git` runner disables hooks. Closeout also resolves the primary first. |
+| `dispatcher/git._verification_git`, including salvage | Existing hook-disabled verification transport. Salvage explicitly scans the exact outgoing commit and file contents before publication. Verification fetches use private bare repositories. |
+| `orchestration/execution_safe_git._isolated_remote`; `orchestration/safe_git_context.SafeGitContext` | Runner-owned Git configuration and bare repositories; execution-safe Git disables hooks. Source configuration and hooks are not imported. |
+| `ai_agent_bridge/_review_worktree._fetch_exact_ref` | Provisioning fetches use a fresh neutral bare repository, separate from the source worktree. |
+| `fleet/sibling_git.GitSession.fetch` | Network operations reject linked worktrees and use a runner-owned hooks directory. |
+| `guardrails/assert_primary_on_main`; `wt.sh` | Fetch paths select the primary checkout. The guard returns before fetching when called in a linked worktree. |
+| `ci/queue_review_gate`; `ci/check_agent_attribution`; `common/flake_quarantine`; `hygiene/remote_branch_cleanup` | Hosted CI paths, outside host worker settlement. Remote cleanup additionally requires the trusted current default-branch revision. |
+
+Paths in the table are relative to `lu_machinery/`. CI-only paths must not be reused
+as credentialed host operations in worker trees without the same hook suppression.
+The settlement regression in `tests/opsec/test_git_push_scan.py` uses local bare remotes
+and worker-authored `pre-push` and `reference-transaction` marker hooks. It verifies both
+new and existing branch updates, and that a secret-bearing commit message is refused
+without changing the remote or executing either hook.
+
 ## Host broker (decision CONTAIN-BROKER-1113)
 
 The task store, the Fleet Comms plane and the primary's Git state stay read-only inside. The host steps

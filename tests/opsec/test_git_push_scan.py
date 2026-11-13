@@ -137,6 +137,50 @@ def _remote_has(sandbox, sha, remote=None):
     return subprocess.run(probe, cwd=remote or sandbox.remote, env=_env(), timeout=30).returncode == 0
 
 
+@pytest.mark.parametrize("hook", ["pre-push", "reference-transaction"])
+@pytest.mark.parametrize("secret", [False, True], ids=["clean", "secret"])
+@pytest.mark.parametrize("existing", [False, True], ids=["new-branch", "existing-branch"])
+def test_settlement_never_runs_worker_hooks_and_refuses_secret_updates(push_sandbox, monkeypatch, hook, secret, existing):
+    """Defect class: credentialed settlement executes a worker hook or publishes an unscanned update."""
+    from lu_machinery.dispatcher import write_boundary
+    from lu_machinery.orchestration import dispatch_settle
+
+    sandbox = push_sandbox
+    tree = sandbox.tmp / "worker-tree"
+    _git(sandbox.work, "worktree", "add", "-q", "-b", "settlement", str(tree))
+    ref = "refs/heads/settlement"
+    if existing:
+        _git(sandbox.work, "push", "-q", "origin", f"HEAD:{ref}")
+    before = sandbox.remote_refs()
+    head = sandbox.commit("subject " + TOKEN if secret else "clean settlement", cwd=tree)
+    marker = sandbox.tmp / "worker-hook-ran"
+    hooks = tree / ".githooks"
+    hooks.mkdir()
+    program = hooks / hook
+    program.write_text(f"#!/bin/sh\nprintf ran > {shlex.quote(str(marker))}\n")
+    program.chmod(0o755)
+    _git(tree, "config", "core.hooksPath", ".githooks")
+    for name, value in _env(LU_PRODUCT_ROOT=str(sandbox.root),
+                            LEARN_UKRAINIAN_PRIMARY_REPO_ROOT=str(sandbox.root)).items():
+        monkeypatch.setenv(name, value)
+    monkeypatch.chdir(tree)
+    monkeypatch.setattr(write_boundary, "machinery_path", lambda relative: sandbox.root / "lu_machinery" / relative)
+
+    actions = dispatch_settle.push_and_maybe_open_pr(tree, "settlement", open_pr=False, title=None, body=None)
+
+    assert not marker.exists(), actions
+    if secret:
+        assert len(actions) == 1 and actions[0].startswith("push_failed:"), actions
+        assert "OPSEC blocked: rule=synthetic-rule" in actions[0]
+        assert TOKEN not in actions[0]
+        assert sandbox.remote_refs() == before
+        assert not _remote_has(sandbox, head)
+    else:
+        assert actions == ["pushed"], actions
+        assert sandbox.remote_refs() == {**before, ref: head}
+        assert _git(tree, "rev-parse", "@{upstream}") == head
+
+
 # --- Every text kind a push publishes; whole messages; multiple updates ---
 
 

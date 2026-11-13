@@ -221,6 +221,8 @@ class Repository:
             "-c",
             "core.commitGraph=false",
             "-c",
+            f"core.hooksPath={os.devnull}",
+            "-c",
             "advice.graftFileDeprecated=false",
         ]
         self.caller = environment

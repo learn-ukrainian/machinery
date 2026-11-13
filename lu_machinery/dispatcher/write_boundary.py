@@ -290,14 +290,46 @@ def _git(cwd: Path, *args: str, git_dir: Path | None = None, network: bool = Fal
            "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1", "GIT_OPTIONAL_LOCKS": "0"}
     if network:  # gh, behind the scoped helper, finds the host login through its own configuration
         env.update({name: os.environ[name] for name in ("GH_CONFIG_DIR", "XDG_CONFIG_HOME") if os.environ.get(name)})
+    command = list(args)
+    while command[:1] == ["-c"] and len(command) >= 2:
+        command = command[2:]
+    if command[:1] == ["push"]:
+        # Broker and settlement share this exact-update scan. No worker hook is trusted, including
+        # reference-transaction hooks, so the transport below always has hooks disabled.
+        if (len(command) != 7 or command[:4] != ["push", "--quiet", "--no-verify", "--porcelain"]
+                or not command[4].startswith("--force-with-lease=")):
+            raise Refused("host push requires one exact update and lease")
+        head, separator, branch = command[6].partition(":")
+        target, expected_separator, remote = command[4].removeprefix("--force-with-lease=").partition(":")
+        if (not separator or (head and not _OBJECT_ID.fullmatch(head)) or not branch.startswith("refs/heads/")
+                or not expected_separator or target != branch or (remote and not _OBJECT_ID.fullmatch(remote))
+                or (not head and not remote)):
+            raise Refused("host push requires one exact update and lease")
+        common = git_dir or Path(_git(cwd, "rev-parse", "--path-format=absolute", "--git-common-dir").strip())
+        update = (f"{branch if head else '(delete)'} {head or '0' * len(remote)} "
+                  f"{branch} {remote or '0' * len(head)}\n").encode()
+        code = ("import sys; sys.path.insert(0, sys.argv[1]); "
+                f"from {_PACKAGE}.opsec.git_push import main; "
+                "raise SystemExit(main(sys.argv[2:4], stdin=sys.stdin.buffer.read(), chain=lambda *_: 0))")
+        package_parent = str(machinery_path("dispatcher/write_boundary.py").parents[2])
+        scanned = subprocess.run(
+            [sys.executable, "-I", "-c", code, package_parent, "origin", command[5]],
+            cwd=cwd, input=update, env={**os.environ, "GIT_DIR": str(common)},
+            capture_output=True, timeout=_BROKER_TIMEOUTS["publish"], check=False,
+        )
+        if scanned.returncode:
+            raise Refused(scanned.stderr.decode("utf-8", "replace") or "host push scan refused")
     result = subprocess.run(
         ["git", "--no-replace-objects", "-c", f"core.hooksPath={os.devnull}", "-c", "core.fsmonitor=false",
+         "-c", "push.followTags=false", "-c", "push.recurseSubmodules=no",
          "-c", "protocol.allow=never", "-c", "protocol.file.allow=always",
          *(["-c", "protocol.https.allow=always"] if network else []),
          *([f"--git-dir={git_dir}"] if git_dir else []), "-C", str(cwd), *args],
         capture_output=True, text=True, timeout=_GIT_TIMEOUT, check=False, env=env, stdin=subprocess.DEVNULL,
     )
     if result.returncode:
+        if command[:1] == ["push"] and "[rejected]" in result.stdout and "(stale info)" in result.stdout:
+            raise Refused("host push [rejected] (stale info)")
         raise Refused(f"git {args[0]} failed")
     return result.stdout
 
@@ -784,20 +816,13 @@ class _Broker:
             except Refused:
                 raise _BrokerRefusal("the remote branch is not an ancestor of head: only a fast-forward is "
                                      "published") from None
-        # The existing push scan (opsec.git_push) on the exact update Git would send; the caller's hook is not run.
-        update = f"{branch} {head} {branch} {remote or '0' * len(head)}\n".encode()
-        code = ("import sys; sys.path.insert(0, sys.argv[1]); "
-                f"from {_PACKAGE}.opsec.git_push import main; "
-                "raise SystemExit(main(sys.argv[2:4], stdin=sys.stdin.buffer.read(), chain=lambda *_: 0))")
-        package_parent = str(machinery_path("dispatcher/write_boundary.py").parents[2])
-        scanned = self._run([sys.executable, "-I", "-c", code, package_parent, "origin", url], "publish",
-                            stdin=update, env={"GIT_DIR": str(self.boundary.common)})
-        if scanned["returncode"] != 0:
-            return {**scanned, "returncode": 2}
         lease = f"--force-with-lease={branch}:{remote or ''}"
-        _git(self.boundary.repository, *credentials, "push", "--quiet", "--no-verify", "--porcelain", lease, url,
-             f"{head}:{branch}", git_dir=self.boundary.common, network=True)
-        return {"returncode": 0, "stdout": f"pushed {head} to {branch} on {slug}\n", "stderr": scanned["stderr"]}
+        try:
+            _git(self.boundary.repository, *credentials, "push", "--quiet", "--no-verify", "--porcelain", lease, url,
+                 f"{head}:{branch}", git_dir=self.boundary.common, network=True)
+        except Refused as exc:
+            return {"returncode": 2, "stdout": "", "stderr": str(exc)}
+        return {"returncode": 0, "stdout": f"pushed {head} to {branch} on {slug}\n", "stderr": ""}
 
     def _fetch_base(self, payload: dict) -> dict:
         """Fetch the repository's default branch into the primary's remote-tracking ref (fast-forward only)."""

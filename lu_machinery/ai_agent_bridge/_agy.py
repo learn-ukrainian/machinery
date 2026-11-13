@@ -336,7 +336,7 @@ def list_commit_changed_paths(sha: str, *, repo_root: str) -> list[str]:
 
     git_env = sanitized_git_env()
     _run_changed_path_command(
-        ["git", "fetch", "origin", pinned],
+        ["git", "-c", "core.hooksPath=/dev/null", "fetch", "origin", pinned],
         cwd=repo_root,
         env=git_env,
     )
@@ -381,7 +381,7 @@ def list_branch_changed_paths(
         raise GeminiChangedPathListError(f"refusing to diff branch {branch!r}: {exc}") from exc
     git_env = sanitized_git_env()
     _run_changed_path_command(
-        ["git", "fetch", "origin", origin_tracking_refspec(name)],
+        ["git", "-c", "core.hooksPath=/dev/null", "fetch", "origin", origin_tracking_refspec(name)],
         cwd=repo_root,
         env=git_env,
     )

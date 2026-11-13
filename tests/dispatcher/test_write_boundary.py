@@ -335,8 +335,15 @@ def test_push_publishes_only_the_launch_branch_at_its_tip_fast_forward(broker, p
     _git(tmp_path, "init", "-q", "--bare", str(remote))
     monkeypatch.setattr(write_boundary._Broker, "_remote", lambda self, slug: (str(remote), []))
     scans = []
-    monkeypatch.setattr(write_boundary._Broker, "_run", lambda self, argv, key, stdin=None, env=None: scans.append(
-        stdin) or {"returncode": self.scan, "stdout": "", "stderr": ""})
+    run = subprocess.run
+
+    def scanned(argv, **kwargs):
+        if "-I" in argv and "opsec.git_push" in argv[3]:
+            scans.append(kwargs["input"])
+            return subprocess.CompletedProcess(argv, broker.scan, b"", b"")
+        return run(argv, **kwargs)
+
+    monkeypatch.setattr(subprocess, "run", scanned)
     broker.scan = 0
     tip = broker.boundary.tip
     # A ref whose name ends like the dispatched one is not the dispatched branch.

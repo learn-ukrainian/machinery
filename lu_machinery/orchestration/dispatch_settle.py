@@ -25,7 +25,9 @@ from typing import Any
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
+from lu_machinery.common.git_credentials import verification_credentials
 from lu_machinery.common.repo_root import state_root
+from lu_machinery.dispatcher import write_boundary
 from lu_machinery.fleet import idle_settle as idle_settle
 from lu_machinery.guardrails.delegate_ownership import (
     TERMINAL_TASK_STATUSES,
@@ -296,9 +298,32 @@ def push_and_maybe_open_pr(
     body: str | None,
 ) -> list[str]:
     actions: list[str] = []
-    push = _run(["git", "push", "-u", "origin", "HEAD"], cwd=worktree)
-    if push.returncode != 0:
-        actions.append(f"push_failed:{(push.stderr or push.stdout)[:300]}")
+    try:
+        git = write_boundary._git
+        ref = f"refs/heads/{branch}"
+        git(worktree, "check-ref-format", ref)
+        if git(worktree, "symbolic-ref", "HEAD").strip() != ref:
+            raise ValueError("settlement branch is not the worktree's current branch")
+        head = git(worktree, "rev-parse", "--verify", "HEAD^{commit}").strip()
+        urls = git(worktree, "remote", "get-url", "--push", "--all", "origin").splitlines()
+        if len(urls) != 1:
+            raise ValueError("settlement requires one origin push URL")
+        url = urls[0]
+        credentials = [arg for setting in verification_credentials(url) for arg in ("-c", setting)]
+        listing = git(worktree, *credentials, "ls-remote", url, ref, network=True)
+        exact = [line.split("\t")[0] for line in listing.splitlines() if line.partition("\t")[2] == ref]
+        if len(exact) > 1:
+            raise ValueError("the remote branch cannot be read")
+        remote = exact[0] if exact else ""
+        if remote:
+            git(worktree, "merge-base", "--is-ancestor", remote, head)
+        git(worktree, *credentials, "push", "--quiet", "--no-verify", "--porcelain",
+            f"--force-with-lease={ref}:{remote}", url, f"{head}:{ref}", network=True)
+        git(worktree, "update-ref", f"refs/remotes/origin/{branch}", head)
+        git(worktree, "config", f"branch.{branch}.remote", "origin")
+        git(worktree, "config", f"branch.{branch}.merge", ref)
+    except (write_boundary.Refused, OSError, ValueError, subprocess.SubprocessError) as exc:
+        actions.append(f"push_failed:{str(exc)[:300]}")
         return actions
     actions.append("pushed")
     if not open_pr:
