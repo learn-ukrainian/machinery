@@ -618,6 +618,10 @@ def test_primary_guard_keeps_configured_and_additional_primary_protection(layout
             # source word alone did not select a primary in the original parser.
             if target.parent == other and product_kind not in {"other_primary", "other_worktree", "foreign_cwd"}:
                 expected = 0
+            # Unknown find starts include the configured product itself. Its
+            # metadata can no longer be removed, even inside an isolated tree.
+            if tool == "find_list" and product_kind in {"worktree", "other_worktree"}:
+                expected = 2
         result = decision(name, args)
         assert result.returncode == expected, result.stderr
     if product_kind in {"other_primary", "other_worktree"}:
@@ -823,3 +827,138 @@ def test_deferred_trap_envfile_cannot_clear_uv_context(layout: Layout, timing: s
         timeout=60,
     )
     assert result.returncode == 2, result.stderr
+
+
+@pytest.mark.parametrize("directory_link", [False, True])
+def test_primary_guard_blocks_glob_matches_through_symlinks(layout: Layout, directory_link: bool):
+    """A matched symlink must not hide a protected target behind an isolated prefix."""
+    link = layout.dispatch_wt / "linked-target"
+    link.symlink_to(layout.main if directory_link else layout.main / "tracked.txt", target_is_directory=directory_link)
+    (layout.dispatch_wt / ".secret-link").symlink_to(layout.main / "tracked.txt")
+    (layout.dispatch_wt / "}a{file").symlink_to(layout.main / "tracked.txt")
+    (layout.dispatch_wt / "}a").symlink_to(layout.main, target_is_directory=True)
+    operand = "linked-*/tracked.txt" if directory_link else "linked-*"
+    hook = Path(__file__).resolve().parents[2] / "agents_extensions/shared/hooks/guard-primary-checkout-write.py"
+    env = {**_clean_env(), "LU_PRODUCT_ROOT": str(layout.main), "LEARN_UKRAINIAN_PRIMARY_REPO_ROOT": str(layout.main)}
+    for word, expected in ((operand, 2), ("trac*.txt", 0)):
+        result = subprocess.run(
+            [sys.executable, str(hook)],
+            input=json.dumps({"tool_name": "Bash", "cwd": str(layout.dispatch_wt), "tool_input": {"command": f"touch {word}"}}),
+            cwd=layout.dispatch_wt, env=env, capture_output=True, text=True, timeout=60,
+        )
+        assert result.returncode == expected, result.stderr
+    for command in (
+        f"shopt -s nocaseglob; touch {operand.upper()}",
+        f"shopt -s dotglob; touch {operand}",
+        f"GLOBIGNORE=unused; touch {operand}",
+        "shopt -s extglob; touch @(linked-target)",
+        "touch linked-[[:alpha:]]*",
+        "touch linked-[a[:alpha:]]*",
+        "touch linked-[^x]*",
+        "touch linked-{a..z}",
+        "touch linked-{target/,other/}tracked.txt",
+        "touch }{a,/b}{file",
+        "touch }{a/,b/}{tracked.txt",
+        "bash -O dotglob -c 'touch *secret*'",
+        "env BASHOPTS=dotglob bash -c 'touch *secret*'",
+        "bash -O extglob -c 'touch @(.secret-link)'",
+    ):
+        result = subprocess.run(
+            [sys.executable, str(hook)],
+            input=json.dumps({"tool_name": "Bash", "cwd": str(layout.dispatch_wt), "tool_input": {"command": command}}),
+            cwd=layout.dispatch_wt, env=env, capture_output=True, text=True, timeout=60,
+        )
+        assert result.returncode == 2, (command, result.stderr)
+    assert (layout.main / "tracked.txt").read_text() == "tracked\n"
+
+
+@pytest.mark.parametrize("redirect", [False, True])
+def test_primary_guard_refuses_product_metadata_demotion(layout: Layout, redirect: bool):
+    """Corrupt or redirected product gitfiles cannot silently remove additive protection."""
+    other = layout.outside / "other"
+    _git(layout.outside, "init", "-q", "-b", "main", str(other))
+    _git(other, "config", "user.email", "fixture@example.invalid")
+    _git(other, "config", "user.name", "Fixture")
+    (other / "tracked.txt").write_text("other\n")
+    _git(other, "add", "tracked.txt")
+    _git(other, "commit", "-qm", "fixture")
+    product = layout.outside / "product"
+    _git(other, "worktree", "add", "-q", "-b", "product", str(product))
+    hook = Path(__file__).resolve().parents[2] / "agents_extensions/shared/hooks/guard-primary-checkout-write.py"
+    env = {**_clean_env(), "LU_PRODUCT_ROOT": str(product), "LEARN_UKRAINIAN_PRIMARY_REPO_ROOT": str(layout.main)}
+
+    def decision(command: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [sys.executable, str(hook)],
+            input=json.dumps({"tool_name": "Bash", "cwd": str(layout.dispatch_wt), "tool_input": {"command": command}}),
+            cwd=layout.dispatch_wt, env=env, capture_output=True, text=True, timeout=60,
+        )
+
+    command = f"printf '%s\\n' {shlex.quote(str(other / 'tracked.txt'))} | xargs rm"
+    assert decision("ls").returncode == 0
+    assert decision(command).returncode == 2
+    for mutation in (f"rm {shlex.quote(str(product / '.git'))}", f"rm -rf {shlex.quote(str(product))}"):
+        result = decision(mutation)
+        assert result.returncode == 2, result.stderr
+        assert "protected_product_metadata" in result.stderr
+    result = subprocess.run(
+        [sys.executable, str(hook)],
+        input=json.dumps({"tool_name": "Write", "cwd": str(layout.dispatch_wt), "tool_input": {"file_path": str(product / '.git'), "content": "invalid"}}),
+        cwd=layout.dispatch_wt, env=env, capture_output=True, text=True, timeout=60,
+    )
+    assert result.returncode == 2, result.stderr
+    assert "protected_product_metadata" in result.stderr
+    nested = product / "nested"
+    nested.mkdir()
+    env["LU_PRODUCT_ROOT"] = str(nested)
+    assert decision(command).returncode == 2
+    _git(nested, "init", "-q", "-b", "main")
+    assert decision("ls").returncode == 0
+    assert decision(command).returncode == 2  # The nearer repository only adds authority.
+    assert decision(f"rm {shlex.quote(str(product / '.git'))}").returncode == 2
+    env["LU_PRODUCT_ROOT"] = str(product)
+    (product / ".git").write_text(f"gitdir: {layout.main / '.git'}\n" if redirect else "invalid\n")
+    result = decision(command)
+    assert result.returncode == 2, result.stderr
+    assert "product_root_unavailable" in result.stderr
+    assert (other / "tracked.txt").read_text() == "other\n"
+    assert (layout.main / "tracked.txt").read_text() == "tracked\n"
+
+
+def _bash_decision(layout: Layout, command: str) -> subprocess.CompletedProcess[str]:
+    hook = Path(__file__).resolve().parents[2] / "agents_extensions/shared/hooks/guard-primary-checkout-write.py"
+    env = {**_clean_env(), "LU_PRODUCT_ROOT": str(layout.main), "LEARN_UKRAINIAN_PRIMARY_REPO_ROOT": str(layout.main)}
+    return subprocess.run(
+        [sys.executable, str(hook)],
+        input=json.dumps({"tool_name": "Bash", "cwd": str(layout.dispatch_wt), "tool_input": {"command": command}}),
+        cwd=layout.dispatch_wt, env=env, capture_output=True, text=True, timeout=60,
+    )
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "printf x | xargs bash -O dotglob -c 'touch ./*secret*'",
+        "find . -maxdepth 0 -exec env BASHOPTS=dotglob bash -c 'touch ./*secret*' \\;",
+    ],
+)
+def test_template_launched_shell_glob_options_cannot_hide_primary_link(layout: Layout, command: str):
+    """Defect class: a nested shell's own glob options widen a pattern beyond the guard's matcher."""
+    (layout.dispatch_wt / ".secret-link").symlink_to(layout.main / "tracked.txt")
+    result = _bash_decision(layout, command)
+    assert result.returncode == 2, result.stderr
+    assert "undecidable_glob_write_target" in result.stderr
+    assert (layout.main / "tracked.txt").read_text() == "tracked\n"
+
+
+@pytest.mark.parametrize(
+    ("entry", "command"),
+    [("{a,b}x", "touch ./'{a,b}'*"), ("linked--", "touch linked-[a\\-z]")],
+)
+def test_quoted_or_escaped_pattern_cannot_hide_primary_link(layout: Layout, entry: str, command: str):
+    """Defect class: quote or escape removal changes what a pattern selects before the guard sees it."""
+    (layout.dispatch_wt / entry).symlink_to(layout.main / "tracked.txt")
+    result = _bash_decision(layout, command)
+    assert result.returncode == 2, result.stderr
+    assert "undecidable_glob_write_target" in result.stderr
+    assert (layout.main / "tracked.txt").read_text() == "tracked\n"
