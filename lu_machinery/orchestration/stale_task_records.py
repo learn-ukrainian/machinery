@@ -1272,11 +1272,8 @@ def _close_abandoned(candidate: Candidate, facts: RepoFacts, index: PullIndex) -
     # The lost-work check also inventories starting/remote heads as possible
     # recovery objects. Those are not evidence that this task authored work.
     recorded = recorded_work_commits(candidate.record)
-    branch = candidate.evidence.get("branch")
-    branch_pulls = [pull for name, pulls in index.merged_by_branch.items() for pull in pulls
-                    if name == branch or (not branch and name.rsplit("/", 1)[-1] == candidate.task_id)]
     merged = [pull for pull in candidate.evidence.get("merged_prs", [])
-              if _merged_since(pull, start) and ((not recorded and pull in branch_pulls) or any(
+              if _merged_since(pull, start) and (any(
                   isinstance(pull.get(field), str) and pull[field].startswith(sha)
                   for sha in recorded for field in ("head_sha", "merge_commit_sha"))
               or (facts.checkout is not None and isinstance(pull.get("head_sha"), str)

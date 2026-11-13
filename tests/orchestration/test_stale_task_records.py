@@ -877,7 +877,9 @@ def test_abandoned_preserved_refs_settle_without_changing_refs(tasks_dir, repo):
     for ref in refs:
         _git(repo, "update-ref", ref, sha)
     path = _record(tasks_dir, "preserved", commits_ahead=2)
-    delivered = _record(tasks_dir, "delivered", commits_ahead=2)
+    delivered = _record(tasks_dir, "delivered", commits_ahead=2, auto_finalize=_auto_finalized(sha))
+    _record(tasks_dir, "unrelated-delivery")
+    _git(repo, "update-ref", "refs/original/codex/unrelated-delivery", sha)
     _record(tasks_dir, "prefix", worktree_branch=None, commits_ahead=2)
     _git(repo, "update-ref", "refs/original/codex/prefix", sha)
     history = _git(repo, "rev-parse", "HEAD")
@@ -888,14 +890,15 @@ def test_abandoned_preserved_refs_settle_without_changing_refs(tasks_dir, repo):
     _git(newer, "add", "later.txt")
     _git(newer, "commit", "-m", "unrelated newer work")
     pulls = [_merged("codex/delivered", 91, OLD_FINISH + timedelta(hours=1), head_sha=sha),
-             _merged("codex/prefix-child", 92, OLD_FINISH + timedelta(hours=1), head_sha=sha)]
+             _merged("codex/prefix-child", 92, OLD_FINISH + timedelta(hours=1), head_sha=sha),
+             _merged("codex/unrelated-delivery", 93, OLD_FINISH + timedelta(days=2), head_sha="ff" * 20)]
     before = _snapshot(tasks_dir)
     dry = _settle(tasks_dir, repo, pulls)
-    assert dry["outcomes"] == {"failed": 3, "done": 1}
+    assert dry["outcomes"] == {"failed": 4, "done": 1}
     assert _snapshot(tasks_dir) == before
     ref_snapshot = _git(repo, "for-each-ref")
     applied = _settle(tasks_dir, repo, pulls, apply=True)
-    assert applied["actions"] == {"settled": 4}
+    assert applied["actions"] == {"settled": 5}
     failed = json.loads(path.read_text())
     assert failed["status"] == "failed"
     assert failed["settle_reason"] == "abandoned; work preserved at " + ", ".join(sorted(refs))
@@ -904,6 +907,7 @@ def test_abandoned_preserved_refs_settle_without_changing_refs(tasks_dir, repo):
     assert _git(repo, "for-each-ref") == ref_snapshot
     assert json.loads((tasks_dir / "history.json").read_text())["status"] == "failed"
     assert json.loads((tasks_dir / "prefix.json").read_text())["status"] == "failed"
+    assert json.loads((tasks_dir / "unrelated-delivery.json").read_text())["status"] == "failed"
     assert newer.is_dir()
 
 
