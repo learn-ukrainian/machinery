@@ -312,6 +312,8 @@ def _git(cwd: Path, *args: str, git_dir: Path | None = None, network: bool = Fal
                 f"from {_PACKAGE}.opsec.git_push import main; "
                 "raise SystemExit(main(sys.argv[2:4], stdin=sys.stdin.buffer.read(), chain=lambda *_: 0))")
         package_parent = str(machinery_path("dispatcher/write_boundary.py").parents[2])
+        # Fixed isolated interpreter and scanner code; input is the validated update above, never a shell command.
+        # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit
         scanned = subprocess.run(
             [sys.executable, "-I", "-c", code, package_parent, "origin", command[5]],
             cwd=cwd, input=update, env={**os.environ, "GIT_DIR": str(common)},
