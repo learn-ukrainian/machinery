@@ -1,9 +1,12 @@
 """Regression tests for the shared GitHub cache: isolation, reset clamp, and the sweep."""
 
+import json
 import logging
 import math
 import os
 import sqlite3
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -290,3 +293,147 @@ def test_retry_after_longer_than_the_primary_window_holds_landing(tmp_path):
     clock["now"] = expiry
     admitted = store.request(*landing, payload={"merge_method": "squash"})
     assert admitted.error is None and calls == [("GET", "user"), landing]
+
+
+def test_near_cap_multiprocess_304s_keep_shared_cache_and_observe_persisted_budget(
+    tmp_path,
+):
+    store = gh.GitHubClient(
+        cache_dir=tmp_path,
+        env={"GH_CONFIG_DIR": str(tmp_path / "no-config")},
+        clock=lambda: 1000,
+    )
+    with store._db() as db:
+        db.executemany(
+            "INSERT INTO cache VALUES(?,?,?,?,?)",
+            [
+                (
+                    f"s{i % 7}",
+                    f"k{i}",
+                    b'{"x":"' + b"y" * 1990 + b'"}',
+                    '{"etag": "z"}',
+                    900,
+                )
+                for i in range(31000)
+            ],
+        )
+        gh._store_budget(db, "sentinel", "core", 7, 2000, now=1000)
+    script = r"""
+import json, sys
+from pathlib import Path
+sys.path.insert(0, sys.argv[3])
+from lu_machinery.common import github_client as gh
+directory, index = Path(sys.argv[1]), int(sys.argv[2])
+calls = []
+def transport(method, endpoint, headers, body, timeout):
+    status = 304 if "If-None-Match" in headers else 200
+    calls.append(status)
+    return gh.Response(status, {"etag": "fixture", "x-ratelimit-remaining": "4000",
+                              "x-ratelimit-reset": "2000"},
+                       b"" if status == 304 else json.dumps({"p": index, "pad": "q" * 20000}).encode())
+client = gh.GitHubClient(cache_dir=directory, env={"GH_CONFIG_DIR": str(directory / "no-config")},
+                         clock=lambda: 1000, transport=transport)
+for i in range(15):
+    result = client.request("GET", f"repos/o/r/issues/{index}-{i % 5}")
+    assert result.error is None and result.value["p"] == index, result
+print(json.dumps({"disk": client.cache_dir is not None, "statuses": calls}), flush=True)
+assert sys.stdin.readline() == "budget stored\n"
+stale = client.request("GET", f"repos/o/r/issues/{index}-0", allow_stale=True)
+fresh = client.request("GET", f"repos/o/r/issues/{index}-0", fresh=True)
+assert stale.stale and stale.value["p"] == index, stale
+assert fresh.error == "github_rate_limited" and fresh.reset_at == 2000, fresh
+assert len(calls) == 15, calls
+print(json.dumps({"disk": client.cache_dir is not None, "shared_budget_observed": True}), flush=True)
+"""
+    processes = [
+        subprocess.Popen(
+            [sys.executable, "-c", script, str(tmp_path), str(index), str(Path(gh.__file__).resolve().parents[2])],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        for index in range(8)
+    ]
+    try:
+        for process in processes:
+            line = process.stdout.readline()
+            assert line, process.stderr.read()
+            assert json.loads(line) == {
+                "disk": True,
+                "statuses": [200] * 5 + [304] * 10,
+            }
+        with sqlite3.connect(tmp_path / "cache.sqlite3") as db:
+            assert db.execute("SELECT remaining FROM budget WHERE scope=?", (store.scope,)).fetchone() == (4000,)
+            gh._store_budget(db, store.scope, "core", 0, 2000, now=1000)
+        for process in processes:
+            output, error = process.communicate("budget stored\n", timeout=30)
+            assert process.returncode == 0, error
+            assert json.loads(output) == {"disk": True, "shared_budget_observed": True}
+        with sqlite3.connect(tmp_path / "cache.sqlite3") as db:
+            assert db.execute("SELECT remaining,reset FROM budget WHERE scope='sentinel'").fetchone() == (7, 2000)
+            total, count = db.execute(
+                "SELECT sum(length(CAST(body AS BLOB))+length(CAST(headers AS BLOB))),count(*) FROM cache"
+            ).fetchone()
+            assert 62_000_000 < total <= 67_108_864
+            assert count == 31040
+    finally:
+        for process in processes:
+            if process.poll() is None:
+                process.terminate()
+            process.communicate(timeout=30)
+
+
+def test_busy_timeout_returns_finalized_cached_304_without_abandoning_disk(tmp_path, monkeypatch):
+    """Persistence failure must not expose the preliminary HTTP error or discard shared etags."""
+    blocker = None
+    locked = False
+
+    def transport(*_args):
+        nonlocal blocker
+        if not locked:
+            return gh.Response(200, {"etag": "one"}, b'{"x":1}')
+        blocker = sqlite3.connect(tmp_path / "cache.sqlite3")
+        blocker.execute("BEGIN IMMEDIATE")
+        return gh.Response(304, {"x-ratelimit-remaining": "4000", "x-ratelimit-reset": "2000"}, b"")
+
+    store = gh.GitHubClient(cache_dir=tmp_path, env={}, clock=lambda: 1000, transport=transport)
+    assert store.request("GET", "repos/o/r/issues/1").value == {"x": 1}
+    # A real SQLite lock timeout, shortened only for the regression probe.
+    monkeypatch.setattr(gh, "_open_cache", lambda path: sqlite3.connect(path, timeout=0.02))
+    locked = True
+    try:
+        result = store.request("GET", "repos/o/r/issues/1")
+        assert result.status == 304 and result.error is None and result.value == {"x": 1}
+        assert result.headers["etag"] == "one" and result.headers["x-ratelimit-remaining"] == "4000"
+        assert store.cache_dir == tmp_path
+    finally:
+        if blocker is not None:
+            blocker.rollback()
+            blocker.close()
+
+
+def test_post_response_pruning_commits_before_connection_close(tmp_path, monkeypatch):
+    """An oversized response must be pruned durably after its own transaction commits."""
+    maintenance = gh._maintain_cache
+    transactions = []
+
+    def observe(db, *args):
+        transactions.append(db.in_transaction)
+        return maintenance(db, *args)
+
+    monkeypatch.setattr(gh, "_maintain_cache", observe)
+    store = gh.GitHubClient(
+        cache_dir=tmp_path,
+        env={},
+        clock=lambda: 1000,
+        cache_max_bytes=6,
+        transport=lambda *_args: gh.Response(200, {}, b'{"x":1}'),
+    )
+    # GraphQL is not core usage-counted: no later counting transaction can
+    # accidentally commit or prune the response and hide the missing commit.
+    result = store.request("POST", "graphql", payload={"query": "query { viewer { login } }"})
+    assert result.value == {"x": 1} and result.error is None
+    assert transactions and not any(transactions)
+    with sqlite3.connect(tmp_path / "cache.sqlite3") as db:
+        assert db.execute("SELECT count(*) FROM cache").fetchone() == (0,)
