@@ -313,43 +313,46 @@ def test_unknown_activity_and_unknown_model():
 
 
 def test_unknown_google_ais_gemma_stays_refused_under_the_routing_override(monkeypatch):
-    """Retaining hramatka's Gemma must not grant a fleet execution or review seat."""
+    """An unknown Gemma spelling of the retired row stays refused when the spend override is set.
+
+    Identity stays None. The retired prefix is what refuses it, before the override.
+    google-ais also refuses an uncatalogued Gemma and a catalog Gemma whose row is not active.
+    """
     from lu_machinery.ai_agent_bridge.routing_guard import RoutingGuardError, assert_model_routing_allowed
 
-    catalog = load_model_catalog()
-    row = catalog["models"]["google-ais/gemma-4-31b-it"]
-    assert row["lifecycle"] == "hold"
-    assert row["transports"] == []
-    assert "retirement_reason" not in row
-    assert row["roles"] == ["source_constrained_drafting"]
-    assert not any(candidate["model_id"] == "google-ais/gemma-4-31b-it"
-                   for candidate in catalog["review_candidates"].values())
-    for spelling in (
+    unknown_gemma = (
         "google-ais/gemma-4-26b-a4b-it",
         "gemma-4-26b-a4b-it",
         "openrouter/google/gemma-4-26b-a4b-it",
-    ):
+    )
+    for spelling in unknown_gemma:
         assert canonical_model_id(spelling) is None
-        assert retired_model_refusal(spelling) is None
-        for override in ("0", "1"):
-            monkeypatch.setenv("LU_ROUTING_GUARD_OVERRIDE", override)
-            with pytest.raises(ModelCatalogError, match=re.escape(unknown_model_refusal(spelling))):
-                require_execution_model(spelling, transport="opencode")
-    monkeypatch.delenv("LU_ROUTING_GUARD_OVERRIDE", raising=False)
-    with pytest.raises(RoutingGuardError, match="is not admitted for routing"):
-        assert_model_routing_allowed("google-ais/gemma-4-31b-it", context="probe")
-    with pytest.raises(RoutingGuardError, match=re.escape(unknown_model_refusal("google-ais/gemmaX"))):
-        assert_model_routing_allowed("google-ais/gemmaX", context="probe")
-    for spelling in (
-        "google-ais/gemma-4-31b-it", "gemma-4-31b-it", "gemma",
+        expected = (
+            f"model {spelling!r} names no catalog model; its prefix "
+            "google-ais/gemma-4-31b-it is retired in the model catalog"
+        )
+        with pytest.raises(RoutingGuardError, match=re.escape(expected)):
+            assert_model_routing_allowed(spelling, context="probe")
+    monkeypatch.setenv("LU_ROUTING_GUARD_OVERRIDE", "1")
+    for spelling in unknown_gemma:
+        with pytest.raises(RoutingGuardError, match="is retired in the model catalog"):
+            assert_model_routing_allowed(spelling, context="probe")
+    for still_retired in (
+        "google-ais/gemma-4-31b-it",
+        "gemma-4-31b-it",
+        "gemma",
         "openrouter/google/gemma-4-31b-it",
     ):
-        assert retired_model_refusal(spelling) is None
-        assert "holds no review" in activity_role_refusal(spelling, "review")
-        for override in ("0", "1"):
-            monkeypatch.setenv("LU_ROUTING_GUARD_OVERRIDE", override)
-            with pytest.raises(ModelCatalogError, match="is not admitted for execution"):
-                require_execution_model(spelling, transport="opencode")
+        with pytest.raises(RoutingGuardError, match="retired in the model catalog"):
+            assert_model_routing_allowed(still_retired, context="probe")
+    monkeypatch.delenv("LU_ROUTING_GUARD_OVERRIDE", raising=False)
+    with pytest.raises(RoutingGuardError, match=re.escape(unknown_model_refusal("google-ais/gemmaX"))):
+        assert_model_routing_allowed("google-ais/gemmaX", context="probe")
+    catalog = deepcopy(load_model_catalog())
+    catalog["models"]["google-ais/gemma-4-31b-it"]["lifecycle"] = "hold"
+    monkeypatch.setattr("lu_machinery.review.model_catalog.load_model_catalog", lambda: catalog)
+    with pytest.raises(RoutingGuardError, match="is not admitted for routing"):
+        assert_model_routing_allowed("google-ais/gemma-4-31b-it", context="probe")
 
 
 @pytest.mark.parametrize(
@@ -925,6 +928,9 @@ def test_retired_model_refusal_admits_non_retired_ids(model):
         ("claude-opus-5-6", "claude-opus-5", "retired"),
         ("claude-sonnet-5-6", "claude-sonnet-5", "retired"),
         ("claude-fable-5-3", "claude-fable-5", "retired"),
+        ("gemma-4-26b-a4b-it", "google-ais/gemma-4-31b-it", "retired"),
+        ("google-ais/gemma-4-26b-a4b-it", "google-ais/gemma-4-31b-it", "retired"),
+        ("openrouter/google/gemma-4-26b-a4b-it", "google-ais/gemma-4-31b-it", "retired"),
         ("composer-2.5-fast", "composer-2.5", "retired"),
         ("gpt-6-astra-extra", "gpt-6-astra", "retired"),
     ],

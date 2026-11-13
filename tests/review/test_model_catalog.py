@@ -1040,27 +1040,19 @@ _V2_BASELINE_PATH = FIXTURE / "v2-baseline.json.gz"
 assert hashlib.sha256(_V2_BASELINE_PATH.read_bytes()).hexdigest() == "798d86044cd6ac4ded8e24b4a22a576c8421ac47eddfe764eed6368f54de4553"
 _V2_BASELINE = json.loads(gzip.decompress(_V2_BASELINE_PATH.read_bytes()))
 def approved_hramatka_gemma_baseline(baseline):
-    """Keep the frozen reviewer receipts; change only Gemma's retained inventory row."""
+    """Correct Gemma's use description without changing fleet routing or receipts."""
     result = deepcopy(baseline)
     catalog = result["catalog"]
     gemma = catalog["models"]["google-ais/gemma-4-31b-it"]
     assert gemma["lifecycle"] == "retired" and gemma["transports"] == []
-    assert gemma["roles"] == ["surface_review", "source_constrained_drafting"]
-    assert gemma.pop("retirement_reason") == "Operator decision 2026-10-23: not subscribed; never route or select."
-    gemma["lifecycle"] = "hold"
-    gemma["roles"] = ["source_constrained_drafting"]
-    catalog["review_scheduler"]["activity_roles"]["review"].remove("surface_review")
-    gemma["notes"] = (
-        "Retained for hramatka under REMOVE-UNNEEDED-1107. Hold is the closest existing "
-        "lifecycle for a model used outside the fleet; empty transports grant no fleet "
-        "execution, authoring or review seat. Hramatka owns its direct HTTP clients: "
-        "google-ais/gemma-4-31b-it uses wire id gemma-4-31b-it, and the OpenRouter "
-        "route uses google/gemma-4-31b-it. Its engine does not read this catalog. "
-        "The OpenCode bridge retains historical Gemma pins; it is not the current "
-        "hramatka generator transport. No route or review ladder is enabled here."
+    assert gemma["retirement_reason"] == "Operator decision 2026-10-23: not subscribed; never route or select."
+    gemma["retirement_reason"] = (
+        "Not a fleet route. Hramatka uses Gemma directly through its own AIS/OpenRouter "
+        "HTTP client (operator keep-list 2026-11-07: keep Gemma for hramatka); "
+        "never remove its code, config or docs."
     )
-    old = "Gemma is live for hramatka through OpenCode (operator 2026-11-07, REMOVE-UNNEEDED-1107)."
-    new = "Gemma is retained for hramatka (operator 2026-11-07, REMOVE-UNNEEDED-1107); its model row records the transport boundary."
+    old = 'Gemma is live for hramatka through OpenCode (operator 2026-11-07, REMOVE-UNNEEDED-1107).'
+    new = 'Gemma is retained for hramatka through its own AIS/OpenRouter HTTP client (operator 2026-11-07, REMOVE-UNNEEDED-1107); it is not a fleet route.'
     notes = catalog["policy"]["notes"]
     assert sum(note.count(old) for note in notes) == 2
     catalog["policy"]["notes"] = [note.replace(old, new) for note in notes]

@@ -20,6 +20,7 @@ def _no_override(monkeypatch: pytest.MonkeyPatch):
 @pytest.mark.parametrize(
     "model",
     [
+        "openrouter/google/gemma-4-31b-it",  # google/ but NOT gemini — no subscription lane
         "google-ais/gemma-4-31b-it",  # $0 default lane (Gemma has no paid SKU)
         "GOOGLE-AIS/GEMMA-4-31B-IT",
         "deepseek/deepseek-v4-pro",
