@@ -245,14 +245,18 @@ def _protected_repo_roots(wc) -> tuple[Path, ...]:
     # A product may be a worktree of a different repository than shared state.
     # Its gitfile is inspected only after the mandatory authority is pinned.
     product = _protected_repo_anchor().resolve(strict=True)
-    try:
-        product_primary = wc.resolve_main_root(product)
-    except wc.NotAGitRepositoryError:
-        # A non-Git product snapshot still has the explicit primary authority.
-        return (primary,)
-    if wc.resolve_main_root_without_git(product_primary) != product_primary:
-        raise ValueError("product primary metadata is inconsistent")
-    return tuple(dict.fromkeys((primary, product_primary)))
+    for candidate in (product, *product.parents):
+        if not os.path.lexists(candidate / ".git"):
+            continue
+        # Validate the nearest metadata, not a Git-selected replacement or a
+        # parent discovered after corrupt metadata was silently ignored.
+        product_primary = wc.resolve_main_root_without_git(candidate)
+        discovered = wc.resolve_git_worktree(product, [])
+        if discovered.worktree != candidate or discovered.common_dir != product_primary / ".git":
+            raise ValueError("product primary metadata is inconsistent")
+        return tuple(dict.fromkeys((primary, product_primary)))
+    # Only a product with no Git metadata is a non-Git snapshot.
+    return (primary,)
 
 
 def _evaluate_write(target: Path, wc, main_root: Path) -> object:
@@ -3426,6 +3430,37 @@ def _bash_path_decision(word: str, base: str, wc, main_root: Path) -> object:
             return _UndecidableWrite(
                 "undecidable_glob_write_target",
                 "A glob or brace target may resolve inside the primary checkout. Use a literal path.",
+            )
+        # A literal prefix can be isolated while its matches follow symlinks
+        # into a protected checkout. Walk components with the same matcher as
+        # the prefix check; never execute the shell to expand an operand.
+        matches = [prefix]
+        inspected = 0
+        try:
+            for part in parts[first:]:
+                if "**" in part:
+                    raise ValueError("recursive glob expansion is uncertain")
+                following: list[Path] = []
+                for parent in matches:
+                    if not re.search(r"[*?\[\]{}]", part):
+                        following.append(parent / part)
+                        continue
+                    if not parent.is_dir():
+                        continue
+                    for child in parent.iterdir():
+                        inspected += 1
+                        if inspected > 4096:
+                            raise ValueError("glob expansion budget exhausted")
+                        if _final_component_matches(part, child.name):
+                            following.append(child)
+                matches = following
+            for match in matches:
+                decision = _evaluate_write(match.resolve(), wc, main_root)
+                if not decision.allowed:
+                    return decision
+        except (OSError, RuntimeError, ValueError):
+            return _UndecidableWrite(
+                "undecidable_glob_write_target", "Use a literal target that can be resolved within the inspection budget."
             )
     base = getattr(word, "base", None) or base
     target = _resolve(word, base, expand_user=False)
