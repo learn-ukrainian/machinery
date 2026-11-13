@@ -654,11 +654,17 @@ def _literal_heredoc_data_reader(line: str) -> bool:
             unreadable_marker=_UNREADABLE_MARKER,
             unparsed=_UNPARSED,
             may_match=_merge_candidate,
+            keep_separators=True,
         )
-        return bool(readers) and all(
-            kind == "segment" and not any(char in arg for arg in argv for char in "|<>")
-            and _literal_heredoc_data_reader(shlex.join(argv))
-            for kind, argv in readers
+        # A trailing pipe continues after the closer; its reader is not on
+        # this line. Require alternating, complete data-reader stages.
+        return len(readers) % 2 == 1 and all(
+            (kind == "separator" and argv == ["|"])
+            if index % 2 else (
+                kind == "segment" and not any(char in arg for arg in argv for char in "|<>")
+                and _literal_heredoc_data_reader(shlex.join(argv))
+            )
+            for index, (kind, argv) in enumerate(readers)
         )
     try:
         argv = shlex.split(line)
