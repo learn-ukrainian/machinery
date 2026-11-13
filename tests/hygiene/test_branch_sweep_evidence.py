@@ -372,7 +372,8 @@ def test_patch_pipeline_command_failure_leaves_cache_unknown(
     original = subprocess.run
 
     def fail(command, **kwargs):
-        if command[:2] == ["git", command_name]:
+        prefix = ["git", "-c", "core.hooksPath=/dev/null"] if command_name == "log" else ["git"]
+        if command[:len(prefix) + 1] == [*prefix, command_name]:
             return subprocess.CompletedProcess(command, 128, b"untrusted\xff", b"diagnostic\xfe\x1b")
         return original(command, **kwargs)
 

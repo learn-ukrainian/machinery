@@ -87,8 +87,24 @@ def utc_now() -> str:
 
 
 def _run_git(repo_root: Path, *args: str) -> subprocess.CompletedProcess[str]:
+    if args[:1] == ("push",):
+        from lu_machinery.common.git_credentials import verification_credentials
+        from lu_machinery.dispatcher import write_boundary
+
+        try:
+            urls = write_boundary._git(repo_root, "remote", "get-url", "--push", "--all", "origin").splitlines()
+            if len(urls) != 1:
+                raise write_boundary.Refused("host deletion requires one origin push URL")
+            url = urls[0]
+            credentials = [arg for setting in verification_credentials(url) for arg in ("-c", setting)]
+            output = write_boundary._git(repo_root, *credentials, "push", "--quiet", "--no-verify", "--porcelain",
+                                         args[1], url, args[-1], network=True)
+            # CompletedProcess records the shared transport's result; it executes nothing.
+            return subprocess.CompletedProcess(args, 0, output, "")  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit
+        except write_boundary.Refused as exc:
+            return subprocess.CompletedProcess(args, 1, "", str(exc))  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit
     return subprocess.run(
-        ["git", *args],
+        ["git", "-c", "core.hooksPath=/dev/null", *args],
         cwd=repo_root,
         capture_output=True,
         text=True,

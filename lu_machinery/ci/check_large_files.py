@@ -161,6 +161,8 @@ def prefetch_missing_blobs(shas: list[str], cwd: Path, timeout: int = 60) -> int
             "git",
             "-c",
             "fetch.negotiationAlgorithm=noop",
+            "-c",
+            "core.hooksPath=/dev/null",
             "fetch",
             remote,
             "--no-tags",

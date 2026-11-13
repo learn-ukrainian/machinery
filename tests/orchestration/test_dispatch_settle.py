@@ -227,6 +227,17 @@ def test_settle_push_opens_pr_only_with_explicit_flag(
         args.append("--open-pr")
     parsed = ds._build_parser().parse_args(args)
     calls: list[list[str]] = []
+    git_calls = []
+
+    def fake_git(_cwd, *command, **_kwargs):
+        git_calls.append(list(command))
+        if command == ("symbolic-ref", "HEAD"):
+            return "refs/heads/codex/t1\n"
+        if command[0] == "rev-parse":
+            return "1" * 40 + "\n"
+        if command[0] == "remote":
+            return "https://github.com/example/repo.git\n"
+        return ""
 
     def fake_run(command: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
         calls.append(command)
@@ -235,10 +246,15 @@ def test_settle_push_opens_pr_only_with_explicit_flag(
         return subprocess.CompletedProcess(command, 0, "https://example.invalid/pr/1", "")
 
     monkeypatch.setattr(ds, "_run", fake_run)
+    monkeypatch.setattr(ds.write_boundary, "_git", fake_git)
+    monkeypatch.setattr(ds, "verification_credentials", lambda _url: [])
     monkeypatch.setattr(ds, "_find_pr", lambda *_args: (None, None))
     actions = ds.push_and_maybe_open_pr(tmp_path, "codex/t1", open_pr=parsed.open_pr, title=None, body=None)
 
-    assert calls[0] == ["git", "push", "-u", "origin", "HEAD"]
+    assert [call for call in git_calls if call[0] == "push"] == [[
+        "push", "--quiet", "--no-verify", "--porcelain", "--force-with-lease=refs/heads/codex/t1:",
+        "https://github.com/example/repo.git", "1" * 40 + ":refs/heads/codex/t1",
+    ]]
     from lu_machinery.publish.github import Request
 
     creates = [call for call in calls if isinstance(call, Request)]

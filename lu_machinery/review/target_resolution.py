@@ -221,7 +221,7 @@ def is_test_path(path: str) -> bool:
 
 def _run_git(args: list[str], cwd: Path, *, timeout: float = 30.0) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
-        ["git", *args],
+        ["git", "-c", "core.hooksPath=/dev/null", *args],
         cwd=str(cwd),
         check=False,
         capture_output=True,

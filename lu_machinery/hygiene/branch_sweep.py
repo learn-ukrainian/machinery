@@ -167,8 +167,26 @@ def _git(
     input: str | bytes | None = None,
     text: bool = True,
 ) -> subprocess.CompletedProcess[str] | subprocess.CompletedProcess[bytes]:
+    if args[:1] == ("push",):
+        from lu_machinery.common.git_credentials import verification_credentials
+        from lu_machinery.dispatcher import write_boundary
+
+        try:
+            urls = write_boundary._git(repo, "remote", "get-url", "--push", "--all", "origin").splitlines()
+            if len(urls) != 1:
+                raise write_boundary.Refused("host deletion requires one origin push URL")
+            url = urls[0]
+            credentials = [arg for setting in verification_credentials(url) for arg in ("-c", setting)]
+            output = write_boundary._git(repo, *credentials, "push", "--quiet", "--no-verify", "--porcelain",
+                                         args[2], url, args[-1], network=True)
+            # CompletedProcess records the shared transport's result; it executes nothing.
+            result = subprocess.CompletedProcess(args, 0, output, "")  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit
+        except write_boundary.Refused as exc:
+            result = subprocess.CompletedProcess(args, 1, "", str(exc))  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit
+        return result if text else subprocess.CompletedProcess(args, result.returncode, result.stdout.encode(),  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit
+                                                               result.stderr.encode())
     return subprocess.run(
-        ["git", *args],
+        ["git", "-c", "core.hooksPath=/dev/null", *args],
         cwd=repo,
         env=sanitized_git_env(),
         input=input,
