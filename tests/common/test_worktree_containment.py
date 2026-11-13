@@ -504,6 +504,58 @@ def test_git_write_classified_by_mutated_work_tree_not_cwd(layout: Layout, tmp_p
     assert decision(layout.dispatch_wt, f"{to_primary} checkout --pathspec-from-fil=f HEAD") == 2
 
 
+@pytest.mark.parametrize("redirect", ["gitfile", "symlinked_gitfile", "git_env"])
+@pytest.mark.parametrize("tool", ["Write", "Bash", "glob", "nested"])
+def test_primary_guard_rejects_cwd_repository_identity_substitution(layout: Layout, redirect: str, tool: str):
+    """Worker-controlled Git identity must not redefine the configured protected checkout."""
+    foreign = layout.outside / "foreign"
+    subprocess.run(
+        ["git", "init", "-q", "-b", "main", str(foreign)],
+        check=True, capture_output=True, env=_clean_env(), timeout=30,
+    )
+    env = {
+        key: value for key, value in _clean_env().items()
+        if key not in {"LEARN_UK_ALLOW_PRIMARY_GIT_WRITE", "LEARN_UK_ALLOW_PRIMARY_WRITE"}
+    }
+    env["LU_PRODUCT_ROOT"] = str(layout.main)
+    if redirect == "git_env":
+        env["GIT_DIR"] = str(foreign / ".git")
+        env["GIT_WORK_TREE"] = str(foreign)
+    else:
+        gitfile = layout.dispatch_wt / ".git"
+        if redirect == "symlinked_gitfile":
+            replacement = layout.outside / "gitfile"
+            replacement.write_text(f"gitdir: {foreign}/.git\n")
+            gitfile.unlink()
+            gitfile.symlink_to(replacement)
+        else:
+            gitfile.write_text(f"gitdir: {foreign}/.git\n")
+    hook = Path(__file__).resolve().parents[2] / "agents_extensions/shared/hooks/guard-primary-checkout-write.py"
+
+    def decision(target: Path) -> subprocess.CompletedProcess[str]:
+        if tool == "Write":
+            name, args = "Write", {"file_path": str(target), "content": "replacement"}
+        else:
+            command = f"touch {target}"
+            if tool == "glob":
+                command = f"touch {target.parent}/trac*.txt"
+            elif tool == "nested":
+                command = f"cd {foreign}; touch {target}"
+            name, args = "Bash", {"command": command}
+        return subprocess.run(
+            [sys.executable, str(hook)],
+            input=json.dumps({"tool_name": name, "cwd": str(layout.dispatch_wt), "tool_input": args}),
+            cwd=layout.dispatch_wt, env=env, capture_output=True, text=True, timeout=60,
+        )
+
+    denied = decision(layout.main / "tracked.txt")
+    assert denied.returncode == 2, denied.stderr
+    assert "BLOCKED" in denied.stderr
+    assert (layout.main / "tracked.txt").read_text() == "tracked\n"
+    allowed = decision(layout.dispatch_wt / "tracked.txt")
+    assert allowed.returncode == 0, allowed.stderr
+
+
 def test_tar_list_mode_option_word_is_not_a_primary_write(layout: Layout):
     """Defect class: tar's dash-less option word (``tar tzf``) read as a file written in the primary.
 
