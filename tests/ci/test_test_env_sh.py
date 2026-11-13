@@ -160,3 +160,22 @@ def test_postgres_start_resolves_sibling_from_foreign_cwd(tmp_path: Path) -> Non
     )
     assert result.returncode == 0, result.stdout + result.stderr
     assert "sibling postgres started" in result.stdout
+
+
+def test_cache_lock_progress_does_not_mask_later_mirror_failure(tmp_path: Path) -> None:
+    """A past cache-lock wait must not suppress fallback for a later fetch error."""
+    setup = machinery_path("ci/setup_bubblewrap.sh").read_text()
+    # Only the classifier is evaluated. The host-changing setup body never runs.
+    classifier = setup.split("apt_failure_is_dpkg_lock() {", 1)[1].split("\n}\n", 1)[0]
+    log = tmp_path / "apt.log"
+    log.write_text(
+        "Waiting for cache lock: Could not get lock /var/lib/dpkg/lock-frontend. "
+        "It is held by process 123 (apt-get)\n"
+        "E: Failed to fetch https://mirror.invalid/package.deb Temporary failure resolving\n"
+    )
+    result = subprocess.run(
+        ["bash", "-c", "apt_failure_is_dpkg_lock() {" + classifier + "\n}\n"
+         'apt_failure_is_dpkg_lock 100 "$1"', "_", str(log)],
+        capture_output=True, text=True, timeout=10, check=False,
+    )
+    assert result.returncode == 1, result.stdout + result.stderr
