@@ -622,7 +622,8 @@ def test_unfetched_remote_branch_descending_from_the_recorded_commit_is_preserve
 
     assert row["class"] == "C"
     assert row["outcome"] == "failed"
-    assert row["evidence"]["refs_containing_commit"] == [f"{SCAN_PREFIX}/rescue/advanced"]
+    assert row["evidence"]["origin_heads_matching_task"] == ["rescue/advanced"]
+    assert "origin/rescue/advanced" in row["settle_reason"]
     # The scan namespace is private: the checkout's own remote-tracking refs are untouched.
     assert "rescue/advanced" not in _git(repo, "for-each-ref", "refs/remotes/origin")
     assert _snapshot(tasks_dir) == before
@@ -655,19 +656,26 @@ def test_narrow_configured_refspec_still_finds_the_descending_branch(tasks_dir, 
 
     row = _by_file(report)["narrow.json"]
     assert row["class"] == "C"
-    assert row["evidence"]["refs_containing_commit"] == [f"{SCAN_PREFIX}/rescue/narrow"]
+    assert row["evidence"]["origin_heads_matching_task"] == ["rescue/narrow"]
     assert report["actions"] == {"settled": 1}
     assert _git(repo, "config", "--get-all", "remote.origin.fetch") == "+refs/heads/main:refs/remotes/origin/main"
 
 
-def test_scan_namespace_is_pruned(tasks_dir, repo):
+def test_scan_namespace_is_preserved_and_never_used_as_current_remote_heads(tasks_dir, repo):
     _record(tasks_dir, "no-commits")
+    _git(repo, "update-ref", f"{SCAN_PREFIX}/doomed", _git(repo, "rev-parse", "HEAD"))
     _git(repo, "push", "origin", "main:refs/heads/doomed")
+    refs_before = _git(repo, "for-each-ref")
     _settle(tasks_dir, repo, [])
+    assert _git(repo, "for-each-ref") == refs_before
     assert f"{SCAN_PREFIX}/doomed" in _git(repo, "for-each-ref", "--format=%(refname)", SCAN_PREFIX)
     _git(repo, "push", "origin", ":refs/heads/doomed")
+    refs_before = _git(repo, "for-each-ref")
     _settle(tasks_dir, repo, [])
-    assert _git(repo, "for-each-ref", "--format=%(refname)", SCAN_PREFIX).split() == [f"{SCAN_PREFIX}/main"]
+    assert _git(repo, "for-each-ref") == refs_before
+    assert _git(repo, "for-each-ref", "--format=%(refname)", SCAN_PREFIX).split() == [f"{SCAN_PREFIX}/doomed"]
+    facts = str_mod.collect_repo_facts(SLUG, repo, str_mod.fleet_fetch_target(SLUG))
+    assert facts.remote_heads == {"main": _git(repo, "rev-parse", "HEAD")}
 
 
 def test_git_config_env_redirect_is_ignored(tasks_dir, repo, tmp_path, monkeypatch):
@@ -691,13 +699,13 @@ def test_git_config_env_redirect_is_ignored(tasks_dir, repo, tmp_path, monkeypat
     row = _by_file(_settle(tasks_dir, repo, [], apply=True))["redirected.json"]
 
     assert row["class"] == "C"
-    assert row["evidence"]["refs_containing_commit"] == [f"{SCAN_PREFIX}/rescue/redirected"]
+    assert row["evidence"]["origin_heads_matching_task"] == ["rescue/redirected"]
 
 
 SECRET = "lu_synthetic_TOKEN_9f8e7d6c5b4a39281706"
 
 
-def test_checkout_config_rewrite_refuses_the_fetch_and_hides_credentials(tasks_dir, repo, tmp_path):
+def test_checkout_config_rewrite_refuses_remote_inventory_and_hides_credentials(tasks_dir, repo, tmp_path):
     """``url.*.insteadOf`` in the checkout's own config would silently change which repository is fetched."""
     origin = str(tmp_path / "origin.git")
     _git(repo, "config", f"url.https://x-access-token:{SECRET}@example.invalid/r.git.insteadOf", origin)
@@ -707,7 +715,7 @@ def test_checkout_config_rewrite_refuses_the_fetch_and_hides_credentials(tasks_d
 
     row = _by_file(report)["no-commits.json"]
     assert row["class"] == "D"
-    assert "refusing to fetch" in row["skip_reason"]
+    assert "refusing remote inventory" in row["skip_reason"]
     assert "https://example.invalid/r.git" in row["evidence"]["fetch_failed"]
     assert SECRET not in json.dumps(report) and "x-access-token" not in json.dumps(report)
 
@@ -721,7 +729,7 @@ def test_git_error_text_never_carries_credentials(tasks_dir, mixed, monkeypatch,
     )
 
     def leaky_fetch(args, **kwargs):
-        if args[0] == "fetch":
+        if args[:2] == ["ls-remote", "--heads"]:
             return subprocess.CompletedProcess(["git", *args], 128, "", stderr)
         return real_git(args, **kwargs)
 
@@ -744,11 +752,11 @@ def test_gh_error_text_never_carries_credentials(monkeypatch):
     assert SECRET not in index.error
 
 
-def test_failed_fetch_keeps_every_record_of_the_repository_out_of_class_c(tasks_dir, mixed, monkeypatch):
+def test_failed_remote_inventory_keeps_every_record_of_the_repository_out_of_class_c(tasks_dir, mixed, monkeypatch):
     real_git = str_mod._git
 
     def offline_fetch(args, **kwargs):
-        if args[0] == "fetch":
+        if args[:2] == ["ls-remote", "--heads"]:
             return subprocess.CompletedProcess(["git", *args], 128, "", "fatal: unable to access origin\n")
         return real_git(args, **kwargs)
 
@@ -761,7 +769,7 @@ def test_failed_fetch_keeps_every_record_of_the_repository_out_of_class_c(tasks_
     assert report["classes"] == {"A": 0, "B": 0, "C": 0, "D": 9}
     for name in ("published.json", "local-only.json", "merged.json", "no-commits.json", "crashed.json"):
         assert rows[name]["class"] == "D"
-        assert rows[name]["skip_reason"].startswith("fetch_failed: git fetch ")
+        assert rows[name]["skip_reason"].startswith("fetch_failed: git ls-remote ")
         assert "failed: fatal: unable to access origin" in rows[name]["skip_reason"]
     assert "settled" not in report["actions"]
     assert mixed["pager"].calls == []
@@ -870,20 +878,29 @@ def test_abandoned_preserved_refs_settle_without_changing_refs(tasks_dir, repo):
         _git(repo, "update-ref", ref, sha)
     path = _record(tasks_dir, "preserved", commits_ahead=2)
     delivered = _record(tasks_dir, "delivered", commits_ahead=2)
+    history = _git(repo, "rev-parse", "HEAD")
+    _record(tasks_dir, "history", commits_ahead=1, final_branch_head_commit=history)
+    newer = repo.parent / "unrelated-newer-checkout"
+    _git(repo, "worktree", "add", "-b", "unrelated/newer", str(newer))
+    (newer / "later.txt").write_text("a different task\n")
+    _git(newer, "add", "later.txt")
+    _git(newer, "commit", "-m", "unrelated newer work")
     pulls = [_merged("codex/delivered", 91, OLD_FINISH + timedelta(hours=1), head_sha=sha)]
     before = _snapshot(tasks_dir)
     dry = _settle(tasks_dir, repo, pulls)
-    assert dry["outcomes"] == {"failed": 1, "done": 1}
+    assert dry["outcomes"] == {"failed": 2, "done": 1}
     assert _snapshot(tasks_dir) == before
     ref_snapshot = _git(repo, "for-each-ref")
     applied = _settle(tasks_dir, repo, pulls, apply=True)
-    assert applied["actions"] == {"settled": 2}
+    assert applied["actions"] == {"settled": 3}
     failed = json.loads(path.read_text())
     assert failed["status"] == "failed"
     assert failed["settle_reason"] == "abandoned; work preserved at " + ", ".join(sorted(refs))
     assert json.loads(delivered.read_text())["merged_pr"]["url"] == f"https://github.com/{SLUG}/pull/91"
     assert json.loads(delivered.read_text())["status"] == "done"
     assert _git(repo, "for-each-ref") == ref_snapshot
+    assert json.loads((tasks_dir / "history.json").read_text())["status"] == "failed"
+    assert newer.is_dir()
 
 
 def test_open_pr_or_existing_worktree_keeps_abandoned_records_reported(tasks_dir, repo, tmp_path):

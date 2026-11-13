@@ -273,7 +273,7 @@ _SAFE_REPO_KEY_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]*$")
 
 @dataclasses.dataclass(frozen=True)
 class FetchTarget:
-    """Where a repository's branches are fetched from, and the private ref namespace they land in."""
+    """Allowlisted remote identity and its historical scan-ref namespace."""
 
     key: str
     url: str
@@ -308,8 +308,8 @@ class RepoFacts:
     remote_heads: dict[str, str] | None = None
     local_branches: dict[str, str] | None = None
     error: str | None = None
-    # Set when the fetch failed: refs from an older scan may be stale, so no
-    # record of this repository may be classified from them.
+    # Historical field name retained for report compatibility. A failed remote
+    # inventory cannot be replaced by stale scan refs.
     fetch_error: str | None = None
     # Filled once. None means not loaded. An error means a rescue pin cannot
     # prove that no live checkout still holds the commit.
@@ -330,44 +330,29 @@ def default_repo_checkouts() -> dict[str, Path]:
     return checkouts
 
 
-def _fetch_scan_refs(checkout: Path, target: FetchTarget) -> str | None:
-    """Mirror the repository's branches into ``refs/lu-stale-scan/<key>/``; return why it failed, or ``None``.
+def _remote_heads(checkout: Path, target: FetchTarget) -> tuple[dict[str, str] | None, str | None]:
+    """Read current branches without fetching, moving or pruning any local ref.
 
-    Reachability proves a commit is off the remote only when every remote
-    branch is current, so the fetch never depends on the checkout's remote
-    configuration: it names the allowlisted URL and an explicit refspec into a
-    private namespace (``--prune`` drops branches deleted upstream), and runs
-    with config injection scrubbed from the environment (:func:`_git_env`).
-    ``url.<base>.insteadOf`` in the checkout's own config could still rewrite
-    the URL, so the effective URL is checked first.
+    The allowlisted URL and scrubbed Git environment are the same as before.
+    Checkout URL rewrites still fail closed before querying the remote.
     """
     resolved = _git(["ls-remote", "--get-url", target.url], cwd=checkout, timeout=DEFAULT_GIT_TIMEOUT_S)
     if resolved is None or resolved.returncode != 0:
-        return f"git ls-remote --get-url failed: {_failure_detail(resolved) if resolved else 'did not finish'}"
+        return None, f"git ls-remote --get-url failed: {_failure_detail(resolved) if resolved else 'did not finish'}"
     effective = resolved.stdout.strip()
     if effective != target.url:
-        return f"git config rewrites {target.url} to {_scrub(effective)} (url.*.insteadOf); refusing to fetch"
-    proc = _git(
-        [
-            "fetch",
-            "--no-tags",
-            "--prune",
-            "--no-write-fetch-head",
-            target.url,
-            f"+refs/heads/*:{target.ref_prefix}/*",
-        ],
-        cwd=checkout,
-        timeout=DEFAULT_NETWORK_GIT_TIMEOUT_S,
-    )
+        return None, f"git config rewrites {target.url} to {_scrub(effective)} (url.*.insteadOf); refusing remote inventory"
+    proc = _git(["ls-remote", "--heads", target.url], cwd=checkout, timeout=DEFAULT_NETWORK_GIT_TIMEOUT_S)
     if proc is None:
-        return f"git fetch {target.url} did not finish within {DEFAULT_NETWORK_GIT_TIMEOUT_S:g}s"
+        return None, f"git ls-remote {target.url} did not finish within {DEFAULT_NETWORK_GIT_TIMEOUT_S:g}s"
     if proc.returncode != 0:
-        return f"git fetch {target.url} failed: {_failure_detail(proc)}"[:300]
-    return None
+        return None, f"git ls-remote {target.url} failed: {_failure_detail(proc)}"[:300]
+    return {ref.removeprefix("refs/heads/"): sha for line in proc.stdout.splitlines()
+            for sha, ref in [line.split()]}, None
 
 
 def collect_repo_facts(slug: str, checkout: Path | None, target: FetchTarget | None) -> RepoFacts:
-    """Fetch current remote branches, then inventory every local ref namespace."""
+    """Read current remote branches and every local ref namespace without changing refs."""
     facts = RepoFacts(slug=slug, checkout=checkout, target=target)
     if checkout is None:
         facts.error = f"no local checkout for repository {slug}"
@@ -375,7 +360,7 @@ def collect_repo_facts(slug: str, checkout: Path | None, target: FetchTarget | N
     if target is None:
         facts.error = f"repository {slug} is not in {_MACHINERY}/config/fleet_repos.yaml"
         return facts
-    facts.fetch_error = _fetch_scan_refs(checkout, target)
+    facts.remote_heads, facts.fetch_error = _remote_heads(checkout, target)
     if facts.fetch_error is not None:
         return facts
     listing = _git(
@@ -387,16 +372,12 @@ def collect_repo_facts(slug: str, checkout: Path | None, target: FetchTarget | N
         facts.error = "git for-each-ref failed"
         return facts
     facts.all_refs = {}
-    heads: dict[str, str] = {}
     branches: dict[str, str] = {}
     for line in listing.stdout.splitlines():
         sha, _, ref = line.partition(" ")
         facts.all_refs[ref] = sha
-        if ref.startswith(f"{target.ref_prefix}/"):
-            heads[ref.removeprefix(f"{target.ref_prefix}/")] = sha
-        elif ref.startswith("refs/heads/"):
+        if ref.startswith("refs/heads/"):
             branches[ref.removeprefix("refs/heads/")] = sha
-    facts.remote_heads = heads
     facts.local_branches = branches
     return facts
 
@@ -466,9 +447,8 @@ def collect_commit_facts(checkout: Path, shas: Iterable[str]) -> CommitFacts:
     ``rev-list --all`` walks every ref (local branches, tags, remote-tracking
     refs, the ``refs/lu-stale-scan`` namespace, stash) plus the HEAD of every
     linked worktree, so a commit it does not list is held by no ref under any
-    name. Callers run it only after :func:`_fetch_scan_refs` succeeded, so the
-    scan namespace holds every current remote branch and one that descends
-    from the commit is seen.
+    local name. Remote branch heads are inventoried separately; historical
+    scan refs remain custody evidence and are never refreshed or pruned here.
     """
     wanted = sorted(set(shas))
     facts = CommitFacts(resolved={}, reachable=set())
@@ -790,6 +770,8 @@ def _classify_one(candidate: Candidate, facts: RepoFacts | None) -> None:
     worktree_exists = worktree is not None and os.path.lexists(worktree)
     dirty = worktree_claims.worktree_is_dirty(worktree) if worktree is not None and worktree_exists else False
     on_origin = branch in facts.remote_heads
+    matching_remote = sorted(name for name in facts.remote_heads if name == branch or candidate.task_id in name)
+    evidence["origin_heads_matching_task"] = matching_remote
     local_sha = facts.local_branches.get(branch)
     evidence.update(
         {
@@ -806,10 +788,10 @@ def _classify_one(candidate: Candidate, facts: RepoFacts | None) -> None:
         elif facts.checkout is not None and facts.target is not None:
             base = _normalize_branch(record.get("worktree_base")) or "main"
             evidence["local_commits_ahead_of_base"] = _commits_ahead_of_base(
-                facts.checkout, f"{facts.target.ref_prefix}/{base}", branch
+                facts.checkout, facts.remote_heads.get(base, base), branch
             )
 
-    if on_origin:
+    if on_origin or matching_remote:
         candidate.klass = "A"
         candidate.skip_reason = "branch still on origin; no finalizer publishes a branch without its worktree"
     elif local_sha is not None or dirty in (True, None):
@@ -940,7 +922,7 @@ def _apply_commit_facts(candidate: Candidate, commits: CommitFacts, facts: RepoF
         # checkout can still hold it on a detached HEAD, which for-each-ref misses.
         heads, head_error = _load_worktree_heads(facts)
         base_sha = str(candidate.record.get("worktree_base_sha") or "").strip().lower()
-        default_ref = f"{scan_prefix}/{base}" if scan_prefix else ""
+        default_ref = (facts.remote_heads or {}).get(base, "")
         held_by_head: bool | None = False
         if head_error:
             held_by_head = None
@@ -1221,6 +1203,20 @@ def _close_abandoned(candidate: Candidate, facts: RepoFacts, index: PullIndex) -
     if candidate.evidence.get("open_prs"):
         candidate.skip_reason = "open PR still needs delivery"
         return
+    if not candidate.work_commits and candidate.evidence["recorded_commits"]:
+        commits = collect_commit_facts(facts.checkout, candidate.evidence["recorded_commits"])
+        if commits.error:
+            candidate.skip_reason = "commit evidence unavailable: " + commits.error
+            return
+        candidate.work_commits = [sha for sha in commits.resolved.values() if sha]
+    base = _normalize_branch(candidate.record.get("worktree_base")) or "main"
+    default_refs = [ref for ref in (f"refs/heads/{base}", f"refs/remotes/origin/{base}")
+                    if ref in facts.all_refs]
+    # A newer checkout containing already-landed history does not belong to
+    # every historical task in that history. Detached unpublished work still
+    # counts, including when its checkout advanced after the task exited.
+    unpublished = [sha for sha in candidate.work_commits
+                   if not any(_is_ancestor(facts.checkout, sha, ref) for ref in default_refs)]
     # Check even records missing a branch name, which the original classifier
     # returns before inspecting the checkout. Unreadable paths remain unknown.
     paths = [_owned_checkout(candidate.record), *(candidate.record.get("acp_runtime_paths") or [])]
@@ -1248,9 +1244,9 @@ def _close_abandoned(candidate: Candidate, facts: RepoFacts, index: PullIndex) -
         if not raw or Path(raw) == facts.checkout:
             continue
         branch_matches = tree.get("branch") == "refs/heads/" + str(candidate.evidence.get("branch"))
-        contains = [_ancestor_status(facts.checkout, sha, tree.get("HEAD", ""))
-                    for sha in candidate.evidence["recorded_commits"]]
-        if not branch_matches and not any(value is True for value in contains) and None not in contains:
+        contains = [_ancestor_status(facts.checkout, sha, tree.get("HEAD", "")) for sha in unpublished]
+        same_head = tree.get("HEAD") in candidate.work_commits
+        if not branch_matches and not same_head and not any(value is True for value in contains) and None not in contains:
             continue
         try:
             os.lstat(raw)
@@ -1362,7 +1358,7 @@ def classify(
                 branch = candidate.evidence.get("branch")
                 candidate.evidence["open_prs"] = [
                     pull for name, pulls in index.open_by_branch.items() for pull in pulls
-                    if name == branch or (not branch and candidate.task_id in name)
+                    if name == branch or candidate.task_id in name
                     or any(isinstance(pull.get("head_sha"), str) and pull["head_sha"].startswith(sha)
                            for sha in candidate.evidence["recorded_commits"])
                 ]
@@ -1467,7 +1463,7 @@ def apply_settlement(
                     candidate.action, candidate.skip_reason = "skipped", "open pull evidence unavailable before write"
                     return
                 branch = candidate.evidence.get("branch")
-                if any(name == branch or (not branch and candidate.task_id in name)
+                if any(name == branch or candidate.task_id in name
                        or any(isinstance(pull.get("head_sha"), str) and pull["head_sha"].startswith(sha)
                               for sha in candidate.evidence["recorded_commits"])
                        for name, pulls in opened.open_by_branch.items() for pull in pulls):
@@ -1504,6 +1500,7 @@ def decision_row(candidate: Candidate) -> dict[str, Any]:
     locations.extend(evidence.get("surviving_paths", []))
     locations.extend(pull["url"] for pull in evidence.get("open_prs", []) + evidence.get("merged_prs", [])
                      if pull.get("url"))
+    locations.extend("origin/" + name for name in evidence.get("origin_heads_matching_task", []))
     if evidence.get("branch_on_origin"):
         locations.append("origin/" + str(evidence.get("branch")))
     if evidence.get("local_branch"):
@@ -2094,7 +2091,7 @@ def _build_parser() -> argparse.ArgumentParser:
             "Examples:\n"
             f"  .venv/bin/python -m {_MODULE} settle-stale --json\n"
             f"  .venv/bin/python -m {_MODULE} settle-stale --apply\n"
-            "Outputs: repository evidence and keep/close rows; fetch updates only the private scan refs.\n"
+            "Outputs: repository evidence and keep/close rows; remote inventory never changes local refs.\n"
             "Exit codes: 0 reported or every write succeeded, 1 a write failed, 2 bad arguments.\n" + _RELATED
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,

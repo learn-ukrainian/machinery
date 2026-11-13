@@ -80,7 +80,8 @@ command before deciding whether surviving work should be kept or closed:
 .venv/bin/python -m lu_machinery.orchestration.stale_task_records settle-stale --apply --json
 ```
 
-The first command is a dry run. Its `classes`, `outcomes`, and `needs_decision`
+The first command is a dry run. Remote heads come from `git ls-remote`; neither
+mode fetches, refreshes, or prunes local refs. Its `classes`, `outcomes`, and `needs_decision`
 fields show the proposed settlements and remaining decisions. `keep_close`
 contains one row per remaining record, with task id, repository, branch,
 recovery locations, open PRs, and age. The text report prints the same rows
@@ -98,7 +99,8 @@ keeps the record reported even if its Git metadata is missing.
 The age floor still applies. Incomplete repository, filesystem, or PR evidence
 leaves a record unresolved. Settlement holds the existing record/worktree lock,
 re-reads its mtime and status, and checks that its checkout has not reappeared
-before writing. The older unrecoverable-work rule also rechecks local refs and
+before writing. The new rule also lists open PRs and worktree directories again
+under that lock. The older unrecoverable-work rule also rechecks local refs and
 commit reachability under that lock. Settlement deletes no branch, ref, or
 worktree. Those require a separate decision.
 
