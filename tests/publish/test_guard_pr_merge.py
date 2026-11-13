@@ -2565,6 +2565,31 @@ def test_status_rollup_returns_the_bound_response(monkeypatch):
         ("sh -s <<EOF\ngh pr merge 5\nEOF", ["CI Gate"], 2),
         ("cat <<'EOF' | bash\ngh pr merge 5\nEOF", ["CI Gate"], 2),
         ("cat <<'EOF' | cat | sh -s\ngh pr merge 5\nEOF", ["CI Gate"], 2),
+        ("cat <<'EOF' | gh pr comment 5 --body-file -\nUse `gh pr merge` after review.\nEOF", ["CI Gate"], 0),
+        ("cat <<'EOF' | cat | gh issue comment 5 --body-file=-\nUse gh pr merge after review.\nEOF", ["CI Gate"], 0),
+        ("cat <<'EOF' | .venv/bin/python -m lu_machinery.publish pr-comment --number 5 --body-file -\nUse gh pr merge after review.\nEOF", ["CI Gate"], 0),
+        ("cat <<'EOF' | gh pr merge 5 --body-file -\nUse gh pr merge after review.\nEOF", ["CI Gate"], 2),
+        ("cat <<'EOF' | unknown-reader\ngh pr merge 5\nEOF", ["CI Gate"], 2),
+        ("cat <<'EOF' | sort --compress-program=bash\ngh pr merge 5\nEOF", ["CI Gate"], 2),
+        ("cat <<'EOF' | gh pr comment 5 --body-file -\nmerge note\nEOF\ngh pr merge 5", ["CI Gate"], 2),
+        ("wc -l <<'EOF'\nUse `gh pr merge` after review.\nEOF", ["CI Gate"], 0),
+        ("head -n 1 <<'EOF'\nUse `gh pr merge` after review.\nEOF", ["CI Gate"], 0),
+        ("sort <<'EOF'\nUse `gh pr merge` after review.\nEOF", ["CI Gate"], 0),
+        ("cat <<\\EOF\nUse `gh pr merge` after review.\nEOF", ["CI Gate"], 0),
+        ("cat <<E'OF'\nUse `gh pr merge` after review.\nEOF", ["CI Gate"], 0),
+        ("wc -l <<E\"OF\"\nUse gh pr merge after review.\nEOF", ["CI Gate"], 0),
+        ("cat <<\\EOF | gh pr comment 5 --body-file -\nUse `gh pr merge` after review.\nEOF", ["CI Gate"], 0),
+        ("bash <<E'OF'\ngh pr merge 5\nEOF", ["CI Gate"], 2),
+        ("unknown-reader <<\\EOF\ngh pr merge 5\nEOF", ["CI Gate"], 2),
+        ("cat <<E'OF' | bash\ngh pr merge 5\nEOF", ["CI Gate"], 2),
+        ("gh pr merge 5 --body-file - <<\\EOF\nUse `gh pr merge` after review.\nEOF", ["CI Gate"], 2),
+        ("cat <<E'OF'\nUse gh pr merge after review.\nEOF\ngh pr merge 5", ["CI Gate"], 2),
+        ("cat <<E'OF'\ngh pr merge 5\nWRONG", ["CI Gate"], 2),
+        ("cat > note.md <<'EOF'\ngh pr merge 5\nEOF\ncat note.md", ["CI Gate"], 0),
+        ("gh pr diff 5 -- agents_extensions/shared/hooks/guard-pr-merge.py | sed -n 1,50p", ["CI Gate"], 0),
+        ("gh pr view 5 --json title | sort", ["CI Gate"], 0),
+        ("git log --merges -1", ["CI Gate"], 0),
+        ("gh pr list --state open | cut -f1", ["CI Gate"], 0),
         ("cat | bash <<'EOF'\ngh pr merge 5\nEOF", ["CI Gate"], 2),
         ("python3 - <<'EOF'\nimport os; os.system('gh pr merge 5')\nEOF", ["CI Gate"], 2),
         ("cat <<'EOF' | cat | python3 -\nimport os; os.system('gh pr merge 5')\nEOF", ["CI Gate"], 2),
@@ -2609,5 +2634,5 @@ def test_status_rollup_returns_the_bound_response(monkeypatch):
     ],
 )
 def test_interpreter_heredoc_merge_bypass_refused(monkeypatch, command, failures, expected):
-    """R33: interpreter stdin is executable, including a pipeline's heredoc."""
+    """R33/R44/R49: distinguish executable stdin from literal text readers."""
     assert _run(monkeypatch, command, checks=(failures, [])) == expected
