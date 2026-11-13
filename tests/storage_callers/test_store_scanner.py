@@ -168,3 +168,165 @@ def test_manifest_pair_tracks_scan_root_without_product_authority_leak(tmp_path,
     declaration.unlink()
     with pytest.raises(ValueError, match="product_declaration_missing"):
         lint.find_violations()
+
+
+def test_connection_subclass_call_is_a_constructor_reference():
+    """Defect class: calling a sqlite3.Connection subclass opens a writable database the lint misses."""
+    source = """
+import sqlite3
+class Mine(sqlite3.Connection):
+    pass
+def open(path):
+    alias = Mine
+    return alias(path)
+"""
+    assert [finding.snippet for finding in lint.classify_source(source, "lu_machinery/mine.py")] == [
+        "class Mine(sqlite3.Connection):",
+        "return alias(path)",
+    ]
+
+
+def test_imported_connection_subclass_calls_are_reported_except_resolver_scope(tmp_path):
+    """Defect class: machinery #11's three subclass-call forms (and an import alias) produce no finding.
+
+    A class object passed as a connection factory is not a call. A call inside a
+    declared resolver function is not a reference; the same call beside it is.
+    Subclasses defined in lu_machinery/ and in scripts/ both count.
+    """
+    files = {
+        "lu_machinery/lib/readonly_sqlite.py": "import sqlite3\nclass SerializedConnection(sqlite3.Connection):\n    pass\n",
+        "lu_machinery/api/resilience.py": (
+            "import sqlite3\n"
+            "class TimedSQLiteConnection(sqlite3.Connection):\n"
+            "    pass\n"
+            "def connect_sqlite(database, *args, **kwargs):\n"
+            "    kwargs.setdefault('factory', TimedSQLiteConnection)\n"
+            "    return sqlite3.connect(database, *args, **kwargs)\n"
+        ),
+        "scripts/extra.py": "import sqlite3\nclass ScriptConnection(sqlite3.Connection):\n    pass\n",
+        "scripts/dbapi_parent.py": "from sqlite3 import dbapi2 as db\nclass DbapiParent(db.Connection):\n    pass\n",
+        "scripts/alias_parent.py": "import sqlite3\nsql = sqlite3\nclass AliasParent(sql.Connection):\n    pass\n",
+        "scripts/dbapi_chain.py": "import sqlite3\nsql = sqlite3\nclass ChainParent(sql.dbapi2.Connection):\n    pass\n",
+        "scripts/dbapi_assign.py": "import sqlite3\ndb = sqlite3.dbapi2\nclass AssignedParent(db.Connection):\n    pass\n",
+        "scripts/dbapi_indirect.py": "import sqlite3\nsql = sqlite3\ndb = sql.dbapi2\nclass IndirectParent(db.Connection):\n    pass\n",
+        "scripts/ann_parent.py": "import sqlite3\nBase: type = sqlite3.Connection\nclass AnnParent(Base):\n    pass\n",
+        "scripts/tab_parent.py": "import sqlite3\nclass\tTabParent(sqlite3.Connection):\n    pass\n",
+        "lu_machinery/child.py": (
+            "from lu_machinery.lib.readonly_sqlite import SerializedConnection\n"
+            "class Child(SerializedConnection):\n"
+            "    pass\n"
+            "def open(path):\n"
+            "    return Child(path)\n"
+        ),
+        "lu_machinery/caller.py": (
+            "from scripts.lib.readonly_sqlite import SerializedConnection\n"
+            "from scripts.lib.readonly_sqlite import SerializedConnection as Alias\n"
+            "from lu_machinery.api.resilience import TimedSQLiteConnection\n"
+            "from scripts.extra import ScriptConnection\n"
+            "from scripts.dbapi_parent import DbapiParent\n"
+            "from scripts.alias_parent import AliasParent\n"
+            "from scripts.dbapi_chain import ChainParent\n"
+            "from scripts.dbapi_assign import AssignedParent\n"
+            "from scripts.dbapi_indirect import IndirectParent\n"
+            "from scripts.ann_parent import AnnParent\n"
+            "from scripts.tab_parent import TabParent\n"
+            "def open_dynamic(path, name):\n"
+            "    return import_named_module(name).SerializedConnection(path)\n"
+            "def open_static(path):\n"
+            "    return SerializedConnection(path)\n"
+            "def open_alias(path):\n"
+            "    return Alias(path)\n"
+            "def open_timed(path):\n"
+            "    return TimedSQLiteConnection(path)\n"
+            "def open_script(path):\n"
+            "    return ScriptConnection(path)\n"
+            "def open_dbapi(path):\n"
+            "    return DbapiParent(path)\n"
+            "def open_module_alias(path):\n"
+            "    return AliasParent(path)\n"
+            "def open_dbapi_chain(path):\n"
+            "    return ChainParent(path)\n"
+            "def open_dbapi_assign(path):\n"
+            "    return AssignedParent(path)\n"
+            "def open_dbapi_indirect(path):\n"
+            "    return IndirectParent(path)\n"
+            "def open_annotated(path):\n"
+            "    return AnnParent(path)\n"
+            "def open_tab(path):\n"
+            "    return TabParent(path)\n"
+            "def open_other(path):\n"
+            "    return NotAConnection(path)\n"
+        ),
+        "lu_machinery/bare.py": (
+            "import lu_machinery.api.resilience as resilience\n"
+            "def open(path, TimedSQLiteConnection=resilience.TimedSQLiteConnection):\n"
+            "    return TimedSQLiteConnection(explicit)\n"
+        ),
+        "lu_machinery/storage/topology.py": (
+            "from lu_machinery.lib.readonly_sqlite import SerializedConnection\n"
+            "def marker(factory):\n"
+            "    return factory\n"
+            "@marker(SerializedConnection(DECORATED))\n"
+            "def resolve_store(path):\n"
+            "    return path\n"
+            "def resolve_active_sources_db(conn: SerializedConnection(ANNOTATED)):\n"
+            "    return conn\n"
+            "def _prepare_store_write_target(conn=SerializedConnection(DEFAULT)):\n"
+            "    return conn\n"
+            "def resolve_store_for_write(resolved, *, extra=SerializedConnection(KEYWORD)):\n"
+            "    return SerializedConnection(resolved)\n"
+            "def not_a_resolver(other):\n"
+            "    return SerializedConnection(other)\n"
+        ),
+    }
+    for rel, source in files.items():
+        path = tmp_path / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(source)
+    resolver = lint.AllowedReference(
+        path="lu_machinery/storage/topology.py", reference_count=0, kind="store_resolver",
+        target_db=None, reason="fixture", functions=(
+            "resolve_store", "resolve_active_sources_db", "resolve_store_for_write", "_prepare_store_write_target",
+        ),
+    )
+    violations, unreadable = lint.find_violations(tmp_path, (resolver,))
+    assert unreadable == []
+    reported = set(violations)
+    for snippet in (
+        "return import_named_module(name).SerializedConnection(path)",
+        "return SerializedConnection(path)",
+        "return Alias(path)",
+        "return TimedSQLiteConnection(path)",
+        "return ScriptConnection(path)",
+        "return Child(path)",
+        "return SerializedConnection(other)",
+        "return DbapiParent(path)",
+        "return AliasParent(path)",
+        "return ChainParent(path)",
+        "return AssignedParent(path)",
+        "return IndirectParent(path)",
+        "return AnnParent(path)",
+        "return TabParent(path)",
+        "return TimedSQLiteConnection(explicit)",
+        "SerializedConnection(DECORATED)",
+        "SerializedConnection(ANNOTATED)",
+        "SerializedConnection(DEFAULT)",
+        "SerializedConnection(KEYWORD)",
+    ):
+        assert any(snippet in item for item in reported), snippet
+    absent = (
+        "return SerializedConnection(resolved)",
+        "kwargs.setdefault('factory', TimedSQLiteConnection)",
+        "return NotAConnection(path)",
+    )
+    assert [item for item in reported if any(snippet in item for snippet in absent)] == []
+
+
+def test_subclass_factory_argument_does_not_grow_pinned_reference_counts():
+    """Defect class: handing a Connection subclass to sqlite3.connect as factory grows the writer's pin."""
+    package = lint.REFERENCE_MANIFEST.parent.parent
+    resilience = (package / "api" / "resilience.py").read_text()
+    reader = (package / "lib" / "readonly_sqlite.py").read_text()
+    assert len(lint.classify_source(resilience, "lu_machinery/api/resilience.py")) == 3
+    assert len(lint.classify_source(reader, lint.READER_BOUNDARY)) == 11
+    assert not any("setdefault" in finding.snippet for finding in lint.classify_source(resilience, "lu_machinery/api/resilience.py"))
