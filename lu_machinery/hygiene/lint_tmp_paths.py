@@ -18,7 +18,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import cast
 
-from lu_machinery.common.repo_root import product_root
+from lu_machinery.common.repo_root import PRODUCT_MARKER, product_root
 
 
 def _machinery_top() -> str:
@@ -2672,7 +2672,9 @@ def line_digest(line: str) -> str:
     return hashlib.sha256(line.encode()).hexdigest()
 
 
-def unmatched_rows(rows: list[tuple[str, int, str]]) -> list[tuple[str, int, str]]:
+def unmatched_rows(
+    rows: list[tuple[str, int, str]], *, repo_root: Path | None = None
+) -> list[tuple[str, int, str]]:
     """Find unmatched or repeated literals; allowlist entries carry a stated reason."""
     allowances = {}
     for path, reason, encoded in ALLOWLIST:
@@ -2681,6 +2683,13 @@ def unmatched_rows(rows: list[tuple[str, int, str]]) -> list[tuple[str, int, str
         for entry in encoded.split():
             digest, count = entry.split(":")
             allowances[path, digest] = int(count)
+    # During extraction the product still carries machinery files under scripts/.
+    # Reuse only their exact counted baseline, and only in the product layout.
+    if repo_root is not None and (repo_root / PRODUCT_MARKER).is_file():
+        prefix = _machinery_top() + "/"
+        for (path, digest), maximum_count in list(allowances.items()):
+            if path.startswith(prefix):
+                allowances.setdefault(("scripts/" + path.removeprefix(prefix), digest), maximum_count)
     used: Counter[tuple[str, str]] = Counter()
     findings = []
     for path, number, line in rows:
@@ -2694,7 +2703,7 @@ def unmatched_rows(rows: list[tuple[str, int, str]]) -> list[tuple[str, int, str
 def find_literal_tmp_paths(repo_root: Path | None = None) -> list[tuple[str, int]]:
     """Find new literals and unmanaged calls outside the counted legacy baseline."""
     repo_root = repo_root or product_root()
-    return [(path, number) for path, number, _ in unmatched_rows(scan_lines(repo_root))]
+    return [(path, number) for path, number, _ in unmatched_rows(scan_lines(repo_root), repo_root=repo_root)]
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -2734,7 +2743,7 @@ def main(argv: list[str] | None = None) -> int:
         location = Path(exc.filename).name if getattr(exc, "filename", None) else "source"
         print(f"{location}: cannot read or parse source", file=sys.stderr)
         return 2
-    findings = unmatched_rows(rows)
+    findings = unmatched_rows(rows, repo_root=args.repo)
     if findings:
         counts = Counter((path, line_digest(line)) for path, _, line in rows)
         for path, number, line in findings:
