@@ -732,11 +732,11 @@ def _probe_claude_native(*, timeout_s: float) -> dict[str, Any]:
             {"kind": "rate_limit" if limited else "unavailable", "code": 429 if limited else "UNAVAILABLE"},
         )
     else:
-        result = row.get("provider_usage")
-        if result is None:
+        provider_usage = row.get("provider_usage")
+        if provider_usage is None:
             # Restored samples contain only the validated plan windows. Optional
             # provider extras become available on the next scheduled measurement.
-            result = _normalize_provider_data(
+            provider_usage = _normalize_provider_data(
                 "claude",
                 {
                     "source": "oauth",
@@ -750,6 +750,7 @@ def _probe_claude_native(*, timeout_s: float) -> dict[str, Any]:
                     },
                 },
             )
+        result = provider_usage
     return {
         **result,
         "fetched_at": row["updated"],
@@ -2704,9 +2705,9 @@ def _claude_account_probe_in_flight() -> bool:
 def _claude_account_reading_past_ttl() -> bool:
     """True when a row this process probes is older than the cache TTL.
 
-    A label the host lane scheduler owns is not probed here, so its row
-    cannot demand another pass. ``claude_accounts_snapshot`` only lstats and
-    never starts a probe. An unknown row is not past TTL: a missing reading
+    Every subscription label belongs to the account scheduler.
+    ``claude_accounts_snapshot`` only lstats and never starts a probe.
+    An unknown row is not past TTL: a missing reading
     is not a stale one.
     """
     from lu_machinery.api.claude_account_usage import (  # noqa: PLC0415  # lazy-ok: import cycle

@@ -134,7 +134,9 @@ one scheduler interval. No `Retry-After` propagation is implemented.
 The general subscription scheduler and explicit fresh-refresh callers read the
 same account-a sample for the legacy Claude lane. They do not issue another
 Claude usage request. HTTP refresh requests cannot start another account pass
-beside the running account scheduler. Optional provider windows from a live
+beside the running account scheduler. A fresh CLI read, or a local fallback
+when the Monitor is unavailable, has no account sample and reports Claude
+as unknown; retrying `--fresh` cannot start a Claude probe. Optional provider windows from a live
 measurement stay in that existing sample; a restored sample has only its
 validated session and weekly windows until the next measurement.
 
