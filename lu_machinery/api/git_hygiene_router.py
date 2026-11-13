@@ -35,7 +35,7 @@ from pydantic import BaseModel
 
 from lu_machinery.common import github_client
 from lu_machinery.common.git_context import sanitized_git_env
-from lu_machinery.orchestration.task_record_store import read_task_record
+from lu_machinery.orchestration.task_record_store import locate_task_record, read_task_record
 
 from . import panel_values
 from .monitor_context import MonitorContext, get_ctx, resolve_context
@@ -809,7 +809,31 @@ def _last_commit(node: dict[str, Any]) -> dict[str, Any]:
     return _mapping(_mapping(last).get("commit"))
 
 
-def _pull_request_row(node: dict[str, Any], *, private: bool, repository: str) -> dict[str, Any]:
+def _recorded_task_reference(tasks_dir: Path, candidate: object) -> str | None:
+    """Return a branch suffix only when a dispatcher record stores that same id.
+
+    The suffix is contributor-controlled text. A matching character class is not
+    enough: the value is withheld unless the record's own task id equals it.
+    """
+    token = panel_values.task_reference(candidate)
+    if token is None:
+        return None
+    path = locate_task_record(tasks_dir, token)
+    if path is None:
+        return None
+    try:
+        record = read_task_record(path)
+    except (OSError, ValueError, RecursionError):
+        return None
+    if not isinstance(record, dict) or record.get("task_id") != token:
+        return None
+    recorded = record["task_id"]
+    return recorded if isinstance(recorded, str) else None
+
+
+def _pull_request_row(
+    node: dict[str, Any], *, private: bool, repository: str, tasks_dir: Path,
+) -> dict[str, Any]:
     commit = _last_commit(node)
     rollup = _mapping(commit.get("statusCheckRollup"))
     review = _mapping(_mapping(commit.get("status")).get("context"))
@@ -821,7 +845,7 @@ def _pull_request_row(node: dict[str, Any], *, private: bool, repository: str) -
     return {
         "number": number,
         "url": f"https://github.com/{repository}/pull/{number}" if number is not None else None,
-        "task_reference": None if private else panel_values.task_reference(task_id),
+        "task_reference": None if private else _recorded_task_reference(tasks_dir, task_id),
         "draft": node.get("isDraft") is True,
         "created_at": panel_values.timestamp(node.get("createdAt")),
         "merge_state": panel_values.choice(_lower(node.get("mergeStateStatus")), {
@@ -842,8 +866,13 @@ def _unknown_pull_requests(reason: str, observed_at: str) -> dict[str, Any]:
     return {"status": "unknown", "reason": reason, "observed_at": observed_at, "repositories": []}
 
 
-def compute_pull_requests(project_root: Path) -> dict[str, Any]:
-    """Read open PRs for every fleet repository in one GraphQL call; never raises."""
+def compute_pull_requests(project_root: Path, *, tasks_dir: Path | None = None) -> dict[str, Any]:
+    """Read open PRs for every fleet repository in one GraphQL call; never raises.
+
+    ``tasks_dir`` is the dispatcher task store. The HTTP route passes the
+    monitor context's store, which is not always ``project_root / batch_state``.
+    """
+    records = tasks_dir if tasks_dir is not None else project_root / "batch_state" / "tasks"
     observed_at = datetime.now(UTC).isoformat().replace("+00:00", "Z")
     try:
         proc = github_client.run(
@@ -889,7 +918,10 @@ def compute_pull_requests(project_root: Path) -> dict[str, Any]:
             "reason": None,
             "private": private,
             "open_total": total if isinstance(total, int) else None,
-            "pull_requests": [_pull_request_row(node, private=private, repository=f"{owner}/{name}") for node in nodes[:PULL_REQUESTS_PER_REPOSITORY]],
+            "pull_requests": [
+                _pull_request_row(node, private=private, repository=f"{owner}/{name}", tasks_dir=records)
+                for node in nodes[:PULL_REQUESTS_PER_REPOSITORY]
+            ],
         })
     return {"status": "ok", "reason": None, "observed_at": observed_at, "repositories": repositories}
 
@@ -907,7 +939,7 @@ async def pull_requests(ctx: MonitorContext = Depends(get_ctx)) -> JSONResponse:
     project_root = ctx.roots.project_root
 
     def compute() -> dict[str, Any]:
-        return compute_pull_requests(project_root)
+        return compute_pull_requests(project_root, tasks_dir=ctx.roots.batch_state_dir / "tasks")
 
     stored = cache_get_stored(key)
     if stored is None:

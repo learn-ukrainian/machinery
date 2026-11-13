@@ -12,7 +12,6 @@ from datetime import UTC, date, datetime
 from functools import lru_cache
 from typing import Any, overload
 
-from lu_machinery.dispatcher.agy_sandbox import _TASK_ID
 from lu_machinery.review.model_catalog import ModelCatalogError, canonical_model_id, load_model_catalog
 
 AGENTS = frozenset({"claude", "codex", "gemini", "agy", "grok", "cursor", "muse", "opencode", "openrouter", "deepseek"})
@@ -73,9 +72,19 @@ def scalars(
     return result
 
 
+# Public panel identifiers. Dots are refused: a filename-safe token can still be
+# untrusted text. Length 64 matches dispatcher ids in use; no other shape is admitted.
+_TASK_REFERENCE_ALPHABET = frozenset("abcdefghijklmnopqrstuvwxyz0123456789-")
+_TASK_REFERENCE_MAX_LEN = 64
+
+
 def task_reference(value: object) -> str | None:
-    """Only dispatcher-validated identifier tokens can cross the public boundary."""
-    return value if isinstance(value, str) and _TASK_ID.fullmatch(value) else None
+    """Admit a short lowercase token; withhold every other value."""
+    if not isinstance(value, str) or not 0 < len(value) <= _TASK_REFERENCE_MAX_LEN:
+        return None
+    if any(character not in _TASK_REFERENCE_ALPHABET for character in value):
+        return None
+    return value
 
 
 @lru_cache(maxsize=1)
