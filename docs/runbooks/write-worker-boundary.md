@@ -41,9 +41,8 @@ One bubblewrap invocation per launch, built in full by the launcher:
   (`github.com`, every name below it, and `ghcr.io`); loopback, private and host addresses are
   refused, so no host service (Monitor API, Sources, SSH, databases) is reachable.
   `NODE_USE_ENV_PROXY=1` makes Node's own `fetch` use the proxy.
-- No GitHub credential: the provider's environment has no `GH_*`, `GITHUB_*`, `GIT_SSH*` or
-  `*_ASKPASS` variable, and the host login's stores read empty inside (gh's configuration directory,
-  including `GH_CONFIG_DIR` and `XDG_CONFIG_HOME`, Git's credential files, `.netrc` and `.ssh`).
+- No GitHub credential: the provider's environment carries no GitHub credential variable, and the
+  host login's known credential stores read empty inside.
 
 ## Canary and receipt
 
@@ -169,8 +168,6 @@ starts without it.
 - Markers posted with the shared GitHub login remain forgeable by a session outside a write boundary
   (an interactive session) that holds the login. Inside, the worker has neither the login nor a route
   to GitHub, and `pr-merge` also checks the host-held review record.
-- A copy of a GitHub credential at a host path outside the stores listed above stays readable
-  inside. It cannot reach GitHub from inside, but it could leave through another HTTPS host.
 - Existing commands (`git push`, `gh`, `scripts.publish`) do not forward to the broker; inside, a
   worker uses `write_boundary call`.
 - Fleet messages can be sent but not received or acknowledged inside.
