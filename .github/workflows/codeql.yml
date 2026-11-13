@@ -1,0 +1,62 @@
+# CodeQL code scanning (advanced setup) for learn-ukrainian/machinery.
+#
+# - Languages: python (lu_machinery, tests), javascript-typescript (the
+#   project's own .mjs/.js under lu_machinery/) and actions (the workflows).
+#   No compiled language, so every analysis uses build-mode: none.
+# - Query suite: the built-in security-extended suite, as in the source
+#   repository's codeql.yml. No custom queries and no config file.
+# - Runs on pull requests and merge groups to main, pushes to main and weekly.
+#   Results upload to the repository's code-scanning alerts. Not part of
+#   CI Gate; GitHub reports the "CodeQL" check separately.
+# - Least privilege: no workflow permissions; the analyze job alone gets
+#   security-events: write (upload) and contents: read (checkout). The
+#   repository is public, so the upload needs no actions: read.
+# - Action pins and their upstream evidence are recorded in pins.txt.
+name: CodeQL
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+  merge_group:
+    branches: [main]
+    types: [checks_requested]
+  schedule:
+    - cron: "23 4 * * 1"
+
+permissions: {}
+
+concurrency:
+  group: codeql-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  analyze:
+    name: Analyze (${{ matrix.language }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [actions, javascript-typescript, python]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: none
+          queries: security-extended
+
+      - name: Analyze
+        uses: github/codeql-action/analyze@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
+        with:
+          category: /language:${{ matrix.language }}
