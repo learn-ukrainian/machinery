@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 
 from lu_machinery.dispatcher import write_boundary
+from tests.opsec.test_git_push_scan import push_sandbox  # noqa: F401
 
 # One of GitHub's published address ranges; the launcher reads the real ones on the host.
 _GITHUB_RANGE = "140.82.112.0/20"
@@ -481,16 +482,18 @@ _FORWARDED = {
 @pytest.mark.parametrize("target", ["own", "foreign"])
 @pytest.mark.parametrize("operation", sorted(_FORWARDED))
 def test_skill_publish_commands_reach_the_broker_for_the_own_target_only(primary, tmp_path, monkeypatch, operation,
-                                                                         target):
+                                                                         target, push_sandbox):  # noqa: F811
     """Defect class: inside the boundary the commands the skills name (git push, the publisher's PR verbs) do not
     reach the broker, so every worker is stuck at its first publish; or they reach it aimed at another branch or PR
     and the broker publishes there (or silently on the worker's own branch instead) rather than refusing."""
     import sys
 
     repo, worktree, receipt = primary
+    monkeypatch.setenv("LEARN_UKRAINIAN_PRIMARY_REPO_ROOT", str(push_sandbox.root))
+    monkeypatch.setattr(write_boundary, "machinery_path", lambda relative: push_sandbox.root / "lu_machinery" / relative)
     _git(repo, "remote", "add", "origin", "https://github.com/owner/repo.git")
     tip = _git(worktree, "rev-parse", "HEAD")
-    remote = tmp_path / "remote.git"
+    remote = tmp_path / "broker-remote.git"
     _git(tmp_path, "init", "-q", "--bare", str(remote))
     pulls = {7: {"state": "OPEN", "headRefName": "task", "headRefOid": tip, "isCrossRepository": False,
                  "baseRefName": "main"},

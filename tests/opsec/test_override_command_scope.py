@@ -114,8 +114,10 @@ def imported():
 for name in config["steps"]:
     if name == "settle":
         from lu_machinery.orchestration import dispatch_settle
+        from lu_machinery.dispatcher import write_boundary
 
         gate()
+        write_boundary.machinery_path = lambda relative: Path(config["sandbox_root"]) / "lu_machinery" / relative
         real = dispatch_settle.request_run
         dispatch_settle.request_run = lambda request, **kwargs: real(request, runner=fake, **kwargs)
         step("settle", lambda: dispatch_settle.push_and_maybe_open_pr(
