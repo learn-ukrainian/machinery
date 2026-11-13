@@ -162,6 +162,8 @@ _FAKE_CLAUDE = textwrap.dedent(
                 # null drops historical keys; a null offer must stay so a non-boolean refuses
                 if status[name] is None and name != "consoleProfileSignInOffered":
                     del status[name]
+        # Keys a later Claude Code may add, beside whatever the mode reports.
+        status.update(json.loads(os.environ.get("LU_FAKE_CLAUDE_STATUS_EXTRA", "{}")))
         if argv[-1] == "--json":
             print(json.dumps(status))
         else:
@@ -178,6 +180,8 @@ _FAKE_CLAUDE = textwrap.dedent(
                 lines.append("Proxy: " + env["HTTPS_PROXY"])
             if mode == "text_endpoint":
                 lines.append("Anthropic base URL: https://fixture.invalid")
+            if mode.startswith("text_line:"):  # a line 2.1.325 prints for an override in effect
+                lines.append(mode[len("text_line:"):] + ": fixture")
             print("\\n".join(lines))
         sys.exit(0 if status["loggedIn"] else 1)
     with open(log, "a", encoding="utf-8") as handle:
@@ -524,11 +528,25 @@ def test_bound_label_auto_mode_is_refused(accounts, case):
 
 @pytest.mark.parametrize(
     ("mode", "code"),
-    [("text_endpoint", "claude_account_status_override"), ("key_source", "claude_account_auth_method_conflict")],
+    [
+        ("text_endpoint", "claude_account_status_override"),
+        ("key_source", "claude_account_auth_method_conflict"),
+        # The line Claude Code 2.1.325 prints for each override that leaves the JSON
+        # login fields unchanged (probe): proxy, extra CA, a stored key, provider policy.
+        ("text_line:Proxy", "claude_account_status_override"),
+        ("text_line:Additional CA cert(s)", "claude_account_status_override"),
+        ("text_line:API key", "claude_account_status_override"),
+        ("text_line:Allowed providers", "claude_account_status_override"),
+    ],
 )
 def test_bound_label_status_naming_an_override_is_refused(accounts, monkeypatch, mode, code):
-    """The text status must name nothing but the login; the JSON must carry no key source."""
+    """The text status must name nothing but the login; the JSON must carry no key source.
+
+    A key no check has reviewed sits beside every case: the refusal never comes
+    from refusing an unknown JSON key.
+    """
     monkeypatch.setenv("LU_FAKE_CLAUDE_STATUS_MODE", mode)
+    monkeypatch.setenv("LU_FAKE_CLAUDE_STATUS_EXTRA", '{"fixtureFutureFlag": true}')
 
     with pytest.raises(ClaudeAccountRefused) as refused:
         _invoke(accounts, claude_account="b")
@@ -770,7 +788,22 @@ def test_bound_label_checkout_setting_that_changes_auth_is_refused(accounts, nam
     [
         ("garbage", "claude_account_auth_status_unavailable"),
         ("other_dir", "claude_account_auth_method_conflict"),
-        ("unknown_key", "claude_account_auth_method_conflict"),
+        # What Claude Code 2.1.325 reports for each credential override (probe): an
+        # API key, a bearer or OAuth token variable, a key helper.
+        ('status_set:authMethod="api_key";apiKeySource="ANTHROPIC_API_KEY"', "claude_account_auth_method_conflict"),
+        ('status_set:authMethod="oauth_token"', "claude_account_auth_method_conflict"),
+        ('status_set:authMethod="api_key_helper";apiKeySource="apiKeyHelper"', "claude_account_auth_method_conflict"),
+        # ... for each provider switch (Bedrock, Vertex, Foundry, Claude Platform on AWS
+        # and on Google Cloud, Bedrock Mantle).
+        *(
+            (f'status_set:authMethod="third_party";apiProvider="{provider}"', "claude_account_auth_method_conflict")
+            for provider in ("bedrock", "vertex", "foundry", "anthropicAws", "anthropicGoogleCloud", "mantle")
+        ),
+        # ... and the keys that report a key source, provider policy or login policy in force.
+        ('status_set:apiKeySource="/login managed key"', "claude_account_auth_method_conflict"),
+        ('status_set:allowedProviders=["firstParty"]', "claude_account_auth_method_conflict"),
+        ('status_set:forcedLoginMethod="console"', "claude_account_auth_method_conflict"),
+        ('status_set:forcedLoginMethod="claudeai"', "claude_account_auth_method_conflict"),
         # 2.1.325 admits only a boolean offer; every other JSON value refuses.
         ('status_set:consoleProfileSignInOffered="true"', "claude_account_auth_method_conflict"),
         ("status_set:consoleProfileSignInOffered=1", "claude_account_auth_method_conflict"),
@@ -793,8 +826,13 @@ def test_bound_label_checkout_setting_that_changes_auth_is_refused(accounts, nam
     ],
 )
 def test_bound_label_unconfirmed_auth_status_is_refused(accounts, monkeypatch, mode, code):
-    """No parseable status, a status for another directory, an unknown key or a conflicting plan never admits."""
+    """No parseable status, a status for another directory, an override or a conflicting plan never admits.
+
+    A key no check has reviewed sits beside every case: the refusal never comes
+    from refusing an unknown JSON key.
+    """
     monkeypatch.setenv("LU_FAKE_CLAUDE_STATUS_MODE", mode)
+    monkeypatch.setenv("LU_FAKE_CLAUDE_STATUS_EXTRA", '{"fixtureFutureFlag": true}')
 
     with pytest.raises(ClaudeAccountRefused) as refused:
         _invoke(accounts, claude_account="b")
@@ -804,25 +842,46 @@ def test_bound_label_unconfirmed_auth_status_is_refused(accounts, monkeypatch, m
 
 
 @pytest.mark.parametrize(
-    "mode",
+    ("mode", "report"),
     [
-        "status_set:consoleProfileSignInOffered=true",
-        "status_set:consoleProfileSignInOffered=false",
-        'status_set:planTier="max_5x"',
-        'status_set:planTier="max_20x"',
-        'status_set:planTier="max_other"',
-        'status_set:subscriptionType="pro";planTier="pro"',
-        "status_set:storedClaudeAiLogin=null;planTier=null",  # 2.1.318 reports neither key
+        ('status_set:planTier="max_5x"', None),
+        ('status_set:planTier="max_20x"', None),
+        ('status_set:planTier="max_other"', None),
+        ('status_set:subscriptionType="pro";planTier="pro"', None),
+        ("status_set:storedClaudeAiLogin=null;planTier=null", None),  # 2.1.318 reports neither key
+        # 2.1.325's offer flag is reviewed; a key nobody reviewed runs and is reported by name only.
+        ("status_set:consoleProfileSignInOffered=true", None),
+        ("status_set:consoleProfileSignInOffered=false", None),
+        ("unknown_key", ["gatewaySignInOffered"]),
+        (
+            'status_set:fixtureFutureFlag=false;fixtureFutureNote="fixture-unrecorded-value"',
+            ["fixtureFutureFlag", "fixtureFutureNote"],
+        ),
+        ('status_set:fixtureFutureFlag=true;fixture-future\\nkey="x"', ["<unprintable>", "fixtureFutureFlag"]),
     ],
 )
-def test_bound_label_consumer_plan_tier_is_admitted(accounts, monkeypatch, mode):
-    """Each tier Claude Code 2.1.319 derives for a consumer plan, beside its login marker, runs."""
+def test_bound_label_consumer_plan_tier_is_admitted(accounts, monkeypatch, mode, report):
+    """Each tier Claude Code 2.1.319 derives for a consumer plan, beside its login marker, runs.
+
+    So does a status carrying a key no check has reviewed (a Claude Code update's
+    new field): the run's receipt lists each such name once and never a value.
+    """
+    from lu_machinery.agent_runtime.attempt_boundary import (
+        claude_account_auth_receipt,
+        reset_claude_account_receipts,
+    )
+
+    reset_claude_account_receipts()
     monkeypatch.setenv("LU_FAKE_CLAUDE_STATUS_MODE", mode)
 
     result, _ = _invoke(accounts, claude_account="b")
 
     assert result.ok is True
     assert len(_calls(accounts, "run")) == 1
+    receipt = claude_account_auth_receipt("b", source="default-file")
+    assert receipt.get("unrecognised_status_keys") == report
+    assert (receipt["method"], receipt["verified"]) == ("subscription_login", True)
+    assert "fixture-unrecorded-value" not in json.dumps(receipt)
 
 
 def test_bound_label_logged_out_status_is_refused(accounts):
@@ -1549,14 +1608,25 @@ def _real(accounts: SimpleNamespace, *args: str, sources: bool = True) -> str:
 
 
 def test_real_cli_admits_a_clean_bound_login(real_cli):
-    """The installed CLI's own status for the login, every key it reports included (2.1.319), is admitted."""
+    """The installed CLI's own status for the login, every key it reports included, is admitted.
+
+    A key outside the reviewed set (one a later Claude Code adds) is admitted
+    and named in the receipt.
+    """
+    from lu_machinery.agent_runtime.attempt_boundary import (
+        claude_account_auth_receipt,
+        reset_claude_account_receipts,
+    )
+
+    reset_claude_account_receipts()
     _user_settings(real_cli, USER_SETTINGS["clean"])
 
     plan = _plan(real_cli, claude_account="b")
 
     assert plan.env_overrides["CLAUDE_CONFIG_DIR"] == str(real_cli.config_dir)
     status = json.loads(_real(real_cli, "auth", "status", "--json"))
-    assert set(status) <= claude._LABELLED_AUTH_STATUS_KEYS
+    unreviewed = sorted(set(status) - claude._LABELLED_AUTH_STATUS_KEYS)
+    assert claude_account_auth_receipt("b", source="explicit").get("unrecognised_status_keys") == (unreviewed or None)
     if "planTier" in status:  # 2.1.319: the fixture credential names no rate-limit tier
         assert (status["storedClaudeAiLogin"], status["subscriptionType"], status["planTier"]) == (
             True,
@@ -1570,6 +1640,10 @@ def test_real_cli_admits_a_clean_bound_login(real_cli):
     [
         ("settings.local.json", {"apiKeyHelper": "fixture-helper-command"}),
         ("settings.local.json", {"env": {"CLAUDE_CODE_USE_BEDROCK": "1"}}),
+        # 2.1.325 keeps the stored login effective (authMethod claude.ai) and reports
+        # ``forcedLoginMethod``, which refuses as login policy in force, not as an unknown key.
+        ("settings.local.json", {"forceLoginMethod": "console"}),
+        ("settings.json", {"forceLoginMethod": "claudeai"}),
     ],
 )
 def test_real_cli_checkout_setting_that_changes_auth_is_refused(real_cli, name, settings):
@@ -1638,24 +1712,51 @@ def test_real_cli_labelled_run_loads_no_user_mcp_server(real_cli):
     assert "fixtureuser" not in _real(real_cli, "mcp", "list")
 
 
-@pytest.mark.parametrize("name", ["ANTHROPIC_BASE_URL", "HTTPS_PROXY"])
-def test_real_cli_status_attests_the_endpoint_and_proxy(real_cli, monkeypatch, name):
-    """With the name let through, the installed CLI's text status still names the override and the run refuses.
+_REAL_CLI_OVERRIDES = {
+    # Endpoint, proxy and certificate: the JSON login is unchanged; the text names it.
+    "ANTHROPIC_BASE_URL": ("http://127.0.0.1:9", "claude_account_status_override"),
+    "HTTPS_PROXY": ("http://127.0.0.1:9", "claude_account_status_override"),
+    "HTTP_PROXY": ("http://127.0.0.1:9", "claude_account_status_override"),
+    "NODE_EXTRA_CA_CERTS": ("{fixture_file}", "claude_account_status_override"),
+    # Credentials and providers: the JSON login fields change.
+    "ANTHROPIC_API_KEY": ("fixture-key-" + "k" * 30, "claude_account_auth_method_conflict"),
+    "ANTHROPIC_AUTH_TOKEN": ("fixture-token-" + "t" * 30, "claude_account_auth_method_conflict"),
+    "CLAUDE_CODE_OAUTH_TOKEN": ("fixture-token-" + "t" * 30, "claude_account_auth_method_conflict"),
+    "CLAUDE_CODE_USE_BEDROCK": ("1", "claude_account_auth_method_conflict"),
+    "CLAUDE_CODE_USE_VERTEX": ("1", "claude_account_auth_method_conflict"),
+    "CLAUDE_CODE_USE_FOUNDRY": ("1", "claude_account_auth_method_conflict"),
+    "CLAUDE_CODE_USE_ANTHROPIC_AWS": ("1", "claude_account_auth_method_conflict"),
+    "CLAUDE_CODE_USE_ANTHROPIC_GOOGLE_CLOUD": ("1", "claude_account_auth_method_conflict"),
+    "CLAUDE_CODE_USE_MANTLE": ("1", "claude_account_auth_method_conflict"),
+}
 
-    Its JSON status for the same input reports ``claude.ai`` / ``firstParty`` /
-    the bound directory, which is why the JSON alone cannot attest it.
+
+@pytest.mark.parametrize("name", sorted(_REAL_CLI_OVERRIDES))
+def test_real_cli_status_attests_the_endpoint_and_proxy(real_cli, monkeypatch, name):
+    """With the name let through, the installed CLI's status still shows the override and the run refuses.
+
+    For an endpoint, proxy or certificate the JSON status reports ``claude.ai`` /
+    ``firstParty`` / the bound directory, which is why the JSON alone cannot
+    attest it: the text names it. A key, token or provider switch changes the
+    JSON login fields. Neither refusal depends on refusing an unknown JSON key.
     """
+    value, code = _REAL_CLI_OVERRIDES[name]
+    fixture_file = real_cli.workdir.parent / "fixture-ca.pem"
+    fixture_file.write_text("not a certificate\n", encoding="utf-8")
     monkeypatch.setattr(
         attempt_boundary, "CLAUDE_LABELLED_ENV_ALLOWLIST", attempt_boundary.CLAUDE_LABELLED_ENV_ALLOWLIST | {name}
     )
-    _global_config(real_cli, env={name: "http://127.0.0.1:9"})
+    _global_config(real_cli, env={name: value.format(fixture_file=fixture_file)})
     loaded = json.loads(_real(real_cli, "auth", "status", "--json"))
-    assert (loaded["authMethod"], loaded["apiProvider"]) == ("claude.ai", "firstParty")
+    if code == "claude_account_status_override":
+        assert (loaded["authMethod"], loaded["apiProvider"]) == ("claude.ai", "firstParty")
+    else:
+        assert (loaded["authMethod"], loaded["apiProvider"]) != ("claude.ai", "firstParty")
 
     with pytest.raises(ClaudeAccountRefused) as refused:
         _plan(real_cli, claude_account="b")
 
-    assert refused.value.code == "claude_account_status_override"
+    assert refused.value.code == code
 
 
 def test_real_cli_stored_key_in_global_config_is_refused(real_cli):

@@ -175,8 +175,11 @@ Construction (probed on Claude Code 2.1.300 with fixtures only):
   authority than a default run.)
 - ``claude auth status`` runs with the run's settings arguments, working
   directory and environment. Its JSON must report the subscription login,
-  first-party provider, bound directory and a consumer plan with no key
-  outside an allowlist (a stored or ambient key adds ``apiKeySource``); its
+  first-party provider, bound directory and a consumer plan, and no key
+  source, provider policy or login policy (a stored or ambient key adds
+  ``apiKeySource``). A key nobody has reviewed is admitted and its name
+  reported in the task record: an update that adds an unrelated field does
+  not stop dispatch, and no check here depends on refusing one. Its
   text must print no line
   but the login method, organization and email. The text names each
   endpoint, proxy, certificate, token, key and provider override in effect
@@ -338,16 +341,24 @@ HEADLESS_BACKGROUND_TOOL_DENIES = ("Monitor", "ScheduleWakeup", "CronCreate", "W
 LABELLED_ACCOUNT_SETTING_SOURCES = "project,local"
 # The only effective authentication a labelled account's run may report.
 _LABELLED_AUTH_STATUS = {"loggedIn": True, "authMethod": "claude.ai", "apiProvider": "firstParty"}
-# Every key the JSON status may carry for that login. Claude Code adds
-# ``apiKeySource``, ``allowedProviders`` or ``forcedLoginMethod`` only when a
-# key, provider policy or login policy is in force; each refuses. Since 2.1.318
-# it also reports the date the stored sign-in ends (``loginExpiresAt``). Since
-# 2.1.319 a ``claude.ai`` login also carries ``storedClaudeAiLogin``, which that
-# branch sets to ``true`` and nothing else, and ``planTier``; the two are always
-# reported together. Since 2.1.325 it may also carry ``consoleProfileSignInOffered``
-# (boolean only): whether keyless Console profile sign-in is offered on this
-# machine. Claude Code sets that key to true from the offer check and does not
-# change ``authMethod``, ``apiProvider`` or any key source; any other value refuses.
+# JSON status keys that report a key source, provider policy or login policy in
+# force. Claude Code adds each only then, and each refuses unless the route
+# expects it (an API-key route's own ``apiKeySource``).
+_AUTH_STATUS_OVERRIDE_KEYS = frozenset({"apiKeySource", "allowedProviders", "forcedLoginMethod"})
+# The keys reviewed for that login. Since 2.1.318 Claude Code also reports the
+# date the stored sign-in ends (``loginExpiresAt``). Since 2.1.319 a
+# ``claude.ai`` login also carries ``storedClaudeAiLogin``, which that branch
+# sets to ``true`` and nothing else, and ``planTier``; the two are always
+# reported together. Since 2.1.325 it may carry ``consoleProfileSignInOffered``
+# (boolean only; any other value refuses), an offer flag that changes no
+# credential, provider or endpoint.
+#
+# Any other key is admitted and its name (never its value) reported once in the
+# run's task record: the checks below do not depend on refusing unknown keys
+# (probe against 2.1.325, #457 follow-up). Every key source, token, helper and
+# provider switch changes ``authMethod`` or ``apiProvider``, or prints a text
+# line; every endpoint, proxy and certificate override prints a text line; a
+# forced login method leaves the effective credential as it was.
 _LABELLED_AUTH_STATUS_KEYS = frozenset(
     {*_LABELLED_AUTH_STATUS, "analyticsDisabled", "projectsDirectory", "configDirectory"}
     | {"email", "orgId", "orgName", "subscriptionType", "loginExpiresAt", "storedClaudeAiLogin", "planTier"}
@@ -362,8 +373,9 @@ _LABELLED_PLAN_TIERS = {"pro": frozenset({"pro"}), "max": frozenset({"max_5x", "
 # those), so any other line refuses.
 _LABELLED_STATUS_TEXT_LABELS = frozenset({"Login method", "Organization", "Email", "Sign-in ends"})
 # An API-key label's run (C-2643): the key helper from its bound settings file and nothing else.
-# Claude Code 2.1.312 reports exactly these keys and the one text line below for it.
-# Since 2.1.325 the same status object may also carry boolean ``consoleProfileSignInOffered``.
+# Claude Code 2.1.312 reports these keys and the one text line below for it. Since
+# 2.1.325 the same status object may also carry boolean ``consoleProfileSignInOffered``.
+# Any other JSON key is admitted and reported by name, as for a login.
 _API_KEY_AUTH_STATUS = {
     "loggedIn": True,
     "authMethod": "api_key_helper",
@@ -1330,12 +1342,18 @@ def _verify_labelled_auth_method(
     must name the subscription login, the first-party provider, the bound
     directory and a consumer plan (the plan Claude Code itself resolved for
     the login decides whether it fetches organisational policy) with the plan
-    tier Claude Code derives for that plan, with no key outside the allowlist;
-    the text must carry no line outside its allowlist,
-    which is what attests the endpoint. Output is parsed, never logged or
-    kept.
+    tier Claude Code derives for that plan, with no key source, provider
+    policy or login policy; the text must carry no line outside its allowlist,
+    which is what attests the endpoint. A JSON key outside the reviewed set
+    is admitted and only its name is noted for the task record
+    (``attempt_boundary.note_claude_auth_status_keys``). Output is parsed,
+    never logged or kept.
     """
-    from lu_machinery.agent_runtime.attempt_boundary import CLAUDE_CONSUMER_PLANS, ClaudeAccountRefused
+    from lu_machinery.agent_runtime.attempt_boundary import (
+        CLAUDE_CONSUMER_PLANS,
+        ClaudeAccountRefused,
+        note_claude_auth_status_keys,
+    )
 
     def status(output: str) -> str:
         argv = [
@@ -1378,11 +1396,13 @@ def _verify_labelled_auth_method(
     offered = parsed.get("consoleProfileSignInOffered", False)
     if (
         any(parsed.get(key) != value for key, value in expected.items())
-        or not set(parsed) <= allowed
+        or not (_AUTH_STATUS_OVERRIDE_KEYS - set(expected)).isdisjoint(parsed)
         or ("consoleProfileSignInOffered" in parsed and not isinstance(offered, bool))
         or not (isinstance(directory, str) and Path(directory) == Path(login_dir))
     ):
         raise ClaudeAccountRefused("claude_account_auth_method_conflict")
+    if unrecognised := set(parsed) - allowed - _AUTH_STATUS_OVERRIDE_KEYS:
+        note_claude_auth_status_keys(unrecognised)
     if api_key:
         if [line for line in status("--text").splitlines() if line.strip()] != _API_KEY_STATUS_TEXT:
             raise ClaudeAccountRefused("claude_account_status_override")

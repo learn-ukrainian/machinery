@@ -26,7 +26,7 @@ import sys
 import tempfile
 import threading
 import time
-from collections.abc import Iterator, Mapping
+from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
@@ -421,6 +421,10 @@ def resolve_dispatch_claude_account(explicit: object, *, environ: Mapping[str, s
 # (label -> method class): the source of a worker's receipt (#10619).
 _verified_claude_auth: dict[str, str] = {}
 _verified_claude_auth_lock = threading.Lock()
+# ``auth status`` JSON key names outside the reviewed set, seen since the last
+# reset (names only): a Claude Code update's new field is admitted and reported.
+_unrecognised_claude_status_keys: set[str] = set()
+_CLAUDE_STATUS_KEY_NAME = re.compile(r"[A-Za-z][A-Za-z0-9_]{0,63}")
 
 
 def _claude_auth_receipts() -> tuple[dict[str, str], threading.Lock]:
@@ -445,11 +449,26 @@ def note_claude_account_verified(label: str, method: str) -> None:
         receipts[label] = method
 
 
+def note_claude_auth_status_keys(names: Iterable[object]) -> None:
+    """Note ``auth status`` JSON key names no check has reviewed; each is reported once, never its value."""
+    from lu_machinery.agent_runtime import attempt_boundary as canonical
+
+    _, lock = _claude_auth_receipts()
+    with lock:
+        canonical._unrecognised_claude_status_keys.update(
+            name if isinstance(name, str) and _CLAUDE_STATUS_KEY_NAME.fullmatch(name) else "<unprintable>"
+            for name in names
+        )
+
+
 def reset_claude_account_receipts() -> None:
     """Forget every verification; a worker resets before its run."""
+    from lu_machinery.agent_runtime import attempt_boundary as canonical
+
     receipts, lock = _claude_auth_receipts()
     with lock:
         receipts.clear()
+        canonical._unrecognised_claude_status_keys.clear()
 
 
 def claude_account_auth_receipt(label: str, *, source: object) -> dict[str, object]:
@@ -457,21 +476,29 @@ def claude_account_auth_receipt(label: str, *, source: object) -> dict[str, obje
 
     It names the label, the label's source, the method class and whether this
     process verified it since the last reset; never a token, identity or path.
-    The default label runs on the host's own login, which is not probed.
+    The default label runs on the host's own login, which is not probed. When
+    ``auth status`` carried JSON keys outside the reviewed set, their sorted
+    names (never values) are listed under ``unrecognised_status_keys``.
     """
+    from lu_machinery.agent_runtime import attempt_boundary as canonical
+
     label = resolve_claude_account_label(label)
-    method, verified = CLAUDE_AUTH_HOST_LOGIN, False
+    method, verified, unrecognised = CLAUDE_AUTH_HOST_LOGIN, False, []
     if label != DEFAULT_CLAUDE_ACCOUNT:
         receipts, lock = _claude_auth_receipts()
         with lock:
             seen = receipts.get(label)
+            unrecognised = sorted(canonical._unrecognised_claude_status_keys)
         method, verified = (seen, True) if seen else (CLAUDE_AUTH_UNVERIFIED, False)
-    return {
+    receipt: dict[str, object] = {
         "label": label,
         "source": source if isinstance(source, str) and source in CLAUDE_ACCOUNT_SOURCES else None,
         "method": method,
         "verified": verified,
     }
+    if unrecognised:
+        receipt["unrecognised_status_keys"] = unrecognised
+    return receipt
 
 
 def load_claude_account_binding(label: str, *, environ: Mapping[str, str] | None = None) -> ClaudeAccountBinding:
