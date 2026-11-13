@@ -1,5 +1,6 @@
 """Existing recorder invariants ported from the product file at the same path."""
 
+import hashlib
 import json
 import os
 import subprocess
@@ -333,3 +334,108 @@ def test_installed_entry_refuses_invalid_configured_primary_before_dependencies(
         assert done.stdout == ""
         [line] = done.stderr.splitlines()
         assert line.startswith(f"dispatcher: {reason}")
+
+
+# A sentence that must never reach a public security-review comment.
+_FINDING = "The symlink operand is classified by its text, so a link escapes the root."
+
+
+def _seal(tasks, comments, statuses, *, reply, profile=None):
+    comments.clear()
+    statuses.clear()
+    task = json.loads((tasks / "review-one.json").read_text())
+    if profile is None:
+        task.pop("review_profile", None)
+    else:
+        task["review_profile"] = profile
+    raw = reply.encode()
+    task["result_sha256"] = hashlib.sha256(raw).hexdigest()
+    (tasks / "review-one.json").write_text(json.dumps(task))
+    (tasks / "review-one.result").write_bytes(raw)
+    return task
+
+
+def _pr_view(task, *, labels=(), issues=()):
+    return {
+        "number": 1,
+        "headRefOid": task["worktree_base_sha"],
+        "headRefName": task["worktree_branch"],
+        "state": "OPEN",
+        "labels": list(labels),
+        "closingIssuesReferences": list(issues),
+    }
+
+
+def test_security_sensitive_verdicts_publish_the_finding_count_only(monkeypatch, low_review, tmp_path):
+    """Defect class: a security-sensitive verdict is posted with its finding text.
+
+    Profile security, a SECURITY_VERDICT, and a security label on the PR or a
+    linked issue each publish the withheld form. The verdict and status stay
+    the ones the same reply records today.
+    """
+    tasks, comments, statuses, _files, _admit = low_review
+    cases = (
+        ("security", f"VERDICT: CHANGES_REQUESTED\n\n{_FINDING}\n", "CHANGES_REQUESTED", (), ()),
+        ("security", f"VERDICT: APPROVE\n\n{_FINDING}\n", "APPROVED", (), ()),
+        (None, f"VERDICT: CHANGES_REQUESTED\n\nSECURITY_VERDICT: FAIL\n\n{_FINDING}\n", "CHANGES_REQUESTED", (), ()),
+        (None, f"VERDICT: APPROVE\n\nSECURITY_VERDICT: PASS\n\n{_FINDING}\n", "APPROVED", (), ()),
+        (None, f"VERDICT: CHANGES_REQUESTED\n\n{_FINDING}\n", "CHANGES_REQUESTED", ({"name": "security"},), ()),
+        (
+            None,
+            f"VERDICT: APPROVE\n\n{_FINDING}\n",
+            "APPROVED",
+            (),
+            ({"number": 403, "labels": [{"name": "Security"}]},),
+        ),
+    )
+    for profile, reply, verdict, labels, issues in cases:
+        task = _seal(tasks, comments, statuses, reply=reply, profile=profile)
+        monkeypatch.setattr(recorder, "_pr", lambda *_a, task=task, labels=labels, issues=issues: _pr_view(
+            task, labels=labels, issues=issues,
+        ))
+        result = recorder.record("review-one", pr_number=1, task_root=tasks, lock_root=tmp_path / "locks")
+        body = comments[-1]["body"]
+        assert result["verdict"] == verdict
+        assert result["comment"] == "posted" and result["status"] == "posted"
+        # A prose rejection still records why it was not an approval with residuals.
+        if verdict == "CHANGES_REQUESTED":
+            assert result["p3_downgrade_refused"] == recorder.P3_NOT_ONE_OBJECT
+        else:
+            assert "p3_downgrade_refused" not in result and "residuals" not in result
+        assert f"verdict={verdict}" in body and f"VERDICT: {verdict}\n" in body
+        assert "Withheld findings: unknown\n" in body
+        assert "Findings are held privately.\n" in body
+        assert _FINDING not in body and "SECURITY_VERDICT" not in body and "<details>" not in body
+        assert statuses[-1]["description"].startswith(f"VERDICT: {verdict} ")
+        assert statuses[-1]["state"] == ("success" if verdict == "APPROVED" else "failure")
+
+
+def test_non_security_verdict_still_publishes_the_reply(monkeypatch, low_review, tmp_path):
+    """Defect class: a routine verdict is published as a withheld skeleton."""
+    tasks, comments, statuses, _files, _admit = low_review
+    reply = f"VERDICT: CHANGES_REQUESTED\n\n{_FINDING}\n"
+    task = _seal(tasks, comments, statuses, reply=reply)
+    monkeypatch.setattr(recorder, "_pr", lambda *_a, task=task: _pr_view(
+        task, labels=({"name": "hold"},), issues=({"number": 403, "labels": [{"name": "bug"}]},),
+    ))
+    result = recorder.record("review-one", pr_number=1, task_root=tasks, lock_root=tmp_path / "locks")
+    body = comments[-1]["body"]
+    assert result["verdict"] == "CHANGES_REQUESTED" and result["status"] == "posted"
+    assert _FINDING in body and "<details>" in body
+    assert "Withheld findings:" not in body
+
+
+def test_republish_withheld_posts_the_sealed_security_reply(monkeypatch, low_review, tmp_path):
+    """Defect class: republish-withheld cannot restore a security review's sealed reply."""
+    tasks, comments, statuses, _files, _admit = low_review
+    reply = f"VERDICT: CHANGES_REQUESTED\n\n{_FINDING}\n"
+    task = _seal(tasks, comments, statuses, reply=reply, profile="security")
+    monkeypatch.setattr(recorder, "_pr", lambda *_a, task=task: _pr_view(task))
+    recorded = recorder.record("review-one", pr_number=1, task_root=tasks, lock_root=tmp_path / "locks")
+    assert "Withheld findings:" in comments[-1]["body"] and _FINDING not in comments[-1]["body"]
+    republished = recorder.republish_withheld("review-one", pr_number=1, task_root=tasks, lock_root=tmp_path / "locks")
+    assert recorded["verdict"] == republished["verdict"] == "CHANGES_REQUESTED"
+    assert republished["comment"] == "posted"
+    assert comments[0]["body"] != comments[-1]["body"]
+    assert _FINDING in comments[-1]["body"] and "<details>" in comments[-1]["body"]
+    assert len(statuses) == 1

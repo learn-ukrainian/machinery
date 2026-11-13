@@ -330,6 +330,41 @@ def _security_verdict_blocks(reply: str) -> bool:
     return any(_SECURITY_PASS.match(reply, match.end()) is None for match in _SECURITY_VERDICT.finditer(reply))
 
 
+def _label_names(labels: Any) -> set[str]:
+    """Label names on a PR or issue payload the recorder already read."""
+    if not isinstance(labels, list):
+        return set()
+    names: set[str] = set()
+    for item in labels:
+        if isinstance(item, str):
+            names.add(item.strip().casefold())
+        elif isinstance(item, Mapping):
+            name = item.get("name")
+            if isinstance(name, str):
+                names.add(name.strip().casefold())
+    return names
+
+
+def _security_labeled(pr: Mapping[str, Any]) -> bool:
+    """True when the PR, or an issue it closes, carries the security label."""
+    if "security" in _label_names(pr.get("labels")):
+        return True
+    refs = pr.get("closingIssuesReferences")
+    if not isinstance(refs, list):
+        return False
+    return any(isinstance(ref, Mapping) and "security" in _label_names(ref.get("labels")) for ref in refs)
+
+
+def _security_sensitive(*, task: Mapping[str, Any], reply: str, pr: Mapping[str, Any]) -> bool:
+    """A review whose public comment must carry the finding count and not the findings.
+
+    The three signals are the ones this recorder already holds: the task's review
+    profile, the reply text, and labels on the PR view (linked issues included).
+    """
+    profile = str(task.get("review_profile") or "").strip().casefold()
+    return profile == "security" or _SECURITY_VERDICT.search(reply) is not None or _security_labeled(pr)
+
+
 def p3_reading(reply: str) -> P3Reading:
     """Read a CHANGES_REQUESTED reply for an approval with P3 residuals (#12409).
 
@@ -1639,6 +1674,9 @@ def _require_qualified_reviewer(
     path inference only raises it.
     """
     profile = str(task.get("review_profile") or "code").strip().casefold()
+    # ``security`` is not a catalog profile. It only marks the public comment
+    # for withholding; the seat check stays the code profile the marker records.
+    seat_profile = "code" if profile == "security" else profile
     # Seat aliases (``grok-build``) name the canonical route the catalog lists.
     agent = normalize_seat(str(task.get("agent") or "")) or ""
     # Lane flags and task-family aliases classify a review as Ukrainian even
@@ -1659,7 +1697,7 @@ def _require_qualified_reviewer(
         raise RecordError(f"reviewer not qualified: {agent}/{model} is not a catalog review candidate")
     inputs = facts.resolver_inputs(
         risk=str(task.get("review_risk") or "medium"),
-        review_profile=profile,
+        review_profile=seat_profile,
         author_model=task.get("review_author_model") or "" if review_mode == "red_team" else "",
         # The reviewer ran as the account its own task record names (#10630); no quota decides a finished review.
         claude_account=account_from_record(task, agent=agent),
@@ -2035,6 +2073,31 @@ def _task(task_id: str, task_root: Path) -> tuple[dict[str, Any], str]:
     return task, reply
 
 
+def _load_linked_issue_labels(repository: str, pr: dict[str, Any]) -> None:
+    """Fill labels on closing issues the PR view named but did not label.
+
+    The same ``gh`` read the recorder already uses. A view that did not ask for
+    closing issues is left alone. A named issue whose labels cannot be read
+    refuses, so a security label is never treated as absent.
+    """
+    if "closingIssuesReferences" not in pr:
+        return
+    refs = pr.get("closingIssuesReferences")
+    if not isinstance(refs, list):
+        raise RecordError("linked issue labels unavailable")
+    for ref in refs:
+        if not isinstance(ref, dict) or isinstance(ref.get("labels"), list):
+            continue
+        number = ref.get("number")
+        if type(number) is not int or number < 1:
+            raise RecordError("linked issue labels unavailable")
+        viewed = _run_json(["gh", "issue", "view", str(number), "--repo", repository, "--json", "labels"])
+        labels = viewed.get("labels") if isinstance(viewed, dict) else None
+        if not isinstance(labels, list):
+            raise RecordError("linked issue labels unavailable")
+        ref["labels"] = labels
+
+
 def _pr(repository: str, branch: str, number: int | None) -> dict[str, Any]:
     if number is None:
         matches = _run_json(
@@ -2054,14 +2117,24 @@ def _pr(repository: str, branch: str, number: int | None) -> dict[str, Any]:
                 "number,headRefOid,headRefName",
             ]
         )
-        if not isinstance(matches, list) or len(matches) != 1:
+        if not isinstance(matches, list) or len(matches) != 1 or type(matches[0].get("number")) is not int:
             raise RecordError("branch must identify exactly one open PR; pass --pr N")
-        return matches[0]
+        number = matches[0]["number"]
     data = _run_json(
-        ["gh", "pr", "view", str(number), "--repo", repository, "--json", "number,headRefOid,headRefName,state"]
+        [
+            "gh",
+            "pr",
+            "view",
+            str(number),
+            "--repo",
+            repository,
+            "--json",
+            "number,headRefOid,headRefName,state,labels,closingIssuesReferences",
+        ]
     )
     if not isinstance(data, dict) or data.get("state") != "OPEN":
         raise RecordError("PR is not open")
+    _load_linked_issue_labels(repository, data)
     return data
 
 
@@ -3232,6 +3305,11 @@ def record(
             # The admission receipt is durable before the verdict exists, so the round is spent even if posting fails.
             record_admission(_repair_receipts(task_root), repair)
         if existing is None:
+            # Verdict, round and receipt are already decided. A security-sensitive
+            # review posts the withheld form so the public comment keeps the count only.
+            if _security_sensitive(task=task, reply=reply, pr=current):
+                comment = build_comment(**{**comment_fields, "reply": ""}, withheld_findings=finding_count)
+                check_texts(destination, [comment], environment={})
             posted_comment = _post_verdict(repository, number, comment, login)
             posted = True
             comments = [*comments, posted_comment]
@@ -3630,7 +3708,8 @@ def republish_withheld_main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(
         prog="record_cf_verdict.py republish-withheld",
         description="Publish the findings of a verdict recorded as withheld, once the cause is fixed.\n"
-        "Posts the sealed reply beside the withheld comment; records no new verdict, round or status.",
+        "Posts the sealed reply beside the withheld comment; records no new verdict, round or status.\n"
+        "This includes a security-sensitive verdict, whose findings stay withheld until this command.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=f"{RECORDER_EXAMPLES}  {RECORDER_COMMAND} republish-withheld "
         "--task-id review-unit --pr 42\n"
@@ -3664,7 +3743,9 @@ def main(argv: list[str] | None = None) -> int:
         return capability_failure_main(argv[1:])
     parser = argparse.ArgumentParser(
         description="Publish a completed exact-head verdict; cross-family is the default.\n"
-        "Use after the reviewer exits; same-family needs an explicit prompt-bound red-team review.",
+        "Use after the reviewer exits; same-family needs an explicit prompt-bound red-team review.\n"
+        "A security-sensitive review (profile security, a SECURITY_VERDICT in the reply, or a "
+        "security label on the PR or a linked issue) is published with its finding count only.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=f"{RECORDER_EXAMPLES}  {RECORDER_COMMAND} --task-id review-unit --pr 1\n"
         f"  {RECORDER_COMMAND} --task-id review-unit --pr 1 "
@@ -3672,7 +3753,8 @@ def main(argv: list[str] | None = None) -> int:
         f"  {RECORDER_COMMAND} budget-check --repository owner/name --pr 1\n"
         "    (whether the next review round is admitted, before dispatch; see budget-check --help)\n"
         f"  {RECORDER_COMMAND} republish-withheld --task-id review-unit --pr 1\n"
-        "    (publish the findings of a verdict recorded withheld; see republish-withheld --help)\n"
+        "    (publish findings held back at record time, including a security-sensitive verdict;\n"
+        "    see republish-withheld --help)\n"
         f"  {RECORDER_COMMAND} capability-failure --task-id review-unit --pr 1 "
         "--capability test-execution --authority claude-cto\n"
         "    (classify a finished run that only lacked a capability; see capability-failure --help)\n"
