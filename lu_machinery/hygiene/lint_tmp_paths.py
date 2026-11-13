@@ -2687,9 +2687,9 @@ def unmatched_rows(
     # Reuse only their exact counted baseline, and only in the product layout.
     if repo_root is not None and (repo_root / PRODUCT_MARKER).is_file():
         prefix = _machinery_top() + "/"
-        for (path, digest), count in list(allowances.items()):
+        for (path, digest), maximum_count in list(allowances.items()):
             if path.startswith(prefix):
-                allowances.setdefault(("scripts/" + path.removeprefix(prefix), digest), count)
+                allowances.setdefault(("scripts/" + path.removeprefix(prefix), digest), maximum_count)
     used: Counter[tuple[str, str]] = Counter()
     findings = []
     for path, number, line in rows:
