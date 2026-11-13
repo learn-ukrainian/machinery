@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from lu_machinery.publish import github as publisher
+from lu_machinery.ci.deploy_paths import DeployPathsError
 
 HEAD = "a" * 40
 _ABSENT = object()
@@ -146,6 +147,28 @@ def test_head_without_a_recorded_verdict_is_refused_only_where_the_recorder_is_u
             admit()
     else:
         assert admit() is None
+
+
+@pytest.mark.parametrize("error_type", [DeployPathsError, ValueError])
+def test_verdict_lookup_failure_names_class_without_leaking_text(monkeypatch, low_review, error_type):
+    """A lookup failure still blocks landing without hiding its class or exposing its text."""
+    from lu_machinery.orchestration import integration_sweep
+
+    _tasks, _comments, _statuses, _files, admit = low_review
+    private_text = "private path /private/deploy-policy.json with secret=synthetic-sensitive-value"
+
+    def fail_lookup(*_args, **_kwargs):
+        raise error_type(private_text)
+
+    monkeypatch.setattr(integration_sweep, "lookup_verdict", fail_lookup)
+    with pytest.raises(publisher.gate.PublishBlocked) as caught:
+        admit()
+    assert str(caught.value) == (
+        f"OPSEC: merge refused: review seats unverifiable ({error_type.__name__})."
+    )
+    assert private_text not in str(caught.value)
+    assert caught.value.__suppress_context__ is True
+    assert caught.value.__cause__ is None
 
 
 @pytest.mark.parametrize(
