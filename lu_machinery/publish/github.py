@@ -660,8 +660,10 @@ def _refuse_incomplete_seats(dest, number, head, runner, cwd, environment):
         state = verdict.state
     except github_client.GitHubRateLimited:
         raise
-    except Exception:
-        raise gate.PublishBlocked("OPSEC: merge refused: review seats unverifiable.") from None
+    except Exception as exc:
+        raise gate.PublishBlocked(
+            f"OPSEC: merge refused: review seats unverifiable ({type(exc).__name__})."
+        ) from None
     if state == NEEDS_SEAT:
         raise gate.PublishBlocked("OPSEC: merge refused: a Ukrainian review seat has not approved this head.")
     if state not in {"APPROVED", "needs-CF"}:
@@ -702,8 +704,10 @@ def _refuse_incomplete_seats(dest, number, head, runner, cwd, environment):
                 raise ValueError
         except github_client.GitHubRateLimited:
             raise
-        except Exception:
-            raise gate.PublishBlocked("OPSEC: merge refused: review seats unverifiable.") from None
+        except Exception as exc:
+            raise gate.PublishBlocked(
+                f"OPSEC: merge refused: review seats unverifiable ({type(exc).__name__})."
+            ) from None
         if any(DEFAULT_STATUS_CONTEXT in (row.get("name"), row.get("context")) for row in rows):
             raise gate.PublishBlocked("OPSEC: merge refused: this head's review status has no verdict record.")
     return None
