@@ -840,6 +840,22 @@ def test_primary_guard_blocks_glob_matches_through_symlinks(layout: Layout, dire
             cwd=layout.dispatch_wt, env=env, capture_output=True, text=True, timeout=60,
         )
         assert result.returncode == expected, result.stderr
+    for command in (
+        f"shopt -s nocaseglob; touch {operand.upper()}",
+        f"shopt -s dotglob; touch {operand}",
+        f"GLOBIGNORE=unused; touch {operand}",
+        "shopt -s extglob; touch @(linked-target)",
+        "touch linked-[[:alpha:]]*",
+        "touch linked-[^x]*",
+        "touch linked-{a..z}",
+        "touch linked-{target/,other/}tracked.txt",
+    ):
+        result = subprocess.run(
+            [sys.executable, str(hook)],
+            input=json.dumps({"tool_name": "Bash", "cwd": str(layout.dispatch_wt), "tool_input": {"command": command}}),
+            cwd=layout.dispatch_wt, env=env, capture_output=True, text=True, timeout=60,
+        )
+        assert result.returncode == 2, (command, result.stderr)
     assert (layout.main / "tracked.txt").read_text() == "tracked\n"
 
 
@@ -868,6 +884,17 @@ def test_primary_guard_refuses_product_metadata_demotion(layout: Layout, redirec
     command = f"printf '%s\\n' {shlex.quote(str(other / 'tracked.txt'))} | xargs rm"
     assert decision("ls").returncode == 0
     assert decision(command).returncode == 2
+    for mutation in (f"rm {shlex.quote(str(product / '.git'))}", f"rm -rf {shlex.quote(str(product))}"):
+        result = decision(mutation)
+        assert result.returncode == 2, result.stderr
+        assert "protected_product_metadata" in result.stderr
+    result = subprocess.run(
+        [sys.executable, str(hook)],
+        input=json.dumps({"tool_name": "Write", "cwd": str(layout.dispatch_wt), "tool_input": {"file_path": str(product / '.git'), "content": "invalid"}}),
+        cwd=layout.dispatch_wt, env=env, capture_output=True, text=True, timeout=60,
+    )
+    assert result.returncode == 2, result.stderr
+    assert "protected_product_metadata" in result.stderr
     (product / ".git").write_text(f"gitdir: {layout.main / '.git'}\n" if redirect else "invalid\n")
     result = decision(command)
     assert result.returncode == 2, result.stderr

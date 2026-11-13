@@ -261,6 +261,14 @@ def _protected_repo_roots(wc) -> tuple[Path, ...]:
 
 def _evaluate_write(target: Path, wc, main_root: Path) -> object:
     """A target-selected checkout may add a denial, never replace the pinned one."""
+    product = _protected_repo_anchor().resolve(strict=True)
+    resolved = target.resolve()
+    for candidate in (product, *product.parents):
+        metadata = candidate / ".git"
+        if os.path.lexists(metadata):
+            if resolved == metadata or resolved in metadata.parents or metadata in resolved.parents:
+                return _UndecidableWrite("protected_product_metadata", "Product Git metadata must remain intact.")
+            break
     decision = wc.evaluate_write(target, cwd=main_root)
     if not decision.allowed:
         return decision
@@ -2753,7 +2761,13 @@ def bash_write_targets(
         return [unknown]
     targets: list[str] = []
     pipeline: list[str] = []
+    glob_state_unknown = bool(os.environ.get("GLOBIGNORE")) or any(
+        option in os.environ.get("BASHOPTS", "").split(":") for option in ("dotglob", "nocaseglob", "extglob", "globstar")
+    )
     for segment, effective_cwd, shell_cwd in _segments_with_cwd(command, cwd, uv_env):
+        cmd, _ = _command_word(_without_redirects(segment))
+        if cmd in {"shopt", "set"} | _OPAQUE_ASSIGNERS or any(re.match(r"GLOBIGNORE(?:\+?=|$)", word) for word in segment):
+            glob_state_unknown = True
         if segment.prev_op not in {"|", "|&"}:
             pipeline = []
         pipeline.extend(segment)
@@ -2795,6 +2809,8 @@ def bash_write_targets(
             )
         for target in segment_targets:
             word = target if isinstance(target, ShellWord) else ShellWord(str(target))
+            if glob_state_unknown and (re.search(r"[*?\[\]{}()]", word) or segment.next_op == "("):
+                word.decision_reason = "undecidable_glob_write_target"
             if (
                 not Path(word).is_absolute()
                 and effective_cwd is None
@@ -3437,6 +3453,13 @@ def _bash_path_decision(word: str, base: str, wc, main_root: Path) -> object:
         matches = [prefix]
         inspected = 0
         try:
+            # The component matcher handles comma alternatives, not sequences
+            # or alternatives spanning path separators. Those can name unseen
+            # symlinks too, so they cannot fall through as literal paths.
+            if any(part.count("{") != part.count("}") for part in parts) or re.search(r"\{[^{}]*\.\.[^{}]*\}", word):
+                raise ValueError("unmodeled brace expansion")
+            if re.search(r"\[\^|\[\[", word):
+                raise ValueError("unmodeled Bash bracket expression")
             for part in parts[first:]:
                 if "**" in part:
                     raise ValueError("recursive glob expansion is uncertain")
