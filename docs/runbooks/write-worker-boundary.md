@@ -68,12 +68,60 @@ Everything else the worker wrote into Git metadata is dropped: other local branc
 remote-tracking refs (fetch them again), stashes and per-worktree configuration. A worker that moved its
 worktree off the dispatched branch is recorded as `head_moved`.
 
+## Host broker (decision CONTAIN-BROKER-1113)
+
+The task store, the Fleet Comms plane and the primary's Git state stay read-only inside. The host steps
+of a worker's chain go through one launcher-owned Unix socket, bound inside at
+`/run/lu-write-boundary/broker.sock` and named by `LU_WRITE_BOUNDARY_BROKER`. The existing commands
+forward to it on their own when that variable is set, so a worker runs the usual chain:
+
+| Command inside | Verb | What the host does |
+| --- | --- | --- |
+| `dispatch.py dispatch --mode read-only ...` | `review-dispatch` | Starts the review in its own normal sandbox |
+| `record_cf_verdict.py --task-id T --pr N` | `record-verdict` | Records the verdict under the host's PR lock |
+| `fleet_comms channel publish ...` | `fleet-publish` | Appends the message with the task id as sender |
+| `write_boundary.broker_call("closeout-request", {"pr": N})` | `closeout-request` | Runs `merge_closeout --apply` after exit |
+
+Every verb has a fixed schema, builds its own argv (never a shell) and takes its identities from the
+launch, never from the request:
+
+- **Peer.** A connection is served only when the peer process descends from this run's bubblewrap.
+  Another sandbox, or a host process, cannot act as this task even when it can see the socket file.
+- **Task identity.** The review task id must be `<task>-review-<suffix>`. The Fleet sender is the task
+  id, the source is `write-worker`, and the idempotency key is prefixed with the task id.
+- **Exact head.** `review-dispatch` checks on GitHub that the PR is open in the primary's own
+  repository and that its head branch is the dispatched branch. The pinned head must equal both the PR's
+  live head and the worker's branch tip. The host then copies that commit from the private Git layer
+  (`index-pack` hashes every object) and dispatches with `--mode read-only --worktree`, the launch's
+  model as `--review-author-model` and `--review-mode cross_family`. A request field for the author is
+  refused.
+- **Replay.** Each request id is accepted once per run. The dispatcher refuses an existing task id.
+- **Paths.** No request names a host path. The prompt arrives as text and the host writes it to the
+  run's private scratch.
+- **Not relayed.** Red-team reviews, write dispatches, other repositories, and every other host
+  operation. Enqueueing (`scripts.publish pr-merge`) needs no verb: it writes nothing local and
+  reaches GitHub through the egress proxy.
+- **Closeout.** `closeout-request` checks that the PR is merged and that its head was the dispatched
+  branch. The launcher runs `merge_closeout <pr> --repo <owner/name> --repo-root <primary> --apply`
+  after the sandbox exits and after the branch import. Its exit status is in the receipt (`closeout`).
+
+The receipt lists every broker request (`broker`: verb, request id, return code and refusal).
+
+Sources goes through the read-only AGY boundary's `SourcesRelay` (read-only tools only).
+`LU_WRITE_BOUNDARY_SOURCES` holds the MCP stdio command, as a JSON argv, that reaches it. The receipt's
+`sources` holds the relay's call counts, or why it was unavailable. Sources is optional; the boundary
+starts without it.
+
 ## Known limits
 
-- The Sources MCP server and the Monitor API are host loopback services, and the Fleet Comms plane
-  and task store are read-only, so a write worker can neither query Sources nor publish, receive or
-  acknowledge Fleet messages, nor dispatch a child task. A relay for these, like the read-only AGY
-  boundary's Sources relay, is follow-up work; until then a worker reports through its final message.
+- The Monitor API is a host loopback service and stays unreachable. `closeout_cli resolve-reviewer`
+  inside falls back to its no-snapshot route, and the host dispatcher's own admission checks the pick.
+- Provider MCP configurations are not yet rewritten to the Sources stdio command. A provider whose
+  `sources` server points at the loopback address cannot reach it inside.
+- Markers posted with the shared GitHub login remain forgeable by anyone holding that login, inside the
+  boundary or not. Closing this needs the queue gate to check markers against host-held review
+  receipts, or a separate reviewer identity.
+- Fleet messages can be sent but not received or acknowledged inside.
 - A Unix socket that a host service first creates after launch, outside `/tmp`, `/run` and `/dev/shm`,
   is not masked. No such service is known on the fleet host.
 - Unpushed commits of a run whose launcher is killed with `SIGKILL` (not `SIGTERM`) stay in the

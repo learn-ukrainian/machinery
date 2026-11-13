@@ -315,7 +315,31 @@ def _worktrees(repo_key: str | None, include_archive: bool) -> list[dict]:
     return rows
 
 
+def _dispatch_through_broker(args) -> int:
+    """Inside a write boundary the task store is read-only: the launcher's broker starts the review (#423)."""
+    from lu_machinery.dispatcher import write_boundary
+
+    if args.mode != "read-only" or args.dry_run:
+        raise ValueError("write_boundary_refused: inside a write boundary only a read-only review is dispatched, "
+                         "through the launcher's broker")
+    if (args.prompt is None) == (args.prompt_file is None):
+        raise ValueError("provide exactly one of --prompt or --prompt-file")
+    source = args.prompt if args.prompt is not None else args.prompt_file
+    prompt = sys.stdin.read() if source == "-" else (args.prompt if args.prompt is not None
+                                                     else Path(source).read_text(encoding="utf-8"))
+    payload = {"task_id": args.task_id, "pr": args.pr, "pinned_head": args.pinned_head, "agent": args.agent,
+               "model": args.model, "effort": args.effort, "prompt": prompt, "review_profile": args.review_profile,
+               "risk": args.risk, "review_mode": args.review_mode, "codex_account": args.codex_account,
+               "claude_account": args.claude_account}
+    reply = write_boundary.broker_call("review-dispatch", payload)
+    sys.stdout.write(reply.get("stdout", ""))
+    sys.stderr.write(reply.get("stderr", ""))
+    return int(reply.get("returncode", 1))
+
+
 def _dispatch(args) -> int:
+    if os.environ.get("LU_WRITE_BOUNDARY_BROKER"):
+        return _dispatch_through_broker(args)
     if binding := store.review_binding(vars(args)):
         # Bound attempts have their own accounting; PR selectors would also charge their records to a PR budget.
         if args.branch is not None or args.pr is not None:

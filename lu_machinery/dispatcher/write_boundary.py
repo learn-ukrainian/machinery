@@ -26,6 +26,12 @@ Inside the boundary:
 * the worktree, a private TMPDIR and the declared outputs (``--output``) are the only other writable
   paths.
 
+The task store, the Fleet Comms plane and the primary's Git state stay read-only inside, so the worker chain's
+host steps (start its review, record the verdict, send a Fleet message, close out after merge) go through the
+launcher's broker (``_Broker``, decision CONTAIN-BROKER-1113): one Unix socket with four typed verbs whose
+identities come from the launch. Sources goes through the read-only AGY boundary's ``SourcesRelay``; the
+MCP stdio command that reaches it is in ``LU_WRITE_BOUNDARY_SOURCES``.
+
 The canary runs first and checks each boundary property; the provider starts only after the launcher
 has checked every outcome. Any setup or canary failure refuses the run (exit ``REFUSED``) and nothing
 ever falls back to an unsandboxed launch. After the sandbox exits, the launcher imports exactly one
@@ -68,6 +74,7 @@ _BOOTSTRAP = (
 _PROJECTED = {
     "canary.py": machinery_path("dispatcher/agy_canary.py"),
     "forwarder.py": machinery_path("agent_runtime/attempt_forwarder.py"),
+    "stdio.py": machinery_path("agent_runtime/attempt_proxy.py"),
 }
 _TASK_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}")
 _OBJECT_ID = re.compile(r"[0-9a-f]{40}|[0-9a-f]{64}")
@@ -80,6 +87,60 @@ _CANARY_TIMEOUT = 60
 _GIT_TIMEOUT = 300
 # The primary's own Git state, kept read-only inside on top of the private overlay.
 _PRIMARY_GIT_FILES = ("HEAD", "index", "config", "packed-refs", "hooks")
+
+
+# The host broker (decision CONTAIN-BROKER-1113). Inside the boundary the task store, the Fleet plane and the
+# primary's Git state are read-only, so the worker chain's host steps go through one launcher-owned socket with
+# typed verbs. Each verb has a fixed schema, and every identity it acts under comes from the launch, never the
+# request.
+BROKER_ENV = "LU_WRITE_BOUNDARY_BROKER"
+_BROKER_VERBS = ("review-dispatch", "record-verdict", "fleet-publish", "closeout-request")
+_REQUEST_ID = re.compile(r"[0-9a-f]{32}")
+_WORD = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/-]{0,79}")  # a model, agent, profile or label: never a flag
+_CHANNEL = re.compile(r"[a-z0-9][a-z0-9._-]{0,63}")
+_IDEMPOTENCY = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}")
+_GITHUB_REMOTE = re.compile(
+    r"(?:https://github\.com/|git@github\.com:|ssh://git@github\.com/)"
+    r"([A-Za-z0-9][A-Za-z0-9-]{0,38}/[A-Za-z0-9._-]{1,100}?)(?:\.git)?/?")
+_MAX_REQUEST = 1 << 20
+_MAX_BODY = 64 << 10
+# Where the broker socket appears inside: a short path on the private /run, below the sockaddr_un length limit.
+_BROKER_INSIDE = "/run/lu-write-boundary/broker.sock"
+_SOURCES_INSIDE = "/run/lu-write-boundary/sources.sock"
+# The MCP stdio command (a JSON argv) that reaches the read-only Sources relay from inside.
+SOURCES_ENV = "LU_WRITE_BOUNDARY_SOURCES"
+_BROKER_TIMEOUTS = {"review-dispatch": 300, "record-verdict": 900, "fleet-publish": 120, "gh": 120, "closeout-request": 900}
+
+
+def broker_path() -> str | None:
+    """The broker socket when this process runs inside a write boundary, else None."""
+    return os.environ.get(BROKER_ENV) or None
+
+
+def broker_call(verb: str, payload: dict) -> dict:
+    """Send one request to the launcher's broker; the reply holds ``returncode``, ``stdout`` and ``stderr``."""
+    import socket
+
+    path = broker_path()
+    if path is None:
+        raise RuntimeError("not inside a write boundary")
+    request = json.dumps({"verb": verb, "request_id": uuid.uuid4().hex, "payload": payload}).encode()
+    if len(request) > _MAX_REQUEST:
+        return {"returncode": 2, "stdout": "", "stderr": "write boundary broker: the request is too large\n"}
+    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as connection:
+        connection.connect(path)
+        connection.sendall(request)
+        connection.shutdown(socket.SHUT_WR)
+        chunks = []
+        while chunk := connection.recv(65536):
+            chunks.append(chunk)
+    try:
+        reply = json.loads(b"".join(chunks))
+    except ValueError:
+        reply = None
+    if not isinstance(reply, dict):
+        return {"returncode": 1, "stdout": "", "stderr": "write boundary broker: no reply\n"}
+    return reply
 
 
 def unavailable() -> str | None:
@@ -140,7 +201,7 @@ def launcher(spec, invocation, task_file: Path) -> list[str]:
     argv = [
         sys.executable, "-I", "-c", _BOOTSTRAP, str(machinery_path("dispatcher/write_boundary.py").parents[2]),
         "--task-id", spec.task_id, "--worktree", str(spec.worktree), "--scratch", str(scratch(spec.task_id)),
-        "--receipt", str(receipt_file(task_file)),
+        "--receipt", str(receipt_file(task_file)), "--author-model", spec.model,
     ]
     for path in declared_outputs(spec, invocation):
         argv += ["--output", str(path)]
@@ -157,7 +218,7 @@ def verify(task_file: Path, task_id: str) -> tuple[dict, str | None]:
     except (OSError, ValueError):
         return {"status": "missing"}, "write_boundary_unproven: no boundary receipt"
     summary = {key: receipt.get(key) for key in (
-        "status", "reason", "argv_sha256", "bwrap", "returncode", "import", "cleanup")}
+        "status", "reason", "argv_sha256", "bwrap", "returncode", "import", "cleanup", "broker", "closeout")}
     summary["canary_passed"] = bool(receipt.get("canary", {}).get("passed"))
     if receipt.get("schema") != SCHEMA or receipt.get("task_id") != task_id:
         return summary, "write_boundary_unproven: the receipt names another run"
@@ -225,6 +286,304 @@ def _overlaps(path: Path, other: Path) -> bool:
     return path == other or path.is_relative_to(other) or other.is_relative_to(path)
 
 
+class _BrokerRefusal(Exception):
+    pass
+
+
+def _host_child_env(task_id: str) -> dict[str, str]:
+    """The launcher's environment for a host step, minus the hosting CLI's session variables."""
+    env = {key: value for key, value in os.environ.items()
+           if not key.startswith(("CLAUDE", "CODEX_THREAD", "LU_WRITE_BOUNDARY")) and key != "CLAUDECODE"}
+    env["LEARN_UKRAINIAN_DISPATCH_TASK_ID"] = task_id  # the review child records this task as its parent
+    return env
+
+
+class _Broker:
+    """The launcher-owned host side of the worker chain (decision CONTAIN-BROKER-1113).
+
+    One Unix socket in the read-only boundary directory. A connection is served only when its peer is a
+    descendant of this run's bubblewrap process, so no other sandbox or host process can act as this task.
+    A request is one JSON object ``{"verb", "request_id", "payload"}``; a request id is accepted once per run.
+    Each verb validates a fixed schema and runs one host step with argv built here, never a shell, and with
+    the identities of the launch: the task id, its branch, its author model and the primary's repository.
+
+    * ``review-dispatch`` starts the read-only review of the worker's PR at its exact live head: the PR's head
+      branch is the dispatched branch, its live head is the worker's branch tip and the requested pinned head,
+      and the review task id is ``<task>-review-<suffix>``. The host fetches that commit from the worker's
+      private Git layer (index-pack hashes every object), then runs the dispatcher, whose review then runs
+      in its own normal sandbox. The author model is the launch's model, so the family check is not forgeable.
+    * ``record-verdict`` runs the recorder for a review task of this worker, on the worker's PR; the recorder
+      takes the host's PR lock and writes its receipts in the task store, which is read-only inside.
+    * ``fleet-publish`` appends one Fleet Comms message whose sender is the task id and whose idempotency key
+      is prefixed with it; the body is untrusted text.
+    * ``closeout-request`` records the worker's merged PR; the launcher runs ``merge_closeout --apply`` on the host
+      after the sandbox exits, because closeout deletes refs in the primary's Git directory.
+    """
+
+    def __init__(self, boundary: _Boundary, path: Path):
+        import socket
+        import threading
+
+        self.boundary, self.records = boundary, []
+        self.seen: set[str] = set()
+        self.closeout_pr: int | None = None
+        self.child: subprocess.Popen[bytes] | None = None
+        self.closed = False
+        self.server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        directory = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY)
+        try:  # the descriptor path avoids the sockaddr_un length limit, as in agy_sandbox.SourcesRelay
+            self.server.bind(f"/proc/self/fd/{directory}/{path.name}")
+        finally:
+            os.close(directory)
+        self.server.listen(4)
+        self.thread = threading.Thread(target=self._serve, daemon=True)
+        self.thread.start()
+
+    def _serve(self) -> None:
+        while not self.closed:
+            try:
+                connection, _ = self.server.accept()
+            except OSError:
+                return
+            with connection, contextlib.suppress(OSError, ValueError):
+                self._handle(connection)
+
+    def _peer_inside(self, connection) -> bool:
+        """Whether the connecting process descends from this run's bubblewrap (PID namespaces nest under it)."""
+        import socket
+        import struct
+
+        process = self.boundary.process
+        if process is None:
+            return False
+        pid = struct.unpack("3i", connection.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED,
+                                                        struct.calcsize("3i")))[0]
+        for _ in range(256):
+            if pid == process.pid:
+                return True
+            if pid <= 1:
+                return False
+            try:
+                pid = int(Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[1])
+            except (OSError, ValueError, IndexError):
+                return False
+        return False
+
+    def _handle(self, connection) -> None:
+        connection.settimeout(30)
+        verb = request_id = None
+        reply = {"returncode": 2, "stdout": "", "stderr": ""}
+        try:
+            if not self._peer_inside(connection):
+                raise _BrokerRefusal("the peer is not a process of this write boundary")
+            chunks, size = [], 0
+            while size <= _MAX_REQUEST and (chunk := connection.recv(65536)):
+                chunks.append(chunk)
+                size += len(chunk)
+            try:
+                request = json.loads(b"".join(chunks))
+            except ValueError:
+                request = None
+            if not isinstance(request, dict) or set(request) != {"verb", "request_id", "payload"}:
+                raise _BrokerRefusal("the request is malformed")
+            verb, request_id, payload = request["verb"], request["request_id"], request["payload"]
+            if verb not in _BROKER_VERBS:
+                verb = str(verb)[:40]
+                raise _BrokerRefusal("the verb is not one of " + ", ".join(_BROKER_VERBS))
+            if not (isinstance(request_id, str) and _REQUEST_ID.fullmatch(request_id)) or not isinstance(payload, dict):
+                raise _BrokerRefusal("the request is malformed")
+            if request_id in self.seen:
+                raise _BrokerRefusal("the request id was already used: a request runs once")
+            self.seen.add(request_id)
+            reply = getattr(self, "_" + verb.replace("-", "_"))(payload)
+        except _BrokerRefusal as exc:
+            reply["stderr"] = f"write boundary broker refused: {exc}\n"
+        except Exception as exc:  # a host step that fails is reported, never retried
+            reply.update(returncode=1, stderr=f"write boundary broker failed: {type(exc).__name__}\n")
+        self.records.append({"verb": verb, "request_id": request_id, "returncode": reply["returncode"],
+                             "refused": reply["stderr"][:200] if reply["returncode"] == 2 else None})
+        connection.settimeout(None)
+        connection.sendall(json.dumps(reply).encode())
+
+    # -- launch-bound facts --------------------------------------------------------------------------------------
+
+    def _repository_slug(self) -> str:
+        url = _git(self.boundary.repository, "config", "--get", "remote.origin.url", git_dir=self.boundary.common)
+        if not (match := _GITHUB_REMOTE.fullmatch(url.strip())):
+            raise _BrokerRefusal("the primary's origin is not a github.com repository")
+        return match.group(1)
+
+    def _pull_request(self, payload: dict, state: str) -> tuple[int, str, dict]:
+        """The PR in ``payload["pr"]``, checked live on GitHub: same repository, head branch the dispatched one."""
+        number = payload.get("pr")
+        if type(number) is not int or not 0 < number < 10**8:
+            raise _BrokerRefusal("pr must be a PR number")
+        slug = self._repository_slug()
+        fields = "state,headRefName,headRefOid,isCrossRepository"
+        result = self._run(["gh", "pr", "view", str(number), "--repo", slug, "--json", fields], "gh", gh=True)
+        try:
+            facts = json.loads(result["stdout"]) if result["returncode"] == 0 else None
+        except ValueError:
+            facts = None
+        if not isinstance(facts, dict):
+            raise _BrokerRefusal("the PR cannot be read on GitHub")
+        branch = self.boundary.branch.removeprefix("refs/heads/")
+        if facts.get("isCrossRepository") is not False or facts.get("headRefName") != branch:
+            raise _BrokerRefusal("the PR's head is not this task's dispatched branch")
+        if facts.get("state") != state:
+            raise _BrokerRefusal(f"the PR is not {state}")
+        return number, slug, facts
+
+    def _review_task(self, payload: dict) -> str:
+        task = payload.get("task_id")
+        prefix = f"{self.boundary.args.task_id}-review-"
+        if not (isinstance(task, str) and task.startswith(prefix) and _TASK_ID.fullmatch(task)
+                and re.fullmatch(r"[A-Za-z0-9._-]{1,40}", task[len(prefix):])):
+            raise _BrokerRefusal(f"the review task id must be {prefix}<suffix>")
+        return task
+
+    # -- host steps ----------------------------------------------------------------------------------------------
+
+    def _run(self, argv: list[str], timeout_key: str, *, stdin: bytes | None = None, gh: bool = False) -> dict:
+        if gh:
+            executable = shutil.which("gh")
+            if executable is None:
+                raise _BrokerRefusal("gh is not installed on the host")
+            env = {name: os.environ[name] for name in ("PATH", "HOME", "LANG", "XDG_CONFIG_HOME", "GH_CONFIG_DIR")
+                   if name in os.environ}
+            env.update(GH_PROMPT_DISABLED="1", GH_NO_UPDATE_NOTIFIER="1", GH_PAGER="cat", GH_HOST="github.com")
+            argv = [executable, *argv[1:]]
+        else:
+            env = _host_child_env(self.boundary.args.task_id)
+        # A fixed argv built by this class from validated fields, never a shell.
+        self.child = subprocess.Popen(argv, cwd=self.boundary.repository, env=env, stdin=subprocess.PIPE,  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit
+                                      stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        try:
+            out, err = self.child.communicate(stdin, timeout=_BROKER_TIMEOUTS[timeout_key])
+            returncode = self.child.returncode
+        except subprocess.TimeoutExpired:
+            self.child.kill()
+            out, err = self.child.communicate()
+            returncode, err = 124, err + b"\nwrite boundary broker: the host step timed out\n"
+        return {"returncode": returncode, "stdout": out[:_MAX_REQUEST].decode("utf-8", "replace"),
+                "stderr": err[:_MAX_REQUEST].decode("utf-8", "replace")}
+
+    def _module(self, module: str, argv: list[str], timeout_key: str, stdin: bytes | None = None) -> dict:
+        code = (f"import sys; sys.path.insert(0, sys.argv[1]); from {_PACKAGE}.{module} import main; "
+                "raise SystemExit(main(sys.argv[2:]))")
+        package_parent = str(machinery_path("dispatcher/write_boundary.py").parents[2])
+        return self._run([sys.executable, "-I", "-c", code, package_parent, *argv], timeout_key, stdin=stdin)
+
+    def _review_dispatch(self, payload: dict) -> dict:
+        allowed = {"task_id", "pr", "pinned_head", "agent", "model", "effort", "prompt", "review_profile", "risk",
+                   "review_mode", "codex_account", "claude_account"}
+        if not set(payload) <= allowed:
+            raise _BrokerRefusal("unknown fields: " + ", ".join(sorted(set(payload) - allowed)))
+        task = self._review_task(payload)
+        if not (isinstance(self.boundary.args.author_model, str) and _WORD.fullmatch(self.boundary.args.author_model)):
+            raise _BrokerRefusal("the launch names no author model")
+        words = {}
+        for name in ("agent", "model", "effort", "review_profile", "risk", "review_mode", "codex_account",
+                     "claude_account"):
+            value = payload.get(name)
+            if value is None and name in ("agent", "model", "review_profile", "risk"):
+                raise _BrokerRefusal(f"{name} is required")
+            if value is not None and not (isinstance(value, str) and _WORD.fullmatch(value)):
+                raise _BrokerRefusal(f"{name} is malformed")
+            words[name] = value
+        if words["review_mode"] not in (None, "cross_family"):
+            raise _BrokerRefusal("only a cross-family review is dispatched through the broker")
+        prompt = payload.get("prompt")
+        if not isinstance(prompt, str) or not prompt.strip() or len(prompt.encode()) > _MAX_REQUEST // 2:
+            raise _BrokerRefusal("prompt must be non-empty text")
+        pinned = payload.get("pinned_head")
+        if not (isinstance(pinned, str) and _OBJECT_ID.fullmatch(pinned)):
+            raise _BrokerRefusal("pinned_head must be a full commit id")
+        number, _slug, facts = self._pull_request(payload, "OPEN")
+        tip = self.boundary.current_tip()
+        if not (pinned == facts.get("headRefOid") == tip):
+            raise _BrokerRefusal("pinned_head is not both the PR's live head and this task's branch tip")
+        self.boundary.fetch_objects(tip)
+        prompt_file = self.boundary.base / f"review-prompt-{uuid.uuid4().hex}.md"
+        _write_private(prompt_file, prompt.encode(), 0o400)
+        argv = ["dispatch", "--agent", words["agent"], "--model", words["model"], "--mode", "read-only",
+                "--worktree", "--task-id", task, "--prompt-file", str(prompt_file),
+                "--branch", self.boundary.branch.removeprefix("refs/heads/"), "--pinned-head", pinned,
+                "--pr", str(number), "--review-profile", words["review_profile"], "--risk", words["risk"],
+                "--review-author-model", self.boundary.args.author_model, "--review-mode", "cross_family",
+                "--initiator", self.boundary.args.task_id]
+        for name in ("effort", "codex_account", "claude_account"):
+            if words[name] is not None:
+                argv += [f"--{name.replace('_', '-')}", words[name]]
+        if words["review_profile"] in ("code", "infra"):
+            argv.append("--require-review-verdict")
+        return self._module("dispatcher.cli", argv, "review-dispatch")
+
+    def _record_verdict(self, payload: dict) -> dict:
+        if set(payload) != {"task_id", "pr"}:
+            raise _BrokerRefusal("record-verdict takes exactly task_id and pr")
+        task = self._review_task(payload)
+        number, _slug, _facts = self._pull_request(payload, "OPEN")
+        return self._module("review.record_cf_verdict", ["--task-id", task, "--pr", str(number)], "record-verdict")
+
+    def _fleet_publish(self, payload: dict) -> dict:
+        allowed = {"channel", "body", "recipients", "idempotency_key", "in_reply_to"}
+        if not set(payload) <= allowed or not {"channel", "body", "idempotency_key"} <= set(payload):
+            raise _BrokerRefusal("fleet-publish takes channel, body, idempotency_key, recipients and in_reply_to")
+        channel, body, key = payload["channel"], payload["body"], payload["idempotency_key"]
+        recipients = payload.get("recipients") or []
+        if not (isinstance(channel, str) and _CHANNEL.fullmatch(channel)):
+            raise _BrokerRefusal("channel is malformed")
+        if not (isinstance(key, str) and _IDEMPOTENCY.fullmatch(key)):
+            raise _BrokerRefusal("idempotency_key is malformed")
+        if not (isinstance(recipients, list) and len(recipients) <= 8
+                and all(isinstance(name, str) and _CHANNEL.fullmatch(name) for name in recipients)):
+            raise _BrokerRefusal("recipients must be at most 8 agent names")
+        if not isinstance(body, str) or not body.strip() or len(body.encode()) > _MAX_BODY:
+            raise _BrokerRefusal(f"body must be non-empty text of at most {_MAX_BODY} bytes")
+        task = self.boundary.args.task_id
+        argv = ["channel", "publish", channel, "-", "--sender", task, "--source", "write-worker",
+                "--idempotency-key", f"{task}:{key}"]
+        for name in recipients:
+            argv += ["--recipient", name]
+        if (reply_to := payload.get("in_reply_to")) is not None:
+            if not (isinstance(reply_to, str) and _IDEMPOTENCY.fullmatch(reply_to)):
+                raise _BrokerRefusal("in_reply_to is malformed")
+            argv += ["--in-reply-to", reply_to]
+        return self._module("fleet_comms.cli", argv, "fleet-publish", stdin=body.encode())
+
+    def _closeout_request(self, payload: dict) -> dict:
+        if set(payload) != {"pr"}:
+            raise _BrokerRefusal("closeout-request takes exactly pr")
+        number, _slug, _facts = self._pull_request(payload, "MERGED")
+        self.closeout_pr = number
+        return {"returncode": 0, "stdout": f"closeout of PR {number} runs on the host after this worker exits\n",
+                "stderr": ""}
+
+    def run_closeout(self) -> dict | None:
+        """``merge_closeout --apply`` for the PR the worker named, on the host, after the sandbox exited."""
+        if self.closeout_pr is None:
+            return None
+        try:
+            slug = self._repository_slug()
+            result = self._module("orchestration.merge_closeout", [
+                str(self.closeout_pr), "--repo", slug, "--repo-root", str(self.boundary.repository), "--apply",
+                "--json"], "closeout-request")
+        except (_BrokerRefusal, Refused, OSError, subprocess.SubprocessError) as exc:
+            return {"pr": self.closeout_pr, "returncode": None, "reason": str(exc)[:200]}
+        return {"pr": self.closeout_pr, "returncode": result["returncode"], "stdout": result["stdout"][-4000:],
+                "stderr": result["stderr"][-2000:]}
+
+    def cleanup(self) -> None:
+        self.closed = True
+        with contextlib.suppress(OSError):
+            self.server.close()
+        if self.child is not None and self.child.poll() is None:
+            with contextlib.suppress(OSError):
+                self.child.kill()
+        self.thread.join(timeout=5)
+
+
 class _Boundary:
     def __init__(self, args: argparse.Namespace, receipt: dict):
         self.args, self.receipt = args, receipt
@@ -232,6 +591,8 @@ class _Boundary:
         self.base = Path(args.scratch)
         self.process: subprocess.Popen[bytes] | None = None
         self.egress: Any = None
+        self.broker: _Broker | None = None
+        self.relay: Any = None
         self.created = False
         self.created_outputs: list[Path] = []
 
@@ -340,6 +701,22 @@ class _Boundary:
         argv += ["--bind", str(tmp), str(tmp), "--ro-bind", str(boundary), str(boundary)]
         for path in sockets:
             argv += ["--ro-bind", "/dev/null", str(path)]
+        self.broker = _Broker(self, boundary / "broker.sock")
+        argv += ["--ro-bind", str(boundary / "broker.sock"), _BROKER_INSIDE]
+        interpreter = str(Path(sys.executable).resolve(strict=True))
+        sources_command = None
+        try:
+            # Sources goes through the read-only AGY boundary's relay: read-only tools only, one server per
+            # connection, started by the launcher from the product checkout.
+            from lu_machinery.agent_runtime.sources_read_only import sources_tool_sets
+
+            readers, _writers = sources_tool_sets()
+            self.relay = agy_sandbox.SourcesRelay(boundary / "sources.sock", frozenset(readers), {
+                name: os.environ[name] for name in ("PATH", "HOME", "LANG", "TMPDIR") if name in os.environ})
+            argv += ["--ro-bind", str(boundary / "sources.sock"), _SOURCES_INSIDE]
+            sources_command = json.dumps([interpreter, "-I", str(boundary / "stdio.py"), _SOURCES_INSIDE])
+        except Exception as exc:  # Sources is optional for a write worker; containment does not depend on it
+            self.receipt["sources"] = {"status": "unavailable", "reason": f"{type(exc).__name__}: {exc}"[:200]}
         argv += ["--cap-drop", "ALL", "--chdir", str(self.worktree)]
 
         self.egress = AttemptEgress(boundary / "egress.sock")
@@ -347,7 +724,6 @@ class _Boundary:
         go_read, go_write = os.pipe()
         _write_private(boundary / "plan.json", json.dumps(
             {"report_fd": report_write, "go_fd": go_read, "probes": probes}).encode(), 0o444)
-        interpreter = str(Path(sys.executable).resolve(strict=True))
         argv += [interpreter, "-I", str(boundary / "canary.py"), str(boundary / "plan.json"), "--",
                  interpreter, "-I", str(boundary / "forwarder.py"), str(boundary / "egress.sock"), *command]
         self.receipt["bwrap"] = str(bwrap)
@@ -358,7 +734,9 @@ class _Boundary:
         (tmp / "run").mkdir(mode=0o700)
         # The namespace has no DNS or route out; Node's own fetch uses the forwarder's proxy only when told to.
         env.update(TMPDIR=str(tmp), LU_SCRATCH_ROOT=str(tmp / "scratch"), XDG_RUNTIME_DIR=str(tmp / "run"),
-                   GIT_TERMINAL_PROMPT="0", NODE_USE_ENV_PROXY="1")
+                   GIT_TERMINAL_PROMPT="0", NODE_USE_ENV_PROXY="1", **{BROKER_ENV: _BROKER_INSIDE})
+        if sources_command is not None:
+            env[SOURCES_ENV] = sources_command
         try:
             # The argv is the fixed bubblewrap binary and launcher-validated paths; env is the dispatcher's
             # provider environment, passed on deliberately (the provider runs inside with it).
@@ -385,6 +763,8 @@ class _Boundary:
         returncode = process.wait()
         self.receipt["returncode"] = returncode
         self.receipt["import"] = self._import()
+        if (closeout := self.broker.run_closeout()) is not None:
+            self.receipt["closeout"] = closeout
         return returncode
 
     def _probes(self, repository: Path, common: Path, sockets: list[Path], outputs: list[Path], tmp: Path,
@@ -471,6 +851,31 @@ class _Boundary:
             raise Refused("the dispatched branch was deleted")
         return None
 
+    def current_tip(self) -> str:
+        """The dispatched branch's tip as the worker sees it now (its private layer, else the launch tip)."""
+        tip = self._upper_tip(self.base / "git-upper")
+        return self.tip if tip is None else tip
+
+    def fetch_objects(self, tip: str) -> None:
+        """Copy ``tip`` and its history from the worker's private layer into the primary's object store.
+
+        A private repository whose alternates are the upper objects is fetched from, so index-pack hashes each
+        received object and only objects whose names match their bytes arrive. No ref of the primary changes.
+        """
+        if not _OBJECT_ID.fullmatch(tip):
+            raise Refused("the branch tip is not an object id")
+        upper = self.base / "git-upper"
+        private = self.base / f"import-{uuid.uuid4().hex}.git"
+        _git(self.base, "init", "-q", "--bare", str(private))
+        alternates = [str(self.common / "objects")]
+        if (upper / "objects").is_dir():
+            alternates.insert(0, str(upper / "objects"))
+        (private / "objects" / "info").mkdir(parents=True, exist_ok=True)
+        (private / "objects" / "info" / "alternates").write_text("\n".join(alternates) + "\n")
+        _git(private, "update-ref", "refs/import", tip, git_dir=private)
+        _git(self.repository, "fetch", "--quiet", "--no-tags", "--no-write-fetch-head", "--no-recurse-submodules",
+             str(private), "refs/import", git_dir=self.common)
+
     def _import(self) -> dict:
         upper = self.base / "git-upper"
         head = upper / self.git_dir.relative_to(self.common) / "HEAD"
@@ -484,17 +889,7 @@ class _Boundary:
                 return {**result, "status": "unchanged", "after": self.tip}
             if not _OBJECT_ID.fullmatch(tip):
                 return {**result, "status": "invalid_tip"}
-            private = self.base / "import.git"
-            _git(self.base, "init", "-q", "--bare", str(private))
-            alternates = [str(self.common / "objects")]
-            if (upper / "objects").is_dir():
-                alternates.insert(0, str(upper / "objects"))
-            (private / "objects" / "info").mkdir(parents=True, exist_ok=True)
-            (private / "objects" / "info" / "alternates").write_text("\n".join(alternates) + "\n")
-            _git(private, "update-ref", "refs/import", tip, git_dir=private)
-            # index-pack hashes each received object, so only objects whose names match their bytes arrive.
-            _git(self.repository, "fetch", "--quiet", "--no-tags", "--no-write-fetch-head", "--no-recurse-submodules",
-                 str(private), "refs/import", git_dir=self.common)
+            self.fetch_objects(tip)
             _git(self.repository, "update-ref", self.branch, tip, self.tip, git_dir=self.common)
             _git(self.worktree, "reset", "--quiet", "--mixed")
             return {**result, "status": "imported", "after": tip}
@@ -510,6 +905,14 @@ class _Boundary:
         if self.receipt.get("status") in ("ran", "interrupted") and "import" not in self.receipt:
             # A cancelled or timed-out run still hands over the commits it made on the dispatched branch.
             self.receipt["import"] = self._import()
+        if self.relay is not None:
+            with contextlib.suppress(Exception):
+                self.relay.cleanup()
+            self.receipt["sources"] = self.relay.evidence()
+        if self.broker is not None:
+            with contextlib.suppress(Exception):
+                self.broker.cleanup()
+            self.receipt["broker"] = list(self.broker.records)
         if self.egress is not None:
             with contextlib.suppress(Exception):
                 self.egress.cleanup()
@@ -539,6 +942,8 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--worktree", required=True)
     parser.add_argument("--scratch", required=True)
     parser.add_argument("--receipt", required=True)
+    parser.add_argument("--author-model", help="The dispatched model, the review family check's author "
+                        "(default: none; the broker then dispatches no review)")
     parser.add_argument("--output", action="append", help="A declared output file the provider writes")
     parser.add_argument("--credential", action="append", help="A provider credential file a refresh rewrites")
     parser.add_argument("command", nargs=argparse.REMAINDER)

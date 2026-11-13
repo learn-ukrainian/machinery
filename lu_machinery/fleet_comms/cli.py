@@ -1034,11 +1034,32 @@ def cmd_channel_context(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def _channel_publish_through_broker(args: argparse.Namespace) -> int:
+    """Inside a write boundary the plane is read-only: the launcher's broker publishes as the task (#423)."""
+    from lu_machinery.dispatcher import write_boundary
+
+    if args.kind != "message" or args.conversation_id or args.correlation_id or args.deadline_at or args.root:
+        raise FleetCommsCliError("inside a write boundary only a plain message is published, through the launcher's "
+                                 "broker; its sender is the task id")
+    payload = {"channel": args.name, "body": _body_argument(args.body), "idempotency_key": args.idempotency_key,
+               "recipients": list(args.recipient or [])}
+    if args.in_reply_to:
+        payload["in_reply_to"] = args.in_reply_to
+    reply = write_boundary.broker_call("fleet-publish", payload)
+    sys.stdout.write(reply.get("stdout", ""))
+    sys.stderr.write(reply.get("stderr", ""))
+    if reply.get("returncode") != 0:
+        raise FleetCommsCliError("the write boundary broker did not publish the message")
+    return EXIT_OK
+
+
 def cmd_channel_publish(args: argparse.Namespace) -> int:
     """Append one immutable message and atomically create its fan-out deliveries."""
     from lu_machinery.fleet_comms.authority import AuthorityService, AuthorityServiceError
 
     _refuse_kimi_recipients(args.recipient)
+    if os.environ.get("LU_WRITE_BOUNDARY_BROKER"):
+        return _channel_publish_through_broker(args)
     try:
         with AuthorityService(root=_authority_root(args)) as service:
             message = service.publish_message(

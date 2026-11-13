@@ -112,3 +112,55 @@ def test_protected_primary_git_state_cannot_be_changed(primary):
     assert hooks_path.returncode == 1
     assert "evil" not in _git(repo, "branch", "--list")
     assert (worktree / ".git").read_text().startswith(f"gitdir: {git_dir / 'worktrees'}")
+
+
+_BROKER_CLIENT = """
+import json, os, socket, sys
+
+def send(verb, payload, request_id):
+    with socket.socket(socket.AF_UNIX) as connection:
+        connection.connect(os.environ["LU_WRITE_BOUNDARY_BROKER"])
+        connection.sendall(json.dumps({"verb": verb, "request_id": request_id, "payload": payload}).encode())
+        connection.shutdown(socket.SHUT_WR)
+        return json.loads(b"".join(iter(lambda: connection.recv(65536), b"")))["returncode"]
+
+good = {"task_id": "wb-test-review-r1", "pr": 7, "pinned_head": sys.argv[1], "agent": "codex", "model": "gpt-6.1-sol",
+        "prompt": "review", "review_profile": "infra", "risk": "critical"}
+print(json.dumps({
+    "other_task": send("review-dispatch", {**good, "task_id": "other-task-review-r1"}, "1" * 32),
+    "stale_head": send("review-dispatch", {**good, "pinned_head": "0" * 40}, "2" * 32),
+    "forged_author": send("review-dispatch", {**good, "review_author_model": "gpt-6.1-sol"}, "3" * 32),
+    "unknown_verb": send("run", {"argv": ["/bin/sh"]}, "4" * 32),
+    "good": send("review-dispatch", good, "5" * 32),
+    "replay": send("review-dispatch", good, "5" * 32),
+}))
+"""
+
+
+def test_broker_refuses_forged_or_replayed_requests(primary, monkeypatch, tmp_path):
+    """Defect class: the host broker admits a forged or replayed request (another task's review, a head other than
+    the PR's live head, a request-chosen author model, a replayed request or an unknown verb), so a worker inside
+    the boundary acts as another task, forges review provenance or runs an unapproved host operation."""
+    _, worktree, receipt = primary
+    tip = _git(worktree, "rev-parse", "HEAD")
+    monkeypatch.setattr(write_boundary._Broker, "_pull_request",
+                        lambda self, payload, state: (payload["pr"], "owner/repo", {"headRefOid": tip}))
+    host_steps = []
+    monkeypatch.setattr(write_boundary._Broker, "_module", lambda self, module, argv, key, stdin=None: host_steps.append(
+        (module, argv)) or {"returncode": 0, "stdout": "", "stderr": ""})
+    client = tmp_path / "client.py"
+    client.write_text(_BROKER_CLIENT)
+    code = write_boundary.main([
+        "--task-id", "wb-test", "--worktree", str(worktree), "--scratch", str(write_boundary.scratch("wb-test")),
+        "--receipt", str(receipt), "--author-model", "claude-opus-5-5", "--",
+        "/bin/sh", "-c", f"python3 -I {client} {tip} > {worktree}/broker-results.json",
+    ])
+    assert code == 0, json.loads(receipt.read_text())
+    results = json.loads((worktree / "broker-results.json").read_text())
+    assert results == {"other_task": 2, "stale_head": 2, "forged_author": 2, "unknown_verb": 2, "good": 0, "replay": 2}
+    assert len(host_steps) == 1
+    module, argv = host_steps[0]
+    assert module == "dispatcher.cli"
+    assert argv[argv.index("--review-author-model") + 1] == "claude-opus-5-5"
+    assert argv[argv.index("--mode") + 1] == "read-only" and argv[argv.index("--pinned-head") + 1] == tip
+    assert argv[argv.index("--task-id") + 1] == "wb-test-review-r1" and argv[argv.index("--branch") + 1] == "task"
