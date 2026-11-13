@@ -563,7 +563,7 @@ def test_project_python_and_githooks_follow_the_rule(tmp_path: Path) -> None:
     hook_log = tmp_path / "hook.log"
     hook_override = _wrapper(tmp_path / "hook-python", hook_log)
     packaged = machinery_root()
-    library = primary / "lu_machinery" / "lib" / "project_interpreter.sh"
+    library = worktree / "lu_machinery" / "lib" / "project_interpreter.sh"
     library.parent.mkdir(parents=True)
     shutil.copy2(packaged / "lib" / "project_interpreter.sh", library)
     hook_lib = primary / ".githooks"
@@ -572,7 +572,8 @@ def test_project_python_and_githooks_follow_the_rule(tmp_path: Path) -> None:
     hook = _run(
         ["bash", "-c", f'source "{hook_lib / "_lib.sh"}" && run_project_python -c "print(1)"'],
         cwd=worktree,
-        env={**_base_env(tmp_path), "LEARN_UKRAINIAN_PYTHON": str(hook_override)},
+        env={**_base_env(tmp_path), "LEARN_UKRAINIAN_PYTHON": str(hook_override),
+             "LEARN_UKRAINIAN_PRIMARY_REPO_ROOT": str(primary)},
     )
     assert hook.returncode == 0, hook.stderr
     assert hook_log.read_text(encoding="utf-8").split()[0] == str(hook_override)
@@ -895,3 +896,29 @@ def test_subdirectory_does_not_select_a_nested_venv(tmp_path: Path) -> None:
     )
     assert nested_log.read_text(encoding="utf-8") == "", codex.stderr
     assert str(primary / ".venv/bin/python") in log.read_text(encoding="utf-8"), codex.stderr
+
+
+def test_a_receipt_for_a_different_tool_or_base_fallback_is_never_reused(tmp_path):
+    """Port PR 13005: resolver-only changes invalidate cached pre-push validation."""
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("ported_pre_push_gate", SOURCE / ".githooks/pre_push_gate.py")
+    gate = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = gate
+    spec.loader.exec_module(gate)
+    launcher = tmp_path / "lu_machinery/pre_commit/project_python.sh"
+    resolver = tmp_path / "lu_machinery/lib/project_interpreter.sh"
+    launcher.parent.mkdir(parents=True)
+    resolver.parent.mkdir(parents=True)
+    launcher.write_text("#!/bin/bash\nexit 0\n")
+    resolver.write_text("original resolver\n")
+    config = tmp_path / "config.yaml"
+    config.write_text("repos: []\n")
+    before = gate.tool_versions(str(launcher), str(config))
+    plan = gate.Plan("a" * 40, "b" * 40, "c" * 40, tools=before)
+    gate.write_receipt(tmp_path, plan, 1000.0)
+    assert gate.receipt_is_fresh(tmp_path, plan, 1001.0)
+    resolver.write_text("changed interpreter selection\n")
+    after = gate.tool_versions(str(launcher), str(config))
+    assert before["interpreter_resolver"] != after["interpreter_resolver"]
+    assert not gate.receipt_is_fresh(tmp_path, gate.Plan("a" * 40, "b" * 40, "c" * 40, tools=after), 1001.0)

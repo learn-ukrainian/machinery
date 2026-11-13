@@ -34,6 +34,7 @@ NATIVE_HOOK_MODES = (
     "agy-pretool-hook",
     "claude-hook",
     "claude-stop-hook",
+    "claude-audit-hook",
     "codex-pre-tool-use",
     "codex-post-tool-use",
     "codex-user-prompt-submit",
@@ -86,6 +87,16 @@ print(machinery_path(sys.argv[1]))' "$_lu_hook_entry" </dev/null 2>/dev/null)" |
 shopt -s execfail
 exec /bin/bash "$_lu_hook_entry" "$@"
 _lu_hook_fail "$_lu_hook_mode"
+"""
+
+# The existing Claude audit mode preserves its policy exit status. Standard
+# modes retain their command bytes when a mode is added.
+_AUDIT_HOOK_TAIL = r"""project_hook_context_resolve 2>/dev/null || {
+    cat >/dev/null 2>&1
+    printf '%s\n' 'HOOK-BOOTSTRAP-FAILED: product root, shared state, interpreter or machinery unavailable.' >&2
+    exit 2
+}
+exec "$LEARN_UKRAINIAN_PYTHON" -I -m agents_extensions.shared.hooks.audit-primary-checkout-dirt
 """
 
 
@@ -159,7 +170,8 @@ def native_hook_command(mode: str) -> str:
     """
     if mode not in NATIVE_HOOK_MODES:
         raise AgyHookConfigError("unsupported_hook_mode")
-    body = "set -u\n" + _hook_resolvers() + _HOOK_TAIL
+    tail = _AUDIT_HOOK_TAIL if mode == "claude-audit-hook" else _HOOK_TAIL
+    body = "set -u\n" + _hook_resolvers() + tail
     return shlex.join(["/bin/bash", "-c", body, NATIVE_HOOK_NAME, mode])
 
 

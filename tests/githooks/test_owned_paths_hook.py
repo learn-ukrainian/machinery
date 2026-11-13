@@ -153,6 +153,8 @@ def _product_repo(
         ("commit", "-q", "--allow-empty", "-m", "base"),
     ):
         assert _git(repo, *args, env=env).returncode == 0
+    # The shared hook boundary requires an explicit primary-state anchor.
+    env["LEARN_UKRAINIAN_PRIMARY_REPO_ROOT"] = str(repo)
     installed = _run(["/usr/bin/bash", str(_installer(python))], cwd=repo, env=env)
     assert installed.returncode == 0, installed.stderr
     assert "pre-commit: installed" in installed.stdout

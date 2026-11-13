@@ -153,8 +153,33 @@ def test_write_guard_does_not_anchor_git_mutations_to_release(release, product):
     assert result.returncode == 2 and "product_root_unavailable" in result.stderr
 
 
-def test_dirt_audit_does_not_select_release_as_default_product(release, product):
+@pytest.mark.parametrize("entry", ["direct", "native"])
+def test_dirt_audit_does_not_select_release_as_default_product(release, product, entry):
     name = "audit-primary-checkout-dirt.py"
+    if entry == "native":
+        # Port product PR 13005's registered audit control through the installed writer.
+        command = shlex.split(native_hook_command("claude-audit-hook"))
+        env = {"PATH": "/usr/bin:/bin", "HOME": str(product.parent),
+               "LU_PRODUCT_ROOT": str(product),
+               "LEARN_UKRAINIAN_PRIMARY_REPO_ROOT": str(product),
+               "LEARN_UKRAINIAN_PYTHON": str(release.parent / "venv/bin/python"),
+               "XDG_STATE_HOME": str(product.parent / "state")}
+        payload = {"tool_name": "Bash", "tool_input": {"command": "echo safe"},
+                   "cwd": str(product), "hook_event_name": "PreToolUse",
+                   "session_id": "release-root", "tool_use_id": "native-audit"}
+        before = subprocess.run(command, input=json.dumps(payload), text=True,
+                                capture_output=True, cwd=product, env=env, timeout=30)
+        assert before.returncode == 0, before.stderr
+        (product / "new-dirt").write_text("fixture")
+        payload["hook_event_name"] = "PostToolUse"
+        after = subprocess.run(command, input=json.dumps(payload), text=True,
+                               capture_output=True, cwd=product, env=env, timeout=30)
+        assert after.returncode == 2 and "new-dirt" in after.stderr, after
+        env["LEARN_UKRAINIAN_PYTHON"] = str(product / "missing-python")
+        refused = subprocess.run(command, input="{}", text=True, capture_output=True,
+                                 cwd=product, env=env, timeout=30)
+        assert refused.returncode == 2 and "HOOK-BOOTSTRAP-FAILED" in refused.stderr
+        return
     assert run_hook(release, product, name, "echo safe").returncode == 0
     (product / "new-dirt").write_text("fixture")
     result = run_hook(release, product, name, "echo safe", event="PostToolUse")
@@ -639,6 +664,7 @@ def test_codex_entry_audit_child_keeps_the_tree_off_sys_path(product, tmp_path):
 
 HOOK_BOOTSTRAP_ENTRIES = {
     "native-hook": None,
+    "git-hook-lib": None,
     "codex-entry": ("lu_machinery/agent_runtime/codex_hook_entry.sh", "pre-tool-use"),
     "agy-driver-state": ("lu_machinery/agy_hooks/driver_state_inject.sh", "agy-pretool-hook"),
     "agy-pending-orders": ("lu_machinery/agy_hooks/pending_orders_inject.sh",),
@@ -672,6 +698,10 @@ def test_hook_bootstrap_takes_the_interpreter_only_from_the_configured_primary(r
         env["LEARN_UKRAINIAN_PRIMARY_REPO_ROOT"] = str(product)
     if entry == "native-hook":
         argv = shlex.split(native_hook_command("codex-pre-tool-use"))
+    elif entry == "git-hook-lib":
+        (worktree / "lu_machinery").symlink_to(release / "lu_machinery", target_is_directory=True)
+        argv = ["bash", "-c", 'source "$1" && run_project_python -I -c "print(1)"', "lib",
+                str(SOURCE / ".githooks/_lib.sh")]
     elif entry == "context-rollover-lib":
         argv = ["bash", "-c", 'source "$1" && context_machinery_bootstrap "$2"', "lib",
                 str(release / HOOKS / "context-rollover-lib.sh"), str(worktree)]
@@ -691,3 +721,24 @@ def test_hook_bootstrap_takes_the_interpreter_only_from_the_configured_primary(r
             result.returncode, result.stdout, result.stderr)
     else:
         assert refused, (result.returncode, result.stdout, result.stderr)
+
+
+def test_hook_shell_ordinary_session_falls_back_without_temporary_files(release, product, tmp_path):
+    """Port PR 13005 S3: an ordinary stop hook allows without driver scratch."""
+    env = {"PATH": "/usr/bin:/bin", "HOME": str(tmp_path),
+           "LU_PRODUCT_ROOT": str(product),
+           "LEARN_UKRAINIAN_PRIMARY_REPO_ROOT": str(product),
+           "LEARN_UKRAINIAN_PYTHON": str(release.parent / "venv/bin/python")}
+    result = subprocess.run(shlex.split(native_hook_command("agy-stop-hook")),
+                            input="{}", text=True, capture_output=True,
+                            cwd=product, env=env, timeout=30)
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout) == {"decision": "allow"}
+    assert result.stderr == ""
+    env.update(LU_DRIVER_STATE_FILE=str(tmp_path / "driver-state"), SESSION_HANDOFF_AGENT="worker")
+    refused = subprocess.run(shlex.split(native_hook_command("agy-stop-hook")),
+                             input="{}", text=True, capture_output=True,
+                             cwd=product, env=env, timeout=30)
+    assert refused.returncode == 0
+    assert json.loads(refused.stdout)["decision"] == "continue"
+    assert "HOOK-BOOTSTRAP-FAILED" in refused.stderr
