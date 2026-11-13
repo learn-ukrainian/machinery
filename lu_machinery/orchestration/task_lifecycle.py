@@ -1371,14 +1371,15 @@ def _publish_branch_authorizes(local: Mapping[str, Any]) -> bool:
     claimed = local.get("branch")
     actual = local.get("actual_worktree_branch")
     worktree = local.get("worktree")
-    normalized = worktree.replace("\\", "/") if isinstance(worktree, str) else ""
+    if not isinstance(worktree, str):
+        return False
     if (
         not isinstance(claimed, str)
         or not claimed
         or not isinstance(actual, str)
         or not actual
         or actual == claimed
-        or "/.worktrees/dispatch/" not in normalized
+        or "/.worktrees/dispatch/" not in worktree.replace("\\", "/")
     ):
         return False
     task_id = Path(worktree).name
@@ -1397,7 +1398,7 @@ def _publish_branch_authorizes(local: Mapping[str, Any]) -> bool:
     if not isinstance(record, dict) or record.get("task_id") != task_id:
         return False
     recorded = record.get("worktree_path") or record.get("cwd")
-    if not isinstance(recorded, str) or not isinstance(worktree, str) or not _same_checkout(recorded, worktree):
+    if not isinstance(recorded, str) or not _same_checkout(recorded, worktree):
         return False
     return record.get("worktree_branch") == actual and record.get("publish_branch") == claimed
 
