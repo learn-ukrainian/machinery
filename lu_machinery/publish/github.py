@@ -1595,6 +1595,8 @@ def _publish_ruleset_merge_queue(
     unsent_or_lost = (
         "OPSEC: ruleset update unverified: the write may have been applied and its answer was lost. Do not retry."
     )
+    # The nosemgrep markers below are on CompletedProcess constructors: each builds this
+    # verb's result object and runs nothing.
     try:
         put = runner(
             put_argv,
@@ -1612,7 +1614,7 @@ def _publish_ruleset_merge_queue(
     except Exception:
         # A timeout or transport fault can follow a PUT that GitHub already applied.
         print(unsent_or_lost, file=sys.stderr)
-        return subprocess.CompletedProcess(put_argv, 3, "", "")
+        return subprocess.CompletedProcess(put_argv, 3, "", "")  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit
     if put.returncode:
         status = getattr(getattr(put, "github_result", None), "status", None)
         if type(status) is int and 400 <= status < 500:
@@ -1621,7 +1623,7 @@ def _publish_ruleset_merge_queue(
         # A server error, a lost connection or an unframed answer does not prove that
         # nothing landed.
         print(unsent_or_lost, file=sys.stderr)
-        return subprocess.CompletedProcess(put_argv, 3, "", "")
+        return subprocess.CompletedProcess(put_argv, 3, "", "")  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit
     try:
         after = _ruleset_get(runner, endpoint, cwd, environment)
         after_index, after_parameters = _merge_queue_rule(after.get("rules"))
@@ -1633,7 +1635,7 @@ def _publish_ruleset_merge_queue(
             "OPSEC: ruleset update unverified: the write was sent and the read-back failed. Do not retry.",
             file=sys.stderr,
         )
-        return subprocess.CompletedProcess(put_argv, 3, "", "")
+        return subprocess.CompletedProcess(put_argv, 3, "", "")  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit
     if (
         type(after.get("id")) is not int
         or after["id"] != ruleset_id
@@ -1645,7 +1647,7 @@ def _publish_ruleset_merge_queue(
             "OPSEC: ruleset update unverified: the write was sent and the read-back does not match. Do not retry.",
             file=sys.stderr,
         )
-        return subprocess.CompletedProcess(put_argv, 3, "", "")
+        return subprocess.CompletedProcess(put_argv, 3, "", "")  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit
     line = json.dumps(
         {"merge_queue": after_parameters, "repo": gh_repo, "ruleset": ruleset_id},
         ensure_ascii=False,
@@ -1653,7 +1655,7 @@ def _publish_ruleset_merge_queue(
     )
     if not capture_output:
         print(line)
-    return subprocess.CompletedProcess(put_argv, 0, line if text else line.encode(), "")
+    return subprocess.CompletedProcess(put_argv, 0, line if text else line.encode(), "")  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit
 
 
 # Inside a dispatched write worker's boundary (#434) there is no GitHub credential or route: these verbs reach the
