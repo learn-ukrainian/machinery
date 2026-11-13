@@ -96,3 +96,14 @@ def test_active_discussions_classifies_running_converged_and_timed_out(discussio
     assert by_thread["running"]["channel"] == "architecture"
     assert by_thread["running"]["last_round"] == 1
     assert by_thread["running"]["round_count"] == 1
+
+
+def test_active_discussions_database_error_does_not_expose_internal_details(discussions_client, monkeypatch):
+    """Defect class: SQLite exceptions disclose database paths or SQL in HTTP responses."""
+    def fail(**kwargs):
+        raise sqlite3.OperationalError("unable to open database /private/fixture/messages.db")
+
+    monkeypatch.setattr(discussions_router, "collect_active_discussions", fail)
+    response = discussions_client.get("/api/discussions/active")
+    assert response.status_code == 500
+    assert response.json() == {"error": "broker_query_failed"}

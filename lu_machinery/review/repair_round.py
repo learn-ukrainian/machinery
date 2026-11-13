@@ -48,6 +48,7 @@ import json
 import os
 import re
 import subprocess
+import tempfile
 import time
 from collections.abc import Callable, Collection, Mapping, Sequence
 from dataclasses import dataclass, field
@@ -461,15 +462,21 @@ def admit_repair_round(
 def _write_json(path: Path, data: Mapping[str, Any], *, exclusive: bool) -> None:
     payload = (json.dumps(data, sort_keys=True, indent=2) + "\n").encode("utf-8")
     if exclusive:
-        descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
+        target = path
+        descriptor = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    else:
+        descriptor, name = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
+        target = Path(name)
+    try:
         with os.fdopen(descriptor, "wb") as stream:
             stream.write(payload)
             stream.flush()
             os.fsync(stream.fileno())
-        return
-    temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
-    temporary.write_bytes(payload)
-    os.replace(temporary, path)
+        if not exclusive:
+            os.replace(target, path)
+    finally:
+        if not exclusive:
+            target.unlink(missing_ok=True)
 
 
 def record_admission(receipt_root: Path, receipt: Mapping[str, Any]) -> None:

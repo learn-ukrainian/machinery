@@ -54,7 +54,7 @@ def _report_foreign(path: Path, raw: bytes) -> None:
     if len(_REPORTED_FOREIGN) >= _REPORTED_FOREIGN_LIMIT:
         _REPORTED_FOREIGN.clear()
     _REPORTED_FOREIGN.add(fingerprint)
-    _LOG.warning("NON_RECORD_FILE: %s", path)
+    _LOG.warning("NON_RECORD_FILE: %r", str(path))
 
 
 def _has_v2_record_name(path: Path) -> bool:
