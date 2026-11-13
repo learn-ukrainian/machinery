@@ -1,6 +1,7 @@
 """The write boundary (#423) against a real bubblewrap sandbox and a disposable primary with one linked worktree."""
 
 import hashlib
+import ipaddress
 import json
 import subprocess
 from pathlib import Path
@@ -8,6 +9,9 @@ from pathlib import Path
 import pytest
 
 from lu_machinery.dispatcher import write_boundary
+
+# One of GitHub's published address ranges; the launcher reads the real ones on the host.
+_GITHUB_RANGE = "140.82.112.0/20"
 
 
 def _git(cwd: Path, *args: str) -> str:
@@ -30,6 +34,8 @@ def primary(tmp_path, monkeypatch):
     home.mkdir()
     monkeypatch.setenv("HOME", str(home))
     monkeypatch.setenv("LU_SCRATCH_ROOT", str(tmp_path / "scratch"))
+    # GitHub's published address ranges, which the launcher reads with the host login in production.
+    monkeypatch.setattr(write_boundary, "github_networks", lambda: (ipaddress.ip_network(_GITHUB_RANGE),))
     return repo, worktree, tmp_path / "receipt.json"
 
 
@@ -172,8 +178,9 @@ def test_broker_refuses_forged_or_replayed_requests(primary, monkeypatch, tmp_pa
 
 _ROUTES = ("claude", "codex", "cursor", "agy", "opencode")
 _SENTINEL = "ghp_PROBE_SENTINEL_0123456789abcdefABCDEF01"
+# The last name is not GitHub's but resolves to one of GitHub's published addresses (a DNS alias).
 _GITHUB_HOSTS = ("github.com", "api.github.com", "uploads.github.com", "ssh.github.com", "codeload.github.com",
-                 "ghcr.io")
+                 "ghcr.io", "alias.example.org")
 
 _CREDENTIAL_PROBE = """
 import json, os, socket, subprocess, sys
@@ -224,7 +231,8 @@ open(report, "w").write(json.dumps(cells))
 def test_no_github_write_authority_is_reachable_inside_any_route(primary, monkeypatch, tmp_path, route):
     """Defect class: a write worker recovers the host's GitHub login inside the boundary (from the environment, gh's
     configuration or an alternate one, Git credential files, netrc, SSH keys or an inherited descriptor) or reaches
-    GitHub directly (CLI, REST, GraphQL or Git), so it writes to GitHub without the broker's ownership and gates."""
+    GitHub directly (CLI, REST, GraphQL or Git, by GitHub's names or another name resolving to its addresses), so it
+    writes to GitHub without the broker's ownership and gates."""
     _, worktree, receipt = primary
     home = Path(write_boundary.os.environ["HOME"])
     stores = {"gh": home / ".config/gh/hosts.yml", "alternate_gh": tmp_path / "alt-gh/hosts.yml",
@@ -238,6 +246,13 @@ def test_no_github_write_authority_is_reachable_inside_any_route(primary, monkey
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
     for name in ("GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN"):
         monkeypatch.setenv(name, _SENTINEL)
+    from lu_machinery.agent_runtime.attempt_network import AttemptEgress
+
+    # Every name here resolves into GitHub's published ranges (the ``primary`` fixture supplies them).
+    async def resolve(self, host):
+        return ["140.82.112.3"]
+
+    monkeypatch.setattr(AttemptEgress, "_resolve", resolve)
     credential = {"claude": home / ".claude/.credentials.json", "codex": home / ".codex/auth.json",
                   "agy": home / ".agy/token", "opencode": home / ".local/share/opencode/auth.json"}.get(route)
     extra = []
@@ -259,8 +274,8 @@ def test_no_github_write_authority_is_reachable_inside_any_route(primary, monkey
     denominator = 1 + len(stores) + 1 + len(_GITHUB_HOSTS) + 3
     assert len(cells) == denominator and all(cells.values()), cells
     # Zero bytes reached any GitHub host: each CONNECT was refused before a connection existed.
-    github = [row for row in result["egress"] if row["destination"].split(":")[0].endswith(("github.com", "ghcr.io"))]
-    assert github and all(row.get("refused") and row["bytes"] == 0 for row in github)
+    github = [row for row in result["egress"] if row["destination"].split(":")[0] in _GITHUB_HOSTS]
+    assert len(github) == len(_GITHUB_HOSTS) and all(row.get("refused") and row["bytes"] == 0 for row in github)
     assert all(path.read_text() == f"oauth_token: {_SENTINEL}\n" for path in stores.values())
 
 
@@ -289,7 +304,9 @@ def broker(primary, tmp_path, monkeypatch):
     instance.boundary = _Launch(repo, scratch, _git(worktree, "rev-parse", "HEAD"))
     instance.steps = []
     instance.pulls = {7: {"state": "OPEN", "headRefName": "task", "headRefOid": instance.boundary.tip,
-                          "isCrossRepository": False},
+                          "isCrossRepository": False, "baseRefName": "main"},
+                      9: {"state": "OPEN", "headRefName": "task", "headRefOid": instance.boundary.tip,
+                          "isCrossRepository": False, "baseRefName": "release"},
                       8: {"state": "OPEN", "headRefName": "other", "headRefOid": "1" * 40, "isCrossRepository": False}}
     monkeypatch.setattr(write_boundary._Broker, "_repository_slug", lambda self: "owner/repo")
 
@@ -393,7 +410,8 @@ def _review_record(root: Path, name: str, **fields) -> None:
 
 def test_pr_merge_needs_a_host_held_approval_of_the_live_head(broker, tmp_path, monkeypatch):
     """Defect class: pr-merge enqueues on a worker-written comment, a review of another head or task, a same-family
-    review or a stale head, so a PR lands without an independent exact-head approval."""
+    review, a stale head or a PR retargeted to another base, so a PR lands without an independent exact-head
+    approval or into a base the broker never authorized."""
     from lu_machinery.review import record_cf_verdict as recorder
 
     root = tmp_path / "tasks"
@@ -415,6 +433,8 @@ def test_pr_merge_needs_a_host_held_approval_of_the_live_head(broker, tmp_path, 
     assert "no cross-family APPROVE" in _refused(lambda: broker._pr_merge({"pr": 7, "head": tip}))
     assert broker.steps == []
     _review_record(root, "wb-test-review-r5", v="APPROVED", sha=tip, family="openai")
+    # The same approved head on a PR retargeted to another base is not this task's landing.
+    assert "default branch" in _refused(lambda: broker._pr_merge({"pr": 9, "head": tip}))
     reply = broker._pr_merge({"pr": 7, "head": tip})
     assert reply["returncode"] == 0 and "wb-test-review-r5" in reply["stdout"]
     assert broker.steps == [("publish.github", ["pr-merge", "--repo", "owner/repo", "--number", "7", "--match-head", tip])]

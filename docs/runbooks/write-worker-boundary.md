@@ -37,9 +37,12 @@ One bubblewrap invocation per launch, built in full by the launcher:
 - Writable: the task worktree, a private `TMPDIR` (also `LU_SCRATCH_ROOT` and `XDG_RUNTIME_DIR`) and
   the declared outputs (the final-message file and AGY's write log).
 - Network: only the CONNECT-only egress proxy of the formal review attempts (`attempt_network`),
-  reached through the in-namespace forwarder. Any public host on port 443 except GitHub's
-  (`github.com`, every name below it, and `ghcr.io`); loopback, private and host addresses are
-  refused, so no host service (Monitor API, Sources, SSH, databases) is reachable.
+  reached through the in-namespace forwarder. Any public host on port 443 except GitHub: its names
+  (`github.com`, every name below it, and `ghcr.io`) and every name that resolves into the address
+  ranges GitHub publishes for its web, API, Git and package hosts (read with the host login at
+  launch; the launch refuses when they cannot be read). Downloads served from those ranges are
+  unavailable inside. Loopback, private and host addresses are refused, so no host service (Monitor
+  API, Sources, SSH, databases) is reachable.
   `NODE_USE_ENV_PROXY=1` makes Node's own `fetch` use the proxy.
 - No GitHub credential: the provider's environment carries no GitHub credential variable, and the
   host login's known credential stores read empty inside.

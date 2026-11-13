@@ -132,10 +132,13 @@ MAX_EGRESS_DESTINATIONS = 256
 class AttemptEgress:
     """Bounded asyncio proxy with killable DNS processes and numeric connects."""
 
-    def __init__(self, endpoint: Path, *, limits: Limits = DEFAULT_LIMITS, refused_domains: tuple[str, ...] = ()):
+    def __init__(self, endpoint: Path, *, limits: Limits = DEFAULT_LIMITS, refused_domains: tuple[str, ...] = (),
+                 refused_networks: tuple = ()):
         self.endpoint, self.limits = endpoint, limits
-        # Hosts this run may not reach at all: each domain and every name below it (the write boundary's GitHub).
+        # A service this run may not reach at all (the write boundary's GitHub): its names, each domain and every
+        # name below it, and its addresses, so another name that resolves to it is refused too.
         self.refused_domains = tuple(domain.casefold() for domain in refused_domains)
+        self.refused_networks = tuple(ipaddress.ip_network(network) for network in refused_networks)
         self.local_addresses = host_addresses()
         self.records: list[dict] = []  # destination + byte count only; no payloads or addresses
         self.overflow_count = 0
@@ -282,6 +285,9 @@ class AttemptEgress:
                 raise ValueError("destination refused for this run")
             answers = await asyncio.wait_for(self._resolve(host), self.limits.resolve_seconds)
             addresses = validate_answers(answers, self.local_addresses)
+            if any(address in network for address in addresses for network in self.refused_networks):
+                record["refused"] = True
+                raise ValueError("destination address refused for this run")
             remote, upstream = await asyncio.wait_for(self._connect(addresses), self.limits.connect_seconds)
             writer.write(b"HTTP/1.1 200 Connection Established\r\n\r\n")
             await asyncio.wait_for(writer.drain(), self.limits.header_seconds)

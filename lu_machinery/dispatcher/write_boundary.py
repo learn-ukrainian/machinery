@@ -113,9 +113,11 @@ _BROKER_VERBS = ("review-dispatch", "record-verdict", "fleet-publish", "closeout
 _GITHUB_READS = frozenset({"pull", "pr-files", "commits", "commit", "comments", "reviews", "timeline", "issue",
                            "checks", "check-annotations", "run", "jobs"})
 _BRANCH = re.compile(r"[A-Za-z0-9][A-Za-z0-9._/-]{0,199}")
-# GitHub's write-capable hosts. The egress proxy refuses them inside the boundary, so no credential the worker
-# could read anywhere is usable from inside; every publication goes through the broker (PUBLISH-CRED-1113).
+# GitHub's write-capable hosts. The egress proxy refuses them inside the boundary, by name and by the address ranges
+# GitHub publishes for them, so no credential the worker could read anywhere is usable from inside; every
+# publication goes through the broker (PUBLISH-CRED-1113).
 GITHUB_DOMAINS = ("github.com", "ghcr.io")
+_GITHUB_META_KEYS = ("web", "api", "git", "packages")
 _REQUEST_ID = re.compile(r"[0-9a-f]{32}")
 _WORD = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/-]{0,79}")  # a model, agent, profile or label: never a flag
 _CHANNEL = re.compile(r"[a-z0-9][a-z0-9._-]{0,63}")
@@ -357,6 +359,34 @@ def _github_credential_paths(home: Path) -> list[Path]:
             if name.is_absolute() and os.path.lexists(name) and not name.is_symlink() and name not in paths:
                 paths.append(name)
     return paths
+
+
+def github_networks() -> tuple:
+    """GitHub's published address ranges for its web, API, Git and package hosts, read on the host now.
+
+    Fails closed: without them the proxy could not refuse another name that resolves to GitHub.
+    """
+    import ipaddress
+
+    from lu_machinery.common import github_client
+
+    try:
+        proc = github_client.run(["gh", "api", "meta"], capture_output=True, text=True, check=False, timeout=60)
+        meta = json.loads(proc.stdout) if proc.returncode == 0 else None
+    except (OSError, ValueError, subprocess.SubprocessError):
+        meta = None
+    networks = []
+    ranges: dict = meta if isinstance(meta, dict) else {}
+    complete = all(isinstance(ranges.get(key), list) and ranges[key] for key in _GITHUB_META_KEYS)
+    for key in _GITHUB_META_KEYS if complete else ():
+        for value in ranges[key]:
+            try:
+                networks.append(ipaddress.ip_network(value))
+            except (TypeError, ValueError):
+                complete = False
+    if not complete or not any(network.version == 4 for network in networks):
+        raise Refused("GitHub's published address ranges cannot be read; the boundary could not refuse GitHub")
+    return tuple(dict.fromkeys(networks))
 
 
 def _under(path: Path, roots) -> bool:
@@ -832,6 +862,8 @@ class _Broker:
         number, slug, facts = self._pull_request(payload, "OPEN")
         if not (head == facts.get("headRefOid") == self.boundary.current_tip()):
             raise _BrokerRefusal("head is not both the PR's live head and this task's branch tip")
+        if facts.get("baseRefName") != self._default_branch(slug):
+            raise _BrokerRefusal("the PR's base is not the repository's default branch")
         review = self._approval(head)
         reply = self._publish("pr-merge", slug, ["--number", str(number), "--match-head", head], "pr-merge")
         reply["stdout"] = f"approval: {review}\n" + reply["stdout"]
@@ -1008,7 +1040,8 @@ class _Boundary:
             self.receipt["sources"] = {"status": "unavailable", "reason": f"{type(exc).__name__}: {exc}"[:200]}
         argv += ["--cap-drop", "ALL", "--chdir", str(self.worktree)]
 
-        self.egress = AttemptEgress(boundary / "egress.sock", refused_domains=GITHUB_DOMAINS)
+        self.egress = AttemptEgress(boundary / "egress.sock", refused_domains=GITHUB_DOMAINS,
+                                    refused_networks=github_networks())
         report_read, report_write = os.pipe()
         go_read, go_write = os.pipe()
         _write_private(boundary / "plan.json", json.dumps(
