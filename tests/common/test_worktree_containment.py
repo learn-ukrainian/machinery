@@ -631,7 +631,8 @@ def test_primary_guard_keeps_configured_and_additional_primary_protection(layout
     assert (other / "tracked.txt").read_text() == "other\n"
 
 
-def test_tar_list_mode_option_word_is_not_a_primary_write(layout: Layout):
+@pytest.mark.parametrize("tar_options", [None, "--index-file=out"])
+def test_tar_list_mode_option_word_is_not_a_primary_write(layout: Layout, tar_options: str | None):
     """Defect class: tar's dash-less option word (``tar tzf``) read as a file written in the primary.
 
     ``-t`` lists the archive named by ``-f`` and writes nothing; later words are
@@ -641,6 +642,9 @@ def test_tar_list_mode_option_word_is_not_a_primary_write(layout: Layout):
     """
     hook = Path(__file__).resolve().parents[2] / "agents_extensions/shared/hooks/guard-primary-checkout-write.py"
     env = {**_clean_env(), "LU_PRODUCT_ROOT": str(layout.main)}
+    env.pop("TAR_OPTIONS", None)
+    if tar_options is not None:
+        env["TAR_OPTIONS"] = tar_options
 
     def decision(command: str) -> int:
         payload = {"tool_name": "Bash", "cwd": str(layout.main), "tool_input": {"command": command}}
@@ -656,8 +660,8 @@ def test_tar_list_mode_option_word_is_not_a_primary_write(layout: Layout):
         return result.returncode
 
     archive = layout.outside / "a.tgz"
-    assert decision(f"tar tzf {archive}") == 0
-    assert decision(f"tar tvzf {archive} tracked.txt") == 0
+    assert decision(f"tar tzf {archive}") == (0 if tar_options is None else 2)
+    assert decision(f"tar tvzf {archive} tracked.txt") == (0 if tar_options is None else 2)
     assert decision(f"tar xzf {archive}") == 2
     assert decision(f"tar -xzf {archive} -C {layout.main}") == 2
     assert decision(f"tar czf {layout.main}/out.tgz pkg") == 2
@@ -666,6 +670,10 @@ def test_tar_list_mode_option_word_is_not_a_primary_write(layout: Layout):
     assert decision(f"tar tzf {archive} *") == 2
     # A first textual segment may execute again or later with a changed environment.
     for command in (
+        f"trap 'tar tzf {archive}' EXIT",
+        f"coproc tar tzf {archive}",
+        f"bash -c 'tar tzf {archive}'",
+        f"trap 'tar tzf {archive}' EXIT; export TAR_OPTIONS=--index-file=out",
         f"while tar tzf {archive}; do export TAR_OPTIONS=--index-file=out; done",
         f"until tar tzf {archive} && test -e out; do export TAR_OPTIONS=--index-file=out; done",
         f"function f {{ tar tzf {archive}; }}; TAR_OPTIONS=--index-file=out f",
@@ -736,6 +744,7 @@ def test_agy_tool_call_shape_cannot_bypass_primary_write_guard(layout: Layout, s
         ("coproc git reset --hard", 2),
         ("coproc cd <dispatch>; touch tracked.txt", 2),
         ("trap 'tar xzf archive.tgz' EXIT", 2),
+        ("cat > tracked.txt <<'EOF'\ngh pr merge 5 is text\nEOF", 2),
         ("coproc touch tracked.txt", 2),
         ("coproc tar xzf archive.tgz", 2),
         ("coproc { touch tracked.txt; }", 2),

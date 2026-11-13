@@ -118,7 +118,7 @@ except Exception as exc:
     raise SystemExit(2) from exc
 
 try:
-    from agents_extensions.shared.hooks.shell_redirects import literal_lines, scope_events
+    from agents_extensions.shared.hooks.shell_redirects import literal_lines, preprocess_branch_command, scope_events
 except Exception as exc:
     print(f"guard dependency unavailable: shell_redirects ({exc})", file=sys.stderr)
     raise SystemExit(2) from exc
@@ -644,16 +644,35 @@ def _quote_after_line(line: str, quote: str) -> str:
 
 
 def _literal_heredoc_data_reader(line: str) -> bool:
-    """Prove one wrapper-free command consumes stdin as literal data."""
-    if any(char in line for char in ";&|()$`"):
+    """Prove wrapper-free commands consume stdin as literal data."""
+    if any(char in line for char in ";&()$`"):
         return False
+    if any(char in line for char in "|<>"):
+        readers = scope_events(
+            line,
+            mark_redirect_unreadable=False,
+            unreadable_marker=_UNREADABLE_MARKER,
+            unparsed=_UNPARSED,
+            may_match=_merge_candidate,
+            keep_separators=True,
+        )
+        # A trailing pipe continues after the closer; its reader is not on
+        # this line. Require alternating, complete data-reader stages.
+        return len(readers) % 2 == 1 and all(
+            (kind == "separator" and argv == ["|"])
+            if index % 2 else (
+                kind == "segment" and not any(char in arg for arg in argv for char in "|<>")
+                and _literal_heredoc_data_reader(shlex.join(argv))
+            )
+            for index, (kind, argv) in enumerate(readers)
+        )
     try:
         argv = shlex.split(line)
     except ValueError:
         return False
     if not argv:
         return False
-    if argv[0] in {"cat", "tee"}:
+    if argv[0] in {"cat", "tee", "wc", "head"} or argv == ["sort"]:
         return True
 
     def stdin_option(options: set[str]) -> bool:
@@ -703,7 +722,8 @@ def _without_quoted_heredoc_data(command: str, *, executable: bool = False) -> s
     or end is not certain: an ambiguous opener (the shared parser's rule), an
     unquoted delimiter, an opener line ending inside a quote or with a backslash
     continuation (Bash then starts the body after a later line), an unclosed
-    body, an ANSI-C `$'` quote, or a carriage return.
+    body, an ANSI-C `$'` quote, or a carriage return. For one proven data reader,
+    the shared quote-aware reader also admits backslash/partially quoted delimiters.
     """
 
     def uncertain() -> str:
@@ -739,6 +759,14 @@ def _without_quoted_heredoc_data(command: str, *, executable: bool = False) -> s
         joined = (len(line) - len(line.rstrip("\\"))) % 2 == 1
         delimiters = skippable_heredoc_delimiters(opener) if "<<" in opener else []
         if delimiters is None:
+            # The quote-aware reader also understands \\EOF and E'OF'. Only
+            # use its body removal for a single proven data-consuming command;
+            # executable readers and later commands retain the refusal below.
+            if prefix_data_only and _literal_heredoc_data_reader(opener):
+                visible = preprocess_branch_command(command)
+                commands = [line for line in visible.splitlines() if line.strip()]
+                if len(commands) == 1 and _literal_heredoc_data_reader(commands[0]):
+                    return visible
             return uncertain()
         if not delimiters:
             quote = _quote_after_line(opener, "")
@@ -767,7 +795,7 @@ def _without_quoted_heredoc_data(command: str, *, executable: bool = False) -> s
             index += 1
         prefix_data_only = reader_is_data
     if executable and bodies and any(_merge_candidate(body) for body in bodies):
-        # Only the existing standalone data-reader proof can dismiss a body.
+        # Only the data-reader proof for every pipeline stage can dismiss a body.
         # A shell stdin script uses the same nested-command walk as bash -c.
         # Other readers (including Python) require a parser we do not have.
         if data_only:
@@ -810,7 +838,7 @@ def _without_quoted_heredoc_data(command: str, *, executable: bool = False) -> s
         # by the raw-quoting tripwire and the shared preprocessor.
         return command
     # A quoted delimiter prevents expansion by the outer shell, not execution by
-    # the reader. Only a standalone literal data-copy command proves these bodies
+    # the reader. Only proven literal data consumers at every stage make these bodies
     # inert: interpreters, pipelines, prior function definitions and later script
     # execution must keep the raw check's existing refusal.
     commands = [text for line in kept if (text := strip_shell_comments(line).strip())]
@@ -899,9 +927,10 @@ def _may_merge(command: str, depth: int = 0) -> bool:
     # remove quote-bearing data, and may rewrite Bash-only syntax itself.
     # Quoted here-doc bodies are data in both: a brief that mentions a merge in
     # Markdown backticks is not shell syntax.
+    literal_view = _without_quoted_heredoc_data(command)
     if _merge_candidate(command) and (
-        _unmodeled_quoting(_without_quoted_heredoc_data(command))
-        or _unmodeled_quoting(preprocess_shell_command(command))
+        _unmodeled_quoting(literal_view)
+        or _unmodeled_quoting(preprocess_shell_command(literal_view))
     ):
         raise ShellPreprocessLimit("shell quoting cannot be read safely")
     if _literal_reads_only(command):
