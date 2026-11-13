@@ -2810,8 +2810,10 @@ def _pattern_changes_roles(segment: list[str], segment_targets: list[str]) -> bo
 _CODE_LAUNCHERS = frozenset(
     {"sh", "bash", "dash", "zsh", "ksh", "mksh", "posh", "yash", "fish", "csh", "tcsh", "busybox"}
     | {"eval", "source", ".", "su", "watch", "script", "parallel", "sem", "rush", "sg", "tmux", "screen", "at"}
-    | {"batch", "firejail", "sudo", "doas", "runuser", "entr", "ssh"}
+    | {"batch", "firejail", "sudo", "doas", "runuser", "entr", "ssh", "newgrp", "flock"}
 )
+# Shell programs under other names and versions (``rbash``, ``ksh93``, ``bash5``).
+_SHELL_NAME_RE = re.compile(r"(?:r?bash|[dkz]?sh|mksh|[ot]?csh|[lo]?ksh|pdksh|ksh93|yash|posh|ash)(?:[-.]?\d[\d.]*|-static|\.real)?")
 # Programs that run another command named in their arguments.
 _LAUNCHERS = _CODE_LAUNCHERS | frozenset(
     {
@@ -2824,14 +2826,36 @@ _LAUNCHERS = _CODE_LAUNCHERS | frozenset(
 )
 # ``env -S``/``--split-string`` splits one argument into a command line.
 _ENV_SPLIT_RE = re.compile(r"-[^-]*S|--split-string")
+# Words that can change how a launched program is found or how words split:
+# any spelling of these variables (assignment, append, export, read or nameref)
+# and the builtins that set command lookup.
+_LOOKUP_STATE_RE = re.compile(
+    r"PATH|IFS|BASH_ENV|(?:^|[^A-Za-z0-9_])ENV(?:$|[^A-Za-z0-9_])|LD_PRELOAD|LD_AUDIT|GLOBIGNORE|SHELLOPTS|BASHOPTS"
+    r"|EXECIGNORE|BASH_FUNC"
+)
+_LOOKUP_BUILTINS = frozenset({"hash", "alias", "enable"})
+# Bash extended-glob operators. The lexer splits ``@(a|b)`` at the parenthesis,
+# so the pattern shows as a word ending in an operator before a ``(`` segment.
+_EXTGLOB_RE = re.compile(r"[?*+@!]\(")
 
 
 def _undecided_word(word: str) -> bool:
     """Whether a word is anything but plain literal text: a pattern (quoted, escaped
     or not), a tilde or an expansion the guard cannot know. Quote removal has
     already happened, so a quoted or escaped pattern still shows its pattern
-    characters here."""
-    return getattr(word, "unresolved_at", None) is not None or _expandable_word(word) or "~" in word
+    characters here, and an extended pattern inside a script word shows its
+    operator."""
+    return (
+        getattr(word, "unresolved_at", None) is not None
+        or _expandable_word(word)
+        or "~" in word
+        or _EXTGLOB_RE.search(word) is not None
+    )
+
+
+def _extglob_segment(segment: list[str]) -> bool:
+    """Whether a segment ends in an extended-glob operator the lexer split off."""
+    return getattr(segment, "next_op", None) == "(" and bool(segment) and str(segment[-1])[-1:] in set("?*+@!")
 
 
 def _launches(words: list[str]) -> tuple[bool, bool]:
@@ -2842,10 +2866,22 @@ def _launches(words: list[str]) -> tuple[bool, bool]:
     is not a plain name could be any program, a shell included.
     """
     names = {Path(word).name for word in words if word != "."}  # ``.`` sources only as a command
-    code = bool(names & _CODE_LAUNCHERS) or ("env" in names and any(_ENV_SPLIT_RE.match(word) for word in words))
+    code = (
+        bool(names & _CODE_LAUNCHERS)
+        or any(_SHELL_NAME_RE.fullmatch(name) for name in names)
+        or ("env" in names and any(_ENV_SPLIT_RE.match(word) for word in words))
+    )
     argv = _without_redirects(words)
     _, idx = _command_word(argv)
     if idx < len(argv) and (argv[idx] == "." or _undecided_word(argv[idx])):
+        code = True
+    if _extglob_segment(words) and idx >= len(argv) - 1:
+        code = True  # An extended pattern in the command word selects the program.
+    # A replacement string can stand for the program itself: find puts the found
+    # path there, xargs a line of its input.
+    if any(word in _FIND_TEMPLATES and "{}" in nxt for word, nxt in zip(words, words[1:])):
+        code = True
+    if "xargs" in names and any(word == "-i" or word.startswith(("-I", "-J", "--replace")) for word in words):
         code = True
     launcher = code or bool(names & _LAUNCHERS) or any(word in _FIND_TEMPLATES for word in words)
     return launcher, code
@@ -2875,7 +2911,8 @@ def _launched_word_reaches(segments: list[tuple[list[str], str | None, str | Non
     is refused unless all of it is proven to stay out of the primary checkout. No
     launched command or nesting level is analysed. A launched shell, or a command
     word that is not a plain name, can run expanded words as code, so it is never
-    proven, nor is a command that sets ``PATH`` or ``IFS``. Otherwise every
+    proven, nor is a command with an extended pattern or a word that can change
+    program lookup or word splitting (`_LOOKUP_STATE_RE`). Otherwise every
     working directory and every literal word (also its ``=`` value and
     short-option tail) must resolve outside the checkout and not above it, and
     every pattern must have a bounded superset of such entries, none of which can
@@ -2903,9 +2940,15 @@ def _launched_word_reaches(segments: list[tuple[list[str], str | None, str | Non
                     launcher = code = True
                 elif program in _LAUNCHERS:
                     launcher = True
-    if not launcher or not any(_undecided_word(word) for word in words):
+    extglob = any(_extglob_segment(segment) for segment, _, _ in segments)
+    if not launcher or not (extglob or any(_undecided_word(word) for word in words)):
         return False
-    if code or any(word.startswith(("PATH=", "IFS=")) for word in words):
+    if (
+        code
+        or extglob
+        or any(_LOOKUP_STATE_RE.search(word) for word in words)
+        or any(Path(word).name in _LOOKUP_BUILTINS for word in words)
+    ):
         return True
     root = main_root.resolve()
     for segment, run_cwd, shell_cwd in segments:
