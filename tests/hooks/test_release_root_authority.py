@@ -721,6 +721,8 @@ def test_hook_bootstrap_takes_the_interpreter_only_from_the_configured_primary(r
             result.returncode, result.stdout, result.stderr)
     else:
         assert refused, (result.returncode, result.stdout, result.stderr)
+        if entry == "git-hook-lib":
+            assert "Git hook error: hook context unavailable" in result.stderr
 
 
 def test_hook_shell_ordinary_session_falls_back_without_temporary_files(release, product, tmp_path):

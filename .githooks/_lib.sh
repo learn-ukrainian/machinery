@@ -23,8 +23,14 @@ if [[ ! -f "$project_interpreter" ]]; then
 fi
 # shellcheck source=lu_machinery/lib/project_interpreter.sh
 source "$project_interpreter"
-project_hook_context_resolve "$worktree_root" || exit 127
-main_root="$(project_primary_root_resolve "$worktree_root")" || exit 127
+project_hook_context_resolve "$worktree_root" || {
+  echo "Git hook error: hook context unavailable; configure the primary-state anchor and interpreter." >&2
+  exit 127
+}
+main_root="$(project_primary_root_resolve "$worktree_root")" || {
+  echo "Git hook error: primary checkout unavailable." >&2
+  exit 127
+}
 
 source_root="$worktree_root"
 if [[ ! -f "$source_root/lu_machinery/lib/project_interpreter.sh" || ! -f "$source_root/.pre-commit-config.yaml" ]]; then

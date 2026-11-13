@@ -24,7 +24,7 @@ GUARD_TIMEOUT_FLOOR = 10
 PRIMARY_GUARD_NAME = "primary-checkout-write-guard"
 PRIMARY_GUARD_ENTRY = "agents_extensions/shared/hooks/guard-primary-checkout-write.py"
 GUARD_MODE = "agy-secret-print"
-# Every mode a product hook manifest may name, in the order of the tail's case.
+# Every mode a product hook manifest may name, across the standard and audit tails.
 NATIVE_HOOK_MODES = (
     GUARD_MODE,
     "agy-primary-write",
