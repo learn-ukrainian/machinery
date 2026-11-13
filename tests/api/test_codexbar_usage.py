@@ -2769,7 +2769,7 @@ def test_private_binding_incompatible_version_is_unavailable(private_binding, ve
 @pytest.mark.parametrize("missing", _REQUIRED_PRIVATE_ENTRY_POINTS)
 def test_private_binding_missing_entry_point_is_unavailable(private_binding, missing):
     private_binding.write_text(_private_module_source(missing=missing))
-    result = subscription_usage_mod.fetch_provider_usage("claude", timeout_s=1)
+    result = subscription_usage_mod.fetch_provider_usage("codex", timeout_s=1)
     assert result["error_code"] == "PRIVATE_TOOLING_UNAVAILABLE"
     assert result["status"] == "unavailable"
     assert result["weekly_used_pct"] is None
@@ -2779,7 +2779,7 @@ def test_private_binding_missing_entry_point_is_unavailable(private_binding, mis
 def test_absent_private_binding_subscription_fails_closed(private_binding, provider, monkeypatch):
     monkeypatch.setattr(Path, "home", lambda: pytest.fail("public probe must never discover credentials"))
     result = subscription_usage_mod.fetch_provider_usage(provider, timeout_s=1)
-    assert result["error_code"] == "PRIVATE_TOOLING_UNAVAILABLE"
+    assert result["error_code"] == ("UNAVAILABLE" if provider == "claude" else "PRIVATE_TOOLING_UNAVAILABLE")
     assert result["error_kind"] == "unavailable"
     assert result["auth_error"] == "provider_error"
     assert result["primary_used_pct"] is None and result["weekly_used_pct"] is None
@@ -2796,7 +2796,7 @@ def test_absent_private_binding_prepaid_needs_probe(private_binding, provider):
 
 def test_private_binding_load_failure_is_quiet_and_unavailable(private_binding, capsys):
     private_binding.write_text("print('SYNTHETIC_PRIVATE_DETAIL')\nraise RuntimeError('SYNTHETIC_PRIVATE_DETAIL')")
-    result = subscription_usage_mod.fetch_provider_usage("claude", timeout_s=1)
+    result = subscription_usage_mod.fetch_provider_usage("codex", timeout_s=1)
     assert result["error_code"] == "PRIVATE_TOOLING_UNAVAILABLE"
     assert capsys.readouterr() == ("", "")
     assert "SYNTHETIC_PRIVATE_DETAIL" not in json.dumps(result)
@@ -2826,6 +2826,17 @@ def test_private_outcome_keeps_public_normalization(monkeypatch, provider):
         return outcome
 
     module.probe_subscription = probe
+    if provider == "claude":
+        from lu_machinery.api import claude_account_usage
+
+        monkeypatch.setattr(
+            claude_account_usage,
+            "claude_accounts_snapshot",
+            lambda **kwargs: {"claude:a": {
+                "status": "ok", "stale": False, "age_s": 0, "updated": "2026-11-13T00:00:00Z",
+                "provider_usage": subscription_usage_mod._normalize_provider_data("claude", outcome["record"]),
+            }},
+        )
     result = subscription_usage_mod.fetch_provider_usage(provider, timeout_s=3)
     assert result["status"] == "healthy"
     assert result["primary_used_pct"] == 12.5 and result["weekly_used_pct"] == 37.5
@@ -2836,6 +2847,9 @@ def test_private_outcome_keeps_public_normalization(monkeypatch, provider):
         assert seen == [("codex", 3, label)]
         assert result["codex_account"] == label
         assert result["credit_balance"] == 0 and result["reset_credits"]["available_count"] == 0
+    elif provider == "claude":
+        assert seen == []  # cached account measurement, no second authenticated probe
+        assert result["fetched_at"] == "2026-11-13T00:00:00Z"
     else:
         assert seen == [(provider, 3, None)]
 

@@ -63,8 +63,11 @@ def test_scheduler_process_probes_every_label(state_dir, probes, monkeypatch):
     assert sorted(probes) == sorted(cau.CLAUDE_SUBSCRIPTION_ACCOUNT_LABELS)
 
 
-def test_lane_scheduler_does_not_probe_the_default_account(state_dir, probes, monkeypatch):
-    """The host lane meter already reads account a. A second probe rate-limits that host."""
+
+def test_account_scheduler_owns_both_accounts_beside_other_lanes(
+    state_dir, probes, monkeypatch
+):
+    """Other provider schedulers must not suppress the sole account-a reader."""
     stop = threading.Event()
     lane = threading.Thread(target=stop.wait, daemon=True)
     owner = threading.Thread(target=stop.wait, daemon=True)
@@ -74,11 +77,10 @@ def test_lane_scheduler_does_not_probe_the_default_account(state_dir, probes, mo
     monkeypatch.setattr(subscription_usage, "_claude_account_scheduler_thread", owner)
     try:
         cau.refresh_claude_account_usage()
-        assert probes == ["b"]
+        assert sorted(probes) == ["a", "b"]
         assert not (state_dir / cau._SAMPLES_FILE).exists()
 
-        # A stale row for the label this process does not probe must not open
-        # the on-demand gate, and a restart must not restore that label.
+        # A restored default-account row belongs to this same scheduler.
         monkeypatch.setattr(
             cau,
             "claude_accounts_snapshot",
@@ -87,18 +89,38 @@ def test_lane_scheduler_does_not_probe_the_default_account(state_dir, probes, mo
                 "claude:b": {"stale": False, "status": "ok"},
             },
         )
-        assert subscription_usage._claude_account_reading_past_ttl() is False
+        assert subscription_usage._claude_account_reading_past_ttl() is True
 
         class _Restored:
             source_at = 1.0
 
         cau._reset_for_tests()
-        monkeypatch.setattr(cau, "_restored_sample", lambda label, entry, moment, limit_s: _Restored())
+        monkeypatch.setattr(
+            cau, "_restored_sample", lambda label, entry, moment, limit_s: _Restored()
+        )
         monkeypatch.setattr(cau, "_read_samples", lambda _path: {"a": {}, "b": {}})
         assert cau.restore_claude_account_samples(now=1.0) == 0.0
-        assert set(cau._last_good) == {"b"}
+        assert set(cau._last_good) == {"a", "b"}
     finally:
         cau._reset_for_tests()
         stop.set()
         lane.join(timeout=5)
         owner.join(timeout=5)
+
+
+def test_stale_account_does_not_start_duplicate_scheduler_probe(state_dir, monkeypatch):
+    """An HTTP refresh cannot amplify polling while the account scheduler owns the cadence."""
+
+    class Owner:
+        def is_alive(self):
+            return True
+
+    monkeypatch.setattr(subscription_usage, "_claude_account_scheduler_thread", Owner())
+    monkeypatch.setattr(subscription_usage, "_claude_account_startup_pending", False)
+    monkeypatch.setattr(subscription_usage, "_claude_account_probe_started_at", None)
+    monkeypatch.setattr(subscription_usage, "_claude_account_oneshot_thread", None)
+    monkeypatch.setattr(
+        subscription_usage, "_claude_account_reading_past_ttl", lambda: True
+    )
+    subscription_usage.trigger_claude_account_refresh()
+    assert subscription_usage._claude_account_oneshot_thread is None

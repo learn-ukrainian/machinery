@@ -120,3 +120,45 @@ Verify the rendered units without installing: `systemd-analyze verify <rendered-
   and within the published threshold, but cannot prove the Monitor's clock is right.
 - The reader counts a stored `known` record as malformed unless its value is valid and its source time is
   present and not after its observation.
+
+## Claude usage probe ownership
+
+The Monitor's account scheduler is the sole machinery reader for Claude
+subscription usage. It probes each bound account once per scheduler interval
+by running CodexBar with explicit OAuth source selection. The default interval
+is 720 seconds, or five probes per account per hour. A failed probe does not
+extend the last successful measurement's timestamp or its freshness bound.
+The existing cooldown suppresses further probes of a rate-limited account for
+one scheduler interval. No `Retry-After` propagation is implemented.
+
+The general subscription scheduler and explicit fresh-refresh callers read the
+same account-a sample for the legacy Claude lane. They do not issue another
+Claude usage request. HTTP refresh requests cannot start another account pass
+beside the running account scheduler. A fresh CLI read, or a local fallback
+when the Monitor is unavailable, has no account sample and reports Claude
+as unknown; retrying `--fresh` cannot start a Claude probe. Optional provider windows from a live
+measurement stay in that existing sample; a restored sample has only its
+validated session and weekly windows until the next measurement.
+
+An external usage timer must consume the Monitor's readings or omit Claude
+from its provider polling list. A five-minute independent timer adds twelve
+probes per account per hour, making seventeen combined with the default
+Monitor cadence, before manual refreshes or source fallback. The external
+reader's removal is a separate operator action after the release is installed.
+
+CodexBar's [Claude source documentation](https://github.com/steipete/CodexBar/blob/v0.84.0/docs/claude.md)
+and its OAuth fetcher identify these usage routes:
+
+| Source | Usage request |
+| --- | --- |
+| OAuth | `GET https://api.anthropic.com/api/oauth/usage?cedar_ember=1`; an inventory rejection can fall back to the same path without the query |
+| Web | `GET https://claude.ai/api/organizations/{orgId}/usage?cedar_ember=1`, with the analogous inventory fallback |
+| CLI | Claude Code's `/usage` command; its internal request count is not established by CodexBar's source |
+| Linux Auto | Web, then OAuth, then CLI when the preceding source is unavailable or fails |
+
+CodexBar's JSON error contains a code, message and kind, but does not expose
+`Retry-After`. The machinery cooldown is not a claim that the provider accepts
+five probes per hour. The provider's [general API rate-limit documentation](https://platform.claude.com/docs/en/api/rate-limits)
+describes HTTP 429 and `retry-after`; it does not establish a numeric allowance
+for the subscription OAuth usage endpoint. A stale sample after a 429 remains
+unknown to admission, regardless of the last reported allowance.

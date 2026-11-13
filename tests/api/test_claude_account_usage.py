@@ -395,7 +395,7 @@ def test_past_ttl_reading_is_unknown(fake_probe):
         assert reason.startswith("MODEL_HEADROOM_USAGE_UNKNOWN")
 
 
-def test_rate_limit_failure_backs_off_the_next_probe(fake_probe, account_dirs, tmp_path):
+def test_rate_limit_failure_backs_off_the_next_probe(fake_probe, account_dirs, tmp_path, monkeypatch):
     """A rate-limited probe is classified from its output and is not retried until the backoff ends."""
     from lu_machinery.agent_runtime.model_pause import refusal_reason
     from lu_machinery.fleet.claude_account_lane import ClaudeAccount, account_weekly_used_pct
@@ -432,6 +432,19 @@ def test_rate_limit_failure_backs_off_the_next_probe(fake_probe, account_dirs, t
         assert (
             refusal_reason(model, policy=policy, used_pct=lambda lane, used=used: used if lane == "claude" else None)
             is None
+        )
+
+    with monkeypatch.context() as stale_clock:
+        stale_clock.setattr(cau, "_codexbar_cache_ttl_s", lambda: 0)
+        stale = subscription_usage.get_provider_usage_data("claude")
+        assert stale["status"] == "unavailable"
+        assert stale["stale"] is True
+        assert stale["weekly_used_pct"] is None
+        assert stale["error_code"] == 429
+        stale_rows = cau.claude_accounts_snapshot()
+        assert account_weekly_used_pct({"claude_accounts": stale_rows}, account=ClaudeAccount("a", "record")) is None
+        assert refusal_reason("claude-opus", policy=policy, used_pct=lambda _lane: None).startswith(
+            "MODEL_HEADROOM_USAGE_UNKNOWN"
         )
 
     cau.refresh_claude_account_usage()
@@ -742,9 +755,8 @@ def test_probe_sandbox_reports_residue_it_cannot_remove(tmp_path, monkeypatch, o
 
 
 def _assert_sandbox_refused(spawned: list[object]) -> None:
-    with pytest.raises(cau._ProbeFailed) as raised:
-        with cau._probe_sandbox():
-            spawned.append("sandbox")
+    with pytest.raises(cau._ProbeFailed) as raised, cau._probe_sandbox():
+        spawned.append("sandbox")
     assert raised.value.code == "sandbox_unavailable"
     # No OS error, and so no path, travels with the refusal.
     assert raised.value.__cause__ is None
@@ -2231,3 +2243,44 @@ def test_absent_private_tooling_cannot_prove_owner(monkeypatch):
     with pytest.raises(cau.ClaudeAccountRefused) as exc:
         cau._prove_owner(-1, "SYNTHETIC_ACCOUNT")
     assert exc.value.code == "claude_account_unverified"
+
+
+def test_lane_reads_share_account_sample_without_polling_or_renewing_age(
+    fake_probe, monkeypatch
+):
+    """Repeated lane and explicit-refresh reads cannot make another usage request or freshen stale data."""
+    outputs, calls = fake_probe
+    def payload():
+        result = _payload_a()
+        result[0]["pace"]["secondary"]["summary"] = _MARKER
+        result[0]["usage"]["primary"]["resetDescription"] = _MARKER
+        result[0]["usage"]["extraRateWindows"] = [
+            None,
+            {"id": "claude-weekly-scoped-fable", "window": {
+                "usedPercent": 42, "resetsAt": "2099-01-01T00:00:00Z", "resetDescription": _MARKER,
+            }},
+        ]
+        return result
+
+    outputs["a"] = payload
+    cau.refresh_claude_account_usage()
+    count = len(calls)
+    row = cau.claude_accounts_snapshot()["claude:a"]
+    for _ in range(3):
+        lane = subscription_usage.get_provider_usage_data("claude")
+        refreshed = subscription_usage.refresh_provider_usage_data(["claude"])["claude"]
+        assert lane["weekly_used_pct"] == refreshed["weekly_used_pct"] == 74
+        assert lane["fable_weekly"]["used_pct"] == 42
+        assert _MARKER not in json.dumps(lane)
+        assert lane["fetched_at"] == refreshed["fetched_at"] == row["updated"]
+    assert len(calls) == count
+    assert "claude" not in subscription_usage.SUBSCRIPTION_REFRESH_KEYS
+
+    monkeypatch.setattr(cau, "_codexbar_cache_ttl_s", lambda: 0)
+    stale = subscription_usage.get_provider_usage_data("claude")
+    assert stale["status"] == "unavailable"
+    assert stale["stale"] is True
+    assert stale["weekly_used_pct"] is None
+    assert stale["fetched_at"] == row["updated"]
+    assert subscription_usage.refresh_provider_usage_data(["claude"]) == {}
+    assert len(calls) == count

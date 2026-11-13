@@ -13,7 +13,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from lu_machinery.api import state_router
+from lu_machinery.api import claude_account_usage, state_router
 from lu_machinery.api import subscription_usage as probes
 from lu_machinery.api.monitor_context import fixture_context
 from lu_machinery.fleet import capacity_pick, usage
@@ -75,6 +75,17 @@ def _probe(monkeypatch, payloads, lane, *, error=None):
     monkeypatch.setattr(
         probes.subprocess, "run", lambda *a, **kw: subprocess.CompletedProcess(a, 0, json.dumps(payloads["agy"]), "")
     )
+    if lane == "claude":
+        monkeypatch.setattr(
+            claude_account_usage,
+            "claude_accounts_snapshot",
+            lambda **kwargs: {"claude:a": {
+                "status": "unknown" if error else "ok", "stale": False, "age_s": None if error else 0,
+                "updated": None if error else "2026-09-30T08:00:00Z",
+                "reason": "rate_limited" if error and error[0] == 429 else "probe_error" if error else None,
+                "provider_usage": probes._normalize_provider_data("claude", payloads["claude"]),
+            }},
+        )
     result = {
         "codex": probes._probe_codex_native,
         "claude": probes._probe_claude_native,
@@ -198,7 +209,8 @@ def test_provider_error_forwarding_drops_secrets(monkeypatch, tmp_path, capsys, 
     budget, human = _api_cli(monkeypatch, tmp_path, capsys, lane, result)
     assert result["status"] == "unavailable"
     assert result["auth_error"] == "provider_error"
-    assert result["error_code"] == status
+    expected = "UNAVAILABLE" if lane == "claude" and status != 429 else status
+    assert result["error_code"] == expected
     assert SENTINEL not in json.dumps(budget) + human
     assert IDENTIFIER not in json.dumps(budget) + human
 
