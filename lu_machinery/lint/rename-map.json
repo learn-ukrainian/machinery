@@ -3596,7 +3596,6 @@
  "tests/fixtures/word_card_slot_sources_11627.json": "product",
  "tests/fixtures/work/fx07_canaries.txt": "product",
  "tests/fixtures/work/pr_8264_status_check_rollup.json": "machinery",
- "tests/fixtures/work/projection_public_min.json": "product",
  "tests/flake_quarantine.yaml": "product",
  "tests/fleet/test_agy_failure_tally.py": "machinery",
  "tests/fleet/test_capacity_pick.py": "machinery",

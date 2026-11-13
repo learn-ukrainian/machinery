@@ -197,7 +197,6 @@ class _Accounts:
 
     watch: _Watch = field(repr=False)  # the validation it is served under
     fingerprints: frozenset[bytes] = field(repr=False)  # the bound and the named accounts
-    named: bool = field(repr=False)  # CodexBar's answer named an account
 
     @property
     def generation(self) -> bytes:
@@ -642,7 +641,7 @@ def _attribute(binding: _Binding, payload: Any) -> _Accounts:
     if {item for item in named if item[0] == "account_id"} - bound:
         raise ClaudeAccountRefused("claude_account_unverified")
     fingerprints = frozenset(_fingerprint(kind, value) for kind, value in bound | named)
-    return _Accounts(binding.watch, fingerprints, named=bool(named))
+    return _Accounts(binding.watch, fingerprints)
 
 
 def _scratch_root() -> Path:
@@ -923,7 +922,7 @@ def _persist_sample(label: str, sample: _Sample) -> None:
 
     Written to a private file: the measured numbers and their time, the
     binding's generation digest and credential stat facts, and the sample's
-    attribution (``named`` and the account fingerprints, digests only). The
+    attribution (the account fingerprints, digests only). The
     file is never served as is: ``restore_claude_account_samples`` serves an
     entry only after its binding validates again. Written only by the
     process that owns the Monitor scheduler (``_is_probe_owner``), since only it
@@ -938,7 +937,6 @@ def _persist_sample(label: str, sample: _Sample) -> None:
         "windows": sample.windows,
         "generation": watch.generation.hex(),
         "credentials": None if watch.credentials is None else list(watch.credentials),
-        "named": accounts.named,
         "fingerprints": sorted(fingerprint.hex() for fingerprint in accounts.fingerprints),
     }
     try:
@@ -989,7 +987,7 @@ def _restored_windows(raw: Any) -> dict[str, dict[str, Any]] | None:
 
 
 # Every field ``_persist_sample`` writes; an entry with any other set is refused.
-_ENTRY_FIELDS = frozenset({"source_at", "windows", "generation", "credentials", "named", "fingerprints"})
+_ENTRY_FIELDS = frozenset({"source_at", "windows", "generation", "credentials", "fingerprints"})
 
 
 def _digest(value: Any) -> bytes | None:
@@ -1023,12 +1021,12 @@ def _restored_sample(label: str, entry: Any, now: float, limit_s: float) -> _Sam
     """
     if not isinstance(entry, dict) or set(entry) != _ENTRY_FIELDS:
         return None
-    source_at, credentials, named = entry["source_at"], entry["credentials"], entry["named"]
+    source_at, credentials = entry["source_at"], entry["credentials"]
     generation = _digest(entry["generation"])
     fingerprints = entry["fingerprints"]
     if isinstance(source_at, bool) or not isinstance(source_at, int | float) or generation is None:
         return None
-    if not isinstance(named, bool) or not isinstance(fingerprints, list) or not fingerprints:
+    if not isinstance(fingerprints, list) or not fingerprints:
         return None
     digests = [_digest(fingerprint) for fingerprint in fingerprints]
     persisted = frozenset(digest for digest in digests if digest is not None)
@@ -1054,7 +1052,7 @@ def _restored_sample(label: str, entry: Any, now: float, limit_s: float) -> _Sam
             # Every sample's attribution holds its bound account, proven again here.
             if binding.generation != generation or _fingerprint("account_id", binding.account) not in persisted:
                 return None
-            accounts = _Accounts(binding.watch, persisted, named=named)
+            accounts = _Accounts(binding.watch, persisted)
             return _Sample(float(source_at), windows, accounts)
     except Exception:  # an unprovable binding means no reuse, never a startup failure
         return None
