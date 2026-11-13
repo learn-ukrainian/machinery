@@ -2097,7 +2097,11 @@ def test_cursor_acp_invocation_carries_a_concrete_pin(tmp_path, monkeypatch, mod
     argv_model = acpx_module.CURSOR_ACP_ARGV_MODELS.get(sent, sent)
     assert ("--model", argv_model) in zip(plan.cmd, plan.cmd[1:], strict=False)
     assert plan.cmd.count("--model") == 1
-    assert plan.metadata["model"] == sent
+    assert plan.metadata["model"] == argv_model
+    if argv_model != sent:
+        assert plan.metadata["fast"] is True
+    else:
+        assert "fast" not in plan.metadata
 
 
 def test_cursor_acp_omitted_model_uses_allowlisted_wire_pin(tmp_path, monkeypatch):
@@ -2108,7 +2112,28 @@ def test_cursor_acp_omitted_model_uses_allowlisted_wire_pin(tmp_path, monkeypatc
     assert AcpxCursorShadowAdapter.default_model in AcpxCursorShadowAdapter.allowed_models
     plan = _cursor_acp_plan(tmp_path, monkeypatch, None)
     assert ("--model", "grok-4.7") in zip(plan.cmd, plan.cmd[1:], strict=False)
-    assert plan.metadata["model"] == "grok-4.7-high"
+    assert plan.metadata["model"] == "grok-4.7"
+    assert plan.metadata["fast"] is True
+
+
+def test_cursor_acp_records_executed_grok_id_and_fast_flag(tmp_path, monkeypatch):
+    """Provenance defect: an omitted-model Cursor ACP ask records grok-4.7-high while argv runs grok-4.7."""
+    from unittest.mock import patch
+
+    from lu_machinery.agent_runtime.telemetry import resolve_invocation_telemetry
+
+    plan = _cursor_acp_plan(tmp_path, monkeypatch, None)
+    assert plan.metadata["model"] == "grok-4.7"
+    assert plan.metadata["fast"] is True
+    assert plan.cmd[plan.cmd.index("--model") + 1] == "grok-4.7"
+    with patch("lu_machinery.agent_runtime.telemetry._probe_version", return_value="0.0.0-test"):
+        telemetry = resolve_invocation_telemetry(
+            agent_name="acpx-cursor-shadow",
+            plan=plan,
+            requested_model="grok-4.7-high",
+            requested_effort=None,
+        )
+    assert telemetry.model == "grok-4.7"
 
 
 @pytest.mark.parametrize(

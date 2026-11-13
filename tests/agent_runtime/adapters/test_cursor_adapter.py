@@ -222,6 +222,34 @@ def test_cursor_adapter_build_invocation_read_only(adapter, tmp_path):
     assert "--force" not in plan.cmd
 
 
+def test_native_cursor_dispatch_records_grok_high_pin(adapter, tmp_path):
+    """Provenance defect: native Cursor dispatch records the ACP fast id instead of grok-4.7-high."""
+    from unittest.mock import patch
+
+    from lu_machinery.agent_runtime.telemetry import resolve_invocation_telemetry
+
+    plan = adapter.build_invocation(
+        prompt="Hello",
+        mode="read-only",
+        cwd=tmp_path,
+        model=None,
+        task_id="native-pin",
+        session_id=None,
+        tool_config={"cursor_mode": "ask"},
+    )
+    assert plan.cmd[plan.cmd.index("--model") + 1] == "grok-4.7-high"
+    assert plan.metadata["entire_fleet"]["requested_model"] == "grok-4.7-high"
+    assert "fast" not in plan.metadata
+    with patch("lu_machinery.agent_runtime.telemetry._probe_version", return_value="0.0.0-test"):
+        telemetry = resolve_invocation_telemetry(
+            agent_name="cursor",
+            plan=plan,
+            requested_model=None,
+            requested_effort=None,
+        )
+    assert telemetry.model == "grok-4.7-high"
+
+
 def test_cursor_adapter_read_only_mcp_config_writes_workspace_file(
     adapter,
     tmp_path,
