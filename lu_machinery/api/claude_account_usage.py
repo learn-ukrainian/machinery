@@ -1111,10 +1111,30 @@ def _refresh_one(label: str, timeout_s: float) -> None:
         _record(label, row, None, accounts=accounts)
 
 
+def _probe_labels() -> tuple[str, ...]:
+    """Labels this pass may probe.
+
+    The host lane scheduler already reads the default account at
+    ``https://api.anthropic.com/api/oauth/usage``. Probing that account again
+    (CodexBar ``--source oauth`` on the same host directory) rate-limits the
+    host, so the lane reading stays stale. Another account is a different host.
+    When that scheduler is not running, the default account has no other reader.
+    """
+    from lu_machinery.api import subscription_usage as usage
+
+    lane = usage._scheduler_thread
+    if lane is not None and lane.is_alive():
+        return tuple(label for label in CLAUDE_SUBSCRIPTION_ACCOUNT_LABELS if label != DEFAULT_CLAUDE_ACCOUNT)
+    return CLAUDE_SUBSCRIPTION_ACCOUNT_LABELS
+
+
 def refresh_claude_account_usage(*, timeout_s: float = PROBE_TIMEOUT_S) -> None:
-    """Probe every registered label in parallel. Background refresh only."""
-    with ThreadPoolExecutor(max_workers=len(CLAUDE_SUBSCRIPTION_ACCOUNT_LABELS)) as executor:
-        list(executor.map(lambda label: _refresh_one(label, timeout_s), CLAUDE_SUBSCRIPTION_ACCOUNT_LABELS))
+    """Probe the labels :func:`_probe_labels` names, in parallel. Background refresh only."""
+    labels = _probe_labels()
+    if not labels:
+        return
+    with ThreadPoolExecutor(max_workers=len(labels)) as executor:
+        list(executor.map(lambda label: _refresh_one(label, timeout_s), labels))
 
 
 def _ambiguous(samples: Mapping[str, _Sample]) -> bool:

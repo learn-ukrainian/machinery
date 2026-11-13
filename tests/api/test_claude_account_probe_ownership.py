@@ -61,3 +61,23 @@ def test_scheduler_process_probes_every_label(state_dir, probes, monkeypatch):
         owner.join(timeout=5)
 
     assert sorted(probes) == sorted(cau.CLAUDE_SUBSCRIPTION_ACCOUNT_LABELS)
+
+
+def test_lane_scheduler_does_not_probe_the_default_account(state_dir, probes, monkeypatch):
+    """The host lane meter already reads account a. A second probe rate-limits that host."""
+    stop = threading.Event()
+    lane = threading.Thread(target=stop.wait, daemon=True)
+    owner = threading.Thread(target=stop.wait, daemon=True)
+    lane.start()
+    owner.start()
+    monkeypatch.setattr(subscription_usage, "_scheduler_thread", lane)
+    monkeypatch.setattr(subscription_usage, "_claude_account_scheduler_thread", owner)
+    try:
+        cau.refresh_claude_account_usage()
+    finally:
+        stop.set()
+        lane.join(timeout=5)
+        owner.join(timeout=5)
+
+    assert probes == ["b"]
+    assert not (state_dir / cau._SAMPLES_FILE).exists()
