@@ -293,15 +293,15 @@ def _git(cwd: Path, *args: str, git_dir: Path | None = None, network: bool = Fal
     command = list(args)
     while command[:1] == ["-c"] and len(command) >= 2:
         command = command[2:]
-    if network and command[:1] in (["push"], ["ls-remote"]) and len(command) >= 3:
-        # Clone transport is not publication authority. The broker's existing resolver verifies the
-        # registry and binds credentials to HTTPS, including when the protected origin uses SSH.
-        if match := _GITHUB_REMOTE.fullmatch(command[-2]):
-            try:
-                command[-2], credentials = _Broker._remote(match.group(1))
-            except _BrokerRefusal as exc:
-                raise Refused(str(exc)) from None
-            args = (*credentials, *command)
+    # Clone transport is not publication authority. The broker's existing resolver verifies the
+    # registry and binds credentials to HTTPS, including when the protected origin uses SSH.
+    if (network and command[:1] in (["push"], ["ls-remote"]) and len(command) >= 3
+            and (match := _GITHUB_REMOTE.fullmatch(command[-2]))):
+        try:
+            command[-2], credentials = _Broker._remote(match.group(1))
+        except _BrokerRefusal as exc:
+            raise Refused(str(exc)) from None
+        args = (*credentials, *command)
     if command[:1] == ["push"]:
         # Broker and settlement share this exact-update scan. No worker hook is trusted, including
         # reference-transaction hooks, so the transport below always has hooks disabled.
