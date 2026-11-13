@@ -245,8 +245,12 @@ def _protected_repo_roots(wc) -> tuple[Path, ...]:
     # A product may be a worktree of a different repository than shared state.
     # Its gitfile is inspected only after the mandatory authority is pinned.
     product = _protected_repo_anchor().resolve(strict=True)
-    product_primary = wc.resolve_main_root_without_git(product)
-    if wc.resolve_main_root(product_primary) != product_primary:
+    try:
+        product_primary = wc.resolve_main_root(product)
+    except wc.NotAGitRepositoryError:
+        # A non-Git product snapshot still has the explicit primary authority.
+        return (primary,)
+    if wc.resolve_main_root_without_git(product_primary) != product_primary:
         raise ValueError("product primary metadata is inconsistent")
     return tuple(dict.fromkeys((primary, product_primary)))
 
@@ -3662,7 +3666,6 @@ def _main(payload: dict | None) -> int:
 
     try:
         protected_roots = _protected_repo_roots(wc)
-        main_root = protected_roots[0]
     except Exception:
         return _block_uncertain("product_root_unavailable")
 
@@ -3673,7 +3676,17 @@ def _main(payload: dict | None) -> int:
 
     if is_shell_tool(tool_name):
         try:
-            raw_targets = bash_write_targets(command, cwd=cwd, main_root=main_root)
+            parse_roots = list(protected_roots)
+            try:
+                cwd_root = wc.resolve_main_root(cwd)
+            except wc.NotAGitRepositoryError:
+                pass
+            else:
+                # Preserve cwd's parser refusals without changing configured Git-write policy.
+                if wc.is_protected_branch(cwd_root) and cwd_root not in parse_roots:
+                    parse_roots.append(cwd_root)
+            for root in parse_roots:
+                raw_targets.extend(bash_write_targets(command, cwd=cwd, main_root=root))
         except ShellPreprocessLimit:
             return _block_uncertain("nested_shell_command")
         except _AnsiCQuotingRefused:

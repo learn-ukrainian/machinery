@@ -557,10 +557,13 @@ def test_primary_guard_rejects_cwd_repository_identity_substitution(layout: Layo
     assert allowed.returncode == 0, allowed.stderr
 
 
-@pytest.mark.parametrize("product_kind", ["primary", "worktree", "alias", "other_primary", "primary_alias"])
-@pytest.mark.parametrize("tool", ["Write", "Bash", "glob"])
+@pytest.mark.parametrize(
+    "product_kind",
+    ["primary", "worktree", "alias", "other_primary", "primary_alias", "subdirectory", "snapshot", "other_worktree", "foreign_cwd"],
+)
+@pytest.mark.parametrize("tool", ["Write", "Bash", "glob", "stdin", "stdin_inplace", "find_list"])
 def test_primary_guard_keeps_configured_and_additional_primary_protection(layout: Layout, product_kind: str, tool: str):
-    """Worktree product configuration must preserve isolated access and every primary denial."""
+    """Root contexts must preserve direct primary denials and configured/cwd parser refusals."""
     other = layout.outside
     _git(other, "init", "-q", "-b", "main")
     _git(other, "config", "user.email", "fixture@example.invalid")
@@ -570,7 +573,15 @@ def test_primary_guard_keeps_configured_and_additional_primary_protection(layout
     _git(other, "commit", "-qm", "fixture")
     alias = layout.main.parent / "primary-alias"
     alias.symlink_to(layout.main, target_is_directory=True)
-    product = {"worktree": layout.dispatch_wt, "alias": alias, "other_primary": other}.get(product_kind, layout.main)
+    snapshot = layout.main.parent / "snapshot"
+    snapshot.mkdir()
+    other_worktree = other / ".worktrees/dispatch/codex/product"
+    _git(other, "worktree", "add", "-q", "-b", "product", str(other_worktree))
+    product = {
+        "worktree": layout.dispatch_wt, "alias": alias, "other_primary": other,
+        "subdirectory": layout.main / "pkg", "snapshot": snapshot, "other_worktree": other_worktree,
+    }.get(product_kind, layout.main)
+    cwd = other_worktree if product_kind in {"other_worktree", "foreign_cwd"} else layout.dispatch_wt
     env = {
         key: value for key, value in _clean_env().items()
         if key not in {"LEARN_UK_ALLOW_PRIMARY_GIT_WRITE", "LEARN_UK_ALLOW_PRIMARY_WRITE"}
@@ -584,8 +595,8 @@ def test_primary_guard_keeps_configured_and_additional_primary_protection(layout
     def decision(name: str, args: dict) -> subprocess.CompletedProcess[str]:
         return subprocess.run(
             [sys.executable, str(hook)],
-            input=json.dumps({"tool_name": name, "cwd": str(layout.dispatch_wt), "tool_input": args}),
-            cwd=layout.dispatch_wt, env=env, capture_output=True, text=True, timeout=60,
+            input=json.dumps({"tool_name": name, "cwd": str(cwd), "tool_input": args}),
+            cwd=cwd, env=env, capture_output=True, text=True, timeout=60,
         )
 
     readonly = decision("Bash", {"command": "ls"})
@@ -593,15 +604,29 @@ def test_primary_guard_keeps_configured_and_additional_primary_protection(layout
     for target, expected in ((layout.main / "tracked.txt", 2), (layout.dispatch_wt / "tracked.txt", 0), (other / "tracked.txt", 2)):
         if tool == "Write":
             name, args = "Write", {"file_path": str(target), "content": "replacement"}
-        else:
+        elif tool in {"Bash", "glob"}:
             word = shlex.quote(str(target)) if tool == "Bash" else f"{shlex.quote(str(target.parent))}/trac*.txt"
             name, args = "Bash", {"command": f"touch {word}"}
+        else:
+            if tool == "find_list":
+                command = f"find -files0-from {shlex.quote(str(target.parent / 'list'))} -delete"
+            else:
+                writer = "sed -i s/a/b/" if tool == "stdin_inplace" else "rm"
+                command = f"printf '%s\\n' {shlex.quote(str(target))} | xargs {writer}"
+            name, args = "Bash", {"command": command}
+            # Stdin is undecidable for configured/cwd primaries. An unrelated
+            # source word alone did not select a primary in the original parser.
+            if target.parent == other and product_kind not in {"other_primary", "other_worktree", "foreign_cwd"}:
+                expected = 0
         result = decision(name, args)
         assert result.returncode == expected, result.stderr
-    if product_kind == "other_primary":
+    if product_kind in {"other_primary", "other_worktree"}:
         for primary in (layout.main, other):
             result = decision("Bash", {"command": f"git -C {shlex.quote(str(primary))} reset --hard"})
             assert result.returncode == 2, result.stderr
+    elif product_kind == "foreign_cwd":
+        result = decision("Bash", {"command": f"git -C {shlex.quote(str(other))} merge --ff-only main"})
+        assert result.returncode == 0, result.stderr
     assert (layout.main / "tracked.txt").read_text() == "tracked\n"
     assert (other / "tracked.txt").read_text() == "other\n"
 
