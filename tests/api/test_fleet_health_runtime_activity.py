@@ -74,11 +74,18 @@ def test_health_names_both_ledgers_when_authority_window_is_empty(
         "recent_runtime_records",
         lambda *, limit, ctx=None: _runtime_records(inside, inside, outside),
     )
+    # A deliberate expire-stale cleanup inside the window is not a failure.
+    with sqlite3.connect(fleet_root / "comms.sqlite3") as connection:
+        connection.execute(
+            "INSERT INTO authority_dead_letters VALUES ('cleanup', NULL, NULL, 'expired_by_cleanup', ?)",
+            (inside,),
+        )
 
     health = client.get("/api/fleet/health").json()
 
     authority = health["authority_health"]
     assert authority["state"] == "idle"
+    assert authority["dead_letters"] == 0
     assert authority["jobs"] == {"total": 0, "by_state": {}}
     runtime = health["runtime_activity"]
     assert runtime["ledger"] == "runtime_delegate_usage"

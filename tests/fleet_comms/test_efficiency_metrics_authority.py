@@ -553,6 +553,8 @@ def test_recent_failures_exclude_old_events_and_group_recipients(tmp_path: Path,
         conn.execute("UPDATE authority_deliveries SET state='failed', completed_at='2026-11-10T10:00:00+00:00' WHERE delivery_id='auth-d2'")
         conn.execute("UPDATE authority_deliveries SET state='failed', completed_at='2026-11-13T13:00:00Z' WHERE delivery_id='auth-d3'")
         conn.execute("INSERT INTO authority_dead_letters VALUES ('new','auth-d1',NULL,'failed','2026-11-13T10:00:00Z')")
+        # A deliberate expire-stale cleanup is not a failure in any window or lifetime total.
+        conn.execute("INSERT INTO authority_dead_letters VALUES ('swept','auth-d3',NULL,'expired_by_cleanup','2026-11-13T11:00:00Z')")
         conn.execute("UPDATE authority_jobs SET state='failed', completed_at='2026-11-12T12:00:00Z'")
     metrics = collect_efficiency_metrics_authority(db, now=datetime(2026, 11, 13, 12, tzinfo=UTC))
     assert metrics['failure_windows']['24h'] == {

@@ -903,7 +903,8 @@ def _add_deliveries_parser(sub: Any) -> None:
         "  Unreadable or dead-lettered coordinator replies emit a typed delivery-error to both parties.\n"
         "  expire-stale counts queued or running deliveries older than 7 days. Without --apply it\n"
         "  writes nothing. With --apply it expires them. Rows stay, and an unread body stays\n"
-        "  ineligible for retention deletion. Expiry sends one summary notification.\n"
+        "  ineligible for retention deletion. Expiry sends one summary notification. Their dead\n"
+        "  letters carry reason expired_by_cleanup, which recent-failure windows do not count.\n"
         "  These commands open the authority store, initializing/migrating it if necessary.\n"
         "Exit codes: 0 = success, 1 = no claimable delivery or delivery not found,\n"
         "  2 = usage error, 3 = operation refused or storage error.\n"
@@ -960,7 +961,7 @@ def _add_deliveries_parser(sub: Any) -> None:
     expire.add_argument("--older-than-days", type=int, default=7, help="Age cutoff in days (default: 7)")
     expire.add_argument(
         "--apply", action="store_true",
-        help="Expire matched rows through the deadline path (default: count only)",
+        help="Expire matched rows as expired_by_cleanup dead letters (default: count only)",
     )
     expire.set_defaults(func=cmd_deliveries)
 

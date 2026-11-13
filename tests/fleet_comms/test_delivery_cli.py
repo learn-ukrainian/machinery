@@ -461,6 +461,16 @@ def test_exhausted_unacknowledged_reply_notifies_once_without_recursive_alerts(p
             ("claude-cto-session", second.delivery_ids[0]),
         )
         service.store.connection.commit()
+        # A genuine deadline miss, too young for the cleanup, expires in the same batch.
+        genuine = service.publish_message(
+            sender="claude-cto", body="due", recipients=("worker-task",),
+            created_at="2020-01-09T00:00:00Z", idempotency_key="genuine-due",
+        )
+        service.store.connection.execute(
+            "UPDATE authority_deliveries SET deadline_at = ? WHERE delivery_id = ?",
+            ("2020-01-09T12:00:00Z", genuine.delivery_ids[0]),
+        )
+        service.store.connection.commit()
         assert service.count_undelivered(now="2020-01-10T00:00:00Z") == 2
         before = {
             (row["state"], row["deadline_at"], row["updated_at"])
@@ -476,19 +486,37 @@ def test_exhausted_unacknowledged_reply_notifies_once_without_recursive_alerts(p
             )
         }
         assert after_dry == before
-        assert service.expire_undelivered(now="2020-01-10T00:00:00Z") == 2
+        assert service.expire_undelivered(now="2020-01-10T00:00:00Z") == 3
         assert service.get_delivery(first.delivery_ids[0]).state == "expired"
         assert service.get_delivery(second.delivery_ids[0]).state == "expired"
         assert service.read_message_body(first.message_id) == "old one"
+        reasons = dict(service.store.connection.execute(
+            "SELECT delivery_id, reason_code FROM authority_dead_letters WHERE delivery_id IN (?, ?, ?)",
+            (first.delivery_ids[0], second.delivery_ids[0], genuine.delivery_ids[0]),
+        ).fetchall())
+        assert reasons == {
+            first.delivery_ids[0]: "expired_by_cleanup",
+            second.delivery_ids[0]: "expired_by_cleanup",
+            genuine.delivery_ids[0]: "deadline_expired",
+        }
         notices = service.store.connection.execute(
-            "SELECT message_id FROM comms_messages WHERE kind = 'delivery-error' ORDER BY created_at",
+            "SELECT message_id FROM comms_messages WHERE kind = 'delivery-error'",
         ).fetchall()
-        assert len(notices) == 2
-        summary = json.loads(service.read_message_body(notices[-1]["message_id"]))
-        assert summary == {
+        bodies = [json.loads(service.read_message_body(row["message_id"])) for row in notices]
+        # The genuine miss keeps its own notice; the cleanup rows share one summary.
+        assert len(notices) == 3
+        assert {
             "error": "coordinator_reply_delivery_failed",
             "reason_code": "deadline_expired",
+            "delivery_id": genuine.delivery_ids[0],
+            "message_id": genuine.message_id,
+            "recipient": "worker-task",
+        } in bodies
+        summary = {
+            "error": "coordinator_reply_delivery_failed",
+            "reason_code": "expired_by_cleanup",
             "expired_count": 2,
         }
-        summary_message = service.get_message(notices[-1]["message_id"])
+        assert summary in bodies
+        summary_message = service.get_message(notices[bodies.index(summary)]["message_id"])
         assert {service.get_delivery(d).recipient for d in summary_message.delivery_ids} == {"claude-cto"}

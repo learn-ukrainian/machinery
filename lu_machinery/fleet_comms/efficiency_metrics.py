@@ -509,6 +509,8 @@ def _authority_failure_windows(conn: Any, *, now: datetime | None = None) -> dic
 
     Jobs with exactly one message recipient inherit it. Other jobs use the
     explicit authority-job bucket, keeping each event in exactly one group.
+    Dead letters with reason ``expired_by_cleanup`` (``authority.CLEANUP_EXPIRY_REASON``)
+    record a deliberate operator cleanup, not a failure, and are not counted.
     """
     now = now or datetime.now(UTC)
     windows: dict[str, Any] = {label: {} for label in ("24h", "7d")}
@@ -543,13 +545,16 @@ def _authority_failure_windows(conn: Any, *, now: datetime | None = None) -> dic
                 l.created_at AS event_time
                 FROM authority_dead_letters l
                 LEFT JOIN authority_deliveries d ON d.delivery_id = l.delivery_id
-                LEFT JOIN authority_jobs j ON j.job_id = l.job_id"""
+                LEFT JOIN authority_jobs j ON j.job_id = l.job_id
+                WHERE l.reason_code <> 'expired_by_cleanup'"""
             if deliveries and {"subject_id", "job_kind"} <= job_columns else
             """SELECT COALESCE(d.recipient, 'authority-job') AS recipient, l.created_at AS event_time
                 FROM authority_dead_letters l
-                LEFT JOIN authority_deliveries d ON d.delivery_id = l.delivery_id"""
+                LEFT JOIN authority_deliveries d ON d.delivery_id = l.delivery_id
+                WHERE l.reason_code <> 'expired_by_cleanup'"""
             if deliveries else
-            "SELECT 'authority-job' AS recipient, created_at AS event_time FROM authority_dead_letters"
+            """SELECT 'authority-job' AS recipient, created_at AS event_time FROM authority_dead_letters
+                WHERE reason_code <> 'expired_by_cleanup'"""
         )
     # The same UTC parser handles SQLite text and PostgreSQL lifecycle text.
     # All queries are literals; no identifiers or values are interpolated.

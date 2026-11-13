@@ -621,8 +621,10 @@ def _authority_health_snapshot(
         if _table_exists(connection, "authority_dead_letters"):
             dead_letters = int(
                 connection.execute(
-                    f"SELECT COUNT(*) FROM authority_dead_letters WHERE created_at >= {placeholder}",
-                    (window["since"],),
+                    # A deliberate expire-stale cleanup is not a failure (authority.CLEANUP_EXPIRY_REASON).
+                    "SELECT COUNT(*) FROM authority_dead_letters"
+                    f" WHERE created_at >= {placeholder} AND reason_code <> {placeholder}",
+                    (window["since"], "expired_by_cleanup"),
                 ).fetchone()[0]
             )
     except (sqlite3.Error, psycopg.Error):
