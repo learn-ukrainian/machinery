@@ -55,7 +55,7 @@ Do **not** use an advisory seat on lockfiles, pointer publishes, rsync gates, or
 **Cursor (operator 2026-09-22; Auto scope operator decision 2026-09-30):** pass an explicit
 `--model`. `auto` is allowed only for a well-defined coding task — a dispatch typed
 `--research-role implementation` in a write-capable mode with `--owned-path` and a PASS DoR issue
-card. The legacy Cursor Auto DoR admission gate is retired; dispatch v2 does not enforce it. Cursor coding, code/infra review, and an omitted-model Cursor ACP ask pin `grok-4.7-high` (C-5307). The driver seat, design, recon and
+card. The legacy Cursor Auto DoR admission gate is retired; dispatch v2 does not enforce it. Cursor coding and code/infra review use native Cursor dispatch pinned to `grok-4.7-high` (C-5307). An omitted-model Cursor ACP ask runs `grok-4.7` with `fast=true` and records that executed ID and flag in provenance. Every other Cursor model is refused. The driver seat, design, recon and
 unclear work do not use Grok. A review runs the concrete model the reviewer
 resolver selects. A review of Grok-authored work runs the reviewer resolver's non-xAI pick
 (native Claude, Codex or another eligible seat the resolver returns); no Claude model reviews
