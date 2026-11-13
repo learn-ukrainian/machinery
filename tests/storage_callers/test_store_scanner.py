@@ -204,6 +204,10 @@ def test_imported_connection_subclass_calls_are_reported_except_resolver_scope(t
             "    return sqlite3.connect(database, *args, **kwargs)\n"
         ),
         "scripts/extra.py": "import sqlite3\nclass ScriptConnection(sqlite3.Connection):\n    pass\n",
+        "scripts/dbapi_parent.py": "from sqlite3 import dbapi2 as db\nclass DbapiParent(db.Connection):\n    pass\n",
+        "scripts/alias_parent.py": "import sqlite3\nsql = sqlite3\nclass AliasParent(sql.Connection):\n    pass\n",
+        "scripts/ann_parent.py": "import sqlite3\nBase: type = sqlite3.Connection\nclass AnnParent(Base):\n    pass\n",
+        "scripts/tab_parent.py": "import sqlite3\nclass\tTabParent(sqlite3.Connection):\n    pass\n",
         "lu_machinery/child.py": (
             "from lu_machinery.lib.readonly_sqlite import SerializedConnection\n"
             "class Child(SerializedConnection):\n"
@@ -216,6 +220,10 @@ def test_imported_connection_subclass_calls_are_reported_except_resolver_scope(t
             "from scripts.lib.readonly_sqlite import SerializedConnection as Alias\n"
             "from lu_machinery.api.resilience import TimedSQLiteConnection\n"
             "from scripts.extra import ScriptConnection\n"
+            "from scripts.dbapi_parent import DbapiParent\n"
+            "from scripts.alias_parent import AliasParent\n"
+            "from scripts.ann_parent import AnnParent\n"
+            "from scripts.tab_parent import TabParent\n"
             "def open_dynamic(path, name):\n"
             "    return import_named_module(name).SerializedConnection(path)\n"
             "def open_static(path):\n"
@@ -226,12 +234,34 @@ def test_imported_connection_subclass_calls_are_reported_except_resolver_scope(t
             "    return TimedSQLiteConnection(path)\n"
             "def open_script(path):\n"
             "    return ScriptConnection(path)\n"
+            "def open_dbapi(path):\n"
+            "    return DbapiParent(path)\n"
+            "def open_module_alias(path):\n"
+            "    return AliasParent(path)\n"
+            "def open_annotated(path):\n"
+            "    return AnnParent(path)\n"
+            "def open_tab(path):\n"
+            "    return TabParent(path)\n"
             "def open_other(path):\n"
             "    return NotAConnection(path)\n"
         ),
+        "lu_machinery/bare.py": (
+            "import lu_machinery.api.resilience as resilience\n"
+            "def open(path, TimedSQLiteConnection=resilience.TimedSQLiteConnection):\n"
+            "    return TimedSQLiteConnection(explicit)\n"
+        ),
         "lu_machinery/storage/topology.py": (
             "from lu_machinery.lib.readonly_sqlite import SerializedConnection\n"
-            "def resolve_store_for_write(resolved):\n"
+            "def marker(factory):\n"
+            "    return factory\n"
+            "@marker(SerializedConnection(DECORATED))\n"
+            "def resolve_store(path):\n"
+            "    return path\n"
+            "def resolve_active_sources_db(conn: SerializedConnection(ANNOTATED)):\n"
+            "    return conn\n"
+            "def _prepare_store_write_target(conn=SerializedConnection(DEFAULT)):\n"
+            "    return conn\n"
+            "def resolve_store_for_write(resolved, *, extra=SerializedConnection(KEYWORD)):\n"
             "    return SerializedConnection(resolved)\n"
             "def not_a_resolver(other):\n"
             "    return SerializedConnection(other)\n"
@@ -258,8 +288,17 @@ def test_imported_connection_subclass_calls_are_reported_except_resolver_scope(t
         "return ScriptConnection(path)",
         "return Child(path)",
         "return SerializedConnection(other)",
+        "return DbapiParent(path)",
+        "return AliasParent(path)",
+        "return AnnParent(path)",
+        "return TabParent(path)",
+        "return TimedSQLiteConnection(explicit)",
+        "SerializedConnection(DECORATED)",
+        "SerializedConnection(ANNOTATED)",
+        "SerializedConnection(DEFAULT)",
+        "SerializedConnection(KEYWORD)",
     ):
-        assert any(item.endswith(f": {snippet}") for item in reported), snippet
+        assert any(snippet in item for item in reported), snippet
     absent = (
         "return SerializedConnection(resolved)",
         "kwargs.setdefault('factory', TimedSQLiteConnection)",

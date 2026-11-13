@@ -275,6 +275,8 @@ def _subclass_class_names(tree: ast.AST, known: frozenset[str] | set[str]) -> se
                     connection_names.add("Connection")
                 elif alias.name == "Connection":
                     connection_names.add(alias.asname or alias.name)
+                elif alias.name == "dbapi2":
+                    modules.add(alias.asname or alias.name)
         elif isinstance(node, ast.ImportFrom):
             for alias in node.names:
                 if alias.name in known:
@@ -291,7 +293,7 @@ def _subclass_class_names(tree: ast.AST, known: frozenset[str] | set[str]) -> se
         return any(dotted == f"{module}.Connection" for module in modules)
 
     classes = [node for node in ast.walk(tree) if isinstance(node, ast.ClassDef)]
-    assignments = [node for node in ast.walk(tree) if isinstance(node, ast.Assign)]
+    assignments = [node for node in ast.walk(tree) if isinstance(node, (ast.Assign, ast.AnnAssign))]
     found: set[str] = set()
     changed = True
     while changed:
@@ -304,15 +306,18 @@ def _subclass_class_names(tree: ast.AST, known: frozenset[str] | set[str]) -> se
                 bound.add(node.name)
                 changed = True
         for node in assignments:
-            if not isinstance(node.value, (ast.Name, ast.Attribute)):
-                continue
-            names_base = is_connection_base(node.value) or (
-                isinstance(node.value, ast.Name) and node.value.id in bound
-            )
-            if not names_base:
-                continue
-            for target in node.targets:
-                if isinstance(target, ast.Name) and target.id not in bound:
+            value = node.value
+            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+            for target in targets:
+                if not isinstance(target, ast.Name) or value is None:
+                    continue
+                if isinstance(value, ast.Name) and value.id in modules and target.id not in modules:
+                    modules.add(target.id)
+                    changed = True
+                names_base = isinstance(value, (ast.Name, ast.Attribute)) and (
+                    is_connection_base(value) or (isinstance(value, ast.Name) and value.id in bound)
+                )
+                if names_base and target.id not in bound:
                     bound.add(target.id)
                     changed = True
     return found
@@ -331,7 +336,8 @@ def _connection_subclass_names(sources: list[tuple[str, str]]) -> frozenset[str]
     while True:
         grew = False
         for rel, source in sources:
-            if rel in parsed or rel.startswith("tests/") or "class " not in source:
+            # A tab or other space after ``class`` is still a class statement.
+            if rel in parsed or rel.startswith("tests/") or not re.search(r"\bclass\b", source):
                 continue
             if "Connection" not in source and not any(name in source for name in known):
                 continue
@@ -495,17 +501,26 @@ def classify_source(
     def _subclass_constructor_call(node: ast.Call) -> bool:
         func = node.func
         if isinstance(func, ast.Name):
-            return func.id in subclass_aliases
+            # A bare use of a discovered class name is a call even when this
+            # file never imports it (a parameter can bind the same name).
+            return func.id in subclass_aliases or func.id in subclass_names
         return isinstance(func, ast.Attribute) and func.attr in subclass_names
 
     def _in_declared_resolver(node: ast.AST) -> bool:
+        """True when the call runs inside a declared resolver body.
+
+        Defaults, decorators and annotations run in the enclosing scope, so
+        ancestry alone is not the function body.
+        """
         if not resolver_functions:
             return False
         names: list[str] = []
+        child = node
         current = parents.get(node)
         while current is not None:
-            if isinstance(current, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            if isinstance(current, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) and child in current.body:
                 names.append(current.name)
+            child = current
             current = parents.get(current)
         return ".".join(reversed(names)) in resolver_functions
 
