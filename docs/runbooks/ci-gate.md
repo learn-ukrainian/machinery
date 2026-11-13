@@ -209,7 +209,11 @@ test files this change deleted or rewrote.
 `GITHUB_SHA`, the event ref, action and candidate identity. Unknown events,
 missing metadata, incorrect refs and malformed proof fail closed.
 
-The gate requires Secret scan, Checks, Dependency audit, Frontend and PR changed tests and guards to
+This Python gate aggregates the product workflow's jobs. Machinery's own
+`.github/workflows/ci-gate.yml` aggregates its different job set in Bash;
+`.github/workflows/tests.yml` imports only the Python gate's `event_tier()`.
+
+The gate requires Secret scan, Hydrate release assets, Checks, Dependency audit, Frontend and PR changed tests and guards to
 succeed on every event. Duration refresh, pytest and pytest report must succeed on the
 full tier and be skipped on PR admission. Queue commit metadata scanning must
 succeed on merge-group events and be skipped elsewhere. Every other result,
