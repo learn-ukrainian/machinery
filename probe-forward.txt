@@ -10,3 +10,4 @@ opencode 781b2d99
 opencode lease
 agy f3b9a441
 agy lease
+claude b3d32b4c
