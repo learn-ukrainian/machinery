@@ -1173,12 +1173,13 @@ def test_module_context_attacks(world, tmp_path, monkeypatch, kind):
     [
         ("git -C {sibling} merge --ff-only origin/main", 0),
         ("cd {sibling} && git merge --ff-only origin/main", 2),
-        ("git -C {sibling} worktree remove {target}", 0),
+        ("git -C {sibling} worktree remove {target}", 2),
         ("git -C {primary} merge --ff-only origin/main", 2),
         ("cd {primary} && git merge --ff-only origin/main", 2),
     ],
 )
 def test_issue_11381_raw_git_targets_own_repository(world, monkeypatch, shape, expected):
+    """A foreign Git context must not allow a removal target in the protected primary."""
     primary, sibling, _ = world
     hook = fixture_hook(primary, monkeypatch)
     command = shape.format(sibling=shlex.quote(str(sibling)), primary=shlex.quote(str(primary)), target=shlex.quote(str(primary / "file.txt")))
