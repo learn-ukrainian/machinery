@@ -113,6 +113,7 @@ _IDEMPOTENCY = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}")
 _GITHUB_REMOTE = re.compile(
     r"(?:https://github\.com/|git@github\.com:|ssh://git@github\.com/)"
     r"([A-Za-z0-9][A-Za-z0-9-]{0,38}/[A-Za-z0-9._-]{1,100}?)(?:\.git)?/?")
+_GITHUB_SLUG = re.compile(r"[A-Za-z0-9][A-Za-z0-9-]{0,38}/[A-Za-z0-9._-]{1,100}")
 _MAX_REQUEST = 1 << 20
 _MAX_BODY = 64 << 10
 # Where the broker socket appears inside: a short path on the private /run, below the sockaddr_un length limit.
@@ -120,7 +121,8 @@ _BROKER_INSIDE = "/run/lu-write-boundary/broker.sock"
 _SOURCES_INSIDE = "/run/lu-write-boundary/sources.sock"
 # The MCP stdio command (a JSON argv) that reaches the read-only Sources relay from inside.
 SOURCES_ENV = "LU_WRITE_BOUNDARY_SOURCES"
-_BROKER_TIMEOUTS = {"review-dispatch": 300, "record-verdict": 900, "fleet-publish": 120, "gh": 120, "closeout-request": 900}
+_BROKER_TIMEOUTS = {"review-dispatch": 300, "record-verdict": 900, "fleet-publish": 120, "gh": 120,
+                    "closeout-request": 900}
 
 
 def broker_path() -> str | None:
@@ -232,7 +234,7 @@ def verify(task_file: Path, task_id: str) -> tuple[dict, str | None]:
     except (OSError, ValueError):
         return {"status": "missing"}, "write_boundary_unproven: no boundary receipt"
     summary = {key: receipt.get(key) for key in (
-        "status", "reason", "argv_sha256", "bwrap", "returncode", "import", "cleanup", "broker", "closeout")}
+        "status", "reason", "argv_sha256", "bwrap", "returncode", "import", "cleanup", "broker", "closeout_request")}
     summary["canary_passed"] = bool(receipt.get("canary", {}).get("passed"))
     if receipt.get("schema") != SCHEMA or receipt.get("task_id") != task_id:
         return summary, "write_boundary_unproven: the receipt names another run"
@@ -241,6 +243,28 @@ def verify(task_file: Path, task_id: str) -> tuple[dict, str | None]:
     if (receipt.get("import") or {}).get("status") not in ("unchanged", "imported"):
         return summary, f"write_boundary_import_failed: {(receipt.get('import') or {}).get('status')}"
     return summary, None
+
+
+def run_closeout(request: dict) -> dict:
+    """``merge_closeout --apply`` for a worker's closeout request, run by the supervisor after settlement.
+
+    The request comes from the launcher's receipt, which only the host writes; it is still checked here.
+    """
+    pr, repo, root = request.get("pr"), request.get("repo"), request.get("repo_root")
+    if not (type(pr) is int and pr > 0 and isinstance(repo, str) and _GITHUB_SLUG.fullmatch(repo)
+            and isinstance(root, str) and Path(root).is_absolute() and Path(root).is_dir()):
+        return {"pr": pr, "returncode": None, "reason": "the closeout request is malformed"}
+    code = (f"import sys; sys.path.insert(0, sys.argv[1]); from {_PACKAGE}.orchestration.merge_closeout "
+            "import main; raise SystemExit(main(sys.argv[2:]))")
+    argv = [sys.executable, "-I", "-c", code, str(machinery_path("dispatcher/write_boundary.py").parents[2]),
+            str(pr), "--repo", repo, "--repo-root", root, "--apply", "--json"]
+    try:
+        # A fixed argv: this interpreter, the package's own closeout module and checked request fields.
+        result = subprocess.run(argv, cwd=root, capture_output=True, text=True, check=False, stdin=subprocess.DEVNULL,  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit
+                                timeout=_BROKER_TIMEOUTS["closeout-request"])
+    except (OSError, subprocess.SubprocessError) as exc:
+        return {"pr": pr, "returncode": None, "reason": f"{type(exc).__name__}"}
+    return {"pr": pr, "returncode": result.returncode, "stdout": result.stdout[-4000:], "stderr": result.stderr[-2000:]}
 
 
 def _git(cwd: Path, *args: str, git_dir: Path | None = None) -> str:
@@ -330,8 +354,9 @@ class _Broker:
       takes the host's PR lock and writes its receipts in the task store, which is read-only inside.
     * ``fleet-publish`` appends one Fleet Comms message whose sender is the task id and whose idempotency key
       is prefixed with it; the body is untrusted text.
-    * ``closeout-request`` records the worker's merged PR; the launcher runs ``merge_closeout --apply`` on the host
-      after the sandbox exits, because closeout deletes refs in the primary's Git directory.
+    * ``closeout-request`` records the worker's merged PR in the receipt; the supervisor runs ``merge_closeout --apply``
+      on the host after it has settled the task's worktree, because closeout deletes refs in the primary's Git
+      directory and refuses while the worktree is registered.
     """
 
     def __init__(self, boundary: _Boundary, path: Path):
@@ -341,7 +366,7 @@ class _Broker:
         self.boundary = boundary
         self.records: list[dict] = []
         self.seen: set[str] = set()
-        self.closeout_pr: int | None = None
+        self.closeout_request: dict | None = None
         self.child: subprocess.Popen[bytes] | None = None
         self.closed = False
         self.server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
@@ -435,11 +460,15 @@ class _Broker:
         if type(number) is not int or not 0 < number < 10**8:
             raise _BrokerRefusal("pr must be a PR number")
         slug = self._repository_slug()
-        fields = "state,headRefName,headRefOid,isCrossRepository"
-        result = self._run(["gh", "pr", "view", str(number), "--repo", slug, "--json", fields], "gh", gh=True)
+        from lu_machinery.common import github_client
+
+        # A fresh read through the shared GitHub client: its budget and Retry-After admission apply.
+        proc = github_client.run(["gh", "pr", "view", str(number), "--repo", slug, "--json",
+                                  "state,headRefName,headRefOid,isCrossRepository"],
+                                 capture_output=True, text=True, check=False, timeout=_BROKER_TIMEOUTS["gh"], fresh=True)
         try:
-            facts = json.loads(result["stdout"]) if result["returncode"] == 0 else None
-        except ValueError:
+            facts = json.loads(proc.stdout) if proc.returncode == 0 else None
+        except (TypeError, ValueError):
             facts = None
         if not isinstance(facts, dict):
             raise _BrokerRefusal("the PR cannot be read on GitHub")
@@ -473,17 +502,8 @@ class _Broker:
 
     # -- host steps ----------------------------------------------------------------------------------------------
 
-    def _run(self, argv: list[str], timeout_key: str, *, stdin: bytes | None = None, gh: bool = False) -> dict:
-        if gh:
-            executable = shutil.which("gh")
-            if executable is None:
-                raise _BrokerRefusal("gh is not installed on the host")
-            env = {name: os.environ[name] for name in ("PATH", "HOME", "LANG", "XDG_CONFIG_HOME", "GH_CONFIG_DIR")
-                   if name in os.environ}
-            env.update(GH_PROMPT_DISABLED="1", GH_NO_UPDATE_NOTIFIER="1", GH_PAGER="cat", GH_HOST="github.com")
-            argv = [executable, *argv[1:]]
-        else:
-            env = _host_child_env(self.boundary.args.task_id)
+    def _run(self, argv: list[str], timeout_key: str, *, stdin: bytes | None = None) -> dict:
+        env = _host_child_env(self.boundary.args.task_id)
         # A fixed argv built by this class from validated fields, never a shell.
         self.child = subprocess.Popen(argv, cwd=self.boundary.repository, env=env, stdin=subprocess.PIPE,  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit
                                       stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -585,24 +605,10 @@ class _Broker:
     def _closeout_request(self, payload: dict) -> dict:
         if set(payload) != {"pr"}:
             raise _BrokerRefusal("closeout-request takes exactly pr")
-        number, _slug, _facts = self._pull_request(payload, "MERGED")
-        self.closeout_pr = number
-        return {"returncode": 0, "stdout": f"closeout of PR {number} runs on the host after this worker exits\n",
-                "stderr": ""}
-
-    def run_closeout(self) -> dict | None:
-        """``merge_closeout --apply`` for the PR the worker named, on the host, after the sandbox exited."""
-        if self.closeout_pr is None:
-            return None
-        try:
-            slug = self._repository_slug()
-            result = self._module("orchestration.merge_closeout", [
-                str(self.closeout_pr), "--repo", slug, "--repo-root", str(self.boundary.repository), "--apply",
-                "--json"], "closeout-request")
-        except (_BrokerRefusal, Refused, OSError, subprocess.SubprocessError) as exc:
-            return {"pr": self.closeout_pr, "returncode": None, "reason": str(exc)[:200]}
-        return {"pr": self.closeout_pr, "returncode": result["returncode"], "stdout": result["stdout"][-4000:],
-                "stderr": result["stderr"][-2000:]}
+        number, slug, _facts = self._pull_request(payload, "MERGED")
+        self.closeout_request = {"pr": number, "repo": slug, "repo_root": str(self.boundary.repository)}
+        return {"returncode": 0, "stdout": f"closeout of PR {number} runs on the host after this task's worktree "
+                "is settled\n", "stderr": ""}
 
     def cleanup(self) -> None:
         self.closed = True
@@ -794,8 +800,10 @@ class _Boundary:
         returncode = process.wait()
         self.receipt["returncode"] = returncode
         self.receipt["import"] = self._import()
-        if (closeout := self.broker.run_closeout()) is not None:
-            self.receipt["closeout"] = closeout
+        if self.broker.closeout_request is not None:
+            # Run by the supervisor once it has settled this task's worktree (merge_closeout leaves registered
+            # worktrees in place and reports them), never by the launcher while the worktree still exists.
+            self.receipt["closeout_request"] = self.broker.closeout_request
         return returncode
 
     def _probes(self, repository: Path, common: Path, sockets: list[Path], outputs: list[Path], tmp: Path,

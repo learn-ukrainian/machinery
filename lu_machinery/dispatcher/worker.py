@@ -1854,6 +1854,13 @@ def supervise(path: Path, options: dict | None = None, hard_timeout: float | Non
                     signal.pthread_sigmask(signal.SIG_SETMASK, mask)
                 if record.get("worktree_disposition_reason") != "task_record_damaged":
                     _reap_settled(record, patience=SETTLE_PATIENCE)
+                if request := (record.get("write_boundary") or {}).get("closeout_request"):
+                    # A write worker asked its broker to close out its merged PR (#423). It runs now that the
+                    # worktree is settled, and a closeout that does not succeed fails the run.
+                    record["closeout"] = write_boundary.run_closeout(request)
+                    if record["closeout"].get("returncode") != 0:
+                        record.update(status="failed", error=f"closeout_failed: PR {request.get('pr')} exit "
+                                                             f"{record['closeout'].get('returncode')}")
                 try:
                     store.replace(record, path, require_existing=True)
                 except store.TaskRecordError:

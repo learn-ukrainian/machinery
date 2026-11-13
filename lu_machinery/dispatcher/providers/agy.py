@@ -251,7 +251,9 @@ def build(spec: TaskSpec, env: dict[str, str]) -> Invocation:
     if (argument := schema_argument(spec.options)) is not None:
         argv += ["--json-schema", argument]
     if spec.mode == "workspace-write":
-        argv += ["--log-file", str(spec.final_file.with_suffix(".log"))]
+        # AGY runs its commands in its first workspace folder, so the worktree comes before any read root (#423);
+        # without it the commands ran in the first read root (the shared skills directory of the code checkout).
+        argv += ["--add-dir", str(spec.worktree), "--log-file", str(spec.final_file.with_suffix(".log"))]
     elif spec.mode == "read-only":
         # AGY has no write lock of its own: read-only runs only inside the dispatcher's bubblewrap
         # boundary, which is the argv returned here, so no caller can launch it unwrapped (C-3027).
