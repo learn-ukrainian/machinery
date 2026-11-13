@@ -4,20 +4,20 @@ Dispatch v2 does not write ``needs_finalize``. The legacy writer left with
 ``scripts/delegate.py`` (learn-ukrainian ``f10bb1dbf0``, #11807). ``--apply``
 was retired in #11713 before this backlog was settled, so class C stayed open.
 ``settle-stale`` classifies again and, with ``--apply``, writes only class C.
+Old A/B/D records become C when no open PR or existing checkout/runtime path
+keeps the task live. Surviving refs remain untouched: a tied merged PR gives
+``done``; otherwise the record becomes ``failed`` and names its preservation
+location. Unknown repository, filesystem or PR evidence leaves it reported.
 
-Class A (branch or commit still on another origin branch) and class B (a local
-branch, a dirty worktree, a worktree HEAD, or any ref other than
-``refs/reaper-rescue/`` still holds the commit) are reported and never rewritten.
-The task's base SHA is where it started, not work it delivered. A commit held
-only by ``refs/reaper-rescue/`` is class C: the run is over and the ref is left
-in place. Class C then settles ``done`` when a merged pull request is tied to
-the recorded commit or that commit is on the default branch, ``no_deliverable``
-for a clean zero-commit exit, and ``failed`` otherwise. A rescue pin is checked
-against that pull list; a list failure skips the write. A completion gate
-beyond delivery is already on the record, settles ``failed``, and does not wait
-for the list. Class D is anything the evidence cannot prove. A former D record becomes C and
-settles failed only when its checkout and named refs are gone and no recorded
-work commit is reachable. Surviving rescue refs also prevent this promotion.
+Initial classes A and B identify surviving branches, refs or worktree HEADs.
+Class D identifies incomplete evidence or historical work that the original
+classifier could not resolve. These classes become C under the abandoned-task
+rule above only when current PR and filesystem evidence permits closure.
+
+Other class C records retain the original delivery and completion-gate checks:
+``done`` for a tied merged PR or landed rescue commit, ``no_deliverable`` for a
+clean zero-commit exit, and ``failed`` otherwise. A provably unrecoverable former
+D record also settles failed, after rechecking refs under the record lock.
 
 ``archive`` moves terminal records (statuses that no longer claim a worktree,
 :data:`worktree_claims.RELEASED_TASK_STATUSES`) older than ``--min-age-days``
@@ -684,6 +684,7 @@ class Candidate:
     # Full shas of the recorded commits, set once no ref is proven to hold them.
     work_commits: list[str] = dataclasses.field(default_factory=list)
     unrecoverable: bool = False
+    abandoned: bool = False
     checkout: Path | None = None
 
     @property
@@ -900,6 +901,7 @@ def _apply_commit_facts(candidate: Candidate, commits: CommitFacts, facts: RepoF
     evidence = candidate.evidence
     recorded: list[str] = evidence["recorded_commits"]
     if commits.error is not None:
+        evidence["commit_error"] = commits.error
         candidate.klass, candidate.skip_reason = "D", f"commit evidence unavailable: {commits.error}"
         return
     missing = [sha for sha in recorded if not commits.resolved.get(sha)]
@@ -1210,6 +1212,86 @@ def _merged_work_absent(candidate: Candidate, index: PullIndex | None) -> bool:
     return True
 
 
+def _close_abandoned(candidate: Candidate, facts: RepoFacts, index: PullIndex) -> None:
+    """A preserved ref is custody, not a live task. Close old A/B/D records only."""
+    if (facts.checkout is None or facts.error or facts.fetch_error or facts.all_refs is None
+            or index.open_error or candidate.evidence.get("commit_error")):
+        return
+    if candidate.evidence.get("open_prs"):
+        candidate.skip_reason = "open PR still needs delivery"
+        return
+    # Check even records missing a branch name, which the original classifier
+    # returns before inspecting the checkout. Unreadable paths remain unknown.
+    paths = [_owned_checkout(candidate.record), *(candidate.record.get("acp_runtime_paths") or [])]
+    for raw in paths:
+        if not isinstance(raw, str) or not raw.strip():
+            continue
+        try:
+            os.lstat(raw)
+        except FileNotFoundError:
+            continue
+        except OSError:
+            candidate.skip_reason = "worktree or runtime path evidence unavailable"
+            return
+        candidate.evidence.setdefault("surviving_paths", []).append(raw)
+        candidate.skip_reason = "work survives at " + raw
+        return
+    listing = (_git(["worktree", "list", "--porcelain"], cwd=facts.checkout,
+                    timeout=DEFAULT_GIT_TIMEOUT_S) if facts.checkout else None)
+    if listing is None or listing.returncode:
+        candidate.skip_reason = "worktree list unavailable"
+        return
+    for block in listing.stdout.strip().split("\n\n"):
+        tree = dict(line.partition(" ")[::2] for line in block.splitlines())
+        raw = tree.get("worktree")
+        if not raw or Path(raw) == facts.checkout:
+            continue
+        branch_matches = tree.get("branch") == "refs/heads/" + str(candidate.evidence.get("branch"))
+        contains = [_ancestor_status(facts.checkout, sha, tree.get("HEAD", ""))
+                    for sha in candidate.evidence["recorded_commits"]]
+        if not branch_matches and not any(value is True for value in contains) and None not in contains:
+            continue
+        try:
+            os.lstat(raw)
+        except FileNotFoundError:
+            continue
+        except OSError:
+            candidate.skip_reason = "worktree path evidence unavailable"
+            return
+        candidate.evidence.setdefault("surviving_paths", []).append(raw)
+        candidate.skip_reason = "work survives at " + raw
+        return
+    start = candidate.task_start
+    if index.error or (index.covered_since is not None and (start is None or start < index.covered_since)):
+        candidate.skip_reason = "merged pull evidence incomplete; raise --max-pr-pages or retry the failed listing"
+        return
+    _merged_work_absent(candidate, index)
+    names = [name for name in (candidate.evidence.get("branch"), candidate.task_id) if name]
+    candidate.evidence["branch_refs"] = sorted(ref for ref in facts.all_refs if any(name in ref for name in names))
+    candidate.klass = "C"
+    candidate.abandoned = True
+    candidate.checkout = facts.checkout
+    candidate.skip_reason = None
+    recorded = candidate.evidence["recorded_commits"]
+    merged = [pull for pull in candidate.evidence.get("merged_prs", [])
+              if not recorded or any(
+                  isinstance(pull.get(field), str) and pull[field].startswith(sha)
+                  for sha in recorded for field in ("head_sha", "merge_commit_sha"))
+              or (facts.checkout is not None and isinstance(pull.get("head_sha"), str)
+                  and any(_is_ancestor(facts.checkout, sha, pull["head_sha"]) for sha in recorded))]
+    if merged:
+        candidate.merged_pr = max(merged, key=lambda pull: str(pull.get("merged_at") or ""))
+        candidate.outcome = "done"
+        candidate.settle_reason = "abandoned record; work delivered at " + str(candidate.merged_pr["url"])
+    else:
+        locations = decision_row(candidate)["where"]
+        if locations == ["unknown"]:
+            locations = [str(candidate.path)]
+        candidate.outcome = "failed"
+        candidate.settle_reason = "abandoned; work preserved at " + ", ".join(locations)
+        candidate.failure_reason = candidate.settle_reason
+
+
 def classify(
     candidates: list[Candidate],
     *,
@@ -1249,7 +1331,7 @@ def classify(
     for candidate in candidates:
         slug = str(candidate.record.get("repository"))
         facts_for_candidate = facts_by_slug.get(slug)
-        if (candidate.klass == "D" and facts_for_candidate is not None
+        if (candidate.klass in {"A", "B", "D"} and facts_for_candidate is not None
                 and facts_for_candidate.error is None and facts_for_candidate.fetch_error is None):
             orphaned_by_slug[slug].append(candidate)
     indexes: dict[str, PullIndex] = {}
@@ -1278,10 +1360,15 @@ def classify(
                 candidate.evidence["open_prs"] = [
                     pull for name, pulls in index.open_by_branch.items() for pull in pulls
                     if name == branch or (not branch and candidate.task_id in name)
+                    or any(isinstance(pull.get("head_sha"), str) and pull["head_sha"].startswith(sha)
+                           for sha in candidate.evidence["recorded_commits"])
                 ]
                 candidate.evidence["pull_list_error"] = index.open_error
     for candidate in candidates:
         candidate_facts = facts_by_slug.get(str(candidate.record.get("repository")))
+        if candidate.evidence.get("open_prs") or candidate.evidence.get("pull_list_error"):
+            candidate.outcome = None
+            candidate.skip_reason = candidate.evidence.get("pull_list_error") or "open PR still needs delivery"
         if (candidate.klass == "D" and candidate_facts is not None and candidate_facts.fetch_error is None
                 and candidate_facts.error is None and not candidate.evidence.get("open_prs")
                 and candidate.evidence.get("pull_list_error") is None
@@ -1294,6 +1381,10 @@ def classify(
             candidate.outcome = "failed"
             candidate.failure_reason = "work_not_recoverable"
             candidate.settle_reason = "work not recoverable: worktree and branch gone"
+        if candidate.klass in {"A", "B", "D"} and candidate_facts is not None:
+            candidate_index = indexes.get(str(candidate.record.get("repository")))
+            if candidate_index is not None:
+                _close_abandoned(candidate, candidate_facts, candidate_index)
 
     return indexes
 
@@ -1319,7 +1410,11 @@ def _settled_record(candidate: Candidate, current: dict[str, Any], settled_at: s
     return updated
 
 
-def apply_settlement(candidate: Candidate, *, lock_timeout_s: float, now: datetime) -> None:
+def apply_settlement(
+    candidate: Candidate, *, lock_timeout_s: float, now: datetime,
+    index: PullIndex | None = None, open_pager: PullPager = gh_open_pull_page,
+    max_pr_pages: int = DEFAULT_MAX_PR_PAGES,
+) -> None:
     """Write one class C record's terminal status, or record why it was skipped.
 
     Does not delete a worktree, branch, or ``refs/reaper-rescue/`` ref.
@@ -1356,6 +1451,37 @@ def apply_settlement(candidate: Candidate, *, lock_timeout_s: float, now: dateti
                 if not _unrecoverable_work(candidate, facts):
                     candidate.action, candidate.skip_reason = "skipped", "work survives or evidence changed before write"
                     return
+            if candidate.abandoned:
+                checkout = candidate.checkout
+                listing = (_git(["for-each-ref", "--format=%(objectname) %(refname)"],
+                                cwd=checkout, timeout=DEFAULT_GIT_TIMEOUT_S) if checkout else None)
+                if listing is None or listing.returncode or index is None:
+                    candidate.action, candidate.skip_reason = "skipped", "ref or PR evidence unavailable before write"
+                    return
+                slug = str(current.get("repository"))
+                opened = build_pull_index(slug, oldest_start=None, pager=open_pager, max_pages=max_pr_pages)
+                if opened.error or opened.covered_since is not None:
+                    candidate.action, candidate.skip_reason = "skipped", "open pull evidence unavailable before write"
+                    return
+                branch = candidate.evidence.get("branch")
+                if any(name == branch or (not branch and candidate.task_id in name)
+                       or any(isinstance(pull.get("head_sha"), str) and pull["head_sha"].startswith(sha)
+                              for sha in candidate.evidence["recorded_commits"])
+                       for name, pulls in opened.open_by_branch.items() for pull in pulls):
+                    candidate.action, candidate.skip_reason = "skipped", "open PR appeared since classification"
+                    return
+                facts = RepoFacts(slug=slug, checkout=checkout,
+                                  all_refs={line.partition(" ")[2]: line.partition(" ")[0]
+                                            for line in listing.stdout.splitlines()})
+                probe = Candidate(candidate.path, candidate.mtime_ns, current, candidate.age_days,
+                                  evidence=dict(candidate.evidence), work_commits=candidate.work_commits)
+                _close_abandoned(probe, facts, index)
+                if probe.outcome is None:
+                    candidate.action, candidate.skip_reason = "skipped", probe.skip_reason or "live evidence changed before write"
+                    return
+                candidate.evidence, candidate.settle_reason = probe.evidence, probe.settle_reason
+                candidate.outcome, candidate.failure_reason = probe.outcome, probe.failure_reason
+                candidate.merged_pr = probe.merged_pr
             task_record_store.write_record_unlocked(
                 candidate.path, _settled_record(candidate, current, now.isoformat())
             )
@@ -1404,7 +1530,8 @@ def settle_stale(
 ) -> dict[str, Any]:
     """Classify stale ``needs_finalize`` records and, with ``apply``, settle class C.
 
-    Class A, B and unresolved D are reported in the keep/close list.
+    A/B/D records without a live holder become C, retaining all refs.
+    Unresolved records are reported in the keep/close list.
     ``before_apply`` runs between classification and writes.
     """
     now = now or datetime.now(UTC)
@@ -1423,7 +1550,9 @@ def settle_stale(
         if before_apply is not None:
             before_apply(candidates)
         for candidate in settleable:
-            apply_settlement(candidate, lock_timeout_s=lock_timeout_s, now=now)
+            apply_settlement(candidate, lock_timeout_s=lock_timeout_s, now=now,
+                             index=indexes.get(str(candidate.record.get("repository"))),
+                             open_pager=open_pager, max_pr_pages=max_pr_pages)
     by_class = Counter(candidate.klass for candidate in candidates)
     order = {"B": 0, "A": 1, "D": 2, "C": 3}
     return {
@@ -1955,7 +2084,7 @@ def _build_parser() -> argparse.ArgumentParser:
         description=(
             "Classify needs_finalize records older than --min-age-days.\n"
             "Without --apply, report only. With --apply, write class C to its terminal status.\n"
-            "Provably unrecoverable class D records become C and settle failed.\n"
+            "Old A/B/D records without an open PR or existing worktree become C; all refs stay.\n"
             "Class A, B and unresolved D are never rewritten. No worktree, branch, or rescue ref is deleted."
         ),
         epilog=(

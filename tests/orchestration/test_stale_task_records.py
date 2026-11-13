@@ -19,10 +19,10 @@ from typing import Any
 
 import pytest
 
-from tests.helpers.product_tree import configured_roots as configured_roots
 from lu_machinery.dispatcher import store
 from lu_machinery.orchestration import dead_worker_state, task_record_store, worktree_claims
 from lu_machinery.orchestration import stale_task_records as str_mod
+from tests.helpers.product_tree import configured_roots as configured_roots
 
 pytestmark = pytest.mark.usefixtures("configured_roots")
 
@@ -242,12 +242,12 @@ def test_classifies_every_class_like_the_report(tasks_dir, mixed):
     report = _run(tasks_dir, mixed)
     rows = _by_file(report)
 
-    assert report["classes"] == {"A": 1, "B": 2, "C": 4, "D": 2}
+    assert report["classes"] == {"A": 0, "B": 1, "C": 6, "D": 2}
     assert report["younger_left_alone"] == 1
     assert "young.json" not in rows and "already-done.json" not in rows
-    assert rows["published.json"]["class"] == "A"
+    assert rows["published.json"]["class"] == "C"
     assert rows["published.json"]["evidence"]["branch_on_origin"] is True
-    assert rows["local-only.json"]["class"] == "B"
+    assert rows["local-only.json"]["class"] == "C"
     assert rows["local-only.json"]["evidence"]["local_commits_ahead_of_base"] == 1
     assert rows["dirty.json"]["class"] == "B"
     assert rows["dirty.json"]["evidence"]["worktree_dirty"] is True
@@ -258,8 +258,8 @@ def test_classifies_every_class_like_the_report(tasks_dir, mixed):
     assert rows["no-commits.json"]["outcome"] == "no_deliverable"
     assert rows["crashed.json"]["outcome"] == "failed"
     assert rows["stale-pr.json"]["outcome"] == "failed"
-    assert report["outcomes"] == {"done": 1, "no_deliverable": 1, "failed": 2}
-    assert report["actions"] == {"would_settle": 4, "report": 5}
+    assert report["outcomes"] == {"done": 1, "no_deliverable": 1, "failed": 4}
+    assert report["actions"] == {"would_settle": 6, "report": 3}
     assert mixed["pager"].calls == [(SLUG, 1)]
 
 
@@ -267,16 +267,16 @@ def test_dry_run_writes_nothing(tasks_dir, mixed):
     before = _snapshot(tasks_dir)
     report = _run(tasks_dir, mixed)
     assert report["mode"] == "dry-run"
-    assert report["actions"]["would_settle"] == 4
+    assert report["actions"]["would_settle"] == 6
     assert _snapshot(tasks_dir) == before
 
 
 def test_apply_settles_class_c_and_leaves_other_classes(tasks_dir, mixed):
     """Defect class: settling a needs_finalize record rewrites a class that still has work."""
-    untouched = ["published.json", "local-only.json", "dirty.json", "clean-detached.json", "no-repo.json", "young.json"]
+    untouched = ["dirty.json", "clean-detached.json", "no-repo.json", "young.json"]
     before = {name: (tasks_dir / name).read_bytes() for name in untouched}
     report = _run(tasks_dir, mixed, apply=True)
-    assert report["actions"] == {"settled": 4, "report": 5}
+    assert report["actions"] == {"settled": 6, "report": 3}
     for name in untouched:
         assert (tasks_dir / name).read_bytes() == before[name], name
     merged = json.loads((tasks_dir / "merged.json").read_text())
@@ -322,13 +322,14 @@ def test_rescue_ref_settles_failed_and_the_ref_stays(tasks_dir, repo):
     rows = _by_file(report)
     assert rows["rescued.json"]["outcome"] == "failed"
     assert rows["rescued.json"]["action"] == "settled"
-    assert rows["live-branch.json"]["class"] == "B"
-    assert rows["live-branch.json"]["action"] == "report"
+    assert rows["live-branch.json"]["class"] == "C"
+    assert rows["live-branch.json"]["action"] == "settled"
     rescued = json.loads((tasks_dir / "rescued.json").read_text())
     assert rescued["status"] == "failed"
     assert rescued["failure_reason"] == "unpushed work - needs rescue"
     assert _git(repo, "rev-parse", f"refs/reaper-rescue/stamp/rescued-{sha[:12]}") == sha
-    assert json.loads((tasks_dir / "live-branch.json").read_text())["status"] == "needs_finalize"
+    assert json.loads((tasks_dir / "live-branch.json").read_text())["status"] == "failed"
+    assert _git(repo, "rev-parse", "codex/live-branch") == live
 
 
 def test_base_sha_is_not_tied_to_a_parent_pull_request(tasks_dir, repo):
@@ -553,8 +554,8 @@ def test_soft_reset_final_base_head_keeps_legacy_work_commit(tasks_dir, repo):
     assert row["evidence"]["recorded_commits"] == [reset_commit]
 
 
-def test_renamed_branch_keeps_its_record_out_of_class_c(tasks_dir, repo):
-    """Sol's probe: the recorded branch name is gone because the branch was renamed, not deleted."""
+def test_renamed_branch_preserves_work_when_abandoned_record_is_closed(tasks_dir, repo):
+    """Defect class: closing an abandoned record loses a renamed branch or misses its merged PR."""
     _git(repo, "checkout", "-b", "codex/renamed")
     (repo / "work.txt").write_text("unpushed\n")
     _git(repo, "add", "work.txt")
@@ -578,27 +579,27 @@ def test_renamed_branch_keeps_its_record_out_of_class_c(tasks_dir, repo):
     _record(tasks_dir, "pushed-elsewhere", worktree_dirty_on_exit=True, auto_finalize=_auto_finalized(pushed_sha))
     # A missing local object can still be delivered through a merged PR.
     _record(tasks_dir, "unknown-commit", worktree_dirty_on_exit=True, auto_finalize=_auto_finalized("abababa"))
-    before = _snapshot(tasks_dir)
+    refs_before = _git(repo, "for-each-ref", "refs/heads", "refs/reaper-rescue")
 
     report = _settle(tasks_dir, repo, [
         _merged("codex/unknown-commit", 93, OLD_FINISH + timedelta(hours=1), head_sha="ab" * 20),
     ], apply=True)
 
     rows = _by_file(report)
-    assert report["classes"] == {"A": 1, "B": 1, "C": 0, "D": 2}
-    assert rows["renamed.json"]["class"] == "D"
-    assert "refs/heads/rescue/renamed" in rows["renamed.json"]["skip_reason"]
-    assert rows["renamed-named.json"]["class"] == "B"
+    assert report["classes"] == {"A": 0, "B": 0, "C": 4, "D": 0}
+    assert rows["renamed.json"]["outcome"] == "failed"
+    assert "refs/heads/rescue/renamed" in rows["renamed.json"]["settle_reason"]
+    assert rows["renamed-named.json"]["class"] == "C"
     assert rows["renamed-named.json"]["evidence"]["refs_containing_commit"] == ["refs/heads/rescue/renamed"]
-    assert rows["pushed-elsewhere.json"]["class"] == "A"
+    assert rows["pushed-elsewhere.json"]["class"] == "C"
     assert rows["pushed-elsewhere.json"]["evidence"]["origin_heads_at_commit"] == ["elsewhere/pushed"]
-    assert rows["unknown-commit.json"]["class"] == "D"
+    assert rows["unknown-commit.json"]["class"] == "C"
     assert rows["unknown-commit.json"]["evidence"]["merged_prs"][0]["number"] == 93
-    assert "outcome" not in rows["unknown-commit.json"]
-    assert _snapshot(tasks_dir) == before
+    assert rows["unknown-commit.json"]["outcome"] == "done"
+    assert _git(repo, "for-each-ref", "refs/heads", "refs/reaper-rescue") == refs_before
 
 
-def test_unfetched_remote_branch_descending_from_the_recorded_commit_is_not_class_c(tasks_dir, repo):
+def test_unfetched_remote_branch_descending_from_the_recorded_commit_is_preserved(tasks_dir, repo):
     """Sol r2: an origin branch this checkout never fetched has advanced past the recorded commit."""
     work_sha = _orphan_commit(repo, "advanced")
     _git(repo, "checkout", "-b", "tmp/descendant", work_sha)
@@ -616,7 +617,8 @@ def test_unfetched_remote_branch_descending_from_the_recorded_commit_is_not_clas
 
     row = _by_file(_settle(tasks_dir, repo, []))["advanced.json"]
 
-    assert row["class"] == "A"
+    assert row["class"] == "C"
+    assert row["outcome"] == "failed"
     assert row["evidence"]["refs_containing_commit"] == [f"{SCAN_PREFIX}/rescue/advanced"]
     # The scan namespace is private: the checkout's own remote-tracking refs are untouched.
     assert "rescue/advanced" not in _git(repo, "for-each-ref", "refs/remotes/origin")
@@ -649,9 +651,9 @@ def test_narrow_configured_refspec_still_finds_the_descending_branch(tasks_dir, 
     report = _settle(tasks_dir, repo, [], apply=True)
 
     row = _by_file(report)["narrow.json"]
-    assert row["class"] == "A"
+    assert row["class"] == "C"
     assert row["evidence"]["refs_containing_commit"] == [f"{SCAN_PREFIX}/rescue/narrow"]
-    assert "settled" not in report["actions"]
+    assert report["actions"] == {"settled": 1}
     assert _git(repo, "config", "--get-all", "remote.origin.fetch") == "+refs/heads/main:refs/remotes/origin/main"
 
 
@@ -685,7 +687,7 @@ def test_git_config_env_redirect_is_ignored(tasks_dir, repo, tmp_path, monkeypat
 
     row = _by_file(_settle(tasks_dir, repo, [], apply=True))["redirected.json"]
 
-    assert row["class"] == "A"
+    assert row["class"] == "C"
     assert row["evidence"]["refs_containing_commit"] == [f"{SCAN_PREFIX}/rescue/redirected"]
 
 
@@ -800,8 +802,8 @@ def test_unrecoverable_missing_work_settles_without_deleting_refs(tasks_dir, rep
 
 
 @pytest.mark.parametrize("holder", ["rescue", "custom", "worktree", "commit", "git-error", "open-pr"])
-def test_surviving_or_unknown_work_is_never_settled(tasks_dir, repo, tmp_path, monkeypatch, holder):
-    """Defect class: incomplete evidence terminalizes a record whose work still survives."""
+def test_preserved_work_settles_but_live_or_unknown_work_stays_reported(tasks_dir, repo, tmp_path, monkeypatch, holder):
+    """Defect class: closure mistakes preserved refs for liveness or treats missing evidence as absence."""
     fields = {"commits_ahead": 2}
     pulls = []
     head = _git(repo, "rev-parse", "HEAD")
@@ -825,7 +827,15 @@ def test_surviving_or_unknown_work_is_never_settled(tasks_dir, repo, tmp_path, m
                   "head": {"ref": "codex/kept", "sha": head, "repo": {"full_name": SLUG}}}]
     path = _record(tasks_dir, "kept", **fields)
     before = path.read_bytes()
+    _settle(tasks_dir, repo, pulls)
+    refs_before = _git(repo, "for-each-ref")
     report = _settle(tasks_dir, repo, pulls, apply=True)
+    if holder in {"rescue", "custom", "commit"}:
+        assert json.loads(path.read_text())["status"] == "failed"
+        assert report["needs_decision"] == 0
+        assert _git(repo, "for-each-ref") == refs_before
+        assert "abandoned; work preserved at " in json.loads(path.read_text())["settle_reason"]
+        return
     assert path.read_bytes() == before
     assert report["needs_decision"] == 1
     row = report["keep_close"][0]
@@ -846,6 +856,69 @@ def test_ref_reappearing_before_settlement_preserves_the_record(tasks_dir, repo)
     assert report["actions"] == {"skipped": 1}
     assert path.read_bytes() == before
     assert report["needs_decision"] == 1
+
+
+def test_abandoned_preserved_refs_settle_without_changing_refs(tasks_dir, repo):
+    """Defect class: preserved refs keep abandoned records unfinished or are altered on closure."""
+    sha = _orphan_commit(repo, "preserved")
+    refs = ["refs/reaper-rescue/stamp/codex/preserved", "refs/original/codex/preserved",
+            "refs/heads/codex/preserved"]
+    for ref in refs:
+        _git(repo, "update-ref", ref, sha)
+    path = _record(tasks_dir, "preserved", commits_ahead=2)
+    delivered = _record(tasks_dir, "delivered", commits_ahead=2)
+    pulls = [_merged("codex/delivered", 91, OLD_FINISH + timedelta(hours=1), head_sha=sha)]
+    before = _snapshot(tasks_dir)
+    dry = _settle(tasks_dir, repo, pulls)
+    assert dry["outcomes"] == {"failed": 1, "done": 1}
+    assert _snapshot(tasks_dir) == before
+    ref_snapshot = _git(repo, "for-each-ref")
+    applied = _settle(tasks_dir, repo, pulls, apply=True)
+    assert applied["actions"] == {"settled": 2}
+    failed = json.loads(path.read_text())
+    assert failed["status"] == "failed"
+    assert failed["settle_reason"] == "abandoned; work preserved at " + ", ".join(sorted(refs))
+    assert json.loads(delivered.read_text())["merged_pr"]["url"] == f"https://github.com/{SLUG}/pull/91"
+    assert json.loads(delivered.read_text())["status"] == "done"
+    assert _git(repo, "for-each-ref") == ref_snapshot
+
+
+def test_open_pr_or_existing_worktree_keeps_abandoned_records_reported(tasks_dir, repo, tmp_path):
+    """Defect class: abandoned-ref closure terminalizes an open PR, an existing directory, or a young record."""
+    head = _git(repo, "rev-parse", "HEAD")
+    tree = tmp_path / "interrupted-tree"
+    tree.mkdir()
+    opened = _record(tasks_dir, "opened", commits_ahead=2)
+    existing = _record(tasks_dir, "existing", worktree_path=str(tree), commits_ahead=2)
+    young = _record(tasks_dir, "young", finished_at=(NOW - timedelta(days=1)).isoformat())
+    for name in ("opened", "existing", "young"):
+        _git(repo, "update-ref", f"refs/reaper-rescue/stamp/codex/{name}", head)
+    before = _snapshot(tasks_dir)
+    pulls = [{"state": "open", "number": 42, "html_url": "https://example.invalid/pull/42",
+              "head": {"ref": "codex/opened", "sha": head, "repo": {"full_name": SLUG}}}]
+    report = _settle(tasks_dir, repo, pulls, apply=True)
+    assert report["needs_decision"] == 2
+    assert report["younger_left_alone"] == 1
+    assert report["actions"] == {"report": 2}
+    assert _snapshot(tasks_dir) == before
+    assert all(json.loads(path.read_text())["status"] == "needs_finalize" for path in (opened, existing, young))
+    assert tree.is_dir()
+    # The same holders appearing after classification must also prevent writes
+    # while the existing settlement lock is held.
+    raced_open = _record(tasks_dir, "raced-open", commits_ahead=2)
+    raced_tree_path = tmp_path / "reappeared-tree"
+    raced_tree = _record(tasks_dir, "raced-tree", worktree_path=str(raced_tree_path), commits_ahead=2)
+    for name in ("raced-open", "raced-tree"):
+        _git(repo, "update-ref", f"refs/reaper-rescue/stamp/codex/{name}", head)
+    before = _snapshot(tasks_dir)
+    def reappear(_candidates):
+        raced_tree_path.mkdir()
+        pulls.append({"state": "open", "number": 43, "html_url": "https://example.invalid/pull/43",
+                      "head": {"ref": "codex/raced-open", "sha": head, "repo": {"full_name": SLUG}}})
+    raced = _settle(tasks_dir, repo, pulls, apply=True, before_apply=reappear)
+    assert raced["actions"] == {"report": 2, "skipped": 2}
+    assert _snapshot(tasks_dir) == before
+    assert all(json.loads(path.read_text())["status"] == "needs_finalize" for path in (raced_open, raced_tree))
 
 
 # ---------------------------------------------------------------------------

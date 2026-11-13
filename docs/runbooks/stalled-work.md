@@ -87,15 +87,20 @@ recovery locations, open PRs, and age. The text report prints the same rows
 with a `KEEP/CLOSE` prefix. A missing or incomplete PR listing is reported as
 unknown, never as proof that no PR exists.
 
-A former class D record settles `failed` only when its worktree and runtime
-paths are absent, no ref names its branch or task, no recorded work commit is
-reachable, no matching open PR survives, and merged PR history provides no
-evidence that the work was delivered. A matching merged PR keeps the record
-for a delivery decision, including when its head commit is no longer local. Git and filesystem failures leave
-it unresolved. Local refs and commit reachability are checked again under the
-record lock before writing. Historical counts of commits or dirty files at
-exit do not establish a current recovery location. Settlement deletes no
-branch, ref, or worktree. Those require a separate decision.
+An old A, B, or D record becomes eligible for settlement when it has no matching
+open PR and no existing worktree or runtime path. A surviving ref preserves
+work without keeping the task live. A merged PR tied to the task settles the
+record `done` with its link; otherwise it settles `failed` with
+`abandoned; work preserved at <ref or location>`. Rescue refs, scan refs, local
+branches, and original refs remain in place. An existing worktree directory
+keeps the record reported even if its Git metadata is missing.
+
+The age floor still applies. Incomplete repository, filesystem, or PR evidence
+leaves a record unresolved. Settlement holds the existing record/worktree lock,
+re-reads its mtime and status, and checks that its checkout has not reappeared
+before writing. The older unrecoverable-work rule also rechecks local refs and
+commit reachability under that lock. Settlement deletes no branch, ref, or
+worktree. Those require a separate decision.
 
 The machinery page counts current unresolved statuses. Settled records move
 to recent outcomes and leave the keep/close warning, even if an old boolean
