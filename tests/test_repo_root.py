@@ -550,10 +550,12 @@ def test_the_native_hook_contract_bytes_match_the_product_contract():
     digest = {
         "resolvers": hashlib.sha256(hooks._hook_resolvers().encode()).hexdigest(),
         "tail": hashlib.sha256(hooks._HOOK_TAIL.encode()).hexdigest(),
+        "audit_tail": hashlib.sha256(hooks._AUDIT_HOOK_TAIL.encode()).hexdigest(),
     }
     assert digest == {
         "resolvers": "b1b82bb91cd13de0179bb42ba08a4c85f9866534bacaad715dda0548863bb311",
         "tail": "b91d03befcfe7f3be0878d2445caa6957c8d4904fd5ab5712aff5aa68abb9f8e",
+        "audit_tail": "14fee23821032b96b4c3723834096e1f1feba0d9e6535253bd52489a4f69ecc5",
     }
-    # The native Claude audit mode was removed before 0.1.10; Claude audits use the legacy delegator.
-    assert "claude-audit-hook" not in hooks.NATIVE_HOOK_MODES
+    # Product PR 13005 retains this audit extension until machinery owns it.
+    assert "claude-audit-hook" in hooks.NATIVE_HOOK_MODES

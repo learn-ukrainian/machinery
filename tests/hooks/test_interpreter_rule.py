@@ -902,7 +902,7 @@ def test_a_receipt_for_a_different_tool_or_base_fallback_is_never_reused(tmp_pat
     """Port PR 13005: resolver-only changes invalidate cached pre-push validation."""
     import importlib.util
 
-    spec = importlib.util.spec_from_file_location("ported_pre_push_gate", SOURCE / ".githooks/pre_push_gate.py")
+    spec = importlib.util.spec_from_file_location("ported_pre_push_gate", _checkout() / ".githooks/pre_push_gate.py")
     gate = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = gate
     spec.loader.exec_module(gate)
