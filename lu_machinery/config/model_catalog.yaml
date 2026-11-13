@@ -53,7 +53,7 @@ policy:
       Kimi models are retired (OO-58, #11327, 2026-10-21; unused since
       2026-10-13, reconfirmed 2026-10-18 and 2026-10-21). Dispatch refuses
       every Kimi id. Historical workers used the native `kimi` CLI only;
-      OpenRouter was never a Kimi worker bus. Pool is not subscribed (operator 2026-10-23). Gemma is live for hramatka through OpenCode (operator 2026-11-07, REMOVE-UNNEEDED-1107).
+      OpenRouter was never a Kimi worker bus. Pool is not subscribed (operator 2026-10-23). Gemma is retained for hramatka through its own AIS/OpenRouter HTTP client (operator 2026-11-07, REMOVE-UNNEEDED-1107); it is not a fleet route.
     - >-
       Kimi seats are not a usable lane (OO-58, #11327). Historical limit, kept
       as record: web, UI and backend coding only, no Ukrainian-language content,
@@ -85,7 +85,7 @@ policy:
       strong root-cause / densest useful CI nits. AGY gemini-3.7-flash-high = fast
       scoped CF. Historical GLM-5.3 = ships-heavier; GLM is now retired, not subscribed. Codex/Sol = careful/small, thorough/heavy advisory — not a
       speed winner. Evidence: AGY #7137, Kimi #7143, Codex/Sol #7142, Grok #7133,
-      GLM #7144 (also addresses #7121 fetch refspecs). Pool and GLM are not subscribed (operator 2026-10-23). Gemma is live for hramatka through OpenCode (operator 2026-11-07, REMOVE-UNNEEDED-1107).
+      GLM #7144 (also addresses #7121 fetch refspecs). Pool and GLM are not subscribed (operator 2026-10-23). Gemma is retained for hramatka through its own AIS/OpenRouter HTTP client (operator 2026-11-07, REMOVE-UNNEEDED-1107); it is not a fleet route.
       Gemini uses AGY, never OpenRouter.
       Kimi is retired and is not a seat.
 
@@ -1131,7 +1131,8 @@ models:
     weaknesses: [not_sole_factual_or_critical_reviewer]
     sources:
       - https://ai.google.dev/gemma/docs/core
-    retirement_reason: "Operator decision 2026-10-23: not subscribed; never route or select."
+    retirement_reason: >-
+      Not a fleet route. Hramatka uses Gemma directly through its own AIS/OpenRouter HTTP client (operator keep-list 2026-11-07: keep Gemma for hramatka); never remove its code, config or docs.
   gpt-oss-120b:
     family: openai
     tier: specialist
