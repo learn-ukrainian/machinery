@@ -672,7 +672,7 @@ HOOK_BOOTSTRAP_ENTRIES = {
 }
 
 
-@pytest.mark.parametrize("anchor", ["configured", "unset"])
+@pytest.mark.parametrize("anchor", ["configured", "unset", "missing-interpreter"])
 @pytest.mark.parametrize("entry", sorted(HOOK_BOOTSTRAP_ENTRIES))
 def test_hook_bootstrap_takes_the_interpreter_only_from_the_configured_primary(release, product, tmp_path, entry, anchor):
     """Defect class: a checkout whose own Git metadata claims to be a primary supplied the hook
@@ -694,8 +694,10 @@ def test_hook_bootstrap_takes_the_interpreter_only_from_the_configured_primary(r
     env = {"PATH": os.environ["PATH"], "HOME": str(tmp_path), "TMPDIR": str(tmp_path),
            "LU_PRODUCT_ROOT": str(worktree), "LU_DRIVER_STATE_FILE": str(tmp_path / "driver-state"),
            "SESSION_HANDOFF_AGENT": "worker"}
-    if anchor == "configured":
+    if anchor != "unset":
         env["LEARN_UKRAINIAN_PRIMARY_REPO_ROOT"] = str(product)
+    if anchor == "missing-interpreter":
+        env["LEARN_UKRAINIAN_PYTHON"] = str(tmp_path / "absent-python")
     if entry == "native-hook":
         argv = shlex.split(native_hook_command("codex-pre-tool-use"))
     elif entry == "git-hook-lib":
@@ -723,6 +725,8 @@ def test_hook_bootstrap_takes_the_interpreter_only_from_the_configured_primary(r
         assert refused, (result.returncode, result.stdout, result.stderr)
         if entry == "git-hook-lib":
             assert "Git hook error: hook context unavailable" in result.stderr
+            step = "interpreter" if anchor == "missing-interpreter" else "state"
+            assert f"Hook bootstrap error: step={step}" in result.stderr
 
 
 def test_hook_shell_ordinary_session_falls_back_without_temporary_files(release, product, tmp_path):

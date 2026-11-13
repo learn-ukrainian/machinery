@@ -5,7 +5,13 @@ import sys
 from pathlib import Path
 
 from lu_machinery.agent_runtime.read_only_tmp import dispatch_lease
-from lu_machinery.common.repo_root import INTERPRETER_ENV, PRIMARY_ROOT_ENV, PRODUCT_ROOT_ENV, project_interpreter
+from lu_machinery.common.repo_root import (
+    INTERPRETER_ENV,
+    PRIMARY_ROOT_ENV,
+    PRODUCT_ROOT_ENV,
+    STATE_ROOT_ENV,
+    project_interpreter,
+)
 from lu_machinery.common.task_store_paths import tasks_dir
 from lu_machinery.dispatcher import store
 from lu_machinery.dispatcher.types import TaskSpec
@@ -127,13 +133,14 @@ def child_env(spec: TaskSpec) -> dict[str, str]:
     # refuse without it (#100), so a configured anchor reaches every child, whatever its mode.
     if os.environ.get(PRIMARY_ROOT_ENV, ""):
         env[PRIMARY_ROOT_ENV] = os.environ[PRIMARY_ROOT_ENV]
-    # Read-only AGY, Claude and Muse run a launcher as the child. It calls project_interpreter(), which
-    # honours a configured interpreter only when LEARN_UKRAINIAN_PYTHON is present, and it reads the
-    # Sources server from the product checkout named by LU_PRODUCT_ROOT when this checkout has none.
-    # Both values are already configured. The bubblewrap environment is built separately and does
-    # not receive them. Muse runs only read-only; its write mode is refused before launch.
-    if spec.mode == "read-only" and spec.agent in {"agy", "claude", "muse"}:
-        for name in (INTERPRETER_ENV, PRODUCT_ROOT_ENV):
+    # Write providers need these paths for Git hooks. write_boundary.launcher does not mark names
+    # already present here as host-only, so contained providers retain them too. No credential is added.
+    # Read-only AGY, Claude and Muse launchers also need the configured interpreter and product.
+    if spec.mode == "workspace-write" or (spec.mode == "read-only" and spec.agent in {"agy", "claude", "muse"}):
+        names = (INTERPRETER_ENV, PRODUCT_ROOT_ENV)
+        if spec.mode == "workspace-write":
+            names += (STATE_ROOT_ENV,)
+        for name in names:
             configured = os.environ.get(name, "")
             if configured:
                 env[name] = configured

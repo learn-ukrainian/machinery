@@ -96,8 +96,10 @@ current-branch discovery call and prevents the guard from checking one PR while
 lookups run concurrently; `--auto` branch-protection verification follows only
 after those results identify the exact base.
 
-The entry point resolves the exact tool worktree from structured hook input and
-the canonical checkout from Git's common directory. Python policies use one
+The entry point resolves the exact tool worktree from structured hook input.
+Hook bootstrap requires an explicitly configured
+`LEARN_UKRAINIAN_PRIMARY_REPO_ROOT`; Git metadata cannot select the execution
+anchor. Python policies use one
 interpreter: `LEARN_UKRAINIAN_PYTHON` when that variable is an absolute path to
 an executable file, with no fallback when it is set but invalid; otherwise the
 canonical checkout's `.venv/bin/python`. A linked worktree does not need its
@@ -105,6 +107,13 @@ own `.venv`. Bare `python`/`python3` calls are rejected with one
 shell-quoted, copyable command using that absolute project interpreter. If the
 project interpreter is genuinely absent, the policy blocks instead of falling back to a
 system interpreter.
+
+Dispatched write providers receive the configured primary, product
+(`LU_PRODUCT_ROOT`), interpreter, and optional state-root paths. These paths
+also remain in the contained provider environment, so Git hooks need no manual
+export. Credentials remain subject to the provider-specific allowlist.
+`project_hook_context_resolve` refuses with `Hook bootstrap error: step=state`,
+`step=root`, or `step=interpreter` on stderr when that bootstrap step fails.
 
 `UserPromptSubmit` invokes the inbox hook with recipient `codex`; the shared
 script retains `claude` as its default for Claude settings. A Codex session now
