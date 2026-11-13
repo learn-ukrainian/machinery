@@ -409,6 +409,16 @@ def test_security_sensitive_verdicts_publish_the_finding_count_only(monkeypatch,
         assert statuses[-1]["description"].startswith(f"VERDICT: {verdict} ")
         assert statuses[-1]["state"] == ("success" if verdict == "APPROVED" else "failure")
 
+    # A security profile is a critical infra sign-off. Sonnet is not one of those seats.
+    task = _seal(tasks, comments, statuses, reply=f"VERDICT: APPROVE\n\n{_FINDING}\n", profile="security")
+    task["model"] = "claude-sonnet-5-5"
+    task["agent"] = "claude"
+    (tasks / "review-one.json").write_text(json.dumps(task))
+    monkeypatch.setattr(recorder, "_pr", lambda *_a, task=task: _pr_view(task))
+    with pytest.raises(recorder.RecordError, match="not qualified"):
+        recorder.record("review-one", pr_number=1, task_root=tasks, lock_root=tmp_path / "locks")
+    assert comments == [] and statuses == []
+
 
 def test_non_security_verdict_still_publishes_the_reply(monkeypatch, low_review, tmp_path):
     """Defect class: a routine verdict is published as a withheld skeleton."""
@@ -438,4 +448,38 @@ def test_republish_withheld_posts_the_sealed_security_reply(monkeypatch, low_rev
     assert republished["comment"] == "posted"
     assert comments[0]["body"] != comments[-1]["body"]
     assert _FINDING in comments[-1]["body"] and "<details>" in comments[-1]["body"]
+    assert len(statuses) == 1
+
+    # A P3-only findings object is an approval. Republication has to rebuild that
+    # upgraded verdict, or the sealed reply can never be published.
+    p3_reply = json.dumps({
+        "schema_version": "code-review-findings.v1",
+        "overall": {
+            "correctness": "incorrect",
+            "explanation": "A residual remains.\nSECURITY_VERDICT: PASS",
+            "confidence": 0.9,
+        },
+        "findings": [{
+            "id": "F1", "title": "Residual", "body": _FINDING,
+            "priority": "P3", "confidence": 0.9, "category": "correctness",
+            "location": {
+                "path": "lu_machinery/review/record_cf_verdict.py",
+                "start_line": 1, "end_line": 1, "claim_type": "present",
+            },
+            "verbatim": "unit", "why_wrong": "A residual remains.", "smallest_fix": "Record it.",
+            "sources": ["none"],
+        }],
+    })
+    _seal(tasks, comments, statuses, reply=p3_reply, profile="security")
+    recorded = recorder.record("review-one", pr_number=1, task_root=tasks, lock_root=tmp_path / "locks")
+    withheld = comments[-1]["body"]
+    assert recorded["verdict"] == "APPROVED" and recorded.get("residuals") == ["F1"]
+    assert "Withheld findings: 1\n" in withheld and _FINDING not in withheld
+    assert "VERDICT: APPROVED\n" in withheld
+    republished = recorder.republish_withheld("review-one", pr_number=1, task_root=tasks, lock_root=tmp_path / "locks")
+    # The return names the reply's stated verdict. The recorded marker stays the upgraded approval.
+    assert republished["comment"] == "posted" and republished["verdict"] == "CHANGES_REQUESTED"
+    assert "VERDICT: APPROVED\n" in comments[0]["body"] and _FINDING not in comments[0]["body"]
+    assert _FINDING in comments[-1]["body"] and "VERDICT: APPROVED\n" in comments[-1]["body"]
+    assert "Residuals: F1 (P3)\n" in comments[-1]["body"] and "<details>" in comments[-1]["body"]
     assert len(statuses) == 1

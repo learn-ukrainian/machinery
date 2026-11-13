@@ -1674,9 +1674,14 @@ def _require_qualified_reviewer(
     path inference only raises it.
     """
     profile = str(task.get("review_profile") or "code").strip().casefold()
-    # ``security`` is not a catalog profile. It only marks the public comment
-    # for withholding; the seat check stays the code profile the marker records.
-    seat_profile = "code" if profile == "security" else profile
+    risk = str(task.get("review_risk") or "medium")
+    # ``security`` is not a catalog profile. Qualifying it as critical infra
+    # keeps the sign-off seats and refuses every other seat. The marker still
+    # records code, and the findings stay withheld.
+    if profile == "security":
+        seat_profile, risk = "infra", "critical"
+    else:
+        seat_profile = profile
     # Seat aliases (``grok-build``) name the canonical route the catalog lists.
     agent = normalize_seat(str(task.get("agent") or "")) or ""
     # Lane flags and task-family aliases classify a review as Ukrainian even
@@ -1696,7 +1701,7 @@ def _require_qualified_reviewer(
     if not candidates:
         raise RecordError(f"reviewer not qualified: {agent}/{model} is not a catalog review candidate")
     inputs = facts.resolver_inputs(
-        risk=str(task.get("review_risk") or "medium"),
+        risk=risk,
         review_profile=seat_profile,
         author_model=task.get("review_author_model") or "" if review_mode == "red_team" else "",
         # The reviewer ran as the account its own task record names (#10630); no quota decides a finished review.
@@ -3670,11 +3675,19 @@ def republish_withheld(
         """The withheld and full comments the recorder publishes for this task as a second review or not."""
         mixed_pair = review_mode == "cross_family" and not review.ukrainian and not second and facts.mixed_family
         scope = facts.reviewer_scope(review.family) if mixed_pair else facts
+        # Same verdict and coverage record() posts, including a P3 residual upgrade.
+        stated = review.verdict
+        chunk = _item_chunk(
+            task, reply, stated, source_claims_validated=review.ukrainian and stated == "APPROVED",
+        )
+        p3 = p3_reading(reply) if stated == "CHANGES_REQUESTED" else P3Reading()
+        residuals = p3.ids
+        verdict = "APPROVED" if residuals else stated
         comment_fields = dict(
             sha=review.sha,
             task_id=task_id,
             started=review.started,
-            verdict=review.verdict,
+            verdict=verdict,
             model=review.model,
             family=review.family,
             reply=reply,
@@ -3685,11 +3698,15 @@ def republish_withheld(
             app_bot=bool(facts.app_bot_commits),
             score=review_score(reply),
             author_models=facts.author_models,
+            denominator=None if chunk is None else chunk.denominator,
+            coverage=None if chunk is None else chunk.coverage,
+            void=None if chunk is None else chunk.void,
+            residuals=residuals,
             scope_commits=tuple(commit.sha for commit in scope.commits) if mixed_pair else None,
             second_review=second,
         )
-        withheld = build_comment(**{**comment_fields, "reply": ""}, withheld_findings=review.finding_count)
         comment = build_comment(**comment_fields)
+        withheld = _withheld_comment(comment_fields, review.finding_count)
         check_texts(normalize_repository(review.repository), [comment], environment={})
         return withheld, comment
 
