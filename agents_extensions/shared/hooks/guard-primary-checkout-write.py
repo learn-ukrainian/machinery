@@ -2902,6 +2902,24 @@ def _reaches_primary(path: Path, root: Path) -> bool:
     return relative.parts[:2] != (".worktrees", "dispatch")
 
 
+def _program_names(word: str, bases: tuple[str | None, ...], which: Callable[[str], str | None]) -> set[str]:
+    """The real names of the executables ``word`` can run as: by path from each
+    known directory, or by ``PATH`` lookup for a bare name. Symlinks are followed."""
+    if "/" in word:
+        paths = [_resolve(word, base, expand_user=False) for base in bases if base is not None]
+    else:
+        found = which(word) if word else None
+        paths = [Path(found)] if found else []
+    names = set()
+    for path in paths:
+        try:
+            if path.is_file() and os.access(path, os.X_OK):
+                names.add(path.resolve().name)
+        except (OSError, RuntimeError, ValueError):
+            continue  # A path the guard cannot stat cannot be run as a program either.
+    return names
+
+
 def _launched_word_reaches(segments: list[tuple[list[str], str | None, str | None]], main_root: Path) -> bool:
     """Whether a command that launches commands could carry an undecided word into the checkout.
 
@@ -2922,26 +2940,25 @@ def _launched_word_reaches(segments: list[tuple[list[str], str | None, str | Non
     import shutil
 
     words = [word for segment, _, _ in segments for word in segment]
+    extglob = any(_extglob_segment(segment) for segment, _, _ in segments)
+    if not (extglob or any(_undecided_word(word) for word in words)):
+        return False
     launcher = code = False
     for segment, run_cwd, shell_cwd in segments:
         seg_launcher, seg_code = _launches(segment)
         launcher, code = launcher or seg_launcher, code or seg_code
-        # A launcher reached by another name through a path is still that launcher.
+        # A program is what its word resolves to, by path or on PATH. A launcher
+        # under another name hides the options and replacement strings that make
+        # it run code, so it counts as a code launcher.
         for word in segment:
-            if "/" not in word or _undecided_word(word):
+            if _undecided_word(word):
                 continue
-            for base in {run_cwd, shell_cwd} - {None}:
-                path = _resolve(word, base, expand_user=False)
-                try:
-                    program = path.resolve().name if path.is_file() and os.access(path, os.X_OK) else ""
-                except (OSError, RuntimeError, ValueError):
-                    program = ""  # A path the guard cannot stat cannot be run as a program either.
-                if program in _CODE_LAUNCHERS:
-                    launcher = code = True
-                elif program in _LAUNCHERS:
+            for program in _program_names(word, (run_cwd, shell_cwd), shutil.which):
+                if program in _LAUNCHERS or _SHELL_NAME_RE.fullmatch(program):
                     launcher = True
-    extglob = any(_extglob_segment(segment) for segment, _, _ in segments)
-    if not launcher or not (extglob or any(_undecided_word(word) for word in words)):
+                    if program != Path(word).name or program in _CODE_LAUNCHERS or _SHELL_NAME_RE.fullmatch(program):
+                        code = True
+    if not launcher:
         return False
     if (
         code
