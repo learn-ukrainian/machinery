@@ -330,6 +330,80 @@ def test_rescue_ref_settles_failed_and_the_ref_stays(tasks_dir, repo):
     assert json.loads((tasks_dir / "live-branch.json").read_text())["status"] == "needs_finalize"
 
 
+def test_base_sha_is_not_tied_to_a_parent_pull_request(tasks_dir, repo):
+    """Defect class: a stacked task whose final head is its base is settled done via the parent's pull request."""
+    parent = _orphan_commit(repo, "parent")
+    _record(
+        tasks_dir,
+        "stacked",
+        commits_ahead=1,
+        final_branch_head_commit=parent,
+        worktree_base_sha=parent,
+        worktree_branch="codex/stacked",
+    )
+    report = _settle(
+        tasks_dir,
+        repo,
+        [_merged("codex/parent", 41, OLD_FINISH + timedelta(hours=1), head_sha=parent)],
+        apply=True,
+    )
+    row = _by_file(report)["stacked.json"]
+    assert row["class"] == "D"
+    assert "outcome" not in row
+    assert json.loads((tasks_dir / "stacked.json").read_text())["status"] == "needs_finalize"
+
+
+def test_rescue_ref_with_a_merged_pull_request_is_done(tasks_dir, repo):
+    """Defect class: squash-merged work pinned by the reaper is settled failed as unpushed."""
+    sha = _orphan_commit(repo, "landed")
+    _git(repo, "update-ref", f"refs/reaper-rescue/stamp/landed-{sha[:12]}", sha)
+    _record(tasks_dir, "landed", commits_ahead=1, worktree_dirty_on_exit=True, auto_finalize=_auto_finalized(sha))
+    report = _settle(
+        tasks_dir,
+        repo,
+        [_merged("codex/landed", 9, OLD_FINISH + timedelta(hours=1), head_sha=sha)],
+        apply=True,
+    )
+    row = _by_file(report)["landed.json"]
+    assert row["outcome"] == "done"
+    assert row["action"] == "settled"
+    assert json.loads((tasks_dir / "landed.json").read_text())["status"] == "done"
+    assert _git(repo, "rev-parse", f"refs/reaper-rescue/stamp/landed-{sha[:12]}") == sha
+
+
+def test_rescue_ref_is_not_written_when_the_pull_list_fails(tasks_dir, repo):
+    """Defect class: a rescue pin is settled when the pull list that could show it landed is missing."""
+    sha = _orphan_commit(repo, "unlisted")
+    _git(repo, "update-ref", f"refs/reaper-rescue/stamp/unlisted-{sha[:12]}", sha)
+    _record(tasks_dir, "unlisted", commits_ahead=1, worktree_dirty_on_exit=True, auto_finalize=_auto_finalized(sha))
+
+    def broken(_slug, _page):
+        raise RuntimeError("gh api failed: HTTP 502")
+
+    report = str_mod.settle_stale(tasks_dir, repo_checkouts={SLUG: repo}, pager=broken, now=NOW, apply=True)
+    row = _by_file(report)["unlisted.json"]
+    assert row["class"] == "C"
+    assert "outcome" not in row
+    assert "pull request list unavailable" in row["skip_reason"]
+    assert json.loads((tasks_dir / "unlisted.json").read_text())["status"] == "needs_finalize"
+    assert _git(repo, "rev-parse", f"refs/reaper-rescue/stamp/unlisted-{sha[:12]}") == sha
+
+
+def test_detached_worktree_head_with_a_rescue_ref_stays_class_b(tasks_dir, repo):
+    """Defect class: a detached checkout that still holds a rescued commit is settled."""
+    sha = _orphan_commit(repo, "detached")
+    _git(repo, "update-ref", f"refs/reaper-rescue/stamp/detached-{sha[:12]}", sha)
+    worktree = repo.parent / "detached-wt"
+    _git(repo, "worktree", "add", "--detach", str(worktree), sha)
+    _record(tasks_dir, "detached", commits_ahead=1, worktree_dirty_on_exit=True, auto_finalize=_auto_finalized(sha))
+    report = _settle(tasks_dir, repo, [], apply=True)
+    row = _by_file(report)["detached.json"]
+    assert row["class"] == "B"
+    assert row["action"] == "report"
+    assert json.loads((tasks_dir / "detached.json").read_text())["status"] == "needs_finalize"
+    assert _git(repo, "rev-parse", f"refs/reaper-rescue/stamp/detached-{sha[:12]}") == sha
+
+
 def test_record_changed_since_classification_is_skipped(tasks_dir, mixed):
     """Defect class: settlement overwrites a record a live writer changed after classification."""
     target = tasks_dir / "crashed.json"

@@ -6,14 +6,16 @@ was retired in #11713 before this backlog was settled, so class C stayed open.
 ``settle-stale`` classifies again and, with ``--apply``, writes only class C.
 
 Class A (branch or commit still on another origin branch) and class B (a local
-branch, a dirty worktree, or any ref other than ``refs/reaper-rescue/`` still
-holds the commit) are reported and never rewritten. A commit held only by
-``refs/reaper-rescue/`` is class C: the run is over and the ref is left in
-place. Class C then settles ``done`` when a merged pull request is tied to the
-recorded commit or that commit is on the default branch, ``no_deliverable``
-for a clean zero-commit exit, and ``failed`` otherwise. A completion gate
-beyond delivery settles ``failed`` and is never ``done``. Class D is anything
-the evidence cannot prove, and it is never written.
+branch, a dirty worktree, a worktree HEAD, or any ref other than
+``refs/reaper-rescue/`` still holds the commit) are reported and never rewritten.
+The task's base SHA is where it started, not work it delivered. A commit held
+only by ``refs/reaper-rescue/`` is class C: the run is over and the ref is left
+in place. Class C then settles ``done`` when a merged pull request is tied to
+the recorded commit or that commit is on the default branch, ``no_deliverable``
+for a clean zero-commit exit, and ``failed`` otherwise. A rescue pin is checked
+against that pull list; a list failure skips the write. A completion gate
+beyond delivery is already on the record, settles ``failed``, and does not wait
+for the list. Class D is anything the evidence cannot prove, and it is never written.
 
 ``archive`` moves terminal records (statuses that no longer claim a worktree,
 :data:`worktree_claims.RELEASED_TASK_STATUSES`) older than ``--min-age-days``
@@ -307,6 +309,10 @@ class RepoFacts:
     # Set when the fetch failed: refs from an older scan may be stale, so no
     # record of this repository may be classified from them.
     fetch_error: str | None = None
+    # Filled once. None means not loaded. An error means a rescue pin cannot
+    # prove that no live checkout still holds the commit.
+    worktree_heads: set[str] | None = None
+    worktree_heads_error: str | None = None
 
 
 def default_repo_checkouts() -> dict[str, Path]:
@@ -421,17 +427,22 @@ def recorded_work_commits(record: Mapping[str, Any]) -> list[str]:
     auto_finalize = record.get("auto_finalize")
     old_head = auto_finalize.get("commit_sha") if isinstance(auto_finalize, dict) else None
     final_head = record.get("final_branch_head_commit")
-    base_sha = record.get("worktree_base_sha")
+    base_raw = record.get("worktree_base_sha")
+    base_sha = base_raw.strip().lower() if isinstance(base_raw, str) else ""
     ahead = record.get("commits_ahead")
-    final_is_work = (type(ahead) is int and ahead != 0) or (
+    # A nonzero commits_ahead counted against main does not make the base SHA
+    # into this task's work: a stacked task's final head is the parent commit.
+    final_is_work = (
         isinstance(final_head, str)
-        and isinstance(base_sha, str)
-        and _SHA_RE.fullmatch(base_sha.strip().lower())
-        and final_head.strip().lower() != base_sha.strip().lower()
+        and _SHA_RE.fullmatch(final_head.strip().lower())
+        and final_head.strip().lower() != base_sha
+        and ((type(ahead) is int and ahead != 0) or bool(base_sha and _SHA_RE.fullmatch(base_sha)))
     )
     for raw in (final_head if final_is_work else None, old_head):
         if isinstance(raw, str) and _SHA_RE.fullmatch(raw.strip().lower()):
-            return [raw.strip().lower()]
+            sha = raw.strip().lower()
+            if sha != base_sha:
+                return [sha]
     return []
 
 
@@ -479,6 +490,28 @@ def collect_commit_facts(checkout: Path, shas: Iterable[str]) -> CommitFacts:
         return facts
     facts.reachable = set(walk.stdout.split())
     return facts
+
+
+def _load_worktree_heads(facts: RepoFacts) -> tuple[set[str], str | None]:
+    """HEAD of every linked worktree, including a detached one ``for-each-ref`` misses."""
+    if facts.worktree_heads is not None or facts.worktree_heads_error is not None:
+        return facts.worktree_heads or set(), facts.worktree_heads_error
+    if facts.checkout is None:
+        facts.worktree_heads = set()
+        return facts.worktree_heads, None
+    proc = _git(["worktree", "list", "--porcelain"], cwd=facts.checkout, timeout=DEFAULT_GIT_TIMEOUT_S)
+    if proc is None or proc.returncode != 0:
+        detail = "no output" if proc is None else (proc.stderr or proc.stdout or "").strip()
+        facts.worktree_heads_error = _scrub(detail)[:200] or "git worktree list failed"
+        return set(), facts.worktree_heads_error
+    heads: set[str] = set()
+    for line in proc.stdout.splitlines():
+        if line.startswith("HEAD "):
+            sha = line[5:].strip().lower()
+            if _SHA_RE.fullmatch(sha):
+                heads.add(sha)
+    facts.worktree_heads = heads
+    return heads, None
 
 
 def _refs_containing(checkout: Path, sha: str) -> list[str]:
@@ -810,17 +843,26 @@ def _apply_commit_facts(candidate: Candidate, commits: CommitFacts, facts: RepoF
         candidate.klass = "A"
         candidate.skip_reason = "recorded commit still on origin under " + ", ".join(published or other_refs)
     elif held and rescue_refs:
-        # The reaper already pinned the commit and no other ref has it. The ref stays.
-        evidence["recovery_refs"] = rescue_refs
-        base_sha = str(candidate.record.get("worktree_base_sha") or "").strip().lower()
-        default_ref = f"{scan_prefix}/{base}" if scan_prefix else ""
-        evidence["landed_on_default_branch"] = bool(
-            facts.checkout is not None
-            and default_ref
-            and all(sha != base_sha for sha in full)
-            and any(_is_ancestor(facts.checkout, sha, default_ref) for sha in full)
-        )
-        candidate.klass = "C"
+        # The reaper already pinned the commit and no other ref has it. A live
+        # checkout can still hold it on a detached HEAD, which for-each-ref misses.
+        heads, head_error = _load_worktree_heads(facts)
+        if head_error:
+            candidate.klass = "D"
+            candidate.skip_reason = f"worktree list unavailable: {head_error}"
+        elif any(sha in heads for sha in full):
+            candidate.klass = "B"
+            candidate.skip_reason = "possible unpushed work: a worktree HEAD still holds the recorded commit"
+        else:
+            evidence["recovery_refs"] = rescue_refs
+            base_sha = str(candidate.record.get("worktree_base_sha") or "").strip().lower()
+            default_ref = f"{scan_prefix}/{base}" if scan_prefix else ""
+            evidence["landed_on_default_branch"] = bool(
+                facts.checkout is not None
+                and default_ref
+                and all(sha != base_sha for sha in full)
+                and any(_is_ancestor(facts.checkout, sha, default_ref) for sha in full)
+            )
+            candidate.klass = "C"
     elif held or published:
         candidate.klass = "A"
         candidate.skip_reason = "recorded commit still on origin under " + ", ".join(published or refs)
@@ -976,15 +1018,17 @@ def _decide_outcome(candidate: Candidate, index: PullIndex | None, checkout: Pat
         return
     branch = candidate.evidence.get("branch")
     same_branch = [pull for pull in index.merged_by_branch.get(branch or "", []) if _merged_since(pull, start)]
-    tied = [pull for sha in candidate.work_commits for pull in index.merged_by_sha.get(sha, [])]
+    record = candidate.record
+    base_sha = str(record.get("worktree_base_sha") or "").strip().lower()
+    work = [sha for sha in candidate.work_commits if sha != base_sha]
+    tied = [pull for sha in work for pull in index.merged_by_sha.get(sha, [])]
     if not tied and checkout is not None:
         tied = [
             pull
             for pull in same_branch
             if isinstance(pull.get("head_sha"), str)
-            and any(_is_ancestor(checkout, sha, pull["head_sha"]) for sha in candidate.work_commits)
+            and any(_is_ancestor(checkout, sha, pull["head_sha"]) for sha in work)
         ]
-    record = candidate.record
     if tied:
         pull = max(tied, key=lambda item: str(item.get("merged_at") or ""))
         candidate.merged_pr = pull
@@ -1011,6 +1055,8 @@ def _decide_outcome(candidate: Candidate, index: PullIndex | None, checkout: Pat
             if candidate.work_commits
             else "the record names no commit that ties it to this task"
         )
+    elif candidate.evidence.get("recovery_refs"):
+        _decide_preserved(candidate)
     elif not candidate.work_commits and _is_zero(record.get("commits_ahead")) and record.get("returncode") == 0:
         candidate.outcome = NO_DELIVERABLE
         candidate.settle_reason = "orphaned: clean exit with no commits; worktree and branch gone"
@@ -1056,9 +1102,6 @@ def classify(
     orphaned_by_slug: dict[str, list[Candidate]] = defaultdict(list)
     for candidate in candidates:
         if candidate.klass != "C" or _refuse_gated(candidate):
-            continue
-        if candidate.evidence.get("recovery_refs"):
-            _decide_preserved(candidate)
             continue
         orphaned_by_slug[str(candidate.record.get("repository"))].append(candidate)
     indexes: dict[str, PullIndex] = {}
