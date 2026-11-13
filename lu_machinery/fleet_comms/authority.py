@@ -2313,12 +2313,14 @@ class AuthorityService:
         """Expire or requeue abandoned deliveries; a stored Kimi delivery (legacy) is left as it is.
 
         ``cleanup_ids`` is given only by the operator's stale-delivery cleanup.
-        Its rows dead-letter as ``CLEANUP_EXPIRY_REASON``; any other row past a
-        real deadline stays ``deadline_expired``. A cleanup batch sends one
-        summary per reason instead of per-row notices.
+        Its rows dead-letter as ``CLEANUP_EXPIRY_REASON`` and share one summary
+        notice. Any other row past a real deadline stays ``deadline_expired``
+        with its per-row notice; inside a cleanup batch a stored session-CTO
+        recipient is notified through the durable CTO, so its refusal cannot
+        roll back the batch.
         """
         reclaimed = 0
-        summarized: dict[str, list[str]] = {}
+        cleanup_expired: list[str] = []
         expired = self._conn.execute(
             """SELECT delivery_id, fence_token, recipient, message_id FROM authority_deliveries
                WHERE state IN ('queued', 'running') AND deadline_at IS NOT NULL
@@ -2341,17 +2343,19 @@ class AuthorityService:
                    WHERE delivery_id = ? AND fence_token = ? AND finished_at IS NULL""",
                 (now, delivery_id, int(row["fence_token"])),
             )
-            reason = (
-                CLEANUP_EXPIRY_REASON
-                if cleanup_ids is not None and delivery_id in cleanup_ids
-                else "deadline_expired"
-            )
-            self._dead_letter_delivery_tx(delivery_id, reason_code=reason, notify=cleanup_ids is None)
-            if cleanup_ids is not None:
-                summarized.setdefault(reason, []).append(delivery_id)
+            if cleanup_ids is None:
+                self._dead_letter_delivery_tx(delivery_id, reason_code="deadline_expired")
+            elif delivery_id in cleanup_ids:
+                self._dead_letter_delivery_tx(delivery_id, reason_code=CLEANUP_EXPIRY_REASON, notify=False)
+                cleanup_expired.append(delivery_id)
+            else:
+                self._dead_letter_delivery_tx(delivery_id, reason_code="deadline_expired", notify=False)
+                self._notify_coordinator_reply_failure_tx(
+                    delivery_id, reason_code="deadline_expired", session_via_durable_cto=True,
+                )
             reclaimed += 1
-        for reason, delivery_ids in sorted(summarized.items()):
-            self._notify_expiry_summary_tx(delivery_ids, reason_code=reason)
+        if cleanup_expired:
+            self._notify_cleanup_expiry_summary_tx(cleanup_expired)
         stale = self._conn.execute(
             """SELECT delivery_id, fence_token, attempt_count, recipient, message_id FROM authority_deliveries
                WHERE state = 'running' AND lease_expires_at IS NOT NULL
@@ -2474,8 +2478,8 @@ class AuthorityService:
         if notify:
             self._notify_coordinator_reply_failure_tx(delivery_id, reason_code=reason_code)
 
-    def _notify_expiry_summary_tx(self, delivery_ids: list[str], *, reason_code: str) -> bool:
-        """One delivery-error for a batch of expiries with one reason, addressed only to the durable CTO.
+    def _notify_cleanup_expiry_summary_tx(self, delivery_ids: list[str]) -> bool:
+        """One delivery-error for a batch of cleanup expiries, addressed only to the durable CTO.
 
         Per-row notices would flood the coordinator and a legacy session recipient
         would abort the whole batch. Rows whose sender is not the coordinator are
@@ -2502,7 +2506,7 @@ class AuthorityService:
             sender="fleet-comms", channel=None, kind="delivery-error",
             body=_canonical_json({
                 "error": "coordinator_reply_delivery_failed",
-                "reason_code": reason_code,
+                "reason_code": CLEANUP_EXPIRY_REASON,
                 "expired_count": len(ids),
             }),
             targets=_admit_recipients((DURABLE_CTO_RECIPIENT,), mode=BRIDGE_MODE),
@@ -2510,7 +2514,15 @@ class AuthorityService:
         )
         return True
 
-    def _notify_coordinator_reply_failure_tx(self, delivery_id: str, *, reason_code: str) -> bool:
+    def _notify_coordinator_reply_failure_tx(
+        self, delivery_id: str, *, reason_code: str, session_via_durable_cto: bool = False,
+    ) -> bool:
+        """Notify both parties of a failed coordinator reply.
+
+        With ``session_via_durable_cto`` a stored session-specific CTO recipient,
+        which admission refuses as a new target, is notified only through the
+        durable CTO, as ``_durable_subscriber`` maps stored subscribers.
+        """
         row = self._conn.execute(
             """SELECT d.message_id, d.recipient, m.sender
                FROM authority_deliveries d JOIN comms_messages m USING (message_id)
@@ -2535,7 +2547,12 @@ class AuthorityService:
                 "message_id": str(row["message_id"]),
                 "recipient": str(row["recipient"]),
             }),
-            targets=_admit_recipients((str(row["recipient"]), DURABLE_CTO_RECIPIENT), mode=BRIDGE_MODE),
+            targets=_admit_recipients(
+                (DURABLE_CTO_RECIPIENT,)
+                if session_via_durable_cto and is_session_cto_recipient(row["recipient"])
+                else (str(row["recipient"]), DURABLE_CTO_RECIPIENT),
+                mode=BRIDGE_MODE,
+            ),
             in_reply_to=str(row["message_id"]),
             idempotency_key=key,
         )
