@@ -145,6 +145,7 @@ def test_broker_refuses_forged_or_replayed_requests(primary, monkeypatch, tmp_pa
     tip = _git(worktree, "rev-parse", "HEAD")
     monkeypatch.setattr(write_boundary._Broker, "_pull_request",
                         lambda self, payload, state: (payload["pr"], "owner/repo", {"headRefOid": tip}))
+    monkeypatch.setattr(write_boundary._Broker, "_repo_key", lambda self, slug: "fixture")
     host_steps = []
     monkeypatch.setattr(write_boundary._Broker, "_module", lambda self, module, argv, key, stdin=None: host_steps.append(
         (module, argv)) or {"returncode": 0, "stdout": "", "stderr": ""})
@@ -164,3 +165,4 @@ def test_broker_refuses_forged_or_replayed_requests(primary, monkeypatch, tmp_pa
     assert argv[argv.index("--review-author-model") + 1] == "claude-opus-5-5"
     assert argv[argv.index("--mode") + 1] == "read-only" and argv[argv.index("--pinned-head") + 1] == tip
     assert argv[argv.index("--task-id") + 1] == "wb-test-review-r1" and argv[argv.index("--branch") + 1] == "task"
+    assert argv[argv.index("--repo") + 1] == "fixture"

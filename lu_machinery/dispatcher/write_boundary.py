@@ -434,6 +434,19 @@ class _Broker:
             raise _BrokerRefusal(f"the PR is not {state}")
         return number, slug, facts
 
+    def _repo_key(self, slug: str) -> str:
+        """The fleet repository key whose checkout is this primary and whose GitHub name is ``slug``."""
+        import yaml
+
+        from lu_machinery.dispatcher import git as dispatch_git
+
+        for key in yaml.safe_load(machinery_path("config/fleet_repos.yaml").read_text())["repos"]:
+            with contextlib.suppress(Exception):
+                root, item = dispatch_git.resolve_repo(key)
+                if root == self.boundary.repository and str(item.get("github", "")).lower() == slug.lower():
+                    return key
+        raise _BrokerRefusal("the primary is not a registered fleet repository")
+
     def _review_task(self, payload: dict) -> str:
         task = payload.get("task_id")
         prefix = f"{self.boundary.args.task_id}-review-"
@@ -499,15 +512,16 @@ class _Broker:
         pinned = payload.get("pinned_head")
         if not (isinstance(pinned, str) and _OBJECT_ID.fullmatch(pinned)):
             raise _BrokerRefusal("pinned_head must be a full commit id")
-        number, _slug, facts = self._pull_request(payload, "OPEN")
+        number, slug, facts = self._pull_request(payload, "OPEN")
+        repo_key = self._repo_key(slug)
         tip = self.boundary.current_tip()
         if not (pinned == facts.get("headRefOid") == tip):
             raise _BrokerRefusal("pinned_head is not both the PR's live head and this task's branch tip")
         self.boundary.fetch_objects(tip)
         prompt_file = self.boundary.base / f"review-prompt-{uuid.uuid4().hex}.md"
         _write_private(prompt_file, prompt.encode(), 0o400)
-        argv = ["dispatch", "--agent", words["agent"], "--model", words["model"], "--mode", "read-only",
-                "--worktree", "--task-id", task, "--prompt-file", str(prompt_file),
+        argv = ["dispatch", "--repo", repo_key, "--agent", words["agent"], "--model", words["model"],
+                "--mode", "read-only", "--worktree", "--task-id", task, "--prompt-file", str(prompt_file),
                 "--branch", self.boundary.branch.removeprefix("refs/heads/"), "--pinned-head", pinned,
                 "--pr", str(number), "--review-profile", words["review_profile"], "--risk", words["risk"],
                 "--review-author-model", self.boundary.args.author_model, "--review-mode", "cross_family",

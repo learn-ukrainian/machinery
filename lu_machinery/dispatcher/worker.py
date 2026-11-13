@@ -1863,10 +1863,13 @@ def supervise(path: Path, options: dict | None = None, hard_timeout: float | Non
 
 def wait(task_id: str, nonce: str | None = None, timeout: float = 0, poll_interval: float = 1) -> tuple[dict, int]:
     deadline = time.monotonic() + timeout if timeout else None
+    # Inside a write boundary (#423) the task store is read-only and host processes are in another PID namespace,
+    # so a waiter there only reads: settling a crashed supervisor stays with the host's own observers.
+    inside = bool(os.environ.get(write_boundary.BROKER_ENV))
     while True:
-        record = _observe(store.read(task_id, nonce))
+        record = store.read(task_id, nonce) if inside else _observe(store.read(task_id, nonce))
         if record["status"] not in store.ACTIVE:
-            if record.get("schema_version") == 2:
+            if record.get("schema_version") == 2 and not inside:
                 # Crash recovery settles a terminal task under this lock; report it only after that ends.
                 with store.task_state_lock(store.record_path(task_id)):
                     record = store.read(task_id, nonce)
