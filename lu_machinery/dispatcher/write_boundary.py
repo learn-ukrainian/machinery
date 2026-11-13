@@ -51,6 +51,7 @@ import sys
 import time
 import uuid
 from pathlib import Path
+from typing import Any
 
 from lu_machinery.common.repo_root import machinery_path, main_checkout_root
 from lu_machinery.common.scratch import ensure_scratch_root
@@ -229,7 +230,8 @@ class _Boundary:
         self.args, self.receipt = args, receipt
         self.worktree = Path(args.worktree).resolve(strict=True)
         self.base = Path(args.scratch)
-        self.process = self.egress = None
+        self.process: subprocess.Popen[bytes] | None = None
+        self.egress: Any = None
         self.created = False
         self.created_outputs: list[Path] = []
 
@@ -357,7 +359,11 @@ class _Boundary:
         env.update(TMPDIR=str(tmp), LU_SCRATCH_ROOT=str(tmp / "scratch"), XDG_RUNTIME_DIR=str(tmp / "run"),
                    GIT_TERMINAL_PROMPT="0", NODE_USE_ENV_PROXY="1")
         try:
-            self.process = subprocess.Popen(argv, env=env, cwd=self.worktree, pass_fds=(report_write, go_read))
+            # The argv is the fixed bubblewrap binary and launcher-validated paths; env is the dispatcher's
+            # provider environment, passed on deliberately (the provider runs inside with it).
+            process = subprocess.Popen(  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit, python.lang.security.audit.dangerous-subprocess-use-tainted-env-args
+                argv, env=env, cwd=self.worktree, pass_fds=(report_write, go_read))
+            self.process = process
         finally:
             os.close(report_write)
             os.close(go_read)
@@ -376,7 +382,7 @@ class _Boundary:
             os.close(go_write)
             os.close(report_read)
         self.receipt["status"] = "ran"
-        returncode = self.process.wait()
+        returncode = process.wait()
         self.receipt["returncode"] = returncode
         self.receipt["import"] = self._import()
         return returncode
@@ -415,18 +421,19 @@ class _Boundary:
             expect("write_open", path, "OK")
         for port in _LOOPBACK_PORTS:
             expect("connect_tcp", "127.0.0.1", "ECONNREFUSED", "ENETUNREACH", port=port)
-        if (name := agy_sandbox._host_abstract_socket()) is not None:
-            expect("connect_abstract", name, "ECONNREFUSED")
+        if (abstract := agy_sandbox._host_abstract_socket()) is not None:
+            expect("connect_abstract", abstract, "ECONNREFUSED")
         for path in sockets:
             expect("connect_unix", path, "ECONNREFUSED")
         runtime_dir = Path(f"/run/user/{os.getuid()}")
-        for path in (runtime_dir / "bus", os.environ.get("SSH_AUTH_SOCK"), "/run/dbus/system_bus_socket"):
-            if path and os.path.lexists(path):
-                expect("connect_unix", path, "ENOENT")
+        for masked in (runtime_dir / "bus", os.environ.get("SSH_AUTH_SOCK"), "/run/dbus/system_bus_socket"):
+            if masked and os.path.lexists(masked):
+                expect("connect_unix", masked, "ENOENT")
         return probes
 
     def _report(self, descriptor: int) -> list | None:
-        chunks, deadline = [], time.monotonic() + _CANARY_TIMEOUT
+        chunks: list[bytes] = []
+        deadline = time.monotonic() + _CANARY_TIMEOUT
         while (remaining := deadline - time.monotonic()) > 0:
             ready, _, _ = select.select([descriptor], [], [], remaining)
             if not ready:

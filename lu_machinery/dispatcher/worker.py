@@ -1606,17 +1606,17 @@ def supervise(path: Path, options: dict | None = None, hard_timeout: float | Non
                 stdin.seek(0)
                 output_sizes = out.tell(), err.tell()
                 checkpoint()  # the last one before the provider starts: a cancelled run launches nothing
-                argv = invocation.argv
                 if spec.mode == "workspace-write":
                     # Every write worker and its descendants run inside the OS boundary (#423); there is no
                     # unsandboxed fallback. The launcher refuses with its receipt when the boundary cannot start.
+                    # A relaunch always rebuilds the invocation first, so it is wrapped exactly once.
                     try:
-                        argv = write_boundary.launcher(spec, invocation, path)
+                        invocation = replace(invocation, argv=write_boundary.launcher(spec, invocation, path))
                     except ValueError as exc:
                         status, error = "failed", str(exc)
                         return
                 child = subprocess.Popen(
-                    argv,
+                    invocation.argv,
                     stdin=stdin,
                     stdout=out,
                     stderr=err,
