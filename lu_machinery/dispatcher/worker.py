@@ -228,7 +228,9 @@ def _identity(pid: int | None) -> str | None:
         return None
 
 
-def _observe(record: dict) -> dict:
+def _observe(record: dict, *, settle: bool = True) -> dict:
+    if not settle:
+        return record
     if _spawn_expired(record):
         path = store.record_path(record["task_id"])
         with store.task_state_lock(path):
@@ -1867,7 +1869,7 @@ def wait(task_id: str, nonce: str | None = None, timeout: float = 0, poll_interv
     # so a waiter there only reads: settling a crashed supervisor stays with the host's own observers.
     inside = bool(os.environ.get(write_boundary.BROKER_ENV))
     while True:
-        record = store.read(task_id, nonce) if inside else _observe(store.read(task_id, nonce))
+        record = _observe(store.read(task_id, nonce), settle=not inside)
         if record["status"] not in store.ACTIVE:
             if record.get("schema_version") == 2 and not inside:
                 # Crash recovery settles a terminal task under this lock; report it only after that ends.

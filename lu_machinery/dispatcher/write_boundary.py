@@ -324,7 +324,8 @@ class _Broker:
         import socket
         import threading
 
-        self.boundary, self.records = boundary, []
+        self.boundary = boundary
+        self.records: list[dict] = []
         self.seen: set[str] = set()
         self.closeout_pr: int | None = None
         self.child: subprocess.Popen[bytes] | None = None
@@ -372,7 +373,7 @@ class _Broker:
     def _handle(self, connection) -> None:
         connection.settimeout(30)
         verb = request_id = None
-        reply = {"returncode": 2, "stdout": "", "stderr": ""}
+        reply: dict[str, Any] = {"returncode": 2, "stdout": "", "stderr": ""}
         try:
             chunks, size = [], 0
             while size <= _MAX_REQUEST and (chunk := connection.recv(65536)):
@@ -445,7 +446,7 @@ class _Broker:
             with contextlib.suppress(Exception):
                 root, item = dispatch_git.resolve_repo(key)
                 if root == self.boundary.repository and str(item.get("github", "")).lower() == slug.lower():
-                    return key
+                    return str(key)
         raise _BrokerRefusal("the primary is not a registered fleet repository")
 
     def _review_task(self, payload: dict) -> str:
