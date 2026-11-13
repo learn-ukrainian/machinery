@@ -332,7 +332,11 @@ def test_retained_worktree_keeps_the_task_scratch(monkeypatch, tmp_path):
 def test_settlement_removes_only_recreatable_caches_from_the_task_output_directories(sandbox):
     """Defect (C-4946(a)): settled tasks kept venv, node_modules and __pycache__ copies in their .artifacts and
     .evidence directories for good. Settlement and the scheduled sweep remove those caches from a finished
-    task only, keep every other file, and remove a cache-named link without following it."""
+    task only, keep every other file, and remove a cache-named link without following it.
+
+    Defect (PR298-F3): the hourly sweep walked both output trees of every finished task on every run,
+    long after settlement had found them empty. Settlement's empty result ends those walks; only
+    recorded residue is retried."""
     task = sandbox.dispatch("blocked")
     await_file(sandbox.tasks / f"{task[0]}.started")
     artifacts, evidence = sandbox.tasks / f"{task[0]}.artifacts", sandbox.tasks / f"{task[0]}.evidence"
@@ -355,16 +359,29 @@ def test_settlement_removes_only_recreatable_caches_from_the_task_output_directo
 
     (sandbox.tasks / f"{task[0]}.release").touch()
     record = sandbox.settle(task)
-    assert record["status"] == "done" and "task_cache_residue" not in record
+    assert record["status"] == "done" and record["task_cache_residue"] == []
     assert not any(os.path.lexists(cache) for cache in [*caches, evidence / ".cache"])
     assert {path: path.read_text() for path in kept} == kept
     assert (elsewhere / "outside.txt").read_text() == "not the task's"
 
-    # A cache that appears once the task has settled is removed by the scheduled sweep.
+    # The sweep does not walk a task whose settlement found no caches left.
     (artifacts / ".venv/lib").mkdir(parents=True)
     sandbox.sweep()
+    assert (artifacts / ".venv/lib").is_dir()
+    # Recorded residue is retried and, once removed, recorded as gone.
+    _record_residue(sandbox, task, [f"{task[0]}.artifacts/.venv: PermissionError"])
+    sandbox.sweep()
     assert not (artifacts / ".venv").exists()
+    assert json.loads((sandbox.tasks / f"{task[0]}.json").read_text())["task_cache_residue"] == []
     assert {path: path.read_text() for path in kept} == kept
+
+
+def _record_residue(sandbox, task, residue: list[str]) -> None:
+    """Record cache residue on a settled task, as a failed removal would, so the sweep retries it."""
+    path = sandbox.tasks / f"{task[0]}.json"
+    record = json.loads(path.read_text())
+    record["task_cache_residue"] = residue
+    path.write_text(json.dumps(record))
 
 
 def _owner_rwx(path: Path) -> None:
@@ -412,17 +429,18 @@ def test_settlement_removes_a_read_only_cache_subtree(sandbox):
         record = sandbox.settle(task)
         assert record["status"] == "done"
         assert [tree.exists() for tree in trees] == [False, False], record.get("task_cache_residue")
-        assert "task_cache_residue" not in record
+        assert record["task_cache_residue"] == []
         for root_name, cache_name in ((artifacts, ".cache"), (evidence, "pip-cache")):
             sub = root_name / cache_name / "ro" / "sub"
             sub.mkdir(parents=True)
             (sub / "mod").write_text("module")
             (root_name / cache_name / "ro").chmod(0o555)
             sub.chmod(0o555)
+        _record_residue(sandbox, task, [f"{task[0]}.artifacts/.cache: PermissionError"])
         sandbox.sweep()
         disk = json.loads((sandbox.tasks / f"{task[0]}.json").read_text())
         assert [tree.exists() for tree in trees] == [False, False], disk.get("task_cache_residue")
-        assert "task_cache_residue" not in disk
+        assert disk["task_cache_residue"] == []
         assert (artifacts / "run.log").read_text() == "log"
         assert (evidence / "receipt.json").read_text() == "{}"
         assert (sibling / "keep.txt").read_text() == "keep"
@@ -477,15 +495,16 @@ def test_settlement_leaves_an_empty_cache_inside_a_read_only_non_cache_parent(sa
         record = sandbox.settle(task)
         assert record["status"] == "done"
         assert cache.is_dir() and not any(cache.iterdir()), record.get("task_cache_residue")
-        assert "task_cache_residue" not in record
+        assert record["task_cache_residue"] == []
         assert parent.stat().st_mode & 0o777 == 0o555
         assert (artifacts / "run.log").read_text() == "log"
         assert (evidence / "receipt.json").read_text() == "{}"
 
+        _record_residue(sandbox, task, [f"{task[0]}.artifacts/notes/.cache: PermissionError"])
         sandbox.sweep()
         disk = json.loads((sandbox.tasks / f"{task[0]}.json").read_text())
         assert cache.is_dir() and not any(cache.iterdir()), disk.get("task_cache_residue")
-        assert "task_cache_residue" not in disk
+        assert disk["task_cache_residue"] == []
         assert parent.stat().st_mode & 0o777 == 0o555
     finally:
         _owner_rwx(parent)
@@ -523,13 +542,14 @@ def test_settlement_removes_a_dangling_or_file_cache_link(sandbox):
     record = sandbox.settle(task)
     assert record["status"] == "done"
     assert [os.path.lexists(link) for link in links] == [False, False], record.get("task_cache_residue")
-    assert "task_cache_residue" not in record
+    assert record["task_cache_residue"] == []
     dangling.symlink_to("/nonexistent")
     file_link.symlink_to(target)
+    _record_residue(sandbox, task, [f"{task[0]}.artifacts/node_modules: OSError"])
     sandbox.sweep()
     disk = json.loads((sandbox.tasks / f"{task[0]}.json").read_text())
     assert [os.path.lexists(link) for link in links] == [False, False], disk.get("task_cache_residue")
-    assert "task_cache_residue" not in disk
+    assert disk["task_cache_residue"] == []
     assert target.read_text() == "target-bytes"
     assert note_target.read_text() == "note"
     assert other.is_symlink() and other.read_text() == "note"
