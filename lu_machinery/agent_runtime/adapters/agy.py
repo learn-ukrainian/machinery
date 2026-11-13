@@ -1894,10 +1894,9 @@ def validate_agy_read_only_paths(
             # Non-strict resolve suppresses symlink-loop errors on Python 3.13+.
             # Check both spellings so normalization cannot erase a bad component.
             for candidate in (target, resolved):
-                try:
+                # Missing in-workspace references remain native checks.
+                with contextlib.suppress(FileNotFoundError):
                     candidate.stat()
-                except FileNotFoundError:
-                    pass  # Missing in-workspace references remain native checks.
             if not resolved.is_relative_to(root):
                 raise AgyReviewPermissionError("agy_read_only_path_outside_workspace")
     except AgyReviewPermissionError:
