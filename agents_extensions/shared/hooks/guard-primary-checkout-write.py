@@ -2381,6 +2381,22 @@ def _trap_coproc_script(segment: list[str]) -> str | None:
     return shlex.join(args)
 
 
+def _pattern_selects_command(segment: list[str], idx: int) -> bool:
+    """Whether a pattern in or before the command word can choose the program.
+
+    Leading assignment words are never pathname-expanded; every later word up to
+    the command word is, so its expansion can select a writer the parser never
+    classified. Only decided with a protected root, as the parser-only corpus
+    has no directory to expand against.
+    """
+    assignments = True
+    for word in segment[: idx + 1]:
+        assignments = assignments and bool(_ASSIGN_RE.match(word))
+        if not assignments and _expandable_word(word):
+            return True
+    return False
+
+
 def _writer_targets(
     segment: list[str],
     *,
@@ -2430,6 +2446,10 @@ def _writer_targets(
     if refused is not None:
         raise _UndecidableWrapper(refused)
     cmd, idx = _command_word(segment)
+    if main_root is not None and _pattern_selects_command(segment, idx):
+        unknown = ShellWord("pattern command")
+        unknown.decision_reason = "undecidable_glob_write_target"
+        targets.append(unknown)
     if cmd == "tar" and idx == 0 and tar_environment_fixed and _tar_lists_only(segment[1:]):
         pass  # List mode reads the archive and writes nothing; -x/-c/-r/-u/-A stay below.
     elif cmd in _LONG_TAIL_WRITERS:
@@ -2741,13 +2761,68 @@ def _segments_with_cwd(command: str, cwd: str | None, uv_env: object = _UV_DIR_I
 _LONG_OPTION_VALUE_RE = re.compile(r"--[A-Za-z0-9][A-Za-z0-9-]*=")
 
 
-def _option_capable_glob(segment: list[str]) -> bool:
-    """Whether a writer's pattern word could expand into an option or reshape argv.
+# Writers whose operands take roles by position: a pattern in a mode, owner,
+# reference or source position can expand into further write operands.
+_POSITIONAL_WRITERS = _DESTINATION_WRITERS | {
+    "chmod", "chown", "chgrp", "touch", "truncate", "shred", "rm", "unlink", "rmdir", "mkdir", "tee", "link", "dd",
+}
+_FIND_WRITE_ACTIONS = frozenset({"-delete", "-fprint", "-fprint0", "-fprintf", "-fls"})
+_FIND_TEMPLATES = frozenset({"-exec", "-execdir", "-ok", "-okdir"})
 
-    Bash expands a pattern before the writer parses its options, so a worktree
-    entry named like an option can redirect the write. Quote removal has already
-    happened here, so quoted and unquoted patterns are treated alike. Extended-glob
-    syntax splits into separate tokens here and is never modeled.
+
+def _pattern_operand_targets(segment: list[str], segment_targets: list[str]) -> list[ShellWord]:
+    """Pattern operands of a writer that are not already decided write targets.
+
+    Expansion changes how many operands a writer sees, so a pattern in any
+    position can turn into write operands. Each one is decided as a write target
+    over its own superset; ``ln`` and ``link`` refuse because a lost operand
+    moves their write into the working directory.
+    """
+    redirects = _redirect_targets(segment)
+    argv_targets = [t for t in segment_targets if not any(t is r for r in redirects)]
+    words = _without_redirects(segment)
+    cmd, idx = _command_word(words)
+    template_cmd = _command_word(_xargs_template(segment))[0] if cmd in {"xargs", "parallel"} else None
+    writer = (
+        bool(argv_targets)
+        or cmd in _POSITIONAL_WRITERS
+        or template_cmd in _POSITIONAL_WRITERS
+        or (
+            cmd == "find"
+            and any(
+                word in _FIND_WRITE_ACTIONS
+                or (word in _FIND_TEMPLATES and _command_word(words[idx + 1 + i + 1 :])[0] in _POSITIONAL_WRITERS)
+                for i, word in enumerate(words[idx + 1 :])
+            )
+        )
+    )
+    if not writer:
+        return []
+    operands: list[ShellWord] = []
+    for word in words[idx + 1 :]:
+        if not _expandable_word(word) or _LONG_OPTION_VALUE_RE.match(word):
+            continue
+        if any(word is target for target in segment_targets):
+            continue
+        if not isinstance(word, ShellWord) or {cmd, template_cmd} & {"ln", "link"}:
+            unknown = ShellWord("pattern operand")
+            unknown.decision_reason = "undecidable_glob_write_target"
+            return [unknown]
+        operands.append(word)
+    return operands
+
+
+def _option_capable_glob(segment: list[str], base: str | None, main_root: Path | None) -> bool:
+    """Whether a pattern word could expand into an option or unmodeled syntax.
+
+    Bash expands a pattern before the program parses its options, so an entry
+    named like an option can redirect a write. Quote removal has already
+    happened here, so quoted and unquoted patterns are treated alike. A word
+    that starts with a dash stays an option after expansion; a word that starts
+    with a pattern character becomes one only if its superset holds an entry
+    starting with a dash. Extended-glob syntax splits into separate tokens here
+    and is never modeled. Without a protected root (parser-only use) there is
+    no directory to inspect.
     """
     if getattr(segment, "next_op", None) == "(":
         return True
@@ -2756,7 +2831,18 @@ def _option_capable_glob(segment: list[str]) -> bool:
     for word in words[idx + 1 :]:
         if not _expandable_word(word) or _LONG_OPTION_VALUE_RE.match(word):
             continue
-        if word[:1] in {"*", "?", "[", "{", "-", "\\"}:
+        if word[:1] == "-":
+            return True
+        if word[:1] not in {"*", "?", "[", "{", "\\"} or main_root is None:
+            continue
+        if base is None:
+            return True
+        candidates = _shell_glob_candidates(word, base)
+        if candidates is None:
+            return True
+        start = _resolve(".", base, expand_user=False)
+        if any(candidate.relative_to(start).parts[:1] and candidate.relative_to(start).parts[0].startswith("-")
+               for candidate in candidates):
             return True
     return False
 
@@ -2825,10 +2911,13 @@ def bash_write_targets(
                     template=True,
                 )
             )
-        if segment_targets and _option_capable_glob(segment):
+        operands = _pattern_operand_targets(segment, segment_targets)
+        launches_writer = _xargs_writer(_without_redirects(segment)) or _xargs_writer(template)
+        if (segment_targets or operands or launches_writer) and _option_capable_glob(segment, shell_cwd, main_root):
             unknown = ShellWord("pattern operand")
             unknown.decision_reason = "undecidable_glob_write_target"
             segment_targets.append(unknown)
+        segment_targets.extend(operands)
         for target in segment_targets:
             word = target if isinstance(target, ShellWord) else ShellWord(str(target))
             if (
@@ -3409,7 +3498,7 @@ def _resolve(path_str: str, cwd: str, *, expand_user: bool = True) -> Path:
 
 _GLOB_CHARS_RE = re.compile(r"[*?\[]")
 # A bracket is a pattern only when a closing bracket follows it; alone it is literal.
-_GLOB_RE = re.compile(r"[*?]|\[.*\]")
+_GLOB_RE = re.compile(r"[*?]|\[.*\]", re.DOTALL)
 # Each candidate costs a full containment decision; beyond this many the
 # pattern is refused rather than slowing every tool call.
 _GLOB_CANDIDATE_BUDGET = 64
