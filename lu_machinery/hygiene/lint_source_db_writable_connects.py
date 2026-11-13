@@ -23,6 +23,7 @@ import ast
 import gc
 import hashlib
 import json
+import multiprocessing
 import os
 import re
 import subprocess
@@ -1043,7 +1044,8 @@ def _scan_all(jobs: list) -> list[_FileScan]:
     workers = min(os.cpu_count() or 1, MAX_WORKERS)
     if len(jobs) < PARALLEL_MIN_FILES or workers < 2:
         return [_scan_file(job) for job in jobs]
-    with ProcessPoolExecutor(max_workers=workers) as pool:
+    # Spawn needs no forkserver socket and does not fork a threaded caller.
+    with ProcessPoolExecutor(max_workers=workers, mp_context=multiprocessing.get_context("spawn")) as pool:
         return list(pool.map(_scan_file, jobs, chunksize=CHUNK_SIZE))
 
 
