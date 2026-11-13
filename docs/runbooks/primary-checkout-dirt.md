@@ -28,8 +28,10 @@ on a protected branch, the guard refuses:
 4. the same writes reached through ordinary launchers: command wrappers,
    `xargs` and `parallel`, `find` templates, shells given a command string,
    decidable `eval` strings, and a shell, launcher or writer run under another
-   name or path (a word whose executable is one of those programs under a
-   different name is refused, whatever it runs);
+   name or path. A word whose executable (followed through links, or a copy
+   with identical content) is one of those programs under a different name is
+   refused, whatever it runs, even when the name it uses is one the guard also
+   reads;
 5. the pattern classes approved under #403 (PR #412): a pattern that can
    expand to a protected path, a command chosen by a pattern, a pattern that
    can become an option, and any pattern or undecided word in a command that
@@ -64,7 +66,9 @@ stays in a worktree:
   program lookup or word splitting, or when a pattern could name an option, a
   launcher or an executable. A launcher counts wherever its name appears in the
   command, even as an operand;
-- anywhere, a word that runs a shell, launcher or writer under another name;
+- anywhere, a word that runs a shell, launcher or writer under another name
+  (one shell under another shell's name, and a multi-call program's own
+  installed file, are not renamed);
 - anywhere, a root-changing launcher (`chroot`, `unshare`, `nsenter`, `bwrap`,
   `proot` and the like), and a relative path in a command run by
   `find -execdir`/`-okdir` or `env --chdir`, because the program it names is
@@ -75,8 +79,9 @@ filesystem write authority can still write the primary checkout. Known ways
 the command text does not show the write include shell code read from a
 here-document, a file or standard input; program text given to interpreters
 and filters such as `awk`, `sed` scripts, `perl` or `python`; a link created
-earlier in the same command; scripts run by path; and changes to the
-filesystem after the guard has decided. Each review round of #403 found a
+earlier in the same command; scripts run by path and modified copies of
+programs, which the guard cannot identify; and changes to the filesystem
+after the guard has decided. Each review round of #403 found a
 narrower case of this kind. A parser of shell text cannot close them, so the
 guard does not claim to.
 

@@ -2914,22 +2914,27 @@ def _reaches_primary(path: Path, root: Path) -> bool:
     return relative.parts[:2] != (".worktrees", "dispatch")
 
 
-def _program_names(word: str, bases: tuple[str | None, ...], which: Callable[[str], str | None]) -> set[str]:
-    """The real names of the executables ``word`` can run as: by path from each
-    known directory, or by ``PATH`` lookup for a bare name. Symlinks are followed."""
+def _program_paths(word: str, bases: tuple[str | None, ...], which: Callable[[str], str | None]) -> list[Path]:
+    """The executables ``word`` can run, symlinks followed: by path from each
+    known directory, or by ``PATH`` lookup for a bare name."""
     if "/" in word:
         paths = [_resolve(word, base, expand_user=False) for base in bases if base is not None]
     else:
         found = which(word) if word else None
         paths = [Path(found)] if found else []
-    names = set()
+    programs = []
     for path in paths:
         try:
             if path.is_file() and os.access(path, os.X_OK):
-                names.add(path.resolve().name)
+                programs.append(path.resolve())
         except (OSError, RuntimeError, ValueError):
             continue  # A path the guard cannot stat cannot be run as a program either.
-    return names
+    return programs
+
+
+def _program_names(word: str, bases: tuple[str | None, ...], which: Callable[[str], str | None]) -> set[str]:
+    """The real names of the executables ``word`` can run as (`_program_paths`)."""
+    return {path.name for path in _program_paths(word, bases, which)}
 
 
 # Programs the parser reads by name. Run under another name, one hides what it
@@ -2947,8 +2952,79 @@ _ROOT_CHANGERS = frozenset(
 )
 
 
+_SHELL_PROGRAMS = frozenset({"sh", "bash", "dash", "zsh", "fish"})
+
+
 def _named_program(name: str) -> bool:
     return name in _LAUNCHERS or name in _NAMED_WRITERS or _SHELL_NAME_RE.fullmatch(name) is not None
+
+
+def _is_shell(name: str) -> bool:
+    return name in _SHELL_PROGRAMS or _SHELL_NAME_RE.fullmatch(name) is not None
+
+
+def _installed_programs(which: Callable[[str], str | None]) -> dict[tuple[int, int], tuple[Path, int, set[str]]]:
+    """The programs the parser reads by name as installed on ``PATH``, keyed by
+    file identity (device and inode), with each file's size and names."""
+    known: dict[tuple[int, int], tuple[Path, int, set[str]]] = {}
+    for name in sorted(_LAUNCHERS | _NAMED_WRITERS | _SHELL_PROGRAMS):
+        found = which(name)
+        if not found:
+            continue
+        try:
+            path = Path(found).resolve()
+            stat = path.stat()
+        except (OSError, RuntimeError, ValueError):
+            continue
+        known.setdefault((stat.st_dev, stat.st_ino), (path, stat.st_size, set()))[2].add(name)
+    return known
+
+
+def _same_bytes(first: Path, second: Path) -> bool:
+    with first.open("rb") as one, second.open("rb") as other:
+        while True:
+            chunk = one.read(1 << 20)
+            if chunk != other.read(1 << 20):
+                return False
+            if not chunk:
+                return True
+
+
+def _program_identity(
+    path: Path, known: dict[tuple[int, int], tuple[Path, int, set[str]]]
+) -> tuple[set[str], Path | None]:
+    """Which programs the parser reads by name the executable ``path`` is, by
+    file identity, by identical content (a copy), or else by its own name; and
+    the installed file it is, when it is one by identity."""
+    try:
+        stat = path.stat()
+        entry = known.get((stat.st_dev, stat.st_ino))
+        if entry is not None:
+            return entry[2], entry[0]
+        for other, size, names in known.values():
+            if size == stat.st_size and _same_bytes(path, other):
+                return names, None
+    except (OSError, RuntimeError, ValueError):
+        return {"unreadable program"}, None  # Unidentified: never the program its word names.
+    return ({path.name} if _named_program(path.name) else set()), None
+
+
+def _same_program(spelled: str, path: Path, names: set[str], installed: Path | None) -> bool:
+    """Whether a word spelled ``spelled`` that runs ``path`` runs as the program the parser reads it as."""
+    if not names or spelled in names:
+        return True
+    if _is_shell(spelled) and any(_is_shell(name) for name in names):
+        return True  # One shell under another shell's name is still read as a shell.
+    # A multi-call program (one file installed under several names) runs the
+    # program its invoked name selects, and under a name it does not provide may
+    # run its first argument. Only its own installed file of the spelled name,
+    # in its install directory, is that program.
+    return (
+        installed is not None
+        and path.parent == installed.parent
+        and path.name == spelled
+        and len({name for name in names if not _is_shell(name)}) > 1
+    )
 
 
 def _renamed_program(
@@ -2956,17 +3032,44 @@ def _renamed_program(
 ) -> bool:
     """Whether a word runs a program the parser reads by name, under another name (#403).
 
-    The parser picks each command's rules by the name it is spelled with, so a
-    shell, launcher or writer reached through a link or copy named otherwise is
-    never read as what it is. Such a word is refused wherever it stands, literal
-    or not; a word spelled with a name the parser already reads is not.
+    The parser picks each command's rules by the name a word is spelled with.
+    A word whose executable (by path or on ``PATH``, symlinks followed) is, by
+    file identity or identical content, a shell, launcher or writer the parser
+    reads by another name is never read as what it runs, so it is refused
+    wherever it stands, literal or not. That holds when the spelled name is one
+    the parser reads too (a writer's name on a shell). One shell under another
+    shell's name, and a multi-call program's own installed file of the spelled
+    name, are not renamed.
     """
+    import shutil
+
+    lookups = [which]
+    for segment, _, _ in segments:
+        for word in segment:
+            name, sep, value = str(word).partition("=")
+            if not sep or name.removesuffix("+") != "PATH":  # an assignment or an append
+                continue
+            # A PATH this command sets finds bare names too; its inherited part
+            # is the hook's own. Any other unknown entry could hold any program.
+            if name.endswith("+"):
+                value = value.removeprefix(":")  # the separator after the inherited part
+            entries = [entry for entry in value.split(":") if entry not in {"$PATH", "${PATH}"}]
+            if any("$" in entry or "`" in entry or not entry.startswith("/") for entry in entries):
+                return any(
+                    _named_program(str(other)) for other_segment, _, _ in segments for other in other_segment
+                )
+            lookups.append(lambda name, path=":".join(entries): shutil.which(name, path=path))
+    known: dict[tuple[int, int], tuple[Path, int, set[str]]] | None = None
     for segment, run_cwd, shell_cwd in segments:
         for word in segment:
-            if _undecided_word(word) or _named_program(Path(word).name):
+            if _undecided_word(word):
                 continue
-            if any(_named_program(program) for program in _program_names(word, (run_cwd, shell_cwd), which)):
-                return True
+            for lookup in lookups if "/" not in word else lookups[:1]:
+                for path in _program_paths(word, (run_cwd, shell_cwd), lookup):
+                    if known is None:
+                        known = _installed_programs(which)
+                    if not _same_program(Path(word).name, path, *_program_identity(path, known)):
+                        return True
     return False
 
 
