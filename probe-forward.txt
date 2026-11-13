@@ -5,3 +5,4 @@ claude 3bd5d7af
 codex 8b1f0c69
 codex lease
 cursor 92c4b72a
+cursor lease
