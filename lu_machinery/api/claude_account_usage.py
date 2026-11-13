@@ -211,6 +211,7 @@ class _Sample:
     source_at: float  # epoch seconds of the measured state
     windows: dict[str, dict[str, Any]]
     accounts: _Accounts = field(repr=False)
+    provider_usage: dict[str, Any] | None = field(default=None, repr=False)
 
 
 _lock = threading.Lock()
@@ -605,6 +606,31 @@ def parse_codexbar_claude(payload: Any) -> dict[str, Any]:
     if updated is not None and parsed is None:
         raise _ProbeFailed("bad_timestamp")
     row["updated"] = None if parsed is None else _iso(parsed)
+    # The lane shares this measurement, including its optional model window.
+    # Only validated numbers and timestamps enter it; provider text can carry identity.
+    lane_windows = {"primary": row["session5h"], "secondary": row["weekly"]}
+    extras = usage.get("extraRateWindows")
+    fable = next(
+        (entry.get("window") for entry in extras if isinstance(entry, dict) and entry.get("id") == "claude-weekly-scoped-fable"),
+        None,
+    ) if isinstance(extras, list) else None
+    lane_windows["fable_weekly"] = _window_row(fable, None)
+    provider_usage = _subscription_usage._normalize_provider_data(
+        "claude",
+        {
+            "source": _SOURCE,
+            "usage": {
+                key: {
+                    "usedPercent": None if window["left_pct"] is None else 100 - window["left_pct"],
+                    "resetsAt": window["resets_at"],
+                    "windowMinutes": 300 if key == "primary" else 10080,
+                }
+                for key, window in lane_windows.items()
+            },
+        },
+    )
+    provider_usage["pace_summary"] = row["weekly"]["pace"]
+    row["provider_usage"] = provider_usage
     return row
 
 
@@ -870,7 +896,7 @@ def _record(
             # The state cannot be newer than the moment it was observed.
             source_at = observed if measured is None else min(measured.timestamp(), observed)
             windows = {name: dict(row[name]) for _key, name in _WINDOWS}
-            sample = _Sample(source_at, windows, accounts)
+            sample = _Sample(source_at, windows, accounts, row.get("provider_usage"))
             _last_good[label] = sample
             _persist_sample(label, sample)
             _last_failure.pop(label, None)
@@ -1067,9 +1093,8 @@ def restore_claude_account_samples(*, now: float | None = None) -> float | None:
     scheduler interval and the cache TTL, and its binding validates again
     (``_restored_sample``), those readings become the served samples with
     their own measured time, and the age gates the first probe. The default
-    account is not restored while the host lane scheduler owns it: a restored
-    row that this process never refreshes would go stale and keep the
-    on-demand gate open. Otherwise nothing is served from the file and
+    account is restored and refreshed by the same owner as every other label.
+    Otherwise nothing is served from the file and
     ``None`` means probe now. The age is read after the bindings were
     validated, so the time that took is not lost. Background only (it
     validates bindings); never probes.
@@ -1114,17 +1139,7 @@ def _refresh_one(label: str, timeout_s: float) -> None:
 
 
 def _probe_labels() -> tuple[str, ...]:
-    """Labels this pass may probe.
-
-    The host lane scheduler already reads the default account at
-    ``https://api.anthropic.com/api/oauth/usage``. Probing that account again
-    (CodexBar ``--source oauth`` on the same host directory) rate-limits the
-    host, so the lane reading stays stale. Another account is a different host.
-    When that scheduler is not running, the default account has no other reader.
-    """
-    lane = _subscription_usage._scheduler_thread
-    if lane is not None and lane.is_alive():
-        return tuple(label for label in CLAUDE_SUBSCRIPTION_ACCOUNT_LABELS if label != DEFAULT_CLAUDE_ACCOUNT)
+    """The account scheduler owns every Claude subscription label."""
     return CLAUDE_SUBSCRIPTION_ACCOUNT_LABELS
 
 
@@ -1223,7 +1238,9 @@ def _unknown_row(reason: str) -> dict[str, Any]:
     }
 
 
-def claude_accounts_snapshot(*, ttl_s: float | None = None, now: float | None = None) -> dict[str, dict[str, Any]]:
+def claude_accounts_snapshot(
+    *, include_provider_usage: bool = False, ttl_s: float | None = None, now: float | None = None
+) -> dict[str, dict[str, Any]]:
     """Rows keyed ``claude:<label>``, aged at call time; never starts a probe.
 
     Never opens, reads or parses a file, so it is safe on the event loop. A
@@ -1267,6 +1284,8 @@ def claude_accounts_snapshot(*, ttl_s: float | None = None, now: float | None = 
             "status": "stale" if stale else "ok",
             "reason": failure if failure is not None else ("expired" if stale else None),
         }
+        if include_provider_usage and sample.provider_usage is not None:
+            rows[row_key(label)]["provider_usage"] = dict(sample.provider_usage)
     return rows
 
 

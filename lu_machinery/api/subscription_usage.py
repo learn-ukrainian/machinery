@@ -343,7 +343,8 @@ def refresh_provider_usage_data(
 
     The regular API path intentionally remains cache-only and non-blocking. This
     helper is reserved for callers, such as the dispatch budget guard, which
-    explicitly need a bounded fresh verdict before acting.
+    explicitly need a bounded fresh verdict before acting. Claude returns
+    its existing account measurement without probing or changing its age.
 
     timeout_s defaults to _codexbar_refresh_timeout_s() (CODEXBAR_REFRESH_TIMEOUT_S,
     25.0s) — a real CLI call, not a hang. Callers should only override this when
@@ -353,11 +354,15 @@ def refresh_provider_usage_data(
         timeout_s = _codexbar_refresh_timeout_s()
     requested = tuple(dict.fromkeys(providers))
     # ``codex`` and ``codex:a`` are one account: probe it once, store and answer both.
-    unique_providers = tuple(dict.fromkeys(_stored_usage_keys(provider)[0] for provider in requested))
-    if not unique_providers:
-        return {}
-
+    unique_providers = tuple(dict.fromkeys(_stored_usage_keys(provider)[0] for provider in requested if provider != "claude"))
     refreshed: dict[str, dict[str, Any]] = {}
+    if "claude" in requested:
+        claude = _probe_claude_native(timeout_s=timeout_s)
+        if claude["freshness"] == "fresh" and _is_usable_capacity(claude):
+            refreshed["claude"] = claude
+    if not unique_providers:
+        return refreshed
+
     with ThreadPoolExecutor(max_workers=len(unique_providers)) as executor:
         futures = {
             provider: (
@@ -716,7 +721,42 @@ def _window_from_used_pct(used_pct: float, *, window_minutes: int, resets_at: st
 
 
 def _probe_claude_native(*, timeout_s: float) -> dict[str, Any]:
-    return _private_subscription("claude", timeout_s=timeout_s)
+    """Project account a's measured sample; never make another provider request."""
+    from lu_machinery.api.claude_account_usage import claude_accounts_snapshot  # noqa: PLC0415  # lazy-ok: import cycle
+
+    row = claude_accounts_snapshot(include_provider_usage=True)["claude:a"]
+    if row["status"] != "ok":
+        limited = row.get("reason") == "rate_limited"
+        result = _normalize_provider_error(
+            "claude",
+            {"kind": "rate_limit" if limited else "unavailable", "code": 429 if limited else "UNAVAILABLE"},
+        )
+    else:
+        result = row.get("provider_usage")
+        if result is None:
+            # Restored samples contain only the validated plan windows. Optional
+            # provider extras become available on the next scheduled measurement.
+            result = _normalize_provider_data(
+                "claude",
+                {
+                    "source": "oauth",
+                    "usage": {
+                        key: {
+                            "usedPercent": None if row[name]["left_pct"] is None else 100 - row[name]["left_pct"],
+                            "resetsAt": row[name]["resets_at"],
+                            "windowMinutes": minutes,
+                        }
+                        for key, name, minutes in (("primary", "session5h", 300), ("secondary", "weekly", 10080))
+                    },
+                },
+            )
+    return {
+        **result,
+        "fetched_at": row["updated"],
+        "freshness": "stale_last_good" if row["stale"] else ("fresh" if row["status"] == "ok" else "unavailable"),
+        "stale": row["stale"],
+        "age_s": row["age_s"],
+    }
 
 
 def _probe_codex_native(*, timeout_s: float, usage_key: str = "codex") -> dict[str, Any]:
@@ -1833,8 +1873,8 @@ _NATIVE_PROBES: dict[str, Callable[..., dict[str, Any]]] = {
 def fetch_provider_usage(provider: str, *, timeout_s: float | None = None) -> dict[str, Any]:
     """Probe a subscription lane via first-party HTTP/credential paths.
 
-    Never shells out to CodexBar. On missing credentials returns NEED_LOGIN /
-    NEED_PROBE shaped records, not fabricated 0% usage.
+    Claude reads the account scheduler's existing measurement. Other providers
+    use their native probes. Missing capacity is never fabricated as 0% usage.
     """
     if timeout_s is None:
         timeout_s = _codexbar_refresh_timeout_s()
@@ -2627,12 +2667,12 @@ def _run_all_refreshes() -> None:
 SUBSCRIPTION_LANES_WITHOUT_CURSOR: tuple[str, ...] = tuple(p for p in SUBSCRIPTION_PROVIDERS if p != "cursor")
 # The background refresh also probes every Codex subscription account under its own key.
 SUBSCRIPTION_REFRESH_KEYS: tuple[str, ...] = tuple(
-    dict.fromkeys((*SUBSCRIPTION_LANES_WITHOUT_CURSOR, *CODEX_ACCOUNT_USAGE_KEYS.values()))
+    dict.fromkeys((*(p for p in SUBSCRIPTION_LANES_WITHOUT_CURSOR if p != "claude"), *CODEX_ACCOUNT_USAGE_KEYS.values()))
 )
 
 
 def _refresh_claude_accounts_live() -> None:
-    """Per-account Claude rows (#10630). The ``claude`` lane above stays the default account."""
+    """The sole machinery reader for all Claude subscription accounts."""
     # The per-account module reads this module's CodexBar helpers, so a top-level import is a cycle.
     from lu_machinery.api.claude_account_usage import refresh_claude_account_usage  # noqa: PLC0415, I001  # lazy-ok: import cycle
 
@@ -2687,12 +2727,14 @@ def trigger_claude_account_refresh() -> None:
     its own cadence. A kick starts a probe when the last one started more
     than the scheduler interval ago, or a probed label's reading is past the
     cache TTL, and never while a probe is already in flight. The pass probes
-    the labels ``_probe_labels`` names. While the host lane scheduler is
-    alive the default account is not among them, and its row does not start
-    a pass. That start time is the last start of this pass.
+    the labels ``_probe_labels`` names. The account scheduler owns its cadence
+    while running, so HTTP kicks never start an extra pass beside it.
     """
     global _claude_account_oneshot_thread
     with _claude_account_oneshot_lock:
+        owner = _claude_account_scheduler_thread
+        if owner is not None and owner.is_alive():
+            return
         if _claude_account_startup_pending or _claude_account_probe_in_flight():
             return
         started = _claude_account_probe_started_at
@@ -2778,9 +2820,8 @@ def _periodic_loop(interval_s: float, run_immediately: bool) -> None:
 def start_periodic_refresh(*, run_immediately: bool = True) -> None:
     """Keep CodexBar snapshots warm on a 12-minute timer.
 
-    The host lane scheduler starts first and stays on its own thread. The
-    account loop then skips the default account, which that lane already
-    reads, and still does not wait for a lane probe to finish. Idempotent.
+    The account loop owns every Claude account. The independent lane loop
+    refreshes the other providers without delaying Claude. Idempotent.
     No-ops when disabled (pytest, or CODEXBAR_PERIODIC_REFRESH=0).
     """
     global _scheduler_thread, _claude_account_scheduler_thread, _claude_account_startup_pending
@@ -2804,8 +2845,6 @@ def start_periodic_refresh(*, run_immediately: bool = True) -> None:
             name="claude-account-scheduler",
             daemon=True,
         )
-        # Alive before the account loop's first probe, so that probe skips
-        # the default account this lane already reads.
         _scheduler_thread.start()
         _claude_account_scheduler_thread.start()
 
@@ -3142,6 +3181,8 @@ def get_provider_usage_data(provider: str, *, kick_refresh: bool = True) -> dict
     still kicks a one-shot background refresh so the next read can see data.
     ``kick_refresh=False`` reads cache and last-known-good only.
     """
+    if provider == "claude":
+        return _probe_claude_native(timeout_s=0.0)
     cache_key = f"codexbar_usage:{provider}"
     cached = cache_get_with_age(cache_key, ttl=_codexbar_cache_ttl_s())
 
