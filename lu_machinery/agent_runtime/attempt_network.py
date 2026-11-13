@@ -132,8 +132,10 @@ MAX_EGRESS_DESTINATIONS = 256
 class AttemptEgress:
     """Bounded asyncio proxy with killable DNS processes and numeric connects."""
 
-    def __init__(self, endpoint: Path, *, limits: Limits = DEFAULT_LIMITS):
+    def __init__(self, endpoint: Path, *, limits: Limits = DEFAULT_LIMITS, refused_domains: tuple[str, ...] = ()):
         self.endpoint, self.limits = endpoint, limits
+        # Hosts this run may not reach at all: each domain and every name below it (the write boundary's GitHub).
+        self.refused_domains = tuple(domain.casefold() for domain in refused_domains)
         self.local_addresses = host_addresses()
         self.records: list[dict] = []  # destination + byte count only; no payloads or addresses
         self.overflow_count = 0
@@ -275,6 +277,9 @@ class AttemptEgress:
                     self.overflow_count += 1
             else:
                 record = existing
+            if any(host == domain or host.endswith("." + domain) for domain in self.refused_domains):
+                record["refused"] = True
+                raise ValueError("destination refused for this run")
             answers = await asyncio.wait_for(self._resolve(host), self.limits.resolve_seconds)
             addresses = validate_answers(answers, self.local_addresses)
             remote, upstream = await asyncio.wait_for(self._connect(addresses), self.limits.connect_seconds)

@@ -28,8 +28,10 @@ Inside the boundary:
 
 The task store, the Fleet Comms plane and the primary's Git state stay read-only inside, so the worker chain's
 host steps (start its review, record the verdict, send a Fleet message, close out after merge) go through the
-launcher's broker (``_Broker``, decision CONTAIN-BROKER-1113): one Unix socket with four typed verbs whose
-identities come from the launch. Sources goes through the read-only AGY boundary's ``SourcesRelay``; the
+launcher's broker (``_Broker``, decision CONTAIN-BROKER-1113): one Unix socket with typed verbs whose
+identities come from the launch. The worker holds no GitHub credential and the egress proxy refuses GitHub's
+hosts, so it publishes (push, PR, comment, merge) only through the broker's publication verbs, which the host's
+own login carries out behind the existing scanned publisher and push scan (decision PUBLISH-CRED-1113). Sources goes through the read-only AGY boundary's ``SourcesRelay``; the
 MCP stdio command that reaches it is in ``LU_WRITE_BOUNDARY_SOURCES``.
 
 The canary runs first and checks each boundary property; the provider starts only after the launcher
@@ -105,7 +107,15 @@ _HOST_CONTEXT = frozenset({
 # typed verbs. Each verb has a fixed schema, and every identity it acts under comes from the launch, never the
 # request.
 BROKER_ENV = "LU_WRITE_BOUNDARY_BROKER"
-_BROKER_VERBS = ("review-dispatch", "record-verdict", "fleet-publish", "closeout-request")
+_BROKER_VERBS = ("review-dispatch", "record-verdict", "fleet-publish", "closeout-request", "push", "fetch-base",
+                 "pr-create", "pr-edit", "pr-comment", "pr-merge", "github-read")
+# Named reads of the worker's own repository (the publisher's fixed GET templates); no security-alert reads.
+_GITHUB_READS = frozenset({"pull", "pr-files", "commits", "commit", "comments", "reviews", "timeline", "issue",
+                           "checks", "check-annotations", "run", "jobs"})
+_BRANCH = re.compile(r"[A-Za-z0-9][A-Za-z0-9._/-]{0,199}")
+# GitHub's write-capable hosts. The egress proxy refuses them inside the boundary, so no credential the worker
+# could read anywhere is usable from inside; every publication goes through the broker (PUBLISH-CRED-1113).
+GITHUB_DOMAINS = ("github.com", "ghcr.io")
 _REQUEST_ID = re.compile(r"[0-9a-f]{32}")
 _WORD = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/-]{0,79}")  # a model, agent, profile or label: never a flag
 _CHANNEL = re.compile(r"[a-z0-9][a-z0-9._-]{0,63}")
@@ -122,7 +132,7 @@ _SOURCES_INSIDE = "/run/lu-write-boundary/sources.sock"
 # The MCP stdio command (a JSON argv) that reaches the read-only Sources relay from inside.
 SOURCES_ENV = "LU_WRITE_BOUNDARY_SOURCES"
 _BROKER_TIMEOUTS = {"review-dispatch": 300, "record-verdict": 900, "fleet-publish": 120, "gh": 120,
-                    "closeout-request": 900}
+                    "closeout-request": 900, "publish": 300, "pr-merge": 900}
 
 
 def broker_path() -> str | None:
@@ -267,13 +277,20 @@ def run_closeout(request: dict) -> dict:
     return {"pr": pr, "returncode": result.returncode, "stdout": result.stdout[-4000:], "stderr": result.stderr[-2000:]}
 
 
-def _git(cwd: Path, *args: str, git_dir: Path | None = None) -> str:
-    """Host Git with no user or system configuration, hooks or fsmonitor: nothing the worker wrote runs."""
+def _git(cwd: Path, *args: str, git_dir: Path | None = None, network: bool = False) -> str:
+    """Host Git with no user or system configuration, hooks or fsmonitor: nothing the worker wrote runs.
+
+    ``network`` admits HTTPS for the broker's publication verbs; their credential is the scoped helper of
+    ``git_credentials.verification_credentials``, the only credential configuration Git then has.
+    """
     env = {"PATH": os.defpath, "HOME": os.environ.get("HOME", "/"), "LC_ALL": "C", "GIT_TERMINAL_PROMPT": "0",
            "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1", "GIT_OPTIONAL_LOCKS": "0"}
+    if network:  # gh, behind the scoped helper, finds the host login through its own configuration
+        env.update({name: os.environ[name] for name in ("GH_CONFIG_DIR", "XDG_CONFIG_HOME") if os.environ.get(name)})
     result = subprocess.run(
         ["git", "--no-replace-objects", "-c", f"core.hooksPath={os.devnull}", "-c", "core.fsmonitor=false",
          "-c", "protocol.allow=never", "-c", "protocol.file.allow=always",
+         *(["-c", "protocol.https.allow=always"] if network else []),
          *([f"--git-dir={git_dir}"] if git_dir else []), "-C", str(cwd), *args],
         capture_output=True, text=True, timeout=_GIT_TIMEOUT, check=False, env=env, stdin=subprocess.DEVNULL,
     )
@@ -314,6 +331,32 @@ def _shared_state_roots(home: Path) -> list[Path]:
             if path.is_dir() and path.is_relative_to(home) and path != home and path not in roots:
                 roots.append(path)
     return roots
+
+
+def _github_credential_variable(name: str) -> bool:
+    """An environment variable that can carry a GitHub credential or a credential program into the boundary."""
+    upper = name.upper()
+    return upper.startswith(("GH_", "GITHUB_", "GIT_SSH")) or upper.endswith("_ASKPASS")
+
+
+def _github_credential_paths(home: Path) -> list[Path]:
+    """The host login's GitHub credential stores: gh's configuration, Git's credential files, netrc and SSH keys.
+
+    Each existing one is emptied inside (a directory becomes an empty tmpfs, a file reads as ``/dev/null``).
+    Containment does not rest on this list: the egress proxy refuses GitHub's hosts inside the boundary.
+    """
+    config = Path(os.environ.get("XDG_CONFIG_HOME") or home / ".config")
+    candidates = [config / "gh", home / ".config" / "gh", config / "git" / "credentials",
+                  home / ".git-credentials", home / ".netrc", home / ".ssh"]
+    if os.environ.get("GH_CONFIG_DIR"):
+        candidates.insert(0, Path(os.environ["GH_CONFIG_DIR"]))
+    paths = []
+    for path in candidates:
+        # A link is masked where it points, so the store is empty under either name.
+        for name in (path, Path(os.path.realpath(path))):
+            if name.is_absolute() and os.path.lexists(name) and not name.is_symlink() and name not in paths:
+                paths.append(name)
+    return paths
 
 
 def _under(path: Path, roots) -> bool:
@@ -357,6 +400,8 @@ class _Broker:
     * ``closeout-request`` records the worker's merged PR in the receipt; the supervisor runs ``merge_closeout --apply``
       on the host after it has settled the task's worktree, because closeout deletes refs in the primary's Git
       directory and refuses while the worktree is registered.
+    * ``push``, ``fetch-base``, ``pr-create``, ``pr-edit``, ``pr-comment``, ``pr-merge`` and ``github-read`` are
+      the worker's only GitHub access (PUBLISH-CRED-1113); docs/runbooks/write-worker-boundary.md lists them.
     """
 
     def __init__(self, boundary: _Boundary, path: Path):
@@ -454,30 +499,51 @@ class _Broker:
             raise _BrokerRefusal("the primary's origin is not a github.com repository")
         return match.group(1)
 
-    def _pull_request(self, payload: dict, state: str) -> tuple[int, str, dict]:
+    def _gh_json(self, argv: list[str]) -> Any:
+        """One fresh read through the shared GitHub client (its budget and Retry-After admission apply)."""
+        from lu_machinery.common import github_client
+
+        proc = github_client.run(["gh", *argv], capture_output=True, text=True, check=False,
+                                 timeout=_BROKER_TIMEOUTS["gh"], fresh=True)
+        try:
+            return json.loads(proc.stdout) if proc.returncode == 0 else None
+        except (TypeError, ValueError):
+            return None
+
+    def _pull_request(self, payload: dict, *states: str) -> tuple[int, str, dict]:
         """The PR in ``payload["pr"]``, checked live on GitHub: same repository, head branch the dispatched one."""
         number = payload.get("pr")
         if type(number) is not int or not 0 < number < 10**8:
             raise _BrokerRefusal("pr must be a PR number")
         slug = self._repository_slug()
-        from lu_machinery.common import github_client
-
-        # A fresh read through the shared GitHub client: its budget and Retry-After admission apply.
-        proc = github_client.run(["gh", "pr", "view", str(number), "--repo", slug, "--json",
-                                  "state,headRefName,headRefOid,isCrossRepository"],
-                                 capture_output=True, text=True, check=False, timeout=_BROKER_TIMEOUTS["gh"], fresh=True)
-        try:
-            facts = json.loads(proc.stdout) if proc.returncode == 0 else None
-        except (TypeError, ValueError):
-            facts = None
+        facts = self._gh_json(["pr", "view", str(number), "--repo", slug, "--json",
+                               "state,headRefName,headRefOid,isCrossRepository,baseRefName"])
         if not isinstance(facts, dict):
             raise _BrokerRefusal("the PR cannot be read on GitHub")
         branch = self.boundary.branch.removeprefix("refs/heads/")
         if facts.get("isCrossRepository") is not False or facts.get("headRefName") != branch:
             raise _BrokerRefusal("the PR's head is not this task's dispatched branch")
-        if facts.get("state") != state:
-            raise _BrokerRefusal(f"the PR is not {state}")
+        if facts.get("state") not in states:
+            raise _BrokerRefusal(f"the PR is not {' or '.join(states)}")
         return number, slug, facts
+
+    def _default_branch(self, slug: str) -> str:
+        """The repository's default branch on GitHub: the only base a worker's PR gets."""
+        facts = self._gh_json(["repo", "view", slug, "--json", "defaultBranchRef"])
+        name = (facts or {}).get("defaultBranchRef", {}).get("name") if isinstance(facts, dict) else None
+        if not (isinstance(name, str) and _BRANCH.fullmatch(name)):
+            raise _BrokerRefusal("the repository's default branch cannot be read on GitHub")
+        return name
+
+    def _remote(self, slug: str) -> tuple[str, list[str]]:
+        """The HTTPS remote of ``slug`` and the scoped host credential settings for it, from the registry."""
+        from lu_machinery.common.git_credentials import verification_credentials
+
+        url = f"https://github.com/{slug}.git"
+        settings = verification_credentials(url)
+        if not settings:
+            raise _BrokerRefusal("the repository is not a registered github.com destination")
+        return url, [arg for setting in settings for arg in ("-c", setting)]
 
     def _repo_key(self, slug: str) -> str:
         """The fleet repository key whose checkout is this primary and whose GitHub name is ``slug``."""
@@ -502,8 +568,9 @@ class _Broker:
 
     # -- host steps ----------------------------------------------------------------------------------------------
 
-    def _run(self, argv: list[str], timeout_key: str, *, stdin: bytes | None = None) -> dict:
-        env = _host_child_env(self.boundary.args.task_id)
+    def _run(self, argv: list[str], timeout_key: str, *, stdin: bytes | None = None,
+             env: dict[str, str] | None = None) -> dict:
+        env = {**_host_child_env(self.boundary.args.task_id), **(env or {})}
         # A fixed argv built by this class from validated fields, never a shell.
         self.child = subprocess.Popen(argv, cwd=self.boundary.repository, env=env, stdin=subprocess.PIPE,  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit
                                       stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -609,6 +676,182 @@ class _Broker:
         self.closeout_request = {"pr": number, "repo": slug, "repo_root": str(self.boundary.repository)}
         return {"returncode": 0, "stdout": f"closeout of PR {number} runs on the host after this task's worktree "
                 "is settled\n", "stderr": ""}
+
+    # -- publication (decision PUBLISH-CRED-1113): the worker holds no GitHub credential and has no route to
+    # GitHub, so every publication is one of these verbs. The host's own login does the write, through the
+    # existing scanned publisher and push scanner; repository, branch, base and PR ownership come from the launch.
+
+    def _text(self, payload: dict, name: str, limit: int, *, required: bool = True) -> str | None:
+        value = payload.get(name)
+        if value is None and not required:
+            return None
+        if not isinstance(value, str) or not value.strip() or len(value.encode()) > limit or "\0" in value:
+            raise _BrokerRefusal(f"{name} must be non-empty text of at most {limit} bytes")
+        return value
+
+    def _text_file(self, text: str) -> str:
+        """Write request text to the run's private scratch; the publisher reads it by the host's own path."""
+        path = self.boundary.base / f"publish-{uuid.uuid4().hex}.md"
+        _write_private(path, text.encode(), 0o400)
+        return str(path)
+
+    def _publish(self, verb: str, slug: str, fields: list[str], timeout_key: str = "publish") -> dict:
+        return self._module("publish.github", [verb, "--repo", slug, *fields], timeout_key)
+
+    def _push(self, payload: dict) -> dict:
+        """Publish this task's branch at the exact commit named, fast-forward only, after the push scan."""
+        if set(payload) != {"head"}:
+            raise _BrokerRefusal("push takes exactly head")
+        head = payload["head"]
+        if not (isinstance(head, str) and _OBJECT_ID.fullmatch(head)):
+            raise _BrokerRefusal("head must be a full commit id")
+        if head != self.boundary.current_tip():
+            raise _BrokerRefusal("head is not this task's branch tip")
+        slug = self._repository_slug()
+        url, credentials = self._remote(slug)
+        branch = self.boundary.branch
+        self.boundary.fetch_objects(head)
+        listed = _git(self.boundary.repository, *credentials, "ls-remote", url, branch, git_dir=self.boundary.common,
+                      network=True).split()
+        remote = listed[0] if listed else None
+        if remote is not None and not _OBJECT_ID.fullmatch(remote):
+            raise _BrokerRefusal("the remote branch cannot be read")
+        if remote == head:
+            return {"returncode": 0, "stdout": f"{branch} is already {head} on {slug}\n", "stderr": ""}
+        if remote is not None:
+            try:
+                _git(self.boundary.repository, "merge-base", "--is-ancestor", remote, head, git_dir=self.boundary.common)
+            except Refused:
+                raise _BrokerRefusal("the remote branch is not an ancestor of head: only a fast-forward is "
+                                     "published") from None
+        # The existing push scan (opsec.git_push) on the exact update Git would send; the caller's hook is not run.
+        update = f"{branch} {head} {branch} {remote or '0' * len(head)}\n".encode()
+        code = ("import sys; sys.path.insert(0, sys.argv[1]); "
+                f"from {_PACKAGE}.opsec.git_push import main; "
+                "raise SystemExit(main(sys.argv[2:4], stdin=sys.stdin.buffer.read(), chain=lambda *_: 0))")
+        package_parent = str(machinery_path("dispatcher/write_boundary.py").parents[2])
+        scanned = self._run([sys.executable, "-I", "-c", code, package_parent, "origin", url], "publish",
+                            stdin=update, env={"GIT_DIR": str(self.boundary.common)})
+        if scanned["returncode"] != 0:
+            return {**scanned, "returncode": 2}
+        lease = f"--force-with-lease={branch}:{remote or ''}"
+        _git(self.boundary.repository, *credentials, "push", "--quiet", "--no-verify", "--porcelain", lease, url,
+             f"{head}:{branch}", git_dir=self.boundary.common, network=True)
+        return {"returncode": 0, "stdout": f"pushed {head} to {branch} on {slug}\n", "stderr": scanned["stderr"]}
+
+    def _fetch_base(self, payload: dict) -> dict:
+        """Fetch the repository's default branch into the primary's remote-tracking ref (fast-forward only)."""
+        if payload:
+            raise _BrokerRefusal("fetch-base takes no fields")
+        slug = self._repository_slug()
+        base = self._default_branch(slug)
+        url, credentials = self._remote(slug)
+        _git(self.boundary.repository, *credentials, "fetch", "--quiet", "--no-tags", "--no-write-fetch-head",
+             "--no-recurse-submodules", url, f"refs/heads/{base}:refs/remotes/origin/{base}",
+             git_dir=self.boundary.common, network=True)
+        return {"returncode": 0, "stdout": f"fetched {base} into refs/remotes/origin/{base}\n", "stderr": ""}
+
+    def _pr_create(self, payload: dict) -> dict:
+        if not set(payload) <= {"title", "body", "draft"} or not {"title", "body"} <= set(payload):
+            raise _BrokerRefusal("pr-create takes title, body and draft")
+        title, body = self._text(payload, "title", 256), self._text(payload, "body", _MAX_BODY)
+        draft = payload.get("draft", False)
+        if type(draft) is not bool:
+            raise _BrokerRefusal("draft must be true or false")
+        slug = self._repository_slug()
+        fields = ["--head", self.boundary.branch.removeprefix("refs/heads/"), "--base", self._default_branch(slug),
+                  "--title", title, "--body-file", self._text_file(body)]
+        return self._publish("pr-create", slug, [*fields, *(["--draft"] if draft else [])])
+
+    def _pr_edit(self, payload: dict) -> dict:
+        if not set(payload) <= {"pr", "title", "body"} or not {"title", "body"} & set(payload):
+            raise _BrokerRefusal("pr-edit takes pr and at least one of title and body")
+        title = self._text(payload, "title", 256, required=False)
+        body = self._text(payload, "body", _MAX_BODY, required=False)
+        number, slug, _facts = self._pull_request(payload, "OPEN")
+        fields = ["--number", str(number), *(["--title", title] if title else []),
+                  *(["--body-file", self._text_file(body)] if body else [])]
+        return self._publish("pr-edit", slug, fields)
+
+    def _pr_comment(self, payload: dict) -> dict:
+        if set(payload) != {"pr", "body"}:
+            raise _BrokerRefusal("pr-comment takes exactly pr and body")
+        body = self._text(payload, "body", _MAX_BODY)
+        number, slug, _facts = self._pull_request(payload, "OPEN", "MERGED")
+        # The publisher refuses review-verdict markers in comment text: only the recorder writes them.
+        return self._publish("pr-comment", slug, ["--number", str(number), "--body-file", self._text_file(body)])
+
+    def _approval(self, head: str) -> str:
+        """The review task of this worker that approved ``head``, from the host's task store, or a refusal.
+
+        A worker cannot write the task store, and its comments cannot carry a verdict marker, so neither a
+        comment nor a forged record grants this: the review must have been dispatched through this broker
+        (``initiator`` is this task, its author model is the launch's), be done, cross-family, and its sealed
+        reply must approve exactly ``head``.
+        """
+        import glob
+
+        from lu_machinery.common.task_store_paths import tasks_dir
+        from lu_machinery.review import record_cf_verdict as recorder
+
+        task_id, author = self.boundary.args.task_id, self.boundary.args.author_model
+        author_family = recorder.resolve_family(author) if isinstance(author, str) and author else "unknown"
+        if author_family == "unknown" or author_family in recorder.UNRESOLVED_AUTHOR_FAMILIES:
+            raise _BrokerRefusal("the launch names no author model family")
+        root = tasks_dir()
+        for path in sorted(root.glob(f"{glob.escape(task_id)}-review-*.json")):
+            name = path.name.removesuffix(".json")
+            if not _TASK_ID.fullmatch(name) or not re.fullmatch(r"[A-Za-z0-9._-]{1,40}",
+                                                                name[len(task_id) + len("-review-"):]):
+                continue
+            try:
+                task, reply = recorder._task(name, root)
+                verdict = recorder._task_verdict(task, reply)
+            except (recorder.RecordError, ValueError, OSError):
+                continue
+            if (verdict.verdict == "APPROVED" and verdict.sha == head and task.get("initiator") == task_id
+                    and task.get("review_author_model") == author and task.get("review_mode") == "cross_family"
+                    and verdict.family and verdict.family != author_family):
+                return name
+        raise _BrokerRefusal("no cross-family APPROVE of this head by a review this task dispatched is recorded "
+                             "on the host")
+
+    def _pr_merge(self, payload: dict) -> dict:
+        """Enqueue the worker's own PR at its exact live head, once a host-held approval of that head exists.
+
+        The publisher's own gates still run: the recorder's exact-head marker, the same-head green CI Gate,
+        ``--match-head`` and merge-queue admission; the merge group's CI decides the landing.
+        """
+        if set(payload) != {"pr", "head"}:
+            raise _BrokerRefusal("pr-merge takes exactly pr and head")
+        head = payload["head"]
+        if not (isinstance(head, str) and _OBJECT_ID.fullmatch(head)):
+            raise _BrokerRefusal("head must be a full commit id")
+        number, slug, facts = self._pull_request(payload, "OPEN")
+        if not (head == facts.get("headRefOid") == self.boundary.current_tip()):
+            raise _BrokerRefusal("head is not both the PR's live head and this task's branch tip")
+        review = self._approval(head)
+        reply = self._publish("pr-merge", slug, ["--number", str(number), "--match-head", head], "pr-merge")
+        reply["stdout"] = f"approval: {review}\n" + reply["stdout"]
+        return reply
+
+    def _github_read(self, payload: dict) -> dict:
+        """A named read of this repository through the publisher's fixed GET templates (no write is possible)."""
+        if not set(payload) <= {"name", "number", "sha"} or "name" not in payload:
+            raise _BrokerRefusal("github-read takes name, number and sha")
+        name = payload["name"]
+        if name not in _GITHUB_READS:
+            raise _BrokerRefusal("name must be one of " + ", ".join(sorted(_GITHUB_READS)))
+        fields = []
+        if (number := payload.get("number")) is not None:
+            if type(number) is not int or not 0 < number < 10**12:
+                raise _BrokerRefusal("number must be a positive id")
+            fields += ["--number", str(number)]
+        if (sha := payload.get("sha")) is not None:
+            if not (isinstance(sha, str) and _OBJECT_ID.fullmatch(sha)):
+                raise _BrokerRefusal("sha must be a full commit id")
+            fields += ["--sha", sha]
+        return self._module("publish.github", ["read", name, "--repo", self._repository_slug(), *fields], "gh")
 
     def cleanup(self) -> None:
         self.closed = True
@@ -740,6 +983,9 @@ class _Boundary:
         for path in outputs:
             argv += ["--bind", str(path), str(path)]
         argv += ["--bind", str(tmp), str(tmp), "--ro-bind", str(boundary), str(boundary)]
+        # No GitHub credential is readable inside (PUBLISH-CRED-1113): the host login's known stores are empty.
+        for path in _github_credential_paths(home):
+            argv += ["--tmpfs", str(path)] if path.is_dir() else ["--ro-bind", "/dev/null", str(path)]
         for path in sockets:
             argv += ["--ro-bind", "/dev/null", str(path)]
         self.broker = _Broker(self, boundary / "broker.sock")
@@ -760,7 +1006,7 @@ class _Boundary:
             self.receipt["sources"] = {"status": "unavailable", "reason": f"{type(exc).__name__}: {exc}"[:200]}
         argv += ["--cap-drop", "ALL", "--chdir", str(self.worktree)]
 
-        self.egress = AttemptEgress(boundary / "egress.sock")
+        self.egress = AttemptEgress(boundary / "egress.sock", refused_domains=GITHUB_DOMAINS)
         report_read, report_write = os.pipe()
         go_read, go_write = os.pipe()
         _write_private(boundary / "plan.json", json.dumps(
@@ -771,7 +1017,7 @@ class _Boundary:
         self.receipt["argv_sha256"] = __import__("hashlib").sha256(json.dumps(argv).encode()).hexdigest()
         env = {key: value for key, value in os.environ.items()
                if key not in {"SSH_AUTH_SOCK", "DBUS_SESSION_BUS_ADDRESS", "XDG_RUNTIME_DIR", "TMUX", "TMUX_PANE"}
-               and key not in self.args.host_only}
+               and key not in self.args.host_only and not _github_credential_variable(key)}
         (tmp / "scratch").mkdir(mode=0o700)
         (tmp / "run").mkdir(mode=0o700)
         # The namespace has no DNS or route out; Node's own fetch uses the forwarder's proxy only when told to.
@@ -973,7 +1219,40 @@ class _Boundary:
                 self.receipt["cleanup"] = f"residue: {type(exc).__name__}"
 
 
+def call_main(argv: list[str]) -> int:
+    """``call <verb>``: send one broker request from inside a write boundary; the payload is JSON on stdin."""
+    parser = argparse.ArgumentParser(
+        prog="python -m lu_machinery.dispatcher.write_boundary call",
+        description="Send one request to the write boundary's host broker (inside a dispatched write worker).\n"
+                    "The payload is one JSON object on stdin; docs/runbooks/write-worker-boundary.md lists each verb's "
+                    "fields.",
+        epilog="Example:\n  echo '{\"head\": \"<40-hex>\"}' | python -m lu_machinery.dispatcher.write_boundary call push\n"
+               "Outputs: the host step's stdout and stderr.\n"
+               "Exit codes: the host step's status; 2 when the broker refuses the request or no broker is present.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument("verb", choices=_BROKER_VERBS)
+    args = parser.parse_args(argv)
+    if broker_path() is None:
+        print("write boundary broker: not inside a write boundary", file=sys.stderr)
+        return 2
+    try:
+        payload = json.loads(sys.stdin.read() or "{}")
+    except ValueError:
+        payload = None
+    if not isinstance(payload, dict):
+        print("write boundary broker: the payload is not one JSON object", file=sys.stderr)
+        return 2
+    reply = broker_call(args.verb, payload)
+    sys.stdout.write(str(reply.get("stdout", "")))
+    sys.stderr.write(str(reply.get("stderr", "")))
+    code = reply.get("returncode")
+    return code if type(code) is int and 0 <= code < 256 else 1
+
+
 def main(argv: list[str]) -> int:
+    if argv[:1] == ["call"]:
+        return call_main(argv[1:])
     parser = argparse.ArgumentParser(
         prog="lu_machinery.dispatcher.write_boundary",
         description="Run one dispatched write worker inside the dispatcher's bubblewrap boundary (#423).\n"
@@ -1033,3 +1312,7 @@ def main(argv: list[str]) -> int:
             receipt["finished_at"] = _now()
             _write_receipt(Path(args.receipt), receipt)
             signal.signal(signal.SIGTERM, previous)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv[1:]))
