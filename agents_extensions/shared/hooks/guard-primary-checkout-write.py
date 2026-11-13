@@ -245,18 +245,30 @@ def _protected_repo_roots(wc) -> tuple[Path, ...]:
     # A product may be a worktree of a different repository than shared state.
     # Its gitfile is inspected only after the mandatory authority is pinned.
     product = _protected_repo_anchor().resolve(strict=True)
-    try:
-        product_primary = wc.resolve_main_root(product)
-    except wc.NotAGitRepositoryError:
-        # A non-Git product snapshot still has the explicit primary authority.
-        return (primary,)
-    if wc.resolve_main_root_without_git(product_primary) != product_primary:
-        raise ValueError("product primary metadata is inconsistent")
-    return tuple(dict.fromkeys((primary, product_primary)))
+    roots = [primary]
+    for candidate in (product, *product.parents):
+        if not os.path.lexists(candidate / ".git"):
+            continue
+        # Keep every ancestor's authority: a newly inserted nearer repository
+        # must not hide the checkout that already protects this product.
+        product_primary = wc.resolve_main_root_without_git(candidate)
+        discovered = wc.resolve_git_worktree(candidate, [])
+        if discovered.worktree != candidate or discovered.common_dir != product_primary / ".git":
+            raise ValueError("product primary metadata is inconsistent")
+        roots.append(product_primary)
+    # Only a product with no Git metadata is a non-Git snapshot.
+    return tuple(dict.fromkeys(roots))
 
 
 def _evaluate_write(target: Path, wc, main_root: Path) -> object:
     """A target-selected checkout may add a denial, never replace the pinned one."""
+    product = _protected_repo_anchor().resolve(strict=True)
+    resolved = target.resolve()
+    for candidate in (product, *product.parents):
+        metadata = candidate / ".git"
+        if os.path.lexists(metadata):
+            if resolved == metadata or resolved in metadata.parents or metadata in resolved.parents:
+                return _UndecidableWrite("protected_product_metadata", "Product Git metadata must remain intact.")
     decision = wc.evaluate_write(target, cwd=main_root)
     if not decision.allowed:
         return decision
@@ -2369,6 +2381,22 @@ def _trap_coproc_script(segment: list[str]) -> str | None:
     return shlex.join(args)
 
 
+def _pattern_selects_command(segment: list[str], idx: int) -> bool:
+    """Whether a pattern in or before the command word can choose the program.
+
+    Leading assignment words are never pathname-expanded; every later word up to
+    the command word is, so its expansion can select a writer the parser never
+    classified. Only decided with a protected root, as the parser-only corpus
+    has no directory to expand against.
+    """
+    assignments = True
+    for word in segment[: idx + 1]:
+        assignments = assignments and bool(_ASSIGN_RE.match(word))
+        if not assignments and _expandable_word(word):
+            return True
+    return False
+
+
 def _writer_targets(
     segment: list[str],
     *,
@@ -2418,6 +2446,10 @@ def _writer_targets(
     if refused is not None:
         raise _UndecidableWrapper(refused)
     cmd, idx = _command_word(segment)
+    if main_root is not None and _pattern_selects_command(segment, idx):
+        unknown = ShellWord("pattern command")
+        unknown.decision_reason = "undecidable_glob_write_target"
+        targets.append(unknown)
     if cmd == "tar" and idx == 0 and tar_environment_fixed and _tar_lists_only(segment[1:]):
         pass  # List mode reads the archive and writes nothing; -x/-c/-r/-u/-A stay below.
     elif cmd in _LONG_TAIL_WRITERS:
@@ -2725,6 +2757,98 @@ def _segments_with_cwd(command: str, cwd: str | None, uv_env: object = _UV_DIR_I
         yield segment, command_cwd, effective_cwd
 
 
+# ``--name=`` is a literal prefix every expansion keeps: only the value varies.
+_LONG_OPTION_VALUE_RE = re.compile(r"--[A-Za-z0-9][A-Za-z0-9-]*=")
+
+
+# Writers whose operands take roles by position: a pattern in a mode, owner,
+# reference or source position can expand into further write operands.
+_POSITIONAL_WRITERS = _DESTINATION_WRITERS | {
+    "chmod", "chown", "chgrp", "touch", "truncate", "shred", "rm", "unlink", "rmdir", "mkdir", "tee", "link", "dd",
+}
+# Writers whose every operand after fixed options is a write target, and that
+# write nothing without one: a pattern's expansion count cannot move a write.
+_SAME_ROLE_WRITERS = frozenset(
+    {"touch", "rm", "unlink", "rmdir", "mkdir", "tee", "shred", "truncate", "chmod", "chown", "chgrp"}
+)
+# An expanded script word or argument list is shell code the parser never read.
+_PATTERN_SHELLS = frozenset({"sh", "bash", "zsh", "dash", "eval", "source", "."})
+_FIND_WRITE_ACTIONS = frozenset({"-delete", "-fprint", "-fprint0", "-fprintf", "-fls"})
+_FIND_TEMPLATES = frozenset({"-exec", "-execdir", "-ok", "-okdir"})
+
+
+def _pattern_changes_roles(segment: list[str], segment_targets: list[str]) -> bool:
+    """Whether a pattern word could change which operands a writer writes.
+
+    Expansion can add operands, and with ``nullglob`` remove one, so a later
+    literal can become the destination or a writer can fall back to an implicit
+    one, an output prefix or the working directory. The guard does not model
+    that per writer. A pattern word refuses in a
+    shell or ``eval`` and in any writer, except where it is itself a decided
+    write target of a writer whose operands all share that role.
+    """
+    redirects = _redirect_targets(segment)
+    argv_targets = [t for t in segment_targets if not any(t is r for r in redirects)]
+    words = _without_redirects(segment)
+    cmd, idx = _command_word(words)
+    patterns = [word for word in words[idx + 1 :] if _expandable_word(word)]
+    if not patterns:
+        return False
+    launched = [cmd]
+    if cmd in {"xargs", "parallel"}:
+        launched.append(_command_word(_xargs_template(segment))[0])
+    if cmd == "find":
+        launched.extend(
+            _command_word(words[idx + 2 + i :])[0] for i, word in enumerate(words[idx + 1 :]) if word in _FIND_TEMPLATES
+        )
+    if any(name in _PATTERN_SHELLS for name in launched):
+        return True
+    writer = (
+        bool(argv_targets)
+        or any(name in _POSITIONAL_WRITERS | _LONG_TAIL_WRITERS | _INPLACE_FIXERS for name in launched)
+        or (cmd == "find" and any(word in _FIND_WRITE_ACTIONS for word in words[idx + 1 :]))
+    )
+    if not writer:
+        return False
+    same_role = launched[-1] in _SAME_ROLE_WRITERS and (len(launched) == 1 or cmd in {"xargs", "parallel"})
+    return not (same_role and all(any(word is target for target in segment_targets) for word in patterns))
+
+
+def _option_capable_glob(segment: list[str], base: str | None, main_root: Path | None) -> bool:
+    """Whether a pattern word could expand into an option or unmodeled syntax.
+
+    Bash expands a pattern before the program parses its options, so an entry
+    named like an option can redirect a write. Quote removal has already
+    happened here, so quoted and unquoted patterns are treated alike. A word
+    that starts with a dash stays an option after expansion; a word that starts
+    with a pattern character becomes one only if its superset holds an entry
+    starting with a dash. Extended-glob syntax splits into separate tokens here
+    and is never modeled. Without a protected root (parser-only use) there is
+    no directory to inspect.
+    """
+    if getattr(segment, "next_op", None) == "(":
+        return True
+    words = _without_redirects(segment)
+    _, idx = _command_word(words)
+    for word in words[idx + 1 :]:
+        if not _expandable_word(word) or _LONG_OPTION_VALUE_RE.match(word):
+            continue
+        if word[:1] == "-":
+            return True
+        if word[:1] not in {"*", "?", "[", "{", "\\"} or main_root is None:
+            continue
+        if base is None:
+            return True
+        candidates = _shell_glob_candidates(word, base)
+        if candidates is None:
+            return True
+        start = _resolve(".", base, expand_user=False)
+        if any(candidate.relative_to(start).parts[:1] and candidate.relative_to(start).parts[0].startswith("-")
+               for candidate in candidates):
+            return True
+    return False
+
+
 def bash_write_targets(
     command: str,
     *,
@@ -2789,6 +2913,13 @@ def bash_write_targets(
                     template=True,
                 )
             )
+        launches_writer = _xargs_writer(_without_redirects(segment)) or _xargs_writer(template)
+        if (
+            main_root is not None and _pattern_changes_roles(segment, segment_targets)
+        ) or ((segment_targets or launches_writer) and _option_capable_glob(segment, shell_cwd, main_root)):
+            unknown = ShellWord("pattern operand")
+            unknown.decision_reason = "undecidable_glob_write_target"
+            segment_targets.append(unknown)
         for target in segment_targets:
             word = target if isinstance(target, ShellWord) else ShellWord(str(target))
             if (
@@ -3367,6 +3498,97 @@ def _resolve(path_str: str, cwd: str, *, expand_user: bool = True) -> Path:
     return path
 
 
+_GLOB_CHARS_RE = re.compile(r"[*?\[]")
+# A bracket is a pattern only when a closing bracket follows it; alone it is literal.
+_GLOB_RE = re.compile(r"[*?]|\[.*\]", re.DOTALL)
+# Each candidate costs a full containment decision; beyond this many the
+# pattern is refused rather than slowing every tool call.
+_GLOB_CANDIDATE_BUDGET = 64
+_GLOB_SCAN_BUDGET = 4096
+
+
+def _brace_capable(word: str) -> bool:
+    """Whether Bash brace expansion could apply: a brace with a comma or ``..``."""
+    return "{" in word and ("," in word or ".." in word)
+
+
+def _expandable_word(word: str) -> bool:
+    return bool(_GLOB_RE.search(word)) or _brace_capable(word)
+
+
+def _literal_edge_matches(edge: str, name: str) -> bool:
+    """Whether ``name`` can carry the literal pattern ``edge`` at the same end.
+
+    Quoting can only make a character more literal, so a character that is
+    literal in the guard's text is literal to Bash too. Case is ignored
+    (``nocaseglob``); a non-ASCII or backslash character ends the comparison.
+    """
+    if len(name) < len(edge):
+        return False
+    for want, have in zip(edge, name, strict=False):
+        if want == "\\" or not want.isascii() or not have.isascii():
+            return True
+        if want.lower() != have.lower():
+            return False
+    return True
+
+
+def _component_may_match(part: str, name: str) -> bool:
+    """A necessary condition for a Bash pattern component to select ``name``."""
+    first = _GLOB_CHARS_RE.search(part)
+    if first is None or _GLOB_RE.search(part) is None:
+        return name == part
+    last = max(part.rfind(char) for char in "*?[]")
+    prefix, suffix = part[: first.start()], part[last + 1 :]
+    if not _literal_edge_matches(prefix, name) or not _literal_edge_matches(suffix[::-1], name[::-1]):
+        return False
+    # A leading dot is matched only by the pattern's first character:
+    # explicitly for . and .., or by a wildcard when dotglob is set.
+    if name in {".", ".."}:
+        return part[:1] in {".", "[", "\\"}
+    return not name.startswith(".") or part[:1] in {".", "*", "?", "[", "\\"}
+
+
+def _shell_glob_candidates(word: str, base: str) -> list[Path] | None:
+    """A superset of the paths Bash can produce for one pattern word, or ``None``.
+
+    The guard does not reproduce Bash's matcher: quoting, escapes and glob
+    options all change which names a component selects. A component holding a
+    glob character stands for every directory entry, hidden ones included, that
+    shares its literal leading and trailing characters, plus the unmatched literal
+    name. Each candidate is then decided exactly as a literal path would be.
+    ``None`` means no bounded superset exists.
+    """
+    # Brace expansion can change a word's path structure and ``**`` descends
+    # without bound. Neither is evaluated; both refuse.
+    if _brace_capable(word) or "**" in word:
+        return None
+    path = Path(word)
+    candidates = [Path("/")] if path.is_absolute() else [_resolve(".", base, expand_user=False)]
+    scanned = 0
+    for part in path.parts[1:] if path.is_absolute() else path.parts:
+        following: list[Path] = []
+        for parent in candidates:
+            following.append(parent / part)
+            if _GLOB_RE.search(part) is None:
+                continue
+            try:
+                with os.scandir(parent) as entries:
+                    names = [".", "..", *(entry.name for entry in entries)]
+            except (NotADirectoryError, FileNotFoundError):
+                continue
+            except OSError:
+                return None
+            scanned += len(names)
+            if scanned > _GLOB_SCAN_BUDGET:
+                return None
+            following.extend(parent / name for name in names if _component_may_match(part, name))
+        candidates = list(dict.fromkeys(following))
+        if len(candidates) > _GLOB_CANDIDATE_BUDGET:
+            return None
+    return candidates
+
+
 def _final_component_matches(pattern: str, name: str) -> bool:
     """Match a shell final-component pattern, including brace alternatives."""
     for start, char in enumerate(pattern):
@@ -3395,18 +3617,33 @@ def _final_component_matches(pattern: str, name: str) -> bool:
     return (not name.startswith(".") or pattern.startswith(".")) and fnmatch.fnmatchcase(name, pattern)
 
 
-def _bash_path_decision(word: str, base: str, wc, main_root: Path) -> object:
+def _bash_path_decision(word: str, base: str, wc, main_root: Path, *, shell_glob: bool = False) -> object:
     """Containment decision for one expanded Bash path word.
 
     A word holding any unknown expansion is blocked outright: the unknown value
     may be absolute, empty or contain ``..``, so no literal prefix proves the
-    path stays out of the primary checkout.
+    path stays out of the primary checkout. ``shell_glob`` marks a word Bash
+    itself may expand (a shell write target); Git pathspecs keep the prefix rule.
     """
     if getattr(word, "unresolved_at", None) is not None:
         return _UnresolvedWrite()
     reason = getattr(word, "decision_reason", None)
     if reason is not None:
         return _UndecidableWrite(reason, "Use a literal target and a known working directory.")
+    if shell_glob and _expandable_word(word):
+        candidates = _shell_glob_candidates(word, getattr(word, "base", None) or base)
+        refusal = _UndecidableWrite(
+            "undecidable_glob_write_target",
+            "A pattern target is refused unless every entry it could name is outside the primary checkout. "
+            "Use literal paths.",
+        )
+        if candidates is None:
+            return refusal
+        for candidate in candidates:
+            decision = _evaluate_write(candidate, wc, main_root)
+            if not decision.allowed:
+                return refusal
+        return decision
     if re.search(r"[*?\[\]{}]", word):
         parts = Path(word).parts
         first = next(i for i, part in enumerate(parts) if re.search(r"[*?\[\]{}]", part))
@@ -3774,7 +4011,7 @@ def _main(payload: dict | None) -> int:
             if is_shell_tool(tool_name):
                 # Words were expanded from same-command assignments (#5404 /
                 # #8500); any unknown value blocks (_bash_path_decision).
-                decision = _bash_path_decision(raw, cwd, wc, decision_root)
+                decision = _bash_path_decision(raw, cwd, wc, decision_root, shell_glob=True)
             else:
                 target = _resolve(raw, cwd)
                 decision = _evaluate_write(target, wc, decision_root)
