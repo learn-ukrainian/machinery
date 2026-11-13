@@ -412,6 +412,61 @@ def test_subscriptions_view_is_cache_only_and_marks_missing_stale_unknown(usage_
     assert usage_files.probes == []
 
 
+def _fixture_now():
+    from datetime import UTC, datetime
+
+    return datetime(2030, 1, 1, 12, 0, tzinfo=UTC)
+
+
+def _pool_pace_at_fixture_time():
+    from lu_machinery.api import state_router
+
+    return state_router._pool_pace(_fixture_now())
+
+
+def test_routing_status_of_a_pool_running_out_before_reset_is_never_cool(usage_files):
+    """Defect class: routing calls a pool "cool" while the page shows it running out before its reset
+    (Codex b at a 25-point deficit), so neither dispatch nor the alert metric sees the short pool."""
+    from lu_machinery.api import state_router, subscriptions
+
+    cache = json.loads(usage_files.cache.read_text())
+    cache["pools"]["Codex b"] = json.loads(json.dumps(cache["pools"]["Claude b"]))  # the same deficit pace
+    usage_files.cache.write_text(json.dumps(cache))
+    pool_pace = _pool_pace_at_fixture_time()
+    assert pool_pace["source"] == "ok"
+    assert pool_pace["pools"]["codex:b"]["status"] == "hot"
+    assert pool_pace["pools"]["codex:b"]["runs_out_at"] == "2030-01-01T13:30:00Z"
+
+    warnings: list[str] = []
+    rows = {"codex:b": {"status": "cool"}, "claude": {"status": "cool", "interactive": {"status": "cool"}}}
+    state_router._apply_pool_pace(rows, pool_pace, warnings)
+    assert rows["codex:b"]["status"] == "hot"
+    assert rows["claude"]["status"] == "cool"  # Claude a lasts to its reset: its own status stands
+    assert any("codex:b runs out before its reset" in warning for warning in warnings)
+
+    collected = {(sample.labels["pool"], sample.labels["status"]): sample.value
+                 for family in subscriptions.PoolPaceCollector(
+                     lambda: subscriptions.subscriptions_snapshot(now=_fixture_now())).collect()
+                 if family.name == "monitor_subscription_pool_status" for sample in family.samples}
+    assert collected[("codex:b", "hot")] == 1.0 and collected[("codex:b", "cool")] == 0.0
+    assert collected[("claude:b", "hot")] == 1.0
+
+
+def test_routing_status_of_an_unseen_pool_is_unknown_not_cool(usage_files):
+    """Defect class: an account the reader cannot see (Codex b absent from the usage cache, Codex a with no
+    reading) keeps a "cool" routing status instead of "unknown"."""
+    from lu_machinery.api import state_router
+
+    pool_pace = _pool_pace_at_fixture_time()
+    assert pool_pace["pools"]["codex:b"]["status"] == "unknown"
+    assert pool_pace["pools"]["codex:a"]["status"] == "unknown"
+    rows = {"codex:b": {"status": "cool"}, "codex": {"status": "warm"}, "gemini": {"status": "near_cap"}}
+    state_router._apply_pool_pace(rows, pool_pace, [])
+    assert rows["codex:b"]["status"] == "unknown"
+    assert rows["codex"]["status"] == "unknown"
+    assert rows["gemini"]["status"] == "near_cap"  # a known worse status is never softened to unknown
+
+
 def test_subscriptions_cli_prints_every_account_without_the_api(usage_files):
     """Defect class: the console command depends on the HTTP API, or drops account rows when the Monitor is not
     running (Muse must print unknown while the cache pools, AGY included, print their numbers)."""

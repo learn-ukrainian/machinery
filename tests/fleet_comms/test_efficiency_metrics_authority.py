@@ -348,6 +348,13 @@ def test_authority_metrics_engine_parity(authority_db):
             "delivery_created_to_done": {"n": 1, "avg": 300.0, "min": 300.0, "max": 300.0},
         },
         "retired_endpoint_pending": {"gemini": 1},
+        "failure_lifetime": {"dead_letters": 1, "failed_deliveries": 0, "failed_jobs": 0},
+        "failure_windows": {
+            label: {
+                metric: {"total": 0, "by_recipient": {}}
+                for metric in ("dead_letters", "failed_deliveries", "failed_jobs")
+            } for label in ("24h", "7d")
+        },
     }
     backlog = collect_delivery_backlog_authority(plane_db)
     assert backlog["total"] == 2
@@ -536,3 +543,57 @@ def test_bottleneck_metadata_uses_authority_dialect(authority_db, tmp_path, sche
         "source": "github", "error_kind": "pr_lookup_failed", "pr_number": 1,
         "store": {"kind": "comms-plane", "reachable": True},
     }]
+
+
+def test_recent_failures_exclude_old_events_and_group_recipients(tmp_path: Path, monkeypatch) -> None:
+    from datetime import UTC, datetime
+    db = _seed_authority_plane(tmp_path / 'plane')
+    with sqlite3.connect(db) as conn:
+        conn.execute("UPDATE authority_deliveries SET state='failed', completed_at='2026-11-13T10:00:00Z' WHERE delivery_id='auth-d1'")
+        conn.execute("UPDATE authority_deliveries SET state='failed', completed_at='2026-11-10T10:00:00+00:00' WHERE delivery_id='auth-d2'")
+        conn.execute("UPDATE authority_deliveries SET state='failed', completed_at='2026-11-13T13:00:00Z' WHERE delivery_id='auth-d3'")
+        conn.execute("INSERT INTO authority_dead_letters VALUES ('new','auth-d1',NULL,'failed','2026-11-13T10:00:00Z')")
+        conn.execute("UPDATE authority_jobs SET state='failed', completed_at='2026-11-12T12:00:00Z'")
+    metrics = collect_efficiency_metrics_authority(db, now=datetime(2026, 11, 13, 12, tzinfo=UTC))
+    assert metrics['failure_windows']['24h'] == {
+        'dead_letters': {'total': 1, 'by_recipient': {'claude': 1}},
+        'failed_deliveries': {'total': 1, 'by_recipient': {'claude': 1}},
+        'failed_jobs': {'total': 1, 'by_recipient': {'claude': 1}},
+    }
+    assert metrics['failure_windows']['7d']['failed_deliveries'] == {'total': 2, 'by_recipient': {'claude': 1, 'codex': 1}}
+    assert metrics['failure_lifetime'] == {'dead_letters': 2, 'failed_deliveries': 3, 'failed_jobs': 1}
+
+    from fastapi.testclient import TestClient
+
+    from lu_machinery.api.main import create_app
+    from lu_machinery.api.monitor_context import fixture_context
+    from lu_machinery.api.product_contribution import ProductContribution
+
+    with sqlite3.connect(db) as conn:
+        conn.execute("UPDATE authority_deliveries SET recipient='private/session-identity' WHERE delivery_id='auth-d1'")
+    from lu_machinery.fleet_comms import efficiency_metrics
+
+    class FrozenDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return datetime(2026, 11, 13, 12, tzinfo=UTC)
+
+    monkeypatch.setattr(efficiency_metrics, "datetime", FrozenDatetime)
+    monkeypatch.setenv("FLEET_COMMS_ROOT", str(db.parent))
+    monkeypatch.setenv("FLEET_COMMS_MESSAGE_PLANE", "authority")
+    with TestClient(create_app(fixture_context(tmp_path), product=ProductContribution())) as client:
+        response = client.get('/api/comms/v1/metrics')
+        assert response.status_code == 200
+        public = response.json()
+        assert public['failure_lifetime'] == {'dead_letters': 2, 'failed_deliveries': 3, 'failed_jobs': 1}
+        assert 'private/session-identity' not in response.text
+        assert public['failure_windows']['24h']['dead_letters']['by_recipient'] == {'other': 1}
+        scrape = client.get('/metrics')
+        assert scrape.status_code == 200
+        assert 'lu_fleet_comms_dead_letters_recent{window="24h"} 1.0' in scrape.text
+        assert 'lu_fleet_comms_collection_success 1.0' in scrape.text
+        assert 'private/session-identity' not in scrape.text
+        monkeypatch.setenv("FLEET_COMMS_ROOT", str(tmp_path / 'absent'))
+        unavailable = client.get('/metrics').text
+        assert 'lu_fleet_comms_collection_success 0.0' in unavailable
+        assert 'lu_fleet_comms_dead_letters_recent{' not in unavailable

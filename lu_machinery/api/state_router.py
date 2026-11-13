@@ -42,7 +42,7 @@ from lu_machinery.research.registry import research_manifest_component
 from lu_machinery.telemetry.cost_report import CostRecord, load_cost_records
 
 from . import delegate_router as delegate_api
-from . import panel_values, state_helpers
+from . import panel_values, state_helpers, subscriptions
 from .claude_account_usage import ROW_REASON_CODES, revalidated_routing_budget_fields
 from .claude_account_usage import routing_budget_fields as claude_account_routing_fields
 from .codexbar_usage import (
@@ -725,6 +725,64 @@ def _status_from_weekly_used(
     if decision["uncovered"] is True:
         return "hot"
     return decision["status"]
+
+
+# The subscription pool each routing record reads (``subscriptions.POOL_IDS``). The ``claude`` lane is the
+# host's default account (a); account b has its own ``claude_accounts`` row and its own pool entry.
+_LANE_POOLS = {"claude": "claude:a", "codex": "codex:a", "codex:b": "codex:b", "grok": "grok", "cursor": "grok",
+               "gemini": "agy:gemini", "muse": "muse"}
+_POOL_SEVERITY = {"cool": 0, "warm": 1, "hot": 2, "near_cap": 3}
+# Statuses a pool verdict may replace: a reading-derived meter state, never a login or availability state.
+_POOL_OVERRIDABLE = frozenset({None, "unknown", "pre_launch", "cool", "warm", "hot"})
+
+
+def _pool_pace(current_time: datetime) -> dict[str, Any]:
+    """Each pool's run-out-before-reset verdict, from the snapshot the machinery page shows.
+
+    ``source`` is the usage cache's status; only an ``ok`` cache may change a lane's status, so a host
+    without the cache keeps its live CodexBar statuses and every pool reads ``unknown``.
+    """
+    try:
+        snapshot = subscriptions.subscriptions_snapshot(now=current_time)
+    except Exception as exc:  # the page reader must never break routing
+        logging.getLogger("state_router").warning("pool pace unreadable: %s", type(exc).__name__)
+        return {"source": "unreadable", "pools": subscriptions.pool_statuses({})}
+    return {"source": snapshot["sources"]["usage_cache"]["status"], "pools": subscriptions.pool_statuses(snapshot)}
+
+
+def _apply_pool_pace(records: Mapping[str, Any], pool_pace: Mapping[str, Any], warnings: list[str]) -> None:
+    """Make each record's status at least as severe as its pool's pace verdict.
+
+    A pool that runs out before its reset is ``hot`` (``near_cap`` once out), whatever covers it: a
+    saved reset is the operator's to spend. A pool the reader cannot see makes a ``cool`` or ``warm``
+    record ``unknown``. A pool that lasts leaves the record's own status.
+    """
+    if pool_pace.get("source") != "ok":
+        return
+    for lane, record in records.items():
+        pool = _LANE_POOLS.get(lane)
+        verdict = pool_pace["pools"].get(pool) if pool else None
+        if not isinstance(record, dict) or not isinstance(verdict, Mapping):
+            continue
+        record["pool_pace"] = {"pool": pool, **verdict}
+        current, wanted = record.get("status"), verdict["status"]
+        if wanted == "unknown":
+            new = "unknown" if current in {"cool", "warm"} else current
+        elif wanted in {"hot", "near_cap"} and current in _POOL_OVERRIDABLE:
+            new = wanted if _POOL_SEVERITY.get(str(current), -1) < _POOL_SEVERITY[wanted] else current
+        else:
+            new = current
+        if new == current:
+            continue
+        record["status"] = new
+        interactive = record.get("interactive")
+        if isinstance(interactive, dict):
+            interactive["status"] = new
+        if wanted == "unknown":
+            warnings.append(f"lane {lane}: pool {pool} pace unknown ({verdict['pace_reason']}) — status unknown, not {current}")
+        else:
+            when = f" at {verdict['runs_out_at']}" if verdict.get("runs_out_at") else ""
+            warnings.append(f"lane {lane}: pool {pool} runs out before its reset{when} — {new}, not {current}")
 
 
 def _overlay_notebook_lane_usage(
@@ -1586,6 +1644,10 @@ def _compute_dispatch_routing_budget(
             f"promo expires in {promo_days} days; +50% bonus capacity ends {promo_through.isoformat() if promo_through else ''}"
         )
 
+    # One source of truth with the machinery page: a pool that runs out before its reset is never cool.
+    pool_pace = _pool_pace(current_time)
+    _apply_pool_pace(agents, pool_pace, warnings)
+
     # Map health information to all subscription lanes in the agents dict
     for lane in SUBSCRIPTION_LANES:
         agents[lane]["health"] = health_records.health_for(lane)
@@ -1712,6 +1774,10 @@ def _compute_dispatch_routing_budget(
         account_a_reserve=reset_reserve,
     )
     missing_cost_records += b_missing
+    rec_warnings = rec.get("warnings")
+    _apply_pool_pace(
+        {"codex:b": codex_accounts["codex:b"]}, pool_pace, rec_warnings if isinstance(rec_warnings, list) else warnings
+    )
 
     return {
         "generated_at": _isoformat_z(current_time),
@@ -2291,7 +2357,7 @@ _ROUTING_NUMBERS = frozenset({
     "remaining_usd", "window_minutes", "window_s", "ok", "error", "rate_limited", "timeout", "other", "total",
     "count", "cooldown_s", "leftover_pct", "pace_delta_pct", "available_count", "remaining_resets",
     "plan_remaining_pct", "near_cap_remaining_pct", "rate_limited_count", "rate_limit_window_s",
-    "hours_to_natural_reset", "free_resets_available", "hold_hours", "account_remaining_usd",
+    "hours_to_natural_reset", "free_resets_available", "hold_hours", "account_remaining_usd", "runs_out_in_s",
 })
 _ROUTING_FLAGS = frozenset({
     "healthy", "eligible", "active", "promo_active", "stale", "will_last_to_reset", "deficit",
@@ -2304,14 +2370,14 @@ _ROUTING_FLAGS = frozenset({
 _ROUTING_TIMES = frozenset({
     "generated_at", "window_start", "starts_on", "resets_at", "weekly_resets_at", "fetched_at",
     "last_failure_at", "last_outcome_at", "last_rate_limited_at", "limit_reset", "observed_at", "updated",
-    "confirmed_at", "expires_at", "natural_reset_at", "credit_fetched_at", "rate_limits_checked_at",
+    "confirmed_at", "expires_at", "natural_reset_at", "credit_fetched_at", "rate_limits_checked_at", "runs_out_at",
 })
 _ROUTING_CONTAINERS = frozenset({
     "agents", "api_accounts", "codex_accounts", "in_flight", "diagnostics", "recommendation",
     "interactive", "agentic_pool", "health", "runtime", "codexbar", "windows", "provider_windows",
     "primary", "secondary", "tertiary", "weekly", "five_hour", "session5h", "auto", "api", "total", "session",
     "claude_accounts", "a", "b", "claude:a", "claude:b", "codex:a", "codex:b", "fleet_burn", "counts", "5m", "1h", "24h", "7d",
-    "credit", "routing", "pace_deficit", "reset_reserve", "evidence", "reset_advice", "reset_credits", "claude_usage", "claude_gpt_windows", "fable_weekly",
+    "credit", "routing", "pace_deficit", "pool_pace", "reset_reserve", "evidence", "reset_advice", "reset_credits", "claude_usage", "claude_gpt_windows", "fable_weekly",
 })
 _CREDIT_STATES = {
     credit_lane.NOT_CONFIGURED, credit_lane.POLICY_ERROR, credit_lane.PLAN_UNKNOWN, credit_lane.PLAN_HEALTHY,
@@ -2345,6 +2411,8 @@ _ROUTING_ENUMS = {
     "observation_freshness": {"fresh", "stale", "unknown"},
     "status_source": {"ledger_burn", "weekly_pace", "cursor_auto", "notebook-report"},
     "source": {"codexbar", "agent_runtime_jsonl", "notebook-report", "cursor_native", "provider", "computed"},
+    "pool": set(subscriptions.POOL_IDS.values()),
+    "pace_reason": subscriptions.POOL_PACE_REASONS,
 }
 
 

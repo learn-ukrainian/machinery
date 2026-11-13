@@ -323,6 +323,7 @@ tests/ci/test_component_shadow.py
 tests/ci/test_coverage_diff.py
 tests/ci/test_coverage_ref.py
 tests/ci/test_cursor_cloud_pytest_verify.py
+tests/ci/test_data_tier_in_place.py
 tests/ci/test_dependency_advisory_issue.py
 tests/ci/test_dispatch_xdist_cap.py
 tests/ci/test_flake_ledger.py

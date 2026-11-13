@@ -315,9 +315,16 @@ def artifact_path(group: str, rel: str, *, repo: Path | None = None) -> Path:
     if cache.get(key) != fingerprint:
         verify_file(path, entry, group=group, rel=rel)
         cache[key] = fingerprint
-        cache_path.parent.mkdir(parents=True, exist_ok=True)
-        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=cache_path.parent, delete=False) as target:
-            json.dump(cache, target, sort_keys=True)
-            temp = Path(target.name)
-        os.replace(temp, cache_path)
+        temp: Path | None = None
+        try:
+            cache_path.parent.mkdir(parents=True, exist_ok=True)
+            with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=cache_path.parent, delete=False) as target:
+                temp = Path(target.name)
+                json.dump(cache, target, sort_keys=True)
+            os.replace(temp, cache_path)
+        except OSError:
+            # The cache only saves rehashing. On a read-only store (the nightly data tier mounts the
+            # host data read-only) the file was verified by hash above and is returned all the same.
+            if temp is not None:
+                temp.unlink(missing_ok=True)
     return path

@@ -50,7 +50,7 @@ except ImportError:
 
 from lu_machinery.orchestration import issue_stream_audit as isa
 
-from . import config
+from . import config, subscriptions
 from . import delegate_router as delegate_api
 from . import runtime_router as runtime_api
 from . import state_router as state_api
@@ -58,6 +58,7 @@ from ._signal_log import install_signal_logging
 from .agent_monitor_router import router as agent_monitor_router
 from .cluster_router import router as cluster_router
 from .codexbar_usage import scheduler_status, start_periodic_refresh, stop_periodic_refresh
+from .comms_prometheus import CommsCollector
 from .comms_router import ensure_broker_db_ready
 from .comms_router import router as comms_router
 from .coordination_router import router as coordination_router
@@ -1791,8 +1792,10 @@ class PrometheusMetricsMiddleware:
 
     METRICS_PATH = "/metrics"
 
-    def __init__(self, app: ASGIApp) -> None:
+    def __init__(self, app: ASGIApp, context: MonitorContext | None = None) -> None:
         registry = CollectorRegistry()
+        if context is not None:
+            registry.register(CommsCollector(context))
         self.app = app
         self._requests = Counter(
             "monitor_http_requests_total",
@@ -1812,6 +1815,8 @@ class PrometheusMetricsMiddleware:
             labelnames=("method", "route", "status"),
             registry=registry,
         )
+        # Each subscription pool's run-out-before-reset status, read at scrape time for alerting.
+        registry.register(subscriptions.PoolPaceCollector())
         self._metrics_app = make_asgi_app(registry=registry, disable_compression=True)
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
@@ -1891,7 +1896,7 @@ def create_app(
     )
     factory_app.middleware("http")(resilience_middleware)
     factory_app.middleware("http")(opsec_path_sanitizer_middleware)
-    factory_app.add_middleware(PrometheusMetricsMiddleware)
+    factory_app.add_middleware(PrometheusMetricsMiddleware, context=context)
     factory_app.add_exception_handler(StarletteHTTPException, http_exception_handler)
     factory_app.add_exception_handler(RequestValidationError, request_validation_exception_handler)
     factory_app.add_exception_handler(Exception, global_exception_handler)

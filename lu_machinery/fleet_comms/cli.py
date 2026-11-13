@@ -40,6 +40,7 @@ from typing import Any
 if __package__ in (None, ""):  # run as a file: put the repository root on sys.path
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
+from lu_machinery.common.jsonl import jsonl_lines as split_jsonl_lines
 from lu_machinery.common.repo_root import MachineryConfigError
 from lu_machinery.control_plane.health import authority_collector_payload
 from lu_machinery.control_plane.storage import StoreId, assert_component_supported
@@ -55,6 +56,7 @@ from lu_machinery.fleet_comms.efficiency_metrics import (
     collect_stream_bottleneck_metrics,
     resolve_metrics_source,
 )
+from lu_machinery.fleet_comms.fleet_overview import OMITTED
 from lu_machinery.fleet_comms.github_pr_metrics import collect_github_pr_metrics
 from lu_machinery.fleet_comms.legacy_broker_report import build_legacy_broker_report
 from lu_machinery.fleet_comms.message_plane import default_plane_root, read_plane_status
@@ -116,8 +118,6 @@ def cmd_plane_status(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
-from lu_machinery.common.jsonl import jsonl_lines as split_jsonl_lines
-from lu_machinery.fleet_comms.fleet_overview import OMITTED
 
 
 def fleet_status_payload(
@@ -1017,6 +1017,19 @@ def cmd_channel_subscribe(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def cmd_channel_unsubscribe(args: argparse.Namespace) -> int:
+    """Remove existing future fan-out recipients, including retired identities."""
+    from lu_machinery.fleet_comms.authority import AuthorityService, AuthorityServiceError
+
+    try:
+        with AuthorityService(root=_authority_root(args)) as service:
+            channel = service.unsubscribe(args.name, args.recipient, idempotency_key=args.idempotency_key)
+    except AuthorityServiceError as exc:
+        raise FleetCommsCliError(str(exc)) from exc
+    sys.stdout.write(_json_dump(asdict(channel)))
+    return EXIT_OK
+
+
 def cmd_channel_context(args: argparse.Namespace) -> int:
     """Seal a context revision and atomically make it current for the channel."""
     from lu_machinery.fleet_comms.authority import AuthorityService, AuthorityServiceError
@@ -1668,6 +1681,17 @@ def build_parser() -> argparse.ArgumentParser:
     channel_subscribe.add_argument("--metadata-json")
     channel_subscribe.add_argument("--root")
     channel_subscribe.set_defaults(func=cmd_channel_subscribe)
+
+    channel_unsubscribe = channel_sub.add_parser(
+        "unsubscribe", help="Remove existing future fan-out recipients; retain existing deliveries",
+        description="Remove subscribers atomically with a durable retry receipt.\nUse for retired subscribers, never to consume or delete delivery history.",
+        epilog="Example: .venv/bin/python -m lu_machinery.fleet_comms channel unsubscribe cto old-seat --idempotency-key cleanup-1\nOutputs: channel JSON; subscription deletion and durable receipt. Exit codes: 0 success, 3 unknown channel/subscriber or key conflict. Related: channel subscribe.",
+    )
+    channel_unsubscribe.add_argument("name", help="Existing channel name, e.g. cto")
+    channel_unsubscribe.add_argument("recipient", nargs="+", help="Exact existing subscriber names, e.g. kimi")
+    channel_unsubscribe.add_argument("--idempotency-key", required=True, help="Unique removal key; reuse for retries, use a new key after re-subscription")
+    channel_unsubscribe.add_argument("--root", help="Plane storage root; default: canonical Fleet Comms root")
+    channel_unsubscribe.set_defaults(func=cmd_channel_unsubscribe)
 
     channel_context = channel_sub.add_parser(
         "context", help="Seal and select the current channel context revision"

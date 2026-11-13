@@ -1,7 +1,11 @@
-"""Run the audited data-gated tests in an isolated host worktree.
+"""Run the audited data-gated tests against the host's own data, read-only and in place.
 
 Use the nightly systemd timer after installation, or run a no-report subset to
-check host provisioning. This module never edits the primary checkout.
+check the host. The tests run in a fresh code-only checkout of ``origin/main``;
+the logical stores and the host data they read stay where they are and are
+mounted read-only into the test process (bubblewrap), never snapshotted or
+copied. The audited selection and known failures come from that checkout. This
+module never edits the primary checkout or its data.
 """
 
 from __future__ import annotations
@@ -16,20 +20,20 @@ import re
 import shutil
 import signal
 import socket
-import sqlite3
+import stat
 import subprocess
 import sys
-import tempfile
 import time
 import uuid
 import xml.etree.ElementTree as ET
 from collections import Counter
-from pathlib import Path
+from pathlib import Path, PurePosixPath
+from typing import cast, get_args
 
 import pytest
 
 from lu_machinery.ci._location import module_name
-from lu_machinery.common import github_client
+from lu_machinery.common import github_client, test_slots
 from lu_machinery.common.repo_root import (
     ProductRootError,
     main_checkout_root,
@@ -37,23 +41,37 @@ from lu_machinery.common.repo_root import (
     project_interpreter,
     state_root,
 )
-from lu_machinery.common.scratch import resolve_scratch_root
-from lu_machinery.lib.readonly_sqlite import open_readonly
 from lu_machinery.orchestration import pool_headroom, worktree_claims
 from lu_machinery.orchestration.dispatch_isolation import _parse_bytes, build_scope_argv
-from lu_machinery.storage.topology import StoreRefusal, resolve_store
+from lu_machinery.storage.topology import STORE_FILES, StoreBinding, StoreId, resolve_store, unavailable_store_path
 
-SELECTION = Path(__file__).with_name("data_tier_selection.json")
-BASELINE = Path(__file__).with_name("data_tier_known_failures.json")
+# The product checkout under test owns its audited selection and known failures.
+SELECTION = PurePosixPath("scripts/ci/data_tier_selection.json")
+BASELINE = PurePosixPath("scripts/ci/data_tier_known_failures.json")
 ISSUE_TITLE = "[infra][tests] Nightly data-tier failures"
 MIN_AVAILABLE_BYTES = 6 * 1024**3
 # Free memory the nightly pytest child needs in lu-dispatch.slice and in the
 # shared lu.slice pool, both measured without reclaimable file cache (#9975).
 DISPATCH_HEADROOM_BYTES = 4 * 1024**3
 RUN_BUDGET_SECONDS = 7 * 3600
-HYDRATION_BUDGET_SECONDS = 3600
+PYTEST_WORKERS = 2
 ISSUE_BODY_LIMIT = 60000
-HOST_DATABASES = ("sources.db", "vesum.db", "atlas.db")
+# Stores whose absence fails the run; every logical store in STORE_FILES is bound when present.
+REQUIRED_STORES = ("sources", "vesum")
+ATLAS = PurePosixPath("data/atlas.db")
+# Gitignored host data the audited tests read at repository-relative paths. Each is mounted
+# read-only from the primary checkout where the tested checkout lacks it; nothing is copied.
+# Open-model data is not test data and is never exposed (DATATIER-INPLACE-1113).
+EXPOSED_DATA = (
+    "data/ua-gec",
+    "data/textbook_chunks",
+    "data/literary_texts",
+    "data/external_articles",
+    "data/corpus_audit",
+    "data/lexicon",
+    "site/public/lexicon",
+    "site/src/data/lexicon-manifest.json",
+)
 ABSOLUTE_PATH = re.compile(r"(?<![A-Za-z0-9])/(?!/)[^\s\]\[),:;]+")
 NETWORK_ADDRESS = re.compile(r"https?://[^\s\]\[),:;]+|(?<!\d)(?:\d{1,3}\.){3}\d{1,3}(?!\d)")
 
@@ -121,14 +139,55 @@ def primary_checkout() -> Path:
     return primary
 
 
-def load_selection() -> dict:
-    selection = json.loads(SELECTION.read_text(encoding="utf-8"))
-    ids = selection["nodeids"]
-    if selection["schema"] != 1 or len(ids) != selection["class_c_merge_group"] or len(ids) != len(set(ids)):
+def _product_json(checkout: Path, relative: PurePosixPath) -> tuple[dict, str]:
+    """Read one product-owned runner input from the tested checkout; never a packaged fallback."""
+    try:
+        raw = (checkout / relative).read_bytes()
+    except FileNotFoundError as error:
+        raise DataTierError(f"tested checkout has no {relative}") from error
+    try:
+        value = json.loads(raw)
+    except ValueError as error:
+        raise DataTierError(f"{relative} in the tested checkout is not valid JSON") from error
+    if not isinstance(value, dict):
+        raise DataTierError(f"{relative} in the tested checkout is not a JSON object")
+    return value, hashlib.sha256(raw).hexdigest()
+
+
+def load_selection(checkout: Path, expected_sha256: str | None = None) -> tuple[dict, str]:
+    """The audited selection from the tested checkout and its digest.
+
+    The pytest child passes the digest the parent validated, so both use the same bytes.
+    """
+    selection, digest = _product_json(checkout, SELECTION)
+    if expected_sha256 is not None and digest != expected_sha256:
+        raise DataTierError(f"{SELECTION} changed after the runner validated it")
+    try:
+        ids, files = selection["nodeids"], selection["files"]
+        compatible = (
+            selection["schema"] == 1
+            and isinstance(ids, list)
+            and isinstance(files, list)
+            and len(ids) == selection["class_c_merge_group"]
+            and len(ids) == len(set(ids))
+        )
+    except (KeyError, TypeError) as error:
+        raise DataTierError(f"{SELECTION} lacks a schema-1 field: {error}") from error
+    if not compatible:
         raise DataTierError("data-tier selection count or uniqueness differs from the audited class C")
-    if not all(path.startswith("tests/") and path.endswith(".py") for path in selection["files"]):
+    if not all(isinstance(path, str) and path.startswith("tests/") and path.endswith(".py") for path in files):
         raise DataTierError("data-tier selection contains an invalid test file")
-    return selection
+    return selection, digest
+
+
+def load_known_failures(checkout: Path) -> dict[str, int]:
+    baseline, _digest = _product_json(checkout, BASELINE)
+    known = baseline.get("known_failures")
+    if not isinstance(known, dict) or not all(
+        isinstance(key, str) and isinstance(value, int) for key, value in known.items()
+    ):
+        raise DataTierError(f"{BASELINE} has no known_failures map of node id to issue number")
+    return known
 
 
 def available_memory() -> int:
@@ -241,10 +300,11 @@ def discard_run_output(checkout: Path) -> dict[str, int]:
     """Delete the ignored and untracked files this run put in its own checkout (#12528).
 
     The checkout is created fresh from ``origin/main`` by :func:`make_test_worktree` and verified clean, so
-    every ignored or untracked file in it was written by this run: the Atlas snapshot, the provisioned host
-    files, hydrated artifacts and anything the tests wrote. That is the run's declared disposable output.
+    every ignored or untracked file in it was written by this run: the empty mount points of the read-only
+    host data and anything the tests wrote. It runs after the test namespace has exited, so the mount points
+    are empty here and the primary's data is never in reach. That is the run's declared disposable output.
     Left in place, the guarded remover would see an unrecorded checkout it cannot attribute and copy the
-    bytes (about 1.3 GB) into ``batch_state/preserved/`` every night. The test report, log and summary the
+    bytes into ``batch_state/preserved/`` every night. The test report, log and summary the
     run needs for diagnosis live in ``batch_state/data-tier/``, outside the checkout, and are kept.
     Returns the file count and byte total discarded, for the run summary.
     """
@@ -316,105 +376,135 @@ def make_test_worktree(primary: Path) -> Path:
     return path
 
 
-def snapshot_databases(primary: Path, checkout: Path, snapshots: Path, *, only: str | None) -> list[str]:
-    """Snapshot logical stores outside Git; retain the legacy Atlas location."""
-    names = ("sources.db", "vesum.db") if only else HOST_DATABASES
-    missing = []
-    for name in names:
-        if name == "atlas.db":
-            source = primary / "data" / name
-            if not source.is_file():
-                missing.append(name)
-                continue
+def _file_generation(path: Path) -> dict[str, object]:
+    """Identify a store file without its location: its name, size and modification time."""
+    info = path.stat()
+    return {
+        "file": path.name,
+        "size": info.st_size,
+        "modified": dt.datetime.fromtimestamp(info.st_mtime, dt.UTC).isoformat(timespec="seconds"),
+    }
+
+
+def bind_stores(primary: Path) -> tuple[dict[str, str], list[Path], dict[str, object], list[str]]:
+    """Bind each logical store in place through the storage contract.
+
+    Returns the store environment, the store directories to mount read-only, the data
+    generation used and the missing required stores. Each override names the resolved file,
+    so the whole run reads one Sources generation even if the selector switches meanwhile;
+    a missing store is bound to the refused placeholder, never to another location.
+    """
+    environment: dict[str, str] = {}
+    directories: list[Path] = []
+    generation: dict[str, object] = {}
+    missing: list[str] = []
+    for store in get_args(StoreId):
+        filename, key = STORE_FILES[store]
+        binding = resolve_store(store, primary)
+        if isinstance(binding, StoreBinding):
+            environment[key] = str(binding.path)
+            directories.append(binding.path.parent)
+            generation[store] = _file_generation(binding.path)
         else:
-            binding = resolve_store(name.removesuffix(".db"), primary)
-            if isinstance(binding, StoreRefusal):
-                missing.append(name)
-                continue
-            source = binding.path
-        target_dir = checkout / "data" if name == "atlas.db" else snapshots
-        target_dir.mkdir(parents=True, exist_ok=True)
-        target = target_dir / name
-        # SQLite's online backup gives a consistent snapshot even if ingestion
-        # has left a WAL beside the primary database. The source is read-only.
-        # One step (pages=-1), because a stepwise backup restarts from the start
-        # whenever another connection writes the source between steps, which can
-        # loop forever on a large, actively written database.
-        with (
-            contextlib.closing(open_readonly(source, timeout=30)) as reader,
-            contextlib.closing(sqlite3.connect(target)) as writer,
-        ):
-            reader.backup(writer, pages=-1)
-    return missing
+            environment[key] = str(unavailable_store_path(store))
+            generation[store] = f"missing: {binding.reason}"
+            if store in REQUIRED_STORES:
+                missing.append(filename)
+    atlas = primary / ATLAS
+    if atlas.is_file() and not atlas.is_symlink():
+        generation["atlas"] = _file_generation(atlas)
+    else:
+        generation["atlas"] = "missing"
+        missing.append(ATLAS.name)
+    return environment, directories, generation, missing
 
 
-# Provision content only. A nested repository's metadata (.git) would make the
-# copy a second clone with untracked files and a local-only branch, which the
-# worktree-removal guard rightly refuses to discard, so the nightly checkout
-# could never be cleaned up.
-PROVISION_SKIPPED_PARTS = frozenset({".git"})
+def exposed_data(primary: Path, checkout: Path) -> list[tuple[Path, Path]]:
+    """Primary data to mount read-only into the checkout, as (source, target) pairs.
+
+    A path the tested checkout already has (tracked at its commit) is left alone; a
+    directory both have is descended so only what the checkout lacks is mounted.
+    """
+    mounts: list[tuple[Path, Path]] = []
+
+    def expose(relative: PurePosixPath) -> None:
+        source, target = primary / relative, checkout / relative
+        if source.is_symlink() or not source.exists():
+            return
+        if not target.exists() and not target.is_symlink():
+            mounts.append((source, target))
+        elif source.is_dir() and target.is_dir() and not target.is_symlink():
+            for child in sorted(source.iterdir()):
+                expose(relative / child.name)
+
+    for relative in EXPOSED_DATA:
+        expose(PurePosixPath(relative))
+    return mounts
 
 
-# Single gitignored files the audited tests read from the checkout. The Atlas release manifest is
-# restored from its pinned release asset on the host; the conformance test refuses to run without it
-# (#9981 turned its skip into a failure) and checks its hash against the committed pointer itself.
-PROVISIONED_HOST_FILES = ("site/src/data/lexicon-manifest.json",)
+def link_atlas(primary: Path, checkout: Path) -> None:
+    """Expose Atlas at its legacy repository-relative path as a link to the host file.
+
+    SQLite follows the link and names the WAL and shared-memory sidecars after the host
+    file, so readers use the live sidecars in the read-only host directory as the host's
+    own writers create and remove them. Separately mounted sidecars would pin old inodes.
+    """
+    source, target = primary / ATLAS, checkout / ATLAS
+    if source.is_file() and not source.is_symlink() and not target.exists() and not target.is_symlink():
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.symlink_to(source)
 
 
-def provision_host_files(primary: Path, checkout: Path) -> None:
-    for relative in PROVISIONED_HOST_FILES:
-        source = primary / relative
-        destination = checkout / relative
-        if source.is_file() and not source.is_symlink() and not destination.exists():
-            destination.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(source, destination)
-    for relative in (
-        "data/ua-gec",
-        "data/literary_texts",
-        "data/external_articles",
-        "site/public/lexicon",
-    ):
-        source = primary / relative
-        target = checkout / relative
-        if not source.is_dir():
-            continue
-        for file in source.rglob("*"):
-            if not file.is_file() or file.is_symlink():
-                continue
-            if PROVISION_SKIPPED_PARTS.intersection(file.relative_to(source).parts):
-                continue
-            destination = target / file.relative_to(source)
-            if not destination.exists():
-                destination.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(file, destination)
+# Host paths that hold same-user control endpoints: the user and system D-Bus, the systemd
+# managers' private sockets and other runtime sockets under /run, and terminal multiplexer
+# and agent sockets under /tmp. A read-only mount does not stop a connect() to a socket, so
+# each is replaced by an empty private tmpfs in the namespace, which is also its only /tmp.
+HIDDEN_ROOTS = (Path("/run"), Path("/tmp"))
+CHILD_TEMP = Path("/tmp")
+CHILD_SCRATCH_ROOT = Path("/tmp/lu")
 
 
-def hydrate(checkout: Path, groups: list[str], project_python: Path) -> dict[str, str]:
-    failures = {}
-    deadline = time.monotonic() + HYDRATION_BUDGET_SECONDS
-    for group in groups:
-        remaining = int(deadline - time.monotonic())
-        if remaining <= 0:
-            failures[group] = "hydration budget exhausted"
-            continue
-        try:
-            # The project interpreter, -I and the fixed module are an argv list; no shell runs.
-            result = subprocess.run(  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit
-                # -I: the checkout cwd is where files land, not an import path.
-                [str(project_python), "-I", "-m", "lu_machinery.storage.artifacts", "hydrate", "--group", group],
-                cwd=checkout,
-                capture_output=True,
-                text=True,
-                check=False,
-                timeout=min(1800, remaining),
-            )
-        except subprocess.TimeoutExpired:
-            failures[group] = "hydration timed out"
-            continue
-        if result.returncode:
-            detail = (result.stderr or result.stdout).strip().splitlines()
-            failures[group] = safe_text(detail[-1] if detail else f"hydrate exited {result.returncode}")
-    return failures
+def read_only_namespace(read_only: list[Path], mounts: list[tuple[Path, Path]], writable: list[Path]) -> list[str]:
+    """bubblewrap argv prefix: the whole host read-only, writable only where the run writes.
+
+    The kernel enforces this for the pytest child and every process it starts; an environment
+    override alone would leave the stores writable. Writes are allowed only in ``writable``
+    (the checkout and the child's output directory), ``/dev`` and the private tmpfs over each
+    of ``HIDDEN_ROOTS``, so nothing the parent or another host process reads later, such as
+    Git metadata or user configuration, can be planted. ``read_only`` paths are mounted again
+    read-only above that, including the checkout's ``.git`` link. The namespace has no network
+    (no loopback service or abstract socket of the host), and bubblewrap sets
+    no-new-privileges, so setuid helpers cannot write for it either.
+    """
+    binary = shutil.which("bwrap")
+    if binary is None:
+        raise DataTierError("bubblewrap (bwrap) is required to mount host data read-only")
+    argv = [binary, "--ro-bind", "/", "/", "--dev-bind", "/dev", "/dev", "--unshare-net"]
+    for hidden in HIDDEN_ROOTS:
+        argv.extend(["--tmpfs", str(hidden)])
+    for path in writable:
+        argv.extend(["--bind", str(path), str(path)])
+    roots: list[Path] = []
+    for path in sorted(set(read_only), key=lambda item: len(item.parts)):
+        if not any(path.is_relative_to(root) for root in roots):
+            roots.append(path)
+            argv.extend(["--ro-bind", str(path), str(path)])
+    for source, target in mounts:
+        argv.extend(["--ro-bind", str(source), str(target)])
+    return [*argv, "--die-with-parent", "--"]
+
+
+def require_read_only(paths: list[str]) -> None:
+    """Refuse to run tests unless the host data is read-only and host control endpoints are out of reach."""
+    if not paths:
+        raise DataTierError("no read-only host data paths were declared for the test process")
+    writable = [path for path in paths if not os.statvfs(path).f_flag & os.ST_RDONLY]
+    if writable:
+        raise DataTierError(f"{len(writable)} host data path(s) are writable inside the test namespace")
+    if any(any(root.iterdir()) for root in HIDDEN_ROOTS):
+        raise DataTierError("host runtime or temporary directories are visible inside the test namespace")
+    if [name for _index, name in socket.if_nameindex()] != ["lo"]:
+        raise DataTierError("the test namespace shares a network with the host")
 
 
 def bulk_status(checkout: Path, project_python: Path) -> tuple[str | None, str]:
@@ -486,7 +576,8 @@ class SelectionPlugin:
 
 
 def pytest_child(args: argparse.Namespace) -> int:
-    selection = load_selection()
+    require_read_only(args.read_only)
+    selection, _digest = load_selection(Path.cwd(), args.selection_sha256)
     plugin = SelectionPlugin(selection, args.only, args.bulk_reason, Path(args.collected))
     files = [args.only] if args.only else selection["files"]
     collection_status = pytest.main(
@@ -508,7 +599,7 @@ def pytest_child(args: argparse.Namespace) -> int:
                 "-m",
                 "pytest",
                 "-n",
-                "2",
+                str(PYTEST_WORKERS),
                 "--require-data",
                 "--timeout=180",
                 "--timeout-method=thread",
@@ -546,15 +637,31 @@ def pytest_child(args: argparse.Namespace) -> int:
     return status or (1 if plugin.collection_errors else 0)
 
 
-def sanitize_junit(path: Path) -> None:
-    tree = ET.parse(path)
+def read_child_output(path: Path) -> bytes | None:
+    """Read a file the sandboxed child wrote, never through a link it may have planted there."""
+    try:
+        descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    except FileNotFoundError:
+        return None
+    except OSError as error:
+        raise DataTierError(f"child output {path.name} is not a regular file") from error
+    with os.fdopen(descriptor, "rb") as stream:
+        if not stat.S_ISREG(os.fstat(stream.fileno()).st_mode):
+            raise DataTierError(f"child output {path.name} is not a regular file")
+        return stream.read()
+
+
+def sanitize_junit(data: bytes, target: Path) -> None:
+    """Write the child's JUnit, without host paths, to a new file the child could not reach."""
+    tree = ET.ElementTree(ET.fromstring(data))
     for element in tree.iter():
         element.attrib.update({key: safe_text(value) for key, value in element.attrib.items()})
         if element.text:
             element.text = safe_text(element.text)
         if element.tail:
             element.tail = safe_text(element.tail)
-    tree.write(path, encoding="utf-8", xml_declaration=True)
+    with target.open("xb") as stream:
+        tree.write(stream, encoding="utf-8", xml_declaration=True)
 
 
 def junit_summary(path: Path) -> dict:
@@ -610,10 +717,6 @@ def issue_body(summary: dict, baseline: dict[str, int]) -> str:
     ]
     lines.extend(["", f"Runner errors ({len(summary.get('runner_errors', []))}):"])
     lines.extend(f"- {safe_text(reason)}" for reason in summary.get("runner_errors", []))
-    lines.extend(["", f"Hydration errors ({len(summary.get('hydration_errors', {}))}):"])
-    lines.extend(
-        f"- {safe_text(group)}: {safe_text(reason)}" for group, reason in summary.get("hydration_errors", {}).items()
-    )
     lines.extend(["", f"Missing databases ({len(summary.get('missing_databases', []))}):"])
     lines.extend(f"- {safe_text(name)}" for name in summary.get("missing_databases", []))
     lines.extend(["", f"Failing tests ({len(summary['failing_tests'])} total):"])
@@ -638,7 +741,6 @@ def run_failed(summary: dict) -> bool:
         summary["failed"]
         or summary.get("pytest_exit")
         or summary.get("runner_errors")
-        or summary.get("hydration_errors")
         or summary.get("missing_databases")
     )
 
@@ -719,18 +821,14 @@ def run(args: argparse.Namespace) -> int:
         "failing_tests": [],
         "skip_reasons": {},
         "runner_errors": [],
-        "hydration_errors": {},
         "missing_databases": [],
+        "data_generation": {},
     }
-    baseline = {}
-    primary = checkout = output_dir = log = scope_unit = None
-    snapshot_dir = None
+    baseline: dict[str, int] = {}
+    primary = checkout = output_dir = child_dir = log = scope_unit = None
+    slots: test_slots.Hold | None = None
     scope_may_exist = False
     try:
-        baseline = json.loads(BASELINE.read_text(encoding="utf-8"))["known_failures"]
-        selection = load_selection()
-        if args.only and args.only not in selection["files"]:
-            raise DataTierError("--only must name a file in the audited selection")
         if args.only and not args.no_report:
             raise DataTierError("a subset requires --no-report")
         primary = primary_checkout()
@@ -739,6 +837,10 @@ def run(args: argparse.Namespace) -> int:
         junit = output_dir / f"{run_key}.junit.xml"
         collected = output_dir / f"{run_key}.collected.json"
         log = output_dir / f"{run_key}.log"
+        # The only host directory the child may write besides its checkout; the parent adopts
+        # its files without following links and removes it.
+        child_dir = output_dir / f"{run_key}.child"
+        child_dir.mkdir(mode=0o700)
         require_memory()
         try:
             project_python = project_interpreter(primary)
@@ -749,18 +851,15 @@ def run(args: argparse.Namespace) -> int:
         prune_stale_worktrees(primary)
         checkout = make_test_worktree(primary)
         summary["main_sha"] = command(["git", "rev-parse", "HEAD"], cwd=checkout).stdout.strip()
-        scratch_root = resolve_scratch_root().resolve()
-        if any((parent / ".git").exists() for parent in (scratch_root, *scratch_root.parents)):
-            raise DataTierError("runner scratch root must be outside any Git checkout")
-        scratch_root.mkdir(parents=True, exist_ok=True)
-        snapshot_dir = Path(tempfile.mkdtemp(prefix="lu-data-tier-", dir=scratch_root))
-        snapshots = snapshot_dir
-        summary["missing_databases"] = snapshot_databases(primary, checkout, snapshots, only=args.only)
-        if not args.only:
-            provision_host_files(primary, checkout)
-        summary["hydration_errors"] = (
-            hydrate(checkout, selection["artifact_groups"], project_python) if not args.only else {}
-        )
+        baseline = load_known_failures(checkout)
+        selection, selection_sha256 = load_selection(checkout)
+        summary["selection_sha256"] = selection_sha256
+        if args.only and args.only not in selection["files"]:
+            raise DataTierError("--only must name a file in the audited selection")
+        store_environment, store_directories, generation, missing = bind_stores(primary)
+        summary["data_generation"], summary["missing_databases"] = generation, missing
+        mounts = exposed_data(primary, checkout)
+        link_atlas(primary, checkout)
         bulk_root, bulk_reason = bulk_status(checkout, project_python)
         summary["bulk_status"] = "available" if bulk_root else f"unavailable: {safe_text(bulk_reason)}"
         require_memory()
@@ -772,24 +871,43 @@ def run(args: argparse.Namespace) -> int:
             "lu_machinery.ci.data_tier",
             "pytest-child",
             "--junit",
-            str(junit),
+            str(child_dir / "junit.xml"),
             "--collected",
-            str(collected),
+            str(child_dir / "collected.json"),
         ]
         if args.only:
             child.extend(["--only", args.only])
         if not bulk_root:
             child.extend(["--bulk-reason", bulk_reason])
+        # The stores, the primary data directory, the bulk root and every mounted data path are
+        # read-only for the child and everything it starts; its outputs must lie outside them.
+        read_only = [*store_directories, primary / "data", *(source for source, _target in mounts)]
+        if bulk_root:
+            read_only.append(Path(bulk_root))
+        if any(path.is_relative_to(root) for path in (output_dir, checkout) for root in [*read_only, *HIDDEN_ROOTS]):
+            raise DataTierError("run outputs must lie outside the read-only host data and the hidden roots")
+        # The checkout's Git link stays read-only: the parent runs Git in the checkout afterwards.
+        read_only.append(checkout / ".git")
+        child.extend(["--selection-sha256", selection_sha256])
+        verified = [Path("/"), primary, output_dir, *read_only, *(target for _source, target in mounts)]
+        for path in verified:
+            child.extend(["--read-only", str(path)])
+        namespace = read_only_namespace(read_only, mounts, [checkout, child_dir])
+        # The namespace shows the slot pool's root-owned ancestors under an unmapped owner, so the child
+        # cannot take test slots itself: this process holds its workers' slots for the run instead.
+        if test_slots.enabled():
+            slots = test_slots.acquire(PYTEST_WORKERS, kind="pytest", task_id=f"data-tier-{run_key}")
         remaining = int(deadline - time.monotonic())
         if remaining <= 0:
             raise DataTierError("whole-run budget exhausted before pytest")
         scope_unit = f"lu-data-tier-{run_key}.scope"
-        scope = build_scope_argv(["nice", "-n", "10", *child], unit=scope_unit)
+        scope = build_scope_argv(["nice", "-n", "10", *namespace, *child], unit=scope_unit)
         environment = os.environ.copy()
-        # Bind even missing snapshots explicitly: never fall back to live stores.
-        for name in HOST_DATABASES[:2]:
-            store = name.removesuffix(".db").upper()
-            environment[f"LU_{store}_DB"] = str(snapshots / name)
+        environment[test_slots.ENABLE_ENV] = "off"
+        environment["TMPDIR"] = str(CHILD_TEMP)
+        environment["LU_SCRATCH_ROOT"] = str(CHILD_SCRATCH_ROOT)
+        # Every logical store is named explicitly, a missing one by its refused placeholder.
+        environment.update(store_environment)
         if bulk_root:
             environment["LU_BULK_ROOT"] = bulk_root
         else:
@@ -798,16 +916,21 @@ def run(args: argparse.Namespace) -> int:
             scope_may_exist = True
             pytest_exit = run_process_group(scope, cwd=checkout, env=environment, stdout=stream, timeout=remaining)
         summary["pytest_exit"] = pytest_exit
-        if not junit.exists():
+        junit_data = read_child_output(child_dir / "junit.xml")
+        if junit_data is None:
             raise DataTierError(f"pytest produced no JUnit (exit {pytest_exit}); inspect local run log")
-        sanitize_junit(junit)
+        sanitize_junit(junit_data, junit)
         summary.update(junit_summary(junit))
+        collected_data = read_child_output(child_dir / "collected.json")
+        if collected_data is not None:
+            with collected.open("xb") as receipt:
+                receipt.write(collected_data)
         summary.update(
             {
                 "run_key": run_key,
                 "pytest_exit": pytest_exit,
                 "selection_cases": selection["class_c_merge_group"],
-                "collected": len(json.loads(collected.read_text())) if collected.exists() else 0,
+                "collected": len(json.loads(collected_data)) if collected_data is not None else 0,
             }
         )
         if pytest_exit and not summary["failed"]:
@@ -824,6 +947,8 @@ def run(args: argparse.Namespace) -> int:
             except Exception as error:
                 scope_stopped = False
                 summary["runner_errors"].append(f"scope cleanup failed: {safe_text(str(error))}")
+        if slots is not None and scope_stopped:
+            slots.release()
         if checkout and scope_stopped:
             try:
                 summary["discarded_output"] = discard_run_output(checkout)
@@ -834,11 +959,13 @@ def run(args: argparse.Namespace) -> int:
                 remove_test_worktree(primary, checkout)
             except Exception as error:
                 summary["runner_errors"].append(f"checkout cleanup failed: {safe_text(str(error))}")
-        if snapshot_dir and (scope_stopped or not scope_may_exist):
+        if child_dir and child_dir.exists() and scope_stopped:
             try:
-                shutil.rmtree(snapshot_dir)
+                shutil.rmtree(child_dir)
             except Exception as error:
-                summary["runner_errors"].append(f"snapshot cleanup failed: {safe_text(str(error))}")
+                cast(list[str], summary["runner_errors"]).append(
+                    f"child output cleanup failed: {safe_text(str(error))}"
+                )
         if log and log.exists():
             try:
                 log.write_text(safe_text(log.read_text(encoding="utf-8", errors="replace")), encoding="utf-8")
@@ -873,7 +1000,9 @@ def run(args: argparse.Namespace) -> int:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
-            "Run the audited class-C data-tier tests from a fresh origin/main worktree.\n"
+            "Run the audited class-C data-tier tests from a fresh origin/main worktree against the host's\n"
+            "stores and data, mounted read-only in place (bubblewrap); nothing is snapshotted or copied.\n"
+            "The selection and known failures are read from that checkout's scripts/ci/.\n"
             "Use for the nightly host run; use --only with --no-report for a bounded manual check."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -899,6 +1028,15 @@ def build_parser() -> argparse.ArgumentParser:
     child.add_argument("--collected", required=True, help="Selected collection receipt path.")
     child.add_argument("--only", help="Selected file path for a manual subset.")
     child.add_argument("--bulk-reason", help="Host bulk-root unavailability reason.")
+    child.add_argument(
+        "--selection-sha256", required=True, help="Digest of the selection the parent validated in this checkout."
+    )
+    child.add_argument(
+        "--read-only",
+        action="append",
+        default=[],
+        help="Host data path that must be read-only here (repeatable; default: none).",
+    )
     return parser
 
 
@@ -912,7 +1050,7 @@ def main(argv: list[str] | None = None) -> int:
     previous = {sig: signal.signal(sig, interrupted) for sig in (signal.SIGTERM, signal.SIGINT)}
     try:
         return pytest_child(args) if args.command == "pytest-child" else run(args)
-    except (DataTierError, OSError, subprocess.TimeoutExpired, sqlite3.Error) as error:
+    except (DataTierError, OSError, subprocess.TimeoutExpired) as error:
         print(f"data-tier: {safe_text(str(error))}", file=sys.stderr)
         return 1
     finally:

@@ -901,6 +901,12 @@ def _no_host_claude_default_account(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.fixture(autouse=True)
+def _no_host_usage_cache(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep routing and page tests off the host's usage cache; subscription tests point it at a fixture."""
+    monkeypatch.setenv("LU_USAGE_CACHE_FILE", "")
+
+
+@pytest.fixture(autouse=True)
 def driver_scope_detection(monkeypatch: pytest.MonkeyPatch) -> Callable[[], bool]:
     """Make fallback tests independent of the caller's cgroup (#9624).
 
