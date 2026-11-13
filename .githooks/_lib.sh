@@ -5,23 +5,13 @@ set -euo pipefail
 
 hook_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 worktree_root="$(git rev-parse --show-toplevel)"
-git_common_dir="$(git rev-parse --git-common-dir)"
-if [[ "$git_common_dir" != /* ]]; then
-  git_common_dir="$worktree_root/$git_common_dir"
-fi
-main_root="$(cd "$git_common_dir/.." && pwd -P)"
-
-source_root="$worktree_root"
-if [[ ! -f "$source_root/lu_machinery/lib/project_interpreter.sh" || ! -f "$source_root/.pre-commit-config.yaml" ]]; then
-  source_root="$main_root"
-fi
-
-# The one interpreter rule (R66, machinery #100 R79): lib/project_interpreter.sh selects,
-# for this worktree, LEARN_UKRAINIAN_PYTHON or the primary checkout's .venv, else refuses.
-# A product tree has no machinery checkout. The configured interpreter's installed
-# package then supplies the selector. A missing selector still refuses.
-project_interpreter="$source_root/lu_machinery/lib/project_interpreter.sh"
-if [[ ! -f "$project_interpreter" && -n "${LEARN_UKRAINIAN_PYTHON:-}" && -x "${LEARN_UKRAINIAN_PYTHON}" ]]; then
+# Validate hook context with the shared selector before accepting a primary
+# root or checking dispatched ownership.
+project_interpreter="$worktree_root/lu_machinery/lib/project_interpreter.sh"
+# A consumer without a source package uses its explicitly configured, absolute
+# interpreter only to locate the installed selector. Repository metadata never
+# selects that bootstrap interpreter.
+if [[ ! -f "$project_interpreter" && "${LEARN_UKRAINIAN_PYTHON:-}" = /* && -f "${LEARN_UKRAINIAN_PYTHON:-}" && -x "${LEARN_UKRAINIAN_PYTHON:-}" ]]; then
   installed_lib="$("${LEARN_UKRAINIAN_PYTHON}" -P -c 'import lu_machinery, pathlib; print(pathlib.Path(lu_machinery.__file__).resolve().parent / "lib" / "project_interpreter.sh")' 2>/dev/null || true)"
   case "$installed_lib" in
     /*) [[ -f "$installed_lib" ]] && project_interpreter="$installed_lib" ;;
@@ -33,6 +23,19 @@ if [[ ! -f "$project_interpreter" ]]; then
 fi
 # shellcheck source=lu_machinery/lib/project_interpreter.sh
 source "$project_interpreter"
+project_hook_context_resolve "$worktree_root" || {
+  echo "Git hook error: hook context unavailable; configure the primary-state anchor and interpreter." >&2
+  exit 127
+}
+main_root="$(project_primary_root_resolve "$worktree_root")" || {
+  echo "Git hook error: primary checkout unavailable." >&2
+  exit 127
+}
+
+source_root="$worktree_root"
+if [[ ! -f "$source_root/lu_machinery/lib/project_interpreter.sh" || ! -f "$source_root/.pre-commit-config.yaml" ]]; then
+  source_root="$main_root"
+fi
 
 run_project_python() {
   local python
