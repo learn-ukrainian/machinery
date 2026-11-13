@@ -583,14 +583,19 @@ function renderComms(metrics) {
   if (metrics.db_error || metrics.db_missing) return unknown("Fleet Comms is unavailable");
   const deliveries = metrics.deliveries || {}, jobs = metrics.jobs || {};
   const reachable = metrics.store?.reachable;
-  return table(["Measure", "Count"], [
-    [text("Store"), text(reachable ? `${metrics.source || "plane"} reachable` : "UNREACHABLE", reachable ? "ok" : "bad")],
-    [text("Deliveries queued"), text(deliveries.queued, "num")],
-    [text("Dead letters"), text(metrics.dead_letters, metrics.dead_letters ? "num warn" : "num")],
-    [text("Deliveries failed"), text(deliveries.failed, deliveries.failed ? "num warn" : "num")],
-    [text("Jobs queued"), text(jobs.queued, "num")],
-    [text("Jobs failed"), text(jobs.failed, jobs.failed ? "num warn" : "num")],
-  ]);
+  const windows = metrics.failure_windows || {}, lifetime = metrics.failure_lifetime || {};
+  const rows = [
+    [text("Store"), text(reachable ? `${metrics.source || "plane"} reachable` : "UNREACHABLE", reachable ? "ok" : "bad"), text(""), text(""), text("")],
+    [text("Deliveries queued"), text(deliveries.queued, "num"), text(""), text(""), text("")],
+    [text("Jobs queued"), text(jobs.queued, "num"), text(""), text(""), text("")],
+  ];
+  for (const [key, label] of [["dead_letters", "Dead letters"], ["failed_deliveries", "Deliveries failed"], ["failed_jobs", "Jobs failed"]]) {
+    const day = windows["24h"]?.[key], week = windows["7d"]?.[key];
+    rows.push([text(label), text(""), text(day?.total ?? "?", day?.total ? "num warn" : "num"), text(week?.total ?? "?", week?.total ? "num warn" : "num"), text(lifetime[key] ?? "?", "num")]);
+    const recipients = new Set([...Object.keys(day?.by_recipient || {}), ...Object.keys(week?.by_recipient || {})]);
+    for (const recipient of [...recipients].sort()) rows.push([text(`  ${recipient}`), text(""), text(day?.by_recipient?.[recipient] ?? 0, "num"), text(week?.by_recipient?.[recipient] ?? 0, "num"), text("")]);
+  }
+  return table(["Measure", "Current", "24 h", "7 d", "Lifetime"], rows);
 }
 
 // ---- Summary chips ----
@@ -630,7 +635,7 @@ function renderChips(latest) {
     const critical = (latest.alerts.alerts || []).some(alert => alert.severity === "critical");
     out.push(chip("#alerts", firing, "alerts firing", critical ? "bad" : firing ? "warn" : ""));
   } else if (latest.alerts) out.push(chip("#alerts", "?", "alerts unknown", "bad"));
-  if (latest.comms) out.push(chip("#comms", latest.comms.dead_letters ?? "?", "dead letters", latest.comms.dead_letters ? "warn" : ""));
+  if (latest.comms) out.push(chip("#comms", latest.comms.failure_windows?.["24h"]?.dead_letters?.total ?? "?", "dead letters / 24 h", latest.comms.failure_windows?.["24h"]?.dead_letters?.total ? "warn" : ""));
   return out.join("");
 }
 

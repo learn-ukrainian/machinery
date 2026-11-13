@@ -1616,3 +1616,29 @@ def test_supervisory_helpers_reject_ordinary_delivery(tmp_path: Path) -> None:
         with pytest.raises(AuthorityServiceError, match="not_supervisory_delivery"):
             service.supervisory_delivery_status(did)
         assert service.acknowledge_delivery(did, **args).state == "acknowledged"
+
+
+def test_unsubscribe_refuses_unknown_and_stops_future_fanout(tmp_path: Path, capsys) -> None:
+    root = _root(tmp_path)
+    with AuthorityService(root=root) as service:
+        service.create_channel('cleanup', subscribers=('codex', 'kimi'), legacy_import=True)
+        with pytest.raises(AuthorityServiceError, match='subscriber_not_found'):
+            service.unsubscribe('cleanup', ('missing', 'codex'), idempotency_key='bad')
+        assert service.get_channel('cleanup').subscribers == ('codex', 'kimi')
+        with pytest.raises(AuthorityServiceError, match='channel_not_found'):
+            service.unsubscribe('missing', ('codex',), idempotency_key='absent')
+    argv = ['channel', 'unsubscribe', 'cleanup', 'kimi', '--root', str(root), '--idempotency-key', 'remove-kimi']
+    assert main(argv) == 0
+    assert json.loads(capsys.readouterr().out)['subscribers'] == ['codex']
+    assert main(argv) == 0
+    capsys.readouterr()
+    with AuthorityService(root=root) as service:
+        service.publish_message(channel='cleanup', sender='claude', body='after removal', idempotency_key='after')
+        assert service._conn.execute('SELECT recipient FROM authority_deliveries').fetchall()[0]['recipient'] == 'codex'
+        assert service._conn.execute('SELECT COUNT(*) FROM authority_deliveries').fetchone()[0] == 1
+        assert service._conn.execute("SELECT COUNT(*) FROM authority_idempotency WHERE namespace = 'channel-unsubscribe'").fetchone()[0] == 1
+        service.subscribe('cleanup', ('grok',))
+        service.unsubscribe('cleanup', ('grok',), idempotency_key='remove-grok')
+        service.subscribe('cleanup', ('grok',))
+        service.unsubscribe('cleanup', ('grok',), idempotency_key='remove-grok')
+        assert 'grok' in service.get_channel('cleanup').subscribers
