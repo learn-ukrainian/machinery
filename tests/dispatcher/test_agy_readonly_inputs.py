@@ -392,8 +392,11 @@ def test_ro_bind_records_digest(tmp_path, monkeypatch, capsys, configured_roots)
         "worktree_base_sha": head,
         "options": {"inputs": json.dumps(bound, separators=(",", ":"), sort_keys=True)},
     }
-    _summary, count, error = agy_sandbox.verify(tmp_path / f"{task_id}.result", task_id, proof_record)
+    receipt["egress_overflow_count"] = 7
+    receipt_path.write_text(json.dumps(receipt))
+    summary, count, error = agy_sandbox.verify(tmp_path / f"{task_id}.result", task_id, proof_record)
     assert error is None and isinstance(count, int)
+    assert summary["egress_overflow_count"] == 7
     proof_record["options"]["inputs"] = json.dumps([{**bound[0], "sha256": "0" * 64}])
     _summary, count, error = agy_sandbox.verify(tmp_path / f"{task_id}.result", task_id, proof_record)
     assert count is None and error == "agy_read_only_boundary: input digest mismatch"

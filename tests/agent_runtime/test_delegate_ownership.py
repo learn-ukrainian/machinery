@@ -29,7 +29,7 @@ from tests.helpers.product_tree import configured_roots  # noqa: F401
 pytestmark = pytest.mark.usefixtures("configured_roots")
 
 
-def test_normalize_literal_subtree_unknown():
+def test_normalize_literal_subtree_unknown(capsys):
     assert normalize_claim("scripts/delegate.py").kind == ClaimKind.SUBTREE
     assert normalize_claim("scripts/").kind == ClaimKind.SUBTREE
     assert normalize_claim("scripts/**").kind == ClaimKind.SUBTREE
@@ -42,6 +42,14 @@ def test_normalize_literal_subtree_unknown():
     c = normalize_claim("scripts/./delegate.py")
     assert a.norm == b.norm == c.norm
     assert claims_conflict(a, b) and claims_conflict(a, c)
+    # PR274-F1: admission must reject a claim the delivery matcher cannot own.
+    from lu_machinery.dispatcher import cli
+
+    assert owned_path_matcher("scripts/../docs") is None
+    assert cli.main(["dispatch", "--agent", "codex", "--task-id", "invalid-claim", "--prompt", "test", "--model", "gpt-6.1-sol",
+                     "--owned-path", "scripts/../docs", "--dry-run"]) == 2
+    assert "invalid owned path" in capsys.readouterr().err
+
 
 
 def test_claims_conflict_matrix():

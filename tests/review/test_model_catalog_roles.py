@@ -443,19 +443,25 @@ def test_frozen_complete_reviewer_receipts(index, tmp_path, monkeypatch):
         if key in case:
             case[key] = frozenset(case[key])
     if "owned_paths" in case:
-        case["owned_paths"] = tuple(path.replace("scripts/agent_runtime/", "lu_machinery/agent_runtime/")
-                                    for path in case["owned_paths"])
+        case["owned_paths"] = tuple(case["owned_paths"])
+        from lu_machinery.review.security_paths import is_security_sensitive_change
+
+        product = case["owned_paths"]
+        machinery = tuple(path.replace("scripts/", "lu_machinery/", 1) for path in product)
+        assert is_security_sensitive_change(product) is is_security_sensitive_change(machinery) is True
+        assert is_security_sensitive_change([], product) is is_security_sensitive_change([], machinery) is True
+
     monkeypatch.setattr(credit_lane, "routing_facts", partial(credit_lane.routing_facts,
                         now=FIXED_NOW, usage_dir=tmp_path / "usage"))
     monkeypatch.setattr(credit_lane, "published_credit_relief", partial(credit_lane.published_credit_relief,
                         now=FIXED_NOW))
     actual = observed(lambda: resolve_reviewer(ResolverInputs(**case, claude_account=HOST_ACCOUNT)))
     res = approved_dispatcher_spelling(json.loads(encode(actual)))
-    # PR #141 removes Kimi from the enumerated execution seats; the rest stays frozen.
-    expected = json.loads(json.dumps(APPROVED_BASELINE["reviewer"][index]).replace(
-        "gemma, glm, grok, kimi, muse", "gemma, glm, grok, muse"
-    ).replace("scripts/agent_runtime/", "lu_machinery/agent_runtime/"))
-    trace = expected.get("value", {}).get("trace")
-    if trace:
-        trace[:] = [row for row in trace if row.get("name") != "muse"]
+    if case.get("owned_paths"):
+        twin = {**case, "owned_paths": machinery}
+        paired = observed(lambda: resolve_reviewer(ResolverInputs(**twin, claude_account=HOST_ACCOUNT)))
+        assert res == approved_dispatcher_spelling(json.loads(encode(paired)))
+        assert res["value"]["selected"] is None
+        assert "no eligible critical reviewer" in res["value"]["fail_closed_reason"]
+    expected = APPROVED_BASELINE["reviewer"][index]
     assert res == expected

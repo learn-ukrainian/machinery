@@ -95,6 +95,7 @@ def _stub_python(root: Path, owner: str, log: Path) -> None:
     python.parent.mkdir(parents=True, exist_ok=True)
     python.write_text(
         "#!/usr/bin/env bash\n"
+        f"printf '%s\\0' \"$@\" >> {str(log) + '.raw'!r}\n"
         'if [[ "${1:-}:${2:-}" == -I:-c && "${3:-}" == *"module bootstrap:"* ]]; then shift 5; fi\n'
         f"printf '%s %s\\n' {owner} \"$*\" >> {str(log)!r}\n"
         "exit 0\n",
@@ -244,6 +245,9 @@ def _assert_every_site_ran_the_primary(
     # The validated primary interpreter invokes the installed module (#161).
     joined = "\n".join(layout.lines())
     assert "-m lu_machinery.orchestration.thread_handoff" in joined
+    raw = Path(str(layout.log) + ".raw").read_bytes().decode().split("\0")
+    roots = [raw[index + 3:index + 5] for index, arg in enumerate(raw) if arg == "-I" and raw[index + 1] == "-c" and "module bootstrap:" in raw[index + 2]]
+    assert roots and all(pair == [str(result.args[-1]), "lu_machinery"] for pair in roots), roots
 
 
 def _assert_refused_before_any_site(layout: Layout, result: subprocess.CompletedProcess[str]) -> None:

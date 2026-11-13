@@ -363,7 +363,7 @@ def provision_workspace_guard(cwd: Path) -> None:
 
 
 def require_hook_config(cwd: Path, home: Path, agy_home: Path | None = None, *, install: bool = False) -> None:
-    """Refuse before provider subprocesses; install only absent worktree files.
+    """Refuse before provider subprocesses; provision missing dispatch registrations.
 
     Every existing candidate must validate, and at least one must contain the
     guard. Never repair an existing invalid candidate or write ordinary HOME.
@@ -377,8 +377,8 @@ def require_hook_config(cwd: Path, home: Path, agy_home: Path | None = None, *, 
     except (OSError, ValueError):
         raise AgyHookConfigError("hook_context_unavailable") from None
     try:
-        if install and not os.path.lexists(cwd / ".agents/hooks.json") and main_checkout_root(cwd) != cwd:
-            install_worktree_guard(cwd)
+        if install and main_checkout_root(cwd) != cwd:
+            require_dispatch_guards(cwd, agy_home or home)
         result = check_hook_config(hook_locations(cwd, home, agy_home))
     except (OSError, ValueError) as exc:
         if isinstance(exc, AgyHookConfigError):

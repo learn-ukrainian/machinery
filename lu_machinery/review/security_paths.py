@@ -19,7 +19,7 @@ from lu_machinery.review.target_resolution import TargetResolutionError, _run_gi
 # machinery package's directory name: the one Git, owned paths and the catalog use, taken
 # from this module's unresolved location, so a symlinked package keeps its checkout name
 # and a short import spelling (the package directory on ``sys.path``) cannot shorten it.
-# The literal ``scripts/`` entries are product-repository files and stay where they are.
+# Product ``scripts/`` and machinery package paths share the same classification.
 _MACHINERY = Path(os.path.abspath(__file__)).parents[1].name
 
 SECURITY_SENSITIVE_PATHS = (
@@ -74,17 +74,20 @@ def is_security_sensitive_change(changed_paths: Iterable[str], owned_paths: Iter
     def normalized(path: str) -> str:
         while path.startswith("./"):
             path = path[2:]
+        if path == "scripts" or path.startswith("scripts/"):
+            path = _MACHINERY + path.removeprefix("scripts")
         return path
 
+    patterns = tuple(normalized(pattern) for pattern in SECURITY_SENSITIVE_PATHS)
     changed = tuple(changed_paths)
     if changed:
-        return any(fnmatchcase(normalized(path), pattern) for path in changed for pattern in SECURITY_SENSITIVE_PATHS)
+        return any(fnmatchcase(normalized(path), pattern) for path in changed for pattern in patterns)
     for path in owned_paths:
         path = normalized(path).rstrip("/")
         if path in {"", "."}:
             return True
         directory = path + "/"
-        for pattern in SECURITY_SENSITIVE_PATHS:
+        for pattern in patterns:
             # The inventory's first wildcard is always '*'. fnmatch lets it
             # cross '/', so it can absorb any descendant prefix before the
             # remaining literal suffix (e.g. scripts/lib/nested/run.sh).

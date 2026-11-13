@@ -426,6 +426,7 @@ def verify(final_file: Path, task_id: str, record: dict) -> tuple[dict, int | No
         return {}, None, "agy_read_only_boundary: receipt invalid"
     summary = {key: receipt.get(key) for key in (
         "status", "reason", "wrapper_sha256", "argv_sha256", "bwrap", "input", "canary", "sources", "egress",
+        "egress_overflow_count",
     )}
     if receipt.get("status") != "ran":
         return summary, None, f"agy_read_only_boundary: refused: {receipt.get('reason') or 'unknown'}"

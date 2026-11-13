@@ -2226,7 +2226,7 @@ def test_missing_interpreter_refuses(push_sandbox):
 
 
 def test_hook_without_the_shim_interpreter_refuses(push_sandbox):
-    """Pinned without the shim (an inherited hooks path), the hook cannot scan and refuses."""
+    """An explicitly unavailable interpreter makes the inherited hook refuse before publication."""
     push_sandbox.commit("clean subject")
     before = push_sandbox.remote_refs()
     hooks = push_sandbox.root / "lu_machinery/opsec/push_hooks"

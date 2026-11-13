@@ -62,7 +62,7 @@ from lu_machinery.review.reviewer_scheduler import (
     selection_key,
 )
 from lu_machinery.review.security_paths import effective_review_risk, is_security_sensitive_change
-from lu_machinery.review.subject_seat import prepare_subject_exclusion, subject_exclusion_reason
+from lu_machinery.review.subject_seat import normalize_owned_path, prepare_subject_exclusion, subject_exclusion_reason
 
 CandidateStatus = Literal["eligible", "selected", "advisory_only", "excluded"]
 _SEALED_REVIEW_EXECUTABLE = "agent_runtime.runner:invoke_inter_agent"
@@ -1495,10 +1495,12 @@ def resolve_reviewer(
         )
 
     if inputs.owned_paths or inputs.subject_seats or inputs.subject_families:
+        package = Path(os.path.abspath(__file__)).parents[1].name
+        owned_paths = tuple(normalize_owned_path(path) for path in inputs.owned_paths)
         prepared = prepare_subject_exclusion(
             subject_seats=inputs.subject_seats,
             subject_families=inputs.subject_families,
-            owned_paths=inputs.owned_paths,
+            owned_paths=tuple(f"{package}/{path[8:]}" if path.startswith("scripts/") else path for path in owned_paths),
         )
         if prepared.fail_closed_reason:
             return resolution_type(

@@ -12504,7 +12504,7 @@
   },
   "tests/opsec/test_git_push_scan.py": {
    "disposition": "port-first",
-   "evidence": "machinery-only subject references; subjects scripts.opsec.git_push, scripts.opsec.prepublish, scripts/agent_runtime/shims (+6); pkg3 isolation-only failures 321; 135 of 135 test IDs lack a machinery v0.1.0 replacement",
+   "evidence": "machinery-only subject references; subjects scripts.opsec.git_push, scripts.opsec.prepublish, scripts/agent_runtime/shims (+6); pkg3 isolation-only failures 321; 135 of 135 test IDs lack a machinery v0.1.0 replacement; PORT-T5-F2: inherited-hook refusal explicitly supplies an unavailable interpreter under the PR #171 interpreter contract; PR #141 and PR #160 retire the old gate-once witness, so its replacement uses the live mechanical Haiku route and retains the single-gate assertion (PR #198 F1).",
    "lu_test_ids": 135,
    "missing_behaviours": [
     "test_absent_public_head_hint_is_only_for_history_older_than_the_tips",

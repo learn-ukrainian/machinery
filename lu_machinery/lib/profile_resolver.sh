@@ -1,14 +1,7 @@
 #!/usr/bin/env bash
 # Resolve a validated context profile into allow-listed project-private variables.
 
-# The machinery package's directory name in checkout paths, from this file's
-# unresolved location (design-v1 amendment 1). The context-profile resolver is
-# PROJECT_DIR's own copy under that package directory: the project checkout's
-# profiles decide whether a route is trusted, whichever checkout sourced this.
-_profile_resolver_lib_dir="$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)" || _profile_resolver_lib_dir=''
-PROFILE_RESOLVER_PACKAGE="${_profile_resolver_lib_dir%/*}"
-PROFILE_RESOLVER_PACKAGE="${PROFILE_RESOLVER_PACKAGE##*/}"
-unset _profile_resolver_lib_dir
+# Use the packaged sibling resolver and its profiles unless an explicit resolver is supplied.
 
 # Print ROLLOVER_MODE for <profile> from this checkout's contract resolver.
 # Fails when that resolver is the one that already omitted the field, cannot

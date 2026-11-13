@@ -434,7 +434,7 @@ def test_settlement_removes_a_read_only_cache_subtree(sandbox):
             _owner_rwx(tree)
 
 
-def test_settlement_leaves_an_empty_cache_inside_a_read_only_non_cache_parent(sandbox):
+def test_settlement_leaves_an_empty_cache_inside_a_read_only_non_cache_parent(sandbox, monkeypatch):
     """Defect class: empty cache directory and hourly residue under a read-only non-cache parent.
 
     A cache directory inside an owner-read-only parent that is not itself a cache cannot be
@@ -458,6 +458,17 @@ def test_settlement_leaves_an_empty_cache_inside_a_read_only_non_cache_parent(sa
     cache = parent / ".cache"
     try:
         parent.chmod(0o555)
+        # RV298-F1: a listed mount below the cache must retain its payload and parent mode.
+        with monkeypatch.context() as mounted:
+            mounted.setattr(worker.task_scratch, "mount_points", lambda: frozenset({str(payload)}))
+            fd = os.open(parent, os.O_RDONLY | os.O_DIRECTORY)
+            try:
+                with pytest.raises(worker.task_scratch.ContainmentError, match="mount point"):
+                    worker._remove_cache_entry(fd, ".cache")
+            finally:
+                os.close(fd)
+        assert (payload / "mod").read_text() == "module"
+        assert parent.stat().st_mode & 0o777 == 0o555
         sandbox.sweep()
         assert (payload / "mod").read_text() == "module"
         assert parent.stat().st_mode & 0o777 == 0o555

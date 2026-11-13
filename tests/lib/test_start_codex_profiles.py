@@ -88,6 +88,7 @@ def _prepare_repo(tmp_path: Path, *, separate_git_dir: bool = False) -> tuple[Pa
     _write_executable(
         venv_bin / "python",
         f"""#!/usr/bin/env bash
+printf '%s\\0' "$@" >> {str(primary / "python-argv.raw")!r}
 if [[ "${{1:-}}" == "-I" && "${{2:-}}" == "-c" && "${{3:-}}" == *"module bootstrap:"* ]]; then shift 5; fi
 if [[ ( "${{1:-}}" == */lu_machinery/orchestration/thread_handoff.py || "${{1:-}}:${{2:-}}" == -m:lu_machinery.orchestration.thread_handoff ) && "$*" == *" detect "* ]]; then
   if [[ -n "${{CODEX_LAUNCHER_TEST_ORDER:-}}" ]]; then
@@ -255,6 +256,11 @@ def _launch(
     if expect_success:
         assert result.returncode == 0, result.stderr
     assert before.stdout == after.stdout
+    argv_log = primary / "python-argv.raw"
+    raw = argv_log.read_bytes().decode().split("\0") if argv_log.exists() else []
+    roots = [raw[index + 3:index + 5] for index, arg in enumerate(raw) if arg == "-I" and raw[index + 1] == "-c" and "module bootstrap:" in raw[index + 2]]
+    if expect_success:
+        assert roots and all(pair == [str(linked), "lu_machinery"] for pair in roots), roots
     assert not (primary / ".worktrees" / "codex-interactive").exists()
 
     if not expect_success:

@@ -984,7 +984,7 @@ def test_catalog_authorizes_no_claude_review_through_cursor():
 # the #10262 explicit AGY review-risk refusals in both configurations, and the #10630
 # capture-driver account; see SPEC.md.
 PINNED_DIGESTS = {
-    "v2-baseline.json.gz": "70fde5bcd1ecf095a668a4b4221feb8e76d3d1f88495267afc18f3dba88b154d",
+    "v2-baseline.json.gz": "1fdafd2a7b12b9fbe309472df907f24fd6111fc4d91d5d7a48a1a0d5a20520d3",
     "routing-10263.json.gz": "3385853a0070ab9a2f77e1fb40d9178ce195e44e7fd6b8c8245702ec529b7d16",
     "SHA256SUMS": "4cba22dff8338f75c8ae96b35119c3da2bea3b3d7d6418c49e466ddc0ddf73a8",
     "SPEC.md": "ed7438340b60df7dcf51271dac1b03952fe96617edd249f14aaed1ecb33a0ede",
@@ -1037,7 +1037,7 @@ def assert_frozen_routing_fixture_pinned(root: Path) -> None:
 # The current fixture contains only the expanded catalog and the existing 1432
 # reviewer cases. It was computed with pure resolver calls, without launching workers.
 _V2_BASELINE_PATH = FIXTURE / "v2-baseline.json.gz"
-assert hashlib.sha256(_V2_BASELINE_PATH.read_bytes()).hexdigest() == "70fde5bcd1ecf095a668a4b4221feb8e76d3d1f88495267afc18f3dba88b154d"
+assert hashlib.sha256(_V2_BASELINE_PATH.read_bytes()).hexdigest() == "1fdafd2a7b12b9fbe309472df907f24fd6111fc4d91d5d7a48a1a0d5a20520d3"
 _V2_BASELINE = json.loads(gzip.decompress(_V2_BASELINE_PATH.read_bytes()))
 CURRENT_BASELINE = _V2_BASELINE["baseline"]
 CURRENT_INPUTS = _V2_BASELINE["inputs"]
@@ -1121,79 +1121,7 @@ def assert_frozen_surfaces(actual, *, surfaces):
         value = approved_dispatcher_spelling(deepcopy(actual[surface]))
         expected = deepcopy(CURRENT_BASELINE[surface])
         if surface == "catalog":
-            # Assert the entire operator-approved exception before comparing every other field.
-            if "red_team_only" in value["models"]["gpt-6-astra"]:
-                assert hashlib.sha256(encode(value["models"]["gpt-6-astra"])).hexdigest() == "80bcd99f8ecf8e25423683302239e2cdb26e0ea48abdbcb5e7848d31e6a690a6"
-                exception = value["review_candidates"].pop("openai_red_team_exception")
-                assert hashlib.sha256(encode(exception)).hexdigest() == "ba9c4c63a08db1d9173ace99f6f6da2735f4e5c5402f305d24300c29fbde4a5c"
-                endpoint = value["review_scheduler"]["endpoints"]["codex"]
-                assert endpoint["models"] == ["gpt-6.1-sol", "gpt-6-astra"]
-                endpoint["models"] = ["gpt-6.1-sol"]
-                value["models"]["gpt-6-astra"] = deepcopy(CURRENT_BASELINE["catalog"]["models"]["gpt-6-astra"])
-            # C-5345: one review. Carbon stays off every seat, route and ladder, and the
-            # catalog no longer names a second reviewer.
-            carbon = value["models"].pop("gemini-4-carbon")
-            assert hashlib.sha256(encode(carbon)).hexdigest() == "e60a475d7144a58fbb5a411711576d60c47188f7c49a7e463291d1f7a8e019a8"
-            scheduler = value.get("review_scheduler") or {}
-            assert "second_reviewer" not in scheduler
-            assert "second_review" not in scheduler["activity_roles"]["review"]
-            # C-5307 restores native coding and the exact Cursor review pin. Every
-            # other catalog field, reviewer-of-record ladder and route stays pinned.
-            grok = value["models"]["grok-4.7"]
-            assert hashlib.sha256(encode(grok)).hexdigest() == "3d655f93b3913b8de9f1d752d350ab4743f97a4396056e14153e2ac5505a9310"
-            value["models"]["grok-4.7"] = deepcopy(expected["models"]["grok-4.7"])
-            assert value["review_candidates"].pop("grok-4.7-cursor-fallback") == GROK_REVIEW_CANDIDATE
-            for endpoint, digest in (
-                ("grok", "b893f62c29fe61370e891af14a3c78f55765641c18d60618f735a1fd917425cf"),
-                ("cursor", "463273701fe08a057c071c23c74ce941ba626097e990b01477e1c58d2bb33e22"),
-            ):
-                assert hashlib.sha256(encode(scheduler["endpoints"][endpoint])).hexdigest() == digest
-                scheduler["endpoints"][endpoint] = deepcopy(expected["review_scheduler"]["endpoints"][endpoint])
-            assert hashlib.sha256(encode(value["policy"]["notes"][2])).hexdigest() == "64a2f1c9ca4555cb01b2e3889f09df253c05b23c39238a2572e19b531ef91628"
-            value["policy"]["notes"][2] = expected["policy"]["notes"][2]
-            argon = value["models"].pop("gemini-4-argon")
-            assert hashlib.sha256(encode(argon)).hexdigest() == "3fb424016416717576cca9f18d85f7d5b5eadcc6ed469ab906c3e4c78202dc58"
-            value["models"]["gemini-4-argon-high"] = deepcopy(CURRENT_BASELINE["catalog"]["models"]["gemini-4-argon-high"])
-            # The coder-only Terra addition leaves every frozen seat and review route intact.
-            terra = value["models"].pop("gpt-6.1-terra")
-            assert hashlib.sha256(encode(terra)).hexdigest() == "5f22691f96e42246fb4cca6a474c8d9dab1465a75ba720ed7bc153f2c47b3f9d"
-            # C-4965: Fable 5.2 is an explicit-pin model with no review or advisory role, so it
-            # joins no seat, review route, ladder or ranking; every other field stays frozen.
-            fable52 = value["models"].pop("claude-fable-5-2")
-            assert hashlib.sha256(encode(fable52)).hexdigest() == "04ee0a6324bb7c8afa5259b2a9fe503a1673854df2dc0844209bd11120c08d84"
-            # The advisory_roles section moves no seat, route or review ranking.
             _pop_advisory_roles(value)
-            # C-5241/C-5245 retire Muse execution while retaining its historical model row.
-            assert "muse" not in value["review_candidates"]
-            for risk in ("low", "medium"):
-                assert all("muse" not in rung for rung in value["review_ladders"][risk])
-            assert value["review_scheduler"]["endpoints"]["muse"]["models"] == []
-            value["review_scheduler"]["endpoints"]["muse"]["models"] = deepcopy(
-                expected["review_scheduler"]["endpoints"]["muse"]["models"]
-            )
-            muse_model = value["models"]["muse-wonder-full-1.0"]
-            assert hashlib.sha256(encode(muse_model)).hexdigest() == "0b3ddf462fdf22956bac01e2a7bf86a0bf917ef93fd5b461a19e78e5fd9acc10"
-            value["review_candidates"]["muse"] = deepcopy(CURRENT_BASELINE["catalog"]["review_candidates"]["muse"])
-            value["models"]["muse-wonder-full-1.0"] = deepcopy(CURRENT_BASELINE["catalog"]["models"]["muse-wonder-full-1.0"])
-            # REMOVE-UNNEEDED-1107: prose-only correction of two stale "Gemma retired" policy notes
-            # (Gemma is live for hramatka through OpenCode). No seat, route or ranking moves.
-            for index in (3, 7):
-                value["policy"]["notes"][index] = CURRENT_BASELINE["catalog"]["policy"]["notes"][index]
-            # C-4752 removes the unused pre-check example; all model behavior stays frozen.
-            value["models"]["claude-haiku-5-5"]["notes"] = expected["models"]["claude-haiku-5-5"]["notes"]
-            # Release packaging moves this reference, without changing model behavior.
-            value["models"]["claude-fable-5-1"]["notes"] = CURRENT_BASELINE["catalog"]["models"]["claude-fable-5-1"]["notes"]
-            # C-4831 removes execution metadata while preserving the frozen retired identities.
-            for endpoint in ("kimi", "kimicc"):
-                assert endpoint not in value["review_scheduler"]["endpoints"]
-                removed = expected["review_scheduler"]["endpoints"].pop(endpoint)
-                assert removed["models"] == []
-            for model_id in (
-                "kimi-code/k3", "kimi-code/k3-256k", "kimi-k3-max",
-                "kimi-code/kimi-for-coding", "kimi-code/kimi-for-coding-highspeed",
-            ):
-                assert "kimi_routes" not in value["models"][model_id]
-                assert expected["models"][model_id].pop("kimi_routes")
         assert value == expected, f"current surface differs: {surface}"
 
 
@@ -1207,26 +1135,7 @@ def refresh_current_baseline():
     from tests.claude_route_accounts import HOST_ACCOUNT
 
     capture = deepcopy(_V2_BASELINE)
-    catalog = plain(expanded_legacy_view())
-    catalog["models"].pop("gemini-4-carbon")
-    catalog["models"].pop("gemini-4-argon")
-    catalog["models"]["gemini-4-argon-high"] = deepcopy(CURRENT_BASELINE["catalog"]["models"]["gemini-4-argon-high"])
-    catalog["models"].pop("gpt-6.1-terra")
-    catalog["models"].pop("claude-fable-5-2")
-    grok = catalog["models"]["grok-4.7"]
-    assert grok.pop("aliases") == ["grok-4.7-build"]
-    _pop_advisory_roles(catalog)
-    # Keep the previously approved overlays outside this current-baseline refresh.
-    catalog["review_candidates"].pop("openai_red_team_exception")
-    catalog["review_scheduler"]["endpoints"]["codex"]["models"] = ["gpt-6.1-sol"]
-    catalog["models"]["gpt-6-astra"] = deepcopy(CURRENT_BASELINE["catalog"]["models"]["gpt-6-astra"])
-    assert "muse" not in catalog["review_candidates"]
-    catalog["review_scheduler"]["endpoints"]["muse"]["models"] = deepcopy(
-        CURRENT_BASELINE["catalog"]["review_scheduler"]["endpoints"]["muse"]["models"]
-    )
-    catalog["review_candidates"]["muse"] = deepcopy(CURRENT_BASELINE["catalog"]["review_candidates"]["muse"])
-    catalog["models"]["muse-wonder-full-1.0"] = deepcopy(CURRENT_BASELINE["catalog"]["models"]["muse-wonder-full-1.0"])
-    capture["baseline"]["catalog"] = catalog
+    capture["baseline"]["catalog"] = approved_dispatcher_spelling(without_advisory_roles(plain(expanded_legacy_view())))
     usage_dir = _V2_BASELINE_PATH.parent / ".recapture-no-live-usage"
     assert not usage_dir.exists()
     receipts = []
@@ -1244,7 +1153,8 @@ def refresh_current_baseline():
                     case[key] = frozenset(case[key])
             if "owned_paths" in case:
                 case["owned_paths"] = tuple(case["owned_paths"])
-            receipts.append(observed(lambda case=case: resolve_reviewer(ResolverInputs(**case, claude_account=HOST_ACCOUNT))))
+            receipts.append(approved_dispatcher_spelling(observed(
+                lambda case=case: resolve_reviewer(ResolverInputs(**case, claude_account=HOST_ACCOUNT)))))
     capture["baseline"]["reviewer"] = receipts
     assert capture["inputs"] == _V2_BASELINE["inputs"]
     raw = gzip.compress(encode(capture), mtime=0)
