@@ -36,6 +36,20 @@ def test_allowlist_is_exact_counted_and_line_independent(tmp_path, monkeypatch):
     with pytest.raises(ValueError, match="reason"):
         lint.find_literal_tmp_paths(tmp_path)
 
+    # Product aliases must retain the exact fingerprint and occurrence limit.
+    path.write_text(line + "\n")
+    monkeypatch.setattr(lint, "ALLOWLIST", ((lint._mp("a.py"), "fixture only", lint.line_digest(line) + ":1"),))
+    assert lint.find_literal_tmp_paths(tmp_path) == [("scripts/a.py", 1)]
+    marker = tmp_path / lint.PRODUCT_MARKER
+    marker.parent.mkdir(parents=True)
+    marker.touch()
+    assert lint.find_literal_tmp_paths(tmp_path) == []
+    assert lint.main(["--repo", str(tmp_path), str(path)]) == 0
+    path.write_text(line + "\n" + line + "\n")
+    assert lint.find_literal_tmp_paths(tmp_path) == [("scripts/a.py", 2)]
+    path.write_text(line.replace("fixture", "new-producer") + "\n")
+    assert lint.find_literal_tmp_paths(tmp_path) == [("scripts/a.py", 1)]
+
 
 SYSTEM_TMP = "/" + "tmp"
 VAR_TMP = "/var" + SYSTEM_TMP
