@@ -1160,12 +1160,16 @@ jobs:
           "$RUNNER_TEMP/semgrep-venv" "$RUNNER_TEMP/semgrep-requirements.txt"
 
   # Blocking vulnerability audit of the release inputs, as the source
-  # repository's dependency-audit job does it (pip-audit, then npm audit of the
-  # production dependencies at high and above), on every event.
+  # repository's dependency-audit job does it (pip-audit, then npm audit at
+  # high and above), on every event.
   # - Python: pip-audit reads requirements-machinery.lock as written
   #   (--disable-pip --require-hashes: no resolver, no install) and fails on any
-  #   known vulnerability; --strict also fails a pin it cannot look up.
-  # - Node: npm audit reads package-lock.json only (--package-lock-only) and
+  #   known vulnerability; --strict also fails a pin it cannot look up. pip-audit
+  #   silently drops a requirement whose environment marker is false on this
+  #   runner, so its report must list exactly as many audited packages as the
+  #   lock has pins.
+  # - Node: npm audit reads package-lock.json only (--package-lock-only), every
+  #   locked package with no --omit (a lock's dev flag cannot hide one), and
   #   fails on a high or critical advisory, or on any audit error.
   # - pip-audit and its dependency closure are hash-pinned wheels (pins.txt);
   #   npm is the hosted runner's. Both run under `env -i`.
@@ -1278,10 +1282,29 @@ jobs:
           work="$RUNNER_TEMP/pip-audit"
           rm -rf "$work"
           mkdir -p "$work/home"
+          report="$work/report.json"
           # Any known vulnerability, unknown package or tool error fails the job.
+          status=0
           env -i PATH=/usr/bin:/bin HOME="$work/home" \
             "$RUNNER_TEMP/pip-audit-venv/bin/pip-audit" --strict --disable-pip --require-hashes \
-            --progress-spinner=off --desc --requirement "$lock"
+            --progress-spinner=off --format json --output "$report" --requirement "$lock" || status=$?
+          if [ ! -s "$report" ]; then
+            echo "::error::pip-audit exited ${status} without a report"
+            exit 1
+          fi
+          jq -r '.dependencies[] | .name as $name | .version as $version | .vulns[]
+            | "::error::\($name) \($version): \(.id) (fixed in: \(.fix_versions | join(", ")))"' "$report"
+          audited="$(jq '[.dependencies[] | select(has("skip_reason") | not)] | length' "$report")"
+          vulns="$(jq '[.dependencies[].vulns[]] | length' "$report")"
+          echo "pip-audit audited ${audited} of ${pins} pinned package(s); ${vulns} known vulnerabilities."
+          if [ "$audited" -ne "$pins" ]; then
+            echo "::error::pip-audit audited ${audited} package(s) but the lock pins ${pins}; a skipped or marker-excluded pin is not audited"
+            exit 1
+          fi
+          if [ "$status" -ne 0 ] || [ "$vulns" -ne 0 ]; then
+            echo "::error::pip-audit failed (exit ${status}, ${vulns} known vulnerabilities)"
+            exit 1
+          fi
 
       - name: Audit package-lock.json (npm audit)
         run: |
@@ -1292,8 +1315,8 @@ jobs:
               exit 1
             fi
           done
-          packages="$(jq '[.packages // {} | to_entries[] | select(.key != "" and (.value.dev | not))] | length' package-lock.json)"
-          echo "npm audit checks ${packages} locked non-dev package(s) in package-lock.json."
+          packages="$(jq '[.packages // {} | to_entries[] | select(.key != "")] | length' package-lock.json)"
+          echo "npm audit checks ${packages} locked package(s) in package-lock.json."
           if [ "$packages" -eq 0 ]; then
             echo "::error::package-lock.json locks no package"
             exit 1
@@ -1306,7 +1329,7 @@ jobs:
           mkdir -p "$work/home"
           # A high or critical advisory, or any audit error, fails the job.
           env -i PATH="$node_dir:/usr/bin:/bin" HOME="$work/home" \
-            "$npm_bin" audit --package-lock-only --omit=dev --audit-level=high
+            "$npm_bin" audit --package-lock-only --audit-level=high
 
       - name: Remove tools
         if: always()
