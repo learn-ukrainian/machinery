@@ -82,12 +82,16 @@ and measures under that lock. Exclusive locking mode retains the lock across
 `COMMIT`, so the following `VACUUM` has no admission gap. Existing readers or
 writers that prevent exclusive acquisition cause `busy`; there is no retry or
 force. New connections wait or fail according to their own SQLite lock timeout.
-Idle connections without a transaction do not prevent safe maintenance. Existing
-client fallback behavior during contention is unchanged. If maintenance holds the
-lock beyond the client's five-second SQLite timeout, an affected client instance
-can fall back to an in-memory cache and lose shared budget authority for that
-instance. The logical 64 MiB cap does not bound physical file size or maintenance
-time. Account for this consequence when scheduling authorized maintenance.
+Idle connections without a transaction do not prevent safe maintenance. A lock
+wait beyond the client's five-second SQLite timeout keeps the shared cache path
+and its etags. On a timeout during cache admission, that call uses a temporary
+in-memory view with unknown cache and budget observations, as the previous
+fallback did. The client retains the shared cache for later calls after unlock.
+After an HTTP response arrives, the client retries a locked persistence operation
+once, then returns the finalized response, including a cached body for a fresh
+304. Budget observations whose writes remain locked are not persisted. Response
+writes commit before logical pruning, which commits in a separate transaction.
+The logical 64 MiB cap does not bound physical file size or maintenance time.
 
 Each lock wait lasts at most one second, or the requested smaller deadline.
 The default SQL deadline is 30 seconds; accepted values are greater than zero
