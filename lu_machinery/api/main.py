@@ -58,6 +58,7 @@ from ._signal_log import install_signal_logging
 from .agent_monitor_router import router as agent_monitor_router
 from .cluster_router import router as cluster_router
 from .codexbar_usage import scheduler_status, start_periodic_refresh, stop_periodic_refresh
+from .comms_prometheus import CommsCollector
 from .comms_router import ensure_broker_db_ready
 from .comms_router import router as comms_router
 from .coordination_router import router as coordination_router
@@ -1794,8 +1795,6 @@ class PrometheusMetricsMiddleware:
     def __init__(self, app: ASGIApp, context: MonitorContext | None = None) -> None:
         registry = CollectorRegistry()
         if context is not None:
-            from lu_machinery.api.comms_prometheus import CommsCollector
-
             registry.register(CommsCollector(context))
         self.app = app
         self._requests = Counter(

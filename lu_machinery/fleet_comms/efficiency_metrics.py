@@ -515,45 +515,57 @@ def _authority_failure_windows(conn: Any, *, now: datetime | None = None) -> dic
     lifetime: dict[str, int] = {}
     deliveries = _table_exists(conn, "authority_deliveries")
     jobs = _table_exists(conn, "authority_jobs")
-    job_recipient = "'authority-job'"
-    if deliveries:
-        job_recipient = """(SELECT CASE WHEN COUNT(DISTINCT recipient) = 1
-            THEN MIN(recipient) ELSE 'authority-job' END
-            FROM authority_deliveries
-            WHERE message_id = j.subject_id AND j.job_kind = 'request')"""
     sources = {}
     if deliveries:
         sources["failed_deliveries"] = """SELECT recipient, COALESCE(completed_at, updated_at) AS event_time
             FROM authority_deliveries WHERE state = 'failed'"""
     if jobs:
-        sources["failed_jobs"] = f"""SELECT {job_recipient} AS recipient,
-            COALESCE(j.completed_at, j.updated_at) AS event_time
-            FROM authority_jobs j WHERE j.state = 'failed'"""
+        sources["failed_jobs"] = (
+            """SELECT (SELECT CASE WHEN COUNT(DISTINCT recipient) = 1
+                THEN MIN(recipient) ELSE 'authority-job' END FROM authority_deliveries
+                WHERE message_id = j.subject_id AND j.job_kind = 'request') AS recipient,
+                COALESCE(j.completed_at, j.updated_at) AS event_time
+                FROM authority_jobs j WHERE j.state = 'failed'"""
+            if deliveries else
+            """SELECT 'authority-job' AS recipient, COALESCE(completed_at, updated_at) AS event_time
+                FROM authority_jobs WHERE state = 'failed'"""
+        )
     if _table_exists(conn, "authority_dead_letters"):
-        recipient = "'authority-job'"
-        joins = ""
-        if jobs:
-            joins += " LEFT JOIN authority_jobs j ON j.job_id = l.job_id "
-            recipient = job_recipient
-        if deliveries:
-            joins += " LEFT JOIN authority_deliveries d ON d.delivery_id = l.delivery_id "
-            recipient = f"COALESCE(d.recipient, {recipient})"
-        sources["dead_letters"] = f"SELECT {recipient} AS recipient, l.created_at AS event_time FROM authority_dead_letters l {joins}"
-    placeholder = _placeholder(conn)
-    epoch = "julianday(event_time)" if is_sqlite_connection(conn) else "EXTRACT(EPOCH FROM CAST(event_time AS TIMESTAMPTZ))"
-
-    def boundary(value: datetime) -> float:
-        return value.timestamp() / 86400 + 2440587.5 if is_sqlite_connection(conn) else value.timestamp()
-
-    for metric, source in sources.items():
-        lifetime[metric] = int(conn.execute(f"SELECT COUNT(*) AS c FROM ({source}) events").fetchone()["c"])
-        for label, span in (("24h", timedelta(days=1)), ("7d", timedelta(days=7))):
-            rows = conn.execute(
-                f"SELECT recipient, COUNT(*) AS c FROM ({source}) events WHERE {epoch} >= {placeholder} AND {epoch} <= {placeholder} GROUP BY recipient",
-                (boundary(now - span), boundary(now)),
-            ).fetchall()
-            grouped = {str(row["recipient"]): int(row["c"]) for row in rows}
-            windows[label][metric] = {"total": sum(grouped.values()), "by_recipient": grouped}
+        sources["dead_letters"] = (
+            """SELECT COALESCE(d.recipient,
+                (SELECT CASE WHEN COUNT(DISTINCT recipient) = 1 THEN MIN(recipient)
+                    ELSE 'authority-job' END FROM authority_deliveries
+                    WHERE message_id = j.subject_id AND j.job_kind = 'request')) AS recipient,
+                l.created_at AS event_time
+                FROM authority_dead_letters l
+                LEFT JOIN authority_deliveries d ON d.delivery_id = l.delivery_id
+                LEFT JOIN authority_jobs j ON j.job_id = l.job_id"""
+            if deliveries and jobs else
+            """SELECT COALESCE(d.recipient, 'authority-job') AS recipient, l.created_at AS event_time
+                FROM authority_dead_letters l
+                LEFT JOIN authority_deliveries d ON d.delivery_id = l.delivery_id"""
+            if deliveries else
+            "SELECT 'authority-job' AS recipient, created_at AS event_time FROM authority_dead_letters"
+        )
+    # The same UTC parser handles SQLite text and PostgreSQL lifecycle text.
+    # All queries are literals; no identifiers or values are interpolated.
+    cutoffs = {"24h": now - timedelta(days=1), "7d": now - timedelta(days=7)}
+    for metric, query in sources.items():
+        lifetime[metric] = 0
+        for label in cutoffs:
+            windows[label][metric] = {"total": 0, "by_recipient": {}}
+        for row in conn.execute(query):
+            lifetime[metric] += 1
+            event_time = _parse_timestamp(row["event_time"])
+            if event_time is None:
+                continue
+            for label, cutoff in cutoffs.items():
+                if cutoff <= event_time <= now:
+                    bucket = windows[label][metric]
+                    bucket["total"] += 1
+                    recipient = str(row["recipient"])
+                    grouped = bucket["by_recipient"]
+                    grouped[recipient] = grouped.get(recipient, 0) + 1
     return {"failure_windows": windows, "failure_lifetime": lifetime}
 
 

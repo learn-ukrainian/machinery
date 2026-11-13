@@ -1879,7 +1879,7 @@ _PUBLIC_RECIPIENTS = panel_values.AGENTS | {"claude-cto", "kimi", "authority-job
 
 
 def _public_failure_windows(raw: object) -> dict:
-    out = {}
+    out: dict[str, dict] = {}
     for label in ("24h", "7d"):
         window = panel_values.mapping(panel_values.mapping(raw).get(label))
         out[label] = {}
@@ -1887,7 +1887,7 @@ def _public_failure_windows(raw: object) -> dict:
             if metric not in window:
                 continue
             row = panel_values.mapping(window[metric])
-            grouped = {}
+            grouped: dict[str, int | float] = {}
             for recipient, count in panel_values.mapping(row.get("by_recipient")).items():
                 count = panel_values.number(count)
                 if count is None or count < 0:
