@@ -67,7 +67,7 @@ def test_route_reports_a_missing_or_disabled_pool_without_creating_it(
 
 
 def test_alerts_route_emits_only_allowlisted_fields(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Defect class: Alertmanager labels, annotations or URLs that name hosts or scrape targets leak to the page."""
+    """Defect class: host or scrape labels leak, or an authored rule name collapses to UnrecognizedAlert."""
     from lu_machinery.api import ops_router
     from lu_machinery.api.state_helpers import cache_invalidate
 
@@ -75,9 +75,13 @@ def test_alerts_route_emits_only_allowlisted_fields(client: TestClient, monkeypa
         {"labels": {"alertname": "ApprovedNotLanded30m", "severity": "warning", "owner_lane": "cto",
                     "instance": "leak-instance:9100", "job": "leak-job", "repo": "public"},
          "annotations": {"summary": "An approved PR has not merged", "action": "Land it", "runbook": "leak-runbook"},
-         "startsAt": "2030-01-01T00:00:00Z", "status": {"state": "active"},
+         "startsAt": "2030-01-02T00:00:00Z", "status": {"state": "active"},
          "generatorURL": "http://leak-host:9090/graph", "fingerprint": "leak-fingerprint",
          "receivers": [{"name": "leak-receiver"}]},
+        {"labels": {"alertname": "PROpenOver60m", "severity": "warning"}, "annotations": {},
+         "startsAt": "2030-01-03T00:00:00Z", "status": {"state": "active"}},
+        {"labels": {"alertname": "ForeignAlert", "severity": "warning"}, "annotations": {},
+         "startsAt": "2030-01-01T00:00:00Z", "status": {"state": "active"}},
         {"labels": {"alertname": "Watchdog", "severity": "none"}, "annotations": {},
          "startsAt": "2030-01-01T00:00:00Z", "status": {"state": "active"}},
     ]
@@ -108,9 +112,11 @@ def test_alerts_route_emits_only_allowlisted_fields(client: TestClient, monkeypa
     assert response.status_code == 200
     body = response.json()
     assert body["status"] == "ok" and body["heartbeat"] is True
-    assert [row["alertname"] for row in body["alerts"]] == ["ApprovedNotLanded30m"]
-    assert set(body["alerts"][0]) == {"alertname", "severity", "starts_at"}
-    assert "leak" not in response.text
+    assert [row["alertname"] for row in body["alerts"]] == [
+        "UnrecognizedAlert", "ApprovedNotLanded30m", "PROpenOver60m",
+    ]
+    assert all(set(row) == {"alertname", "severity", "starts_at"} for row in body["alerts"])
+    assert "leak" not in response.text and "ForeignAlert" not in response.text
     # One malformed item makes the whole reading unknown, never a healthy "nothing firing".
     for bad in ({}, None, {"labels": {"alertname": "X"}}, {"labels": {"alertname": "X"}, "status": {}},
                 {"labels": {"alertname": "X"}, "status": {"state": None}},
