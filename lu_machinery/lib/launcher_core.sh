@@ -766,11 +766,31 @@ launcher_resolve_roots() {
   #   it: an anchor that admission refuses, such as a --separate-git-dir
   #   primary, would turn "no anchor" into a different refusal its callers do
   #   not expect, so such a launch keeps no anchor, as before.
+  # - A Claude launch is stricter (product launcher-primary-root-export): its
+  #   hooks take their trust anchor from this launcher's own helper root,
+  #   never from the product checkout or the caller's inherited override. The
+  #   inherited value is replaced, and a helper root that the hook boundary
+  #   (project_hook_roots_resolve: primary layout, LEARN_UKRAINIAN_STATE_ROOT,
+  #   invocation Git metadata) or shared-state admission refuses ends the
+  #   launch instead of starting Claude without a valid anchor.
   local python
   if python="$(launcher_project_python 2>/dev/null)"; then
     export LEARN_UKRAINIAN_PYTHON="$python"
   fi
-  if [ -z "${LEARN_UKRAINIAN_PRIMARY_REPO_ROOT:-}" ] \
+  if [ "${LC_PROVIDER:-}" = claude ]; then
+    if ! (export LEARN_UKRAINIAN_PRIMARY_REPO_ROOT="$LC_DURABLE_HELPER_ROOT"; project_hook_roots_resolve "$LC_ROOT") \
+      || { [ -n "${LEARN_UKRAINIAN_PYTHON:-}" ] && project_python_command "$LEARN_UKRAINIAN_PYTHON" \
+        && ! LEARN_UKRAINIAN_PRIMARY_REPO_ROOT="$LC_DURABLE_HELPER_ROOT" "${PROJECT_PYTHON_COMMAND[@]}" -c \
+          "from $LC_MACHINERY_PACKAGE.common.repo_root import configured_primary_root; configured_primary_root()" \
+          >/dev/null 2>&1; }; then
+      launcher_error 'LEARN_UKRAINIAN_PRIMARY_REPO_ROOT: invalid launcher primary layout, conflicting LEARN_UKRAINIAN_STATE_ROOT or invalid invocation Git metadata; refusing to start Claude.'
+      exit 3
+    fi
+    export LEARN_UKRAINIAN_PRIMARY_REPO_ROOT="$LC_DURABLE_HELPER_ROOT"
+    if [ "${LC_DRY_RUN:-0}" = 1 ]; then
+      printf 'LAUNCHER_DRY_RUN=1: child environment LEARN_UKRAINIAN_PRIMARY_REPO_ROOT=%q\n' "$LEARN_UKRAINIAN_PRIMARY_REPO_ROOT"
+    fi
+  elif [ -z "${LEARN_UKRAINIAN_PRIMARY_REPO_ROOT:-}" ] \
     && [ -n "${LEARN_UKRAINIAN_PYTHON:-}" ] && project_python_command "$LEARN_UKRAINIAN_PYTHON" \
     && LEARN_UKRAINIAN_PRIMARY_REPO_ROOT="$LC_DURABLE_HELPER_ROOT" "${PROJECT_PYTHON_COMMAND[@]}" -c \
       "from $LC_MACHINERY_PACKAGE.common.repo_root import configured_primary_root; configured_primary_root()" \
