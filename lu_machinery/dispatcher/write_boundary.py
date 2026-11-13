@@ -742,11 +742,13 @@ class _Broker:
         url, credentials = self._remote(slug)
         branch = self.boundary.branch
         self.boundary.fetch_objects(head)
-        listed = _git(self.boundary.repository, *credentials, "ls-remote", url, branch, git_dir=self.boundary.common,
-                      network=True).split()
-        remote = listed[0] if listed else None
-        if remote is not None and not _OBJECT_ID.fullmatch(remote):
+        listing = _git(self.boundary.repository, *credentials, "ls-remote", url, branch, git_dir=self.boundary.common,
+                       network=True)
+        # ls-remote matches a pattern against ref-name tails; only the exact ref counts.
+        exact = [line.split("\t")[0] for line in listing.splitlines() if line.partition("\t")[2] == branch]
+        if len(exact) > 1 or (exact and not _OBJECT_ID.fullmatch(exact[0])):
             raise _BrokerRefusal("the remote branch cannot be read")
+        remote = exact[0] if exact else None
         if remote == head:
             return {"returncode": 0, "stdout": f"{branch} is already {head} on {slug}\n", "stderr": ""}
         if remote is not None:

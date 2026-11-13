@@ -339,15 +339,18 @@ def test_push_publishes_only_the_launch_branch_at_its_tip_fast_forward(broker, p
         stdin) or {"returncode": self.scan, "stdout": "", "stderr": ""})
     broker.scan = 0
     tip = broker.boundary.tip
+    # A ref whose name ends like the dispatched one is not the dispatched branch.
+    _git(repo, "push", "-q", str(remote), f"{tip}:refs/heads/other/refs/heads/task")
     assert "branch tip" in _refused(lambda: broker._push({"head": "0" * 40}))
     assert "exactly head" in _refused(lambda: broker._push({"head": tip, "branch": "main"}))
     broker.scan = 1  # the push scan refuses: nothing is sent
     assert broker._push({"head": tip})["returncode"] == 2
-    assert _git(tmp_path, "--git-dir", str(remote), "for-each-ref") == ""
+    assert _git(tmp_path, "--git-dir", str(remote), "for-each-ref", "refs/heads/task") == ""
     broker.scan = 0
     assert broker._push({"head": tip})["returncode"] == 0
     assert _git(tmp_path, "--git-dir", str(remote), "rev-parse", "refs/heads/task") == tip
-    assert _git(tmp_path, "--git-dir", str(remote), "for-each-ref", "--format=%(refname)") == "refs/heads/task"
+    assert _git(tmp_path, "--git-dir", str(remote), "for-each-ref", "--format=%(refname)").split() == [
+        "refs/heads/other/refs/heads/task", "refs/heads/task"]
     assert scans[-1] == f"refs/heads/task {tip} refs/heads/task {'0' * 40}\n".encode()
     # A rewrite of the published branch is not a fast-forward and is refused before anything is sent.
     _git(worktree, "commit", "-q", "--amend", "--allow-empty", "-m", "rewritten")
