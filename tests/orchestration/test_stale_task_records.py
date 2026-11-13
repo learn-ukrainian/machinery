@@ -1493,6 +1493,39 @@ def test_archive_double_collision_with_the_hot_name_retaken_parks_the_record_vis
     assert str_mod.main(["archive", "--tasks-dir", str(tasks_dir)]) == 0  # the parked file is no record
 
 
+def test_saved_crlf_response_keeps_text_identity_lf_empty_and_missing_do_not(tmp_path: Path):
+    """A CRLF result used to come back as None: text mode dropped CR, then the length check failed (#49)."""
+    declaration = 'DELIVERABLE: {"outcome": "no_change", "reason": "landed"}'
+    crlf = f"{declaration}\r\n".encode()
+    lf = f"{declaration}\n".encode()
+    sidecar = tmp_path / "review.json"
+    sidecar.write_text("{}\n", encoding="utf-8")
+    crlf_path = sidecar.with_suffix(".result")
+    crlf_path.write_bytes(crlf)
+    lf_path = tmp_path / "lf.result"
+    lf_path.write_bytes(lf)
+    before = {path: path.read_bytes() for path in (crlf_path, lf_path)}
+
+    recovered = str_mod.saved_task_response(
+        {"response_chars": len(crlf.decode()), "result_file": str(tmp_path / "absent.result")},
+        sidecar,
+    )
+    from_result_file = str_mod.saved_task_response(
+        {"response_chars": len(crlf.decode()), "result_file": str(crlf_path)}
+    )
+    lf_recovered = str_mod.saved_task_response({"response_chars": len(lf.decode()), "result_file": str(lf_path)})
+    replaced = str_mod.saved_task_response({"response_chars": 1, "result_file": str(lf_path)})
+
+    assert recovered == crlf.decode() == from_result_file
+    assert str_mod._delivery_failure(recovered, 0) is None
+    assert lf_recovered == lf.decode()
+    assert str_mod._delivery_failure(lf_recovered, 0) is None
+    assert replaced is None
+    assert str_mod.saved_task_response({"response_chars": 0}) == ""
+    assert str_mod.saved_task_response({"response_chars": 4, "result_file": str(tmp_path / "missing.result")}) is None
+    assert {path: path.read_bytes() for path in (crlf_path, lf_path)} == before
+
+
 def test_archive_double_collision_on_a_sidecar_keeps_it_hot_and_reports_it(tasks_dir, monkeypatch):
     monkeypatch.setattr(str_mod, "_archive_stamp", lambda: STAMP)
     _terminal(tasks_dir, "split")

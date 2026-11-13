@@ -1070,7 +1070,11 @@ def _delivery_failure(response: str | None, commits_ahead: int | None) -> str | 
 
 
 def saved_task_response(record: Mapping[str, Any], record_path: Path | None = None) -> str | None:
-    """The saved worker response, or None when it is missing or was replaced."""
+    """The saved worker response, or None when it is missing or was replaced.
+
+    The read keeps the file's line endings. ``response_chars`` counts those
+    characters, so a translating read treats a CRLF response as replaced.
+    """
     chars = record.get("response_chars")
     known = isinstance(chars, int) and not isinstance(chars, bool)
     candidates: list[Path] = []
@@ -1081,7 +1085,9 @@ def saved_task_response(record: Mapping[str, Any], record_path: Path | None = No
         candidates.append(Path(result_file))
     for path in candidates:
         try:
-            text = path.read_text(encoding="utf-8")
+            # Path.read_text translates CRLF on 3.12; response_chars counts the CR.
+            with path.open(encoding="utf-8", newline="") as handle:
+                text = handle.read()
         except (OSError, UnicodeDecodeError):
             continue
         return text if not known or len(text) == chars else None

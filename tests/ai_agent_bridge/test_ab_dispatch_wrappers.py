@@ -576,6 +576,67 @@ _cli._dispatch_headless_review(
         assert token not in completed.stderr
 
 
+def test_saved_crlf_review_keeps_identity_on_wrapper_and_cli_lf_and_redaction_stay(monkeypatch, tmp_path):
+    """A saved CRLF review used to come back with LF on the wrapper and the CLI; the file stayed put (#49)."""
+    token = "ghp_SYNTHETIC10598TOKENabcdefghij"
+    real_run = subprocess.run  # the helper patches this module's subprocess.run
+    endings = {"lf": b"\n", "crlf": b"\r\n"}
+    for name, ending in endings.items():
+        raw = b"VERDICT: APPROVE" + ending + b"kept" + ending
+        result = tmp_path / f"{name}.result"
+        result.write_bytes(raw)
+        state = _run_review_with_wait_state(
+            monkeypatch, tmp_path, status="done", wait_rc=0, response=raw.decode(),
+        )
+        # The helper rewrites with write_text, which keeps CR on this platform. Re-assert the bytes.
+        assert Path(state["result_file"]).read_bytes() == raw
+        assert state["response"] == raw.decode()
+        assert state["ok"] is True and state["status"] == "done"
+
+        output = tmp_path / f"{name}-out.md"
+        code = """
+import json, os, subprocess, sys
+from lu_machinery.ai_agent_bridge import _cli, _dispatch_wrappers as wrappers
+os.environ["LU_RUNTIME_TMP_ROOT"] = sys.argv[3]
+def boundary(command, **kwargs):
+    if "dispatch" in command:
+        return subprocess.CompletedProcess(command, 0)
+    return subprocess.CompletedProcess(command, 0, stdout=json.dumps({
+        "status": "done", "result_file": sys.argv[1],
+    }))
+wrappers.subprocess.run = boundary
+_cli._dispatch_headless_review(
+    "claude", "Review the branch", data=None, task_id="review-crlf",
+    model=None, effort=None, output_path=sys.argv[2], stdout_only=True, hard_timeout=None,
+)
+"""
+        completed = real_run(
+            [sys.executable, "-c", code, str(result), str(output), str(tmp_path)],
+            capture_output=True,
+            timeout=30,
+        )
+        assert completed.returncode == 0, completed.stderr
+        assert completed.stdout == raw + b"\n"
+        assert output.read_bytes() == raw
+        assert result.read_bytes() == raw
+
+    secret = f"VERDICT: {token}".encode() + b"\r\n"
+    state = _run_review_with_wait_state(
+        monkeypatch, tmp_path, status="failed", wait_rc=1, response=secret.decode(),
+        wait_fields={"failure_reason": "review_unsupported_verdict_token", "stderr_excerpt": "old generic error"},
+    )
+    assert state["response"] == secret.decode()
+    assert Path(state["result_file"]).read_bytes() == secret
+    assert state["failure_reason"] == "review_unsupported_verdict_token"
+    assert token not in state["stderr_excerpt"]
+    assert "[REDACTED_SECRET]" in state["stderr_excerpt"]
+    missing = _run_review_with_wait_state(
+        monkeypatch, tmp_path, status="done", wait_rc=0, response="",
+        wait_fields={"result_file": str(tmp_path / "missing.result")},
+    )
+    assert missing["response"] == ""
+
+
 def test_ask_unsupported_token_never_replaces_other_terminal_failure(monkeypatch, tmp_path):
     state = _run_review_with_wait_state(
         monkeypatch, tmp_path, status="timeout", wait_rc=1, response="VERDICT: CHANGES",

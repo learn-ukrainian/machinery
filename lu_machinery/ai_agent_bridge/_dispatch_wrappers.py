@@ -515,7 +515,9 @@ def run_ask_review_dispatch(
         response = ""
         if result_file:
             try:
-                response = Path(result_file).read_text(encoding="utf-8")
+                # Path.read_text translates CRLF; the saved review is the file's own text.
+                with Path(result_file).open(encoding="utf-8", newline="") as handle:
+                    response = handle.read()
             except OSError:
                 response = ""
         state["response"] = response
