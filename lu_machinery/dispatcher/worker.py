@@ -62,6 +62,32 @@ TASK_CACHE_DIRS = frozenset({"venv", ".venv", "buildvenv", "npm-cache", ".npm", 
                              "__pycache__"})
 
 
+def _readonly_parent_empty_cache(dir_fd: int, name: str) -> bool:
+    """True when ``name`` is an empty directory we own and its parent lacks owner write.
+
+    Unlinking that directory needs write permission on the parent. The parent is not a cache,
+    so settlement must not chmod it. An empty leftover is not residue: the owned contents are
+    already gone, and a later hourly pass has nothing further it may remove.
+    """
+    if stat.S_IMODE(os.fstat(dir_fd).st_mode) & stat.S_IWUSR:
+        return False
+    try:
+        info = os.stat(name, dir_fd=dir_fd, follow_symlinks=False)
+    except OSError:
+        return False
+    if stat.S_ISLNK(info.st_mode) or not stat.S_ISDIR(info.st_mode) or info.st_uid != os.geteuid():
+        return False
+    try:
+        child = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=dir_fd)
+    except OSError:
+        return False
+    try:
+        with os.scandir(child) as entries:
+            return next(entries, None) is None
+    finally:
+        os.close(child)
+
+
 def _remove_cache_entry(dir_fd: int, name: str) -> None:
     """Unlink a cache-named link, or remove one cache directory, relative to ``dir_fd``.
 
@@ -69,6 +95,10 @@ def _remove_cache_entry(dir_fd: int, name: str) -> None:
     ``_remove_task_scratch`` uses: this directory gets owner rwx when it lacks it, children
     are repaired on descent, and another device or a mount point is refused before anything
     is unlinked. The chmod and the deletion stay inside ``name``.
+
+    A parent that lacks owner write is not chmod'd. When that parent is not itself a cache,
+    the cache contents are still removed and the empty directory is left in place. That
+    leftover is not a failure, so it is not recorded as residue.
     """
     info = os.stat(name, dir_fd=dir_fd, follow_symlinks=False)
     if stat.S_ISLNK(info.st_mode):
@@ -87,13 +117,17 @@ def _remove_cache_entry(dir_fd: int, name: str) -> None:
         task_scratch.grant_owner_rwx(dir_fd, name, info, device=parent.st_dev, mount_id=mount_id)
     # The held descriptor's path is what mountinfo names. The scratch remover refuses a mount
     # below this directory before it unlinks anything, and it never chmods outside the directory.
-    task_scratch._remove_invocation_dir(
-        dir_fd,
-        name,
-        namespace=Path(os.readlink(f"/proc/self/fd/{dir_fd}")),
-        expected_dev=info.st_dev,
-        expected_ino=info.st_ino,
-    )
+    try:
+        task_scratch._remove_invocation_dir(
+            dir_fd,
+            name,
+            namespace=Path(os.readlink(f"/proc/self/fd/{dir_fd}")),
+            expected_dev=info.st_dev,
+            expected_ino=info.st_ino,
+        )
+    except PermissionError:
+        if not _readonly_parent_empty_cache(dir_fd, name):
+            raise
 
 
 def _task_caches(task_id: str, *, remove: bool) -> tuple[list[str], list[str]]:
@@ -131,6 +165,9 @@ def _task_caches(task_id: str, *, remove: bool) -> tuple[list[str], list[str]]:
                 for directory, names, files, dir_fd in os.fwalk(root, onerror=refused, dir_fd=tasks_fd):
                     for name in [name for name in names if name in TASK_CACHE_DIRS]:
                         names.remove(name)  # do not descend into a directory this pass is removing
+                        # An empty cache under a non-cache parent we must not chmod is not residue.
+                        if not remove and _readonly_parent_empty_cache(dir_fd, name):
+                            continue
                         drop(directory, dir_fd, name)
                     for name in files:
                         if name not in TASK_CACHE_DIRS:

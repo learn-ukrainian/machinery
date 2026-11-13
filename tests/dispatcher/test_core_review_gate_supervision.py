@@ -434,6 +434,52 @@ def test_settlement_removes_a_read_only_cache_subtree(sandbox):
             _owner_rwx(tree)
 
 
+def test_settlement_leaves_an_empty_cache_inside_a_read_only_non_cache_parent(sandbox):
+    """Defect class: empty cache directory and hourly residue under a read-only non-cache parent.
+
+    A cache directory inside an owner-read-only parent that is not itself a cache cannot be
+    unlinked without chmod on that parent. Settlement removes the cache contents, leaves the
+    empty directory, does not change the parent's mode, and does not record
+    ``task_cache_residue``. The hourly sweep does not record one either.
+    """
+    task = sandbox.dispatch("blocked")
+    await_file(sandbox.tasks / f"{task[0]}.started")
+    artifacts = sandbox.tasks / f"{task[0]}.artifacts"
+    evidence = sandbox.tasks / f"{task[0]}.evidence"
+    evidence.mkdir()
+    (evidence / "receipt.json").write_text("{}")
+    parent = artifacts / "notes"
+    payload = parent / ".cache" / "ro" / "sub"
+    payload.mkdir(parents=True)
+    (payload / "mod").write_text("module")
+    (artifacts / "run.log").write_text("log")
+    (parent / ".cache" / "ro").chmod(0o555)
+    payload.chmod(0o555)
+    cache = parent / ".cache"
+    try:
+        parent.chmod(0o555)
+        sandbox.sweep()
+        assert (payload / "mod").read_text() == "module"
+        assert parent.stat().st_mode & 0o777 == 0o555
+
+        (sandbox.tasks / f"{task[0]}.release").touch()
+        record = sandbox.settle(task)
+        assert record["status"] == "done"
+        assert cache.is_dir() and not any(cache.iterdir()), record.get("task_cache_residue")
+        assert "task_cache_residue" not in record
+        assert parent.stat().st_mode & 0o777 == 0o555
+        assert (artifacts / "run.log").read_text() == "log"
+        assert (evidence / "receipt.json").read_text() == "{}"
+
+        sandbox.sweep()
+        disk = json.loads((sandbox.tasks / f"{task[0]}.json").read_text())
+        assert cache.is_dir() and not any(cache.iterdir()), disk.get("task_cache_residue")
+        assert "task_cache_residue" not in disk
+        assert parent.stat().st_mode & 0o777 == 0o555
+    finally:
+        _owner_rwx(parent)
+
+
 def test_settlement_removes_a_dangling_or_file_cache_link(sandbox):
     """Defect class: cache-named link kept. fwalk puts a dangling link and a link to a file in
     ``files``, which cache removal never inspected, so both stayed. Settlement and the hourly
