@@ -15,7 +15,7 @@ import stat
 import subprocess
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, Literal
 
@@ -456,7 +456,7 @@ def collect_dead_letters_authority(plane_db: Path, *, limit: int = 100) -> dict[
         }
 
 
-def collect_efficiency_metrics_authority(plane_db: Path) -> dict[str, Any]:
+def collect_efficiency_metrics_authority(plane_db: Path, *, now: datetime | None = None) -> dict[str, Any]:
     """Aggregate authority-plane delivery/job efficiency (timestamps only)."""
     metrics: dict[str, Any] = {
         "content_included": False,
@@ -499,7 +499,62 @@ def collect_efficiency_metrics_authority(plane_db: Path) -> dict[str, Any]:
                 conn.execute("SELECT COUNT(*) AS c FROM authority_dead_letters").fetchone()["c"]
             )
 
+        metrics.update(_authority_failure_windows(conn, now=now))
+
     return metrics
+
+
+def _authority_failure_windows(conn: Any, *, now: datetime | None = None) -> dict[str, Any]:
+    """Count terminal events, not creation cohorts; never read message bodies.
+
+    Jobs with exactly one message recipient inherit it. Other jobs use the
+    explicit authority-job bucket, keeping each event in exactly one group.
+    """
+    now = now or datetime.now(UTC)
+    windows: dict[str, Any] = {label: {} for label in ("24h", "7d")}
+    lifetime: dict[str, int] = {}
+    deliveries = _table_exists(conn, "authority_deliveries")
+    jobs = _table_exists(conn, "authority_jobs")
+    job_recipient = "'authority-job'"
+    if deliveries:
+        job_recipient = """(SELECT CASE WHEN COUNT(DISTINCT recipient) = 1
+            THEN MIN(recipient) ELSE 'authority-job' END
+            FROM authority_deliveries
+            WHERE message_id = j.subject_id AND j.job_kind = 'request')"""
+    sources = {}
+    if deliveries:
+        sources["failed_deliveries"] = """SELECT recipient, COALESCE(completed_at, updated_at) AS event_time
+            FROM authority_deliveries WHERE state = 'failed'"""
+    if jobs:
+        sources["failed_jobs"] = f"""SELECT {job_recipient} AS recipient,
+            COALESCE(j.completed_at, j.updated_at) AS event_time
+            FROM authority_jobs j WHERE j.state = 'failed'"""
+    if _table_exists(conn, "authority_dead_letters"):
+        recipient = "'authority-job'"
+        joins = ""
+        if jobs:
+            joins += " LEFT JOIN authority_jobs j ON j.job_id = l.job_id "
+            recipient = job_recipient
+        if deliveries:
+            joins += " LEFT JOIN authority_deliveries d ON d.delivery_id = l.delivery_id "
+            recipient = f"COALESCE(d.recipient, {recipient})"
+        sources["dead_letters"] = f"SELECT {recipient} AS recipient, l.created_at AS event_time FROM authority_dead_letters l {joins}"
+    placeholder = _placeholder(conn)
+    epoch = "julianday(event_time)" if is_sqlite_connection(conn) else "EXTRACT(EPOCH FROM CAST(event_time AS TIMESTAMPTZ))"
+
+    def boundary(value: datetime) -> float:
+        return value.timestamp() / 86400 + 2440587.5 if is_sqlite_connection(conn) else value.timestamp()
+
+    for metric, source in sources.items():
+        lifetime[metric] = int(conn.execute(f"SELECT COUNT(*) AS c FROM ({source}) events").fetchone()["c"])
+        for label, span in (("24h", timedelta(days=1)), ("7d", timedelta(days=7))):
+            rows = conn.execute(
+                f"SELECT recipient, COUNT(*) AS c FROM ({source}) events WHERE {epoch} >= {placeholder} AND {epoch} <= {placeholder} GROUP BY recipient",
+                (boundary(now - span), boundary(now)),
+            ).fetchall()
+            grouped = {str(row["recipient"]): int(row["c"]) for row in rows}
+            windows[label][metric] = {"total": sum(grouped.values()), "by_recipient": grouped}
+    return {"failure_windows": windows, "failure_lifetime": lifetime}
 
 
 def _parse_timestamp(value: object) -> datetime | None:

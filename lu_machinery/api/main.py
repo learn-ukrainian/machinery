@@ -1791,8 +1791,12 @@ class PrometheusMetricsMiddleware:
 
     METRICS_PATH = "/metrics"
 
-    def __init__(self, app: ASGIApp) -> None:
+    def __init__(self, app: ASGIApp, context: MonitorContext | None = None) -> None:
         registry = CollectorRegistry()
+        if context is not None:
+            from lu_machinery.api.comms_prometheus import CommsCollector
+
+            registry.register(CommsCollector(context))
         self.app = app
         self._requests = Counter(
             "monitor_http_requests_total",
@@ -1891,7 +1895,7 @@ def create_app(
     )
     factory_app.middleware("http")(resilience_middleware)
     factory_app.middleware("http")(opsec_path_sanitizer_middleware)
-    factory_app.add_middleware(PrometheusMetricsMiddleware)
+    factory_app.add_middleware(PrometheusMetricsMiddleware, context=context)
     factory_app.add_exception_handler(StarletteHTTPException, http_exception_handler)
     factory_app.add_exception_handler(RequestValidationError, request_validation_exception_handler)
     factory_app.add_exception_handler(Exception, global_exception_handler)

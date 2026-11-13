@@ -1874,10 +1874,38 @@ def _public_agent_success(raw: object) -> dict:
     return out
 
 
+_FAILURE_METRICS = ("dead_letters", "failed_deliveries", "failed_jobs")
+_PUBLIC_RECIPIENTS = panel_values.AGENTS | {"claude-cto", "kimi", "authority-job"}
+
+
+def _public_failure_windows(raw: object) -> dict:
+    out = {}
+    for label in ("24h", "7d"):
+        window = panel_values.mapping(panel_values.mapping(raw).get(label))
+        out[label] = {}
+        for metric in _FAILURE_METRICS:
+            if metric not in window:
+                continue
+            row = panel_values.mapping(window[metric])
+            grouped = {}
+            for recipient, count in panel_values.mapping(row.get("by_recipient")).items():
+                count = panel_values.number(count)
+                if count is None or count < 0:
+                    continue
+                bucket = recipient if recipient in _PUBLIC_RECIPIENTS else "other"
+                grouped[bucket] = grouped.get(bucket, 0) + count
+            out[label][metric] = {"total": panel_values.number(row.get("total")), "by_recipient": grouped}
+    return out
+
+
 def _public_comms_metrics(raw: object) -> dict:
     row = panel_values.mapping(raw)
     out = {"response_schema_version": COMMS_RESPONSE_SCHEMA_VERSION, "content_included": False,
            **panel_values.scalars(row, numbers=("dead_letters",), flags=("db_missing",))}
+    if "failure_windows" in row:
+        out["failure_windows"] = _public_failure_windows(row["failure_windows"])
+    if "failure_lifetime" in row:
+        out["failure_lifetime"] = panel_values.scalars(panel_values.mapping(row["failure_lifetime"]), numbers=_FAILURE_METRICS)
     if "source" in row:
         out["source"] = panel_values.choice(row["source"], {"authority", "legacy"}, "unknown")
     if row.get("db_error"):

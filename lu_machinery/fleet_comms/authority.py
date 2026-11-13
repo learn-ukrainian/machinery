@@ -458,6 +458,38 @@ class AuthorityService:
                 self._subscribe_tx(channel_row, target, metadata=metadata, subscriber_metadata=subscriber_metadata)
         return self.get_channel(channel_name)
 
+    def unsubscribe(
+        self, channel: str, recipients: Iterable[str], *, idempotency_key: str,
+    ) -> AuthorityChannel:
+        """Remove future fan-out only, atomically retaining a retry/audit receipt.
+
+        A fresh operation refuses unknown subscribers. Replaying its key never
+        removes a subscription added after that operation completed.
+        """
+        channel_name = _nonempty(channel, field="channel")
+        names = _normalize_recipients(recipients)
+        if not names:
+            raise AuthorityServiceError("subscriber_required")
+        key = _nonempty(idempotency_key, field="idempotency_key")
+        digest = _sha256_json({"channel": channel_name, "recipients": list(names)})
+        with self._write_transaction():
+            row = self._require_channel_tx(channel_name)
+            if self._check_idempotency_tx("channel-unsubscribe", key, digest) is None:
+                channel_id = str(row["channel_id"])
+                for recipient in names:
+                    if self._conn.execute(
+                        "SELECT 1 FROM authority_channel_subscribers WHERE channel_id = ? AND recipient = ?",
+                        (channel_id, recipient),
+                    ).fetchone() is None:
+                        raise AuthorityServiceError("subscriber_not_found")
+                for recipient in names:
+                    self._conn.execute(
+                        "DELETE FROM authority_channel_subscribers WHERE channel_id = ? AND recipient = ?",
+                        (channel_id, recipient),
+                    )
+                self._insert_idempotency_tx("channel-unsubscribe", key, digest, channel_id)
+        return self.get_channel(channel_name)
+
     def _subscribe_tx(
         self,
         channel_row: sqlite3.Row,
