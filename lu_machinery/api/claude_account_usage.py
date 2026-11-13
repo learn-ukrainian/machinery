@@ -98,6 +98,7 @@ from lu_machinery.agent_runtime.attempt_boundary import (
     load_claude_account_binding,
     renew_claude_login,
 )
+from lu_machinery.api import subscription_usage as _subscription_usage
 from lu_machinery.api.subscription_usage import (
     _codexbar_bin,
     _codexbar_cache_ttl_s,
@@ -1059,23 +1060,26 @@ def _restored_sample(label: str, entry: Any, now: float, limit_s: float) -> _Sam
 
 
 def restore_claude_account_samples(*, now: float | None = None) -> float | None:
-    """Serve the persisted readings again when every label has one; return the oldest one's age.
+    """Serve the persisted readings again when every probed label has one; return the oldest one's age.
 
-    A restart loses the in-memory readings. When every label's persisted
-    reading is younger than the scheduler interval and the cache TTL and its
-    binding validates again (``_restored_sample``), those readings become the
-    served samples with their own measured time, exactly as the previous process
-    served them, and the age gates the first probe. Otherwise nothing is served
-    from the file and ``None`` means probe now. The age is read after the
-    bindings were validated, so the time that took is not lost. Background only
-    (it validates bindings); never probes.
+    A restart loses the in-memory readings. When every label this process
+    probes (``_probe_labels``) has a persisted reading younger than the
+    scheduler interval and the cache TTL, and its binding validates again
+    (``_restored_sample``), those readings become the served samples with
+    their own measured time, and the age gates the first probe. The default
+    account is not restored while the host lane scheduler owns it: a restored
+    row that this process never refreshes would go stale and keep the
+    on-demand gate open. Otherwise nothing is served from the file and
+    ``None`` means probe now. The age is read after the bindings were
+    validated, so the time that took is not lost. Background only (it
+    validates bindings); never probes.
     """
     limit_s = min(_codexbar_refresh_interval_s(), _codexbar_cache_ttl_s())
     entries = _read_samples(_samples_path())
     moment = time.time() if now is None else now
+    labels = _probe_labels()
     restored = {
-        label: _restored_sample(label, entries.get(label), moment, limit_s)
-        for label in CLAUDE_SUBSCRIPTION_ACCOUNT_LABELS
+        label: _restored_sample(label, entries.get(label), moment, limit_s) for label in labels
     }
     samples = {label: sample for label, sample in restored.items() if sample is not None}
     if not restored or len(samples) < len(restored):
@@ -1109,10 +1113,28 @@ def _refresh_one(label: str, timeout_s: float) -> None:
         _record(label, row, None, accounts=accounts)
 
 
+def _probe_labels() -> tuple[str, ...]:
+    """Labels this pass may probe.
+
+    The host lane scheduler already reads the default account at
+    ``https://api.anthropic.com/api/oauth/usage``. Probing that account again
+    (CodexBar ``--source oauth`` on the same host directory) rate-limits the
+    host, so the lane reading stays stale. Another account is a different host.
+    When that scheduler is not running, the default account has no other reader.
+    """
+    lane = _subscription_usage._scheduler_thread
+    if lane is not None and lane.is_alive():
+        return tuple(label for label in CLAUDE_SUBSCRIPTION_ACCOUNT_LABELS if label != DEFAULT_CLAUDE_ACCOUNT)
+    return CLAUDE_SUBSCRIPTION_ACCOUNT_LABELS
+
+
 def refresh_claude_account_usage(*, timeout_s: float = PROBE_TIMEOUT_S) -> None:
-    """Probe every registered label in parallel. Background refresh only."""
-    with ThreadPoolExecutor(max_workers=len(CLAUDE_SUBSCRIPTION_ACCOUNT_LABELS)) as executor:
-        list(executor.map(lambda label: _refresh_one(label, timeout_s), CLAUDE_SUBSCRIPTION_ACCOUNT_LABELS))
+    """Probe the labels :func:`_probe_labels` names, in parallel. Background refresh only."""
+    labels = _probe_labels()
+    if not labels:
+        return
+    with ThreadPoolExecutor(max_workers=len(labels)) as executor:
+        list(executor.map(lambda label: _refresh_one(label, timeout_s), labels))
 
 
 def _ambiguous(samples: Mapping[str, _Sample]) -> bool:

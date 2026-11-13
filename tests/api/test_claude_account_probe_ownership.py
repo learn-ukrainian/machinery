@@ -61,3 +61,44 @@ def test_scheduler_process_probes_every_label(state_dir, probes, monkeypatch):
         owner.join(timeout=5)
 
     assert sorted(probes) == sorted(cau.CLAUDE_SUBSCRIPTION_ACCOUNT_LABELS)
+
+
+def test_lane_scheduler_does_not_probe_the_default_account(state_dir, probes, monkeypatch):
+    """The host lane meter already reads account a. A second probe rate-limits that host."""
+    stop = threading.Event()
+    lane = threading.Thread(target=stop.wait, daemon=True)
+    owner = threading.Thread(target=stop.wait, daemon=True)
+    lane.start()
+    owner.start()
+    monkeypatch.setattr(subscription_usage, "_scheduler_thread", lane)
+    monkeypatch.setattr(subscription_usage, "_claude_account_scheduler_thread", owner)
+    try:
+        cau.refresh_claude_account_usage()
+        assert probes == ["b"]
+        assert not (state_dir / cau._SAMPLES_FILE).exists()
+
+        # A stale row for the label this process does not probe must not open
+        # the on-demand gate, and a restart must not restore that label.
+        monkeypatch.setattr(
+            cau,
+            "claude_accounts_snapshot",
+            lambda **_kwargs: {
+                "claude:a": {"stale": True, "status": "stale"},
+                "claude:b": {"stale": False, "status": "ok"},
+            },
+        )
+        assert subscription_usage._claude_account_reading_past_ttl() is False
+
+        class _Restored:
+            source_at = 1.0
+
+        cau._reset_for_tests()
+        monkeypatch.setattr(cau, "_restored_sample", lambda label, entry, moment, limit_s: _Restored())
+        monkeypatch.setattr(cau, "_read_samples", lambda _path: {"a": {}, "b": {}})
+        assert cau.restore_claude_account_samples(now=1.0) == 0.0
+        assert set(cau._last_good) == {"b"}
+    finally:
+        cau._reset_for_tests()
+        stop.set()
+        lane.join(timeout=5)
+        owner.join(timeout=5)

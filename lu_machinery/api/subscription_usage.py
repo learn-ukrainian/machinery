@@ -2662,15 +2662,22 @@ def _claude_account_probe_in_flight() -> bool:
 
 
 def _claude_account_reading_past_ttl() -> bool:
-    """True when any cached account row is older than the cache TTL.
+    """True when a row this process probes is older than the cache TTL.
 
-    ``claude_accounts_snapshot`` only lstats and never starts a probe. An
-    unknown row is not past TTL: a missing reading is not a stale one.
+    A label the host lane scheduler owns is not probed here, so its row
+    cannot demand another pass. ``claude_accounts_snapshot`` only lstats and
+    never starts a probe. An unknown row is not past TTL: a missing reading
+    is not a stale one.
     """
-    from lu_machinery.api.claude_account_usage import claude_accounts_snapshot  # noqa: PLC0415, I001  # lazy-ok: import cycle
+    from lu_machinery.api.claude_account_usage import (  # noqa: PLC0415  # lazy-ok: import cycle
+        _probe_labels,
+        claude_accounts_snapshot,
+        row_key,
+    )
 
+    probed = {row_key(label) for label in _probe_labels()}
     rows = claude_accounts_snapshot()
-    return any(bool(row.get("stale")) for row in rows.values() if isinstance(row, dict))
+    return any(bool(row.get("stale")) for key, row in rows.items() if key in probed and isinstance(row, dict))
 
 
 def trigger_claude_account_refresh() -> None:
@@ -2678,9 +2685,11 @@ def trigger_claude_account_refresh() -> None:
 
     On-demand only. The scheduler calls ``_run_claude_account_refresh`` on
     its own cadence. A kick starts a probe when the last one started more
-    than the scheduler interval ago, or a reading is past the cache TTL,
-    and never while a probe is already in flight. Every account is probed
-    together, so that start time is each account's last probe start.
+    than the scheduler interval ago, or a probed label's reading is past the
+    cache TTL, and never while a probe is already in flight. The pass probes
+    the labels ``_probe_labels`` names. While the host lane scheduler is
+    alive the default account is not among them, and its row does not start
+    a pass. That start time is the last start of this pass.
     """
     global _claude_account_oneshot_thread
     with _claude_account_oneshot_lock:
@@ -2769,9 +2778,10 @@ def _periodic_loop(interval_s: float, run_immediately: bool) -> None:
 def start_periodic_refresh(*, run_immediately: bool = True) -> None:
     """Keep CodexBar snapshots warm on a 12-minute timer.
 
-    Claude account rows start first, on their own thread, so a restart's unknown
-    window is one account probe and another lane cannot delay the next sample.
-    Idempotent. No-ops when disabled (pytest, or CODEXBAR_PERIODIC_REFRESH=0).
+    The host lane scheduler starts first and stays on its own thread. The
+    account loop then skips the default account, which that lane already
+    reads, and still does not wait for a lane probe to finish. Idempotent.
+    No-ops when disabled (pytest, or CODEXBAR_PERIODIC_REFRESH=0).
     """
     global _scheduler_thread, _claude_account_scheduler_thread, _claude_account_startup_pending
     if not _periodic_refresh_enabled():
@@ -2782,20 +2792,22 @@ def start_periodic_refresh(*, run_immediately: bool = True) -> None:
         _scheduler_stop.clear()
         _claude_account_startup_pending = run_immediately
         interval_s = _codexbar_refresh_interval_s()
-        _claude_account_scheduler_thread = threading.Thread(
-            target=_claude_account_periodic_loop,
-            args=(interval_s, run_immediately),
-            name="claude-account-scheduler",
-            daemon=True,
-        )
-        _claude_account_scheduler_thread.start()
         _scheduler_thread = threading.Thread(
             target=_periodic_loop,
             args=(interval_s, run_immediately),
             name="codexbar-scheduler",
             daemon=True,
         )
+        _claude_account_scheduler_thread = threading.Thread(
+            target=_claude_account_periodic_loop,
+            args=(interval_s, run_immediately),
+            name="claude-account-scheduler",
+            daemon=True,
+        )
+        # Alive before the account loop's first probe, so that probe skips
+        # the default account this lane already reads.
         _scheduler_thread.start()
+        _claude_account_scheduler_thread.start()
 
 
 def stop_periodic_refresh(*, join_timeout_s: float = 1.0) -> None:

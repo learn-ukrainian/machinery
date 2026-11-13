@@ -1164,8 +1164,11 @@ def test_restart_with_reading_younger_than_interval_starts_no_probe(monkeypatch,
         assert thread is None or not thread.is_alive()
         assert not probed.wait(timeout=0.5)
         assert probes == []
-        # The re-proved restored readings are the cached samples again (#12483).
-        assert set(claude_account_usage._last_good) == set(claude_account_usage.CLAUDE_SUBSCRIPTION_ACCOUNT_LABELS)
+        # The lane scheduler is alive, so the default account is not restored.
+        # The other account's re-proved reading is the cached sample again (#12483).
+        assert set(claude_account_usage._last_good) == set(claude_account_usage.CLAUDE_SUBSCRIPTION_ACCOUNT_LABELS) - {
+            claude_account_usage.DEFAULT_CLAUDE_ACCOUNT
+        }
     finally:
         subscription_usage_mod.stop_periodic_refresh(join_timeout_s=2.0)
         subscription_usage_mod._claude_account_probe_started_at = None
