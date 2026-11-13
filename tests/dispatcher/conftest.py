@@ -128,8 +128,39 @@ def run_git(repo, *args):
     ).stdout.strip()
 
 
+# A test double for the write boundary (#423), for tests whose subject is not containment: their stub
+# providers run in the primary itself or write beside their prompt, which the real boundary refuses.
+WRITE_BOUNDARY_DOUBLE = """RECEIPT_SUFFIX = ".write-boundary.json"
+
+
+def launcher(spec, invocation, task_file):
+    return list(invocation.argv)
+
+
+def verify(task_file, task_id):
+    return {"status": "test-double"}, None
+
+
+def discard(task_id):
+    return None
+"""
+
+
+def pytest_configure(config):
+    config.addinivalue_line(
+        "markers", "write_boundary_double: the sandbox dispatcher runs write providers through a boundary test double",
+    )
+
+
 @pytest.fixture
-def sandbox(tmp_path, hermetic_monitor, configured_roots, sources_product_root):
+def write_boundary_double(monkeypatch):
+    """Run write providers unconfined in-process; only for tests whose subject is not the boundary."""
+    monkeypatch.setattr(worker.write_boundary, "launcher", lambda _spec, invocation, _task: list(invocation.argv))
+    monkeypatch.setattr(worker.write_boundary, "verify", lambda _task, _id: ({"status": "test-double"}, None))
+
+
+@pytest.fixture
+def sandbox(tmp_path, hermetic_monitor, configured_roots, sources_product_root, request):
     repo, tasks = tmp_path / "public", tmp_path / "tasks"
     remote = tmp_path / "remote.git"
     repo.mkdir()
@@ -182,6 +213,8 @@ def sandbox(tmp_path, hermetic_monitor, configured_roots, sources_product_root):
     schema_dir.mkdir()
     shutil.copy(SOURCE / "lu_machinery/schemas/code-review-findings.v1.schema.json", schema_dir)
     shutil.copy(Path(__file__).with_name("stub_provider.py"), repo / "lu_machinery/dispatcher/providers/codex.py")
+    if request.node.get_closest_marker("write_boundary_double"):
+        (repo / "lu_machinery/dispatcher/write_boundary.py").write_text(WRITE_BOUNDARY_DOUBLE)
     run_git(repo, "add", ".")
     run_git(repo, "commit", "-m", "fixture")
     # Origin advertises main as its default branch: review authorship is read from it (C-2902).

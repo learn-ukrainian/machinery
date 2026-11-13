@@ -25,7 +25,17 @@ from lu_machinery.common import task_scratch
 from lu_machinery.common.repo_root import in_tree_source, machinery_path, primary_root, state_root
 from lu_machinery.common.scratch import ensure_scratch_root
 from lu_machinery.common.task_scratch import TaskScratchError
-from lu_machinery.dispatcher import admission, agy_sandbox, git, headroom, ownership, providers, runtime_context, store
+from lu_machinery.dispatcher import (
+    admission,
+    agy_sandbox,
+    git,
+    headroom,
+    ownership,
+    providers,
+    runtime_context,
+    store,
+    write_boundary,
+)
 from lu_machinery.dispatcher.environment import child_env, task_scratch_path
 from lu_machinery.dispatcher.types import ParsedResult, TaskSpec
 from lu_machinery.dispatcher.watchdog import (
@@ -1286,10 +1296,11 @@ def settle_left_worktrees(salvage: bool = False) -> None:
 def _end_lingering(child: subprocess.Popen, spec: TaskSpec) -> None:
     """End a provider that outlived its terminal result, keeping what its launcher still has to write.
 
-    The read-only AGY launcher records its boundary receipt once AGY exits, so only AGY's own tree is
-    killed and the launcher is given time to finish; anything still alive after that is killed whole.
+    The read-only AGY launcher and the write boundary's launcher record their receipts once the sandbox
+    exits, so only the sandbox's tree is killed and the launcher is given time to finish; anything still
+    alive after that is killed whole.
     """
-    if spec.agent == "agy" and spec.mode == "read-only":
+    if (spec.agent == "agy" and spec.mode == "read-only") or spec.mode == "workspace-write":
         with contextlib.suppress(psutil.Error):
             for process in psutil.Process(child.pid).children():
                 process.kill()
@@ -1461,6 +1472,12 @@ def supervise(path: Path, options: dict | None = None, hard_timeout: float | Non
 
     def terminate():
         # Only an unreaped leader still pins its group id; a reaped one's id may name another group.
+        if child and child.returncode is None and spec.mode == "workspace-write":
+            # The write boundary's launcher ends the sandbox, imports the branch tip and records its receipt.
+            with contextlib.suppress(ProcessLookupError):
+                child.send_signal(signal.SIGTERM)
+            with contextlib.suppress(subprocess.TimeoutExpired):
+                child.wait(timeout=TERMINAL_EXIT_GRACE_S)
         if child and child.returncode is None:
             with contextlib.suppress(ProcessLookupError):
                 os.killpg(child.pid, signal.SIGKILL)
@@ -1589,8 +1606,17 @@ def supervise(path: Path, options: dict | None = None, hard_timeout: float | Non
                 stdin.seek(0)
                 output_sizes = out.tell(), err.tell()
                 checkpoint()  # the last one before the provider starts: a cancelled run launches nothing
+                argv = invocation.argv
+                if spec.mode == "workspace-write":
+                    # Every write worker and its descendants run inside the OS boundary (#423); there is no
+                    # unsandboxed fallback. The launcher refuses with its receipt when the boundary cannot start.
+                    try:
+                        argv = write_boundary.launcher(spec, invocation, path)
+                    except ValueError as exc:
+                        status, error = "failed", str(exc)
+                        return
                 child = subprocess.Popen(
-                    invocation.argv,
+                    argv,
                     stdin=stdin,
                     stdout=out,
                     stderr=err,
@@ -1650,6 +1676,13 @@ def supervise(path: Path, options: dict | None = None, hard_timeout: float | Non
                 continue
             break
         store.begin_settlement(record)
+        if spec.mode == "workspace-write":
+            # Only the receipt the launcher writes outside the sandbox proves the run was contained (#423).
+            boundary, refusal = write_boundary.verify(path, spec.task_id)
+            record["write_boundary"] = boundary
+            if refusal:
+                status, error = "failed", refusal
+                return
         if spec.agent == "agy" and spec.mode == "read-only":
             # Only the boundary's receipt, written outside the sandbox, proves the run read-only and
             # supplies its Sources count (C-3027); without a verified one the run fails.
@@ -1746,6 +1779,8 @@ def supervise(path: Path, options: dict | None = None, hard_timeout: float | Non
                 except store.TaskRecordError as exc:
                     status, error = "crashed", exc.code
             # A killed launcher leaves its scratch and token copy; residue is recorded, never raised.
+            if spec.mode == "workspace-write" and (residue := write_boundary.discard(spec.task_id)):
+                record["write_boundary_cleanup"] = residue
             if spec.agent == "agy" and spec.mode == "read-only":
                 # A bound attempt already counted its Sources bodies and replaced the stream with
                 # that trace. The stream merger only understands step updates, so running it here
