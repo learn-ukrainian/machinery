@@ -51,6 +51,7 @@ import json
 import os
 import re
 import select
+import shlex
 import shutil
 import signal
 import stat
@@ -546,6 +547,7 @@ class _Broker:
         if type(number) is not int or not 0 < number < 10**8:
             raise _BrokerRefusal("pr must be a PR number")
         slug = self._repository_slug()
+        self._claimed({"repo": payload.get("repo")}, slug)
         facts = self._gh_json(["pr", "view", str(number), "--repo", slug, "--json",
                                "state,headRefName,headRefOid,isCrossRepository,baseRefName"])
         if not isinstance(facts, dict):
@@ -587,6 +589,25 @@ class _Broker:
                 if root == self.boundary.repository and str(item.get("github", "")).lower() == slug.lower():
                     return str(key)
         raise _BrokerRefusal("the primary is not a registered fleet repository")
+
+    def _claimed(self, payload: dict, slug: str, base: str | None = None) -> None:
+        """Refuse a request whose named target is not the launch's own.
+
+        A forwarded command (``git push``, the publisher's PR verbs) keeps the target its caller named. The broker
+        still acts only on the launch's repository, branch and default branch, so a named target narrows the
+        request: one that differs is refused, never replaced.
+        """
+        repo = payload.get("repo")
+        if repo is not None and not (isinstance(repo, str) and repo.lower() == slug.lower()):
+            raise _BrokerRefusal("repo is not this task's repository")
+        branch = payload.get("branch")
+        if branch is not None and not (isinstance(branch, str)
+                                       and "refs/heads/" + branch.removeprefix("refs/heads/") == self.boundary.branch):
+            raise _BrokerRefusal("branch is not this task's dispatched branch")
+        claimed_base = payload.get("base")
+        if claimed_base is not None and not (isinstance(claimed_base, str) and base is not None
+                                             and claimed_base.removeprefix("refs/heads/") == base):
+            raise _BrokerRefusal("base is not the repository's default branch")
 
     def _review_task(self, payload: dict) -> str:
         task = payload.get("task_id")
@@ -731,14 +752,18 @@ class _Broker:
 
     def _push(self, payload: dict) -> dict:
         """Publish this task's branch at the exact commit named, fast-forward only, after the push scan."""
-        if set(payload) != {"head"}:
-            raise _BrokerRefusal("push takes exactly head")
+        if "head" not in payload or not set(payload) <= {"head", "branch", "repo", "lease"}:
+            raise _BrokerRefusal("push takes head, and optionally branch, repo and lease")
         head = payload["head"]
         if not (isinstance(head, str) and _OBJECT_ID.fullmatch(head)):
             raise _BrokerRefusal("head must be a full commit id")
         if head != self.boundary.current_tip():
             raise _BrokerRefusal("head is not this task's branch tip")
         slug = self._repository_slug()
+        self._claimed(payload, slug)
+        lease = payload.get("lease")
+        if lease is not None and not (isinstance(lease, str) and (lease == "" or _OBJECT_ID.fullmatch(lease))):
+            raise _BrokerRefusal("lease must be a full commit id, or empty for an absent branch")
         url, credentials = self._remote(slug)
         branch = self.boundary.branch
         self.boundary.fetch_objects(head)
@@ -749,6 +774,8 @@ class _Broker:
         if len(exact) > 1 or (exact and not _OBJECT_ID.fullmatch(exact[0])):
             raise _BrokerRefusal("the remote branch cannot be read")
         remote = exact[0] if exact else None
+        if lease is not None and lease != (remote or ""):
+            raise _BrokerRefusal("the remote branch is not at the lease's expected commit")
         if remote == head:
             return {"returncode": 0, "stdout": f"{branch} is already {head} on {slug}\n", "stderr": ""}
         if remote is not None:
@@ -785,20 +812,23 @@ class _Broker:
         return {"returncode": 0, "stdout": f"fetched {base} into refs/remotes/origin/{base}\n", "stderr": ""}
 
     def _pr_create(self, payload: dict) -> dict:
-        if not set(payload) <= {"title", "body", "draft"} or not {"title", "body"} <= set(payload):
-            raise _BrokerRefusal("pr-create takes title, body and draft")
+        if not set(payload) <= {"title", "body", "draft", "head", "base", "repo"} or not {"title", "body"} <= set(payload):
+            raise _BrokerRefusal("pr-create takes title, body, draft, and optionally head, base and repo")
         title, body = self._text(payload, "title", 256), self._text(payload, "body", _MAX_BODY)
         draft = payload.get("draft", False)
         if type(draft) is not bool:
             raise _BrokerRefusal("draft must be true or false")
         slug = self._repository_slug()
-        fields = ["--head", self.boundary.branch.removeprefix("refs/heads/"), "--base", self._default_branch(slug),
+        base = self._default_branch(slug)
+        self._claimed({"repo": payload.get("repo"), "branch": payload.get("head"), "base": payload.get("base")}, slug,
+                      base)
+        fields = ["--head", self.boundary.branch.removeprefix("refs/heads/"), "--base", base,
                   f"--title={title}", "--body-file", self._text_file(body)]
         return self._publish("pr-create", slug, [*fields, *(["--draft"] if draft else [])])
 
     def _pr_edit(self, payload: dict) -> dict:
-        if not set(payload) <= {"pr", "title", "body"} or not {"title", "body"} & set(payload):
-            raise _BrokerRefusal("pr-edit takes pr and at least one of title and body")
+        if not set(payload) <= {"pr", "title", "body", "repo"} or not {"title", "body"} & set(payload):
+            raise _BrokerRefusal("pr-edit takes pr, at least one of title and body, and optionally repo")
         title = self._optional_text(payload, "title", 256)
         body = self._optional_text(payload, "body", _MAX_BODY)
         number, slug, _facts = self._pull_request(payload, "OPEN")
@@ -808,8 +838,8 @@ class _Broker:
         return self._publish("pr-edit", slug, fields)
 
     def _pr_comment(self, payload: dict) -> dict:
-        if set(payload) != {"pr", "body"}:
-            raise _BrokerRefusal("pr-comment takes exactly pr and body")
+        if not {"pr", "body"} <= set(payload) <= {"pr", "body", "repo"}:
+            raise _BrokerRefusal("pr-comment takes pr, body and optionally repo")
         body = self._text(payload, "body", _MAX_BODY)
         number, slug, _facts = self._pull_request(payload, "OPEN", "MERGED")
         # The publisher refuses review-verdict markers in comment text: only the recorder writes them.
@@ -856,8 +886,8 @@ class _Broker:
         The publisher's own gates still run: the recorder's exact-head marker, the same-head green CI Gate,
         ``--match-head`` and merge-queue admission; the merge group's CI decides the landing.
         """
-        if set(payload) != {"pr", "head"}:
-            raise _BrokerRefusal("pr-merge takes exactly pr and head")
+        if not {"pr", "head"} <= set(payload) <= {"pr", "head", "repo"}:
+            raise _BrokerRefusal("pr-merge takes pr, head and optionally repo")
         head = payload["head"]
         if not (isinstance(head, str) and _OBJECT_ID.fullmatch(head)):
             raise _BrokerRefusal("head must be a full commit id")
@@ -1060,6 +1090,7 @@ class _Boundary:
         # The namespace has no DNS or route out; Node's own fetch uses the forwarder's proxy only when told to.
         env.update(TMPDIR=str(tmp), LU_SCRATCH_ROOT=str(tmp / "scratch"), XDG_RUNTIME_DIR=str(tmp / "run"),
                    GIT_TERMINAL_PROMPT="0", NODE_USE_ENV_PROXY="1", **{BROKER_ENV: _BROKER_INSIDE})
+        env.update(git_push_settings(env, interpreter, str(machinery_path("dispatcher/write_boundary.py").parents[2])))
         if sources_command is not None:
             env[SOURCES_ENV] = sources_command
         try:
@@ -1256,6 +1287,105 @@ class _Boundary:
                 self.receipt["cleanup"] = f"residue: {type(exc).__name__}"
 
 
+# ``git push`` inside the boundary (#443). The launcher rewrites GitHub push URLs (``url.<base>.pushInsteadOf``) to
+# Git's documented remote-helper transport (gitremote-helpers(7)) named ``GIT_HELPER``. Git runs a helper as
+# ``git remote-<name>``; that name is a Git alias here, so no file, PATH entry or other tool is added or shadowed.
+# Fetches keep their URL (and fail inside, as before). The helper sends each ref update as the broker's ``push``
+# verb with the target the caller named; the broker refuses any target that is not the launch's own.
+GIT_HELPER = "lu-write-boundary"
+_GITHUB_PUSH_URLS = ("https://github.com/", "git@github.com:", "ssh://git@github.com/")
+
+
+def git_push_settings(env: dict[str, str], interpreter: str, package_parent: str) -> dict[str, str]:
+    """``GIT_CONFIG_*`` entries that send ``git push`` to GitHub through the broker, after any the caller set."""
+    count = env.get("GIT_CONFIG_COUNT", "0")
+    start = int(count) if count.isdecimal() else 0
+    command = [interpreter, "-I", "-c", _BOOTSTRAP, package_parent, "git-remote"]
+    settings = [(f"alias.remote-{GIT_HELPER}", "!exec " + " ".join(shlex.quote(word) for word in command))]
+    settings += [(f"url.{GIT_HELPER}::https://github.com/.pushInsteadOf", prefix) for prefix in _GITHUB_PUSH_URLS]
+    entries = {"GIT_CONFIG_COUNT": str(start + len(settings))}
+    for index, (key, value) in enumerate(settings, start):
+        entries[f"GIT_CONFIG_KEY_{index}"] = key
+        entries[f"GIT_CONFIG_VALUE_{index}"] = value
+    return entries
+
+
+def git_remote_main(argv: list[str]) -> int:
+    """Git's remote helper for ``git push`` inside the boundary: each ref update becomes one ``push`` request."""
+    if len(argv) != 2:
+        print("write boundary git helper: expected the remote and its URL", file=sys.stderr)
+        return 2
+    remote, url = argv
+    match = _GITHUB_REMOTE.fullmatch(url)
+    leases: dict[str, str] = {}
+    pending: list[str] = []
+
+    def reply(text: str) -> None:
+        sys.stdout.write(text)
+        sys.stdout.flush()
+
+    def git(*args: str) -> subprocess.CompletedProcess:
+        return subprocess.run(["git", *args], capture_output=True, text=True, check=False, timeout=_GIT_TIMEOUT)
+
+    def listing() -> str:
+        """The remote-tracking refs as the remote's refs: Git's own checks then see what it last pushed or fetched.
+
+        The broker checks the live remote branch itself (fast-forward only, and any lease).
+        """
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,99}", remote):
+            return ""
+        prefix = f"refs/remotes/{remote}/"
+        refs = git("for-each-ref", "--format=%(objectname) %(refname)", prefix).stdout.splitlines()
+        return "".join(f"{oid} refs/heads/{name.removeprefix(prefix)}\n" for oid, _, name in
+                       (line.partition(" ") for line in refs) if name != prefix + "HEAD")
+
+    def push(spec: str) -> str:
+        source, _, destination = spec.removeprefix("+").partition(":")
+        if not source:
+            return f"error {destination} deleting a branch is not published through the write boundary broker\n"
+        if match is None:
+            return f"error {destination} the remote is not a github.com repository\n"
+        resolved = git("rev-parse", "--verify", "--end-of-options", source + "^{commit}")
+        if resolved.returncode != 0:
+            return f"error {destination} the source is not a commit\n"
+        payload = {"head": resolved.stdout.strip(), "branch": destination, "repo": match.group(1)}
+        if destination in leases:
+            expected = leases[destination]
+            payload["lease"] = "" if not expected.strip("0") else expected
+        answer = broker_call("push", payload)
+        sys.stderr.write(str(answer.get("stdout", "")) + str(answer.get("stderr", "")))
+        if answer.get("returncode") == 0:
+            return f"ok {destination}\n"
+        reason = str(answer.get("stderr", "")).strip().splitlines()
+        return f"error {destination} {(reason[-1] if reason else 'the broker did not push').replace(chr(13), ' ')}\n"
+
+    for raw in sys.stdin:
+        line = raw.rstrip("\n")
+        if line == "capabilities":
+            reply("push\noption\n\n")
+        elif line.startswith("option "):
+            name, _, value = line.removeprefix("option ").partition(" ")
+            reference, colon, expected = value.partition(":")
+            if name == "cas" and colon and reference.startswith("refs/") and _OBJECT_ID.fullmatch(expected):
+                leases[reference] = expected
+                reply("ok\n")
+            else:
+                reply("unsupported\n")
+        elif line in {"list", "list for-push"}:
+            reply(listing() + "\n")
+        elif line.startswith("push "):
+            pending.append(line.removeprefix("push "))
+        elif not line and pending:
+            reply("".join(push(spec) for spec in pending) + "\n")
+            pending = []
+        elif not line:
+            return 0
+        else:
+            print(f"write boundary git helper: unsupported command {line[:40]!r}", file=sys.stderr)
+            return 1
+    return 0
+
+
 def call_main(argv: list[str]) -> int:
     """``call <verb>``: send one broker request from inside a write boundary; the payload is JSON on stdin."""
     parser = argparse.ArgumentParser(
@@ -1290,6 +1420,8 @@ def call_main(argv: list[str]) -> int:
 def main(argv: list[str]) -> int:
     if argv[:1] == ["call"]:
         return call_main(argv[1:])
+    if argv[:1] == ["git-remote"]:
+        return git_remote_main(argv[1:])
     parser = argparse.ArgumentParser(
         prog="lu_machinery.dispatcher.write_boundary",
         description="Run one dispatched write worker inside the dispatcher's bubblewrap boundary (#423).\n"
