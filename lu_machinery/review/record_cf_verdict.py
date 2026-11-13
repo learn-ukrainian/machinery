@@ -1081,7 +1081,8 @@ def _facts_git(
     # graphs: the enumeration must describe the repository's real objects.
     env = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
     env.update({"GIT_NO_REPLACE_OBJECTS": "1", "GIT_GRAFT_FILE": os.devnull})
-    command = ["git", "-C", str(repo_root), "-c", "core.commitGraph=false", "--no-replace-objects", *args]
+    command = ["git", "-C", str(repo_root), "-c", "core.commitGraph=false", "-c", "core.hooksPath=/dev/null",
+               "--no-replace-objects", *args]
     try:
         proc = subprocess.run(
             command,

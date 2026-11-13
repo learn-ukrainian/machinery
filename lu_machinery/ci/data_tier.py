@@ -365,7 +365,8 @@ def make_test_worktree(primary: Path) -> Path:
         timeout=300,
     )
     try:
-        command(["git", "fetch", "--no-tags", "origin", "main"], cwd=path, timeout=300)
+        command(["git", "-c", "core.hooksPath=/dev/null", "fetch", "--no-tags", "origin", "main"], cwd=path,
+                timeout=300)
         command(["git", "reset", "--hard", "origin/main"], cwd=path, timeout=300)
         command(["git", "sparse-checkout", "disable"], cwd=path, timeout=300)
         if command(["git", "status", "--porcelain"], cwd=path).stdout.strip():
