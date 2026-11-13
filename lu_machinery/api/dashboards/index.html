@@ -14,7 +14,7 @@
   }
   * { box-sizing: border-box; }
   body { margin: 0; font: 14px/1.45 system-ui, sans-serif; color: var(--fg); background: var(--bg); }
-  header { position: sticky; top: 0; z-index: 1; background: var(--card); border-bottom: 1px solid var(--line);
+  header { position: sticky; top: 0; z-index: 2; background: var(--card); border-bottom: 1px solid var(--line);
            padding: 10px 20px; display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; }
   header h1 { margin: 0; font-size: 18px; }
   .title { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 10px; min-width: 0; flex: 1 1 16rem; max-width: 100%; }
@@ -53,14 +53,27 @@
   .bar { display: inline-block; width: 64px; height: 8px; background: var(--line); border-radius: 4px; vertical-align: middle; margin-right: 6px; }
   .bar > span { display: block; height: 100%; border-radius: 4px; }
   a { color: var(--link); }
+  table.subs { border-collapse: separate; border-spacing: 0; }
   table.subs td { min-width: 4.5em; }
   table.subs th[colspan] { padding-top: 8px; color: var(--fg); }
+  .scroll-cue { display: none; margin: 0 0 6px; }
   @media (max-width: 640px) {
     header { padding: 8px 10px; } main { padding: 10px; gap: 10px; } section { padding: 8px 10px; }
     .refresh { margin-left: 0; }
     /* One line per row; each card scrolls sideways instead of the page growing tall. */
     th, td { white-space: nowrap; }
     td br { display: none; }
+    .scroll-cue { display: block; }
+    /* The heading and the scroll hint stay put; only the tables move. */
+    #subs { overflow: hidden; }
+    .table-scroll {
+      overflow-x: auto;
+      background-image: linear-gradient(to left, color-mix(in srgb, var(--fg) 18%, transparent), transparent 18px);
+      background-repeat: no-repeat; background-position: right top; background-size: 18px 100%;
+    }
+    table.subs th:first-child, table.subs td:first-child {
+      position: sticky; left: 0; background: var(--card); z-index: 1; box-shadow: 1px 0 0 var(--line);
+    }
   }
 </style>
 </head>
@@ -79,7 +92,7 @@
   </div>
 </header>
 <main id="main" tabindex="-1">
-  <section class="wide" id="subs"><h2>Subscriptions: usage, pace, resets and sign-in <span class="age" id="usage-age">Loading…</span></h2><p id="usage-status" class="visually-hidden" aria-live="polite" aria-atomic="true"></p><div id="usage-content">Loading…</div></section>
+  <section class="wide" id="subs"><h2>Subscriptions: usage, pace, resets and sign-in <span class="age" id="usage-age">Loading…</span></h2><p id="usage-status" class="visually-hidden" aria-live="polite" aria-atomic="true"></p><p class="muted scroll-cue">Scroll sideways for the other columns. The account name stays visible.</p><div id="usage-content">Loading…</div></section>
   <section class="wide" id="fleet"><h2>Agent fleet <span class="age" id="workers-age">Loading…</span></h2>
     <p id="workers-status" class="visually-hidden" aria-live="polite" aria-atomic="true"></p>
     <div id="workers-content">Loading…</div>
@@ -173,6 +186,7 @@ const unknown = reason => `<p class="muted">Unknown: ${escapeHtml(String(reason 
 function readingState(freshness, ageS, thresholdS) {
   const aged = typeof ageS === "number" && Number.isFinite(ageS) && ageS >= 0;
   const limit = typeof thresholdS === "number" && thresholdS > 0 ? thresholdS : 900;
+  if (freshness === "stale_last_good") return "last_good";
   if (freshness === "stale" || ((freshness === "fresh") && aged && ageS > limit)) return "stale";
   if (freshness === "fresh") return aged ? "fresh" : "unknown";
   return freshness ? String(freshness) : "missing";
@@ -181,6 +195,7 @@ function readingState(freshness, ageS, thresholdS) {
 function freshnessCell(state, ageS) {
   const age = typeof ageS === "number" && Number.isFinite(ageS) ? `${span(ageS)} old` : "age unknown";
   if (state === "fresh") return text(`fresh, ${age}`, "ok");
+  if (state === "last_good") return text(`Last good reading, ${age}`, "warn");
   if (state === "stale") return text(`STALE, ${age}`, "bad");
   if (state === "unknown") return text(`FRESHNESS UNKNOWN, ${age}`, "bad");
   return text(state === "missing" ? "NO READING" : state.toUpperCase(), "bad");
@@ -276,7 +291,7 @@ function signInCell(account, logins) {
   if (!logins) return text("unknown", "muted");
   if (logins.state === "pending") return text("checking…", "muted");
   const row = (Array.isArray(logins.accounts) ? logins.accounts : []).find(item => item.account === account);
-  if (!row) return text("no reader", "muted");
+  if (!row) return text("no sign-in reader", "muted");
   if (row.logged_in === false) return text("SIGNED OUT", "bad");
   if (row.logged_in !== true) return text(`UNKNOWN${row.reason_code ? ` (${String(row.reason_code).replaceAll("_", " ")})` : ""}`, "bad");
   const expires = toDate(row.expires_at);
@@ -324,16 +339,38 @@ function subscriptionRows(subs, logins) {
   return {groups, hidden};
 }
 
+const PROBE_REASONS = {
+  ok: null, fresh: null, NEED_KEY: "needs an API key", NEED_PROBE: "not probed yet",
+  unknown: "probe result unknown", unavailable: "probe unavailable",
+  unsupported: "balance probe is not supported", error: "probe failed", stale: "probe is stale",
+};
+
+function probeReason(state) {
+  if (!state) return null;
+  if (Object.hasOwn(PROBE_REASONS, state)) return PROBE_REASONS[state];
+  return String(state).replaceAll("_", " ").toLowerCase();
+}
+
 function apiRows(budget) {
   const accounts = budget.api_accounts || {};
   return Object.entries(accounts).map(([name, row]) => {
     const state = readingState(row.freshness, row.age_s, budget.diagnostics?.stale_threshold_s);
-    const balance = typeof row.total_balance === "number" ? `${row.total_balance.toFixed(2)} ${row.currency || ""} balance`
-      : typeof row.limit_remaining_usd === "number" ? `$${row.limit_remaining_usd.toFixed(2)} left`
-      : row.balance_probe_state ? `balance ${row.balance_probe_state}` : null;
+    const balance = typeof row.total_balance === "number" ? `${row.total_balance.toFixed(2)} ${row.currency || ""}`.trim() + " balance"
+      : typeof row.limit_remaining_usd === "number" ? `$${row.limit_remaining_usd.toFixed(2)} left` : null;
     const spent = typeof row.usage_weekly_usd === "number" ? `$${row.usage_weekly_usd.toFixed(2)} this week` : null;
-    const values = state === "fresh" ? [balance, spent].filter(Boolean).join("; ") || null : "unknown";
-    return [text(name), text(values, state === "fresh" ? "" : "muted"),
+    const figures = [balance, spent].filter(Boolean);
+    const probe = probeReason(row.balance_probe_state);
+    let values = "unknown";
+    let valueClass = "muted";
+    if (state === "fresh") {
+      values = figures.join("; ") || null;
+      valueClass = "";
+    } else if (state === "last_good") {
+      const marked = figures.length ? `${figures.join("; ")} (last good)` : null;
+      values = [marked, probe].filter(Boolean).join("; ") || "unknown";
+      valueClass = "warn";
+    }
+    return [text(name), text(values, valueClass),
             freshnessCell(state, row.age_s),
             text(row.health?.healthy === false ? "unhealthy" : null, "bad")];
   });
@@ -351,12 +388,14 @@ function renderUsage(subs, budget, logins) {
   if (hidden.length) notes.push(`Hidden, subscription ended: ${hidden.join(", ")}.`);
   if (logins === null || logins === undefined) notes.push("Sign-in state unknown: the sign-in reader did not answer.");
   notes.push("Headroom and deficit are percentage points against an even pace to the weekly reset. Carbon draws on the AGY pools. "
-    + "The Codex API credits belong to Codex a and renew with its monthly turnover. AGY has no side-effect-free sign-in reader.");
+    + "The Codex API credits belong to Codex a and renew with its monthly turnover.");
+  notes.push("Sign-in is read for Claude a, Claude b, Codex a and Codex b only. Any other account has no side-effect-free sign-in reader.");
   const head = `<thead><tr>${SUBSCRIPTION_HEADERS.map(h => `<th>${escapeHtml(h)}</th>`).join("")}</tr></thead>`;
-  const api = budget ? table(["API account", "Balance / spend", "Reading", ""], apiRows(budget))
+  const api = budget ? `<div class="table-scroll">${table(["API account", "Balance / spend", "Reading", ""], apiRows(budget))}</div>`
     : unknown("API account balances: the routing budget did not answer");
-  return (groups ? `<table class="subs">${head}<tbody>${groups}</tbody></table>` : '<p class="muted">None.</p>')
-    + notes.map(note => `<p class="muted">${escapeHtml(note)}</p>`).join("") + api;
+  const subsTable = groups ? `<div class="table-scroll"><table class="subs">${head}<tbody>${groups}</tbody></table></div>`
+    : '<p class="muted">None.</p>';
+  return subsTable + notes.map(note => `<p class="muted">${escapeHtml(note)}</p>`).join("") + api;
 }
 
 // ---- Agent fleet ----
@@ -492,18 +531,42 @@ function renderPrs(prs) {
 
 // ---- Alerts ----
 
+function alertIdentity(alert) {
+  const skip = new Set(["alertname", "severity", "starts_at"]);
+  const parts = [];
+  for (const [key, value] of Object.entries(alert)) {
+    if (skip.has(key) || value === null || value === undefined || value === "") continue;
+    if (typeof value !== "string" && typeof value !== "number") continue;
+    parts.push([key, value]);
+  }
+  parts.sort((a, b) => a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0);
+  return JSON.stringify(parts);
+}
+
+function alertTitle(group) {
+  const plain = group.alertname && group.alertname !== "UnrecognizedAlert" ? String(group.alertname) : "Unrecognised alert";
+  const skip = new Set(["alertname", "severity", "starts_at", "count", "oldest"]);
+  const extra = [];
+  for (const [key, value] of Object.entries(group)) {
+    if (skip.has(key) || value === null || value === undefined || value === "") continue;
+    if (typeof value !== "string" && typeof value !== "number") continue;
+    extra.push(`${key.replaceAll("_", " ")} ${value}`);
+  }
+  return extra.length ? `${plain} (${extra.join("; ")})` : plain;
+}
+
 function renderAlerts(alerts) {
   if (alerts.status !== "ok") return unknown(alerts.reason_code);
   const groups = new Map();
   for (const alert of Array.isArray(alerts.alerts) ? alerts.alerts : []) {
-    const key = `${alert.alertname}|${alert.severity}`;
+    const key = `${alert.alertname}|${alert.severity}|${alertIdentity(alert)}`;
     const group = groups.get(key) || {...alert, count: 0, oldest: alert.starts_at};
     group.count += 1;
     if (toDate(alert.starts_at) && (!toDate(group.oldest) || toDate(alert.starts_at) < toDate(group.oldest))) group.oldest = alert.starts_at;
     groups.set(key, group);
   }
   const rows = [...groups.values()].map(group => [
-    text(group.alertname),
+    text(alertTitle(group)),
     text(group.severity, group.severity === "critical" ? "bad" : group.severity === "warning" ? "warn" : ""),
     text(group.oldest ? span((Date.now() - toDate(group.oldest)) / 1000) : null, "num"),
     text(group.count, "num"),
@@ -540,9 +603,17 @@ function renderChips(latest) {
   if (latest.workers) out.push(chip("#fleet", (latest.workers.tasks || []).length, "live workers"));
   if (latest.usage) {
     const accounts = liveAccounts(latest.usage);
-    const fresh = accounts.every(row => readingState(row.reading?.status, row.reading?.age_s, latest.usage.stale_after_s) === "fresh");
-    const short = fresh ? accounts.filter(row => row.pace?.status === "ok" && row.pace.lasts_to_reset === false).length : "?";
-    out.push(chip("#subs", short, short === 1 ? "account runs out before reset" : "accounts run out before reset", short === "?" ? "warn" : short ? "bad" : ""));
+    let runsOut = 0, unknownCount = 0;
+    for (const row of accounts) {
+      const state = readingState(row.reading?.status, row.reading?.age_s, latest.usage.stale_after_s);
+      const pace = row.pace;
+      const answered = state === "fresh" && pace && pace.status === "ok" && typeof pace.lasts_to_reset === "boolean";
+      if (!answered) { unknownCount += 1; continue; }
+      if (pace.lasts_to_reset === false) runsOut += 1;
+    }
+    const noun = runsOut === 1 ? "account runs out before reset" : "accounts run out before reset";
+    out.push(chip("#subs", runsOut, noun + (unknownCount ? `, ${unknownCount} unknown` : ""),
+      runsOut ? "bad" : unknownCount ? "warn" : ""));
     const out_ = (latest.logins?.accounts || []).filter(row => row.logged_in === false).length;
     if (out_) out.push(chip("#subs", out_, "signed out", "bad"));
   }
@@ -591,6 +662,15 @@ function clockUtc() {
   return new Date().toISOString().slice(11, 19) + " UTC";
 }
 
+function headingAge(readings, badOnFailure) {
+  const fetched = `Fetched at ${clockUtc()}`;
+  const snapshots = Array.isArray(readings) ? readings.filter(reading => reading && reading.snapshot) : [];
+  if (!snapshots.length) return {text: fetched, bad: Boolean(badOnFailure)};
+  if (snapshots.some(reading => reading.age === null)) return {text: `${fetched} · source age unknown`, bad: true};
+  const seconds = Math.ceil(Math.max(...snapshots.map(reading => reading.age)));
+  return {text: `${fetched} · source age ${seconds}s`, bad: seconds > REFRESH_MS / 1000 * 5};
+}
+
 // Announce only when the status changes, so a healthy 30 s refresh stays quiet.
 function announce(panel, state) {
   if (panel.state === state) return;
@@ -600,7 +680,14 @@ function announce(panel, state) {
   const name = panel.label || panel.id;
   region.textContent = state === "loading" ? `Loading ${name}.`
     : state === "ready" ? `${name} loaded.`
+    : state === "unavailable" ? `${name} isn't available in this view.`
     : `${name} couldn't load.`;
+}
+
+function isRefusal(error) {
+  const message = String(error && error.message ? error.message : error);
+  const status = /HTTP (\d{3})/.exec(message);
+  return Boolean(status) && (status[1] === "401" || status[1] === "403");
 }
 
 function failureSentence(error) {
@@ -626,12 +713,23 @@ function panelError(panel, error) {
     + `<details><summary>Technical detail</summary><p class="muted">${detail}</p></details>`;
 }
 
-function showRefresh(ok) {
+function panelUnavailable() {
+  return '<p class="muted">This panel isn\'t available in this view.</p>';
+}
+
+function showRefresh() {
   const status = document.getElementById("last-refresh");
   const retry = document.getElementById("refresh-retry");
   if (!status) return;
-  status.textContent = ok ? `Updated ${clockUtc()} · every 30 s` : `Couldn't refresh, last attempt ${clockUtc()}`;
-  if (retry) retry.hidden = Boolean(ok);
+  const realFailure = PANELS.some(panel => panel.ok === false && panel.refusal !== true);
+  const anyLoaded = PANELS.some(panel => panel.ok === true);
+  if (!realFailure) {
+    status.textContent = anyLoaded ? `Updated ${clockUtc()} · every 30 s` : `Nothing is available in this view, ${clockUtc()}`;
+    if (retry) retry.hidden = true;
+    return;
+  }
+  status.textContent = `Couldn't refresh, last attempt ${clockUtc()}`;
+  if (retry) retry.hidden = false;
 }
 
 async function loadPanel(panel) {
@@ -649,13 +747,11 @@ async function loadPanel(panel) {
     if (panel.id === "usage") latest.logins = data[2];
     // The PR column of the fleet table joins the PR reading whenever either arrives.
     if (panel.id === "prs" && latest.workers) document.getElementById("workers-content").innerHTML = renderWorkers(latest.workers);
-    const snapshots = readings.filter(reading => reading.snapshot);
-    age.textContent = snapshots.some(reading => reading.age === null) ? "Source age unknown"
-      : snapshots.length ? `Source age ${Math.ceil(Math.max(...snapshots.map(reading => reading.age)))}s`
-      : `read ${new Date().toISOString().slice(11, 19)}Z`;
-    age.className = snapshots.some(reading => reading.age === null || reading.age > REFRESH_MS / 1000 * 5)
-      ? "age bad" : "age";
+    const ageLine = headingAge(readings, false);
+    age.textContent = ageLine.text;
+    age.className = ageLine.bad ? "age bad" : "age";
     panel.ok = true;
+    panel.refusal = false;
     announce(panel, "ready");
     // A pending or missing secondary source is read again shortly, at most RETRY_LIMIT times in a row.
     if (panel.retry && panel.retry(...data)) {
@@ -665,12 +761,15 @@ async function loadPanel(panel) {
       panel.retries = 0;
     }
   } catch (error) {
-    content.innerHTML = panelError(panel, error);
-    age.textContent = `last attempt ${clockUtc()}`;
-    age.className = "age bad";
+    const refused = isRefusal(error);
+    content.innerHTML = refused ? panelUnavailable() : panelError(panel, error);
+    const ageLine = headingAge(null, !refused);
+    age.textContent = ageLine.text;
+    age.className = ageLine.bad ? "age bad" : "age";
     latest[panel.id] = null;
     panel.ok = false;
-    announce(panel, "error");
+    panel.refusal = refused;
+    announce(panel, refused ? "unavailable" : "error");
   } finally {
     inFlight.delete(panel.id);
   }
@@ -681,13 +780,13 @@ async function retryPanel(id) {
   if (!panel) return;
   await loadPanel(panel);
   document.getElementById("chips").innerHTML = renderChips(latest);
-  showRefresh(PANELS.every(item => item.ok === true));
+  showRefresh();
 }
 
 async function refreshAll() {
   await Promise.all(PANELS.map(loadPanel));
   document.getElementById("chips").innerHTML = renderChips(latest);
-  showRefresh(PANELS.every(panel => panel.ok === true));
+  showRefresh();
 }
 
 refreshAll();

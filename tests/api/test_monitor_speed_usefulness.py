@@ -117,7 +117,7 @@ const PANELS = [
   const first = Promise.all(PANELS.map(loadPanel));
   await tick();
   assert.equal(document.getElementById('fast-content').innerHTML, 'fast 0');
-  assert.equal(document.getElementById('fast-age').textContent, 'Source age 900s');
+  assert.match(document.getElementById('fast-age').textContent, /^Fetched at \d{2}:\d{2}:\d{2} UTC · source age 900s$/);
   assert.equal(document.getElementById('fast-age').className, 'age bad');
   assert.equal(loginPolls, 1, 'pending login retries independently of another failed panel');
   const broken = document.getElementById('broken-content').innerHTML;
@@ -171,12 +171,16 @@ assert.match(chips(row.reading), /<b>0<\/b> accounts run out before reset/);
 for (const reading of [{...row.reading, age_s: 1800}, {...row.reading, status: 'stale'},
     {...row.reading, status: 'unknown'}, {...row.reading, age_s: null}]) {
   const html = render(reading);
-  assert.deepEqual([/17× reset/.test(html), /<b>[01]<\/b> accounts? runs? out before reset/.test(chips(reading))],
-    [false, false]);
+  assert.equal(/17× reset/.test(html), false);
   assert.doesNotMatch(html, /70%|61%|84%|91 units|37\.2|2099-01-02|18 pp|lasts to reset/);
   assert.match(html, /plan · renewal unknown/);
-  assert.match(chips(reading), /<b>\?<\/b> accounts run out before reset/);
+  assert.match(chips(reading), /<b>0<\/b> accounts run out before reset, 1 unknown/);
+  assert.doesNotMatch(chips(reading), /chip bad/);
 }
+const noReader = renderUsage({stale_after_s: 900, providers: [{provider: 'agy', label: 'AGY', accounts: [row]}], sources: {}},
+  null, {state: 'ok', accounts: [{account: 'Claude a', logged_in: true}]});
+assert.match(noReader, /no sign-in reader/);
+assert.match(noReader, /Claude a, Claude b, Codex a and Codex b only/);
 const configured = {...row, reading: {...row.reading, status: 'stale'},
   banked_resets: {...row.banked_resets, source: 'plan_facts'}};
 assert.match(subscriptionRows({providers: [{accounts: [configured]}]}, null).groups, /17× reset/);
@@ -185,8 +189,38 @@ const api = reading => apiRows({api_accounts: {Fixture: {...apiAccountRow, ...re
   diagnostics: {stale_threshold_s: 900}}).flat().join('');
 assert.match(api({}), /42\.00 USD balance/);
 assert.match(api({}), /9\.00 this week/);
-for (const reading of [{age_s: 1800}, {freshness: 'stale'}, {freshness: 'stale_last_good'},
-    {freshness: 'unknown'}, {age_s: null}]) assert.doesNotMatch(api(reading), /42\.00|9\.00/);
+for (const reading of [{age_s: 1800}, {freshness: 'stale'}, {freshness: 'unknown'}, {age_s: null}])
+  assert.doesNotMatch(api(reading), /42\.00|9\.00/);
+const lastGood = api({freshness: 'stale_last_good', balance_probe_state: 'NEED_KEY'});
+assert.match(lastGood, /42\.00 USD balance/);
+assert.match(lastGood, /\$9\.00 this week \(last good\)/);
+assert.match(lastGood, /Last good reading, 1m old/);
+assert.match(lastGood, /needs an API key/);
+assert.doesNotMatch(lastGood, /STALE_LAST_GOOD|NEED_KEY/);
+assert.match(lastGood, /class="warn">Last good reading/);
+const named = renderAlerts({status: 'ok', heartbeat: true, alerts: [
+  {alertname: 'UnrecognizedAlert', severity: 'warning', starts_at: '2026-11-01T00:00:00Z', fingerprint: 'abc'},
+  {alertname: 'ApprovedNotLanded30m', severity: 'warning', starts_at: '2026-11-12T00:00:00Z'},
+  {alertname: 'ApprovedNotLanded30m', severity: 'warning', starts_at: '2026-11-11T00:00:00Z'},
+  {alertname: 'UnrecognizedAlert', severity: 'warning', fingerprint: 'alpha'},
+  {alertname: 'UnrecognizedAlert', severity: 'warning', fingerprint: 'beta'},
+  {alertname: 'UnrecognizedAlert', severity: 'warning', alert_id: 17},
+  {alertname: 'UnrecognizedAlert', severity: 'warning', fingerprint: 'alpha'}]});
+assert.match(named, /Unrecognised alert \(fingerprint abc\)/);
+assert.match(named, /ApprovedNotLanded30m/);
+assert.doesNotMatch(named, /UnrecognizedAlert/);
+const rowFor = marker => {
+  const row = named.split("<tr>").find(part => part.includes(marker));
+  assert.ok(row, marker);
+  return row;
+};
+const countOf = row => row.match(/<td class="num">([^<]*)<\/td>/g).at(-1);
+assert.equal((named.match(/fingerprint alpha/g) || []).length, 1);
+assert.equal(countOf(rowFor('fingerprint alpha')), '<td class="num">2</td>');
+assert.equal(countOf(rowFor('fingerprint beta')), '<td class="num">1</td>');
+assert.equal(countOf(rowFor('alert id 17')), '<td class="num">1</td>');
+assert.equal((named.match(/ApprovedNotLanded30m/g) || []).length, 1);
+assert.equal(countOf(rowFor('ApprovedNotLanded30m')), '<td class="num">2</td>');
 """)
 
 
@@ -229,7 +263,7 @@ const REFRESH_MS = 30000;
 const latest = {};
 const OPTIONAL = new Set();
 const setTimeout = () => {};
-const fetchJson = async url => { throw new Error(`${url}: HTTP 403`); };
+const fetchJson = async url => { throw new Error(`${url}: HTTP 503`); };
 const escapeHtml = value => String(value).replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
 const PANELS = [{id: 'usage', label: 'Subscriptions', urls: ['/api/runtime/subscriptions'], render: () => 'never'}];
 """
@@ -239,14 +273,14 @@ const PANELS = [{id: 'usage', label: 'Subscriptions', urls: ['/api/runtime/subsc
   await loadPanel(PANELS[0]);
   const html = document.getElementById('usage-content').innerHTML;
   const visible = html.split('<details>')[0];
-  assert.match(visible, /This panel couldn't load: the source refused the request\./);
+  assert.match(visible, /This panel couldn't load: the source failed\./);
   assert.match(visible, /<button[^>]*>Retry<\/button>/);
   assert.doesNotMatch(visible, /\/api\/runtime\/subscriptions/);
   assert.match(html, /<details><summary>Technical detail<\/summary>/);
-  assert.match(html, /\/api\/runtime\/subscriptions: HTTP 403/);
-  const age = document.getElementById('usage-age').textContent;
-  assert.notEqual(age, '');
-  assert.match(age, /^last attempt \d{2}:\d{2}:\d{2} UTC$/);
+  assert.match(html, /\/api\/runtime\/subscriptions: HTTP 503/);
+  const age = document.getElementById('usage-age');
+  assert.match(age.textContent, /^Fetched at \d{2}:\d{2}:\d{2} UTC$/);
+  assert.equal(age.className, 'age bad');
   assert.equal(document.getElementById('usage-status').textContent, "Subscriptions couldn't load.");
 })().catch(error => {console.error(error); process.exitCode = 1;});
 """
@@ -265,7 +299,7 @@ setTimeout = (fn, ms, ...args) => ms === 1500 || ms === 3000 ? 0 : realSetTimeou
 let failSubscriptions = true;
 globalThis.fetch = async (url) => {
   const refused = failSubscriptions && String(url).includes('/api/runtime/subscriptions');
-  return {ok: !refused, status: refused ? 403 : 200, text: async () => '{}', headers: {get: () => '2'}};
+  return {ok: !refused, status: refused ? 503 : 200, text: async () => '{}', headers: {get: () => '2'}};
 };
 """
         + script
@@ -328,7 +362,7 @@ globalThis.fetch = async (url) => {
         + r"""
 (async () => {
   await refreshAll();
-  assert.ok(announced.indexOf('Loading Subscriptions.') < announced.indexOf("Subscriptions couldn't load."));
+  assert.ok(announced.indexOf('Loading Subscriptions.') < announced.indexOf("Subscriptions isn't available in this view."));
   assert.equal(announced.filter(item => item === 'Agent fleet loaded.').length, 1);
   failSubscriptions = false;
   await refreshAll();
@@ -337,5 +371,74 @@ globalThis.fetch = async (url) => {
   assert.equal(announced.filter(item => item === 'Subscriptions loaded.').length, 1);
   assert.equal(announced.filter(item => item === 'Agent fleet loaded.').length, 1);
 })().catch(error => {console.error(error); process.exitCode = 1;});
+"""
+    )
+
+
+def test_refused_panels_stay_unavailable_and_do_not_fail_refresh():
+    """Defect class: a panel refused in this view turns the page into Couldn't refresh, or shows Retry and a red age."""
+    page = machinery_path("api/dashboards/index.html").read_text()
+    script = page.split("<script>", 1)[1].split("\nrefreshAll();", 1)[0]
+    _node(
+        _DOM
+        + r"""
+const realSetTimeout = setTimeout;
+setTimeout = (fn, ms, ...args) => ms === 1500 || ms === 3000 ? 0 : realSetTimeout(fn, ms, ...args);
+const REFUSED = ['/api/delegate/active', '/api/delegate/recent', '/api/git/pull-requests'];
+globalThis.fetch = async (url) => {
+  const refused = REFUSED.some(item => String(url).includes(item));
+  return {ok: !refused, status: refused ? 403 : 200, headers: {get: () => '2'}, text: async () => JSON.stringify({
+    tasks: [], status: 'ok', alerts: [], heartbeat: true, providers: [], deliveries: {}, jobs: {},
+    dead_letters: 0, store: {reachable: true}, repositories: []})};
+};
+"""
+        + script
+        + r"""
+(async () => {
+  await refreshAll();
+  const status = document.getElementById('last-refresh');
+  assert.match(status.textContent, /^Updated \d{2}:\d{2}:\d{2} UTC \u00b7 every 30 s$/);
+  assert.equal(document.getElementById('refresh-retry').hidden, true);
+  assert.doesNotMatch(status.textContent, /Couldn't refresh/);
+  for (const id of ['workers', 'recent', 'prs']) {
+    const html = document.getElementById(id + '-content').innerHTML;
+    assert.match(html, /isn't available in this view/);
+    assert.doesNotMatch(html, /Retry|couldn't load|class="error"/);
+    const age = document.getElementById(id + '-age');
+    assert.match(age.textContent, /^Fetched at \d{2}:\d{2}:\d{2} UTC$/);
+    assert.equal(age.className, 'age');
+  }
+  assert.doesNotMatch(document.getElementById('alerts-content').innerHTML, /isn't available|couldn't load/);
+  assert.match(document.getElementById('alerts-age').textContent, /Fetched at \d{2}:\d{2}:\d{2} UTC \u00b7 source age 2s/);
+})().catch(error => {console.error(error); process.exitCode = 1;});
+"""
+    )
+
+
+def test_at_risk_chip_counts_fresh_run_outs_and_names_unknowns():
+    """Defect class: one account with no reading replaces the run-out count with a question mark."""
+    code = _script("index.html", "function escapeHtml", "// ---- Panels ----")
+    _node(
+        _DOM
+        + code
+        + r"""
+const fresh = {reading: {status: 'fresh', age_s: 30, read_at: '2026-11-13T00:00:00Z'},
+  pace: {status: 'ok', lasts_to_reset: false}};
+const unread = {reading: {status: 'unknown', age_s: null, reason_code: 'provider_error'}, pace: {status: 'unknown'}};
+const safe = {reading: {status: 'fresh', age_s: 30, read_at: '2026-11-13T00:00:00Z'},
+  pace: {status: 'ok', lasts_to_reset: true}};
+const chipOf = (...accounts) => renderChips({usage: {stale_after_s: 900, providers: [{accounts}]}});
+const mixed = chipOf(fresh, fresh, unread);
+assert.match(mixed, /<b>2<\/b> accounts run out before reset, 1 unknown/);
+assert.match(mixed, /class="chip bad"/);
+assert.doesNotMatch(mixed, /\?/);
+assert.match(chipOf(fresh), /<b>1<\/b> account runs out before reset/);
+const none = chipOf(safe, unread);
+assert.match(none, /<b>0<\/b> accounts run out before reset, 1 unknown/);
+assert.match(none, /class="chip warn"/);
+assert.doesNotMatch(none, /chip bad/);
+const clear = chipOf(safe);
+assert.match(clear, /<b>0<\/b> accounts run out before reset</);
+assert.doesNotMatch(clear, /unknown|chip bad|chip warn/);
 """
     )
