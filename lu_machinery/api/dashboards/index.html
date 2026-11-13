@@ -234,7 +234,8 @@ function paceCell(pace) {
       : toDate(pace.runs_out_at).getTime() <= Date.now() ? `ran out ${utc(pace.runs_out_at)} (${relative(pace.runs_out_at)})`
       : `runs out ${utc(pace.runs_out_at)} (${relative(pace.runs_out_at)})`)
     : "last-to-reset unknown";
-  return text(`${head} · ${tail}`, pace.state === "deficit" ? (pace.lasts_to_reset === false ? "bad" : "warn") : "ok");
+  // The routing status reads the same verdict: running out before the reset is bad at any headroom.
+  return text(`${head} · ${tail}`, pace.lasts_to_reset === false ? "bad" : pace.state === "deficit" ? "warn" : "ok");
 }
 
 function sessionCell(window) {

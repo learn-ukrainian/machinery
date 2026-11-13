@@ -50,7 +50,7 @@ except ImportError:
 
 from lu_machinery.orchestration import issue_stream_audit as isa
 
-from . import config
+from . import config, subscriptions
 from . import delegate_router as delegate_api
 from . import runtime_router as runtime_api
 from . import state_router as state_api
@@ -1812,6 +1812,8 @@ class PrometheusMetricsMiddleware:
             labelnames=("method", "route", "status"),
             registry=registry,
         )
+        # Each subscription pool's run-out-before-reset status, read at scrape time for alerting.
+        registry.register(subscriptions.PoolPaceCollector())
         self._metrics_app = make_asgi_app(registry=registry, disable_compression=True)
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
