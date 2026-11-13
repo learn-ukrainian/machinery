@@ -278,9 +278,10 @@ class _Boundary:
             self.protected.append(primary_branch)
         home = Path(os.environ.get("HOME") or Path.home()).resolve(strict=True)
         root = ensure_scratch_root().resolve()
+        # The private layers must lie outside the overlay lowers and the read-only primary bind.
         for name, path in (("HOME", home), ("the primary", repository)):
-            if _overlaps(root, path):
-                raise Refused(f"the scratch root overlaps {name}")
+            if root.is_relative_to(path):
+                raise Refused(f"the scratch root is inside {name}")
         if not _under(self.base, [root]) or self.base.parent.resolve() != root:
             raise Refused("the scratch is not directly under the scratch root")
 

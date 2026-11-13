@@ -634,8 +634,6 @@ def test_provider_process_lingering_after_its_final_result_settles_with_that_res
     assert spec.final_file.read_text() == "literal final response"
 
 
-# The stub provider marks its start beside its prompt in the task store, which the write boundary keeps read-only.
-@pytest.mark.write_boundary_double
 @pytest.mark.parametrize(("mode", "status"), [("read-only", "done"), ("workspace-write", "no_deliverable")])
 def test_a_run_settling_while_a_task_it_dispatched_still_runs_names_that_task(sandbox, mode, status):
     """Defect class: a worker's result orphaned by its own end read as a bare no_deliverable (#12156)."""
@@ -668,7 +666,7 @@ def test_a_run_settling_while_a_task_it_dispatched_still_runs_names_that_task(sa
     assert "orphaned_child_tasks" not in sandbox.settle(child)
 
 
-def test_agy_open_command_without_terminal_result_cannot_use_merged_rescue(sandbox, monkeypatch, write_boundary_double):
+def test_agy_open_command_without_terminal_result_cannot_use_merged_rescue(sandbox, monkeypatch):
     """An interrupted AGY stream with an ACTIVE command must not settle done through merged rescue."""
     from lu_machinery.dispatcher.providers import agy
     from lu_machinery.dispatcher.types import Invocation
@@ -707,7 +705,7 @@ def test_agy_open_command_without_terminal_result_cannot_use_merged_rescue(sandb
 
 
 @pytest.mark.parametrize(("reply", "status"), [('{"verdict": "ok"}', "done"), ('{"other": 1}', "failed")])
-def test_schema_bound_write_failure_is_rescued_only_by_its_reply_content(sandbox, monkeypatch, write_boundary_double, reply, status):
+def test_schema_bound_write_failure_is_rescued_only_by_its_reply_content(sandbox, monkeypatch, reply, status):
     """Defect class: a schema-bound write run whose provider exits nonzero after its PR merged is refused on the
     exit code alone, so merged delivery can never rescue it and the refusal names a schema defect it does not have.
     """
