@@ -41,6 +41,10 @@ Eggbot stays a separate tasked seat:
 - Do **not** add `ask-grok-bot`
 - Do **not** give it a registry adapter
 
+## Presence
+
+`POST /api/observer/presence` remains the occupancy heartbeat. Agents `grok-bot` and `qa-engineer` are allowed, and the Cursor driver seat uses the same route with agent `cursor`. Occupancy cannot infer this seat from a RAM lease. The route is not a dispatch seat. Do not send a pid or a reserved-memory field.
+
 ## How a result enters the fleet
 
 1. A driver tasks eggbot with `bot_gateway.py send`. Follow `docs/runbooks/bot-gateway.md` in the infra-private tree.

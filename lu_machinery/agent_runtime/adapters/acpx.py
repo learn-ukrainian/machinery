@@ -192,6 +192,7 @@ CURSOR_ACP_MODELS = frozenset({CURSOR_ACP_MODEL})
 # The ACP agent advertises the bare id and rejects the CLI slug. The live
 # advertisement is grok-4.7 with reasoning_effort=high and fast=true.
 # Metadata keeps the allowlisted pin; only the acpx argv uses this id.
+# Residual owner: the CTO, until the agent advertises a non-fast id.
 CURSOR_ACP_ARGV_MODELS = {CURSOR_ACP_MODEL: "grok-4.7"}
 GLM_ACP_MODEL = "glm-5.3"
 GLM_ACP_INVOCATION_MODEL = "zai-coding-plan/glm-5.3"
