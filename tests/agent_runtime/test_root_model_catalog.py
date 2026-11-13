@@ -1213,6 +1213,22 @@ def test_work_only_model_is_refused_a_review_typed_dispatch_before_launch(agent,
     checks.check_model_admission(agent, model, "read-only", {}, b"implement the change")
 
 
+@pytest.mark.parametrize(
+    ("agent", "model", "mode"),
+    [("codex", "gpt-6-sol", "workspace-write"), ("codex", "gpt-6-sol", "read-only"),
+     ("claude", "claude-opus-4-8", "read-only")],
+)
+def test_retired_model_is_refused_a_non_review_dispatch_before_launch(agent, model, mode):
+    """Defect class: a retired catalog model admitted for implementation or other non-review work.
+
+    Admission used to check retirement only on the red-team review path, so a retired model ran any
+    non-review dispatch. Every role now refuses it before launch (ported from product #12946).
+    """
+    from lu_machinery.dispatcher import checks
+
+    with pytest.raises(ValueError, match="is retired in the model catalog"):
+        checks.check_model_admission(agent, model, mode, {}, b"implement the change")
+
 
 
 def test_sol_defaults_and_escalations_use_high_across_catalog():

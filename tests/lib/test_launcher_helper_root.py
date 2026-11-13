@@ -170,6 +170,7 @@ LC_ROOT="$1"
 source "$LC_ROOT/lu_machinery/lib/launcher_core.sh"
 launcher_resolve_roots
 printf 'resolved=%s\n' "$LC_DURABLE_HELPER_ROOT"
+printf 'hook_primary=%s\n' "${LEARN_UKRAINIAN_PRIMARY_REPO_ROOT:-}"
 source "$LC_ROOT/lu_machinery/lib/handoff_identity.sh"
 site() { printf 'SITE %s\n' "$1" >> "$SITE_LOG"; }
 
@@ -286,6 +287,27 @@ def test_relative_back_pointer_is_accepted(layout: Layout) -> None:
 
 def test_ambient_git_dir_does_not_redirect_any_site(layout: Layout) -> None:
     _assert_every_site_ran_the_primary(layout, _run_sites(layout, **_hostile_env(layout)))
+
+
+def test_claude_launch_replaces_an_inherited_anchor_and_refuses_an_invalid_one(layout: Layout) -> None:
+    """Defect class: Claude hooks that trust a caller's inherited anchor, or start without a valid one.
+
+    A Claude launch exports its own validated helper root as the hook trust anchor, replacing an
+    inherited LEARN_UKRAINIAN_PRIMARY_REPO_ROOT, and refuses before any site when the hook boundary
+    rejects that root (here a conflicting LEARN_UKRAINIAN_STATE_ROOT). Ported from the product's
+    launcher-primary-root-export patch.
+    """
+    result = _run_sites(
+        layout, LC_PROVIDER="claude", LEARN_UKRAINIAN_PRIMARY_REPO_ROOT=str(layout.attacker), **_hostile_env(layout)
+    )
+    _assert_every_site_ran_the_primary(layout, result)
+    assert f"hook_primary={layout.primary}" in result.stdout
+    layout.log.write_text("")
+    refused = _run_sites(layout, LC_PROVIDER="claude", LEARN_UKRAINIAN_STATE_ROOT=str(layout.attacker))
+    assert refused.returncode == 3, (refused.stdout, refused.stderr)
+    assert "refusing to start Claude" in refused.stderr
+    assert "resolved=" not in refused.stdout
+    assert not [line for line in layout.lines() if line.startswith("SITE ")], layout.lines()
 
 
 def test_worktree_local_venv_never_runs(layout: Layout) -> None:

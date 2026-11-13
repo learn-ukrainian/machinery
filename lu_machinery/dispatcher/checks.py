@@ -194,6 +194,9 @@ def check_model_admission(agent: str, model: str, mode: str, options: dict, prom
             raise ValueError(f"model {model!r} is not an AGY selector the model catalog lists for "
                              f"{identity}; listed: {', '.join(names) or 'none'}")
     if not catalog["models"].get(identity, {}).get("red_team_only"):
+        # Every role refuses a retired catalog model, not only review (product #12946).
+        if refusal := retired_model_refusal(model, catalog):
+            raise ValueError(refusal)
         # Review typing is the one dispatch role admission infers: every review flag, --risk,
         # --review-mode, --language-lane, the subject selectors and a review research role.
         reviewed = identity is not None and "review" in dispatch_roles(options)
