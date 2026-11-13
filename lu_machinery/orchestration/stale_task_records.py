@@ -885,6 +885,7 @@ def _unrecoverable_work(candidate: Candidate, facts: RepoFacts) -> bool:
     if commits.error:
         candidate.skip_reason = "commit evidence unavailable: " + commits.error
         return False
+    candidate.work_commits = [sha for sha in commits.resolved.values() if sha]
     held = [sha for sha in commits.resolved.values() if sha and sha in commits.reachable]
     candidate.evidence["recorded_commits_reachable"] = bool(held)
     if held:
@@ -1236,13 +1237,13 @@ def _close_abandoned(candidate: Candidate, facts: RepoFacts, index: PullIndex) -
         candidate.evidence.setdefault("surviving_paths", []).append(raw)
         candidate.skip_reason = "work survives at " + raw
         return
-    listing = (_git(["worktree", "list", "--porcelain"], cwd=facts.checkout,
+    listing = (_git(["worktree", "list", "--porcelain", "-z"], cwd=facts.checkout,
                     timeout=DEFAULT_GIT_TIMEOUT_S) if facts.checkout else None)
     if listing is None or listing.returncode:
         candidate.skip_reason = "worktree list unavailable"
         return
-    for block in listing.stdout.strip().split("\n\n"):
-        tree = dict(line.partition(" ")[::2] for line in block.splitlines())
+    for block in listing.stdout.strip("\0").split("\0\0"):
+        tree = dict(line.partition(" ")[::2] for line in block.split("\0"))
         raw = tree.get("worktree")
         if not raw or Path(raw) == facts.checkout:
             continue
@@ -1279,6 +1280,7 @@ def _close_abandoned(candidate: Candidate, facts: RepoFacts, index: PullIndex) -
                   for sha in recorded for field in ("head_sha", "merge_commit_sha"))
               or (facts.checkout is not None and isinstance(pull.get("head_sha"), str)
                   and any(_is_ancestor(facts.checkout, sha, pull["head_sha"]) for sha in recorded))]
+    candidate.evidence["merged_prs"] = merged
     if merged:
         candidate.merged_pr = max(merged, key=lambda pull: str(pull.get("merged_at") or ""))
         candidate.outcome = "done"
@@ -1286,7 +1288,8 @@ def _close_abandoned(candidate: Candidate, facts: RepoFacts, index: PullIndex) -
     else:
         locations = decision_row(candidate)["where"]
         if locations == ["unknown"]:
-            locations = [str(candidate.path)]
+            locations = ([f"git object {sha} in {facts.checkout}" for sha in candidate.work_commits]
+                         or [str(candidate.path)])
         candidate.outcome = "failed"
         candidate.settle_reason = "abandoned; work preserved at " + ", ".join(locations)
         candidate.failure_reason = candidate.settle_reason

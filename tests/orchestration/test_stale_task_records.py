@@ -396,7 +396,7 @@ def test_detached_worktree_head_with_a_rescue_ref_stays_class_b(tasks_dir, repo)
     """Defect class: a detached checkout that still holds a rescued commit, including one commit later, is settled."""
     sha = _orphan_commit(repo, "detached")
     _git(repo, "update-ref", f"refs/reaper-rescue/stamp/detached-{sha[:12]}", sha)
-    worktree = repo.parent / "detached-wt"
+    worktree = repo.parent / "detached-wt-ä"
     _git(repo, "worktree", "add", "--detach", str(worktree), sha)
     (worktree / "newer.txt").write_text("newer\n")
     _git(worktree, "add", "newer.txt")
@@ -583,6 +583,7 @@ def test_renamed_branch_preserves_work_when_abandoned_record_is_closed(tasks_dir
 
     report = _settle(tasks_dir, repo, [
         _merged("codex/unknown-commit", 93, OLD_FINISH + timedelta(hours=1), head_sha="ab" * 20),
+        _merged("codex/renamed-named", 94, OLD_FINISH + timedelta(hours=1)),
     ], apply=True)
 
     rows = _by_file(report)
@@ -590,6 +591,8 @@ def test_renamed_branch_preserves_work_when_abandoned_record_is_closed(tasks_dir
     assert rows["renamed.json"]["outcome"] == "failed"
     assert "refs/heads/rescue/renamed" in rows["renamed.json"]["settle_reason"]
     assert rows["renamed-named.json"]["class"] == "C"
+    assert rows["renamed-named.json"]["outcome"] == "failed"
+    assert rows["renamed-named.json"]["evidence"]["merged_prs"] == []
     assert rows["renamed-named.json"]["evidence"]["refs_containing_commit"] == ["refs/heads/rescue/renamed"]
     assert rows["pushed-elsewhere.json"]["class"] == "C"
     assert rows["pushed-elsewhere.json"]["evidence"]["origin_heads_at_commit"] == ["elsewhere/pushed"]
