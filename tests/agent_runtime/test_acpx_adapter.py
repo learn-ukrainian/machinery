@@ -1872,8 +1872,7 @@ def test_grok_parse_response_cancel_crash_malformed_replay_fail_closed():
         assert needle.lower() in (result.stderr_excerpt or "").lower()
 
 
-# Cursor has no approved model pin while Grok is retired (GROK-CANCEL-1110). Cursor ACP mechanism
-# tests install this stand-in as the only approved pin.
+# Mechanism tests that need a pin other than the live wire pin install this stand-in.
 CURSOR_STAND_IN_PIN = "stand-in-cursor-pin-high"
 
 
@@ -2076,8 +2075,9 @@ def _cursor_acp_plan(tmp_path, monkeypatch, model):
 @pytest.mark.parametrize(
     ("model", "sent", "stand_in"),
     [
-        # C-5307 restores only the exact explicit wire pin; no default or alias is admitted.
-        (None, None, False),
+        # C-5307 admits the exact wire pin. An omitted model uses that pin.
+        # The bare catalog id is not an alias and stays refused.
+        (None, "grok-4.7-high", False),
         ("grok-4.7", None, False),
         ("grok-4.7-high", "grok-4.7-high", False),
         ("composer-2.5", None, False),
@@ -2094,9 +2094,21 @@ def test_cursor_acp_invocation_carries_a_concrete_pin(tmp_path, monkeypatch, mod
             _cursor_acp_plan(tmp_path, monkeypatch, model)
         return
     plan = _cursor_acp_plan(tmp_path, monkeypatch, model)
-    assert ("--model", sent) in zip(plan.cmd, plan.cmd[1:], strict=False)
+    argv_model = acpx_module.CURSOR_ACP_ARGV_MODELS.get(sent, sent)
+    assert ("--model", argv_model) in zip(plan.cmd, plan.cmd[1:], strict=False)
     assert plan.cmd.count("--model") == 1
     assert plan.metadata["model"] == sent
+
+
+def test_cursor_acp_omitted_model_uses_allowlisted_wire_pin(tmp_path, monkeypatch):
+    """Defect: a Cursor ACP default outside the allowlist refuses before spawn, and the CLI slug is not an ACP model id."""
+    assert acpx_module.CURSOR_ACP_MODEL == "grok-4.7-high"
+    assert acpx_module.CURSOR_ACP_MODEL in acpx_module.CURSOR_ACP_MODELS
+    assert AcpxCursorShadowAdapter.default_model == acpx_module.CURSOR_ACP_MODEL
+    assert AcpxCursorShadowAdapter.default_model in AcpxCursorShadowAdapter.allowed_models
+    plan = _cursor_acp_plan(tmp_path, monkeypatch, None)
+    assert ("--model", "grok-4.7") in zip(plan.cmd, plan.cmd[1:], strict=False)
+    assert plan.metadata["model"] == "grok-4.7-high"
 
 
 @pytest.mark.parametrize(

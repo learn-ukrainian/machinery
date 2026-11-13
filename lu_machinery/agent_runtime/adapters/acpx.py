@@ -184,10 +184,16 @@ CLAUDE_ACP_MODELS = frozenset({CLAUDE_ACP_MODEL, CLAUDE_ACP_OPUS_MODEL})
 # is refused before prompt delivery. Models without an entry use the global
 # CLAUDE_MIN_SUPPORTED_CLI_VERSION; Opus 5.5 needs Claude Code 2.1.280+.
 CLAUDE_ACP_MIN_CLAUDE_CODE_VERSIONS: dict[str, tuple[int, int, int]] = {CLAUDE_ACP_OPUS_MODEL: (2, 1, 280)}
-# Cursor ACP asks never run Auto (operator decision 2026-09-30, #9274): the
-# participant sends the catalog's Cursor seat pin, or the other allowlisted pin.
-CURSOR_ACP_MODEL = "grok-4.7"
-CURSOR_ACP_MODELS = frozenset({"grok-4.7-high"})
+# Cursor ACP asks never run Auto (operator decision 2026-09-30, #9274).
+# An omitted model uses this exact Cursor CLI pin. The bare catalog id is
+# not on the allowlist and is refused before spawn (C-5307).
+CURSOR_ACP_MODEL = "grok-4.7-high"
+CURSOR_ACP_MODELS = frozenset({CURSOR_ACP_MODEL})
+# The ACP agent advertises the bare id and rejects the CLI slug. The live
+# advertisement is grok-4.7 with reasoning_effort=high and fast=true.
+# Metadata keeps the allowlisted pin; only the acpx argv uses this id.
+# Residual owner: the CTO, until the agent advertises a non-fast id.
+CURSOR_ACP_ARGV_MODELS = {CURSOR_ACP_MODEL: "grok-4.7"}
 GLM_ACP_MODEL = "glm-5.3"
 GLM_ACP_INVOCATION_MODEL = "zai-coding-plan/glm-5.3"
 # DeepSeek ACP seat (#6805): the bare catalog id remains fleet identity.
@@ -3855,6 +3861,8 @@ class _AcpxDiscussionAdapter:
             cmd.extend(["--model", self.acpx_model or self.fixed_model])
         elif self.allowed_models:
             cmd_model = model or self.default_model
+            if self.name == "acpx-cursor-shadow":
+                cmd_model = CURSOR_ACP_ARGV_MODELS.get(cmd_model, cmd_model)
             cmd.extend(["--model", cmd_model])
         if custom_agent is None:
             if self.target_agent in {"claude", "codex"} and _ACPX_BINARY is None:

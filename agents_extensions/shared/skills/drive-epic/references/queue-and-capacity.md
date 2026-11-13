@@ -41,7 +41,7 @@ You are an **epic orchestrator**, not a clerk waiting on one PR. Every cycle mus
 the epic's open issue set:
 
 1. **Inventory** — open GitHub issues for this epic/stream (plus Work API `/next` +
-   grok-bot QA issues per §2b). Quote the count.
+   eggbot results per §2b). Quote the count.
 2. **Disposition each item** — for every open issue, exactly one of:
    - **in_flight** (named PR/task id + head),
    - **dispatch now** (ROUTING_CARD + `capacity_pick` / `/api/state/routing-budget` +
@@ -67,13 +67,13 @@ re-read checks and finish merge/hygiene on the next live turn.
 - Before "done" or handback, quote the tool residual count; `residual > 0` requires a
   next dispatch in the same session.
 
-## §2b. Grok-bot QA findings — queue input, not a fleet seat
+## §2b. Grok QA bot (eggbot) — tasked fleet seat
 
-Grok Bot (`app/cursor`) is an **external QA observer** — it reads CI/site signals and files
-labeled GitHub issues; drivers consume those issues through the normal loop like any
-other open issue. It is **never** a dispatch target: no `--agent grok-bot`, no `ask-grok-bot`,
-no fleet-comms seat. If Grok Bot ever authors a PR, same-family Grok must not CF it — route to
-an outside-family reviewer per §6. Full contract: `docs/runbooks/grok-bot-qa-observer.md`.
+Eggbot does UI QA, design review, UX review and retesting (C-5336). Task it through the bot
+gateway (`bot_gateway.py send`), not through `dispatch.py`. It is not a review of record and
+it must not merge. Do not add `--agent grok-bot` or `ask-grok-bot`. If eggbot authors a PR,
+same-family Grok must not review it — route to an outside-family reviewer per §6. Full
+contract: `docs/runbooks/grok-bot-qa-observer.md`.
 
 ## §2c. No idle lanes — subscription min-max (binding, all driver seats)
 
