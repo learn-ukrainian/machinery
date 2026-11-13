@@ -129,7 +129,8 @@ This hook is an accident tripwire, not a containment boundary. It promises to
 refuse the honest mistakes listed in ``docs/runbooks/primary-checkout-dirt.md``
 (write tools, the listed shell writers and Git working-tree writes, the same
 writes through ordinary launchers, the approved #412 pattern classes, and
-unresolved targets), and it must keep admitting that runbook's benign controls.
+unresolved targets), and it must keep admitting that runbook's benign controls
+apart from its listed over-refusals.
 An admitted command from the promised list is a defect. A process holding
 sufficient filesystem write authority can still write the primary checkout;
 real containment is the operating-system follow-up the runbook names.
@@ -2524,7 +2525,7 @@ def _writer_targets(
             targets.extend(
                 bash_write_targets(" ".join(args), cwd=cwd, main_root=main_root, depth=depth + 1, uv_env=uv_env)
             )
-    elif cmd in {"sh", "bash", "zsh", "dash"}:
+    elif cmd in {"sh", "bash", "zsh", "dash", "fish"} or _SHELL_NAME_RE.fullmatch(cmd):  # Every shell runs -c code.
         script = _shell_command_script(segment[idx + 1 :])
         if script is not None:
             if getattr(script, "unresolved_at", None) is not None:
@@ -2931,6 +2932,74 @@ def _program_names(word: str, bases: tuple[str | None, ...], which: Callable[[st
     return names
 
 
+# Programs the parser reads by name. Run under another name, one hides what it
+# does, so such a word is refused (`_renamed_program`).
+_NAMED_WRITERS = (
+    _POSITIONAL_WRITERS
+    | _LONG_TAIL_WRITERS
+    | _INPLACE_FIXERS
+    | {"find", "sed", "perl", "git", "trap", "coproc"}
+)
+# Launchers that can run their command under another root, where no path the
+# guard resolves names the program that runs.
+_ROOT_CHANGERS = frozenset(
+    {"chroot", "unshare", "nsenter", "bwrap", "proot", "start-stop-daemon", "daemonize", "chpst"}
+)
+
+
+def _named_program(name: str) -> bool:
+    return name in _LAUNCHERS or name in _NAMED_WRITERS or _SHELL_NAME_RE.fullmatch(name) is not None
+
+
+def _renamed_program(
+    segments: list[tuple[list[str], str | None, str | None]], which: Callable[[str], str | None]
+) -> bool:
+    """Whether a word runs a program the parser reads by name, under another name (#403).
+
+    The parser picks each command's rules by the name it is spelled with, so a
+    shell, launcher or writer reached through a link or copy named otherwise is
+    never read as what it is. Such a word is refused wherever it stands, literal
+    or not; a word spelled with a name the parser already reads is not.
+    """
+    for segment, run_cwd, shell_cwd in segments:
+        for word in segment:
+            if _undecided_word(word) or _named_program(Path(word).name):
+                continue
+            if any(_named_program(program) for program in _program_names(word, (run_cwd, shell_cwd), which)):
+                return True
+    return False
+
+
+def _relocated_program_word(segment: list[str]) -> bool:
+    """Whether a word in ``segment`` may run as a program the guard cannot identify (#403).
+
+    A root-changing launcher runs its command under another root, where no
+    word names a program the guard can resolve. ``find -execdir`` and ``env
+    --chdir`` run their command from another directory, so a relative path
+    there names an executable the guard never looked at. (A launcher with no
+    known working directory is refused by `_launched_word_reaches` itself.)
+    """
+    names = {Path(word).name for word in segment}
+    if names & _ROOT_CHANGERS:
+        return True
+    moved = any(word in {"-execdir", "-okdir"} for word in segment)
+    for index, word in enumerate(segment):
+        if Path(word).name != "env":
+            continue
+        rest = iter(segment[index + 1 :])
+        for option in rest:  # env's own options and bindings precede its command
+            if option[:1] != "-" and "=" not in option:
+                break
+            if option.startswith("--chdir") or (option[:1] == "-" and option[1:2] != "-" and "C" in option[1:]):
+                moved = True
+            if option in {"--unset", "--argv0"} or (option[:1] == "-" and option[1:2] != "-" and option[-1] in "ua"):
+                next(rest, None)  # the option's value
+    return moved and any(
+        not _undecided_word(word) and "/" in word and word[:1] != "-" and not Path(word).is_absolute()
+        for word in segment
+    )
+
+
 def _launched_word_reaches(segments: list[tuple[list[str], str | None, str | None]], main_root: Path) -> bool:
     """Whether a command that launches commands could carry an undecided word into the checkout.
 
@@ -2958,6 +3027,8 @@ def _launched_word_reaches(segments: list[tuple[list[str], str | None, str | Non
     for segment, run_cwd, shell_cwd in segments:
         seg_launcher, seg_code = _launches(segment)
         launcher, code = launcher or seg_launcher, code or seg_code
+        if _relocated_program_word(segment):
+            launcher = code = True
         # A program is what its word resolves to, by path or on PATH. A launcher
         # under another name hides the options and replacement strings that make
         # it run code, so it counts as a code launcher.
@@ -3137,6 +3208,15 @@ def bash_write_targets(
         unknown = ShellWord("launched pattern")
         unknown.decision_reason = "undecidable_glob_write_target"
         targets.append(unknown)
+    if main_root is not None:
+        import shutil
+
+        if _renamed_program(seen, shutil.which) or any(
+            _relocated_program_word(segment) for segment, _, _ in seen
+        ):
+            unknown = ShellWord("unidentified program")
+            unknown.decision_reason = "undecidable_program_identity"
+            targets.append(unknown)
     return targets
 
 

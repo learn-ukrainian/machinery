@@ -27,7 +27,9 @@ on a protected branch, the guard refuses:
    tracked files, cleaning, destructive resets, popping a stash);
 4. the same writes reached through ordinary launchers: command wrappers,
    `xargs` and `parallel`, `find` templates, shells given a command string,
-   decidable `eval` strings, and a launcher run under another name or path;
+   decidable `eval` strings, and a shell, launcher or writer run under another
+   name or path (a word whose executable is one of those programs under a
+   different name is refused, whatever it runs);
 5. the pattern classes approved under #403 (PR #412): a pattern that can
    expand to a protected path, a command chosen by a pattern, a pattern that
    can become an option, and any pattern or undecided word in a command that
@@ -41,7 +43,8 @@ it as a blocker. An input being unusual or deliberate does not by itself make
 a finding out of scope; reviewers classify each finding by what it can reach
 and what it can damage.
 
-**What must keep working** (benign controls). The guard must not refuse:
+**What must keep working** (benign controls). Apart from the accepted
+over-refusals below, the guard must not refuse:
 
 - read-only commands anywhere, the primary checkout included (`git status`,
   `git log`, `git diff`, `rg`, `cat`, `ls`);
@@ -51,9 +54,21 @@ and what it can damage.
 - the commands in the pinned benign corpus
   (`tests/agents_extensions/test_guard_benign_corpus.py`).
 
-The guard deliberately over-refuses one case: run from the primary checkout, a
-command that holds a launcher and any pattern is refused, even when it only
-reads.
+**Accepted over-refusals.** These refuse even when the command only reads or
+stays in a worktree:
+
+- from the primary checkout, any command that holds a launcher and a pattern;
+- anywhere, a command that holds a launcher and a pattern or other undecided
+  word, when a launcher runs code (a shell, `eval`, `sudo` and the like, or a
+  replacement string that can stand for the program), when a word could change
+  program lookup or word splitting, or when a pattern could name an option, a
+  launcher or an executable. A launcher counts wherever its name appears in the
+  command, even as an operand;
+- anywhere, a word that runs a shell, launcher or writer under another name;
+- anywhere, a root-changing launcher (`chroot`, `unshare`, `nsenter`, `bwrap`,
+  `proot` and the like), and a relative path in a command run by
+  `find -execdir`/`-okdir` or `env --chdir`, because the program it names is
+  never the one the guard can see.
 
 **What it does not stop** (the residual). A process holding sufficient
 filesystem write authority can still write the primary checkout. Known ways
