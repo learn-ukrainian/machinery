@@ -11,7 +11,10 @@ measurements display `?`; they are not inferred from lifetime counts.
 Windows include both endpoints and exclude future events. Dead letters use
 `created_at`; failed deliveries and jobs use `completed_at`, falling back to
 `updated_at` for historical rows. An old job that fails today counts today.
-A maintenance expiry creates dead letters today and therefore counts today too.
+The deliberate `deliveries expire-stale --apply` cleanup records its dead letters
+with reason `expired_by_cleanup`; no window, lifetime failure total or alert
+gauge counts them, and the fleet authority-health window ignores them too. A
+genuine `deadline_expired` row, even in the same cleanup batch, still counts.
 Only state `failed` counts in the two failure measures; expired/dead-lettered
 rows remain represented by the separate dead-letter measure.
 

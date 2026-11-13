@@ -461,6 +461,25 @@ def test_exhausted_unacknowledged_reply_notifies_once_without_recursive_alerts(p
             ("claude-cto-session", second.delivery_ids[0]),
         )
         service.store.connection.commit()
+        # Genuine deadline misses, too young for the cleanup, expire in the same batch. The one
+        # to a stored session-CTO name must not roll the batch back through its refused notice.
+        genuine = service.publish_message(
+            sender="claude-cto", body="due", recipients=("worker-task",),
+            created_at="2020-01-09T00:00:00Z", idempotency_key="genuine-due",
+        )
+        session = service.publish_message(
+            sender="claude-cto", body="due to session", recipients=("worker-task",),
+            created_at="2020-01-09T00:00:00Z", idempotency_key="genuine-session-due",
+        )
+        service.store.connection.execute(
+            "UPDATE authority_deliveries SET deadline_at = ? WHERE delivery_id IN (?, ?)",
+            ("2020-01-09T12:00:00Z", genuine.delivery_ids[0], session.delivery_ids[0]),
+        )
+        service.store.connection.execute(
+            "UPDATE authority_deliveries SET recipient = ? WHERE delivery_id = ?",
+            ("claude-cto-session", session.delivery_ids[0]),
+        )
+        service.store.connection.commit()
         assert service.count_undelivered(now="2020-01-10T00:00:00Z") == 2
         before = {
             (row["state"], row["deadline_at"], row["updated_at"])
@@ -476,19 +495,46 @@ def test_exhausted_unacknowledged_reply_notifies_once_without_recursive_alerts(p
             )
         }
         assert after_dry == before
-        assert service.expire_undelivered(now="2020-01-10T00:00:00Z") == 2
+        assert service.expire_undelivered(now="2020-01-10T00:00:00Z") == 4
         assert service.get_delivery(first.delivery_ids[0]).state == "expired"
         assert service.get_delivery(second.delivery_ids[0]).state == "expired"
         assert service.read_message_body(first.message_id) == "old one"
+        reasons = dict(service.store.connection.execute(
+            "SELECT delivery_id, reason_code FROM authority_dead_letters WHERE delivery_id IN (?, ?, ?, ?)",
+            (first.delivery_ids[0], second.delivery_ids[0], genuine.delivery_ids[0], session.delivery_ids[0]),
+        ).fetchall())
+        assert reasons == {
+            first.delivery_ids[0]: "expired_by_cleanup",
+            second.delivery_ids[0]: "expired_by_cleanup",
+            genuine.delivery_ids[0]: "deadline_expired",
+            session.delivery_ids[0]: "deadline_expired",
+        }
         notices = service.store.connection.execute(
-            "SELECT message_id FROM comms_messages WHERE kind = 'delivery-error' ORDER BY created_at",
+            "SELECT message_id FROM comms_messages WHERE kind = 'delivery-error'",
         ).fetchall()
-        assert len(notices) == 2
-        summary = json.loads(service.read_message_body(notices[-1]["message_id"]))
-        assert summary == {
+        bodies = [json.loads(service.read_message_body(row["message_id"])) for row in notices]
+        # Cleanup rows share one summary; each genuine miss keeps its own notice.
+        assert len(notices) == 4
+        summary = {
             "error": "coordinator_reply_delivery_failed",
-            "reason_code": "deadline_expired",
+            "reason_code": "expired_by_cleanup",
             "expired_count": 2,
         }
-        summary_message = service.get_message(notices[-1]["message_id"])
+        assert summary in bodies
+        summary_message = service.get_message(notices[bodies.index(summary)]["message_id"])
         assert {service.get_delivery(d).recipient for d in summary_message.delivery_ids} == {"claude-cto"}
+        for missed, recipient, notified in (
+            (genuine, "worker-task", {"worker-task", "claude-cto"}),
+            (session, "claude-cto-session", {"claude-cto"}),
+        ):
+            notice = {
+                "error": "coordinator_reply_delivery_failed",
+                "reason_code": "deadline_expired",
+                "delivery_id": missed.delivery_ids[0],
+                "message_id": missed.message_id,
+                "recipient": recipient,
+            }
+            assert notice in bodies
+            notice_message = service.get_message(notices[bodies.index(notice)]["message_id"])
+            assert notice_message.in_reply_to == missed.message_id
+            assert {service.get_delivery(d).recipient for d in notice_message.delivery_ids} == notified
