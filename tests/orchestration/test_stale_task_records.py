@@ -228,6 +228,7 @@ def _run(tasks_dir: Path, mixed: dict[str, Any], **kwargs: Any) -> dict[str, Any
         tasks_dir,
         repo_checkouts={SLUG: mixed["repo"]},
         pager=mixed["pager"],
+        open_pager=FakePager([]),
         now=NOW,
         **kwargs,
     )
@@ -302,7 +303,7 @@ def test_pull_list_failure_settles_nothing(tasks_dir, mixed):
         raise RuntimeError("gh api failed: HTTP 502")
 
     before = _snapshot(tasks_dir)
-    report = str_mod.settle_stale(tasks_dir, repo_checkouts={SLUG: mixed["repo"]}, pager=broken, now=NOW, apply=True)
+    report = str_mod.settle_stale(tasks_dir, repo_checkouts={SLUG: mixed["repo"]}, pager=broken, open_pager=FakePager([]), now=NOW, apply=True)
     assert report["classes"]["C"] == 4
     assert "settled" not in report["actions"]
     assert all("pull request list unavailable" in row["skip_reason"] for row in report["records"] if row["class"] == "C")
@@ -348,9 +349,10 @@ def test_base_sha_is_not_tied_to_a_parent_pull_request(tasks_dir, repo):
         apply=True,
     )
     row = _by_file(report)["stacked.json"]
-    assert row["class"] == "D"
-    assert "outcome" not in row
-    assert json.loads((tasks_dir / "stacked.json").read_text())["status"] == "needs_finalize"
+    assert row["class"] == "C"
+    assert row["outcome"] == "failed"
+    assert "merged_pr" not in row
+    assert json.loads((tasks_dir / "stacked.json").read_text())["status"] == "failed"
 
 
 def test_rescue_ref_with_a_merged_pull_request_is_done(tasks_dir, repo):
@@ -380,7 +382,7 @@ def test_rescue_ref_is_not_written_when_the_pull_list_fails(tasks_dir, repo):
     def broken(_slug, _page):
         raise RuntimeError("gh api failed: HTTP 502")
 
-    report = str_mod.settle_stale(tasks_dir, repo_checkouts={SLUG: repo}, pager=broken, now=NOW, apply=True)
+    report = str_mod.settle_stale(tasks_dir, repo_checkouts={SLUG: repo}, pager=broken, open_pager=FakePager([]), now=NOW, apply=True)
     row = _by_file(report)["unlisted.json"]
     assert row["class"] == "C"
     assert "outcome" not in row
@@ -428,7 +430,7 @@ def test_record_changed_since_classification_is_skipped(tasks_dir, mixed):
 def test_unavailable_repository_evidence_is_class_d(tasks_dir, mixed, tmp_path):
     not_a_repo = tmp_path / "not-a-repo"
     not_a_repo.mkdir()
-    report = str_mod.settle_stale(tasks_dir, repo_checkouts={SLUG: not_a_repo}, pager=mixed["pager"], now=NOW)
+    report = str_mod.settle_stale(tasks_dir, repo_checkouts={SLUG: not_a_repo}, pager=mixed["pager"], open_pager=FakePager([]), now=NOW)
     assert report["classes"] == {"A": 0, "B": 0, "C": 0, "D": 9}
     assert mixed["pager"].calls == []
 
@@ -450,7 +452,7 @@ def test_pull_index_pages_until_the_oldest_task_start():
 
 
 def _settle(tasks_dir: Path, repo: Path, pulls: list[dict[str, Any]], **kwargs: Any) -> dict[str, Any]:
-    return str_mod.settle_stale(tasks_dir, repo_checkouts={SLUG: repo}, pager=FakePager(pulls), now=NOW, **kwargs)
+    return str_mod.settle_stale(tasks_dir, repo_checkouts={SLUG: repo}, pager=FakePager(pulls), open_pager=FakePager(pulls), now=NOW, **kwargs)
 
 
 @pytest.mark.parametrize("status", ["failed", "cancelled", "done", "needs_finalize", "rate_limited", "unknown"])
@@ -500,7 +502,7 @@ def test_recorded_final_head_classifies_orphaned_work(tasks_dir, repo, head_fiel
 
     row = _by_file(_settle(tasks_dir, repo, []))[f"head-{head_field}.json"]
 
-    assert row["class"] == ("D" if head_field == "neither" else "C")
+    assert row["class"] == "C"
     assert row["evidence"]["recorded_commits"] == ([] if head_field == "neither" else [sha])
 
 
@@ -560,7 +562,7 @@ def test_renamed_branch_keeps_its_record_out_of_class_c(tasks_dir, repo):
     work_sha = _git(repo, "rev-parse", "HEAD")
     _git(repo, "checkout", "main")
     _git(repo, "branch", "-m", "codex/renamed", "rescue/renamed")
-    # The record names no commit, so commits_ahead > 0 alone keeps it out of class C.
+    # The renamed ref still carries the task id, so it remains discoverable.
     _record(tasks_dir, "renamed", commits_ahead=1)
     # The record names the commit, and the renamed branch still holds it.
     _record(
@@ -574,23 +576,24 @@ def test_renamed_branch_keeps_its_record_out_of_class_c(tasks_dir, repo):
     pushed_sha = _orphan_commit(repo, "pushed")
     _git(repo, "push", "origin", f"{pushed_sha}:refs/heads/elsewhere/pushed")
     _record(tasks_dir, "pushed-elsewhere", worktree_dirty_on_exit=True, auto_finalize=_auto_finalized(pushed_sha))
-    # A recorded commit this checkout has never seen cannot be proven gone.
+    # A missing commit is no longer recoverable once refs and checkout are gone.
     _record(tasks_dir, "unknown-commit", worktree_dirty_on_exit=True, auto_finalize=_auto_finalized("ab" * 20))
     before = _snapshot(tasks_dir)
 
     report = _settle(tasks_dir, repo, [], apply=True)
 
     rows = _by_file(report)
-    assert report["classes"] == {"A": 1, "B": 1, "C": 0, "D": 2}
+    assert report["classes"] == {"A": 1, "B": 1, "C": 1, "D": 1}
     assert rows["renamed.json"]["class"] == "D"
-    assert "names no commit" in rows["renamed.json"]["skip_reason"]
+    assert "refs/heads/rescue/renamed" in rows["renamed.json"]["skip_reason"]
     assert rows["renamed-named.json"]["class"] == "B"
     assert rows["renamed-named.json"]["evidence"]["refs_containing_commit"] == ["refs/heads/rescue/renamed"]
     assert rows["pushed-elsewhere.json"]["class"] == "A"
     assert rows["pushed-elsewhere.json"]["evidence"]["origin_heads_at_commit"] == ["elsewhere/pushed"]
-    assert rows["unknown-commit.json"]["class"] == "D"
-    assert "not in the local object store" in rows["unknown-commit.json"]["skip_reason"]
-    assert _snapshot(tasks_dir) == before
+    assert rows["unknown-commit.json"]["class"] == "C"
+    assert rows["unknown-commit.json"]["outcome"] == "failed"
+    after = _snapshot(tasks_dir)
+    assert all(after[name] == value for name, value in before.items() if name != "unknown-commit.json")
 
 
 def test_unfetched_remote_branch_descending_from_the_recorded_commit_is_not_class_c(tasks_dir, repo):
@@ -767,11 +770,80 @@ def test_failed_fetch_keeps_every_record_of_the_repository_out_of_class_c(tasks_
         ({"worktree_dirty_on_exit": None}, "uncommitted work at exit"),
     ],
 )
-def test_work_without_a_recorded_commit_is_never_class_c(tasks_dir, repo, fields, reason):
+def test_lost_work_without_a_recorded_commit_settles_failed(tasks_dir, repo, fields, reason):
     _record(tasks_dir, "unnamed-work", **fields)
     row = _by_file(_settle(tasks_dir, repo, []))["unnamed-work.json"]
-    assert row["class"] == "D"
-    assert reason in row["skip_reason"]
+    assert row["class"] == "C"
+    assert row["outcome"] == "failed"
+    assert row["settle_reason"] == "work not recoverable: worktree and branch gone"
+
+
+@pytest.mark.parametrize("worktree_path", [None, "missing"])
+@pytest.mark.parametrize("branch", [None, "codex/lost"])
+def test_unrecoverable_missing_work_settles_without_deleting_refs(tasks_dir, repo, worktree_path, branch):
+    """Defect class: stale lost-work counters leave an empty record unfinished forever."""
+    fields = {"worktree_path": None} if worktree_path is None else {}
+    path = _record(tasks_dir, "lost", worktree_branch=branch, commits_ahead=3, worktree_dirty_on_exit=True, **fields)
+    before = _snapshot(tasks_dir)
+    report = _settle(tasks_dir, repo, [])
+    assert _snapshot(tasks_dir) == before
+    assert report["outcomes"] == {"failed": 1}
+    assert report["needs_decision"] == 0
+    assert report["keep_close"] == []
+    refs = _git(repo, "for-each-ref")
+    applied = _settle(tasks_dir, repo, [], apply=True)
+    assert applied["actions"] == {"settled": 1}
+    assert json.loads(path.read_text())["status"] == "failed"
+    assert _git(repo, "for-each-ref") == refs
+
+
+@pytest.mark.parametrize("holder", ["rescue", "custom", "worktree", "commit", "git-error", "open-pr"])
+def test_surviving_or_unknown_work_is_never_settled(tasks_dir, repo, tmp_path, monkeypatch, holder):
+    """Defect class: incomplete evidence terminalizes a record whose work still survives."""
+    fields = {"commits_ahead": 2}
+    pulls = []
+    head = _git(repo, "rev-parse", "HEAD")
+    if holder in {"rescue", "custom"}:
+        ref = (f"refs/reaper-rescue/20261113/codex/kept-{head[:12]}" if holder == "rescue"
+               else "refs/tmp/codex/kept")
+        _git(repo, "update-ref", ref, head)
+    elif holder == "worktree":
+        tree = tmp_path / "present"
+        tree.mkdir()
+        fields["worktree_path"] = str(tree)
+    elif holder == "commit":
+        fields.update(worktree_path=None, auto_finalize=_auto_finalized(head))
+    elif holder == "git-error":
+        original = str_mod._git
+        def broken(args, **kwargs):
+            return None if args[0] == "for-each-ref" else original(args, **kwargs)
+        monkeypatch.setattr(str_mod, "_git", broken)
+    elif holder == "open-pr":
+        pulls = [{"state": "open", "number": 42, "html_url": "https://example.invalid/pull/42",
+                  "head": {"ref": "codex/kept", "sha": head, "repo": {"full_name": SLUG}}}]
+    path = _record(tasks_dir, "kept", **fields)
+    before = path.read_bytes()
+    report = _settle(tasks_dir, repo, pulls, apply=True)
+    assert path.read_bytes() == before
+    assert report["needs_decision"] == 1
+    row = report["keep_close"][0]
+    assert (row["task_id"], row["repo"], row["branch"], row["age_days"]) == ("kept", SLUG, "codex/kept", 10.0)
+    assert row["where"]
+    assert row["open_prs"] == ([] if holder != "open-pr" else [{
+        "number": 42, "url": "https://example.invalid/pull/42", "merged_at": None,
+        "head_sha": head, "merge_commit_sha": None}])
+
+
+def test_ref_reappearing_before_settlement_preserves_the_record(tasks_dir, repo):
+    """Defect class: classification-to-write race terminalizes newly recoverable work."""
+    path = _record(tasks_dir, "returned", commits_ahead=3)
+    before = path.read_bytes()
+    def reappear(_candidates):
+        _git(repo, "update-ref", "refs/tmp/codex/returned", _git(repo, "rev-parse", "HEAD"))
+    report = _settle(tasks_dir, repo, [], apply=True, before_apply=reappear)
+    assert report["actions"] == {"skipped": 1}
+    assert path.read_bytes() == before
+    assert report["needs_decision"] == 1
 
 
 # ---------------------------------------------------------------------------

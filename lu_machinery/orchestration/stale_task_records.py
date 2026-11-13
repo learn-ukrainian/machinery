@@ -15,7 +15,9 @@ the recorded commit or that commit is on the default branch, ``no_deliverable``
 for a clean zero-commit exit, and ``failed`` otherwise. A rescue pin is checked
 against that pull list; a list failure skips the write. A completion gate
 beyond delivery is already on the record, settles ``failed``, and does not wait
-for the list. Class D is anything the evidence cannot prove, and it is never written.
+for the list. Class D is anything the evidence cannot prove. A former D record becomes C and
+settles failed only when its checkout and named refs are gone and no recorded
+work commit is reachable. Surviving rescue refs also prevent this promotion.
 
 ``archive`` moves terminal records (statuses that no longer claim a worktree,
 :data:`worktree_claims.RELEASED_TASK_STATUSES`) older than ``--min-age-days``
@@ -313,6 +315,7 @@ class RepoFacts:
     # prove that no live checkout still holds the commit.
     worktree_heads: set[str] | None = None
     worktree_heads_error: str | None = None
+    all_refs: dict[str, str] | None = None
 
 
 def default_repo_checkouts() -> dict[str, Path]:
@@ -364,7 +367,7 @@ def _fetch_scan_refs(checkout: Path, target: FetchTarget) -> str | None:
 
 
 def collect_repo_facts(slug: str, checkout: Path | None, target: FetchTarget | None) -> RepoFacts:
-    """One fetch into the scan namespace, then one ``for-each-ref`` over it and the local branches."""
+    """Fetch current remote branches, then inventory every local ref namespace."""
     facts = RepoFacts(slug=slug, checkout=checkout, target=target)
     if checkout is None:
         facts.error = f"no local checkout for repository {slug}"
@@ -376,17 +379,19 @@ def collect_repo_facts(slug: str, checkout: Path | None, target: FetchTarget | N
     if facts.fetch_error is not None:
         return facts
     listing = _git(
-        ["for-each-ref", "--format=%(objectname) %(refname)", "refs/heads/", f"{target.ref_prefix}/"],
+        ["for-each-ref", "--format=%(objectname) %(refname)"],
         cwd=checkout,
         timeout=DEFAULT_GIT_TIMEOUT_S,
     )
     if listing is None or listing.returncode != 0:
         facts.error = "git for-each-ref failed"
         return facts
+    facts.all_refs = {}
     heads: dict[str, str] = {}
     branches: dict[str, str] = {}
     for line in listing.stdout.splitlines():
         sha, _, ref = line.partition(" ")
+        facts.all_refs[ref] = sha
         if ref.startswith(f"{target.ref_prefix}/"):
             heads[ref.removeprefix(f"{target.ref_prefix}/")] = sha
         elif ref.startswith("refs/heads/"):
@@ -550,7 +555,7 @@ def _is_ancestor(checkout: Path, ancestor: str, descendant: str) -> bool:
 
 @dataclasses.dataclass
 class PullIndex:
-    """Merged same-repository pull requests grouped by head branch and by commit.
+    """Same-repository merged and open pull requests grouped by branch and commit.
 
     ``merged_by_sha`` indexes each pull request under its head sha and its
     merge commit sha. Pages are listed newest-``updated_at`` first.
@@ -564,11 +569,23 @@ class PullIndex:
     covered_since: datetime | None = None
     pages: int = 0
     error: str | None = None
+    open_by_branch: dict[str, list[dict[str, Any]]] = dataclasses.field(default_factory=lambda: defaultdict(list))
+    open_pages: int = 0
+    open_error: str | None = None
 
 
 def gh_pull_page(slug: str, page: int) -> list[dict[str, Any]]:
-    """Fetch one page of closed pull requests through the REST API (``gh api``)."""
-    endpoint = f"repos/{slug}/pulls?state=closed&sort=updated&direction=desc&per_page={PR_PAGE_SIZE}&page={page}"
+    """Fetch closed pull requests for the existing delivery-outcome checks."""
+    return _gh_pull_page(slug, page, state="closed")
+
+
+def gh_open_pull_page(slug: str, page: int) -> list[dict[str, Any]]:
+    """Fetch open pull requests without paging through merged history."""
+    return _gh_pull_page(slug, page, state="open")
+
+
+def _gh_pull_page(slug: str, page: int, *, state: str) -> list[dict[str, Any]]:
+    endpoint = f"repos/{slug}/pulls?state={state}&sort=updated&direction=desc&per_page={PR_PAGE_SIZE}&page={page}"
     proc = github_client.run(
         ["gh", "api", endpoint],
         capture_output=True,
@@ -595,7 +612,7 @@ def build_pull_index(
     pager: PullPager,
     max_pages: int,
 ) -> PullIndex:
-    """Page closed pull requests until every one updated since ``oldest_start`` is seen.
+    """Page pull requests until every one updated since ``oldest_start`` is seen.
 
     A pull request merged after a task started was updated at or after that
     start, so paging newest-updated first can stop once a page ends before
@@ -615,7 +632,7 @@ def build_pull_index(
         for pull in pulls:
             head = pull.get("head") if isinstance(pull, dict) else None
             head_repo = head.get("repo") if isinstance(head, dict) else None
-            if not pull.get("merged_at") or not isinstance(head_repo, dict):
+            if not isinstance(head_repo, dict):
                 continue
             if head_repo.get("full_name") != slug or not isinstance(head.get("ref"), str):
                 continue
@@ -626,6 +643,10 @@ def build_pull_index(
                 "head_sha": head.get("sha"),
                 "merge_commit_sha": pull.get("merge_commit_sha"),
             }
+            if pull.get("state") == "open":
+                index.open_by_branch[head["ref"]].append(entry)
+            if not pull.get("merged_at"):
+                continue
             index.merged_by_branch[head["ref"]].append(entry)
             for sha in {entry["head_sha"], entry["merge_commit_sha"]}:
                 if isinstance(sha, str) and sha:
@@ -662,6 +683,8 @@ class Candidate:
     action: str = "report"
     # Full shas of the recorded commits, set once no ref is proven to hold them.
     work_commits: list[str] = dataclasses.field(default_factory=list)
+    unrecoverable: bool = False
+    checkout: Path | None = None
 
     @property
     def task_id(self) -> str:
@@ -729,14 +752,13 @@ def _classify_one(candidate: Candidate, facts: RepoFacts | None) -> None:
 
     A record that reaches class C here is provisional when it names a commit:
     :func:`_apply_commit_facts` keeps it in C only if no ref still holds that
-    commit. Without a recorded commit a branch rename cannot be ruled out, so C
-    needs a clean exit that left nothing to lose (no commits, clean tree).
+    commit. Historical lost-work records get a separate all-ref check.
     """
     record = candidate.record
     evidence = candidate.evidence
     slug = record.get("repository")
     branch = _normalize_branch(record.get("worktree_branch"))
-    worktree_raw = record.get("worktree_path")
+    worktree_raw = _owned_checkout(record)
     evidence.update(
         {
             "repository": slug,
@@ -759,12 +781,12 @@ def _classify_one(candidate: Candidate, facts: RepoFacts | None) -> None:
     if facts.error is not None or facts.remote_heads is None or facts.local_branches is None:
         candidate.klass, candidate.skip_reason = "D", f"repository evidence unavailable: {facts.error}"
         return
-    if branch is None or not isinstance(worktree_raw, str) or not worktree_raw.strip():
-        candidate.klass, candidate.skip_reason = "D", "record names no worktree branch or path"
+    if branch is None:
+        candidate.klass, candidate.skip_reason = "D", "record names no worktree branch"
         return
 
-    worktree = Path(worktree_raw)
-    worktree_exists = worktree.exists()
+    worktree = Path(worktree_raw) if worktree_raw else None
+    worktree_exists = worktree is not None and os.path.lexists(worktree)
     dirty = worktree_claims.worktree_is_dirty(worktree) if worktree_exists else False
     on_origin = branch in facts.remote_heads
     local_sha = facts.local_branches.get(branch)
@@ -797,6 +819,8 @@ def _classify_one(candidate: Candidate, facts: RepoFacts | None) -> None:
     elif worktree_exists:
         candidate.klass = "D"
         candidate.skip_reason = "clean worktree exists without a local or remote branch"
+    elif worktree_raw is None:
+        candidate.klass, candidate.skip_reason = "D", "record names no worktree path"
     elif evidence["recorded_commits"]:
         candidate.klass = "C"
     elif not _is_zero(record.get("commits_ahead")):
@@ -813,6 +837,62 @@ def _classify_one(candidate: Candidate, facts: RepoFacts | None) -> None:
         )
     else:
         candidate.klass = "C"
+
+
+def _unrecoverable_work(candidate: Candidate, facts: RepoFacts) -> bool:
+    """Prove the former class D record has no surviving named holder or commit.
+
+    Historical exit counters describe lost work, not a current recovery location.
+    Unknown Git or filesystem evidence always leaves the record for a decision.
+    """
+    branch = candidate.evidence.get("branch")
+    if facts.checkout is None or facts.all_refs is None:
+        return False
+    paths = [candidate.evidence.get("worktree_path"), *(candidate.record.get("acp_runtime_paths") or [])]
+    for raw in paths:
+        if not isinstance(raw, str) or not raw.strip():
+            continue
+        try:
+            os.lstat(raw)
+        except FileNotFoundError:
+            continue
+        except OSError:
+            return False
+        candidate.evidence.setdefault("surviving_paths", []).append(raw)
+        candidate.skip_reason = "work survives at " + raw
+        return False
+    # Rescue refs append the head SHA to the original branch. Match conservatively
+    # in every namespace, including tags, remote tracking and temporary refs.
+    names = [name for name in (branch, candidate.task_id) if name]
+    holders = sorted(ref for ref in facts.all_refs if any(name in ref for name in names))
+    candidate.evidence["branch_refs"] = holders
+    if holders:
+        candidate.skip_reason = "work survives under " + ", ".join(holders)
+        return False
+    recorded = set(candidate.evidence["recorded_commits"])
+    base = str(candidate.record.get("worktree_base_sha") or "").strip().lower()
+    auto = candidate.record.get("auto_finalize")
+    # Legacy and v2 head fields may coexist; every non-base work identity must
+    # be absent, even when the older classifier picked only one of them.
+    for raw in (candidate.record.get("head_sha"), candidate.record.get("remote_head_sha"),
+                candidate.record.get("final_branch_head_commit"),
+                auto.get("commit_sha") if isinstance(auto, dict) else None):
+        if isinstance(raw, str) and _SHA_RE.fullmatch(raw.strip().lower()) and raw.strip().lower() != base:
+            recorded.add(raw.strip().lower())
+    candidate.evidence["recorded_commits"] = sorted(recorded)
+    commits = collect_commit_facts(facts.checkout, recorded)
+    if commits.error:
+        candidate.skip_reason = "commit evidence unavailable: " + commits.error
+        return False
+    held = [sha for sha in commits.resolved.values() if sha and sha in commits.reachable]
+    candidate.evidence["recorded_commits_reachable"] = bool(held)
+    if held:
+        candidate.evidence["refs_containing_commit"] = sorted(
+            {ref for sha in held for ref in _refs_containing(facts.checkout, sha)}
+        )
+        candidate.skip_reason = "recorded commit remains reachable"
+        return False
+    return True
 
 
 def _apply_commit_facts(candidate: Candidate, commits: CommitFacts, facts: RepoFacts) -> None:
@@ -1114,6 +1194,7 @@ def classify(
     repo_checkouts: Mapping[str, Path],
     pager: PullPager,
     max_pr_pages: int,
+    open_pager: PullPager = gh_open_pull_page,
 ) -> dict[str, PullIndex]:
     """Classify every candidate in place and return the pull index built per repository."""
     facts_by_slug: dict[str, RepoFacts] = {}
@@ -1151,6 +1232,39 @@ def classify(
         checkout = facts_by_slug[slug].checkout if slug in facts_by_slug else None
         for candidate in orphaned:
             _decide_outcome(candidate, indexes[slug], checkout)
+
+    # Open PRs need a complete, bounded listing of their own. Scanning old
+    # merged history here could hit its cap before proving that no PR is open.
+    for slug, facts in facts_by_slug.items():
+        if facts.error is not None or facts.fetch_error is not None:
+            continue
+        opened = build_pull_index(slug, oldest_start=None, pager=open_pager, max_pages=max_pr_pages)
+        index = indexes.setdefault(slug, PullIndex(merged_by_branch=defaultdict(list)))
+        index.open_by_branch = opened.open_by_branch
+        index.open_pages = opened.pages
+        index.open_error = opened.error or ("open pull listing incomplete" if opened.covered_since else None)
+        for candidate in candidates:
+            if candidate.record.get("repository") == slug:
+                branch = candidate.evidence.get("branch")
+                candidate.evidence["open_prs"] = [
+                    pull for name, pulls in index.open_by_branch.items() for pull in pulls
+                    if name == branch or (not branch and candidate.task_id in name)
+                ]
+                candidate.evidence["pull_list_error"] = index.open_error
+    for candidate in candidates:
+        facts = facts_by_slug.get(str(candidate.record.get("repository")))
+        if (candidate.klass == "D" and facts is not None and facts.fetch_error is None
+                and facts.error is None and not candidate.evidence.get("open_prs")
+                and candidate.evidence.get("pull_list_error") is None
+                and _unrecoverable_work(candidate, facts)):
+            candidate.klass = "C"
+            candidate.unrecoverable = True
+            candidate.checkout = facts.checkout
+            candidate.skip_reason = None
+            candidate.outcome = "failed"
+            candidate.failure_reason = "work_not_recoverable"
+            candidate.settle_reason = "work not recoverable: worktree and branch gone"
+
     return indexes
 
 
@@ -1198,6 +1312,20 @@ def apply_settlement(candidate: Candidate, *, lock_timeout_s: float, now: dateti
             if isinstance(worktree_raw, str) and os.path.lexists(worktree_raw):
                 candidate.action, candidate.skip_reason = "skipped", "worktree path reappeared since classification"
                 return
+            if candidate.unrecoverable:
+                slug = str(candidate.record.get("repository"))
+                checkout = candidate.checkout
+                listing = (_git(["for-each-ref", "--format=%(objectname) %(refname)"],
+                                cwd=checkout, timeout=DEFAULT_GIT_TIMEOUT_S) if checkout else None)
+                if listing is None or listing.returncode != 0:
+                    candidate.action, candidate.skip_reason = "skipped", "ref evidence unavailable before write"
+                    return
+                facts = RepoFacts(slug=slug, checkout=checkout,
+                                  all_refs={line.partition(" ")[2]: line.partition(" ")[0]
+                                            for line in listing.stdout.splitlines()})
+                if not _unrecoverable_work(candidate, facts):
+                    candidate.action, candidate.skip_reason = "skipped", "work survives or evidence changed before write"
+                    return
             task_record_store.write_record_unlocked(
                 candidate.path, _settled_record(candidate, current, now.isoformat())
             )
@@ -1210,6 +1338,25 @@ def apply_settlement(candidate: Candidate, *, lock_timeout_s: float, now: dateti
     candidate.action = "settled"
 
 
+def decision_row(candidate: Candidate) -> dict[str, Any]:
+    """A decision row reports surviving work or explicitly unknown evidence."""
+    evidence = candidate.evidence
+    locations = list(evidence.get("branch_refs", [])) + list(evidence.get("refs_containing_commit", []))
+    locations.extend(evidence.get("surviving_paths", []))
+    locations.extend(pull["url"] for pull in evidence.get("open_prs", []) if pull.get("url"))
+    if evidence.get("branch_on_origin"):
+        locations.append("origin/" + str(evidence.get("branch")))
+    if evidence.get("local_branch"):
+        locations.append("refs/heads/" + str(evidence.get("branch")))
+    if evidence.get("worktree_exists"):
+        locations.append(str(evidence.get("worktree_path")))
+    return {"task_id": candidate.task_id, "repo": evidence.get("repository"),
+            "branch": evidence.get("branch"), "where": sorted(set(locations)) or [candidate.skip_reason or "unknown"],
+            "open_prs": evidence.get("open_prs", []),
+            "pr_evidence": evidence.get("pull_list_error") or ("listed" if "open_prs" in evidence else "unavailable"),
+            "age_days": round(candidate.age_days, 1)}
+
+
 def settle_stale(
     tasks_dir: Path,
     *,
@@ -1217,6 +1364,7 @@ def settle_stale(
     apply: bool = False,
     repo_checkouts: Mapping[str, Path] | None = None,
     pager: PullPager = gh_pull_page,
+    open_pager: PullPager = gh_open_pull_page,
     max_pr_pages: int = DEFAULT_MAX_PR_PAGES,
     lock_timeout_s: float = DEFAULT_LOCK_TIMEOUT_S,
     now: datetime | None = None,
@@ -1224,7 +1372,8 @@ def settle_stale(
 ) -> dict[str, Any]:
     """Classify stale ``needs_finalize`` records and, with ``apply``, settle class C.
 
-    Class A, B and D are reported. ``before_apply`` runs between classification and writes.
+    Class A, B and unresolved D are reported in the keep/close list.
+    ``before_apply`` runs between classification and writes.
     """
     now = now or datetime.now(UTC)
     candidates, younger = select_needs_finalize(tasks_dir, min_age_days=min_age_days, now=now)
@@ -1232,6 +1381,7 @@ def settle_stale(
         candidates,
         repo_checkouts=default_repo_checkouts() if repo_checkouts is None else repo_checkouts,
         pager=pager,
+        open_pager=open_pager,
         max_pr_pages=max_pr_pages,
     )
     settleable = [candidate for candidate in candidates if candidate.klass == "C" and candidate.outcome]
@@ -1254,9 +1404,14 @@ def settle_stale(
         "classes": {klass: by_class.get(klass, 0) for klass in ("A", "B", "C", "D")},
         "outcomes": dict(Counter(candidate.outcome for candidate in candidates if candidate.klass == "C" and candidate.outcome)),
         "actions": dict(Counter(candidate.action for candidate in candidates)),
+        "needs_decision": sum(candidate.action not in {"would_settle", "settled"} for candidate in candidates),
+        "keep_close": [decision_row(candidate) for candidate in candidates
+                       if candidate.action not in {"would_settle", "settled"}],
         "pull_lists": {
             slug: {
                 "pages": index.pages,
+                "open_pages": index.open_pages,
+                "open_error": index.open_error,
                 "error": index.error,
                 "covered_since": index.covered_since.isoformat() if index.covered_since else None,
             }
@@ -1688,7 +1843,7 @@ _RELATED = (
 
 
 def _print_summary(report: dict[str, Any]) -> None:
-    head = {key: value for key, value in report.items() if key != "records"}
+    head = {key: value for key, value in report.items() if key not in {"records", "keep_close"}}
     print(json.dumps(head, indent=2, default=str))
     for row in report["records"]:
         if row.get("class") is None and row.get("action") == "would_archive":
@@ -1696,6 +1851,8 @@ def _print_summary(report: dict[str, Any]) -> None:
         reason = row.get("skip_reason") or row.get("error") or ""
         label = row.get("class") or row.get("status")
         print(f"  [{label}] {row.get('action')}: {row['file']}  {reason}")
+    for row in report.get("keep_close", []):
+        print("KEEP/CLOSE " + json.dumps(row, sort_keys=True))
     if report["mode"] == "dry-run":
         print("dry-run only — re-run with --apply to write these changes")
 
@@ -1766,13 +1923,14 @@ def _build_parser() -> argparse.ArgumentParser:
         description=(
             "Classify needs_finalize records older than --min-age-days.\n"
             "Without --apply, report only. With --apply, write class C to its terminal status.\n"
-            "Class A, B and D are never rewritten. No worktree, branch, or rescue ref is deleted."
+            "Provably unrecoverable class D records become C and settle failed.\n"
+            "Class A, B and unresolved D are never rewritten. No worktree, branch, or rescue ref is deleted."
         ),
         epilog=(
             "Examples:\n"
             f"  .venv/bin/python -m {_MODULE} settle-stale --json\n"
             f"  .venv/bin/python -m {_MODULE} settle-stale --apply\n"
-            "Outputs: repository evidence report; fetch updates only the private scan refs.\n"
+            "Outputs: repository evidence and keep/close rows; fetch updates only the private scan refs.\n"
             "Exit codes: 0 reported or every write succeeded, 1 a write failed, 2 bad arguments.\n" + _RELATED
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -1782,7 +1940,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "--max-pr-pages",
         type=int,
         default=DEFAULT_MAX_PR_PAGES,
-        help=(f"Closed-pull pages to read per repository (default: {DEFAULT_MAX_PR_PAGES})."),
+        help=(f"Pull-request pages to read per repository (default: {DEFAULT_MAX_PR_PAGES})."),
     )
 
     def lock_timeout(sub: argparse.ArgumentParser) -> None:

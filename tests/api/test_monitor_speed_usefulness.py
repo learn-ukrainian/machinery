@@ -140,7 +140,7 @@ const PANELS = [
 const recent = renderRecent({tasks: [{task_id: 'finished', status: 'done'}],
   needs_attention: {total: 1530, tasks: [{task_id: 'unfinished', status: 'needs_finalize'},
     {task_id: 'crashed', status: 'zombie'}]}});
-assert.match(recent, /1530 unfinished task records need attention/);
+assert.match(recent, /1530 unfinished task records need a keep\/close decision/);
 assert.match(recent, /Showing up to 2/);
 assert.match(recent, /needs_finalize/);
 assert.match(recent, /zombie/);

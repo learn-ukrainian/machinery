@@ -488,8 +488,8 @@ function renderRecent(list) {
   const tasks = (Array.isArray(list.tasks) ? list.tasks : []).filter(task => !ACTIVE.has(task.status));
   const attention = list.needs_attention || {};
   const pending = Array.isArray(attention.tasks) ? attention.tasks : [];
-  // Old unfinished records are a ledger-hygiene backlog, not live work: folded away by default.
-  const attentionHtml = attention.total ? `<details><summary class="warn">${escapeHtml(attention.total)} unfinished task records need attention. Showing up to ${pending.length}.</summary>`
+  // The settlement command removes empty records; these remaining records need a keep/close decision.
+  const attentionHtml = attention.total ? `<details><summary class="warn">${escapeHtml(attention.total)} unfinished task records need a keep/close decision. Showing up to ${pending.length}.</summary>`
     + table(["Task", "Model", "State"], pending.map(task => [text(task.task_id),
       text(modelOf(task) || task.agent), text(task.status, "bad")])) + "</details>" : "";
   return table(["Task", "Model", "Outcome", "Finished", "Took", "PR"], tasks.map(task => [
