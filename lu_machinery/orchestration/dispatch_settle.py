@@ -308,9 +308,9 @@ def push_and_maybe_open_pr(
         urls = git(worktree, "remote", "get-url", "--push", "--all", "origin").splitlines()
         if len(urls) != 1:
             raise ValueError("settlement requires one origin push URL")
-        url = urls[0]
-        credentials = [arg for setting in verification_credentials(url) for arg in ("-c", setting)]
-        listing = git(worktree, *credentials, "ls-remote", url, ref, network=True)
+        push_url = urls[0]
+        credentials = [arg for setting in verification_credentials(push_url) for arg in ("-c", setting)]
+        listing = git(worktree, *credentials, "ls-remote", push_url, ref, network=True)
         exact = [line.split("\t")[0] for line in listing.splitlines() if line.partition("\t")[2] == ref]
         if len(exact) > 1:
             raise ValueError("the remote branch cannot be read")
@@ -318,7 +318,7 @@ def push_and_maybe_open_pr(
         if remote:
             git(worktree, "merge-base", "--is-ancestor", remote, head)
         git(worktree, *credentials, "push", "--quiet", "--no-verify", "--porcelain",
-            f"--force-with-lease={ref}:{remote}", url, f"{head}:{ref}", network=True)
+            f"--force-with-lease={ref}:{remote}", push_url, f"{head}:{ref}", network=True)
         git(worktree, "update-ref", f"refs/remotes/origin/{branch}", head)
         git(worktree, "config", f"branch.{branch}.remote", "origin")
         git(worktree, "config", f"branch.{branch}.merge", ref)

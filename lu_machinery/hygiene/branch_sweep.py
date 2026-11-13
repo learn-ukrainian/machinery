@@ -179,10 +179,11 @@ def _git(
             credentials = [arg for setting in verification_credentials(url) for arg in ("-c", setting)]
             output = write_boundary._git(repo, *credentials, "push", "--quiet", "--no-verify", "--porcelain",
                                          args[2], url, args[-1], network=True)
-            result = subprocess.CompletedProcess(args, 0, output, "")
+            # CompletedProcess records the shared transport's result; it executes nothing.
+            result = subprocess.CompletedProcess(args, 0, output, "")  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit
         except write_boundary.Refused as exc:
-            result = subprocess.CompletedProcess(args, 1, "", str(exc))
-        return result if text else subprocess.CompletedProcess(args, result.returncode, result.stdout.encode(),
+            result = subprocess.CompletedProcess(args, 1, "", str(exc))  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit
+        return result if text else subprocess.CompletedProcess(args, result.returncode, result.stdout.encode(),  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit
                                                                result.stderr.encode())
     return subprocess.run(
         ["git", "-c", "core.hooksPath=/dev/null", *args],
