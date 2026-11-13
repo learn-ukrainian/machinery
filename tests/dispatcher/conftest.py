@@ -133,6 +133,7 @@ def run_git(repo, *args):
 # refuses; these tests' subject is delivery, scope and supervision, not containment, which
 # tests/dispatcher/test_write_boundary.py covers with real bubblewrap.
 WRITE_BOUNDARY_DOUBLE = """RECEIPT_SUFFIX = ".write-boundary.json"
+BROKER_ENV = "LU_WRITE_BOUNDARY_BROKER"
 
 
 def launcher(spec, invocation, task_file):

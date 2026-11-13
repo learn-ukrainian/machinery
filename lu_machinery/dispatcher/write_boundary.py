@@ -374,12 +374,13 @@ class _Broker:
         verb = request_id = None
         reply = {"returncode": 2, "stdout": "", "stderr": ""}
         try:
-            if not self._peer_inside(connection):
-                raise _BrokerRefusal("the peer is not a process of this write boundary")
             chunks, size = [], 0
             while size <= _MAX_REQUEST and (chunk := connection.recv(65536)):
                 chunks.append(chunk)
                 size += len(chunk)
+            # Checked before the request is even parsed; read first so the refusal reaches the client.
+            if not self._peer_inside(connection):
+                raise _BrokerRefusal("the peer is not a process of this write boundary")
             try:
                 request = json.loads(b"".join(chunks))
             except ValueError:
