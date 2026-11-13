@@ -169,15 +169,17 @@ def _reporter_code_root() -> str:
     """Directory that holds the lu_machinery package a fresh interpreter imports.
 
     A normal import, from the interpreter's own directory, with no ``PYTHONPATH``.
-    The unit finds its script with ``importlib.resources``, so this expectation
-    does not repeat that lookup.
+    The path stays unresolved, including a symlink prefix: ``project_interpreter.sh``
+    builds ``PROJECT_CODE_ROOT`` from the script's unresolved location. The unit
+    finds its script with ``importlib.resources``, so this expectation does not
+    repeat that lookup.
     """
     probe = subprocess.run(
         [
             sys.executable,
             "-c",
             "import lu_machinery, pathlib; "
-            "print(pathlib.Path(lu_machinery.__file__).resolve().parents[1])",
+            "print(pathlib.Path(lu_machinery.__file__).parents[1])",
         ],
         check=True,
         capture_output=True,
