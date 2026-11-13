@@ -14,6 +14,29 @@ from lu_machinery.review import repair_round
 from tests.review.record_support import write_task
 
 
+def test_repair_receipts_stay_private_on_admission_and_consumption(tmp_path):
+    """Defect class: initial and replaced repair receipts expose operational evidence to other users."""
+    receipt = {
+        "schema": repair_round.RECEIPT_SCHEMA,
+        "repository": "example/public",
+        "pr": 1,
+        "lineage_keys": ["pr:example/public#1"],
+        "approved_head": "a" * 40,
+        "candidate_head": "b" * 40,
+    }
+    previous = os.umask(0)
+    try:
+        repair_round.record_admission(tmp_path, receipt)
+        path, = tmp_path.glob("*.json")
+        assert path.stat().st_mode & 0o777 == 0o600
+        repair_round.record_consumption(tmp_path, receipt, comment="https://github.com/example/public/pull/1#issuecomment-1")
+        assert path.stat().st_mode & 0o777 == 0o600
+        assert json.loads(path.read_text())["state"] == "consumed"
+        assert list(tmp_path.iterdir()) == [path]
+    finally:
+        os.umask(previous)
+
+
 def test_same_family_refused(monkeypatch, low_review, tmp_path):
     tasks, comments, statuses, files, _admit = low_review
     files[:] = [{"filename": "lu_machinery/common/example.py", "status": "modified"}]

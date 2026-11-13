@@ -66,13 +66,14 @@ def test_chat_completions_unknown_model_returns_404():
     assert response.json()["error"]["code"] == "model_not_found"
 
 
-def test_chat_completions_backend_failure_returns_502(monkeypatch):
+@pytest.mark.parametrize("failure", [
+    subprocess.CalledProcessError(1, ["agent"], stderr="first failure line\nsecond failure line"),
+    OSError("/private/fixture/backend: permission denied"),
+])
+def test_chat_completions_backend_failure_returns_502(monkeypatch, failure):
+    """Defect class: backend errors disclose stderr or internal filenames to HTTP clients."""
     def backend(model, messages, **kwargs):
-        raise subprocess.CalledProcessError(
-            1,
-            ["agent"],
-            stderr="first failure line\nsecond failure line",
-        )
+        raise failure
 
     monkeypatch.setitem(proxy._ROUTABLE_MODELS, "codex", _route_with_backend("codex", backend))
 
@@ -84,8 +85,7 @@ def test_chat_completions_backend_failure_returns_502(monkeypatch):
     body = response.json()
     assert response.status_code == 502
     assert body["error"]["code"] == "backend_failed"
-    assert "first failure line" in body["error"]["message"]
-    assert "second failure line" not in body["error"]["message"]
+    assert body["error"]["message"] == "openai-codex backend failed"
 
 
 def test_chat_completions_backend_timeout_returns_504(monkeypatch):
@@ -102,7 +102,7 @@ def test_chat_completions_backend_timeout_returns_504(monkeypatch):
     body = response.json()
     assert response.status_code == 504
     assert body["error"]["code"] == "backend_timeout"
-    assert "timeout line" in body["error"]["message"]
+    assert body["error"]["message"] == "openai-codex backend timed out"
 
 
 def test_chat_completions_missing_messages_returns_422():

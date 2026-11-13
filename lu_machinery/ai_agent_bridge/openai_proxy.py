@@ -309,12 +309,6 @@ def _openai_error(status_code: int, message: str, error_type: str, code: str) ->
     )
 
 
-def _first_error_line(value: object) -> str:
-    text = value.decode("utf-8", errors="replace") if isinstance(value, bytes) else str(value or "")
-    first = text.strip().splitlines()
-    return first[0] if first else "unknown error"
-
-
 def _validation_error_message(exc: RequestValidationError) -> str:
     first = exc.errors()[0] if exc.errors() else {}
     message = str(first.get("msg") or "validation error")
@@ -446,24 +440,24 @@ def chat_completions(request: ChatCompletionRequest) -> dict[str, object] | JSON
         return _openai_error(
             400, "Codex backend requires gpt-6.1-sol", "invalid_request_error", "model_not_allowed"
         )
-    except subprocess.TimeoutExpired as exc:
+    except subprocess.TimeoutExpired:
         return _openai_error(
             504,
-            f"{route.family} backend timed out: {_first_error_line(exc.stderr)}",
+            f"{route.family} backend timed out",
             "upstream_error",
             "backend_timeout",
         )
-    except subprocess.CalledProcessError as exc:
+    except subprocess.CalledProcessError:
         return _openai_error(
             502,
-            f"{route.family} backend failed: {_first_error_line(exc.stderr)}",
+            f"{route.family} backend failed",
             "upstream_error",
             "backend_failed",
         )
-    except OSError as exc:
+    except OSError:
         return _openai_error(
             502,
-            f"{route.family} backend failed: {_first_error_line(exc)}",
+            f"{route.family} backend failed",
             "upstream_error",
             "backend_failed",
         )

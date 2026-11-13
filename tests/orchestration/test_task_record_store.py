@@ -107,3 +107,12 @@ def test_blank_v2_named_record_is_damaged_not_foreign(tmp_path):
                 store.parse_task_record(path, raw)
     # A blank file no dispatch could have named stays foreign.
     assert store.parse_task_record(tmp_path / "not a task id.json", b"") is None
+
+
+def test_foreign_filename_cannot_inject_log_lines(tmp_path, caplog):
+    """Defect class: a foreign sidecar filename forges a second log entry."""
+    path = tmp_path / "foreign\r\nFORGED entry.json"
+    assert store.parse_task_record(path, b"[]") is None
+    message = caplog.records[-1].getMessage()
+    assert message == f"NON_RECORD_FILE: {str(path)!r}"
+    assert "\n" not in message and "\r" not in message

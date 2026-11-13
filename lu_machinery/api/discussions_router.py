@@ -126,5 +126,5 @@ async def active_discussions(
     """Recent discussion threads with running/converged/timed_out status."""
     try:
         return collect_active_discussions(limit=limit, lookback_days=lookback_days, ctx=ctx)
-    except sqlite3.Error as exc:
-        return JSONResponse(status_code=500, content={"error": "broker_query_failed", "detail": str(exc)})
+    except sqlite3.Error:
+        return JSONResponse(status_code=500, content={"error": "broker_query_failed"})

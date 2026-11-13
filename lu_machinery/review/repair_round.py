@@ -460,16 +460,14 @@ def admit_repair_round(
 
 def _write_json(path: Path, data: Mapping[str, Any], *, exclusive: bool) -> None:
     payload = (json.dumps(data, sort_keys=True, indent=2) + "\n").encode("utf-8")
-    if exclusive:
-        descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
-        with os.fdopen(descriptor, "wb") as stream:
-            stream.write(payload)
-            stream.flush()
-            os.fsync(stream.fileno())
-        return
-    temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
-    temporary.write_bytes(payload)
-    os.replace(temporary, path)
+    target = path if exclusive else path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    descriptor = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(descriptor, "wb") as stream:
+        stream.write(payload)
+        stream.flush()
+        os.fsync(stream.fileno())
+    if not exclusive:
+        os.replace(target, path)
 
 
 def record_admission(receipt_root: Path, receipt: Mapping[str, Any]) -> None:
