@@ -1592,18 +1592,36 @@ def _publish_ruleset_merge_queue(
     frozen = temp / "request.json"
     frozen.write_bytes(raw)
     put_argv = ["gh", "api", "--method", "PUT", endpoint, "--input", str(frozen)]
-    put = runner(
-        put_argv,
-        cwd=cwd,
-        env=dict(environment),
-        capture_output=True,
-        text=True,
-        check=False,
-        timeout=30,
+    unsent_or_lost = (
+        "OPSEC: ruleset update unverified: the write may have been applied and its answer was lost. Do not retry."
     )
+    try:
+        put = runner(
+            put_argv,
+            cwd=cwd,
+            env=dict(environment),
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=30,
+        )
+    except (github_client.GitHubRateLimited, gate.PublishBlocked):
+        # A rate-limited write is not applied by GitHub (exit 75), and a publisher
+        # refusal is raised before anything is sent (exit 2).
+        raise
+    except Exception:
+        # A timeout or transport fault can follow a PUT that GitHub already applied.
+        print(unsent_or_lost, file=sys.stderr)
+        return subprocess.CompletedProcess(put_argv, 3, "", "")
     if put.returncode:
-        print("OPSEC: ruleset update was refused by GitHub.", file=sys.stderr)
-        return put
+        status = getattr(getattr(put, "github_result", None), "status", None)
+        if type(status) is int and 400 <= status < 500:
+            print("OPSEC: ruleset update was refused by GitHub.", file=sys.stderr)
+            return put
+        # A server error, a lost connection or an unframed answer does not prove that
+        # nothing landed.
+        print(unsent_or_lost, file=sys.stderr)
+        return subprocess.CompletedProcess(put_argv, 3, "", "")
     try:
         after = _ruleset_get(runner, endpoint, cwd, environment)
         after_index, after_parameters = _merge_queue_rule(after.get("rules"))
@@ -2229,10 +2247,11 @@ def main(argv=None, *, runner=None):
                 "  on its single merge_queue rule, PUTs the writable ruleset fields, reads the ruleset again,\n"
                 "  and prints JSON {repo, ruleset, merge_queue} from that read-back. Other ruleset fields are\n"
                 "  echoed, not edited. An unrecognized ruleset field refuses before the PUT.\n"
-                "Exit codes: 0 update sent and the read-back matches; 1 GitHub refused the update (nothing landed);\n"
-                "  2 invalid input or a refusal before the update; 3 the update was sent and the read-back failed\n"
-                "  or does not match: do not retry. A rate limit on that read-back is exit 3, not 75;\n"
-                "  75 is a rate-limit refusal before the update.\n"
+                "Exit codes: 0 update sent and the read-back matches; 1 GitHub refused the update with a 4xx\n"
+                "  answer (nothing landed); 2 invalid input or a refusal before the update; 3 the update may have\n"
+                "  landed and is unverified (a timeout, transport fault or server error on the update, or a failed\n"
+                "  or mismatched read-back): do not retry. A rate limit on that read-back is exit 3, not 75;\n"
+                "  75 is a rate-limit refusal of the update itself (nothing landed).\n"
                 "Related: GitHub REST update a repository ruleset; decision C-5345."
             )
         for key, kind in schema.items():

@@ -4,6 +4,7 @@ import json
 import subprocess
 from pathlib import Path
 import pytest
+from lu_machinery.common import github_client
 from lu_machinery.opsec import prepublish as gate
 from lu_machinery.publish import github as pub
 from tests.common.github_cache_isolation import isolate_github_client_cache
@@ -276,6 +277,41 @@ def test_ruleset_merge_queue_changes_only_the_named_parameter(dispatch_calls, ca
         runner=runner,
     ) == 3
     assert calls == ["GET", "PUT", "GET"] and "Do not retry" in capsys.readouterr().err
+
+    def put_outcome(outcome):
+        calls = []
+
+        def runner(args, **kwargs):
+            method = args[args.index("--method") + 1]
+            calls.append(method)
+            if method == "GET":
+                return subprocess.CompletedProcess(args, 0, json.dumps(document), "")
+            return outcome(args)
+
+        return runner, calls
+
+    def timed_out(args):
+        raise subprocess.TimeoutExpired(args, 30)
+
+    def lost(args):
+        return subprocess.CompletedProcess(args, 1, "", "connection reset by peer")
+
+    def rejected(args):
+        # The shape the client's run() returns for a GitHub 4xx answer (_result_process).
+        done = subprocess.CompletedProcess(args, 1, json.dumps({"error": "github_http_error", "status": 422}), "")
+        done.github_result = github_client.Result(status=422, error="github_http_error")
+        return done
+
+    # A PUT whose answer is lost may already have landed: unverified, never a refusal or a retry.
+    for outcome, code, text in ((timed_out, 3, "Do not retry"), (lost, 3, "Do not retry"),
+                                (rejected, 1, "refused by GitHub")):
+        runner, calls = put_outcome(outcome)
+        assert publisher.main(
+            ["ruleset-merge-queue", "--repo", "unit/public", "--ruleset", "20977023",
+             "--min-entries-to-merge-wait-minutes", "10"],
+            runner=runner,
+        ) == code, outcome.__name__
+        assert calls == ["GET", "PUT"] and text in capsys.readouterr().err, outcome.__name__
 
     with pytest.raises(SystemExit) as exc:
         publisher.main(["ruleset-merge-queue", "--help"])
