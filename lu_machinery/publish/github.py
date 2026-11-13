@@ -1448,6 +1448,60 @@ def _transfer_checked(fields, source, destination, receipt, sink, temp, *, runne
     return settle("transferred", 0)
 
 
+# Inside a dispatched write worker's boundary (#434) there is no GitHub credential or route: these verbs reach the
+# launcher's host broker instead, with the same fields (#443). The broker acts only on the launch's repository,
+# branch and PRs, and refuses a named target that is not the launch's own. Other verbs run as everywhere else.
+BROKER_ENV = "LU_WRITE_BOUNDARY_BROKER"
+BROKER_FORWARDED = {  # verb: {publisher field: broker field}; --repo and --body-file are handled by the client
+    "pr-create": {"title": "title", "body": "body", "draft": "draft", "head": "head", "base": "base"},
+    "pr-edit": {"number": "pr", "title": "title", "body": "body"},
+    "pr-comment": {"number": "pr", "body": "body"},
+    "pr-merge": {"number": "pr", "match_head": "head"},
+}
+
+
+def _publish_through_broker(verb, fields, *, cwd, env, stdin, capture_output, text):
+    """Send one forwarded verb to the write boundary's host broker; the host's scanned publisher does the write."""
+    from lu_machinery.dispatcher import write_boundary
+
+    names = BROKER_FORWARDED[verb]
+    if verb == "pr-merge" and "match_head" not in fields:
+        raise gate.PublishBlocked("WRITE_BOUNDARY: inside the write boundary pr-merge needs --match-head.")
+    extra = sorted(set(fields) - set(names) - {"repo", "body_file"})
+    if extra:
+        raise gate.PublishBlocked(
+            f"WRITE_BOUNDARY: inside the write boundary {verb} cannot carry "
+            + ", ".join("--" + key.replace("_", "-") for key in extra)
+            + "; nothing was sent."
+        )
+    fields = dict(fields)
+    if "body_file" in fields:
+        raw = _read_file(fields.pop("body_file"), cwd, stdin)
+        try:
+            fields["body"] = raw.decode("utf-8")
+        except UnicodeError:
+            raise gate.PublishBlocked("OPSEC: publisher text is not UTF-8.") from None
+    payload = {names[key]: value for key, value in fields.items() if key in names}
+    environment = _validated_environment(env)
+    if fields.get("repo") or environment.get("GH_REPO"):
+        dest = repository(cwd, environment, fields.get("repo"))
+        if dest == "unknown" or not dest.startswith("github.com/"):
+            raise gate.PublishBlocked("OPSEC: publisher repository unresolved; provide --repo.")
+        payload["repo"] = dest.split("/", 1)[1]
+    reply = write_boundary.broker_call(verb, payload)
+    code = reply.get("returncode")
+    code = code if type(code) is int and 0 <= code < 256 else 1
+    out, err = str(reply.get("stdout", "")), str(reply.get("stderr", ""))
+    if not capture_output:
+        sys.stdout.write(out)
+        sys.stderr.write(err)
+        sys.stdout.flush()
+        sys.stderr.flush()
+    if not text:
+        out, err = out.encode(), err.encode()
+    return subprocess.CompletedProcess(["write_boundary", "call", verb], code, out, err)
+
+
 @github_client.rate_limited_command
 def publish(
     verb: str,
@@ -1473,6 +1527,10 @@ def publish(
     fields = {
         key: tuple(value) if SCHEMAS[verb][1][key] in {"texts", "assets"} else value for key, value in fields.items()
     }
+    if verb in BROKER_FORWARDED and os.environ.get(BROKER_ENV):
+        return _publish_through_broker(
+            verb, fields, cwd=Path(cwd or Path.cwd()), env=env, stdin=stdin, capture_output=capture_output, text=text
+        )
     if verb in {"issue-edit", "pr-edit", "release-edit"} and not (set(fields) - {"number", "tag", "repo"}):
         raise gate.PublishBlocked("OPSEC: edit requires explicit fields; interactive publishing refused.")
     environment = _validated_environment(env)

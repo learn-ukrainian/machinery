@@ -342,7 +342,8 @@ def test_push_publishes_only_the_launch_branch_at_its_tip_fast_forward(broker, p
     # A ref whose name ends like the dispatched one is not the dispatched branch.
     _git(repo, "push", "-q", str(remote), f"{tip}:refs/heads/other/refs/heads/task")
     assert "branch tip" in _refused(lambda: broker._push({"head": "0" * 40}))
-    assert "exactly head" in _refused(lambda: broker._push({"head": tip, "branch": "main"}))
+    assert "dispatched branch" in _refused(lambda: broker._push({"head": tip, "branch": "main"}))
+    assert "repository" in _refused(lambda: broker._push({"head": tip, "repo": "owner/other"}))
     broker.scan = 1  # the push scan refuses: nothing is sent
     assert broker._push({"head": tip})["returncode"] == 2
     assert _git(tmp_path, "--git-dir", str(remote), "for-each-ref", "refs/heads/task") == ""
@@ -375,8 +376,9 @@ def test_fetch_base_updates_only_the_default_branch_tracking_ref(broker, primary
 def test_pr_create_uses_the_launch_branch_and_default_base(broker):
     """Defect class: pr-create takes the head, base or repository from the request, so a worker opens a PR for
     another branch or against a protected base it was not dispatched for."""
-    assert "title, body and draft" in _refused(lambda: broker._pr_create({"title": "t", "body": "b", "head": "main"}))
-    assert "title, body and draft" in _refused(lambda: broker._pr_create({"title": "t", "body": "b", "base": "x"}))
+    assert "dispatched branch" in _refused(lambda: broker._pr_create({"title": "t", "body": "b", "head": "main"}))
+    assert "default branch" in _refused(lambda: broker._pr_create({"title": "t", "body": "b", "base": "x"}))
+    assert "repository" in _refused(lambda: broker._pr_create({"title": "t", "body": "b", "repo": "a/b"}))
     assert broker._pr_create({"title": "Title", "body": "Body", "draft": True})["returncode"] == 0
     module, argv = broker.steps[-1]
     assert module == "publish.github" and argv[:3] == ["pr-create", "--repo", "owner/repo"]
@@ -397,7 +399,7 @@ def test_pr_comment_posts_only_on_the_own_pr_through_the_publisher(broker):
     """Defect class: pr-comment posts on another task's PR or bypasses the publisher (whose scan refuses verdict
     markers), so a worker forges a review verdict or comments as another task."""
     assert "head is not this task" in _refused(lambda: broker._pr_comment({"pr": 8, "body": "x"}))
-    assert "exactly pr and body" in _refused(lambda: broker._pr_comment({"pr": 7, "body": "x", "repo": "a/b"}))
+    assert "repository" in _refused(lambda: broker._pr_comment({"pr": 7, "body": "x", "repo": "a/b"}))
     assert broker._pr_comment({"pr": 7, "body": "<!-- cf-verdict v=1 -->"})["returncode"] == 0
     module, argv = broker.steps[-1]
     assert module == "publish.github" and argv[:5] == ["pr-comment", "--repo", "owner/repo", "--number", "7"]
@@ -451,3 +453,73 @@ def test_github_read_runs_only_named_reads_of_the_own_repository(broker):
     assert "positive id" in _refused(lambda: broker._github_read({"name": "pull", "number": "7; rm"}))
     assert broker._github_read({"name": "checks", "sha": broker.boundary.tip})["returncode"] == 0
     assert broker.steps[-1] == ("publish.github", ["read", "checks", "--repo", "owner/repo", "--sha", broker.boundary.tip])
+
+
+# -- the skills' own publish commands forward to the broker inside the boundary (#443) --------------------------------
+
+_FORWARDED = {
+    # operation: (the command a skill names for the worker's own target, the same command aimed at another target)
+    "push": ("git push origin task", "git push origin HEAD:refs/heads/main"),
+    "pr-create": ("{py} -m lu_machinery.publish pr-create --title T --body-file {body} --base main --head task",
+                  "{py} -m lu_machinery.publish pr-create --title T --body-file {body} --base main --head other"),
+    "pr-edit": ("{py} -m lu_machinery.publish pr-edit --number 7 --body-file {body}",
+                "{py} -m lu_machinery.publish pr-edit --number 8 --body-file {body}"),
+    "pr-comment": ("{py} -m lu_machinery.publish pr-comment --number 7 --body-file {body}",
+                   "{py} -m lu_machinery.publish pr-comment --number 8 --body-file {body}"),
+    "pr-merge": ("{py} -m lu_machinery.publish pr-merge --number 7 --match-head {tip}",
+                 "{py} -m lu_machinery.publish pr-merge --number 8 --match-head {tip}"),
+}
+
+
+@pytest.mark.parametrize("target", ["own", "foreign"])
+@pytest.mark.parametrize("operation", sorted(_FORWARDED))
+def test_skill_publish_commands_reach_the_broker_for_the_own_target_only(primary, tmp_path, monkeypatch, operation,
+                                                                         target):
+    """Defect class: inside the boundary the commands the skills name (git push, the publisher's PR verbs) do not
+    reach the broker, so every worker is stuck at its first publish; or they reach it aimed at another branch or PR
+    and the broker publishes there (or silently on the worker's own branch instead) rather than refusing."""
+    import sys
+
+    repo, worktree, receipt = primary
+    _git(repo, "remote", "add", "origin", "https://github.com/owner/repo.git")
+    tip = _git(worktree, "rev-parse", "HEAD")
+    remote = tmp_path / "remote.git"
+    _git(tmp_path, "init", "-q", "--bare", str(remote))
+    pulls = {7: {"state": "OPEN", "headRefName": "task", "headRefOid": tip, "isCrossRepository": False,
+                 "baseRefName": "main"},
+             8: {"state": "OPEN", "headRefName": "other", "headRefOid": tip, "isCrossRepository": False,
+                 "baseRefName": "main"}}
+
+    def gh_json(self, argv):
+        return {"defaultBranchRef": {"name": "main"}} if argv[:2] == ["repo", "view"] else pulls.get(int(argv[2]))
+
+    steps = []
+    monkeypatch.setattr(write_boundary._Broker, "_gh_json", gh_json)
+    monkeypatch.setattr(write_boundary._Broker, "_remote", lambda self, slug: (str(remote), []))
+    monkeypatch.setattr(write_boundary._Broker, "_approval", lambda self, head: "wb-test-review-r1")
+    monkeypatch.setattr(write_boundary._Broker, "_run", lambda self, argv, key, stdin=None, env=None: {
+        "returncode": 0, "stdout": "", "stderr": ""})
+    monkeypatch.setattr(write_boundary._Broker, "_module", lambda self, module, argv, key, stdin=None: steps.append(
+        argv) or {"returncode": 0, "stdout": "published\n", "stderr": ""})
+    body = tmp_path / "body.md"
+    body.write_text("Body\n")
+    command = _FORWARDED[operation][target == "foreign"].format(py=sys.executable, body=body, tip=tip)
+    code = write_boundary.main([
+        "--task-id", "wb-test", "--worktree", str(worktree), "--scratch", str(write_boundary.scratch("wb-test")),
+        "--receipt", str(receipt), "--author-model", "claude-opus-5-5", "--",
+        "/bin/sh", "-c", f"{command} > {worktree}/out.txt 2>&1; echo $? > {worktree}/code.txt",
+    ])
+    result = json.loads(receipt.read_text())
+    assert code == 0, result
+    exit_code, output = int((worktree / "code.txt").read_text()), (worktree / "out.txt").read_text()
+    requests = [(row["verb"], row["returncode"]) for row in result["broker"]]
+    remote_refs = _git(tmp_path, "--git-dir", str(remote), "for-each-ref", "--format=%(objectname) %(refname)")
+    if target == "own":
+        assert exit_code == 0 and requests == [(operation, 0)], output
+        if operation == "push":
+            assert remote_refs == f"{tip} refs/heads/task" and steps == []
+        else:
+            assert steps and steps[-1][0] == operation and steps[-1][steps[-1].index("--repo") + 1] == "owner/repo"
+    else:
+        assert exit_code != 0 and requests == [(operation, 2)] and "refused" in output, output
+        assert steps == [] and remote_refs == ""

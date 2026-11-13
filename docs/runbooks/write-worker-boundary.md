@@ -114,27 +114,50 @@ The receipt lists every broker request (`broker`: verb, request id, return code 
 
 ## GitHub publication (decision PUBLISH-CRED-1113, #434)
 
-A write worker holds no GitHub credential and has no route to GitHub, so `git push`, `gh` and the
-publisher fail inside. It publishes through broker verbs instead; the host's own login does the
-write. From inside, send one with
+A write worker holds no GitHub credential and has no route to GitHub. It publishes through broker
+verbs instead; the host's own login does the write. The commands the skills name forward to them on
+their own (#443), with the same arguments:
+
+| Command inside | Verb |
+| --- | --- |
+| `git push` to a github.com URL (`origin`, or the URL itself) | `push`, once per ref update |
+| publisher `pr-create --title --body-file --base --head [--draft]` | `pr-create` |
+| publisher `pr-edit --number --title/--body-file` | `pr-edit` |
+| publisher `pr-comment --number --body-file` | `pr-comment` |
+| publisher `pr-merge --number --match-head` | `pr-merge` |
+
+The launcher sets `url.lu-write-boundary::https://github.com/.pushInsteadOf` for GitHub's push URLs
+and defines the Git alias `remote-lu-write-boundary`, so Git hands the push to its documented
+remote-helper protocol (gitremote-helpers(7)) in `write_boundary`; no file, `PATH` entry or other tool
+is added. The helper reports the remote-tracking refs as the remote's refs, so Git's own
+fast-forward and lease checks still run; the broker then checks the live remote branch. The
+publisher (`lu_machinery.publish`) forwards the four PR verbs when `LU_WRITE_BOUNDARY_BROKER` is set,
+reading `--body-file` (or `-` for stdin) itself. Each forwarded request names the target its caller
+gave: the branch, the head and base names, and the repository from `--repo` or `GH_REPO` when given.
+The broker refuses a named target that is not the launch's own; it never replaces it.
+
+The verbs can also be sent directly with
 `python -m lu_machinery.dispatcher.write_boundary call <verb>` and the payload as one JSON object on
 stdin.
 
 | Verb | Payload | What the host does |
 | --- | --- | --- |
-| `push` | `head` | Pushes the dispatched branch at `head`, which must be the worker's tip |
+| `push` | `head`, optional `branch`, `repo`, `lease` | Pushes the dispatched branch at `head`, which must be the worker's tip |
 | `fetch-base` | none | Fetches the default branch into `refs/remotes/origin/<base>` |
-| `pr-create` | `title`, `body`, optional `draft` | Opens a PR from the dispatched branch to the default branch |
-| `pr-edit` | `pr`, `title` and/or `body` | Edits the title or body of the worker's own open PR |
-| `pr-comment` | `pr`, `body` | Comments on the worker's own open or merged PR |
-| `pr-merge` | `pr`, `head` | Enqueues the worker's own PR at `head` |
+| `pr-create` | `title`, `body`, optional `draft`, `head`, `base`, `repo` | Opens a PR from the dispatched branch to the default branch |
+| `pr-edit` | `pr`, `title` and/or `body`, optional `repo` | Edits the title or body of the worker's own open PR |
+| `pr-comment` | `pr`, `body`, optional `repo` | Comments on the worker's own open or merged PR |
+| `pr-merge` | `pr`, `head`, optional `repo` | Enqueues the worker's own PR at `head` |
 | `github-read` | `name`, optional `number` or `sha` | One named read of the repository |
 
 What every publication verb takes from the launch, never from the request: the repository (the
 primary's registered GitHub origin), the branch, the base (the repository's default branch on
 GitHub) and PR ownership (the PR's head branch is the dispatched branch, in the same repository).
-No verb takes an argv, endpoint, refspec, repository or host path. Texts arrive as JSON strings,
-and the host writes them to the run's private scratch.
+No verb takes an argv, endpoint, refspec or host path. The optional `branch`, `head`, `base` and
+`repo` fields only narrow a request: each must equal the launch's own value (a branch may be given as
+`refs/heads/<name>`), or the request is refused. `lease` is the remote branch's expected commit
+(empty for an absent branch), as `--force-with-lease` gives it; a different live value is refused.
+Texts arrive as JSON strings, and the host writes them to the run's private scratch.
 
 - **Push.** Only the dispatched branch, only at the worker's current tip, and only as a
   fast-forward of the remote branch. The host copies the commits from the private Git layer
@@ -171,8 +194,12 @@ starts without it.
 - Markers posted with the shared GitHub login remain forgeable by a session outside a write boundary
   (an interactive session) that holds the login. Inside, the worker has neither the login nor a route
   to GitHub, and `pr-merge` also checks the host-held review record.
-- Existing commands (`git push`, `gh`, `scripts.publish`) do not forward to the broker; inside, a
-  worker uses `write_boundary call`.
+- Only `git push` to GitHub and the publisher's `pr-create`, `pr-edit`, `pr-comment` and `pr-merge`
+  forward. `gh`, `git fetch` from GitHub (use `fetch-base`), other publisher verbs and reads (use
+  `github-read`) fail inside. A forwarded `pr-edit` carries only the title and body (`--add-labels`
+  and `--milestone` are refused before sending), `pr-merge` needs `--match-head`, and a push that
+  deletes a branch or rewrites the published one is refused.
+- The product's tracked `scripts.publish` copy forwards only once it runs this package's publisher.
 - Fleet messages can be sent but not received or acknowledged inside.
 - A Unix socket that a host service first creates after launch, outside `/tmp`, `/run` and `/dev/shm`,
   is not masked. No such service is known on the fleet host.
