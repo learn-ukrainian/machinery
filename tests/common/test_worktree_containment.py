@@ -618,6 +618,10 @@ def test_primary_guard_keeps_configured_and_additional_primary_protection(layout
             # source word alone did not select a primary in the original parser.
             if target.parent == other and product_kind not in {"other_primary", "other_worktree", "foreign_cwd"}:
                 expected = 0
+            # Unknown find starts include the configured product itself. Its
+            # metadata can no longer be removed, even inside an isolated tree.
+            if tool == "find_list" and product_kind in {"worktree", "other_worktree"}:
+                expected = 2
         result = decision(name, args)
         assert result.returncode == expected, result.stderr
     if product_kind in {"other_primary", "other_worktree"}:
@@ -823,3 +827,56 @@ def test_deferred_trap_envfile_cannot_clear_uv_context(layout: Layout, timing: s
         timeout=60,
     )
     assert result.returncode == 2, result.stderr
+
+
+@pytest.mark.parametrize("redirect", [False, True])
+def test_primary_guard_refuses_product_metadata_demotion(layout: Layout, redirect: bool):
+    """Corrupt or redirected product gitfiles cannot silently remove additive protection."""
+    other = layout.outside / "other"
+    _git(layout.outside, "init", "-q", "-b", "main", str(other))
+    _git(other, "config", "user.email", "fixture@example.invalid")
+    _git(other, "config", "user.name", "Fixture")
+    (other / "tracked.txt").write_text("other\n")
+    _git(other, "add", "tracked.txt")
+    _git(other, "commit", "-qm", "fixture")
+    product = layout.outside / "product"
+    _git(other, "worktree", "add", "-q", "-b", "product", str(product))
+    hook = Path(__file__).resolve().parents[2] / "agents_extensions/shared/hooks/guard-primary-checkout-write.py"
+    env = {**_clean_env(), "LU_PRODUCT_ROOT": str(product), "LEARN_UKRAINIAN_PRIMARY_REPO_ROOT": str(layout.main)}
+
+    def decision(command: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [sys.executable, str(hook)],
+            input=json.dumps({"tool_name": "Bash", "cwd": str(layout.dispatch_wt), "tool_input": {"command": command}}),
+            cwd=layout.dispatch_wt, env=env, capture_output=True, text=True, timeout=60,
+        )
+
+    command = f"printf '%s\\n' {shlex.quote(str(other / 'tracked.txt'))} | xargs rm"
+    assert decision("ls").returncode == 0
+    assert decision(command).returncode == 2
+    for mutation in (f"rm {shlex.quote(str(product / '.git'))}", f"rm -rf {shlex.quote(str(product))}"):
+        result = decision(mutation)
+        assert result.returncode == 2, result.stderr
+        assert "protected_product_metadata" in result.stderr
+    result = subprocess.run(
+        [sys.executable, str(hook)],
+        input=json.dumps({"tool_name": "Write", "cwd": str(layout.dispatch_wt), "tool_input": {"file_path": str(product / '.git'), "content": "invalid"}}),
+        cwd=layout.dispatch_wt, env=env, capture_output=True, text=True, timeout=60,
+    )
+    assert result.returncode == 2, result.stderr
+    assert "protected_product_metadata" in result.stderr
+    nested = product / "nested"
+    nested.mkdir()
+    env["LU_PRODUCT_ROOT"] = str(nested)
+    assert decision(command).returncode == 2
+    _git(nested, "init", "-q", "-b", "main")
+    assert decision("ls").returncode == 0
+    assert decision(command).returncode == 2  # The nearer repository only adds authority.
+    assert decision(f"rm {shlex.quote(str(product / '.git'))}").returncode == 2
+    env["LU_PRODUCT_ROOT"] = str(product)
+    (product / ".git").write_text(f"gitdir: {layout.main / '.git'}\n" if redirect else "invalid\n")
+    result = decision(command)
+    assert result.returncode == 2, result.stderr
+    assert "product_root_unavailable" in result.stderr
+    assert (other / "tracked.txt").read_text() == "other\n"
+    assert (layout.main / "tracked.txt").read_text() == "tracked\n"

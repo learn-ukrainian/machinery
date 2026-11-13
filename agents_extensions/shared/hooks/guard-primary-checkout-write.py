@@ -245,18 +245,30 @@ def _protected_repo_roots(wc) -> tuple[Path, ...]:
     # A product may be a worktree of a different repository than shared state.
     # Its gitfile is inspected only after the mandatory authority is pinned.
     product = _protected_repo_anchor().resolve(strict=True)
-    try:
-        product_primary = wc.resolve_main_root(product)
-    except wc.NotAGitRepositoryError:
-        # A non-Git product snapshot still has the explicit primary authority.
-        return (primary,)
-    if wc.resolve_main_root_without_git(product_primary) != product_primary:
-        raise ValueError("product primary metadata is inconsistent")
-    return tuple(dict.fromkeys((primary, product_primary)))
+    roots = [primary]
+    for candidate in (product, *product.parents):
+        if not os.path.lexists(candidate / ".git"):
+            continue
+        # Keep every ancestor's authority: a newly inserted nearer repository
+        # must not hide the checkout that already protects this product.
+        product_primary = wc.resolve_main_root_without_git(candidate)
+        discovered = wc.resolve_git_worktree(candidate, [])
+        if discovered.worktree != candidate or discovered.common_dir != product_primary / ".git":
+            raise ValueError("product primary metadata is inconsistent")
+        roots.append(product_primary)
+    # Only a product with no Git metadata is a non-Git snapshot.
+    return tuple(dict.fromkeys(roots))
 
 
 def _evaluate_write(target: Path, wc, main_root: Path) -> object:
     """A target-selected checkout may add a denial, never replace the pinned one."""
+    product = _protected_repo_anchor().resolve(strict=True)
+    resolved = target.resolve()
+    for candidate in (product, *product.parents):
+        metadata = candidate / ".git"
+        if os.path.lexists(metadata):
+            if resolved == metadata or resolved in metadata.parents or metadata in resolved.parents:
+                return _UndecidableWrite("protected_product_metadata", "Product Git metadata must remain intact.")
     decision = wc.evaluate_write(target, cwd=main_root)
     if not decision.allowed:
         return decision
