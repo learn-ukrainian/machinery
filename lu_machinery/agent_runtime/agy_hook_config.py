@@ -51,7 +51,7 @@ _RESOLVERS_END = "# LU_HOOK_RESOLVERS_END"
 # output and exit status are the hook's.
 _HOOK_TAIL = r"""_lu_hook_fail() {
     cat >/dev/null 2>&1
-    printf '%s\n' 'HOOK-BOOTSTRAP-FAILED: product root, shared state, interpreter or machinery unavailable.' >&2
+    printf '%s %s\n' 'HOOK-BOOTSTRAP-FAILED: product root, shared state, interpreter or machinery unavailable.' "${2:-machinery}" >&2
     case "$1" in
         agy-stop-hook) printf '%s\n' '{"decision":"continue","reason":"HOOK-BOOTSTRAP-FAILED: hook context unavailable."}' ;;
         agy-*) printf '%s\n' '{"decision":"deny","reason":"HOOK-BOOTSTRAP-FAILED: hook context unavailable."}' ;;
@@ -62,7 +62,7 @@ _HOOK_TAIL = r"""_lu_hook_fail() {
     exit 0
 }
 _lu_hook_mode="$1"
-project_hook_context_resolve 2>/dev/null || _lu_hook_fail "$_lu_hook_mode"
+project_hook_context_resolve 2>/dev/null || _lu_hook_fail "$_lu_hook_mode" "${PROJECT_HOOK_BOOTSTRAP_STEP:-machinery}"
 case "$_lu_hook_mode" in
     agy-primary-write)
         _lu_hook_guard="$("$LEARN_UKRAINIAN_PYTHON" -I -c 'from lu_machinery.common.repo_root import machinery_path
@@ -93,7 +93,7 @@ _lu_hook_fail "$_lu_hook_mode"
 # modes retain their command bytes when a mode is added.
 _AUDIT_HOOK_TAIL = r"""project_hook_context_resolve 2>/dev/null || {
     cat >/dev/null 2>&1
-    printf '%s\n' 'HOOK-BOOTSTRAP-FAILED: product root, shared state, interpreter or machinery unavailable.' >&2
+    printf '%s %s\n' 'HOOK-BOOTSTRAP-FAILED: product root, shared state, interpreter or machinery unavailable.' "${PROJECT_HOOK_BOOTSTRAP_STEP:-machinery}" >&2
     exit 2
 }
 exec "$LEARN_UKRAINIAN_PYTHON" -I -m agents_extensions.shared.hooks.audit-primary-checkout-dirt
