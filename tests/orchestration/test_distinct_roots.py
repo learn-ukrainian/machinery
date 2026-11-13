@@ -175,13 +175,18 @@ def _unit_lines() -> dict[str, list[str]]:
 
 
 def _reporter_code_root() -> str:
-    """Parent of the package whose reporter script the unit's importlib line runs."""
+    """Directory that holds the lu_machinery package a fresh interpreter imports.
+
+    A normal import, from the interpreter's own directory, with no ``PYTHONPATH``.
+    The unit finds its script with ``importlib.resources``, so this expectation
+    does not repeat that lookup.
+    """
     probe = subprocess.run(
         [
             sys.executable,
             "-c",
-            "from importlib.resources import files; "
-            "print(files('lu_machinery.orchestration').joinpath('run_project_state_reporter.sh'))",
+            "import lu_machinery, pathlib; "
+            "print(pathlib.Path(lu_machinery.__file__).resolve().parents[1])",
         ],
         check=True,
         capture_output=True,
@@ -189,8 +194,7 @@ def _reporter_code_root() -> str:
         cwd=Path(sys.executable).parent,
         env={"PATH": "/usr/bin:/bin"},
     )
-    # orchestration/<script> -> package directory -> directory that holds the package.
-    return str(Path(probe.stdout.strip()).parents[2])
+    return probe.stdout.strip()
 
 
 def _systemd_exec_start(home: Path) -> subprocess.CompletedProcess[str]:

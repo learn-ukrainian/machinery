@@ -65,8 +65,8 @@ TASK_CACHE_DIRS = frozenset({"venv", ".venv", "buildvenv", "npm-cache", ".npm", 
 def _remove_cache_entry(dir_fd: int, name: str) -> None:
     """Unlink a cache-named link, or remove one cache directory, relative to ``dir_fd``.
 
-    A link is unlinked and never followed. A directory is removed by the same remover
-    ``_remove_task_scratch`` uses: this directory gets owner rwx when it lacks it, children
+    A link is unlinked and never followed. A directory is removed by
+    ``task_scratch._remove_invocation_dir``: this directory gets owner rwx when it lacks it, children
     are repaired on descent, and another device or a mount point is refused before anything
     is unlinked. The chmod and the deletion stay inside ``name``.
     """

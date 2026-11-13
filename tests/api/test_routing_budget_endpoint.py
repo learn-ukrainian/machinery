@@ -1117,7 +1117,7 @@ def _persist_account_readings(monkeypatch, tmp_path: Path, *, age_s: float, gene
     watch = claude_account_usage._Watch(roots=(), entries=(), generation=generation, credentials=(1, 2))
     # Every sample's attribution holds its bound account; the fake bindings below bind "acct".
     bound = frozenset({claude_account_usage._fingerprint("account_id", "acct")})
-    accounts = claude_account_usage._Accounts(watch=watch, fingerprints=bound, named=False)
+    accounts = claude_account_usage._Accounts(watch=watch, fingerprints=bound)
     for label in claude_account_usage.CLAUDE_SUBSCRIPTION_ACCOUNT_LABELS:
         claude_account_usage._record(label, row, None, accounts=accounts)
 
