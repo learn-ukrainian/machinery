@@ -140,7 +140,9 @@ def _remote_has(sandbox, sha, remote=None):
 @pytest.mark.parametrize("hook", ["pre-push", "reference-transaction"])
 @pytest.mark.parametrize("secret", [False, True], ids=["clean", "secret"])
 @pytest.mark.parametrize("existing", [False, True], ids=["new-branch", "existing-branch"])
-def test_settlement_never_runs_worker_hooks_and_refuses_secret_updates(push_sandbox, monkeypatch, hook, secret, existing):
+@pytest.mark.parametrize("origin_form", ["file", "ssh"])
+def test_settlement_never_runs_worker_hooks_and_refuses_secret_updates(push_sandbox, monkeypatch, hook, secret, existing,
+                                                                      origin_form):
     """Defect class: credentialed settlement executes a worker hook or publishes an unscanned update."""
     from lu_machinery.dispatcher import write_boundary
     from lu_machinery.orchestration import dispatch_settle
@@ -160,6 +162,15 @@ def test_settlement_never_runs_worker_hooks_and_refuses_secret_updates(push_sand
     program.write_text(f"#!/bin/sh\nprintf ran > {shlex.quote(str(marker))}\n")
     program.chmod(0o755)
     _git(tree, "config", "core.hooksPath", ".githooks")
+    if origin_form == "ssh":
+        from lu_machinery.common import git_credentials
+
+        # The SSH clone URL must use the broker's canonical HTTPS route. Git then rewrites that URL
+        # to the fixture's bare remote; neither the credential executable nor any network is used.
+        _git(tree, "remote", "set-url", "origin", "git@github.com:unit/public.git")
+        _git(tree, "config", f"url.{sandbox.remote}.insteadOf", "https://github.com/unit/public.git")
+        monkeypatch.setattr(git_credentials, "CONFIG", sandbox.root / "lu_machinery/config/fleet_repos.yaml")
+        monkeypatch.setattr(git_credentials, "real_gh", lambda _env: "/usr/bin/false")
     for name, value in _env(LU_PRODUCT_ROOT=str(sandbox.root),
                             LEARN_UKRAINIAN_PRIMARY_REPO_ROOT=str(sandbox.root)).items():
         monkeypatch.setenv(name, value)

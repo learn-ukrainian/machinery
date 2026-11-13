@@ -88,6 +88,8 @@ Settlement requires the named branch to be the worktree's current branch, one or
 push URL, and a fast-forward update. After publication it records the tracking ref and
 upstream with hooks disabled. Cleanup deletions use the same transport and an exact
 lease, with the scanner's native deletion record. No caller hook runs after a clean scan.
+Registered GitHub SSH origins resolve through the broker's existing `_remote` resolver
+to scoped HTTPS publication; the clone's configured origin is unchanged.
 The worker shim's hook chaining remains inside the worker's credential-free boundary.
 
 The host push/fetch inventory is reproducible with
@@ -113,7 +115,7 @@ Paths in the table are relative to `lu_machinery/`. CI-only paths must not be re
 as credentialed host operations in worker trees without the same hook suppression.
 The settlement regression in `tests/opsec/test_git_push_scan.py` uses local bare remotes
 and worker-authored `pre-push` and `reference-transaction` marker hooks. It verifies both
-new and existing branch updates, and that a secret-bearing commit message is refused
+file and SSH-form origins, new and existing branch updates, and that a secret-bearing commit message is refused
 without changing the remote or executing either hook.
 
 ## Host broker (decision CONTAIN-BROKER-1113)

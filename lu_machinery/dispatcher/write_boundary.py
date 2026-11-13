@@ -293,6 +293,15 @@ def _git(cwd: Path, *args: str, git_dir: Path | None = None, network: bool = Fal
     command = list(args)
     while command[:1] == ["-c"] and len(command) >= 2:
         command = command[2:]
+    if network and command[:1] in (["push"], ["ls-remote"]) and len(command) >= 3:
+        # Clone transport is not publication authority. The broker's existing resolver verifies the
+        # registry and binds credentials to HTTPS, including when the protected origin uses SSH.
+        if match := _GITHUB_REMOTE.fullmatch(command[-2]):
+            try:
+                command[-2], credentials = _Broker._remote(match.group(1))
+            except _BrokerRefusal as exc:
+                raise Refused(str(exc)) from None
+            args = (*credentials, *command)
     if command[:1] == ["push"]:
         # Broker and settlement share this exact-update scan. No worker hook is trusted, including
         # reference-transaction hooks, so the transport below always has hooks disabled.
@@ -601,7 +610,8 @@ class _Broker:
             raise _BrokerRefusal("the repository's default branch cannot be read on GitHub")
         return name
 
-    def _remote(self, slug: str) -> tuple[str, list[str]]:
+    @staticmethod
+    def _remote(slug: str) -> tuple[str, list[str]]:
         """The HTTPS remote of ``slug`` and the scoped host credential settings for it, from the registry."""
         from lu_machinery.common.git_credentials import verification_credentials
 
