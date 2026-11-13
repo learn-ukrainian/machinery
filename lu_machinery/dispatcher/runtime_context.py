@@ -106,6 +106,8 @@ def build(
         path = _context_file(spec.final_file.with_suffix(".launch-prompt"), body, dry_run=dry_run)
         argv[argv.index("--prompt-file") + 1] = path
         stdin = None
-    if spec.agent in {"claude", "cursor", "agy"}:
+    # An AGY write run gets one workspace folder, its worktree: AGY runs commands in a workspace folder of its own
+    # choosing, and the write boundary already exposes these roots read-only (#423).
+    if spec.agent in {"claude", "cursor"} or (spec.agent == "agy" and spec.mode != "workspace-write"):
         argv += [argument for root in read_roots() for argument in ("--add-dir", str(root))]
     return replace(invocation, argv=argv, stdin=stdin)

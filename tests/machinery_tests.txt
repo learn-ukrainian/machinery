@@ -701,6 +701,7 @@ tests/opsec/test_publish_workflow_inputs.py
 tests/dispatcher/test_task_store_records.py
 tests/dispatcher/test_worktree_links.py
 tests/dispatcher/test_worktree_registry.py
+tests/dispatcher/test_write_boundary.py
 # PORT-1108 deferred-files: frozen LU 5aba2adb; dependency-complete whole-file ports.
 tests/fleet/test_agy_failure_tally.py
 tests/orchestration/test_dispatch_admission_disk.py

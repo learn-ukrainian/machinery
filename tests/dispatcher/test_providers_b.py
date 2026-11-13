@@ -298,7 +298,8 @@ def test_cli_prompt_or_mode_regression(tmp_path, monkeypatch, provider, mode, ef
         expected += ["--mode", "ask"] if mode == "read-only" else ["--approve-mcps", "--sandbox", "disabled", "--force"]
     else:
         expected += ["--dangerously-skip-permissions"]
-        expected += ["--print-timeout", "7260s", "--log-file", str(final.with_suffix(".log"))]
+        expected += ["--print-timeout", "7260s", "--add-dir", str(worktree),
+                     "--log-file", str(final.with_suffix(".log"))]
     proc = subprocess.run(
         invocation.argv, input=invocation.stdin, env=invocation.env, cwd=worktree, capture_output=True, timeout=10
     )

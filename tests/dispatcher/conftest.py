@@ -128,8 +128,29 @@ def run_git(repo, *args):
     ).stdout.strip()
 
 
+# A test double for the write boundary (#423). The sandbox's stub providers mark their progress beside
+# their prompt in the task store and some run in the primary itself, both of which the real boundary
+# refuses; these tests' subject is delivery, scope and supervision, not containment, which
+# tests/dispatcher/test_write_boundary.py covers with real bubblewrap.
+WRITE_BOUNDARY_DOUBLE = """RECEIPT_SUFFIX = ".write-boundary.json"
+BROKER_ENV = "LU_WRITE_BOUNDARY_BROKER"
+
+
+def launcher(spec, invocation, task_file):
+    return list(invocation.argv)
+
+
+def verify(task_file, task_id):
+    return {"status": "test-double"}, None
+
+
+def discard(task_id):
+    return None
+"""
+
+
 @pytest.fixture
-def sandbox(tmp_path, hermetic_monitor, configured_roots, sources_product_root):
+def sandbox(tmp_path, hermetic_monitor, configured_roots, sources_product_root, monkeypatch):
     repo, tasks = tmp_path / "public", tmp_path / "tasks"
     remote = tmp_path / "remote.git"
     repo.mkdir()
@@ -182,6 +203,9 @@ def sandbox(tmp_path, hermetic_monitor, configured_roots, sources_product_root):
     schema_dir.mkdir()
     shutil.copy(SOURCE / "lu_machinery/schemas/code-review-findings.v1.schema.json", schema_dir)
     shutil.copy(Path(__file__).with_name("stub_provider.py"), repo / "lu_machinery/dispatcher/providers/codex.py")
+    (repo / "lu_machinery/dispatcher/write_boundary.py").write_text(WRITE_BOUNDARY_DOUBLE)
+    monkeypatch.setattr(worker.write_boundary, "launcher", lambda _spec, invocation, _task: list(invocation.argv))
+    monkeypatch.setattr(worker.write_boundary, "verify", lambda _task, _id: ({"status": "test-double"}, None))
     run_git(repo, "add", ".")
     run_git(repo, "commit", "-m", "fixture")
     # Origin advertises main as its default branch: review authorship is read from it (C-2902).

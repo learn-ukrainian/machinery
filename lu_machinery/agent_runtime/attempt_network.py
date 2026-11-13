@@ -104,7 +104,8 @@ def connect_target(header: bytes) -> str:
         if not re.fullmatch(r"[!#$%&'*+.^_`|~0-9A-Za-z-]+", name) or any(ord(c) < 32 for c in value.strip()):
             raise ValueError("malformed header")
         if name.lower() == "host":
-            if seen_host or value.strip() != target:
+            # The authority, or the bare host when the port is HTTPS's default (Node's proxy client sends that).
+            if seen_host or value.strip() not in ({target, host} if port == "443" else {target}):
                 raise ValueError("conflicting Host")
             seen_host = True
         if name.lower() in {"content-length", "transfer-encoding"}:
