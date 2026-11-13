@@ -1307,6 +1307,90 @@ def test_local_git_observation_cross_checks_exact_worktree_branch(
     assert wrong["worktree_branch_matches"] is False
 
 
+@pytest.mark.parametrize("case", ["mapped", "unmapped", "mismatched"])
+def test_takeover_publish_branch_satisfies_worktree_readiness(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, case: str,
+) -> None:
+    """A --branch takeover passes readiness only when its record publishes the worktree branch as the PR branch.
+
+    The defect is refusing that mapped checkout, or accepting one with no record
+    or a publish_branch other than the claimed PR branch.
+    """
+    for name in ("GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_PREFIX"):
+        monkeypatch.delenv(name, raising=False)
+    tasks = tmp_path / "tasks"
+    tasks.mkdir()
+    monkeypatch.setenv("LU_TASKS_DIR", str(tasks))
+    repo = tmp_path / "repo"
+    subprocess.run(["git", "init", "-q", "-b", "main", str(repo)], check=True, timeout=30)
+    subprocess.run(["git", "-C", str(repo), "config", "user.name", "Test"], check=True, timeout=30)
+    subprocess.run(["git", "-C", str(repo), "config", "user.email", "test@example.com"], check=True, timeout=30)
+    subprocess.run(["git", "-C", str(repo), "config", "commit.gpgsign", "false"], check=True, timeout=30)
+    (repo / ".gitignore").write_text(".worktrees/\n", encoding="utf-8")
+    subprocess.run(["git", "-C", str(repo), "add", ".gitignore"], check=True, timeout=30)
+    subprocess.run(["git", "-C", str(repo), "commit", "-qm", "base"], check=True, timeout=30)
+    subprocess.run(
+        ["git", "-C", str(repo), "update-ref", "refs/remotes/origin/main", "HEAD"],
+        check=True,
+        timeout=30,
+    )
+    task_id = "cto-takeover-readiness"
+    worktree_branch = f"codex/{task_id}"
+    pr_branch = "codex/pr-head"
+    worktree = repo / ".worktrees" / "dispatch" / "codex" / task_id
+    subprocess.run(
+        ["git", "-C", str(repo), "worktree", "add", "-qb", worktree_branch, str(worktree)],
+        check=True,
+        timeout=30,
+    )
+    (worktree / "tracked.txt").write_text("takeover\n", encoding="utf-8")
+    subprocess.run(["git", "-C", str(worktree), "add", "tracked.txt"], check=True, timeout=30)
+    subprocess.run(
+        ["git", "-C", str(worktree), "commit", "-qm", f"implement\n\nX-Agent: codex/{task_id}"],
+        check=True,
+        timeout=30,
+    )
+    head = subprocess.run(
+        ["git", "-C", str(worktree), "rev-parse", "HEAD"],
+        check=True, capture_output=True, text=True, timeout=30,
+    ).stdout.strip()
+    if case != "unmapped":
+        record = {
+            "schema_version": 2,
+            "task_id": task_id,
+            "worktree_branch": worktree_branch,
+            "publish_branch": pr_branch if case == "mapped" else "codex/not-the-pr",
+            "worktree_path": str(worktree.resolve()),
+        }
+        (tasks / f"{task_id}.json").write_text(json.dumps(record), encoding="utf-8")
+
+    observed = task_lifecycle.observe_local_git(
+        repo, head_sha=head, branch=pr_branch, worktree=str(worktree),
+    )
+    blocker = "the claimed dispatch worktree branch did not match Git authority"
+    assert observed["dispatch_worktree_used"] is True
+    assert observed["actual_worktree_branch"] == worktree_branch
+    assert any(
+        trailer == f"X-Agent: codex/{task_id}"
+        for commit in observed["commits"]
+        for trailer in commit["x_agent_trailers"]
+    )
+    stored = {**observed, "worktree_branch_matches": False}
+    prior = task_lifecycle._latest_premerge_local(
+        {"observation_receipts": [{"observation": {"local": stored}}]},
+    )
+    if case == "mapped":
+        assert observed["worktree_branch_matches"] is True
+        assert task_lifecycle._local_readiness(observed) == []
+        assert prior is not None and prior["worktree_branch_matches"] is True
+        assert task_lifecycle._local_readiness(prior) == []
+        assert stored["worktree_branch_matches"] is False
+    else:
+        assert observed["worktree_branch_matches"] is False
+        assert blocker in task_lifecycle._local_readiness(observed)
+        assert prior is None
+
+
 # Offline Git object pack from the public actions/hello-world-javascript-action
 # merge below, signed by the pinned GitHub key. It retains the exact commits and
 # trees needed by merge-tree; unchanged blobs are unnecessary. The base is a

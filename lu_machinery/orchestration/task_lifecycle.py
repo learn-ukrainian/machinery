@@ -1352,6 +1352,57 @@ def _verified_publisher_merge(repo_root: Path, sha: str, parents: list[str]) -> 
         return False
 
 
+def _same_checkout(recorded: str, observed: str) -> bool:
+    if os.path.normpath(recorded) == os.path.normpath(observed):
+        return True
+    try:
+        return Path(recorded).resolve() == Path(observed).resolve()
+    except OSError:
+        return False
+
+
+def _publish_branch_authorizes(local: Mapping[str, Any]) -> bool:
+    """Whether this checkout's dispatch record publishes its branch as the claimed one.
+
+    A ``--branch`` takeover keeps its own worktree branch and records the PR
+    branch as ``publish_branch``. That pair is the only unequal match. A missing,
+    unreadable or disagreeing record leaves the check false.
+    """
+    claimed = local.get("branch")
+    actual = local.get("actual_worktree_branch")
+    worktree = local.get("worktree")
+    if not isinstance(worktree, str):
+        return False
+    if (
+        not isinstance(claimed, str)
+        or not claimed
+        or not isinstance(actual, str)
+        or not actual
+        or actual == claimed
+        or "/.worktrees/dispatch/" not in worktree.replace("\\", "/")
+    ):
+        return False
+    task_id = Path(worktree).name
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}", task_id):
+        return False
+    try:
+        from lu_machinery.common.task_store_paths import tasks_dir
+        from lu_machinery.orchestration.task_record_store import locate_task_record, parse_task_record
+
+        path = locate_task_record(tasks_dir(), task_id)
+        if path is None:
+            return False
+        record = parse_task_record(path, path.read_bytes())
+    except (OSError, ValueError, RecursionError):
+        return False
+    if not isinstance(record, dict) or record.get("task_id") != task_id:
+        return False
+    recorded = record.get("worktree_path") or record.get("cwd")
+    if not isinstance(recorded, str) or not _same_checkout(recorded, worktree):
+        return False
+    return record.get("worktree_branch") == actual and record.get("publish_branch") == claimed
+
+
 def task_commit_range(repo_root: Path, head_sha: str, base_sha: str | None = None) -> str:
     """Exclude integrated main history, retaining a proven linear FF range."""
     main_base = _run_git(repo_root, ["merge-base", "origin/main", head_sha])
@@ -1469,7 +1520,7 @@ def observe_local_git(
             # The immutable pre-merge receipt remains the authority for hygiene
             # when squash merge/branch deletion makes the old comparison absent.
             pass
-    return {
+    result = {
         "primary_checkout": str(primary),
         "primary_clean": primary_clean,
         "dispatch_worktree_used": dispatch_worktree_used,
@@ -1484,6 +1535,9 @@ def observe_local_git(
         "changed_paths": changed_paths,
         "forbidden_paths": protected_paths(changed_paths),
     }
+    if worktree_present and not result["worktree_branch_matches"] and _publish_branch_authorizes(result):
+        result["worktree_branch_matches"] = True
+    return result
 
 
 def _observation_material(observation: Any) -> Any:
@@ -1795,12 +1849,16 @@ def _latest_premerge_local(
 
             if recovery_refusal(ledger, local, head_sha=head_sha, branch=branch):
                 continue
+        authorized = bool(local.get("worktree_branch_matches")) or _publish_branch_authorizes(local)
         if (
             local.get("dispatch_worktree_used")
             and local.get("worktree_present")
-            and local.get("worktree_branch_matches")
+            and authorized
             and local.get("commits")
         ):
+            if not local.get("worktree_branch_matches"):
+                # Keep the stored receipt unchanged. Readiness sees the mapping.
+                local = {**local, "worktree_branch_matches": True}
             return local
     return None
 
