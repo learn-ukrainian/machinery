@@ -462,13 +462,14 @@ def test_exhausted_unacknowledged_reply_notifies_once_without_recursive_alerts(p
         )
         service.store.connection.commit()
         # A genuine deadline miss, too young for the cleanup, expires in the same batch.
+        # Its stored session recipient cannot take a per-row notice without aborting the batch.
         genuine = service.publish_message(
             sender="claude-cto", body="due", recipients=("worker-task",),
             created_at="2020-01-09T00:00:00Z", idempotency_key="genuine-due",
         )
         service.store.connection.execute(
-            "UPDATE authority_deliveries SET deadline_at = ? WHERE delivery_id = ?",
-            ("2020-01-09T12:00:00Z", genuine.delivery_ids[0]),
+            "UPDATE authority_deliveries SET deadline_at = ?, recipient = ? WHERE delivery_id = ?",
+            ("2020-01-09T12:00:00Z", "claude-cto-session", genuine.delivery_ids[0]),
         )
         service.store.connection.commit()
         assert service.count_undelivered(now="2020-01-10T00:00:00Z") == 2
@@ -503,20 +504,14 @@ def test_exhausted_unacknowledged_reply_notifies_once_without_recursive_alerts(p
             "SELECT message_id FROM comms_messages WHERE kind = 'delivery-error'",
         ).fetchall()
         bodies = [json.loads(service.read_message_body(row["message_id"])) for row in notices]
-        # The genuine miss keeps its own notice; the cleanup rows share one summary.
+        # One summary per reason, so the genuine miss stays visible as deadline_expired.
         assert len(notices) == 3
-        assert {
-            "error": "coordinator_reply_delivery_failed",
-            "reason_code": "deadline_expired",
-            "delivery_id": genuine.delivery_ids[0],
-            "message_id": genuine.message_id,
-            "recipient": "worker-task",
-        } in bodies
-        summary = {
-            "error": "coordinator_reply_delivery_failed",
-            "reason_code": "expired_by_cleanup",
-            "expired_count": 2,
-        }
-        assert summary in bodies
-        summary_message = service.get_message(notices[bodies.index(summary)]["message_id"])
-        assert {service.get_delivery(d).recipient for d in summary_message.delivery_ids} == {"claude-cto"}
+        for reason, count in (("expired_by_cleanup", 2), ("deadline_expired", 1)):
+            summary = {
+                "error": "coordinator_reply_delivery_failed",
+                "reason_code": reason,
+                "expired_count": count,
+            }
+            assert summary in bodies
+            summary_message = service.get_message(notices[bodies.index(summary)]["message_id"])
+            assert {service.get_delivery(d).recipient for d in summary_message.delivery_ids} == {"claude-cto"}

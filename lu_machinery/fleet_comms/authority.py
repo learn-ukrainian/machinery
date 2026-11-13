@@ -2308,17 +2308,17 @@ class AuthorityService:
         return reclaimed
 
     def _reclaim_expired_deliveries_tx(
-        self, now: str, *, max_attempts: int, cleanup_ids: frozenset[str] = frozenset(),
+        self, now: str, *, max_attempts: int, cleanup_ids: frozenset[str] | None = None,
     ) -> int:
         """Expire or requeue abandoned deliveries; a stored Kimi delivery (legacy) is left as it is.
 
-        Rows in ``cleanup_ids`` were selected by the operator's stale-delivery
-        cleanup: they dead-letter as ``CLEANUP_EXPIRY_REASON`` and share one
-        summary notice. Any other row past its deadline is a genuine
-        ``deadline_expired`` failure with its own notice, even in a cleanup batch.
+        ``cleanup_ids`` is given only by the operator's stale-delivery cleanup.
+        Its rows dead-letter as ``CLEANUP_EXPIRY_REASON``; any other row past a
+        real deadline stays ``deadline_expired``. A cleanup batch sends one
+        summary per reason instead of per-row notices.
         """
         reclaimed = 0
-        cleanup_expired: list[str] = []
+        summarized: dict[str, list[str]] = {}
         expired = self._conn.execute(
             """SELECT delivery_id, fence_token, recipient, message_id FROM authority_deliveries
                WHERE state IN ('queued', 'running') AND deadline_at IS NOT NULL
@@ -2341,17 +2341,17 @@ class AuthorityService:
                    WHERE delivery_id = ? AND fence_token = ? AND finished_at IS NULL""",
                 (now, delivery_id, int(row["fence_token"])),
             )
-            by_cleanup = delivery_id in cleanup_ids
-            self._dead_letter_delivery_tx(
-                delivery_id,
-                reason_code=CLEANUP_EXPIRY_REASON if by_cleanup else "deadline_expired",
-                notify=not by_cleanup,
+            reason = (
+                CLEANUP_EXPIRY_REASON
+                if cleanup_ids is not None and delivery_id in cleanup_ids
+                else "deadline_expired"
             )
-            if by_cleanup:
-                cleanup_expired.append(delivery_id)
+            self._dead_letter_delivery_tx(delivery_id, reason_code=reason, notify=cleanup_ids is None)
+            if cleanup_ids is not None:
+                summarized.setdefault(reason, []).append(delivery_id)
             reclaimed += 1
-        if cleanup_expired:
-            self._notify_cleanup_expiry_summary_tx(cleanup_expired)
+        for reason, delivery_ids in sorted(summarized.items()):
+            self._notify_expiry_summary_tx(delivery_ids, reason_code=reason)
         stale = self._conn.execute(
             """SELECT delivery_id, fence_token, attempt_count, recipient, message_id FROM authority_deliveries
                WHERE state = 'running' AND lease_expires_at IS NOT NULL
@@ -2474,8 +2474,8 @@ class AuthorityService:
         if notify:
             self._notify_coordinator_reply_failure_tx(delivery_id, reason_code=reason_code)
 
-    def _notify_cleanup_expiry_summary_tx(self, delivery_ids: list[str]) -> bool:
-        """One delivery-error for a batch of cleanup expiries, addressed only to the durable CTO.
+    def _notify_expiry_summary_tx(self, delivery_ids: list[str], *, reason_code: str) -> bool:
+        """One delivery-error for a batch of expiries with one reason, addressed only to the durable CTO.
 
         Per-row notices would flood the coordinator and a legacy session recipient
         would abort the whole batch. Rows whose sender is not the coordinator are
@@ -2502,7 +2502,7 @@ class AuthorityService:
             sender="fleet-comms", channel=None, kind="delivery-error",
             body=_canonical_json({
                 "error": "coordinator_reply_delivery_failed",
-                "reason_code": CLEANUP_EXPIRY_REASON,
+                "reason_code": reason_code,
                 "expired_count": len(ids),
             }),
             targets=_admit_recipients((DURABLE_CTO_RECIPIENT,), mode=BRIDGE_MODE),
