@@ -681,13 +681,14 @@ class _Broker:
     # GitHub, so every publication is one of these verbs. The host's own login does the write, through the
     # existing scanned publisher and push scanner; repository, branch, base and PR ownership come from the launch.
 
-    def _text(self, payload: dict, name: str, limit: int, *, required: bool = True) -> str | None:
+    def _text(self, payload: dict, name: str, limit: int) -> str:
         value = payload.get(name)
-        if value is None and not required:
-            return None
         if not isinstance(value, str) or not value.strip() or len(value.encode()) > limit or "\0" in value:
             raise _BrokerRefusal(f"{name} must be non-empty text of at most {limit} bytes")
         return value
+
+    def _optional_text(self, payload: dict, name: str, limit: int) -> str | None:
+        return None if payload.get(name) is None else self._text(payload, name, limit)
 
     def _text_file(self, text: str) -> str:
         """Write request text to the run's private scratch; the publisher reads it by the host's own path."""
@@ -766,8 +767,8 @@ class _Broker:
     def _pr_edit(self, payload: dict) -> dict:
         if not set(payload) <= {"pr", "title", "body"} or not {"title", "body"} & set(payload):
             raise _BrokerRefusal("pr-edit takes pr and at least one of title and body")
-        title = self._text(payload, "title", 256, required=False)
-        body = self._text(payload, "body", _MAX_BODY, required=False)
+        title = self._optional_text(payload, "title", 256)
+        body = self._optional_text(payload, "body", _MAX_BODY)
         number, slug, _facts = self._pull_request(payload, "OPEN")
         # ``--title=`` keeps a title that starts with a dash a value, never an option.
         fields = ["--number", str(number), *([f"--title={title}"] if title else []),
