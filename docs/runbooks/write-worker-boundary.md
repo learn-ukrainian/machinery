@@ -131,6 +131,9 @@ and defines the Git alias `remote-lu-write-boundary`, so Git hands the push to i
 remote-helper protocol (gitremote-helpers(7)) in `write_boundary`; no file, `PATH` entry or other tool
 is added. The helper reports the remote-tracking refs as the remote's refs, so Git's own
 fast-forward and lease checks still run; the broker then checks the live remote branch. The
+client-side push scan (`opsec.git_push`, Git's pre-push hook) cannot read the public history inside,
+so for the helper URL alone it defers to the broker, whose `push` runs the same scanner on the exact
+update on the host before anything is sent; every other URL is scanned as before. The
 publisher (`lu_machinery.publish`) forwards the four PR verbs when `LU_WRITE_BOUNDARY_BROKER` is set,
 reading `--body-file` (or `-` for stdin) itself. Each forwarded request names the target its caller
 gave: the branch, the head and base names, and the repository from `--repo` or `GH_REPO` when given.

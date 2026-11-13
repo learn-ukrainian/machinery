@@ -848,6 +848,25 @@ def test_flagged_push_claims_and_logs_the_override_once(push_sandbox, monkeypatc
 FETCH_HINT = "fetching the public default branch lets the scan skip history that is already public"
 
 
+@pytest.mark.parametrize("url", ["lu-write-boundary::https://github.com/unit/public.git", "https://github.com/unit/public.git"])
+def test_scan_defers_to_the_write_boundary_broker_only_for_its_helper_url(push_sandbox, monkeypatch, capfd, url):
+    """Defect class: inside a write boundary the client scan cannot read the public history, so it refuses every push
+    over old public text (#443); or the deferral skips the scan for a push that does not go to the broker, which
+    scans the exact update on the host. Only the helper URL defers; the same environment with a GitHub URL scans."""
+    hit = push_sandbox.commit("subject " + TOKEN)
+    deferred = url.startswith(git_push.BROKER_HELPER_URL)
+    client = FakePublic(None, fail=deferred)
+    status, chained = run_hook(push_sandbox, monkeypatch, client, url=url,
+                               LU_WRITE_BOUNDARY_BROKER="/run/lu-write-boundary/broker.sock")
+    err = capfd.readouterr().err
+    if deferred:
+        assert status == 0 and chained and "scans the exact update on the host" in err, err
+        assert "OPSEC blocked" not in err
+    else:
+        assert status == 1 and not chained, err
+        assert f"OPSEC blocked: rule=synthetic-rule class=1 field=commit[{hit[:12]}].message line=1" in err
+
+
 def test_hit_in_public_main_history_is_neither_refused_nor_scanned(push_sandbox, monkeypatch, capfd):
     hit = push_sandbox.commit("published subject " + TOKEN)
     public_head = push_sandbox.commit("published clean")
