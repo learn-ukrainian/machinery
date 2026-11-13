@@ -354,6 +354,10 @@ def _dispatch(args) -> int:
         raise ValueError("--require-review-verdict requires --mode read-only")
     # Resolved once, before anything reads the owned paths: the advisory binding, bounded admission, the
     # sparse checkout and the task record all see this set, and hooks and settlement read it from the record.
+    from lu_machinery.guardrails.delegate_ownership import owned_path_matcher
+
+    if any(owned_path_matcher(path) is None for path in (args.owned_path or ())):
+        raise ValueError("invalid owned path")
     args.owned_path, generated = scope.with_generated_outputs(args.owned_path)
     for output in generated:
         print(f"dispatcher: owned paths include {output}; a commit gate regenerates it from the owned paths",
