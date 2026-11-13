@@ -112,7 +112,59 @@ ALERTS_TIMEOUT_S = 3.0
 HEARTBEAT_ALERTNAMES = frozenset({"Watchdog"})
 # Alertmanager v2 alert states; anything else is a malformed reading.
 ALERT_STATES = frozenset({"active", "suppressed", "unprocessed"})
-_ALERT_NAMES = frozenset({"ApprovedNotLanded30m", "Watchdog"})
+# Names our own alerting rules define. Anything else stays UnrecognizedAlert;
+# labels are never passed through.
+_ALERT_NAMES = frozenset({
+    "ApprovedNotLanded30m",
+    "BackupSuccessOverdue",
+    "CappedScopeOomKill",
+    "CertExpirySoon",
+    "CfRunnerStuck",
+    "CgroupCapOomKill",
+    "CiRecoveriesOver3PerDay",
+    "DiskAlmostFull",
+    "DiskCritical",
+    "DriverKeeperCollectErrors",
+    "DriverKeeperCtoInboxWait",
+    "DriverKeeperCtoInboxWaitLong",
+    "DriverKeeperHealthStale",
+    "DriverKeeperLaneAlert",
+    "DriverKeeperStale",
+    "DriverPaneNoLiveCli",
+    "DriverTextfileStale",
+    "HostMemoryPressure",
+    "HostOomKill",
+    "ListenerEvidenceUnavailable",
+    "LuApiProbeDown",
+    "LuApiProbeSlow",
+    "LuPaceStale",
+    "MergeQueueStalled",
+    "NonLoopbackListener",
+    "OffsiteBackupFreshnessUnknown",
+    "OffsiteBackupOverdue",
+    "OffsiteBackupRunFailed",
+    "OffsiteSecondaryCoverageStale",
+    "OomEvidenceUnavailable",
+    "OomKillUnclassified",
+    "PRBacklogRising3Days",
+    "PROpenOver60m",
+    "ReviewRoundsOver2",
+    "ScorecardSourceDown",
+    "ShutDownUnitBecameActive",
+    "SreWatchTimerMissed",
+    "StalePRsIdleOver24h",
+    "SystemdUnitCrashLooping",
+    "SystemdUnitFailed",
+    "TeacherApiProbeDown",
+    "TeacherApiScrapeDown",
+    "ThroughputReportTimerMissed",
+    "UsageCacheStale",
+    "UsagePoolExpiringUnspent",
+    "UsagePoolLowBeforeReset",
+    "UsagePoolReadingStale",
+    "UsagePoolRestored",
+    "Watchdog",
+})
 
 
 def _alerts_reading() -> dict:
