@@ -245,18 +245,19 @@ def _protected_repo_roots(wc) -> tuple[Path, ...]:
     # A product may be a worktree of a different repository than shared state.
     # Its gitfile is inspected only after the mandatory authority is pinned.
     product = _protected_repo_anchor().resolve(strict=True)
+    roots = [primary]
     for candidate in (product, *product.parents):
         if not os.path.lexists(candidate / ".git"):
             continue
-        # Validate the nearest metadata, not a Git-selected replacement or a
-        # parent discovered after corrupt metadata was silently ignored.
+        # Keep every ancestor's authority: a newly inserted nearer repository
+        # must not hide the checkout that already protects this product.
         product_primary = wc.resolve_main_root_without_git(candidate)
-        discovered = wc.resolve_git_worktree(product, [])
+        discovered = wc.resolve_git_worktree(candidate, [])
         if discovered.worktree != candidate or discovered.common_dir != product_primary / ".git":
             raise ValueError("product primary metadata is inconsistent")
-        return tuple(dict.fromkeys((primary, product_primary)))
+        roots.append(product_primary)
     # Only a product with no Git metadata is a non-Git snapshot.
-    return (primary,)
+    return tuple(dict.fromkeys(roots))
 
 
 def _evaluate_write(target: Path, wc, main_root: Path) -> object:
@@ -268,7 +269,6 @@ def _evaluate_write(target: Path, wc, main_root: Path) -> object:
         if os.path.lexists(metadata):
             if resolved == metadata or resolved in metadata.parents or metadata in resolved.parents:
                 return _UndecidableWrite("protected_product_metadata", "Product Git metadata must remain intact.")
-            break
     decision = wc.evaluate_write(target, cwd=main_root)
     if not decision.allowed:
         return decision
@@ -2766,7 +2766,7 @@ def bash_write_targets(
     )
     for segment, effective_cwd, shell_cwd in _segments_with_cwd(command, cwd, uv_env):
         cmd, _ = _command_word(_without_redirects(segment))
-        if cmd in {"shopt", "set"} | _OPAQUE_ASSIGNERS or any(re.match(r"GLOBIGNORE(?:\+?=|$)", word) for word in segment):
+        if cmd in {"shopt", "set", "sh", "bash", "zsh", "dash"} | _OPAQUE_ASSIGNERS or any(re.match(r"GLOBIGNORE(?:\+?=|$)", word) for word in segment):
             glob_state_unknown = True
         if segment.prev_op not in {"|", "|&"}:
             pipeline = []
@@ -2809,7 +2809,7 @@ def bash_write_targets(
             )
         for target in segment_targets:
             word = target if isinstance(target, ShellWord) else ShellWord(str(target))
-            if glob_state_unknown and (re.search(r"[*?\[\]{}()]", word) or segment.next_op == "("):
+            if segment.next_op == "(" or (glob_state_unknown and re.search(r"[*?\[\]{}()]", word)):
                 word.decision_reason = "undecidable_glob_write_target"
             if (
                 not Path(word).is_absolute()
@@ -3456,9 +3456,14 @@ def _bash_path_decision(word: str, base: str, wc, main_root: Path) -> object:
             # The component matcher handles comma alternatives, not sequences
             # or alternatives spanning path separators. Those can name unseen
             # symlinks too, so they cannot fall through as literal paths.
-            if any(part.count("{") != part.count("}") for part in parts) or re.search(r"\{[^{}]*\.\.[^{}]*\}", word):
+            brace_depth = 0
+            for char in word:
+                brace_depth += (char == "{") - (char == "}")
+                if brace_depth < 0 or (char == "/" and brace_depth):
+                    raise ValueError("unmodeled brace structure")
+            if brace_depth or re.search(r"\{[^{}]*\.\.[^{}]*\}", word):
                 raise ValueError("unmodeled brace expansion")
-            if re.search(r"\[\^|\[\[", word):
+            if re.search(r"\[\^|\[:|\[=|\[\.", word):
                 raise ValueError("unmodeled Bash bracket expression")
             for part in parts[first:]:
                 if "**" in part:

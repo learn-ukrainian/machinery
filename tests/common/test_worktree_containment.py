@@ -834,6 +834,9 @@ def test_primary_guard_blocks_glob_matches_through_symlinks(layout: Layout, dire
     """A matched symlink must not hide a protected target behind an isolated prefix."""
     link = layout.dispatch_wt / "linked-target"
     link.symlink_to(layout.main if directory_link else layout.main / "tracked.txt", target_is_directory=directory_link)
+    (layout.dispatch_wt / ".secret-link").symlink_to(layout.main / "tracked.txt")
+    (layout.dispatch_wt / "}a{file").symlink_to(layout.main / "tracked.txt")
+    (layout.dispatch_wt / "}a").symlink_to(layout.main, target_is_directory=True)
     operand = "linked-*/tracked.txt" if directory_link else "linked-*"
     hook = Path(__file__).resolve().parents[2] / "agents_extensions/shared/hooks/guard-primary-checkout-write.py"
     env = {**_clean_env(), "LU_PRODUCT_ROOT": str(layout.main), "LEARN_UKRAINIAN_PRIMARY_REPO_ROOT": str(layout.main)}
@@ -850,9 +853,15 @@ def test_primary_guard_blocks_glob_matches_through_symlinks(layout: Layout, dire
         f"GLOBIGNORE=unused; touch {operand}",
         "shopt -s extglob; touch @(linked-target)",
         "touch linked-[[:alpha:]]*",
+        "touch linked-[a[:alpha:]]*",
         "touch linked-[^x]*",
         "touch linked-{a..z}",
         "touch linked-{target/,other/}tracked.txt",
+        "touch }{a,/b}{file",
+        "touch }{a/,b/}{tracked.txt",
+        "bash -O dotglob -c 'touch *secret*'",
+        "env BASHOPTS=dotglob bash -c 'touch *secret*'",
+        "bash -O extglob -c 'touch @(.secret-link)'",
     ):
         result = subprocess.run(
             [sys.executable, str(hook)],
@@ -899,6 +908,15 @@ def test_primary_guard_refuses_product_metadata_demotion(layout: Layout, redirec
     )
     assert result.returncode == 2, result.stderr
     assert "protected_product_metadata" in result.stderr
+    nested = product / "nested"
+    nested.mkdir()
+    env["LU_PRODUCT_ROOT"] = str(nested)
+    assert decision(command).returncode == 2
+    _git(nested, "init", "-q", "-b", "main")
+    assert decision("ls").returncode == 0
+    assert decision(command).returncode == 2  # The nearer repository only adds authority.
+    assert decision(f"rm {shlex.quote(str(product / '.git'))}").returncode == 2
+    env["LU_PRODUCT_ROOT"] = str(product)
     (product / ".git").write_text(f"gitdir: {layout.main / '.git'}\n" if redirect else "invalid\n")
     result = decision(command)
     assert result.returncode == 2, result.stderr
