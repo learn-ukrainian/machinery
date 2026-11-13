@@ -60,12 +60,8 @@ REQUIRED_STORES = ("sources", "vesum")
 ATLAS = PurePosixPath("data/atlas.db")
 # Gitignored host data the audited tests read at repository-relative paths. Each is mounted
 # read-only from the primary checkout where the tested checkout lacks it; nothing is copied.
-# Atlas keeps its legacy repository-relative location, with its WAL sidecars beside it.
 # Open-model data is not test data and is never exposed (DATATIER-INPLACE-1113).
 EXPOSED_DATA = (
-    "data/atlas.db",
-    "data/atlas.db-wal",
-    "data/atlas.db-shm",
     "data/ua-gec",
     "data/textbook_chunks",
     "data/literary_texts",
@@ -445,16 +441,40 @@ def exposed_data(primary: Path, checkout: Path) -> list[tuple[Path, Path]]:
     return mounts
 
 
+def link_atlas(primary: Path, checkout: Path) -> None:
+    """Expose Atlas at its legacy repository-relative path as a link to the host file.
+
+    SQLite follows the link and names the WAL and shared-memory sidecars after the host
+    file, so readers use the live sidecars in the read-only host directory as the host's
+    own writers create and remove them. Separately mounted sidecars would pin old inodes.
+    """
+    source, target = primary / ATLAS, checkout / ATLAS
+    if source.is_file() and not source.is_symlink() and not target.exists() and not target.is_symlink():
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.symlink_to(source)
+
+
+# Host paths that hold same-user control endpoints: the user and system D-Bus, the systemd
+# managers' private sockets and other runtime sockets under /run, and terminal multiplexer
+# and agent sockets under /tmp. Each is replaced by an empty private tmpfs in the namespace.
+HIDDEN_ROOTS = (Path("/run"), Path("/tmp"))
+
+
 def read_only_namespace(read_only: list[Path], mounts: list[tuple[Path, Path]]) -> list[str]:
     """bubblewrap argv prefix: the host as is, with the given paths and mounts read-only.
 
     The kernel enforces this for the pytest child and every process it starts; an
-    environment override alone would leave the stores writable.
+    environment override alone would leave the stores writable. A process inside could
+    still ask a same-user service outside to write for it, so the namespace has no
+    network (no loopback service or abstract socket of the host) and empty
+    ``HIDDEN_ROOTS``; bubblewrap sets no-new-privileges, so setuid helpers cannot either.
     """
     binary = shutil.which("bwrap")
     if binary is None:
         raise DataTierError("bubblewrap (bwrap) is required to mount host data read-only")
-    argv = [binary, "--dev-bind", "/", "/"]
+    argv = [binary, "--dev-bind", "/", "/", "--unshare-net"]
+    for hidden in HIDDEN_ROOTS:
+        argv.extend(["--tmpfs", str(hidden)])
     roots: list[Path] = []
     for path in sorted(set(read_only), key=lambda item: len(item.parts)):
         if not any(path.is_relative_to(root) for root in roots):
@@ -466,12 +486,16 @@ def read_only_namespace(read_only: list[Path], mounts: list[tuple[Path, Path]]) 
 
 
 def require_read_only(paths: list[str]) -> None:
-    """Refuse to run tests when any exposed store or data path is writable here."""
+    """Refuse to run tests unless the host data is read-only and host control endpoints are out of reach."""
     if not paths:
         raise DataTierError("no read-only host data paths were declared for the test process")
     writable = [path for path in paths if not os.statvfs(path).f_flag & os.ST_RDONLY]
     if writable:
         raise DataTierError(f"{len(writable)} host data path(s) are writable inside the test namespace")
+    if any(any(root.iterdir()) for root in HIDDEN_ROOTS):
+        raise DataTierError("host runtime or temporary directories are visible inside the test namespace")
+    if [name for _index, name in socket.if_nameindex()] != ["lo"]:
+        raise DataTierError("the test namespace shares a network with the host")
 
 
 def bulk_status(checkout: Path, project_python: Path) -> tuple[str | None, str]:
@@ -806,6 +830,7 @@ def run(args: argparse.Namespace) -> int:
         store_environment, store_directories, generation, missing = bind_stores(primary)
         summary["data_generation"], summary["missing_databases"] = generation, missing
         mounts = exposed_data(primary, checkout)
+        link_atlas(primary, checkout)
         bulk_root, bulk_reason = bulk_status(checkout, project_python)
         summary["bulk_status"] = "available" if bulk_root else f"unavailable: {safe_text(bulk_reason)}"
         require_memory()
@@ -830,8 +855,8 @@ def run(args: argparse.Namespace) -> int:
         read_only = [*store_directories, primary / "data", *(source for source, _target in mounts)]
         if bulk_root:
             read_only.append(Path(bulk_root))
-        if any(path.is_relative_to(root) for path in (output_dir, checkout) for root in read_only):
-            raise DataTierError("run outputs must lie outside the read-only host data")
+        if any(path.is_relative_to(root) for path in (output_dir, checkout) for root in [*read_only, *HIDDEN_ROOTS]):
+            raise DataTierError("run outputs must lie outside the read-only host data and the hidden roots")
         child.extend(["--selection-sha256", selection_sha256])
         for path in [*read_only, *(target for _source, target in mounts)]:
             child.extend(["--read-only", str(path)])
