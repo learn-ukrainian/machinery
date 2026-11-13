@@ -618,6 +618,10 @@ def test_primary_guard_keeps_configured_and_additional_primary_protection(layout
             # source word alone did not select a primary in the original parser.
             if target.parent == other and product_kind not in {"other_primary", "other_worktree", "foreign_cwd"}:
                 expected = 0
+            # Unknown find starts include the configured product itself. Its
+            # metadata can no longer be removed, even inside an isolated tree.
+            if tool == "find_list" and product_kind in {"worktree", "other_worktree"}:
+                expected = 2
         result = decision(name, args)
         assert result.returncode == expected, result.stderr
     if product_kind in {"other_primary", "other_worktree"}:
