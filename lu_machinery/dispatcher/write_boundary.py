@@ -643,6 +643,11 @@ class _Boundary:
             bwrap = _resolve_fixed_system_executable("bwrap", reject_roots=())
         except ReviewIsolationError as exc:
             raise Refused("bubblewrap is unavailable") from exc
+        # The private Git and HOME layers are bubblewrap overlays (--overlay-src, bubblewrap 0.10 and later).
+        usage = subprocess.run([str(bwrap), "--help"], capture_output=True, text=True, timeout=30, check=False,  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit
+                               stdin=subprocess.DEVNULL)
+        if "--overlay-src" not in usage.stdout + usage.stderr:
+            raise Refused("bubblewrap 0.10 or later is required (--overlay-src)")
         command = self.args.command[1:] if self.args.command[:1] == ["--"] else self.args.command
         if not command or not Path(command[0]).is_absolute():
             raise Refused("the provider executable is not an absolute path")

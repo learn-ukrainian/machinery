@@ -228,9 +228,7 @@ def _identity(pid: int | None) -> str | None:
         return None
 
 
-def _observe(record: dict, *, settle: bool = True) -> dict:
-    if not settle:
-        return record
+def _observe(record: dict) -> dict:
     if _spawn_expired(record):
         path = store.record_path(record["task_id"])
         with store.task_state_lock(path):
@@ -1870,13 +1868,20 @@ def supervise(path: Path, options: dict | None = None, hard_timeout: float | Non
             signal.signal(signal.SIGINT, previous_int)
 
 
+def _read_only(record: dict | None) -> dict:
+    """A record as read, with no settling: what a waiter inside a write boundary sees."""
+    if record is None:  # store.read raises for a missing record unless asked not to
+        raise ValueError("task record is missing")
+    return record
+
+
 def wait(task_id: str, nonce: str | None = None, timeout: float = 0, poll_interval: float = 1) -> tuple[dict, int]:
     deadline = time.monotonic() + timeout if timeout else None
     # Inside a write boundary (#423) the task store is read-only and host processes are in another PID namespace,
     # so a waiter there only reads: settling a crashed supervisor stays with the host's own observers.
     inside = bool(os.environ.get(write_boundary.BROKER_ENV))
     while True:
-        record = _observe(store.read(task_id, nonce), settle=not inside)
+        record = _read_only(store.read(task_id, nonce)) if inside else _observe(store.read(task_id, nonce))
         if record["status"] not in store.ACTIVE:
             if record.get("schema_version") == 2 and not inside:
                 # Crash recovery settles a terminal task under this lock; report it only after that ends.
