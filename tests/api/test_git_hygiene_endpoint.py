@@ -342,3 +342,12 @@ def test_identifier_routes_keep_a_recorded_task_id(tmp_path, monkeypatch):
     assert active.status_code == recent.status_code == 200
     assert [row["task_id"] for row in active.json()["tasks"]] == list(kept)
     assert [row["task_id"] for row in recent.json()["tasks"]] == list(kept)
+    # A second context with the same project root and a different task store
+    # must not reuse the cached authorization.
+    other = FastAPI()
+    other.state.ctx = fixture_context(tmp_path).with_roots(batch_state_dir=tmp_path / "other-store")
+    other.include_router(git_hygiene_router.router, prefix="/api/git")
+    second = TestClient(other).get("/api/git/pull-requests")
+    assert second.status_code == 200
+    assert second.json()["repositories"][0]["pull_requests"][0]["task_reference"] is None
+    assert _KEPT not in second.text

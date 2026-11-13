@@ -935,7 +935,10 @@ async def pull_requests(ctx: MonitorContext = Depends(get_ctx)) -> JSONResponse:
     a page never waits on GitHub after the first read. ``status: unknown`` with
     a ``reason`` when GitHub cannot be read, never an empty "no PRs" list.
     """
-    key = ctx_scoped_ttl_key(ctx, "git", "pull-requests")
+    # The record check reads this store. A key scoped only by project root
+    # would reuse another context's authorization.
+    task_store = (ctx.roots.batch_state_dir / "tasks").resolve()
+    key = ctx_scoped_ttl_key(ctx, "git", "pull-requests", task_store)
     project_root = ctx.roots.project_root
 
     def compute() -> dict[str, Any]:
