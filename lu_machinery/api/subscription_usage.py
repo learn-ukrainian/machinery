@@ -2662,15 +2662,22 @@ def _claude_account_probe_in_flight() -> bool:
 
 
 def _claude_account_reading_past_ttl() -> bool:
-    """True when any cached account row is older than the cache TTL.
+    """True when a row this process probes is older than the cache TTL.
 
-    ``claude_accounts_snapshot`` only lstats and never starts a probe. An
-    unknown row is not past TTL: a missing reading is not a stale one.
+    A label the host lane scheduler owns is not probed here, so its row
+    cannot demand another pass. ``claude_accounts_snapshot`` only lstats and
+    never starts a probe. An unknown row is not past TTL: a missing reading
+    is not a stale one.
     """
-    from lu_machinery.api.claude_account_usage import claude_accounts_snapshot  # noqa: PLC0415, I001  # lazy-ok: import cycle
+    from lu_machinery.api.claude_account_usage import (  # noqa: PLC0415  # lazy-ok: import cycle
+        _probe_labels,
+        claude_accounts_snapshot,
+        row_key,
+    )
 
+    probed = {row_key(label) for label in _probe_labels()}
     rows = claude_accounts_snapshot()
-    return any(bool(row.get("stale")) for row in rows.values() if isinstance(row, dict))
+    return any(bool(row.get("stale")) for key, row in rows.items() if key in probed and isinstance(row, dict))
 
 
 def trigger_claude_account_refresh() -> None:
@@ -2678,9 +2685,11 @@ def trigger_claude_account_refresh() -> None:
 
     On-demand only. The scheduler calls ``_run_claude_account_refresh`` on
     its own cadence. A kick starts a probe when the last one started more
-    than the scheduler interval ago, or a reading is past the cache TTL,
-    and never while a probe is already in flight. Every account is probed
-    together, so that start time is each account's last probe start.
+    than the scheduler interval ago, or a probed label's reading is past the
+    cache TTL, and never while a probe is already in flight. The pass probes
+    the labels ``_probe_labels`` names. While the host lane scheduler is
+    alive the default account is not among them, and its row does not start
+    a pass. That start time is the last start of this pass.
     """
     global _claude_account_oneshot_thread
     with _claude_account_oneshot_lock:
