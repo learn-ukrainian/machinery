@@ -40,7 +40,7 @@ import stat
 import subprocess
 import sys
 import time
-from contextlib import contextmanager, suppress
+from contextlib import closing, contextmanager, suppress
 from dataclasses import dataclass, field
 from datetime import UTC
 from pathlib import Path
@@ -1422,12 +1422,20 @@ class GitHubClient:
                 db.close()
 
     def _read(self, work):
-        """Run ``work(db)`` on the cache; a file found damaged mid-use is set aside and ``work`` reruns in memory."""
+        """Read the cache, using memory for an unavailable file without abandoning a locked file."""
         for attempt in range(2):
             try:
                 with self._db() as db:
                     return work(db)
             except sqlite3.DatabaseError as error:
+                if _transient_lock(error):
+                    # Admission used to continue with an unknown cache and budget on
+                    # a lock timeout. Keep that behavior for this call only; changing
+                    # client state would hide the shared etags and budgets after unlock.
+                    with closing(_open_cache(":memory:")) as db:
+                        for statement in CACHE_SCHEMA:
+                            db.execute(statement)
+                        return work(db)
                 if attempt or self.cache_dir is None or not github_usage.corrupt(error):
                     raise
                 self.cache_dir = None

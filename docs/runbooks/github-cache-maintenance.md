@@ -84,7 +84,9 @@ writers that prevent exclusive acquisition cause `busy`; there is no retry or
 force. New connections wait or fail according to their own SQLite lock timeout.
 Idle connections without a transaction do not prevent safe maintenance. A lock
 wait beyond the client's five-second SQLite timeout keeps the shared cache path
-and its etags. A timeout during cache admission can still propagate to the caller.
+and its etags. On a timeout during cache admission, that call uses a temporary
+in-memory view with unknown cache and budget observations, as the previous
+fallback did. The client retains the shared cache for later calls after unlock.
 After an HTTP response arrives, the client retries a locked persistence operation
 once, then returns the finalized response, including a cached body for a fresh
 304. Budget observations whose writes remain locked are not persisted. Response
