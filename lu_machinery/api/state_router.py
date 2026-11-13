@@ -769,7 +769,7 @@ def _apply_pool_pace(records: Mapping[str, Any], pool_pace: Mapping[str, Any], w
         if wanted == "unknown":
             new = "unknown" if current in {"cool", "warm"} else current
         elif wanted in {"hot", "near_cap"} and current in _POOL_OVERRIDABLE:
-            new = wanted if _POOL_SEVERITY.get(current, -1) < _POOL_SEVERITY[wanted] else current
+            new = wanted if _POOL_SEVERITY.get(str(current), -1) < _POOL_SEVERITY[wanted] else current
         else:
             new = current
         if new == current:
@@ -1774,7 +1774,10 @@ def _compute_dispatch_routing_budget(
         account_a_reserve=reset_reserve,
     )
     missing_cost_records += b_missing
-    _apply_pool_pace({"codex:b": codex_accounts["codex:b"]}, pool_pace, rec.setdefault("warnings", warnings))
+    rec_warnings = rec.get("warnings")
+    _apply_pool_pace(
+        {"codex:b": codex_accounts["codex:b"]}, pool_pace, rec_warnings if isinstance(rec_warnings, list) else warnings
+    )
 
     return {
         "generated_at": _isoformat_z(current_time),
