@@ -2766,50 +2766,52 @@ _LONG_OPTION_VALUE_RE = re.compile(r"--[A-Za-z0-9][A-Za-z0-9-]*=")
 _POSITIONAL_WRITERS = _DESTINATION_WRITERS | {
     "chmod", "chown", "chgrp", "touch", "truncate", "shred", "rm", "unlink", "rmdir", "mkdir", "tee", "link", "dd",
 }
+# Writers whose every operand after fixed options is a write target, and that
+# write nothing without one: a pattern's expansion count cannot move a write.
+_SAME_ROLE_WRITERS = frozenset(
+    {"touch", "rm", "unlink", "rmdir", "mkdir", "tee", "shred", "truncate", "chmod", "chown", "chgrp"}
+)
+# An expanded script word or argument list is shell code the parser never read.
+_PATTERN_SHELLS = frozenset({"sh", "bash", "zsh", "dash", "eval", "source", "."})
 _FIND_WRITE_ACTIONS = frozenset({"-delete", "-fprint", "-fprint0", "-fprintf", "-fls"})
 _FIND_TEMPLATES = frozenset({"-exec", "-execdir", "-ok", "-okdir"})
 
 
-def _pattern_operand_targets(segment: list[str], segment_targets: list[str]) -> list[ShellWord]:
-    """Pattern operands of a writer that are not already decided write targets.
+def _pattern_changes_roles(segment: list[str], segment_targets: list[str]) -> bool:
+    """Whether a pattern word could change which operands a writer writes.
 
-    Expansion changes how many operands a writer sees, so a pattern in any
-    position can turn into write operands. Each one is decided as a write target
-    over its own superset; ``ln`` and ``link`` refuse because a lost operand
-    moves their write into the working directory.
+    Expansion can add operands, and with ``nullglob`` remove one, so a later
+    literal can become the destination or a writer can fall back to an implicit
+    one, an output prefix or the working directory. The guard does not model
+    that per writer. A pattern word refuses in a
+    shell or ``eval`` and in any writer, except where it is itself a decided
+    write target of a writer whose operands all share that role.
     """
     redirects = _redirect_targets(segment)
     argv_targets = [t for t in segment_targets if not any(t is r for r in redirects)]
     words = _without_redirects(segment)
     cmd, idx = _command_word(words)
-    template_cmd = _command_word(_xargs_template(segment))[0] if cmd in {"xargs", "parallel"} else None
+    patterns = [word for word in words[idx + 1 :] if _expandable_word(word)]
+    if not patterns:
+        return False
+    launched = [cmd]
+    if cmd in {"xargs", "parallel"}:
+        launched.append(_command_word(_xargs_template(segment))[0])
+    if cmd == "find":
+        launched.extend(
+            _command_word(words[idx + 2 + i :])[0] for i, word in enumerate(words[idx + 1 :]) if word in _FIND_TEMPLATES
+        )
+    if any(name in _PATTERN_SHELLS for name in launched):
+        return True
     writer = (
         bool(argv_targets)
-        or cmd in _POSITIONAL_WRITERS
-        or template_cmd in _POSITIONAL_WRITERS
-        or (
-            cmd == "find"
-            and any(
-                word in _FIND_WRITE_ACTIONS
-                or (word in _FIND_TEMPLATES and _command_word(words[idx + 1 + i + 1 :])[0] in _POSITIONAL_WRITERS)
-                for i, word in enumerate(words[idx + 1 :])
-            )
-        )
+        or any(name in _POSITIONAL_WRITERS | _LONG_TAIL_WRITERS | _INPLACE_FIXERS for name in launched)
+        or (cmd == "find" and any(word in _FIND_WRITE_ACTIONS for word in words[idx + 1 :]))
     )
     if not writer:
-        return []
-    operands: list[ShellWord] = []
-    for word in words[idx + 1 :]:
-        if not _expandable_word(word) or _LONG_OPTION_VALUE_RE.match(word):
-            continue
-        if any(word is target for target in segment_targets):
-            continue
-        if not isinstance(word, ShellWord) or {cmd, template_cmd} & {"ln", "link"}:
-            unknown = ShellWord("pattern operand")
-            unknown.decision_reason = "undecidable_glob_write_target"
-            return [unknown]
-        operands.append(word)
-    return operands
+        return False
+    same_role = launched[-1] in _SAME_ROLE_WRITERS and (len(launched) == 1 or cmd in {"xargs", "parallel"})
+    return not (same_role and all(any(word is target for target in segment_targets) for word in patterns))
 
 
 def _option_capable_glob(segment: list[str], base: str | None, main_root: Path | None) -> bool:
@@ -2911,13 +2913,13 @@ def bash_write_targets(
                     template=True,
                 )
             )
-        operands = _pattern_operand_targets(segment, segment_targets)
         launches_writer = _xargs_writer(_without_redirects(segment)) or _xargs_writer(template)
-        if (segment_targets or operands or launches_writer) and _option_capable_glob(segment, shell_cwd, main_root):
+        if (
+            main_root is not None and _pattern_changes_roles(segment, segment_targets)
+        ) or ((segment_targets or launches_writer) and _option_capable_glob(segment, shell_cwd, main_root)):
             unknown = ShellWord("pattern operand")
             unknown.decision_reason = "undecidable_glob_write_target"
             segment_targets.append(unknown)
-        segment_targets.extend(operands)
         for target in segment_targets:
             word = target if isinstance(target, ShellWord) else ShellWord(str(target))
             if (
