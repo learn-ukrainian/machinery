@@ -20,6 +20,7 @@ import re
 import shutil
 import signal
 import socket
+import stat
 import subprocess
 import sys
 import time
@@ -27,7 +28,7 @@ import uuid
 import xml.etree.ElementTree as ET
 from collections import Counter
 from pathlib import Path, PurePosixPath
-from typing import get_args
+from typing import cast, get_args
 
 import pytest
 
@@ -456,25 +457,33 @@ def link_atlas(primary: Path, checkout: Path) -> None:
 
 # Host paths that hold same-user control endpoints: the user and system D-Bus, the systemd
 # managers' private sockets and other runtime sockets under /run, and terminal multiplexer
-# and agent sockets under /tmp. Each is replaced by an empty private tmpfs in the namespace.
+# and agent sockets under /tmp. A read-only mount does not stop a connect() to a socket, so
+# each is replaced by an empty private tmpfs in the namespace, which is also its only /tmp.
 HIDDEN_ROOTS = (Path("/run"), Path("/tmp"))
+CHILD_TEMP = Path("/tmp")
+CHILD_SCRATCH_ROOT = Path("/tmp/lu")
 
 
-def read_only_namespace(read_only: list[Path], mounts: list[tuple[Path, Path]]) -> list[str]:
-    """bubblewrap argv prefix: the host as is, with the given paths and mounts read-only.
+def read_only_namespace(read_only: list[Path], mounts: list[tuple[Path, Path]], writable: list[Path]) -> list[str]:
+    """bubblewrap argv prefix: the whole host read-only, writable only where the run writes.
 
-    The kernel enforces this for the pytest child and every process it starts; an
-    environment override alone would leave the stores writable. A process inside could
-    still ask a same-user service outside to write for it, so the namespace has no
-    network (no loopback service or abstract socket of the host) and empty
-    ``HIDDEN_ROOTS``; bubblewrap sets no-new-privileges, so setuid helpers cannot either.
+    The kernel enforces this for the pytest child and every process it starts; an environment
+    override alone would leave the stores writable. Writes are allowed only in ``writable``
+    (the checkout and the child's output directory), ``/dev`` and the private tmpfs over each
+    of ``HIDDEN_ROOTS``, so nothing the parent or another host process reads later, such as
+    Git metadata or user configuration, can be planted. ``read_only`` paths are mounted again
+    read-only above that, including the checkout's ``.git`` link. The namespace has no network
+    (no loopback service or abstract socket of the host), and bubblewrap sets
+    no-new-privileges, so setuid helpers cannot write for it either.
     """
     binary = shutil.which("bwrap")
     if binary is None:
         raise DataTierError("bubblewrap (bwrap) is required to mount host data read-only")
-    argv = [binary, "--dev-bind", "/", "/", "--unshare-net"]
+    argv = [binary, "--ro-bind", "/", "/", "--dev-bind", "/dev", "/dev", "--unshare-net"]
     for hidden in HIDDEN_ROOTS:
         argv.extend(["--tmpfs", str(hidden)])
+    for path in writable:
+        argv.extend(["--bind", str(path), str(path)])
     roots: list[Path] = []
     for path in sorted(set(read_only), key=lambda item: len(item.parts)):
         if not any(path.is_relative_to(root) for root in roots):
@@ -628,15 +637,31 @@ def pytest_child(args: argparse.Namespace) -> int:
     return status or (1 if plugin.collection_errors else 0)
 
 
-def sanitize_junit(path: Path) -> None:
-    tree = ET.parse(path)
+def read_child_output(path: Path) -> bytes | None:
+    """Read a file the sandboxed child wrote, never through a link it may have planted there."""
+    try:
+        descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    except FileNotFoundError:
+        return None
+    except OSError as error:
+        raise DataTierError(f"child output {path.name} is not a regular file") from error
+    with os.fdopen(descriptor, "rb") as stream:
+        if not stat.S_ISREG(os.fstat(stream.fileno()).st_mode):
+            raise DataTierError(f"child output {path.name} is not a regular file")
+        return stream.read()
+
+
+def sanitize_junit(data: bytes, target: Path) -> None:
+    """Write the child's JUnit, without host paths, to a new file the child could not reach."""
+    tree = ET.ElementTree(ET.fromstring(data))
     for element in tree.iter():
         element.attrib.update({key: safe_text(value) for key, value in element.attrib.items()})
         if element.text:
             element.text = safe_text(element.text)
         if element.tail:
             element.tail = safe_text(element.tail)
-    tree.write(path, encoding="utf-8", xml_declaration=True)
+    with target.open("xb") as stream:
+        tree.write(stream, encoding="utf-8", xml_declaration=True)
 
 
 def junit_summary(path: Path) -> dict:
@@ -800,7 +825,7 @@ def run(args: argparse.Namespace) -> int:
         "data_generation": {},
     }
     baseline: dict[str, int] = {}
-    primary = checkout = output_dir = log = scope_unit = None
+    primary = checkout = output_dir = child_dir = log = scope_unit = None
     slots: test_slots.Hold | None = None
     scope_may_exist = False
     try:
@@ -812,6 +837,10 @@ def run(args: argparse.Namespace) -> int:
         junit = output_dir / f"{run_key}.junit.xml"
         collected = output_dir / f"{run_key}.collected.json"
         log = output_dir / f"{run_key}.log"
+        # The only host directory the child may write besides its checkout; the parent adopts
+        # its files without following links and removes it.
+        child_dir = output_dir / f"{run_key}.child"
+        child_dir.mkdir(mode=0o700)
         require_memory()
         try:
             project_python = project_interpreter(primary)
@@ -842,9 +871,9 @@ def run(args: argparse.Namespace) -> int:
             "lu_machinery.ci.data_tier",
             "pytest-child",
             "--junit",
-            str(junit),
+            str(child_dir / "junit.xml"),
             "--collected",
-            str(collected),
+            str(child_dir / "collected.json"),
         ]
         if args.only:
             child.extend(["--only", args.only])
@@ -857,10 +886,13 @@ def run(args: argparse.Namespace) -> int:
             read_only.append(Path(bulk_root))
         if any(path.is_relative_to(root) for path in (output_dir, checkout) for root in [*read_only, *HIDDEN_ROOTS]):
             raise DataTierError("run outputs must lie outside the read-only host data and the hidden roots")
+        # The checkout's Git link stays read-only: the parent runs Git in the checkout afterwards.
+        read_only.append(checkout / ".git")
         child.extend(["--selection-sha256", selection_sha256])
-        for path in [*read_only, *(target for _source, target in mounts)]:
+        verified = [Path("/"), primary, output_dir, *read_only, *(target for _source, target in mounts)]
+        for path in verified:
             child.extend(["--read-only", str(path)])
-        namespace = read_only_namespace(read_only, mounts)
+        namespace = read_only_namespace(read_only, mounts, [checkout, child_dir])
         # The namespace shows the slot pool's root-owned ancestors under an unmapped owner, so the child
         # cannot take test slots itself: this process holds its workers' slots for the run instead.
         if test_slots.enabled():
@@ -872,6 +904,8 @@ def run(args: argparse.Namespace) -> int:
         scope = build_scope_argv(["nice", "-n", "10", *namespace, *child], unit=scope_unit)
         environment = os.environ.copy()
         environment[test_slots.ENABLE_ENV] = "off"
+        environment["TMPDIR"] = str(CHILD_TEMP)
+        environment["LU_SCRATCH_ROOT"] = str(CHILD_SCRATCH_ROOT)
         # Every logical store is named explicitly, a missing one by its refused placeholder.
         environment.update(store_environment)
         if bulk_root:
@@ -882,16 +916,21 @@ def run(args: argparse.Namespace) -> int:
             scope_may_exist = True
             pytest_exit = run_process_group(scope, cwd=checkout, env=environment, stdout=stream, timeout=remaining)
         summary["pytest_exit"] = pytest_exit
-        if not junit.exists():
+        junit_data = read_child_output(child_dir / "junit.xml")
+        if junit_data is None:
             raise DataTierError(f"pytest produced no JUnit (exit {pytest_exit}); inspect local run log")
-        sanitize_junit(junit)
+        sanitize_junit(junit_data, junit)
         summary.update(junit_summary(junit))
+        collected_data = read_child_output(child_dir / "collected.json")
+        if collected_data is not None:
+            with collected.open("xb") as receipt:
+                receipt.write(collected_data)
         summary.update(
             {
                 "run_key": run_key,
                 "pytest_exit": pytest_exit,
                 "selection_cases": selection["class_c_merge_group"],
-                "collected": len(json.loads(collected.read_text())) if collected.exists() else 0,
+                "collected": len(json.loads(collected_data)) if collected_data is not None else 0,
             }
         )
         if pytest_exit and not summary["failed"]:
@@ -920,6 +959,13 @@ def run(args: argparse.Namespace) -> int:
                 remove_test_worktree(primary, checkout)
             except Exception as error:
                 summary["runner_errors"].append(f"checkout cleanup failed: {safe_text(str(error))}")
+        if child_dir and child_dir.exists() and scope_stopped:
+            try:
+                shutil.rmtree(child_dir)
+            except Exception as error:
+                cast(list[str], summary["runner_errors"]).append(
+                    f"child output cleanup failed: {safe_text(str(error))}"
+                )
         if log and log.exists():
             try:
                 log.write_text(safe_text(log.read_text(encoding="utf-8", errors="replace")), encoding="utf-8")

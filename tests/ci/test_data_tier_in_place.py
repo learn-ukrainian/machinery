@@ -44,12 +44,21 @@ def test_selection_and_known_failures_come_from_the_tested_checkout_without_fall
 
 WRITER = """
 import json, os, sqlite3, sys
-repo, store, exposed, existing, output, atlas, *read_only = sys.argv[1:]
+repo, store, exposed, existing, output, atlas, host, git, scratch, *read_only = sys.argv[1:]
 sys.path.insert(0, repo)
 from lu_machinery.ci import data_tier
 
 results = {}
-for name, path, mode in (("store", store, "x"), ("exposed", exposed, "x"), ("existing", existing, "a"), ("output", output, "x")):
+attempts = (
+    ("store", store, "x"),
+    ("exposed", exposed, "x"),
+    ("existing", existing, "a"),
+    ("host", host, "x"),
+    ("git", git, "a"),
+    ("output", output, "x"),
+    ("scratch", scratch, "x"),
+)
+for name, path, mode in attempts:
     try:
         with open(path, mode) as stream:
             stream.write("written")
@@ -71,13 +80,14 @@ print(json.dumps(results))
 
 
 def test_store_and_exposed_data_writes_are_denied_without_copies(tmp_path):
-    """Defect class: tests can write the host stores or data, directly or through a host service, or the runner copies data."""
+    """Defect class: tests write host stores or data, directly, through a host service or via state the host reads later."""
     primary, checkout, outputs = tmp_path / "primary", tmp_path / "checkout", tmp_path / "outputs"
     (primary / "data" / "ua-gec").mkdir(parents=True)
     (primary / "data" / "vesum.db").write_text("store", encoding="utf-8")
     (primary / "data" / "ua-gec" / "corpus.txt").write_text("host data", encoding="utf-8")
     (checkout / "data").mkdir(parents=True)
     (checkout / "data" / "tracked.txt").write_text("tracked", encoding="utf-8")
+    (checkout / ".git").write_text("gitdir: elsewhere\n", encoding="utf-8")
     outputs.mkdir()
     # A live WAL Atlas whose writer holds it open, so its sidecars exist beside the host file.
     writer = sqlite3.connect(primary / "data" / "atlas.db")
@@ -93,7 +103,8 @@ def test_store_and_exposed_data_writes_are_denied_without_copies(tmp_path):
     with pytest.raises(data_tier.DataTierError, match="writable inside the test namespace"):
         data_tier.require_read_only([str(outputs)])
 
-    argv = data_tier.read_only_namespace([primary / "data"], mounts)
+    read_only = [primary / "data", checkout / ".git"]
+    argv = data_tier.read_only_namespace(read_only, mounts, [checkout, outputs])
     try:
         result = subprocess.run(
             [
@@ -108,7 +119,11 @@ def test_store_and_exposed_data_writes_are_denied_without_copies(tmp_path):
                 str(checkout / "data" / "ua-gec" / "corpus.txt"),
                 str(outputs / "junit.xml"),
                 str(checkout / "data" / "atlas.db"),
-                str(primary / "data"),
+                str(tmp_path / "host.txt"),
+                str(checkout / ".git"),
+                str(checkout / "scratch.txt"),
+                "/",
+                *map(str, read_only),
                 str(checkout / "data" / "ua-gec"),
             ],
             capture_output=True,
@@ -123,7 +138,10 @@ def test_store_and_exposed_data_writes_are_denied_without_copies(tmp_path):
         "store": "Read-only file system",
         "exposed": "Read-only file system",
         "existing": "Read-only file system",
+        "host": "Read-only file system",
+        "git": "Read-only file system",
         "output": "written",
+        "scratch": "written",
         "read": "host data",
         "hidden_roots": {"/run": [], "/tmp": []},
         "atlas_rows": 1,
@@ -131,6 +149,9 @@ def test_store_and_exposed_data_writes_are_denied_without_copies(tmp_path):
     }
     assert (primary / "data" / "ua-gec" / "corpus.txt").read_text(encoding="utf-8") == "host data"
     assert not (primary / "data" / "new.db").exists()
+    assert not (tmp_path / "host.txt").exists()
+    assert (checkout / ".git").read_text(encoding="utf-8") == "gitdir: elsewhere\n"
     # Only an empty mount point and the Atlas link are left in the checkout: nothing was copied.
     assert list((checkout / "data" / "ua-gec").iterdir()) == []
     assert sorted(path.name for path in (checkout / "data").iterdir()) == ["atlas.db", "tracked.txt", "ua-gec"]
+    assert (outputs / "junit.xml").read_text(encoding="utf-8") == "written"
