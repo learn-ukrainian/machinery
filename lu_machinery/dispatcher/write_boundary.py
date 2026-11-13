@@ -89,6 +89,17 @@ _GIT_TIMEOUT = 300
 _PRIMARY_GIT_FILES = ("HEAD", "index", "config", "packed-refs", "hooks")
 
 
+# The dispatcher's own configuration the launcher needs on the host (roots, scratch, task store, Fleet plane,
+# interpreter, user bus). The provider's environment is minimal (``environment.child_env``), so the launcher gets
+# these as ``--host-env NAME=VALUE`` and applies them to itself only; none is passed to the provider. Paths and
+# addresses only: no credential is ever one of them.
+_HOST_CONTEXT = frozenset({
+    "LEARN_UKRAINIAN_PRIMARY_REPO_ROOT", "LEARN_UKRAINIAN_GITHUB_SLUG", "LEARN_UKRAINIAN_STATE_ROOT",
+    "LEARN_UKRAINIAN_PYTHON", "LU_PRODUCT_ROOT", "LU_SCRATCH_ROOT", "LU_RUNTIME_TMP_BASE_ROOT", "LU_TASKS_DIR",
+    "FLEET_COMMS_ROOT", "XDG_RUNTIME_DIR", "DBUS_SESSION_BUS_ADDRESS", "XDG_CONFIG_HOME", "GH_CONFIG_DIR",
+    "DELEGATE_MONITOR_API", "LU_DISPATCH_ISOLATION",
+})
+
 # The host broker (decision CONTAIN-BROKER-1113). Inside the boundary the task store, the Fleet plane and the
 # primary's Git state are read-only, so the worker chain's host steps go through one launcher-owned socket with
 # typed verbs. Each verb has a fixed schema, and every identity it acts under comes from the launch, never the
@@ -207,6 +218,9 @@ def launcher(spec, invocation, task_file: Path) -> list[str]:
         argv += ["--output", str(path)]
     for path in credential_files(spec.agent, invocation.env):
         argv += ["--credential", str(path)]
+    for name in sorted(_HOST_CONTEXT):
+        if os.environ.get(name) and name not in invocation.env:
+            argv += ["--host-env", f"{name}={os.environ[name]}"]
     return [*argv, "--", str(Path(found).absolute()), *invocation.argv[1:]]
 
 
@@ -745,7 +759,8 @@ class _Boundary:
         self.receipt["bwrap"] = str(bwrap)
         self.receipt["argv_sha256"] = __import__("hashlib").sha256(json.dumps(argv).encode()).hexdigest()
         env = {key: value for key, value in os.environ.items()
-               if key not in {"SSH_AUTH_SOCK", "DBUS_SESSION_BUS_ADDRESS", "XDG_RUNTIME_DIR", "TMUX", "TMUX_PANE"}}
+               if key not in {"SSH_AUTH_SOCK", "DBUS_SESSION_BUS_ADDRESS", "XDG_RUNTIME_DIR", "TMUX", "TMUX_PANE"}
+               and key not in self.args.host_only}
         (tmp / "scratch").mkdir(mode=0o700)
         (tmp / "run").mkdir(mode=0o700)
         # The namespace has no DNS or route out; Node's own fetch uses the forwarder's proxy only when told to.
@@ -962,6 +977,8 @@ def main(argv: list[str]) -> int:
                         "(default: none; the broker then dispatches no review)")
     parser.add_argument("--output", action="append", help="A declared output file the provider writes")
     parser.add_argument("--credential", action="append", help="A provider credential file a refresh rewrites")
+    parser.add_argument("--host-env", action="append", default=[],
+                        help="NAME=VALUE of the dispatcher's host configuration, for the launcher only (default: none)")
     parser.add_argument("command", nargs=argparse.REMAINDER)
     args = parser.parse_args(argv)
     receipt = {"schema": SCHEMA, "task_id": args.task_id, "status": "refused", "started_at": _now()}
@@ -969,6 +986,15 @@ def main(argv: list[str]) -> int:
         receipt["reason"] = "unsafe task id"
         _write_receipt(Path(args.receipt), receipt)
         return REFUSED
+    args.host_only = set()
+    for item in args.host_env:
+        name, equals, value = item.partition("=")
+        if name not in _HOST_CONTEXT or not equals or "\0" in value:
+            receipt["reason"] = f"--host-env names an unknown variable: {name[:40]}"
+            _write_receipt(Path(args.receipt), receipt)
+            return REFUSED
+        os.environ[name] = value  # the launcher's own host steps read it; the provider never sees it
+        args.host_only.add(name)
     boundary = None
 
     def cancelled(_signum, _frame):
