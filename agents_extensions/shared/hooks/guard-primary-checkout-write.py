@@ -2815,7 +2815,9 @@ _LAUNCHERS = _CODE_LAUNCHERS | frozenset(
     {
         "xargs", "parallel", "env", "exec", "command", "builtin", "nohup", "timeout", "nice", "ionice", "chrt",
         "taskset", "stdbuf", "setsid", "sudo", "doas", "runuser", "time", "flock", "chroot", "unshare", "nsenter",
-        "setpriv",
+        "setpriv", "pkexec", "sg", "newgrp", "strace", "ltrace", "valgrind", "systemd-run", "tmux", "screen", "at",
+        "batch", "fakeroot", "firejail", "bwrap", "proot", "xvfb-run", "dbus-run-session", "ssh-agent", "sem", "rush",
+        "entr", "prlimit", "cpulimit", "numactl", "faketime", "chpst", "daemonize", "start-stop-daemon",
     }
 )
 # ``env -S``/``--split-string`` splits one argument into a command line.
@@ -2871,10 +2873,12 @@ def _launched_word_reaches(segments: list[tuple[list[str], str | None, str | Non
     is refused unless all of it is proven to stay out of the primary checkout. No
     launched command or nesting level is analysed. A launched shell, or a command
     word that is not a plain name, can run expanded words as code, so it is never
-    proven. Otherwise every working directory and every literal word (also its
-    ``=`` value and short-option tail) must resolve outside the checkout and not
-    above it, and every pattern must have a bounded superset of such entries,
-    none of which can become an option or, for a bare name, a program on ``PATH``.
+    proven, nor is a command that sets ``PATH`` or ``IFS``. Otherwise every
+    working directory and every literal word (also its ``=`` value and
+    short-option tail) must resolve outside the checkout and not above it, and
+    every pattern must have a bounded superset of such entries, none of which can
+    become an option or name a program: a launcher, an executable file or, for a
+    bare name, a program on ``PATH``.
     """
     import shutil
 
@@ -2885,7 +2889,7 @@ def _launched_word_reaches(segments: list[tuple[list[str], str | None, str | Non
         launcher, code = launcher or seg_launcher, code or seg_code
     if not launcher or not any(_undecided_word(word) for word in words):
         return False
-    if code or any(word.startswith("PATH=") for word in words):
+    if code or any(word.startswith(("PATH=", "IFS=")) for word in words):
         return True
     root = main_root.resolve()
     for segment, run_cwd, shell_cwd in segments:
@@ -2914,6 +2918,9 @@ def _launched_word_reaches(segments: list[tuple[list[str], str | None, str | Non
                     if word[:1] in {"*", "?", "["} and candidate.relative_to(start).parts[:1]:
                         if candidate.relative_to(start).parts[0].startswith("-"):
                             return True
+                    # An expansion that names a program, by PATH or by path, chooses what runs.
+                    if candidate.name in _LAUNCHERS or (os.access(candidate, os.X_OK) and candidate.is_file()):
+                        return True
                     if "/" not in word and candidate.name not in {".", ".."} and shutil.which(candidate.name):
                         return True
     return False
