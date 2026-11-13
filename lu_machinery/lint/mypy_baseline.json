@@ -7403,21 +7403,6 @@
       "message": "Argument 1 to \"float\" has incompatible type \"Any | None\"; expected \"Buffer | SupportsFloat | SupportsIndex | str\""
     },
     {
-      "path": "lu_machinery/orchestration/stale_task_records.py",
-      "code": "index",
-      "message": "Value of type \"Any | None\" is not indexable"
-    },
-    {
-      "path": "lu_machinery/orchestration/stale_task_records.py",
-      "code": "union-attr",
-      "message": "Item \"None\" of \"Any | None\" has no attribute \"get\""
-    },
-    {
-      "path": "lu_machinery/orchestration/stale_task_records.py",
-      "code": "union-attr",
-      "message": "Item \"None\" of \"Any | None\" has no attribute \"get\""
-    },
-    {
       "path": "lu_machinery/orchestration/stalled_work.py",
       "code": "no-any-return",
       "message": "Returning Any from function declared to return \"bool\""
