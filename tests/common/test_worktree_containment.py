@@ -962,3 +962,32 @@ def test_quoted_or_escaped_pattern_cannot_hide_primary_link(layout: Layout, entr
     assert result.returncode == 2, result.stderr
     assert "undecidable_glob_write_target" in result.stderr
     assert (layout.main / "tracked.txt").read_text() == "tracked\n"
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        r"find . -maxdepth 0 -exec xargs bash -c ./run* \;",
+        r"printf x | xargs xargs xargs find . -exec xargs sh -c ./run* \;",
+    ],
+)
+def test_composed_template_shell_cannot_run_pattern_code(layout: Layout, command: str):
+    """Defect class: a shell reached through composed command templates runs pattern-expanded code unrefused."""
+    (layout.dispatch_wt / "run-me").write_text("touch ../../../../tracked.txt\n")
+    result = _bash_decision(layout, command)
+    assert result.returncode == 2, result.stderr
+    assert "undecidable_glob_write_target" in result.stderr
+    assert (layout.main / "tracked.txt").read_text() == "tracked\n"
+
+
+@pytest.mark.parametrize(
+    "command",
+    ["printf x | xargs setsid sh -c ./run*", "watch -n1 bash -c ./run*"],
+)
+def test_other_launcher_shell_cannot_run_pattern_code(layout: Layout, command: str):
+    """Defect class: a launcher the template parser never modelled hands pattern-expanded code to a shell."""
+    (layout.dispatch_wt / "run-me").write_text("touch ../../../../tracked.txt\n")
+    result = _bash_decision(layout, command)
+    assert result.returncode == 2, result.stderr
+    assert "undecidable_glob_write_target" in result.stderr
+    assert (layout.main / "tracked.txt").read_text() == "tracked\n"

@@ -2792,26 +2792,131 @@ def _pattern_changes_roles(segment: list[str], segment_targets: list[str]) -> bo
     words = _without_redirects(segment)
     cmd, idx = _command_word(words)
     patterns = [word for word in words[idx + 1 :] if _expandable_word(word)]
-    if not patterns:
-        return False
-    launched = [cmd]
-    if cmd in {"xargs", "parallel"}:
-        launched.append(_command_word(_xargs_template(segment))[0])
-    if cmd == "find":
-        launched.extend(
-            _command_word(words[idx + 2 + i :])[0] for i, word in enumerate(words[idx + 1 :]) if word in _FIND_TEMPLATES
-        )
-    if any(name in _PATTERN_SHELLS for name in launched):
-        return True
+    if not patterns or _launches(segment)[0]:
+        return False  # A command that launches another is decided whole (`_launched_word_reaches`).
     writer = (
         bool(argv_targets)
-        or any(name in _POSITIONAL_WRITERS | _LONG_TAIL_WRITERS | _INPLACE_FIXERS for name in launched)
+        or cmd in _POSITIONAL_WRITERS | _LONG_TAIL_WRITERS | _INPLACE_FIXERS
         or (cmd == "find" and any(word in _FIND_WRITE_ACTIONS for word in words[idx + 1 :]))
     )
     if not writer:
         return False
-    same_role = launched[-1] in _SAME_ROLE_WRITERS and (len(launched) == 1 or cmd in {"xargs", "parallel"})
-    return not (same_role and all(any(word is target for target in segment_targets) for word in patterns))
+    return not (cmd in _SAME_ROLE_WRITERS and all(any(word is target for target in segment_targets) for word in patterns))
+
+
+# Programs that run code taken from their arguments: an expanded word can become
+# any command, so no word they receive is ever decided (#403).
+_CODE_LAUNCHERS = frozenset(
+    {"sh", "bash", "dash", "zsh", "ksh", "mksh", "posh", "yash", "fish", "csh", "tcsh", "busybox"}
+    | {"eval", "source", ".", "su", "watch", "script"}
+)
+# Programs that run another command named in their arguments.
+_LAUNCHERS = _CODE_LAUNCHERS | frozenset(
+    {
+        "xargs", "parallel", "env", "exec", "command", "builtin", "nohup", "timeout", "nice", "ionice", "chrt",
+        "taskset", "stdbuf", "setsid", "sudo", "doas", "runuser", "time", "flock", "chroot", "unshare", "nsenter",
+        "setpriv",
+    }
+)
+# ``env -S``/``--split-string`` splits one argument into a command line.
+_ENV_SPLIT_RE = re.compile(r"-[^-]*S|--split-string")
+
+
+def _undecided_word(word: str) -> bool:
+    """Whether a word is anything but plain literal text: a pattern (quoted, escaped
+    or not), a tilde or an expansion the guard cannot know. Quote removal has
+    already happened, so a quoted or escaped pattern still shows its pattern
+    characters here."""
+    return getattr(word, "unresolved_at", None) is not None or _expandable_word(word) or "~" in word
+
+
+def _launches(words: list[str]) -> tuple[bool, bool]:
+    """Whether any word launches a command, and whether any launches code.
+
+    Any launcher word counts, wherever it stands: the guard does not follow which
+    later words reach which launched program, at any depth. A command word that
+    is not a plain name could be any program, a shell included.
+    """
+    names = {Path(word).name for word in words if word != "."}  # ``.`` sources only as a command
+    code = bool(names & _CODE_LAUNCHERS) or ("env" in names and any(_ENV_SPLIT_RE.match(word) for word in words))
+    argv = _without_redirects(words)
+    _, idx = _command_word(argv)
+    if idx < len(argv) and (argv[idx] == "." or _undecided_word(argv[idx])):
+        code = True
+    launcher = code or bool(names & _LAUNCHERS) or any(word in _FIND_TEMPLATES for word in words)
+    return launcher, code
+
+
+def _reaches_primary(path: Path, root: Path) -> bool:
+    """Whether ``path`` lies in the primary checkout or is an ancestor of it."""
+    try:
+        resolved = path.resolve()
+    except (OSError, RuntimeError, ValueError):
+        return True
+    if resolved == root or resolved in root.parents:
+        return True
+    try:
+        relative = resolved.relative_to(root)
+    except ValueError:
+        return False
+    return relative.parts[:2] != (".worktrees", "dispatch")
+
+
+def _launched_word_reaches(segments: list[tuple[list[str], str | None, str | None]], main_root: Path) -> bool:
+    """Whether a command that launches commands could carry an undecided word into the checkout.
+
+    A class rule, not an evaluator (#403): when any segment holds a launcher
+    (xargs, parallel, a find template, a shell, eval, env, sudo, ...) and any word
+    of the command is a pattern or otherwise not plain literal text, the command
+    is refused unless all of it is proven to stay out of the primary checkout. No
+    launched command or nesting level is analysed. A launched shell, or a command
+    word that is not a plain name, can run expanded words as code, so it is never
+    proven. Otherwise every working directory and every literal word (also its
+    ``=`` value and short-option tail) must resolve outside the checkout and not
+    above it, and every pattern must have a bounded superset of such entries,
+    none of which can become an option or, for a bare name, a program on ``PATH``.
+    """
+    import shutil
+
+    words = [word for segment, _, _ in segments for word in segment]
+    launcher = code = False
+    for segment, _, _ in segments:
+        seg_launcher, seg_code = _launches(segment)
+        launcher, code = launcher or seg_launcher, code or seg_code
+    if not launcher or not any(_undecided_word(word) for word in words):
+        return False
+    if code or any(word.startswith("PATH=") for word in words):
+        return True
+    root = main_root.resolve()
+    for segment, run_cwd, shell_cwd in segments:
+        for base in (run_cwd, shell_cwd):
+            if base is None or _reaches_primary(Path(base), root):
+                return True
+            start = _resolve(".", base, expand_user=False)
+            for word in segment:
+                if not _undecided_word(word):
+                    texts = [str(word)]
+                    if "=" in word:
+                        texts.append(word.split("=", 1)[1])
+                    if word[:1] == "-" and word[1:2] != "-" and len(word) > 2:
+                        texts.append(word[2:])
+                    if any(text and _reaches_primary(_resolve(text, base, expand_user=False), root) for text in texts):
+                        return True
+                    continue
+                if getattr(word, "unresolved_at", None) is not None or set("\\~=") & set(word) or word[:1] == "-":
+                    return True
+                candidates = _shell_glob_candidates(word, base)
+                if candidates is None:
+                    return True
+                for candidate in candidates:
+                    if _reaches_primary(candidate, root):
+                        return True
+                    if word[:1] in {"*", "?", "["} and candidate.relative_to(start).parts[:1]:
+                        if candidate.relative_to(start).parts[0].startswith("-"):
+                            return True
+                    if "/" not in word and candidate.name not in {".", ".."} and shutil.which(candidate.name):
+                        return True
+    return False
 
 
 def _option_capable_glob(segment: list[str], base: str | None, main_root: Path | None) -> bool:
@@ -2873,7 +2978,9 @@ def bash_write_targets(
         return [unknown]
     targets: list[str] = []
     pipeline: list[str] = []
+    seen: list[tuple[list[str], str | None, str | None]] = []
     for segment, effective_cwd, shell_cwd in _segments_with_cwd(command, cwd, uv_env):
+        seen.append((segment, effective_cwd, shell_cwd))
         if segment.prev_op not in {"|", "|&"}:
             pipeline = []
         pipeline.extend(segment)
@@ -2913,7 +3020,7 @@ def bash_write_targets(
                     template=True,
                 )
             )
-        launches_writer = _xargs_writer(_without_redirects(segment)) or _xargs_writer(template)
+        launches_writer = _xargs_writer(_without_redirects(segment))
         if (
             main_root is not None and _pattern_changes_roles(segment, segment_targets)
         ) or ((segment_targets or launches_writer) and _option_capable_glob(segment, shell_cwd, main_root)):
@@ -2932,6 +3039,10 @@ def bash_write_targets(
             if word.base is None and word.decision_reason is None:
                 word.base = effective_cwd
             targets.append(word)
+    if main_root is not None and _launched_word_reaches(seen, main_root):
+        unknown = ShellWord("launched pattern")
+        unknown.decision_reason = "undecidable_glob_write_target"
+        targets.append(unknown)
     return targets
 
 
