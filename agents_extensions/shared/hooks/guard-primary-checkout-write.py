@@ -123,6 +123,17 @@ reads as ``tee``), while one holding escapes stays undecoded text that names no
 known program (``$'\\564ee'`` reads as ``$\\564ee``). Because nothing is
 decoded, ``guard-reviewer-publish.py`` applies the same refusal check as well.
 
+Contract: an accident tripwire (decision GUARD-TRIPWIRE-1113, #403)
+-------------------------------------------------------------------
+This hook is an accident tripwire, not a containment boundary. It promises to
+refuse the honest mistakes listed in ``docs/runbooks/primary-checkout-dirt.md``
+(write tools, the listed shell writers and Git working-tree writes, the same
+writes through ordinary launchers, the approved #412 pattern classes, and
+unresolved targets), and it must keep admitting that runbook's benign controls.
+An admitted command from the promised list is a defect. A process holding
+sufficient filesystem write authority can still write the primary checkout;
+real containment is the operating-system follow-up the runbook names.
+
 Coverage limitations (documented, by design)
 --------------------------------------------
 * Codex Desktop direct-edit interception is unverified (#4447). Where a provider
