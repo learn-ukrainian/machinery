@@ -81,13 +81,4 @@ def test_no_substitution_fallback_or_ladder_resolves_to_fable_or_kimi() -> None:
         for model_id in endpoint.get("models") or []:
             if isinstance(model_id, str):
                 assert model_id not in RETIRED_IDS
-                refusal = retired_model_refusal(model_id, catalog)
-                assert refusal in (
-                    {None}
-                    if model_id != "gpt-6-astra"
-                    else {
-                        "model 'gpt-6-astra' is restricted to red-team code review of "
-                        "gpt-6.1-sol-authored PRs through native_codex (#10437)",
-                        "model 'gpt-6-astra' red-team exception expired at 2026-11-04T00:00:00Z",
-                    }
-                ), model_id
+                assert retired_model_refusal(model_id, catalog) is None, model_id
