@@ -331,8 +331,10 @@ finished task's tree still on disk with its reason; the summary carries
 `retained_count`, `retained_safety_stops` and `retained_complete`.
 A finished data-tier run discards its own checkout output first (`discard_run_output` in
 `lu_machinery/ci/data_tier.py`; the file and byte totals go in the run summary's `discarded_output`).
-The checkout is a fresh `origin/main` worktree, so everything ignored in it is the run's own
-snapshot, provisioned copy or test output, and the test report, log and summary a failed run needs
+The checkout is a fresh `origin/main` worktree holding code only: the run reads the host's stores
+and data in place through read-only bubblewrap mounts and never snapshots or copies them, so
+everything ignored in it is an empty mount point or the run's own test output (discarded after the
+test namespace exits), and the test report, log and summary a failed run needs
 stay in `batch_state/data-tier/`. A finished run therefore leaves nothing to preserve (#12528).
 The same run prunes the nightly data-tier job's abandoned checkouts
 (`.worktrees/data-tier/run-*`), which no task record names (a run killed before its cleanup):

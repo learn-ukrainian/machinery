@@ -3169,11 +3169,6 @@
     },
     {
       "path": "lu_machinery/ci/data_tier.py",
-      "code": "arg-type",
-      "message": "Argument 1 to \"resolve_store\" has incompatible type \"str\"; expected \"Literal['lexdata', 'sources', 'vesum']\""
-    },
-    {
-      "path": "lu_machinery/ci/data_tier.py",
       "code": "attr-defined",
       "message": "\"object\" has no attribute \"append\""
     },
@@ -3211,16 +3206,6 @@
       "path": "lu_machinery/ci/data_tier.py",
       "code": "attr-defined",
       "message": "\"object\" has no attribute \"append\""
-    },
-    {
-      "path": "lu_machinery/ci/data_tier.py",
-      "code": "attr-defined",
-      "message": "\"object\" has no attribute \"append\""
-    },
-    {
-      "path": "lu_machinery/ci/data_tier.py",
-      "code": "no-any-return",
-      "message": "Returning Any from function declared to return \"dict[Any, Any]\""
     },
     {
       "path": "lu_machinery/ci/data_tier.py",

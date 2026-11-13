@@ -63,16 +63,6 @@
     ]
   },
   {
-    "path": "lu_machinery/ci/data_tier.py",
-    "reference_count": 1,
-    "kind": "writer",
-    "target_db": "disposable CI source DB copy",
-    "reason": "backs up into disposable test checkout",
-    "calls": [
-      "sqlite3.connect(target)"
-    ]
-  },
-  {
     "path": "lu_machinery/control_plane/storage.py",
     "reference_count": 3,
     "kind": "writer",
