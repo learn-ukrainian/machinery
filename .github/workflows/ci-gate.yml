@@ -1167,7 +1167,8 @@ jobs:
   #   known vulnerability; --strict also fails a pin it cannot look up. pip-audit
   #   silently drops a requirement whose environment marker is false on this
   #   runner, so its report must list exactly as many audited packages as the
-  #   lock has pins.
+  #   requirements parser it uses (pip-requirements-parser) finds in the lock;
+  #   an invalid line or an option line (-r, -c, an index) fails the job.
   # - Node: npm audit reads package-lock.json only (--package-lock-only), every
   #   locked package with no --omit (a lock's dev flag cannot hide one), and
   #   fails on a high or critical advisory, or on any audit error.
@@ -1273,7 +1274,23 @@ jobs:
             echo "::error::requirements-machinery.lock is missing; nothing would be audited"
             exit 1
           fi
-          pins="$(grep -cE '^[A-Za-z0-9][A-Za-z0-9._-]*==' "$lock" || true)"
+          # The denominator comes from pip-audit's own requirements parser,
+          # before any environment marker is evaluated.
+          pins="$(env -i PATH=/usr/bin:/bin "$RUNNER_TEMP/pip-audit-venv/bin/python" -I - "$lock" <<'PY'
+          import sys
+
+          from pip_requirements_parser import RequirementsFile
+
+          parsed = RequirementsFile.from_file(sys.argv[1])
+          for line in parsed.invalid_lines:
+              print(f"::error::invalid lock line {line.line_number}: {line.error_message}", file=sys.stderr)
+          for option in parsed.options:
+              print(f"::error::option line {option.line_number} is not allowed in the lock: {option.dumps()}", file=sys.stderr)
+          if parsed.invalid_lines or parsed.options:
+              sys.exit(1)
+          print(len(parsed.requirements))
+          PY
+          )"
           echo "pip-audit checks ${pins} pinned package(s) in requirements-machinery.lock."
           if [ "$pins" -eq 0 ]; then
             echo "::error::requirements-machinery.lock pins no package"
@@ -1292,10 +1309,10 @@ jobs:
             echo "::error::pip-audit exited ${status} without a report"
             exit 1
           fi
-          jq -r '.dependencies[] | .name as $name | .version as $version | .vulns[]
+          jq -r '.dependencies[] | .name as $name | .version as $version | (.vulns // [])[]
             | "::error::\($name) \($version): \(.id) (fixed in: \(.fix_versions | join(", ")))"' "$report"
           audited="$(jq '[.dependencies[] | select(has("skip_reason") | not)] | length' "$report")"
-          vulns="$(jq '[.dependencies[].vulns[]] | length' "$report")"
+          vulns="$(jq '[.dependencies[] | (.vulns // [])[]] | length' "$report")"
           echo "pip-audit audited ${audited} of ${pins} pinned package(s); ${vulns} known vulnerabilities."
           if [ "$audited" -ne "$pins" ]; then
             echo "::error::pip-audit audited ${audited} package(s) but the lock pins ${pins}; a skipped or marker-excluded pin is not audited"
