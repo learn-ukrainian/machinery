@@ -5,6 +5,9 @@ Use for local/CI boundary checks and commit-blob census; not for caller migratio
 
 Every constructor reference is forbidden outside the pinned reference manifest
 and the one tested reader boundary, independent of target, mode, or call shape.
+Calling a ``sqlite3.Connection`` subclass defined outside ``tests/`` is that kind
+of reference: a static import, an alias, or an attribute of a dynamically loaded
+module. A call whose enclosing scope is a declared resolver function is not.
 Every listed file pins its reference count; readers awaiting #9662 do not gain
 permission to add constructors. Reader and writer call expressions pin their target sites.
 Module objects may not escape into assignments/containers/calls: otherwise an
@@ -253,15 +256,112 @@ class _Syntax:
         return {child: node for node, children in zip(self.nodes, self.edges, strict=True) for child in children}
 
 
-def classify_source(source: str, rel_path: str, *, syntax: _Syntax | None = None) -> list[Finding]:
+def _subclass_class_names(tree: ast.AST, known: frozenset[str] | set[str]) -> set[str]:
+    """Class names in ``tree`` that subclass ``sqlite3.Connection`` or ``known``."""
+    modules = set(SQLITE_MODULES)
+    connection_names: set[str] = set()
+    bound = set(known)
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                if alias.name in SQLITE_MODULES:
+                    local = alias.asname or alias.name
+                    modules.add(local)
+                    if alias.name == "sqlite3":
+                        modules.add(f"{local}.dbapi2")
+        elif isinstance(node, ast.ImportFrom) and node.module in SQLITE_MODULES:
+            for alias in node.names:
+                if alias.name == "*":
+                    connection_names.add("Connection")
+                elif alias.name == "Connection":
+                    connection_names.add(alias.asname or alias.name)
+        elif isinstance(node, ast.ImportFrom):
+            for alias in node.names:
+                if alias.name in known:
+                    bound.add(alias.asname or alias.name)
+
+    def is_connection_base(base: ast.AST) -> bool:
+        dotted = _dotted(base)
+        if not dotted:
+            return False
+        if dotted in connection_names or dotted in bound:
+            return True
+        if isinstance(base, ast.Attribute) and base.attr in known:
+            return True
+        return any(dotted == f"{module}.Connection" for module in modules)
+
+    classes = [node for node in ast.walk(tree) if isinstance(node, ast.ClassDef)]
+    assignments = [node for node in ast.walk(tree) if isinstance(node, ast.Assign)]
+    found: set[str] = set()
+    changed = True
+    while changed:
+        changed = False
+        for node in classes:
+            if node.name in found:
+                continue
+            if any(is_connection_base(base) or (isinstance(base, ast.Name) and base.id in found) for base in node.bases):
+                found.add(node.name)
+                bound.add(node.name)
+                changed = True
+        for node in assignments:
+            if not isinstance(node.value, (ast.Name, ast.Attribute)):
+                continue
+            names_base = is_connection_base(node.value) or (
+                isinstance(node.value, ast.Name) and node.value.id in bound
+            )
+            if not names_base:
+                continue
+            for target in node.targets:
+                if isinstance(target, ast.Name) and target.id not in bound:
+                    bound.add(target.id)
+                    changed = True
+    return found
+
+
+def _connection_subclass_names(sources: list[tuple[str, str]]) -> frozenset[str]:
+    """Subclass class names defined outside ``tests/``.
+
+    Test subclasses stay out of the set: a short name such as ``Failed`` would
+    otherwise match an unrelated attribute call. Assignment aliases stay local
+    to the file that binds them, so a variable named ``factory`` cannot become
+    a global constructor.
+    """
+    parsed: dict[str, ast.AST | None] = {}
+    known: set[str] = set()
+    while True:
+        grew = False
+        for rel, source in sources:
+            if rel in parsed or rel.startswith("tests/") or "class " not in source:
+                continue
+            if "Connection" not in source and not any(name in source for name in known):
+                continue
+            try:
+                parsed[rel] = ast.parse(source)
+            except SyntaxError:
+                parsed[rel] = None
+            grew = True
+        before = set(known)
+        for tree in parsed.values():
+            if tree is not None:
+                known |= _subclass_class_names(tree, known)
+        if not grew and known == before:
+            return frozenset(known)
+
+
+def classify_source(
+    source: str, rel_path: str, *, syntax: _Syntax | None = None,
+    connection_subclasses: frozenset[str] = frozenset(),
+    resolver_functions: frozenset[str] = frozenset(),
+) -> list[Finding]:
     """Match syntax references, never infer database paths or caller arguments."""
     syntax = syntax if syntax is not None else _Syntax(source, rel_path)
     nodes = syntax.nodes
     # Every reference/loader branch below needs one of these AST anchors.
     # Check syntax rather than source text, retaining aliased and dynamic imports.
+    # A subclass call carries the class name instead of a sqlite3 anchor.
     anchors = SQLITE_MODULES | {"__import__", "importlib", "pkgutil", "builtins",
                                 "import_module", "resolve_name", CONFIGURED_LOADER}
-    if not (syntax.names & anchors or syntax.strings & SQLITE_MODULES):
+    if not (syntax.names & anchors or syntax.strings & SQLITE_MODULES or syntax.names & connection_subclasses):
         return []
     lines = source.splitlines()
     modules = set(SQLITE_MODULES)
@@ -269,6 +369,13 @@ def classify_source(source: str, rel_path: str, *, syntax: _Syntax | None = None
     configured = {CONFIGURED_LOADER}
     findings: dict[tuple[int, int], Finding] = {}
     constructors = set()
+    local_classes = (
+        _subclass_class_names(syntax.tree, connection_subclasses)
+        if any(isinstance(node, ast.ClassDef) for node in nodes)
+        else set()
+    )
+    subclass_names = connection_subclasses | local_classes
+    subclass_aliases = set(local_classes)
 
     def report(node: ast.AST) -> None:
         line = node.lineno
@@ -314,6 +421,9 @@ def classify_source(source: str, rel_path: str, *, syntax: _Syntax | None = None
                     if alias.name == "__import__":
                         loaders.add(alias.asname or alias.name)
             configured.update(alias.asname or alias.name for alias in node.names if alias.name == CONFIGURED_LOADER)
+            for alias in node.names:
+                if alias.name in subclass_names:
+                    subclass_aliases.add(alias.asname or alias.name)
 
     def configured_sqlite_load(node: ast.AST) -> bool:
         """A call of the configured-entry-point helper (plain, aliased or qualified) with a constant SQLite name."""
@@ -360,6 +470,14 @@ def classify_source(source: str, rel_path: str, *, syntax: _Syntax | None = None
                     ) and target.id not in constructors:
                         constructors.add(target.id)
                         changed = True
+                    # A subclass alias is a call target only. The class object
+                    # passed as a connection factory is not itself a reference.
+                    if target.id not in subclass_aliases and (
+                        (isinstance(node.value, ast.Name) and node.value.id in subclass_aliases)
+                        or (isinstance(node.value, ast.Attribute) and node.value.attr in subclass_names)
+                    ):
+                        subclass_aliases.add(target.id)
+                        changed = True
 
     for node in nodes:
         # Any module can re-export sqlite3. Pin neither the exporting module's
@@ -373,6 +491,23 @@ def classify_source(source: str, rel_path: str, *, syntax: _Syntax | None = None
             and node.slice.value in SQLITE_MODULES
         ):
             report(node)
+
+    def _subclass_constructor_call(node: ast.Call) -> bool:
+        func = node.func
+        if isinstance(func, ast.Name):
+            return func.id in subclass_aliases
+        return isinstance(func, ast.Attribute) and func.attr in subclass_names
+
+    def _in_declared_resolver(node: ast.AST) -> bool:
+        if not resolver_functions:
+            return False
+        names: list[str] = []
+        current = parents.get(node)
+        while current is not None:
+            if isinstance(current, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                names.append(current.name)
+            current = parents.get(current)
+        return ".".join(reversed(names)) in resolver_functions
 
     for node in nodes:
         if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load) and node.id in constructors:
@@ -406,6 +541,8 @@ def classify_source(source: str, rel_path: str, *, syntax: _Syntax | None = None
             ) or (not isinstance(target, ast.Constant)):
                 report(node)
         if configured_sqlite_load(node):
+            report(node)
+        if isinstance(node, ast.Call) and _subclass_constructor_call(node) and not _in_declared_resolver(node):
             report(node)
     return sorted(findings.values(), key=lambda finding: finding.line_no)
 
@@ -985,9 +1122,11 @@ class _FileScan:
     unreadable: bool = False
 
 
-def _scan_file(job: tuple[str, str, AllowedReference | None, list[StoreFinding], str | None, int, bool]) -> _FileScan:
+def _scan_file(
+    job: tuple[str, str, AllowedReference | None, list[StoreFinding], str | None, int, bool, frozenset[str]],
+) -> _FileScan:
     """Classify one file exactly as the serial pass did; no cross-file state."""
-    rel, source, entry, pinned, oid, pinned_count, trusted_reader = job
+    rel, source, entry, pinned, oid, pinned_count, trusted_reader, subclasses = job
     store_findings: list[StoreFinding] = []
     violations: list[str] = []
     try:
@@ -1000,13 +1139,19 @@ def _scan_file(job: tuple[str, str, AllowedReference | None, list[StoreFinding],
             store_findings = classify_store_source(source, rel, syntax=syntax)
         if rel.startswith("tests/") and (entry is None or entry.kind != "fixture_factory"):
             return _FileScan(store_findings, violations)
+        resolver_functions: tuple[str, ...] = ()
         if entry is not None and entry.kind == "store_resolver":
-            # This kind never exempts constructor references.
+            # sqlite3 constructor references stay visible. Only a subclass call
+            # whose scope is one of the declared resolver functions is exempt.
+            resolver_functions = entry.functions
             entry = None
         if rel == READER_BOUNDARY and trusted_reader:
             return _FileScan(store_findings, violations)
         syntax = syntax if syntax is not None else _Syntax(source, rel)
-        references = classify_source(source, rel, syntax=syntax)
+        references = classify_source(
+            source, rel, syntax=syntax, connection_subclasses=subclasses,
+            resolver_functions=frozenset(resolver_functions),
+        )
         if entry is not None:
             if len(references) != entry.reference_count:
                 violations.append(f"{rel}: pinned {entry.reference_count} references, found {len(references)}")
@@ -1091,6 +1236,8 @@ def find_violations(
             continue
         order.append((rel, (rel, source, writers.get(rel), by_path.get(rel, []), base_blobs.get(rel),
                             payload.get("file_counts", {}).get(rel, 0), trusted_reader)))
+    subclasses = _connection_subclass_names([(rel, job[1]) for rel, job in order if job is not None])
+    order = [(rel, None if job is None else (*job, subclasses)) for rel, job in order]
     scans = iter(_scan_all([job for _, job in order if job is not None]))
     for rel, job in order:
         if job is None:
