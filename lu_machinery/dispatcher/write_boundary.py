@@ -760,7 +760,7 @@ class _Broker:
             raise _BrokerRefusal("draft must be true or false")
         slug = self._repository_slug()
         fields = ["--head", self.boundary.branch.removeprefix("refs/heads/"), "--base", self._default_branch(slug),
-                  "--title", title, "--body-file", self._text_file(body)]
+                  f"--title={title}", "--body-file", self._text_file(body)]
         return self._publish("pr-create", slug, [*fields, *(["--draft"] if draft else [])])
 
     def _pr_edit(self, payload: dict) -> dict:
@@ -769,7 +769,8 @@ class _Broker:
         title = self._text(payload, "title", 256, required=False)
         body = self._text(payload, "body", _MAX_BODY, required=False)
         number, slug, _facts = self._pull_request(payload, "OPEN")
-        fields = ["--number", str(number), *(["--title", title] if title else []),
+        # ``--title=`` keeps a title that starts with a dash a value, never an option.
+        fields = ["--number", str(number), *([f"--title={title}"] if title else []),
                   *(["--body-file", self._text_file(body)] if body else [])]
         return self._publish("pr-edit", slug, fields)
 

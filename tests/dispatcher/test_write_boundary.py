@@ -369,8 +369,8 @@ def test_pr_edit_changes_only_title_and_body_of_the_own_pr(broker):
     worker rewrites someone else's PR or its landing metadata."""
     assert "head is not this task" in _refused(lambda: broker._pr_edit({"pr": 8, "title": "t"}))
     assert "at least one" in _refused(lambda: broker._pr_edit({"pr": 7, "add_labels": ["x"]}))
-    assert broker._pr_edit({"pr": 7, "title": "New"})["returncode"] == 0
-    assert broker.steps[-1] == ("publish.github", ["pr-edit", "--repo", "owner/repo", "--number", "7", "--title", "New"])
+    assert broker._pr_edit({"pr": 7, "title": "--draft"})["returncode"] == 0
+    assert broker.steps[-1] == ("publish.github", ["pr-edit", "--repo", "owner/repo", "--number", "7", "--title=--draft"])
 
 
 def test_pr_comment_posts_only_on_the_own_pr_through_the_publisher(broker):
