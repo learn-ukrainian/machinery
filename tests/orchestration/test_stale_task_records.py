@@ -576,24 +576,26 @@ def test_renamed_branch_keeps_its_record_out_of_class_c(tasks_dir, repo):
     pushed_sha = _orphan_commit(repo, "pushed")
     _git(repo, "push", "origin", f"{pushed_sha}:refs/heads/elsewhere/pushed")
     _record(tasks_dir, "pushed-elsewhere", worktree_dirty_on_exit=True, auto_finalize=_auto_finalized(pushed_sha))
-    # A missing commit is no longer recoverable once refs and checkout are gone.
-    _record(tasks_dir, "unknown-commit", worktree_dirty_on_exit=True, auto_finalize=_auto_finalized("ab" * 20))
+    # A missing local object can still be delivered through a merged PR.
+    _record(tasks_dir, "unknown-commit", worktree_dirty_on_exit=True, auto_finalize=_auto_finalized("abababa"))
     before = _snapshot(tasks_dir)
 
-    report = _settle(tasks_dir, repo, [], apply=True)
+    report = _settle(tasks_dir, repo, [
+        _merged("codex/unknown-commit", 93, OLD_FINISH + timedelta(hours=1), head_sha="ab" * 20),
+    ], apply=True)
 
     rows = _by_file(report)
-    assert report["classes"] == {"A": 1, "B": 1, "C": 1, "D": 1}
+    assert report["classes"] == {"A": 1, "B": 1, "C": 0, "D": 2}
     assert rows["renamed.json"]["class"] == "D"
     assert "refs/heads/rescue/renamed" in rows["renamed.json"]["skip_reason"]
     assert rows["renamed-named.json"]["class"] == "B"
     assert rows["renamed-named.json"]["evidence"]["refs_containing_commit"] == ["refs/heads/rescue/renamed"]
     assert rows["pushed-elsewhere.json"]["class"] == "A"
     assert rows["pushed-elsewhere.json"]["evidence"]["origin_heads_at_commit"] == ["elsewhere/pushed"]
-    assert rows["unknown-commit.json"]["class"] == "C"
-    assert rows["unknown-commit.json"]["outcome"] == "failed"
-    after = _snapshot(tasks_dir)
-    assert all(after[name] == value for name, value in before.items() if name != "unknown-commit.json")
+    assert rows["unknown-commit.json"]["class"] == "D"
+    assert rows["unknown-commit.json"]["evidence"]["merged_prs"][0]["number"] == 93
+    assert "outcome" not in rows["unknown-commit.json"]
+    assert _snapshot(tasks_dir) == before
 
 
 def test_unfetched_remote_branch_descending_from_the_recorded_commit_is_not_class_c(tasks_dir, repo):

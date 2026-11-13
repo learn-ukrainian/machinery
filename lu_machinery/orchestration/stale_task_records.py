@@ -569,7 +569,7 @@ class PullIndex:
     covered_since: datetime | None = None
     pages: int = 0
     error: str | None = None
-    open_by_branch: dict[str, list[dict[str, Any]]] = dataclasses.field(default_factory=lambda: defaultdict(list))
+    open_by_branch: dict[str, list[dict[str, Any]]] = dataclasses.field(default_factory=dict)
     open_pages: int = 0
     open_error: str | None = None
 
@@ -632,7 +632,7 @@ def build_pull_index(
         for pull in pulls:
             head = pull.get("head") if isinstance(pull, dict) else None
             head_repo = head.get("repo") if isinstance(head, dict) else None
-            if not isinstance(head_repo, dict):
+            if not isinstance(head, dict) or not isinstance(head_repo, dict):
                 continue
             if head_repo.get("full_name") != slug or not isinstance(head.get("ref"), str):
                 continue
@@ -644,7 +644,7 @@ def build_pull_index(
                 "merge_commit_sha": pull.get("merge_commit_sha"),
             }
             if pull.get("state") == "open":
-                index.open_by_branch[head["ref"]].append(entry)
+                index.open_by_branch.setdefault(head["ref"], []).append(entry)
             if not pull.get("merged_at"):
                 continue
             index.merged_by_branch[head["ref"]].append(entry)
@@ -787,7 +787,7 @@ def _classify_one(candidate: Candidate, facts: RepoFacts | None) -> None:
 
     worktree = Path(worktree_raw) if worktree_raw else None
     worktree_exists = worktree is not None and os.path.lexists(worktree)
-    dirty = worktree_claims.worktree_is_dirty(worktree) if worktree_exists else False
+    dirty = worktree_claims.worktree_is_dirty(worktree) if worktree is not None and worktree_exists else False
     on_origin = branch in facts.remote_heads
     local_sha = facts.local_branches.get(branch)
     evidence.update(
@@ -1188,6 +1188,28 @@ def _decide_outcome(candidate: Candidate, index: PullIndex | None, checkout: Pat
         )
 
 
+def _merged_work_absent(candidate: Candidate, index: PullIndex | None) -> bool:
+    """Merged work is delivered or ambiguous, never proof of unrecoverable work."""
+    start = candidate.task_start
+    if index is None or index.error or (index.covered_since is not None and
+                                       (start is None or start < index.covered_since)):
+        candidate.skip_reason = "merged pull evidence incomplete; raise --max-pr-pages or retry the failed listing"
+        return False
+    branch = candidate.evidence.get("branch")
+    matched = [pull for name, pulls in index.merged_by_branch.items() for pull in pulls
+               if (name == branch or (not branch and candidate.task_id in name)) and _merged_since(pull, start)]
+    for sha in candidate.evidence["recorded_commits"]:
+        matched.extend(index.merged_by_sha.get(sha, []))
+        if len(sha) < 40:
+            matched.extend(pull for full, pulls in index.merged_by_sha.items()
+                           if full.startswith(sha) for pull in pulls)
+    if matched:
+        candidate.evidence["merged_prs"] = list({str(pull.get("number")): pull for pull in matched}.values())
+        candidate.skip_reason = "merged PR evidence requires a delivery decision"
+        return False
+    return True
+
+
 def classify(
     candidates: list[Candidate],
     *,
@@ -1224,6 +1246,12 @@ def classify(
         if candidate.klass != "C" or _refuse_gated(candidate):
             continue
         orphaned_by_slug[str(candidate.record.get("repository"))].append(candidate)
+    for candidate in candidates:
+        slug = str(candidate.record.get("repository"))
+        facts_for_candidate = facts_by_slug.get(slug)
+        if (candidate.klass == "D" and facts_for_candidate is not None
+                and facts_for_candidate.error is None and facts_for_candidate.fetch_error is None):
+            orphaned_by_slug[slug].append(candidate)
     indexes: dict[str, PullIndex] = {}
     for slug, orphaned in orphaned_by_slug.items():
         starts = [candidate.task_start for candidate in orphaned]
@@ -1231,7 +1259,8 @@ def classify(
         indexes[slug] = build_pull_index(slug, oldest_start=oldest, pager=pager, max_pages=max_pr_pages)
         checkout = facts_by_slug[slug].checkout if slug in facts_by_slug else None
         for candidate in orphaned:
-            _decide_outcome(candidate, indexes[slug], checkout)
+            if candidate.klass == "C":
+                _decide_outcome(candidate, indexes[slug], checkout)
 
     # Open PRs need a complete, bounded listing of their own. Scanning old
     # merged history here could hit its cap before proving that no PR is open.
@@ -1252,14 +1281,15 @@ def classify(
                 ]
                 candidate.evidence["pull_list_error"] = index.open_error
     for candidate in candidates:
-        facts = facts_by_slug.get(str(candidate.record.get("repository")))
-        if (candidate.klass == "D" and facts is not None and facts.fetch_error is None
-                and facts.error is None and not candidate.evidence.get("open_prs")
+        candidate_facts = facts_by_slug.get(str(candidate.record.get("repository")))
+        if (candidate.klass == "D" and candidate_facts is not None and candidate_facts.fetch_error is None
+                and candidate_facts.error is None and not candidate.evidence.get("open_prs")
                 and candidate.evidence.get("pull_list_error") is None
-                and _unrecoverable_work(candidate, facts)):
+                and _unrecoverable_work(candidate, candidate_facts)
+                and _merged_work_absent(candidate, indexes.get(str(candidate.record.get("repository"))))):
             candidate.klass = "C"
             candidate.unrecoverable = True
-            candidate.checkout = facts.checkout
+            candidate.checkout = candidate_facts.checkout
             candidate.skip_reason = None
             candidate.outcome = "failed"
             candidate.failure_reason = "work_not_recoverable"
@@ -1343,7 +1373,8 @@ def decision_row(candidate: Candidate) -> dict[str, Any]:
     evidence = candidate.evidence
     locations = list(evidence.get("branch_refs", [])) + list(evidence.get("refs_containing_commit", []))
     locations.extend(evidence.get("surviving_paths", []))
-    locations.extend(pull["url"] for pull in evidence.get("open_prs", []) if pull.get("url"))
+    locations.extend(pull["url"] for pull in evidence.get("open_prs", []) + evidence.get("merged_prs", [])
+                     if pull.get("url"))
     if evidence.get("branch_on_origin"):
         locations.append("origin/" + str(evidence.get("branch")))
     if evidence.get("local_branch"):
@@ -1353,6 +1384,7 @@ def decision_row(candidate: Candidate) -> dict[str, Any]:
     return {"task_id": candidate.task_id, "repo": evidence.get("repository"),
             "branch": evidence.get("branch"), "where": sorted(set(locations)) or [candidate.skip_reason or "unknown"],
             "open_prs": evidence.get("open_prs", []),
+            "merged_prs": evidence.get("merged_prs", []),
             "pr_evidence": evidence.get("pull_list_error") or ("listed" if "open_prs" in evidence else "unavailable"),
             "age_days": round(candidate.age_days, 1)}
 

@@ -89,7 +89,9 @@ unknown, never as proof that no PR exists.
 
 A former class D record settles `failed` only when its worktree and runtime
 paths are absent, no ref names its branch or task, no recorded work commit is
-reachable, and no matching open PR survives. Git and filesystem failures leave
+reachable, no matching open PR survives, and merged PR history provides no
+evidence that the work was delivered. A matching merged PR keeps the record
+for a delivery decision, including when its head commit is no longer local. Git and filesystem failures leave
 it unresolved. Local refs and commit reachability are checked again under the
 record lock before writing. Historical counts of commits or dirty files at
 exit do not establish a current recovery location. Settlement deletes no
