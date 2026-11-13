@@ -47,6 +47,8 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+from prometheus_client.core import GaugeMetricFamily
+
 from . import account_logins
 from .subscription_usage import (
     PROVIDER_ERROR,
@@ -520,6 +522,108 @@ def subscriptions_snapshot(*, now: datetime | None = None, monitor_reader: Monit
                                                                  "reason": facts["reason"]}},
         "providers": providers,
     }
+
+
+# --- one pace verdict per pool, for routing, alerts and the page -----------------------------------
+
+
+# The routing pool id of each account row; AGY's two quota groups are separate pools.
+POOL_IDS = {
+    "Claude a": "claude:a", "Claude b": "claude:b", "Codex a": "codex:a", "Codex b": "codex:b",
+    "AGY Gemini": "agy:gemini", "AGY Claude/GPT": "agy:claude_gpt", "Grok+Cursor": "grok", "Muse": "muse",
+}
+POOL_STATUSES = ("cool", "hot", "near_cap", "unknown")
+POOL_PACE_REASONS = frozenset({
+    "lasts_to_reset", "too_early_in_window", "runs_out_before_reset", "ran_out_before_reset", "weekly_used_up",
+    "no_reading", "read_time_in_future", NO_MONITOR_READING, PROVIDER_ERROR, "unreadable_reading",
+    "usage_cache_missing", "usage_cache_not_configured", "usage_cache_unreadable", "usage_cache_invalid",
+    "no_weekly_window", "not_reported", "no_pace", "last_to_reset_unknown", "no_account_row",
+})
+_EXHAUSTED_USED_PCT = 99.0  # the routing near-cap line (``credit_lane.SUBSCRIPTION_NEAR_CAP_USED_PCT``)
+
+
+def pool_status(row: Mapping[str, Any]) -> dict[str, Any]:
+    """One account row's pace verdict, from the same pace the page shows.
+
+    ``hot``: the pace runs out before the weekly reset. ``near_cap``: the weekly
+    window is used up, or the projected run-out has passed. ``cool``: the pace
+    lasts to the reset, or the window is too young for a pace (CodexBar shows
+    none yet). ``unknown``: no reading, no weekly window, or no pace verdict;
+    never ``cool``. A stale reading keeps its verdict and says so.
+    """
+    reading, weekly, pace = row.get("reading") or {}, row.get("weekly") or {}, row.get("pace") or {}
+
+    def verdict(status: str, reason: str | None) -> dict[str, Any]:
+        out = {"status": status, "pace_reason": reason, "stale": reading.get("status") == "stale",
+               "resets_at": weekly.get("resets_at"), "runs_out_at": None, "runs_out_in_s": None}
+        if status in {"hot", "near_cap"} and pace.get("status") == "ok":
+            out.update(runs_out_at=pace.get("runs_out_at"), runs_out_in_s=pace.get("runs_out_in_s"))
+        return out
+
+    if reading.get("status") not in {"fresh", "stale"}:
+        return verdict("unknown", reading.get("reason") or "no_reading")
+    if weekly.get("status") != "ok":
+        return verdict("unknown", weekly.get("reason") or "no_weekly_window")
+    if weekly["used_pct"] >= _EXHAUSTED_USED_PCT:
+        return verdict("near_cap", "weekly_used_up")
+    if pace.get("status") != "ok":
+        if pace.get("reason") == "too_early_in_window":
+            return verdict("cool", "too_early_in_window")
+        return verdict("unknown", pace.get("reason") or "no_pace")
+    if pace.get("lasts_to_reset") is True:
+        return verdict("cool", "lasts_to_reset")
+    if pace.get("lasts_to_reset") is False:
+        seconds = pace.get("runs_out_in_s")
+        if isinstance(seconds, int) and seconds <= 0:
+            return verdict("near_cap", "ran_out_before_reset")
+        return verdict("hot", "runs_out_before_reset")
+    return verdict("unknown", "last_to_reset_unknown")
+
+
+def pool_statuses(snapshot: Mapping[str, Any]) -> dict[str, dict[str, Any]]:
+    """Every pool's :func:`pool_status`, keyed by pool id; a pool missing from the snapshot is ``unknown``."""
+    rows = {row.get("account"): row for provider in snapshot.get("providers") or [] for row in provider.get("accounts") or []}
+    return {pool: pool_status(rows[account]) if isinstance(rows.get(account), Mapping)
+            else {"status": "unknown", "pace_reason": "no_account_row", "stale": False, "resets_at": None,
+                  "runs_out_at": None, "runs_out_in_s": None}
+            for account, pool in POOL_IDS.items()}
+
+
+class PoolPaceCollector:
+    """Prometheus collector: each pool's :func:`pool_status`, read from the snapshot at scrape time.
+
+    ``monitor_subscription_pool_status{pool,status}`` is 1 for the pool's current status and 0 for the
+    others, so an alert matches ``status=~"hot|near_cap"`` (runs out before its reset) or
+    ``status="unknown"`` (not visible). ``monitor_subscription_pool_runs_out_seconds{pool}`` is the time
+    to the projected run-out, for pools that run out before their reset. A reader failure reports every
+    pool ``unknown``; the series never disappear.
+    """
+
+    def __init__(self, snapshot: Callable[[], Mapping[str, Any]] | None = None) -> None:
+        self._snapshot = snapshot or subscriptions_snapshot
+
+    def describe(self) -> list[Any]:
+        return []  # collected at scrape time only, never at registration
+
+    def collect(self) -> Any:
+        try:
+            pools = pool_statuses(self._snapshot())
+        except Exception:
+            pools = pool_statuses({})
+        status = GaugeMetricFamily("monitor_subscription_pool_status",
+                                   "1 for the subscription pool's pace status (cool, hot = runs out before reset, "
+                                   "near_cap = used up, unknown = not visible), 0 for the others.",
+                                   labels=("pool", "status"))
+        runs_out = GaugeMetricFamily("monitor_subscription_pool_runs_out_seconds",
+                                     "Seconds to the projected run-out of a pool that runs out before its reset.",
+                                     labels=("pool",))
+        for pool, verdict in pools.items():
+            for name in POOL_STATUSES:
+                status.add_metric((pool, name), 1.0 if verdict["status"] == name else 0.0)
+            if verdict["status"] in {"hot", "near_cap"} and isinstance(verdict.get("runs_out_in_s"), int):
+                runs_out.add_metric((pool,), float(verdict["runs_out_in_s"]))
+        yield status
+        yield runs_out
 
 
 # --- console ------------------------------------------------------------------------------------------
