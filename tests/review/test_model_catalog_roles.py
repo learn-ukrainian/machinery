@@ -457,5 +457,11 @@ def test_frozen_complete_reviewer_receipts(index, tmp_path, monkeypatch):
                         now=FIXED_NOW))
     actual = observed(lambda: resolve_reviewer(ResolverInputs(**case, claude_account=HOST_ACCOUNT)))
     res = approved_dispatcher_spelling(json.loads(encode(actual)))
+    if case.get("owned_paths"):
+        twin = {**case, "owned_paths": machinery}
+        paired = observed(lambda: resolve_reviewer(ResolverInputs(**twin, claude_account=HOST_ACCOUNT)))
+        assert res == approved_dispatcher_spelling(json.loads(encode(paired)))
+        assert res["value"]["selected"] is None
+        assert "no eligible critical reviewer" in res["value"]["fail_closed_reason"]
     expected = APPROVED_BASELINE["reviewer"][index]
     assert res == expected
