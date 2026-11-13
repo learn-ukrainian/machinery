@@ -361,8 +361,7 @@ class _Boundary:
         try:
             # The argv is the fixed bubblewrap binary and launcher-validated paths; env is the dispatcher's
             # provider environment, passed on deliberately (the provider runs inside with it).
-            process = subprocess.Popen(  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit, python.lang.security.audit.dangerous-subprocess-use-tainted-env-args
-                argv, env=env, cwd=self.worktree, pass_fds=(report_write, go_read))
+            process = subprocess.Popen(argv, env=env, cwd=self.worktree, pass_fds=(report_write, go_read))  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit, python.lang.security.audit.dangerous-subprocess-use-tainted-env-args
             self.process = process
         finally:
             os.close(report_write)
