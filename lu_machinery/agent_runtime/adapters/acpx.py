@@ -189,10 +189,9 @@ CLAUDE_ACP_MIN_CLAUDE_CODE_VERSIONS: dict[str, tuple[int, int, int]] = {CLAUDE_A
 # not on the allowlist and is refused before spawn (C-5307).
 CURSOR_ACP_MODEL = "grok-4.7-high"
 CURSOR_ACP_MODELS = frozenset({CURSOR_ACP_MODEL})
-# The ACP agent advertises the bare id and rejects the CLI slug. The live
-# advertisement is grok-4.7 with reasoning_effort=high and fast=true.
-# Metadata keeps the allowlisted pin; only the acpx argv uses this id.
-# Residual owner: the CTO, until the agent advertises a non-fast id.
+# The ACP agent advertises grok-4.7 with fast=true and rejects the CLI slug.
+# Argv and recorded metadata use that executed id and flag. The allowlist
+# above still admits only the CLI pin.
 CURSOR_ACP_ARGV_MODELS = {CURSOR_ACP_MODEL: "grok-4.7"}
 GLM_ACP_MODEL = "glm-5.3"
 GLM_ACP_INVOCATION_MODEL = "zai-coding-plan/glm-5.3"
@@ -3857,12 +3856,16 @@ class _AcpxDiscussionAdapter:
         system_prompt = self._system_prompt(sealed_review_mcp_config)
         if system_prompt is not None:
             cmd.extend(["--system-prompt", system_prompt])
+        cursor_acp_executed: str | None = None
         if self.fixed_model is not None and self.forward_model_to_acpx:
             cmd.extend(["--model", self.acpx_model or self.fixed_model])
         elif self.allowed_models:
             cmd_model = model or self.default_model
             if self.name == "acpx-cursor-shadow":
-                cmd_model = CURSOR_ACP_ARGV_MODELS.get(cmd_model, cmd_model)
+                executed = CURSOR_ACP_ARGV_MODELS.get(cmd_model)
+                if executed is not None:
+                    cursor_acp_executed = executed
+                    cmd_model = executed
             cmd.extend(["--model", cmd_model])
         if custom_agent is None:
             if self.target_agent in {"claude", "codex"} and _ACPX_BINARY is None:
@@ -3888,7 +3891,11 @@ class _AcpxDiscussionAdapter:
         if self.fixed_model is not None:
             metadata["model"] = self.fixed_model
         elif self.allowed_models:
-            metadata["model"] = model or self.default_model
+            if cursor_acp_executed is not None:
+                metadata["model"] = cursor_acp_executed
+                metadata["fast"] = True
+            else:
+                metadata["model"] = model or self.default_model
         if self.fixed_effort is not None:
             metadata["effort"] = self.fixed_effort
         metadata.update(custom_metadata)
