@@ -42,7 +42,7 @@ if [ -z "${LU_DRIVER_STATE_FILE:-}" ] || [ -z "${SESSION_HANDOFF_AGENT:-}" ]; th
 fi
 # Drain the hook input before any child can fail without reading it. Keep the
 # original bytes in a file because shell variables cannot preserve NULs.
-input_file=$(mktemp -t agy-in.XXXXXX) || {
+input_file=$(mktemp --tmpdir="$TMPDIR" agy-in.XXXXXX) || {
   printf '%s\n' 'HOOK-BOOTSTRAP-FAILED: product root, shared state, interpreter or machinery unavailable. tmp' >&2
   cat >/dev/null
   echo "$fallback"
@@ -56,7 +56,7 @@ if ! cat >"$input_file"; then
   exit 0
 fi
 # Validate output without storing its bytes in a shell variable.
-output_file=$(mktemp -t agy-out.XXXXXX) || {
+output_file=$(mktemp --tmpdir="$TMPDIR" agy-out.XXXXXX) || {
   printf '%s\n' 'HOOK-BOOTSTRAP-FAILED: product root, shared state, interpreter or machinery unavailable. tmp' >&2
   echo "$fallback"
   exit 0
