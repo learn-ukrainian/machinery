@@ -45,6 +45,41 @@ if [ "${#missing[@]}" -gt 0 ]; then
   fi
 fi
 
+# The write boundary's private Git and HOME layers use bubblewrap's --overlay-src (0.10 and later);
+# Ubuntu 24.04 ships 0.9.0. Install Ubuntu's own 0.11.1 build, pinned by digest (its dependencies,
+# libc6 >= 2.38, libcap2 and libselinux1, are on the image), before the userns grant below applies to
+# /usr/bin/bwrap. The 51 KB fetch tries kernel.org first (outside *.ubuntu.com, see the outage note
+# above); the snapshot URL keeps the pinned file reachable after the archive pool drops it. Worst case
+# 3 x 12 s + 20 s = 56 s on top of the 175 s above stays inside test_env.sh's 240 s wait budget.
+has_overlay_src() {
+  local help
+  help="$(bwrap --help 2>&1 || true)"
+  case "$help" in *--overlay-src*) return 0 ;; *) return 1 ;; esac
+}
+if ! has_overlay_src; then
+  deb=bubblewrap_0.11.1-1ubuntu0.3_amd64.deb
+  digest=d3a6c1b6b0e0474eaed6dbd055c0d601fd875af153976a0dc4aae75f4ea10868
+  fetched=
+  for mirror in https://mirrors.edge.kernel.org/ubuntu https://archive.ubuntu.com/ubuntu \
+    https://snapshot.ubuntu.com/ubuntu/20261113T000000Z; do
+    if curl -fsSL --connect-timeout 4 --max-time 12 -o "${RUNNER_TEMP}/${deb}" \
+      "${mirror}/pool/main/b/bubblewrap/${deb}"; then
+      fetched=1
+      break
+    fi
+  done
+  if [ -z "$fetched" ]; then
+    echo "::error::${deb} could not be fetched from any mirror"
+    exit 1
+  fi
+  echo "${digest}  ${RUNNER_TEMP}/${deb}" | sha256sum -c -
+  sudo timeout --kill-after=5 15 dpkg -i "${RUNNER_TEMP}/${deb}"
+  if ! has_overlay_src; then
+    echo "::error::bubblewrap still lacks --overlay-src after installing ${deb}"
+    exit 1
+  fi
+fi
+
 # Ubuntu-hosted runners require an application-specific userns grant. This
 # profile belongs only to the disposable CI VM.
 if [ -f /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]; then
