@@ -2804,11 +2804,13 @@ def _pattern_changes_roles(segment: list[str], segment_targets: list[str]) -> bo
     return not (cmd in _SAME_ROLE_WRITERS and all(any(word is target for target in segment_targets) for word in patterns))
 
 
-# Programs that run code taken from their arguments: an expanded word can become
-# any command, so no word they receive is ever decided (#403).
+# Programs that run code taken from their arguments, or hand their arguments to a
+# shell: an expanded word can become any command, so no word they receive is ever
+# decided (#403).
 _CODE_LAUNCHERS = frozenset(
     {"sh", "bash", "dash", "zsh", "ksh", "mksh", "posh", "yash", "fish", "csh", "tcsh", "busybox"}
-    | {"eval", "source", ".", "su", "watch", "script"}
+    | {"eval", "source", ".", "su", "watch", "script", "parallel", "sem", "rush", "sg", "tmux", "screen", "at"}
+    | {"batch", "firejail", "sudo", "doas", "runuser", "entr", "ssh"}
 )
 # Programs that run another command named in their arguments.
 _LAUNCHERS = _CODE_LAUNCHERS | frozenset(
@@ -2884,9 +2886,23 @@ def _launched_word_reaches(segments: list[tuple[list[str], str | None, str | Non
 
     words = [word for segment, _, _ in segments for word in segment]
     launcher = code = False
-    for segment, _, _ in segments:
+    for segment, run_cwd, shell_cwd in segments:
         seg_launcher, seg_code = _launches(segment)
         launcher, code = launcher or seg_launcher, code or seg_code
+        # A launcher reached by another name through a path is still that launcher.
+        for word in segment:
+            if "/" not in word or _undecided_word(word):
+                continue
+            for base in {run_cwd, shell_cwd} - {None}:
+                path = _resolve(word, base, expand_user=False)
+                try:
+                    program = path.resolve().name if path.is_file() and os.access(path, os.X_OK) else ""
+                except (OSError, RuntimeError, ValueError):
+                    program = ""  # A path the guard cannot stat cannot be run as a program either.
+                if program in _CODE_LAUNCHERS:
+                    launcher = code = True
+                elif program in _LAUNCHERS:
+                    launcher = True
     if not launcher or not any(_undecided_word(word) for word in words):
         return False
     if code or any(word.startswith(("PATH=", "IFS=")) for word in words):
