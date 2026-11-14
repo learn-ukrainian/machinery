@@ -61,6 +61,10 @@ SCHEMAS = {
     "issue-comment-json": ({"number", "body"}, {**COMMON, "number": "number", "body": "text", "body_file": "file"}),
     "comment-edit": ({"comment_id", "body"}, {**COMMON, "comment_id": "number", "body": "text", "body_file": "file"}),
     "issue-close": ({"number"}, {**COMMON, "number": "number", "comment": "text", "reason": "reason"}),
+    "code-scanning-dismiss": (
+        {"number", "reason", "comment"},
+        {**COMMON, "number": "number", "reason": "dismissal_reason", "comment": "text"},
+    ),
     "pr-create": (
         {"title", "body", "base", "head"},
         {**COMMON, **TEXT, "base": "text", "head": "text", "draft": "bool"},
@@ -181,12 +185,14 @@ COMMENT_FIELDS = {
     "pr-comment": "body",
     "pr-review": "body",
     "issue-close": "comment",
+    "code-scanning-dismiss": "comment",
 }
 CF_VERDICT_RECORD_VERB = "issue-comment-json"
 
 ENUMS = {
     "workflow": set(WORKFLOWS),
     "reason": {"completed", "not planned"},
+    "dismissal_reason": {"false positive", "won't fix", "used in tests"},
     "verdict": {"approve", "comment", "request-changes"},
     "state": {"open", "closed"},
     "status": {"success", "failure", "error", "pending"},
@@ -1662,6 +1668,236 @@ def _publish_ruleset_merge_queue(
     return subprocess.CompletedProcess(put_argv, 0, line if text else line.encode(), "")  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit
 
 
+_DISMISS_TRIAGE_PATH = "docs/runbooks/secret-scanning.md"
+
+
+def _refuse_dispatched_dismissal(environment):
+    """This authority belongs only to interactive seats, including through the Python API."""
+    for source in (os.environ, environment or {}):
+        if (
+            any(source.get(key) for key in (
+                "LEARN_UKRAINIAN_DISPATCH_TASK_ID", BROKER_ENV, "LU_REVIEW_SHELL_TASK",
+            ))
+            or source.get("USER") == "review" or source.get("LOGNAME") == "review"
+        ):
+            raise gate.PublishBlocked("DISMISSAL_BOUNDARY_REFUSED: interactive seats only; nothing was sent.")
+
+
+def _dismiss_get(runner, endpoint, cwd, environment, *, pages=False, raw=False, sarif=False):
+    argv = ["gh", "api", "--method", "GET", endpoint]
+    if pages:
+        argv += ["--paginate", "--slurp"]
+    if raw or sarif:
+        argv += ["--header", "Accept: " + ("application/sarif+json" if sarif else "application/vnd.github.raw+json")]
+    result = runner(argv, cwd=cwd, env=dict(environment), capture_output=True, text=True, check=False, timeout=30)
+    if result.returncode:
+        raise ValueError("dismissal evidence unavailable")
+    value = result.stdout if raw else json.loads(result.stdout)
+    if pages:
+        if not isinstance(value, list) or any(not isinstance(page, list) for page in value):
+            raise ValueError("dismissal pagination unavailable")
+        value = [row for page in value for row in page]
+    return value
+
+
+def _dismiss_sarif_result(document, number):
+    """Compare semantic evidence, resolving analysis-local artifact and rule indexes."""
+    matches = []
+    for run in document["runs"]:
+        for result in run["results"]:
+            if result.get("properties", {}).get("github/alertNumber") != number:
+                continue
+            driver = run["tool"]["driver"]
+            reference = result.get("rule", {})
+            component = reference.get("toolComponent", {})
+            rule_component = run["tool"]["extensions"][component["index"]] if "index" in component else driver
+            rule = rule_component["rules"][reference["index"] if "index" in reference else result["ruleIndex"]]
+            if rule["id"] != result["ruleId"]:
+                raise ValueError("unknown rule")
+
+            def resolve(value, run=run):
+                if isinstance(value, list):
+                    return [resolve(item) for item in value]
+                if not isinstance(value, dict):
+                    return value
+                if "artifactLocation" in value:
+                    artifact = value["artifactLocation"]
+                    uri = artifact.get("uri") or run["artifacts"][artifact["index"]]["location"]["uri"]
+                    # Never follow URLs or paths from SARIF. They are evidence only.
+                    value = {**value, "artifactLocation": {key: item for key, item in artifact.items() if key != "index"}}
+                    value["artifactLocation"]["uri"] = uri
+                return {key: resolve(item) for key, item in value.items()}
+
+            evidence = resolve({key: value for key, value in result.items() if key not in {
+                "rule", "ruleIndex", "correlationGuid", "partialFingerprints", "fingerprints",
+            }})
+            if not evidence.get("message") or not evidence.get("locations"):
+                raise ValueError("unknown location or flow")
+            matches.append({
+                "result": evidence, "rule": rule,
+                "tool": {key: driver.get(key) for key in ("name", "version", "semanticVersion")},
+                "rule_component": {key: rule_component.get(key) for key in ("name", "version", "semanticVersion")},
+            })
+    if len(matches) != 1:
+        raise ValueError("unknown or ambiguous alert evidence")
+    return matches[0]
+
+
+def _dismiss_preflight(fields, gh_repo, dest, runner, cwd, environment):
+    comment, number = fields["comment"], fields["number"]
+    # Require an explanation in addition to an exact alert identifier and PR URL.
+    identifier = rf"(?i)\balert\s+#{number}\b"
+    if not re.search(identifier, comment):
+        raise ValueError("comment must identify its alert")
+    links = re.findall(r"https://[^\s<>()]+", comment)
+    pattern = rf"https://github\.com/{re.escape(gh_repo)}/pull/([1-9][0-9]*)(?:#[A-Za-z0-9_-]+)?"
+    prs = {int(match[1]) for link in links if (match := re.fullmatch(pattern, link))}
+    explanation = re.sub(identifier, "", re.sub(r"https://[^\s<>()]+", "", comment)).strip(" .,:;\n")
+    if dest.partition("/")[0] != "github.com" or len(prs) != 1 or not any(char.isalpha() for char in explanation):
+        raise ValueError("comment needs an explanation and one same-repository merged PR")
+    root = f"repos/{gh_repo}"
+
+    def get(suffix, **options):
+        return _dismiss_get(runner, f"{root}/{suffix}", cwd, environment, **options)
+
+    pr_number = prs.pop()
+    pr = get(f"pulls/{pr_number}")
+    merge = pr["merge_commit_sha"]
+    if pr.get("merged") is not True or not re.fullmatch(PATTERNS["sha"], merge):
+        raise ValueError("PR is not merged")
+    if pr["html_url"] != f"https://github.com/{gh_repo}/pull/{pr_number}":
+        raise ValueError("PR identity changed")
+    files = get(f"pulls/{pr_number}/files?per_page=100", pages=True)
+    triage_files = [item for item in files if item.get("filename") == _DISMISS_TRIAGE_PATH and item.get("status") in {"added", "modified"}]
+    if len(triage_files) != 1:
+        raise ValueError("PR does not contain triage")
+    triage = get(f"contents/{_DISMISS_TRIAGE_PATH}?ref={merge}", raw=True)
+    rows = [line.split("|")[1:-1] for line in triage.splitlines() if line.startswith("|") and line.endswith("|")]
+    rows = [row for row in rows if len(row) == 4 and row[0].strip() == str(number)]
+    if len(rows) != 1 or not rows[0][3].strip():
+        raise ValueError("triage does not cover this alert")
+    row = rows[0]
+    triage_line = "|" + "|".join(row) + "|"
+    patch = triage_files[0].get("patch", "").splitlines()
+    if "+" + triage_line not in patch or "-" + triage_line in patch:
+        raise ValueError("PR did not review this triage row")
+    base_ref = pr["base"]["ref"]
+    if not re.fullmatch(PATTERNS["ref"], base_ref):
+        raise ValueError("invalid triage branch")
+    head_endpoint = f"git/ref/heads/{quote(base_ref, safe='')}"
+    head_reference = get(head_endpoint)
+    if head_reference["ref"] != f"refs/heads/{base_ref}" or head_reference["object"]["type"] != "commit":
+        raise ValueError("unknown current triage branch")
+    current_head = head_reference["object"]["sha"]
+    if not re.fullmatch(PATTERNS["sha"], current_head):
+        raise ValueError("unknown current triage head")
+    current_triage = get(f"contents/{_DISMISS_TRIAGE_PATH}?ref={current_head}", raw=True)
+    current_rows = [line for line in current_triage.splitlines() if "|" in line
+                    and line.strip().removeprefix("|").split("|", 1)[0].strip() == str(number)]
+    if current_rows != [triage_line]:
+        raise ValueError("triage has been superseded")
+    disposition = row[3].strip().lower()
+    if fields["reason"] == "won't fix":
+        justified = disposition.startswith("won't fix.")
+    else:
+        justified = disposition.startswith("false positive.")
+        if fields["reason"] == "used in tests":
+            justified = justified and row[2].strip().startswith("`tests/")
+    if not justified:
+        raise ValueError("reason does not match written triage")
+    alert = get(f"code-scanning/alerts/{number}")
+    if type(alert.get("number")) is not int or alert["number"] != number or alert.get("state") != "open":
+        raise ValueError("alert identity or state changed")
+    if row[1].strip() != f"`{alert['rule']['id']}`":
+        raise ValueError("rule changed")
+    get_instances = get(f"code-scanning/alerts/{number}/instances?per_page=100", pages=True)
+    instances = [item for item in get_instances if item["state"] == "open"]
+    if not instances:
+        raise ValueError("no open instances")
+    analyses, results = {}, {}
+
+    def evidence(ref, sha, instance):
+        if not re.fullmatch(PATTERNS["sha"], sha) or not re.fullmatch(PATTERNS["ref"], ref):
+            raise ValueError("invalid analysis identity")
+        if ref not in analyses:
+            analyses[ref] = get(f"code-scanning/analyses?ref={quote(ref, safe='')}&per_page=100", pages=True)
+        candidates = [analysis for analysis in analyses[ref] if analysis["commit_sha"] == sha
+                      and all(analysis.get(key) == instance.get(key) for key in ("analysis_key", "environment", "category"))]
+        if not candidates:
+            raise ValueError("analysis evidence unavailable")
+        analysis = candidates[0]  # GitHub lists newest first; never use an older scan of this commit.
+        aid = analysis["id"]
+        if type(aid) is not int or aid <= 0 or analysis.get("error"):
+            raise ValueError("analysis failed")
+        if aid not in results:
+            results[aid] = _dismiss_sarif_result(get(f"code-scanning/analyses/{aid}", sarif=True), number)
+        return results[aid]
+
+    baseline_ref = f"refs/heads/{base_ref}"
+    for instance in instances:
+        location = instance["location"]
+        if (row[2].strip() != f"`{location['path']}:{location['start_line']}`"
+                or not instance.get("message", {}).get("text")):
+            raise ValueError("location or flow unknown or changed")
+        before = evidence(baseline_ref, merge, instance)
+        current = evidence(instance["ref"], instance["commit_sha"], instance)
+        if before != current or current["result"]["ruleId"] != alert["rule"]["id"]:
+            raise ValueError("rule, location or flow changed")
+        physical = current["result"]["locations"][0]["physicalLocation"]
+        if (physical["artifactLocation"]["uri"] != location["path"]
+                or physical["region"]["startLine"] != location["start_line"]):
+            raise ValueError("instance does not match SARIF")
+    # Close the evidence/read race before the one write, without retrying.
+    if (get(f"code-scanning/alerts/{number}") != alert
+            or get(f"code-scanning/alerts/{number}/instances?per_page=100", pages=True) != get_instances
+            or get(head_endpoint) != head_reference):
+        raise ValueError("alert or triage evidence changed during preflight")
+    return alert
+
+
+def _publish_code_scanning_dismiss(fields, *, gh_repo, dest, runner, cwd, environment, temp, capture_output, text):
+    try:
+        _dismiss_preflight(fields, gh_repo, dest, runner, cwd, environment)
+    except github_client.GitHubRateLimited:
+        raise
+    except Exception:
+        raise gate.PublishBlocked("DISMISSAL_TRIAGE_REFUSED: merged triage or unchanged rule, location and flow evidence unavailable; nothing was sent.") from None
+    endpoint = f"repos/{gh_repo}/code-scanning/alerts/{fields['number']}"
+    payload = {"state": "dismissed", "dismissed_reason": fields["reason"], "dismissed_comment": fields["comment"]}
+    frozen = temp / "request.json"
+    frozen.write_bytes(json.dumps(payload, ensure_ascii=False).encode("utf-8"))
+    argv = ["gh", "api", "--method", "PATCH", endpoint, "--input", str(frozen)]
+    unknown = "UNKNOWN: dismissal may have been sent; state, reason and comment are unverified. Do not retry."
+    try:
+        result = runner(argv, cwd=cwd, env=dict(environment), capture_output=True, text=True, check=False, timeout=30)
+    except (github_client.GitHubRateLimited, gate.PublishBlocked):
+        raise
+    except Exception:
+        result = None
+    # CompletedProcess only constructs a result; these calls execute no subprocess.
+    if result is not None and result.returncode:
+        status = getattr(getattr(result, "github_result", None), "status", None)
+        if type(status) is int and 400 <= status < 500:
+            refusal = "GitHub refused the dismissal."
+            if not capture_output:
+                print(refusal, file=sys.stderr)
+            return subprocess.CompletedProcess(argv, result.returncode, "" if text else b"", refusal if text else refusal.encode())  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit
+    if result is not None and not result.returncode:
+        try:
+            after = _dismiss_get(runner, endpoint, cwd, environment)
+            if (type(after.get("number")) is int and after["number"] == fields["number"]
+                    and after.get("state") == "dismissed" and after.get("dismissed_reason") == fields["reason"]
+                    and after.get("dismissed_comment") == fields["comment"]):
+                line = json.dumps({"number": fields["number"], **payload}, ensure_ascii=False, sort_keys=True)
+                if not capture_output:
+                    print(line)
+                return subprocess.CompletedProcess(argv, 0, line if text else line.encode(), "" if text else b"")  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit
+        except Exception:
+            pass  # A read failure after a write is UNKNOWN, including a rate limit.
+    print(unknown, file=sys.stderr)
+    return subprocess.CompletedProcess(argv, 3, "" if text else b"", unknown if text else unknown.encode())  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit
+
+
 # Inside a dispatched write worker's boundary (#434) there is no GitHub credential or route: these verbs reach the
 # launcher's host broker instead, with the same fields (#443). The broker acts only on the launch's repository,
 # branch and PRs, and refuses a named target that is not the launch's own. Other verbs run as everywhere else.
@@ -1738,6 +1974,8 @@ def publish(
     Transport options do not carry payloads. Injected runners exercise exactly
     the same validation, scanning and snapshots as the real gh transport.
     """
+    if verb == "code-scanning-dismiss":
+        _refuse_dispatched_dismissal(env)
     _validate(verb, fields)
     fields = {
         key: tuple(value) if SCHEMAS[verb][1][key] in {"texts", "assets"} else value for key, value in fields.items()
@@ -1952,6 +2190,11 @@ def publish(
             raise
         except Exception:
             raise gate.PublishBlocked("OPSEC: checker unavailable; write refused.") from None
+        if verb == "code-scanning-dismiss":
+            return _publish_code_scanning_dismiss(
+                fields, gh_repo=gh_repo, dest=dest, runner=readiness_runner, cwd=cwd,
+                environment=environment, temp=temp, capture_output=capture_output, text=text,
+            )
         if verb == "ruleset-merge-queue":
             return _publish_ruleset_merge_queue(
                 fields,
@@ -2190,6 +2433,25 @@ def main(argv=None, *, runner=None):
     verbs = parser.add_subparsers(dest="verb", required=True)
     for verb, (_, schema) in SCHEMAS.items():
         sub = verbs.add_parser(verb, help=f"Publish {verb} with scanned fields", allow_abbrev=False)
+        if verb == "code-scanning-dismiss":
+            sub.description = (
+                "Dismiss one reviewed code-scanning alert from an interactive seat.\n"
+                "Workers and reviewers are refused, including direct Python API calls."
+            )
+            sub.formatter_class = argparse.RawDescriptionHelpFormatter
+            sub.epilog = (
+                "The merged same-repository PR linked in the comment must change "
+                "docs/runbooks/secret-scanning.md and contain this alert's triage row.\n"
+                "Rule, location and SARIF flow evidence must match the analysis at that merge, across open branches.\n"
+                "Example:\n"
+                f"  .venv/bin/python -m {_PUBLISHER} code-scanning-dismiss --repo unit/public --number 1 "
+                "--reason 'false positive' --comment 'Alert #1 stores public metadata. https://github.com/unit/public/pull/2'\n"
+                "Outputs: one fixed PATCH with state=dismissed, then verified state/reason/comment JSON.\n"
+                "Exit codes: 0 verified dismissal; 1 GitHub refusal; 2 schema, boundary or triage refusal; "
+                "3 UNKNOWN after an ambiguous write or read-back, do not retry; "
+                "75 rate-limit refusal before a dismissal is processed, including at PATCH.\n"
+                "Related: docs/runbooks/secret-scanning.md; GitHub REST code-scanning alert update."
+            )
         if verb == "comment-edit":
             sub.description = (
                 "Edit an existing issue or PR conversation comment through the common scanner.\n"
@@ -2351,6 +2613,14 @@ def main(argv=None, *, runner=None):
                     "merge_method": "MERGE, SQUASH or REBASE; omitted keeps the current value",
                     "min_entries_to_merge": "Minimum group size, from 0 to 100; omitted keeps the current value",
                     "min_entries_to_merge_wait_minutes": "Minutes to wait for that minimum, from 0 to 360; omitted keeps the current value",
+                }[key]
+            if verb == "code-scanning-dismiss":
+                kwargs["action"] = StoreOnce
+                kwargs["help"] = {
+                    "repo": "Repository owner/name, e.g. unit/public; defaults to GH_REPO or origin",
+                    "number": "Required positive alert number, e.g. 1; no default",
+                    "reason": "Required reviewed dismissal reason; separate from issue-close reasons",
+                    "comment": "Required explanation identifying Alert #N and linking one same-repository merged PR; scanned verbatim",
                 }[key]
             if verb in {"run-rerun", "run-cancel"}:
                 kwargs["help"] = {

@@ -321,3 +321,53 @@ The fixes follow the upstream guidance for
 [log injection](https://codeql.github.com/codeql-query-help/python/py-log-injection/),
 [exception exposure](https://codeql.github.com/codeql-query-help/python/py-stack-trace-exposure/),
 and [file permissions](https://codeql.github.com/codeql-query-help/python/py-overly-permissive-file/).
+
+### Scanned code-scanning dismissal
+
+An interactive seat can use the closed publisher verb after a merged PR has
+reviewed the alert. Workers and reviewers are refused before any transport,
+including direct Python publisher calls. The worker broker, reviewer relay
+and raw `gh api` write guard do not admit this verb.
+
+```sh
+.venv/bin/python -m lu_machinery.publish code-scanning-dismiss \
+  --repo OWNER/REPO --number 1 --reason 'false positive' \
+  --comment 'Alert #1 logs variable names rather than values. https://github.com/OWNER/REPO/pull/468'
+```
+
+The comment must name `Alert #N`, explain that alert, and include exactly one
+canonical same-repository merged PR link. Its explanation must include a letter beyond the alert identifier and link.
+Its final text passes the common OPSEC scanner and verdict-marker guard, then the same text is frozen into the
+request. Supported reasons are `false positive`, `won't fix` and `used in tests`.
+Issue-close reasons are separate.
+
+The linked PR must add or revise this alert's four-column triage row in this
+runbook, like the table above. An inherited row or an unchanged row moved
+within the file does not establish review. The first three cells identify the alert number, rule ID
+and `path:line`. The final cell contains the written rationale, starting with
+`False positive.` or `Won't fix.` as appropriate. `used in tests` requires a
+false-positive row whose location is under `tests/`.
+
+Before sending, the publisher retrieves that file at the PR's merge SHA and
+at the base branch's current resolved head, explicitly in `refs/heads/` so a
+same-named tag cannot select the triage. The alert's current triage row
+must be byte-identical to the reviewed row; removal or reclassification
+refuses the write. Duplicate rows also count when padded with whitespace or
+written without optional outer table pipes. The publisher checks the alert and every open branch instance, and compares their SARIF
+rule, location, messages and flow evidence with the analysis at the triage
+merge. Analysis-local indexes are resolved before comparison. Missing analysis,
+unknown evidence or drift refuses the write. If a later change moves a location
+or changes a flow, the alert needs fresh reviewed triage. A final preflight
+re-read rejects alert, instance or current-triage-head changes during validation.
+
+The only mutation is one PATCH of the numbered alert with `state=dismissed`,
+its reason and the scanned comment. The publisher reports success only after
+reading back all three values. A pending dismissal request does not pass.
+Exit 3 means `UNKNOWN`: the write may have landed, or its read-back failed or
+mismatched. Inspect GitHub before any further action; there is no automatic
+retry. No alert is dismissed by adding this command.
+
+The endpoint and read-back fields follow the
+[GitHub REST code-scanning API](https://docs.github.com/en/rest/code-scanning/code-scanning#update-a-code-scanning-alert).
+SARIF evidence comes from its documented `application/sarif+json` analysis
+representation. The publisher does not request additional credential permissions.
