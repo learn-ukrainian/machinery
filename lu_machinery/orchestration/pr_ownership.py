@@ -601,12 +601,12 @@ def _annotate_findings(
                 index[pr_key(slug, number)] = pr
     annotated = []
     for row in rows:
-        pr = index.get(pr_key(row.repo, row.number))
-        head = pr.get("headRefOid") if isinstance(pr, dict) else None
+        opened = index.get(pr_key(row.repo, row.number))
+        head = opened.get("headRefOid") if isinstance(opened, dict) else None
         annotated.append(Finding(
             row.repo, row.number, row.branch, row.reason, row.last_task, row.unknown,
             head=head if isinstance(head, str) and head else None,
-            pr_state="OPEN" if pr is not None else None,
+            pr_state="OPEN" if opened is not None else None,
         ))
     return annotated
 
@@ -865,7 +865,7 @@ def _put_decision_custody(
     queue_clear: bool = True,
 ) -> tuple[dict[str, Any], dict[str, Any] | None]:
     """Write one decision-custody handoff. The caller has already checked the owner evidence."""
-    handoff = {
+    handoff: dict[str, Any] = {
         "successor": decision_owner,
         "predecessor": None,
         "accepted_at": now.isoformat(),
