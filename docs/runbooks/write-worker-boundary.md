@@ -79,7 +79,9 @@ One bubblewrap invocation per launch, built in full by the launcher:
 ## Canary and receipt
 
 The projected canary (`agy_canary.py`) is the sandbox's first process. It checks: writes to a tracked
-primary file and to absent primary names fail with `EROFS`; each protected Git file is read-only and
+primary file and to absent primary names fail with `EROFS`. The tracked file is the first one the host
+user owns and may write, because the kernel checks file permissions before the read-only bind and a
+read-only file would give `EACCES` whatever the mount; a primary with no such file refuses the run; each protected Git file is read-only and
 cannot be renamed or unlinked (`EBUSY`); the worktree `.git` link is read-only; the worktree, the Git
 overlay, HOME's overlay and `TMPDIR` take a create-write-rename-delete cycle; declared outputs open for
 writing; loopback ports 22, 8765 and 8766 refuse; every masked socket refuses. The launcher compares
