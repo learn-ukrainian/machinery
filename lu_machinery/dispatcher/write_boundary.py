@@ -235,9 +235,8 @@ def launcher(spec, invocation, task_file: Path) -> list[str]:
     ]
     for path in declared_outputs(spec, invocation):
         argv += ["--output", str(path)]
-    if spec.mode == "workspace-write":
-        for path in credential_files(spec.agent, invocation.env):
-            argv += ["--credential", str(path)]
+    for path in credential_files(spec.agent, invocation.env):
+        argv += ["--credential", str(path)]
     if spec.agent == "codex" and spec.mode == "read-only":
         from lu_machinery.agent_runtime.read_only_tmp import dispatch_lease
 
@@ -1070,8 +1069,6 @@ class _Boundary:
                 raise Refused("a declared output is not a regular file")
             outputs.append(path)
         credentials = []
-        if read_only and self.args.credential:
-            raise Refused("read-only providers cannot bind writable host credentials")
         for raw in self.args.credential or []:
             path = Path(raw)
             if path.is_symlink() or not path.is_file() or _overlaps(path, repository):
@@ -1079,11 +1076,19 @@ class _Boundary:
             credentials.append(path)
 
         shared = _shared_state_roots(home)
+        from lu_machinery.dispatcher.runtime_context import read_roots
+
+        # A release or its advertised resources may live below /run or /tmp. Restore only the
+        # declared read directories after the private tmpfs mounts, never their siblings.
+        projected_reads = [root for path in read_roots() if (root := path.resolve()).is_dir()
+                           and _under(root, _MASKED_ROOTS)]
         sockets = [path for path in _listening_socket_paths()
-                   if not _under(path, _MASKED_ROOTS) and os.path.lexists(path)]
+                   if (not _under(path, _MASKED_ROOTS) or _under(path, projected_reads)) and os.path.lexists(path)]
         nonce = uuid.uuid4().hex
         probes = self._probes(repository, common, sockets, outputs, tmp, nonce)
         for path in shared:
+            probes.append({"op": "create", "path": str(path / f".write-boundary-canary-{nonce}"), "expect_any": ["EROFS"]})
+        for path in projected_reads:
             probes.append({"op": "create", "path": str(path / f".write-boundary-canary-{nonce}"), "expect_any": ["EROFS"]})
         self.receipt["canary"] = {"probes_planned": len(probes), "passed": False}
 
@@ -1114,6 +1119,8 @@ class _Boundary:
             if not read_only or runtime != dispatch_lease(self.args.task_id) or runtime.is_symlink() or not runtime.is_dir():
                 raise Refused("the runtime is not this read-only task's scratch lease")
             argv += ["--bind", str(tmp), str(runtime)]
+        for path in projected_reads:
+            argv += ["--ro-bind", str(path), str(path)]
         # No GitHub credential is readable inside (PUBLISH-CRED-1113): the host login's known stores are empty.
         for path in _github_credential_paths(home):
             argv += ["--tmpfs", str(path)] if path.is_dir() else ["--ro-bind", "/dev/null", str(path)]

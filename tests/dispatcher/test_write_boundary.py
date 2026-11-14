@@ -259,7 +259,7 @@ def test_no_github_write_authority_is_reachable_inside_any_route(primary, monkey
     credential = {"claude": home / ".claude/.credentials.json", "codex": home / ".codex/auth.json",
                   "agy": home / ".agy/token", "opencode": home / ".local/share/opencode/auth.json"}.get(route)
     extra = []
-    if credential is not None and mode == "workspace-write":  # only authors persist provider token refreshes
+    if credential is not None:  # provider refreshes persist for both authors and reviewers
         credential.parent.mkdir(parents=True, exist_ok=True)
         credential.write_text("{}")
         extra = ["--credential", str(credential)]
@@ -269,7 +269,7 @@ def test_no_github_write_authority_is_reachable_inside_any_route(primary, monkey
         "--task-id", "wb-test", "--worktree", str(worktree), "--scratch", str(write_boundary.scratch("wb-test")),
         "--receipt", str(receipt), "--mode", mode, "--output", str(report), *extra, "--", "/bin/sh", "-c",
         f"python3 -I {probe} {_SENTINEL} '{json.dumps({k: str(v) for k, v in stores.items()})}' {report} "
-        f"'{json.dumps(_GITHUB_HOSTS)}'",
+        f"'{json.dumps(_GITHUB_HOSTS)}'" + (f" && echo refreshed > {credential}" if credential else ""),
     ])
     result = json.loads(receipt.read_text())
     assert code == 0 and result["status"] == "ran", result
@@ -280,6 +280,8 @@ def test_no_github_write_authority_is_reachable_inside_any_route(primary, monkey
     github = [row for row in result["egress"] if row["destination"].split(":")[0] in _GITHUB_HOSTS]
     assert len(github) == len(_GITHUB_HOSTS) and all(row.get("refused") and row["bytes"] == 0 for row in github)
     assert all(path.read_text() == f"oauth_token: {_SENTINEL}\n" for path in stores.values())
+    if credential is not None:
+        assert credential.read_text() == "refreshed\n"
 
 
 class _Launch:
@@ -339,6 +341,56 @@ open(sys.argv[1], "w").write(json.dumps(results))
     assert write_boundary.verify(task_file, "wb-test", "read-only")[1] is None
     assert write_boundary.verify(task_file, "wb-test", "workspace-write")[1] == (
         "write_boundary_unproven: the receipt names another mode")
+
+
+def test_declared_resources_in_masked_roots_stay_read_only_without_host_socket_access(primary, monkeypatch, tmp_path):
+    """Defect class: private tmpfs hides declared resources, or restoring them exposes host sockets/writes."""
+    import socket
+
+    from lu_machinery.dispatcher import runtime_context
+
+    _, worktree, receipt = primary
+    masked = tmp_path.parent / ("ro-" + hashlib.sha256(str(tmp_path).encode()).hexdigest()[:8])
+    shared = masked / "shared"
+    shared.mkdir(parents=True)
+    (shared / "resource").write_text("declared")
+    (masked / "hidden").write_text("sibling")
+    monkeypatch.setattr(write_boundary, "_MASKED_ROOTS", (*write_boundary._MASKED_ROOTS, masked))
+    monkeypatch.setattr(runtime_context, "read_roots", lambda: [shared])
+    client = tmp_path / "resource-probe.py"
+    client.write_text("""
+import json, socket, sys
+from pathlib import Path
+shared, masked, report = map(Path, sys.argv[1:])
+assert (shared / "resource").read_text() == "declared"
+assert not (masked / "hidden").exists()
+try:
+    (shared / "resource").open("w")
+except OSError as exc:
+    assert exc.errno == 30
+else:
+    raise AssertionError("declared resource writable")
+with socket.socket(socket.AF_UNIX) as connection:
+    try:
+        connection.connect(str(shared / "host.sock"))
+    except OSError:
+        pass
+    else:
+        raise AssertionError("host socket reachable")
+report.write_text("resources-readable-writes-and-sockets-denied")
+""")
+    report = tmp_path / "resource-result"
+    with socket.socket(socket.AF_UNIX) as listener:
+        listener.bind(str(shared / "host.sock"))
+        listener.listen()
+        code = write_boundary.main([
+            "--task-id", "wb-test", "--worktree", str(worktree), "--scratch", str(write_boundary.scratch("wb-test")),
+            "--receipt", str(receipt), "--mode", "read-only", "--output", str(report), "--", sys.executable, "-I",
+            str(client), str(shared), str(masked), str(report),
+        ])
+    assert code == 0, json.loads(receipt.read_text())
+    assert report.read_text() == "resources-readable-writes-and-sockets-denied"
+    assert (shared / "resource").read_text() == "declared"
 
 
 @pytest.fixture

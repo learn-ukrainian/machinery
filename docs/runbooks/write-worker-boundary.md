@@ -18,7 +18,8 @@ Read-only native Codex, Cursor and OpenCode also run through `write_boundary.lau
 are read-only mounts, with no branch import. Codex uses these mounts
 as its filesystem sandbox: its inner sandbox cannot start under `--disable-userns`. Its dispatch keeps
 the private scratch lease. Other native providers keep their read-only permission profiles.
-Provider credential refreshes stay in the private HOME overlay rather than writable host binds.
+Provider credential files retain writable binds so rotating provider logins persist; GitHub credentials remain masked.
+Muse retains its existing self-contained filesystem sandbox.
 Read-only AGY retains its existing filesystem boundary and uses
 the same GitHub domain and address refusal rules, without nesting two boundaries.
 
@@ -47,7 +48,8 @@ One bubblewrap invocation per launch, built in full by the launcher:
   namespace, no controlling terminal.
 - `--ro-bind / /`: the whole host file system is read-only. `/tmp`, `/run` and `/dev/shm` are private
   tmpfs, so host sockets there (user bus, systemd, SSH and GPG agents, tmux) do not exist inside.
-  Every other listening host Unix socket path found in `/proc/net/unix` at launch is covered with
+  Declared shared resource directories under those roots are restored read-only; their siblings stay hidden.
+  Every listening host Unix socket exposed by those mounts, or elsewhere, found in `/proc/net/unix` at launch is covered with
   `/dev/null`. `/dev` and `/proc` are fresh.
 - HOME is an overlay. The CLIs see their configuration and state; what they write lands in a private
   upper directory that is deleted after the run. The provider's credential file (Claude
