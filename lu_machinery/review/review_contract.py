@@ -14,8 +14,8 @@ from collections.abc import Callable, Iterator, Mapping, Sequence
 from copy import deepcopy
 from dataclasses import asdict, dataclass, field
 from functools import lru_cache
-from importlib.resources import (
-    files as _package_files,  # nosemgrep: python.lang.compatibility.python37-compatibility-importlib2
+from importlib.resources import (  # nosemgrep: python.lang.compatibility.python37-compatibility-importlib2
+    files as _package_files,
 )
 from pathlib import Path
 from typing import Any
