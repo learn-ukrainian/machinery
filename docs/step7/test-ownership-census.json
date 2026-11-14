@@ -19319,8 +19319,9 @@
      },
      "test_invoke_hard_timeout_recovers_from_session_file": {
       "source_test_sha256": "0bec6191485bb9ca4dc3ad2cf8f118a07881a6248d66297720859c833dfb79d3",
-      "decision": "obsolete",
-      "finding": "Machinery #236 (f9a8369) removed native Gemini CLI argv construction. GeminiAdapter.build_invocation now refuses before any command; the runtime default uses AGY. This native launch/auth/session expectation is obsolete. Historical response/session readers, AGY runtime attribution, typed rate-limit propagation and timeout behavior remain retained."
+      "decision": "retained-with-obsolete-parameters",
+      "finding": "The runner recovery contract remains live: invoke must return recovered output after a hard-timeout kill instead of raising AgentTimeoutError. The port exercises the real runner and a session-reading fixture adapter through process and watchdog boundaries. Only the former native Gemini launch/session vehicle is obsolete under #236 (f9a8369); the recover-after-kill behavior is retained.",
+      "machinery_test": "tests/test_agent_runtime.py::test_invoke_hard_timeout_recovers_from_session_file"
      },
      "test_invoke_gemini_runtime_falls_through_to_subscription_rung": {
       "source_test_sha256": "58687ee842490c25ac7b786a359b1d7569f3aa6289f204c3889bef0cafa55312",

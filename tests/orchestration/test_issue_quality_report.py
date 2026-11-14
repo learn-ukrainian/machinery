@@ -95,7 +95,7 @@ def summarize(issues, count, membership=None, codes=(), repo=PUBLIC):
 
 
 def test_listing_500_of_612_is_incomplete_independently_of_audit():
-    """Defect class: violation of the listing 500 of 612 is incomplete independently of audit contract."""
+    """A truncated issue listing must remain incomplete even when the membership audit succeeds."""
     issues = [{"number": n, "title": "", "body": COMPLETE} for n in range(100, 600)]
     membership = audit_report()
     membership["open_total"] = 500
@@ -108,7 +108,7 @@ def test_listing_500_of_612_is_incomplete_independently_of_audit():
 
 
 def test_partial_outage_is_unknown_never_zero():
-    """Defect class: violation of the partial outage is unknown never zero contract."""
+    """An API outage must report unknown counts instead of inventing zero open issues."""
     result = summarize(None, None, codes=["forge_unavailable"], repo=PRIVATE)
     assert result["open_total"] is None
     assert result["coverage"] == "incomplete"
@@ -116,7 +116,7 @@ def test_partial_outage_is_unknown_never_zero():
 
 
 def test_private_boundary_golden():
-    """Defect class: violation of the private boundary golden contract."""
+    """Public issue reports must redact private payload fields at the publication boundary."""
     private_issue = {
         "number": 987654321,
         "title": "TITLE_CANARY",
@@ -152,7 +152,7 @@ def test_private_boundary_golden():
 
 
 def test_visibility_fails_closed_for_unknown_role():
-    """Defect class: violation of the visibility fails closed for unknown role contract."""
+    """An unknown visibility role must not acquire access to private report fields."""
     unknown = FleetRepo("unknown", "unit/other", "other", "public-ish")
     assert summarize([], 0, repo=unknown)["visibility"] == "private"
 
@@ -166,7 +166,7 @@ def test_visibility_fails_closed_for_unknown_role():
     ],
 )
 def test_audit_incompleteness_never_reports_zero_membership(mutate, code):
-    """Defect class: violation of the audit incompleteness never reports zero membership contract."""
+    """An incomplete audit must not turn missing membership evidence into a zero count."""
     membership = audit_report(native=[123])
     mutate(membership)
     result = summarize([{"number": 123, "body": COMPLETE}], 1, membership)
@@ -176,7 +176,7 @@ def test_audit_incompleteness_never_reports_zero_membership(mutate, code):
 
 
 def test_pending_native_and_ambiguous():
-    """Defect class: violation of the pending native and ambiguous contract."""
+    """Membership reporting must distinguish pending native work from ambiguous ownership."""
     membership = audit_report(body=[123])
     result = summarize([{"number": 123, "body": COMPLETE}], 1, membership)
     assert result["lanes"]["devops"]["pending_native_link"] == 1
@@ -204,7 +204,7 @@ def stub_collection(monkeypatch, tmp_path, *, count=1, membership=None):
 
 
 def test_daily_report_writes_cache_consumed_by_parentless_checker(monkeypatch, tmp_path):
-    """Defect class: violation of the daily report writes cache consumed by parentless checker contract."""
+    """The daily report must publish a cache that the parentless-issue checker can consume."""
     live = stub_collection(monkeypatch, tmp_path)
     issues, count, membership, codes = report.collect_repository(PUBLIC)
     assert issues == [{"number": 123}] and count == 1 and codes == []
@@ -230,14 +230,14 @@ def test_daily_report_writes_cache_consumed_by_parentless_checker(monkeypatch, t
     (1, {"membership_complete": False}), (1, {"generated_at": 0}),
 ])
 def test_daily_report_never_publishes_unverified_cache(monkeypatch, tmp_path, count, change):
-    """Defect class: violation of the daily report never publishes unverified cache contract."""
+    """A daily report must not publish a cache whose verification has failed."""
     stub_collection(monkeypatch, tmp_path, count=count, membership={**audit_report(body=[123]), **change})
     report.collect_repository(PUBLIC)
     assert not (tmp_path / "batch_state/issue_stream_audit.json").exists()
 
 
 def test_daily_report_cache_failure_is_typed_and_redacted(monkeypatch, tmp_path):
-    """Defect class: violation of the daily report cache failure is typed and redacted contract."""
+    """Cache write failures must remain typed without leaking their private exception payloads."""
     stub_collection(monkeypatch, tmp_path)
 
     def fail(*a, **k):
@@ -253,7 +253,7 @@ def test_daily_report_cache_failure_is_typed_and_redacted(monkeypatch, tmp_path)
 
 
 def test_daily_report_hygiene_lookup_failure_publishes_nothing(monkeypatch, tmp_path):
-    """Defect class: violation of the daily report hygiene lookup failure publishes nothing contract."""
+    """A failed hygiene lookup must stop publication instead of emitting an incomplete report."""
     stub_collection(monkeypatch, tmp_path)
     report.audit.hygiene_warnings.side_effect = ValueError("PRIVATE_CANARY")
     issues, count, membership, codes = report.collect_repository(PUBLIC)
@@ -263,7 +263,7 @@ def test_daily_report_hygiene_lookup_failure_publishes_nothing(monkeypatch, tmp_
 
 
 def test_collection_redacts_exception_data(monkeypatch):
-    """Defect class: violation of the collection redacts exception data contract."""
+    """Collection failures must not expose private exception text in the public report."""
     def fail(*a, **k):
         raise RuntimeError("PRIVATE_CANARY_URL/path")
 
@@ -276,7 +276,7 @@ def test_collection_redacts_exception_data(monkeypatch):
 
 
 def test_payload_persisted_before_publish_and_reused(tmp_path, monkeypatch):
-    """Defect class: violation of the payload persisted before publish and reused contract."""
+    """Publication retries must reuse the saved payload rather than collect a different report."""
     calls = []
     day = datetime.now(UTC).date().isoformat()
 
@@ -312,7 +312,7 @@ def test_payload_persisted_before_publish_and_reused(tmp_path, monkeypatch):
 
 
 def test_report_cli_persists_prints_and_propagates_publish_failure(monkeypatch, capsys):
-    """Defect class: violation of the report cli persists prints and propagates publish failure contract."""
+    """The CLI must preserve its payload and return publication failure to its caller."""
     calls = []
     payload = b'{"schema":"issue-quality-report.v1"}\n'
     monkeypatch.setattr(report, "persisted_payload", lambda day: calls.append(("persist", day)) or payload)
@@ -331,7 +331,7 @@ def test_report_cli_persists_prints_and_propagates_publish_failure(monkeypatch, 
 
 
 def test_checker_error_is_incomplete(monkeypatch):
-    """Defect class: violation of the checker error is incomplete contract."""
+    """A failed checker must mark the report incomplete instead of reporting healthy membership."""
     def fail(*a, **k):
         raise ValueError("SECRET_CANARY")
 
@@ -344,7 +344,7 @@ def test_checker_error_is_incomplete(monkeypatch):
 
 
 def test_collection_rate_limit_never_zeros(monkeypatch):
-    """Defect class: violation of the collection rate limit never zeros contract."""
+    """Rate limiting must leave counts unknown rather than replace them with zero."""
     def limited(*a, **k):
         raise report.github_client.GitHubRateLimited(2000)
 
@@ -357,7 +357,7 @@ def test_collection_rate_limit_never_zeros(monkeypatch):
 
 @pytest.mark.parametrize("body,missing,malformed", [("", 1, 0), (COMPLETE + "\n- [ ] AC-01: duplicate", 0, 1)])
 def test_registered_roots_still_count_dor_and_dod(body, missing, malformed):
-    """Defect class: violation of the registered roots still count dor and dod contract."""
+    """Registered stream roots must still contribute to readiness and completion counts."""
     membership = audit_report()
     result = summarize([{"number": 5703, "body": body}], 1, membership)
     assert result["evaluated_total"] == 1
@@ -370,14 +370,14 @@ def test_registered_roots_still_count_dor_and_dod(body, missing, malformed):
 
 @pytest.mark.parametrize("day", ["2000-01-01", "9999-01-01"])
 def test_other_day_without_saved_payload_refuses_current_snapshot(tmp_path, day):
-    """Defect class: violation of the other day without saved payload refuses current snapshot contract."""
+    """A historical report without a saved payload must not substitute today's snapshot."""
     with pytest.raises(ValueError, match="only today's report can be prepared"):
         report.persisted_payload(day, root=tmp_path, build=lambda: pytest.fail("must not fetch today's snapshot"))
     assert list((tmp_path / "batch_state/reports").iterdir()) == []
 
 
 def test_payload_staging_is_atomic_on_destination_filesystem(tmp_path, monkeypatch):
-    """Defect class: violation of the payload staging is atomic on destination filesystem contract."""
+    """Payload staging must keep atomic replacement on the destination filesystem."""
     day = datetime.now(UTC).date().isoformat()
     link = report.os.link
     calls = []
@@ -396,7 +396,7 @@ def test_payload_staging_is_atomic_on_destination_filesystem(tmp_path, monkeypat
 
 
 def test_concurrent_payload_winner_is_kept(tmp_path, monkeypatch):
-    """Defect class: violation of the concurrent payload winner is kept contract."""
+    """Concurrent report writers must preserve the payload that first won publication."""
     day = datetime.now(UTC).date().isoformat()
 
     def publish(source, destination):
@@ -409,7 +409,7 @@ def test_concurrent_payload_winner_is_kept(tmp_path, monkeypatch):
 
 
 def test_payload_write_failure_leaves_no_partial_report(tmp_path, monkeypatch):
-    """Defect class: violation of the payload write failure leaves no partial report contract."""
+    """A failed payload write must not leave a partial report at the final path."""
     def fail(*args):
         raise OSError("storage failure")
 

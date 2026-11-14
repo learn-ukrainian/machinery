@@ -32,7 +32,7 @@ pytestmark = pytest.mark.usefixtures("agent_runtime_roots")
     ],
 )
 def test_sibling_invocation_logs_constant_message(tmp_path, monkeypatch, caplog, adapter_type, expected_message):
-    """Defect class: violation of the sibling invocation logs constant message contract."""
+    """Sibling invocation diagnostics must exclude prompts, tokens and session identifiers."""
     for variable in ("CI", "GITHUB_ACTIONS", "GITLAB_CI", "BUILDKITE", "JENKINS_URL"):
         monkeypatch.delenv(variable, raising=False)
     monkeypatch.setenv("HOME", str(tmp_path))
@@ -111,7 +111,7 @@ def _assert_single_constant_warning(caplog, adapter_type, secret, expected_messa
 
 
 def test_deepseek_max_budget_warning_is_constant(tmp_path, monkeypatch, caplog):
-    """Defect class: violation of the deepseek max budget warning is constant contract."""
+    """DeepSeek budget warnings must exclude the requested secret-bearing budget value."""
     for variable in ("CI", "GITHUB_ACTIONS", "GITLAB_CI", "BUILDKITE", "JENKINS_URL"):
         monkeypatch.delenv(variable, raising=False)
     secret = "secret-looking-budget-value"
@@ -187,7 +187,7 @@ def _build_plan(
     ],
 )
 def test_non_claude_max_budget_warning_is_constant(tmp_path, monkeypatch, caplog, adapter_type, mode, model):
-    """Defect class: violation of the non claude max budget warning is constant contract."""
+    """Unsupported budget warnings must remain constant across private configuration values."""
     _isolated_environment(monkeypatch, tmp_path)
     secret = "secret-looking-budget-value"
     tool_config = {"max_budget_usd": secret}
@@ -209,7 +209,7 @@ def test_non_claude_max_budget_warning_is_constant(tmp_path, monkeypatch, caplog
     ],
 )
 def test_ignored_effort_debug_is_constant(tmp_path, monkeypatch, caplog, adapter_type, mode, model, expected_message):
-    """Defect class: violation of the ignored effort debug is constant contract."""
+    """Ignored-effort diagnostics must not interpolate private configuration values."""
     _isolated_environment(monkeypatch, tmp_path)
     secret = "secret-looking-effort-value"
     with caplog.at_level(logging.DEBUG):
@@ -218,7 +218,7 @@ def test_ignored_effort_debug_is_constant(tmp_path, monkeypatch, caplog, adapter
 
 
 def test_acpx_ignored_effort_debug_is_constant(tmp_path, monkeypatch, caplog):
-    """Defect class: violation of the acpx ignored effort debug is constant contract."""
+    """ACPx effort diagnostics must exclude private adapter inputs."""
     from tests.agent_runtime.test_acpx_adapter import _patch_provider_binary_lookup, _stub_binary
 
     _isolated_environment(monkeypatch, tmp_path)
@@ -255,7 +255,7 @@ def test_acpx_ignored_effort_debug_is_constant(tmp_path, monkeypatch, caplog):
 
 
 def test_grok_build_invocation_debug_is_constant(tmp_path, monkeypatch, caplog):
-    """Defect class: violation of the grok build invocation debug is constant contract."""
+    """Grok invocation diagnostics must exclude prompts, tokens and session identifiers."""
     _isolated_environment(monkeypatch, tmp_path)
     secret = "secret-looking-task-value"
     with (
@@ -267,7 +267,7 @@ def test_grok_build_invocation_debug_is_constant(tmp_path, monkeypatch, caplog):
 
 
 def test_agy_interim_language_warning_is_constant(caplog):
-    """Defect class: violation of the agy interim language warning is constant contract."""
+    """AGY language warnings must not echo private configuration values."""
     secret = "pending-work wording: 'secret-looking-reply-excerpt'"
     with caplog.at_level(logging.DEBUG):
         excerpt = agy_module._with_language_warning(secret, None)

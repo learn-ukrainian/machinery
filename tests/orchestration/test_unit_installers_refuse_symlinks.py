@@ -221,7 +221,7 @@ def _snapshot(root: Path) -> list[tuple[str, str, int]]:
 def test_symlinked_unit_directory_is_refused(
     installer: Installer, mode: str, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """Defect class: violation of the symlinked unit directory is refused contract."""
+    """A symlinked unit directory must be refused before an installer writes through it."""
     outside = tmp_path / "outside-units"
     outside.mkdir()
     (outside / installer.unit.name).write_text("outside unit")
@@ -240,7 +240,7 @@ def test_symlinked_unit_directory_is_refused(
 def test_symlinked_unit_file_is_refused(
     installer: Installer, mode: str, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """Defect class: violation of the symlinked unit file is refused contract."""
+    """A symlinked unit file must not redirect an installer into overwriting another file."""
     outside = tmp_path / "outside-unit"
     outside.write_text("outside unit")
     outside.chmod(0o400)
@@ -259,7 +259,7 @@ def test_symlinked_unit_file_is_refused(
 def test_symlinked_ancestor_is_refused(
     installer: Installer, mode: str, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """Defect class: violation of the symlinked ancestor is refused contract."""
+    """A symlink in any unit-path ancestor must prevent installation."""
     outside = tmp_path / "outside-ancestor"
     real_unit = outside / installer.unit.relative_to(installer.ancestor)
     real_unit.parent.mkdir(parents=True)
@@ -375,7 +375,7 @@ def test_state_creation_refuses_every_symlinked_ancestor_before_mutation(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Defect class: violation of the state creation refuses every symlinked ancestor before mutation contract."""
+    """State creation must refuse symlinked ancestors before mutating any destination."""
     home = tmp_path / "home"
     home.mkdir()
     monkeypatch.setenv("HOME", str(home))
@@ -409,7 +409,7 @@ def test_project_state_dry_run_validates_before_creating_state(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Defect class: violation of the project state dry run validates before creating state contract."""
+    """A dry run must validate the state path without creating state directories."""
     home = tmp_path / "home"
     home.mkdir()
     installer = _project_state(tmp_path, home, monkeypatch)

@@ -121,7 +121,7 @@ def test_cross_repository_paths_never_conflict_or_wait(tmp_path, repositories, m
 
 @pytest.mark.parametrize("held,incoming", PATH_PAIRS[:4])
 def test_linked_worktrees_still_conflict_and_queue(tmp_path, repositories, monkeypatch, held, incoming):
-    """Defect class: violation of the linked worktrees still conflict and queue contract."""
+    """Linked worktrees of one repository must still share admission conflicts and queue order."""
     a = _ledger(tmp_path, repositories[0], monkeypatch)
     linked = _ledger(tmp_path, repositories[2], monkeypatch)
     assert _admit(a, "holder", [held]).admitted
@@ -138,7 +138,7 @@ def test_linked_worktrees_still_conflict_and_queue(tmp_path, repositories, monke
 
 
 def test_foreign_waiter_does_not_block_unknown_intent_or_get_reaped(tmp_path, repositories, monkeypatch):
-    """Defect class: violation of the foreign waiter does not block unknown intent or get reaped contract."""
+    """A foreign repository's waiter must neither block this repository nor be reaped by it."""
     a = _ledger(tmp_path, repositories[0], monkeypatch)
     b = _ledger(tmp_path, repositories[1], monkeypatch)
     assert _admit(b, "holder-b", ["tests/unit.py"]).admitted
@@ -158,7 +158,7 @@ def test_foreign_waiter_does_not_block_unknown_intent_or_get_reaped(tmp_path, re
 
 
 def test_reclamation_release_and_pid_binding_preserve_foreign_rows(tmp_path, repositories, monkeypatch):
-    """Defect class: violation of the reclamation release and pid binding preserve foreign rows contract."""
+    """Reclaim, release and PID binding must not mutate another repository's ownership rows."""
     a = _ledger(tmp_path, repositories[0], monkeypatch)
     b = _ledger(tmp_path, repositories[1], monkeypatch)
     # Duplicate task IDs in distinct repositories must not replace each other.
@@ -184,7 +184,7 @@ def test_reclamation_release_and_pid_binding_preserve_foreign_rows(tmp_path, rep
 
 @pytest.mark.parametrize("legacy_kind", ["file", "subtree", "ownership_unknown"])
 def test_legacy_claims_default_to_each_current_repository(tmp_path, repositories, monkeypatch, legacy_kind):
-    """Defect class: violation of the legacy claims default to each current repository contract."""
+    """Legacy claims must default to the current repository instead of crossing repository boundaries."""
     a = _ledger(tmp_path, repositories[0], monkeypatch)
     with a._connect() as conn:
         conn.execute("INSERT INTO write_claims VALUES (?,?,?,?)", (
@@ -199,7 +199,7 @@ def test_legacy_claims_default_to_each_current_repository(tmp_path, repositories
 
 
 def test_legacy_waiters_remain_visible_to_unknown_intent(tmp_path, repositories, monkeypatch):
-    """Defect class: violation of the legacy waiters remain visible to unknown intent contract."""
+    """An unknown-intent request must still see legacy waiters for its repository."""
     ledger = _ledger(tmp_path, repositories[0], monkeypatch)
     with ledger._connect() as conn:
         conn.execute("INSERT INTO write_waiters (task_id, claims_json, pid, enqueued_at, deadline) VALUES (?,?,?,?,?)", (
@@ -210,7 +210,7 @@ def test_legacy_waiters_remain_visible_to_unknown_intent(tmp_path, repositories,
 
 @pytest.mark.parametrize("missing", [False, True])
 def test_unresolvable_identity_keeps_global_admission_and_typed_note(tmp_path, repositories, monkeypatch, capsys, missing):
-    """Defect class: violation of the unresolvable identity keeps global admission and typed note contract."""
+    """An unresolved repository identity must preserve conservative global admission and a typed note."""
     a = _ledger(tmp_path, repositories[0], monkeypatch)
     assert _admit(a, "holder", ["tests/unit.py"]).admitted
     outside = tmp_path / "outside"
@@ -234,7 +234,7 @@ def test_unresolvable_identity_keeps_global_admission_and_typed_note(tmp_path, r
 
 
 def test_identity_ignores_git_environment_and_resolves_symlinks(tmp_path, repositories, monkeypatch):
-    """Defect class: violation of the identity ignores git environment and resolves symlinks contract."""
+    """Ambient Git variables and path aliases must not forge distinct repository identities."""
     a = _ledger(tmp_path, repositories[0], monkeypatch)
     alias = tmp_path / "alias"
     alias.symlink_to(repositories[2], target_is_directory=True)
@@ -257,7 +257,7 @@ def test_common_directory_identity_preserves_trailing_spaces(tmp_path, monkeypat
 
 @pytest.mark.parametrize("held", ["tests/**", "**"])
 def test_old_reader_new_row_keeps_same_repository_protection(tmp_path, repositories, monkeypatch, held):
-    """Defect class: violation of the old reader new row keeps same repository protection contract."""
+    """An older reader must retain same-repository protection for newer ownership rows."""
     ledger = _ledger(tmp_path, repositories[0], monkeypatch)
     assert _admit(ledger, "new-holder", [held]).admitted
     # Historical reader selects these four columns and ignores extra JSON keys.
@@ -274,7 +274,7 @@ def test_old_reader_new_row_keeps_same_repository_protection(tmp_path, repositor
 
 
 def test_events_and_results_never_expose_repository_realpaths(tmp_path, repositories, monkeypatch, capsys):
-    """Defect class: violation of the events and results never expose repository realpaths contract."""
+    """Public ownership events and results must not reveal repository real paths."""
     ledger = _ledger(tmp_path, repositories[0], monkeypatch)
     assert _admit(ledger, "holder", ["tests/unit.py"]).admitted
     fake = FakeTime(limit=2)
@@ -294,7 +294,7 @@ def test_events_and_results_never_expose_repository_realpaths(tmp_path, reposito
 
 
 def test_foreign_holder_timeout_never_changes_queue_budget(tmp_path, repositories, monkeypatch):
-    """Defect class: violation of the foreign holder timeout never changes queue budget contract."""
+    """Another repository's holder must not consume this request's queue timeout budget."""
     a = _ledger(tmp_path, repositories[0], monkeypatch)
     b = _ledger(tmp_path, repositories[1], monkeypatch)
     assert _admit(a, "short-a", ["tests/unit.py"]).admitted
@@ -309,7 +309,7 @@ def test_foreign_holder_timeout_never_changes_queue_budget(tmp_path, repositorie
 
 
 def test_public_helpers_use_explicit_checkout_for_admission_and_pid_binding(tmp_path, repositories, monkeypatch):
-    """Defect class: violation of the public helpers use explicit checkout for admission and pid binding contract."""
+    """Public ownership helpers must bind admission and PID updates to the supplied checkout."""
     a = _ledger(tmp_path, repositories[0], monkeypatch)
     assert _admit(a, "holder", ["tests/unit.py"]).admitted
     monkeypatch.chdir(repositories[0])
@@ -337,7 +337,7 @@ def _process_admission(repo, ledger_path, state_dir, task, barrier, results, rel
 
 @pytest.mark.parametrize("same_repository", [False, True])
 def test_concurrent_processes_preserve_atomic_repository_admission(tmp_path, repositories, monkeypatch, same_repository):
-    """Defect class: violation of the concurrent processes preserve atomic repository admission contract."""
+    """Concurrent callers must not both acquire conflicting ownership in the same repository."""
     ledger = _ledger(tmp_path, repositories[0], monkeypatch)
     with ledger._connect():
         pass

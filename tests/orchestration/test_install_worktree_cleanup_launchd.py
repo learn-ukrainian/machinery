@@ -10,7 +10,7 @@ from lu_machinery.orchestration import install_worktree_cleanup_launchd as launc
 def test_rendered_plist_runs_both_repositories_every_four_hours(
     tmp_path: Path,
 ) -> None:
-    """Defect class: violation of the rendered plist runs both repositories every four hours contract."""
+    """The launchd job must schedule cleanup for both repositories at the specified interval."""
     public = tmp_path / "public"
     private = tmp_path / "private"
     home = tmp_path / "home"
@@ -46,7 +46,7 @@ def test_rendered_plist_runs_both_repositories_every_four_hours(
 
 
 def test_status_rejects_modified_program_arguments(tmp_path: Path, monkeypatch) -> None:
-    """Defect class: violation of the status rejects modified program arguments contract."""
+    """Status must reject a job whose installed arguments differ from the expected command."""
     public = tmp_path / "public"
     private = tmp_path / "private"
     home = tmp_path / "home"
@@ -81,7 +81,7 @@ def test_status_rejects_modified_program_arguments(tmp_path: Path, monkeypatch) 
 
 
 def test_install_is_verified_and_idempotent(tmp_path: Path, monkeypatch) -> None:
-    """Defect class: violation of the install is verified and idempotent contract."""
+    """Repeated installation must verify the same job without duplicating or corrupting it."""
     public = tmp_path / "public"
     private = tmp_path / "private"
     home = tmp_path / "home"
@@ -161,7 +161,7 @@ def test_install_is_verified_and_idempotent(tmp_path: Path, monkeypatch) -> None
 
 
 def test_uninstall_preserves_receipts(tmp_path: Path, monkeypatch) -> None:
-    """Defect class: violation of the uninstall preserves receipts contract."""
+    """Uninstalling a cleanup job must leave its historical receipts intact."""
     home = tmp_path / "home"
     destination = launchd.plist_path(home)
     destination.parent.mkdir(parents=True)

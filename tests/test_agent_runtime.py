@@ -110,7 +110,7 @@ def test_acpx_pilot_usage_records_strip_sensitive_context(
     tmp_path,
     monkeypatch,
 ):
-    """Defect class: violation of the acpx pilot usage records strip sensitive context contract."""
+    """Pilot usage records must omit task, session, checkout and prompt-context identifiers."""
     monkeypatch.setenv("LU_TELEMETRY_LEVEL", "secret-level")
     monkeypatch.setenv("LU_TELEMETRY_SLUG", "secret-slug")
     monkeypatch.setenv("LU_TELEMETRY_TRACK", "secret-track")
@@ -174,7 +174,7 @@ def valid_agy_hook_files(tmp_path, monkeypatch):
 
 @pytest.mark.parametrize("candidate", ["absent_home", "valid_home", "invalid_home", "invalid_workspace", "no_guard"])
 def test_agy_bridge_real_scratch_wiring(tmp_path, monkeypatch, candidate):
-    """Defect class: violation of the agy bridge real scratch wiring contract."""
+    """AGY scratch launch must provision and validate the actual packaged guard registrations."""
     from lu_machinery.agent_runtime.agy_hook_config import GUARD_NAME, AgyHookConfigError, guard_registration
     from lu_machinery.ai_agent_bridge import _agy as bridge
 
@@ -282,20 +282,20 @@ def test_agy_bridge_repo_read_falls_back_to_cwd_without_explicit_root(tmp_path, 
 
 def test_resume_policy_never_allows_none():
     # No error when session_id is None
-    """Defect class: violation of the resume policy never allows none contract."""
+    """A never-resume adapter must receive no inherited session identifier."""
     _enforce_resume_policy("grok-build", session_id=None, entrypoint="bridge")
     with pytest.raises(ValueError, match="resume_policy='never'"):
         _enforce_resume_policy("grok-build", session_id="uuid", entrypoint="bridge")
 
 
 def test_resume_policy_bridge_only_allows_bridge():
-    """Defect class: violation of the resume policy bridge only allows bridge contract."""
+    """Bridge-only adapters must retain session continuity for bridge calls."""
     _enforce_resume_policy("claude", session_id="uuid", entrypoint="bridge")
     _enforce_resume_policy("codex", session_id="uuid", entrypoint="bridge")
 
 
 def test_resume_policy_bridge_only_rejects_dispatch():
-    """Defect class: violation of the resume policy bridge only rejects dispatch contract."""
+    """Dispatch calls must not resume sessions reserved for bridge conversations."""
     with pytest.raises(ValueError, match="bridge_only"):
         _enforce_resume_policy("claude", session_id="uuid", entrypoint="dispatch")
     with pytest.raises(ValueError, match="bridge_only"):
@@ -308,7 +308,7 @@ def test_resume_policy_bridge_only_rejects_dispatch():
 
 
 def test_codex_adapter_mode_flags_read_only():
-    """Defect class: violation of the codex adapter mode flags read only contract."""
+    """Read-only Codex calls must retain their restrictive sandbox flags."""
     assert CodexAdapter._mode_flags("read-only") == [
         "-s",
         "read-only",
@@ -320,7 +320,7 @@ def test_codex_adapter_mode_flags_workspace_write():
     # server connections, leaving writers unable to call verify_words etc.
     # (verified empirically 2026-05-08). workspace-write now uses the same
     # flags as the interactive launcher.
-    """Defect class: violation of the codex adapter mode flags workspace write contract."""
+    """Codex write calls must retain the explicit workspace sandbox and approval policy."""
     assert CodexAdapter._mode_flags("workspace-write") == [
         "--dangerously-bypass-approvals-and-sandbox",
         "--enable",
@@ -329,7 +329,7 @@ def test_codex_adapter_mode_flags_workspace_write():
 
 
 def test_codex_adapter_build_invocation_read_only(tmp_path):
-    """Defect class: violation of the codex adapter build invocation read only contract."""
+    """Read-only Codex invocation plans must preserve the requested prompt, output and sandbox."""
     adapter = CodexAdapter()
     plan = adapter.build_invocation(
         prompt="hello",
@@ -359,7 +359,7 @@ def test_codex_adapter_build_invocation_read_only(tmp_path):
 
 
 def test_codex_adapter_discussion_readonly_sets_env(tmp_path):
-    """Defect class: violation of the codex adapter discussion readonly sets env contract."""
+    """Read-only discussion must propagate its restriction to the child environment."""
     adapter = CodexAdapter()
     plan = adapter.build_invocation(
         prompt="hello",
@@ -377,7 +377,7 @@ def test_codex_adapter_discussion_readonly_sets_env(tmp_path):
 
 
 def test_codex_adapter_bridge_creates_then_resumes(tmp_path):
-    """Defect class: violation of the codex adapter bridge creates then resumes contract."""
+    """Codex bridge calls must create a new session once and resume only the supplied session thereafter."""
     adapter = CodexAdapter()
     first = adapter.build_invocation(
         prompt="hello",
@@ -497,7 +497,7 @@ def test_codex_adapter_disables_apps_connector_across_all_invocations(tmp_path, 
 
 
 def test_codex_adapter_binds_valid_output_schema(tmp_path):
-    """Defect class: violation of the codex adapter binds valid output schema contract."""
+    """Codex schema calls must bind the validated schema file into the invocation."""
     schema_path = tmp_path / "semantic-schema.json"
     schema_path.write_text(
         json.dumps({"type": "object", "properties": {"status": {"type": "string"}}}),
@@ -529,7 +529,7 @@ def test_codex_adapter_binds_valid_output_schema(tmp_path):
     ],
 )
 def test_codex_adapter_rejects_invalid_output_schema(tmp_path, payload, expected):
-    """Defect class: violation of the codex adapter rejects invalid output schema contract."""
+    """An invalid output schema must fail before a Codex process can start."""
     schema_path = tmp_path / "semantic-schema.json"
     schema_path.write_text(payload, encoding="utf-8")
 
@@ -549,7 +549,7 @@ def test_codex_adapter_rejects_invalid_output_schema(tmp_path, payload, expected
 
 
 def test_codex_adapter_rejects_output_schema_hash_drift(tmp_path):
-    """Defect class: violation of the codex adapter rejects output schema hash drift contract."""
+    """Changing a validated schema must invalidate its digest binding before launch."""
     schema_path = tmp_path / "semantic-schema.json"
     schema_path.write_text('{"type": "object"}', encoding="utf-8")
 
@@ -574,7 +574,7 @@ def test_codex_adapter_rejects_output_schema_hash_drift(tmp_path):
 
 
 def test_codex_parse_response_success(tmp_path):
-    """Defect class: violation of the codex parse response success contract."""
+    """Codex parsing must return the completed answer and its session metadata."""
     adapter = CodexAdapter()
     output_file = tmp_path / "output.txt"
     output_file.write_text("Hello from Codex")
@@ -593,7 +593,7 @@ def test_codex_parse_response_success(tmp_path):
 
 
 def test_codex_parse_response_rate_limited(tmp_path):
-    """Defect class: violation of the codex parse response rate limited contract."""
+    """Codex quota failures must remain typed as rate limits rather than successful answers."""
     adapter = CodexAdapter()
     output_file = tmp_path / "output.txt"
     output_file.write_text("partial output")
@@ -610,7 +610,7 @@ def test_codex_parse_response_rate_limited(tmp_path):
 
 
 def test_codex_parse_response_error(tmp_path):
-    """Defect class: violation of the codex parse response error contract."""
+    """Codex error events must remain failed results with their diagnostic evidence."""
     adapter = CodexAdapter()
     output_file = tmp_path / "output.txt"
     # Output file exists but empty
@@ -890,7 +890,7 @@ def test_codex_check_early_reap_never_fires_before_the_final_file_is_written(tmp
 
 
 def test_codex_reaped_call_with_changed_final_file_is_incomplete(tmp_path, monkeypatch):
-    """Defect class: violation of the codex reaped call with changed final file is incomplete contract."""
+    """A final file changed after early-reap proof must not be accepted as the completed answer."""
     adapter = CodexAdapter()
     plan = _codex_reap_plan(adapter, tmp_path)
     try:
@@ -920,7 +920,7 @@ def test_codex_reaped_call_with_changed_final_file_is_incomplete(tmp_path, monke
     ids=["no-events", "no-terminal", "failed", "truncated-terminal", "other-thread-on-resume"],
 )
 def test_codex_check_early_reap_requires_this_invocations_completion(tmp_path, monkeypatch, stdout):
-    """Defect class: violation of the codex check early reap requires this invocations completion contract."""
+    """Another invocation's completion event must not authorize early reap of this call."""
     adapter = CodexAdapter()
     plan = _codex_reap_plan(adapter, tmp_path, session_id=THREAD_ID)
     try:
@@ -942,7 +942,7 @@ def test_codex_check_early_reap_skips_within_warmup_window(tmp_path, monkeypatch
 
 
 def test_codex_check_early_reap_never_fires_for_schema_calls(tmp_path, monkeypatch):
-    """Defect class: violation of the codex check early reap never fires for schema calls contract."""
+    """Structured-output calls must not use the plain-text early-reap shortcut."""
     schema = tmp_path / "schema.json"
     schema.write_text('{"type": "object"}')
     adapter = CodexAdapter()
@@ -1167,7 +1167,7 @@ def test_invoke_refuses_catalog_retired_model_on_every_adapter(tmp_path, agent_n
 
 
 def test_invoke_admits_active_explicit_model_past_retirement_gate(tmp_path):
-    """Defect class: violation of the invoke admits active explicit model past retirement gate contract."""
+    """An active explicitly selected model must pass the retirement gate to adapter loading."""
     with (
         patch("lu_machinery.agent_runtime.runner.has_headroom", return_value=(False, "probe")),
         patch("lu_machinery.agent_runtime.runner.write_record"),
@@ -1177,7 +1177,7 @@ def test_invoke_admits_active_explicit_model_past_retirement_gate(tmp_path):
 
 
 def test_invoke_requires_cwd_for_write_mode():
-    """Defect class: violation of the invoke requires cwd for write mode contract."""
+    """A write invocation without an explicit working directory must fail before launch."""
     with pytest.raises(ValueError, match="cwd is mandatory"):
         invoke("codex", "hello", mode="workspace-write", cwd=None)
 
@@ -1241,21 +1241,21 @@ def write_guard_repo(tmp_path, monkeypatch):
 
 @pytest.mark.parametrize("mode", ["workspace-write", "danger"])
 def test_write_guard_rejects_primary_checkout_on_protected_branch(write_guard_repo, mode):
-    """Defect class: violation of the write guard rejects primary checkout on protected branch contract."""
+    """The write guard must refuse the primary checkout while it is on a protected branch."""
     with pytest.raises(ValueError, match="primary checkout on a protected branch"):
         _ensure_write_cwd_isolated(write_guard_repo.main, mode=mode, agent_name="codex")
 
 
 def test_write_guard_allows_dispatch_worktree(write_guard_repo):
     # Must not raise: an isolated dispatch worktree is the sanctioned location.
-    """Defect class: violation of the write guard allows dispatch worktree contract."""
+    """The write guard must admit an isolated dispatch worktree."""
     _ensure_write_cwd_isolated(write_guard_repo.dispatch_wt, mode="danger", agent_name="codex")
 
 
 def test_write_guard_allows_primary_checkout_on_feature_branch(write_guard_repo):
     # Branch-scoped like #4448/#4449/#4450: a deliberately-checked-out feature
     # branch in the primary checkout is a developer workspace, not a hazard.
-    """Defect class: violation of the write guard allows primary checkout on feature branch contract."""
+    """The write guard must preserve the supported primary feature-branch exception."""
     _git_wt(write_guard_repo.main, "checkout", "-q", "-b", "feature/x")
     _ensure_write_cwd_isolated(write_guard_repo.main, mode="workspace-write", agent_name="codex")
 
@@ -1263,14 +1263,14 @@ def test_write_guard_allows_primary_checkout_on_feature_branch(write_guard_repo)
 def test_write_guard_allows_out_of_tree_cwd(tmp_path):
     # No monkeypatch of _RUNNER_REPO_TREE: a cwd outside this checkout's tree is
     # isolated by definition and must skip the git-plumbing classify entirely.
-    """Defect class: violation of the write guard allows out of tree cwd contract."""
+    """A checkout guard must not reject an unrelated working directory as the primary checkout."""
     outside = tmp_path / "somewhere-else"
     outside.mkdir()
     _ensure_write_cwd_isolated(outside, mode="danger", agent_name="codex")
 
 
 def test_write_guard_fails_closed_when_containment_unavailable(tmp_path, monkeypatch):
-    """Defect class: violation of the write guard fails closed when containment unavailable contract."""
+    """Missing containment evidence must refuse a write launch rather than assume isolation."""
     from lu_machinery.agent_runtime import runner as runner_mod
 
     monkeypatch.setattr(runner_mod, "_load_worktree_containment", lambda: None)
@@ -1568,6 +1568,69 @@ def test_invoke_early_reap_fires_and_recovers_response(tmp_path, monkeypatch, re
 
 
 
+def test_invoke_hard_timeout_recovers_from_session_file(tmp_path, monkeypatch):
+    """A hard-timeout kill must not discard work recovered from the session file."""
+    from unittest.mock import MagicMock
+
+    from lu_machinery.agent_runtime import runner
+
+    session_file = tmp_path / "provider-session.txt"
+    killed = False
+    proc = MagicMock()
+    proc.poll.side_effect = lambda: -9 if killed else None
+    proc.returncode = -9
+    proc.stdout.readline.return_value = ""
+    proc.stderr.readline.return_value = ""
+    _popen_proc_for_subprocess_run(proc)
+
+    def spawn(*args, **kwargs):
+        session_file.write_text("The complete response survived the timeout.")
+        return proc
+
+    def kill(process):
+        nonlocal killed
+        assert process is proc
+        killed = True
+
+    def parse_response(**kwargs):
+        assert killed, "the recovery must occur after a hard-timeout kill"
+        return ParseResult(
+            ok=True,
+            response=session_file.read_text(),
+            stderr_excerpt="recovered from session file",
+        )
+
+    adapter = SimpleNamespace(
+        name="codex",
+        default_model="gpt-6.1-sol",
+        supported_modes=frozenset({"read-only"}),
+        resume_policy="never",
+        build_invocation=lambda **kwargs: InvocationPlan(cmd=["fixture-provider"], cwd=tmp_path),
+        liveness_signal_paths=lambda plan: (session_file,),
+        parse_response=parse_response,
+    )
+    monkeypatch.setenv("DELEGATE_DISABLE_PTY", "1")
+    with (
+        patch.object(runner, "_load_adapter", return_value=adapter),
+        patch.object(runner, "has_headroom", return_value=(True, "")),
+        patch.object(runner.subprocess, "Popen", _agent_only_popen(spawn)),
+        patch.object(runner, "start_watchdog", return_value=(
+            WatchdogState(start_time=time.monotonic(), last_activity=time.monotonic()), [],
+        )),
+        patch.object(runner, "should_kill", return_value="hard_timeout") as timed_out,
+        patch.object(runner, "_kill_process_tree", side_effect=kill) as killed_tree,
+        patch.object(runner, "write_record") as recorded,
+    ):
+        result = invoke("codex", "recover the completed work", mode="read-only", cwd=tmp_path, hard_timeout=5)
+
+    timed_out.assert_called_once()
+    killed_tree.assert_called_once_with(proc)
+    assert result.ok is True
+    assert result.response == "The complete response survived the timeout."
+    assert result.stderr_excerpt == "recovered from session file"
+    assert recorded.call_args.args[0]["outcome"] == "ok"
+
+
 def test_invoke_gemini_runtime_reports_actual_agy_fallback_model(tmp_path, monkeypatch):
     """The current Flash default attributes both result and usage to AGY."""
     from lu_machinery.agent_runtime import runner
@@ -1745,7 +1808,7 @@ def test_should_kill_ignores_stall_silence():
 
 
 def test_should_kill_detects_hard_timeout():
-    """Defect class: violation of the should kill detects hard timeout contract."""
+    """The watchdog must kill a process once its hard deadline expires."""
     now = time.monotonic()
     state = WatchdogState(start_time=now - 4000, last_activity=now)
     # Started 4000s ago, hard_timeout 3600s → hard_timeout
@@ -1773,7 +1836,7 @@ def test_should_kill_silence_timeout_accepts_liveness_activity():
 
 
 def test_should_kill_silence_timeout_kills_fully_silent_process():
-    """Defect class: violation of the should kill silence timeout kills fully silent process contract."""
+    """A process with no initial output must still hit the configured silence deadline."""
     now = time.monotonic()
     state = WatchdogState(
         start_time=now - 2400,
@@ -2065,7 +2128,7 @@ def test_resolve_gemini_auth_mode_defaults_to_subscription_without_api_key(
 ):
     # API-first policy (2026-05-05, #1710): auto mode uses subscription only
     # when no API key is available.
-    """Defect class: violation of the resolve gemini auth mode defaults to subscription without api key contract."""
+    """Absent API credentials must select subscription authentication rather than API mode."""
     monkeypatch.setattr("pathlib.Path.home", classmethod(lambda _: tmp_path))
     assert resolve_gemini_auth_mode() == "subscription"
 
@@ -2083,7 +2146,7 @@ def test_resolve_gemini_auth_mode_defaults_to_subscription_without_api_key(
 
 
 def test_gemini_parse_response_success():
-    """Defect class: violation of the gemini parse response success contract."""
+    """Historical Gemini responses must retain their answer, session and token accounting."""
     adapter = GeminiAdapter()
     result = adapter.parse_response(
         stdout="Hello from Gemini\n",
@@ -2099,7 +2162,7 @@ def test_gemini_parse_response_success():
 
 
 def test_gemini_parse_response_extracts_session_uuid_from_resume_hint():
-    """Defect class: violation of the gemini parse response extracts session uuid from resume hint contract."""
+    """Historical Gemini resume hints must preserve their session identifier."""
     adapter = GeminiAdapter()
     session_id = "2c8337b6-35da-415d-806d-91d10b5b1381"
     result = adapter.parse_response(
@@ -2113,7 +2176,7 @@ def test_gemini_parse_response_extracts_session_uuid_from_resume_hint():
 
 
 def test_gemini_parse_response_rate_limit_resource_exhausted():
-    """Defect class: violation of the gemini parse response rate limit resource exhausted contract."""
+    """Historical resource-exhausted responses must remain typed rate limits."""
     adapter = GeminiAdapter()
     result = adapter.parse_response(
         stdout="",
@@ -2300,7 +2363,7 @@ def test_gemini_liveness_paths_from_project_tmp(tmp_path, monkeypatch):
 
 
 def test_claude_adapter_basic_stateless(tmp_path):
-    """Defect class: violation of the claude adapter basic stateless contract."""
+    """Stateless Claude invocations must not inherit an unrelated conversation session."""
     adapter = ClaudeAdapter()
     plan = adapter.build_invocation(
         prompt="hello",
@@ -2320,7 +2383,7 @@ def test_claude_adapter_basic_stateless(tmp_path):
 
 
 def test_claude_adapter_emits_max_budget_usd_from_tool_config(tmp_path):
-    """Defect class: violation of the claude adapter emits max budget usd from tool config contract."""
+    """Claude budget configuration must propagate its numeric limit to the CLI."""
     adapter = ClaudeAdapter()
     plan = adapter.build_invocation(
         prompt="hello",
@@ -2337,7 +2400,7 @@ def test_claude_adapter_emits_max_budget_usd_from_tool_config(tmp_path):
 
 
 def test_claude_adapter_discussion_readonly_uses_restricted_tools_without_plan_mode(tmp_path):
-    """Defect class: violation of the claude adapter discussion readonly uses restricted tools without plan mode contract."""
+    """Read-only discussions must restrict tools without activating write-capable plan behavior."""
     adapter = ClaudeAdapter()
     plan = adapter.build_invocation(
         prompt="hello",
@@ -2361,7 +2424,7 @@ def test_claude_adapter_discussion_readonly_uses_restricted_tools_without_plan_m
 
 
 def test_claude_adapter_resume_existing_session(tmp_path):
-    """Defect class: violation of the claude adapter resume existing session contract."""
+    """Claude continuation must resume the explicitly supplied session."""
     adapter = ClaudeAdapter()
     plan = adapter.build_invocation(
         prompt="hello",
@@ -2379,7 +2442,7 @@ def test_claude_adapter_resume_existing_session(tmp_path):
 
 
 def test_claude_adapter_new_named_session(tmp_path):
-    """Defect class: violation of the claude adapter new named session contract."""
+    """A named new Claude session must not be launched as a resume."""
     adapter = ClaudeAdapter()
     plan = adapter.build_invocation(
         prompt="hello",
@@ -2420,7 +2483,7 @@ def test_claude_adapter_mcp_tool_config(tmp_path):
 
 
 def test_claude_adapter_danger_mode(tmp_path):
-    """Defect class: violation of the claude adapter danger mode contract."""
+    """Explicit danger mode must retain the requested permission mode."""
     adapter = ClaudeAdapter()
     plan = adapter.build_invocation(
         prompt="hello",
@@ -2435,7 +2498,7 @@ def test_claude_adapter_danger_mode(tmp_path):
 
 
 def test_claude_adapter_keeps_hooks_when_api_key_set(tmp_path, monkeypatch):
-    """Defect class: violation of the claude adapter keeps hooks when api key set contract."""
+    """API-key authentication must not remove Claude's configured hooks."""
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test-fake")
     adapter = ClaudeAdapter()
     plan = adapter.build_invocation(
@@ -2453,7 +2516,7 @@ def test_claude_adapter_keeps_hooks_when_api_key_set(tmp_path, monkeypatch):
 
 @pytest.mark.real_claude_cli_gate
 def test_claude_adapter_rejects_old_cli_version(tmp_path):
-    """Defect class: violation of the claude adapter rejects old cli version contract."""
+    """An unsupported Claude CLI version must fail before launching the task."""
     from lu_machinery.agent_runtime.adapters import claude as claude_adapter_mod
 
     claude_adapter_mod._probe_claude_cli_version.cache_clear()
@@ -2615,7 +2678,7 @@ def test_claude_adapter_explicit_cmd_prefix_override_unchanged(tmp_path, monkeyp
 
 
 def test_claude_parse_response_success():
-    """Defect class: violation of the claude parse response success contract."""
+    """Claude parsing must preserve a successful answer and its usage metadata."""
     adapter = ClaudeAdapter()
     result = adapter.parse_response(
         stdout="Claude's response text.",
@@ -2629,7 +2692,7 @@ def test_claude_parse_response_success():
 
 
 def test_claude_parse_response_rate_limit():
-    """Defect class: violation of the claude parse response rate limit contract."""
+    """Claude quota responses must remain rate-limited failures."""
     adapter = ClaudeAdapter()
     result = adapter.parse_response(
         stdout="",
@@ -2641,7 +2704,7 @@ def test_claude_parse_response_rate_limit():
 
 
 def test_claude_parse_response_url_no_false_positive():
-    """Defect class: violation of the claude parse response url no false positive contract."""
+    """A response containing a URL must not be mistaken for a rate-limit error."""
     adapter = ClaudeAdapter()
     result = adapter.parse_response(
         stdout="See docs/issues/4290 for details",
@@ -2845,7 +2908,7 @@ def test_invoke_danger_respects_agent_allow_merge_opt_in(tmp_path):
 
 
 def test_gh_shim_blocks_pr_merge_without_opt_in(tmp_path, gh_shim_sandbox):
-    """Defect class: violation of the gh shim blocks pr merge without opt in contract."""
+    """A direct gh merge must be refused without the explicit merge authorization."""
     root, shim, _tooling = gh_shim_sandbox
     fake_gh = tmp_path / "real-gh"
     fake_gh.write_text("#!/usr/bin/env bash\nprintf 'real-gh %s\\n' \"$*\"\n")
@@ -2988,7 +3051,7 @@ def test_typed_publisher_secondary_rate_limit_is_one_typed_attempt(tmp_path, gh_
 
 
 def test_typed_publisher_cleans_snapshots_and_child_on_sigterm(tmp_path, gh_shim_sandbox):
-    """Defect class: violation of the typed publisher cleans snapshots and child on sigterm contract."""
+    """Termination must stop the publisher child and remove its temporary snapshots."""
     root, _shim, _tooling = gh_shim_sandbox
     binary = tmp_path / "real-gh"
     ready = tmp_path / "ready"
@@ -3032,7 +3095,7 @@ def test_typed_publisher_cleans_snapshots_and_child_on_sigterm(tmp_path, gh_shim
 
 
 def test_gh_shim_secondary_limit_with_closed_stdin_is_one_typed_attempt(tmp_path, gh_shim_sandbox):
-    """Defect class: violation of the gh shim secondary limit with closed stdin is one typed attempt contract."""
+    """A secondary rate limit with closed stdin must remain one typed attempt, without retry."""
     root, shim, _tooling = gh_shim_sandbox
     binary = tmp_path / "real-gh"
     attempts = tmp_path / "attempts"
@@ -3085,7 +3148,7 @@ def test_gh_shim_works_without_temporary_directory(tmp_path, gh_shim_sandbox):
 
 
 def test_git_shim_blocks_push_to_main_without_opt_in(tmp_path):
-    """Defect class: violation of the git shim blocks push to main without opt in contract."""
+    """The Git shim must refuse an unauthorized push to main."""
     shim = machinery_path("agent_runtime/shims/git")
     fake_git = tmp_path / "real-git"
     fake_git.write_text("#!/usr/bin/env bash\nprintf 'real-git %s\\n' \"$*\"\n")
@@ -3112,7 +3175,7 @@ def test_git_shim_blocks_push_to_main_without_opt_in(tmp_path):
 
 @pytest.mark.parametrize("verb", ["checkout", "switch"])
 def test_git_shim_refuses_when_guard_interpreter_is_absent(tmp_path, verb):
-    """Defect class: violation of the git shim refuses when guard interpreter is absent contract."""
+    """A missing guard interpreter must refuse the push rather than run unguarded Git."""
     shim = machinery_path("agent_runtime/shims/git")
     proc = subprocess.run(
         [str(shim), verb, "feature-1"],
@@ -3134,7 +3197,7 @@ def test_git_shim_refuses_when_guard_interpreter_is_absent(tmp_path, verb):
 
 
 def test_acpx_direct_route_output_limit_kills_child_and_raises_typed_error(tmp_path, monkeypatch):
-    """Defect class: violation of the acpx direct route output limit kills child and raises typed error contract."""
+    """Excessive direct-route output must kill the child and raise the typed output-limit error."""
     from lu_machinery.agent_runtime import runner as runtime_runner
 
     class AcpxFixtureAdapter:
@@ -3194,7 +3257,7 @@ def test_acpx_direct_route_output_limit_kills_child_and_raises_typed_error(tmp_p
 
 
 def test_acpx_over_cap_progress_is_dropped_while_answer_and_terminal_survive(tmp_path, monkeypatch):
-    """Defect class: violation of the acpx over cap progress is dropped while answer and terminal survive contract."""
+    """Progress flooding must not displace the answer or terminal event from captured output."""
     from lu_machinery.agent_runtime import runner as runtime_runner
     from lu_machinery.agent_runtime.adapters.acpx import AcpxAdapter
 
@@ -3251,7 +3314,7 @@ def test_acpx_over_cap_progress_is_dropped_while_answer_and_terminal_survive(tmp
 
 
 def test_acpx_under_cap_progress_is_retained_with_answer_and_terminal(tmp_path, monkeypatch):
-    """Defect class: violation of the acpx under cap progress is retained with answer and terminal contract."""
+    """Bounded progress must survive capture alongside the answer and terminal event."""
     from lu_machinery.agent_runtime import runner as runtime_runner
     from lu_machinery.agent_runtime.adapters.acpx import AcpxAdapter
 
@@ -3291,7 +3354,7 @@ def test_acpx_under_cap_progress_is_retained_with_answer_and_terminal(tmp_path, 
 
 
 def test_non_acpx_route_has_no_streamed_output_limit(tmp_path, monkeypatch):
-    """Defect class: violation of the non acpx route has no streamed output limit contract."""
+    """The ACPx-specific output cap must not truncate another route's response."""
     from lu_machinery.agent_runtime import runner as runtime_runner
 
     class FixtureAdapter:
@@ -3355,7 +3418,7 @@ def test_non_acpx_route_has_no_streamed_output_limit(tmp_path, monkeypatch):
 def test_privacy_safe_acp_failure_code_is_closed_and_body_free(
     outcome, rate_limited, stalled, explicit, returncode, expected
 ):
-    """Defect class: violation of the privacy safe acp failure code is closed and body free contract."""
+    """ACP failure classification must reject unknown codes and omit private response bodies."""
     from lu_machinery.agent_runtime import runner as runtime_runner
 
     assert (
@@ -3373,7 +3436,7 @@ def test_privacy_safe_acp_failure_code_is_closed_and_body_free(
 @pytest.mark.parametrize("entrypoint", ["runtime", "acp_review"])
 @pytest.mark.parametrize("reported", [False, True])
 def test_agy_usage_carries_bounded_optional_model_identity(tmp_path, entrypoint, reported):
-    """Defect class: violation of the agy usage carries bounded optional model identity contract."""
+    """AGY usage must preserve only the allowed bounded model-identity fields."""
     identity = (
         {
             "actual_model": "observed" * 100,
@@ -3423,7 +3486,7 @@ def test_agy_usage_carries_bounded_optional_model_identity(tmp_path, entrypoint,
 def test_agy_claude_public_runtime_preserves_provider_init_custody(
     tmp_path, monkeypatch, write_guard_repo, model, exit_kind,
 ):
-    """Defect class: violation of the agy claude public runtime preserves provider init custody contract."""
+    """AGY runtime results must retain verified provider-init identity custody."""
     import hashlib
     from dataclasses import asdict
 
@@ -3469,7 +3532,7 @@ def test_agy_claude_public_runtime_preserves_provider_init_custody(
 
 @pytest.mark.parametrize("missing", ["version", "artifact", "init"])
 def test_agy_runtime_missing_origin_evidence_never_acquires_custody(tmp_path, monkeypatch, missing):
-    """Defect class: violation of the agy runtime missing origin evidence never acquires custody contract."""
+    """Missing origin evidence must not acquire trusted provider identity custody."""
     from lu_machinery.agent_runtime import runner
     from tests.agent_runtime.adapters.test_agy_claude_routes import mock_agy_provider
 
@@ -3490,7 +3553,7 @@ def test_agy_runtime_missing_origin_evidence_never_acquires_custody(tmp_path, mo
 
 
 def test_agy_init_custody_survives_cleanup_exception(tmp_path, monkeypatch):
-    """Defect class: violation of the agy init custody survives cleanup exception contract."""
+    """A cleanup exception must not erase already verified provider-init evidence."""
     from lu_machinery.agent_runtime import runner
     from tests.agent_runtime.adapters.test_agy_claude_routes import mock_agy_provider
 
@@ -3518,7 +3581,7 @@ def test_agy_init_custody_survives_cleanup_exception(tmp_path, monkeypatch):
 @pytest.mark.parametrize("model", ["claude-sonnet-5-5-high", "claude-opus-5-5-high"])
 @pytest.mark.parametrize("binding", ["none", "task-only", "nonce-only", "bound"])
 def test_agy_direct_runtime_requires_real_context_for_every_projection(tmp_path, monkeypatch, model, binding):
-    """Defect class: violation of the agy direct runtime requires real context for every projection contract."""
+    """Each AGY identity projection must require its own real observation context."""
     from lu_machinery.agent_runtime import runner
     from tests.agent_runtime.adapters.test_agy_claude_routes import consistency_stream, mock_agy_provider
 
@@ -3537,7 +3600,7 @@ def test_agy_direct_runtime_requires_real_context_for_every_projection(tmp_path,
 
 
 def test_agy_observer_revocation_clears_prior_context(tmp_path):
-    """Defect class: violation of the agy observer revocation clears prior context contract."""
+    """Revoking the AGY observer must clear prior identity evidence before another projection."""
     from lu_machinery.agent_runtime import runner
     from lu_machinery.agent_runtime.adapters.base import InvocationPlan
 
@@ -3552,7 +3615,7 @@ def test_agy_observer_revocation_clears_prior_context(tmp_path):
 @pytest.mark.parametrize("pin", ["claude-sonnet-5-5-high", "claude-opus-5-5-high"])
 @pytest.mark.parametrize("case,known", [("exact", True), ("terminal-session", False)])
 def test_agy_watchdog_cleanup_failure_retains_only_valid_observation(tmp_path, monkeypatch, pin, case, known):
-    """Defect class: violation of the agy watchdog cleanup failure retains only valid observation contract."""
+    """Watchdog cleanup failure must not elevate an invalid identity observation."""
     from lu_machinery.agent_runtime import runner
     from tests.agent_runtime.adapters.test_agy_claude_routes import consistency_stream, mock_agy_provider
 
@@ -3572,7 +3635,7 @@ def test_agy_watchdog_cleanup_failure_retains_only_valid_observation(tmp_path, m
 
 @pytest.mark.parametrize("pin", ["claude-sonnet-5-5-high", "claude-opus-5-5-high"])
 def test_agy_second_invocation_exception_cannot_reuse_prior_identity(tmp_path, monkeypatch, pin):
-    """Defect class: violation of the agy second invocation exception cannot reuse prior identity contract."""
+    """A failed second invocation must not inherit identity evidence from the first."""
     from lu_machinery.agent_runtime import runner
     from tests.agent_runtime.adapters.test_agy_claude_routes import consistency_stream, mock_agy_provider
 

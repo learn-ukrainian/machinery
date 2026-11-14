@@ -192,7 +192,7 @@ def row_for(report: dict, path: Path) -> dict:
 
 
 def test_old_unowned_malformed_and_completed_runs_dry_run_then_delete(area, monkeypatch):
-    """Defect class: violation of the old unowned malformed and completed runs dry run then delete contract."""
+    """A sweep must report and remove eligible expired runs without requiring valid lease metadata."""
     root, args = area
     runs = [
         unowned(root, "unowned"), malformed(root, "malformed"), *completed(root, 1, ns=pytest_scratch.RUNS_DIRNAME),
@@ -244,7 +244,7 @@ def test_deeply_nested_lease_is_malformed_and_later_runs_are_still_swept(area, m
 
 
 def test_young_runs_are_retained_until_strictly_past_two_hours(area, monkeypatch):
-    """Defect class: violation of the young runs are retained until strictly past two hours contract."""
+    """A sweep must preserve runs at or below the two-hour age boundary."""
     root, args = area
     run = unowned(root, "boundary")
     _bytes, _newest, changed, problem = tmp_sweep.tree_facts(run)
@@ -265,7 +265,7 @@ def test_young_runs_are_retained_until_strictly_past_two_hours(area, monkeypatch
 
 
 def test_recently_extracted_old_mtime_files_keep_the_folder_young(area, monkeypatch):
-    """Defect class: violation of the recently extracted old mtime files keep the folder young contract."""
+    """Old payload mtimes must not age a newly extracted scratch run into deletion."""
     root, args = area
     run = unowned(root, "extracted")
     for path in [run, *run.rglob("*")]:
@@ -278,7 +278,7 @@ def test_recently_extracted_old_mtime_files_keep_the_folder_young(area, monkeypa
 
 
 def test_held_run_lock_preserves_the_run(area, monkeypatch):
-    """Defect class: violation of the held run lock preserves the run contract."""
+    """An actively held run lock must prevent deletion of apparently stale scratch."""
     root, args = area
     run = completed(root, 1)[0]
     later(monkeypatch, 3 * HOUR)
@@ -674,7 +674,7 @@ def test_descriptor_failure_does_not_duplicate_or_underreport_candidate_rows(are
 
 @pytest.mark.parametrize("kind", ["unlocked_lock", "unreadable_lock", "lock_fifo", "lock_symlink"])
 def test_lock_files_are_used_where_available_but_never_required(area, monkeypatch, tmp_path, kind):
-    """Defect class: violation of the lock files are used where available but never required contract."""
+    """Missing lock support must not make retention unusable or bypass available locking."""
     root, args = area
     run = unowned(root, "locks")
     lock = run / "lease.lock"
@@ -716,7 +716,7 @@ def _after_rename(monkeypatch, run: Path, action):
 
 @pytest.mark.parametrize("race", ["write", "replaced"])
 def test_post_rename_recheck_returns_changed_runs(area, monkeypatch, race):
-    """Defect class: violation of the post rename recheck returns changed runs contract."""
+    """A run that changes after quarantine must return intact instead of being deleted."""
     root, args = area
     run = unowned(root, "raced")
     later(monkeypatch, 3 * HOUR)
@@ -756,7 +756,7 @@ def test_post_rename_recheck_returns_changed_runs(area, monkeypatch, race):
 
 
 def test_occupied_name_keeps_returned_run_for_next_recovery(area, monkeypatch):
-    """Defect class: violation of the occupied name keeps returned run for next recovery contract."""
+    """An occupied original name must not overwrite either the quarantined run or its replacement."""
     root, args = area
     run = unowned(root, "occupied")
     real_time, real_rename = tmp_sweep.time.time, tmp_sweep.rename_noreplace
@@ -784,7 +784,7 @@ def test_occupied_name_keeps_returned_run_for_next_recovery(area, monkeypatch):
 
 @pytest.mark.parametrize("change", ["replaced", "vanished", "namespace_swapped"])
 def test_change_between_proof_and_rename_is_never_moved(area, monkeypatch, change):
-    """Defect class: violation of the change between proof and rename is never moved contract."""
+    """A run changed after eligibility proof must not be moved into quarantine."""
     root, args = area
     run = unowned(root, "between")
     ns = run.parent
@@ -815,7 +815,7 @@ def test_change_between_proof_and_rename_is_never_moved(area, monkeypatch, chang
 
 
 def test_namespace_swapped_after_rename_returns_through_descriptors(area, monkeypatch):
-    """Defect class: violation of the namespace swapped after rename returns through descriptors contract."""
+    """Swapping the namespace must not redirect recovery outside the verified directory."""
     root, args = area
     run = unowned(root, "swap-after")
     ns = run.parent
@@ -834,7 +834,7 @@ def test_namespace_swapped_after_rename_returns_through_descriptors(area, monkey
 
 
 def test_refused_rename_and_unreadable_tree_preserve_with_reasons(area, monkeypatch):
-    """Defect class: violation of the refused rename and unreadable tree preserve with reasons contract."""
+    """Rename and traversal refusals must preserve scratch and report why deletion stopped."""
     root, args = area
     refused = unowned(root, "refused")
     unreadable = unowned(root, "unreadable")
@@ -859,7 +859,7 @@ def test_refused_rename_and_unreadable_tree_preserve_with_reasons(area, monkeypa
 
 
 def test_entry_vanishing_during_scan_is_a_reported_error(area, monkeypatch):
-    """Defect class: violation of the entry vanishing during scan is a reported error contract."""
+    """A disappearing scan entry must produce an error instead of a false successful sweep."""
     root, args = area
     run = unowned(root, "present")
     later(monkeypatch, 3 * HOUR)
@@ -875,7 +875,7 @@ def test_entry_vanishing_during_scan_is_a_reported_error(area, monkeypatch):
 
 
 def test_remover_refusal_returns_the_run(area, monkeypatch):
-    """Defect class: violation of the remover refusal returns the run contract."""
+    """A failed removal must restore the quarantined run rather than strand it silently."""
     root, args = area
     run = unowned(root, "mounted-later")
     later(monkeypatch, 3 * HOUR)
@@ -921,7 +921,7 @@ def test_only_a_mount_inside_keeps_an_abandoned_run(area, monkeypatch, tmp_path,
 
 
 def test_symlinks_never_lead_outside_the_namespace(area, monkeypatch, tmp_path):
-    """Defect class: violation of the symlinks never lead outside the namespace contract."""
+    """Scratch symlinks must never redirect deletion into files outside the namespace."""
     root, args = area
     outside = tmp_path / "outside"
     (outside / "keep").mkdir(parents=True)
@@ -942,7 +942,7 @@ def test_symlinks_never_lead_outside_the_namespace(area, monkeypatch, tmp_path):
 
 
 def test_symlinked_or_shared_namespace_is_untrusted(area, monkeypatch, tmp_path):
-    """Defect class: violation of the symlinked or shared namespace is untrusted contract."""
+    """An untrusted namespace must prevent scratch deletion."""
     root, args = area
     outside = tmp_path / "elsewhere"
     run = unowned(root, "real")
@@ -959,7 +959,7 @@ def test_symlinked_or_shared_namespace_is_untrusted(area, monkeypatch, tmp_path)
 
 @pytest.mark.parametrize("worktrees,reason", [("registered", "registered_worktree"), (None, "git_registration_unknown")])
 def test_worktree_registration_still_preserves(area, monkeypatch, worktrees, reason):
-    """Defect class: violation of the worktree registration still preserves contract."""
+    """A registered Git worktree must never be removed as expired pytest scratch."""
     root, args = area
     run = unowned(root, "worktree")
     registered = {run / "scratch"} if worktrees else None
@@ -969,7 +969,7 @@ def test_worktree_registration_still_preserves(area, monkeypatch, worktrees, rea
 
 
 def test_crash_leftover_returns_to_its_name_and_waits_again(area, monkeypatch):
-    """Defect class: violation of the crash leftover returns to its name and waits again contract."""
+    """Crash leftovers must recover their original names and regain the retention grace period."""
     root, args = area
     run = unowned(root, "crashed")
     holding = run.parent / (tmp_sweep.QUARANTINE_PREFIX + "deadbeef")
@@ -986,7 +986,7 @@ def test_crash_leftover_returns_to_its_name_and_waits_again(area, monkeypatch):
 
 
 def test_other_scratch_classes_keep_their_policy(area, monkeypatch):
-    """Defect class: violation of the other scratch classes keep their policy contract."""
+    """Pytest retention must not change cleanup rules for other scratch classes."""
     root, args = area
     legacy = root / "pytest-legacy"
     legacy.mkdir()
@@ -1013,7 +1013,7 @@ def test_other_scratch_classes_keep_their_policy(area, monkeypatch):
 
 
 def test_nonprivate_namespace_preserves_all_runs(area, monkeypatch):
-    """Defect class: violation of the nonprivate namespace preserves all runs contract."""
+    """A namespace writable by others must preserve all runs instead of trusting its entries."""
     root, args = area
     runs = completed(root, 3)
     runs[0].parent.chmod(0o755)
@@ -1026,7 +1026,7 @@ def test_nonprivate_namespace_preserves_all_runs(area, monkeypatch):
 
 
 def test_cli_summary_reports_deleted_bytes_without_names(area, monkeypatch, capsys):
-    """Defect class: violation of the cli summary reports deleted bytes without names contract."""
+    """The public cleanup summary must report byte totals without exposing private run names."""
     root, args = area
     runs = [unowned(root, "cli-one"), unowned(root, "cli-two")]
     expected = sum(allocated(path) for path in runs)
@@ -1049,7 +1049,7 @@ def test_cli_summary_reports_deleted_bytes_without_names(area, monkeypatch, caps
 
 
 def test_scan_confinement_excludes_other_managed_roots(area, monkeypatch, tmp_path):
-    """Defect class: violation of the scan confinement excludes other managed roots contract."""
+    """A pytest sweep must not traverse sibling managed scratch roots."""
     root, args = area
     runs = [unowned(root, "confined-a"), unowned(root, "confined-b")]
     confined = tmp_path / "confined"
@@ -1066,7 +1066,7 @@ def test_scan_confinement_excludes_other_managed_roots(area, monkeypatch, tmp_pa
 
 
 def test_invalid_scan_root_still_reports_applied_sweep(area, monkeypatch, capsys):
-    """Defect class: violation of the invalid scan root still reports applied sweep contract."""
+    """An invalid scan root must remain visible in the applied sweep report."""
     root, args = area
     run = unowned(root, "kept")
     candidate = args["temp_root"] / "unowned-scratch"
@@ -1118,14 +1118,14 @@ run.preserve()
 
 @pytest.mark.parametrize("namespace_name", ["../escape", "a/b", "", ".", "/absolute"])
 def test_namespace_override_rejects_noncomponents(tmp_path, namespace_name):
-    """Defect class: violation of the namespace override rejects noncomponents contract."""
+    """Namespace overrides must reject paths that could escape their single directory component."""
     with pytest.raises(task_scratch.TaskScratchError, match="invalid scratch namespace"):
         task_scratch.allocate("pytest", root=tmp_path, namespace_dirname=namespace_name)
     assert not list(tmp_path.iterdir())
 
 
 def test_real_pytest_publishes_owned_run_and_respects_explicit_base(pytester, area):
-    """Defect class: violation of the real pytest publishes owned run and respects explicit base contract."""
+    """A real pytest child must publish a private owned run and keep its temporary files inside that run."""
     root, _args = area
     pytester.makeconftest(f'''
 import sys

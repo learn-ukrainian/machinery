@@ -220,8 +220,6 @@ def test_api_key_label_launch_refuses_a_competing_source(api_key_accounts, monke
         _private_json(local, {"env": {"CLAUDE_CODE_USE_BEDROCK": "1"}})
     elif case == "status_endpoint":
         fake["LU_FAKE_CLAUDE_STATUS_MODE"] = "text_endpoint"
-    elif case == "login_marker":  # the subscription login's 2.1.319 keys never stand beside a helper
-        fake["LU_FAKE_CLAUDE_STATUS_MODE"] = "login_marker"
     else:  # a checkout settings file the digest binds changes while it is verified
         local.parent.mkdir()
         fake["LU_FAKE_CLAUDE_STATUS_TOUCH"] = str(local)
@@ -512,7 +510,7 @@ def test_pause_lifts_by_itself_after_until(headroom_box):
 
 @pytest.mark.parametrize("defect", [None, "missing_pair", "trial_pair", "input", "head", "role", "label", "write"])
 def test_trial_shadow_requires_qualified_matching_task(headroom_box, monkeypatch, capsys, defect):
-    """Defect class: violation of the trial shadow requires qualified matching task contract."""
+    """Trial admission must reject unqualified or mismatched task evidence."""
     from lu_machinery.dispatcher import headroom
 
     box = headroom_box

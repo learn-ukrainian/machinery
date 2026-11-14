@@ -15,7 +15,7 @@ import pymupdf
 
 
 def test_preload_all_completes_when_pymupdf_message_stream_is_closed(monkeypatch):
-    """Defect class: violation of the preload all completes when pymupdf message stream is closed contract."""
+    """Preloading must survive PyMuPDF diagnostics targeting an already-closed stream."""
     from lu_machinery.api.preload import OPTIONAL_MODULES, preload_all
 
     closed = io.StringIO()
