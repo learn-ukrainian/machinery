@@ -27,6 +27,7 @@ COMMENT_VERBS = [
     ("pr-comment", {"number": 1}),
     ("pr-review", {"number": 1, "verdict": "comment"}),
     ("issue-close", {"number": 1}),
+    ("code-scanning-dismiss", {"number": 1, "reason": "false positive"}),
 ]
 
 
@@ -37,6 +38,7 @@ def _isolate_github_client_cache(tmp_path, monkeypatch):
 
 @pytest.fixture(autouse=True)
 def catalog(monkeypatch):
+    monkeypatch.delenv("LEARN_UKRAINIAN_DISPATCH_TASK_ID", raising=False)
     monkeypatch.setattr(gate, "catalog", lambda: CATALOG)
 
 

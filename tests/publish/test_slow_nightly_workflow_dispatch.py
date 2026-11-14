@@ -317,3 +317,233 @@ def test_ruleset_merge_queue_changes_only_the_named_parameter(dispatch_calls, ca
         publisher.main(["ruleset-merge-queue", "--help"])
     assert exc.value.code == 0
     assert "A rate limit on that read-back is exit 3, not 75" in capsys.readouterr().out
+
+
+@pytest.fixture
+def dismissal_transport(monkeypatch, synthetic_opsec):
+    """A merged triage plus independent current and baseline SARIF, without an alert mutation."""
+    import copy
+
+    for key in ("LEARN_UKRAINIAN_DISPATCH_TASK_ID", pub.BROKER_ENV, "LU_REVIEW_SHELL_TASK", "USER", "LOGNAME"):
+        monkeypatch.delenv(key, raising=False)
+    monkeypatch.setattr(gate, "catalog", lambda: CATALOG)
+    before, current = "a" * 40, "b" * 40
+    comment = "Alert #1 stores public metadata. https://github.com/unit/public/pull/2"
+    instance = {
+        "state": "open", "ref": "refs/heads/main", "commit_sha": current,
+        "analysis_key": "codeql", "environment": "{}", "category": "python",
+        "location": {"path": "sample.py", "start_line": 7}, "message": {"text": "Public metadata"},
+    }
+    alert = {"number": 1, "state": "open", "rule": {"id": "py/fixture"}, "most_recent_instance": instance}
+    result = {
+        "ruleId": "py/fixture", "rule": {"id": "py/fixture", "index": 0, "toolComponent": {"index": 0}},
+        "message": {"text": "Public metadata"}, "properties": {"github/alertNumber": 1},
+        "locations": [{"physicalLocation": {
+            "artifactLocation": {"uri": "sample.py", "index": 0}, "region": {"startLine": 7},
+        }}],
+        "codeFlows": [{"threadFlows": [{"locations": [{"location": {"message": {"text": "public source"}}}]}]}],
+    }
+    sarif = {"runs": [{"results": [result], "tool": {
+        "driver": {"name": "CodeQL", "semanticVersion": "1.0.0"},
+        "extensions": [{"name": "queries", "rules": [{"id": "py/fixture"}]}],
+    }}]}
+    root = "repos/unit/public/"
+    documents = {
+        "pulls/2": {"merged": True, "merge_commit_sha": before, "html_url": "https://github.com/unit/public/pull/2", "base": {"ref": "main"}},
+        "pulls/2/files?per_page=100": [[{"filename": pub._DISMISS_TRIAGE_PATH, "status": "modified"}]],
+        f"contents/{pub._DISMISS_TRIAGE_PATH}?ref={before}": "| 1 | `py/fixture` | `sample.py:7` | False positive. Public metadata only. |\n",
+        "code-scanning/alerts/1": alert,
+        "code-scanning/alerts/1/instances?per_page=100": [[instance]],
+        "code-scanning/analyses?ref=refs%2Fheads%2Fmain&per_page=100": [[
+            {"id": aid, "commit_sha": sha, "analysis_key": "codeql", "environment": "{}", "category": "python", "error": ""}
+            for aid, sha in ((3, current), (2, before))
+        ]],
+        "code-scanning/analyses/2": copy.deepcopy(sarif),
+        "code-scanning/analyses/3": copy.deepcopy(sarif),
+    }
+    writes, calls = [], []
+    options = {"reason": "false positive", "readback": {}, "write_error": None, "read_error": None}
+
+    def sender(argv, **kwargs):
+        calls.append(list(argv))
+        method = argv[argv.index("--method") + 1]
+        endpoint = argv[argv.index("--method") + 2]
+        assert endpoint.startswith(root)
+        if method == "PATCH":
+            assert endpoint == root + "code-scanning/alerts/1"
+            writes.append(Path(argv[argv.index("--input") + 1]).read_bytes())
+            if options["write_error"]:
+                raise options["write_error"]
+            return subprocess.CompletedProcess(argv, 0, "{}", "")
+        assert method == "GET"
+        suffix = endpoint.removeprefix(root)
+        if suffix == "code-scanning/alerts/1" and writes:
+            if options["read_error"]:
+                raise options["read_error"]
+            document = {**alert, "state": "dismissed", "dismissed_reason": options["reason"], "dismissed_comment": comment, **options["readback"]}
+        else:
+            document = documents[suffix]
+        return subprocess.CompletedProcess(argv, 0, document if isinstance(document, str) else json.dumps(document), "")
+
+    return documents, writes, calls, options, sender, comment
+
+
+@pytest.mark.parametrize("reason", ["false positive", "won't fix", "used in tests"])
+def test_dismissal_fixes_endpoint_state_and_replays_scanned_comment(dismissal_transport, monkeypatch, reason):
+    documents, writes, _, options, sender, comment = dismissal_transport
+    options["reason"] = reason
+    if reason == "won't fix":
+        key = next(key for key in documents if key.startswith("contents/"))
+        documents[key] = documents[key].replace("False positive.", "Won't fix.")
+    elif reason == "used in tests":
+        key = next(key for key in documents if key.startswith("contents/"))
+        documents[key] = documents[key].replace("sample.py", "tests/sample.py")
+        documents["code-scanning/alerts/1/instances?per_page=100"][0][0]["location"]["path"] = "tests/sample.py"
+        for aid in (2, 3):
+            documents[f"code-scanning/analyses/{aid}"]["runs"][0]["results"][0]["locations"][0]["physicalLocation"]["artifactLocation"]["uri"] = "tests/sample.py"
+    scanned = []
+    original = gate.check_texts
+
+    def scan(destination, texts, **kwargs):
+        scanned.extend(zip(kwargs["field_names"], texts))
+        return original(destination, texts, **kwargs)
+
+    monkeypatch.setattr(gate, "check_texts", scan)
+    answer = pub.publish("code-scanning-dismiss", repo="unit/public", number=1, reason=reason, comment=comment, runner=sender, capture_output=True, text=True)
+    assert answer.returncode == 0
+    assert len(writes) == 1
+    assert json.loads(writes[0]) == {"state": "dismissed", "dismissed_reason": reason, "dismissed_comment": comment}
+    assert ("comment", comment) in scanned
+    assert json.loads(answer.stdout)["dismissed_comment"] == comment
+    assert pub.ENUMS["reason"] == {"completed", "not planned"}
+
+
+@pytest.mark.parametrize("change", [
+    {"number": 0}, {"number": True}, {"number": "1"}, {"reason": "completed"}, {"reason": "mitigated"},
+    {"endpoint": "user"}, {"method": "POST"}, {"state": "open"}, {"json": {}}, {"query": "mutation {}"},
+    {"comment": ""}, {"comment": "   "}, {"comment": "Alert #1 public data."},
+    {"comment": "Alert #1 public data. https://github.com/other/repo/pull/2"},
+    {"comment": "Alert #10 public data. https://github.com/unit/public/pull/2"},
+    {"comment": "Alert #1 https://github.com/unit/public/pull/2"},
+    {"comment": "Alert #1 public data. https://github.com/unit/public/pull/2/other"},
+])
+def test_dismissal_rejects_open_payload_and_unbound_comments(dismissal_transport, change):
+    _, writes, _, _, sender, comment = dismissal_transport
+    fields = {"repo": "unit/public", "number": 1, "reason": "false positive", "comment": comment, **change}
+    with pytest.raises(gate.PublishBlocked):
+        pub.publish("code-scanning-dismiss", runner=sender, **fields)
+    assert writes == []
+
+
+@pytest.mark.parametrize("fault", ["unmerged", "unrelated", "missing-row", "rule", "location", "flow", "analysis", "tool", "branch", "unknown-flow"])
+def test_dismissal_refuses_missing_or_changed_reviewed_evidence(dismissal_transport, fault):
+    documents, writes, _, _, sender, comment = dismissal_transport
+    if fault == "unmerged":
+        documents["pulls/2"]["merged"] = False
+    elif fault == "unrelated":
+        documents["pulls/2/files?per_page=100"][0][0]["filename"] = "other.md"
+    elif fault == "missing-row":
+        key = next(key for key in documents if key.startswith("contents/"))
+        documents[key] = documents[key].replace("| 1 |", "| 2 |")
+    elif fault == "rule":
+        documents["code-scanning/alerts/1"]["rule"]["id"] = "py/other"
+    elif fault == "location":
+        documents["code-scanning/alerts/1/instances?per_page=100"][0][0]["location"]["start_line"] = 8
+    elif fault == "flow":
+        documents["code-scanning/analyses/3"]["runs"][0]["results"][0]["codeFlows"] = []
+    elif fault == "analysis":
+        documents["code-scanning/analyses?ref=refs%2Fheads%2Fmain&per_page=100"][0] = []
+    elif fault == "tool":
+        documents["code-scanning/analyses/3"]["runs"][0]["tool"]["driver"]["semanticVersion"] = "2.0.0"
+    elif fault == "branch":
+        instance = dict(documents["code-scanning/alerts/1/instances?per_page=100"][0][0], ref="refs/heads/other")
+        documents["code-scanning/alerts/1/instances?per_page=100"][0].append(instance)
+    else:
+        documents["code-scanning/analyses/3"]["runs"][0]["results"] = []
+    with pytest.raises(gate.PublishBlocked, match="DISMISSAL_TRIAGE_REFUSED"):
+        pub.publish("code-scanning-dismiss", repo="unit/public", number=1, reason="false positive", comment=comment, runner=sender)
+    assert writes == []
+
+
+@pytest.mark.parametrize("fault", ["state", "reason", "comment", "read", "rate-limit", "write"])
+def test_dismissal_ambiguous_transport_or_pending_request_is_unknown_without_retry(dismissal_transport, fault):
+    _, writes, _, options, sender, comment = dismissal_transport
+    if fault in {"state", "reason", "comment"}:
+        key, value = {"state": ("state", "open"), "reason": ("dismissed_reason", "won't fix"), "comment": ("dismissed_comment", "other")}[fault]
+        options["readback"][key] = value
+    elif fault == "rate-limit":
+        options["read_error"] = github_client.GitHubRateLimited(None, "secondary_hold")
+    elif fault == "write":
+        options["write_error"] = TimeoutError("private transport detail")
+    else:
+        options["read_error"] = OSError("private transport detail")
+    answer = pub.publish("code-scanning-dismiss", repo="unit/public", number=1, reason="false positive", comment=comment, runner=sender, capture_output=True, text=True)
+    assert answer.returncode == 3
+    assert "UNKNOWN" in answer.stderr and "Do not retry" in answer.stderr
+    assert "private transport detail" not in answer.stderr
+    assert len(writes) == 1
+
+
+def test_dismissal_scanner_refusal_precedes_all_transport(dismissal_transport):
+    from tests.opsec_fixtures import TOKEN
+
+    _, writes, calls, _, sender, comment = dismissal_transport
+    with pytest.raises(gate.PublishBlocked):
+        pub.publish("code-scanning-dismiss", repo="unit/public", number=1, reason="false positive", comment=comment + TOKEN, runner=sender)
+    assert writes == [] and calls == []
+
+
+@pytest.mark.parametrize("key,value", [
+    ("LEARN_UKRAINIAN_DISPATCH_TASK_ID", "worker-one"), ("LU_WRITE_BOUNDARY_BROKER", "/fixture/socket"),
+    ("LU_REVIEW_SHELL_TASK", "review-one"), ("USER", "review"), ("LOGNAME", "review"),
+])
+@pytest.mark.parametrize("source", ["process", "api-env"])
+def test_dismissal_worker_and_reviewer_cli_and_direct_api_refuse_before_transport(dismissal_transport, monkeypatch, key, value, source):
+    _, writes, calls, _, sender, comment = dismissal_transport
+    environment = {}
+    if source == "process":
+        monkeypatch.setenv(key, value)
+    else:
+        environment[key] = value
+    with pytest.raises(gate.PublishBlocked, match="DISMISSAL_BOUNDARY_REFUSED"):
+        pub.publish("code-scanning-dismiss", repo="unit/public", number=1, reason="false positive", comment=comment, env=environment, runner=sender)
+    if source == "process":
+        assert pub.main(["code-scanning-dismiss", "--repo", "unit/public", "--number", "1", "--reason", "false positive", "--comment", comment], runner=sender) == 2
+    assert calls == [] and writes == []
+    assert "code-scanning-dismiss" not in pub.BROKER_FORWARDED
+
+
+def test_dismissal_cli_verifies_the_final_state(dismissal_transport, capsys):
+    _, writes, _, _, sender, comment = dismissal_transport
+    assert pub.main(["code-scanning-dismiss", "--repo", "unit/public", "--number", "1", "--reason", "false positive", "--comment", comment], runner=sender) == 0
+    output = json.loads(capsys.readouterr().out)
+    assert output == {"number": 1, "state": "dismissed", "dismissed_reason": "false positive", "dismissed_comment": comment}
+    assert len(writes) == 1
+
+
+def test_dismissal_refuses_evidence_that_changes_during_preflight(dismissal_transport):
+    _, writes, _, _, sender, comment = dismissal_transport
+    reads = 0
+
+    def changing(argv, **kwargs):
+        nonlocal reads
+        result = sender(argv, **kwargs)
+        if argv[:5] == ["gh", "api", "--method", "GET", "repos/unit/public/code-scanning/alerts/1"]:
+            reads += 1
+            if reads == 2:
+                result.stdout = json.dumps({**json.loads(result.stdout), "state": "fixed"})
+        return result
+
+    with pytest.raises(gate.PublishBlocked, match="DISMISSAL_TRIAGE_REFUSED"):
+        pub.publish("code-scanning-dismiss", repo="unit/public", number=1, reason="false positive", comment=comment, runner=changing)
+    assert reads == 2 and writes == []
+
+
+@pytest.mark.parametrize("reason,disposition", [("false positive", "Fixed."), ("won't fix", "False positive."), ("used in tests", "False positive.")])
+def test_dismissal_reason_must_match_the_reviewed_disposition(dismissal_transport, reason, disposition):
+    documents, writes, _, _, sender, comment = dismissal_transport
+    key = next(key for key in documents if key.startswith("contents/"))
+    documents[key] = documents[key].replace("False positive.", disposition)
+    with pytest.raises(gate.PublishBlocked, match="DISMISSAL_TRIAGE_REFUSED"):
+        pub.publish("code-scanning-dismiss", repo="unit/public", number=1, reason=reason, comment=comment, runner=sender)
+    assert writes == []

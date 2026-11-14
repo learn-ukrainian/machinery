@@ -426,3 +426,46 @@ def test_raw_graphql_transfer_mutation_is_refused():
 
 
 pytestmark = pytest.mark.usefixtures("configured_roots")
+
+
+def test_dismissal_keeps_raw_patch_worker_broker_and_reviewer_relays_closed(monkeypatch):
+    """A new interactive verb must not grant a worker broker or reviewer a dismissal transport."""
+    import importlib.util
+    import json
+    from pathlib import Path
+    from lu_machinery.dispatcher import agy_sandbox, write_boundary
+
+    with pytest.raises(PublishBlocked):
+        admit(["api", "-X", "PATCH", "repos/unit/public/code-scanning/alerts/1", "-f", "state=dismissed"],
+              cwd=".", environment={}, reader=origin_reader)
+    assert agy_sandbox.gh_refusal(["api", "-X", "PATCH", "repos/unit/public/code-scanning/alerts/1"])
+    spec = importlib.util.spec_from_file_location(
+        "dismissal_reviewer_guard", Path(__file__).resolve().parents[2] / "agents_extensions/shared/hooks/guard-reviewer-publish.py",
+    )
+    guard = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(guard)
+    assert guard.blocked("/fixture/bin/python -m lu_machinery.publish code-scanning-dismiss --number 1")
+    assert "code-scanning-dismiss" not in write_boundary._BROKER_VERBS
+
+    class Connection:
+        def __init__(self):
+            self.request = json.dumps({"verb": "code-scanning-dismiss", "request_id": "fixture", "payload": {}}).encode()
+            self.reply = None
+
+        def settimeout(self, value):
+            pass
+
+        def recv(self, size):
+            value, self.request = self.request, b""
+            return value
+
+        def sendall(self, value):
+            self.reply = json.loads(value)
+
+    broker = write_boundary._Broker.__new__(write_boundary._Broker)
+    broker.records = []
+    monkeypatch.setattr(broker, "_peer_inside", lambda connection: True)
+    connection = Connection()
+    broker._handle(connection)
+    assert connection.reply["returncode"] == 2
+    assert "the verb is not one of" in connection.reply["stderr"]
