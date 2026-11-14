@@ -11,6 +11,7 @@ import subprocess
 import pytest
 from lu_machinery.agent_runtime.attempt_network import canonical_host
 from lu_machinery.dispatcher import agy_sandbox
+from lu_machinery.orchestration.fleet_repos import load_fleet_repos
 from tests.dispatcher.test_providers_b import _bwrap_usable, _launch, _linked_worktree
 from tests.helpers.product_tree import configured_roots  # noqa: F401
 
@@ -84,6 +85,11 @@ _CASES = {
     # Destination selectors: the host's gh would connect to them outside the boundary (cf-12521-sol-r1 F1).
     "F2-gh-repo-host": (False, "gh pr view 1 --repo localhost:9/a/b --json number"),
     "F2-gh-url-operand": (False, "gh issue view https://localhost:9/a/b/issues/1"),
+    # The host login reads only registered public repositories (decision A6): a registered private one, an
+    # unregistered one, and the worktree's own remote when it is neither are refused before gh runs.
+    "F2-gh-private-repo": (False, "gh pr view 1 --repo {private_repo} --json number"),
+    "F2-gh-unregistered-repo": (False, "gh issue view 1 -R example/unregistered --json number"),
+    "F2-gh-unresolved-repo": (False, "gh pr view 1 --json number"),
     "granted-shell-scratch": (True, "echo ok > \"$TMPDIR/probe\" && cat \"$TMPDIR/probe\""),
     "granted-interpreter": (True, f"{_PY} -c \"import pytest; print('interpreter-ok')\""),
     "granted-named-test": (True, f"{_PY} -m pytest -q -p no:cacheprovider test_probe.py"),
@@ -107,8 +113,9 @@ def test_review_boundary_refuses_bypass_classes_and_keeps_execution(tmp_path, ca
                           text=True, timeout=30).stdout.strip()
     remote = tmp_path / "remote.git"
     subprocess.run(["git", "init", "-q", "--bare", str(remote)], check=True, timeout=30)
+    private_repo = next(item.github for item in load_fleet_repos().values() if item.role.startswith("private-"))
     command = template.format(remote=remote, primary=primary, metadata=ipaddress.ip_address(2852039166),
-                              private=ipaddress.ip_address(167772161))
+                              private=ipaddress.ip_address(167772161), private_repo=private_repo)
     argv, env = _launch(tmp_path, worktree, "adversarial", ["/bin/sh", "-c", command])
     run = subprocess.run(argv, env=env, capture_output=True, text=True, timeout=180, check=False, cwd=worktree)
     receipt = json.loads((tmp_path / "adversarial.sandbox.json").read_text())

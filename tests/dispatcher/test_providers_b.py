@@ -198,7 +198,9 @@ print(json.dumps({"skills": skills, "prior": (tasks / "previous.result").read_te
     assert prompt.read_bytes() == original
     if provider == "claude" and mode == "read-only":
         directories = [invocation.argv[i + 1] for i, arg in enumerate(invocation.argv) if arg == "--add-dir"]
-        assert str(shared) in directories and str(tasks) in directories
+        # The file tools see the view the write boundary gives (decision A4): the shared skills and this task's
+        # own staged inputs, never the whole task store with other tasks' briefs and transcripts.
+        assert str(shared) in directories and str(tasks) not in directories
 
 
 # Read-only AGY runs only inside its bubblewrap boundary, covered below (C-3027).

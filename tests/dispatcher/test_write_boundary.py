@@ -3,6 +3,7 @@
 import hashlib
 import ipaddress
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -39,14 +40,18 @@ def primary(tmp_path, monkeypatch):
     monkeypatch.setenv("LU_SCRATCH_ROOT", str(tmp_path / "scratch"))
     # GitHub's published address ranges, which the launcher reads with the host login in production.
     monkeypatch.setattr(write_boundary, "github_networks", lambda: (ipaddress.ip_network(_GITHUB_RANGE),))
+    # The test's own scripts and fixtures live below its temporary root, which may be a data root the view
+    # empties (/var/tmp): keep that one root visible, every other data root stays emptied.
+    monkeypatch.setattr(write_boundary, "_DATA_ROOTS",
+                        tuple(root for root in write_boundary._DATA_ROOTS if not tmp_path.resolve().is_relative_to(root)))
     return repo, worktree, tmp_path / "receipt.json"
 
 
-def _run(primary, script: str) -> tuple[int, dict]:
+def _run(primary, script: str, *extra: str) -> tuple[int, dict]:
     _, worktree, receipt = primary
     code = write_boundary.main([
         "--task-id", "wb-test", "--worktree", str(worktree), "--scratch", str(write_boundary.scratch("wb-test")),
-        "--receipt", str(receipt), "--", "/bin/sh", "-c", script,
+        "--receipt", str(receipt), *extra, "--", "/bin/sh", "-c", script,
     ])
     return code, json.loads(receipt.read_text())
 
@@ -55,13 +60,32 @@ def _digest(*paths: Path) -> dict:
     return {str(path): hashlib.sha256(path.read_bytes()).hexdigest() if path.exists() else None for path in paths}
 
 
-@pytest.mark.parametrize("failure", ["setup", "canary"])
-def test_setup_or_canary_failure_refuses_and_never_starts_the_provider(primary, monkeypatch, failure):
+@pytest.mark.parametrize("failure", ["setup", "canary", "interpreter", "key-helper", "profile-store", "plane"])
+def test_setup_or_canary_failure_refuses_and_never_starts_the_provider(primary, monkeypatch, failure, tmp_path):
     """Defect class: a boundary that cannot start, or whose canary finds a writable primary, still launches the
-    provider (an unsandboxed fallback), so the run proceeds without containment."""
+    provider (an unsandboxed fallback), so the run proceeds without containment; or it starts with the Sources
+    interpreter below a writable private root, whose parent a worker can move aside to plant its own (PR 528 F2);
+    or with a Claude key helper whose input it cannot name, so the helper reads an emptied path, or with a
+    Claude profile store the CLI would prefer to the selected login (PR 528 F3)."""
     repo, worktree, _ = primary
+    extra = []
     if failure == "setup":
         monkeypatch.setattr(write_boundary, "unavailable", lambda: "bubblewrap (bwrap) is not installed")
+    elif failure == "interpreter":
+        monkeypatch.setattr(write_boundary, "_interpreter_root", lambda: Path("/tmp/tools/python"))
+    elif failure == "key-helper":
+        login = tmp_path / "home" / ".claude-api"
+        login.mkdir(parents=True)
+        (login / "settings.json").write_text(json.dumps({"apiKeyHelper": "sh -c 'cat \"$KEY_FILE\"'"}))
+        extra = ["--claude-login", str(login)]
+    elif failure == "plane":
+        monkeypatch.setenv("FLEET_COMMS_ROOT", "relative/plane")
+    elif failure == "profile-store":
+        login = tmp_path / "home" / ".claude-b"
+        login.mkdir(parents=True)
+        (tmp_path / "home" / ".config" / "anthropic").mkdir(parents=True)
+        (tmp_path / "home" / ".config" / "anthropic" / "active_config").write_text("other")
+        extra = ["--claude-login", str(login)]
     else:
         planned = write_boundary._Boundary._probes
 
@@ -71,10 +95,12 @@ def test_setup_or_canary_failure_refuses_and_never_starts_the_provider(primary, 
 
         monkeypatch.setattr(write_boundary._Boundary, "_probes", leaky)
     marker = worktree / "provider-started"
-    code, receipt = _run(primary, f"touch {marker}")
+    code, receipt = _run(primary, f"touch {marker}", *extra)
     assert code == write_boundary.REFUSED
     assert receipt["status"] == "refused"
-    assert ("canary failed" if failure == "canary" else "not installed") in receipt["reason"]
+    assert {"canary": "canary failed", "setup": "not installed", "interpreter": "writable private root",
+            "key-helper": "key helper", "profile-store": "profile store",
+            "plane": "FLEET_COMMS_ROOT is relative"}[failure] in receipt["reason"]
     assert not marker.exists()
     assert not write_boundary.scratch("wb-test").exists()
 
@@ -297,7 +323,8 @@ def test_no_github_write_authority_is_reachable_inside_any_route(primary, monkey
 
     monkeypatch.setattr(AttemptEgress, "_resolve", resolve)
     credential = {"claude": home / ".claude/.credentials.json", "codex": home / ".codex/auth.json",
-                  "agy": home / ".agy/token", "opencode": home / ".local/share/opencode/auth.json"}.get(route)
+                  "agy": home / ".agy/token", "opencode": home / ".local/share/opencode/auth.json",
+                  "cursor": home / ".config/cursor/auth.json"}.get(route)
     extra = []
     if credential is not None:  # provider refreshes persist for both authors and reviewers
         credential.parent.mkdir(parents=True, exist_ok=True)
@@ -333,6 +360,9 @@ def test_no_github_write_authority_is_reachable_inside_any_route(primary, monkey
     ])
     result = json.loads(receipt.read_text())
     assert code == 0 and result["status"] == "ran", result
+    if route == "codex":  # the canary itself proved the trusted Sources definition read-only before Codex started
+        assert [probe["outcome"] for probe in result["canary"]["probes"] if probe["op"] == "write_open"
+                and probe["path"].endswith("/codex-home/config.toml")] == ["EROFS"], result["canary"]
     cells = json.loads(report.read_text())
     denominator = 1 + len(stores) + 1 + len(_GITHUB_HOSTS) + 3
     assert len(cells) == denominator and all(cells.values()), cells
@@ -406,25 +436,65 @@ open(sys.argv[1], "w").write(json.dumps(results))
         "write_boundary_unproven: the receipt names another mode")
 
 
-def test_declared_resources_in_masked_roots_stay_read_only_without_host_socket_access(primary, monkeypatch, tmp_path):
-    """Defect class: private tmpfs hides declared resources, or restoring them exposes host sockets/writes."""
+@pytest.mark.parametrize("login_root", ["home", "emptied-root"])
+def test_declared_resources_in_masked_roots_stay_read_only_without_host_socket_access(primary, monkeypatch, tmp_path,
+                                                                                    login_root):
+    """Defect class: private tmpfs hides declared resources, or restoring them exposes host sockets/writes; or the
+    view restores more than decision A4 allows, so a worker reads another provider's login, the operator's private
+    state, another task's records or a checkout's secrets, and sends them out over its public egress; or it hides
+    what the worker needs (the selected login, the toolchain, its own staged inputs)."""
     import socket
 
     from lu_machinery.dispatcher import runtime_context
 
-    _, worktree, receipt = primary
+    repo, worktree, receipt = primary
+    home = Path(os.environ["HOME"])
     masked = tmp_path.parent / ("ro-" + hashlib.sha256(str(tmp_path).encode()).hexdigest()[:8])
+    # The selected login below HOME, or below an emptied root outside it, with its key helper's file beside it.
+    login = home / ".claude" if login_root == "home" else masked / "logins" / "b"
+    # The key file inside the login directory itself, or below an emptied root of its own.
+    keys = login / "keys" if login_root == "home" else masked / "keys"
+    for path, text in ((home / ".codex/auth.json", "other login"), (home / "ops-state/notes", "private"),
+                       (login / "projects/other.jsonl", "transcript"), (login / ".credentials.json", "selected"),
+                       (home / ".local/bin/tool", "toolchain"), (keys / "selected", "selected key"),
+                       (keys / "other", "other key"),
+                       (login / "settings.json", json.dumps({"env": {}, "apiKeyHelper": f"cat {keys}/selected"})),
+                       (login / ".claude.json", json.dumps({"oauthAccount": {
+                           "accountUuid": "u", "organizationUuid": "o", "emailAddress": "probe@example.invalid"},
+                           "projects": {"/elsewhere": {}}}))):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text)
+    tasks = repo / "batch_state" / "tasks"
+    (tasks / "wb-test.inputs").mkdir(parents=True)
+    (tasks / "wb-test.inputs" / "brief.md").write_text("own input")
+    (tasks / "other-task.result").write_text("another task")
+    (repo / ".secrets").mkdir()
+    (repo / ".secrets" / "key").write_text("secret")
+    # A Fleet plane named with ~, a parent step and a link inside the restored primary is emptied where Fleet
+    # resolves it (PR 528 F1).
+    (repo / "dedicated-plane").mkdir()
+    (repo / "dedicated-plane" / "private-record").write_text("private")
+    (repo / "plane-link").symlink_to("dedicated-plane")
+    assert repo.parent == home.parent
+    monkeypatch.setenv("FLEET_COMMS_ROOT", f"~/../{repo.name}/plane-link")
+    monkeypatch.setenv("LU_TASKS_DIR", str(tasks))
+    monkeypatch.setattr(write_boundary, "_HOME_TOOLCHAIN", (".local/bin",))
     shared = masked / "shared"
     shared.mkdir(parents=True)
     (shared / "resource").write_text("declared")
     (masked / "hidden").write_text("sibling")
     monkeypatch.setattr(write_boundary, "_MASKED_ROOTS", (*write_boundary._MASKED_ROOTS, masked))
-    monkeypatch.setattr(runtime_context, "read_roots", lambda: [shared])
+    # HOME named through a link inside the checkout's emptied state, its login named through that link too
+    # (PR 528 F3).
+    (repo / "batch_state" / "home-link").symlink_to(home)
+    monkeypatch.setenv("HOME", str(repo / "batch_state" / "home-link"))
+    named_login = repo / "batch_state" / "home-link" / login.relative_to(home) if login_root == "home" else login
+    monkeypatch.setattr(runtime_context, "shared_root", lambda: shared)
     client = tmp_path / "resource-probe.py"
     client.write_text("""
-import json, socket, sys
+import json, os, socket, sys
 from pathlib import Path
-shared, masked, report = map(Path, sys.argv[1:])
+shared, masked, report = map(Path, sys.argv[1:4])
 assert (shared / "resource").read_text() == "declared"
 assert not (masked / "hidden").exists()
 try:
@@ -440,6 +510,24 @@ with socket.socket(socket.AF_UNIX) as connection:
         pass
     else:
         raise AssertionError("host socket reachable")
+home, repo, login, keys = Path(os.environ["HOME"]), Path(sys.argv[4]), Path(sys.argv[5]), Path(sys.argv[6])
+view = {relative: (home / relative).exists() for relative in (".codex/auth.json", "ops-state", ".local/bin/tool")}
+view.update({"login/" + relative: (login / relative).exists() for relative in (
+    "projects", ".credentials.json", "settings.json")})
+view.update({"keys/" + relative: (keys / relative).exists() for relative in ("selected", "other")})
+# The selected login's global config holds only what its launch guard binds.
+view["global_config"] = json.loads((login / ".claude.json").read_text())
+view.update({relative: (repo / relative).exists() for relative in (
+    "batch_state/tasks/other-task.result", ".secrets/key", "batch_state/tasks/wb-test.inputs/brief.md", "a.txt",
+    "plane-link/private-record", "dedicated-plane/private-record")})
+
+assert view == {".codex/auth.json": False, "ops-state": False, "login/projects": False,
+                "login/.credentials.json": True, ".local/bin/tool": True, "login/settings.json": True,
+                "keys/selected": True, "keys/other": False,
+                "global_config": {"oauthAccount": {"accountUuid": "u", "organizationUuid": "o"}},
+                "batch_state/tasks/other-task.result": False, "plane-link/private-record": False,
+                "dedicated-plane/private-record": False,
+                ".secrets/key": False, "batch_state/tasks/wb-test.inputs/brief.md": True, "a.txt": True}, view
 report.write_text("resources-readable-writes-and-sockets-denied")
 """)
     report = tmp_path / "resource-result"
@@ -448,12 +536,19 @@ report.write_text("resources-readable-writes-and-sockets-denied")
         listener.listen()
         code = write_boundary.main([
             "--task-id", "wb-test", "--worktree", str(worktree), "--scratch", str(write_boundary.scratch("wb-test")),
-            "--receipt", str(receipt), "--mode", "read-only", "--output", str(report), "--", sys.executable, "-I",
-            str(client), str(shared), str(masked), str(report),
+            "--receipt", str(receipt), "--mode", "read-only", "--output", str(report),
+            "--credential", str(named_login / ".credentials.json"), "--claude-login", str(named_login),
+            "--", sys.executable, "-I",
+            str(client), str(shared), str(masked), str(report), str(repo), str(login), str(keys),
         ])
-    assert code == 0, json.loads(receipt.read_text())
+    evidence = json.loads(receipt.read_text())
+    assert code == 0, evidence
     assert report.read_text() == "resources-readable-writes-and-sockets-denied"
     assert (shared / "resource").read_text() == "declared"
+    # The canary itself checked the hidden paths for absence before the provider started.
+    absent = {probe["path"] for probe in evidence["canary"]["probes"] if probe["expect_any"] == ["ENOENT"]}
+    assert {str(home / ".codex/auth.json"), str(home / "ops-state"), str(tasks / "other-task.result"),
+            str(repo / ".secrets/key")} <= absent, sorted(absent)
 
 
 @pytest.fixture
@@ -640,19 +735,30 @@ _FORWARDED = {
 }
 
 
-@pytest.mark.parametrize("target", ["own", "foreign"])
+@pytest.mark.parametrize("target", ["own", "foreign", "private"])
 @pytest.mark.parametrize("operation", sorted(_FORWARDED))
 def test_skill_publish_commands_reach_the_broker_for_the_own_target_only(primary, tmp_path, monkeypatch, operation,
                                                                          target, push_sandbox):  # noqa: F811
     """Defect class: inside the boundary the commands the skills name (git push, the publisher's PR verbs) do not
     reach the broker, so every worker is stuck at its first publish; or they reach it aimed at another branch or PR
-    and the broker publishes there (or silently on the worker's own branch instead) rather than refusing."""
+    and the broker publishes there (or silently on the worker's own branch instead) rather than refusing; or the
+    primary is a registered private repository and the host login still acts on it for a worker that reaches the
+    public internet (decision A6)."""
     import sys
+
+    from lu_machinery.dispatcher import agy_sandbox
+    from lu_machinery.orchestration.fleet_repos import load_fleet_repos
 
     repo, worktree, receipt = primary
     monkeypatch.setenv("LEARN_UKRAINIAN_PRIMARY_REPO_ROOT", str(push_sandbox.root))
     monkeypatch.setattr(write_boundary, "machinery_path", lambda relative: push_sandbox.root / "lu_machinery" / relative)
-    _git(repo, "remote", "add", "origin", "https://github.com/owner/repo.git")
+    slug = "owner/repo"
+    if target == "private":  # the registry's own private entry, checked by the real eligibility rule
+        slug = next(item.github for item in load_fleet_repos().values() if item.role.startswith("private-"))
+        assert not agy_sandbox.public_repository(slug)
+    else:
+        monkeypatch.setattr(agy_sandbox, "public_repository", lambda name: name == "owner/repo")
+    _git(repo, "remote", "add", "origin", f"https://github.com/{slug}.git")
     tip = _git(worktree, "rev-parse", "HEAD")
     remote = tmp_path / "broker-remote.git"
     _git(tmp_path, "init", "-q", "--bare", str(remote))
@@ -674,6 +780,7 @@ def test_skill_publish_commands_reach_the_broker_for_the_own_target_only(primary
         argv) or {"returncode": 0, "stdout": "published\n", "stderr": ""})
     body = tmp_path / "body.md"
     body.write_text("Body\n")
+    # A private primary gets the own-target command: only the repository's eligibility refuses it.
     command = _FORWARDED[operation][target == "foreign"].format(py=sys.executable, body=body, tip=tip)
     code = write_boundary.main([
         "--task-id", "wb-test", "--worktree", str(worktree), "--scratch", str(write_boundary.scratch("wb-test")),
@@ -694,3 +801,5 @@ def test_skill_publish_commands_reach_the_broker_for_the_own_target_only(primary
     else:
         assert exit_code != 0 and requests == [(operation, 2)] and "refused" in output, output
         assert steps == [] and remote_refs == ""
+        if target == "private":
+            assert "not a registered public repository" in result["broker"][0]["refused"], result["broker"]
