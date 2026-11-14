@@ -335,6 +335,13 @@ def test_settlement_stops_a_task_scoped_transient_service(monkeypatch, tmp_path)
     iso.stop_task_services(foreign, run=still_active, alert=lambda *args: alerts.append(args))
     assert foreign["task_service_stops"][-1]["result"] == "refused"
     assert not any("lu-worker-not-this-task" in part for call in live_calls for part in call)
+    for other_id in ("scratch-task-", "scratch-task_", "scratch-task."):
+        assert iso.task_service_matches(unit, task_id=other_id) is False
+        other = {"task_id": other_id, "task_services": [unit]}
+        before = len(live_calls)
+        iso.stop_task_services(other, run=still_active, alert=lambda *args: alerts.append(args))
+        assert other["task_service_stops"][-1]["result"] == "refused"
+        assert len(live_calls) == before
 
     iso.stop_task_services(record, run=still_active, alert=lambda *args: alerts.append(args))
     assert record["task_service_stops"][-1]["postcondition"] == "false"
@@ -358,6 +365,15 @@ def test_settlement_stops_a_task_scoped_transient_service(monkeypatch, tmp_path)
     monkeypatch.setattr(worker, "_provider_alive", lambda _record: False)
     monkeypatch.setattr(worker.git, "settle_worktree", lambda *_args, **_kwargs: {
         "worktree_disposition": "removed", "worktree_disposition_reason": "clean"})
+    suffixed = {
+        "task_id": "scratch-task", "launch_mode": "scope", "launch_unit": scope, "run_nonce": nonce,
+        "task_services": [f"{unit}.service"],
+    }
+    iso.stop_task_services(suffixed, run=gone, alert=lambda *args: alerts.append(args))
+    assert ["systemctl", "--user", "stop", f"{unit}.service"] in stopped
+    assert ["systemctl", "--user", "stop", f"{unit}.service.service"] not in stopped
+    assert suffixed["task_service_stops"][-1]["postcondition"] == "true"
+    stopped.clear()
     worker._reap_settled(fresh)
     assert ["systemctl", "--user", "stop", f"{unit}.service"] in stopped
     assert fresh["task_service_stops"][-1]["postcondition"] == "true"

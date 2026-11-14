@@ -40,6 +40,7 @@ drop-in, or a slice systemd synthesized) falls back.
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import os
 import pwd
 import re
@@ -229,27 +230,39 @@ _SERVICE_ALIVE = frozenset({"active", "activating", "reloading", "refreshing", "
 _SERVICE_GONE = frozenset({"inactive", "failed", "unknown"})
 
 
-def _task_service_prefix(task_id: str) -> str:
-    overhead = len("lu-task-") + 1 + 2 * _UNIT_TOKEN_BYTES + len(_SERVICE_SUFFIX)
-    return f"lu-task-{_unit_piece(task_id, _UNIT_NAME_MAX - overhead)}-"
+def _task_service_tag(task_id: str) -> str:
+    """Identity of this exact task id. Truncating the id would make ``scratch-task`` and ``scratch-task-`` one unit."""
+    return hashlib.sha256(task_id.encode()).hexdigest()
 
 
 def task_service_name(task_id: str) -> str:
     """Stem of one transient service for ``task_id``. systemd appends ``.service``."""
-    return f"{_task_service_prefix(task_id)}{secrets.token_hex(_UNIT_TOKEN_BYTES)}"
+    return f"lu-task-{_task_service_tag(task_id)}-{secrets.token_hex(_UNIT_TOKEN_BYTES)}"
+
+
+def _service_stem(unit: str, *, task_id: str) -> str | None:
+    """The stem systemd names ``<stem>.service``, or None when ``unit`` is not this task's service.
+
+    One trailing ``.service`` is the systemd suffix, not part of the stem. A second suffix is a
+    different name and is refused, so a check cannot pass for a unit that was not stopped.
+    """
+    if "/" in unit or not unit or unit.endswith(f"{_SERVICE_SUFFIX}{_SERVICE_SUFFIX}"):
+        return None
+    stem = unit[:-len(_SERVICE_SUFFIX)] if unit.endswith(_SERVICE_SUFFIX) else unit
+    prefix = f"lu-task-{_task_service_tag(task_id)}-"
+    token = stem.removeprefix(prefix)
+    if (
+        stem.startswith(prefix)
+        and len(token) == 2 * _UNIT_TOKEN_BYTES
+        and all(character in "0123456789abcdef" for character in token)
+    ):
+        return stem
+    return None
 
 
 def task_service_matches(unit: str, *, task_id: str) -> bool:
-    """Whether ``unit`` is a stem :func:`task_service_name` gives this task."""
-    stem = unit[:-len(_SERVICE_SUFFIX)] if unit.endswith(_SERVICE_SUFFIX) else unit
-    prefix = _task_service_prefix(task_id)
-    token = stem.removeprefix(prefix)
-    return (
-        "/" not in stem
-        and stem.startswith(prefix)
-        and len(token) == 2 * _UNIT_TOKEN_BYTES
-        and all(ch in "0123456789abcdef" for ch in token)
-    )
+    """Whether ``unit`` is a stem :func:`task_service_name` gives this task, with or without ``.service``."""
+    return _service_stem(unit, task_id=task_id) is not None
 
 
 def build_task_service_argv(cmd: Sequence[str], *, unit: str, scope_unit: str) -> list[str]:
@@ -470,16 +483,18 @@ def stop_task_services(
     for unit in names:
         if any(row.get("unit") == unit and row.get("postcondition") == "true" for row in attempts):
             continue
-        if not isinstance(task_id, str) or not task_service_matches(unit, task_id=task_id):
+        stem = _service_stem(unit, task_id=task_id) if isinstance(task_id, str) else None
+        if stem is None:
             _service_attempt(
                 attempts, unit=unit, result="refused", postcondition="false",
                 error="name is not this task's service",
             )
             _service_alert(record, unit, "name is not this task's service", alert)
             return
+        systemd_unit = f"{stem}.service"
         try:
-            runner(["systemctl", "--user", "stop", f"{unit}.service"])
-            active = runner(["systemctl", "--user", "is-active", f"{unit}.service"])
+            runner(["systemctl", "--user", "stop", systemd_unit])
+            active = runner(["systemctl", "--user", "is-active", systemd_unit])
         except (OSError, subprocess.TimeoutExpired) as exc:
             _service_attempt(
                 attempts, unit=unit, result="unverified", postcondition="unknown",

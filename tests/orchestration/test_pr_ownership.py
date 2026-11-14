@@ -231,6 +231,27 @@ def test_ownerless_open_pr_past_grace_records_a_decision_owner(tmp_path):
     # The same head is not recorded again.
     own.keeper_tick(now=at(30), **tick)
     assert own.load(path)["heal_attempts"][f"{KEY}:{HEAD}"]["result"] == "recorded"
+    # A seat request left in the outbox by a failed delivery is not sent after custody is recorded.
+    queued = tmp_path / "queued.json"
+    blind = own.Finding(REPO, 42, "codex/x", "last owner ended timeout, PR not MERGED", "old")
+    own.keeper_tick(
+        now=at(0), path=queued, observe=lambda handoffs: ({KEY}, {KEY: blind}), service_factory=fleet(tmp_path),
+    )
+
+    def down():
+        raise OSError("inbox down")
+
+    lines, failed = own.keeper_tick(
+        now=at(15), path=queued, observe=lambda handoffs: ({KEY}, {KEY: blind}), service_factory=down,
+    )
+    assert failed and own.load(queued)["outbox"] and own.load(queued)["heal_attempts"] == {}
+    lines, failed = own.keeper_tick(
+        now=at(20), path=queued, observe=lambda handoffs: ({KEY}, {KEY: evidenced}), service_factory=fleet(tmp_path),
+    )
+    assert failed is False and own.load(queued)["outbox"] == []
+    bodies = [body for _, _, body in inbox(tmp_path)]
+    assert any("custody recorded" in body for body in bodies)
+    assert not any("Seat one owner per PR" in body for body in bodies)
 
 
 def test_tick_alerts_cto_inbox_and_clears_on_accepted_handoff(tmp_path):

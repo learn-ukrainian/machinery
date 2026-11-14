@@ -376,8 +376,42 @@ def outbox_entries(notices: Mapping[str, list[dict[str, Any]]]) -> list[dict[str
             continue
         identity = [[row["pr"], row["since"], row.get("reminders", 0) if kind == "reminder" else 0] for row in rows]
         digest = hashlib.sha256(json.dumps(sorted(identity)).encode()).hexdigest()[:24]
-        entries.append({"kind": kind, "key": f"pr-ownership:{kind}:{digest}", "body": _message(kind, rows)})
+        entries.append({
+            "kind": kind,
+            "key": f"pr-ownership:{kind}:{digest}",
+            "body": _message(kind, rows),
+            "rows": json.dumps(rows, sort_keys=True),
+        })
     return entries
+
+
+def _reconcile_seated_outbox(outbox: list[dict[str, str]], seated: set[str]) -> None:
+    """Drop unpublished seat requests for PRs whose custody this tick already recorded.
+
+    An entry that does not mention a seated PR stays byte for byte, so a retry keeps its
+    idempotency key. An entry that does is not republished under that key with a different
+    body: seated PRs leave it, and any other PR in it is frozen again under a new key.
+    """
+    if not seated:
+        return
+    kept: list[dict[str, str]] = []
+    for entry in outbox:
+        raw = entry.get("rows")
+        if entry.get("kind") not in {"alert", "reminder"} or not isinstance(raw, str):
+            kept.append(entry)
+            continue
+        try:
+            rows = json.loads(raw)
+        except json.JSONDecodeError:
+            kept.append(entry)
+            continue
+        if not isinstance(rows, list) or not any(isinstance(row, dict) and row.get("pr") in seated for row in rows):
+            kept.append(entry)
+            continue
+        remaining = [row for row in rows if isinstance(row, dict) and row.get("pr") not in seated]
+        if remaining:
+            kept.extend(outbox_entries({entry["kind"]: remaining}))
+    outbox[:] = kept
 
 
 def deliver(outbox: list[dict[str, str]], service: Any) -> list[str]:
@@ -688,8 +722,9 @@ def _tick(now, path, observe, service_factory) -> tuple[list[str], bool]:
             if not decision_custody(data["handoffs"].get(key))
         }
         notices = step(data, keys, findings, now)
-        _heal_ownerless(data, findings, notices, now)
+        seated = _heal_ownerless(data, findings, notices, now)
         outbox = data.setdefault("outbox", [])
+        _reconcile_seated_outbox(outbox, set(seated))
         outbox.extend(outbox_entries(notices))
         _save(path, data)  # the frozen payloads exist on disk before any delivery
         try:
@@ -900,7 +935,7 @@ def _heal_ownerless(
     findings_now: Mapping[str, Finding],
     notices: dict[str, list[dict[str, Any]]],
     now: datetime,
-) -> None:
+) -> list[str]:
     """Record decision custody for ownerless open PRs this tick has already proven.
 
     One attempt per PR head. A refused or unverified attempt is not repeated, and
@@ -917,11 +952,11 @@ def _heal_ownerless(
         if notice is not None:
             seated.append(key)
             cleared.append(notice)
-    if not seated:
-        return
-    notices["alert"] = [row for row in notices["alert"] if row["pr"] not in seated]
-    notices["reminder"] = [row for row in notices["reminder"] if row["pr"] not in seated]
-    notices["cleared"].extend(cleared)
+    if seated:
+        notices["alert"] = [row for row in notices["alert"] if row["pr"] not in seated]
+        notices["reminder"] = [row for row in notices["reminder"] if row["pr"] not in seated]
+        notices["cleared"].extend(cleared)
+    return seated
 
 
 def _seat_decision_owner(
