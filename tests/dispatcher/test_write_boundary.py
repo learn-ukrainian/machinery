@@ -230,7 +230,7 @@ open(report, "w").write(json.dumps(cells))
 
 
 @pytest.mark.parametrize("mode,route", [("workspace-write", route) for route in _ROUTES] + [
-    ("read-only", route) for route in ("codex", "cursor", "opencode")])
+    ("read-only", route) for route in ("claude", "codex", "cursor", "opencode")])
 def test_no_github_write_authority_is_reachable_inside_any_route(primary, monkeypatch, tmp_path, route, mode):
     """Defect class: a write worker recovers the host's GitHub login inside the boundary (from the environment, gh's
     configuration or an alternate one, Git credential files, netrc, SSH keys or an inherited descriptor) or reaches

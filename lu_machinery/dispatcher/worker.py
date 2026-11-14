@@ -1323,7 +1323,7 @@ def _end_lingering(child: subprocess.Popen, spec: TaskSpec) -> None:
     exits, so only the sandbox's tree is killed and the launcher is given time to finish; anything still
     alive after that is killed whole.
     """
-    if spec.mode == "workspace-write" or (spec.mode == "read-only" and spec.agent != "claude"):
+    if spec.mode == "workspace-write" or spec.mode == "read-only":
         with contextlib.suppress(psutil.Error):
             for process in psutil.Process(child.pid).children():
                 process.kill()
@@ -1458,6 +1458,14 @@ def _adopt_orphans() -> bool:
         return False
 
 
+def _provider_env(spec: TaskSpec) -> dict[str, str]:
+    """Mark the trusted Claude launch before build; supervise always wraps it before Popen."""
+    env = child_env(spec)
+    if spec.mode == "read-only" and spec.agent == "claude":
+        env[write_boundary.BROKER_ENV] = write_boundary._BROKER_INSIDE
+    return env
+
+
 def supervise(path: Path, options: dict | None = None, hard_timeout: float | None = None) -> None:
     os.umask(0o077)
     record = json.loads(path.read_text())
@@ -1496,7 +1504,7 @@ def supervise(path: Path, options: dict | None = None, hard_timeout: float | Non
     def terminate():
         # Only an unreaped leader still pins its group id; a reaped one's id may name another group.
         if child and child.returncode is None and (
-            spec.mode == "workspace-write" or (spec.mode == "read-only" and spec.agent != "claude")
+            spec.mode == "workspace-write" or spec.mode == "read-only"
         ):
             # The write boundary's launcher ends the sandbox, imports the branch tip and records its receipt.
             with contextlib.suppress(ProcessLookupError):
@@ -1562,7 +1570,7 @@ def supervise(path: Path, options: dict | None = None, hard_timeout: float | Non
                 status, error = "failed", "output schema binding invalid"
                 return
         provider = providers.load(spec.agent)
-        invocation = runtime_context.build(spec, child_env(spec))
+        invocation = runtime_context.build(spec, _provider_env(spec))
         record["runtime_input_sha256"] = hashlib.sha256(invocation.stdin or b"").hexdigest()
         pending_conversation = None
         pending_correction = None
@@ -1609,9 +1617,9 @@ def supervise(path: Path, options: dict | None = None, hard_timeout: float | Non
         while True:
             correcting = pending_correction is not None
             if pending_conversation:
-                invocation = runtime_context.build(spec, child_env(spec), conversation=pending_conversation)
+                invocation = runtime_context.build(spec, _provider_env(spec), conversation=pending_conversation)
             elif correcting:
-                invocation = runtime_context.build(spec, child_env(spec), launch_prompt=pending_correction)
+                invocation = runtime_context.build(spec, _provider_env(spec), launch_prompt=pending_correction)
                 pending_correction = None
             # The first launch keeps the timeout the caller passed. Only a continuation
             # spends what remains of that same deadline, and a spent deadline does not
@@ -1631,7 +1639,7 @@ def supervise(path: Path, options: dict | None = None, hard_timeout: float | Non
                 stdin.seek(0)
                 output_sizes = out.tell(), err.tell()
                 checkpoint()  # the last one before the provider starts: a cancelled run launches nothing
-                if spec.mode == "workspace-write" or (spec.mode == "read-only" and spec.agent not in {"agy", "claude", "muse"}):
+                if spec.mode == "workspace-write" or (spec.mode == "read-only" and spec.agent not in {"agy", "muse"}):
                     # Native reviewers and write workers run inside the OS boundary (#423, #100); there is no
                     # unsandboxed fallback. The launcher refuses with its receipt when the boundary cannot start.
                     # A relaunch always rebuilds the invocation first, so it is wrapped exactly once.
@@ -1701,7 +1709,7 @@ def supervise(path: Path, options: dict | None = None, hard_timeout: float | Non
                 continue
             break
         store.begin_settlement(record)
-        if spec.mode == "workspace-write" or (spec.mode == "read-only" and spec.agent not in {"agy", "claude", "muse"}):
+        if spec.mode == "workspace-write" or (spec.mode == "read-only" and spec.agent not in {"agy", "muse"}):
             # Only the receipt the launcher writes outside the sandbox proves the run was contained (#423).
             boundary, refusal = write_boundary.verify(path, spec.task_id, spec.mode)
             record["write_boundary"] = boundary
@@ -1804,7 +1812,7 @@ def supervise(path: Path, options: dict | None = None, hard_timeout: float | Non
                 except store.TaskRecordError as exc:
                     status, error = "crashed", exc.code
             # A killed launcher leaves its scratch and token copy; residue is recorded, never raised.
-            if (spec.mode == "workspace-write" or (spec.mode == "read-only" and spec.agent not in {"agy", "claude", "muse"})) and (
+            if (spec.mode == "workspace-write" or (spec.mode == "read-only" and spec.agent not in {"agy", "muse"})) and (
                 residue := write_boundary.discard(spec.task_id)
             ):
                 record["write_boundary_cleanup"] = residue

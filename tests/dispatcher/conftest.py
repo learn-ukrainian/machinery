@@ -134,6 +134,7 @@ def run_git(repo, *args):
 # tests/dispatcher/test_write_boundary.py covers with real bubblewrap.
 WRITE_BOUNDARY_DOUBLE = """RECEIPT_SUFFIX = ".write-boundary.json"
 BROKER_ENV = "LU_WRITE_BOUNDARY_BROKER"
+_BROKER_INSIDE = "/run/lu-write-boundary/broker.sock"
 
 
 def launcher(spec, invocation, task_file):

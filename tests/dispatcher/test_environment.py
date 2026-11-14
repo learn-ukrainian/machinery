@@ -4,7 +4,7 @@ from dataclasses import replace
 import sys
 
 import pytest
-from lu_machinery.dispatcher import environment, write_boundary
+from lu_machinery.dispatcher import environment, worker, write_boundary
 from lu_machinery.dispatcher.types import Invocation, TaskSpec
 from tests.helpers.product_tree import configured_roots  # noqa: F401
 
@@ -42,7 +42,10 @@ def test_child_env_carries_sense_proof_dir_and_strips_logins(tmp_path, monkeypat
     monkeypatch.setenv("LU_PRODUCT_ROOT", str(tmp_path / "product"))
     monkeypatch.setenv("LEARN_UKRAINIAN_STATE_ROOT", str(tmp_path))
     for mode in ("read-only", "workspace-write"):
-        child = environment.child_env(replace(spec, mode=mode))
+        monkeypatch.setenv(write_boundary.BROKER_ENV, "untrusted-inherited-marker")
+        child = worker._provider_env(replace(spec, mode=mode))
+        assert child.get(write_boundary.BROKER_ENV) == (
+            write_boundary._BROKER_INSIDE if agent == "claude" and mode == "read-only" else None)
         assert child["LEARN_UKRAINIAN_PRIMARY_REPO_ROOT"] == str(tmp_path)
         if mode == "workspace-write":
             assert child["LEARN_UKRAINIAN_PYTHON"] == sys.executable
