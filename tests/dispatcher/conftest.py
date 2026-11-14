@@ -132,9 +132,15 @@ def run_git(repo, *args):
 # their prompt in the task store and some run in the primary itself, both of which the real boundary
 # refuses; these tests' subject is delivery, scope and supervision, not containment, which
 # tests/dispatcher/test_write_boundary.py covers with real bubblewrap.
-WRITE_BOUNDARY_DOUBLE = """RECEIPT_SUFFIX = ".write-boundary.json"
+WRITE_BOUNDARY_DOUBLE = """import sys
+
+RECEIPT_SUFFIX = ".write-boundary.json"
 BROKER_ENV = "LU_WRITE_BOUNDARY_BROKER"
 _BROKER_INSIDE = "/run/lu-write-boundary/broker.sock"
+
+
+def sources_command():
+    return [sys.executable, "-I", "/run/lu-write-boundary/sources-stdio.py", "/run/lu-write-boundary/sources.sock"]
 
 
 def launcher(spec, invocation, task_file):

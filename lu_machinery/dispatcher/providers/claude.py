@@ -8,9 +8,9 @@ from pathlib import Path
 
 from lu_machinery.agent_runtime.sources_read_only import sources_tool_sets
 from lu_machinery.common.jsonl import jsonl_lines
-from lu_machinery.common.repo_root import product_root
 from lu_machinery.dispatcher.providers.stream_json import SOURCES_SERVER
 from lu_machinery.dispatcher.types import Invocation, ParsedResult, TaskSpec
+from lu_machinery.dispatcher.write_boundary import sources_command
 from lu_machinery.lib import rules_core
 
 # Static permission profile from adapters/claude.py; account env belongs to core.
@@ -30,12 +30,13 @@ from lu_machinery.lib import rules_core
 # core that ``require_core`` checks is appended to the system prompt instead.
 _READ_TOOLSET = "Read,Grep,Glob,Bash,WebFetch,WebSearch"
 _READ_TOOLS = "Read,Grep,Glob,LS,WebFetch,WebSearch,Bash"
-# Every run, read-only or workspace-write, gets the Sources MCP server explicitly: from the dispatcher's
-# own checkout, never the task's worktree, whose .mcp.json the change in it could turn into a command,
-# and alone, as --strict-mcp-config drops every other server (#10074); --restricted would skip the
-# project settings that approve .mcp.json servers anyway. Only the tools the server annotates read-only
-# are allowed, so authors, judges and fixers can check their own words; the ones that persist fetched
-# entries (sources_read_only.sources_tool_sets) are denied by name.
+# Every run, read-only or workspace-write, gets the Sources MCP server explicitly: the write boundary's
+# fixed stdio command to its Sources relay (``write_boundary.sources_command``), never an MCP file of the
+# task's worktree, whose change could turn it into a command, or of the product, whose loopback service
+# the boundary cannot reach; and alone, as --strict-mcp-config drops every other server (#10074);
+# --restricted would skip the project settings that approve .mcp.json servers anyway. Only the tools the
+# server annotates read-only are allowed, so authors, judges and fixers can check their own words; the
+# ones that persist fetched entries (sources_read_only.sources_tool_sets) are denied by name.
 _SOURCES_SERVER = SOURCES_SERVER
 _WRITE_TOOLS = "Bash,Read,Edit,Write,Grep,Glob,LS,WebFetch,WebSearch"
 _READ_DENIES = (
@@ -116,8 +117,9 @@ def managed_policy(env: Mapping[str, str]) -> str | None:
 
 
 def _sources_mcp_config() -> str:
-    servers = json.loads((product_root() / ".mcp.json").read_text(encoding="utf-8"))["mcpServers"]
-    return json.dumps({"mcpServers": {_SOURCES_SERVER: servers[_SOURCES_SERVER]}}, separators=(",", ":"))
+    command, *args = sources_command()
+    server = {"type": "stdio", "command": command, "args": args}
+    return json.dumps({"mcpServers": {_SOURCES_SERVER: server}}, separators=(",", ":"))
 
 
 def model_id(model: str) -> str | None:

@@ -9,7 +9,7 @@ from dataclasses import replace
 from pathlib import Path
 import pytest
 from lu_machinery.agent_runtime.sources_read_only import sources_tool_sets
-from lu_machinery.dispatcher import agy_sandbox, runtime_context
+from lu_machinery.dispatcher import agy_sandbox, runtime_context, write_boundary
 from lu_machinery.dispatcher.providers import PROVIDERS, load
 from lu_machinery.dispatcher.runtime_context import read_roots
 from lu_machinery.dispatcher.types import ParsedResult, TaskSpec
@@ -124,12 +124,11 @@ UNKNOWN = {
     "cursor": '{"type":"result","subtype":"unrecognized","result":"Finished."}',
     "agy": '{"event":"result","result":{"status":"UNRECOGNIZED","response":"Finished."}}',
 }
-# The project's Sources server as .mcp.json declares it; read-only Claude loads only this server.
+# The write boundary's fixed stdio command to its Sources relay; Claude loads only this server.
 def sources_mcp_config():
-    return json.dumps(
-        {"mcpServers": {"sources": json.loads(rules_core.source_path(".mcp.json").read_text())["mcpServers"]["sources"]}},
-        separators=(",", ":"),
-    )
+    command, *args = write_boundary.sources_command()
+    return json.dumps({"mcpServers": {"sources": {"type": "stdio", "command": command, "args": args}}},
+                      separators=(",", ":"))
 
 
 STUB = """import json, os, pathlib, sys
@@ -379,7 +378,10 @@ def test_claude_task_exposes_only_the_trusted_sources_mcp_readers(tmp_path, mode
     spec = TaskSpec("uk-review", "claude", "claude-opus-5-5", "high", mode, tmp_path, prompt, tmp_path / "f")
     argv = load("claude").build(spec, {}).argv
     config = json.loads(argv[argv.index("--mcp-config") + 1])
-    assert config == {"mcpServers": {"sources": {"type": "streamable-http", "url": "http://127.0.0.1:8766/mcp"}}}
+    # The boundary's relay through its fixed paths: no product or worktree MCP file, no loopback service.
+    assert config == {"mcpServers": {"sources": {
+        "type": "stdio", "command": str(Path(sys.executable).resolve()),
+        "args": ["-I", "/run/lu-write-boundary/sources-stdio.py", "/run/lu-write-boundary/sources.sock"]}}}
     assert "--strict-mcp-config" in argv
     assert ("--restricted" in argv) is (mode == "read-only")
     readers, writers = sources_tool_sets()

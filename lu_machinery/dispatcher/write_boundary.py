@@ -35,8 +35,8 @@ identities come from the launch. The worker holds no GitHub credential and the e
 hosts, so it publishes (push, PR, comment, merge) only through the broker's publication verbs, which the host's
 own login carries out behind the existing scanned publisher and push scan (decision PUBLISH-CRED-1113).
 Read-only providers may use only ``github-read``; the owning worker records the review verdict after settlement.
-Sources goes through the read-only AGY boundary's ``SourcesRelay``; the
-MCP stdio command that reaches it is in ``LU_WRITE_BOUNDARY_SOURCES``.
+Sources goes through the read-only AGY boundary's ``SourcesRelay``. Its proxy and socket sit at fixed paths
+inside, so ``sources_command`` is the MCP stdio command a provider names without reading any MCP file.
 
 The canary runs first and checks each boundary property; the provider starts only after the launcher
 has checked every outcome. Any setup or canary failure refuses the run (exit ``REFUSED``) and nothing
@@ -81,7 +81,7 @@ _BOOTSTRAP = (
 _PROJECTED = {
     "canary.py": machinery_path("dispatcher/agy_canary.py"),
     "forwarder.py": machinery_path("agent_runtime/attempt_forwarder.py"),
-    "stdio.py": machinery_path("agent_runtime/attempt_proxy.py"),
+    "sources-stdio.py": machinery_path("agent_runtime/attempt_proxy.py"),
 }
 _TASK_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}")
 _OBJECT_ID = re.compile(r"[0-9a-f]{40}|[0-9a-f]{64}")
@@ -133,13 +133,32 @@ _GITHUB_REMOTE = re.compile(
 _GITHUB_SLUG = re.compile(r"[A-Za-z0-9][A-Za-z0-9-]{0,38}/[A-Za-z0-9._-]{1,100}")
 _MAX_REQUEST = 1 << 20
 _MAX_BODY = 64 << 10
-# Where the broker socket appears inside: a short path on the private /run, below the sockaddr_un length limit.
+# The launcher's own directory appears inside at this short fixed path on the private /run (below the
+# sockaddr_un length limit), read-only and as a mount point, so no worker can rename, remove or replace it or
+# anything below it: the broker socket, the Sources relay socket and the projected Sources byte proxy. The MCP
+# stdio command a provider names (``sources_command``) is therefore a constant, and no MCP file is read.
+_INSIDE = "/run/lu-write-boundary"
 _BROKER_INSIDE = "/run/lu-write-boundary/broker.sock"
 _SOURCES_INSIDE = "/run/lu-write-boundary/sources.sock"
-# The MCP stdio command (a JSON argv) that reaches the read-only Sources relay from inside.
-SOURCES_ENV = "LU_WRITE_BOUNDARY_SOURCES"
+_SOURCES_STDIO_INSIDE = "/run/lu-write-boundary/sources-stdio.py"
 _BROKER_TIMEOUTS = {"review-dispatch": 300, "record-verdict": 900, "fleet-publish": 120, "gh": 120,
                     "closeout-request": 900, "publish": 300, "pr-merge": 900}
+
+
+def sources_command() -> list[str]:
+    """The MCP stdio argv that reaches the launcher's read-only Sources relay from inside the boundary.
+
+    The launcher runs the provider with this interpreter and binds its proxy and the relay socket at these
+    fixed paths. Without a relay the socket is absent: the server fails to start and the run goes on.
+    """
+    return [str(Path(sys.executable).resolve(strict=True)), "-I", _SOURCES_STDIO_INSIDE, _SOURCES_INSIDE]
+
+
+def _interpreter_root() -> Path:
+    """The installation ``sources_command``'s interpreter runs from (binary and standard library)."""
+    interpreter = Path(sources_command()[0])
+    prefix = Path(sys.base_prefix).resolve()
+    return prefix if interpreter.is_relative_to(prefix) else interpreter.parent
 
 
 def broker_path() -> str | None:
@@ -1148,23 +1167,24 @@ class _Boundary:
         for path in sockets:
             argv += ["--ro-bind", "/dev/null", str(path)]
         self.broker = _Broker(self, boundary / "broker.sock")
-        argv += ["--ro-bind", str(boundary / "broker.sock"), _BROKER_INSIDE]
-        interpreter = str(Path(sys.executable).resolve(strict=True))
+        argv += ["--ro-bind", str(boundary), _INSIDE]
+        interpreter = sources_command()[0]
+        if _under(_interpreter_root(), [home]):
+            # The writable HOME layer would let a worker replace the interpreter the Sources command runs.
+            argv += ["--ro-bind", str(_interpreter_root()), str(_interpreter_root())]
         if read_only:
             (boundary / "bin").mkdir(mode=0o700)
             _write_private(boundary / "bin" / "gh", agy_sandbox._GH_SHIM.format(interpreter=interpreter).encode(), 0o500)
             self.gh = agy_sandbox._GhBroker(boundary / "gh.sock", self.worktree)
-        sources_command = None
         try:
             # Sources goes through the read-only AGY boundary's relay: read-only tools only, one server per
-            # connection, started by the launcher from the product checkout.
+            # connection, started by the launcher from the product checkout. Providers reach it through
+            # ``sources_command``.
             from lu_machinery.agent_runtime.sources_read_only import sources_tool_sets
 
             readers, _writers = sources_tool_sets()
             self.relay = agy_sandbox.SourcesRelay(boundary / "sources.sock", frozenset(readers), {
                 name: os.environ[name] for name in ("PATH", "HOME", "LANG", "TMPDIR") if name in os.environ})
-            argv += ["--ro-bind", str(boundary / "sources.sock"), _SOURCES_INSIDE]
-            sources_command = json.dumps([interpreter, "-I", str(boundary / "stdio.py"), _SOURCES_INSIDE])
         except Exception as exc:  # Sources is optional for a write worker; containment does not depend on it
             self.receipt["sources"] = {"status": "unavailable", "reason": f"{type(exc).__name__}: {exc}"[:200]}
         argv += ["--cap-drop", "ALL", "--chdir", str(self.worktree)]
@@ -1190,8 +1210,6 @@ class _Boundary:
         if read_only:
             env["PATH"] = str(boundary / "bin") + os.pathsep + env.get("PATH", os.defpath)
         env.update(git_push_settings(env, interpreter, str(machinery_path("dispatcher/write_boundary.py").parents[2])))
-        if sources_command is not None:
-            env[SOURCES_ENV] = sources_command
         try:
             # The argv is the fixed bubblewrap binary and launcher-validated paths; env is the dispatcher's
             # provider environment, passed on deliberately (the provider runs inside with it).
@@ -1260,6 +1278,10 @@ class _Boundary:
             expect("write_open", path, "OK")
         for port in _LOOPBACK_PORTS:
             expect("connect_tcp", "127.0.0.1", "ECONNREFUSED", "ENETUNREACH", port=port)
+        # The fixed Sources command cannot be redirected: its directory is a mount point and its interpreter's
+        # installation is read-only.
+        expect("rename", _INSIDE, "EBUSY")
+        expect("create", _interpreter_root() / f".write-boundary-canary-{nonce}", "EROFS")
         if (abstract := agy_sandbox._host_abstract_socket()) is not None:
             expect("connect_abstract", abstract, "ECONNREFUSED")
         for path in sockets:
