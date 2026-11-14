@@ -139,7 +139,7 @@ def test_hot_agy_remains_avoid_through_budget_and_capacity_cli(monkeypatch, caps
                 continue
             if command == "json":
                 rows = json.loads(public)["agents"]
-                assert {"muse", "agy", "gemini"} <= rows.keys()
+                assert {"agy", "gemini"} <= rows.keys() and "muse" not in rows
                 assert rows["gemini"] == quota
                 assert rows["agy"]["status"] == display_status
                 if diagnostic in {"hot", "zero", "full"}:
@@ -158,7 +158,7 @@ def test_hot_agy_remains_avoid_through_budget_and_capacity_cli(monkeypatch, caps
                     assert public.splitlines()[0] == ("QA PASS: 2 subscription lane(s) have usable allotment signal(s)")
                 assert "mix-max is blind" not in public
                 assert f"agy | {display_status} | unknown |" in public
-                assert "muse | unknown | unknown |" in public
+                assert "muse" not in public
             assert budget == original
         later = capacity_pick.build_report(usage.read_budget(fresh=fresh), active_in_flight={})
         assert next(row for row in later["pick_order"] if row["lane"] == "agy")["pick"] == "AVOID"

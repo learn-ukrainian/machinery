@@ -12,7 +12,7 @@ provider can be compared side by side. The reader takes its data only from:
   Codex a and b, AGY and Grok+Cursor. The AGY pool carries two
   quota groups, Gemini and Claude/GPT, as titled weekly and 5-hour windows;
   each group is its own row;
-* the Monitor's validated per-account Claude readings and in-memory Muse reading
+* the Monitor's validated per-account Claude readings
   (``get_provider_usage_data(..., kick_refresh=False)``, which never probes).
   A process without the Monitor's scheduler, such as the console command,
   has none, and those accounts show as unknown. The existing Monitor scheduler
@@ -83,7 +83,6 @@ PROVIDERS: tuple[tuple[str, str, tuple[tuple[str, str, str, str], ...]], ...] = 
     ("codex", "Codex", (("Codex a", "codex_a", "cache", "Codex a"), ("Codex b", "codex_b", "cache", "Codex b"))),
     ("agy", "AGY", (("AGY Gemini", "agy", "cache", "AGY"), ("AGY Claude/GPT", "agy", "cache", "AGY"))),
     ("grok", "Grok", (("Grok+Cursor", "grok", "cache", "Grok+Cursor"),)),
-    ("muse", "Muse", (("Muse", "muse", "monitor", "muse"),)),
 )
 NO_MONITOR_READING = "no_monitor_reading"
 # A pool with quota groups: each account reads its group's titled "<group> weekly" and "<group> 5-hour" windows.
@@ -415,7 +414,7 @@ def _cache_account(entry: Any, now: datetime, *, provider: str, group: str | Non
     return {"reading": reading, **_cache_usage(entry, read_at, now, provider=provider, group=group)}
 
 
-# --- the Monitor's in-memory reading (Muse) ----------------------------------------------------------
+# --- the Monitor's in-memory reading (Claude) --------------------------------------------------------
 
 
 def _monitor_window(label: str, raw: Any, read_at: datetime, now: datetime) -> dict[str, Any]:
@@ -425,7 +424,7 @@ def _monitor_window(label: str, raw: Any, read_at: datetime, now: datetime) -> d
                    raw.get("reset_description"))
 
 
-def _monitor_account(record: Mapping[str, Any] | None, now: datetime, *, provider: str = "muse") -> dict[str, Any]:
+def _monitor_account(record: Mapping[str, Any] | None, now: datetime, *, provider: str) -> dict[str, Any]:
     record = record if isinstance(record, Mapping) else {}
     freshness = record.get("freshness")
     read_at, why = _read_time(record.get("fetched_at"), now)
@@ -536,7 +535,7 @@ def subscriptions_snapshot(*, now: datetime | None = None, monitor_reader: Monit
 # The routing pool id of each account row; AGY's two quota groups are separate pools.
 POOL_IDS = {
     "Claude a": "claude:a", "Claude b": "claude:b", "Codex a": "codex:a", "Codex b": "codex:b",
-    "AGY Gemini": "agy:gemini", "AGY Claude/GPT": "agy:claude_gpt", "Grok+Cursor": "grok", "Muse": "muse",
+    "AGY Gemini": "agy:gemini", "AGY Claude/GPT": "agy:claude_gpt", "Grok+Cursor": "grok",
 }
 POOL_STATUSES = ("cool", "hot", "near_cap", "unknown")
 POOL_PACE_REASONS = frozenset({
@@ -712,7 +711,7 @@ def render_text(snapshot: Mapping[str, Any]) -> str:
                 else f"unknown ({sources['plan_facts']['reason']})")]
     if any(row["reading"].get("reason") == NO_MONITOR_READING
            for provider in snapshot["providers"] for row in provider["accounts"]):
-        lines.append("The Muse reading lives only in the Monitor API process; this process has none.")
+        lines.append("The Claude readings live only in the Monitor API process; this process has none.")
     for provider in snapshot["providers"]:
         lines.append("")
         lines.append(f"== {provider['label']} ==")
@@ -749,7 +748,7 @@ def _parser() -> argparse.ArgumentParser:
             "Print every subscription account's weekly usage, pace (headroom or deficit), 5-hour window,\n"
             "scoped windows, credits, banked resets and plan renewal, grouped by provider.\n"
             "Use it on the host console when the machinery home page is not reachable; it never calls\n"
-            "the HTTP API, CodexBar or a provider, so Muse (read only inside the Monitor API) shows unknown."
+            "the HTTP API, CodexBar or a provider, so Claude (read only inside the Monitor API) shows unknown."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(

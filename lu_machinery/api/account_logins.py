@@ -22,14 +22,14 @@ renewal, banked resets, the end date of a cancelled plan) from
 ``subscription_ends.json`` in the user's learn-ukrainian config directory
 (``LU_SUBSCRIPTION_ENDS_FILE`` overrides; empty means none). Each top-level key
 is a pool (``claude_a``, ``claude_b``, ``codex_a``, ``codex_b``, ``agy``,
-``grok``, ``muse``). Its value is either the old form, an end date or
+``grok``). Its value is either the old form, an end date or
 ``null`` (cancelled, end date not yet known), or an object. The values below
 are placeholders:
 
     {"claude_a": {"plan": "Example plan", "renews_on": "2000-01-15",
                   "banked_resets": [{"kind": "weekly reset", "count": 1, "expires_on": "2000-02-01"}]},
      "grok": {"plan": "Example plan", "ends_on": "2000-01-31"},
-     "muse": "2000-01-31"}
+     "codex_b": "2000-01-31"}
 
 ``renews_on`` is any past or future renewal date; the next monthly renewal is
 derived from it. ``ends_on`` marks a cancelled plan (``null``: end date not yet

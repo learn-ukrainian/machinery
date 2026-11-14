@@ -2495,16 +2495,6 @@
     {
       "path": "lu_machinery/api/subscription_usage.py",
       "code": "union-attr",
-      "message": "Item \"None\" of \"Any | None | dict[Any, Any]\" has no attribute \"get\""
-    },
-    {
-      "path": "lu_machinery/api/subscription_usage.py",
-      "code": "union-attr",
-      "message": "Item \"None\" of \"Any | None | dict[Any, Any]\" has no attribute \"get\""
-    },
-    {
-      "path": "lu_machinery/api/subscription_usage.py",
-      "code": "union-attr",
       "message": "Item \"None\" of \"Any | None | list[Any]\" has no attribute \"__iter__\" (not iterable)"
     },
     {

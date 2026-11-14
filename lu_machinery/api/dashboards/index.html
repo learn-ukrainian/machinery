@@ -417,7 +417,7 @@ const CODEX_ACCOUNTS = {sub: "Codex a", "b-sub": "Codex b", api: "Codex API", "b
 function account(task) {
   if (task.claude_account) return Object.hasOwn(CLAUDE_ACCOUNTS, task.claude_account) ? CLAUDE_ACCOUNTS[task.claude_account] : "Claude, other account";
   if (task.codex_account) return Object.hasOwn(CODEX_ACCOUNTS, task.codex_account) ? CODEX_ACCOUNTS[task.codex_account] : "Codex, other account";
-  return task.agent === "agy" ? "AGY" : task.agent === "muse" ? "Muse" : null;
+  return task.agent === "agy" ? "AGY" : null;
 }
 
 function modelOf(task) {

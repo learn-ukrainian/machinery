@@ -14,7 +14,7 @@ from typing import Any, overload
 
 from lu_machinery.review.model_catalog import ModelCatalogError, canonical_model_id, load_model_catalog
 
-AGENTS = frozenset({"claude", "codex", "gemini", "agy", "grok", "cursor", "muse", "opencode", "openrouter", "deepseek"})
+AGENTS = frozenset({"claude", "codex", "gemini", "agy", "grok", "cursor", "opencode", "openrouter", "deepseek"})
 
 
 def mapping(value: object) -> dict[str, Any]:

@@ -6,7 +6,6 @@ import copy
 import io
 import json
 import subprocess
-import time
 from pathlib import Path
 
 import pytest
@@ -158,23 +157,13 @@ def test_json_uses_monitor_and_preserves_payload(monkeypatch, capsys, budget):
 
     monkeypatch.setenv("DELEGATE_MONITOR_API", "http://fixture.invalid:8765/")
     monkeypatch.setattr(usage.urllib.request, "urlopen", http)
-    from lu_machinery.api import state_router, subscription_usage
-    from lu_machinery.api.state_helpers import cache_invalidate
+    from lu_machinery.api import state_router
 
-    cache_invalidate("codexbar_usage:muse")
-    subscription_usage._last_good_data.pop("muse", None)
-    subscription_usage._last_failure_data.pop("muse", None)
     monkeypatch.setattr(state_router, "compute_routing_budget", lambda **kw: pytest.fail("cold process read"))
     assert usage.main(["json"]) == 0
     result = json.loads(capsys.readouterr().out)
-    muse = result["agents"].pop("muse")
     agy = result["agents"].pop("agy")
     assert result == {**budget, "source": "monitor-api"}
-    assert muse["status"] == "unknown"
-    assert muse["remaining_pct"] is None
-    assert muse["headroom_pct"] is None
-    assert muse["resets_at"] is None
-    assert muse["freshness"] == "unavailable"
     assert agy["status"] == "unknown"
     assert agy["remaining_pct"] is None
     assert agy["headroom_pct"] is None
@@ -405,240 +394,6 @@ def test_refresh_failure_is_nonzero_and_does_not_echo_exception(monkeypatch, cap
     assert "secret-marker" not in capsys.readouterr().err
 
 
-_MUSE_KNOWN_PAYLOAD = {
-    "provider": "muse",
-    "source": "oauth",
-    "usage": {
-        "primary": {"usedPercent": 10, "windowMinutes": 300, "resetsAt": "2026-10-13T18:00:00Z"},
-        "secondary": {"usedPercent": 30, "windowMinutes": 10080, "resetsAt": "2026-10-20T00:00:00Z"},
-    },
-}
-_MUSE_NULL_PAYLOAD = {"provider": "muse", "usage": {"primary": None, "secondary": None}}
-
-
-@pytest.mark.parametrize(
-    ("payload", "status", "remaining", "kind", "code", "window"),
-    [
-        (
-            {
-                "provider": "muse",
-                "source": "PRIVATE_SOURCE",
-                "usage": {
-                    "primary": {
-                        "usedPercent": 20,
-                        "windowMinutes": "PRIVATE_MINUTES",
-                        "resetsAt": "PRIVATE_RESET",
-                        "resetDescription": "PRIVATE_DESCRIPTION",
-                        "label": "PRIVATE_LABEL",
-                    }
-                },
-            },
-            "healthy",
-            80.0,
-            None,
-            None,
-            {
-                "used_pct": 20.0,
-                "remaining_pct": 80.0,
-                "resets_at": None,
-                "window_minutes": None,
-                "reset_description": None,
-            },
-        ),
-        (
-            {"provider": "muse", "error": {"kind": "PRIVATE_KIND", "code": "PRIVATE_CODE"}},
-            "unknown",
-            None,
-            "provider",
-            "PROVIDER_ERROR",
-            None,
-        ),
-        ({"provider": "muse", "error": "PRIVATE_ERROR"}, "unknown", None, "provider", "PROVIDER_ERROR", None),
-        ({"provider": "muse", "error": {"kind": "provider"}}, "unknown", None, "provider", "PROVIDER_ERROR", None),
-        (
-            {"provider": "muse", "usage": {"updatedAt": "2000-01-01T00:00:00Z", "primary": {"usedPercent": 20}}},
-            "unknown",
-            None,
-            "fetch_error",
-            "STALE_DATA",
-            None,
-        ),
-        (
-            {"provider": "muse", "usage": {"updatedAt": "PRIVATE_TIME", "primary": {"usedPercent": 20}}},
-            "unknown",
-            None,
-            "fetch_error",
-            "BAD_JSON",
-            None,
-        ),
-        (
-            [{"provider": "codex", "usage": {"primary": {"usedPercent": 7}}}, _MUSE_NULL_PAYLOAD],
-            "unknown",
-            None,
-            "unsupported",
-            "NO_QUOTA",
-            None,
-        ),
-        (
-            {"provider": "PRIVATE_PROVIDER", "usage": {"primary": {"usedPercent": 7}}},
-            "unknown",
-            None,
-            "fetch_error",
-            "PROVIDER_MISMATCH",
-            None,
-        ),
-        (
-            {"provider": "muse", "usage": {"primary": {"usedPercent": -1}}},
-            "unknown",
-            None,
-            "unsupported",
-            "NO_QUOTA",
-            None,
-        ),
-        (
-            {"provider": "muse", "usage": {"primary": {"usedPercent": 101}}},
-            "unknown",
-            None,
-            "unsupported",
-            "NO_QUOTA",
-            None,
-        ),
-        (
-            {"provider": "muse", "usage": {"primary": {"usedPercent": 0}}},
-            "healthy",
-            100.0,
-            None,
-            None,
-            {
-                "used_pct": 0.0,
-                "remaining_pct": 100.0,
-                "resets_at": None,
-                "window_minutes": None,
-                "reset_description": None,
-            },
-        ),
-        (
-            {"provider": "muse", "usage": {"primary": {"usedPercent": 100}}},
-            "healthy",
-            0.0,
-            None,
-            None,
-            {
-                "used_pct": 100.0,
-                "remaining_pct": 0.0,
-                "resets_at": None,
-                "window_minutes": None,
-                "reset_description": None,
-            },
-        ),
-    ],
-    ids=[
-        "private-metadata",
-        "private-error",
-        "uncoded-private-error",
-        "uncoded-provider-error",
-        "stale",
-        "invalid-time",
-        "wrong-list-provider",
-        "wrong-provider",
-        "negative",
-        "over-full",
-        "zero",
-        "full",
-    ],
-)
-def test_muse_boundary_reaches_literal_json_and_human_output(
-    monkeypatch,
-    capsys,
-    payload,
-    status,
-    remaining,
-    kind,
-    code,
-    window,
-):
-    from lu_machinery.api import subscription_usage as su
-
-    record = su._muse_record_from_codexbar_payload(payload)
-    record.update(freshness="fresh", age_s=0.0)
-    monkeypatch.setattr(su, "get_provider_usage_data", lambda *args, **kwargs: record)
-    monkeypatch.setattr(su, "get_agy_quota_observation", lambda: {})
-    monkeypatch.setattr(
-        usage,
-        "read_budget",
-        lambda **kwargs: (
-            {
-                **usage._attach_status_observations({"agents": {}, "api_accounts": {}, "source": "fixture"}),
-                "agents": {"muse": usage._attach_status_observations({})["agents"]["muse"]},
-            }
-            if kwargs.get("for_display")
-            else {"agents": {}, "api_accounts": {}, "source": "fixture"}
-        ),
-    )
-    empty = {
-        "used_pct": None,
-        "remaining_pct": None,
-        "resets_at": None,
-        "window_minutes": None,
-        "reset_description": None,
-    }
-    expected = {
-        "lane": "muse",
-        "status": status,
-        "remaining_pct": remaining,
-        "headroom_pct": remaining,
-        "resets_at": None,
-        "freshness": "fresh",
-        "age_s": 0.0,
-        "error_kind": kind,
-        "error_code": code,
-        "failure_kind": kind,
-        "last_failure_code": code,
-        "auth_error": None,
-        "codexbar": {
-            "freshness": "fresh",
-            "age_s": 0.0,
-            "headroom_pct": remaining,
-            "weekly_resets_at": None,
-            "windows": {"primary": window or empty, "secondary": empty, "tertiary": empty},
-            "error_kind": kind,
-            "failure_kind": kind,
-            "last_failure_code": code,
-            "primary_remaining_pct": remaining,
-            "weekly_remaining_pct": None,
-        },
-    }
-    assert usage.main(["json"]) == 0
-    json_text = capsys.readouterr().out
-    assert json.loads(json_text) == {"agents": {"muse": expected}, "api_accounts": {}, "source": "fixture"}
-    assert usage.main(["show"]) == 0
-    human = capsys.readouterr().out
-    rem_text = "unknown" if remaining is None else f"{remaining:.1f}"
-    quota_text = "unknown" if remaining is None else f"{remaining:.1f}%"
-    fail_text = "-" if kind is None else f"{kind}/{code}"
-    lines = [
-        "source: fixture",
-        "Subscriptions (per-lane allotments; blank pools mean the probe did not return them)",
-        "lane | status | remaining% | freshness | age_s | fail",
-        "agy | unknown | unknown | unavailable | unknown | -",
-        "  (no allotment windows; probe returned empty)",
-        f"muse | {status} | {rem_text} | fresh | 0.0 | {fail_text}",
-        f"  quota: remaining={quota_text} headroom={quota_text} resets=unknown",
-    ]
-    if window is not None:
-        lines.append(f"  primary (window): used={window['used_pct']:.1f}% rem={remaining:.1f}% resets=unknown")
-    lines.extend(["", "Prepaid (USD; key cap remaining is not account balance)"])
-    lines.extend(
-        [
-            "",
-            "WARN: no usable subscription allotment rows — mix-max is blind. "
-            "Run: usage doctor && usage show --fresh; check fail= codes above.",
-        ]
-    )
-    assert human == "\n".join(lines) + "\n"
-    assert "PRIVATE_" not in json_text + human
-
-
 @pytest.mark.parametrize(
     ("envelope", "fraction", "status", "freshness", "kind", "code", "windows", "line"),
     [
@@ -783,9 +538,7 @@ def test_agy_boundary_reaches_literal_json_and_human_output(
     def budget(**kwargs):
         if not kwargs.get("for_display"):
             return {"agents": {}, "api_accounts": {}, "source": "fixture"}
-        attached = usage._attach_status_observations({"agents": {}, "api_accounts": {}, "source": "fixture"})
-        attached["agents"].pop("muse")
-        return attached
+        return usage._attach_status_observations({"agents": {}, "api_accounts": {}, "source": "fixture"})
 
     monkeypatch.setattr(usage, "read_budget", budget)
     groups = [] if not windows else [{"key": "gemini_models", "label": "Gemini Models", "windows": windows}]
@@ -829,12 +582,6 @@ def test_agy_boundary_reaches_literal_json_and_human_output(
     ]
     if line:
         lines.append(line)
-    lines.extend(
-        [
-            "muse | unknown | unknown | unavailable | unknown | -",
-            "  quota: remaining=unknown headroom=unknown resets=unknown",
-        ]
-    )
     lines.extend(["", "Prepaid (USD; key cap remaining is not account balance)"])
     lines.extend(
         [
@@ -848,22 +595,11 @@ def test_agy_boundary_reaches_literal_json_and_human_output(
     assert "987654" not in json_text + human
 
 
-def _clear_muse_observation() -> None:
-    from lu_machinery.api import subscription_usage
-    from lu_machinery.api.state_helpers import cache_invalidate
-
-    cache_invalidate("codexbar_usage:muse")
-    subscription_usage._last_good_data.pop("muse", None)
-    subscription_usage._last_failure_data.pop("muse", None)
-
-
-@pytest.mark.parametrize("lane", ["muse", "agy"])
 @pytest.mark.parametrize("command", ["show", "json"])
 @pytest.mark.parametrize("attempt_failed_fetch", [False, True], ids=["cold", "failed-fetch"])
-def test_usage_cli_cold_and_failed_fetch_diagnostics(monkeypatch, capsys, lane, command, attempt_failed_fetch):
+def test_usage_cli_cold_and_failed_fetch_diagnostics(monkeypatch, capsys, command, attempt_failed_fetch):
     from lu_machinery.api import subscription_usage as su
 
-    _clear_muse_observation()
     calls = []
 
     def failed_probe(*, timeout_s):
@@ -874,24 +610,21 @@ def test_usage_cli_cold_and_failed_fetch_diagnostics(monkeypatch, capsys, lane, 
         pytest.fail("Displaying cached observations must not attempt a provider fetch")
 
     if attempt_failed_fetch:
-        provider = "muse" if lane == "muse" else "gemini"
-        monkeypatch.setitem(su._NATIVE_PROBES, provider, failed_probe)
-        su.refresh_provider_usage_data([provider], timeout_s=1)
+        monkeypatch.setitem(su._NATIVE_PROBES, "gemini", failed_probe)
+        su.refresh_provider_usage_data(["gemini"], timeout_s=1)
     monkeypatch.setattr(su, "fetch_provider_usage", unexpected_fetch)
     monkeypatch.setattr(su, "trigger_background_refresh", unexpected_fetch)
 
     def budget(**kwargs):
         if not kwargs.get("for_display"):
             return {"agents": {}, "api_accounts": {}, "source": "fixture"}
-        attached = usage._attach_status_observations({"agents": {}, "api_accounts": {}, "source": "fixture"})
-        attached["agents"].pop("agy" if lane == "muse" else "muse")
-        return attached
+        return usage._attach_status_observations({"agents": {}, "api_accounts": {}, "source": "fixture"})
 
     monkeypatch.setattr(usage, "read_budget", budget)
     kind = "fetch_error" if attempt_failed_fetch else "unavailable"
     code = "FETCH_ERROR" if attempt_failed_fetch else None
     expected = {
-        "lane": lane,
+        "lane": "agy",
         "status": "unknown",
         "remaining_pct": None,
         "headroom_pct": None,
@@ -911,51 +644,21 @@ def test_usage_cli_cold_and_failed_fetch_diagnostics(monkeypatch, capsys, lane, 
             "last_failure_code": code,
         },
     }
-    if lane == "muse":
-        expected["codexbar"].update(
-            {
-                "headroom_pct": None,
-                "weekly_resets_at": None,
-                "primary_remaining_pct": None,
-                "weekly_remaining_pct": None,
-                "windows": {
-                    name: {
-                        "used_pct": None,
-                        "remaining_pct": None,
-                        "resets_at": None,
-                        "window_minutes": None,
-                        "reset_description": None,
-                    }
-                    for name in ("primary", "secondary", "tertiary")
-                },
-            }
-        )
-    else:
-        expected["quota_groups"] = []
-        expected["codexbar"].update({"error_code": code, "quota_groups": [], "source": "agy_cli_usage"})
+    expected["quota_groups"] = []
+    expected["codexbar"].update({"error_code": code, "quota_groups": [], "source": "agy_cli_usage"})
 
     assert usage.main([command]) == 0
     output = capsys.readouterr().out
     if command == "json":
-        assert json.loads(output) == {"source": "fixture", "agents": {lane: expected}, "api_accounts": {}}
+        assert json.loads(output) == {"source": "fixture", "agents": {"agy": expected}, "api_accounts": {}}
     else:
         diagnostic = "fetch_error/FETCH_ERROR" if attempt_failed_fetch else "unavailable"
         lines = [
             "source: fixture",
             "Subscriptions (per-lane allotments; blank pools mean the probe did not return them)",
             "lane | status | remaining% | freshness | age_s | fail",
-            f"{lane} | unknown | unknown | unavailable | unknown | {diagnostic}",
+            f"agy | unknown | unknown | unavailable | unknown | {diagnostic}",
         ]
-        if lane == "muse":
-            lines.insert(3, "agy | unknown | unknown | unavailable | unknown | unavailable")
-            lines.append("  quota: remaining=unknown headroom=unknown resets=unknown")
-        else:
-            lines.extend(
-                [
-                    "muse | unknown | unknown | unavailable | unknown | unavailable",
-                    "  quota: remaining=unknown headroom=unknown resets=unknown",
-                ]
-            )
         lines.extend(
             [
                 "",
@@ -970,41 +673,6 @@ def test_usage_cli_cold_and_failed_fetch_diagnostics(monkeypatch, capsys, lane, 
     assert "PRIVATE_PROVIDER_TEXT" not in output
     assert "account@example.com" not in output
     assert "987654" not in output
-    _clear_muse_observation()
-
-
-def test_usage_cli_stale_and_rate_limit_muse_hide_headroom():
-    from lu_machinery.api import subscription_usage
-
-    known = subscription_usage._muse_record_from_codexbar_payload(_MUSE_KNOWN_PAYLOAD)
-    known["freshness"] = "stale_last_good"
-    known["age_s"] = 800
-    stale = usage.format_human(
-        {
-            "source": "fixture",
-            "agents": {"muse": subscription_usage.project_muse_for_status(known)},
-            "api_accounts": {},
-        }
-    )
-    assert "muse | unknown | unknown | stale_last_good | 800 | -" in stale
-    assert "quota: remaining=unknown headroom=unknown resets=unknown" in stale
-    assert "70.0" not in stale
-
-    limited = dict(known)
-    limited["freshness"] = "fresh"
-    limited["age_s"] = 1
-    limited["error_kind"] = "rate_limit"
-    limited["error_code"] = 429
-    text = usage.format_human(
-        {
-            "source": "fixture",
-            "agents": {"muse": subscription_usage.project_muse_for_status(limited)},
-            "api_accounts": {},
-        }
-    )
-    assert "muse | unknown | unknown | fresh | 1 | rate_limit/429" in text
-    assert "quota: remaining=unknown headroom=unknown resets=unknown" in text
-    assert "70.0" not in text
 
 
 def _agy_split_payload() -> dict:
@@ -1038,12 +706,11 @@ def _agy_split_payload() -> dict:
     }
 
 
-def test_usage_cli_shows_agy_groups_beside_muse_cursor_and_grok(monkeypatch, capsys):
+def test_usage_cli_shows_agy_groups_beside_cursor_and_grok(monkeypatch, capsys):
     import subprocess
 
     from lu_machinery.api import state_router, subscription_usage
 
-    _clear_muse_observation()
     subscription_usage._reset_agy_quota_observation_for_tests()
     monkeypatch.setattr(subscription_usage, "_agy_cli_bin", lambda: "/usr/bin/agy")
 
@@ -1056,8 +723,6 @@ def test_usage_cli_shows_agy_groups_beside_muse_cursor_and_grok(monkeypatch, cap
     def fetch(provider, *, timeout_s=None):
         if provider in {"gemini", "antigravity"}:
             return probe(timeout_s=1)
-        if provider == "muse":
-            return subscription_usage._muse_record_from_codexbar_payload(_MUSE_KNOWN_PAYLOAD)
         return subscription_usage._normalize_provider_error(
             provider,
             {"message": "skipped", "kind": "unavailable", "code": "SKIP"},
@@ -1119,7 +784,7 @@ def test_usage_cli_shows_agy_groups_beside_muse_cursor_and_grok(monkeypatch, cap
     assert "Claude and GPT models (weekly): used=75.0% rem=25.0% resets=2026-10-20T00:00:00Z" in text
     assert "Gemini Models (weekly)" not in text
     assert "Claude and GPT models (5h)" not in text
-    assert "muse | healthy | 70.0 | fresh |" in text
+    assert "muse" not in text
     assert "Cursor Models (Auto) (monthly): used=36.0% rem=64.0%" in text
     assert "secondary (weekly): used=20.0% rem=80.0% resets=2026-10-18T00:00:00Z" in text
 
@@ -1129,7 +794,6 @@ def test_usage_cli_shows_agy_missing_fraction_as_unknown(monkeypatch, capsys):
 
     from lu_machinery.api import state_router, subscription_usage
 
-    _clear_muse_observation()
     subscription_usage._reset_agy_quota_observation_for_tests()
     monkeypatch.setattr(subscription_usage, "_agy_cli_bin", lambda: "/usr/bin/agy")
     payload = {
@@ -1239,14 +903,12 @@ def test_usage_cli_stale_and_rate_limit_agy_hide_headroom():
 
 
 @pytest.mark.parametrize("fresh", [False, True], ids=["monitor", "fresh"])
-@pytest.mark.parametrize("diagnostic", ["muse", "agy", "both"])
 @pytest.mark.parametrize("known_lane", [None, "claude", "codex", "gemini", "grok", "cursor", "kimi"])
 @pytest.mark.parametrize("command", ["qa", "show", "refresh"])
-def test_cli_routing_health_counts_only_authoritative_rows(monkeypatch, capsys, fresh, diagnostic, known_lane, command):
+def test_cli_routing_health_counts_only_authoritative_rows(monkeypatch, capsys, fresh, known_lane, command):
     from lu_machinery.api import state_router
     from lu_machinery.api import subscription_usage as su
 
-    _clear_muse_observation()
     routing = {
         "agents": {
             lane: {
@@ -1269,15 +931,6 @@ def test_cli_routing_health_counts_only_authoritative_rows(monkeypatch, capsys, 
         }
     original = copy.deepcopy(routing)
     payloads = {
-        "/usr/bin/muse": {
-            "allowance": {
-                "asOfMs": int(time.time() * 1000),
-                "tier": "PRIVATE_ACCOUNT account@example.invalid",
-                "weekly": {"usedPercent": 30},
-                "window": {"usedPercent": 60},
-            },
-            "credits": 987654321,
-        },
         "/fixture/agy": {
             "command": {
                 "data": {
@@ -1293,26 +946,15 @@ def test_cli_routing_health_counts_only_authoritative_rows(monkeypatch, capsys, 
             "credits": 987654321,
         },
     }
-    real_which = su.shutil.which
-
-    def which(name, *args, **kwargs):
-        if name == "muse":
-            return "/usr/bin/muse"
-        return real_which(name, *args, **kwargs)
-
-    monkeypatch.setattr(su.shutil, "which", which)
     monkeypatch.setattr(su, "_agy_cli_bin", lambda: "/fixture/agy")
 
     def run(argv, **kwargs):
-        if argv[0] == "/usr/bin/muse":
-            assert argv[1:] == ["usage", "--json"]
-            assert kwargs.get("stdin") is subprocess.DEVNULL
         assert argv[0] in payloads
         return subprocess.CompletedProcess(argv, 0, stdout=json.dumps(payloads[argv[0]]), stderr="PRIVATE_STDERR")
 
     monkeypatch.setattr(su.subprocess, "run", run)
     real_refresh = su.refresh_provider_usage_data
-    providers = {"muse": ["muse"], "agy": ["gemini"], "both": ["muse", "gemini"]}[diagnostic]
+    providers = ["gemini"]
     refreshes = []
 
     def refresh(requested):
@@ -1347,12 +989,9 @@ def test_cli_routing_health_counts_only_authoritative_rows(monkeypatch, capsys, 
             assert (warning in public.out) == (known_lane is None)
             if command == "qa":
                 assert public.out.splitlines()[0] == "QA PASS: 1 subscription lane(s) have usable allotment signal(s)"
-            if diagnostic in {"muse", "both"}:
-                assert "muse | healthy | 40.0 | fresh |" in public.out
-                assert "  primary (5h): used=60.0% rem=40.0% resets=unknown" in public.out
-            if diagnostic in {"agy", "both"}:
-                assert "agy | healthy | unknown | fresh |" in public.out
-                assert "  Claude and GPT models (5h): used=50.0% rem=50.0% resets=unknown" in public.out
+            assert "agy | healthy | unknown | fresh |" in public.out
+            assert "  Claude and GPT models (5h): used=50.0% rem=50.0% resets=unknown" in public.out
+        assert "muse" not in public.out
         for sentinel in ("PRIVATE_", "account@example.invalid", "987654321"):
             assert sentinel not in public.out + public.err
         assert public.err == ""
@@ -1360,7 +999,6 @@ def test_cli_routing_health_counts_only_authoritative_rows(monkeypatch, capsys, 
         assert len(http_reads) == (0 if fresh or command == "refresh" else 1)
         assert sorted(refreshes) == (["prepaid", "subscription"] if fresh or command == "refresh" else [])
     finally:
-        _clear_muse_observation()
         su._reset_agy_quota_observation_for_tests()
 
 

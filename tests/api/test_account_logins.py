@@ -378,7 +378,7 @@ def _subscription_heading(monkeypatch, providers):
 def _heading_provider(provider, account, status, age, *, ended=False, reason=None):
     return {"provider": provider, "label": provider, "accounts": [{
         "account": account,
-        "source": "monitor" if provider in {"claude", "muse"} else "usage_cache",
+        "source": "monitor" if provider == "claude" else "usage_cache",
         "reading": {"status": status, "age_s": age, "read_at": _NOW, "reason": reason},
         "plan": {"status": "ok", "ended": ended},
     }]}
@@ -396,8 +396,8 @@ def test_subscriptions_view_is_cache_only_and_marks_missing_stale_unknown(usage_
     snapshot = subscriptions.subscriptions_snapshot(now=now)
     rows = _accounts(snapshot)
     assert usage_files.probes == []
-    assert [p["provider"] for p in snapshot["providers"]] == ["claude", "codex", "agy", "grok", "muse"]
-    assert set(rows) == {"Claude a", "Claude b", "Codex a", "Codex b", "AGY Gemini", "AGY Claude/GPT", "Grok+Cursor", "Muse"}
+    assert [p["provider"] for p in snapshot["providers"]] == ["claude", "codex", "agy", "grok"]
+    assert set(rows) == {"Claude a", "Claude b", "Codex a", "Codex b", "AGY Gemini", "AGY Claude/GPT", "Grok+Cursor"}
 
     claude = rows["Claude a"]
     assert (claude["reading"]["status"], claude["reading"]["age_s"]) == ("fresh", 60)
@@ -424,13 +424,12 @@ def test_subscriptions_view_is_cache_only_and_marks_missing_stale_unknown(usage_
     assert gemini["extra_windows"] == [] and gemini["weekly"]["reset_description"] is None
     assert [row["label"] for row in rows["Grok+Cursor"]["breakdown"]] == ["Cursor"]
 
-    for name, reason in (("Codex a", "no_reading"), ("Codex b", "no_reading"), ("Muse", "no_reading")):
+    for name, reason in (("Codex a", "no_reading"), ("Codex b", "no_reading")):
         row = rows[name]
         assert row["reading"]["status"] == "unknown", name
         for section in ("weekly", "pace", "session", "credits"):
             assert row[section] == {"status": "unknown", "reason": reason}, (name, section)
     assert rows["Codex a"]["reading"]["last_refresh_error"] == {"at": _NOW, "kind": "TimeoutExpired"}
-    assert rows["Muse"]["reading"]["reason"] == subscriptions.NO_MONITOR_READING
     assert rows["Grok+Cursor"]["plan"] == {"status": "unknown", "reason": "not_in_plan_facts", "name": None,
                                            "name_source": None}
     assert "example.invalid" not in json.dumps(snapshot)
@@ -449,17 +448,17 @@ def test_subscriptions_view_is_cache_only_and_marks_missing_stale_unknown(usage_
     # Heading cases. An ended unknown account is not a reading the panel shows.
     fresh = _heading_provider("codex", "Codex a", "fresh", 60)
     also_fresh = _heading_provider("grok", "Grok+Cursor", "fresh", 45)
-    ended_unknown = _heading_provider("muse", "Muse", "unknown", None, reason="provider_error", ended=True)
+    ended_unknown = _heading_provider("agy", "AGY Gemini", "unknown", None, reason="provider_error", ended=True)
     headers, _body = _subscription_heading(monkeypatch, [fresh, also_fresh, ended_unknown])
     assert (headers["X-Snapshot-State"], headers["X-Snapshot-Age-S"]) == ("fresh", "60.000")
 
-    # The reported case: Muse unknown beside a fresh row is stale at that row's age.
-    muse_unknown = _heading_provider("muse", "Muse", "unknown", None, reason="provider_error")
-    headers, body = _subscription_heading(monkeypatch, [fresh, muse_unknown])
+    # One unknown account beside a fresh row is stale at that row's age.
+    agy_unknown = _heading_provider("agy", "AGY Claude/GPT", "unknown", None, reason="provider_error")
+    headers, body = _subscription_heading(monkeypatch, [fresh, agy_unknown])
     assert (headers["X-Snapshot-State"], headers["X-Snapshot-Age-S"]) == ("stale", "60.000")
     published = {account["account"]: account["reading"]["status"]
                  for provider in body["providers"] for account in provider["accounts"]}
-    assert published == {"Codex a": "fresh", "Muse": "unknown"}
+    assert published == {"Codex a": "fresh", "AGY Claude/GPT": "unknown"}
 
     # A stale row younger than the bound still degrades the heading.
     young_stale = _heading_provider("claude", "Claude b", "stale", 30)
@@ -467,7 +466,7 @@ def test_subscriptions_view_is_cache_only_and_marks_missing_stale_unknown(usage_
     assert (headers["X-Snapshot-State"], headers["X-Snapshot-Age-S"]) == ("stale", "60.000")
 
     codex_unknown = _heading_provider("codex", "Codex a", "unknown", None, reason="no_reading")
-    headers, _body = _subscription_heading(monkeypatch, [codex_unknown, muse_unknown])
+    headers, _body = _subscription_heading(monkeypatch, [codex_unknown, agy_unknown])
     assert (headers["X-Snapshot-State"], headers["X-Snapshot-Age-S"]) == ("unavailable", "unknown")
     headers, _body = _subscription_heading(monkeypatch, [ended_unknown])
     assert (headers["X-Snapshot-State"], headers["X-Snapshot-Age-S"]) == ("unavailable", "unknown")
@@ -530,7 +529,7 @@ def test_routing_status_of_an_unseen_pool_is_unknown_not_cool(usage_files):
 
 def test_subscriptions_cli_prints_every_account_without_the_api(usage_files):
     """Defect class: the console command depends on the HTTP API, or drops account rows when the Monitor is not
-    running (Claude and Muse print unknown while the cache pools, AGY included, print their numbers)."""
+    running (Claude prints unknown while the cache pools, AGY included, print their numbers)."""
     import os
     import subprocess
     from datetime import UTC, datetime, timedelta
@@ -549,14 +548,15 @@ def test_subscriptions_cli_prints_every_account_without_the_api(usage_files):
            "http_proxy": "http://127.0.0.1:9", "https_proxy": "http://127.0.0.1:9", "no_proxy": ""}
     text = subprocess.run([sys.executable, "-m", "lu_machinery.api.subscriptions"], env=env, capture_output=True,
                           text=True, timeout=60, check=True).stdout
-    for account in ("Claude a", "Claude b", "Codex a", "Codex b", "AGY Gemini", "AGY Claude/GPT", "Grok+Cursor", "Muse"):
+    for account in ("Claude a", "Claude b", "Codex a", "Codex b", "AGY Gemini", "AGY Claude/GPT", "Grok+Cursor"):
         assert f"\n{account}  [" in text, account
-    assert "The Muse reading lives only in the Monitor API process" in text
+    assert "The Claude readings live only in the Monitor API process" in text
+    assert "Muse" not in text
     assert "\nClaude a  [UNKNOWN (no_monitor_reading)]" in text
     assert "\nClaude b  [UNKNOWN (no_monitor_reading)]" in text
-    assert "AGY Gemini  [fresh, read 1m ago]" in text and "\nMuse  [UNKNOWN (no_monitor_reading)]" in text
+    assert "AGY Gemini  [fresh, read 1m ago]" in text
     as_json = subprocess.run([sys.executable, "-m", "lu_machinery.api.subscriptions", "--json"], env=env,
                              capture_output=True, text=True, timeout=60, check=True).stdout
     rows = _accounts(json.loads(as_json))
     assert rows["Claude a"]["weekly"] == {"status": "unknown", "reason": "no_reading"}
-    assert rows["Muse"]["reading"]["reason"] == "no_monitor_reading"
+    assert "Muse" not in rows

@@ -119,7 +119,7 @@ def _fleet_burn_has_activity(fleet_burn: dict[str, Any] | None) -> bool:
 
 router = APIRouter(tags=["state"])
 
-SUBSCRIPTION_LANES = ("claude", "codex", "gemini", "grok", "cursor", "muse")
+SUBSCRIPTION_LANES = ("claude", "codex", "gemini", "grok", "cursor")
 API_LANES = ("openrouter", "deepseek")
 AGENT_NAMES = SUBSCRIPTION_LANES  # only subscription lanes participate in CodexBar window checks
 ROUTING_BUDGET_TTL_S = 15.0
@@ -731,7 +731,7 @@ def _status_from_weekly_used(
 # The subscription pool each routing record reads (``subscriptions.POOL_IDS``). The ``claude`` lane is the
 # host's default account (a); account b has its own ``claude_accounts`` row and its own pool entry.
 _LANE_POOLS = {"claude": "claude:a", "codex": "codex:a", "codex:b": "codex:b", "grok": "grok", "cursor": "grok",
-               "gemini": "agy:gemini", "muse": "muse"}
+               "gemini": "agy:gemini"}
 _POOL_SEVERITY = {"cool": 0, "warm": 1, "hot": 2, "near_cap": 3}
 # Statuses a pool verdict may replace: a reading-derived meter state, never a login or availability state.
 _POOL_OVERRIDABLE = frozenset({None, "unknown", "pre_launch", "cool", "warm", "hot"})
