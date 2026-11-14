@@ -305,8 +305,9 @@ def materialize(repo: Path, site: Path, key: str) -> dict:
     if destination.exists() or destination.is_symlink():
         return {"state": "present"}
     # A killed dispatcher must not leave unknown output inside its worktree.
-    # Keep staging on the store's filesystem so publication is one atomic rename.
-    staging = store / "staging"
+    # Keep staging in the repository's local store even when blobs are configured on another device.
+    # Cross-device blobs use the existing copy fallback; publication remains one local rename.
+    staging = repo / ".git" / "dispatch-dep-store" / f"v{LAYOUT}" / "staging"
     staging.mkdir(parents=True, exist_ok=True)
     building = Path(tempfile.mkdtemp(prefix="materialize-", dir=staging))
     stats = {"state": "installed", "linked": 0, "copied": 0}

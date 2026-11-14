@@ -84,11 +84,14 @@ site_deps.materialize(Path(sys.argv[1]), Path(sys.argv[2]), "fixture")
     assert not worktree.exists()
 
 
-def test_dependency_materialization_publishes_complete_private_tree(layout):
+@pytest.mark.parametrize("external_store", [False, True])
+def test_dependency_materialization_publishes_complete_private_tree(layout, monkeypatch, external_store):
     """External staging must still publish hard links, private copies and relative links (#490)."""
     primary, worktree = layout
     site = worktree / "site"
     site.mkdir()
+    if external_store:
+        monkeypatch.setenv(site_deps.STORE_ENV, str(primary.parent / "external-dep-store"))
     store = site_deps.store_root(primary)
     blob = store / "blobs" / "ab" / "abc"
     blob.parent.mkdir(parents=True)
@@ -100,11 +103,22 @@ def test_dependency_materialization_publishes_complete_private_tree(layout):
         ["d", "pkg"], ["f", "pkg/file", "abc"],
         ["c", ".package-lock.json", "abc"], ["l", "alias", "pkg/file"],
     ]}))
-    assert site_deps.materialize(primary, site, "fixture") == {"state": "installed", "linked": 1, "copied": 1}
-    assert (site / "node_modules/pkg/file").stat().st_ino == blob.stat().st_ino
+    if external_store:
+        # Model two devices without mounting anything or changing host configuration.
+        link, rename = os.link, os.rename
+        def cross_device(operation, source, destination, *args, **kwargs):
+            if Path(source).is_relative_to(store) != Path(destination).is_relative_to(store):
+                raise OSError(errno.EXDEV, "injected cross-device operation")
+            return operation(source, destination, *args, **kwargs)
+        monkeypatch.setattr(os, "link", lambda *a, **k: cross_device(link, *a, **k))
+        monkeypatch.setattr(os, "rename", lambda *a, **k: cross_device(rename, *a, **k))
+    assert site_deps.materialize(primary, site, "fixture") == {
+        "state": "installed", "linked": 0 if external_store else 1, "copied": 2 if external_store else 1,
+    }
+    assert ((site / "node_modules/pkg/file").stat().st_ino == blob.stat().st_ino) is (not external_store)
     assert (site / "node_modules/.package-lock.json").stat().st_ino != blob.stat().st_ino
     assert (site / "node_modules/alias").read_text() == "dependency"
-    assert not list((store / "staging").iterdir())
+    assert not list((primary / ".git").rglob("materialize-*"))
 
 
 @pytest.mark.parametrize("relative", ["node_modules", "site/node_modules"])

@@ -436,17 +436,33 @@ def test_admitted_dispatch_holds_its_slot_while_the_worktree_is_created(admissio
     assert final["admission"] == held["admission"]
 
 
-def test_dispatch_that_stops_after_admission_drops_its_hold(admission_dispatch, monkeypatch, capsys):
-    """Ported from tests/test_delegate_admission.py::test_dispatch_that_stops_after_admission_drops_its_hold."""
+@pytest.mark.parametrize("handed_off", [False, True])
+def test_dispatch_that_stops_after_admission_drops_only_its_setup_hold(admission_dispatch, monkeypatch, capsys, handed_off):
+    """An unused hold is released, but a published task must survive a PID-less handoff fault (#490)."""
     def disappear(*_args, **_kwargs):
         assert store.read("adm-worker")["admission_hold"]
         raise ValueError("worktree disappeared before its task record was published")
 
-    monkeypatch.setattr(git, "create_worktree", disappear)
+    if handed_off:
+        # Creation/cleanup may leave no tree by the time setup unwinds. The full task record is still
+        # authoritative after store.create has taken over the hold, even before it acquires a PID.
+        monkeypatch.setattr(git, "create_worktree", lambda *_a, **_k: None)
+        def start(spec, record, prompt, timeout):
+            store.create(record, prompt)
+            disappear()
+        monkeypatch.setattr(worker, "start", start)
+    else:
+        monkeypatch.setattr(git, "create_worktree", disappear)
     assert admission_dispatch.dispatch() == 2
     assert "disappeared before its task record was published" in capsys.readouterr().err
     assert not admission_dispatch.spawned
-    assert not (admission_dispatch.box.tasks / "adm-worker.json").exists()
+    record = store.read("adm-worker", missing_ok=True)
+    if handed_off:
+        assert record["prompt_file"]
+        assert record["pid"] is None
+        assert record["worktree_branch"] == "codex/adm-worker"
+    else:
+        assert record is None
 
 
 def test_admission_marks_a_record_whose_dispatcher_died_crashed(admission_dispatch):

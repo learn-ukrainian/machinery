@@ -141,7 +141,7 @@ def check_credit(agent, model):
 
 @contextlib.contextmanager
 def reserve(task_id, mode, decision, *, agent, disk_guard, force_reason=None):
-    """Publish a creation hold for either mode; release only when its tree is absent."""
+    """Publish a creation hold for either mode; release unused setup only when its tree is absent."""
     hold = None
     try:
         refusal = None
@@ -175,7 +175,8 @@ def reserve(task_id, mode, decision, *, agent, disk_guard, force_reason=None):
             with contextlib.suppress(OSError), task_state_lock(path):
                 current = store.read(task_id, missing_ok=True)
                 if (current is not None and current.get("run_nonce") == hold["run_nonce"]
-                        and current.get("status") in store.ACTIVE and legacy.is_admission_hold_record(current)):
+                        and current.get("status") in store.ACTIVE and legacy.is_admission_hold_record(current)
+                        and "prompt_file" not in current):  # store.create handed this record to the supervisor
                     tree_absent = not current.get("worktree_path")
                     if not tree_absent:
                         try:
