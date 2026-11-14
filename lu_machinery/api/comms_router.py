@@ -29,6 +29,7 @@ import time
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import cast
 
 from fastapi import APIRouter, Depends, Query, Request, Response
 from fastapi.responses import JSONResponse
@@ -1995,7 +1996,8 @@ async def comms_v1_metrics(ctx: MonitorContext = Depends(get_ctx), include_agent
     if stored is None:
         observed_at, payload = await cache_get_or_compute_async(key, COMMS_METRICS_TTL_S, compute)
     else:
-        (observed_at, payload), age = stored
+        value, age = stored
+        observed_at, payload = cast(tuple[str, dict], value)
         if age >= COMMS_METRICS_TTL_S:
             schedule_cache_refresh(key, COMMS_METRICS_TTL_S, compute)
     return JSONResponse(content=payload, headers=panel_values.snapshot_headers(

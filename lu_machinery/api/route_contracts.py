@@ -157,7 +157,7 @@ ROUTE_CONTRACTS: tuple[RouteContract, ...] = (
         "http",
         "Alerts firing now in the host Alertmanager: name, severity, owner lane, repository class, start time, summary and action; the dead-man heartbeat as a flag.",
         "The loopback Alertmanager v2 alerts API (active, not silenced, not inhibited).",
-        "15-second cache; its cheap loopback read refreshes on expiry before returning. A 45-second display bound and observation age are exposed in snapshot headers. An unreachable Alertmanager is unknown, never an empty list.",
+        "15-second cache; its cheap loopback read refreshes on expiry before returning. A 60-second display bound allows cache-hit age, the collector, page and HTTP budgets even with concurrent readers. Observation age is exposed in snapshot headers. An unreachable Alertmanager is unknown, never an empty list.",
         ("index.html", "operators"),
         "Complements Prometheus and the alert relay; labels naming hosts or scrape targets (instance, job) and the generator URL are never returned.",
         "low; read-only and allow-listed",

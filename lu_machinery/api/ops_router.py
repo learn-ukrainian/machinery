@@ -236,7 +236,9 @@ async def firing_alerts(ctx: MonitorContext = Depends(get_ctx)) -> JSONResponse:
     # previous page refresh's reading on every 30-second UI cycle.
     payload = await cache_get_or_compute_async(key, ALERTS_TTL_S, _alerts_reading)
     return JSONResponse(content=payload, headers=panel_values.snapshot_headers(
-        panel_values.observation_age_s(payload.get("observed_at")), 45.0,
+        # A second reader may keep a cache hit 15 s old. Include the 3 s
+        # collector, 30 s page cycle, 8 s HTTP budget and 4 s margin.
+        panel_values.observation_age_s(payload.get("observed_at")), 60.0,
         unavailable=payload.get("status") != "ok",
     ))
 
