@@ -4,13 +4,13 @@ import os
 import shutil
 import subprocess
 import sys
-import tomllib
 from pathlib import Path
 import pytest
 from lu_machinery.agent_runtime.read_only_tmp import create_dispatch_lease, discard_dispatch_lease, dispatch_lease
 from lu_machinery.dispatcher.environment import child_env
 from lu_machinery.dispatcher.providers import load
 from lu_machinery.dispatcher.types import TaskSpec
+from lu_machinery.dispatcher import write_boundary
 from tests.helpers.product_tree import configured_roots  # noqa: F401
 
 
@@ -32,12 +32,6 @@ def spec_for(worktree, mode="read-only"):
     prompt = worktree.parent / "prompt.txt"
     prompt.write_text("Review the change")
     return TaskSpec(TASK_ID, "codex", "explicit-model", None, mode, worktree, prompt, worktree.parent / "final.txt")
-
-
-def permissions(argv):
-    """The permissions table Codex receives, parsed from its -c override."""
-    override = next(argument for argument in argv if argument.startswith("permissions="))
-    return tomllib.loads(override)["permissions"]["lu_review"]
 
 
 def test_scratch_is_present_private_and_outside_the_checkout(worktree):
@@ -83,15 +77,17 @@ def test_discard_removes_the_lease_where_it_was_created_after_the_scratch_root_m
     assert other.is_dir()
 
 
-def test_checkout_stays_read_only_and_only_the_scratch_is_writable(worktree):
+def test_checkout_stays_read_only_and_only_the_scratch_is_writable(worktree, monkeypatch):
     spec = spec_for(worktree)
     lease = dispatch_lease(TASK_ID)
     invocation = load("codex").build(spec, child_env(spec))
-    table = permissions(invocation.argv)
-    assert table["filesystem"] == {":root": "read", str(lease): "write"}
-    assert str(worktree) not in table["filesystem"]
-    assert "--dangerously-bypass-approvals-and-sandbox" not in invocation.argv
-    assert 'sandbox_mode="read-only"' in invocation.argv
+    # The common boundary's syscall tests prove mount enforcement. This dispatch contract binds
+    # Codex to that read-only mode and its own scratch rather than starting an incompatible inner sandbox.
+    monkeypatch.setattr(write_boundary.shutil, "which", lambda *args, **kwargs: str(Path(sys.executable).resolve()))
+    argv = write_boundary.launcher(spec, invocation, worktree.parent / "task.json")
+    assert argv[argv.index("--mode") + 1] == "read-only"
+    assert argv[argv.index("--runtime") + 1] == str(lease)
+    assert "--dangerously-bypass-approvals-and-sandbox" in invocation.argv
     assert invocation.env["TMPDIR"] == str(lease)
     # Other modes and agents keep their own temp handling.
     write = spec_for(worktree, "workspace-write")

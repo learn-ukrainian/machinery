@@ -1,9 +1,10 @@
-"""OS boundary for every dispatched write worker (#423, decision CONTAIN-OS-1113).
+"""OS and publication boundary for dispatched workers and reviewers (#423, #100).
 
 The primary-checkout write guard parses shell commands and is only an accident tripwire. This boundary
 makes the primary checkout read-only for the operating system instead, so no command spelling writes it.
-``worker.supervise`` launches every ``workspace-write`` provider (Claude, Codex, Cursor, AGY, OpenCode)
-through ``launcher``; the launcher runs the provider and all of its descendants under bubblewrap and
+``worker.supervise`` launches every ``workspace-write`` provider and every native read-only provider
+through ``launcher``. Read-only AGY keeps its existing filesystem boundary and reuses the GitHub egress refusal.
+The launcher runs the provider and all of its descendants under bubblewrap and
 reuses the read-only AGY boundary's pieces (``agy_sandbox``): its bwrap resolver, its projected canary
 with the report and go descriptors, the CONNECT-only egress proxy and its in-namespace forwarder.
 
@@ -17,21 +18,23 @@ Inside the boundary:
   public hosts over HTTPS, loopback and private addresses refused, so no host service runs anything
   for the worker;
 * the primary working tree is a read-only bind. Its Git directory is an overlay whose writes land in a
-  private upper directory, so the worker can commit, fetch and push, but the host's HEAD, index,
+  private upper directory for write workers, so the worker can commit, fetch and push, but the host's HEAD, index,
   configuration, hooks, refs and objects never change; the primary's HEAD, index, configuration,
   ``packed-refs`` and hooks are also read-only binds inside, and so is the worktree's ``.git`` link;
 * HOME is an overlay as well, so the CLIs keep their configuration and state while nothing they write
   outlives the run, except the provider credential files named by ``--credential``, which are
   writable binds so a token refresh is not lost;
-* the worktree, a private TMPDIR and the declared outputs (``--output``) are the only other writable
-  paths.
+* a write worker's worktree, a private TMPDIR and the declared outputs (``--output``) are the only other
+  writable paths. A read-only provider's worktree and Git metadata are read-only mounts, with no branch import.
 
 The task store, the Fleet Comms plane and the primary's Git state stay read-only inside, so the worker chain's
 host steps (start its review, record the verdict, send a Fleet message, close out after merge) go through the
 launcher's broker (``_Broker``, decision CONTAIN-BROKER-1113): one Unix socket with typed verbs whose
 identities come from the launch. The worker holds no GitHub credential and the egress proxy refuses GitHub's
 hosts, so it publishes (push, PR, comment, merge) only through the broker's publication verbs, which the host's
-own login carries out behind the existing scanned publisher and push scan (decision PUBLISH-CRED-1113). Sources goes through the read-only AGY boundary's ``SourcesRelay``; the
+own login carries out behind the existing scanned publisher and push scan (decision PUBLISH-CRED-1113).
+Read-only providers may use only ``github-read``; the owning worker records the review verdict after settlement.
+Sources goes through the read-only AGY boundary's ``SourcesRelay``; the
 MCP stdio command that reaches it is in ``LU_WRITE_BOUNDARY_SOURCES``.
 
 The canary runs first and checks each boundary property; the provider starts only after the launcher
@@ -227,19 +230,24 @@ def launcher(spec, invocation, task_file: Path) -> list[str]:
     argv = [
         sys.executable, "-I", "-c", _BOOTSTRAP, str(machinery_path("dispatcher/write_boundary.py").parents[2]),
         "--task-id", spec.task_id, "--worktree", str(spec.worktree), "--scratch", str(scratch(spec.task_id)),
-        "--receipt", str(receipt_file(task_file)), "--author-model", spec.model,
+        "--receipt", str(receipt_file(task_file)), "--author-model", spec.model, "--mode", spec.mode,
     ]
     for path in declared_outputs(spec, invocation):
         argv += ["--output", str(path)]
-    for path in credential_files(spec.agent, invocation.env):
-        argv += ["--credential", str(path)]
+    if spec.mode == "workspace-write":
+        for path in credential_files(spec.agent, invocation.env):
+            argv += ["--credential", str(path)]
+    if spec.agent == "codex" and spec.mode == "read-only":
+        from lu_machinery.agent_runtime.read_only_tmp import dispatch_lease
+
+        argv += ["--runtime", str(dispatch_lease(spec.task_id))]
     for name in sorted(_HOST_CONTEXT):
         if os.environ.get(name) and name not in invocation.env:
             argv += ["--host-env", f"{name}={os.environ[name]}"]
     return [*argv, "--", str(Path(found).absolute()), *invocation.argv[1:]]
 
 
-def verify(task_file: Path, task_id: str) -> tuple[dict, str | None]:
+def verify(task_file: Path, task_id: str, mode: str = "workspace-write") -> tuple[dict, str | None]:
     """The boundary evidence and the refusal that fails the run, if any."""
     path = receipt_file(task_file)
     try:
@@ -247,10 +255,12 @@ def verify(task_file: Path, task_id: str) -> tuple[dict, str | None]:
     except (OSError, ValueError):
         return {"status": "missing"}, "write_boundary_unproven: no boundary receipt"
     summary = {key: receipt.get(key) for key in (
-        "status", "reason", "argv_sha256", "bwrap", "returncode", "import", "cleanup", "broker", "closeout_request")}
+        "status", "reason", "mode", "argv_sha256", "bwrap", "returncode", "import", "cleanup", "broker", "closeout_request")}
     summary["canary_passed"] = bool(receipt.get("canary", {}).get("passed"))
     if receipt.get("schema") != SCHEMA or receipt.get("task_id") != task_id:
         return summary, "write_boundary_unproven: the receipt names another run"
+    if receipt.get("mode") != mode:
+        return summary, "write_boundary_unproven: the receipt names another mode"
     if receipt.get("status") != "ran" or not summary["canary_passed"]:
         return summary, f"write_boundary_refused: {receipt.get('reason') or receipt.get('status')}"
     if (receipt.get("import") or {}).get("status") not in ("unchanged", "imported"):
@@ -550,6 +560,8 @@ class _Broker:
             if verb not in _BROKER_VERBS:
                 verb = str(verb)[:40]
                 raise _BrokerRefusal("the verb is not one of " + ", ".join(_BROKER_VERBS))
+            if self.boundary.args.mode == "read-only" and verb != "github-read":
+                raise _BrokerRefusal("read-only dispatches may only use github-read")
             if not (isinstance(request_id, str) and _REQUEST_ID.fullmatch(request_id)) or not isinstance(payload, dict):
                 raise _BrokerRefusal("the request is malformed")
             if request_id in self.seen:
@@ -975,6 +987,7 @@ class _Boundary:
         self.egress: Any = None
         self.broker: _Broker | None = None
         self.relay: Any = None
+        self.gh: Any = None
         self.created = False
         self.created_outputs: list[Path] = []
 
@@ -1036,7 +1049,9 @@ class _Boundary:
         self.base.mkdir(mode=0o700)  # exclusive: an existing scratch is never reused
         self.created = True
         boundary, tmp = self.base / "boundary", self.base / "tmp"
-        layers = {name: self.base / name for name in ("home-upper", "home-work", "git-upper", "git-work")}
+        read_only = self.args.mode == "read-only"
+        layer_names = ("home-upper", "home-work") if read_only else ("home-upper", "home-work", "git-upper", "git-work")
+        layers = {name: self.base / name for name in layer_names}
         for directory in (boundary, tmp, *layers.values()):
             directory.mkdir(mode=0o700)
         for name, source in _PROJECTED.items():
@@ -1054,6 +1069,8 @@ class _Boundary:
                 raise Refused("a declared output is not a regular file")
             outputs.append(path)
         credentials = []
+        if read_only and self.args.credential:
+            raise Refused("read-only providers cannot bind writable host credentials")
         for raw in self.args.credential or []:
             path = Path(raw)
             if path.is_symlink() or not path.is_file() or _overlaps(path, repository):
@@ -1076,16 +1093,26 @@ class _Boundary:
             "--overlay-src", str(home), "--overlay", str(layers["home-upper"]), str(layers["home-work"]), str(home),
             *(arg for path in shared for arg in ("--ro-bind", str(path), str(path))),
             "--ro-bind", str(repository), str(repository),
-            "--overlay-src", str(common), "--overlay", str(layers["git-upper"]), str(layers["git-work"]), str(common),
+            *(["--ro-bind", str(common), str(common)] if read_only else
+              ["--overlay-src", str(common), "--overlay", str(layers["git-upper"]), str(layers["git-work"]), str(common)]),
         ]
         for name in self.protected:
             argv += ["--ro-bind", str(common / name), str(common / name)]
-        argv += ["--bind", str(self.worktree), str(self.worktree), "--ro-bind", str(dot_git), str(dot_git)]
+        argv += ["--ro-bind" if read_only else "--bind", str(self.worktree), str(self.worktree),
+                 "--ro-bind", str(dot_git), str(dot_git)]
         for path in credentials:
             argv += ["--bind", str(path), str(path)]
         for path in outputs:
             argv += ["--bind", str(path), str(path)]
         argv += ["--bind", str(tmp), str(tmp), "--ro-bind", str(boundary), str(boundary)]
+        runtime = tmp
+        if self.args.runtime is not None:
+            from lu_machinery.agent_runtime.read_only_tmp import dispatch_lease
+
+            runtime = Path(self.args.runtime)
+            if not read_only or runtime != dispatch_lease(self.args.task_id) or runtime.is_symlink() or not runtime.is_dir():
+                raise Refused("the runtime is not this read-only task's scratch lease")
+            argv += ["--bind", str(tmp), str(runtime)]
         # No GitHub credential is readable inside (PUBLISH-CRED-1113): the host login's known stores are empty.
         for path in _github_credential_paths(home):
             argv += ["--tmpfs", str(path)] if path.is_dir() else ["--ro-bind", "/dev/null", str(path)]
@@ -1094,6 +1121,10 @@ class _Boundary:
         self.broker = _Broker(self, boundary / "broker.sock")
         argv += ["--ro-bind", str(boundary / "broker.sock"), _BROKER_INSIDE]
         interpreter = str(Path(sys.executable).resolve(strict=True))
+        if read_only:
+            (boundary / "bin").mkdir(mode=0o700)
+            _write_private(boundary / "bin" / "gh", agy_sandbox._GH_SHIM.format(interpreter=interpreter).encode(), 0o500)
+            self.gh = agy_sandbox._GhBroker(boundary / "gh.sock", self.worktree)
         sources_command = None
         try:
             # Sources goes through the read-only AGY boundary's relay: read-only tools only, one server per
@@ -1125,8 +1156,10 @@ class _Boundary:
         (tmp / "scratch").mkdir(mode=0o700)
         (tmp / "run").mkdir(mode=0o700)
         # The namespace has no DNS or route out; Node's own fetch uses the forwarder's proxy only when told to.
-        env.update(TMPDIR=str(tmp), LU_SCRATCH_ROOT=str(tmp / "scratch"), XDG_RUNTIME_DIR=str(tmp / "run"),
+        env.update(TMPDIR=str(runtime), LU_SCRATCH_ROOT=str(runtime / "scratch"), XDG_RUNTIME_DIR=str(runtime / "run"),
                    GIT_TERMINAL_PROMPT="0", NODE_USE_ENV_PROXY="1", **{BROKER_ENV: _BROKER_INSIDE})
+        if read_only:
+            env["PATH"] = str(boundary / "bin") + os.pathsep + env.get("PATH", os.defpath)
         env.update(git_push_settings(env, interpreter, str(machinery_path("dispatcher/write_boundary.py").parents[2])))
         if sources_command is not None:
             env[SOURCES_ENV] = sources_command
@@ -1155,7 +1188,7 @@ class _Boundary:
         self.receipt["status"] = "ran"
         returncode = process.wait()
         self.receipt["returncode"] = returncode
-        self.receipt["import"] = self._import()
+        self.receipt["import"] = self._finish_git()
         if self.broker.closeout_request is not None:
             # Run by the supervisor once it has settled this task's worktree (merge_closeout leaves registered
             # worktrees in place and reports them), never by the launcher while the worktree still exists.
@@ -1165,6 +1198,8 @@ class _Boundary:
     def _probes(self, repository: Path, common: Path, sockets: list[Path], outputs: list[Path], tmp: Path,
                 nonce: str) -> list[dict]:
         probes: list[dict] = []
+        readonly = self.args.mode == "read-only"
+        mount_refusal = ("EROFS", "EBUSY") if readonly else ("EBUSY",)
 
         def expect(op: str, path: Path | str, *outcomes: str, port: int | None = None) -> None:
             probes.append({"op": op, "path": str(path), "expect_any": list(outcomes), **({"port": port} if port else {})})
@@ -1184,13 +1219,16 @@ class _Boundary:
                 expect("create", path / f"canary-{nonce}", "EROFS")
             else:
                 expect("write_open", path, "EROFS")
-                expect("unlink", path, "EBUSY")
-            expect("rename", path, "EBUSY")  # a mount point cannot be replaced or moved
+                expect("unlink", path, *mount_refusal)
+            expect("rename", path, *mount_refusal)  # read-only parent or mount point: neither can be replaced
         dot_git = self.worktree / ".git"
         expect("write_open", dot_git, "EROFS")
-        expect("rename", dot_git, "EBUSY")
+        expect("rename", dot_git, *mount_refusal)
         # Positive controls: the worktree, the private Git overlay, HOME's overlay and TMPDIR take writes.
-        for directory in (self.worktree, common / "objects", Path(os.environ.get("HOME") or Path.home()), tmp):
+        for directory in (self.worktree, common / "objects"):
+            expect("create" if readonly else "scratch_cycle", directory / f".write-boundary-canary-{nonce}",
+                   "EROFS" if readonly else "OK")
+        for directory in (Path(os.environ.get("HOME") or Path.home()), tmp):
             expect("scratch_cycle", directory / f".write-boundary-canary-{nonce}", "OK")
         for path in outputs:
             expect("write_open", path, "OK")
@@ -1291,6 +1329,12 @@ class _Boundary:
         except (Refused, OSError, subprocess.SubprocessError) as exc:
             return {**result, "status": "failed", "reason": str(exc)[:200]}
 
+    def _finish_git(self) -> dict:
+        # Reviewers cannot update Git metadata; there is no private branch tip to import.
+        if self.args.mode == "read-only":
+            return {"status": "unchanged", "before": self.tip, "after": self.tip}
+        return self._import()
+
     def cleanup(self) -> None:
         if self.process is not None and self.process.poll() is None:
             # bwrap is the PID namespace's parent: every process of the sandbox ends with it.
@@ -1299,7 +1343,10 @@ class _Boundary:
             self.process.wait()
         if self.receipt.get("status") in ("ran", "interrupted") and "import" not in self.receipt:
             # A cancelled or timed-out run still hands over the commits it made on the dispatched branch.
-            self.receipt["import"] = self._import()
+            self.receipt["import"] = self._finish_git()
+        if self.gh is not None:
+            self.gh.cleanup()
+            self.receipt["github_reads"] = list(self.gh.records)
         if self.relay is not None:
             with contextlib.suppress(Exception):
                 self.relay.cleanup()
@@ -1461,8 +1508,8 @@ def main(argv: list[str]) -> int:
         return git_remote_main(argv[1:])
     parser = argparse.ArgumentParser(
         prog="lu_machinery.dispatcher.write_boundary",
-        description="Run one dispatched write worker inside the dispatcher's bubblewrap boundary (#423).\n"
-                    "Internal launcher used by the worker for --mode workspace-write; not run by hand.",
+        description="Run one dispatched provider inside the dispatcher's bubblewrap boundary (#423, #100).\n"
+                    "Internal launcher used by the worker; not run by hand.",
         epilog="Outputs: the provider's stdout and stderr; the boundary receipt at --receipt.\n"
                f"Exit codes: the provider's status, or {REFUSED} when the boundary refuses to start it.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -1471,6 +1518,8 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--worktree", required=True)
     parser.add_argument("--scratch", required=True)
     parser.add_argument("--receipt", required=True)
+    parser.add_argument("--mode", choices=("workspace-write", "read-only"), default="workspace-write")
+    parser.add_argument("--runtime", help="The read-only Codex task's existing private scratch lease")
     parser.add_argument("--author-model", help="The dispatched model, the review family check's author "
                         "(default: none; the broker then dispatches no review)")
     parser.add_argument("--output", action="append", help="A declared output file the provider writes")
@@ -1479,7 +1528,7 @@ def main(argv: list[str]) -> int:
                         help="NAME=VALUE of the dispatcher's host configuration, for the launcher only (default: none)")
     parser.add_argument("command", nargs=argparse.REMAINDER)
     args = parser.parse_args(argv)
-    receipt = {"schema": SCHEMA, "task_id": args.task_id, "status": "refused", "started_at": _now()}
+    receipt = {"schema": SCHEMA, "task_id": args.task_id, "mode": args.mode, "status": "refused", "started_at": _now()}
     if not _TASK_ID.fullmatch(args.task_id):
         receipt["reason"] = "unsafe task id"
         _write_receipt(Path(args.receipt), receipt)

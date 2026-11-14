@@ -458,16 +458,16 @@ def test_read_only_mode_denies_edits_on_every_provider(sandbox, tmp_path, monkey
         assert argv[argv.index("--log-file") + 1] == str(agy_sandbox.log_file("ro"))  # private scratch
         assert argv.index("--dangerously-skip-permissions") > split
     elif agent == "codex":
-        assert 'sandbox_mode="read-only"' in argv and "--dangerously-bypass-approvals-and-sandbox" not in argv
+        assert "--dangerously-bypass-approvals-and-sandbox" in argv  # supervisor's read-only OS mounts hold the policy
     elif agent == "cursor":
         assert argv[argv.index("--mode") + 1] == "ask"
     elif agent == "muse":
         assert {"--disable-write", "--disable-shell"} <= set(argv)
     elif agent == "claude":
         assert argv[argv.index("--permission-mode") + 1] == "dontAsk"
-        # Bash is allowed only behind the review boundary: every command goes through its shell prefix (#12378).
+        # The supervisor wraps the whole provider; no nested shell sandbox is needed.
         assert "Bash" in argv[argv.index("--allowedTools") + 1].split(",")
-        assert invocation.env["CLAUDE_CODE_SHELL_PREFIX"] == str(agy_sandbox.SHELL_PREFIX)
+        assert "CLAUDE_CODE_SHELL_PREFIX" not in invocation.env
         assert {"Edit", "Write", "NotebookEdit"} <= set(argv[argv.index("--disallowedTools") + 1].split(","))
         # dontAsk still runs what a loaded settings file allows, and a worktree loads the main checkout's
         # local file (Grok F4). Lists merge across sources, so no source's write allow may take effect.

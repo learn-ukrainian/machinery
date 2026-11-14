@@ -2,15 +2,13 @@
 
 import json
 import os
+import shutil
 import subprocess
 import sys
 from dataclasses import replace
 from pathlib import Path
 import pytest
-from lu_machinery.agent_runtime.adapters.codex import _read_only_tmp_flags
-from lu_machinery.agent_runtime.read_only_tmp import dispatch_lease
 from lu_machinery.agent_runtime.sources_read_only import sources_tool_sets
-from lu_machinery.common.repo_root import project_interpreter
 from lu_machinery.dispatcher import agy_sandbox, runtime_context
 from lu_machinery.dispatcher.providers import PROVIDERS, load
 from lu_machinery.dispatcher.runtime_context import read_roots
@@ -257,11 +255,7 @@ def test_cli_prompt_or_mode_regression(tmp_path, monkeypatch, provider, mode, ef
     if provider == "codex":
         if effort:
             expected += ["-c", "model_reasoning_effort=high"]
-        expected += (
-            _read_only_tmp_flags(dispatch_lease(spec.task_id))
-            if mode == "read-only"
-            else ["--dangerously-bypass-approvals-and-sandbox"]
-        )
+        expected += ["--dangerously-bypass-approvals-and-sandbox"]
     elif provider == "claude":
         if effort:
             expected += ["--effort", "high"]
@@ -309,14 +303,8 @@ def test_cli_prompt_or_mode_regression(tmp_path, monkeypatch, provider, mode, ef
         assert capture["background"] == "1"
         assert capture["advisor"] == "1"
         assert capture["context"] == "inherited-session"
-        shell = {} if mode != "read-only" else {
-            "CLAUDE_CODE_SHELL_PREFIX": str(agy_sandbox.SHELL_PREFIX),
-            "LEARN_UKRAINIAN_PYTHON": str(project_interpreter()), agy_sandbox.SHELL_ENV_TASK: spec.task_id,
-            agy_sandbox.SHELL_ENV_WORKTREE: str(spec.worktree),
-            agy_sandbox.SHELL_ENV_LOG: str(spec.final_file.with_suffix(".shell.jsonl")),
-        }
         assert invocation.env == dict(
-            original_env, CLAUDE_CODE_DISABLE_BACKGROUND_TASKS="1", CLAUDE_CODE_DISABLE_ADVISOR_TOOL="1", **shell
+            original_env, CLAUDE_CODE_DISABLE_BACKGROUND_TASKS="1", CLAUDE_CODE_DISABLE_ADVISOR_TOOL="1"
         )
     assert capture["argv"] == expected
     assert capture["cwd"] == str(worktree)
@@ -1109,6 +1097,22 @@ def _bwrap_usable():
     return probe.returncode == 0
 
 
+def _github_meta_path(tmp_path):
+    """Offline GitHub metadata for subprocess boundary tests; other gh commands retain their real behavior."""
+    binary = tmp_path / "github-meta" / "gh"
+    binary.parent.mkdir(exist_ok=True)
+    real = shutil.which("gh")
+    binary.write_text(f"#!{sys.executable}\nimport json, os, sys\n"
+                      "if sys.argv[1:] == ['api', 'meta']:\n"
+                      "    print(json.dumps(dict.fromkeys(('web', 'api', 'git', 'packages'), ['140.82.112.0/20'])))\n"
+                      "    sys.exit(0)\n"
+                      f"real = {real!r}\n"
+                      "if real:\n    os.execv(real, [real, *sys.argv[1:]])\n"
+                      "sys.exit(1)\n")
+    binary.chmod(0o755)
+    return str(binary.parent) + os.pathsep + os.environ.get("PATH", os.defpath)
+
+
 def _launch(tmp_path, worktree, task_id, command, **popen):
     from lu_machinery.dispatcher import agy_sandbox
 
@@ -1118,7 +1122,7 @@ def _launch(tmp_path, worktree, task_id, command, **popen):
     app = tmp_path / "agy-home"
     app.mkdir(exist_ok=True)
     (app / "antigravity-oauth-token").write_text("token")
-    env = {**os.environ, "AGY_APP_DATA_DIR": str(app)}
+    env = {**os.environ, "AGY_APP_DATA_DIR": str(app), "PATH": _github_meta_path(tmp_path)}
     return argv, env
 
 

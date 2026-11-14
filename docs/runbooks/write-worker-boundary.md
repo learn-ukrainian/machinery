@@ -12,7 +12,32 @@ refuses `workspace-write` before launch. There is no unsandboxed fallback: a hos
 a setup error or a failed canary refuses the run with exit 125 and the typed error
 `write_boundary_refused: <reason>`.
 
-## What the boundary is
+## Read-only review dispatches
+
+Read-only native providers also run through `write_boundary.launcher`. The worktree and Git metadata
+are read-only mounts, with no branch import. Native Claude's entire process is contained, so Bash
+uses the same boundary instead of starting a second sandbox per command. Codex also uses these mounts
+as its filesystem sandbox: its inner sandbox cannot start under `--disable-userns`. Its dispatch keeps
+the private scratch lease. Other native providers keep their read-only permission profiles.
+Provider credential refreshes stay in the private HOME overlay rather than writable host binds.
+Read-only AGY retains its existing filesystem boundary and uses
+the same GitHub domain and address refusal rules, without nesting two boundaries.
+
+Both paths withhold the host's GitHub login and refuse direct GitHub egress. The existing read-only
+`gh` relay admits `pr view`, `pr diff`, `pr checks`, `issue view` and `run view`; arbitrary `gh api`
+requests, including repository permission queries, are refused. Named reads also use `github-read`.
+The broker binds authority to the launch's mode and refuses every other verb for a read-only seat,
+including `push`, `pr-create`, `pr-edit`, `pr-comment`, `pr-merge` and `record-verdict`.
+
+Review-loop records the finished review from the owning worker through its existing `record-verdict`
+path. The reviewer supplies its structured result and cannot publish a verdict or act for a child task.
+The boundary receipt includes the launch mode and GitHub read-relay outcomes. Setup or canary failure
+refuses the run, with no uncontained fallback.
+
+This contains machinery #100 rows R26, R28, R29, R36, R40, R41 and R48 for dispatched seats.
+Interactive sessions remain outside this boundary.
+
+## What the write boundary is
 
 One bubblewrap invocation per launch, built in full by the launcher:
 

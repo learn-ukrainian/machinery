@@ -12,7 +12,7 @@ import pytest
 from lu_machinery.agent_runtime.attempt_network import canonical_host
 from lu_machinery.common.repo_root import project_interpreter
 from lu_machinery.dispatcher import agy_sandbox
-from tests.dispatcher.test_providers_b import _bwrap_usable, _launch, _linked_worktree
+from tests.dispatcher.test_providers_b import _bwrap_usable, _github_meta_path, _launch, _linked_worktree
 from tests.helpers.product_tree import configured_roots  # noqa: F401
 
 
@@ -125,7 +125,7 @@ def _claude_shell(tmp_path, worktree, task_id, command, prefix=agy_sandbox.SHELL
     claude_tmp.mkdir(exist_ok=True)
     cwd_file = claude_tmp / "claude-ab12-cwd"
     script = _CLAUDE_WRAPPER.format(command="'" + command.replace("'", "'\\''") + "'", cwd_file=cwd_file)
-    env = {**os.environ, "CLAUDE_CODE_TMPDIR": str(claude_tmp),
+    env = {**os.environ, "CLAUDE_CODE_TMPDIR": str(claude_tmp), "PATH": _github_meta_path(tmp_path),
            "LEARN_UKRAINIAN_PYTHON": str(project_interpreter()), agy_sandbox.SHELL_ENV_TASK: task_id,
            agy_sandbox.SHELL_ENV_WORKTREE: str(worktree), agy_sandbox.SHELL_ENV_LOG: str(tmp_path / f"{task_id}.shell.jsonl")}
     return [str(prefix), script], env, cwd_file

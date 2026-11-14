@@ -124,7 +124,7 @@ def child_env(spec: TaskSpec) -> dict[str, str]:
         NODE_DISABLE_COMPILE_CACHE="1",
     )
     if spec.agent == "codex" and spec.mode == "read-only":
-        # Its sandbox leaves no writable temp, so git, gh and pytest need this lease; the worker creates it.
+        # Its read-only boundary exposes this private temp lease; the worker creates and removes it.
         env["TMPDIR"] = str(dispatch_lease(spec.task_id))
     if spec.mode == "read-only":
         # Restrict explicit URLs too; a worktree or ref snapshot cannot observe an arbitrary remote push.

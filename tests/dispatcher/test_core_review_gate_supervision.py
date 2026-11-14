@@ -51,6 +51,7 @@ def test_review_gate_prevents_false_completion_and_preserves_results(sandbox, te
     task = dispatched.stdout.splitlines()
     record = sandbox.settle(task, expected=1 if error else 0)
     assert record["status"] == ("failed" if error else "done")
+    assert record["write_boundary"]["mode"] == "read-only"
     assert record["error"] == error
     assert record["returncode"] == (17 if model == "fail" else 0)
     assert Path(record["result_file"]).read_bytes() == text.encode()

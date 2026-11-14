@@ -9,10 +9,8 @@ import time
 import unicodedata
 from collections.abc import Mapping
 
-from lu_machinery.agent_runtime.adapters.codex import _read_only_tmp_flags
 from lu_machinery.agent_runtime.adapters.codex_events import classify_provider_message
 from lu_machinery.agent_runtime.attempt_safe_read import safe_read_attempt_file
-from lu_machinery.agent_runtime.read_only_tmp import dispatch_lease
 from lu_machinery.common.jsonl import jsonl_lines
 from lu_machinery.dispatcher.providers.stream_json import SOURCES_SERVER
 from lu_machinery.dispatcher.types import Invocation, ParsedResult, TaskSpec
@@ -187,10 +185,9 @@ def build(spec: TaskSpec, env: dict[str, str]) -> Invocation:
         argv += ["--output-schema", schema_path]
     if spec.effort is not None:
         argv += ["-c", f"model_reasoning_effort={spec.effort}"]
-    if spec.mode == "read-only":
-        # The checkout stays read-only; the task's own lease is the only other writable root (and TMPDIR).
-        argv += _read_only_tmp_flags(dispatch_lease(spec.task_id))
-    elif spec.mode == "workspace-write":
+    if spec.mode in {"read-only", "workspace-write"}:
+        # supervise always supplies the OS boundary. Read-only worktree/Git mounts hold the review
+        # policy; Codex's nested bubblewrap sandbox cannot start under --disable-userns.
         argv += ["--dangerously-bypass-approvals-and-sandbox"]
     else:
         raise ValueError(f"codex: unsupported mode {spec.mode!r}")

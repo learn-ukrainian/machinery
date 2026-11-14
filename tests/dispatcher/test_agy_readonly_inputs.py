@@ -14,6 +14,7 @@ import pytest
 from lu_machinery.dispatcher import agy_sandbox, cli, git, store, worker
 from lu_machinery.dispatcher.providers import agy as agy_provider
 from tests.helpers.product_tree import configured_roots  # noqa: F401
+from tests.dispatcher.test_providers_b import _github_meta_path
 from lu_machinery.common.repo_root import machinery_root
 
 
@@ -80,7 +81,7 @@ def _launch(
     app = tmp_path / "agy-home"
     app.mkdir(exist_ok=True)
     (app / "antigravity-oauth-token").write_text("token")
-    return argv, {**os.environ, "AGY_APP_DATA_DIR": str(app)}
+    return argv, {**os.environ, "AGY_APP_DATA_DIR": str(app), "PATH": _github_meta_path(tmp_path)}
 
 
 def test_refuses_unusable_input_before_spawn(tmp_path, monkeypatch, capsys):

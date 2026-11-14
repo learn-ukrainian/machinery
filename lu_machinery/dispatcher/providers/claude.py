@@ -14,11 +14,9 @@ from lu_machinery.dispatcher.types import Invocation, ParsedResult, TaskSpec
 from lu_machinery.lib import rules_core
 
 # Static permission profile from adapters/claude.py; account env belongs to core.
-# Read-only has a shell only inside an OS boundary (decision REVIEW-BOUNDARY-1101, #12378): every Bash
-# command goes through CLAUDE_CODE_SHELL_PREFIX to agy_sandbox.shell_main, which runs it in the
-# bubblewrap boundary of read-only AGY (read-only checkout and Git metadata, the project interpreter,
-# private scratch, no network, no credentials) and relays only the gh reads the route had before.
-# Claude Code itself, with its login, stays outside. The command denies below remain as defense in depth.
+# The dispatcher confines the whole read-only provider in write_boundary: read-only checkout and
+# Git metadata, private scratch, no host GitHub credentials, and a relay for GitHub reads only.
+# The command denies below remain as defense in depth.
 # Claude Code's own OS sandbox would do the same, but it needs socat on Linux and refuses to start without it.
 # dontAsk still runs anything a loaded settings file pre-approves, and a worktree loads the main
 # checkout's local settings file, so read-only runs --restricted: Claude Code then reads no
@@ -112,20 +110,6 @@ def managed_policy(env: Mapping[str, str]) -> str | None:
     if not remote.startswith(_REMOTE_NOT_FETCHED):
         return f"server-managed settings are {remote!r}"
     return None
-
-
-def review_shell_env(spec: TaskSpec) -> dict[str, str]:
-    """The variables that send every read-only Bash command into the boundary (agy_sandbox.shell_main)."""
-    from lu_machinery.common.repo_root import INTERPRETER_ENV, project_interpreter
-    from lu_machinery.dispatcher import agy_sandbox
-
-    return {
-        "CLAUDE_CODE_SHELL_PREFIX": str(agy_sandbox.SHELL_PREFIX),
-        INTERPRETER_ENV: str(project_interpreter()),
-        agy_sandbox.SHELL_ENV_TASK: spec.task_id,
-        agy_sandbox.SHELL_ENV_WORKTREE: str(spec.worktree),
-        agy_sandbox.SHELL_ENV_LOG: str(spec.final_file.with_suffix(".shell.jsonl")),
-    }
 
 
 def _sources_mcp_config() -> str:
@@ -233,7 +217,6 @@ def build(spec: TaskSpec, env: dict[str, str]) -> Invocation:
     if spec.mode == "read-only":
         core = rules_core.source_path(rules_core.CORE_REL)
         argv += ["--restricted", "--tools", _READ_TOOLSET, "--append-system-prompt-file", str(core)]
-        env = {**env, **review_shell_env(spec)}
     argv += ["--mcp-config", _sources_mcp_config(), "--strict-mcp-config"]
     readers, writers = sources_tool_sets()
     allowed_tools = ",".join([allowed_tools, *(f"mcp__{_SOURCES_SERVER}__{name}" for name in readers)])

@@ -4,6 +4,7 @@ import hashlib
 import ipaddress
 import json
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -229,7 +230,8 @@ open(report, "w").write(json.dumps(cells))
 
 
 @pytest.mark.parametrize("route", _ROUTES)
-def test_no_github_write_authority_is_reachable_inside_any_route(primary, monkeypatch, tmp_path, route):
+@pytest.mark.parametrize("mode", ["workspace-write", "read-only"])
+def test_no_github_write_authority_is_reachable_inside_any_route(primary, monkeypatch, tmp_path, route, mode):
     """Defect class: a write worker recovers the host's GitHub login inside the boundary (from the environment, gh's
     configuration or an alternate one, Git credential files, netrc, SSH keys or an inherited descriptor) or reaches
     GitHub directly (CLI, REST, GraphQL or Git, by GitHub's names or another name resolving to its addresses), so it
@@ -257,15 +259,15 @@ def test_no_github_write_authority_is_reachable_inside_any_route(primary, monkey
     credential = {"claude": home / ".claude/.credentials.json", "codex": home / ".codex/auth.json",
                   "agy": home / ".agy/token", "opencode": home / ".local/share/opencode/auth.json"}.get(route)
     extra = []
-    if credential is not None:  # the route's own provider credential stays a writable bind, as in production
+    if credential is not None and mode == "workspace-write":  # only authors persist provider token refreshes
         credential.parent.mkdir(parents=True, exist_ok=True)
         credential.write_text("{}")
         extra = ["--credential", str(credential)]
-    probe, report = tmp_path / "probe.py", worktree / "cells.json"
+    probe, report = tmp_path / "probe.py", tmp_path / "cells.json"
     probe.write_text(_CREDENTIAL_PROBE)
     code = write_boundary.main([
         "--task-id", "wb-test", "--worktree", str(worktree), "--scratch", str(write_boundary.scratch("wb-test")),
-        "--receipt", str(receipt), *extra, "--", "/bin/sh", "-c",
+        "--receipt", str(receipt), "--mode", mode, "--output", str(report), *extra, "--", "/bin/sh", "-c",
         f"python3 -I {probe} {_SENTINEL} '{json.dumps({k: str(v) for k, v in stores.items()})}' {report} "
         f"'{json.dumps(_GITHUB_HOSTS)}'",
     ])
@@ -284,7 +286,8 @@ class _Launch:
     """The launch facts the broker reads: the task, its branch and author model, the primary and its scratch."""
 
     def __init__(self, repo: Path, scratch: Path, tip: str):
-        self.args = type("Args", (), {"task_id": "wb-test", "author_model": "claude-opus-5-5"})()
+        self.args = type("Args", (), {"task_id": "wb-test", "author_model": "claude-opus-5-5",
+                                     "mode": "workspace-write"})()
         self.branch, self.repository, self.common, self.base, self.tip = "refs/heads/task", repo, repo / ".git", scratch, tip
         self.fetched: list[str] = []
 
@@ -293,6 +296,49 @@ class _Launch:
 
     def fetch_objects(self, tip: str) -> None:
         self.fetched.append(tip)
+
+
+def test_read_only_broker_refuses_publication_and_preserves_checkout(primary, monkeypatch, tmp_path):
+    """Defect class: a reviewer publishes through the host broker or writes reviewed files/Git metadata."""
+    repo, worktree, receipt = primary
+    report = tmp_path / "review-results.json"
+    tip = _git(worktree, "rev-parse", "HEAD")
+    before = _digest(worktree / "a.txt", repo / ".git/config", repo / ".git/refs/heads/task")
+    steps = []
+    monkeypatch.setattr(write_boundary._Broker, "_repository_slug", lambda self: "owner/repo")
+    monkeypatch.setattr(write_boundary._Broker, "_module", lambda self, module, argv, key, stdin=None: steps.append(
+        (module, argv)) or {"returncode": 0, "stdout": "read-ok", "stderr": ""})
+    probe = tmp_path / "review-probe.py"
+    probe.write_text(_BROKER_CLIENT[:_BROKER_CLIENT.index("good =")] + '''
+verbs = sys.argv[2].split(",")
+results = {verb: send(verb, {}, f"{index:032x}") for index, verb in enumerate(verbs)}
+results["github-read"] = send("github-read", {"name": "pull", "number": 7}, "f" * 32)
+for name, path in (("worktree", "a.txt"), ("git", sys.argv[3])):
+    try:
+        with open(path, "a") as stream:
+            stream.write("changed")
+        results[name] = False
+    except OSError:
+        results[name] = True
+open(sys.argv[1], "w").write(json.dumps(results))
+''')
+    verbs = [verb for verb in write_boundary._BROKER_VERBS if verb != "github-read"]
+    code = write_boundary.main([
+        "--task-id", "wb-test", "--worktree", str(worktree), "--scratch", str(write_boundary.scratch("wb-test")),
+        "--receipt", str(receipt), "--mode", "read-only", "--output", str(report), "--", sys.executable, "-I",
+        str(probe), str(report), ",".join(verbs), str(repo / ".git/config"),
+    ])
+    evidence = json.loads(receipt.read_text())
+    assert code == 0 and evidence["canary"]["passed"], evidence
+    assert json.loads(report.read_text()) == {**dict.fromkeys(verbs, 2), "github-read": 0, "worktree": True, "git": True}
+    assert len(steps) == 1 and steps[0][0] == "publish.github"
+    assert _digest(worktree / "a.txt", repo / ".git/config", repo / ".git/refs/heads/task") == before
+    assert evidence["import"] == {"status": "unchanged", "before": tip, "after": tip}
+    task_file = receipt.with_suffix(".task.json")
+    write_boundary.receipt_file(task_file).write_text(receipt.read_text())
+    assert write_boundary.verify(task_file, "wb-test", "read-only")[1] is None
+    assert write_boundary.verify(task_file, "wb-test", "workspace-write")[1] == (
+        "write_boundary_unproven: the receipt names another mode")
 
 
 @pytest.fixture
