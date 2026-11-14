@@ -9,7 +9,6 @@ from dataclasses import replace
 from pathlib import Path
 import pytest
 from lu_machinery.agent_runtime.sources_read_only import sources_tool_sets
-from lu_machinery.common.repo_root import project_interpreter
 from lu_machinery.dispatcher import agy_sandbox, runtime_context
 from lu_machinery.dispatcher.providers import PROVIDERS, load
 from lu_machinery.dispatcher.runtime_context import read_roots
@@ -217,9 +216,9 @@ print(json.dumps({"skills": skills, "prior": (tasks / "previous.result").read_te
 def test_cli_prompt_or_mode_regression(tmp_path, monkeypatch, provider, mode, effort, boundary):
     """Catch lost stdin, wrong mode, and a nested or missing read-only Claude shell.
 
-    Defect class: a read-only Claude launch that already names LU_WRITE_BOUNDARY_BROKER still
-    receives CLAUDE_CODE_SHELL_PREFIX, so every Bash command tries to nest a user namespace and
-    fails; or a launch without that marker loses its only Bash filesystem boundary.
+    Defect class: a read-only Claude launch still receives CLAUDE_CODE_SHELL_PREFIX, so every
+    Bash command tries to nest a user namespace and fails. The per-shell prefix is removed;
+    the whole-process write boundary is the filesystem boundary.
     """
     worktree = tmp_path / "checkout with spaces"
     worktree.mkdir()
@@ -240,18 +239,19 @@ def test_cli_prompt_or_mode_regression(tmp_path, monkeypatch, provider, mode, ef
 
     env = dict(os.environ, CAPTURE=str(tmp_path / "capture.json"), STUB_STREAM=SUCCESS[provider], PROVIDER_TEST="kept")
     env["CLAUDE_CONFIG_DIR"] = str(tmp_path / "selected-account-a")
-    # A contained launch may already carry the per-shell variables. They must not survive the marker.
+    # A launch may already carry the removed per-shell variables. Read-only builds strip them
+    # whether or not the whole-process marker is present.
     planted = {}
     if provider == "claude" and boundary:
         env[BROKER_ENV] = "/run/lu-write-boundary/broker.sock"
-        if mode == "read-only":
-            planted = {
-                "CLAUDE_CODE_SHELL_PREFIX": "must-not-survive",
-                agy_sandbox.SHELL_ENV_TASK: "must-not-survive",
-                agy_sandbox.SHELL_ENV_WORKTREE: "must-not-survive",
-                agy_sandbox.SHELL_ENV_LOG: "must-not-survive",
-            }
-            env.update(planted)
+    if provider == "claude" and mode == "read-only":
+        planted = {
+            "CLAUDE_CODE_SHELL_PREFIX": "must-not-survive",
+            "LU_REVIEW_SHELL_TASK": "must-not-survive",
+            "LU_REVIEW_SHELL_WORKTREE": "must-not-survive",
+            "LU_REVIEW_SHELL_LOG": "must-not-survive",
+        }
+        env.update(planted)
     original_env = env.copy()
     invocation = load(provider).build(spec, env)
     expected = {
@@ -292,7 +292,7 @@ def test_cli_prompt_or_mode_regression(tmp_path, monkeypatch, provider, mode, ef
         expected += ["--mcp-config", sources_mcp_config(), "--strict-mcp-config", "--allowedTools"]
         expected += [
             (
-                # Read-only Bash runs only inside the boundary its shell prefix sets (#12378).
+                # Read-only Bash runs inside the whole-process write boundary, not a shell prefix.
                 "Read,Grep,Glob,LS,WebFetch,WebSearch,Bash,"
                 if mode == "read-only"
                 else "Bash,Read,Edit,Write,Grep,Glob,LS,WebFetch,WebSearch,"
@@ -329,21 +329,16 @@ def test_cli_prompt_or_mode_regression(tmp_path, monkeypatch, provider, mode, ef
         assert capture["background"] == "1"
         assert capture["advisor"] == "1"
         assert capture["context"] == "inherited-session"
-        shell = {} if mode != "read-only" or boundary else {
-            "CLAUDE_CODE_SHELL_PREFIX": str(agy_sandbox.SHELL_PREFIX),
-            "LEARN_UKRAINIAN_PYTHON": str(project_interpreter()), agy_sandbox.SHELL_ENV_TASK: spec.task_id,
-            agy_sandbox.SHELL_ENV_WORKTREE: str(spec.worktree),
-            agy_sandbox.SHELL_ENV_LOG: str(spec.final_file.with_suffix(".shell.jsonl")),
-        }
         kept = {key: value for key, value in original_env.items() if key not in planted}
         assert invocation.env == dict(
-            kept, CLAUDE_CODE_DISABLE_BACKGROUND_TASKS="1", CLAUDE_CODE_DISABLE_ADVISOR_TOOL="1", **shell
+            kept, CLAUDE_CODE_DISABLE_BACKGROUND_TASKS="1", CLAUDE_CODE_DISABLE_ADVISOR_TOOL="1"
         )
-        if boundary and mode == "read-only":
-            assert invocation.env[BROKER_ENV] == "/run/lu-write-boundary/broker.sock"
+        if mode == "read-only":
             assert "CLAUDE_CODE_SHELL_PREFIX" not in invocation.env
             assert not any(key.startswith("LU_REVIEW_SHELL_") for key in invocation.env)
             assert "--restricted" in invocation.argv
+        if boundary:
+            assert invocation.env[BROKER_ENV] == "/run/lu-write-boundary/broker.sock"
     assert capture["argv"] == expected
     assert capture["cwd"] == str(worktree)
     expected_stdin = prompt_bytes
