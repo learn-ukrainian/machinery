@@ -34,9 +34,9 @@ _READ_TOOLS = "Read,Grep,Glob,LS,WebFetch,WebSearch,Bash"
 # fixed stdio command to its Sources relay (``write_boundary.sources_command``), never an MCP file of the
 # task's worktree, whose change could turn it into a command, or of the product, whose loopback service
 # the boundary cannot reach; and alone, as --strict-mcp-config drops every other server (#10074);
-# --restricted would skip the project settings that approve .mcp.json servers anyway. Only the tools the server annotates read-only
-# are allowed, so authors, judges and fixers can check their own words; the ones that persist fetched
-# entries (sources_read_only.sources_tool_sets) are denied by name.
+# --restricted would skip the project settings that approve .mcp.json servers anyway. Only the tools the
+# server annotates read-only are allowed, so authors, judges and fixers can check their own words; the
+# ones that persist fetched entries (sources_read_only.sources_tool_sets) are denied by name.
 _SOURCES_SERVER = SOURCES_SERVER
 _WRITE_TOOLS = "Bash,Read,Edit,Write,Grep,Glob,LS,WebFetch,WebSearch"
 _READ_DENIES = (
