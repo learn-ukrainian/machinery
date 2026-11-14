@@ -4119,11 +4119,6 @@
     },
     {
       "path": "lu_machinery/dispatcher/store.py",
-      "code": "call-overload",
-      "message": "No overload variant of \"update\" of \"MutableMapping\" matches argument types \"str\", \"str\", \"str\", \"str\", \"str\""
-    },
-    {
-      "path": "lu_machinery/dispatcher/store.py",
       "code": "literal-required",
       "message": "TypedDict key must be a string literal; expected one of (\"attempt_id\", \"manifest_sha256\", \"review_id\")"
     },
