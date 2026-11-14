@@ -584,6 +584,15 @@ def _dispatch(args) -> int:
         admission.review_typed(vars(args)) or args.risk or args.review_mode
     ):
         checks.check_review_budget(args, info, sha)
+    # A new tree inherits the repository's origin. Refuse known trust failures before creating
+    # a hold, directory or branch; new_record still verifies the actual worktree after creation.
+    if args.mode == "workspace-write" and args.owned_path:
+        try:
+            trusted_origin = git.verification_origin(worktree if args.cwd else repo) in git.canonical_origins(info)
+        except (OSError, ValueError, subprocess.SubprocessError):
+            trusted_origin = False
+        if not trusted_origin:
+            raise ValueError("write task with owned paths refused: origin must match the registered canonical repository URL")
     with host_admission.reserve(
         task_id, args.mode, decision, agent=agent, force_reason=force_reason,
         disk_guard=lambda: not (args.worktree is not None and (worktree / ".git").exists()),
