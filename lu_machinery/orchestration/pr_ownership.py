@@ -865,7 +865,7 @@ def _put_decision_custody(
     queue_clear: bool = True,
 ) -> tuple[dict[str, Any], dict[str, Any] | None]:
     """Write one decision-custody handoff. The caller has already checked the owner evidence."""
-    handoff: dict[str, Any] = {
+    handoff = {
         "successor": decision_owner,
         "predecessor": None,
         "accepted_at": now.isoformat(),
