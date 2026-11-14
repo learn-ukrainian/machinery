@@ -1103,7 +1103,9 @@ def _github_meta_path(tmp_path):
     binary.parent.mkdir(exist_ok=True)
     real = shutil.which("gh")
     binary.write_text(f"#!{sys.executable}\nimport json, os, sys\n"
-                      "if sys.argv[1:] == ['api', 'meta']:\n"
+                      "if sys.argv[1:2] == ['api'] and any(a in ('meta', '/meta') for a in sys.argv[2:]):\n"
+                      "    if '--include' in sys.argv:\n"
+                      "        sys.stdout.write('HTTP/1.1 200 OK\\r\\nContent-Type: application/json\\r\\n\\r\\n')\n"
                       "    print(json.dumps(dict.fromkeys(('web', 'api', 'git', 'packages'), ['140.82.112.0/20'])))\n"
                       "    sys.exit(0)\n"
                       f"real = {real!r}\n"

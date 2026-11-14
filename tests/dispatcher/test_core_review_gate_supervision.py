@@ -676,7 +676,7 @@ def test_deadline_settles_as_timeout(sandbox):
     task = sandbox.dispatch("blocked", "--hard-timeout", "0.2")
     record = sandbox.settle(task, expected=1)
     assert record["status"] == "timeout"
-    assert record["returncode"] == -9
+    assert record["returncode"] == -signal.SIGTERM  # contained launchers settle their receipt on termination
 
 
 def test_immediate_cancel_and_duplicate_id_do_not_leave_a_second_run(sandbox):

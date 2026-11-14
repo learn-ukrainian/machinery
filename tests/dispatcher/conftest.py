@@ -141,7 +141,7 @@ def launcher(spec, invocation, task_file):
 
 
 def verify(task_file, task_id, mode="workspace-write"):
-    return {"status": "test-double"}, None
+    return {"status": "test-double", "mode": mode}, None
 
 
 def discard(task_id):
