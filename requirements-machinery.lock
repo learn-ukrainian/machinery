@@ -146,3 +146,7 @@ virtualenv==21.14.13 \
     --hash=sha256:5fbb04138a4861580b78ba9110d529a26bc48fcc93c8ec36bc0202eeed96a788
 werkzeug==3.1.9 \
     --hash=sha256:6392e50c78460ba618e5b21f08a71f59c99ce99cdc6cf6e3dd7e6ccca8754fab
+
+# Test-only preload regression dependency (project test extra).
+pymupdf==2.1 \
+    --hash=sha256:a9efa2e9e5f469d3b5749199329739cfef1ff1d1846538ced4885c544eecbcd9

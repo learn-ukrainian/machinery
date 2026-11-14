@@ -36,6 +36,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+test = ["PyMuPDF==2.1"]
 # Only the standalone debug/debug_{pymorphy,stanza}.py tools import these.
 debug = ["pymorphy2>=0.9.1", "pymorphy2-dicts-uk", "stanza>=1.13.0"]
 

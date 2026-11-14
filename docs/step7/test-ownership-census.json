@@ -4137,22 +4137,28 @@
     "test_preload_all_completes_when_pymupdf_message_stream_is_closed"
    ],
    "ownership": "machinery",
-   "residual_id": "PORT-1108-T2-R3",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.api.claude_account_usage [present: present on machinery main as lu_machinery/api/claude_account_usage.py]",
     "scripts.api.preload [present: present on machinery main as lu_machinery/api/preload.py]",
     "scripts.api.state_helpers [present: present on machinery main as lu_machinery/api/state_helpers.py]"
    ],
-   "residual_owner": "claude-cto",
-   "residual_reason": "The one-test port is still absent. The frozen source test uses pytest.importorskip(\"pymupdf\"); .github/workflows/tests.yml and requirements-machinery.lock still omit PyMuPDF. lu_machinery/api/preload.py remains present. Remaining proof: port test_preload_all_completes_when_pymupdf_message_stream_is_closed with a hash-pinned PyMuPDF dependency and record an executed, non-skipped CI result. No replacement is claimed.",
    "residual_resolution": {
     "id": "PORT-1108-T2-R3",
-    "decision": "still-deferred",
-    "evidence": "The one-test port is still absent. The frozen source test uses pytest.importorskip(\"pymupdf\"); .github/workflows/tests.yml and requirements-machinery.lock still omit PyMuPDF. lu_machinery/api/preload.py remains present. Remaining proof: port test_preload_all_completes_when_pymupdf_message_stream_is_closed with a hash-pinned PyMuPDF dependency and record an executed, non-skipped CI result. No replacement is claimed.",
-    "machinery_main_sha": "fa36a6386f9a1fba8ef15b250da6837323e1796c",
-    "product_main_sha": "92fb4367fb06aa5635fe394b0a79cf2423b5e15a"
-   }
+    "decision": "ported",
+    "issue": "learn-ukrainian/machinery#501",
+    "evidence": "Every frozen source test function is enumerated in coverage_map. Retained targets execute as whole files in tests/machinery_tests.txt; obsolete behaviors and parameter partitions have explicit findings. Source counts and historical ownership are unchanged.",
+    "machinery_base_sha": "154f42bfc9aeeb08ed8d282e03aaeccabaf33e4d",
+    "source_product_sha": "5aba2adb96e13b3f4a5dc2abbe5ed71b7fb81d00",
+    "coverage_map": {
+     "test_preload_all_completes_when_pymupdf_message_stream_is_closed": {
+      "source_test_sha256": "e43afa6df63ddf96c1b06cbff59e4cdedacb13d51f4421947ae913fcdaf085ca",
+      "decision": "retained",
+      "machinery_test": "tests/api/test_preload_closed_fitz_stream.py::test_preload_all_completes_when_pymupdf_message_stream_is_closed"
+     }
+    }
+   },
+   "ported_to": "tests/api/test_preload_closed_fitz_stream.py"
   },
   "tests/api/test_project_state.py": {
    "disposition": "port-first",
@@ -6655,7 +6661,6 @@
     "test_worker_git_transport_restricts_network_only_in_read_only_mode"
    ],
    "ownership": "machinery",
-   "residual_id": "PORT-1108-T5-R1",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     ".gemini/config.yaml [present: product-owned in LU]",
@@ -6997,15 +7002,103 @@
     "tasks [present: product-owned in LU]",
     "unresolved: non-literal spec_from_file_location path SERVER_PATH"
    ],
-   "residual_owner": "claude-cto",
-   "residual_reason": "The 17-test file and tests/test_rules_core_loading.py fixtures core_without_addendum and missing_core are still absent. tests/agent_runtime/attempt_boundary_support.py is present. tests/dispatcher/test_core_delivery.py and tests/agent_runtime/test_runtime_rules_core_delivery.py cover current core delivery, and tests/agent_runtime/test_model_pause.py covers pause expiry and model matching; these are partial evidence, not a whole-file replacement. Remaining proof: adapt the fixture closure to configured product roots, map all 17 frozen tests to current admission behavior, and execute the retained cases in CI.",
    "residual_resolution": {
     "id": "PORT-1108-T5-R1",
-    "decision": "still-deferred",
-    "evidence": "The 17-test file and tests/test_rules_core_loading.py fixtures core_without_addendum and missing_core are still absent. tests/agent_runtime/attempt_boundary_support.py is present. tests/dispatcher/test_core_delivery.py and tests/agent_runtime/test_runtime_rules_core_delivery.py cover current core delivery, and tests/agent_runtime/test_model_pause.py covers pause expiry and model matching; these are partial evidence, not a whole-file replacement. Remaining proof: adapt the fixture closure to configured product roots, map all 17 frozen tests to current admission behavior, and execute the retained cases in CI.",
-    "machinery_main_sha": "fa36a6386f9a1fba8ef15b250da6837323e1796c",
-    "product_main_sha": "92fb4367fb06aa5635fe394b0a79cf2423b5e15a"
-   }
+    "decision": "ported",
+    "issue": "learn-ukrainian/machinery#501",
+    "evidence": "Every frozen source test function is enumerated in coverage_map. Retained targets execute as whole files in tests/machinery_tests.txt; obsolete behaviors and parameter partitions have explicit findings. Source counts and historical ownership are unchanged.",
+    "machinery_base_sha": "154f42bfc9aeeb08ed8d282e03aaeccabaf33e4d",
+    "source_product_sha": "5aba2adb96e13b3f4a5dc2abbe5ed71b7fb81d00",
+    "coverage_map": {
+     "test_worker_git_transport_restricts_network_only_in_read_only_mode": {
+      "source_test_sha256": "d8e8d9162761b75523671e1b8a6fa5158c1bfee727676d79d685afdbe737e80c",
+      "decision": "retained",
+      "machinery_test": "tests/dispatcher/test_admission_ports.py::test_worker_git_transport_restricts_network_only_in_read_only_mode"
+     },
+     "test_bound_label_checkout_setting_that_changes_auth_is_refused": {
+      "source_test_sha256": "a5d902168a82bf3633cb7de8f8630e6b6b032a0cd58155ea0aaae6613e5ea8eb",
+      "decision": "retained",
+      "machinery_test": "tests/dispatcher/test_admission_ports.py::test_bound_label_checkout_setting_that_changes_auth_is_refused"
+     },
+     "test_bound_label_runs_with_only_the_bound_login_directory": {
+      "source_test_sha256": "bf94ada25ebc5cd7042591a3ddddd2b6cea659f0276870b096078a74b21bfaa3",
+      "decision": "retained",
+      "machinery_test": "tests/dispatcher/test_admission_ports.py::test_bound_label_runs_with_only_the_bound_login_directory"
+     },
+     "test_api_key_label_runs_on_its_bound_key_helper": {
+      "source_test_sha256": "1801823fdbeca441c17719482f16aadfbade7d25027669c3aee3a06b5659f30c",
+      "decision": "retained",
+      "machinery_test": "tests/dispatcher/test_admission_ports.py::test_api_key_label_runs_on_its_bound_key_helper"
+     },
+     "test_api_key_label_launch_refuses_a_competing_source": {
+      "source_test_sha256": "58fdee972e053ce87c3d25e26dd561152a707248c997475c6cf55a11700db282",
+      "decision": "retained-with-obsolete-parameters",
+      "machinery_test": "tests/dispatcher/test_admission_ports.py::test_api_key_label_launch_refuses_a_competing_source",
+      "parameter_disposition": "Retains checkout_bedrock, status_endpoint and settings_changed refusals. The login_marker-only refusal is obsolete: #461 (0151312) admits unreviewed status-key names and records them, while effective authMethod/apiProvider and text overrides remain checked. No auth check is weakened by this test port."
+     },
+     "test_api_key_label_child_env_names_its_bound_directory": {
+      "source_test_sha256": "4f10efbc5b678f2d0c334460c22bdd3b31bed78d11903eee6a3a56fdc4802608",
+      "decision": "retained",
+      "machinery_test": "tests/dispatcher/test_admission_ports.py::test_api_key_label_child_env_names_its_bound_directory"
+     },
+     "test_api_key_label_read_only_policy_check_admits_a_helper_directory": {
+      "source_test_sha256": "026bbd92baae069e4ebd25451b85ac64adc79ae3b6e620e7896272a950b23e91",
+      "decision": "retained",
+      "machinery_test": "tests/dispatcher/test_admission_ports.py::test_api_key_label_read_only_policy_check_admits_a_helper_directory"
+     },
+     "test_delegate_dispatch_without_the_core_refuses": {
+      "source_test_sha256": "240e24af4be54c2d1b5f608202d8c81454e6eac9decf4cd1f5d6e3a005723d7f",
+      "decision": "retained",
+      "machinery_test": "tests/dispatcher/test_admission_ports.py::test_delegate_dispatch_without_the_core_refuses"
+     },
+     "test_delegate_content_seat_without_the_addendum_refuses": {
+      "source_test_sha256": "6229a1fc85b9a1e0ab61f098c48d28226a31844c9a458998e32e85baa97ecb56",
+      "decision": "retained",
+      "machinery_test": "tests/dispatcher/test_admission_ports.py::test_delegate_content_seat_without_the_addendum_refuses"
+     },
+     "test_plan_headroom_stop_cannot_be_bypassed_by_pin_or_host_override": {
+      "source_test_sha256": "73a009a84b7d0a21759803648e2a45b8b3f3c9f379acc47af376efe1c130f52c",
+      "decision": "retained",
+      "machinery_test": "tests/dispatcher/test_admission_ports.py::test_plan_headroom_stop_cannot_be_bypassed_by_pin_or_host_override"
+     },
+     "test_paused_or_exhausted_lane_never_silently_substitutes": {
+      "source_test_sha256": "0cf4297244716b6e119b6fd1872948995d805d223cce05a02bb862e6daef86fe",
+      "decision": "retained",
+      "machinery_test": "tests/dispatcher/test_admission_ports.py::test_paused_or_exhausted_lane_never_silently_substitutes"
+     },
+     "test_worker_admission_reads_the_records_claude_account": {
+      "source_test_sha256": "c67d18a0c5075ee20cf166561f7b8a3bea19c7eeda9f894dc7e7e89b5c09e0d4",
+      "decision": "retained",
+      "machinery_test": "tests/dispatcher/test_admission_ports.py::test_worker_admission_reads_the_records_claude_account"
+     },
+     "test_invoke_rate_limit_short_circuit": {
+      "source_test_sha256": "8369df342ef4f4209e14571aea81e33274ced9675fc1d87184f4c9fe6ee25b19",
+      "decision": "retained",
+      "machinery_test": "tests/dispatcher/test_admission_ports.py::test_invoke_rate_limit_short_circuit"
+     },
+     "test_headroom_stop_refuses_matching_models_only": {
+      "source_test_sha256": "67dfbad3600db4c4ccfa9d0fd721091c9b594b2958268a5b3cb3d9d1e03393dc",
+      "decision": "retained",
+      "machinery_test": "tests/dispatcher/test_admission_ports.py::test_headroom_stop_refuses_matching_models_only"
+     },
+     "test_unreadable_usage_refuses_dispatch": {
+      "source_test_sha256": "edcc04c8ff1b1a6f3e65b8788cecabbd7a59dfca8d5a63599167c4e2cf29fb89",
+      "decision": "retained",
+      "machinery_test": "tests/dispatcher/test_admission_ports.py::test_unreadable_usage_refuses_dispatch"
+     },
+     "test_pause_lifts_by_itself_after_until": {
+      "source_test_sha256": "14e4baac5b76d752ee6740a33da8e8c0392e83c0e0c06c834c315a837140e16e",
+      "decision": "retained",
+      "machinery_test": "tests/dispatcher/test_admission_ports.py::test_pause_lifts_by_itself_after_until"
+     },
+     "test_trial_shadow_requires_qualified_matching_task": {
+      "source_test_sha256": "a1ceba929c8a01cdf716006eabd1632d92bb74eb959b028f457e2a995cf19a34",
+      "decision": "retained",
+      "machinery_test": "tests/dispatcher/test_admission_ports.py::test_trial_shadow_requires_qualified_matching_task"
+     }
+    }
+   },
+   "ported_to": "tests/dispatcher/test_admission_ports.py"
   },
   "tests/dispatcher/test_advisory.py": {
    "disposition": "keep",
@@ -11457,7 +11550,6 @@
    ]
   },
   "tests/hygiene/test_pytest_retention.py": {
-   "residual_id": "T7-pytest-retention-git-custody",
    "disposition": "port-first",
    "evidence": "machinery-only subject references; subjects scripts.common.acp_runtime_lock, scripts.common.pytest_scratch, scripts.common.pytest_scratch (+7); pkg3 isolation-only failures 18; 60 of 60 test IDs lack a machinery v0.1.0 replacement",
    "lu_test_ids": 60,
@@ -11536,15 +11628,324 @@
     "scripts.hygiene.tmp_sweep_ledger [present: present on machinery main as lu_machinery/hygiene/tmp_sweep_ledger.py]",
     "status [present: product-owned in LU]"
    ],
-   "residual_owner": "claude-cto",
-   "residual_reason": "The old disposable_git dependency description is superseded by #223 (0c09b60): managed pytest retention now lives in lu_machinery/hygiene/pytest_retention.py, whose _classify calls tmp_sweep.tree_facts(run_contents=True). That mode permits fixture Git metadata after ownership/liveness checks; registered worktrees remain protected. The existing tests/hygiene/test_pytest_retention.py retains 11 of the 60 frozen test names, including test_reaped_lease_owner_is_reclaimed_without_all_process_visibility with fixture_git and test_worktree_registration_still_preserves. Remaining proof: reconcile all 60 frozen behaviors with the current managed-run policy, port the still-applicable gaps, and record executed coverage. Missing old custody predicates alone no longer establishes a production dependency or authorizes a policy reversal.",
    "residual_resolution": {
     "id": "T7-pytest-retention-git-custody",
-    "decision": "still-deferred",
-    "evidence": "The old disposable_git dependency description is superseded by #223 (0c09b60): managed pytest retention now lives in lu_machinery/hygiene/pytest_retention.py, whose _classify calls tmp_sweep.tree_facts(run_contents=True). That mode permits fixture Git metadata after ownership/liveness checks; registered worktrees remain protected. The existing tests/hygiene/test_pytest_retention.py retains 11 of the 60 frozen test names, including test_reaped_lease_owner_is_reclaimed_without_all_process_visibility with fixture_git and test_worktree_registration_still_preserves. Remaining proof: reconcile all 60 frozen behaviors with the current managed-run policy, port the still-applicable gaps, and record executed coverage. Missing old custody predicates alone no longer establishes a production dependency or authorizes a policy reversal.",
-    "machinery_main_sha": "fa36a6386f9a1fba8ef15b250da6837323e1796c",
-    "product_main_sha": "92fb4367fb06aa5635fe394b0a79cf2423b5e15a"
-   }
+    "decision": "ported",
+    "issue": "learn-ukrainian/machinery#501",
+    "evidence": "Every frozen source test function is enumerated in coverage_map. Retained targets execute as whole files in tests/machinery_tests.txt; obsolete behaviors and parameter partitions have explicit findings. Source counts and historical ownership are unchanged.",
+    "machinery_base_sha": "154f42bfc9aeeb08ed8d282e03aaeccabaf33e4d",
+    "source_product_sha": "5aba2adb96e13b3f4a5dc2abbe5ed71b7fb81d00",
+    "coverage_map": {
+     "test_old_unowned_malformed_and_completed_runs_dry_run_then_delete": {
+      "source_test_sha256": "b9dd7358ec5df4617b0fc16bf72a0d95a56877e77991fa0fb93c8171c441f381",
+      "decision": "retained",
+      "machinery_test": "tests/hygiene/test_pytest_retention.py::test_old_unowned_malformed_and_completed_runs_dry_run_then_delete"
+     },
+     "test_deeply_nested_lease_is_malformed_and_later_runs_are_still_swept": {
+      "source_test_sha256": "6ab5c27117fc2d14c1ce2e391a144203426f448e59733fe40a24654b5d7a05b9",
+      "decision": "retained",
+      "machinery_test": "tests/hygiene/test_pytest_retention.py::test_deeply_nested_lease_is_malformed_and_later_runs_are_still_swept"
+     },
+     "test_young_runs_are_retained_until_strictly_past_two_hours": {
+      "source_test_sha256": "38e2b47d25af7032cb3be644d453deb7b29f7a37eb165ce55f9d56b5dd93c350",
+      "decision": "retained",
+      "machinery_test": "tests/hygiene/test_pytest_retention.py::test_young_runs_are_retained_until_strictly_past_two_hours"
+     },
+     "test_recently_extracted_old_mtime_files_keep_the_folder_young": {
+      "source_test_sha256": "b0e5f7ac0df310fedb7f0c3113148388e19a50e35bc3159feaea69009323088f",
+      "decision": "retained",
+      "machinery_test": "tests/hygiene/test_pytest_retention.py::test_recently_extracted_old_mtime_files_keep_the_folder_young"
+     },
+     "test_every_live_holder_channel_preserves_the_run": {
+      "source_test_sha256": "6a1ae7ef59606e76dbc713b06ffba82973c86360062dcc9f0c37a47daf26cdbc",
+      "decision": "obsolete",
+      "finding": "Machinery #223 (0c09b60) replaced the all-process holder scan for owned pytest scratch with per-run lock/lease liveness. holder_snapshot and _named_paths no longer exist in pytest_retention; this specific holder/path-matching contract has no current machinery caller. Owner/lock and unknown-owner refusal remain covered separately."
+     },
+     "test_noncanonical_argv_and_environment_spellings_hold_the_run": {
+      "source_test_sha256": "fa1c750f4e95c21fc7cbc8af7e3b7b1d855ceb2b81564443c8540ec2e9741888",
+      "decision": "obsolete",
+      "finding": "Machinery #223 (0c09b60) replaced the all-process holder scan for owned pytest scratch with per-run lock/lease liveness. holder_snapshot and _named_paths no longer exist in pytest_retention; this specific holder/path-matching contract has no current machinery caller. Owner/lock and unknown-owner refusal remain covered separately."
+     },
+     "test_lookalike_relative_spellings_do_not_hold_the_run": {
+      "source_test_sha256": "29a0dd983d1910db65548c10cb3d0c2d4c60ab93e00719cd4bca87f1bc00c9c4",
+      "decision": "obsolete",
+      "finding": "Machinery #223 (0c09b60) replaced the all-process holder scan for owned pytest scratch with per-run lock/lease liveness. holder_snapshot and _named_paths no longer exist in pytest_retention; this specific holder/path-matching contract has no current machinery caller. Owner/lock and unknown-owner refusal remain covered separately."
+     },
+     "test_callers_own_preexisting_references_still_count": {
+      "source_test_sha256": "0289b87b0ab5da29cbcf8ecbebe5d0d4320144af5b0a95c7af6955747c44d4ff",
+      "decision": "obsolete",
+      "finding": "Machinery #223 (0c09b60) replaced the all-process holder scan for owned pytest scratch with per-run lock/lease liveness. holder_snapshot and _named_paths no longer exist in pytest_retention; this specific holder/path-matching contract has no current machinery caller. Owner/lock and unknown-owner refusal remain covered separately."
+     },
+     "test_sweeps_own_lock_handles_are_not_holders_but_disabling_the_excuse_is_caught": {
+      "source_test_sha256": "75126ef72f21193e59e6b26e6105e79b013fb6052a702810d19ec314fb6c6115",
+      "decision": "obsolete",
+      "finding": "Machinery #223 (0c09b60) replaced the all-process holder scan for owned pytest scratch with per-run lock/lease liveness. holder_snapshot and _named_paths no longer exist in pytest_retention; this specific holder/path-matching contract has no current machinery caller. Owner/lock and unknown-owner refusal remain covered separately."
+     },
+     "test_held_run_lock_preserves_even_when_the_holder_is_invisible": {
+      "source_test_sha256": "5c2cd4a0eb7943efc2e8219736c77596a57419dd0ed894a4617206105f93ecf3",
+      "decision": "retained",
+      "machinery_test": "tests/hygiene/test_pytest_retention.py::test_held_run_lock_preserves_the_run"
+     },
+     "test_run_locks_do_not_exhaust_descriptors_across_repeated_sweeps": {
+      "source_test_sha256": "6e32a2095c941b826fe0cabb102bc87654fbdf147571bac7bbd7a6d7c53d17bd",
+      "decision": "retained",
+      "machinery_test": "tests/hygiene/test_pytest_retention.py::test_run_locks_do_not_exhaust_descriptors_across_repeated_sweeps"
+     },
+     "test_rejected_lock_is_released_before_the_next_eligible_run": {
+      "source_test_sha256": "974bedb586833ab89553ffe5ed7c039f9fa8dd78056b73933254b5c4ef49f48a",
+      "decision": "retained",
+      "machinery_test": "tests/hygiene/test_pytest_retention.py::test_rejected_lock_is_released_before_the_next_eligible_run"
+     },
+     "test_eligible_lock_covers_rename_recheck_delete_and_return": {
+      "source_test_sha256": "8f091aaea57fa3f6636cfb5c470b79c260532806d6448d6be62a7c9432230d38",
+      "decision": "retained",
+      "machinery_test": "tests/hygiene/test_pytest_retention.py::test_eligible_lock_covers_rename_recheck_delete_and_return"
+     },
+     "test_summary_keeps_lock_failures_visible_beside_measured_protected_bytes": {
+      "source_test_sha256": "cf7b21cf501228f3d870486815daf89490d4c3e87e233bd3b7d80b7a189209cf",
+      "decision": "retained",
+      "machinery_test": "tests/hygiene/test_pytest_retention.py::test_summary_keeps_lock_failures_visible_beside_measured_protected_bytes"
+     },
+     "test_real_descriptor_exhaustion_is_an_error_and_preserves_runs": {
+      "source_test_sha256": "a61a4ee1f81f6a3e7b88e4b3feaaca7830675cc064a7eb909f07fecd1a66372c",
+      "decision": "retained",
+      "machinery_test": "tests/hygiene/test_pytest_retention.py::test_real_descriptor_exhaustion_is_an_error_and_preserves_runs"
+     },
+     "test_cli_publishes_unmeasured_busy_bytes_without_claiming_a_complete_total": {
+      "source_test_sha256": "f9eb8ad939b7f1f6312d059c977d3574ec0478ff76aa4c7bf69465a3bb941c88",
+      "decision": "retained",
+      "machinery_test": "tests/hygiene/test_pytest_retention.py::test_cli_publishes_unmeasured_busy_bytes_without_claiming_a_complete_total"
+     },
+     "test_descriptor_failure_does_not_duplicate_or_underreport_candidate_rows": {
+      "source_test_sha256": "5e4f9c2cfa44849ceee742a11328a6efde33321ae6415ff2da0bdef799753eb4",
+      "decision": "retained",
+      "machinery_test": "tests/hygiene/test_pytest_retention.py::test_descriptor_failure_does_not_duplicate_or_underreport_candidate_rows"
+     },
+     "test_released_lock_idle_owner_without_reference_is_eligible": {
+      "source_test_sha256": "b9b41c8f7b9062cd6100bcc5d580b840a7459b4a56627749eefc76513548cd4f",
+      "decision": "obsolete",
+      "finding": "Machinery #223 (0c09b60) replaced the all-process holder scan for owned pytest scratch with per-run lock/lease liveness. holder_snapshot and _named_paths no longer exist in pytest_retention; this specific holder/path-matching contract has no current machinery caller. Owner/lock and unknown-owner refusal remain covered separately."
+     },
+     "test_lock_files_are_used_where_available_but_never_required": {
+      "source_test_sha256": "f14d6c72f80ecdb41bf626bed2a7ec65b587a61c3c7e11369db388760f09b76d",
+      "decision": "retained",
+      "machinery_test": "tests/hygiene/test_pytest_retention.py::test_lock_files_are_used_where_available_but_never_required"
+     },
+     "test_process_liveness_unknown_preserves_and_finished_processes_hold_nothing": {
+      "source_test_sha256": "d78879be128b56a406fba02f7d4ebbdd1b17b1a5e01a3c686d0bae4d5d11ad43",
+      "decision": "obsolete",
+      "finding": "Machinery #223 (0c09b60) replaced the all-process holder scan for owned pytest scratch with per-run lock/lease liveness. holder_snapshot and _named_paths no longer exist in pytest_retention; this specific holder/path-matching contract has no current machinery caller. Owner/lock and unknown-owner refusal remain covered separately."
+     },
+     "test_unreadable_process_table_is_unknown": {
+      "source_test_sha256": "bd819dbcfc83e35244d8de8361a577327615e4fc05d4eee6283dd6239b57c53c",
+      "decision": "obsolete",
+      "finding": "Machinery #223 (0c09b60) replaced the all-process holder scan for owned pytest scratch with per-run lock/lease liveness. holder_snapshot and _named_paths no longer exist in pytest_retention; this specific holder/path-matching contract has no current machinery caller. Owner/lock and unknown-owner refusal remain covered separately."
+     },
+     "test_post_rename_recheck_returns_changed_or_newly_held_runs": {
+      "source_test_sha256": "4a6c3cabb85b2974db3a21809944901138a223e4a20445da8ac281910dc874e3",
+      "decision": "retained-with-obsolete-parameters",
+      "machinery_test": "tests/hygiene/test_pytest_retention.py::test_post_rename_recheck_returns_changed_runs",
+      "parameter_disposition": "Retains write and replaced-inode races. The holder_old/new argv/cwd/environment and unknown-process partitions are obsolete under #223: the managed-run sweeper no longer takes an all-process snapshot."
+     },
+     "test_occupied_name_keeps_returned_run_for_next_recovery": {
+      "source_test_sha256": "2c8d8e9915a0d343b0c9d08125a9db68fdc34e11c5fa517d038d25f0496353ff",
+      "decision": "retained",
+      "machinery_test": "tests/hygiene/test_pytest_retention.py::test_occupied_name_keeps_returned_run_for_next_recovery"
+     },
+     "test_change_between_proof_and_rename_is_never_moved": {
+      "source_test_sha256": "ea09ecdb5b8f1708b1c1c3b465cf4dfd14ec3b6634a898d1fa42606c9e182c62",
+      "decision": "retained",
+      "machinery_test": "tests/hygiene/test_pytest_retention.py::test_change_between_proof_and_rename_is_never_moved"
+     },
+     "test_namespace_swapped_after_rename_returns_through_descriptors": {
+      "source_test_sha256": "d536e45e8c6d237d70068c09c9e38c1c040f57439aa7113cccabbb923f438117",
+      "decision": "retained",
+      "machinery_test": "tests/hygiene/test_pytest_retention.py::test_namespace_swapped_after_rename_returns_through_descriptors"
+     },
+     "test_refused_rename_and_unreadable_tree_preserve_with_reasons": {
+      "source_test_sha256": "4757b21f3d4f0e3cbdbe9b2462a0861c5906a783cc8bfbf466445fc40df60ed7",
+      "decision": "retained",
+      "machinery_test": "tests/hygiene/test_pytest_retention.py::test_refused_rename_and_unreadable_tree_preserve_with_reasons"
+     },
+     "test_entry_vanishing_during_scan_is_a_reported_error": {
+      "source_test_sha256": "df6b8aab19753a6d2dd5726036c9b22f652235912c3f17a9cf0f8cabcebaf85e",
+      "decision": "retained",
+      "machinery_test": "tests/hygiene/test_pytest_retention.py::test_entry_vanishing_during_scan_is_a_reported_error"
+     },
+     "test_remover_refusal_returns_the_run": {
+      "source_test_sha256": "61668da19b959bb3babd9f4d58af6aae869da720c4d92df2437c14428aa823c1",
+      "decision": "retained",
+      "machinery_test": "tests/hygiene/test_pytest_retention.py::test_remover_refusal_returns_the_run"
+     },
+     "test_tree_safety_reasons_still_preserve": {
+      "source_test_sha256": "8e5b8bce120247cac6318250ab41b4afa47cc10bd2c4e4dcc6e121ed4b6721e8",
+      "decision": "retained-with-obsolete-parameters",
+      "machinery_test": "tests/hygiene/test_pytest_retention.py::test_only_a_mount_inside_keeps_an_abandoned_run",
+      "parameter_disposition": "Retains the mount boundary. #223 deliberately permits disposable run contents, including fixture Git metadata, hardlinks and special files, with descriptor-safe removal; those former preservation assertions are obsolete. Registered-worktree refusal remains in test_worktree_registration_still_preserves."
+     },
+     "test_symlinks_never_lead_outside_the_namespace": {
+      "source_test_sha256": "ee9c706cf53dc5365af5bcfd33de2a9bd7909eea292aad7d7bd7acb725040cf0",
+      "decision": "retained",
+      "machinery_test": "tests/hygiene/test_pytest_retention.py::test_symlinks_never_lead_outside_the_namespace"
+     },
+     "test_symlinked_or_shared_namespace_is_untrusted": {
+      "source_test_sha256": "b2482c5ec7f91d9b9070b1a43bf79f7d7c36a1f0b999b8fa6c09e6b2ef720d12",
+      "decision": "retained",
+      "machinery_test": "tests/hygiene/test_pytest_retention.py::test_symlinked_or_shared_namespace_is_untrusted"
+     },
+     "test_worktree_registration_still_preserves": {
+      "source_test_sha256": "4864e57f3f8cff500a7f726ccadfd0cc38bd7ba310fb392926029a7f25c65df4",
+      "decision": "retained",
+      "machinery_test": "tests/hygiene/test_pytest_retention.py::test_worktree_registration_still_preserves"
+     },
+     "test_crash_leftover_returns_to_its_name_and_waits_again": {
+      "source_test_sha256": "817b7dd2a9b3151fbdb9b2162358490fbced90b9dcdc0c1fc34ef52b84347746",
+      "decision": "retained",
+      "machinery_test": "tests/hygiene/test_pytest_retention.py::test_crash_leftover_returns_to_its_name_and_waits_again"
+     },
+     "test_other_scratch_classes_keep_their_policy": {
+      "source_test_sha256": "5867f314f20485eefd42267c5aa27caef495acb965b0275eb22229e91bac8d25",
+      "decision": "retained",
+      "machinery_test": "tests/hygiene/test_pytest_retention.py::test_other_scratch_classes_keep_their_policy"
+     },
+     "test_nonprivate_namespace_preserves_all_runs": {
+      "source_test_sha256": "3afefc9925130dcf80f37456957926ae72b9d0680e48518ad0d6a2249f5b8912",
+      "decision": "retained",
+      "machinery_test": "tests/hygiene/test_pytest_retention.py::test_nonprivate_namespace_preserves_all_runs"
+     },
+     "test_cli_summary_reports_deleted_bytes_without_names": {
+      "source_test_sha256": "dbd01aac0607a2bda955891e2c9a5d044b43bd7b6268533e6fa0281fad27fc53",
+      "decision": "retained",
+      "machinery_test": "tests/hygiene/test_pytest_retention.py::test_cli_summary_reports_deleted_bytes_without_names"
+     },
+     "test_scan_confinement_excludes_other_managed_roots": {
+      "source_test_sha256": "35e8aed47d7388ed0930ed9ee6acb2e90a84f177e51bf7ff67900d89bced444f",
+      "decision": "retained",
+      "machinery_test": "tests/hygiene/test_pytest_retention.py::test_scan_confinement_excludes_other_managed_roots"
+     },
+     "test_invalid_scan_root_still_reports_applied_sweep": {
+      "source_test_sha256": "4ce2f2fb174a4dc8b78438f4c0f2edde398ab65c004b639db40ead81484cbac5",
+      "decision": "retained",
+      "machinery_test": "tests/hygiene/test_pytest_retention.py::test_invalid_scan_root_still_reports_applied_sweep"
+     },
+     "test_named_paths_fold_relative_and_dotdot_spellings": {
+      "source_test_sha256": "4cef1c1939882068f63ce0dc92a9dbe47863552174be9d7104e19de47d4d7e17",
+      "decision": "obsolete",
+      "finding": "Machinery #223 (0c09b60) replaced the all-process holder scan for owned pytest scratch with per-run lock/lease liveness. holder_snapshot and _named_paths no longer exist in pytest_retention; this specific holder/path-matching contract has no current machinery caller. Owner/lock and unknown-owner refusal remain covered separately."
+     },
+     "test_named_paths_resolve_aliases_and_skip_empty_values": {
+      "source_test_sha256": "aca81d47e68de16770f082b7554368cbdc3d3ea30b5642c2dce776ea5673d5d8",
+      "decision": "obsolete",
+      "finding": "Machinery #223 (0c09b60) replaced the all-process holder scan for owned pytest scratch with per-run lock/lease liveness. holder_snapshot and _named_paths no longer exist in pytest_retention; this specific holder/path-matching contract has no current machinery caller. Owner/lock and unknown-owner refusal remain covered separately."
+     },
+     "test_named_paths_follow_a_symlink_before_a_later_dotdot": {
+      "source_test_sha256": "45b14e663b8a3c4d76d97f340741ec03221e2dd51d72758217eec4c0f71780e9",
+      "decision": "obsolete",
+      "finding": "Machinery #223 (0c09b60) replaced the all-process holder scan for owned pytest scratch with per-run lock/lease liveness. holder_snapshot and _named_paths no longer exist in pytest_retention; this specific holder/path-matching contract has no current machinery caller. Owner/lock and unknown-owner refusal remain covered separately."
+     },
+     "test_relative_spellings_inside_a_held_cwd_report_only_the_cwd": {
+      "source_test_sha256": "5987b5973d31997e500a7cd385c21e20f3c9f7652c5a2970aa444d1ac2b64754",
+      "decision": "obsolete",
+      "finding": "Machinery #223 (0c09b60) replaced the all-process holder scan for owned pytest scratch with per-run lock/lease liveness. holder_snapshot and _named_paths no longer exist in pytest_retention; this specific holder/path-matching contract has no current machinery caller. Owner/lock and unknown-owner refusal remain covered separately."
+     },
+     "test_live_pytest_session_is_held_by_its_own_channels": {
+      "source_test_sha256": "a54bd4ba0daa9f9f7987ce69089b30226cc2ea58e1e62c23fb9be3b906a1fe86",
+      "decision": "retained",
+      "machinery_test": "tests/hygiene/test_pytest_retention.py::test_live_pytest_session_is_held_by_its_own_lock"
+     },
+     "test_namespace_override_rejects_noncomponents": {
+      "source_test_sha256": "b568760bd8c8e7ddba4a33e3c287e97d7a067fb9c92b5858ff1ed0590404d8f2",
+      "decision": "retained",
+      "machinery_test": "tests/hygiene/test_pytest_retention.py::test_namespace_override_rejects_noncomponents"
+     },
+     "test_real_pytest_publishes_owned_run_and_respects_explicit_base": {
+      "source_test_sha256": "4ac3c87fa827674b3c1137af5259163a8f3041472565affc342f1b30e95d6bb3",
+      "decision": "retained-with-obsolete-parameters",
+      "machinery_test": "tests/hygiene/test_pytest_retention.py::test_real_pytest_publishes_owned_run_and_respects_explicit_base",
+      "parameter_disposition": "Retains a real xdist child, owner-only scratch, ordinary tempfile/TMPDIR containment, preserved lease and an explicit base inside the managed root. The former external unowned base and absent TMPDIR expectations are obsolete under #297 (d070bea), which requires one owned temp root per session."
+     },
+     "test_only_a_passed_session_removes_its_run": {
+      "source_test_sha256": "b4eb992b1dd1fa0d0cecd358c9ae85b96c64adf066de1d9bc37f457f6434b069",
+      "decision": "retained-with-obsolete-parameters",
+      "machinery_test": "tests/hygiene/test_pytest_retention.py::test_every_session_removes_its_run_unless_kept",
+      "finding": "Machinery #223 and #297 remove failed/aborted runs too unless LU_PYTEST_KEEP requests retention. Successful cleanup and explicitly kept ownership remain tested; automatic retention of failures/finish-hook errors is obsolete."
+     },
+     "test_reaped_lease_owner_is_reclaimed_without_all_process_visibility": {
+      "source_test_sha256": "82ec66e51f3cdbdc72636f8537a0161ba9667d3615cde75458ca31d9b2284bfc",
+      "decision": "retained",
+      "machinery_test": "tests/hygiene/test_pytest_retention.py::test_reaped_lease_owner_is_reclaimed_without_all_process_visibility"
+     },
+     "test_self_contained_fixture_git_is_reclaimed_and_outside_is_untouched": {
+      "source_test_sha256": "951a7b5e1a6adbfb3713c1f9cb5adc8d59bfe70fc8c2978c90a132ad9e475f08",
+      "decision": "retained",
+      "machinery_test": "tests/hygiene/test_pytest_retention.py::test_self_contained_fixture_git_is_reclaimed_and_outside_is_untouched"
+     },
+     "test_fixture_git_custody_and_safety_preserve": {
+      "source_test_sha256": "dd559a70cfcfd621214dd737d0913b8684c1d0882352dbc5487b520dc7f9f909",
+      "decision": "retained-with-obsolete-parameters",
+      "machinery_test": "tests/hygiene/test_pytest_retention.py::test_fixture_git_custody_and_safety_preserve",
+      "parameter_disposition": "Retains live_owner, unknown_owner, registered and young cases for both scratch namespaces. The former git_metadata, hardlinked_content and special_file preservation partitions are obsolete under #223: run_contents=True permits disposable fixture Git contents after per-run ownership/liveness and worktree checks."
+     },
+     "test_managed_ledger_purge_keeps_git_protection_and_retention_window": {
+      "source_test_sha256": "78b10cedf3f759b6cc6c3c2fce7efd228dd0c1b3061fe1f1ed44ab8bcd9c3de8",
+      "decision": "retained",
+      "machinery_test": "tests/hygiene/test_pytest_retention.py::test_managed_ledger_purge_keeps_git_protection_and_retention_window"
+     },
+     "test_live_lease_owner_preserves_the_run": {
+      "source_test_sha256": "05e5fcca6d80429dfecd5370bd251c7f2756c1760df5522d0a624b2eaf407609",
+      "decision": "retained",
+      "machinery_test": "tests/hygiene/test_pytest_retention.py::test_live_lease_owner_preserves_the_run"
+     },
+     "test_held_lease_lock_preserves_a_dead_owner_run": {
+      "source_test_sha256": "3840ef2d2a7e76258a732a16c72aa61ced92bd6b5d3e21bd919f10ee41421fb5",
+      "decision": "retained",
+      "machinery_test": "tests/hygiene/test_pytest_retention.py::test_held_lease_lock_preserves_a_dead_owner_run"
+     },
+     "test_tree_change_on_recheck_preserves_a_dead_owner_run": {
+      "source_test_sha256": "934564b70014a77734c6da740a008d6130e4661d425b132a91a0469f8064fb0d",
+      "decision": "retained",
+      "machinery_test": "tests/hygiene/test_pytest_retention.py::test_tree_change_on_recheck_preserves_a_dead_owner_run"
+     },
+     "test_lease_from_a_different_boot_is_kept": {
+      "source_test_sha256": "583c9d7e80e8a32998d5dfa2efc6d13313071448ad416d2532654e9e30568e9d",
+      "decision": "obsolete",
+      "finding": "Machinery #223 (0c09b60): _owner_status treats a different boot as proof that the recorded owner is dead. The old preserve requirement is reversed; test_lease_from_a_different_boot_is_reclaimed verifies the replacement."
+     },
+     "test_unreadable_lease_is_kept": {
+      "source_test_sha256": "2dda26c0945aab4b6fd7d5fa0ee2a6cd4928fa95db3c1e255da252c7bc8f52fc",
+      "decision": "retained",
+      "machinery_test": "tests/hygiene/test_pytest_retention.py::test_unreadable_lease_is_kept"
+     },
+     "test_reused_pid_with_a_different_start_time_is_reclaimed": {
+      "source_test_sha256": "ba8f2b1db42f05474d702b2e463659c5baea73e8ed6119375d404dbf3fcb2b57",
+      "decision": "retained",
+      "machinery_test": "tests/hygiene/test_pytest_retention.py::test_reused_pid_with_a_different_start_time_is_reclaimed"
+     },
+     "test_root_holder_takes_the_bounded_quarantine_recheck_path": {
+      "source_test_sha256": "5517c95d1fadd806340fbc8da607199ac98d199ab7a128f5e3b8c2ab32d36829",
+      "decision": "obsolete",
+      "finding": "Machinery #223 (0c09b60) replaced the all-process holder scan for owned pytest scratch with per-run lock/lease liveness. holder_snapshot and _named_paths no longer exist in pytest_retention; this specific holder/path-matching contract has no current machinery caller. Owner/lock and unknown-owner refusal remain covered separately."
+     },
+     "test_copied_dead_owner_lease_does_not_bypass_unknown_liveness": {
+      "source_test_sha256": "b52d27c2c930cfa355a4defe5067c6312e3876a1ff2b38b45e7dda2603edfe08",
+      "decision": "retained-with-obsolete-parameters",
+      "machinery_test": "tests/hygiene/test_pytest_retention.py::test_copied_dead_owner_lease_does_not_prove_abandonment",
+      "parameter_disposition": "Retains inode-bound lease validation: a copied lease is not abandonment proof. The all-process holder snapshot is obsolete under #223."
+     },
+     "test_unprovable_holders_preserve_and_partial_holder_evidence_is_kept": {
+      "source_test_sha256": "ecb0f15063bf7e1730e012715f78c596ba6db06cbab24a5e0b5fdf417fe8d08e",
+      "decision": "obsolete",
+      "finding": "Machinery #223 (0c09b60) replaced the all-process holder scan for owned pytest scratch with per-run lock/lease liveness. holder_snapshot and _named_paths no longer exist in pytest_retention; this specific holder/path-matching contract has no current machinery caller. Owner/lock and unknown-owner refusal remain covered separately."
+     },
+     "test_receipt_carries_preserved_reasons_measured_bytes_and_largest_preserved": {
+      "source_test_sha256": "5a117d9b69e3b2b9d8f932007ec7eb6e996425a407c8c8bcc458a5455b7cf581",
+      "decision": "retained",
+      "machinery_test": "tests/hygiene/test_pytest_retention.py::test_receipt_carries_preserved_reasons_measured_bytes_and_largest_preserved"
+     }
+    },
+    "fixture_adaptation": "Additional current-policy test bodies come from product 92fb4367fb06aa5635fe394b0a79cf2423b5e15a, reconciled against machinery #223/#297. All pre-existing machinery tests are retained."
+   },
+   "ported_to": "tests/hygiene/test_pytest_retention.py"
   },
   "tests/hygiene/test_remote_branch_cleanup.py": {
    "disposition": "keep",
@@ -13592,20 +13993,46 @@
     "test_uninstall_preserves_receipts"
    ],
    "ownership": "machinery",
-   "residual_id": "PORT-T1-B01",
-   "residual_owner": "claude-cto",
-   "residual_reason": "R77 was fixed by merged #227 (3b547adea6196e5a8b7930f9d27ed30155d8a4be): wrapper_path and _validate_primary resolve packaged files with machinery_path. Existing tests/orchestration/test_check_worktree_cleanup_integrity.py::test_wrapper_execs_primary_interpreter proves a primary checkout without lu_machinery/ can validate and render the packaged wrapper. The five-test installer file is still absent; same-named observer-installer tests exercise a different subject. Remaining proof: port all five installer behaviors with the packaged wrapper expectation, including idempotence, argument/interpreter refusal, four-hour two-repository rendering and receipt-preserving uninstall, then execute them with fake launchctl. There is no remaining R77 production dependency.",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.orchestration.install_worktree_cleanup_launchd [present: present on machinery main as lu_machinery/orchestration/install_worktree_cleanup_launchd.py]"
    ],
    "residual_resolution": {
     "id": "PORT-T1-B01",
-    "decision": "still-deferred",
-    "evidence": "R77 was fixed by merged #227 (3b547adea6196e5a8b7930f9d27ed30155d8a4be): wrapper_path and _validate_primary resolve packaged files with machinery_path. Existing tests/orchestration/test_check_worktree_cleanup_integrity.py::test_wrapper_execs_primary_interpreter proves a primary checkout without lu_machinery/ can validate and render the packaged wrapper. The five-test installer file is still absent; same-named observer-installer tests exercise a different subject. Remaining proof: port all five installer behaviors with the packaged wrapper expectation, including idempotence, argument/interpreter refusal, four-hour two-repository rendering and receipt-preserving uninstall, then execute them with fake launchctl. There is no remaining R77 production dependency.",
-    "machinery_main_sha": "fa36a6386f9a1fba8ef15b250da6837323e1796c",
-    "product_main_sha": "92fb4367fb06aa5635fe394b0a79cf2423b5e15a"
-   }
+    "decision": "ported",
+    "issue": "learn-ukrainian/machinery#501",
+    "evidence": "Every frozen source test function is enumerated in coverage_map. Retained targets execute as whole files in tests/machinery_tests.txt; obsolete behaviors and parameter partitions have explicit findings. Source counts and historical ownership are unchanged.",
+    "machinery_base_sha": "154f42bfc9aeeb08ed8d282e03aaeccabaf33e4d",
+    "source_product_sha": "5aba2adb96e13b3f4a5dc2abbe5ed71b7fb81d00",
+    "coverage_map": {
+     "test_rendered_plist_runs_both_repositories_every_four_hours": {
+      "source_test_sha256": "b12d45ac2070399e43c3bd1890856b5c15b1d71f14fc00a90f24091196976e16",
+      "decision": "retained",
+      "machinery_test": "tests/orchestration/test_install_worktree_cleanup_launchd.py::test_rendered_plist_runs_both_repositories_every_four_hours"
+     },
+     "test_status_rejects_modified_program_arguments": {
+      "source_test_sha256": "36d2ea296d8745b4ccce2e0e773482941f82278053b143f780456e34146a2f2b",
+      "decision": "retained",
+      "machinery_test": "tests/orchestration/test_install_worktree_cleanup_launchd.py::test_status_rejects_modified_program_arguments"
+     },
+     "test_install_is_verified_and_idempotent": {
+      "source_test_sha256": "6a79e3109d7c63cf4a81325776e36029a5772b15fddc92983a818df42140a29b",
+      "decision": "retained",
+      "machinery_test": "tests/orchestration/test_install_worktree_cleanup_launchd.py::test_install_is_verified_and_idempotent"
+     },
+     "test_uninstall_preserves_receipts": {
+      "source_test_sha256": "5dea2ec5d4c4f5b431a68b1b2794304a1cd43a7e4b5ee5e3081910621951ee83",
+      "decision": "retained",
+      "machinery_test": "tests/orchestration/test_install_worktree_cleanup_launchd.py::test_uninstall_preserves_receipts"
+     },
+     "test_status_rejects_venv_python_as_program": {
+      "source_test_sha256": "6b0313a61e9b15daae6cd95f0c3e20357726d32a7bcadcdcf16008e73583bb7c",
+      "decision": "retained",
+      "machinery_test": "tests/orchestration/test_install_worktree_cleanup_launchd.py::test_status_rejects_venv_python_as_program"
+     }
+    }
+   },
+   "ported_to": "tests/orchestration/test_install_worktree_cleanup_launchd.py"
   },
   "tests/orchestration/test_integration_sweep.py": {
    "disposition": "keep",
@@ -13665,9 +14092,6 @@
     "test_visibility_fails_closed_for_unknown_role"
    ],
    "ownership": "machinery",
-   "residual_id": "PORT-T1-DEFER-02",
-   "residual_owner": "claude-cto",
-   "residual_reason": "The 20-test report file and tests/test_check_issue_task_quality.py fixture closure (COMPLETE, HYGIENE, REGISTRY, REPO, audit_report) remain absent. lu_machinery/orchestration/issue_quality_report.py remains present. tests/packaging/test_issue_quality_report_timer_units.py checks timer wiring, not report denominators, cache publication or private-data boundaries. Remaining proof: adapt the missing fixture closure and port/map all 20 report behaviors with executed CI results.",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "docs/WORKSTREAMS.md [present: product-owned in LU]",
@@ -13684,11 +14108,115 @@
    ],
    "residual_resolution": {
     "id": "PORT-T1-DEFER-02",
-    "decision": "still-deferred",
-    "evidence": "The 20-test report file and tests/test_check_issue_task_quality.py fixture closure (COMPLETE, HYGIENE, REGISTRY, REPO, audit_report) remain absent. lu_machinery/orchestration/issue_quality_report.py remains present. tests/packaging/test_issue_quality_report_timer_units.py checks timer wiring, not report denominators, cache publication or private-data boundaries. Remaining proof: adapt the missing fixture closure and port/map all 20 report behaviors with executed CI results.",
-    "machinery_main_sha": "fa36a6386f9a1fba8ef15b250da6837323e1796c",
-    "product_main_sha": "92fb4367fb06aa5635fe394b0a79cf2423b5e15a"
-   }
+    "decision": "ported",
+    "issue": "learn-ukrainian/machinery#501",
+    "evidence": "Every frozen source test function is enumerated in coverage_map. Retained targets execute as whole files in tests/machinery_tests.txt; obsolete behaviors and parameter partitions have explicit findings. Source counts and historical ownership are unchanged.",
+    "machinery_base_sha": "154f42bfc9aeeb08ed8d282e03aaeccabaf33e4d",
+    "source_product_sha": "5aba2adb96e13b3f4a5dc2abbe5ed71b7fb81d00",
+    "coverage_map": {
+     "test_listing_500_of_612_is_incomplete_independently_of_audit": {
+      "source_test_sha256": "de81f50408c1d643c1e00f0c6fb8b0048f3dce0614af43256fbb06545b198a6d",
+      "decision": "retained",
+      "machinery_test": "tests/orchestration/test_issue_quality_report.py::test_listing_500_of_612_is_incomplete_independently_of_audit"
+     },
+     "test_partial_outage_is_unknown_never_zero": {
+      "source_test_sha256": "05a1bec22b957954a80863b1d1f6ca3f72d91c6416e6e935697a49cf7ac6f39f",
+      "decision": "retained",
+      "machinery_test": "tests/orchestration/test_issue_quality_report.py::test_partial_outage_is_unknown_never_zero"
+     },
+     "test_private_boundary_golden": {
+      "source_test_sha256": "4bd0267990276cdf4d2bb6eb3c8a6c4144bea1e5453f88341195d8175f21aadb",
+      "decision": "retained",
+      "machinery_test": "tests/orchestration/test_issue_quality_report.py::test_private_boundary_golden"
+     },
+     "test_visibility_fails_closed_for_unknown_role": {
+      "source_test_sha256": "e1db03a66a9b3f1a2aec8824c1c7beca00d3a4565608d13e3986df34c1b21245",
+      "decision": "retained",
+      "machinery_test": "tests/orchestration/test_issue_quality_report.py::test_visibility_fails_closed_for_unknown_role"
+     },
+     "test_audit_incompleteness_never_reports_zero_membership": {
+      "source_test_sha256": "8b88c2f810b059cc5a404801704380241c2a1aaa99ff29afcdfc66d54855d0a1",
+      "decision": "retained",
+      "machinery_test": "tests/orchestration/test_issue_quality_report.py::test_audit_incompleteness_never_reports_zero_membership"
+     },
+     "test_pending_native_and_ambiguous": {
+      "source_test_sha256": "0952b10de27262f9d1669a6e0b84399ea09832de31dae7814b53022a3f77adda",
+      "decision": "retained",
+      "machinery_test": "tests/orchestration/test_issue_quality_report.py::test_pending_native_and_ambiguous"
+     },
+     "test_daily_report_writes_cache_consumed_by_parentless_checker": {
+      "source_test_sha256": "7fc3719b82e2bda1bf8e048a83b78326ea85270b98283e4308c779c5453d3688",
+      "decision": "retained",
+      "machinery_test": "tests/orchestration/test_issue_quality_report.py::test_daily_report_writes_cache_consumed_by_parentless_checker"
+     },
+     "test_daily_report_never_publishes_unverified_cache": {
+      "source_test_sha256": "ae89b28514d4917dcc518b8d9fd8861567a1202ad7607fd743f23f3ba954f0ff",
+      "decision": "retained",
+      "machinery_test": "tests/orchestration/test_issue_quality_report.py::test_daily_report_never_publishes_unverified_cache"
+     },
+     "test_daily_report_cache_failure_is_typed_and_redacted": {
+      "source_test_sha256": "4a013337bc3ff84b95bc161f50ef247b4b0effa7d5811999c03c25c397023a18",
+      "decision": "retained",
+      "machinery_test": "tests/orchestration/test_issue_quality_report.py::test_daily_report_cache_failure_is_typed_and_redacted"
+     },
+     "test_daily_report_hygiene_lookup_failure_publishes_nothing": {
+      "source_test_sha256": "4189371da1381eb447af36bc609d11e8704aea85d68879269ad6a99cee279fc8",
+      "decision": "retained",
+      "machinery_test": "tests/orchestration/test_issue_quality_report.py::test_daily_report_hygiene_lookup_failure_publishes_nothing"
+     },
+     "test_collection_redacts_exception_data": {
+      "source_test_sha256": "880cc5d42212b1a98930cc83dcc695a0ae70012b51aec618a6a3164e5131e995",
+      "decision": "retained",
+      "machinery_test": "tests/orchestration/test_issue_quality_report.py::test_collection_redacts_exception_data"
+     },
+     "test_payload_persisted_before_publish_and_reused": {
+      "source_test_sha256": "9cc9ca3e078a0e75bec35f0e291028ff7b4d7a211dd7fc5d2498d6a4fe7831a9",
+      "decision": "retained",
+      "machinery_test": "tests/orchestration/test_issue_quality_report.py::test_payload_persisted_before_publish_and_reused"
+     },
+     "test_report_cli_persists_prints_and_propagates_publish_failure": {
+      "source_test_sha256": "659cb6158926bbc6409d6e1d87116e24e0792a5f8bd9d60eb458c3141b2bba08",
+      "decision": "retained",
+      "machinery_test": "tests/orchestration/test_issue_quality_report.py::test_report_cli_persists_prints_and_propagates_publish_failure"
+     },
+     "test_checker_error_is_incomplete": {
+      "source_test_sha256": "c2f16c9c79c0fd5071189a6259e57af06335a788fd33add7b8d5855980489b7c",
+      "decision": "retained",
+      "machinery_test": "tests/orchestration/test_issue_quality_report.py::test_checker_error_is_incomplete"
+     },
+     "test_collection_rate_limit_never_zeros": {
+      "source_test_sha256": "06c1ef37b9ff6be0f6720e1294e5dc28a2b6a9ec7990f5c13d7200326819bd22",
+      "decision": "retained",
+      "machinery_test": "tests/orchestration/test_issue_quality_report.py::test_collection_rate_limit_never_zeros"
+     },
+     "test_registered_roots_still_count_dor_and_dod": {
+      "source_test_sha256": "f16c47e963880883de8e64fc763c2eb5a318518310de6eda4201e88a43a6c528",
+      "decision": "retained",
+      "machinery_test": "tests/orchestration/test_issue_quality_report.py::test_registered_roots_still_count_dor_and_dod"
+     },
+     "test_other_day_without_saved_payload_refuses_current_snapshot": {
+      "source_test_sha256": "ceec6654167610dda522176f27eb3df1874cd87672b47b17f2bc90e19f65c4ea",
+      "decision": "retained",
+      "machinery_test": "tests/orchestration/test_issue_quality_report.py::test_other_day_without_saved_payload_refuses_current_snapshot"
+     },
+     "test_payload_staging_is_atomic_on_destination_filesystem": {
+      "source_test_sha256": "f06742372ea03178aaf2a9a5f930a801797e5c3c26b0f472e92274f1b21dd95c",
+      "decision": "retained",
+      "machinery_test": "tests/orchestration/test_issue_quality_report.py::test_payload_staging_is_atomic_on_destination_filesystem"
+     },
+     "test_concurrent_payload_winner_is_kept": {
+      "source_test_sha256": "38f616e0b4bb5d5425f649d7dfadab12f60a528b78d911e08fe272e8df6a8fa1",
+      "decision": "retained",
+      "machinery_test": "tests/orchestration/test_issue_quality_report.py::test_concurrent_payload_winner_is_kept"
+     },
+     "test_payload_write_failure_leaves_no_partial_report": {
+      "source_test_sha256": "c3d6531b83aca35d938ac2bea89b22a94de941bc90e4bef3355c5ab6d6f2885e",
+      "decision": "retained",
+      "machinery_test": "tests/orchestration/test_issue_quality_report.py::test_payload_write_failure_leaves_no_partial_report"
+     }
+    }
+   },
+   "ported_to": "tests/orchestration/test_issue_quality_report.py"
   },
   "tests/orchestration/test_job_host_exec.py": {
    "disposition": "keep",
@@ -15092,9 +15620,6 @@
     "test_symlinked_unit_file_is_refused"
    ],
    "ownership": "machinery",
-   "residual_id": "PORT-T1-B01",
-   "residual_owner": "claude-cto",
-   "residual_reason": "Merged #227 (3b547adea6196e5a8b7930f9d27ed30155d8a4be) removed R77 from install_worktree_cleanup_launchd.wrapper_path and _validate_primary. The seven-test cross-installer matrix is still absent. tests/orchestration/test_check_worktree_cleanup_integrity.py covers linked plist/log detection but does not replace the matrix across installer entry points. Remaining proof: port/map the seven frozen behaviors and their installer/check/apply parameter combinations, update packaged-artifact fixtures, and execute with fake service commands. No host configuration change is required; the missing test port, not R77, remains outstanding.",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.common.safe_unit_install [present: present on machinery main as lu_machinery/common/safe_unit_install.py]",
@@ -15111,11 +15636,55 @@
    ],
    "residual_resolution": {
     "id": "PORT-T1-B01",
-    "decision": "still-deferred",
-    "evidence": "Merged #227 (3b547adea6196e5a8b7930f9d27ed30155d8a4be) removed R77 from install_worktree_cleanup_launchd.wrapper_path and _validate_primary. The seven-test cross-installer matrix is still absent. tests/orchestration/test_check_worktree_cleanup_integrity.py covers linked plist/log detection but does not replace the matrix across installer entry points. Remaining proof: port/map the seven frozen behaviors and their installer/check/apply parameter combinations, update packaged-artifact fixtures, and execute with fake service commands. No host configuration change is required; the missing test port, not R77, remains outstanding.",
-    "machinery_main_sha": "fa36a6386f9a1fba8ef15b250da6837323e1796c",
-    "product_main_sha": "92fb4367fb06aa5635fe394b0a79cf2423b5e15a"
-   }
+    "decision": "ported",
+    "issue": "learn-ukrainian/machinery#501",
+    "evidence": "Every frozen source test function is enumerated in coverage_map. Retained targets execute as whole files in tests/machinery_tests.txt; obsolete behaviors and parameter partitions have explicit findings. Source counts and historical ownership are unchanged.",
+    "machinery_base_sha": "154f42bfc9aeeb08ed8d282e03aaeccabaf33e4d",
+    "source_product_sha": "5aba2adb96e13b3f4a5dc2abbe5ed71b7fb81d00",
+    "coverage_map": {
+     "test_symlinked_unit_directory_is_refused": {
+      "source_test_sha256": "cb85cd454021d143b9ba5f17caa17b535181e5e291d44fc7eb3b6c1bd92583bb",
+      "decision": "retained-with-obsolete-parameters",
+      "machinery_test": "tests/orchestration/test_unit_installers_refuse_symlinks.py::test_symlinked_unit_directory_is_refused",
+      "parameter_disposition": "All seven source functions retain their applicable installer/check/apply/race matrices. Only data_volume_dropins is omitted: #108 (aaba253319769d9de9dff07ce2532bb8590ad714) removed its machinery implementation and retains the product-owned installer in the product. This is no deletion authorization for the product tests. Packaged launchd wrappers are read rather than overwritten by fixtures."
+     },
+     "test_symlinked_unit_file_is_refused": {
+      "source_test_sha256": "e762fcc8305028310b5e8de89daaa6c7e809bcd29585efaad4c745e6f7073727",
+      "decision": "retained-with-obsolete-parameters",
+      "machinery_test": "tests/orchestration/test_unit_installers_refuse_symlinks.py::test_symlinked_unit_file_is_refused",
+      "parameter_disposition": "All seven source functions retain their applicable installer/check/apply/race matrices. Only data_volume_dropins is omitted: #108 (aaba253319769d9de9dff07ce2532bb8590ad714) removed its machinery implementation and retains the product-owned installer in the product. This is no deletion authorization for the product tests. Packaged launchd wrappers are read rather than overwritten by fixtures."
+     },
+     "test_symlinked_ancestor_is_refused": {
+      "source_test_sha256": "19ded17944468301cc0e5899f9aa2051b36b7cc412e0c4b808cc6679045c2928",
+      "decision": "retained-with-obsolete-parameters",
+      "machinery_test": "tests/orchestration/test_unit_installers_refuse_symlinks.py::test_symlinked_ancestor_is_refused",
+      "parameter_disposition": "All seven source functions retain their applicable installer/check/apply/race matrices. Only data_volume_dropins is omitted: #108 (aaba253319769d9de9dff07ce2532bb8590ad714) removed its machinery implementation and retains the product-owned installer in the product. This is no deletion authorization for the product tests. Packaged launchd wrappers are read rather than overwritten by fixtures."
+     },
+     "test_link_raced_in_before_rename_is_replaced": {
+      "source_test_sha256": "aff688dd7f0cca89a2098e7331f7bcd6ca056e14081771492cc8df6072c038d3",
+      "decision": "retained-with-obsolete-parameters",
+      "machinery_test": "tests/orchestration/test_unit_installers_refuse_symlinks.py::test_link_raced_in_before_rename_is_replaced",
+      "parameter_disposition": "All seven source functions retain their applicable installer/check/apply/race matrices. Only data_volume_dropins is omitted: #108 (aaba253319769d9de9dff07ce2532bb8590ad714) removed its machinery implementation and retains the product-owned installer in the product. This is no deletion authorization for the product tests. Packaged launchd wrappers are read rather than overwritten by fixtures."
+     },
+     "test_launchd_cli_refuses_a_symlinked_home_or_ancestor": {
+      "source_test_sha256": "96f5ec6977016ac628bb616c0bcce5fc87e2978c42af116d9d199c83d27e537d",
+      "decision": "retained",
+      "machinery_test": "tests/orchestration/test_unit_installers_refuse_symlinks.py::test_launchd_cli_refuses_a_symlinked_home_or_ancestor"
+     },
+     "test_state_creation_refuses_every_symlinked_ancestor_before_mutation": {
+      "source_test_sha256": "7c217998c6c18de781d96d0ce12a4b210df648ff34707657271ebd4cd15a991a",
+      "decision": "retained",
+      "machinery_test": "tests/orchestration/test_unit_installers_refuse_symlinks.py::test_state_creation_refuses_every_symlinked_ancestor_before_mutation"
+     },
+     "test_project_state_dry_run_validates_before_creating_state": {
+      "source_test_sha256": "1201d4a725b475136902954995b55a4c239da56689a66ba1a8434a300fce02cf",
+      "decision": "retained",
+      "machinery_test": "tests/orchestration/test_unit_installers_refuse_symlinks.py::test_project_state_dry_run_validates_before_creating_state"
+     }
+    },
+    "fixture_adaptation": "The product-owned data_volume_dropins installer parameter is not ported: #108 (aaba253319769d9de9dff07ce2532bb8590ad714) removed its machinery copy and retains it in the product. The seven machinery installer matrices remain retained; packaged launchd wrappers are read rather than overwritten by fixtures."
+   },
+   "ported_to": "tests/orchestration/test_unit_installers_refuse_symlinks.py"
   },
   "tests/orchestration/test_worker_leftovers.py": {
    "disposition": "port-first",
@@ -15598,16 +16167,37 @@
     "packaging/machinery-security/pins.txt [present: present on machinery main as packaging/machinery-security/pins.txt]",
     "packaging/machinery-security/prepublication-gate.sh [present: present on machinery main as packaging/machinery-security/prepublication-gate.sh]"
    ],
-   "residual_id": "PORT-1108-T9-R3",
-   "residual_owner": "claude-cto",
-   "residual_reason": "The four-test prepublication gate file remains absent. .github/workflows/ci-gate.yml has separate pinned TruffleHog and Semgrep jobs, but .github/workflows/tests.yml does not provision those scanners and the pinned rules checkout for these pytest subprocesses. Separate scan-job success is not execution of the history-only finding, malformed-output and clearance-binding fixtures. Remaining proof: port the four behaviors, supply the pinned scanner/rules closure to that test execution, and record non-skipped results.",
    "residual_resolution": {
     "id": "PORT-1108-T9-R3",
-    "decision": "still-deferred",
-    "evidence": "The four-test prepublication gate file remains absent. .github/workflows/ci-gate.yml has separate pinned TruffleHog and Semgrep jobs, but .github/workflows/tests.yml does not provision those scanners and the pinned rules checkout for these pytest subprocesses. Separate scan-job success is not execution of the history-only finding, malformed-output and clearance-binding fixtures. Remaining proof: port the four behaviors, supply the pinned scanner/rules closure to that test execution, and record non-skipped results.",
-    "machinery_main_sha": "fa36a6386f9a1fba8ef15b250da6837323e1796c",
-    "product_main_sha": "92fb4367fb06aa5635fe394b0a79cf2423b5e15a"
-   }
+    "decision": "ported",
+    "issue": "learn-ukrainian/machinery#501",
+    "evidence": "Every frozen source test function is enumerated in coverage_map. Retained targets execute as whole files in tests/machinery_tests.txt; obsolete behaviors and parameter partitions have explicit findings. Source counts and historical ownership are unchanged.",
+    "machinery_base_sha": "154f42bfc9aeeb08ed8d282e03aaeccabaf33e4d",
+    "source_product_sha": "5aba2adb96e13b3f4a5dc2abbe5ed71b7fb81d00",
+    "coverage_map": {
+     "test_secret_only_in_an_old_commit_blocks": {
+      "source_test_sha256": "5d1b339d0a45763a78f7d370439edf5a4908514fe8461b1b7ed0cce8ce1ec854",
+      "decision": "retained",
+      "machinery_test": "tests/packaging/test_machinery_prepublication_gate.py::test_secret_only_in_an_old_commit_blocks"
+     },
+     "test_semgrep_finding_only_in_a_historical_blob_blocks": {
+      "source_test_sha256": "641e9c8ec3a949ad8cfe51e5083035d84b0bd8b69279b6a493446cd8e5756558",
+      "decision": "retained",
+      "machinery_test": "tests/packaging/test_machinery_prepublication_gate.py::test_semgrep_finding_only_in_a_historical_blob_blocks"
+     },
+     "test_scanner_error_or_malformed_output_blocks": {
+      "source_test_sha256": "703ce3c678089d9e9bae19266f313e6e768fae48ed0119ee7e81235ec7548b6c",
+      "decision": "retained",
+      "machinery_test": "tests/packaging/test_machinery_prepublication_gate.py::test_scanner_error_or_malformed_output_blocks"
+     },
+     "test_clean_repository_clears_and_verify_is_bound_to_refs_and_digest": {
+      "source_test_sha256": "021312b225fbe799f068fb2acbd78975d4500bd75606cb3ae29075c669a8fafc",
+      "decision": "retained",
+      "machinery_test": "tests/packaging/test_machinery_prepublication_gate.py::test_clean_repository_clears_and_verify_is_bound_to_refs_and_digest"
+     }
+    }
+   },
+   "ported_to": "tests/packaging/test_machinery_prepublication_gate.py"
   },
   "tests/packaging/test_systemd_templates.py": {
    "disposition": "port-first",
@@ -18428,7 +19018,6 @@
     "test_write_guard_rejects_primary_checkout_on_protected_branch"
    ],
    "ownership": "machinery",
-   "residual_id": "T3B-R01",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     ".github/workflows/ci.yml [present: product-owned in LU]",
@@ -18468,15 +19057,695 @@
     "scripts/review/model_catalog.py [present: present on machinery main as lu_machinery/review/model_catalog.py]",
     "unresolved: non-literal import_module(name)"
    ],
-   "residual_owner": "claude-cto",
-   "residual_reason": "The 135-test file remains absent; the frozen source imports tests/agent_runtime/adapters/kimi_admitted.py, which is absent with the Kimi execution stack removed by #141 (251d1b9). Restoring that retired helper is not the remaining prerequisite. Existing split runtime/adapter tests do not establish a complete mapping for this file. Remaining proof: separate retired Kimi/Muse-only cases using #141 (251d1b9) and #384 retirement evidence, preserve all still-live runtime and route behaviors, adapt their fixtures to installed machinery, and execute an explicit mapping of the 135 frozen tests. No whole-file replacement or retirement is claimed.",
    "residual_resolution": {
     "id": "T3B-R01",
-    "decision": "still-deferred",
-    "evidence": "The 135-test file remains absent; the frozen source imports tests/agent_runtime/adapters/kimi_admitted.py, which is absent with the Kimi execution stack removed by #141 (251d1b9). Restoring that retired helper is not the remaining prerequisite. Existing split runtime/adapter tests do not establish a complete mapping for this file. Remaining proof: separate retired Kimi/Muse-only cases using #141 (251d1b9) and #384 retirement evidence, preserve all still-live runtime and route behaviors, adapt their fixtures to installed machinery, and execute an explicit mapping of the 135 frozen tests. No whole-file replacement or retirement is claimed.",
-    "machinery_main_sha": "fa36a6386f9a1fba8ef15b250da6837323e1796c",
-    "product_main_sha": "92fb4367fb06aa5635fe394b0a79cf2423b5e15a"
-   }
+    "decision": "ported",
+    "issue": "learn-ukrainian/machinery#501",
+    "evidence": "Every frozen source test function is enumerated in coverage_map. Retained targets execute as whole files in tests/machinery_tests.txt; obsolete behaviors and parameter partitions have explicit findings. Source counts and historical ownership are unchanged.",
+    "machinery_base_sha": "154f42bfc9aeeb08ed8d282e03aaeccabaf33e4d",
+    "source_product_sha": "5aba2adb96e13b3f4a5dc2abbe5ed71b7fb81d00",
+    "coverage_map": {
+     "test_acpx_pilot_usage_records_strip_sensitive_context": {
+      "source_test_sha256": "aa4f7aad0176d6417482f69ebd691ea9c7766fe86b3384efdee61f76e9d14120",
+      "decision": "retained",
+      "machinery_test": "tests/test_agent_runtime.py::test_acpx_pilot_usage_records_strip_sensitive_context"
+     },
+     "test_agy_bridge_real_scratch_wiring": {
+      "source_test_sha256": "44e181818c78031d897b8fa78fcd7511e668bbb094d729c9fbd8d701cf5aca77",
+      "decision": "retained-with-obsolete-parameters",
+      "machinery_test": "tests/test_agent_runtime.py::test_agy_bridge_real_scratch_wiring",
+      "parameter_disposition": "Retains absent/valid/invalid home, invalid workspace and missing-guard inputs against actual packaged hooks. The native hook-root bootstrap is allowed through the subprocess spy. The source assertion that re-provisioning must leave a missing primary-write guard absent is obsolete: #499 records R38 guard merging, covered by tests/ai_agent_bridge/test_agy_model_selection.py::test_r38_existing_scratch_hooks_gain_the_primary_write_guard."
+     },
+     "test_agy_bridge_repo_read_adds_workspace_without_opt_in_sandbox": {
+      "source_test_sha256": "e3ed32b1918a22d60e1df86506c71d8021177b1bf8b2444abb12ccc732b00fb7",
+      "decision": "retained",
+      "machinery_test": "tests/test_agent_runtime.py::test_agy_bridge_repo_read_adds_workspace_without_opt_in_sandbox"
+     },
+     "test_agy_bridge_repo_read_falls_back_to_cwd_without_explicit_root": {
+      "source_test_sha256": "560836dc82700376f895157e81f87674390ecf7f1c9e238b53fe2e8528a71469",
+      "decision": "retained",
+      "machinery_test": "tests/test_agent_runtime.py::test_agy_bridge_repo_read_falls_back_to_cwd_without_explicit_root"
+     },
+     "test_resume_policy_never_allows_none": {
+      "source_test_sha256": "a5495c70e6ecd0f1b203bb05b297e1bedabeeb6894216b7d5c614d1b6f5cfda7",
+      "decision": "retained",
+      "machinery_test": "tests/test_agent_runtime.py::test_resume_policy_never_allows_none"
+     },
+     "test_resume_policy_bridge_only_allows_bridge": {
+      "source_test_sha256": "0cafd39b63da9abc15988f82ea22f86ba925fa15673b9e7fd0f2e492dd67600e",
+      "decision": "retained",
+      "machinery_test": "tests/test_agent_runtime.py::test_resume_policy_bridge_only_allows_bridge"
+     },
+     "test_resume_policy_bridge_only_rejects_dispatch": {
+      "source_test_sha256": "1d44ce04b9d0ab69d05b5e3019e593f069658a15488a64c300de2a88026b17a0",
+      "decision": "retained",
+      "machinery_test": "tests/test_agent_runtime.py::test_resume_policy_bridge_only_rejects_dispatch"
+     },
+     "test_codex_adapter_mode_flags_read_only": {
+      "source_test_sha256": "62865062b56156a7ce705b95c29806d95ee63245db217450c039f6ce504f7268",
+      "decision": "retained",
+      "machinery_test": "tests/test_agent_runtime.py::test_codex_adapter_mode_flags_read_only"
+     },
+     "test_codex_adapter_mode_flags_workspace_write": {
+      "source_test_sha256": "7431821ae584dd08f8e196cef97b7aa40eb2a897fa65ba5653224b16fd5d8f6e",
+      "decision": "retained",
+      "machinery_test": "tests/test_agent_runtime.py::test_codex_adapter_mode_flags_workspace_write"
+     },
+     "test_codex_adapter_build_invocation_read_only": {
+      "source_test_sha256": "e0fa59eae2ab48a9b94cd9a57ae353802469812a6de23085919ec76e09bbf0ea",
+      "decision": "retained",
+      "machinery_test": "tests/test_agent_runtime.py::test_codex_adapter_build_invocation_read_only"
+     },
+     "test_codex_adapter_discussion_readonly_sets_env": {
+      "source_test_sha256": "52e802b0b31006fa16625088421d2e6bb3a77ea9b6859ec9882f4cf48ef3f8f3",
+      "decision": "retained",
+      "machinery_test": "tests/test_agent_runtime.py::test_codex_adapter_discussion_readonly_sets_env"
+     },
+     "test_codex_adapter_bridge_creates_then_resumes": {
+      "source_test_sha256": "9a8c901127dbc13652971e5ae6ceed4e062f6fa5fb44f4fde0cb68e81ee879bf",
+      "decision": "retained",
+      "machinery_test": "tests/test_agent_runtime.py::test_codex_adapter_bridge_creates_then_resumes"
+     },
+     "test_codex_adapter_mcp_tool_config": {
+      "source_test_sha256": "ad8a06c519bdddffbd7f2e7c13fe890e50eb1c2e9a2d03b4223e1a17b02eed2f",
+      "decision": "retained",
+      "machinery_test": "tests/test_agent_runtime.py::test_codex_adapter_mcp_tool_config"
+     },
+     "test_codex_adapter_disable_features_emits_flags": {
+      "source_test_sha256": "1b87fbfb9b38e979b9b2e727dc41ad303d822f73c0420ba6b27227287b1513d0",
+      "decision": "retained",
+      "machinery_test": "tests/test_agent_runtime.py::test_codex_adapter_disable_features_emits_flags"
+     },
+     "test_codex_adapter_disables_apps_connector_across_all_invocations": {
+      "source_test_sha256": "cd2331827659744a6a3d518c72824104f8384d04cb8d32abc8707240f7bbb969",
+      "decision": "retained",
+      "machinery_test": "tests/test_agent_runtime.py::test_codex_adapter_disables_apps_connector_across_all_invocations"
+     },
+     "test_codex_adapter_binds_valid_output_schema": {
+      "source_test_sha256": "85f5f6ee80fb1d9fa351073b9237ee5a789df066514cdd2e11d9eeddd111eabf",
+      "decision": "retained",
+      "machinery_test": "tests/test_agent_runtime.py::test_codex_adapter_binds_valid_output_schema"
+     },
+     "test_codex_adapter_rejects_invalid_output_schema": {
+      "source_test_sha256": "a76ce981a1f693fe035f64967486a9768fdd55191ff156c94b14f23ab05763f7",
+      "decision": "retained",
+      "machinery_test": "tests/test_agent_runtime.py::test_codex_adapter_rejects_invalid_output_schema"
+     },
+     "test_codex_adapter_rejects_output_schema_hash_drift": {
+      "source_test_sha256": "c5da8cee210740dfe0cf8c527bdb0889f1a0b4321403d46655d2e0b57a8ce8f0",
+      "decision": "retained",
+      "machinery_test": "tests/test_agent_runtime.py::test_codex_adapter_rejects_output_schema_hash_drift"
+     },
+     "test_codex_parse_response_success": {
+      "source_test_sha256": "e528cc68634c8f667d4593a3d2fe933c4c233824bbb6897566d1ac11b9824793",
+      "decision": "retained",
+      "machinery_test": "tests/test_agent_runtime.py::test_codex_parse_response_success"
+     },
+     "test_codex_parse_response_rate_limited": {
+      "source_test_sha256": "3b415bf8b9feb1d66e3be0d341a66abb75d683d1a6592d5bf0943b196acbeee2",
+      "decision": "retained",
+      "machinery_test": "tests/test_agent_runtime.py::test_codex_parse_response_rate_limited"
+     },
+     "test_codex_parse_response_error": {
+      "source_test_sha256": "072067b47ccefaa5dacd3818aa80bff1379407c1c9af3601b671647cc30066a7",
+      "decision": "retained",
+      "machinery_test": "tests/test_agent_runtime.py::test_codex_parse_response_error"
+     },
+     "test_codex_parse_response_rate_limit_in_file_is_agent_text": {
+      "source_test_sha256": "f0466622ed4d87c3b591c82567587945961a6c3b169069c8e88ea78314afbdbd",
+      "decision": "retained",
+      "machinery_test": "tests/test_agent_runtime.py::test_codex_parse_response_rate_limit_in_file_is_agent_text"
+     },
+     "test_codex_parse_response_rate_limit_url_no_false_positive": {
+      "source_test_sha256": "a35d61a9a76b4d37adf93cbdeaa43fef74fb66c2dcf3cf9b1256909bcbbd45c1",
+      "decision": "retained",
+      "machinery_test": "tests/test_agent_runtime.py::test_codex_parse_response_rate_limit_url_no_false_positive"
+     },
+     "test_codex_parse_response_version_banner_is_not_rate_limited": {
+      "source_test_sha256": "000d67a5501db9fe2cdc97d8c0c546d1b1217e454564ba52430978cd29be9e5e",
+      "decision": "retained",
+      "machinery_test": "tests/test_agent_runtime.py::test_codex_parse_response_version_banner_is_not_rate_limited"
+     },
+     "test_codex_liveness_paths_exclude_rollout_files": {
+      "source_test_sha256": "b06fa08b81139c7d027319647871346e9881153046f4543e386623ef2ee4ca91",
+      "decision": "retained",
+      "machinery_test": "tests/test_agent_runtime.py::test_codex_liveness_paths_exclude_rollout_files"
+     },
+     "test_codex_parse_response_signaled_exit_is_never_rate_limit": {
+      "source_test_sha256": "7d04f8f7de5a7d670f218467551e38cb5476d1b1fd76dc791b2260f368fffcb4",
+      "decision": "retained",
+      "machinery_test": "tests/test_agent_runtime.py::test_codex_parse_response_signaled_exit_is_never_rate_limit"
+     },
+     "test_codex_check_early_reap_fires_once_the_final_file_is_stable": {
+      "source_test_sha256": "7391f9d5004cb6a31f76bd32a52cbb274fdb3ea8891134b84c050be477f2a3b8",
+      "decision": "retained",
+      "machinery_test": "tests/test_agent_runtime.py::test_codex_check_early_reap_fires_once_the_final_file_is_stable"
+     },
+     "test_codex_check_early_reap_late_stdout_needs_advancing_clock": {
+      "source_test_sha256": "2d42febfd15dc614de377086f5070319b1aee527088acd0ea90c55b68d2f26f0",
+      "decision": "retained",
+      "machinery_test": "tests/test_agent_runtime.py::test_codex_check_early_reap_late_stdout_needs_advancing_clock"
+     },
+     "test_codex_check_early_reap_never_fires_before_the_final_file_is_written": {
+      "source_test_sha256": "ade389b1f148c8d3bbf8916160f2fe01c2a7f4fce86ac629c9236a3c4b4cd81b",
+      "decision": "retained",
+      "machinery_test": "tests/test_agent_runtime.py::test_codex_check_early_reap_never_fires_before_the_final_file_is_written"
+     },
+     "test_codex_reaped_call_with_changed_final_file_is_incomplete": {
+      "source_test_sha256": "ff2c8c047372310e460c363392b60dbf9a4d273191d85b734e5a57db74c583ff",
+      "decision": "retained",
+      "machinery_test": "tests/test_agent_runtime.py::test_codex_reaped_call_with_changed_final_file_is_incomplete"
+     },
+     "test_codex_check_early_reap_requires_this_invocations_completion": {
+      "source_test_sha256": "912aeaccdc11eb902719305025a184f522eb653e3cd8b3f52fbd3f26c6fd965d",
+      "decision": "retained",
+      "machinery_test": "tests/test_agent_runtime.py::test_codex_check_early_reap_requires_this_invocations_completion"
+     },
+     "test_codex_check_early_reap_skips_within_warmup_window": {
+      "source_test_sha256": "2b9bcf6318f8c2769a2ad23dfffa8cb13cfda4273b6e2c0e03d078c5eaeb0590",
+      "decision": "retained",
+      "machinery_test": "tests/test_agent_runtime.py::test_codex_check_early_reap_skips_within_warmup_window"
+     },
+     "test_codex_check_early_reap_never_fires_for_schema_calls": {
+      "source_test_sha256": "6ecb6989aa131d530592a76b01a74cc0cd0c8c81298f187217ef892f438e1d50",
+      "decision": "retained",
+      "machinery_test": "tests/test_agent_runtime.py::test_codex_check_early_reap_never_fires_for_schema_calls"
+     },
+     "test_codex_candidate_rollout_dirs_honors_codex_home_override": {
+      "source_test_sha256": "c1ac4de3b8ea1f0b2263e7b75521944bb8be5bc6e3d6cc28b3476612dbcc708b",
+      "decision": "retained",
+      "machinery_test": "tests/test_agent_runtime.py::test_codex_candidate_rollout_dirs_honors_codex_home_override"
+     },
+     "test_codex_parse_response_takes_the_answer_from_the_final_file_only": {
+      "source_test_sha256": "1b808fec8f2647075636e16964aa328f868f681cbf36784d307b3d922e64beca",
+      "decision": "retained",
+      "machinery_test": "tests/test_agent_runtime.py::test_codex_parse_response_takes_the_answer_from_the_final_file_only"
+     },
+     "test_codex_parse_response_nested_divider_in_prompt_not_rate_limit": {
+      "source_test_sha256": "3ea96ec7c7df6b326a0d63f73d5ba3384f9c2b3e5c5d0efdfbf1909039de28f5",
+      "decision": "retained",
+      "machinery_test": "tests/test_agent_runtime.py::test_codex_parse_response_nested_divider_in_prompt_not_rate_limit"
+     },
+     "test_codex_parse_response_prompt_echo_is_not_rate_limit": {
+      "source_test_sha256": "9a02eaa0bd9ffdfdd6fecebd9b353b94d4ea4e6c54ca90e059c49328db4264ed",
+      "decision": "retained",
+      "machinery_test": "tests/test_agent_runtime.py::test_codex_parse_response_prompt_echo_is_not_rate_limit"
+     },
+     "test_invoke_refuses_catalog_retired_model_on_every_adapter": {
+      "source_test_sha256": "62dd010c66c8284d03ff45f5222abc066e5e363bfc40055a4c376e616317e448",
+      "decision": "retained-with-obsolete-parameters",
+      "machinery_test": "tests/test_agent_runtime.py::test_invoke_refuses_catalog_retired_model_on_every_adapter",
+      "parameter_disposition": "Retains every currently registered adapter with retired gpt-6-sol and gpt-6-astra models and no provider spawn. Astra now has the catalog-retirement refusal; its former red-team exception is expired. Kimi/kimicc adapter parameters are obsolete because #141 removed those adapters; their allowlist helper is not restored."
+     },
+     "test_invoke_admits_active_explicit_model_past_retirement_gate": {
+      "source_test_sha256": "88c3066ca6cbd86e659495000a415b0c4ff221733af4883729e36c7d9abd05a1",
+      "decision": "retained",
+      "machinery_test": "tests/test_agent_runtime.py::test_invoke_admits_active_explicit_model_past_retirement_gate"
+     },
+     "test_invoke_requires_cwd_for_write_mode": {
+      "source_test_sha256": "d04865dc80ca770700e6afeb3387faea6212a8d354d53a4a3b8749e85f29427e",
+      "decision": "retained",
+      "machinery_test": "tests/test_agent_runtime.py::test_invoke_requires_cwd_for_write_mode"
+     },
+     "test_write_guard_rejects_primary_checkout_on_protected_branch": {
+      "source_test_sha256": "7c12a905f33093cdc364e56af32421bf1e8ed2eba2456561faf6637d50ea421f",
+      "decision": "retained",
+      "machinery_test": "tests/test_agent_runtime.py::test_write_guard_rejects_primary_checkout_on_protected_branch"
+     },
+     "test_write_guard_allows_dispatch_worktree": {
+      "source_test_sha256": "2fd659be8292e734d5ed7092ebdbdd6efd12e097a7d225da7de5c6a89db9f061",
+      "decision": "retained",
+      "machinery_test": "tests/test_agent_runtime.py::test_write_guard_allows_dispatch_worktree"
+     },
+     "test_write_guard_allows_primary_checkout_on_feature_branch": {
+      "source_test_sha256": "380e41f8296f6e5687dbda6bc2bc8ef1d84d1b0d291c06401cdd3545e15f04b1",
+      "decision": "retained",
+      "machinery_test": "tests/test_agent_runtime.py::test_write_guard_allows_primary_checkout_on_feature_branch"
+     },
+     "test_write_guard_allows_out_of_tree_cwd": {
+      "source_test_sha256": "e7ffe25c1c417d4e417a7467371f2990f3cd97caf32793c6c8d2dce9e3cc6c31",
+      "decision": "retained",
+      "machinery_test": "tests/test_agent_runtime.py::test_write_guard_allows_out_of_tree_cwd"
+     },
+     "test_write_guard_fails_closed_when_containment_unavailable": {
+      "source_test_sha256": "74f576b0bc249a9b35fc44aa0444e248137f87370fcdd665579d06fce178eee0",
+      "decision": "retained",
+      "machinery_test": "tests/test_agent_runtime.py::test_write_guard_fails_closed_when_containment_unavailable"
+     },
+     "test_invoke_codex_write_lane_rejects_primary_checkout_cwd": {
+      "source_test_sha256": "cf611d591063209937cbce87c9f0b8f85962bdec623163b9c6e7326007e5bdaf",
+      "decision": "retained",
+      "machinery_test": "tests/test_agent_runtime.py::test_invoke_codex_write_lane_rejects_primary_checkout_cwd"
+     },
+     "test_invoke_codex_write_lane_spawns_in_dispatch_worktree": {
+      "source_test_sha256": "37fc09e5e9b818a953ba40c48fc4c4bf733ede84db18cb79a5c66ee7cc4c7603",
+      "decision": "retained",
+      "machinery_test": "tests/test_agent_runtime.py::test_invoke_codex_write_lane_spawns_in_dispatch_worktree"
+     },
+     "test_invoke_rate_limit_short_circuit": {
+      "source_test_sha256": "6504b6c496ac9e2d20d132242d901de384e4bed0d93d032b3ec27e47ff4bf9df",
+      "decision": "retained",
+      "machinery_test": "tests/test_agent_runtime.py::test_invoke_rate_limit_short_circuit"
+     },
+     "test_invoke_popen_missing_binary_raises_agent_unavailable": {
+      "source_test_sha256": "e0f2fd61da160d2162938dfab17c0c4d67a3f10340eeb11b319f6817cbeaabbc",
+      "decision": "retained",
+      "machinery_test": "tests/test_agent_runtime.py::test_invoke_popen_missing_binary_raises_agent_unavailable"
+     },
+     "test_invoke_early_reap_fires_and_recovers_response": {
+      "source_test_sha256": "5e5eef0edd8914ceda3ff91e5814e46e85a150b5587dad053389b935b50d8525",
+      "decision": "retained",
+      "machinery_test": "tests/test_agent_runtime.py::test_invoke_early_reap_fires_and_recovers_response"
+     },
+     "test_invoke_hard_timeout_recovers_from_session_file": {
+      "source_test_sha256": "0bec6191485bb9ca4dc3ad2cf8f118a07881a6248d66297720859c833dfb79d3",
+      "decision": "obsolete",
+      "finding": "Machinery #236 (f9a8369) removed native Gemini CLI argv construction. GeminiAdapter.build_invocation now refuses before any command; the runtime default uses AGY. This native launch/auth/session expectation is obsolete. Historical response/session readers, AGY runtime attribution, typed rate-limit propagation and timeout behavior remain retained."
+     },
+     "test_invoke_gemini_runtime_falls_through_to_subscription_rung": {
+      "source_test_sha256": "58687ee842490c25ac7b786a359b1d7569f3aa6289f204c3889bef0cafa55312",
+      "decision": "obsolete",
+      "finding": "Machinery #236 (f9a8369) removed native Gemini CLI argv construction. GeminiAdapter.build_invocation now refuses before any command; the runtime default uses AGY. This native launch/auth/session expectation is obsolete. Historical response/session readers, AGY runtime attribution, typed rate-limit propagation and timeout behavior remain retained."
+     },
+     "test_invoke_gemini_runtime_reports_actual_agy_fallback_model": {
+      "source_test_sha256": "cdd1d177ffade1f118c1b1326bca114cce1dfd650bfa95ab772063b2ba943bd7",
+      "decision": "retained",
+      "machinery_test": "tests/test_agent_runtime.py::test_invoke_gemini_runtime_reports_actual_agy_fallback_model"
+     },
+     "test_invoke_gemini_runtime_all_rate_limited_raises": {
+      "source_test_sha256": "ba357bf5baca6ea60dbddd6405c9e01e58c30a36ea61a1523925796509e03d88",
+      "decision": "retained",
+      "machinery_test": "tests/test_agent_runtime.py::test_invoke_gemini_runtime_all_rate_limited_raises"
+     },
+     "test_invoke_gemini_runtime_timeout_ladder_raises_timeout": {
+      "source_test_sha256": "423aac467e8b91f620ea53f1d056be0506e1440a50ff5da0c6ae9a4f816a643f",
+      "decision": "retained",
+      "machinery_test": "tests/test_agent_runtime.py::test_invoke_gemini_runtime_timeout_ladder_raises_timeout"
+     },
+     "test_should_kill_ignores_stall_silence": {
+      "source_test_sha256": "342f090e0840d0d47db5c35151a560f6c8e3d2a338e4b35b7c75d09e98c19587",
+      "decision": "retained",
+      "machinery_test": "tests/test_agent_runtime.py::test_should_kill_ignores_stall_silence"
+     },
+     "test_should_kill_detects_hard_timeout": {
+      "source_test_sha256": "4809a33f3277767535dddf774e16f8c96da11110501d9f73c71a21a450f4f555",
+      "decision": "retained",
+      "machinery_test": "tests/test_agent_runtime.py::test_should_kill_detects_hard_timeout"
+     },
+     "test_should_kill_silence_timeout_accepts_liveness_activity": {
+      "source_test_sha256": "9f31c1c008d7320e1eb7e95ad0ef4cbb19bb15ee72e30c6e355a2f114b3fa316",
+      "decision": "retained",
+      "machinery_test": "tests/test_agent_runtime.py::test_should_kill_silence_timeout_accepts_liveness_activity"
+     },
+     "test_should_kill_silence_timeout_kills_fully_silent_process": {
+      "source_test_sha256": "516c45ae8b09e054da1f92f8204c6785ba9b0a371478e534cea3abed512f7e07",
+      "decision": "retained",
+      "machinery_test": "tests/test_agent_runtime.py::test_should_kill_silence_timeout_kills_fully_silent_process"
+     },
+     "test_initial_response_timeout_accepts_process_tree_activity": {
+      "source_test_sha256": "c6de1c270f5842f2297ca22677675c6ae4b2755eb754b48e1df0cdb820dd118b",
+      "decision": "retained",
+      "machinery_test": "tests/test_agent_runtime.py::test_initial_response_timeout_accepts_process_tree_activity"
+     },
+     "test_process_tree_has_activity_tracks_descendant_cpu": {
+      "source_test_sha256": "07d8005fcefc0d7e66164651ea14d741afe00dca105bfdab2ff1d471b7488a98",
+      "decision": "retained",
+      "machinery_test": "tests/test_agent_runtime.py::test_process_tree_has_activity_tracks_descendant_cpu"
+     },
+     "test_process_tree_has_activity_ignores_idle_cpu_noise": {
+      "source_test_sha256": "380a85c6af848520024aa3ebfaa35e44d98f6e133ac130181dcc9bdc32a7e4fd",
+      "decision": "retained",
+      "machinery_test": "tests/test_agent_runtime.py::test_process_tree_has_activity_ignores_idle_cpu_noise"
+     },
+     "test_process_activity_poller_counts_work_as_startup_activity": {
+      "source_test_sha256": "1c2e62bdd173123ebf9b36c5521ddf7680eec76892bc495fbae2f9e7f2124e58",
+      "decision": "retained",
+      "machinery_test": "tests/test_agent_runtime.py::test_process_activity_poller_counts_work_as_startup_activity"
+     },
+     "test_tail_liveness_skips_binary_sqlite": {
+      "source_test_sha256": "91cb02fda1cf63aa028cd309a877de9f583b00addd06eb55e2221209d0ad0be7",
+      "decision": "retained",
+      "machinery_test": "tests/test_agent_runtime.py::test_tail_liveness_skips_binary_sqlite"
+     },
+     "test_stderr_streamer_drains_large_volume_without_hanging": {
+      "source_test_sha256": "e4cf410e0cabdf6171d011bbe04cde57faf44e055cf23f23ebd6c2cf932e2c8c",
+      "decision": "retained",
+      "machinery_test": "tests/test_agent_runtime.py::test_stderr_streamer_drains_large_volume_without_hanging"
+     },
+     "test_stop_watchdog_unblocks_stdout_streamer": {
+      "source_test_sha256": "a345adf29b6415fac3824d3cddf76cc2d796fd4472e0ab178c8a834f7cab7b6d",
+      "decision": "retained",
+      "machinery_test": "tests/test_agent_runtime.py::test_stop_watchdog_unblocks_stdout_streamer"
+     },
+     "test_gemini_adapter_read_only_no_yolo": {
+      "source_test_sha256": "eca0351eef8cff9f7bdb6a5f73b34967ef658515fef836d00e65d79b141f50c8",
+      "decision": "obsolete",
+      "finding": "Machinery #236 (f9a8369) removed native Gemini CLI argv construction. GeminiAdapter.build_invocation now refuses before any command; the runtime default uses AGY. This native launch/auth/session expectation is obsolete. Historical response/session readers, AGY runtime attribution, typed rate-limit propagation and timeout behavior remain retained."
+     },
+     "test_gemini_adapter_discussion_readonly_forces_plan_mode": {
+      "source_test_sha256": "081a157c82c20dec1f5453d718fab188f780085bf7437be96109c7c7aac792c3",
+      "decision": "obsolete",
+      "finding": "Machinery #236 (f9a8369) removed native Gemini CLI argv construction. GeminiAdapter.build_invocation now refuses before any command; the runtime default uses AGY. This native launch/auth/session expectation is obsolete. Historical response/session readers, AGY runtime attribution, typed rate-limit propagation and timeout behavior remain retained."
+     },
+     "test_gemini_adapter_workspace_write_yolo": {
+      "source_test_sha256": "baf55360bf43c42ce6d62bdd4290373bdd0d18e2d0fc271a0ad58471b4345184",
+      "decision": "obsolete",
+      "finding": "Machinery #236 (f9a8369) removed native Gemini CLI argv construction. GeminiAdapter.build_invocation now refuses before any command; the runtime default uses AGY. This native launch/auth/session expectation is obsolete. Historical response/session readers, AGY runtime attribution, typed rate-limit propagation and timeout behavior remain retained."
+     },
+     "test_resolve_gemini_auth_mode_defaults_to_subscription_without_api_key": {
+      "source_test_sha256": "a00b4a584a713fb1fae801fb0aa40a3fc1bf4a05b319fe8579078e8dba7eb8fe",
+      "decision": "retained",
+      "machinery_test": "tests/test_agent_runtime.py::test_resolve_gemini_auth_mode_defaults_to_subscription_without_api_key"
+     },
+     "test_gemini_adapter_subscription_mode_strips_api_key_env": {
+      "source_test_sha256": "11812191053b862372bf0182f6e9db148e97c2daf259fe3cd7e4a3f4f3ae9e15",
+      "decision": "obsolete",
+      "finding": "Machinery #236 (f9a8369) removed native Gemini CLI argv construction. GeminiAdapter.build_invocation now refuses before any command; the runtime default uses AGY. This native launch/auth/session expectation is obsolete. Historical response/session readers, AGY runtime attribution, typed rate-limit propagation and timeout behavior remain retained."
+     },
+     "test_gemini_adapter_api_mode_preserves_api_key_env": {
+      "source_test_sha256": "4f7e82cd24794443638e1e452d3620d5b6c7249d77f7ba2281005af0c97acf82",
+      "decision": "obsolete",
+      "finding": "Machinery #236 (f9a8369) removed native Gemini CLI argv construction. GeminiAdapter.build_invocation now refuses before any command; the runtime default uses AGY. This native launch/auth/session expectation is obsolete. Historical response/session readers, AGY runtime attribution, typed rate-limit propagation and timeout behavior remain retained."
+     },
+     "test_gemini_adapter_mcp_tool_config": {
+      "source_test_sha256": "28597a6e492444e74b30d2f619ca2b769b25ea60fa28953d76d3f8444fb44428",
+      "decision": "obsolete",
+      "finding": "Machinery #236 (f9a8369) removed native Gemini CLI argv construction. GeminiAdapter.build_invocation now refuses before any command; the runtime default uses AGY. This native launch/auth/session expectation is obsolete. Historical response/session readers, AGY runtime attribution, typed rate-limit propagation and timeout behavior remain retained."
+     },
+     "test_gemini_adapter_stateless_dispatch_omits_session_flags": {
+      "source_test_sha256": "242dc1337e5fc7e082518a325af98e1b1460088035f54421d6f08dd71454c96b",
+      "decision": "obsolete",
+      "finding": "Machinery #236 (f9a8369) removed native Gemini CLI argv construction. GeminiAdapter.build_invocation now refuses before any command; the runtime default uses AGY. This native launch/auth/session expectation is obsolete. Historical response/session readers, AGY runtime attribution, typed rate-limit propagation and timeout behavior remain retained."
+     },
+     "test_gemini_adapter_new_named_session": {
+      "source_test_sha256": "1f594a9bddc18657679900dc183e6a579d1672d2b2f09d8b1a2d813ddb1d0e42",
+      "decision": "obsolete",
+      "finding": "Machinery #236 (f9a8369) removed native Gemini CLI argv construction. GeminiAdapter.build_invocation now refuses before any command; the runtime default uses AGY. This native launch/auth/session expectation is obsolete. Historical response/session readers, AGY runtime attribution, typed rate-limit propagation and timeout behavior remain retained."
+     },
+     "test_gemini_adapter_resume_existing_session": {
+      "source_test_sha256": "992061165370e7d07915b41742237178fefbeedf238674ca4580134a84b5e34b",
+      "decision": "obsolete",
+      "finding": "Machinery #236 (f9a8369) removed native Gemini CLI argv construction. GeminiAdapter.build_invocation now refuses before any command; the runtime default uses AGY. This native launch/auth/session expectation is obsolete. Historical response/session readers, AGY runtime attribution, typed rate-limit propagation and timeout behavior remain retained."
+     },
+     "test_gemini_parse_response_success": {
+      "source_test_sha256": "4fa7d147cc68f3ad15c9258eb712ed4758a1334c28ea3e589498756ebc0b9fa4",
+      "decision": "retained",
+      "machinery_test": "tests/test_agent_runtime.py::test_gemini_parse_response_success"
+     },
+     "test_gemini_parse_response_extracts_session_uuid_from_resume_hint": {
+      "source_test_sha256": "a7ea09cb8fc4df650c499da43475457645a869b1f3b9122ab0fc8e8cf4c7ac09",
+      "decision": "retained",
+      "machinery_test": "tests/test_agent_runtime.py::test_gemini_parse_response_extracts_session_uuid_from_resume_hint"
+     },
+     "test_gemini_parse_response_rate_limit_resource_exhausted": {
+      "source_test_sha256": "da5781f0c07137e4a11e4441b05c61590ba92ac2a94d1be1fbff1bea502eecd3",
+      "decision": "retained",
+      "machinery_test": "tests/test_agent_runtime.py::test_gemini_parse_response_rate_limit_resource_exhausted"
+     },
+     "test_gemini_parse_response_rate_limit_in_stdout_is_not_a_fallback_signal": {
+      "source_test_sha256": "3f84cbdddddd099be51cb97c7a025cc2185c497983de2ba33eadd6d7384ec21a",
+      "decision": "retained",
+      "machinery_test": "tests/test_agent_runtime.py::test_gemini_parse_response_rate_limit_in_stdout_is_not_a_fallback_signal"
+     },
+     "test_gemini_parse_response_url_no_false_positive": {
+      "source_test_sha256": "47bbae5d6953d7291f9037a6d9a1fdd02aba5f04f2159f49096d7aef162547ec",
+      "decision": "retained",
+      "machinery_test": "tests/test_agent_runtime.py::test_gemini_parse_response_url_no_false_positive"
+     },
+     "test_gemini_parse_response_recovers_from_session_file": {
+      "source_test_sha256": "5b8b8b724b09b3060f1b92f1ef790b1d46229d58bdd674680a6ca2da590ccd78",
+      "decision": "retained",
+      "machinery_test": "tests/test_agent_runtime.py::test_gemini_parse_response_recovers_from_session_file"
+     },
+     "test_gemini_parse_response_skips_recovery_on_fast_path": {
+      "source_test_sha256": "6ca0eda608f5f16f792901da83fca6235d599cc55b6ae61e711d7ae2483e3849",
+      "decision": "retained",
+      "machinery_test": "tests/test_agent_runtime.py::test_gemini_parse_response_skips_recovery_on_fast_path"
+     },
+     "test_gemini_liveness_paths_from_project_tmp": {
+      "source_test_sha256": "34bef3728acb35700441b69eed13725363f085b788d260dda47e46dca0d255a0",
+      "decision": "retained",
+      "machinery_test": "tests/test_agent_runtime.py::test_gemini_liveness_paths_from_project_tmp"
+     },
+     "test_claude_adapter_basic_stateless": {
+      "source_test_sha256": "175b9d925762a0eb089c48b36c1b24e93f678f0706c6cae2c0c03988315e9b67",
+      "decision": "retained",
+      "machinery_test": "tests/test_agent_runtime.py::test_claude_adapter_basic_stateless"
+     },
+     "test_claude_adapter_emits_max_budget_usd_from_tool_config": {
+      "source_test_sha256": "3b4095bbffe946ba723239e7f1b3408e13c770855b3e15ebc5ca7b1249877e04",
+      "decision": "retained",
+      "machinery_test": "tests/test_agent_runtime.py::test_claude_adapter_emits_max_budget_usd_from_tool_config"
+     },
+     "test_claude_adapter_discussion_readonly_uses_restricted_tools_without_plan_mode": {
+      "source_test_sha256": "f749a90dfda95cc654240d0f45632fcc4cfb3226c9d8d47c3fd1b5157640842e",
+      "decision": "retained",
+      "machinery_test": "tests/test_agent_runtime.py::test_claude_adapter_discussion_readonly_uses_restricted_tools_without_plan_mode"
+     },
+     "test_claude_adapter_resume_existing_session": {
+      "source_test_sha256": "59f52eb58e2c0678a57c1ff3bbcb064c51fffa2807d56a8ce4a1b23a1087d4b2",
+      "decision": "retained",
+      "machinery_test": "tests/test_agent_runtime.py::test_claude_adapter_resume_existing_session"
+     },
+     "test_claude_adapter_new_named_session": {
+      "source_test_sha256": "f4449bc985d2694ea3767707b207dbbfb67b93b6fc675953396ee5c4497d6fcb",
+      "decision": "retained",
+      "machinery_test": "tests/test_agent_runtime.py::test_claude_adapter_new_named_session"
+     },
+     "test_claude_adapter_mcp_tool_config": {
+      "source_test_sha256": "7f56b3775190af7a191fbff5652f889cf4a753ac66c989afc8d58572594ceb58",
+      "decision": "retained",
+      "machinery_test": "tests/test_agent_runtime.py::test_claude_adapter_mcp_tool_config"
+     },
+     "test_claude_adapter_danger_mode": {
+      "source_test_sha256": "d98d6e50d961407b9cd05bc92952a417571b7be11a6b77892d161acd68285aa2",
+      "decision": "retained",
+      "machinery_test": "tests/test_agent_runtime.py::test_claude_adapter_danger_mode"
+     },
+     "test_claude_adapter_keeps_hooks_when_api_key_set": {
+      "source_test_sha256": "337fa0709682413077b9b9908663aff2499297e7dca82e5ace31539b36addc1f",
+      "decision": "retained",
+      "machinery_test": "tests/test_agent_runtime.py::test_claude_adapter_keeps_hooks_when_api_key_set"
+     },
+     "test_claude_adapter_rejects_old_cli_version": {
+      "source_test_sha256": "1c270194ea198072dde11f15585f6be998a9aad523d1d52e9d6c233317851dd0",
+      "decision": "retained",
+      "machinery_test": "tests/test_agent_runtime.py::test_claude_adapter_rejects_old_cli_version"
+     },
+     "test_claude_adapter_default_prefix_prefers_local_binary_over_npx": {
+      "source_test_sha256": "301370e4e4ee8970beaabc7a6e017723a9c8d044779a089461156c9de109bf54",
+      "decision": "retained",
+      "machinery_test": "tests/test_agent_runtime.py::test_claude_adapter_default_prefix_prefers_local_binary_over_npx"
+     },
+     "test_claude_adapter_default_prefix_falls_back_to_npx_when_local_missing": {
+      "source_test_sha256": "17d2f47a0c056daced2978b404e2dcbb0ddc8aef52a699a5ec08545ff2755a45",
+      "decision": "retained",
+      "machinery_test": "tests/test_agent_runtime.py::test_claude_adapter_default_prefix_falls_back_to_npx_when_local_missing"
+     },
+     "test_claude_adapter_default_prefix_raises_when_neither_present": {
+      "source_test_sha256": "a0ef30f48ea602e005c18bfd04bc9a8d4612a349b627b6b1e9cf3f04eb804bc2",
+      "decision": "retained",
+      "machinery_test": "tests/test_agent_runtime.py::test_claude_adapter_default_prefix_raises_when_neither_present"
+     },
+     "test_claude_adapter_default_bin_probes_home_install_dir": {
+      "source_test_sha256": "ebbcf9a9b07d675ea5b3db98281f571c52c1b2f0cb56e20645c6fcca4f656f84",
+      "decision": "retained",
+      "machinery_test": "tests/test_agent_runtime.py::test_claude_adapter_default_bin_probes_home_install_dir"
+     },
+     "test_claude_adapter_explicit_cmd_prefix_override_unchanged": {
+      "source_test_sha256": "2aa4be42bff9cbdf061be5bb2a0320bfaeda178e3a52f9af0b75af3b8c4b03ea",
+      "decision": "retained",
+      "machinery_test": "tests/test_agent_runtime.py::test_claude_adapter_explicit_cmd_prefix_override_unchanged"
+     },
+     "test_claude_parse_response_success": {
+      "source_test_sha256": "5616a81297bc386a4dab48cba69821793bb2b4c6b08adffbe18b31243ecf0703",
+      "decision": "retained",
+      "machinery_test": "tests/test_agent_runtime.py::test_claude_parse_response_success"
+     },
+     "test_claude_parse_response_rate_limit": {
+      "source_test_sha256": "3cce89aa9f47cefc3691060874a1548f2ebea6160d152ff383b960f828c4f794",
+      "decision": "retained",
+      "machinery_test": "tests/test_agent_runtime.py::test_claude_parse_response_rate_limit"
+     },
+     "test_claude_parse_response_url_no_false_positive": {
+      "source_test_sha256": "422d9dab2dbd819432ec8b1ffb91ea011036e0822fde32e4cc6f48b07db0d751",
+      "decision": "retained",
+      "machinery_test": "tests/test_agent_runtime.py::test_claude_parse_response_url_no_false_positive"
+     },
+     "test_kill_process_tree_handles_already_dead_process": {
+      "source_test_sha256": "3d42e698e81b8d201e8f6307bac1156ad97d5511b0f3985b697e106b892faff4",
+      "decision": "retained",
+      "machinery_test": "tests/test_agent_runtime.py::test_kill_process_tree_handles_already_dead_process"
+     },
+     "test_is_temp_file_rejects_non_temp_paths": {
+      "source_test_sha256": "98d979a25f90139a085a01fe904cfd7a573b3e8370650a1c163b1e75946cc386",
+      "decision": "retained",
+      "machinery_test": "tests/test_agent_runtime.py::test_is_temp_file_rejects_non_temp_paths"
+     },
+     "test_invoke_applies_env_unsets_to_subprocess": {
+      "source_test_sha256": "20083d1f05711f830abcb65d91213642105af8fc6f5cc44058a39a55dff26ee1",
+      "decision": "retained",
+      "machinery_test": "tests/test_agent_runtime.py::test_invoke_applies_env_unsets_to_subprocess"
+     },
+     "test_invoke_danger_wraps_path_with_merge_shims": {
+      "source_test_sha256": "6ba3e51bf84627b3945151c613d2c3a1ebb3e6e736c08f7f6d0cdeb4e149d512",
+      "decision": "retained",
+      "machinery_test": "tests/test_agent_runtime.py::test_invoke_danger_wraps_path_with_merge_shims"
+     },
+     "test_merge_guard_nested_env_ignores_existing_shim_paths": {
+      "source_test_sha256": "decdfaf4393fb840dc71194e3823234dc54912a3259d0e90318c38367208f1b2",
+      "decision": "retained",
+      "machinery_test": "tests/test_agent_runtime.py::test_merge_guard_nested_env_ignores_existing_shim_paths"
+     },
+     "test_invoke_danger_respects_agent_allow_merge_opt_in": {
+      "source_test_sha256": "ceb2530164a0f77705d592c2639ecd9ed5e245b6dd4d7aeb018c0dcf5eeee17e",
+      "decision": "retained",
+      "machinery_test": "tests/test_agent_runtime.py::test_invoke_danger_respects_agent_allow_merge_opt_in"
+     },
+     "test_gh_shim_blocks_pr_merge_without_opt_in": {
+      "source_test_sha256": "5c994bb6e553216f87c215241b44f73b1f62caa6298c34e7b3508705a1453a7c",
+      "decision": "retained",
+      "machinery_test": "tests/test_agent_runtime.py::test_gh_shim_blocks_pr_merge_without_opt_in"
+     },
+     "test_gh_shim_blocks_pr_review_approve_without_opt_in": {
+      "source_test_sha256": "854268fac552b3f2472242dd838ac0f2b117d55e8696f4c4735cc29844e5c8ed",
+      "decision": "retained",
+      "machinery_test": "tests/test_agent_runtime.py::test_gh_shim_blocks_pr_review_approve_without_opt_in"
+     },
+     "test_typed_publisher_allows_pr_comment_under_no_merge": {
+      "source_test_sha256": "2f6eaf1172fde5172f80357cf00a733531dfc41be12ccfddaaf490b95218cc2d",
+      "decision": "retained",
+      "machinery_test": "tests/test_agent_runtime.py::test_typed_publisher_allows_pr_comment_under_no_merge"
+     },
+     "test_typed_publisher_allows_pr_merge_with_opt_in": {
+      "source_test_sha256": "0e0ec476628b1ada508d169d3972888800d4c57dfd599a201fec9ab58e8b224a",
+      "decision": "obsolete",
+      "finding": "The old direct gh pr merge --squash success fixture is obsolete. publish.pr-merge now enqueues only and requires the configured queue. Current readiness, exact-head, no-auto-merge and refusal coverage is in tests/publish/test_pr_merge_squash_scan.py; this port does not restore direct merging."
+     },
+     "test_typed_publisher_secondary_rate_limit_is_one_typed_attempt": {
+      "source_test_sha256": "2e72ebadbabf9448013dea5c63b6e2ede6a47b94bd67f1c16a7c2d689c6b8253",
+      "decision": "retained",
+      "machinery_test": "tests/test_agent_runtime.py::test_typed_publisher_secondary_rate_limit_is_one_typed_attempt"
+     },
+     "test_typed_publisher_cleans_snapshots_and_child_on_sigterm": {
+      "source_test_sha256": "235abc4f858e9bd6531cfce59a0e382ebbaef53409ed02250b4e4cd69dcc9e47",
+      "decision": "retained",
+      "machinery_test": "tests/test_agent_runtime.py::test_typed_publisher_cleans_snapshots_and_child_on_sigterm"
+     },
+     "test_gh_shim_secondary_limit_with_closed_stdin_is_one_typed_attempt": {
+      "source_test_sha256": "f2b4a68a2ffdfda4cc354a593cffdc686c93f5654735b3a315d128809d83a86c",
+      "decision": "retained",
+      "machinery_test": "tests/test_agent_runtime.py::test_gh_shim_secondary_limit_with_closed_stdin_is_one_typed_attempt"
+     },
+     "test_gh_shim_works_without_temporary_directory": {
+      "source_test_sha256": "31777ee9b8be5f473af90809c6f6caaef58f26d0c1965f6245ccb113d1305b8a",
+      "decision": "retained",
+      "machinery_test": "tests/test_agent_runtime.py::test_gh_shim_works_without_temporary_directory"
+     },
+     "test_git_shim_blocks_push_to_main_without_opt_in": {
+      "source_test_sha256": "988c61c2589bbe705f001050f1e984ca1aba08a21d84d3a1de3844bc04c486cd",
+      "decision": "retained",
+      "machinery_test": "tests/test_agent_runtime.py::test_git_shim_blocks_push_to_main_without_opt_in"
+     },
+     "test_git_shim_refuses_when_guard_interpreter_is_absent": {
+      "source_test_sha256": "f085de6a80e4a7cf1c8d64c239e3e085c897df636696d188812bd0503aefadb3",
+      "decision": "retained",
+      "machinery_test": "tests/test_agent_runtime.py::test_git_shim_refuses_when_guard_interpreter_is_absent"
+     },
+     "test_acpx_direct_route_output_limit_kills_child_and_raises_typed_error": {
+      "source_test_sha256": "ebd47a49db0aba6926ff3d18de351d18edb035603353d34d5059f0ab12adbd63",
+      "decision": "retained",
+      "machinery_test": "tests/test_agent_runtime.py::test_acpx_direct_route_output_limit_kills_child_and_raises_typed_error"
+     },
+     "test_acpx_over_cap_progress_is_dropped_while_answer_and_terminal_survive": {
+      "source_test_sha256": "e9918637985b8e83c1cad35b389283c5bbb259f4423e030c54d4c6903eccca6f",
+      "decision": "retained",
+      "machinery_test": "tests/test_agent_runtime.py::test_acpx_over_cap_progress_is_dropped_while_answer_and_terminal_survive"
+     },
+     "test_acpx_under_cap_progress_is_retained_with_answer_and_terminal": {
+      "source_test_sha256": "fed9585578a419904590bdf38e1c720be5d8952e4d7096a2f093294ae35e0b6b",
+      "decision": "retained",
+      "machinery_test": "tests/test_agent_runtime.py::test_acpx_under_cap_progress_is_retained_with_answer_and_terminal"
+     },
+     "test_non_acpx_route_has_no_streamed_output_limit": {
+      "source_test_sha256": "284f0035ecebf8fa304aaf65a4236f28f581acd2c89efc284da549a9fe1cbf03",
+      "decision": "retained",
+      "machinery_test": "tests/test_agent_runtime.py::test_non_acpx_route_has_no_streamed_output_limit"
+     },
+     "test_privacy_safe_acp_failure_code_is_closed_and_body_free": {
+      "source_test_sha256": "d93f3a1a785e014af4abdf0d7c3f8bee80c1a75bd52be9fed9d82f74484e79ed",
+      "decision": "retained",
+      "machinery_test": "tests/test_agent_runtime.py::test_privacy_safe_acp_failure_code_is_closed_and_body_free"
+     },
+     "test_agy_usage_carries_bounded_optional_model_identity": {
+      "source_test_sha256": "4fac98183b6a01845a98b65945ab62fe3c37bb47206924af1808216c132cae8f",
+      "decision": "retained",
+      "machinery_test": "tests/test_agent_runtime.py::test_agy_usage_carries_bounded_optional_model_identity"
+     },
+     "test_agy_claude_public_runtime_preserves_provider_init_custody": {
+      "source_test_sha256": "939c967793e0e715ae3433e4d9bdcb67f319df9252b9bbc8852a28c8e3268af9",
+      "decision": "retained",
+      "machinery_test": "tests/test_agent_runtime.py::test_agy_claude_public_runtime_preserves_provider_init_custody"
+     },
+     "test_agy_runtime_missing_origin_evidence_never_acquires_custody": {
+      "source_test_sha256": "84e8305ddd021ab1585f1ea498b07d7a9a5ebc5924d5088493ceff802c9e80a4",
+      "decision": "retained",
+      "machinery_test": "tests/test_agent_runtime.py::test_agy_runtime_missing_origin_evidence_never_acquires_custody"
+     },
+     "test_agy_init_custody_survives_cleanup_exception": {
+      "source_test_sha256": "c8c8b7664e9f1b6c7344865ef9df878a193cdb42c77701fbca72d6c44229e4e8",
+      "decision": "retained",
+      "machinery_test": "tests/test_agent_runtime.py::test_agy_init_custody_survives_cleanup_exception"
+     },
+     "test_agy_direct_runtime_requires_real_context_for_every_projection": {
+      "source_test_sha256": "35af1d113b8a1cf4200fe0faa31fdacd5274cda21cdd8275bde1635c24beb49e",
+      "decision": "retained",
+      "machinery_test": "tests/test_agent_runtime.py::test_agy_direct_runtime_requires_real_context_for_every_projection"
+     },
+     "test_agy_observer_revocation_clears_prior_context": {
+      "source_test_sha256": "d087e179b053a66a87774b64a854d9a68a4e519e2406457d2cd135d97dfc7604",
+      "decision": "retained",
+      "machinery_test": "tests/test_agent_runtime.py::test_agy_observer_revocation_clears_prior_context"
+     },
+     "test_agy_watchdog_cleanup_failure_retains_only_valid_observation": {
+      "source_test_sha256": "984b4135e160649681c94a0d01e30fe706ab4e2302dbcb17665a09dd80349ef4",
+      "decision": "retained",
+      "machinery_test": "tests/test_agent_runtime.py::test_agy_watchdog_cleanup_failure_retains_only_valid_observation"
+     },
+     "test_agy_second_invocation_exception_cannot_reuse_prior_identity": {
+      "source_test_sha256": "c8ce97423f3d4ce798958b9fc5aa586bda28dddbd1f8d5ffe01bdab1184ecc2b",
+      "decision": "retained",
+      "machinery_test": "tests/test_agent_runtime.py::test_agy_second_invocation_exception_cannot_reuse_prior_identity"
+     },
+     "test_muse_complete_stream_preserves_bound_token_accounting": {
+      "source_test_sha256": "6a3418d4ce7bba958a4268d42aa7f25438d145adc7194061e7707f3effa0afd9",
+      "decision": "retained",
+      "machinery_test": "tests/test_agent_runtime.py::test_muse_complete_stream_preserves_bound_token_accounting"
+     },
+     "test_muse_runner_success_keeps_usage_in_durable_record": {
+      "source_test_sha256": "9a6453f9eccce85d00d63bc66ce6fea3f437a4b5048313fb52d2c176b289bf6c",
+      "decision": "obsolete",
+      "finding": "Machinery #384 (f8864027022421a91e6dc2dab86e7e7e017c1c0c) retired the Muse execution models. runner._refuse_retired_launch_model refuses these worker invocations before spawn. Historical Muse parse/accounting tests remain retained; no parser is retired by this finding."
+     },
+     "test_muse_untrusted_usage_cannot_enter_consumption": {
+      "source_test_sha256": "9e8f45875d4a0e4696081380c5d1fa444ad437f5de5c06e40799b6000dafc300",
+      "decision": "retained",
+      "machinery_test": "tests/test_agent_runtime.py::test_muse_untrusted_usage_cannot_enter_consumption"
+     },
+     "test_muse_task_budget_controls_reach_invocation": {
+      "source_test_sha256": "21a00ea0c527cbe2de4f2082e6b429220407585d81c289fe7162053a9f5af515",
+      "decision": "obsolete",
+      "finding": "Machinery #384 (f8864027022421a91e6dc2dab86e7e7e017c1c0c) retired the Muse execution models. runner._refuse_retired_launch_model refuses these worker invocations before spawn. Historical Muse parse/accounting tests remain retained; no parser is retired by this finding."
+     },
+     "test_muse_installed_cli_preserves_explicit_permissions": {
+      "source_test_sha256": "b889a54242d0ade1bc3cb67b414d237b20b6803f5c49492db10f263c8873b1f2",
+      "decision": "retained-with-obsolete-parameters",
+      "machinery_test": "tests/test_agent_runtime.py::test_muse_installed_cli_preserves_explicit_permissions",
+      "parameter_disposition": "Retains historical read-only plan permissions. The former workspace-write success parameter is obsolete: confined_muse_argv and MuseAdapter.build_invocation now refuse it with muse_write_mode_unconfined; the port asserts that refusal. Worker execution itself is catalog-retired by #384."
+     }
+    }
+   },
+   "ported_to": "tests/test_agent_runtime.py"
   },
   "tests/test_agent_runtime_acp_transport_cutover.py": {
    "disposition": "port-first",
@@ -18710,7 +19979,6 @@
     "test_sibling_invocation_logs_constant_message"
    ],
    "ownership": "machinery",
-   "residual_id": "T3B-R02",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "docs/runbooks/agent-seat-onboarding.md [present: present on machinery main as docs/runbooks/agent-seat-onboarding.md]",
@@ -18739,15 +20007,59 @@
     "unresolved: computed setattr target f'{adapter_type.__module__}._cached_flash_name'",
     "unresolved: non-literal import_module(name)"
    ],
-   "residual_owner": "claude-cto",
-   "residual_reason": "The eight-test mixed-adapter file remains absent. KimiAdapter was removed by #141 (251d1b9); the absent kimi_admitted.py helper is not a dependency to restore. tests/agent_runtime/test_agent_runtime_log_redaction_codex.py::test_non_claude_max_budget_warning_is_constant exercises Codex only and does not replace the AGY, ACpx/Gemma, DeepSeek and Grok diagnostics in this source file. Remaining proof: separate retired-only cases with evidence, port/map the live adapter parameter cases and constant-message/secret-exclusion assertions, and record executed results. Keep the live routes and their coverage.",
    "residual_resolution": {
     "id": "T3B-R02",
-    "decision": "still-deferred",
-    "evidence": "The eight-test mixed-adapter file remains absent. KimiAdapter was removed by #141 (251d1b9); the absent kimi_admitted.py helper is not a dependency to restore. tests/agent_runtime/test_agent_runtime_log_redaction_codex.py::test_non_claude_max_budget_warning_is_constant exercises Codex only and does not replace the AGY, ACpx/Gemma, DeepSeek and Grok diagnostics in this source file. Remaining proof: separate retired-only cases with evidence, port/map the live adapter parameter cases and constant-message/secret-exclusion assertions, and record executed results. Keep the live routes and their coverage.",
-    "machinery_main_sha": "fa36a6386f9a1fba8ef15b250da6837323e1796c",
-    "product_main_sha": "92fb4367fb06aa5635fe394b0a79cf2423b5e15a"
-   }
+    "decision": "ported",
+    "issue": "learn-ukrainian/machinery#501",
+    "evidence": "Every frozen source test function is enumerated in coverage_map. Retained targets execute as whole files in tests/machinery_tests.txt; obsolete behaviors and parameter partitions have explicit findings. Source counts and historical ownership are unchanged.",
+    "machinery_base_sha": "154f42bfc9aeeb08ed8d282e03aaeccabaf33e4d",
+    "source_product_sha": "5aba2adb96e13b3f4a5dc2abbe5ed71b7fb81d00",
+    "coverage_map": {
+     "test_sibling_invocation_logs_constant_message": {
+      "source_test_sha256": "b58ca6da61aeb74eeffe56ff1196d4b5a00aef3cb07e93d833bff2f467c0f5a2",
+      "decision": "retained",
+      "machinery_test": "tests/test_agent_runtime_log_redaction_adapters.py::test_sibling_invocation_logs_constant_message"
+     },
+     "test_kimi_full_k3_effort_secret_is_not_logged_when_the_model_is_retired": {
+      "source_test_sha256": "579447dedde387a06b9bf637b60c9c915e23e826fdf51443989efa556247f15e",
+      "decision": "obsolete",
+      "finding": "Machinery #141 (251d1b9) deleted KimiAdapter and kimicc plus their execution stack. There is no callable Kimi build_invocation warning to exercise; live AGY, Cursor, DeepSeek, Grok and ACpx/Gemma diagnostics remain retained."
+     },
+     "test_deepseek_max_budget_warning_is_constant": {
+      "source_test_sha256": "fb5a5a72debc3665d46f9d6803b777a105ae325dd56b473374e035e8ba4dd3a5",
+      "decision": "retained",
+      "machinery_test": "tests/test_agent_runtime_log_redaction_adapters.py::test_deepseek_max_budget_warning_is_constant"
+     },
+     "test_non_claude_max_budget_warning_is_constant": {
+      "source_test_sha256": "f296f7a71b1c803ef9c59f35a412fb3f08e6e533845c9f1767f16e773814394d",
+      "decision": "retained-with-obsolete-parameters",
+      "machinery_test": "tests/test_agent_runtime_log_redaction_adapters.py::test_non_claude_max_budget_warning_is_constant",
+      "parameter_disposition": "Retains the live AGY warning in its admitted workspace-write mode. The GeminiAdapter native-CLI parameter is obsolete under #236; existing Codex coverage remains in tests/agent_runtime/test_agent_runtime_log_redaction_codex.py."
+     },
+     "test_ignored_effort_debug_is_constant": {
+      "source_test_sha256": "76692a2b408bf8df2a772db5e88ca9f3230268f3f210294bd886ef5131df8645",
+      "decision": "retained-with-obsolete-parameters",
+      "machinery_test": "tests/test_agent_runtime_log_redaction_adapters.py::test_ignored_effort_debug_is_constant",
+      "parameter_disposition": "Retains AGY and Cursor constant-message/secret-exclusion diagnostics. AGY uses its admitted workspace-write mode; the retired native Gemini invocation parameter is obsolete under #236."
+     },
+     "test_acpx_ignored_effort_debug_is_constant": {
+      "source_test_sha256": "0291e02a7d26dbca33e71bc4e1aaa9bf15d2a6aae27041ec1a62159f1cd85d99",
+      "decision": "retained",
+      "machinery_test": "tests/test_agent_runtime_log_redaction_adapters.py::test_acpx_ignored_effort_debug_is_constant"
+     },
+     "test_grok_build_invocation_debug_is_constant": {
+      "source_test_sha256": "f50df061a8418f2274d04cec73c39a7f8fa856547424ec035729e4b673195193",
+      "decision": "retained",
+      "machinery_test": "tests/test_agent_runtime_log_redaction_adapters.py::test_grok_build_invocation_debug_is_constant"
+     },
+     "test_agy_interim_language_warning_is_constant": {
+      "source_test_sha256": "17584adbaa9638facf0f2b00a07c99b07105afcf0cbc3f0bd2e0d93990e7120f",
+      "decision": "retained",
+      "machinery_test": "tests/test_agent_runtime_log_redaction_adapters.py::test_agy_interim_language_warning_is_constant"
+     }
+    }
+   },
+   "ported_to": "tests/test_agent_runtime_log_redaction_adapters.py"
   },
   "tests/test_agent_runtime_log_redaction_claude.py": {
    "disposition": "port-first",
@@ -22977,17 +24289,92 @@
     "site/src/pages/lexicon-v2/[...path].astro [present: product-owned in LU]",
     "site/src/pages/lexicon/[lemma].astro [present: product-owned in LU]"
    ],
-   "port_note": "deferred: imports tests/test_delegate_ownership_relaxation.py, owned by T9",
-   "residual_id": "PORT-1108-T10-R1",
-   "residual_owner": "claude-cto",
-   "residual_reason": "The 15-test repository-admission file and tests/test_delegate_ownership_relaxation.py::FakeTime remain absent. tests/guardrails/test_delegate_ownership_identity.py covers filesystem identity and probe failures, but does not establish the full concurrent-process, foreign-holder/waiter, legacy-row and privacy matrix. Remaining proof: adapt FakeTime and the installed-package imports, port/map all 15 frozen behaviors, and execute the repository-isolation and atomic-admission cases. No complete replacement is claimed.",
    "residual_resolution": {
     "id": "PORT-1108-T10-R1",
-    "decision": "still-deferred",
-    "evidence": "The 15-test repository-admission file and tests/test_delegate_ownership_relaxation.py::FakeTime remain absent. tests/guardrails/test_delegate_ownership_identity.py covers filesystem identity and probe failures, but does not establish the full concurrent-process, foreign-holder/waiter, legacy-row and privacy matrix. Remaining proof: adapt FakeTime and the installed-package imports, port/map all 15 frozen behaviors, and execute the repository-isolation and atomic-admission cases. No complete replacement is claimed.",
-    "machinery_main_sha": "fa36a6386f9a1fba8ef15b250da6837323e1796c",
-    "product_main_sha": "92fb4367fb06aa5635fe394b0a79cf2423b5e15a"
-   }
+    "decision": "ported",
+    "issue": "learn-ukrainian/machinery#501",
+    "evidence": "Every frozen source test function is enumerated in coverage_map. Retained targets execute as whole files in tests/machinery_tests.txt; obsolete behaviors and parameter partitions have explicit findings. Source counts and historical ownership are unchanged.",
+    "machinery_base_sha": "154f42bfc9aeeb08ed8d282e03aaeccabaf33e4d",
+    "source_product_sha": "5aba2adb96e13b3f4a5dc2abbe5ed71b7fb81d00",
+    "coverage_map": {
+     "test_linked_identity_matches_primary_without_spawning": {
+      "source_test_sha256": "cbd4019950dd7c0791ff13977e7ef14a95b86c5727306848e54aad7ae5eae441",
+      "decision": "retained",
+      "machinery_test": "tests/test_delegate_ownership_repository.py::test_linked_identity_matches_primary_without_spawning"
+     },
+     "test_cross_repository_paths_never_conflict_or_wait": {
+      "source_test_sha256": "d90b5c763ea10b17921d1ba6f9f9dd3ae9e329fb272310d6c4d02a11ab17b5ea",
+      "decision": "retained",
+      "machinery_test": "tests/test_delegate_ownership_repository.py::test_cross_repository_paths_never_conflict_or_wait"
+     },
+     "test_linked_worktrees_still_conflict_and_queue": {
+      "source_test_sha256": "1c1592214dad1998b5b60b36eb711e71b593ca0da6f02031c9bc38571b619fe0",
+      "decision": "retained",
+      "machinery_test": "tests/test_delegate_ownership_repository.py::test_linked_worktrees_still_conflict_and_queue"
+     },
+     "test_foreign_waiter_does_not_block_unknown_intent_or_get_reaped": {
+      "source_test_sha256": "7688b498e8feee2a189052c47a29c919298a1f211353ebd398b7631e063b5b9a",
+      "decision": "retained",
+      "machinery_test": "tests/test_delegate_ownership_repository.py::test_foreign_waiter_does_not_block_unknown_intent_or_get_reaped"
+     },
+     "test_reclamation_release_and_pid_binding_preserve_foreign_rows": {
+      "source_test_sha256": "d1b2fc5b9c80db8d97723341592edbc7270557aae79ee92130652b654d7aa3c6",
+      "decision": "retained",
+      "machinery_test": "tests/test_delegate_ownership_repository.py::test_reclamation_release_and_pid_binding_preserve_foreign_rows"
+     },
+     "test_legacy_claims_default_to_each_current_repository": {
+      "source_test_sha256": "aebf0e2f036029752c1ab7cc51d44620a9f3225e3034c86e3023a6ba050cf344",
+      "decision": "retained",
+      "machinery_test": "tests/test_delegate_ownership_repository.py::test_legacy_claims_default_to_each_current_repository"
+     },
+     "test_legacy_waiters_remain_visible_to_unknown_intent": {
+      "source_test_sha256": "92f170b9a3b33d10d4ca175bfe89bb4e00026ae1cd31aa77fc4693a37687fc37",
+      "decision": "retained",
+      "machinery_test": "tests/test_delegate_ownership_repository.py::test_legacy_waiters_remain_visible_to_unknown_intent"
+     },
+     "test_unresolvable_identity_keeps_global_admission_and_typed_note": {
+      "source_test_sha256": "9d53e2a95156a246d6234d73dbeea0d563a5a31c9291ae327c1a6728e846deff",
+      "decision": "retained",
+      "machinery_test": "tests/test_delegate_ownership_repository.py::test_unresolvable_identity_keeps_global_admission_and_typed_note"
+     },
+     "test_identity_ignores_git_environment_and_resolves_symlinks": {
+      "source_test_sha256": "8214de39600527f4f43a6777223f83c49bef53e12922b35e97c0ce882bf5b936",
+      "decision": "retained",
+      "machinery_test": "tests/test_delegate_ownership_repository.py::test_identity_ignores_git_environment_and_resolves_symlinks"
+     },
+     "test_common_directory_identity_preserves_trailing_spaces": {
+      "source_test_sha256": "724ea1fd00c6df7652b946d921013505e4ab15102c750b4b555f1cc72cddd1e5",
+      "decision": "retained",
+      "machinery_test": "tests/test_delegate_ownership_repository.py::test_common_directory_identity_preserves_trailing_spaces"
+     },
+     "test_old_reader_new_row_keeps_same_repository_protection": {
+      "source_test_sha256": "adfa5b4b5578411e8e469009d3f9298167190f41218295d76e23ba7f65283aa1",
+      "decision": "retained",
+      "machinery_test": "tests/test_delegate_ownership_repository.py::test_old_reader_new_row_keeps_same_repository_protection"
+     },
+     "test_events_and_results_never_expose_repository_realpaths": {
+      "source_test_sha256": "ea7a91f4115a477e03125d8cdf54217028e8c4cf126ceff075720d5b3aa4771d",
+      "decision": "retained",
+      "machinery_test": "tests/test_delegate_ownership_repository.py::test_events_and_results_never_expose_repository_realpaths"
+     },
+     "test_foreign_holder_timeout_never_changes_queue_budget": {
+      "source_test_sha256": "b8292e1005018d04e0109dd58ce3852579787bd01f430aca07d9a19d118e0406",
+      "decision": "retained",
+      "machinery_test": "tests/test_delegate_ownership_repository.py::test_foreign_holder_timeout_never_changes_queue_budget"
+     },
+     "test_public_helpers_use_explicit_checkout_for_admission_and_pid_binding": {
+      "source_test_sha256": "44bfdcb0214aadd8716204c66e84a9b5ee0f0406aa2550761dcd9869ed8d6522",
+      "decision": "retained",
+      "machinery_test": "tests/test_delegate_ownership_repository.py::test_public_helpers_use_explicit_checkout_for_admission_and_pid_binding"
+     },
+     "test_concurrent_processes_preserve_atomic_repository_admission": {
+      "source_test_sha256": "efd107c1f6a8c2122b09636471f8bcc676a18d97e83b8d00fc6b5bcc5803c7fe",
+      "decision": "retained",
+      "machinery_test": "tests/test_delegate_ownership_repository.py::test_concurrent_processes_preserve_atomic_repository_admission"
+     }
+    }
+   },
+   "ported_to": "tests/test_delegate_ownership_repository.py"
   },
   "tests/test_delegate_primary_integrity.py": {
    "disposition": "keep",
