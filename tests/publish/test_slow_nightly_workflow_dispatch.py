@@ -349,6 +349,7 @@ def dismissal_transport(monkeypatch, synthetic_opsec):
     }}]}
     root = "repos/unit/public/"
     documents = {
+        "commits/main": {"sha": current},
         "pulls/2": {"merged": True, "merge_commit_sha": before, "html_url": "https://github.com/unit/public/pull/2", "base": {"ref": "main"}},
         "pulls/2/files?per_page=100": [[{"filename": pub._DISMISS_TRIAGE_PATH, "status": "modified", "patch": "+| 1 | `py/fixture` | `sample.py:7` | False positive. Public metadata only. |"}]],
         f"contents/{pub._DISMISS_TRIAGE_PATH}?ref={before}": "| 1 | `py/fixture` | `sample.py:7` | False positive. Public metadata only. |\n",
@@ -374,6 +375,10 @@ def dismissal_transport(monkeypatch, synthetic_opsec):
             writes.append(Path(argv[argv.index("--input") + 1]).read_bytes())
             if options["write_error"]:
                 raise options["write_error"]
+            if options.get("write_status"):
+                reply = subprocess.CompletedProcess(argv, 1, "", "")
+                reply.github_result = github_client.Result(status=options["write_status"])
+                return reply
             return subprocess.CompletedProcess(argv, 0, "{}", "")
         assert method == "GET"
         suffix = endpoint.removeprefix(root)
@@ -381,6 +386,8 @@ def dismissal_transport(monkeypatch, synthetic_opsec):
             if options["read_error"]:
                 raise options["read_error"]
             document = {**alert, "state": "dismissed", "dismissed_reason": options["reason"], "dismissed_comment": comment, **options["readback"]}
+        elif suffix == f"contents/{pub._DISMISS_TRIAGE_PATH}?ref={current}":
+            document = options.get("current_triage", documents[f"contents/{pub._DISMISS_TRIAGE_PATH}?ref={before}"])
         else:
             document = documents[suffix]
         return subprocess.CompletedProcess(argv, 0, document if isinstance(document, str) else json.dumps(document), "")
@@ -422,6 +429,8 @@ def test_dismissal_fixes_endpoint_state_and_replays_scanned_comment(dismissal_tr
 
 @pytest.mark.parametrize("change", [
     {"number": 0}, {"number": True}, {"number": "1"}, {"reason": "completed"}, {"reason": "mitigated"},
+    {"comment": "Alert #1 - https://github.com/unit/public/pull/2"},
+    {"comment": "Alert #1 _ 123 https://github.com/unit/public/pull/2"},
     {"endpoint": "user"}, {"method": "POST"}, {"state": "open"}, {"json": {}}, {"query": "mutation {}"},
     {"comment": ""}, {"comment": "   "}, {"comment": "Alert #1 public data."},
     {"comment": "Alert #1 public data. https://github.com/other/repo/pull/2"},
@@ -551,3 +560,50 @@ def test_dismissal_reason_must_match_the_reviewed_disposition(dismissal_transpor
     with pytest.raises(gate.PublishBlocked, match="DISMISSAL_TRIAGE_REFUSED"):
         pub.publish("code-scanning-dismiss", repo="unit/public", number=1, reason=reason, comment=comment, runner=sender)
     assert writes == []
+
+
+@pytest.mark.parametrize("current_triage", ["", "| 1 | `py/fixture` | `sample.py:7` | Real. Sensitive data. |\n", "| 1 | `py/fixture` | `sample.py:7` | Won't fix. Accepted risk. |\n"])
+def test_dismissal_refuses_retracted_or_reclassified_current_triage(dismissal_transport, current_triage):
+    _, writes, _, options, sender, comment = dismissal_transport
+    options["current_triage"] = current_triage
+    with pytest.raises(gate.PublishBlocked, match="DISMISSAL_TRIAGE_REFUSED"):
+        pub.publish("code-scanning-dismiss", repo="unit/public", number=1, reason="false positive", comment=comment, runner=sender)
+    assert writes == []
+
+
+def test_dismissal_rejects_a_moved_unchanged_triage_row(dismissal_transport):
+    documents, writes, _, _, sender, comment = dismissal_transport
+    file = documents["pulls/2/files?per_page=100"][0][0]
+    file["patch"] += "\n-" + file["patch"][1:]
+    with pytest.raises(gate.PublishBlocked, match="DISMISSAL_TRIAGE_REFUSED"):
+        pub.publish("code-scanning-dismiss", repo="unit/public", number=1, reason="false positive", comment=comment, runner=sender)
+    assert writes == []
+
+
+@pytest.mark.parametrize("text", [False, True])
+@pytest.mark.parametrize("capture", [False, True])
+def test_dismissal_definite_refusal_reports_fixed_message_and_preserves_output_type(dismissal_transport, capsys, text, capture):
+    _, writes, _, options, sender, comment = dismissal_transport
+    options["write_status"] = 422
+    answer = pub.publish("code-scanning-dismiss", repo="unit/public", number=1, reason="false positive", comment=comment, runner=sender, text=text, capture_output=capture)
+    assert answer.returncode == 1 and len(writes) == 1
+    assert answer.stderr == ("GitHub refused the dismissal." if text else b"GitHub refused the dismissal.")
+    assert ("GitHub refused" in capsys.readouterr().err) == (not capture)
+
+
+def test_dismissal_refuses_a_current_triage_head_that_moves_during_validation(dismissal_transport):
+    _, writes, _, _, sender, comment = dismissal_transport
+    reads = 0
+
+    def moving(argv, **kwargs):
+        nonlocal reads
+        answer = sender(argv, **kwargs)
+        if argv[:5] == ["gh", "api", "--method", "GET", "repos/unit/public/commits/main"]:
+            reads += 1
+            if reads == 2:
+                answer.stdout = json.dumps({"sha": "c" * 40})
+        return answer
+
+    with pytest.raises(gate.PublishBlocked, match="DISMISSAL_TRIAGE_REFUSED"):
+        pub.publish("code-scanning-dismiss", repo="unit/public", number=1, reason="false positive", comment=comment, runner=moving)
+    assert reads == 2 and writes == []

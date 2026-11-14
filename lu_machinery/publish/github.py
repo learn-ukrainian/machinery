@@ -1715,7 +1715,7 @@ def _dismiss_sarif_result(document, number):
             if rule["id"] != result["ruleId"]:
                 raise ValueError("unknown rule")
 
-            def resolve(value):
+            def resolve(value, run=run):
                 if isinstance(value, list):
                     return [resolve(item) for item in value]
                 if not isinstance(value, dict):
@@ -1753,7 +1753,7 @@ def _dismiss_preflight(fields, gh_repo, dest, runner, cwd, environment):
     pattern = rf"https://github\.com/{re.escape(gh_repo)}/pull/([1-9][0-9]*)(?:#[A-Za-z0-9_-]+)?"
     prs = {int(match[1]) for link in links if (match := re.fullmatch(pattern, link))}
     explanation = re.sub(identifier, "", re.sub(r"https://[^\s<>()]+", "", comment)).strip(" .,:;\n")
-    if not dest.startswith("github.com/") or len(prs) != 1 or not explanation:
+    if dest.partition("/")[0] != "github.com" or len(prs) != 1 or not any(char.isalpha() for char in explanation):
         raise ValueError("comment needs an explanation and one same-repository merged PR")
     root = f"repos/{gh_repo}"
 
@@ -1778,8 +1778,21 @@ def _dismiss_preflight(fields, gh_repo, dest, runner, cwd, environment):
         raise ValueError("triage does not cover this alert")
     row = rows[0]
     triage_line = "|" + "|".join(row) + "|"
-    if "+" + triage_line not in triage_files[0].get("patch", "").splitlines():
+    patch = triage_files[0].get("patch", "").splitlines()
+    if "+" + triage_line not in patch or "-" + triage_line in patch:
         raise ValueError("PR did not review this triage row")
+    base_ref = pr["base"]["ref"]
+    if not re.fullmatch(PATTERNS["ref"], base_ref):
+        raise ValueError("invalid triage branch")
+    head_endpoint = f"commits/{quote(base_ref, safe='')}"
+    current_head = get(head_endpoint)["sha"]
+    if not re.fullmatch(PATTERNS["sha"], current_head):
+        raise ValueError("unknown current triage head")
+    current_triage = get(f"contents/{_DISMISS_TRIAGE_PATH}?ref={current_head}", raw=True)
+    current_rows = [line for line in current_triage.splitlines() if line.startswith("|") and line.endswith("|")
+                    and line.split("|")[1].strip() == str(number)]
+    if current_rows != [triage_line]:
+        raise ValueError("triage has been superseded")
     disposition = row[3].strip().lower()
     if fields["reason"] == "won't fix":
         justified = disposition.startswith("won't fix.")
@@ -1817,7 +1830,7 @@ def _dismiss_preflight(fields, gh_repo, dest, runner, cwd, environment):
             results[aid] = _dismiss_sarif_result(get(f"code-scanning/analyses/{aid}", sarif=True), number)
         return results[aid]
 
-    baseline_ref = f"refs/heads/{pr['base']['ref']}"
+    baseline_ref = f"refs/heads/{base_ref}"
     for instance in instances:
         location = instance["location"]
         if (row[2].strip() != f"`{location['path']}:{location['start_line']}`"
@@ -1832,8 +1845,10 @@ def _dismiss_preflight(fields, gh_repo, dest, runner, cwd, environment):
                 or physical["region"]["startLine"] != location["start_line"]):
             raise ValueError("instance does not match SARIF")
     # Close the evidence/read race before the one write, without retrying.
-    if get(f"code-scanning/alerts/{number}") != alert or get(f"code-scanning/alerts/{number}/instances?per_page=100", pages=True) != get_instances:
-        raise ValueError("alert evidence changed during preflight")
+    if (get(f"code-scanning/alerts/{number}") != alert
+            or get(f"code-scanning/alerts/{number}/instances?per_page=100", pages=True) != get_instances
+            or get(head_endpoint).get("sha") != current_head):
+        raise ValueError("alert or triage evidence changed during preflight")
     return alert
 
 
@@ -1856,10 +1871,14 @@ def _publish_code_scanning_dismiss(fields, *, gh_repo, dest, runner, cwd, enviro
         raise
     except Exception:
         result = None
+    # CompletedProcess only constructs a result; these calls execute no subprocess.
     if result is not None and result.returncode:
         status = getattr(getattr(result, "github_result", None), "status", None)
         if type(status) is int and 400 <= status < 500:
-            return subprocess.CompletedProcess(argv, result.returncode, "", "GitHub refused the dismissal.")
+            refusal = "GitHub refused the dismissal."
+            if not capture_output:
+                print(refusal, file=sys.stderr)
+            return subprocess.CompletedProcess(argv, result.returncode, "" if text else b"", refusal if text else refusal.encode())  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit
     if result is not None and not result.returncode:
         try:
             after = _dismiss_get(runner, endpoint, cwd, environment)
@@ -1869,11 +1888,11 @@ def _publish_code_scanning_dismiss(fields, *, gh_repo, dest, runner, cwd, enviro
                 line = json.dumps({"number": fields["number"], **payload}, ensure_ascii=False, sort_keys=True)
                 if not capture_output:
                     print(line)
-                return subprocess.CompletedProcess(argv, 0, line if text else line.encode(), "" if text else b"")
+                return subprocess.CompletedProcess(argv, 0, line if text else line.encode(), "" if text else b"")  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit
         except Exception:
             pass  # A read failure after a write is UNKNOWN, including a rate limit.
     print(unknown, file=sys.stderr)
-    return subprocess.CompletedProcess(argv, 3, "" if text else b"", unknown if text else unknown.encode())
+    return subprocess.CompletedProcess(argv, 3, "" if text else b"", unknown if text else unknown.encode())  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit
 
 
 # Inside a dispatched write worker's boundary (#434) there is no GitHub credential or route: these verbs reach the
@@ -2426,7 +2445,8 @@ def main(argv=None, *, runner=None):
                 "--reason 'false positive' --comment 'Alert #1 stores public metadata. https://github.com/unit/public/pull/2'\n"
                 "Outputs: one fixed PATCH with state=dismissed, then verified state/reason/comment JSON.\n"
                 "Exit codes: 0 verified dismissal; 1 GitHub refusal; 2 schema, boundary or triage refusal; "
-                "3 UNKNOWN after an ambiguous write or read-back, do not retry; 75 preflight rate limit.\n"
+                "3 UNKNOWN after an ambiguous write or read-back, do not retry; "
+                "75 rate-limit refusal before a dismissal is processed, including at PATCH.\n"
                 "Related: docs/runbooks/secret-scanning.md; GitHub REST code-scanning alert update."
             )
         if verb == "comment-edit":
