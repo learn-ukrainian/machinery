@@ -363,9 +363,31 @@ def _accounts(snapshot: dict) -> dict:
     return {row["account"]: row for provider in snapshot["providers"] for row in provider["accounts"]}
 
 
+def _subscription_heading(monkeypatch, providers):
+    from lu_machinery.api import runtime_router
+
+    monkeypatch.setattr(runtime_router.subscriptions, "subscriptions_snapshot", lambda providers=providers: {
+        "generated_at": _NOW, "stale_after_s": 900,
+        "sources": {"usage_cache": {"status": "ok"}, "plan_facts": {"status": "ok", "reason": None}},
+        "providers": providers,
+    })
+    response = runtime_router.runtime_subscriptions()
+    return response.headers, json.loads(response.body)
+
+
+def _heading_provider(provider, account, status, age, *, ended=False, reason=None):
+    return {"provider": provider, "label": provider, "accounts": [{
+        "account": account,
+        "source": "monitor" if provider in {"claude", "muse"} else "usage_cache",
+        "reading": {"status": status, "age_s": age, "read_at": _NOW, "reason": reason},
+        "plan": {"status": "ok", "ended": ended},
+    }]}
+
+
 def test_subscriptions_view_is_cache_only_and_marks_missing_stale_unknown(usage_files, monkeypatch):
     """Defect class: a missing, stale (over 15 minutes) or failed cache pool shows its numbers as current or
-    as zero, or the view starts a provider probe on the request path."""
+    as zero, or the view starts a provider probe on the request path. Defect class: one unknown subscription
+    reading marks the panel heading unavailable and drops its age while other rows are fresh."""
     from datetime import UTC, datetime
 
     from lu_machinery.api import subscriptions
@@ -423,6 +445,32 @@ def test_subscriptions_view_is_cache_only_and_marks_missing_stale_unknown(usage_
     assert _accounts(broken)["Codex a"]["reading"]["reason"] == "usage_cache_missing"
     assert _accounts(broken)["Claude a"]["plan"]["reason"] == "invalid"
     assert usage_files.probes == []
+
+    # Heading cases. An ended unknown account is not a reading the panel shows.
+    fresh = _heading_provider("codex", "Codex a", "fresh", 60)
+    also_fresh = _heading_provider("grok", "Grok+Cursor", "fresh", 45)
+    ended_unknown = _heading_provider("muse", "Muse", "unknown", None, reason="provider_error", ended=True)
+    headers, _body = _subscription_heading(monkeypatch, [fresh, also_fresh, ended_unknown])
+    assert (headers["X-Snapshot-State"], headers["X-Snapshot-Age-S"]) == ("fresh", "60.000")
+
+    # The reported case: Muse unknown beside a fresh row is stale at that row's age.
+    muse_unknown = _heading_provider("muse", "Muse", "unknown", None, reason="provider_error")
+    headers, body = _subscription_heading(monkeypatch, [fresh, muse_unknown])
+    assert (headers["X-Snapshot-State"], headers["X-Snapshot-Age-S"]) == ("stale", "60.000")
+    published = {account["account"]: account["reading"]["status"]
+                 for provider in body["providers"] for account in provider["accounts"]}
+    assert published == {"Codex a": "fresh", "Muse": "unknown"}
+
+    # A stale row younger than the bound still degrades the heading.
+    young_stale = _heading_provider("claude", "Claude b", "stale", 30)
+    headers, _body = _subscription_heading(monkeypatch, [fresh, young_stale])
+    assert (headers["X-Snapshot-State"], headers["X-Snapshot-Age-S"]) == ("stale", "60.000")
+
+    codex_unknown = _heading_provider("codex", "Codex a", "unknown", None, reason="no_reading")
+    headers, _body = _subscription_heading(monkeypatch, [codex_unknown, muse_unknown])
+    assert (headers["X-Snapshot-State"], headers["X-Snapshot-Age-S"]) == ("unavailable", "unknown")
+    headers, _body = _subscription_heading(monkeypatch, [ended_unknown])
+    assert (headers["X-Snapshot-State"], headers["X-Snapshot-Age-S"]) == ("unavailable", "unknown")
 
 
 def _fixture_now():
