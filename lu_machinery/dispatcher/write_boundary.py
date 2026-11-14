@@ -1561,6 +1561,10 @@ class _Boundary:
             if path.is_dir():
                 probes.append({"op": "create", "path": str(path / f".write-boundary-canary-{nonce}"),
                                "expect_any": ["EROFS"]})
+        if self.args.codex_auth is not None:
+            # The task-local Codex configuration holds the trusted Sources definition: it refuses a write.
+            probes.append({"op": "write_open", "path": str(self.base / _CODEX_HOME / "config.toml"),
+                           "expect_any": ["EROFS"]})
         return probes
 
     def _report(self, descriptor: int) -> list | None:

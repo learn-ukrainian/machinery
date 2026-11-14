@@ -338,6 +338,9 @@ def test_no_github_write_authority_is_reachable_inside_any_route(primary, monkey
     ])
     result = json.loads(receipt.read_text())
     assert code == 0 and result["status"] == "ran", result
+    if route == "codex":  # the canary itself proved the trusted Sources definition read-only before Codex started
+        assert [probe["outcome"] for probe in result["canary"]["probes"] if probe["op"] == "write_open"
+                and probe["path"].endswith("/codex-home/config.toml")] == ["EROFS"], result["canary"]
     cells = json.loads(report.read_text())
     denominator = 1 + len(stores) + 1 + len(_GITHUB_HOSTS) + 3
     assert len(cells) == denominator and all(cells.values()), cells
