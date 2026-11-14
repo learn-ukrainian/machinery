@@ -1799,15 +1799,21 @@ def runtime_subscriptions():
     Monitor's in-memory Muse reading and the operator's plan-facts file; it
     never calls a provider. A missing value is ``null`` in a section
     whose ``status`` is ``unknown`` with a ``reason_code``; a reading older than
-    15 minutes is ``stale``. Provider prose and plan names are omitted from HTTP;
-    the local console reader retains its private diagnostic view.
+    15 minutes is ``stale``. The heading is ``unavailable`` only when no
+    non-ended account has a fresh or stale reading. Fresh readings beside an
+    unknown or stale one stay visible as ``stale``, at the age of the readings
+    that exist. Provider prose and plan names are omitted from HTTP; the local
+    console reader retains its private diagnostic view.
     """
     payload = _public_subscriptions(subscriptions.subscriptions_snapshot())
     readings = [account.get("reading", {}) for provider in payload["providers"] for account in provider["accounts"]
                 if not account.get("plan", {}).get("ended")]
-    ages = [reading["age_s"] for reading in readings if panel_values.number(reading.get("age_s")) is not None]
+    # A fresh or stale row is a reading the panel can show. Unknown is a gap in
+    # that row, not an empty panel, so it must not discard the other ages.
+    usable = [reading for reading in readings if reading.get("status") in {"fresh", "stale"}]
+    ages = [reading["age_s"] for reading in usable if panel_values.number(reading.get("age_s")) is not None]
     return JSONResponse(content=payload, headers=panel_values.snapshot_headers(
         max(ages) if ages else None, payload.get("stale_after_s", subscriptions.STALE_AFTER_S),
-        unavailable=not readings or any(reading.get("status") == "unknown" for reading in readings),
-        stale=any(reading.get("status") == "stale" for reading in readings),
+        unavailable=not usable,
+        stale=bool(usable) and any(reading.get("status") != "fresh" for reading in readings),
     ))
