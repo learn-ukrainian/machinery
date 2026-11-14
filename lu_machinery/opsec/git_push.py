@@ -208,7 +208,7 @@ def real_git(environment: dict[str, str]) -> str:
 class Repository:
     """Read-only object queries through the real git in the hook's repository."""
 
-    def __init__(self, git: str, environment: dict[str, str]):
+    def __init__(self, git: str, environment: dict[str, str], *, pin_hooks: bool = True):
         # Replacement objects change what readers see but not what a pack sends,
         # and a commit-graph file is a local cache of parents that git trusts
         # without rehashing, so every query reads the original objects (the
@@ -220,8 +220,7 @@ class Repository:
             "core.useReplaceRefs=false",
             "-c",
             "core.commitGraph=false",
-            "-c",
-            f"core.hooksPath={os.devnull}",
+            *(["-c", f"core.hooksPath={os.devnull}"] if pin_hooks else []),
             "-c",
             "advice.graftFileDeprecated=false",
         ]

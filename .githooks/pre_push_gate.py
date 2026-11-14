@@ -1868,7 +1868,9 @@ def message_gate(arguments: list[str]) -> int:
     try:
         if arguments[0] == "--push-messages":
             environment = dict(os.environ)
-            repository = git_push.Repository(git_push.real_git(environment), environment)
+            # Object reads pin hooksPath to /dev/null. Only this fixed metadata
+            # query must observe the push's inherited hook selection.
+            repository = git_push.Repository(git_push.real_git(environment), environment, pin_hooks=False)
             hooks = repository.run("rev-parse", "--git-path", "hooks")
             # The scanner's checkout-relative directory, from its unresolved file location. Never
             # __name__: a short import spelling would name the wrong directory.
