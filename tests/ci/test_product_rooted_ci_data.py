@@ -326,11 +326,12 @@ def test_lu12914_f1_guard_list_names_the_stub_provider_dispatcher_module() -> No
     """Defect class: a conftest Path(__file__).with_name copy is invisible to affected-test selection.
 
     LU12914-F1. ``tests/dispatcher/test_core_worktree_entry.py`` is product-owned and
-    is not in this tree, so the machinery list names the module that is.
+    is not in this tree, so the machinery list names the module that is. The planner
+    reads that list through ``product_tree_path`` (the checkout), never the wheel.
     """
-    from lu_machinery.common.repo_root import machinery_path
+    from lu_machinery.common.repo_root import product_tree_path
 
-    lines = machinery_path("ci/pr-affected-guards.txt").read_text(encoding="utf-8").splitlines()
+    lines = product_tree_path("ci", "pr-affected-guards.txt").read_text(encoding="utf-8").splitlines()
     assert "tests/dispatcher/test_task_store_records.py" in lines
 
 
