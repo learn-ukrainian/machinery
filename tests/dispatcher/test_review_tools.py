@@ -12,7 +12,7 @@ import pytest
 from lu_machinery.agent_runtime.attempt_network import canonical_host
 from lu_machinery.common.repo_root import project_interpreter
 from lu_machinery.dispatcher import agy_sandbox
-from tests.dispatcher.test_providers_b import _bwrap_usable, _launch, _linked_worktree
+from tests.dispatcher.test_providers_b import _bwrap_usable, _github_meta_path, _launch, _linked_worktree
 from tests.helpers.product_tree import configured_roots  # noqa: F401
 
 
@@ -125,7 +125,7 @@ def _claude_shell(tmp_path, worktree, task_id, command, prefix=agy_sandbox.SHELL
     claude_tmp.mkdir(exist_ok=True)
     cwd_file = claude_tmp / "claude-ab12-cwd"
     script = _CLAUDE_WRAPPER.format(command="'" + command.replace("'", "'\\''") + "'", cwd_file=cwd_file)
-    env = {**os.environ, "CLAUDE_CODE_TMPDIR": str(claude_tmp),
+    env = {**os.environ, "CLAUDE_CODE_TMPDIR": str(claude_tmp), "PATH": _github_meta_path(tmp_path),
            "LEARN_UKRAINIAN_PYTHON": str(project_interpreter()), agy_sandbox.SHELL_ENV_TASK: task_id,
            agy_sandbox.SHELL_ENV_WORKTREE: str(worktree), agy_sandbox.SHELL_ENV_LOG: str(tmp_path / f"{task_id}.shell.jsonl")}
     return [str(prefix), script], env, cwd_file
@@ -225,16 +225,23 @@ def test_sandbox_reaches_public_hosts_and_github_while_filesystem_boundary_holds
     """
     worktree, head = _linked_worktree(tmp_path)
     primary, home = tmp_path / "repo", os.path.expanduser("~")
-    logged_in = subprocess.run(["gh", "auth", "status"], capture_output=True, timeout=60, check=False).returncode == 0
+    # Compare the actual read under the relay's host environment. An auth-status probe under the
+    # test runner's different shim/config can fail even while this credential-free-env read works.
+    host_env = {name: os.environ[name] for name in ("PATH", "HOME", "LANG", "XDG_CONFIG_HOME", "GH_CONFIG_DIR")
+                if name in os.environ}
+    host_read = subprocess.run(["gh", "issue", "view", "100", "-R", "learn-ukrainian/machinery", "--json", "number",
+                                "--jq", ".number"], env=host_env, capture_output=True, text=True, timeout=60, check=False)
+    logged_in = host_read.returncode == 0 and host_read.stdout == "100\n"
     # Each probe runs on its own line, so one outcome never hides the next.
     command = "\n".join([
         "curl -sSfI --max-time 30 https://www.example.org >/dev/null && echo public-host-reached",
+        "curl -sSfI --max-time 10 https://api.github.com >/dev/null 2>&1 || echo direct-github-refused",
         "gh issue view 100 -R learn-ukrainian/machinery --json number --jq .number 2>/dev/null; echo gh-exit=$?",
         f"touch {primary}/sandbox-egress-probe 2>/dev/null || echo primary-unwritable",
         f"ls -d {home}/.config/gh >/dev/null 2>&1 || echo host-gh-config-hidden",
         "gh issue view 100 -R localhost/learn-ukrainian/machinery 2>/dev/null || echo other-host-refused",
     ])
-    expected = ["public-host-reached", *(["100", "gh-exit=0"] if logged_in else []), "primary-unwritable",
+    expected = ["public-host-reached", "direct-github-refused", *(["100", "gh-exit=0"] if logged_in else []), "primary-unwritable",
                 "host-gh-config-hidden", "other-host-refused"]
     for route in ("agy", "claude"):
         task_id = f"egress-{route}"
@@ -250,10 +257,12 @@ def test_sandbox_reaches_public_hosts_and_github_while_filesystem_boundary_holds
         assert receipt["status"] == "ran" and receipt["canary"]["passed"] is True, (receipt.get("reason"), run.stderr)
         lines = run.stdout.splitlines()
         if not logged_in:  # the relay ran the host's gh, which failed only for want of a login
-            assert lines.pop(1) != "gh-exit=0" and lines[0] == "public-host-reached", (route, run.stdout)
+            assert lines.pop(2) != "gh-exit=0" and lines[0] == "public-host-reached", (route, run.stdout)
         assert (run.returncode, lines) == (0, expected), (route, run.stdout, run.stderr)
         contacted = {record["destination"]: record["bytes"] for record in receipt["egress"]}
         assert contacted.get("www.example.org:443", 0) > 0, (route, contacted)
+        assert any(record["destination"] == "api.github.com:443" and record.get("refused") and record["bytes"] == 0
+                   for record in receipt["egress"])
         assert [(record["command"], record["refused"], record["returncode"] == 0) for record in receipt["gh"]] == [
             (["issue", "view"], None, logged_in),
             (["issue", "view"], "--repo/-R accepts only OWNER/REPO on github.com", False)]

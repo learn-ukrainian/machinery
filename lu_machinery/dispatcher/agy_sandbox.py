@@ -1207,7 +1207,12 @@ class _Boundary:
         self.receipt["canary"] = {"targets": sorted({probe["path"] for probe in probes}), "passed": False}
 
         self.gh = _GhBroker(boundary / "gh.sock", self.worktree)
-        self.egress = AttemptEgress(boundary / "egress.sock")
+        # This boundary already withholds host credentials and admits only gh reads. Apply the same
+        # GitHub egress refusal as every other dispatched seat, without nesting two OS boundaries.
+        from lu_machinery.dispatcher.write_boundary import GITHUB_DOMAINS, github_networks
+
+        self.egress = AttemptEgress(boundary / "egress.sock", refused_domains=GITHUB_DOMAINS,
+                                    refused_networks=github_networks())
         if not self.shell:
             env_keep = {name: os.environ[name] for name in ("PATH", "HOME", "LANG", "TMPDIR") if name in os.environ}
             self.relay = SourcesRelay(boundary / "sources.sock", frozenset(readers), env_keep)

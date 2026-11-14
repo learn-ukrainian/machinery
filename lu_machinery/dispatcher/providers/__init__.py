@@ -11,15 +11,15 @@ from types import ModuleType
 
 PROVIDERS = ("codex", "claude", "cursor", "agy", "muse", "opencode")
 
-# Read-only must be unable to edit. These CLIs give a dispatched run no enforceable write lock, so
-# read-only is refused before launch instead of trusting the model not to edit (probed 2026-10-28).
-# AGY has none either; its read-only runs inside the dispatcher's bubblewrap boundary (agy_sandbox,
-# C-3027) and is refused only where that boundary cannot start.
+# Read-only must be unable to edit. The supervisor confines native routes in write_boundary's
+# read-only mounts. Claude receives the trusted boundary marker before provider construction.
+# AGY retains its own read-only bubblewrap boundary (agy_sandbox, C-3027).
+# Provider permissions are additional restrictions, never a substitute for the OS boundary.
 READ_ONLY_REFUSALS: dict[str, str] = {}
 
 
 def read_only_refusal(name: str, env: Mapping[str, str] | None = None) -> str | None:
-    """The typed refusal for read-only on ``name``, or None when its read-only argv carries a write lock.
+    """The pre-launch provider refusal for read-only, or None; the supervisor still enforces OS containment.
 
     AGY is refused where its bubblewrap boundary cannot start. With the run's environment, Claude is
     also refused while any managed policy could widen its lock.

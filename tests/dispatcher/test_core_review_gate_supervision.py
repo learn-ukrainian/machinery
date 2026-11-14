@@ -51,6 +51,7 @@ def test_review_gate_prevents_false_completion_and_preserves_results(sandbox, te
     task = dispatched.stdout.splitlines()
     record = sandbox.settle(task, expected=1 if error else 0)
     assert record["status"] == ("failed" if error else "done")
+    assert record["write_boundary"]["mode"] == "read-only"
     assert record["error"] == error
     assert record["returncode"] == (17 if model == "fail" else 0)
     assert Path(record["result_file"]).read_bytes() == text.encode()
@@ -706,7 +707,7 @@ def test_deadline_settles_as_timeout(sandbox):
     task = sandbox.dispatch("blocked", "--hard-timeout", "0.2")
     record = sandbox.settle(task, expected=1)
     assert record["status"] == "timeout"
-    assert record["returncode"] == -9
+    assert record["returncode"] == -signal.SIGTERM  # contained launchers settle their receipt on termination
 
 
 def test_immediate_cancel_and_duplicate_id_do_not_leave_a_second_run(sandbox):

@@ -12,7 +12,35 @@ refuses `workspace-write` before launch. There is no unsandboxed fallback: a hos
 a setup error or a failed canary refuses the run with exit 125 and the typed error
 `write_boundary_refused: <reason>`.
 
-## What the boundary is
+## Read-only review dispatches
+
+Read-only native Claude, Codex, Cursor and OpenCode also run through `write_boundary.launcher`. The worktree and Git metadata
+are read-only mounts, with no branch import. Codex uses these mounts
+as its filesystem sandbox: its inner sandbox cannot start under `--disable-userns`. Its dispatch keeps
+the private scratch lease. Other native providers keep their read-only permission profiles.
+Provider credential files retain writable binds so rotating provider logins persist; GitHub credentials remain masked.
+Muse retains its existing self-contained filesystem sandbox.
+Read-only AGY retains its existing filesystem boundary and uses
+the same GitHub domain and address refusal rules, without nesting two boundaries.
+
+Both paths withhold the host's GitHub login and refuse direct GitHub egress. The existing read-only
+`gh` relay admits `pr view`, `pr diff`, `pr checks`, `issue view` and `run view`; arbitrary `gh api`
+requests, including repository permission queries, are refused. Named reads also use `github-read`.
+The broker binds authority to the launch's mode and refuses every other verb for a read-only seat,
+including `push`, `pr-create`, `pr-edit`, `pr-comment`, `pr-merge` and `record-verdict`.
+
+Review-loop records the finished review from the owning worker through its existing `record-verdict`
+path. The reviewer supplies its structured result and cannot publish a verdict or act for a child task.
+The boundary receipt includes the launch mode and GitHub read-relay outcomes. Setup or canary failure
+refuses the run, with no uncontained fallback.
+
+The supervisor sets the existing broker marker in Claude's trusted launch environment before every
+provider build, including correction launches. The prerequisite provider change omits the nested
+shell prefix only for that marked launch. Every such dispatch still goes through the mandatory
+outer launcher; setup or canary failure prevents provider start. The old unmarked per-shell path
+remains for follow-up removal after enrollment lands. Interactive sessions remain outside this boundary.
+
+## What the write boundary is
 
 One bubblewrap invocation per launch, built in full by the launcher:
 
@@ -21,7 +49,8 @@ One bubblewrap invocation per launch, built in full by the launcher:
   namespace, no controlling terminal.
 - `--ro-bind / /`: the whole host file system is read-only. `/tmp`, `/run` and `/dev/shm` are private
   tmpfs, so host sockets there (user bus, systemd, SSH and GPG agents, tmux) do not exist inside.
-  Every other listening host Unix socket path found in `/proc/net/unix` at launch is covered with
+  Declared shared resource directories under those roots are restored read-only; their siblings stay hidden.
+  Every listening host Unix socket exposed by those mounts, or elsewhere, found in `/proc/net/unix` at launch is covered with
   `/dev/null`. `/dev` and `/proc` are fresh.
 - HOME is an overlay. The CLIs see their configuration and state; what they write lands in a private
   upper directory that is deleted after the run. The provider's credential file (Claude

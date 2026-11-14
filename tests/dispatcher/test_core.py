@@ -458,14 +458,14 @@ def test_read_only_mode_denies_edits_on_every_provider(sandbox, tmp_path, monkey
         assert argv[argv.index("--log-file") + 1] == str(agy_sandbox.log_file("ro"))  # private scratch
         assert argv.index("--dangerously-skip-permissions") > split
     elif agent == "codex":
-        assert 'sandbox_mode="read-only"' in argv and "--dangerously-bypass-approvals-and-sandbox" not in argv
+        assert "--dangerously-bypass-approvals-and-sandbox" in argv  # supervisor's read-only OS mounts hold the policy
     elif agent == "cursor":
         assert argv[argv.index("--mode") + 1] == "ask"
     elif agent == "muse":
         assert {"--disable-write", "--disable-shell"} <= set(argv)
     elif agent == "claude":
         assert argv[argv.index("--permission-mode") + 1] == "dontAsk"
-        # Bash is allowed only behind the review boundary: every command goes through its shell prefix (#12378).
+        # A direct, unwrapped provider keeps its legacy shell boundary.
         assert "Bash" in argv[argv.index("--allowedTools") + 1].split(",")
         assert invocation.env["CLAUDE_CODE_SHELL_PREFIX"] == str(agy_sandbox.SHELL_PREFIX)
         assert {"Edit", "Write", "NotebookEdit"} <= set(argv[argv.index("--disallowedTools") + 1].split(","))
@@ -565,7 +565,7 @@ def test_run_worker_silence_timeout_kills_silent_subprocess(sandbox):
     record = sandbox.settle(task, expected=1)
     elapsed = time.monotonic() - started
     assert elapsed < 15, f"elapsed={elapsed:.2f}s; a run held to the 60s hard timeout must not pass"
-    assert record["returncode"] == -signal.SIGKILL
+    assert record["returncode"] == -signal.SIGTERM  # the contained launcher's graceful shutdown runs first
     assert record["status"] == "timeout"
     assert "stdout_silence_timeout" in record["stderr_excerpt"]
     assert record["silence_timeout"] == 1
@@ -835,7 +835,7 @@ def test_run_worker_initial_response_timeout_still_reaps_silent_startup(sandbox)
     record = sandbox.settle(task, expected=1)
     elapsed = time.monotonic() - started
     assert elapsed < 15, f"elapsed={elapsed:.2f}s; a run held to the 60s timeouts must not pass"
-    assert record["returncode"] == -signal.SIGKILL
+    assert record["returncode"] == -signal.SIGTERM  # the contained launcher's graceful shutdown runs first
     assert record["status"] == "timeout"
     excerpt = record["stderr_excerpt"]
     assert "initial_response_timeout" in excerpt

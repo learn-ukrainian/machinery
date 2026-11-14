@@ -134,14 +134,15 @@ def run_git(repo, *args):
 # tests/dispatcher/test_write_boundary.py covers with real bubblewrap.
 WRITE_BOUNDARY_DOUBLE = """RECEIPT_SUFFIX = ".write-boundary.json"
 BROKER_ENV = "LU_WRITE_BOUNDARY_BROKER"
+_BROKER_INSIDE = "/run/lu-write-boundary/broker.sock"
 
 
 def launcher(spec, invocation, task_file):
     return list(invocation.argv)
 
 
-def verify(task_file, task_id):
-    return {"status": "test-double"}, None
+def verify(task_file, task_id, mode="workspace-write"):
+    return {"status": "test-double", "mode": mode}, None
 
 
 def discard(task_id):
@@ -205,7 +206,8 @@ def sandbox(tmp_path, hermetic_monitor, configured_roots, sources_product_root, 
     shutil.copy(Path(__file__).with_name("stub_provider.py"), repo / "lu_machinery/dispatcher/providers/codex.py")
     (repo / "lu_machinery/dispatcher/write_boundary.py").write_text(WRITE_BOUNDARY_DOUBLE)
     monkeypatch.setattr(worker.write_boundary, "launcher", lambda _spec, invocation, _task: list(invocation.argv))
-    monkeypatch.setattr(worker.write_boundary, "verify", lambda _task, _id: ({"status": "test-double"}, None))
+    monkeypatch.setattr(worker.write_boundary, "verify", lambda _task, _id, mode="workspace-write": (
+        {"status": "test-double", "mode": mode}, None))
     run_git(repo, "add", ".")
     run_git(repo, "commit", "-m", "fixture")
     # Origin advertises main as its default branch: review authorship is read from it (C-2902).
