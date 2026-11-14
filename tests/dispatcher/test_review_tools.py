@@ -1,6 +1,6 @@
-"""#12378 under REVIEW-BOUNDARY-1101: review execution exists only inside the read-only boundary.
+"""Read-only AGY runs whole inside its bubblewrap boundary (C-3027).
 
-Read-only AGY runs whole inside it; read-only native Claude runs each Bash command inside it.
+Read-only native Claude runs inside the whole-process write boundary, not a per-shell prefix.
 """
 
 import ipaddress
@@ -10,9 +10,8 @@ import shutil
 import subprocess
 import pytest
 from lu_machinery.agent_runtime.attempt_network import canonical_host
-from lu_machinery.common.repo_root import project_interpreter
 from lu_machinery.dispatcher import agy_sandbox
-from tests.dispatcher.test_providers_b import _bwrap_usable, _github_meta_path, _launch, _linked_worktree
+from tests.dispatcher.test_providers_b import _bwrap_usable, _launch, _linked_worktree
 from tests.helpers.product_tree import configured_roots  # noqa: F401
 
 
@@ -54,28 +53,6 @@ def test_review_checkout_exposes_project_interpreter(tmp_path):
         agy_sandbox._link_interpreter(other)
 
 
-@pytest.mark.skipif(not _bwrap_usable(), reason="needs a usable unprivileged bubblewrap")
-def test_second_shell_command_runs_when_repo_does_not_ignore_venv(tmp_path):
-    """Defect class: the boundary's own interpreter link refuses later shell commands."""
-    worktree, head = _linked_worktree(tmp_path)
-    task_id = "repeated-shell"
-    for index, command in enumerate(("git rev-parse HEAD", "git diff HEAD", ".venv/bin/python -c 'print(42)'")):
-        argv, env, _cwd_file = _claude_shell(tmp_path, worktree, task_id, command)
-        run = subprocess.run(argv, env=env, capture_output=True, text=True, timeout=60, check=False, cwd=worktree)
-        assert run.returncode == 0, run.stdout + run.stderr
-        assert run.stdout == (head + "\n" if index == 0 else "" if index == 1 else "42\n")
-    receipts = [json.loads(line) for line in (tmp_path / f"{task_id}.shell.jsonl").read_text().splitlines()]
-    assert len(receipts) == 3
-    for receipt in receipts:
-        assert receipt["status"] == "ran" and receipt["canary_passed"] is True
-        assert receipt["input"] == {"start": {"head": head, "clean": True}, "end": {"head": head, "clean": True}}
-    assert (worktree / ".venv").resolve() == project_interpreter().parent.parent.resolve()
-    assert subprocess.run(["git", "-C", str(worktree), "status", "--porcelain=v1"], check=True,
-                          capture_output=True, text=True, timeout=30).stdout == "?? .venv\n"
-    assert subprocess.run(["git", "-C", str(worktree), "diff", "HEAD", "--exit-code"],
-                          check=False, timeout=30).returncode == 0
-
-
 _PY = ".venv/bin/python"
 _GIT_ID = "'-c','user.email=s@example.invalid','-c','user.name=S'"
 # Each Grok cf-12404-grok-r1 bypass class (F1 publication and primary write, F2 private egress) must
@@ -115,53 +92,11 @@ _CASES = {
 }
 
 
-# Claude Code's prefix wrapper ends this way; the boundary must return the working-directory record.
-_CLAUDE_WRAPPER = "source /nonexistent/snapshot.sh 2>/dev/null || true && eval {command} < /dev/null && pwd -P >| {cwd_file}"
-
-
-def _claude_shell(tmp_path, worktree, task_id, command, prefix=agy_sandbox.SHELL_PREFIX):
-    """Run ``command`` the way Claude Code runs a Bash call under CLAUDE_CODE_SHELL_PREFIX."""
-    claude_tmp = tmp_path / "claude-tmp"
-    claude_tmp.mkdir(exist_ok=True)
-    cwd_file = claude_tmp / "claude-ab12-cwd"
-    script = _CLAUDE_WRAPPER.format(command="'" + command.replace("'", "'\\''") + "'", cwd_file=cwd_file)
-    env = {**os.environ, "CLAUDE_CODE_TMPDIR": str(claude_tmp), "PATH": _github_meta_path(tmp_path),
-           "LEARN_UKRAINIAN_PYTHON": str(project_interpreter()), agy_sandbox.SHELL_ENV_TASK: task_id,
-           agy_sandbox.SHELL_ENV_WORKTREE: str(worktree), agy_sandbox.SHELL_ENV_LOG: str(tmp_path / f"{task_id}.shell.jsonl")}
-    return [str(prefix), script], env, cwd_file
-
-
-def _claude_receipt(tmp_path, task_id):
-    lines = (tmp_path / f"{task_id}.shell.jsonl").read_text().splitlines()
-    assert len(lines) == 1
-    receipt = json.loads(lines[0])
-    receipt["canary"] = {"passed": receipt.pop("canary_passed")}
-    return receipt
-
-
-# Claude's shell prefix must load boundary code only from the dispatcher checkout it really lives in.
-_PREFIX_CASES = {"F3-prefix-root-not-checkout": "root_not_checkout",
-                 "F3-prefix-root-is-reviewed-worktree": "root_is_reviewed_worktree"}
-
-
 @pytest.mark.skipif(not _bwrap_usable(), reason="needs a usable unprivileged bubblewrap")
-@pytest.mark.parametrize("route,case", [*((route, case) for route in ("agy", "claude") for case in sorted(_CASES)),
-                                        *(("claude", case) for case in _PREFIX_CASES)])
-def test_review_boundary_refuses_bypass_classes_and_keeps_execution(tmp_path, route, case):
-    """Defect: a review shell or interpreter publishes, writes the primary checkout or reaches a private address."""
+@pytest.mark.parametrize("case", sorted(_CASES))
+def test_review_boundary_refuses_bypass_classes_and_keeps_execution(tmp_path, case):
+    """Defect: a review interpreter publishes, writes the primary checkout or reaches a private address."""
     worktree, _head = _linked_worktree(tmp_path)
-    if case in _PREFIX_CASES:
-        base = tmp_path / "loose" if case == "F3-prefix-root-not-checkout" else worktree
-        prefix = base / "scripts" / "dispatcher" / "claude_review_shell"
-        prefix.parent.mkdir(parents=True)
-        shutil.copy2(agy_sandbox.SHELL_PREFIX, prefix)
-        marker = tmp_path / "ran"
-        argv, env, _cwd_file = _claude_shell(tmp_path, worktree, "prefix", f"touch {marker}", prefix=prefix)
-        run = subprocess.run(argv, env=env, capture_output=True, text=True, timeout=60, check=False, cwd=worktree)
-        assert (run.returncode, run.stderr) == (
-            125, f"claude read-only boundary refused: claude_review_shell_{_PREFIX_CASES[case]}\n")
-        assert not marker.exists()
-        return
     granted, template = _CASES[case]
     primary = tmp_path / "repo"
     (worktree / "test_probe.py").write_text("def test_probe():\n    assert 1 + 1 == 2\n")
@@ -174,16 +109,9 @@ def test_review_boundary_refuses_bypass_classes_and_keeps_execution(tmp_path, ro
     subprocess.run(["git", "init", "-q", "--bare", str(remote)], check=True, timeout=30)
     command = template.format(remote=remote, primary=primary, metadata=ipaddress.ip_address(2852039166),
                               private=ipaddress.ip_address(167772161))
-    scratches = set(agy_sandbox.ensure_scratch_root().glob("claude-shell-*"))
-    if route == "agy":
-        argv, env = _launch(tmp_path, worktree, "adversarial", ["/bin/sh", "-c", command])
-    else:
-        argv, env, cwd_file = _claude_shell(tmp_path, worktree, "adversarial", command)
+    argv, env = _launch(tmp_path, worktree, "adversarial", ["/bin/sh", "-c", command])
     run = subprocess.run(argv, env=env, capture_output=True, text=True, timeout=180, check=False, cwd=worktree)
-    if route == "agy":
-        receipt = json.loads((tmp_path / "adversarial.sandbox.json").read_text())
-    else:
-        receipt = _claude_receipt(tmp_path, "adversarial")
+    receipt = json.loads((tmp_path / "adversarial.sandbox.json").read_text())
     assert receipt["status"] == "ran" and receipt["canary"]["passed"] is True, (receipt.get("reason"), run.stderr)
     if granted:
         assert run.returncode == 0, run.stdout + run.stderr
@@ -198,14 +126,7 @@ def test_review_boundary_refuses_bypass_classes_and_keeps_execution(tmp_path, ro
     assert all(canonical_host(record["destination"].removesuffix(":443")) for record in receipt["egress"])
     if "-gh-" in case:  # the relay itself refused, not gh failing afterwards (cf-12521-sol-r2 F2)
         assert receipt["gh"][0]["refused"] and "review boundary: " in run.stderr
-    if route == "agy":
-        assert not (worktree / ".venv").exists()  # the boundary removes the link it created
-    else:
-        # The link stays for the run's next command.
-        assert (worktree / ".venv").resolve() == project_interpreter().parent.parent.resolve()
-        assert set(agy_sandbox.ensure_scratch_root().glob("claude-shell-*")) <= scratches  # removed with the command
-        if granted:
-            assert cwd_file.read_text().strip() == str(worktree.resolve())
+    assert not (worktree / ".venv").exists()  # the boundary removes the link it created
 
 
 pytestmark = pytest.mark.usefixtures("configured_roots")
@@ -218,7 +139,7 @@ pytestmark = pytest.mark.usefixtures("configured_roots")
 def test_sandbox_reaches_public_hosts_and_github_while_filesystem_boundary_holds(tmp_path):
     """Defect class: sandbox egress blocks non-provider hosts or GitHub, or opening it loosens the filesystem boundary.
 
-    Operator decision 2026-11-10: sandboxed agents reach the internet and GitHub. Both routes must reach a
+    Operator decision 2026-11-10: sandboxed agents reach the internet and GitHub. The AGY boundary must reach a
     public non-provider host and read GitHub through the gh relay, while the primary checkout stays
     unwritable, host credentials stay unreadable and the relay still refuses another host. The issue read
     itself is asserted where the host's gh has a login; without one (a CI runner) the relay must still run gh.
@@ -243,28 +164,21 @@ def test_sandbox_reaches_public_hosts_and_github_while_filesystem_boundary_holds
     ])
     expected = ["public-host-reached", "direct-github-refused", *(["100", "gh-exit=0"] if logged_in else []), "primary-unwritable",
                 "host-gh-config-hidden", "other-host-refused"]
-    for route in ("agy", "claude"):
-        task_id = f"egress-{route}"
-        if route == "agy":
-            argv, env = _launch(tmp_path, worktree, task_id, ["/bin/sh", "-c", command])
-        else:
-            argv, env, _cwd_file = _claude_shell(tmp_path, worktree, task_id, command)
-        run = subprocess.run(argv, env=env, capture_output=True, text=True, timeout=180, check=False, cwd=worktree)
-        if route == "agy":
-            receipt = json.loads((tmp_path / f"{task_id}.sandbox.json").read_text())
-        else:
-            receipt = _claude_receipt(tmp_path, task_id)
-        assert receipt["status"] == "ran" and receipt["canary"]["passed"] is True, (receipt.get("reason"), run.stderr)
-        lines = run.stdout.splitlines()
-        if not logged_in:  # the relay ran the host's gh, which failed only for want of a login
-            assert lines.pop(2) != "gh-exit=0" and lines[0] == "public-host-reached", (route, run.stdout)
-        assert (run.returncode, lines) == (0, expected), (route, run.stdout, run.stderr)
-        contacted = {record["destination"]: record["bytes"] for record in receipt["egress"]}
-        assert contacted.get("www.example.org:443", 0) > 0, (route, contacted)
-        assert any(record["destination"] == "api.github.com:443" and record.get("refused") and record["bytes"] == 0
-                   for record in receipt["egress"])
-        assert [(record["command"], record["refused"], record["returncode"] == 0) for record in receipt["gh"]] == [
-            (["issue", "view"], None, logged_in),
-            (["issue", "view"], "--repo/-R accepts only OWNER/REPO on github.com", False)]
-        assert receipt["input"] == {"start": {"head": head, "clean": True}, "end": {"head": head, "clean": True}}
-        assert not (primary / "sandbox-egress-probe").exists()
+    task_id = "egress-agy"
+    argv, env = _launch(tmp_path, worktree, task_id, ["/bin/sh", "-c", command])
+    run = subprocess.run(argv, env=env, capture_output=True, text=True, timeout=180, check=False, cwd=worktree)
+    receipt = json.loads((tmp_path / f"{task_id}.sandbox.json").read_text())
+    assert receipt["status"] == "ran" and receipt["canary"]["passed"] is True, (receipt.get("reason"), run.stderr)
+    lines = run.stdout.splitlines()
+    if not logged_in:  # the relay ran the host's gh, which failed only for want of a login
+        assert lines.pop(2) != "gh-exit=0" and lines[0] == "public-host-reached", run.stdout
+    assert (run.returncode, lines) == (0, expected), (run.stdout, run.stderr)
+    contacted = {record["destination"]: record["bytes"] for record in receipt["egress"]}
+    assert contacted.get("www.example.org:443", 0) > 0, contacted
+    assert any(record["destination"] == "api.github.com:443" and record.get("refused") and record["bytes"] == 0
+               for record in receipt["egress"])
+    assert [(record["command"], record["refused"], record["returncode"] == 0) for record in receipt["gh"]] == [
+        (["issue", "view"], None, logged_in),
+        (["issue", "view"], "--repo/-R accepts only OWNER/REPO on github.com", False)]
+    assert receipt["input"] == {"start": {"head": head, "clean": True}, "end": {"head": head, "clean": True}}
+    assert not (primary / "sandbox-egress-probe").exists()

@@ -1314,7 +1314,6 @@
  "scripts/dispatcher/agy_canary.py": "machinery",
  "scripts/dispatcher/agy_sandbox.py": "machinery",
  "scripts/dispatcher/checks.py": "machinery",
- "scripts/dispatcher/claude_review_shell": "machinery",
  "scripts/dispatcher/cli.py": "machinery",
  "scripts/dispatcher/codex_meter.py": "machinery",
  "scripts/dispatcher/environment.py": "machinery",

@@ -394,7 +394,7 @@ matrix, and establish its own exact-head provider compatibility proof.
 Operator decision of 2026-11-10: sandboxed agents need the internet and GitHub,
 so the parent proxy no longer restricts destinations to per-harness provider
 hosts. Formal review attempts (AGY, Codex and Claude), read-only AGY dispatches
-and native Claude's read-only review shell (`lu_machinery/dispatcher/agy_sandbox.py`)
+and read-only native reviewers inside the write boundary
 all reach any public host over HTTPS through the same proxy. There is no host
 allowlist file and no runtime override.
 
@@ -411,8 +411,8 @@ CONNECT destinations and their aggregate byte counts. Requests outside that
 retained set increment an overflow count, including repeats. Formal attempts
 persist this summary in the task record's `review_attempt_egress` field; see
 [Attempt egress evidence](#attempt-egress-evidence) for its semantics and limits.
-The AGY dispatch and native Claude shell routes persist the retained records
-in their sandbox receipts (`egress`), with omitted requests counted in
+The AGY dispatch and the write-boundary launcher persist the retained records
+in their receipts (`egress`), with omitted requests counted in
 `egress_overflow_count`.
 
 The projected stdlib forwarder (`attempt_forwarder.py`) starts inside the

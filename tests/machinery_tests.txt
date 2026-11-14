@@ -615,7 +615,6 @@ tests/storage_callers/test_write_contract.py
 tests/storage_callers/test_writer_lock.py
 tests/telemetry/test_cost_report.py
 tests/telemetry/test_telemetry_emit.py
-tests/test_claude_review_shell.py
 tests/test_fleet_repos.py
 tests/test_installed_root_contract.py
 tests/test_merged_delivery.py

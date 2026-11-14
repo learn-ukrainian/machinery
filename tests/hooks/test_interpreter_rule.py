@@ -394,7 +394,6 @@ ROUTED = (
     "lu_machinery/dispatcher/npm_shims/npm",
     "lu_machinery/dispatcher/npm_shims/npx",
     "lu_machinery/opsec/push_hooks/pre-push",
-    "lu_machinery/dispatcher/claude_review_shell",
     ".githooks/_lib.sh",
     ".githooks/commit-msg",
     ".githooks/post-merge",
@@ -720,29 +719,6 @@ def test_remaining_shell_programs_select_the_rule_and_refuse_invalid(tmp_path: P
     assert str(override) in log.read_text(encoding="utf-8"), gh_run.stderr
     assert refused([str(SOURCE / "lu_machinery/agent_runtime/shims/gh"), "auth", "status"], cwd=worktree, extra=gh_env).returncode != 0
     assert log.read_text(encoding="utf-8") == ""
-
-    shell_args = tmp_path / "shell-args"
-    shell_python = _record(tmp_path / "shell-python", log, code=0, args_path=shell_args)
-    reviewed = tmp_path / "reviewed"
-    reviewed.mkdir()
-    shell = _run(
-        [str(SOURCE / "lu_machinery/dispatcher/claude_review_shell"), "true"],
-        cwd=worktree,
-        env={**base, "LEARN_UKRAINIAN_PYTHON": str(shell_python), "LU_REVIEW_SHELL_WORKTREE": str(reviewed)},
-    )
-    assert shell.returncode == 0, shell.stderr
-    recorded = shell_args.read_text(encoding="utf-8")
-    assert "sys.path" not in recorded
-    assert recorded.splitlines()[0] == "-I"
-    assert recorded.splitlines()[-1] == "true"
-    log.write_text("", encoding="utf-8")
-    shell_refused = _run(
-        [str(SOURCE / "lu_machinery/dispatcher/claude_review_shell"), "true"],
-        cwd=worktree,
-        env={**base, "LEARN_UKRAINIAN_PYTHON": str(plain), "LU_REVIEW_SHELL_WORKTREE": str(reviewed)},
-    )
-    assert shell_refused.returncode == 125
-    assert "claude_review_shell_interpreter_missing" in shell_refused.stderr
 
     _executable(tmp_path / "bin/curl", """#!/bin/sh
 url=

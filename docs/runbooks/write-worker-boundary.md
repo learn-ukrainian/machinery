@@ -35,10 +35,10 @@ The boundary receipt includes the launch mode and GitHub read-relay outcomes. Se
 refuses the run, with no uncontained fallback.
 
 The supervisor sets the existing broker marker in Claude's trusted launch environment before every
-provider build, including correction launches. The prerequisite provider change omits the nested
-shell prefix only for that marked launch. Every such dispatch still goes through the mandatory
-outer launcher; setup or canary failure prevents provider start. The old unmarked per-shell path
-remains for follow-up removal after enrollment lands. Interactive sessions remain outside this boundary.
+provider build, including correction launches. Read-only Claude strips any inherited per-shell
+prefix on every build, marked or not, because that prefix is gone. Every such dispatch still goes
+through the mandatory outer launcher; setup or canary failure prevents provider start. Interactive
+sessions remain outside this boundary.
 
 ## What the write boundary is
 
