@@ -8,6 +8,7 @@ Architecture:
 
 import asyncio
 import functools
+import importlib.metadata
 import json
 import logging
 import os
@@ -267,6 +268,15 @@ async def global_exception_handler(request: Request, exc: Exception):
 
 # Server start time for uptime calculation
 _SERVER_START = datetime.now(UTC)
+
+
+@functools.cache
+def _machinery_version() -> str | None:
+    """The installed lu-machinery release this server runs, or None when no distribution is installed."""
+    try:
+        return importlib.metadata.version("lu-machinery")
+    except importlib.metadata.PackageNotFoundError:
+        return None
 
 
 # --- /api/orient caching + failure isolation (GH #1309) ----------------
@@ -1290,12 +1300,13 @@ async def api_index():
 
 @core_router.get("/api/health")
 async def health_check(request: Request, ctx: MonitorContext = Depends(get_ctx)):
-    """Root health check — returns server status, version, uptime."""
+    """Root health check — returns server status, API and lu-machinery versions, uptime."""
     now = datetime.now(UTC)
     uptime = now - _SERVER_START
     return {
         "status": "ok",
         "version": request.app.version,
+        "machinery_version": _machinery_version(),
         "uptime_seconds": int(uptime.total_seconds()),
         "started_at": _SERVER_START.isoformat(),
         "checked_at": now.isoformat(),
