@@ -1820,6 +1820,23 @@ def test_load_schema_invalid_json_is_contract_error(tmp_path, monkeypatch):
     assert exc.value.exit_code == EXIT_INVALID
 
 
+def _hardlink_beside(canonical: Path) -> Path:
+    """A second directory entry for ``canonical``, on that file's own mount.
+
+    ``link(2)`` returns EXDEV across mount points, including two bind mounts of
+    one filesystem. pytest's tmp directory is not guaranteed to be the checkout's
+    mount, so the extra name stays in the schema directory.
+    """
+    import os
+    import tempfile
+
+    descriptor, name = tempfile.mkstemp(prefix=".schema-hardlink-", dir=canonical.parent)
+    os.close(descriptor)
+    os.unlink(name)
+    os.link(canonical, name)
+    return Path(name)
+
+
 def test_hard_linked_packaged_schema_binds_and_a_caller_hard_link_is_refused(tmp_path, monkeypatch):
     """Defect class: a uv hard link of the packaged review schema is refused as not a regular file.
 
@@ -1828,15 +1845,12 @@ def test_hard_linked_packaged_schema_binds_and_a_caller_hard_link_is_refused(tmp
     link, including one of the same bytes, stays on that reader and is refused.
     An ordinary caller file is still read there.
     """
-    import os
-
     from lu_machinery.agent_runtime.attempt_safe_read import AttemptReadError
     from lu_machinery.dispatcher import output_schema
 
     canonical = schema_path()
     assert canonical is not None
-    linked = tmp_path / "caller-schema.json"
-    os.link(canonical, linked)
+    linked = _hardlink_beside(canonical)
     calls: list[Path] = []
     real = output_schema.safe_read_attempt_file
 
@@ -1849,6 +1863,7 @@ def test_hard_linked_packaged_schema_binds_and_a_caller_hard_link_is_refused(tmp
     monkeypatch.setattr(output_schema, "safe_read_attempt_file", guard)
     try:
         assert canonical.stat().st_nlink >= 2
+        assert linked.parent == canonical.parent
         options = output_schema.bind(str(canonical), tmp_path)
         loaded = output_schema.load(options)
         assert loaded["$id"].endswith("code-review-findings.v1.schema.json")
@@ -1863,17 +1878,18 @@ def test_hard_linked_packaged_schema_binds_and_a_caller_hard_link_is_refused(tmp
         plain_options = output_schema.bind(str(plain), tmp_path)
         assert output_schema.load(plain_options) == {"type": "object"}
     finally:
-        linked.unlink()
+        linked.unlink(missing_ok=True)
 
 
-def test_load_schema_reads_hard_linked_packaged_schema_from_the_package(tmp_path, monkeypatch):
-    """Defect class: the packaged findings schema is unread when its install is a hard link."""
-    import os
+def test_load_schema_reads_hard_linked_packaged_schema_from_the_package(monkeypatch):
+    """Defect class: a Path.read_text replacement can change the schema load_schema validates.
 
+    The packaged path is a package resource. Raising the link count and refusing
+    Path.read_text on that path still returns the packaged schema.
+    """
     canonical = schema_path()
     assert canonical is not None
-    linked = tmp_path / "packaged-hardlink.json"
-    os.link(canonical, linked)
+    linked = _hardlink_beside(canonical)
     original = Path.read_text
 
     def refuse_packaged(self, *args, **kwargs):
@@ -1891,7 +1907,7 @@ def test_load_schema_reads_hard_linked_packaged_schema_from_the_package(tmp_path
         loaded = load_schema()
         assert loaded["$id"].endswith("code-review-findings.v1.schema.json")
     finally:
-        linked.unlink()
+        linked.unlink(missing_ok=True)
 
 
 def test_load_schema_unreadable_is_contract_error(tmp_path, monkeypatch):
