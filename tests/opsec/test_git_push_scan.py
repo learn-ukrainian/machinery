@@ -2759,6 +2759,9 @@ def test_tracked_hook_scans_once_and_refuses_flagged_messages(push_sandbox, pin,
     shutil.copytree(checkout / ".githooks", sandbox.work / ".githooks",
                     ignore=shutil.ignore_patterns("__pycache__"))
     (sandbox.work / "lu_machinery").symlink_to(sandbox.root / "lu_machinery", target_is_directory=True)
+    caller = sandbox.tmp / "caller-reached"
+    hook = sandbox.work / ".githooks/pre-push"
+    hook.write_text(hook.read_text() + f"\necho reached >> {shlex.quote(str(caller))}\n")
     counter = sandbox.tmp / "message-scans"
     subject = "unique scan-count subject"
     matcher = sandbox.tooling / "matcher.py"
@@ -2793,7 +2796,9 @@ def test_tracked_hook_scans_once_and_refuses_flagged_messages(push_sandbox, pin,
     if flagged:
         assert_blocked(result, sandbox, before, f"commit[{sha[:12]}].message")
         assert not _remote_has(sandbox, sha)
+        assert not caller.exists()
     else:
         assert result.returncode == 0, result.stderr
+        assert caller.read_text().splitlines() == ["reached"]
         if shim:
             assert sandbox.remote_refs()["refs/heads/feature"] == sha

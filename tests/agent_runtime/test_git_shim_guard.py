@@ -461,8 +461,8 @@ def test_refresh_hook_discovery_preserves_caller_hooks_under_read_pin(shim_fixtu
         subprocess.run([real_git, "config", "core.hooksPath", ".caller-hooks"], cwd=work,
                        env=environment, check=True, capture_output=True, timeout=15)
     monkeypatch.setenv("PATH", "/usr/bin:/bin")
+    monkeypatch.setenv("GIT_CONFIG_COUNT", "1" if pin else "0")
     if pin:
-        monkeypatch.setenv("GIT_CONFIG_COUNT", "1")
         monkeypatch.setenv("GIT_CONFIG_KEY_0", "core.hooksPath")
         monkeypatch.setenv("GIT_CONFIG_VALUE_0", "/dev/null")
     monkeypatch.setattr(dispatch_git, "state_root", lambda: work)
