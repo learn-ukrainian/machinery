@@ -1567,8 +1567,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         except KeeperError as exc:
             alert_lines = [f"CTO alert delivery FAILED: {exc}"]
         lines, failed = [*lines, *alert_lines], failed or bool(alert_lines)
-        # The ownerless-PR alert runs on its own cadence, whatever the queue pass did, and
-        # never hides the queue pass's result.
+        # The ownerless-PR check runs on its own cadence, whatever the queue pass did, and
+        # never hides the queue pass's result. It records decision custody when it can
+        # prove the PR ownerless, and alerts only when it cannot.
         try:
             ownership_lines, ownership_failed = pr_ownership.keeper_tick()
         except Exception as exc:

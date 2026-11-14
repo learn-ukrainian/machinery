@@ -291,6 +291,98 @@ def _settle_with_worktree(monkeypatch, tmp_path, state):
     return base, record
 
 
+def test_settlement_stops_a_task_scoped_transient_service(monkeypatch, tmp_path):
+    """Defect class: transient service still running after settlement.
+
+    A review-candidate API started with systemd-run stayed up for about 30 hours
+    after its task ended, because nothing bound it to the task scope or stopped
+    it at settlement. A unit that is still active is not recorded as stopped,
+    and reset-failed is not used.
+    """
+    from lu_machinery.orchestration import dispatch_isolation as iso
+
+    nonce = "0123456789abcdef0123456789abcdef"
+    scope = iso.scope_unit_name("scratch-task", nonce)
+    base = tmp_path / "var-tmp"
+    base.mkdir()
+    monkeypatch.setattr(environment, "TASK_SCRATCH_BASE", base)
+    record = {
+        "task_id": "scratch-task", "launch_mode": "scope", "launch_unit": scope, "run_nonce": nonce,
+    }
+    started_argv: list[list[str]] = []
+
+    def started(argv):
+        started_argv.append(list(argv))
+        return subprocess.CompletedProcess(argv, 0, stdout="", stderr="")
+
+    unit = iso.start_task_service(record, ["sleep", "30"], run=started)
+    assert f"--property=BindsTo={scope}.scope" in started_argv[0]
+    assert f"--property=PartOf={scope}.scope" in started_argv[0]
+    assert (base / "scratch-task" / "task-services.txt").read_text() == f"{unit}\n"
+
+    live_calls: list[list[str]] = []
+
+    def still_active(argv):
+        live_calls.append(list(argv))
+        if "reset-failed" in argv:
+            raise AssertionError("reset-failed")
+        if "is-active" in argv:
+            return subprocess.CompletedProcess(argv, 0, stdout="active\n", stderr="")
+        return subprocess.CompletedProcess(argv, 0, stdout="", stderr="")
+
+    alerts: list[tuple[str, ...]] = []
+    foreign = {"task_id": "scratch-task", "task_services": ["lu-worker-not-this-task"]}
+    iso.stop_task_services(foreign, run=still_active, alert=lambda *args: alerts.append(args))
+    assert foreign["task_service_stops"][-1]["result"] == "refused"
+    assert not any("lu-worker-not-this-task" in part for call in live_calls for part in call)
+    for other_id in ("scratch-task-", "scratch-task_", "scratch-task."):
+        assert iso.task_service_matches(unit, task_id=other_id) is False
+        other = {"task_id": other_id, "task_services": [unit]}
+        before = len(live_calls)
+        iso.stop_task_services(other, run=still_active, alert=lambda *args: alerts.append(args))
+        assert other["task_service_stops"][-1]["result"] == "refused"
+        assert len(live_calls) == before
+
+    iso.stop_task_services(record, run=still_active, alert=lambda *args: alerts.append(args))
+    assert record["task_service_stops"][-1]["postcondition"] == "false"
+    assert any(item[1] == unit for item in alerts)
+    assert not any("reset-failed" in part for call in live_calls for part in call)
+
+    stopped: list[list[str]] = []
+
+    def gone(argv):
+        stopped.append(list(argv))
+        if "is-active" in argv:
+            return subprocess.CompletedProcess(argv, 3, stdout="inactive\n", stderr="")
+        return subprocess.CompletedProcess(argv, 0, stdout="", stderr="")
+
+    fresh = {
+        "task_id": "scratch-task", "launch_mode": "scope", "launch_unit": scope, "run_nonce": nonce,
+        "task_services": [unit],
+    }
+    monkeypatch.setattr(iso, "_systemctl", gone)
+    monkeypatch.setattr(worker, "_end_own_scope", lambda _record: None)
+    monkeypatch.setattr(worker, "_provider_alive", lambda _record: False)
+    monkeypatch.setattr(worker.git, "settle_worktree", lambda *_args, **_kwargs: {
+        "worktree_disposition": "removed", "worktree_disposition_reason": "clean"})
+    suffixed = {
+        "task_id": "scratch-task", "launch_mode": "scope", "launch_unit": scope, "run_nonce": nonce,
+        "task_services": [f"{unit}.service"],
+    }
+    iso.stop_task_services(suffixed, run=gone, alert=lambda *args: alerts.append(args))
+    assert ["systemctl", "--user", "stop", f"{unit}.service"] in stopped
+    assert ["systemctl", "--user", "stop", f"{unit}.service.service"] not in stopped
+    assert suffixed["task_service_stops"][-1]["postcondition"] == "true"
+    stopped.clear()
+    worker._reap_settled(fresh)
+    assert ["systemctl", "--user", "stop", f"{unit}.service"] in stopped
+    assert fresh["task_service_stops"][-1]["postcondition"] == "true"
+    assert "task_service_alert" not in fresh
+    again = len(stopped)
+    worker._reap_settled(fresh)
+    assert len(stopped) == again
+
+
 def test_settlement_removes_the_task_scratch_including_a_read_only_directory(monkeypatch, tmp_path):
     """Defect class: scratch leak. A settled task whose worktree went left /var/tmp/<task-id> behind, and a
     0500 directory a test left inside it refused deletion."""
