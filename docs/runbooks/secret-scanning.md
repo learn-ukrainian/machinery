@@ -362,6 +362,8 @@ deletes the same analysis again with `?confirm_delete`. The
 next analysis of the set, which this verb has not checked, so it never follows
 them. Success is a read-back 404 and a JSON receipt. Exit 3 means the DELETE
 may have landed and is unverified: read the analysis before doing anything else.
+Exit 75 means a rate limit refused a request, locally or by GitHub at the
+DELETE; nothing was deleted, and a rerun after the reset repeats every check.
 
 The runtime changes also have product copies at
 `scripts/api/discussions_router.py`, `scripts/ai_agent_bridge/openai_proxy.py`,

@@ -84,7 +84,9 @@ an open PR. Success is a read-back 404 and a JSON receipt with the deleted SHA
 for the restore step above. GitHub's reference DELETE takes no expected SHA, so
 a push or PR that arrives between those reads and the DELETE is an accepted
 residual race, as for the helper. Exit 3 means the DELETE may have landed and
-is unverified: read the branch before doing anything else.
+is unverified: read the branch before doing anything else. Exit 75 means a
+rate limit refused a request, locally or by GitHub at the DELETE; nothing was
+deleted, and a rerun after the reset repeats every check.
 
 ## Validate and land
 

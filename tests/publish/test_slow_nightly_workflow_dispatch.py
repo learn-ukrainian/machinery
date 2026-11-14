@@ -816,3 +816,18 @@ def test_delete_verbs_require_an_explicit_repository_and_appear_in_help(delete_t
     listing = capsys.readouterr().out
     assert "code-scanning-analysis-delete" in listing and "branch-delete" in listing
     assert "branch-delete" not in pub.BROKER_FORWARDED and "code-scanning-analysis-delete" not in pub.BROKER_FORWARDED
+
+
+@pytest.mark.parametrize("verb,fields,before", [
+    ("code-scanning-analysis-delete", {"analysis_id": 41}, []),
+    ("code-scanning-analysis-delete", {"analysis_id": 41}, [(400, {"message": LAST_OF_SET})]),
+    ("branch-delete", {"branch": "salvage/old-attempt"}, []),
+])
+def test_rate_limited_delete_exits_75_without_another_delete(delete_transport, verb, fields, before):
+    """Defect class: a DELETE GitHub rejects for its rate limit is retried, or reported as deleted or UNKNOWN."""
+    _, deletes, options, sender = delete_transport
+    options["delete_answers"] = [*before, github_client.GitHubRateLimited(None, "secondary_hold")]
+    answer = pub.publish(verb, repo="unit/public", runner=sender, capture_output=True, text=True, **fields)
+    assert answer.returncode == 75
+    assert json.loads(answer.stdout)["error"] == "github_rate_limited"
+    assert len(deletes) == len(before) + 1

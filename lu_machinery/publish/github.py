@@ -1945,7 +1945,12 @@ def _delete_outcome(argv, result, *, what, readback, capture_output, text, recei
 
 
 def _send_delete(runner, argv, cwd, environment):
-    """Send one DELETE; a rate limit or publisher refusal (nothing sent) propagates, any other fault is None."""
+    """Send one DELETE; a rate limit or publisher refusal propagates, any other fault is None.
+
+    A rate limit is either this client's refusal before sending or GitHub's 403/429 limit
+    answer; the client types both alike, and GitHub does not process a rate-limited request.
+    Either way nothing was deleted, so it stays exit 75 (as for the dismissal PATCH).
+    """
     try:
         return runner(argv, cwd=cwd, env=dict(environment), capture_output=True, text=True, check=False, timeout=30)
     except (github_client.GitHubRateLimited, gate.PublishBlocked):
@@ -2645,7 +2650,8 @@ def main(argv=None, *, runner=None):
                 "Outputs: JSON {repo, analysis_id, ref, tool, category, confirm_delete, deleted} after a read-back 404.\n"
                 "Exit codes: 0 deleted and verified; 1 GitHub refused the deletion (nothing deleted); 2 invalid input\n"
                 "  or a refusal before any DELETE; 3 UNKNOWN after an ambiguous DELETE or read-back, do not retry;\n"
-                "  75 rate-limit refusal before a DELETE is sent.\n"
+                "  75 a rate limit refused a request, locally or by GitHub at the DELETE; nothing was deleted,\n"
+                "  and a rerun after the reset repeats every check.\n"
                 "Related: docs/runbooks/secret-scanning.md; GitHub REST delete a code scanning analysis."
             )
         if verb == "branch-delete":
@@ -2663,7 +2669,8 @@ def main(argv=None, *, runner=None):
                 "  git push origin <sha>:refs/heads/<branch>.\n"
                 "Exit codes: 0 deleted and verified; 1 GitHub refused the deletion (nothing deleted); 2 invalid input\n"
                 "  or a refusal before any DELETE; 3 UNKNOWN after an ambiguous DELETE or read-back, do not retry;\n"
-                "  75 rate-limit refusal before a DELETE is sent.\n"
+                "  75 a rate limit refused a request, locally or by GitHub at the DELETE; nothing was deleted,\n"
+                "  and a rerun after the reset repeats every check.\n"
                 "Related: docs/runbooks/remote-branch-cleanup.md; GitHub REST delete a reference."
             )
         if verb == "comment-edit":
