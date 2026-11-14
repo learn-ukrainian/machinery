@@ -830,7 +830,8 @@ def test_provider_diagnostics_and_breakdown_cannot_leak_credentials_or_paths(tmp
         "muse", {"message": secret, "kind": "fetch_error", "code": "PROBE_FAILED"},
     )
     assert error["auth_error"] == "provider_error"
-    assert secret in caplog.text
+    assert secret not in caplog.text
+    assert "Provider muse usage probe failed: PROVIDER_ERROR" in caplog.text
     monkeypatch.setattr(state_router, "get_api_account_data", lambda lane: {
         "auth_error": secret, "total_balance": 25.0, "usage_usd": 1.0, "probe_state": "NEED_PROBE",
     })
