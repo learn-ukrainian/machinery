@@ -1,0 +1,419 @@
+"""Counts-only census, incomplete denominators and immutable retry evidence."""
+
+from __future__ import annotations
+
+import json
+import subprocess
+import sys
+from datetime import UTC, datetime
+from unittest.mock import Mock
+
+import pytest
+
+from lu_machinery.orchestration import issue_quality_report as report
+from lu_machinery.orchestration.fleet_repos import FleetRepo
+from lu_machinery.orchestration import issue_stream_audit as audit
+
+COMPLETE = """
+## User-visible outcome
+Ship the advisory checker.
+
+## Why / evidence
+#7854 audit showed empty DoD cards.
+
+## In scope
+`scripts/ci/check_issue_task_quality.py` and issue templates.
+
+## Non-goals
+No blocking CI gate.
+
+## Denominator
+All templates under .github/ISSUE_TEMPLATE/.
+
+## Verify
+```bash
+.venv/bin/python scripts/ci/check_issue_task_quality.py --help
+```
+
+## Dependencies
+none
+
+## Accountable driver
+cursor-infra
+
+## Stop policy
+If CF CHANGES_REQUESTED: fix on tip and re-CF; owner cursor-infra.
+
+## Residual policy
+none
+
+## Review plan
+Author family Cursor; CF Claude; backup AGY. Discussion ≠ CF.
+
+## Acceptance Criteria / Definition of Done
+- [ ] AC-01: checker WARN when new DoR fields missing
+- [ ] AC-02: PR merged with CF + green CI
+
+## Terminal goal
+merge
+
+## Residual
+none — owner: n/a
+"""
+
+REPO = "learn-ukrainian/learn-ukrainian.github.io"
+
+REGISTRY = {"devops": [5703], "harness": [6943]}
+
+def audit_report(*, native=(), body=()):
+    result = audit.classify(
+        [{"number": 123, "title": "target"}], REGISTRY, {5703: (set(native), set(body)), 6943: (set(), set())}
+    )
+    result.update(repository=REPO, warnings=[])
+    return result
+
+HYGIENE = [{"code": "milestone_closed_issue", "stream": "devops", "issue": 77}]
+
+@pytest.fixture(autouse=True)
+def report_checkout(tmp_path, monkeypatch):
+    """Reports and cache publication must use only the disposable configured primary."""
+    for part in ("objects", "refs"):
+        (tmp_path / ".git" / part).mkdir(parents=True, exist_ok=True)
+    (tmp_path / ".git" / "HEAD").write_text("ref: refs/heads/main\n")
+    (tmp_path / ".gitignore").write_text("batch_state/\n")
+    monkeypatch.setenv("LU_PRODUCT_ROOT", str(tmp_path))
+    monkeypatch.setenv("LEARN_UKRAINIAN_PRIMARY_REPO_ROOT", str(tmp_path))
+    monkeypatch.delenv("LEARN_UKRAINIAN_STATE_ROOT", raising=False)
+
+
+PUBLIC = FleetRepo("public", REPO, "public", "public-monorepo", True)
+PRIVATE = FleetRepo("infra-private", "unit/private", "private", "private-infra")
+
+
+def summarize(issues, count, membership=None, codes=(), repo=PUBLIC):
+    return report.summarize_repository(repo, issues, count, membership, list(codes), REGISTRY)
+
+
+def test_listing_500_of_612_is_incomplete_independently_of_audit():
+    """A truncated issue listing must remain incomplete even when the membership audit succeeds."""
+    issues = [{"number": n, "title": "", "body": COMPLETE} for n in range(100, 600)]
+    membership = audit_report()
+    membership["open_total"] = 500
+    result = summarize(issues, 612, membership)
+    assert result["open_total"] == 612
+    assert result["coverage"] == "incomplete"
+    assert "listing_truncated" in result["incomplete_codes"]
+    assert "listing_count_mismatch" in result["incomplete_codes"]
+    assert result["evaluated_total"] == 500
+
+
+def test_partial_outage_is_unknown_never_zero():
+    """An API outage must report unknown counts instead of inventing zero open issues."""
+    result = summarize(None, None, codes=["forge_unavailable"], repo=PRIVATE)
+    assert result["open_total"] is None
+    assert result["coverage"] == "incomplete"
+    assert all(v is None for v in result["lanes"]["membership_unknown"].values())
+
+
+def test_private_boundary_golden():
+    """Public issue reports must redact private payload fields at the publication boundary."""
+    private_issue = {
+        "number": 987654321,
+        "title": "TITLE_CANARY",
+        "body": "BODY_CANARY",
+        "labels": [{"name": "LABEL_CANARY"}],
+        "author": "AUTHOR_CANARY",
+        "url": "URL_CANARY",
+    }
+    actual = summarize([private_issue], 1, repo=PRIVATE)
+    expected = {
+        "key": "infra-private",
+        "visibility": "private",
+        "coverage": "incomplete",
+        "incomplete_codes": ["membership_registry_absent"],
+        "open_total": 1,
+        "evaluated_total": 1,
+        "root_exempt_total": 0,
+        "lanes": {
+            key: {
+                "open": int(key == "membership_unknown"),
+                "missing_dor": int(key == "membership_unknown"),
+                "missing_dod": int(key == "membership_unknown"),
+                "malformed_dod": 0,
+                "missing_epic": None,
+                "pending_native_link": None,
+            }
+            for key in ("unassigned", "ambiguous", "membership_unknown")
+        },
+    }
+    assert actual == expected
+    serialized = json.dumps(actual)
+    assert "CANARY" not in serialized and "987654321" not in serialized and "unit/private" not in serialized
+
+
+def test_visibility_fails_closed_for_unknown_role():
+    """An unknown visibility role must not acquire access to private report fields."""
+    unknown = FleetRepo("unknown", "unit/other", "other", "public-ish")
+    assert summarize([], 0, repo=unknown)["visibility"] == "private"
+
+
+@pytest.mark.parametrize(
+    "mutate,code",
+    [
+        (lambda r: r.update(membership_complete=False), "membership_audit_incomplete"),
+        (lambda r: r.update(generated_at=0), "membership_audit_stale"),
+        (lambda r: r.update(open_total=2), "membership_audit_incomplete"),
+    ],
+)
+def test_audit_incompleteness_never_reports_zero_membership(mutate, code):
+    """An incomplete audit must not turn missing membership evidence into a zero count."""
+    membership = audit_report(native=[123])
+    mutate(membership)
+    result = summarize([{"number": 123, "body": COMPLETE}], 1, membership)
+    assert code in result["incomplete_codes"]
+    assert result["lanes"]["membership_unknown"]["open"] == 1
+    assert result["lanes"]["membership_unknown"]["missing_epic"] is None
+
+
+def test_pending_native_and_ambiguous():
+    """Membership reporting must distinguish pending native work from ambiguous ownership."""
+    membership = audit_report(body=[123])
+    result = summarize([{"number": 123, "body": COMPLETE}], 1, membership)
+    assert result["lanes"]["devops"]["pending_native_link"] == 1
+    membership["effective_membership"]["123"].update(
+        unique_stream=False, epics=[5703, 6943], streams=["devops", "harness"]
+    )
+    result = summarize([{"number": 123, "body": COMPLETE}], 1, membership)
+    assert result["lanes"]["ambiguous"]["missing_epic"] == 1
+
+
+def stub_collection(monkeypatch, tmp_path, *, count=1, membership=None):
+    monkeypatch.setattr(report, "product_root", lambda: tmp_path)
+    monkeypatch.setattr(report.checker, "product_root", lambda root=None: tmp_path)
+    monkeypatch.setattr(report.checker, "state_root", lambda: tmp_path)
+    monkeypatch.setattr(report.github_client, "check_output", lambda *a, **k: '[{"number":123}]')
+    monkeypatch.setattr(report, "read", lambda *a, **k: subprocess.CompletedProcess(
+        [], 0, json.dumps({"data": {"repository": {"issues": {"totalCount": count}}}}), ""
+    ))
+    monkeypatch.setattr(report.checker, "registry_for", lambda *a: REGISTRY)
+    snapshot = membership if membership is not None else audit_report(body=[123])
+    live = Mock(return_value=snapshot)
+    monkeypatch.setattr(report.checker, "live_audit", live)
+    monkeypatch.setattr(report.audit, "hygiene_warnings", Mock(side_effect=lambda *a, **k: [dict(w) for w in HYGIENE]))
+    return live
+
+
+def test_daily_report_writes_cache_consumed_by_parentless_checker(monkeypatch, tmp_path):
+    """The daily report must publish a cache that the parentless-issue checker can consume."""
+    live = stub_collection(monkeypatch, tmp_path)
+    issues, count, membership, codes = report.collect_repository(PUBLIC)
+    assert issues == [{"number": 123}] and count == 1 and codes == []
+    live.assert_called_once_with(REPO, REGISTRY, root=tmp_path)
+    report.audit.hygiene_warnings.assert_called_once_with(tmp_path, {123})
+    path = tmp_path / "batch_state/issue_stream_audit.json"
+    payload = json.loads(path.read_text())
+    assert payload["schema_version"] == 1
+    assert payload["generated_at"] == membership["generated_at"]
+    assert payload["membership_complete"] is True
+    # The Monitor serves this file: keep run_audit's milestone warnings (#10793).
+    assert payload["warnings"] == HYGIENE
+    monkeypatch.setattr(report.checker, "read_parent", lambda *a: None)
+    live.reset_mock()
+    assert report.checker.observe_membership({}, REPO, 123) == {
+        "status": "PASS", "errors": [], "pending_native_link": True,
+    }
+    live.assert_not_called()
+
+
+@pytest.mark.parametrize("count,change", [
+    (2, {}), (None, {}), (1, {"open_issue_numbers": [124]}),
+    (1, {"membership_complete": False}), (1, {"generated_at": 0}),
+])
+def test_daily_report_never_publishes_unverified_cache(monkeypatch, tmp_path, count, change):
+    """A daily report must not publish a cache whose verification has failed."""
+    stub_collection(monkeypatch, tmp_path, count=count, membership={**audit_report(body=[123]), **change})
+    report.collect_repository(PUBLIC)
+    assert not (tmp_path / "batch_state/issue_stream_audit.json").exists()
+
+
+def test_daily_report_cache_failure_is_typed_and_redacted(monkeypatch, tmp_path):
+    """Cache write failures must remain typed without leaking their private exception payloads."""
+    stub_collection(monkeypatch, tmp_path)
+
+    def fail(*a, **k):
+        raise OSError("PRIVATE_CANARY")
+
+    monkeypatch.setattr(report.checker, "write_membership_cache", fail)
+    issues, count, membership, codes = report.collect_repository(PUBLIC)
+    assert codes == ["membership_audit_cache_write_failed"]
+    result = summarize(issues, count, membership, codes)
+    assert result["coverage"] == "incomplete"
+    assert result["incomplete_codes"] == codes
+    assert "CANARY" not in json.dumps(result)
+
+
+def test_daily_report_hygiene_lookup_failure_publishes_nothing(monkeypatch, tmp_path):
+    """A failed hygiene lookup must stop publication instead of emitting an incomplete report."""
+    stub_collection(monkeypatch, tmp_path)
+    report.audit.hygiene_warnings.side_effect = ValueError("PRIVATE_CANARY")
+    issues, count, membership, codes = report.collect_repository(PUBLIC)
+    assert codes == ["membership_audit_cache_write_failed"]
+    assert not (tmp_path / "batch_state/issue_stream_audit.json").exists()
+    assert "CANARY" not in json.dumps(summarize(issues, count, membership, codes))
+
+
+def test_collection_redacts_exception_data(monkeypatch):
+    """Collection failures must not expose private exception text in the public report."""
+    def fail(*a, **k):
+        raise RuntimeError("PRIVATE_CANARY_URL/path")
+
+    monkeypatch.setattr(report.github_client, "check_output", fail)
+    monkeypatch.setattr(report, "read", fail)
+    issues, count, membership, codes = report.collect_repository(PRIVATE)
+    result = summarize(issues, count, membership, codes, PRIVATE)
+    assert "CANARY" not in json.dumps(result)
+    assert result["incomplete_codes"] == ["forge_unavailable", "membership_registry_absent"]
+
+
+def test_payload_persisted_before_publish_and_reused(tmp_path, monkeypatch):
+    """Publication retries must reuse the saved payload rather than collect a different report."""
+    calls = []
+    day = datetime.now(UTC).date().isoformat()
+
+    def build():
+        calls.append("build")
+        return {"schema": "issue-quality-report.v1", "generated_at": "fixture"}
+
+    first = report.persisted_payload(day, root=tmp_path, build=build)
+    assert (
+        report.persisted_payload(day, root=tmp_path, build=lambda: pytest.fail("retry must reuse payload"))
+        == first
+    )
+    path = tmp_path / f"batch_state/reports/issue-quality-report-{day}.json"
+    assert path.is_file() and path.read_bytes() == first
+    assert calls == ["build"]
+
+    def run(command, **kwargs):
+        assert path.read_bytes() == kwargs["input"]
+        assert command[-1] == f"issue-quality-report:{day}"
+        assert command[0] == str(expected_interpreter)
+        assert "epics" in command and "--source" in command
+        return subprocess.CompletedProcess(command, 1)
+
+    assert (
+        subprocess.run(
+            ["git", "check-ignore", "-q", "batch_state/reports/issue-quality-report-test.json"], cwd=tmp_path, check=False, timeout=30
+        ).returncode
+        == 0
+    )
+    expected_interpreter = sys.executable
+    monkeypatch.setattr(report.subprocess, "run", run)
+    assert report.publish_payload(first, day, "devops") == 1
+
+
+def test_report_cli_persists_prints_and_propagates_publish_failure(monkeypatch, capsys):
+    """The CLI must preserve its payload and return publication failure to its caller."""
+    calls = []
+    payload = b'{"schema":"issue-quality-report.v1"}\n'
+    monkeypatch.setattr(report, "persisted_payload", lambda day: calls.append(("persist", day)) or payload)
+    monkeypatch.setattr(report, "publish_payload", lambda *a: calls.append(("publish", *a)) or 1)
+    assert report.main(["--date", "2026-10-15"]) == 0
+    assert json.loads(capsys.readouterr().out)["schema"] == "issue-quality-report.v1"
+    assert report.main(["--date", "2026-10-15", "--publish", "--sender", "devops"]) == 1
+    assert calls[-2:] == [("persist", "2026-10-15"), ("publish", payload, "2026-10-15", "devops")]
+
+    def fail(*a):
+        raise RuntimeError("SECRET_EXCEPTION_CANARY")
+
+    monkeypatch.setattr(report, "persisted_payload", fail)
+    assert report.main([]) == 1
+    assert capsys.readouterr().out.strip() == "issue quality report: checker_error"
+
+
+def test_checker_error_is_incomplete(monkeypatch):
+    """A failed checker must mark the report incomplete instead of reporting healthy membership."""
+    def fail(*a, **k):
+        raise ValueError("SECRET_CANARY")
+
+    monkeypatch.setattr(report.checker, "score_body", fail)
+    result = summarize([{"number": 123}], 1, audit_report())
+    assert result["coverage"] == "incomplete"
+    assert result["evaluated_total"] == 0
+    assert result["incomplete_codes"] == ["checker_error"]
+    assert "CANARY" not in json.dumps(result)
+
+
+def test_collection_rate_limit_never_zeros(monkeypatch):
+    """Rate limiting must leave counts unknown rather than replace them with zero."""
+    def limited(*a, **k):
+        raise report.github_client.GitHubRateLimited(2000)
+
+    monkeypatch.setattr(report.github_client, "check_output", limited)
+    monkeypatch.setattr(report, "read", limited)
+    issues, count, membership, codes = report.collect_repository(PRIVATE)
+    assert issues is count is membership is None
+    assert set(codes) == {"rate_limited"}
+
+
+@pytest.mark.parametrize("body,missing,malformed", [("", 1, 0), (COMPLETE + "\n- [ ] AC-01: duplicate", 0, 1)])
+def test_registered_roots_still_count_dor_and_dod(body, missing, malformed):
+    """Registered stream roots must still contribute to readiness and completion counts."""
+    membership = audit_report()
+    result = summarize([{"number": 5703, "body": body}], 1, membership)
+    assert result["evaluated_total"] == 1
+    assert result["root_exempt_total"] == 1
+    assert result["lanes"]["devops"] == {
+        "open": 1, "missing_dor": missing, "missing_dod": missing,
+        "malformed_dod": malformed, "missing_epic": 0, "pending_native_link": 0,
+    }
+
+
+@pytest.mark.parametrize("day", ["2000-01-01", "9999-01-01"])
+def test_other_day_without_saved_payload_refuses_current_snapshot(tmp_path, day):
+    """A historical report without a saved payload must not substitute today's snapshot."""
+    with pytest.raises(ValueError, match="only today's report can be prepared"):
+        report.persisted_payload(day, root=tmp_path, build=lambda: pytest.fail("must not fetch today's snapshot"))
+    assert list((tmp_path / "batch_state/reports").iterdir()) == []
+
+
+def test_payload_staging_is_atomic_on_destination_filesystem(tmp_path, monkeypatch):
+    """Payload staging must keep atomic replacement on the destination filesystem."""
+    day = datetime.now(UTC).date().isoformat()
+    link = report.os.link
+    calls = []
+
+    def publish(source, destination):
+        assert source.parent == destination.parent
+        assert json.loads(source.read_bytes()) == {"complete": True}
+        assert source.stat().st_mode & 0o777 == 0o600
+        assert not destination.exists()
+        calls.append(destination)
+        link(source, destination)
+
+    monkeypatch.setattr(report.os, "link", publish)
+    assert report.persisted_payload(day, root=tmp_path, build=lambda: {"complete": True}) == b'{\n  "complete": true\n}\n'
+    assert list((tmp_path / "batch_state/reports").iterdir()) == calls
+
+
+def test_concurrent_payload_winner_is_kept(tmp_path, monkeypatch):
+    """Concurrent report writers must preserve the payload that first won publication."""
+    day = datetime.now(UTC).date().isoformat()
+
+    def publish(source, destination):
+        destination.write_bytes(b'{"winner":true}\n')
+        raise FileExistsError
+
+    monkeypatch.setattr(report.os, "link", publish)
+    assert report.persisted_payload(day, root=tmp_path, build=lambda: {"loser": True}) == b'{"winner":true}\n'
+    assert len(list((tmp_path / "batch_state/reports").iterdir())) == 1
+
+
+def test_payload_write_failure_leaves_no_partial_report(tmp_path, monkeypatch):
+    """A failed payload write must not leave a partial report at the final path."""
+    def fail(*args):
+        raise OSError("storage failure")
+
+    monkeypatch.setattr(report.os, "fsync", fail)
+    with pytest.raises(OSError, match="storage failure"):
+        report.persisted_payload(datetime.now(UTC).date().isoformat(), root=tmp_path, build=lambda: {"partial": True})
+    assert list((tmp_path / "batch_state/reports").iterdir()) == []

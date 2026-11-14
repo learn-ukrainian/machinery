@@ -20,6 +20,16 @@
 #   Each needs the product checkout, which this repository does not hold.
 
 # [run]
+# #501: dependency-closed ports from the deferred census.
+tests/api/test_preload_closed_fitz_stream.py
+tests/dispatcher/test_admission_ports.py
+tests/orchestration/test_install_worktree_cleanup_launchd.py
+tests/orchestration/test_issue_quality_report.py
+tests/orchestration/test_unit_installers_refuse_symlinks.py
+tests/packaging/test_machinery_prepublication_gate.py
+tests/test_agent_runtime.py
+tests/test_agent_runtime_log_redaction_adapters.py
+tests/test_delegate_ownership_repository.py
 tests/test_driver_state_stop_hook.py
 tests/test_installed_shell_product_roots.py
 tests/repo_contracts/test_catalog_retirement_11327.py
