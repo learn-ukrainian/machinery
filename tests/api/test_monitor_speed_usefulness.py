@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib.metadata
 import json
 import subprocess
 
@@ -288,24 +289,32 @@ const PANELS = [{id: 'usage', label: 'Subscriptions', urls: ['/api/runtime/subsc
 
 
 def test_refresh_header_names_a_failure_and_claims_updated_only_after_success():
-    """Defect class: the header says Updated when a panel refresh failed."""
+    """Defect class: the header says Updated when a panel refresh failed, or hides the running lu-machinery release."""
+    health = TestClient(app).get("/api/health")
+    assert health.status_code == 200
+    version = health.json()["machinery_version"]
+    assert version == importlib.metadata.version("lu-machinery")
     page = machinery_path("api/dashboards/index.html").read_text()
     script = page.split("<script>", 1)[1].split("\nrefreshAll();", 1)[0]
     _node(
         _DOM
+        + f"const HEALTH = {json.dumps(health.text)};\nconst VERSION = {json.dumps(version)};\n"
         + r"""
 const realSetTimeout = setTimeout;
 setTimeout = (fn, ms, ...args) => ms === 1500 || ms === 3000 ? 0 : realSetTimeout(fn, ms, ...args);
 let failSubscriptions = true;
 globalThis.fetch = async (url) => {
   const refused = failSubscriptions && String(url).includes('/api/runtime/subscriptions');
-  return {ok: !refused, status: refused ? 503 : 200, text: async () => '{}', headers: {get: name => ({'X-Snapshot-Age-S': '2', 'X-Snapshot-Stale-After-S': '60', 'X-Snapshot-State': 'fresh'}[name] ?? null)}};
+  const body = String(url) === '/api/health' ? HEALTH : '{}';
+  return {ok: !refused, status: refused ? 503 : 200, text: async () => body, headers: {get: name => ({'X-Snapshot-Age-S': '2', 'X-Snapshot-Stale-After-S': '60', 'X-Snapshot-State': 'fresh'}[name] ?? null)}};
 };
 """
         + script
         + r"""
 (async () => {
   await refreshAll();
+  assert.equal(document.getElementById('machinery-version').innerHTML,
+    `<a href="https://github.com/learn-ukrainian/machinery/blob/main/CHANGELOG.md#v${VERSION}" title="What changed in this release">lu-machinery ${VERSION}</a>`);
   const status = document.getElementById('last-refresh');
   const retry = document.getElementById('refresh-retry');
   assert.match(status.textContent, /^Couldn't refresh, last attempt \d{2}:\d{2}:\d{2} UTC$/);

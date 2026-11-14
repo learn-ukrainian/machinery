@@ -49,6 +49,32 @@ was built from, and the SHA-256 of its wheel. The annotated tag `v<version>`
 points at that commit. Each version is built once. A defect in a published
 release is fixed by a new version, never by rebuilding or replacing assets.
 
+## Changelog
+
+`CHANGELOG.md` at the repository root follows
+[Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/). It has one
+section per release and an `Unreleased` section on top. Each entry is one
+plain-English line saying what changed for the operator or the fleet, under
+Added, Changed, Fixed, Removed or Security, and ends with its PR link.
+Monitor UI changes are named as such.
+
+The release worker is the only writer. Worker PRs do not edit
+`CHANGELOG.md`. The release PR, the one that sets the new version in
+`pyproject.toml`, also writes the changelog:
+
+1. List every PR since the last tag:
+   `git log --first-parent --format='%s' "$(git describe --tags --abbrev=0 origin/main)..origin/main"`,
+   and read each PR's title and body with `gh pr view`.
+2. Write their entries under `Unreleased`, leaving out the release PR itself
+   and changes nobody outside the repository's tests and CI notices.
+3. Move them into a new `## [$V] - YYYY-MM-DD` section (the UTC release
+   date) with the `<a id="v$V"></a>` anchor line above it, leave
+   `Unreleased` empty, and add the `[$V]` compare link at the bottom
+   (`compare/v<previous>...v$V`; `Unreleased` compares `v$V...HEAD`).
+
+The `/machinery` page links the installed version to
+`CHANGELOG.md#v<version>` on `main`, so the anchor line is required.
+
 ## What a release holds
 
 - One wheel and one sdist, built once from the tagged commit.
@@ -208,7 +234,10 @@ From the `main` commit identified above, with `$V` the version in
    acceptance.
 
 4. Tag and publish. Push the annotated tag `v$V` on `$SHA`, then create the
-   release with all three assets in one call. The installed publisher resolves
+   release with all three assets in one call. `$NOTES` starts with the
+   release's `CHANGELOG.md` section (its heading and entries). The build
+   commit, CI evidence and the Identity (`SHA256SUMS` and consumer lock) and
+   Acceptance sections follow it unchanged. The installed publisher resolves
    its repository context from the environment, so set
    `LEARN_UKRAINIAN_PRIMARY_REPO_ROOT` to the absolute primary git checkout
    that holds `batch_state/`; without it the command refuses:

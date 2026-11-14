@@ -82,6 +82,7 @@
 <header>
   <div class="title">
     <h1>Machinery</h1>
+    <span class="muted" id="machinery-version"></span>
     <p class="purpose">Which subscription is near its limit, when it resets, and whether anything is signed out.</p>
   </div>
   <nav class="sites" aria-label="Sites"><a href="/">Learn Ukrainian</a><a href="http://localhost:8768/">KubeDojo</a></nav>
@@ -853,8 +854,21 @@ async function retryPanel(id) {
   showRefresh();
 }
 
+// The installed lu-machinery release, linked to its section of the changelog.
+const CHANGELOG_URL = "https://github.com/learn-ukrainian/machinery/blob/main/CHANGELOG.md";
+function renderVersion(version) {
+  if (typeof version !== "string" || !/^\d+(\.\d+)*[0-9A-Za-z.+!-]*$/.test(version)) return "lu-machinery version unknown";
+  return `<a href="${CHANGELOG_URL}#v${encodeURIComponent(version)}" title="What changed in this release">lu-machinery ${escapeHtml(version)}</a>`;
+}
+
+async function loadVersion() {
+  let version = null;
+  try { version = (await fetchJson("/api/health")).data.machinery_version; } catch { /* shown as unknown */ }
+  document.getElementById("machinery-version").innerHTML = renderVersion(version);
+}
+
 async function refreshAll() {
-  await Promise.all(PANELS.map(loadPanel));
+  await Promise.all([...PANELS.map(loadPanel), loadVersion()]);
   document.getElementById("chips").innerHTML = renderChips(latest);
   showRefresh();
 }
