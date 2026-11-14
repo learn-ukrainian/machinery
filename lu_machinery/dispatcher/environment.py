@@ -17,8 +17,8 @@ from lu_machinery.dispatcher import store
 from lu_machinery.dispatcher.types import TaskSpec
 
 # A worker's scratch lives at /var/tmp/<task-id>, exported as LU_TASK_SCRATCH. The worker creates it on
-# demand; settlement removes it together with the task's worktree (worker._settle_task_scratch). Tests
-# replace the base.
+# demand; settlement removes it together with the task's worktree (worker._settle_task_scratch). Inside the
+# write boundary the launcher points it under the private TMPDIR instead. Tests replace the base.
 TASK_SCRATCH_BASE = Path("/var/tmp")
 
 

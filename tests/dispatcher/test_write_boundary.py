@@ -3,6 +3,7 @@
 import hashlib
 import ipaddress
 import json
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -108,16 +109,27 @@ def test_canary_probes_the_bind_with_a_writable_tracked_file_not_a_read_only_fir
 
 def test_primary_working_tree_writes_are_denied_while_the_worktree_commits(primary):
     """Defect class: a write worker changes or adds files in the primary working tree, through a shell redirect,
-    a link from its worktree or an interpreter, while its own worktree commit must still reach the host."""
+    a link from its worktree or an interpreter, while its own worktree commit must still reach the host. Its task
+    scratch is not writable, or the deploy's copy-tool check refuses the root-owned system tool, which the user
+    namespace shows as the overflow uid (#500)."""
+    from lu_machinery.agent_deploy import sync_agent_mirror
+
     repo, worktree, _ = primary
     before = _digest(repo / "a.txt")
     script = (
         f"echo x > {repo}/a.txt; touch {repo}/new.txt; ln -s {repo}/a.txt {worktree}/link && echo x > {worktree}/link;"
         f"python3 -c \"open('{repo}/a.txt', 'a').write('x')\";"
+        f'mkdir -p "$LU_TASK_SCRATCH" && echo scratch > "$LU_TASK_SCRATCH/probe" && '
+        f'cat "$LU_TASK_SCRATCH/probe" > {worktree}/task-scratch.out;'
+        f"PATH=/usr/bin:/bin {sys.executable} -I {sync_agent_mirror.__file__} --resolve-rsync > {worktree}/copy-tool.out;"
         f"echo change > {worktree}/a.txt && git -C {worktree} commit -qam change"
     )
     code, receipt = _run(primary, script)
     assert code == 0 and receipt["status"] == "ran" and receipt["canary"]["passed"]
+    assert (worktree / "task-scratch.out").read_text() == "scratch\n"
+    system_tool = shutil.which("rsync", path="/usr/bin:/bin")
+    if system_tool is not None and Path(system_tool).resolve().stat().st_uid == 0:
+        assert (worktree / "copy-tool.out").read_text() == f"{Path(system_tool).resolve()}\n"
     assert _digest(repo / "a.txt") == before
     assert not (repo / "new.txt").exists()
     assert receipt["import"]["status"] == "imported"
