@@ -285,6 +285,8 @@ def credential_files(agent: str, env: dict[str, str]) -> list[Path]:
         candidates = [_real_agy_token()]
     elif agent == "opencode":
         candidates = [home / ".local" / "share" / "opencode" / "auth.json"]
+    elif agent == "cursor":  # the CLI's own login; an API key reaches it through the environment instead
+        candidates = [home / ".config" / "cursor" / "auth.json"]
     else:
         candidates = []
     return [path for path in candidates if path.is_file() and not path.is_symlink()]
@@ -491,12 +493,15 @@ def _private_state(checkouts: list[Path]) -> list[Path]:
     holds every task's private layers, and each checkout's private runtime state (``_CHECKOUT_PRIVATE``)."""
     from lu_machinery.common.task_store_paths import tasks_dir
 
-    candidates: list[Path] = []
+    # Configured roots are emptied where they resolve, as their own readers canonicalize them (a link or a
+    # relative FLEET_COMMS_ROOT names the same plane).
+    configured: list[Path] = []
     with contextlib.suppress(OSError, ValueError):
-        candidates.append(tasks_dir())
+        configured.append(tasks_dir())
     if os.environ.get("FLEET_COMMS_ROOT"):
-        candidates.append(Path(os.environ["FLEET_COMMS_ROOT"]))
-    candidates.append(ensure_scratch_root())
+        configured.append(Path(os.environ["FLEET_COMMS_ROOT"]))
+    configured.append(ensure_scratch_root())
+    candidates = [Path(os.path.realpath(path)) for path in configured]
     for checkout in checkouts:
         for name in _CHECKOUT_PRIVATE:
             path = checkout / name
@@ -1271,8 +1276,13 @@ class _Boundary:
             path = Path(raw)
             if path.is_symlink() or not path.is_file() or _overlaps(path, repository):
                 raise Refused("a credential file is not a regular file outside the primary")
-            credentials.append(path)
+            # Bound where it resolves: a HOME named through a link holds no mount point of its own.
+            credentials.append(Path(os.path.realpath(path)))
 
+        if _under(_interpreter_root(), _MASKED_ROOTS):
+            # Those roots stay writable inside, so a worker could move the installation's parent aside and plant
+            # its own interpreter at the fixed Sources command's path (review F1 of PR 492, F2 of PR 528).
+            raise Refused("the Sources interpreter is installed below a writable private root (/tmp, /run, /dev/shm)")
         # The run's view (decision A4). HOME's lower layer is empty but for the mount points below; the data
         # roots outside it are empty too. Restored read-only: the toolchain, the public checkouts (the primary and
         # the product) without their private runtime state, and this task's own records. The selected login stays
@@ -1299,8 +1309,8 @@ class _Boundary:
             restores.append(Path(self.args.runtime))
         if self.args.codex_auth is not None:
             restores.append(self.base / _CODEX_HOME)
-        login_copies = self._claude_login(home)
-        restores += list(login_copies)
+        login_copies, login_reads = self._claude_login(home)
+        restores += [*login_copies, *login_reads]
         masks = [*base_masks, *private]
         sockets = [path for path in _listening_socket_paths()
                    if not _hidden(path, masks, restores) and os.path.lexists(path)]
@@ -1324,7 +1334,7 @@ class _Boundary:
         ]
         for path in private:
             argv += ["--tmpfs", str(path)] if path.is_dir() else ["--ro-bind", "/dev/null", str(path)]
-        for path in own:
+        for path in (*own, *login_reads):
             argv += ["--ro-bind", str(path), str(path)]
         argv += (["--ro-bind", str(common), str(common)] if read_only else
                  ["--overlay-src", str(common), "--overlay", str(layers["git-upper"]), str(layers["git-work"]), str(common)])
@@ -1364,16 +1374,17 @@ class _Boundary:
         interpreter = sources_command()[0]
         # The emptied roots are read-only, so no worker moves a restored path's parent aside to plant files there.
         named_home = Path(os.environ.get("HOME") or Path.home()).absolute()
-        if named_home != home and _hidden(named_home, masks, restores):
-            # HOME is named through a link below an emptied root: keep that name pointing at the overlay.
+        if named_home != home and _under(named_home, [*_MASKED_ROOTS, *data]):
+            # HOME is named through a link below an emptied root: keep that name pointing at the overlay. Every
+            # bind is at a resolved path, so nothing else is mounted below the name.
             argv += ["--symlink", str(home), str(named_home)]
         emptied = [path for path in (*data, *private) if path.is_dir() and path != home and path not in restores]
         argv += [arg for path in emptied for arg in ("--remount-ro", str(path))]
         _home_lower(lower, home, argv)
-        for path, data in login_copies.items():
+        for path, content in login_copies.items():
             target = lower / path.relative_to(home)
             target.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-            _write_private(target, data, 0o600)
+            _write_private(target, content, 0o600)
         if read_only:
             (boundary / "bin").mkdir(mode=0o700)
             _write_private(boundary / "bin" / "gh", agy_sandbox._GH_SHIM.format(interpreter=interpreter).encode(), 0o500)
@@ -1448,23 +1459,25 @@ class _Boundary:
             self.receipt["closeout_request"] = self.broker.closeout_request
         return returncode
 
-    def _claude_login(self, home: Path) -> dict[Path, bytes]:
-        """The selected Claude login's guard-bound state below HOME, as the bytes its private copies hold.
+    def _claude_login(self, home: Path) -> tuple[dict[Path, bytes], list[Path]]:
+        """The selected Claude login's guard-bound state below HOME: its private copies and its read-only reads.
 
         Its user settings, legacy global config and policy caches are copied whole; its global config only as
-        the ``env`` map and account and organisation ids the launch guard binds. Nothing else of the login
-        directory, and nothing of any other login, is restored (decision A4).
+        the ``env`` map and account and organisation ids the launch guard binds. An API-key login's key helper
+        (C-2643) must be ``cat <absolute file>``: that file is the selected credential and is restored
+        read-only; any other helper form is refused, since what it reads cannot be named. Nothing else of the
+        login directory, and nothing of any other login, is restored (decision A4).
         """
         from lu_machinery.agent_runtime.env_sanitize import CLAUDE_POLICY_CACHE_NAMES
 
         if self.args.claude_login is None:
-            return {}
+            return {}, []
         login = Path(self.args.claude_login)
         if not login.is_absolute() or login.is_symlink() or not login.is_dir():
             raise Refused("--claude-login is not an absolute login directory")
         login = login.resolve(strict=True)
         if not login.is_relative_to(home) or login == home:
-            return {}  # outside HOME the login directory is not emptied
+            return {}, []  # outside HOME the login directory is not emptied
         copies: dict[Path, bytes] = {}
         for name in (*_CLAUDE_LOGIN_FILES, *CLAUDE_POLICY_CACHE_NAMES, _CLAUDE_GLOBAL_CONFIG):
             path = login / name
@@ -1487,8 +1500,19 @@ class _Boundary:
                     kept["oauthAccount"] = {key: account.get(key) for key in ("accountUuid", "organizationUuid")}
                 data = json.dumps(kept).encode()
             copies[path] = data
-        self.receipt["claude_login"] = sorted(path.name for path in copies)
-        return copies
+        reads = []
+        try:
+            helper = json.loads(copies.get(login / "settings.json", b"{}")).get("apiKeyHelper")
+        except (ValueError, AttributeError):
+            helper = None
+        if helper is not None:
+            words = shlex.split(helper) if isinstance(helper, str) else []
+            key = Path(words[1]) if len(words) == 2 and words[0] == "cat" else None
+            if key is None or not key.is_absolute() or key.is_symlink() or not key.is_file():
+                raise Refused("the selected Claude key helper is not 'cat <absolute file>'")
+            reads.append(Path(os.path.realpath(key)))
+        self.receipt["claude_login"] = {"copies": sorted(path.name for path in copies), "key_file": bool(reads)}
+        return copies, reads
 
     def _codex_home(self, credentials: list[Path]) -> Path:
         """Project the task-local CODEX_HOME into this run's private scratch and return it.
@@ -1610,11 +1634,14 @@ class _Boundary:
                         absent(child)
         for path in (*credentials, *own):
             probes.append({"op": "stat", "path": str(path), "expect_any": ["OK"]})
-        # The fixed Sources interpreter's parents below HOME come from the read-only lower layer (review F1).
+        # The fixed Sources interpreter's parents below an emptied root cannot be moved aside (review F1): HOME's
+        # come from its read-only lower layer (EXDEV), a data root's or private root's tmpfs is read-only.
         interpreter = _interpreter_root()
-        if interpreter.is_relative_to(home) and interpreter != home:
-            top = home / interpreter.relative_to(home).parts[0]
-            probes.append({"op": "rename", "path": str(top), "expect_any": ["EXDEV", "EBUSY"]})
+        for root in (home, *data, *(path for path in private if path.is_dir())):
+            if interpreter.is_relative_to(root) and interpreter != root:
+                top = root / interpreter.relative_to(root).parts[0]
+                probes.append({"op": "rename", "path": str(top), "expect_any": ["EXDEV", "EROFS", "EBUSY"]})
+                break
         for path in private:
             if path.is_dir():
                 probes.append({"op": "create", "path": str(path / f".write-boundary-canary-{nonce}"),

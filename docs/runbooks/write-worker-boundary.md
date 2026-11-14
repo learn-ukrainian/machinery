@@ -68,7 +68,11 @@ One bubblewrap invocation per launch, built in full by the launcher:
   selected Claude login's state that its launch guard binds (#10619) is projected as private copies
   into the lower layer, so the CLI may rewrite them in the discarded upper layer: `settings.json`, the
   legacy `.config.json`, the policy caches, and `.claude.json` reduced to its `env` map and account
-  and organisation ids. No other provider configuration is restored: Codex runs on its task-local
+  and organisation ids. An API-key login's key helper must be `cat <absolute file>`: that file is its
+  selected credential and is restored read-only, and any other helper form refuses the run. Cursor's own
+  login file is a writable bind like the others. Every selected path is bound where it resolves, and a
+  HOME named through a link below an emptied root stays a link to the overlay. No other provider
+  configuration is restored: Codex runs on its task-local
   `CODEX_HOME`, and no other account's or provider's login, no transcript, history or plugin and no
   private folder of HOME exists inside.
 - The data roots outside HOME are empty read-only tmpfs mounts: `/home` (other users), `/root`,
@@ -84,7 +88,8 @@ One bubblewrap invocation per launch, built in full by the launcher:
   `.agent`, `.secrets`, `.runtime`, `.deploy-state`, `.pids`, `.codex`, `.gemini`, `.mcp`, `.env`,
   `.worktrees` (other tasks' worktrees), `logs`, `docs/session-state`, `data/telemetry` and the Fleet
   databases. A checkout's `.claude` settings stay: Claude Code loads them and its launch guard binds them. So are the task store (`LU_TASKS_DIR`), the Fleet
-  Comms plane (`FLEET_COMMS_ROOT`) and the scratch root, wherever they live. Restored on top: the run's own
+  Comms plane (`FLEET_COMMS_ROOT`) and the scratch root, wherever they resolve (a link or a relative
+  name empties its target). Restored on top: the run's own
   worktree and scratch and the task's own records, `<task>.rules-core`, `<task>.launch-prompt`,
   `<task>.inputs` (inputs a driver stages for the worker) and Codex's `.codex-schemas/<task>.json`.
   Claude's and Cursor's file tools get the same grants (`--add-dir`): the shared skills and
@@ -115,8 +120,9 @@ that the other providers' logins and every hidden entry found by walking HOME, e
 directory and the data roots through the restored paths' parents are absent (`ENOENT`, at most 1000
 paths, existence only), that each emptied private file reads nothing, that emptied directories refuse
 writes, that the selected login and the task's own records are present and that the Sources
-interpreter's top HOME directory cannot be renamed. The launcher compares every outcome before it
-lets the provider start.
+interpreter's top directory below HOME or an emptied root cannot be renamed. The launcher refuses a
+Sources interpreter installed below `/tmp`, `/run` or `/dev/shm`, which stay writable inside. The
+launcher compares every outcome before it lets the provider start.
 
 The receipt `<task>.write-boundary.json` beside the task record holds the bwrap path, the argv digest,
 every canary outcome, the egress destinations, the provider's exit status and the import result.
