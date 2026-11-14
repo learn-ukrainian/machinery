@@ -26,6 +26,10 @@ the same GitHub domain and address refusal rules, without nesting two boundaries
 Both paths withhold the host's GitHub login and refuse direct GitHub egress. The existing read-only
 `gh` relay admits `pr view`, `pr diff`, `pr checks`, `issue view` and `run view`; arbitrary `gh api`
 requests, including repository permission queries, are refused. Named reads also use `github-read`.
+The host login reads only a registered repository with a `public-` role in `config/fleet_repos.yaml`
+(decision A6): the relay resolves the repository on the host (`--repo`/`-R`, else the worktree's
+`origin`) and refuses a private, unknown or unresolved one before `gh` runs; the argv it runs names that
+repository first, so `gh` never chooses one itself. A bare `--` is refused.
 The broker binds authority to the launch's mode and refuses every other verb for a read-only seat,
 including `push`, `pr-create`, `pr-edit`, `pr-comment`, `pr-merge` and `record-verdict`.
 
@@ -52,17 +56,35 @@ One bubblewrap invocation per launch, built in full by the launcher:
   Declared shared resource directories under those roots are restored read-only; their siblings stay hidden.
   Every listening host Unix socket exposed by those mounts, or elsewhere, found in `/proc/net/unix` at launch is covered with
   `/dev/null`. `/dev` and `/proc` are fresh.
-- HOME is an overlay. The CLIs see their configuration and state; what they write lands in a private
-  upper directory that is deleted after the run. The provider's credential file (Claude
-  `.credentials.json`, Codex `auth.json`, the AGY token, OpenCode `auth.json`) is a writable bind, so
-  a token refresh is not lost.
+- HOME is an overlay whose lower layer is empty (decision A4): no file of the real HOME is visible
+  unless it is restored below. What the CLIs write lands in a private upper directory that is deleted
+  after the run. The lower layer holds only the directories of the restored paths, so the overlay
+  refuses to rename them (`EXDEV`) and no worker moves a restored path's parent aside to plant files.
+  Restored read-only: the toolchain (`~/.local/bin`, `~/.local/lib`, `~/.local/share/claude`,
+  `~/.local/share/cursor-agent`, `~/.local/share/uv/python`, `~/.local/share/uv/tools`, every `PATH`
+  directory under HOME), the launcher's own interpreter, virtual environment and package, and the
+  public checkouts below. The selected provider's credential file (Claude `.credentials.json`, Codex
+  `auth.json`, the AGY token, OpenCode `auth.json`) is a writable bind, so a token refresh is kept. No
+  other provider configuration is restored: each CLI starts from a fresh configuration directory, and
+  no other account's or provider's login, no transcript and no private folder of HOME exists inside.
+- The data roots outside HOME are empty read-only tmpfs mounts: `/home` (other users), `/root`,
+  `/srv`, `/mnt`, `/media`, `/opt` and `/var/tmp`, which holds every task's scratch. Each
+  `/opt/<package>` that an executable on the provider's `PATH` resolves into (a Node install, for
+  example) is restored read-only.
 - The primary checkout is a read-only bind. Its `.git` is an overlay with a private upper directory,
   so commits, fetches and pushes work, while the host's objects, refs and metadata never change. The
   primary's `HEAD`, `index`, `config`, `packed-refs`, `hooks` and its checked-out branch ref are also
   read-only binds inside, and so is the worktree's `.git` link file.
-- Shared state under HOME is read-only rather than overlaid, so a write there fails instead of
-  vanishing with the overlay: the product checkout, the task store (`LU_TASKS_DIR`) and the Fleet
-  Comms plane (`FLEET_COMMS_ROOT`).
+- Public checkouts: the primary and the product checkout are read-only binds, so a write there fails
+  instead of vanishing with the overlay. Their private runtime state is emptied inside: `batch_state`,
+  `.agent`, `.secrets`, `.runtime`, `.deploy-state`, `.pids`, `.codex`, `.gemini`, `.mcp`, `.env`,
+  `.worktrees` (other tasks' worktrees), `logs`, `docs/session-state`, `data/telemetry`,
+  `.claude/settings.local.json` and the Fleet databases. So are the task store (`LU_TASKS_DIR`), the Fleet
+  Comms plane (`FLEET_COMMS_ROOT`) and the scratch root, wherever they live. Restored on top: the run's own
+  worktree and scratch and the task's own records, `<task>.rules-core`, `<task>.launch-prompt`,
+  `<task>.inputs` (inputs a driver stages for the worker) and Codex's `.codex-schemas/<task>.json`.
+  Claude's and Cursor's file tools get the same grants (`--add-dir`): the shared skills and
+  `<task>.inputs`.
 - Writable: the task worktree, a private `TMPDIR` (also `LU_SCRATCH_ROOT` and `XDG_RUNTIME_DIR`) and
   the declared outputs (the final-message file and AGY's write log).
 - Network: only the CONNECT-only egress proxy of the formal review attempts (`attempt_network`),
@@ -84,8 +106,13 @@ user owns and may write, because the kernel checks file permissions before the r
 read-only file would give `EACCES` whatever the mount; a primary with no such file refuses the run; each protected Git file is read-only and
 cannot be renamed or unlinked (`EBUSY`); the worktree `.git` link is read-only; the worktree, the Git
 overlay, HOME's overlay and `TMPDIR` take a create-write-rename-delete cycle; declared outputs open for
-writing; loopback ports 22, 8765 and 8766 refuse; every masked socket refuses. The launcher compares
-every outcome before it lets the provider start.
+writing; loopback ports 22, 8765 and 8766 refuse; every masked socket refuses. For the view it checks
+that the other providers' logins and every hidden entry found by walking HOME, each emptied private
+directory and the data roots through the restored paths' parents are absent (`ENOENT`, at most 1000
+paths, existence only), that each emptied private file reads nothing, that emptied directories refuse
+writes, that the selected login and the task's own records are present and that the Sources
+interpreter's top HOME directory cannot be renamed. The launcher compares every outcome before it
+lets the provider start.
 
 The receipt `<task>.write-boundary.json` beside the task record holds the bwrap path, the argv digest,
 every canary outcome, the egress destinations, the provider's exit status and the import result.
@@ -258,6 +285,10 @@ Texts arrive as JSON strings, and the host writes them to the run's private scra
   `commits`, `commit`, `comments`, `reviews`, `timeline`, `issue`, `checks`, `check-annotations`,
   `run`, `jobs`). It reads only the primary's own repository and never security alerts.
 
+Every GitHub verb acts only on a primary whose origin is a registered repository with a `public-` role
+(decision A6). A worker reaches the public internet, so the host login neither reads nor publishes for it
+in a private, unknown or unresolved repository; such a primary's verbs are refused.
+
 Sources goes through the read-only AGY boundary's `SourcesRelay` (read-only tools only). The launcher
 binds its own directory read-only at `/run/lu-write-boundary`, so its byte proxy and the relay socket sit at
 fixed paths, `/run/lu-write-boundary/sources-stdio.py` and `/run/lu-write-boundary/sources.sock`, and the
@@ -294,6 +325,14 @@ optional: without the relay the server fails to start and the run goes on.
   deletes a branch or rewrites the published one is refused.
 - The product's tracked `scripts.publish` copy forwards only once it runs this package's publisher.
 - Fleet messages can be sent but not received or acknowledged inside.
+- Decision A4 changes what a worker sees. It no longer reads the real provider configuration (user
+  settings, plugins, session history), other tasks' records (stage a brief's inputs in
+  `<task>.inputs`), private data roots such as `LU_SENSE_PROOF_DIR`, or driver files under `/var/tmp`.
+  A worker in a private repository can still work in its checkout, but every GitHub verb refuses it
+  (decision A6, with no per-task exception).
+- The emptied checkout state is a named list, not every ignored path: an ignored private file a
+  checkout keeps outside those names stays readable. Read-only AGY keeps its own boundary
+  (`agy_sandbox`), which still binds the whole task store.
 - A Unix socket that a host service first creates after launch, outside `/tmp`, `/run` and `/dev/shm`,
   is not masked. No such service is known on the fleet host.
 - Unpushed commits of a run whose launcher is killed with `SIGKILL` (not `SIGTERM`) stay in the

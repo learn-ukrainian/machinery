@@ -80,6 +80,10 @@ def _attempt(op: str, path: str, port: int | None, store: str | None = None) -> 
             os.chmod(path, os.stat(path).st_mode & 0o7777)
         elif op == "stat":
             os.stat(path)
+        elif op == "read_byte":
+            # An emptied file reads as EMPTY; the probe never returns what it read.
+            with open(path, "rb") as handle:
+                return "OK" if handle.read(1) else "EMPTY"
         elif op == "scratch_cycle":
             # Positive control: the private scratch must take a create, write, rename and delete.
             moved = path + ".moved"

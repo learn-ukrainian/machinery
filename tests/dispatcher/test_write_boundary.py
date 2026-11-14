@@ -3,6 +3,7 @@
 import hashlib
 import ipaddress
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -39,6 +40,10 @@ def primary(tmp_path, monkeypatch):
     monkeypatch.setenv("LU_SCRATCH_ROOT", str(tmp_path / "scratch"))
     # GitHub's published address ranges, which the launcher reads with the host login in production.
     monkeypatch.setattr(write_boundary, "github_networks", lambda: (ipaddress.ip_network(_GITHUB_RANGE),))
+    # The test's own scripts and fixtures live below its temporary root, which may be a data root the view
+    # empties (/var/tmp): keep that one root visible, every other data root stays emptied.
+    monkeypatch.setattr(write_boundary, "_DATA_ROOTS",
+                        tuple(root for root in write_boundary._DATA_ROOTS if not tmp_path.resolve().is_relative_to(root)))
     return repo, worktree, tmp_path / "receipt.json"
 
 
@@ -407,24 +412,41 @@ open(sys.argv[1], "w").write(json.dumps(results))
 
 
 def test_declared_resources_in_masked_roots_stay_read_only_without_host_socket_access(primary, monkeypatch, tmp_path):
-    """Defect class: private tmpfs hides declared resources, or restoring them exposes host sockets/writes."""
+    """Defect class: private tmpfs hides declared resources, or restoring them exposes host sockets/writes; or the
+    view restores more than decision A4 allows, so a worker reads another provider's login, the operator's private
+    state, another task's records or a checkout's secrets, and sends them out over its public egress; or it hides
+    what the worker needs (the selected login, the toolchain, its own staged inputs)."""
     import socket
 
     from lu_machinery.dispatcher import runtime_context
 
-    _, worktree, receipt = primary
+    repo, worktree, receipt = primary
+    home = Path(os.environ["HOME"])
+    for relative, text in ((".codex/auth.json", "other login"), ("ops-state/notes", "private"),
+                           (".claude/projects/other.jsonl", "transcript"), (".claude/.credentials.json", "selected"),
+                           (".local/bin/tool", "toolchain")):
+        (home / relative).parent.mkdir(parents=True, exist_ok=True)
+        (home / relative).write_text(text)
+    tasks = repo / "batch_state" / "tasks"
+    (tasks / "wb-test.inputs").mkdir(parents=True)
+    (tasks / "wb-test.inputs" / "brief.md").write_text("own input")
+    (tasks / "other-task.result").write_text("another task")
+    (repo / ".secrets").mkdir()
+    (repo / ".secrets" / "key").write_text("secret")
+    monkeypatch.setenv("LU_TASKS_DIR", str(tasks))
+    monkeypatch.setattr(write_boundary, "_HOME_TOOLCHAIN", (".local/bin",))
     masked = tmp_path.parent / ("ro-" + hashlib.sha256(str(tmp_path).encode()).hexdigest()[:8])
     shared = masked / "shared"
     shared.mkdir(parents=True)
     (shared / "resource").write_text("declared")
     (masked / "hidden").write_text("sibling")
     monkeypatch.setattr(write_boundary, "_MASKED_ROOTS", (*write_boundary._MASKED_ROOTS, masked))
-    monkeypatch.setattr(runtime_context, "read_roots", lambda: [shared])
+    monkeypatch.setattr(runtime_context, "shared_root", lambda: shared)
     client = tmp_path / "resource-probe.py"
     client.write_text("""
-import json, socket, sys
+import json, os, socket, sys
 from pathlib import Path
-shared, masked, report = map(Path, sys.argv[1:])
+shared, masked, report = map(Path, sys.argv[1:4])
 assert (shared / "resource").read_text() == "declared"
 assert not (masked / "hidden").exists()
 try:
@@ -440,6 +462,14 @@ with socket.socket(socket.AF_UNIX) as connection:
         pass
     else:
         raise AssertionError("host socket reachable")
+home, repo = Path(os.environ["HOME"]), Path(sys.argv[4])
+view = {relative: (home / relative).exists() for relative in (
+    ".codex/auth.json", "ops-state", ".claude/projects", ".claude/.credentials.json", ".local/bin/tool")}
+view.update({relative: (repo / relative).exists() for relative in (
+    "batch_state/tasks/other-task.result", ".secrets/key", "batch_state/tasks/wb-test.inputs/brief.md", "a.txt")})
+assert view == {".codex/auth.json": False, "ops-state": False, ".claude/projects": False,
+                ".claude/.credentials.json": True, ".local/bin/tool": True, "batch_state/tasks/other-task.result": False,
+                ".secrets/key": False, "batch_state/tasks/wb-test.inputs/brief.md": True, "a.txt": True}, view
 report.write_text("resources-readable-writes-and-sockets-denied")
 """)
     report = tmp_path / "resource-result"
@@ -448,12 +478,18 @@ report.write_text("resources-readable-writes-and-sockets-denied")
         listener.listen()
         code = write_boundary.main([
             "--task-id", "wb-test", "--worktree", str(worktree), "--scratch", str(write_boundary.scratch("wb-test")),
-            "--receipt", str(receipt), "--mode", "read-only", "--output", str(report), "--", sys.executable, "-I",
-            str(client), str(shared), str(masked), str(report),
+            "--receipt", str(receipt), "--mode", "read-only", "--output", str(report),
+            "--credential", str(home / ".claude/.credentials.json"), "--", sys.executable, "-I",
+            str(client), str(shared), str(masked), str(report), str(repo),
         ])
-    assert code == 0, json.loads(receipt.read_text())
+    evidence = json.loads(receipt.read_text())
+    assert code == 0, evidence
     assert report.read_text() == "resources-readable-writes-and-sockets-denied"
     assert (shared / "resource").read_text() == "declared"
+    # The canary itself checked the hidden paths for absence before the provider started.
+    absent = {probe["path"] for probe in evidence["canary"]["probes"] if probe["expect_any"] == ["ENOENT"]}
+    assert {str(home / ".codex/auth.json"), str(home / "ops-state"), str(home / ".claude/projects"),
+            str(tasks / "other-task.result"), str(repo / ".secrets/key")} <= absent, sorted(absent)
 
 
 @pytest.fixture
@@ -640,19 +676,30 @@ _FORWARDED = {
 }
 
 
-@pytest.mark.parametrize("target", ["own", "foreign"])
+@pytest.mark.parametrize("target", ["own", "foreign", "private"])
 @pytest.mark.parametrize("operation", sorted(_FORWARDED))
 def test_skill_publish_commands_reach_the_broker_for_the_own_target_only(primary, tmp_path, monkeypatch, operation,
                                                                          target, push_sandbox):  # noqa: F811
     """Defect class: inside the boundary the commands the skills name (git push, the publisher's PR verbs) do not
     reach the broker, so every worker is stuck at its first publish; or they reach it aimed at another branch or PR
-    and the broker publishes there (or silently on the worker's own branch instead) rather than refusing."""
+    and the broker publishes there (or silently on the worker's own branch instead) rather than refusing; or the
+    primary is a registered private repository and the host login still acts on it for a worker that reaches the
+    public internet (decision A6)."""
     import sys
+
+    from lu_machinery.dispatcher import agy_sandbox
+    from lu_machinery.orchestration.fleet_repos import load_fleet_repos
 
     repo, worktree, receipt = primary
     monkeypatch.setenv("LEARN_UKRAINIAN_PRIMARY_REPO_ROOT", str(push_sandbox.root))
     monkeypatch.setattr(write_boundary, "machinery_path", lambda relative: push_sandbox.root / "lu_machinery" / relative)
-    _git(repo, "remote", "add", "origin", "https://github.com/owner/repo.git")
+    slug = "owner/repo"
+    if target == "private":  # the registry's own private entry, checked by the real eligibility rule
+        slug = next(item.github for item in load_fleet_repos().values() if item.role.startswith("private-"))
+        assert not agy_sandbox.public_repository(slug)
+    else:
+        monkeypatch.setattr(agy_sandbox, "public_repository", lambda name: name == "owner/repo")
+    _git(repo, "remote", "add", "origin", f"https://github.com/{slug}.git")
     tip = _git(worktree, "rev-parse", "HEAD")
     remote = tmp_path / "broker-remote.git"
     _git(tmp_path, "init", "-q", "--bare", str(remote))
@@ -674,6 +721,7 @@ def test_skill_publish_commands_reach_the_broker_for_the_own_target_only(primary
         argv) or {"returncode": 0, "stdout": "published\n", "stderr": ""})
     body = tmp_path / "body.md"
     body.write_text("Body\n")
+    # A private primary gets the own-target command: only the repository's eligibility refuses it.
     command = _FORWARDED[operation][target == "foreign"].format(py=sys.executable, body=body, tip=tip)
     code = write_boundary.main([
         "--task-id", "wb-test", "--worktree", str(worktree), "--scratch", str(write_boundary.scratch("wb-test")),
@@ -694,3 +742,5 @@ def test_skill_publish_commands_reach_the_broker_for_the_own_target_only(primary
     else:
         assert exit_code != 0 and requests == [(operation, 2)] and "refused" in output, output
         assert steps == [] and remote_refs == ""
+        if target == "private":
+            assert "not a registered public repository" in result["broker"][0]["refused"], result["broker"]

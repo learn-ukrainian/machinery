@@ -869,49 +869,123 @@ def _link_interpreter(worktree: Path) -> bool:
     return True
 
 
+def public_repository(slug: str) -> bool:
+    """Whether ``slug`` is a registered fleet repository whose role is public (decision A6).
+
+    Registration alone is not eligibility: the registry also lists private repositories. A worker's network
+    reaches the public internet, so the host login reads or publishes for it only in a registered repository
+    with a ``public-`` role; a private, unknown or unreadable selection is refused. The default repository
+    keeps its configured GitHub name (#12681).
+    """
+    from lu_machinery.common.repo_root import configured_github_slug
+    from lu_machinery.orchestration.fleet_repos import FleetRepoError, load_fleet_repos
+
+    if not (isinstance(slug, str) and _GH_REPO.fullmatch(slug)):
+        return False
+    try:
+        repos = load_fleet_repos()
+        configured = configured_github_slug()
+    except (FleetRepoError, OSError, ValueError):
+        return False
+    names = set()
+    for repo in repos.values():
+        if repo.role.startswith("public-"):
+            names.add(repo.github.casefold())
+            if repo.default and configured:
+                names.add(configured.casefold())
+    return slug.casefold() in names
+
+
+def origin_repository(checkout: Path) -> str | None:
+    """The ``OWNER/REPO`` of ``checkout``'s ``origin`` on github.com, read on the host, or None."""
+    try:
+        url = subprocess.run(  # fixed argv: the host's Git, no user or system configuration
+            ["git", "-C", str(checkout), "config", "--get", "remote.origin.url"], capture_output=True, text=True,
+            timeout=30, check=False, stdin=subprocess.DEVNULL,
+            env={"PATH": os.defpath, "HOME": "/", "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": os.devnull},
+        ).stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        return None
+    match = re.fullmatch(r"(?:https://github\.com/|git@github\.com:|ssh://git@github\.com/)"
+                         r"([A-Za-z0-9][A-Za-z0-9-]{0,38}/[A-Za-z0-9._-]{1,100}?)(?:\.git)?/?", url)
+    return match.group(1) if match else None
+
+
 def gh_refusal(argv) -> str | None:
     """Why the boundary's ``gh`` relay refuses ``argv``, or None for one of the route's read-only forms."""
+    return _gh_parse(argv)[0]
+
+
+def gh_selection(argv, checkout: Path) -> tuple[list[str] | None, str]:
+    """The argv the host's ``gh`` runs for ``argv`` and its repository, or None and the refusal (decision A6).
+
+    The repository is the one ``--repo``/``-R`` names, else ``checkout``'s origin, resolved here on the host. It
+    must be a registered public repository. The argv the host runs names it first, right after the subcommand,
+    so gh never picks a repository of its own from Git remotes or its default-repository setting, and any
+    later ``--repo`` gh reads (it keeps the last one) is the same repository.
+    """
+    refusal, named = _gh_parse(argv)
+    if refusal is not None:
+        return None, refusal
+    if len({name.casefold() for name in named}) > 1:
+        return None, "the gh request names more than one repository"
+    selected = named[0] if named else origin_repository(checkout)
+    if selected is None:
+        return None, "the repository cannot be resolved; name a registered public one with --repo OWNER/REPO"
+    if not public_repository(selected):
+        return None, "only a registered public repository is read through the host's login"
+    return [argv[0], argv[1], "--repo", selected, *argv[2:]], selected
+
+
+def _gh_parse(argv) -> tuple[str | None, list[str]]:
+    """The refusal of ``argv``, or None, and every repository it names with ``--repo``/``-R``."""
     if not (isinstance(argv, list) and 2 <= len(argv) <= 64
             and all(isinstance(arg, str) and "\0" not in arg and len(arg) <= 4096 for arg in argv)):
-        return "the gh request is malformed"
+        return "the gh request is malformed", []
     if (argv[0], argv[1]) not in _GH_READS:
-        return "only gh pr view, gh pr diff, gh pr checks, gh issue view and gh run view are relayed"
+        return "only gh pr view, gh pr diff, gh pr checks, gh issue view and gh run view are relayed", []
     # gh runs on the host's network with the host's login, so nothing may choose another host: the
     # repository is the worktree's own remote or an OWNER/REPO on github.com given as ``--repo X``,
     # ``--repo=X`` or ``-R X``. A URL operand or any other repository form names another host;
     # --web/-w (also inside a cluster such as -cw) opens a browser on the host.
     if any("://" in arg for arg in argv[2:]):
-        return "a URL operand is refused; name a repository with --repo OWNER/REPO"
+        return "a URL operand is refused; name a repository with --repo OWNER/REPO", []
     expect_value = expect_repo = False
+    named: list[str] = []
     for arg in argv[2:]:
         if expect_repo:
             if not _GH_REPO.fullmatch(arg):
-                return "--repo/-R accepts only OWNER/REPO on github.com"
+                return "--repo/-R accepts only OWNER/REPO on github.com", []
+            named.append(arg)
             expect_repo = False
         elif expect_value:  # a flag's value: --json fields, a --jq or --template expression, a job id
             expect_value = False
+        elif arg == "--":  # gh would read every later argument as an operand, --repo included
+            return "a bare -- is refused", []
         elif arg.startswith("--"):
             name, equals, value = arg.partition("=")
             if name == "--repo":
                 if equals and not _GH_REPO.fullmatch(value):
-                    return "--repo/-R accepts only OWNER/REPO on github.com"
+                    return "--repo/-R accepts only OWNER/REPO on github.com", []
+                if equals:
+                    named.append(value)
                 expect_repo = not equals
             elif name.startswith(("--web", "--repo")):
-                return f"gh {name} is refused"
+                return f"gh {name} is refused", []
             else:
                 expect_value = not equals and name in _GH_VALUE_FLAGS
         elif arg.startswith("-") and len(arg) > 1:
             if arg == "-R":
                 expect_repo = True
             elif "w" in arg or "R" in arg:
-                return f"gh {arg} is refused"
+                return f"gh {arg} is refused", []
             else:
                 expect_value = len(arg) == 2 and arg in _GH_VALUE_FLAGS
         elif not _GH_OPERAND.fullmatch(arg):
-            return "an operand naming another repository or host is refused"
+            return "an operand naming another repository or host is refused", []
     if expect_repo:
-        return "--repo/-R needs an OWNER/REPO value"
-    return None
+        return "--repo/-R needs an OWNER/REPO value", []
+    return None, named
 
 
 class _GhBroker:
@@ -960,10 +1034,11 @@ class _GhBroker:
             argv = json.loads(b"".join(chunks))["argv"]
         except (ValueError, KeyError, TypeError):
             argv = None
-        refusal = gh_refusal(argv) or (None if self.gh else "gh is not installed on the host")
+        command, selected = gh_selection(argv, self.cwd)
+        refusal = (selected if command is None else None) or (None if self.gh else "gh is not installed on the host")
         reply = {"returncode": 1, "stdout": "", "stderr": f"review boundary: {refusal}\n"}
-        if refusal is None:
-            self.process = subprocess.Popen([self.gh, *argv], cwd=self.cwd, env=self.env, stdin=subprocess.DEVNULL,
+        if refusal is None and command is not None:
+            self.process = subprocess.Popen([self.gh, *command], cwd=self.cwd, env=self.env, stdin=subprocess.DEVNULL,
                                             stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             try:
                 out, err = self.process.communicate(timeout=_GH_TIMEOUT)
@@ -975,6 +1050,7 @@ class _GhBroker:
             reply = {"returncode": returncode, "stdout": out[:_MAX_LINE].decode("utf-8", "replace"),
                      "stderr": err[:_MAX_LINE].decode("utf-8", "replace")}
         self.records.append({"command": argv[:2] if isinstance(argv, list) else None, "refused": refusal,
+                             "repository": selected if command is not None else None,
                              "returncode": reply["returncode"]})
         connection.settimeout(None)
         connection.sendall(json.dumps(reply).encode())

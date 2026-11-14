@@ -22,18 +22,25 @@ Inside the boundary:
   private upper directory for write workers, so the worker can commit, fetch and push, but the host's HEAD, index,
   configuration, hooks, refs and objects never change; the primary's HEAD, index, configuration,
   ``packed-refs`` and hooks are also read-only binds inside, and so is the worktree's ``.git`` link;
-* HOME is an overlay as well, so the CLIs keep their configuration and state while nothing they write
-  outlives the run, except the provider credential files named by ``--credential``, which are
-  writable binds so a token refresh is not lost;
+* HOME is an overlay whose lower layer is empty (decision A4), so nothing the CLIs write outlives the run and
+  no file of the real HOME is visible unless restored: the toolchain (``_HOME_TOOLCHAIN`` and HOME's PATH
+  directories), this launcher's interpreter and installation, the public checkouts and the selected
+  provider credential files named by ``--credential``, which are writable binds so a token refresh is not
+  lost. No other provider's login or configuration, transcript or private folder exists inside;
+* the data roots outside HOME (``_DATA_ROOTS``: other homes, service data, mounts, ``/opt``, ``/var/tmp``)
+  are empty and read-only, but for the ``/opt`` packages the PATH resolves into. The public checkouts (the
+  primary and the product) lose their private runtime state (``_CHECKOUT_PRIVATE``), and the task store,
+  the Fleet plane and the scratch root are empty but for this run's own records and scratch;
 * a write worker's worktree, a private TMPDIR and the declared outputs (``--output``) are the only other
   writable paths. A read-only provider's worktree and Git metadata are read-only mounts, with no branch import.
 
-The task store, the Fleet Comms plane and the primary's Git state stay read-only inside, so the worker chain's
+The task store, the Fleet Comms plane and the primary's Git state are not writable inside, so the worker chain's
 host steps (start its review, record the verdict, send a Fleet message, close out after merge) go through the
 launcher's broker (``_Broker``, decision CONTAIN-BROKER-1113): one Unix socket with typed verbs whose
 identities come from the launch. The worker holds no GitHub credential and the egress proxy refuses GitHub's
 hosts, so it publishes (push, PR, comment, merge) only through the broker's publication verbs, which the host's
-own login carries out behind the existing scanned publisher and push scan (decision PUBLISH-CRED-1113).
+own login carries out behind the existing scanned publisher and push scan (decision PUBLISH-CRED-1113), and
+only for a registered repository with a public role (decision A6; so does the read-only ``gh`` relay).
 Read-only providers may use only ``github-read``; the owning worker records the review verdict after settlement.
 Sources goes through the read-only AGY boundary's ``SourcesRelay``. Its proxy and socket sit at fixed paths
 inside, so ``sources_command`` is the MCP stdio command providers name; a Codex run gets a task-local
@@ -96,6 +103,25 @@ _CANARY_TIMEOUT = 60
 _GIT_TIMEOUT = 300
 # The primary's own Git state, kept read-only inside on top of the private overlay.
 _PRIMARY_GIT_FILES = ("HEAD", "index", "config", "packed-refs", "hooks")
+# Data roots outside HOME (decision A4): other users' homes and root's, service data, mounts, removable media,
+# add-on packages and the shared persistent temporary directory, which holds every task's scratch (FHS 3.0
+# §3.8, §3.14, §3.17, §3.11, §3.12, §3.13, §5.15). Each is an empty read-only tmpfs inside; the run's own
+# paths below them are restored on top, and so is every /opt/<package> its PATH resolves into.
+_DATA_ROOTS = (Path("/home"), Path("/root"), Path("/srv"), Path("/mnt"), Path("/media"), Path("/opt"), Path("/var/tmp"))
+# HOME is an overlay whose lower layer is empty but for these toolchain locations, restored read-only: CLI entry
+# points, npm global packages and the provider CLIs' and uv's own installations (XDG base directories).
+_HOME_TOOLCHAIN = (".local/bin", ".local/lib", ".local/share/claude", ".local/share/cursor-agent",
+                   ".local/share/uv/python", ".local/share/uv/tools")
+# Private runtime state inside a restored public checkout, emptied inside: task records, agent and lease state,
+# session handoffs, telemetry, secrets and local configuration, Fleet databases, logs and other tasks'
+# worktrees. The run's own task records and worktree are restored on top.
+_CHECKOUT_PRIVATE = ("batch_state", ".agent", ".secrets", ".runtime", ".deploy-state", ".pids", ".codex", ".gemini",
+                     ".mcp", ".env", ".worktrees", "logs", "docs/session-state", "data/telemetry",
+                     ".claude/settings.local.json", "fleet_comms.db", ".fleet_comms.db", "comms.sqlite3")
+# The canary checks at most this many hidden host paths (other credentials, private state) for absence, and at
+# most the second number in one directory.
+_MAX_HIDDEN_PROBES = 1000
+_MAX_PROBES_PER_DIRECTORY = 128
 
 
 # The dispatcher's own configuration the launcher needs on the host (roots, scratch, task store, Fleet plane,
@@ -434,26 +460,113 @@ def _listening_socket_paths() -> list[Path]:
     return sorted(paths)
 
 
-def _shared_state_roots(home: Path) -> list[Path]:
-    """Shared host state under HOME that a worker must not write: the product checkout, the task store and
-    the Fleet Comms plane. Read-only binds over HOME's overlay make such a write fail instead of vanishing."""
+def _resolved(path: Path) -> Path | None:
+    with contextlib.suppress(OSError, ValueError):
+        return path.resolve(strict=True)
+    return None
+
+
+def _product_checkout() -> Path | None:
+    """The product's primary checkout, a public checkout every run reads (shared skills, project interpreter)."""
     from lu_machinery.common.repo_root import ProductRootError, product_root
+
+    with contextlib.suppress(ProductRootError, OSError, ValueError):
+        return _resolved(main_checkout_root(product_root()))
+    return None
+
+
+def _private_state(checkouts: list[Path]) -> list[Path]:
+    """Host state no worker reads (decision A4): the task store, the Fleet Comms plane, the scratch root that
+    holds every task's private layers, and each checkout's private runtime state (``_CHECKOUT_PRIVATE``)."""
     from lu_machinery.common.task_store_paths import tasks_dir
 
-    candidates = []
-    with contextlib.suppress(ProductRootError, OSError, ValueError):
-        candidates.append(main_checkout_root(product_root()))
+    candidates: list[Path] = []
     with contextlib.suppress(OSError, ValueError):
         candidates.append(tasks_dir())
     if os.environ.get("FLEET_COMMS_ROOT"):
         candidates.append(Path(os.environ["FLEET_COMMS_ROOT"]))
-    roots = []
+    candidates.append(ensure_scratch_root())
+    for checkout in checkouts:
+        for name in _CHECKOUT_PRIVATE:
+            path = checkout / name
+            if os.path.lexists(path):
+                # A link is emptied where it points, so the state is gone under either name.
+                candidates += [path] if not path.is_symlink() else []
+                candidates.append(Path(os.path.realpath(path)))
+    paths: list[Path] = []
     for path in candidates:
-        with contextlib.suppress(OSError):
-            path = path.resolve(strict=True)
-            if path.is_dir() and path.is_relative_to(home) and path != home and path not in roots:
-                roots.append(path)
-    return roots
+        if path.is_absolute() and os.path.lexists(path) and not path.is_symlink() and path not in paths:
+            paths.append(path)
+    return paths
+
+
+def _package_roots(path_env: str, executables: list[str]) -> list[Path]:
+    """Each ``/opt/<package>`` (FHS 3.0 §3.13) that an executable on ``path_env`` or in ``executables`` resolves into."""
+    names = list(executables)
+    for directory in path_env.split(os.pathsep):
+        if directory and os.path.isabs(directory):
+            with contextlib.suppress(OSError), os.scandir(directory) as entries:
+                names += [entry.path for entry in entries]
+    roots = set()
+    for name in names:
+        target = Path(os.path.realpath(name))
+        if target.is_relative_to("/opt") and len(target.parts) > 2:
+            roots.add(Path("/opt", target.parts[2]))
+    return sorted(roots)
+
+
+def _toolchain(home: Path, executable: str) -> list[Path]:
+    """Read-only restores below HOME and the data roots: the provider's toolchain and this launcher's own
+    interpreter and installation (decision A4). Nothing of a provider's configuration is one of them."""
+    path_env = os.environ.get("PATH", os.defpath)
+    candidates = [home / name for name in _HOME_TOOLCHAIN]
+    candidates += [Path(entry) for entry in path_env.split(os.pathsep) if entry and os.path.isabs(entry)]
+    candidates += _package_roots(path_env, [executable, sources_command()[0]])
+    candidates += [_interpreter_root(), Path(sys.prefix), machinery_path("dispatcher/write_boundary.py").parents[2]]
+    hidden_roots = [home, *_MASKED_ROOTS, *_DATA_ROOTS]
+    # Never a whole emptied root or a parent of HOME (a PATH entry such as /opt or /home restores nothing).
+    paths = sorted({path for candidate in candidates if (path := _resolved(candidate)) is not None
+                    and path.is_dir() and _under(path, hidden_roots) and path not in hidden_roots
+                    and not home.is_relative_to(path)})
+    return [path for path in paths if not any(path != other and path.is_relative_to(other) for other in paths)]
+
+
+def _hidden(path: Path, masks: list[Path], restores: list[Path]) -> bool:
+    """Whether ``path`` is absent or empty inside: its deepest covering mount is a mask, not a restore.
+
+    Masks come before restores in the argv, so a restore of the same path wins, and a restore's parents exist
+    inside as its mount point's directories.
+    """
+    if any(restore != path and restore.is_relative_to(path) for restore in restores):
+        return False
+    depth, hidden = -1, False
+    for root, is_mask in [*((mask, True) for mask in masks), *((restore, False) for restore in restores)]:
+        if _under(path, [root]) and (len(root.parts) > depth or (len(root.parts) == depth and not is_mask)):
+            depth, hidden = len(root.parts), is_mask
+    return hidden
+
+
+def _home_lower(lower: Path, home: Path, argv: list[str]) -> None:
+    """Create, in HOME's otherwise empty lower layer, every mount point the argv puts below HOME.
+
+    Its directories then come from the read-only lower layer, which the overlay refuses to rename (EXDEV), so a
+    worker cannot move a restored path's parent aside and plant its own files at that path (review F1).
+    """
+    for index, arg in enumerate(argv):
+        if arg in ("--bind", "--ro-bind"):
+            target, directory = Path(argv[index + 2]), Path(argv[index + 1]).is_dir()
+        elif arg == "--tmpfs":
+            target, directory = Path(argv[index + 1]), True
+        else:
+            continue
+        if target == home or not target.is_relative_to(home):
+            continue
+        path = lower / target.relative_to(home)
+        path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        if directory:
+            path.mkdir(mode=0o700, exist_ok=True)
+        elif not os.path.lexists(path):
+            _write_private(path, b"", 0o600)
 
 
 def _github_credential_variable(name: str) -> bool:
@@ -647,9 +760,16 @@ class _Broker:
     # -- launch-bound facts --------------------------------------------------------------------------------------
 
     def _repository_slug(self) -> str:
+        """The primary's origin on github.com, the only repository every GitHub verb acts on.
+
+        It must be a registered repository with a public role (decision A6): the worker reaches the public
+        internet, so the host login reads or publishes nothing of a private, unknown or unresolved one.
+        """
         url = _git(self.boundary.repository, "config", "--get", "remote.origin.url", git_dir=self.boundary.common)
         if not (match := _GITHUB_REMOTE.fullmatch(url.strip())):
             raise _BrokerRefusal("the primary's origin is not a github.com repository")
+        if not agy_sandbox.public_repository(match.group(1)):
+            raise _BrokerRefusal("the primary's origin is not a registered public repository")
         return match.group(1)
 
     def _gh_json(self, argv: list[str]) -> Any:
@@ -1142,33 +1262,59 @@ class _Boundary:
                 raise Refused("a credential file is not a regular file outside the primary")
             credentials.append(path)
 
-        shared = _shared_state_roots(home)
-        from lu_machinery.dispatcher.runtime_context import read_roots
+        # The run's view (decision A4). HOME's lower layer is empty but for the mount points below; the data
+        # roots outside it are empty too. Restored read-only: the toolchain, the public checkouts (the primary and
+        # the product) without their private runtime state, and this task's own records. The selected login stays
+        # a writable bind so a refresh is kept; no other provider configuration is restored.
+        from lu_machinery.dispatcher.runtime_context import shared_root, task_reads
 
-        # A release or its advertised resources may live below /run or /tmp. Restore only the
-        # declared read directories after the private tmpfs mounts, never their siblings.
-        projected_reads = [root for path in read_roots() if (root := path.resolve()).is_dir()
-                           and _under(root, _MASKED_ROOTS)]
+        product = _product_checkout()
+        checkouts = [repository, *([product] if product is not None and product != repository else [])]
+        toolchain = _toolchain(home, command[0])
+        data = list(dict.fromkeys(found for root in _DATA_ROOTS if (found := _resolved(root)) is not None
+                                  and found.is_dir() and found != Path("/")))
+        own = task_reads(self.args.task_id)
+        base_masks, base_restores = [*_MASKED_ROOTS, *data, home], [*toolchain, *checkouts]
+        private = [path for path in _private_state(checkouts) if not _hidden(path, base_masks, base_restores)]
+        # One emptied directory covers everything below it, including another private path there.
+        private = [path for path in private if not any(other != path and other.is_dir() and path.is_relative_to(other)
+                                                       for other in private)]
+        # A release or its advertised resources may live below /run or /tmp: restore the shared skills there,
+        # never their siblings or the rest of the task store.
+        shared = _resolved(shared_root())
+        projected_reads = [shared] if shared is not None and shared.is_dir() and _under(shared, _MASKED_ROOTS) else []
+        restores = [*base_restores, *own, self.worktree, *outputs, *credentials, tmp, boundary, *projected_reads]
+        if self.args.runtime is not None:
+            restores.append(Path(self.args.runtime))
+        if self.args.codex_auth is not None:
+            restores.append(self.base / _CODEX_HOME)
+        masks = [*base_masks, *private]
         sockets = [path for path in _listening_socket_paths()
-                   if (not _under(path, _MASKED_ROOTS) or _under(path, projected_reads)) and os.path.lexists(path)]
+                   if not _hidden(path, masks, restores) and os.path.lexists(path)]
         nonce = uuid.uuid4().hex
         probes = self._probes(repository, common, sockets, outputs, tmp, nonce)
-        for path in shared:
-            probes.append({"op": "create", "path": str(path / f".write-boundary-canary-{nonce}"), "expect_any": ["EROFS"]})
+        probes += self._view_probes(home, data, masks, restores, private, credentials, own, nonce)
         for path in projected_reads:
             probes.append({"op": "create", "path": str(path / f".write-boundary-canary-{nonce}"), "expect_any": ["EROFS"]})
         self.receipt["canary"] = {"probes_planned": len(probes), "passed": False}
+        self.receipt["view"] = {"data_roots": len(data), "toolchain": len(toolchain), "checkouts": len(checkouts),
+                                "private_masks": len(private), "own_records": len(own)}
 
+        lower = self.base / "home-lower"
+        lower.mkdir(mode=0o700)
         argv = [
             str(bwrap), "--unshare-all", "--unshare-user", "--disable-userns", "--die-with-parent", "--new-session",
             "--ro-bind", "/", "/", "--dev", "/dev", "--proc", "/proc",
-            *(arg for masked in _MASKED_ROOTS for arg in ("--tmpfs", str(masked))),
-            "--overlay-src", str(home), "--overlay", str(layers["home-upper"]), str(layers["home-work"]), str(home),
-            *(arg for path in shared for arg in ("--ro-bind", str(path), str(path))),
-            "--ro-bind", str(repository), str(repository),
-            *(["--ro-bind", str(common), str(common)] if read_only else
-              ["--overlay-src", str(common), "--overlay", str(layers["git-upper"]), str(layers["git-work"]), str(common)]),
+            *(arg for masked in (*_MASKED_ROOTS, *data) for arg in ("--tmpfs", str(masked))),
+            "--overlay-src", str(lower), "--overlay", str(layers["home-upper"]), str(layers["home-work"]), str(home),
+            *(arg for path in base_restores for arg in ("--ro-bind", str(path), str(path))),
         ]
+        for path in private:
+            argv += ["--tmpfs", str(path)] if path.is_dir() else ["--ro-bind", "/dev/null", str(path)]
+        for path in own:
+            argv += ["--ro-bind", str(path), str(path)]
+        argv += (["--ro-bind", str(common), str(common)] if read_only else
+                 ["--overlay-src", str(common), "--overlay", str(layers["git-upper"]), str(layers["git-work"]), str(common)])
         for name in self.protected:
             argv += ["--ro-bind", str(common / name), str(common / name)]
         argv += ["--ro-bind" if read_only else "--bind", str(self.worktree), str(self.worktree),
@@ -1196,15 +1342,21 @@ class _Boundary:
                      "--ro-bind", str(codex_home / "config.toml"), str(codex_home / "config.toml")]
         # No GitHub credential is readable inside (PUBLISH-CRED-1113): the host login's known stores are empty.
         for path in _github_credential_paths(home):
-            argv += ["--tmpfs", str(path)] if path.is_dir() else ["--ro-bind", "/dev/null", str(path)]
+            if not _hidden(path, masks, restores):
+                argv += ["--tmpfs", str(path)] if path.is_dir() else ["--ro-bind", "/dev/null", str(path)]
         for path in sockets:
             argv += ["--ro-bind", "/dev/null", str(path)]
         self.broker = _Broker(self, boundary / "broker.sock")
         argv += ["--ro-bind", str(boundary), _INSIDE]
         interpreter = sources_command()[0]
-        if _under(_interpreter_root(), [home]):
-            # The writable HOME layer would let a worker replace the interpreter the Sources command runs.
-            argv += ["--ro-bind", str(_interpreter_root()), str(_interpreter_root())]
+        # The emptied roots are read-only, so no worker moves a restored path's parent aside to plant files there.
+        named_home = Path(os.environ.get("HOME") or Path.home()).absolute()
+        if named_home != home and _hidden(named_home, masks, restores):
+            # HOME is named through a link below an emptied root: keep that name pointing at the overlay.
+            argv += ["--symlink", str(home), str(named_home)]
+        emptied = [path for path in (*data, *private) if path.is_dir() and path != home and path not in restores]
+        argv += [arg for path in emptied for arg in ("--remount-ro", str(path))]
+        _home_lower(lower, home, argv)
         if read_only:
             (boundary / "bin").mkdir(mode=0o700)
             _write_private(boundary / "bin" / "gh", agy_sandbox._GH_SHIM.format(interpreter=interpreter).encode(), 0o500)
@@ -1350,6 +1502,65 @@ class _Boundary:
         for masked in (runtime_dir / "bus", os.environ.get("SSH_AUTH_SOCK"), "/run/dbus/system_bus_socket"):
             if masked and os.path.lexists(masked):
                 expect("connect_unix", masked, "ENOENT")
+        return probes
+
+    def _view_probes(self, home: Path, data: list[Path], masks: list[Path], restores: list[Path], private: list[Path],
+                     credentials: list[Path], own: list[Path], nonce: str) -> list[dict]:
+        """Canary checks of the view (decision A4): hidden host paths are absent, restored ones are present.
+
+        Negative controls: the other providers' logins, each emptied private path, and every hidden entry below
+        HOME and the data roots, found by walking from them through the restored paths' parents (bounded by
+        ``_MAX_HIDDEN_PROBES``). They test existence or emptiness only and never read a file's content.
+        Positive controls: the selected login, the checkouts and this task's own records are present.
+        """
+        probes: list[dict] = []
+        seen: set[Path] = set()
+
+        def absent(path: Path) -> None:
+            if path not in seen and len(seen) < _MAX_HIDDEN_PROBES and _hidden(path, masks, restores):
+                seen.add(path)
+                probes.append({"op": "stat", "path": str(path), "expect_any": ["ENOENT"]})
+
+        others = []
+        for agent in ("claude", "codex", "agy", "opencode"):
+            with contextlib.suppress(Exception):
+                others += credential_files(agent, dict(os.environ))
+        for path in others:
+            for name in (path, Path(os.path.realpath(path))):
+                if name not in credentials:
+                    absent(name)
+        for path in private:
+            if not path.is_dir():
+                # /dev/null on a nodev mount refuses the open (EACCES); either way nothing of the file is readable.
+                probes.append({"op": "read_byte", "path": str(path), "expect_any": ["EMPTY", "EACCES"]})
+        # Breadth first from HOME, each emptied private directory and the data roots, into restored paths' parents.
+        for start in (home, *(path for path in private if path.is_dir()), *data):
+            queue = [start]
+            for directory in queue:
+                if len(queue) > 64:
+                    break
+                try:
+                    children = sorted(directory.iterdir())
+                except OSError:
+                    continue
+                for child in children[:_MAX_PROBES_PER_DIRECTORY]:
+                    if child in restores:
+                        continue
+                    if child in masks or any(restore != child and restore.is_relative_to(child) for restore in restores):
+                        queue.append(child)
+                    else:
+                        absent(child)
+        for path in (*credentials, *own):
+            probes.append({"op": "stat", "path": str(path), "expect_any": ["OK"]})
+        # The fixed Sources interpreter's parents below HOME come from the read-only lower layer (review F1).
+        interpreter = _interpreter_root()
+        if interpreter.is_relative_to(home) and interpreter != home:
+            top = home / interpreter.relative_to(home).parts[0]
+            probes.append({"op": "rename", "path": str(top), "expect_any": ["EXDEV", "EBUSY"]})
+        for path in private:
+            if path.is_dir():
+                probes.append({"op": "create", "path": str(path / f".write-boundary-canary-{nonce}"),
+                               "expect_any": ["EROFS"]})
         return probes
 
     def _report(self, descriptor: int) -> list | None:
