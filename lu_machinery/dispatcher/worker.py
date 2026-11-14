@@ -1747,7 +1747,10 @@ def supervise(path: Path, options: dict | None = None, hard_timeout: float | Non
         status = "done" if exit_code == 0 and not parsed.error and text and text.strip() else "failed"
         if exit_code < 0:
             status = "crashed"
-        if spec.mode == "read-only" and status == "failed" and not (text and text.strip()):
+        if spec.mode == "read-only" and exit_code == 0 and not (text and text.strip()) and parsed.error in {
+            None, "codex: missing completion or final text", "claude: missing final text", "cursor: missing result",
+            "agy: missing final text", "muse missing final response", "opencode missing final response",
+        }:
             status = "no_deliverable"
             record["no_deliverable_reason"] = "missing_final_message"
         # A provider failure can be answered by merged delivery only after the same integrity
