@@ -194,6 +194,66 @@ def test_pull_requests_route_hides_private_repo_titles_and_branches(monkeypatch,
         assert "secret" not in json.dumps(repo)
 
 
+def _heading_repo(*, loaded: bool) -> dict:
+    if loaded:
+        return {"isPrivate": False, "pullRequests": {"totalCount": 0, "nodes": []}}
+    return {"isPrivate": False}
+
+
+def _heading_payload(*loaded: bool) -> dict:
+    return {f"r{index}": _heading_repo(loaded=flag) for index, flag in enumerate(loaded)}
+
+
+def test_pull_request_heading_uses_loaded_repositories(monkeypatch, tmp_path: Path) -> None:
+    """Defect class: one unreadable repository marks the pull-request heading unavailable and drops the age of repositories that loaded."""
+    state_helpers.cache_invalidate()
+    app = FastAPI()
+    app.state.ctx = fixture_context(tmp_path)
+    app.include_router(git_hygiene_router.router, prefix="/api/git")
+    payload: dict = {}
+    call = {"code": 0}
+
+    def fake_run(*_args, **_kwargs):
+        return SimpleNamespace(returncode=call["code"], stdout=json.dumps({"data": payload}), stderr="")
+
+    monkeypatch.setattr(git_hygiene_router.github_client, "run", fake_run)
+    client = TestClient(app)
+
+    def heading(loaded: tuple[bool, ...]) -> tuple[object, dict]:
+        call["code"] = 0
+        payload.clear()
+        payload.update(_heading_payload(*loaded))
+        state_helpers.cache_invalidate()
+        response = client.get("/api/git/pull-requests")
+        assert response.status_code == 200
+        return response.headers, response.json()
+
+    headers, body = heading((True, True, True))
+    assert headers["X-Snapshot-State"] == "fresh"
+    assert float(headers["X-Snapshot-Age-S"]) >= 0
+    assert headers["X-Snapshot-Stale-After-S"] == "210.0"
+    assert [repo["status"] for repo in body["repositories"]] == ["ok", "ok", "ok"]
+
+    headers, body = heading((True, False, True))
+    assert headers["X-Snapshot-State"] == "stale"
+    assert float(headers["X-Snapshot-Age-S"]) >= 0
+    assert [repo["status"] for repo in body["repositories"]] == ["ok", "unknown", "ok"]
+    assert body["repositories"][1]["reason"] == "not_readable"
+
+    headers, body = heading((False, False, False))
+    assert (headers["X-Snapshot-State"], headers["X-Snapshot-Age-S"]) == ("unavailable", "unknown")
+    assert [repo["status"] for repo in body["repositories"]] == ["unknown", "unknown", "unknown"]
+
+    call["code"] = 1
+    state_helpers.cache_invalidate()
+    failed = client.get("/api/git/pull-requests")
+    assert failed.status_code == 200
+    assert (failed.headers["X-Snapshot-State"], failed.headers["X-Snapshot-Age-S"]) == ("unavailable", "unknown")
+    assert failed.json()["status"] == "unknown"
+    assert failed.json()["repositories"] == []
+    state_helpers.cache_invalidate()
+
+
 def test_pull_requests_route_reports_unknown_when_github_fails(monkeypatch, tmp_path: Path) -> None:
     """Defect class: a failed or malformed GitHub read renders as "no open PRs" or crashes the route."""
     _graphql_result(monkeypatch, 1, '{"error": "github_rate_limited"}')
