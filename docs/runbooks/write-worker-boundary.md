@@ -64,9 +64,13 @@ One bubblewrap invocation per launch, built in full by the launcher:
   `~/.local/share/cursor-agent`, `~/.local/share/uv/python`, `~/.local/share/uv/tools`, every `PATH`
   directory under HOME), the launcher's own interpreter, virtual environment and package, and the
   public checkouts below. The selected provider's credential file (Claude `.credentials.json`, Codex
-  `auth.json`, the AGY token, OpenCode `auth.json`) is a writable bind, so a token refresh is kept. No
-  other provider configuration is restored: each CLI starts from a fresh configuration directory, and
-  no other account's or provider's login, no transcript and no private folder of HOME exists inside.
+  `auth.json`, the AGY token, OpenCode `auth.json`) is a writable bind, so a token refresh is kept. The
+  selected Claude login's state that its launch guard binds (#10619) is projected as private copies
+  into the lower layer, so the CLI may rewrite them in the discarded upper layer: `settings.json`, the
+  legacy `.config.json`, the policy caches, and `.claude.json` reduced to its `env` map and account
+  and organisation ids. No other provider configuration is restored: Codex runs on its task-local
+  `CODEX_HOME`, and no other account's or provider's login, no transcript, history or plugin and no
+  private folder of HOME exists inside.
 - The data roots outside HOME are empty read-only tmpfs mounts: `/home` (other users), `/root`,
   `/srv`, `/mnt`, `/media`, `/opt` and `/var/tmp`, which holds every task's scratch. Each
   `/opt/<package>` that an executable on the provider's `PATH` resolves into (a Node install, for
@@ -78,8 +82,8 @@ One bubblewrap invocation per launch, built in full by the launcher:
 - Public checkouts: the primary and the product checkout are read-only binds, so a write there fails
   instead of vanishing with the overlay. Their private runtime state is emptied inside: `batch_state`,
   `.agent`, `.secrets`, `.runtime`, `.deploy-state`, `.pids`, `.codex`, `.gemini`, `.mcp`, `.env`,
-  `.worktrees` (other tasks' worktrees), `logs`, `docs/session-state`, `data/telemetry`,
-  `.claude/settings.local.json` and the Fleet databases. So are the task store (`LU_TASKS_DIR`), the Fleet
+  `.worktrees` (other tasks' worktrees), `logs`, `docs/session-state`, `data/telemetry` and the Fleet
+  databases. A checkout's `.claude` settings stay: Claude Code loads them and its launch guard binds them. So are the task store (`LU_TASKS_DIR`), the Fleet
   Comms plane (`FLEET_COMMS_ROOT`) and the scratch root, wherever they live. Restored on top: the run's own
   worktree and scratch and the task's own records, `<task>.rules-core`, `<task>.launch-prompt`,
   `<task>.inputs` (inputs a driver stages for the worker) and Codex's `.codex-schemas/<task>.json`.
@@ -325,8 +329,8 @@ optional: without the relay the server fails to start and the run goes on.
   deletes a branch or rewrites the published one is refused.
 - The product's tracked `scripts.publish` copy forwards only once it runs this package's publisher.
 - Fleet messages can be sent but not received or acknowledged inside.
-- Decision A4 changes what a worker sees. It no longer reads the real provider configuration (user
-  settings, plugins, session history), other tasks' records (stage a brief's inputs in
+- Decision A4 changes what a worker sees. It no longer reads the real provider configuration beyond the
+  selected login's guard-bound state (no plugins, session history or other account), other tasks' records (stage a brief's inputs in
   `<task>.inputs`), private data roots such as `LU_SENSE_PROOF_DIR`, or driver files under `/var/tmp`.
   A worker in a private repository can still work in its checkout, but every GitHub verb refuses it
   (decision A6, with no per-task exception).

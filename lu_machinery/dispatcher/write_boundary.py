@@ -115,9 +115,16 @@ _HOME_TOOLCHAIN = (".local/bin", ".local/lib", ".local/share/claude", ".local/sh
 # Private runtime state inside a restored public checkout, emptied inside: task records, agent and lease state,
 # session handoffs, telemetry, secrets and local configuration, Fleet databases, logs and other tasks'
 # worktrees. The run's own task records and worktree are restored on top.
+# A checkout's ``.claude`` settings stay: Claude Code loads them and its launch guard binds them (#10619).
 _CHECKOUT_PRIVATE = ("batch_state", ".agent", ".secrets", ".runtime", ".deploy-state", ".pids", ".codex", ".gemini",
                      ".mcp", ".env", ".worktrees", "logs", "docs/session-state", "data/telemetry",
-                     ".claude/settings.local.json", "fleet_comms.db", ".fleet_comms.db", "comms.sqlite3")
+                     "fleet_comms.db", ".fleet_comms.db", "comms.sqlite3")
+# The selected Claude login's own state that its launch guard binds (#10619) and the CLI reads at start: projected
+# as private copies into HOME's lower layer, so the CLI may rewrite them in the discarded upper layer. Only the
+# guard's ``env`` map and account and organisation ids of the global config are copied.
+_CLAUDE_LOGIN_FILES = ("settings.json", ".config.json")
+_CLAUDE_GLOBAL_CONFIG = ".claude.json"
+_MAX_LOGIN_FILE = 4 << 20
 # The canary checks at most this many hidden host paths (other credentials, private state) for absence, and at
 # most the second number in one directory.
 _MAX_HIDDEN_PROBES = 1000
@@ -305,6 +312,10 @@ def launcher(spec, invocation, task_file: Path) -> list[str]:
         argv += ["--output", str(path)]
     for path in credential_files(spec.agent, invocation.env):
         argv += ["--credential", str(path)]
+    if spec.agent == "claude":
+        # The selected login (a labelled account's verified directory, set by ``admission.claude_launch``).
+        home = Path(invocation.env.get("HOME") or Path.home())
+        argv += ["--claude-login", str(Path(invocation.env.get("CLAUDE_CONFIG_DIR") or home / ".claude"))]
     if spec.agent == "codex":
         # The selected account's login: the only thing the task-local CODEX_HOME takes from the real one.
         home = Path(invocation.env.get("HOME") or Path.home())
@@ -1288,6 +1299,8 @@ class _Boundary:
             restores.append(Path(self.args.runtime))
         if self.args.codex_auth is not None:
             restores.append(self.base / _CODEX_HOME)
+        login_copies = self._claude_login(home)
+        restores += list(login_copies)
         masks = [*base_masks, *private]
         sockets = [path for path in _listening_socket_paths()
                    if not _hidden(path, masks, restores) and os.path.lexists(path)]
@@ -1357,6 +1370,10 @@ class _Boundary:
         emptied = [path for path in (*data, *private) if path.is_dir() and path != home and path not in restores]
         argv += [arg for path in emptied for arg in ("--remount-ro", str(path))]
         _home_lower(lower, home, argv)
+        for path, data in login_copies.items():
+            target = lower / path.relative_to(home)
+            target.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+            _write_private(target, data, 0o600)
         if read_only:
             (boundary / "bin").mkdir(mode=0o700)
             _write_private(boundary / "bin" / "gh", agy_sandbox._GH_SHIM.format(interpreter=interpreter).encode(), 0o500)
@@ -1430,6 +1447,48 @@ class _Boundary:
             # worktrees in place and reports them), never by the launcher while the worktree still exists.
             self.receipt["closeout_request"] = self.broker.closeout_request
         return returncode
+
+    def _claude_login(self, home: Path) -> dict[Path, bytes]:
+        """The selected Claude login's guard-bound state below HOME, as the bytes its private copies hold.
+
+        Its user settings, legacy global config and policy caches are copied whole; its global config only as
+        the ``env`` map and account and organisation ids the launch guard binds. Nothing else of the login
+        directory, and nothing of any other login, is restored (decision A4).
+        """
+        from lu_machinery.agent_runtime.env_sanitize import CLAUDE_POLICY_CACHE_NAMES
+
+        if self.args.claude_login is None:
+            return {}
+        login = Path(self.args.claude_login)
+        if not login.is_absolute() or login.is_symlink() or not login.is_dir():
+            raise Refused("--claude-login is not an absolute login directory")
+        login = login.resolve(strict=True)
+        if not login.is_relative_to(home) or login == home:
+            return {}  # outside HOME the login directory is not emptied
+        copies: dict[Path, bytes] = {}
+        for name in (*_CLAUDE_LOGIN_FILES, *CLAUDE_POLICY_CACHE_NAMES, _CLAUDE_GLOBAL_CONFIG):
+            path = login / name
+            try:
+                status = path.lstat()
+            except FileNotFoundError:
+                continue
+            if not stat.S_ISREG(status.st_mode) or status.st_size > _MAX_LOGIN_FILE:
+                raise Refused("a Claude login file is not a regular file of bounded size")
+            data = path.read_bytes()
+            if name == _CLAUDE_GLOBAL_CONFIG:
+                try:
+                    config = json.loads(data)
+                except ValueError:
+                    raise Refused("the Claude global config is not JSON") from None
+                if not isinstance(config, dict):
+                    raise Refused("the Claude global config is not a JSON object")
+                kept: dict[str, Any] = {key: config[key] for key in ("env",) if key in config}
+                if isinstance(account := config.get("oauthAccount"), dict):
+                    kept["oauthAccount"] = {key: account.get(key) for key in ("accountUuid", "organizationUuid")}
+                data = json.dumps(kept).encode()
+            copies[path] = data
+        self.receipt["claude_login"] = sorted(path.name for path in copies)
+        return copies
 
     def _codex_home(self, credentials: list[Path]) -> Path:
         """Project the task-local CODEX_HOME into this run's private scratch and return it.
@@ -1535,10 +1594,9 @@ class _Boundary:
                 probes.append({"op": "read_byte", "path": str(path), "expect_any": ["EMPTY", "EACCES"]})
         # Breadth first from HOME, each emptied private directory and the data roots, into restored paths' parents.
         for start in (home, *(path for path in private if path.is_dir()), *data):
-            queue = [start]
-            for directory in queue:
-                if len(queue) > 64:
-                    break
+            pending, walked = [start], 0
+            while pending and walked < 64:
+                directory, walked = pending.pop(0), walked + 1
                 try:
                     children = sorted(directory.iterdir())
                 except OSError:
@@ -1547,7 +1605,7 @@ class _Boundary:
                     if child in restores:
                         continue
                     if child in masks or any(restore != child and restore.is_relative_to(child) for restore in restores):
-                        queue.append(child)
+                        pending.append(child)
                     else:
                         absent(child)
         for path in (*credentials, *own):
@@ -1847,6 +1905,8 @@ def main(argv: list[str]) -> int:
                         "(default: none; the broker then dispatches no review)")
     parser.add_argument("--output", action="append", help="A declared output file the provider writes")
     parser.add_argument("--credential", action="append", help="A provider credential file a refresh rewrites")
+    parser.add_argument("--claude-login", help="The selected Claude login directory; its guard-bound state is "
+                        "projected as private copies")
     parser.add_argument("--codex-auth", help="The selected Codex account's auth.json, linked into a task-local "
                         "CODEX_HOME that holds only the Sources server")
     parser.add_argument("--host-env", action="append", default=[],

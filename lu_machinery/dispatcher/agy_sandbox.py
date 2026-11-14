@@ -1038,7 +1038,8 @@ class _GhBroker:
         refusal = (selected if command is None else None) or (None if self.gh else "gh is not installed on the host")
         reply = {"returncode": 1, "stdout": "", "stderr": f"review boundary: {refusal}\n"}
         if refusal is None and command is not None:
-            self.process = subprocess.Popen([self.gh, *command], cwd=self.cwd, env=self.env, stdin=subprocess.DEVNULL,
+            argv = command  # the admitted argv, with its repository named first
+            self.process = subprocess.Popen([self.gh, *argv], cwd=self.cwd, env=self.env, stdin=subprocess.DEVNULL,
                                             stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             try:
                 out, err = self.process.communicate(timeout=_GH_TIMEOUT)

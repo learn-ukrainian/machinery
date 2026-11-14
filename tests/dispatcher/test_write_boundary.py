@@ -427,7 +427,10 @@ def test_declared_resources_in_masked_roots_stay_read_only_without_host_socket_a
     home = Path(os.environ["HOME"])
     for relative, text in ((".codex/auth.json", "other login"), ("ops-state/notes", "private"),
                            (".claude/projects/other.jsonl", "transcript"), (".claude/.credentials.json", "selected"),
-                           (".local/bin/tool", "toolchain")):
+                           (".local/bin/tool", "toolchain"), (".claude/settings.json", '{"env": {}}'),
+                           (".claude/.claude.json", json.dumps({"oauthAccount": {
+                               "accountUuid": "u", "organizationUuid": "o", "emailAddress": "probe@example.invalid"},
+                               "projects": {"/elsewhere": {}}}))):
         (home / relative).parent.mkdir(parents=True, exist_ok=True)
         (home / relative).write_text(text)
     tasks = repo / "batch_state" / "tasks"
@@ -467,11 +470,16 @@ with socket.socket(socket.AF_UNIX) as connection:
         raise AssertionError("host socket reachable")
 home, repo = Path(os.environ["HOME"]), Path(sys.argv[4])
 view = {relative: (home / relative).exists() for relative in (
-    ".codex/auth.json", "ops-state", ".claude/projects", ".claude/.credentials.json", ".local/bin/tool")}
+    ".codex/auth.json", "ops-state", ".claude/projects", ".claude/.credentials.json", ".local/bin/tool",
+    ".claude/settings.json")}
+# The selected login's global config holds only what its launch guard binds.
+view["global_config"] = json.loads((home / ".claude/.claude.json").read_text())
 view.update({relative: (repo / relative).exists() for relative in (
     "batch_state/tasks/other-task.result", ".secrets/key", "batch_state/tasks/wb-test.inputs/brief.md", "a.txt")})
 assert view == {".codex/auth.json": False, "ops-state": False, ".claude/projects": False,
-                ".claude/.credentials.json": True, ".local/bin/tool": True, "batch_state/tasks/other-task.result": False,
+                ".claude/.credentials.json": True, ".local/bin/tool": True, ".claude/settings.json": True,
+                "global_config": {"oauthAccount": {"accountUuid": "u", "organizationUuid": "o"}},
+                "batch_state/tasks/other-task.result": False,
                 ".secrets/key": False, "batch_state/tasks/wb-test.inputs/brief.md": True, "a.txt": True}, view
 report.write_text("resources-readable-writes-and-sockets-denied")
 """)
@@ -482,7 +490,8 @@ report.write_text("resources-readable-writes-and-sockets-denied")
         code = write_boundary.main([
             "--task-id", "wb-test", "--worktree", str(worktree), "--scratch", str(write_boundary.scratch("wb-test")),
             "--receipt", str(receipt), "--mode", "read-only", "--output", str(report),
-            "--credential", str(home / ".claude/.credentials.json"), "--", sys.executable, "-I",
+            "--credential", str(home / ".claude/.credentials.json"), "--claude-login", str(home / ".claude"),
+            "--", sys.executable, "-I",
             str(client), str(shared), str(masked), str(report), str(repo),
         ])
     evidence = json.loads(receipt.read_text())
