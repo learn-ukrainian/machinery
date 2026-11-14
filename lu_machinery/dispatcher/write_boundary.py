@@ -540,11 +540,25 @@ def _package_roots(path_env: str, executables: list[str]) -> list[Path]:
     return sorted(roots)
 
 
+def _pre_commit_store(home: Path) -> Path | None:
+    """pre-commit's hook store, found as pre-commit finds it: ``PRE_COMMIT_HOME``, else ``pre-commit`` below
+    ``XDG_CACHE_HOME`` or HOME's ``.cache``. None when the configured value is not absolute."""
+    store = os.environ.get("PRE_COMMIT_HOME") or os.path.join(os.environ.get("XDG_CACHE_HOME") or home / ".cache",
+                                                              "pre-commit")
+    return Path(store) if os.path.isabs(store) else None
+
+
 def _toolchain(home: Path, executable: str) -> list[Path]:
     """Read-only restores below HOME and the data roots: the provider's toolchain and this launcher's own
-    interpreter and installation (decision A4). Nothing of a provider's configuration is one of them."""
+    interpreter and installation (decision A4). Nothing of a provider's configuration is one of them.
+
+    pre-commit's hook store is part of the toolchain: a product commit's hooks run from it, and inside it cannot
+    be fetched (GitHub is refused). Read-only, pre-commit records nothing and runs the installed environments;
+    a hook whose environment is not installed fails the commit instead of installing one."""
     path_env = os.environ.get("PATH", os.defpath)
     candidates = [home / name for name in _HOME_TOOLCHAIN]
+    if (store := _pre_commit_store(home)) is not None:
+        candidates.append(store)
     candidates += [Path(entry) for entry in path_env.split(os.pathsep) if entry and os.path.isabs(entry)]
     candidates += _package_roots(path_env, [executable, sources_command()[0]])
     candidates += [_interpreter_root(), Path(sys.prefix), machinery_path("dispatcher/write_boundary.py").parents[2]]
