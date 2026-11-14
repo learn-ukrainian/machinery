@@ -100,6 +100,17 @@ def check_review_attempt(binding: ReviewAttempt, *, claim=False, owner: str | No
             os.close(fd)
 
 
+def worktree_attribution(spec, repository: dict, branch: str, sha: str) -> dict:
+    """The fields that name the task's worktree and show that its dispatch created it.
+
+    The admission hold carries them from before ``git worktree add``, so a dispatcher that dies while it
+    creates or provisions the tree leaves a record that settlement and the guarded remover
+    (``worktree_claims remove --owner-task-id``) can attribute; the full record repeats them.
+    """
+    return dict(repo=repository["key"], options=spec.options, worktree_branch=branch,
+                worktree_path=str(spec.worktree), cwd=str(spec.worktree), worktree_base_sha=sha, worktree_start_sha=sha)
+
+
 def new_record(
     spec, repository: dict, branch: str, sha: str, metadata: dict, *,
     binding: ReviewAttempt | None = None, admission_hold: dict | None = None,
@@ -143,10 +154,7 @@ def new_record(
             record[target] = metadata[source]
     record.update(schema_version=2, run_nonce=uuid.uuid4().hex, status="spawning", started_at=now())
     record.update(repo=repository["key"], repository_id=repository["github"], repository=repository["github"])
-    record.update(
-        worktree_branch=branch, worktree_path=str(spec.worktree), cwd=str(spec.worktree),
-        worktree_base_sha=sha, worktree_start_sha=sha
-    )
+    record.update(worktree_attribution(spec, repository, branch, sha))
     if spec.mode == "read-only" and metadata.get("branch") is not None:
         record["review_branch"] = validate_plain_branch_name(metadata["branch"], repo_root=spec.worktree)
         record["pinned_head"] = metadata.get("pinned_head") or sha

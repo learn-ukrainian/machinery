@@ -584,9 +584,13 @@ def _dispatch(args) -> int:
         admission.review_typed(vars(args)) or args.risk or args.review_mode
     ):
         checks.check_review_budget(args, info, sha)
+    # The hold names the tree only when this dispatch is the one that will create it: never a borrowed --cwd
+    # tree, and never a path that already exists, which git worktree add then refuses.
+    creates = not args.cwd and not os.path.lexists(worktree)
     with host_admission.reserve(
         task_id, args.mode, decision, agent=agent, force_reason=force_reason,
         disk_guard=lambda: not (args.worktree is not None and (worktree / ".git").exists()),
+        attribution=store.worktree_attribution(spec, info, branch, sha) if creates else None,
     ) as hold:
         if binding:
             store.check_review_attempt(binding)  # the supervisor claims it (review_attempt.run)
