@@ -325,14 +325,15 @@ def test_lock_only_diff_selects_machinery_consumers(tmp_path: Path, installed: t
 def test_lu12914_f1_guard_list_names_the_stub_provider_dispatcher_module() -> None:
     """Defect class: a conftest Path(__file__).with_name copy is invisible to affected-test selection.
 
-    LU12914-F1. ``tests/dispatcher/test_core_worktree_entry.py`` is product-owned and
-    is not in this tree, so the machinery list names the module that is. The planner
-    reads that list through ``product_tree_path`` (the checkout), never the wheel.
+    LU12914-F1. Installed pytest deletes the checkout package and passes no product
+    root, so the committed list is read from Git. ``tests/dispatcher/test_core_worktree_entry.py``
+    is product-owned and is not in this tree, so the machinery list names the module that is.
     """
-    from lu_machinery.common.repo_root import product_tree_path
-
-    lines = product_tree_path("ci", "pr-affected-guards.txt").read_text(encoding="utf-8").splitlines()
-    assert "tests/dispatcher/test_task_store_records.py" in lines
+    text = subprocess.check_output(
+        ["git", "show", "HEAD:lu_machinery/ci/pr-affected-guards.txt"],
+        cwd=REPO, text=True, timeout=30,
+    )
+    assert "tests/dispatcher/test_task_store_records.py" in text.splitlines()
 
 
 def test_lock_only_diff_fails_closed_without_the_distribution(monkeypatch: pytest.MonkeyPatch) -> None:
