@@ -93,11 +93,8 @@ def _read_session_file(session_path: str, project_root: Path | str) -> str:
         )
     try:
         return path.read_text(encoding="utf-8")
-    except OSError as exc:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Could not read {session_path}: {exc}",
-        ) from exc
+    except OSError:
+        raise HTTPException(status_code=500, detail="session_read_failed") from None
 
 
 def _normalize_agent(agent: str | None) -> str:
