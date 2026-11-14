@@ -44,6 +44,39 @@ def test_deploy_extensions_fixtures() -> None:
     assert "ok - deploy extensions fixtures passed" in result.stdout
 
 
+@pytest.mark.skipif(os.geteuid() == 0, reason="root owns every candidate")
+@pytest.mark.parametrize("case", ["owned-like-root-dir", "other-owner", "group-writable"])
+def test_copy_tool_trust_accepts_the_namespaced_root_owner_only(tmp_path: Path, monkeypatch, case: str) -> None:
+    """Defect class (#500): inside a user namespace root's files show as the overflow uid, so the copy-tool
+    check refuses the system tool and deploy fails; or the fix also trusts another owner or a writable tool."""
+    from lu_machinery.agent_deploy import sync_agent_mirror
+
+    tools = tmp_path / "tools"
+    tools.mkdir()
+    tool = tools / "rsync"
+    tool.write_text("#!/bin/sh\nexit 0\n")
+    tool.chmod(0o775 if case == "group-writable" else 0o755)
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("PATH", str(tools))
+    # The tool's owner is not this process's: as in the boundary, where root's tool is not the worker's own.
+    euid = os.geteuid()
+    monkeypatch.setattr(os, "geteuid", lambda: euid + 1)
+    real_stat = os.stat
+
+    def namespaced_stat(path, *args, **kwargs):
+        # A namespace shows "/" with the same unmapped owner as root's tool; outside one it stays root's.
+        if case != "other-owner" and os.fspath(path) == "/":
+            return real_stat(tool)
+        return real_stat(path, *args, **kwargs)
+
+    monkeypatch.setattr(os, "stat", namespaced_stat)
+    if case == "owned-like-root-dir":
+        assert sync_agent_mirror.resolve_rsync() == str(tool)
+    else:
+        with pytest.raises(PermissionError, match="not a trusted executable"):
+            sync_agent_mirror.resolve_rsync()
+
+
 # --- interpreter resolution from a linked worktree (#9118) -------------------
 
 _GIT_ENV_KEYS = ("GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE")

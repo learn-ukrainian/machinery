@@ -104,10 +104,13 @@ def resolve_rsync() -> str:
         raise PermissionError(
             "rsync resolves to an installed Cursor target; put system rsync or a trusted wrapper first on PATH"
         )
+    # A user namespace (the write boundary) shows root, which it does not map, as the overflow uid; the
+    # file-system root shows its owner the same way, so a tool owned like "/" is root-owned as far as
+    # this process can tell. Outside a namespace "/" is owned by 0 and this adds nothing.
     if (
         not stat.S_ISREG(info.st_mode)
         or not os.access(executable, os.X_OK)
-        or info.st_uid not in (0, os.geteuid())
+        or info.st_uid not in (0, os.geteuid(), os.stat("/").st_uid)
         or info.st_mode & (stat.S_IWGRP | stat.S_IWOTH)
     ):
         raise PermissionError("rsync target is not a trusted executable; check its ownership, permissions and PATH")

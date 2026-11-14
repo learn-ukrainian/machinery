@@ -1238,8 +1238,10 @@ class _Boundary:
         (tmp / "scratch").mkdir(mode=0o700)
         (tmp / "run").mkdir(mode=0o700)
         # The namespace has no DNS or route out; Node's own fetch uses the forwarder's proxy only when told to.
+        # The host's task scratch (/var/tmp/<task-id>) is read-only inside, so it moves under TMPDIR too; the worker
+        # still creates it on demand, and it goes with the boundary's private scratch.
         env.update(TMPDIR=str(runtime), LU_SCRATCH_ROOT=str(runtime / "scratch"), XDG_RUNTIME_DIR=str(runtime / "run"),
-                   GIT_TERMINAL_PROMPT="0", NODE_USE_ENV_PROXY="1", **{BROKER_ENV: _BROKER_INSIDE})
+                   LU_TASK_SCRATCH=str(runtime / "task"), GIT_TERMINAL_PROMPT="0", NODE_USE_ENV_PROXY="1", **{BROKER_ENV: _BROKER_INSIDE})
         if read_only:
             env["PATH"] = str(boundary / "bin") + os.pathsep + env.get("PATH", os.defpath)
         env.update(git_push_settings(env, interpreter, str(machinery_path("dispatcher/write_boundary.py").parents[2])))
