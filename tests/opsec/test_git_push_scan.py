@@ -2747,3 +2747,53 @@ WHEEL_ROOT = machinery_root().parent
 
 
 pytestmark = [pytestmark, pytest.mark.usefixtures("configured_roots")]
+
+
+@pytest.mark.parametrize("pin", [False, True])
+@pytest.mark.parametrize("shim", [False, True])
+@pytest.mark.parametrize("flagged", [False, True])
+def test_tracked_hook_scans_once_and_refuses_flagged_messages(push_sandbox, pin, shim, flagged):
+    """Defect class: hardened Git reads hide the selected scanner hook and rescan a shim push."""
+    sandbox = push_sandbox
+    checkout = Path(__file__).resolve().parents[2]
+    shutil.copytree(checkout / ".githooks", sandbox.work / ".githooks",
+                    ignore=shutil.ignore_patterns("__pycache__"))
+    (sandbox.work / "lu_machinery").symlink_to(sandbox.root / "lu_machinery", target_is_directory=True)
+    counter = sandbox.tmp / "message-scans"
+    subject = "unique scan-count subject"
+    matcher = sandbox.tooling / "matcher.py"
+    matcher.write_text(matcher.read_text().replace(
+        "    def scan(self, text):",
+        "    def scan(self, text):\n"
+        f"        if {subject!r} in text:\n"
+        f"            with open({str(counter)!r}, 'a') as stream:\n"
+        "                stream.write('scan\\n')",
+    ))
+    sha = sandbox.commit(subject + ("\n\n" + TOKEN if flagged else ""))
+    _git(sandbox.work, "config", "core.hooksPath", ".githooks")
+    before = sandbox.remote_refs()
+    environment = _env(
+        LU_PRODUCT_ROOT=str(sandbox.root), LEARN_UKRAINIAN_PRIMARY_REPO_ROOT=str(sandbox.root),
+        LEARN_UKRAINIAN_PYTHON=sys.executable,
+        **({"GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": "core.hooksPath",
+            "GIT_CONFIG_VALUE_0": os.devnull} if pin else {}),
+    )
+    # Invoke the tracked hook directly for the plain-Git case: the read pin must
+    # not disable the entry point being tested. The shim selects its own hook.
+    if shim:
+        arguments = [str(sandbox.shim), "-c", "core.hooksPath=.githooks",
+                     "push", "origin", "HEAD:refs/heads/feature"]
+        data = None
+    else:
+        arguments = [str(sandbox.work / ".githooks/pre-push"), "origin", str(sandbox.remote)]
+        data = f"refs/heads/trunk {sha} refs/heads/feature {ZERO}\n"
+    result = subprocess.run(arguments, cwd=sandbox.work, env=environment, input=data,
+                            capture_output=True, text=True, timeout=60)
+    assert counter.read_text().splitlines() == ["scan"], result.stderr
+    if flagged:
+        assert_blocked(result, sandbox, before, f"commit[{sha[:12]}].message")
+        assert not _remote_has(sandbox, sha)
+    else:
+        assert result.returncode == 0, result.stderr
+        if shim:
+            assert sandbox.remote_refs()["refs/heads/feature"] == sha

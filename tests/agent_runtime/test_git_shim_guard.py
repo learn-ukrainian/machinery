@@ -439,3 +439,35 @@ def test_failed_push_common_dir_probe_preserves_opsec_refusal(shim_fixture, tmp_
     assert (result.returncode, result.stdout, result.stderr) == (
         2, "", f"Error: project interpreter not found: {missing}\nOPSEC: push scanner hooks unavailable; push refused.\n",
     )
+
+
+@pytest.mark.parametrize("pin", [False, True])
+@pytest.mark.parametrize("configured", [False, True])
+def test_refresh_hook_discovery_preserves_caller_hooks_under_read_pin(shim_fixture, monkeypatch, pin, configured):
+    """Defect class: a pinned Git read silently loses the caller's hooks during worktree setup."""
+    from lu_machinery.dispatcher import git as dispatch_git
+
+    work = shim_fixture["workdir"]
+    caller = work / (".caller-hooks" if configured else ".git/hooks")
+    caller.mkdir(exist_ok=True)
+    hook = caller / "pre-push"
+    hook.write_text("#!/bin/sh\nexit 0\n")
+    hook.chmod(0o755)
+    real_git = shutil.which("git", path="/usr/bin:/bin")
+    environment = {"PATH": "/usr/bin:/bin", "HOME": str(work.parent)}
+    subprocess.run([real_git, "config", "extensions.worktreeConfig", "true"], cwd=work,
+                   env=environment, check=True, capture_output=True, timeout=15)
+    if configured:
+        subprocess.run([real_git, "config", "core.hooksPath", ".caller-hooks"], cwd=work,
+                       env=environment, check=True, capture_output=True, timeout=15)
+    monkeypatch.setenv("PATH", "/usr/bin:/bin")
+    if pin:
+        monkeypatch.setenv("GIT_CONFIG_COUNT", "1")
+        monkeypatch.setenv("GIT_CONFIG_KEY_0", "core.hooksPath")
+        monkeypatch.setenv("GIT_CONFIG_VALUE_0", "/dev/null")
+    monkeypatch.setattr(dispatch_git, "state_root", lambda: work)
+    dispatch_git._install_refresh_hooks(work, work.parent / "registry.json")
+    installed = work / ".git/dispatch-hooks"
+    assert (installed / "pre-push").is_symlink()
+    assert (installed / "pre-push").resolve() == hook.resolve()
+    assert all((installed / name).is_file() for name in dispatch_git.REFRESH_HOOKS)
