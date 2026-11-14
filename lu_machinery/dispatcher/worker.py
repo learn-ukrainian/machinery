@@ -1140,8 +1140,24 @@ def _end_own_scope(record: dict):
         return None
 
 
+def _stop_task_services(record: dict) -> None:
+    """Stop transient services this task started. A failure is recorded, never raised."""
+    from lu_machinery.orchestration import dispatch_isolation
+
+    try:
+        dispatch_isolation.stop_task_services(record)
+    except Exception as exc:
+        stops = list(record.get("task_service_stops") or [])
+        stops.append({
+            "unit": "", "result": "unverified", "postcondition": "unknown",
+            "error": type(exc).__name__,
+        })
+        record["task_service_stops"] = stops
+
+
 def _reap_settled(record: dict, patience: float = 0, salvage: bool = False) -> None:
-    """Settle the task's worktree, then its /var/tmp scratch; never changes the task's execution status."""
+    """Settle the task's services, worktree, then its /var/tmp scratch; never changes the task's execution status."""
+    _stop_task_services(record)
     _reap_worktree(record, patience=patience, salvage=salvage)
     _settle_task_scratch(record)
 

@@ -15,6 +15,10 @@ If the process image is already the worker, that process is kept. If ``/proc``
 cannot show which image it is, or the start marker arrives only as the process
 is stopped, the dispatch fails instead of starting a second worker. Isolation
 is required inside a driver scope: plain-process fallback there is refused.
+A transient service a task starts (a review-candidate API, a background test)
+is created with ``BindsTo`` and ``PartOf`` on that task's scope, and settlement
+stops that service and checks it is gone. A failed or unreadable check does not
+retry and does not call ``reset-failed``.
 
 A worker that dispatches workers of its own (a builder that starts writers)
 runs under the sanitized agent environment, which has neither
@@ -218,6 +222,287 @@ def build_scope_argv(
         "--",
         *cmd,
     ]
+
+
+_SERVICE_SUFFIX = ".service"
+_SERVICE_ALIVE = frozenset({"active", "activating", "reloading", "refreshing", "maintenance"})
+_SERVICE_GONE = frozenset({"inactive", "failed", "unknown"})
+
+
+def _task_service_prefix(task_id: str) -> str:
+    overhead = len("lu-task-") + 1 + 2 * _UNIT_TOKEN_BYTES + len(_SERVICE_SUFFIX)
+    return f"lu-task-{_unit_piece(task_id, _UNIT_NAME_MAX - overhead)}-"
+
+
+def task_service_name(task_id: str) -> str:
+    """Stem of one transient service for ``task_id``. systemd appends ``.service``."""
+    return f"{_task_service_prefix(task_id)}{secrets.token_hex(_UNIT_TOKEN_BYTES)}"
+
+
+def task_service_matches(unit: str, *, task_id: str) -> bool:
+    """Whether ``unit`` is a stem :func:`task_service_name` gives this task."""
+    stem = unit[:-len(_SERVICE_SUFFIX)] if unit.endswith(_SERVICE_SUFFIX) else unit
+    prefix = _task_service_prefix(task_id)
+    token = stem.removeprefix(prefix)
+    return (
+        "/" not in stem
+        and stem.startswith(prefix)
+        and len(token) == 2 * _UNIT_TOKEN_BYTES
+        and all(ch in "0123456789abcdef" for ch in token)
+    )
+
+
+def build_task_service_argv(cmd: Sequence[str], *, unit: str, scope_unit: str) -> list[str]:
+    """``systemd-run`` argv for a service that ends with ``scope_unit``.
+
+    ``BindsTo`` and ``PartOf`` propagate stop from the scope to this service,
+    not the other way around. ``--collect`` unloads it once it is inactive or
+    failed, so the caller never uses ``reset-failed``.
+    """
+    scope = scope_unit if scope_unit.endswith(_SCOPE_SUFFIX) else f"{scope_unit}{_SCOPE_SUFFIX}"
+    return [
+        "systemd-run",
+        "--user",
+        "--collect",
+        f"--unit={unit}",
+        f"--property=BindsTo={scope}",
+        f"--property=After={scope}",
+        f"--property=PartOf={scope}",
+        "--",
+        *cmd,
+    ]
+
+
+def _service_list_path(task_id: object) -> Path | None:
+    if not isinstance(task_id, str):
+        return None
+    try:
+        from lu_machinery.dispatcher.environment import task_scratch_path
+
+        return task_scratch_path(task_id) / "task-services.txt"
+    except (ValueError, ImportError, OSError):
+        return None
+
+
+def _remember_service(task_id: str, unit: str) -> None:
+    """Append ``unit`` to the task scratch list. A symlink or a failed write is skipped."""
+    path = _service_list_path(task_id)
+    if path is None:
+        return
+    flags = os.O_WRONLY | os.O_CREAT | os.O_APPEND | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        fd = os.open(path, flags, 0o600)
+    except OSError:
+        return
+    try:
+        os.write(fd, f"{unit}\n".encode())
+    finally:
+        os.close(fd)
+
+
+def _read_service_list(task_id: object) -> list[str] | None:
+    """Unit stems in the scratch list. None when the list is there but cannot be read safely."""
+    path = _service_list_path(task_id)
+    if path is None:
+        return []
+    try:
+        info = path.lstat()
+    except FileNotFoundError:
+        return []
+    except OSError:
+        return None
+    if stat.S_ISLNK(info.st_mode) or not stat.S_ISREG(info.st_mode):
+        return None
+    try:
+        fd = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+    except OSError:
+        return None
+    try:
+        text = os.read(fd, 1_000_000).decode()
+    except (OSError, UnicodeError):
+        return None
+    finally:
+        os.close(fd)
+    return [line.strip() for line in text.splitlines() if line.strip()]
+
+
+def listed_task_services(record: Mapping[str, Any]) -> list[str] | None:
+    """Unit stems recorded for this task. None when either list is unreadable."""
+    listed = record.get("task_services")
+    if listed is None:
+        names: list[str] = []
+    elif isinstance(listed, list) and all(isinstance(item, str) for item in listed):
+        names = list(listed)
+    else:
+        return None
+    file_names = _read_service_list(record.get("task_id"))
+    if file_names is None:
+        return None
+    seen: set[str] = set()
+    unique: list[str] = []
+    for name in [*names, *file_names]:
+        if name not in seen:
+            seen.add(name)
+            unique.append(name)
+    return unique
+
+
+def _systemctl(argv: Sequence[str]) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        list(argv), check=False, capture_output=True, text=True, timeout=30,
+        env=user_manager_env(os.environ),
+    )
+
+
+def _service_gone(proc: subprocess.CompletedProcess[str]) -> bool:
+    state = (proc.stdout or "").strip().splitlines()
+    text = state[-1] if state else ""
+    if text in _SERVICE_ALIVE or proc.returncode == 0:
+        return False
+    if text == "unknown" and proc.returncode not in {3, 4}:
+        return False
+    return proc.returncode in {3, 4} or text in _SERVICE_GONE
+
+
+def _publish_task_service_alert(task_id: str, unit: str, reason: str) -> None:
+    from lu_machinery.fleet_comms.authority import AuthorityService
+
+    body = f"Task service still running after settlement: {unit or '(unreadable)'} task {task_id}: {reason}"
+    with AuthorityService(root=None) as service:
+        service.publish_message(
+            sender="dispatcher",
+            body=body,
+            channel="cto",
+            recipients=("claude-cto",),
+            kind="request",
+            correlation_id=f"task-service:{task_id}:{unit}",
+            provenance={"Source": "dispatcher", "Agent": "dispatcher", "Via": "task-service"},
+            idempotency_key=f"task-service:{task_id}:{unit}",
+        )
+
+
+def _service_alert(
+    record: dict[str, Any], unit: str, reason: str, alert: Callable[[str, str, str], None] | None,
+) -> None:
+    if isinstance(record.get("task_service_alert"), dict):
+        return
+    record["task_service_alert"] = {"unit": unit, "reason": reason}
+    sender = alert or _publish_task_service_alert
+    try:
+        sender(str(record.get("task_id") or ""), unit, reason)
+    except Exception as exc:
+        record["task_service_alert"]["delivery"] = f"undelivered: {type(exc).__name__}"
+    else:
+        record["task_service_alert"]["delivery"] = "sent"
+
+
+def _service_attempt(
+    attempts: list[dict[str, Any]], *, unit: str, result: str, postcondition: str, error: str | None = None,
+    state: str | None = None,
+) -> None:
+    row: dict[str, Any] = {"unit": unit, "result": result, "postcondition": postcondition}
+    if error:
+        row["error"] = error[:200]
+    if state:
+        row["state"] = state[:80]
+    attempts.append(row)
+
+
+def start_task_service(
+    record: dict[str, Any],
+    cmd: Sequence[str],
+    *,
+    run: Callable[[Sequence[str]], subprocess.CompletedProcess[str]] | None = None,
+) -> str:
+    """Start ``cmd`` as a transient user service bound to this task's scope.
+
+    The unit name is recorded on ``record`` and in the task scratch before the
+    start, so settlement can stop it if this process dies after systemd has
+    the service. Refuses a launch that is not this task's own scope.
+    """
+    task_id, scope, nonce = record.get("task_id"), record.get("launch_unit"), record.get("run_nonce")
+    if record.get("launch_mode") != LAUNCH_SCOPE or not isinstance(task_id, str) or not isinstance(scope, str):
+        raise DispatchIsolationError("a task service requires this task's scope launch")
+    if not isinstance(nonce, str) or not scope_unit_matches(scope, task_id=task_id, run_nonce=nonce):
+        raise DispatchIsolationError("launch unit is not this task's scope")
+    unit = task_service_name(task_id)
+    if not task_service_matches(unit, task_id=task_id):
+        raise DispatchIsolationError("refusing a unit name that is not this task's")
+    record["task_services"] = [*list(record.get("task_services") or []), unit]
+    _remember_service(task_id, unit)
+    argv = build_task_service_argv(cmd, unit=unit, scope_unit=scope)
+    try:
+        proc = (run or _systemctl)(argv)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise DispatchIsolationError(f"task service did not start: {type(exc).__name__}") from exc
+    if proc.returncode != 0:
+        detail = (proc.stderr or proc.stdout or "").strip().splitlines()
+        tail = detail[-1][:200] if detail else f"exit {proc.returncode}"
+        raise DispatchIsolationError(f"task service did not start: {tail}")
+    return unit
+
+
+def stop_task_services(
+    record: dict[str, Any],
+    *,
+    run: Callable[[Sequence[str]], subprocess.CompletedProcess[str]] | None = None,
+    alert: Callable[[str, str, str], None] | None = None,
+) -> None:
+    """Stop this task's recorded services and check each one is not running.
+
+    A name that is not this task's service is not stopped. An unreadable list,
+    a failed stop, or a unit that is still active or whose state cannot be read
+    records the attempt, alerts once, and stops the rest of the automation.
+    A verified stop is not repeated.
+    """
+    attempts = list(record.get("task_service_stops") or [])
+    if any(row.get("postcondition") != "true" for row in attempts):
+        return
+    names = listed_task_services(record)
+    if names is None:
+        record["task_service_stops"] = attempts
+        _service_attempt(attempts, unit="", result="unverified", postcondition="unknown", error="service list unreadable")
+        _service_alert(record, "", "service list unreadable", alert)
+        return
+    if not names:
+        return
+    record["task_service_stops"] = attempts
+    task_id = record.get("task_id")
+    runner = run or _systemctl
+    for unit in names:
+        if any(row.get("unit") == unit and row.get("postcondition") == "true" for row in attempts):
+            continue
+        if not isinstance(task_id, str) or not task_service_matches(unit, task_id=task_id):
+            _service_attempt(
+                attempts, unit=unit, result="refused", postcondition="false",
+                error="name is not this task's service",
+            )
+            _service_alert(record, unit, "name is not this task's service", alert)
+            return
+        try:
+            runner(["systemctl", "--user", "stop", f"{unit}.service"])
+            active = runner(["systemctl", "--user", "is-active", f"{unit}.service"])
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            _service_attempt(
+                attempts, unit=unit, result="unverified", postcondition="unknown",
+                error=type(exc).__name__,
+            )
+            _service_alert(record, unit, type(exc).__name__, alert)
+            return
+        state = (active.stdout or "").strip().splitlines()
+        if _service_gone(active):
+            _service_attempt(
+                attempts, unit=unit, result="stopped", postcondition="true",
+                state=state[-1] if state else f"exit-{active.returncode}",
+            )
+            continue
+        _service_attempt(
+            attempts, unit=unit, result="unverified", postcondition="false",
+            state=state[-1] if state else f"exit-{active.returncode}",
+        )
+        _service_alert(record, unit, "still running or state unknown", alert)
+        return
 
 
 @dataclass(frozen=True)

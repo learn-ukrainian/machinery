@@ -197,6 +197,42 @@ def inbox(tmp_path):
         return [(row[1], row[2], service.read_message_body(row[0])) for row in rows]
 
 
+def test_ownerless_open_pr_past_grace_records_a_decision_owner(tmp_path):
+    """Defect class: ownerless PR stayed an alert the CTO had to accept by hand.
+
+    Past the grace, a known ownerless open PR with a readable head gets a recorded
+    decision owner, an attempt row, and a checked postcondition. An unknown owner
+    on another PR is not seated.
+    """
+    path = tmp_path / "state.json"
+    other = own.pr_key(REPO, 43)
+    evidenced = own.Finding(
+        REPO, 42, "codex/x", "last owner ended timeout, PR not MERGED", "old",
+        head=HEAD, pr_state="OPEN",
+    )
+    unknown = own.Finding(
+        REPO, 43, "codex/y", "an owner is active but its supervisor cannot be observed (unknown)", "old",
+        unknown=True, head=HEAD, pr_state="OPEN",
+    )
+    observe = lambda handoffs: ({KEY, other}, {KEY: evidenced, other: unknown})  # noqa: E731
+    tick = dict(path=path, observe=observe, service_factory=fleet(tmp_path))
+    own.keeper_tick(now=at(0), **tick)
+    lines, failed = own.keeper_tick(now=at(15), **tick)
+    assert failed is False
+    state = own.load(path)
+    handoff = state["handoffs"][KEY]
+    assert own.decision_custody(handoff)
+    assert handoff["decision_owner"] == own.CTO_INBOX and handoff["head"] == HEAD
+    attempt = state["heal_attempts"][f"{KEY}:{HEAD}"]
+    assert attempt["result"] == "recorded" and attempt["postcondition"] == "true"
+    assert KEY not in state["episodes"] and other not in state["handoffs"]
+    assert not any(f"alert outstanding: {KEY}" in line for line in lines)
+    assert any("custody recorded" in body for _, _, body in inbox(tmp_path))
+    # The same head is not recorded again.
+    own.keeper_tick(now=at(30), **tick)
+    assert own.load(path)["heal_attempts"][f"{KEY}:{HEAD}"]["result"] == "recorded"
+
+
 def test_tick_alerts_cto_inbox_and_clears_on_accepted_handoff(tmp_path):
     path = tmp_path / "state.json"
     observation = ({KEY}, {KEY: ownerless()})

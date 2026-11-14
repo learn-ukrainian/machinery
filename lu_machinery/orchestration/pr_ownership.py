@@ -13,7 +13,11 @@ An accepted handoff makes the successor the PR's one owner while its task is liv
 any branch. Coordinator custody is that same handoff with a reason and a decision owner,
 recorded with no dispatch task; the PR is not alerted again until that custody is
 released or the PR is no longer open. Recording custody ends the current ownerless
-episode immediately, and releasing it starts the grace period over. A queue-custody
+episode immediately, and releasing it starts the grace period over. Once the grace has
+elapsed, the keeper records that custody itself when this tick's observation shows the
+PR open, with a readable head, and ownerless rather than unknown, then checks that the
+PR left the ownerless set. A missing head, an unknown owner, a refused write or a failed
+check leaves the alert outstanding and does not try that same head again. A queue-custody
 handoff also names the predecessor whose only remaining step is waiting in the merge
 queue; ``queue-exit`` then lets that predecessor end cleanly, but only while the
 keeper's ownership check is running.
@@ -24,6 +28,7 @@ State is one JSON file next to the shared dispatch task store, written under a l
 from __future__ import annotations
 
 import argparse
+import copy
 import fcntl
 import hashlib
 import json
@@ -99,7 +104,10 @@ def pr_key(repo: str, number: int) -> str:
 
 
 def _empty() -> dict[str, Any]:
-    return {"schema": 1, "last_tick": None, "episodes": {}, "handoffs": {}, "history": [], "outbox": []}
+    return {
+        "schema": 1, "last_tick": None, "episodes": {}, "handoffs": {},
+        "history": [], "outbox": [], "heal_attempts": {},
+    }
 
 
 def _single_line(value: object) -> bool:
@@ -181,6 +189,16 @@ def load(path: Path) -> dict[str, Any]:
             for entry in outbox
         ):
             raise TypeError("outbox")
+        attempts = data.setdefault("heal_attempts", {})
+        if not isinstance(attempts, dict):
+            raise TypeError("heal_attempts")
+        for key, row in attempts.items():
+            if (
+                not isinstance(key, str) or not isinstance(row, dict)
+                or row.get("result") not in {"pending", "recorded", "refused", "unverified"}
+                or row.get("postcondition") not in {"true", "false", "unknown"}
+            ):
+                raise TypeError(key)
     except (AttributeError, KeyError, TypeError, ValueError) as exc:
         raise OwnershipError(f"ownership state malformed: {type(exc).__name__}") from exc
     return data
@@ -218,20 +236,24 @@ def _handoff_map(data: Mapping[str, Any]) -> dict[tuple[str, int], str]:
     return result
 
 
-def _end_ownerless_episode(data: dict[str, Any], key: str, *, how: str, successor: str, now: datetime) -> None:
+def _end_ownerless_episode(
+    data: dict[str, Any], key: str, *, how: str, successor: str, now: datetime, queue: bool = True,
+) -> dict[str, Any] | None:
     """Drop this PR's ownerless episode so a later tick cannot inherit its clock.
 
-    An episode that already alerted leaves one cleared notice for the next keeper
-    tick. An episode still inside the grace period ends with no notice, as it does
-    when an owner returns inside that period.
+    An episode that already alerted leaves one cleared notice. An episode still
+    inside the grace period ends with no notice, as it does when an owner returns
+    inside that period. ``queue`` writes that notice to the outbox now; a caller
+    that still owns this tick's notice set passes False and sends it itself.
     """
     episode = data["episodes"].pop(key, None)
     if not episode or not episode.get("alerted_at"):
-        return
-    data.setdefault("outbox", []).extend(outbox_entries({
-        "cleared": [{"pr": key, "how": how, "since": episode["since"]}],
-    }))
+        return None
+    notice = {"pr": key, "how": how, "since": episode["since"]}
     data["history"].append({"pr": key, "event": "cleared", "at": now.isoformat(), "successor": successor})
+    if queue:
+        data.setdefault("outbox", []).extend(outbox_entries({"cleared": [notice]}))
+    return notice
 
 
 def accepted_handoffs(path: Path | None = None) -> dict[tuple[str, int], str]:
@@ -393,7 +415,11 @@ def deliver(outbox: list[dict[str, str]], service: Any) -> list[str]:
 
 @dataclass(frozen=True)
 class Finding:
-    """An open PR without a verifiably live owner; ``unknown`` when its owner cannot be observed."""
+    """An open PR without a verifiably live owner; ``unknown`` when its owner cannot be observed.
+
+    ``head`` and ``pr_state`` are this observation's PR evidence. Absent, they are
+    not evidence: the keeper alerts and does not record custody.
+    """
 
     repo: str
     number: int
@@ -401,6 +427,8 @@ class Finding:
     reason: str
     last_task: str | None = None
     unknown: bool = False
+    head: str | None = None
+    pr_state: str | None = None
 
 
 def liveness(record: Mapping[str, Any] | None) -> bool | None:
@@ -561,6 +589,28 @@ def findings(
     return result
 
 
+def _annotate_findings(
+    rows: list[Finding], open_prs: Mapping[str, list[dict[str, Any]]],
+) -> list[Finding]:
+    """Attach this observation's head and OPEN state. A PR absent from ``open_prs`` stays without them."""
+    index: dict[str, dict[str, Any]] = {}
+    for slug, prs in open_prs.items():
+        for pr in prs:
+            number = pr.get("number") if isinstance(pr, dict) else None
+            if isinstance(number, int) and not isinstance(number, bool):
+                index[pr_key(slug, number)] = pr
+    annotated = []
+    for row in rows:
+        pr = index.get(pr_key(row.repo, row.number))
+        head = pr.get("headRefOid") if isinstance(pr, dict) else None
+        annotated.append(Finding(
+            row.repo, row.number, row.branch, row.reason, row.last_task, row.unknown,
+            head=head if isinstance(head, str) and head else None,
+            pr_state="OPEN" if pr is not None else None,
+        ))
+    return annotated
+
+
 def _observe(handoffs: Mapping[tuple[str, int], str]) -> tuple[set[str], dict[str, Finding]]:
     """Every open PR key and its finding, across the owner check's default fleet repositories."""
     from lu_machinery.dispatcher import store
@@ -571,7 +621,7 @@ def _observe(handoffs: Mapping[tuple[str, int], str]) -> tuple[set[str], dict[st
     records = store.list_tasks(strict=True)
     open_prs = {repos[k].github: check.fetch_open_prs(repos[k].github) for k in check.DEFAULT_REPO_KEYS}
     open_prs = _with_head_commits(open_prs, records, repos)
-    rows = findings(open_prs, records, repos, handoffs)
+    rows = _annotate_findings(findings(open_prs, records, repos, handoffs), open_prs)
     keys = {pr_key(slug, int(pr["number"])) for slug, prs in open_prs.items() for pr in prs}
     return keys, {pr_key(f.repo, f.number): f for f in rows}
 
@@ -629,6 +679,7 @@ def _tick(now, path, observe, service_factory) -> tuple[list[str], bool]:
             if not decision_custody(data["handoffs"].get(key))
         }
         notices = step(data, keys, findings, now)
+        _heal_ownerless(data, findings, notices, now)
         outbox = data.setdefault("outbox", [])
         outbox.extend(outbox_entries(notices))
         _save(path, data)  # the frozen payloads exist on disk before any delivery
@@ -801,6 +852,143 @@ def queue_exit(
     return reasons
 
 
+def _put_decision_custody(
+    data: dict[str, Any],
+    *,
+    repo: str,
+    number: int,
+    head: str,
+    reason: str,
+    decision_owner: str,
+    now: datetime,
+    rerun: str,
+    queue_clear: bool = True,
+) -> tuple[dict[str, Any], dict[str, Any] | None]:
+    """Write one decision-custody handoff. The caller has already checked the owner evidence."""
+    handoff = {
+        "successor": decision_owner,
+        "predecessor": None,
+        "accepted_at": now.isoformat(),
+        "head": head,
+        "custody": [],
+        "rerun_allowance": rerun,
+        "reason": reason,
+        "decision_owner": decision_owner,
+        "pr_state": "OPEN",
+    }
+    key = pr_key(repo, number)
+    data["handoffs"][key] = handoff
+    data["history"].append({"pr": key, "event": "accepted", "at": handoff["accepted_at"], **handoff})
+    notice = _end_ownerless_episode(
+        data, key, how=f"custody recorded for {decision_owner}", successor=decision_owner, now=now,
+        queue=queue_clear,
+    )
+    return handoff, notice
+
+
+def _heal_ownerless(
+    data: dict[str, Any],
+    findings_now: Mapping[str, Finding],
+    notices: dict[str, list[dict[str, Any]]],
+    now: datetime,
+) -> None:
+    """Record decision custody for ownerless open PRs this tick has already proven.
+
+    One attempt per PR head. A refused or unverified attempt is not repeated, and
+    the alert stays. A verified record takes that PR off this tick's alert.
+    """
+    seated: list[str] = []
+    cleared: list[dict[str, Any]] = []
+    for key in sorted(findings_now):
+        finding = findings_now[key]
+        episode = data["episodes"].get(key)
+        if finding.unknown or episode is None or not episode.get("alerted_at"):
+            continue
+        notice = _seat_decision_owner(data, key, finding, episode, now)
+        if notice is not None:
+            seated.append(key)
+            cleared.append(notice)
+    if not seated:
+        return
+    notices["alert"] = [row for row in notices["alert"] if row["pr"] not in seated]
+    notices["reminder"] = [row for row in notices["reminder"] if row["pr"] not in seated]
+    notices["cleared"].extend(cleared)
+
+
+def _seat_decision_owner(
+    data: dict[str, Any], key: str, finding: Finding, episode: Mapping[str, Any], now: datetime,
+) -> dict[str, Any] | None:
+    """Return the cleared notice when custody is recorded and the postcondition holds."""
+    head, state = finding.head, finding.pr_state
+    if (
+        not isinstance(head, str) or re.fullmatch(r"[0-9a-f]{40}", head) is None
+        or state != "OPEN" or not _single_line(finding.reason)
+    ):
+        return None
+    attempts = data.setdefault("heal_attempts", {})
+    attempt_key = f"{key}:{head}"
+    prior = attempts.get(attempt_key)
+    if isinstance(prior, dict):
+        if (
+            prior.get("result") == "recorded" and prior.get("postcondition") == "true"
+            and decision_custody(data["handoffs"].get(key)) and key not in data["episodes"]
+        ):
+            return {"pr": key, "how": f"custody recorded for {CTO_INBOX}", "since": episode["since"]}
+        return None
+    attempts[attempt_key] = {
+        "at": now.isoformat(), "action": "record_decision_custody",
+        "result": "pending", "postcondition": "unknown",
+    }
+    handoff_before = copy.deepcopy(data["handoffs"].get(key))
+    episode_before = copy.deepcopy(episode)
+    history_len = len(data["history"])
+    outbox_len = len(data.get("outbox") or [])
+    try:
+        _put_decision_custody(
+            data, repo=finding.repo, number=finding.number, head=head, reason=finding.reason,
+            decision_owner=CTO_INBOX, now=now, rerun="unknown", queue_clear=False,
+        )
+    except OwnershipError as exc:
+        if handoff_before is None:
+            data["handoffs"].pop(key, None)
+        else:
+            data["handoffs"][key] = handoff_before
+        data["episodes"][key] = episode_before
+        data["history"] = data["history"][:history_len]
+        data["outbox"] = (data.get("outbox") or [])[:outbox_len]
+        attempts[attempt_key] = {
+            "at": now.isoformat(), "action": "record_decision_custody",
+            "result": "refused", "postcondition": "false", "error": str(exc)[:200],
+        }
+        return None
+    handoff = data["handoffs"].get(key)
+    verified = (
+        decision_custody(handoff) and handoff.get("head") == head
+        and handoff.get("decision_owner") == CTO_INBOX and key not in data["episodes"]
+    )
+    if not verified:
+        if handoff_before is None:
+            data["handoffs"].pop(key, None)
+        else:
+            data["handoffs"][key] = handoff_before
+        if episode_before is None:
+            data["episodes"].pop(key, None)
+        else:
+            data["episodes"][key] = episode_before
+        data["history"] = data["history"][:history_len]
+        data["outbox"] = (data.get("outbox") or [])[:outbox_len]
+        attempts[attempt_key] = {
+            "at": now.isoformat(), "action": "record_decision_custody",
+            "result": "unverified", "postcondition": "unknown",
+        }
+        return None
+    attempts[attempt_key] = {
+        "at": now.isoformat(), "action": "record_decision_custody",
+        "result": "recorded", "postcondition": "true",
+    }
+    return {"pr": key, "how": f"custody recorded for {CTO_INBOX}", "since": episode_before["since"]}
+
+
 def record_decision_custody(
     data: dict[str, Any],
     *,
@@ -834,22 +1022,9 @@ def record_decision_custody(
         raise OwnershipError("an owner is active but its supervisor cannot be observed")
     if not rows:
         raise OwnershipError("a live owner already has this PR")
-    handoff = {
-        "successor": decision_owner,
-        "predecessor": None,
-        "accepted_at": now.isoformat(),
-        "head": head,
-        "custody": [],
-        "rerun_allowance": rerun,
-        "reason": reason,
-        "decision_owner": decision_owner,
-        "pr_state": "OPEN",
-    }
-    key = pr_key(repo, number)
-    data["handoffs"][key] = handoff
-    data["history"].append({"pr": key, "event": "accepted", "at": handoff["accepted_at"], **handoff})
-    _end_ownerless_episode(
-        data, key, how=f"custody recorded for {decision_owner}", successor=decision_owner, now=now,
+    handoff, _notice = _put_decision_custody(
+        data, repo=repo, number=number, head=head, reason=reason, decision_owner=decision_owner,
+        now=now, rerun=rerun,
     )
     return handoff
 
