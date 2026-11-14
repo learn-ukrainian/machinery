@@ -331,15 +331,20 @@ finished task's tree still on disk with its reason; the summary carries
 `retained_count`, `retained_safety_stops` and `retained_complete`.
 
 A dispatcher can die after its worktree exists but before its worker starts,
-for example while it provisions `site/node_modules`. The admission hold the
-dispatcher publishes before `git worktree add` already names the tree
+for example while it provisions `site/node_modules`. As soon as `git worktree add`
+has made the tree, still under the worktree locks and before the checkout and
+provisioning, the dispatcher adds the tree to its admission hold
 (`worktree_path`, `worktree_branch`, `worktree_start_sha`, `repo`, `options`;
-`store.worktree_attribution`). The next write admission marks the hold `crashed`
+`store.worktree_attribution` and `store.attribute_hold`). Git refuses an
+existing non-empty path or branch, so the hold names only a tree this dispatch
+made, and only once it exists. The next write admission marks the hold `crashed`
 (`dispatch_died_after_admission`) and keeps those fields, so the hourly retry
 settles the tree like any other crashed task. One leftover can also be removed
 by hand with `worktree_claims remove <path> --owner-task-id <task>`. A borrowed
-`--cwd` tree, or a path that already exists, is never named by a hold. Records
-written before this change name no tree, and the remover refuses them.
+`--cwd` tree is never named by a hold. Records written before this change name
+no tree, and the remover refuses them. A partial `site/node_modules.tmp-<pid>`
+is untracked output: settlement preserves it under the existing budget and
+retains a tree whose partial install exceeds that budget.
 
 A finished data-tier run discards its own checkout output first (`discard_run_output` in
 `lu_machinery/ci/data_tier.py`; the file and byte totals go in the run summary's `discarded_output`).

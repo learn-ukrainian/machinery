@@ -139,14 +139,8 @@ def check_credit(agent, model):
 
 
 @contextlib.contextmanager
-def reserve(task_id, mode, decision, *, agent, disk_guard, force_reason=None, attribution=None):
-    """Legacy locked recheck -> publish hold -> setup; release on every unwound path.
-
-    ``attribution`` (``store.worktree_attribution``) names the worktree this dispatch is about to create.
-    It is published with the hold, so a dispatcher that dies after creating the tree leaves a hold the
-    admission probe marks crashed with the tree still named, which settlement and the guarded remover
-    can then dispose of.
-    """
+def reserve(task_id, mode, decision, *, agent, disk_guard, force_reason=None):
+    """Legacy locked recheck -> publish hold -> setup; release on every unwound path."""
     hold = None
     try:
         if not decision.exempt:
@@ -159,8 +153,7 @@ def reserve(task_id, mode, decision, *, agent, disk_guard, force_reason=None, at
                         owner = legacy.new_admission_hold(nonce)
                         hold = dict(schema_version=2, task_id=task_id, agent=agent, run_nonce=nonce, status="spawning", pid=None,
                                     mode=mode, started_at=owner["admitted_at"], finished_at=None,
-                                    admission=current.to_record(force_reason=force_reason), admission_hold=owner,
-                                    **(attribution or {}))
+                                    admission=current.to_record(force_reason=force_reason), admission_hold=owner)
                         path = store.record_path(task_id)
                         with task_state_lock(path):
                             if store.read(task_id, missing_ok=True) is not None:

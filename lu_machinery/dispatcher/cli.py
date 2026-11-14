@@ -584,13 +584,9 @@ def _dispatch(args) -> int:
         admission.review_typed(vars(args)) or args.risk or args.review_mode
     ):
         checks.check_review_budget(args, info, sha)
-    # The hold names the tree only when this dispatch is the one that will create it: never a borrowed --cwd
-    # tree, and never a path that already exists, which git worktree add then refuses.
-    creates = not args.cwd and not os.path.lexists(worktree)
     with host_admission.reserve(
         task_id, args.mode, decision, agent=agent, force_reason=force_reason,
         disk_guard=lambda: not (args.worktree is not None and (worktree / ".git").exists()),
-        attribution=store.worktree_attribution(spec, info, branch, sha) if creates else None,
     ) as hold:
         if binding:
             store.check_review_attempt(binding)  # the supervisor claims it (review_attempt.run)
@@ -600,9 +596,13 @@ def _dispatch(args) -> int:
             registration = None if registry is None else dict(
                 registry=registry, agent=agent, task_id=task_id, initiator=args.initiator,
                 purpose=prompt.decode(errors="replace") if isinstance(prompt, bytes) else prompt)
+            # The hold names the tree as soon as git has made it, so a dispatcher that dies during the checkout
+            # or provisioning leaves the tree attributed to this task (worktree_claims remove --owner-task-id).
+            attribution = store.worktree_attribution(spec, info, branch, sha)
             git.create_worktree(repo, worktree, branch, sha, full_checkout=args.full_checkout,
                                 sparse_include=git.SPARSE_EXCLUDE_DEFAULT - set(excluded), registration=registration,
-                                **exact_start)
+                                **exact_start,
+                                on_created=None if hold is None else lambda: store.attribute_hold(hold, attribution))
         record = store.new_record(spec, info, branch, sha, vars(args), binding=binding, admission_hold=hold)
         # A task dispatched from inside another task's run names that run, whose settlement then names it while
         # it still runs (worker._running_children, #12156).

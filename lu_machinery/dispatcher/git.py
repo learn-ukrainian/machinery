@@ -391,11 +391,15 @@ def worktree_lock(repo: Path, *, timeout: float | None = None):
 
 
 def create_worktree(repo: Path, path: Path, branch: str, sha: str, *, full_checkout=False, sparse_include=(),
-                    exact=False, registration: dict | None = None, creator_actor: str | None = None) -> None:
+                    exact=False, registration: dict | None = None, creator_actor: str | None = None,
+                    on_created=None) -> None:
     """Create a task worktree; ``registration`` (see register_worktree) also keeps its registry entry true.
 
     The entry is written before the tree exists and confirmed after, all under the worktree lock that
     settlement removes (and archives) under, so a later dispatch to the same path cannot interleave.
+    ``on_created()`` runs under the same locks as soon as ``git worktree add`` has made the tree, before its
+    checkout and dependency provisioning: git refuses an existing non-empty path or branch, so this call
+    made the tree, and the task record can name it before any later step can die.
     """
     excluded = sparse_excludes(sparse_include)
     # A published start is checked out as that exact object, not a shared replacement.
@@ -415,6 +419,8 @@ def create_worktree(repo: Path, path: Path, branch: str, sha: str, *, full_check
         try:
             run_git(repo, "config", "--local", "extensions.worktreeConfig", "true")
             run_git(repo, "worktree", "add", "--no-checkout", "--no-track", "-b", branch, str(path), sha)
+            if on_created is not None:
+                on_created()
             if full_checkout:
                 run_git(path, "sparse-checkout", "disable")
             else:
