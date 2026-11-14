@@ -159,7 +159,7 @@ def sources_command() -> list[str]:
 
 
 def codex_home_config() -> str:
-    """The task-local CODEX_HOME's ``config.toml``: one stdio Sources server and no other configuration.
+    """The task-local CODEX_HOME's ``config.toml``: Sources startup policy and one stdio server.
 
     The user's own configuration is not a layer of the run, so no MCP server, connector or transport key it
     defines can merge into this one. The dispatcher's argv adds the Sources tool policy and disables apps.
@@ -167,6 +167,9 @@ def codex_home_config() -> str:
     command, *args = sources_command()
     return "\n".join([
         "# Task-local CODEX_HOME projected by the write boundary: the Sources relay only.",
+        # The default one-second grace can omit the still-starting relay from the first model turn.
+        # Zero waits for startup or the existing server timeout; Sources stays optional on failure.
+        "mcp_optional_startup_grace_ms = 0",
         "[mcp_servers.sources]",
         f"command = {json.dumps(command)}",
         "args = [" + ", ".join(json.dumps(arg) for arg in args) + "]",

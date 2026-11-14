@@ -300,6 +300,7 @@ def test_no_github_write_authority_is_reachable_inside_any_route(primary, monkey
         home_check = (' && case "$CODEX_HOME/" in "$TMPDIR"/*) false;; esac'
                       f' && test "$(readlink "$CODEX_HOME/auth.json")" = {credential}'
                       ' && test "$(ls -A "$CODEX_HOME")" = "$(printf \'auth.json\\nconfig.toml\')"'
+                      ' && grep -qFx "mcp_optional_startup_grace_ms = 0" "$CODEX_HOME/config.toml"'
                       ' && ! grep -q foreign "$CODEX_HOME/config.toml"'
                       ' && ! (echo "[mcp_servers.planted]" >> "$CODEX_HOME/config.toml") 2>/dev/null'
                       ' && grep -qF \'"/run/lu-write-boundary/sources-stdio.py", "/run/lu-write-boundary/sources.sock"]\''

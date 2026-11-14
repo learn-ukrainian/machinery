@@ -268,10 +268,12 @@ too. The canary checks both before the provider starts. Claude names it in its e
 `--mcp-config` with `--strict-mcp-config`; no product or worktree `.mcp.json` is read. Codex runs on a
 task-local `CODEX_HOME` the launcher projects into the run's private scratch, beside its TMPDIR (Codex
 creates no helper `PATH` aliases below its temporary directory), and removes with it. It holds a
-`config.toml` with only that server and a link to the selected account's `auth.json`, so no layer of the
+`config.toml` with only that server and its startup policy, plus a link to the selected account's `auth.json`, so no layer of the
 real Codex configuration reaches the run. The checkout's untrusted `.codex/` layer is disabled too.
 Dispatched Codex therefore omits their hooks, agents settings and context-window overrides, as well as
-MCP servers, connectors and loopback Sources URLs. Codex uses its model defaults. Its argv enables only the Sources readers and passes `--disable apps` in both modes. The tools that persist
+MCP servers, connectors and loopback Sources URLs. Codex uses its model defaults. `mcp_optional_startup_grace_ms = 0` waits for the optional server to
+finish startup or reach its existing timeout before the first model turn. The default one-second grace
+can omit the still-starting relay's tools from that turn. Sources stays optional if startup fails. Its argv enables only the Sources readers and passes `--disable apps` in both modes. The tools that persist
 fetched entries stay refused by the relay. The receipt's `sources` holds the relay's call counts, or why
 it was unavailable, and `codex_home` the config digest and whether the login was linked. Sources is
 optional: without the relay the server fails to start and the run goes on.
