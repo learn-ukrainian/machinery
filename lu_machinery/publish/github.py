@@ -24,6 +24,7 @@ from urllib.parse import quote
 import yaml
 
 from lu_machinery.common import github_client
+from lu_machinery.common.repo_root import PRODUCT_ROOT_ENV, product_root
 from lu_machinery.common.scratch import ensure_scratch_root
 from lu_machinery.guardrails.worktree_containment import NotAGitRepositoryError, resolve_main_root_without_git
 from lu_machinery.opsec import prepublish as gate
@@ -1676,7 +1677,7 @@ def _refuse_dispatched_dismissal(environment):
     for source in (os.environ, environment or {}):
         if (
             any(source.get(key) for key in (
-                "LEARN_UKRAINIAN_DISPATCH_TASK_ID", BROKER_ENV, "LU_REVIEW_SHELL_TASK",
+                "LEARN_UKRAINIAN_DISPATCH_TASK_ID", BROKER_ENV,
             ))
             or source.get("USER") == "review" or source.get("LOGNAME") == "review"
         ):
@@ -2863,7 +2864,9 @@ def _dependabot_repository(cwd, environment, explicit):
             raise ValueError
         checkout = next(path for path in (folder, *folder.parents) if os.path.lexists(path / ".git"))
         primary = resolve_main_root_without_git(checkout)
-        public = resolve_main_root_without_git(gate.ROOT)
+        # Installed code lives in site-packages, outside the catalog checkouts.
+        # Use the declared product, or the caller's physical checkout, as the anchor.
+        public = resolve_main_root_without_git(product_root(environment.get(PRODUCT_ROOT_ENV) or checkout))
         matches = [row for row in gate.catalog().values() if public.parent / row["local_name"] == primary]
         if len(matches) != 1:
             raise ValueError

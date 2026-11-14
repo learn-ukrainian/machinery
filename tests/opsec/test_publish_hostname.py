@@ -273,3 +273,78 @@ def test_unbound_transports_preserve_absent_host(operation, inherited_host_trans
 
 
 pytestmark = pytest.mark.usefixtures("configured_roots")
+
+
+@pytest.fixture
+def dependabot_checkout(tmp_path, monkeypatch):
+    """A real catalog checkout independent of the installed package directory."""
+    checkout = tmp_path / CATALOG["public"]["local_name"]
+    checkout.mkdir()
+    subprocess.run(["git", "init", "-q", str(checkout)], check=True, capture_output=True)
+    subprocess.run(
+        ["git", "-C", str(checkout), "remote", "add", "origin", "https://github.com/unit/public.git"],
+        check=True, capture_output=True,
+    )
+    monkeypatch.setattr(gate, "catalog", lambda: CATALOG)
+    package = tmp_path / "site-packages"
+    package.mkdir()
+    monkeypatch.setattr(gate, "ROOT", package)
+    return checkout
+
+
+@pytest.mark.parametrize("declared", [False, True])
+def test_dependabot_installed_package_reads_callers_physical_checkout(dependabot_checkout, declared):
+    """A package outside Git must not prevent a proved checkout's inventory read."""
+    checkout = dependabot_checkout
+    calls = []
+    nested = checkout / "nested"
+    nested.mkdir()
+
+    def sender(argv, **kwargs):
+        calls.append(argv)
+        assert kwargs["cwd"].resolve() == nested
+        assert kwargs["timeout"] == 30
+        return subprocess.CompletedProcess(argv, 0, '[]\n[]\n', "")
+
+    result = pub.read(
+        "dependabot-alerts", cwd=nested,
+        env={"LU_PRODUCT_ROOT": str(checkout)} if declared else {},
+        runner=sender, capture_output=True, text=True,
+    )
+    assert result.returncode == 0 and json.loads(result.stdout) == []
+    assert len(calls) == 1
+    assert calls[0][:7] == [
+        "gh", "api", "--method", "GET", "repos/unit/public/dependabot/alerts?state=open&per_page=100",
+        "--paginate", "--jq",
+    ]
+
+
+@pytest.mark.parametrize("unproved", ["origin", "host", "explicit", "inherited", "git", "symlink", "product"])
+def test_dependabot_installed_package_keeps_identity_refusals(dependabot_checkout, tmp_path, unproved):
+    """Changing the anchor must preserve physical identity and destination refusals."""
+    checkout = dependabot_checkout
+    environment, fields = {}, {}
+    if unproved == "origin":
+        subprocess.run(
+            ["git", "-C", str(checkout), "remote", "set-url", "origin", "https://other.example/unit/public.git"],
+            check=True, capture_output=True,
+        )
+    elif unproved == "host":
+        environment["GH_HOST"] = "other.example"
+    elif unproved == "explicit":
+        fields["repo"] = "unit/private"
+    elif unproved == "inherited":
+        environment["GH_REPO"] = "unit/private"
+    elif unproved == "git":
+        (checkout / ".git" / "HEAD").write_text("invalid\n")
+    elif unproved == "symlink":
+        link = tmp_path / "linked"
+        link.symlink_to(checkout, target_is_directory=True)
+        checkout = link
+    else:
+        environment["LU_PRODUCT_ROOT"] = str(tmp_path / "missing")
+    with pytest.raises(gate.PublishBlocked, match="DEPENDABOT_REPOSITORY_REFUSED"):
+        pub.read(
+            "dependabot-alerts", cwd=checkout, env=environment,
+            runner=lambda *a, **k: pytest.fail("unproved checkout reached transport"), **fields,
+        )
