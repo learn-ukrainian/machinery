@@ -355,6 +355,27 @@ def _git(cwd: Path, *args: str, git_dir: Path | None = None, network: bool = Fal
     return result.stdout
 
 
+def _writable_tracked_file(repository: Path) -> Path:
+    """The first tracked regular file the host user owns and may write, for the canary's read-only bind probe.
+
+    The kernel checks file permissions before the mount's read-only flag, so a tracked file that is read-only
+    on disk gives EACCES under any mount and would test its mode, not the bind. The sandbox maps only the host
+    user, so a file writable only through its group or another owner gives EACCES inside it as well.
+    """
+    for name in _git(repository, "ls-files", "-z").split("\0"):
+        if not name:
+            continue
+        path = repository / name
+        try:
+            status = path.lstat()
+        except OSError:
+            continue
+        if stat.S_ISREG(status.st_mode) and status.st_uid == os.geteuid() and os.access(path, os.W_OK):
+            return path
+    raise Refused("the primary has no tracked regular file the host user may write, so the canary cannot "
+                  "tell its read-only bind from file permissions")
+
+
 def _listening_socket_paths() -> list[Path]:
     """Every listening path-named Unix socket of the host, from the kernel's table."""
     paths = set()
@@ -1212,10 +1233,7 @@ class _Boundary:
         def expect(op: str, path: Path | str, *outcomes: str, port: int | None = None) -> None:
             probes.append({"op": op, "path": str(path), "expect_any": list(outcomes), **({"port": port} if port else {})})
 
-        tracked = next((repository / name for name in _git(repository, "ls-files", "-z").split("\0")
-                        if name and (repository / name).is_file() and not (repository / name).is_symlink()), None)
-        if tracked is None:
-            raise Refused("the primary has no tracked regular file to probe")
+        tracked = _writable_tracked_file(repository)
         absent = repository / f".write-boundary-canary-{nonce}"
         expect("write_open", tracked, "EROFS")
         expect("chmod", tracked, "EROFS")
