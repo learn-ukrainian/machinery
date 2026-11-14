@@ -12,7 +12,8 @@ from types import ModuleType
 PROVIDERS = ("codex", "claude", "cursor", "agy", "muse", "opencode")
 
 # Read-only must be unable to edit. The supervisor confines native routes in write_boundary's
-# read-only mounts; AGY retains its own read-only bubblewrap boundary (agy_sandbox, C-3027).
+# read-only mounts, except Claude, which retains its existing per-shell boundary pending enrollment.
+# AGY retains its own read-only bubblewrap boundary (agy_sandbox, C-3027).
 # Provider permissions are additional restrictions, never a substitute for the OS boundary.
 READ_ONLY_REFUSALS: dict[str, str] = {}
 

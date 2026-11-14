@@ -465,9 +465,9 @@ def test_read_only_mode_denies_edits_on_every_provider(sandbox, tmp_path, monkey
         assert {"--disable-write", "--disable-shell"} <= set(argv)
     elif agent == "claude":
         assert argv[argv.index("--permission-mode") + 1] == "dontAsk"
-        # The supervisor wraps the whole provider; no nested shell sandbox is needed.
+        # A direct, unwrapped provider keeps its legacy shell boundary.
         assert "Bash" in argv[argv.index("--allowedTools") + 1].split(",")
-        assert "CLAUDE_CODE_SHELL_PREFIX" not in invocation.env
+        assert invocation.env["CLAUDE_CODE_SHELL_PREFIX"] == str(agy_sandbox.SHELL_PREFIX)
         assert {"Edit", "Write", "NotebookEdit"} <= set(argv[argv.index("--disallowedTools") + 1].split(","))
         # dontAsk still runs what a loaded settings file allows, and a worktree loads the main checkout's
         # local file (Grok F4). Lists merge across sources, so no source's write allow may take effect.

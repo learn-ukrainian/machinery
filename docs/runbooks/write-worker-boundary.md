@@ -14,9 +14,8 @@ a setup error or a failed canary refuses the run with exit 125 and the typed err
 
 ## Read-only review dispatches
 
-Read-only native providers also run through `write_boundary.launcher`. The worktree and Git metadata
-are read-only mounts, with no branch import. Native Claude's entire process is contained, so Bash
-uses the same boundary instead of starting a second sandbox per command. Codex also uses these mounts
+Read-only native Codex, Cursor and OpenCode also run through `write_boundary.launcher`. The worktree and Git metadata
+are read-only mounts, with no branch import. Codex uses these mounts
 as its filesystem sandbox: its inner sandbox cannot start under `--disable-userns`. Its dispatch keeps
 the private scratch lease. Other native providers keep their read-only permission profiles.
 Provider credential refreshes stay in the private HOME overlay rather than writable host binds.
@@ -34,8 +33,10 @@ path. The reviewer supplies its structured result and cannot publish a verdict o
 The boundary receipt includes the launch mode and GitHub read-relay outcomes. Setup or canary failure
 refuses the run, with no uncontained fallback.
 
-This contains machinery #100 rows R26, R28, R29, R36, R40, R41 and R48 for dispatched seats.
-Interactive sessions remain outside this boundary.
+Native read-only Claude remains on its existing per-shell `agy_sandbox` path. Its provider process
+is not yet enrolled in the outer boundary; the separate Claude-provider enrollment must land with
+the removal of its obsolete shell path. Machinery #100 rows R26, R28, R29, R36, R40, R41 and R48
+remain open until that enrollment also lands. Interactive sessions remain outside this boundary.
 
 ## What the write boundary is
 

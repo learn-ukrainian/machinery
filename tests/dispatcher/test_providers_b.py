@@ -9,6 +9,7 @@ from dataclasses import replace
 from pathlib import Path
 import pytest
 from lu_machinery.agent_runtime.sources_read_only import sources_tool_sets
+from lu_machinery.common.repo_root import project_interpreter
 from lu_machinery.dispatcher import agy_sandbox, runtime_context
 from lu_machinery.dispatcher.providers import PROVIDERS, load
 from lu_machinery.dispatcher.runtime_context import read_roots
@@ -303,8 +304,14 @@ def test_cli_prompt_or_mode_regression(tmp_path, monkeypatch, provider, mode, ef
         assert capture["background"] == "1"
         assert capture["advisor"] == "1"
         assert capture["context"] == "inherited-session"
+        shell = {} if mode != "read-only" else {
+            "CLAUDE_CODE_SHELL_PREFIX": str(agy_sandbox.SHELL_PREFIX),
+            "LEARN_UKRAINIAN_PYTHON": str(project_interpreter()), agy_sandbox.SHELL_ENV_TASK: spec.task_id,
+            agy_sandbox.SHELL_ENV_WORKTREE: str(spec.worktree),
+            agy_sandbox.SHELL_ENV_LOG: str(spec.final_file.with_suffix(".shell.jsonl")),
+        }
         assert invocation.env == dict(
-            original_env, CLAUDE_CODE_DISABLE_BACKGROUND_TASKS="1", CLAUDE_CODE_DISABLE_ADVISOR_TOOL="1"
+            original_env, CLAUDE_CODE_DISABLE_BACKGROUND_TASKS="1", CLAUDE_CODE_DISABLE_ADVISOR_TOOL="1", **shell
         )
     assert capture["argv"] == expected
     assert capture["cwd"] == str(worktree)

@@ -2,8 +2,9 @@
 
 The primary-checkout write guard parses shell commands and is only an accident tripwire. This boundary
 makes the primary checkout read-only for the operating system instead, so no command spelling writes it.
-``worker.supervise`` launches every ``workspace-write`` provider and every native read-only provider
-through ``launcher``. Read-only AGY keeps its existing filesystem boundary and reuses the GitHub egress refusal.
+``worker.supervise`` launches every ``workspace-write`` provider and native read-only providers other
+than Claude through ``launcher``. Read-only Claude retains its per-shell boundary pending a separate
+provider enrollment. Read-only AGY keeps its existing filesystem boundary and reuses the GitHub egress refusal.
 The launcher runs the provider and all of its descendants under bubblewrap and
 reuses the read-only AGY boundary's pieces (``agy_sandbox``): its bwrap resolver, its projected canary
 with the report and go descriptors, the CONNECT-only egress proxy and its in-namespace forwarder.
