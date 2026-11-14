@@ -945,6 +945,9 @@ async def pull_requests(ctx: MonitorContext = Depends(get_ctx)) -> JSONResponse:
     served at once with its true age while one background read replaces it, so
     a page never waits on GitHub after the first read. ``status: unknown`` with
     a ``reason`` when GitHub cannot be read, never an empty "no PRs" list.
+    The heading is ``unavailable`` only when no repository loaded. A repository
+    that loaded beside one that did not stays visible as ``stale``, at the age
+    of that reading. Repository row statuses are unchanged.
     """
     # The record check reads this store. A key scoped only by project root
     # would reuse another context's authorization.
@@ -963,13 +966,19 @@ async def pull_requests(ctx: MonitorContext = Depends(get_ctx)) -> JSONResponse:
         payload = value if isinstance(value, dict) else _unknown_pull_requests("cache_invalid", datetime.now(UTC).isoformat().replace("+00:00", "Z"))
         if age >= PULL_REQUESTS_TTL_S:
             schedule_cache_refresh(key, PULL_REQUESTS_TTL_S, compute)
+    # A loaded repository is a row the panel can show. An unknown row is a gap
+    # in that reading, not an empty panel, so it must not discard the other age.
+    raw_repositories = payload.get("repositories")
+    rows = raw_repositories if isinstance(raw_repositories, list) else []
+    usable = [repo for repo in rows if isinstance(repo, dict) and repo.get("status") == "ok"]
     return JSONResponse(content=payload, headers=panel_values.snapshot_headers(
         # A visit can first find expiry one page cycle late, then display that
         # snapshot for one more cycle while the collector runs. Keep the 120 s
         # GitHub cadence; allow two 30 s cycles and collection/HTTP margin.
-        panel_values.observation_age_s(payload.get("observed_at")), PULL_REQUESTS_TTL_S + 90.0,
-        unavailable=payload.get("status") != "ok"
-        or any(repo.get("status") != "ok" for repo in payload.get("repositories", [])),
+        panel_values.observation_age_s(payload.get("observed_at")) if usable else None,
+        PULL_REQUESTS_TTL_S + 90.0,
+        unavailable=not usable,
+        stale=bool(usable) and len(usable) != len(rows),
     ))
 
 

@@ -676,7 +676,7 @@ ROUTE_CONTRACTS: tuple[RouteContract, ...] = (
         "/api/health",
         "exact",
         "http",
-        "API process health, uptime, resilience counters, and loopback instance identity (opaque host id, checkout_sha/git_sha alias, serving_sha, serving_mode).",
+        "API process health, uptime, resilience counters, machinery_version (installed lu-machinery release, or null), and loopback instance identity (opaque host id, checkout_sha/git_sha alias, serving_sha, serving_mode).",
         "API process state, LIVE_REPO_ROOT git HEAD, PROJECT_ROOT release layout, and resilience middleware counters.",
         "Generated per request; no route cache.",
         ("health checks", "tests", "agents"),
