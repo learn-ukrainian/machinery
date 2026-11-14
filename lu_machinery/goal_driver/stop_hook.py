@@ -36,6 +36,7 @@ from pathlib import Path
 from typing import Any
 
 from lu_machinery.common.jsonl import jsonl_lines as split_jsonl_lines
+from lu_machinery.common.repo_root import native_hook_roots
 from lu_machinery.goal_driver.status_lines import (
     ABORT_KIND,
     DONE_KIND,
@@ -96,13 +97,19 @@ def _session_id_from_payload(payload: dict[str, Any], transcript_path: Path) -> 
 def _state_path(payload: dict[str, Any], session_id: str) -> Path | None:
     """Resolve the session-state file path under .claude/goal-state/.
 
-    Returns ``None`` if neither ``payload['cwd']`` nor ``CLAUDE_PROJECT_DIR`` is
-    set — in that case there is no project root to anchor the state file.
+    A payload ``cwd`` or ``CLAUDE_PROJECT_DIR`` names the project. When neither
+    is set, the shared hook-root helper does (R50, the PR 308 rule). Stop stays
+    non-blocking when that helper cannot resolve a root: there is no other fallback.
     """
-    project_dir = payload.get("cwd") or os.environ.get("CLAUDE_PROJECT_DIR")
-    if not isinstance(project_dir, str) or not project_dir:
-        return None
-    return Path(project_dir) / ".claude" / STATE_DIR_NAME / f"{session_id}.json"
+    named = payload.get("cwd") or os.environ.get("CLAUDE_PROJECT_DIR")
+    if isinstance(named, str) and named:
+        project = Path(named)
+    else:
+        try:
+            project = native_hook_roots(Path.cwd())[0]
+        except (OSError, ValueError):
+            return None
+    return project / ".claude" / STATE_DIR_NAME / f"{session_id}.json"
 
 
 def _apply_state_transitions(last: StatusLine, state_path: Path | None) -> None:

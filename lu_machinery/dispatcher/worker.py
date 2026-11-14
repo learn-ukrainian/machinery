@@ -144,8 +144,9 @@ def _task_caches(task_id: str, *, remove: bool) -> tuple[list[str], list[str]]:
     """The cache directories in ``<task_id>.artifacts`` and ``<task_id>.evidence``, and what could not be walked or removed.
 
     os.fwalk holds each directory open and checks it with lstat, open and fstat before it descends, so neither a
-    link nor an ancestor swapped during the walk takes it outside the task's outputs. Removal acts relative to the
-    held parent. ``DirEntry.is_dir`` follows links, so a dangling cache link or a link to a file is listed in
+    link nor an ancestor swapped during the walk takes it outside the task's outputs. A non-cache directory that
+    mountinfo names as a mount point is not entered (RV298-F2): refusal at deletion does not stop that descent.
+    Removal acts relative to the held parent. ``DirEntry.is_dir`` follows links, so a dangling cache link or a link to a file is listed in
     ``files``; those names are unlinked too. A real directory goes through the scratch remover.
     """
     tasks = store.record_path(task_id).parent  # refuses an invalid task id before any path is built from it
@@ -166,6 +167,7 @@ def _task_caches(task_id: str, *, remove: bool) -> tuple[list[str], list[str]]:
 
     tasks_fd = os.open(tasks, os.O_RDONLY | os.O_DIRECTORY)
     try:
+        mounts = task_scratch.mount_points()
         for root in (f"{task_id}.artifacts", f"{task_id}.evidence"):
             try:
                 os.stat(root, dir_fd=tasks_fd, follow_symlinks=False)
@@ -173,6 +175,17 @@ def _task_caches(task_id: str, *, remove: bool) -> tuple[list[str], list[str]]:
                 continue
             try:
                 for directory, names, files, dir_fd in os.fwalk(root, onerror=refused, dir_fd=tasks_fd):
+                    if mounts:
+                        try:
+                            held = os.readlink(f"/proc/self/fd/{dir_fd}")
+                        except OSError:
+                            held = ""
+                        if held:
+                            for name in [
+                                name for name in names
+                                if name not in TASK_CACHE_DIRS and os.path.join(held, name) in mounts
+                            ]:
+                                names.remove(name)  # do not descend into a non-cache mount
                     for name in [name for name in names if name in TASK_CACHE_DIRS]:
                         names.remove(name)  # do not descend into a directory this pass is removing
                         # An empty cache under a non-cache parent we must not chmod is not residue.
