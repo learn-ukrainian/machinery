@@ -1454,6 +1454,10 @@ class _Boundary:
         env.update(git_push_settings(env, interpreter, str(machinery_path("dispatcher/write_boundary.py").parents[2])))
         if codex_home is not None:
             env["CODEX_HOME"] = str(codex_home)
+        if (store := _pre_commit_store(home)) is not None and (found := _resolved(store)) is not None and found.is_dir():
+            # The store is restored at its resolved path (``_toolchain``); a link on pre-commit's lookup path, such
+            # as HOME's .cache, is not in the view, so pre-commit is told the directory it resolves on the host.
+            env["PRE_COMMIT_HOME"] = str(found)
         # Project after the boundary directory exists and immediately before the sandbox starts, under the
         # task lock, so a grant written during setup is in the view the hook reads.
         from lu_machinery.dispatcher.ownership import project_launch_view

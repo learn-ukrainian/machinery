@@ -455,10 +455,15 @@ def test_declared_resources_in_masked_roots_stay_read_only_without_host_socket_a
     login = home / ".claude" if login_root == "home" else masked / "logins" / "b"
     # The key file inside the login directory itself, or below an emptied root of its own.
     keys = login / "keys" if login_root == "home" else masked / "keys"
+    # pre-commit's store in HOME's .cache, or behind a .cache link (review F1 of PR 538).
+    cache = home / ".cache" if login_root == "home" else home / "cache-volume"
+    if login_root != "home":
+        cache.mkdir()
+        (home / ".cache").symlink_to("cache-volume")
     for path, text in ((home / ".codex/auth.json", "other login"), (home / "ops-state/notes", "private"),
                        (login / "projects/other.jsonl", "transcript"), (login / ".credentials.json", "selected"),
                        (home / ".local/bin/tool", "toolchain"), (keys / "selected", "selected key"),
-                       (home / ".cache/pre-commit/repo/hook", "hook env"), (home / ".cache/other/data", "other"),
+                       (cache / "pre-commit/repo/hook", "hook env"), (cache / "other/data", "other"),
                        (keys / "other", "other key"),
                        (login / "settings.json", json.dumps({"env": {}, "apiKeyHelper": f"cat {keys}/selected"})),
                        (login / ".claude.json", json.dumps({"oauthAccount": {
@@ -514,15 +519,18 @@ with socket.socket(socket.AF_UNIX) as connection:
         pass
     else:
         raise AssertionError("host socket reachable")
+store = Path(os.environ["PRE_COMMIT_HOME"])
+assert (store / "repo/hook").read_text() == "hook env"
 try:
-    (Path(os.environ["HOME"]) / ".cache/pre-commit/repo/hook").open("w")
+    (store / "repo/hook").open("w")
 except OSError as exc:
     assert exc.errno == 30
 else:
     raise AssertionError("pre-commit store writable")
+assert not (store.parent / "other").exists()
 home, repo, login, keys = Path(os.environ["HOME"]), Path(sys.argv[4]), Path(sys.argv[5]), Path(sys.argv[6])
 view = {relative: (home / relative).exists() for relative in (".codex/auth.json", "ops-state", ".local/bin/tool",
-                                                            ".cache/pre-commit/repo/hook", ".cache/other")}
+                                                            ".cache/other")}
 view.update({"login/" + relative: (login / relative).exists() for relative in (
     "projects", ".credentials.json", "settings.json")})
 view.update({"keys/" + relative: (keys / relative).exists() for relative in ("selected", "other")})
@@ -534,7 +542,7 @@ view.update({relative: (repo / relative).exists() for relative in (
 
 assert view == {".codex/auth.json": False, "ops-state": False, "login/projects": False,
                 "login/.credentials.json": True, ".local/bin/tool": True, "login/settings.json": True,
-                ".cache/pre-commit/repo/hook": True, ".cache/other": False,
+                ".cache/other": False,
                 "keys/selected": True, "keys/other": False,
                 "global_config": {"oauthAccount": {"accountUuid": "u", "organizationUuid": "o"}},
                 "batch_state/tasks/other-task.result": False, "plane-link/private-record": False,
