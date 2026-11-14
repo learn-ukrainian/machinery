@@ -320,7 +320,7 @@ def test_codex_adapter_mode_flags_workspace_write():
     # server connections, leaving writers unable to call verify_words etc.
     # (verified empirically 2026-05-08). workspace-write now uses the same
     # flags as the interactive launcher.
-    """Codex write calls must retain the explicit workspace sandbox and approval policy."""
+    """Codex write calls must retain the launcher's approval/sandbox bypass and multi_agent flag."""
     assert CodexAdapter._mode_flags("workspace-write") == [
         "--dangerously-bypass-approvals-and-sandbox",
         "--enable",
@@ -2372,7 +2372,7 @@ def test_claude_adapter_basic_stateless(tmp_path):
         model=None,
         task_id=None,
         session_id=None,
-        tool_config=None,
+        tool_config={"cmd_prefix": ["claude"]},
     )
     assert "-p" in plan.cmd
     assert "hello" in plan.cmd
@@ -2392,7 +2392,7 @@ def test_claude_adapter_emits_max_budget_usd_from_tool_config(tmp_path):
         model=None,
         task_id=None,
         session_id=None,
-        tool_config={"max_budget_usd": 0.5},
+        tool_config={"cmd_prefix": ["claude"], "max_budget_usd": 0.5},
     )
 
     assert "--max-budget-usd" in plan.cmd
@@ -2409,7 +2409,7 @@ def test_claude_adapter_discussion_readonly_uses_restricted_tools_without_plan_m
         model=None,
         task_id=None,
         session_id=None,
-        tool_config={"discussion_readonly": True},
+        tool_config={"cmd_prefix": ["claude"], "discussion_readonly": True},
     )
 
     assert "--permission-mode" not in plan.cmd
@@ -2433,7 +2433,7 @@ def test_claude_adapter_resume_existing_session(tmp_path):
         model=None,
         task_id="test",
         session_id="abc-123",
-        tool_config=None,  # default is_new_session=False → resume
+        tool_config={"cmd_prefix": ["claude"]},  # default is_new_session=False → resume
     )
     assert "--resume" in plan.cmd
     assert "abc-123" in plan.cmd
@@ -2451,7 +2451,7 @@ def test_claude_adapter_new_named_session(tmp_path):
         model=None,
         task_id="test",
         session_id="new-uuid-123",
-        tool_config={"is_new_session": True},
+        tool_config={"cmd_prefix": ["claude"], "is_new_session": True},
     )
     assert "--session-id" in plan.cmd
     assert "new-uuid-123" in plan.cmd
@@ -2470,6 +2470,7 @@ def test_claude_adapter_mcp_tool_config(tmp_path):
         task_id=None,
         session_id=None,
         tool_config={
+            "cmd_prefix": ["claude"],
             "mcp_config_path": "/path/.mcp.json",
             "allowed_tools": "Read,Grep,mcp__rag__verify_word",
         },
@@ -2492,7 +2493,7 @@ def test_claude_adapter_danger_mode(tmp_path):
         model=None,
         task_id=None,
         session_id=None,
-        tool_config=None,
+        tool_config={"cmd_prefix": ["claude"]},
     )
     assert "--dangerously-skip-permissions" in plan.cmd
 
@@ -2508,7 +2509,7 @@ def test_claude_adapter_keeps_hooks_when_api_key_set(tmp_path, monkeypatch):
         model=None,
         task_id=None,
         session_id=None,
-        tool_config=None,
+        tool_config={"cmd_prefix": ["claude"]},
     )
     assert "--bare" not in plan.cmd
     assert "--settings" in plan.cmd
