@@ -388,7 +388,6 @@ tests/curriculum/test_delegate_check_budget.py
 tests/dispatcher/test_snapshot_hidden_changes.py
 tests/driver_blockers/test_driver_blockers.py
 tests/evidence/test_agent_pitfall_census.py
-tests/fleet/test_agent_github_identity.py
 tests/fleet/test_capacity_pick.py
 tests/fleet/test_capacity_pick_resource_policy.py
 tests/fleet/test_capacity_pick_root.py

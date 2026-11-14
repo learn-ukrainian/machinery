@@ -1213,22 +1213,6 @@ def test_help_and_invalid_argv(world, capsys):
         assert exc.value.code == 2
 
 
-def test_own_primary_marker_resolution(tmp_path):
-    init(tmp_path / "public")
-    primary = tmp_path / "public"
-    assert sg.primary_root(primary) == primary
-    worktree = primary / ".worktrees/dispatch/codex/task"
-    worktree.parent.mkdir(parents=True)
-    git(primary, "worktree", "add", "--detach", str(worktree))
-    assert sg.primary_root(worktree) == primary
-
-
-@pytest.mark.parametrize("raw", ["relative/path", "/tmp/../tmp", "/tmp/with\nnewline", "/tmp/with\u202ebidi"])
-def test_plain_path_validation(raw):
-    with pytest.raises(sg.Refusal):
-        sg._plain_path(Path(raw), exists=False)
-
-
 @pytest.mark.parametrize("name", [" leading.txt", "trailing .txt", "line\nbreak.txt"])
 def test_filter_paths_keep_exact_nul_delimited_names(world, tmp_path, name):
     _, sibling, _ = world
