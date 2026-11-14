@@ -1780,7 +1780,11 @@ async def runtime_logins():
     ``pending`` until the first snapshot exists. ``subscriptions`` holds the
     operator's end dates for cancelled subscriptions, read from the host config.
     """
-    return _public_logins(account_logins.logins_snapshot(), account_logins.subscription_ends())
+    payload = _public_logins(account_logins.logins_snapshot(), account_logins.subscription_ends())
+    return JSONResponse(content=payload, headers=panel_values.snapshot_headers(
+        panel_values.observation_age_s(payload.get("read_at")), account_logins.TTL_S,
+        unavailable=payload.get("state") != "ok",
+    ))
 
 
 @router.get("/subscriptions")
@@ -1796,4 +1800,12 @@ def runtime_subscriptions():
     15 minutes is ``stale``. Provider prose and plan names are omitted from HTTP;
     the local console reader retains its private diagnostic view.
     """
-    return _public_subscriptions(subscriptions.subscriptions_snapshot())
+    payload = _public_subscriptions(subscriptions.subscriptions_snapshot())
+    readings = [account.get("reading", {}) for provider in payload["providers"] for account in provider["accounts"]
+                if not account.get("plan", {}).get("ended")]
+    ages = [reading["age_s"] for reading in readings if panel_values.number(reading.get("age_s")) is not None]
+    return JSONResponse(content=payload, headers=panel_values.snapshot_headers(
+        max(ages) if ages else None, payload.get("stale_after_s", subscriptions.STALE_AFTER_S),
+        unavailable=not readings or any(reading.get("status") == "unknown" for reading in readings),
+        stale=any(reading.get("status") == "stale" for reading in readings),
+    ))

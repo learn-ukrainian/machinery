@@ -312,7 +312,7 @@ def _agy_pool(read_at: str) -> dict:
 
 @pytest.fixture
 def usage_files(tmp_path, monkeypatch):
-    from lu_machinery.api import state_helpers, subscription_usage
+    from lu_machinery.api import claude_account_usage, state_helpers, subscription_usage
 
     deficit = {"secondary": {"deltaPercent": 18, "expectedUsedPercent": 35, "willLastToReset": False,
                              "etaSeconds": 7200, "summary": "18% in deficit"}}
@@ -334,6 +334,18 @@ def usage_files(tmp_path, monkeypatch):
     path = tmp_path / "codexbar.json"
     path.write_text(json.dumps(cache))
     monkeypatch.setenv("LU_USAGE_CACHE_FILE", str(path))
+    # The validated Monitor samples supersede the external writer's Claude rows.
+    # Distinct values and timestamps prevent a stale file or the other account
+    # from masquerading as the selected account's observation.
+    monkeypatch.setattr(claude_account_usage, "claude_accounts_snapshot", lambda **_kw: {
+        "claude:a": {"status": "ok", "stale": False, "updated": "2030-01-01T11:59:00Z", "age_s": 60,
+                     "provider_usage": {"windows": {"weekly": {"window_minutes": 10080, "used_pct": 36,
+                                          "resets_at": "2030-01-03T00:00:00Z"}},
+                                        "fable_weekly": {"window_minutes": 10080, "used_pct": 2}}},
+        "claude:b": {"status": "stale", "stale": True, "updated": "2030-01-01T11:30:00Z", "age_s": 1800,
+                     "provider_usage": {"windows": {"weekly": {"window_minutes": 10080, "used_pct": 90,
+                                          "resets_at": "2030-01-03T00:00:00Z"}}}},
+    })
     _write_facts(tmp_path, monkeypatch, '{"claude_a": {"plan": "Plan A", "renews_on": "2029-12-15"}}')
     # No Monitor reading in this process, and no probe may start.
     probes = []
@@ -369,7 +381,7 @@ def test_subscriptions_view_is_cache_only_and_marks_missing_stale_unknown(usage_
     assert (claude["reading"]["status"], claude["reading"]["age_s"]) == ("fresh", 60)
     assert (claude["weekly"]["left_pct"], claude["weekly"]["resets_at"], claude["weekly"]["resets_in_s"]) == (
         64.0, "2030-01-03T00:00:00Z", 129600)
-    assert (claude["pace"]["state"], claude["pace"]["headroom_pct"], claude["pace"]["lasts_to_reset"]) == ("reserve", 8.0, True)
+    assert (claude["pace"]["state"], claude["pace"]["headroom_pct"], claude["pace"]["lasts_to_reset"]) == ("reserve", 42.6, True)
     # Claude and Codex report no real 5-hour window: never a number, wherever the cache puts one.
     assert claude["session"] == {"status": "unknown", "reason": "not_reported"}
     assert [(w["label"], w["left_pct"]) for w in claude["extra_windows"]] == [("Fable only", 98.0)]
@@ -377,9 +389,9 @@ def test_subscriptions_view_is_cache_only_and_marks_missing_stale_unknown(usage_
     assert claude["banked_resets"] == {"status": "unknown", "reason": "not_in_plan_facts"}
 
     stale = rows["Claude b"]
-    assert (stale["reading"]["status"], stale["weekly"]["left_pct"]) == ("stale", 47.0)
-    assert (stale["pace"]["state"], stale["pace"]["headroom_pct"], stale["pace"]["runs_out_at"]) == (
-        "deficit", -18.0, "2030-01-01T13:30:00Z")
+    assert (stale["reading"]["status"], stale["weekly"]["left_pct"]) == ("stale", 10.0)
+    assert (stale["pace"]["state"], stale["pace"]["headroom_pct"], stale["pace"]["lasts_to_reset"]) == (
+        "deficit", -11.7, False)
 
     # Each AGY quota group reads its own titled windows; CodexBar has no AGY pace, so it is computed.
     gemini, other = rows["AGY Gemini"], rows["AGY Claude/GPT"]
@@ -407,7 +419,8 @@ def test_subscriptions_view_is_cache_only_and_marks_missing_stale_unknown(usage_
     broken = subscriptions.subscriptions_snapshot(now=now)
     assert broken["sources"] == {"usage_cache": {"status": "missing", "written_at": None},
                                  "plan_facts": {"status": "unknown", "reason": "invalid"}}
-    assert _accounts(broken)["Claude a"]["reading"]["reason"] == "usage_cache_missing"
+    assert _accounts(broken)["Claude a"]["reading"]["status"] == "fresh"
+    assert _accounts(broken)["Codex a"]["reading"]["reason"] == "usage_cache_missing"
     assert _accounts(broken)["Claude a"]["plan"]["reason"] == "invalid"
     assert usage_files.probes == []
 
@@ -469,7 +482,7 @@ def test_routing_status_of_an_unseen_pool_is_unknown_not_cool(usage_files):
 
 def test_subscriptions_cli_prints_every_account_without_the_api(usage_files):
     """Defect class: the console command depends on the HTTP API, or drops account rows when the Monitor is not
-    running (Muse must print unknown while the cache pools, AGY included, print their numbers)."""
+    running (Claude and Muse print unknown while the cache pools, AGY included, print their numbers)."""
     import os
     import subprocess
     from datetime import UTC, datetime, timedelta
@@ -491,10 +504,11 @@ def test_subscriptions_cli_prints_every_account_without_the_api(usage_files):
     for account in ("Claude a", "Claude b", "Codex a", "Codex b", "AGY Gemini", "AGY Claude/GPT", "Grok+Cursor", "Muse"):
         assert f"\n{account}  [" in text, account
     assert "The Muse reading lives only in the Monitor API process" in text
-    assert "Weekly       64% left" in text and "Claude a  [fresh, read 1m ago]" in text
+    assert "\nClaude a  [UNKNOWN (no_monitor_reading)]" in text
+    assert "\nClaude b  [UNKNOWN (no_monitor_reading)]" in text
     assert "AGY Gemini  [fresh, read 1m ago]" in text and "\nMuse  [UNKNOWN (no_monitor_reading)]" in text
     as_json = subprocess.run([sys.executable, "-m", "lu_machinery.api.subscriptions", "--json"], env=env,
                              capture_output=True, text=True, timeout=60, check=True).stdout
     rows = _accounts(json.loads(as_json))
-    assert rows["Claude a"]["weekly"]["used_pct"] == 36.0
+    assert rows["Claude a"]["weekly"] == {"status": "unknown", "reason": "no_reading"}
     assert rows["Muse"]["reading"]["reason"] == "no_monitor_reading"

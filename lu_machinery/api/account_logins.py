@@ -287,10 +287,12 @@ def _probe_all() -> list[dict[str, Any]]:
 def _refresh() -> None:
     global _snapshot, _snapshot_at, _refreshing
     try:
+        read_at = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+        started = time.monotonic()
         rows = _probe_all()
         with _lock:
-            _snapshot = {"accounts": rows, "read_at": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")}
-            _snapshot_at = time.monotonic()
+            _snapshot = {"accounts": rows, "read_at": read_at}
+            _snapshot_at = started
     finally:
         with _lock:
             _refreshing = False

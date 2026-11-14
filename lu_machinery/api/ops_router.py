@@ -15,7 +15,7 @@ from lu_machinery.common import test_slots
 
 from . import load_samples, panel_values
 from .monitor_context import MonitorContext, get_ctx
-from .state_helpers import cache_get_or_compute_async, cache_get_with_age, ctx_scoped_ttl_key
+from .state_helpers import cache_get_or_compute_async, cache_get_stored, ctx_scoped_ttl_key, schedule_cache_refresh
 
 logger = logging.getLogger(__name__)
 
@@ -232,10 +232,17 @@ async def firing_alerts(ctx: MonitorContext = Depends(get_ctx)) -> JSONResponse:
     so an outage never reads as "nothing firing".
     """
     key = ctx_scoped_ttl_key(ctx, "ops", "alerts")
-    payload = await cache_get_or_compute_async(key, ALERTS_TTL_S, _alerts_reading)
-    stored = cache_get_with_age(key, ALERTS_TTL_S)
-    age = stored[1] if stored is not None else 0.0
-    return JSONResponse(content=payload, headers={"Cache-Control": "no-store", "X-Snapshot-Age-S": f"{age:.3f}"})
+    stored = cache_get_stored(key)
+    if stored is None:
+        payload = await cache_get_or_compute_async(key, ALERTS_TTL_S, _alerts_reading)
+    else:
+        payload, age = stored
+        if age >= ALERTS_TTL_S:
+            schedule_cache_refresh(key, ALERTS_TTL_S, _alerts_reading)
+    return JSONResponse(content=payload, headers=panel_values.snapshot_headers(
+        panel_values.observation_age_s(payload.get("observed_at")), 45.0,
+        unavailable=payload.get("status") != "ok",
+    ))
 
 
 @router.get("/v1/load-samples")

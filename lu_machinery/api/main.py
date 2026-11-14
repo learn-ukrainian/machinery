@@ -59,7 +59,7 @@ from .agent_monitor_router import router as agent_monitor_router
 from .cluster_router import router as cluster_router
 from .codexbar_usage import scheduler_status, start_periodic_refresh, stop_periodic_refresh
 from .comms_prometheus import CommsCollector
-from .comms_router import ensure_broker_db_ready
+from .comms_router import ensure_broker_db_ready, warm_panel_metrics
 from .comms_router import router as comms_router
 from .coordination_router import router as coordination_router
 from .delegate_router import router as delegate_router
@@ -70,6 +70,7 @@ from .epics_router import seed_manifest_inventory
 from .fleet_router import router as fleet_router
 from .fleet_workers_router import router as fleet_workers_router
 from .git_hygiene_router import router as git_hygiene_router
+from .git_hygiene_router import warm_pull_requests
 from .issues_router import router as issues_router
 from .knowledge_router import router as knowledge_router
 from .monitor_context import MonitorContext, get_ctx, production_context, resolve_context
@@ -136,6 +137,8 @@ async def _lifespan(_app: FastAPI):
         preload_all(product.preload, product.preload_optional)
         install_signal_logging()
         ensure_broker_db_ready(ctx=ctx)
+        warm_panel_metrics(ctx)
+        warm_pull_requests(ctx)
         seed_manifest_inventory(
             ctx.roots.project_root,
             store=ctx.stores.epics_store,

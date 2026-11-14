@@ -1021,14 +1021,14 @@ def _panel_tasks(raw: object) -> dict[str, Any]:
 @router.get("/active")
 async def delegate_active(ctx: MonitorContext = Depends(get_ctx)):
     payload, age = active_snapshot(ctx).read()
-    return JSONResponse(content=_panel_tasks(payload), headers={"X-Snapshot-Age-S": f"{age:.3f}", "Cache-Control": "no-store"})
+    return JSONResponse(content=_panel_tasks(payload), headers=panel_values.snapshot_headers(age, 60.0))
 
 
 @router.get("/recent")
 async def delegate_recent(ctx: MonitorContext = Depends(get_ctx)):
     """The most recently finished tasks, newest first, from a 30 s background snapshot."""
     payload, age = recent_snapshot(ctx).read()
-    return JSONResponse(content=_panel_tasks(payload), headers={"X-Snapshot-Age-S": f"{age:.3f}", "Cache-Control": "no-store"})
+    return JSONResponse(content=_panel_tasks(payload), headers=panel_values.snapshot_headers(age, 90.0))
 
 
 @router.get("/tasks/{task_id}")

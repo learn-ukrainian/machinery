@@ -819,6 +819,12 @@ def test_snapshot_age_includes_collection_and_failed_refresh(tmp_path, monkeypat
             snapshot.refresh()
         clock[0] += 2
         assert snapshot.read()[1] == 12.0
+        if snapshot is delegate_router.active_snapshot(ctx):
+            clock[0] += 60
+            stale_response = route()
+            assert stale_response.headers["X-Snapshot-Age-S"] == "72.000"
+            assert stale_response.headers["X-Snapshot-Stale-After-S"] == "60.0"
+            assert stale_response.headers["X-Snapshot-State"] == "stale"
 
 
 def test_provider_diagnostics_and_breakdown_cannot_leak_credentials_or_paths(tmp_path, monkeypatch, caplog):
