@@ -227,14 +227,29 @@ def test_agy_stream_from_another_model_family_settles_as_a_failure(sandbox, term
 
 
 @pytest.mark.parametrize(
-    ("model", "state", "code"),
-    [("fail", "failed", 17), ("error", "failed", 0), ("empty", "failed", 0), ("crash", "crashed", -9)],
+    ("model", "state", "code", "empty_text"),
+    [("fail", "failed", 17, None), ("error", "failed", 0, None),
+     ("empty", "no_deliverable", 0, None), ("empty", "no_deliverable", 0, ""),
+     ("empty", "no_deliverable", 0, " \n\t"), ("empty", "no_deliverable", 17, None),
+     ("crash", "crashed", -9, None)],
 )
-def test_nonzero_error_empty_and_signal_cannot_report_done(sandbox, model, state, code):
+def test_nonzero_error_empty_and_signal_cannot_report_done(sandbox, model, state, code, empty_text):
+    if model == "empty":
+        stub = sandbox.repo / "lu_machinery/dispatcher/providers/codex.py"
+        stub.write_text(stub.read_text().replace(
+            'final_text if final_text is not None else stdout.strip(),', f'{empty_text!r},',
+        ).replace('return 17 if model == "fail" else 0', f'return {code}'))
     record = sandbox.settle(sandbox.dispatch(model), expected=1)
     assert record["status"] == state
     assert record["returncode"] == code
     assert record["provider_terminal_failure"] is (state == "failed")
+    if model == "empty":
+        assert record["no_deliverable_reason"] == "missing_final_message"
+        result = Path(record["result_file"])
+        assert (result.read_text() if result.exists() else None) == empty_text
+        assert record["result_sha256"] == (
+            hashlib.sha256(empty_text.encode()).hexdigest() if empty_text is not None else None
+        )
 
 
 def test_provider_capacity_ends_rate_limited(sandbox):
@@ -259,9 +274,11 @@ def test_provider_final_file_and_exact_stdin_bytes(sandbox):
     record = sandbox.settle(result.stdout.splitlines())
     assert Path(record["result_file"]).read_bytes() == b"exact\nbytes\n"
     assert record["prompt_sha256"] == hashlib.sha256(b"exact\nbytes\n").hexdigest()
+    assert record["result_sha256"] == hashlib.sha256(b"exact\nbytes\n").hexdigest()
 
 
-def test_prompt_over_pipe_buffer_reaches_late_reading_child_complete(sandbox):
+@pytest.mark.parametrize("model", ["file", "echo"])
+def test_prompt_over_pipe_buffer_reaches_late_reading_child_complete(sandbox, model):
     stub = sandbox.repo / "lu_machinery/dispatcher/providers/codex.py"
     stub.write_text(stub.read_text().replace(
         '    text = sys.stdin.buffer.read().decode()',
@@ -269,7 +286,7 @@ def test_prompt_over_pipe_buffer_reaches_late_reading_child_complete(sandbox):
     ))
     prompt = ("0123456789abcdef" * 65536).encode()
     result = sandbox.cli(
-        "dispatch", "--agent", "codex", "--model", "file", "--prompt-file", "-",
+        "dispatch", "--agent", "codex", "--model", model, "--prompt-file", "-",
         stdin=prompt.decode(),
     )
     record = sandbox.settle(result.stdout.splitlines())

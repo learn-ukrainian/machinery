@@ -1747,8 +1747,11 @@ def supervise(path: Path, options: dict | None = None, hard_timeout: float | Non
         status = "done" if exit_code == 0 and not parsed.error and text and text.strip() else "failed"
         if exit_code < 0:
             status = "crashed"
+        if spec.mode == "read-only" and status == "failed" and not (text and text.strip()):
+            status = "no_deliverable"
+            record["no_deliverable_reason"] = "missing_final_message"
         # A provider failure can be answered by merged delivery only after the same integrity
-        # gates as success. Read-only failures retain their existing failure path. A run that ended
+        # gates as success. Read-only failures cannot be rescued by merged delivery. A run that ended
         # with its work still open (a child task or background command) did not finish, so merged work
         # is not its result (#12156).
         record["provider_terminal_failure"] = status == "failed" and not parsed.incomplete
