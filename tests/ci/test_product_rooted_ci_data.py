@@ -322,6 +322,18 @@ def test_lock_only_diff_selects_machinery_consumers(tmp_path: Path, installed: t
     assert "tests/test_beta.py" in selected["run_files"]
 
 
+def test_lu12914_f1_guard_list_names_the_stub_provider_dispatcher_module() -> None:
+    """Defect class: a conftest Path(__file__).with_name copy is invisible to affected-test selection.
+
+    LU12914-F1. ``tests/dispatcher/test_core_worktree_entry.py`` is product-owned and
+    is not in this tree, so the machinery list names the module that is.
+    """
+    from lu_machinery.common.repo_root import machinery_path
+
+    lines = machinery_path("ci/pr-affected-guards.txt").read_text(encoding="utf-8").splitlines()
+    assert "tests/dispatcher/test_task_store_records.py" in lines
+
+
 def test_lock_only_diff_fails_closed_without_the_distribution(monkeypatch: pytest.MonkeyPatch) -> None:
     """Defect class: an absent lu-machinery distribution escapes as an uncaught PackageNotFoundError."""
     from importlib.metadata import PackageNotFoundError

@@ -1,3 +1,4 @@
 tests/review/test_routing_consumers.py
 tests/agent_runtime/test_lane_probe.py
 tests/dispatcher/test_core.py::test_read_only_mode_denies_edits_on_every_provider
+tests/dispatcher/test_task_store_records.py

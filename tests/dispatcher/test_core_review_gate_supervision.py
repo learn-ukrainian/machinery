@@ -540,6 +540,37 @@ def test_settlement_leaves_an_empty_cache_inside_a_read_only_non_cache_parent(sa
         _owner_rwx(parent)
 
 
+def test_rv298_f2_cache_walk_does_not_enter_a_non_cache_mount(monkeypatch, tmp_path):
+    """Defect class: cache walk descends through an ordinary parent into a non-cache mount.
+
+    RV298-F2. The synthetic mount-info fake names ``elsewhere`` a mount. The walk
+    must not enter it, so the cache inside that mount stays and the cache beside
+    the ordinary parent is still removed.
+    """
+    task_id = "rv298-f2"
+    tasks = tmp_path / "tasks"
+    artifacts = tasks / f"{task_id}.artifacts"
+    foreign = artifacts / "notes" / "elsewhere"
+    hidden = foreign / ".cache"
+    hidden.mkdir(parents=True)
+    (hidden / "secret").write_text("stay")
+    sibling = artifacts / ".cache"
+    sibling.mkdir()
+    (sibling / "local").write_text("go")
+    monkeypatch.setattr(worker.store, "record_path", lambda _task: tasks / f"{task_id}.json")
+    monkeypatch.setattr(worker.task_scratch, "mount_points", lambda: frozenset({str(foreign)}))
+
+    found, failed = worker._task_caches(task_id, remove=False)
+    assert failed == []
+    assert found == [f"{task_id}.artifacts/.cache"]
+
+    found, failed = worker._task_caches(task_id, remove=True)
+    assert failed == []
+    assert found == [f"{task_id}.artifacts/.cache"]
+    assert not sibling.exists()
+    assert (hidden / "secret").read_text() == "stay"
+
+
 def test_settlement_removes_a_dangling_or_file_cache_link(sandbox):
     """Defect class: cache-named link kept. fwalk puts a dangling link and a link to a file in
     ``files``, which cache removal never inspected, so both stayed. Settlement and the hourly
