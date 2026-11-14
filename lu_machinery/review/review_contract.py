@@ -14,6 +14,7 @@ from collections.abc import Callable, Iterator, Mapping, Sequence
 from copy import deepcopy
 from dataclasses import asdict, dataclass, field
 from functools import lru_cache
+from importlib.resources import files as _package_files  # nosemgrep: python.lang.compatibility.python37-compatibility-importlib2
 from pathlib import Path
 from typing import Any
 
@@ -40,6 +41,35 @@ SCHEMA_VERSION = "code-review-findings.v1"
 RECEIPT_SCHEMA_VERSION = "code-review-receipt.v1"
 BEHAVIOR_PROOF_SCHEMA_VERSION = "behavior-proof.v1"
 SCHEMA_RELATIVE_PATH = "schemas/code-review-findings.v1.schema.json"
+
+
+def _packaged_review_schema():
+    """The canonical findings schema shipped in this package."""
+    return _package_files("lu_machinery").joinpath(*SCHEMA_RELATIVE_PATH.split("/"))
+
+
+def packaged_review_schema_bytes() -> bytes:
+    """Bytes of the packaged findings schema.
+
+    A uv install hard-links this file, and the attempt reader refuses a link
+    count other than one. Only this fixed resource is read here.
+    """
+    return _packaged_review_schema().read_bytes()
+
+
+def is_packaged_review_schema(path: Path) -> bool:
+    """Whether ``path`` is the packaged findings schema itself.
+
+    A hard link of that file has another path, so it is not this resource.
+    """
+    resource = _packaged_review_schema()
+    if not isinstance(resource, Path):
+        return False
+    try:
+        return path.resolve(strict=True) == resource.resolve(strict=True)
+    except OSError:
+        return False
+
 
 # Stable exit classes (documented in docs/review-protocol.md).
 EXIT_CLEAN = 0
@@ -117,7 +147,12 @@ def load_schema(
     if path is None:
         return None
     try:
-        text = path.read_text(encoding="utf-8")
+        # The packaged file is read from the package resource. A substituted
+        # path, including one a test points at, stays a direct read.
+        if is_packaged_review_schema(path):
+            text = packaged_review_schema_bytes().decode("utf-8")
+        else:
+            text = path.read_text(encoding="utf-8")
     except OSError as exc:
         raise ContractError(f"schema_unavailable:{path}:{exc}", exit_code=EXIT_INVALID) from exc
     try:
