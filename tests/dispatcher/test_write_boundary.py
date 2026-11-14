@@ -803,3 +803,155 @@ def test_skill_publish_commands_reach_the_broker_for_the_own_target_only(primary
         assert steps == [] and remote_refs == ""
         if target == "private":
             assert "not a registered public repository" in result["broker"][0]["refused"], result["broker"]
+
+
+def test_boundary_commit_of_an_owned_path_succeeds_and_an_unowned_path_is_refused(primary, monkeypatch):
+    """Defect class: the commit hook inside the write boundary calls store.read, the task record is not
+    mounted, and every commit is refused. 0.1.17 shipped that way.
+
+    The release canaries did not exercise this hook. ``test_primary_working_tree_writes_are_denied_while_the_worktree_commits``
+    commits with no ownership hook. The installed-hook tests run on the host, where the record is visible.
+    ``docs/release.md`` ACP canaries answer a prompt; they do not commit. The product cutover's five routes
+    (claude, codex, cursor, agy, opencode) were the first commits through the installed hook, and all five
+    ended no_deliverable.
+    """
+    import shlex
+    import threading
+    import time
+
+    from lu_machinery.dispatcher import store
+
+    repo, worktree, _ = primary
+    # This session's Cursor tripwire refuses a spawn whose argv names the installed Cursor tree.
+    # The boundary bind-mounts every absolute PATH entry, and this process's PATH includes that tree.
+    # The commit uses /usr/bin/git and the absolute interpreter; it does not launch Cursor.
+    monkeypatch.setenv("PATH", "/usr/bin:/bin")
+    # The venv also has the installed 0.1.17 tree. On the host, the empty sys.path entry is this
+    # checkout, so imports use it. Inside the boundary the cwd is the fixture worktree and the hook
+    # runs python -P, which does not add that entry. Point PYTHONPATH at this checkout; the boundary
+    # restores it because it is the package root.
+    monkeypatch.setenv("PYTHONPATH", str(Path(write_boundary.__file__).resolve().parents[2]))
+    tasks = repo / "batch_state" / "tasks"
+    tasks.mkdir(parents=True)
+    top = _git(worktree, "rev-parse", "--show-toplevel")
+    base = _git(repo, "rev-parse", "HEAD")
+    record = {
+        "task_id": "wb-test",
+        "mode": "workspace-write",
+        "owned_paths": ["a.txt"],
+        "run_nonce": "run",
+        "worktree_path": top,
+        "worktree_base_ref": "main",
+        "worktree_base_sha": base,
+        "worktree_start_sha": base,
+        "prompt_file": "SECRET-DO-NOT-LEAK",
+    }
+    (tasks / "wb-test.json").write_text(json.dumps(record), encoding="utf-8")
+    (tasks / "other-task.json").write_text('{"secret":"OTHER-TASK"}', encoding="utf-8")
+    hook = repo / ".git" / "hooks" / "pre-commit"
+    hook.write_text(
+        "#!/bin/sh\n"
+        f"exec {shlex.quote(sys.executable)} -P -m lu_machinery.dispatcher.ownership "
+        "--worktree \"$(git rev-parse --show-toplevel)\" staged\n",
+        encoding="utf-8",
+    )
+    hook.chmod(0o755)
+    monkeypatch.setenv("LU_TASKS_DIR", str(tasks))
+    monkeypatch.setenv("LEARN_UKRAINIAN_DISPATCH_TASK_ID", "wb-test")
+    quoted_worktree = shlex.quote(str(worktree))
+    quoted_python = shlex.quote(sys.executable)
+    script = f"""
+exec > {quoted_worktree}/result.txt 2> {quoted_worktree}/script.err
+echo owned > {quoted_worktree}/a.txt
+git -C {quoted_worktree} add a.txt
+if git -C {quoted_worktree} commit -qm 'owned change' 2> {quoted_worktree}/owned.err; then
+  echo OWNED_OK
+else
+  echo OWNED_FAIL
+fi
+echo out > {quoted_worktree}/outside.txt
+git -C {quoted_worktree} add outside.txt
+if git -C {quoted_worktree} commit -qm 'outside change' 2> {quoted_worktree}/outside.err; then
+  echo OUTSIDE_COMMITTED
+else
+  echo OUTSIDE_REFUSED
+fi
+touch {quoted_worktree}/need-grant
+i=0
+while [ ! -f {quoted_worktree}/grant-ready ]; do
+  i=$((i + 1))
+  if [ "$i" -gt 100 ]; then echo GRANT_TIMEOUT; break; fi
+  sleep 0.1
+done
+if git -C {quoted_worktree} commit -qm 'granted change' 2> {quoted_worktree}/grant.err; then
+  echo GRANT_OK
+else
+  echo GRANT_FAIL
+fi
+{quoted_python} -c '
+import os
+from pathlib import Path
+tasks = Path(os.environ["LU_TASKS_DIR"])
+assert not (tasks / "wb-test.json").exists(), "the task record is visible inside the boundary"
+assert not (tasks / "other-task.json").exists(), "another task record is visible inside the boundary"
+view = Path("/run/lu-write-boundary/ownership.json")
+text = view.read_text()
+assert "SECRET-DO-NOT-LEAK" not in text and "OTHER-TASK" not in text and "operator words" not in text
+assert "outside.txt" in text
+try:
+    view.open("a").write("x")
+except OSError as exc:
+    assert exc.errno == 30, exc
+else:
+    raise SystemExit("ownership view is writable")
+print("VIEW_OK")
+'
+"""
+    errors: list[BaseException] = []
+
+    def grant() -> None:
+        try:
+            marker = worktree / "need-grant"
+            for _ in range(100):
+                if marker.exists():
+                    current = json.loads((tasks / "wb-test.json").read_text(encoding="utf-8"))
+                    current["owned_path_grants"] = [{
+                        "task_id": "wb-test",
+                        "run_nonce": "run",
+                        "grant_id": "grant",
+                        "owned_paths": ["outside.txt"],
+                        "reason": "operator words",
+                    }]
+                    store.replace(current)
+                    (worktree / "grant-ready").write_text("ok", encoding="utf-8")
+                    return
+                time.sleep(0.05)
+            errors.append(TimeoutError("the sandbox never asked for a grant"))
+        except BaseException as exc:  # the assertion below reports it; a thread must not die silent
+            errors.append(exc)
+
+    thread = threading.Thread(target=grant)
+    thread.start()
+    try:
+        code, receipt = _run(primary, script)
+    finally:
+        thread.join(timeout=5)
+    result = (worktree / "result.txt").read_text(encoding="utf-8") if (worktree / "result.txt").exists() else ""
+    details = {
+        "code": code,
+        "result": result,
+        "script": (worktree / "script.err").read_text(encoding="utf-8") if (worktree / "script.err").exists() else "",
+        "owned": (worktree / "owned.err").read_text(encoding="utf-8") if (worktree / "owned.err").exists() else "",
+        "outside": (worktree / "outside.err").read_text(encoding="utf-8") if (worktree / "outside.err").exists() else "",
+        "grant": (worktree / "grant.err").read_text(encoding="utf-8") if (worktree / "grant.err").exists() else "",
+        "errors": [f"{type(exc).__name__}: {exc}" for exc in errors],
+        "receipt": {key: receipt.get(key) for key in ("status", "reason", "canary", "import")},
+    }
+    assert code == 0 and receipt["status"] == "ran" and receipt["canary"]["passed"], details
+    assert "OWNED_OK" in result and "OUTSIDE_REFUSED" in result and "GRANT_OK" in result and "VIEW_OK" in result, details
+    assert "outside.txt" in details["outside"] and "owned-path check refused" in details["outside"], details
+    assert "SECRET-DO-NOT-LEAK" not in details["outside"] and "operator words" not in details["grant"], details
+    assert not errors, details
+    log = _git(worktree, "log", "--format=%s")
+    assert "owned change" in log and "granted change" in log and "outside change" not in log, log
+    assert receipt["import"]["status"] == "imported"

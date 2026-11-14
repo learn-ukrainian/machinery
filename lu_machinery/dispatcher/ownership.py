@@ -7,6 +7,14 @@ replace settlement. Coordinator grants add attributable scope for an honest but 
 worker; they do not authenticate a principal. Exact-head independent review, CI and the
 merge queue remain the landing backstop.
 
+Inside the write boundary the task store is hidden, so the hook does not call ``store.read``.
+The launcher projects this task's ownership fields to ``/run/lu-write-boundary/ownership.json``
+(read-only) and refreshes that file from the live record when the record is written, which is
+how a grant issued during the run becomes visible. Any other broker path, a missing view, or a
+view for another task fails closed. The view is also required when the boundary directory is
+mounted, so clearing the broker variable cannot select a task store the worker can write.
+Outside the boundary the hook still reads the task store.
+
 Usage from the tracked hooks, with the dispatched task's id in ``LEARN_UKRAINIAN_DISPATCH_TASK_ID``::
 
     python -m scripts.dispatcher.ownership --worktree ROOT staged
@@ -16,14 +24,174 @@ Usage from the tracked hooks, with the dispatched task's id in ``LEARN_UKRAINIAN
 from __future__ import annotations
 
 import argparse
+import errno
+import json
 import os
+import stat
 import subprocess
 import sys
+import tempfile
+import uuid
 from collections.abc import Callable, Iterable, Sequence
 from pathlib import Path
 
 TASK_ID_ENV = "LEARN_UKRAINIAN_DISPATCH_TASK_ID"
 _ZERO = frozenset("0")
+# The write boundary's broker socket and the ownership view beside it. The checker accepts the view
+# only from this fixed path: a worker-chosen ``LU_WRITE_BOUNDARY_BROKER`` must not point the check
+# at a file the worker can write. Keep these equal to ``write_boundary._BROKER_INSIDE``.
+_BOUNDARY_BROKER = "/run/lu-write-boundary/broker.sock"
+_BOUNDARY_VIEW = Path("/run/lu-write-boundary/ownership.json")
+# What the commit-time check reads. The rest of the task record (the brief, grants' reasons, other
+# tasks) stays on the host. A task-store ``*.json`` would be ingested as a record by the ledger scan.
+_VIEW_FIELDS = (
+    "task_id", "mode", "owned_paths", "run_nonce", "worktree_path", "worktree_base_ref",
+    "worktree_base_sha", "worktree_start_sha",
+)
+_GRANT_FIELDS = ("task_id", "run_nonce", "grant_id", "owned_paths")
+_VIEW_LIMIT = 1 << 20
+
+
+def ownership_view(record: dict) -> dict:
+    """The fields the commit-time check needs, and nothing else from the task record."""
+    view = {key: record[key] for key in _VIEW_FIELDS if key in record}
+    if "owned_path_grants" not in record:
+        return view
+    grants = record["owned_path_grants"]
+    if not isinstance(grants, list):
+        view["owned_path_grants"] = grants  # The check fails closed on a grant list that is not a list.
+        return view
+    view["owned_path_grants"] = [
+        grant if not isinstance(grant, dict) else {key: grant[key] for key in _GRANT_FIELDS if key in grant}
+        for grant in grants
+    ]
+    return view
+
+
+def write_ownership_view(path: Path, record: dict) -> None:
+    """Replace ``path`` with this record's ownership view. The parent directory must already exist."""
+    directory = path.parent
+    if directory.is_symlink() or not directory.is_dir() or path.is_symlink():
+        raise ValueError("ownership view path is not a regular file in a directory")
+    payload = (json.dumps(ownership_view(record), sort_keys=True) + "\n").encode()
+    temporary = directory / f".ownership.{uuid.uuid4().hex}.tmp"
+    descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+    try:
+        with os.fdopen(descriptor, "wb") as stream:
+            stream.write(payload)
+            stream.flush()
+            os.fsync(stream.fileno())
+    except BaseException:
+        temporary.unlink(missing_ok=True)
+        raise
+    try:
+        os.replace(temporary, path)
+    except OSError:
+        temporary.unlink(missing_ok=True)
+        raise
+
+
+def project_launch_view(task_id: str, directory: Path) -> None:
+    """Project the live record into the boundary directory before the sandbox starts.
+
+    No record yet means nothing is projected: a later commit with a task id fails closed.
+    The task lock is held across the read and the write so a grant cannot be overwritten by a
+    stale copy.
+    """
+    from lu_machinery.dispatcher import store
+
+    with store.task_state_lock(store.record_path(task_id)):
+        try:
+            record = store.read(task_id)
+        except (OSError, ValueError):
+            return
+        if isinstance(record, dict):
+            write_ownership_view(directory / "ownership.json", record)
+
+
+def refresh_running_boundary_view(record: dict | None) -> None:
+    """Update the view of a boundary that is already running. No directory means no running boundary."""
+    if not isinstance(record, dict):
+        return
+    task_id = record.get("task_id")
+    if not isinstance(task_id, str):
+        return
+    from lu_machinery.dispatcher.store import record_path
+
+    try:
+        record_path(task_id)  # Refuse an id that is not safe as a directory name.
+    except ValueError:
+        return
+    override = os.environ.get("LU_SCRATCH_ROOT", "").strip()
+    from lu_machinery.common.scratch import DEFAULT_SCRATCH_ROOT
+
+    roots = [Path(override)] if override else [DEFAULT_SCRATCH_ROOT, Path(tempfile.gettempdir()) / "lu-scratch"]
+    for root in roots:
+        directory = root / f"write-boundary-{task_id}" / "boundary"
+        view = directory / "ownership.json"
+        if directory.is_symlink() or not directory.is_dir() or view.is_symlink():
+            continue
+        try:
+            write_ownership_view(view, record)
+        except OSError as exc:
+            # The boundary directory can disappear between the check and the replace when the
+            # sandbox exits. That is no running boundary. Any other write error still fails the
+            # record write, so a grant retry reports a projection that did not land.
+            if exc.errno in (errno.ENOENT, errno.ENOTDIR):
+                continue
+            raise
+
+
+def _read_boundary_view(task_id: str) -> dict:
+    """The projected view. Missing, oversized or for another task fails closed."""
+    try:
+        descriptor = os.open(_BOUNDARY_VIEW, os.O_RDONLY | os.O_NOFOLLOW)
+    except OSError as exc:
+        raise ValueError("task not found") from exc
+    try:
+        with os.fdopen(descriptor, "rb") as stream:
+            raw = stream.read(_VIEW_LIMIT + 1)
+    except OSError as exc:
+        raise ValueError("task not found") from exc
+    if len(raw) > _VIEW_LIMIT:
+        raise ValueError("invalid task record identity")
+    try:
+        record = json.loads(raw)
+    except ValueError as exc:
+        raise ValueError("task not found") from exc
+    if not isinstance(record, dict) or record.get("task_id") != task_id:
+        raise ValueError("invalid task record identity")
+    return record
+
+
+def _boundary_mounted() -> bool:
+    """True when this process is inside the write boundary's read-only mount.
+
+    The worker can unset ``LU_WRITE_BOUNDARY_BROKER``. The mount is the fact that cannot be
+    cleared from inside: the launcher placed it, and the host has no such directory.
+    """
+    try:
+        info = os.lstat(_BOUNDARY_VIEW.parent)
+    except OSError:
+        return False
+    return stat.S_ISDIR(info.st_mode)
+
+
+def _load_record(task_id: str) -> dict:
+    """The ownership record: the projected view inside the write boundary, the task store outside it."""
+    broker = os.environ.get("LU_WRITE_BOUNDARY_BROKER")
+    if broker and broker != _BOUNDARY_BROKER:
+        # A different socket path is not this boundary. Do not follow it and do not fall through to
+        # the store: unknown ownership fails closed.
+        raise ValueError("invalid task record identity")
+    if broker or _boundary_mounted():
+        return _read_boundary_view(task_id)
+    from lu_machinery.dispatcher import store
+
+    record = store.read(task_id)
+    if not isinstance(record, dict):
+        raise ValueError("invalid task record identity")
+    return record
 
 
 def effective_scope(record: dict) -> list[str]:
@@ -109,13 +277,11 @@ def _local_git(root: Path) -> Callable[..., str]:
 
 def _task_record(root: Path) -> dict | None:
     """The dispatched write task this worktree belongs to, or None when no owned-path rule applies."""
-    from lu_machinery.dispatcher import store
-
     task_id = os.environ.get(TASK_ID_ENV, "")
     if not task_id:
         return None
-    record = store.read(task_id)
-    if not isinstance(record, dict) or record.get("task_id") != task_id:
+    record = _load_record(task_id)
+    if record.get("task_id") != task_id:
         raise ValueError("invalid task record identity")
     if record.get("mode") not in {"read-only", "workspace-write"}:
         raise ValueError("invalid task mode")

@@ -289,6 +289,11 @@ def _write_atomic(path: Path, record: dict, exclusive: bool) -> None:
             os.link(name, path)
         else:
             os.replace(name, path)
+        # A running write boundary bind-mounts its directory, so replacing the view inside it is
+        # visible to the commit hook. No boundary directory means this write has nothing to project.
+        from lu_machinery.dispatcher.ownership import refresh_running_boundary_view
+
+        refresh_running_boundary_view(record)
     finally:
         Path(name).unlink(missing_ok=True)
 
@@ -454,6 +459,12 @@ def grant_paths(task_id: str, run_nonce: str, paths: list[str], reason: str, app
                          granted_by=caller or os.environ.get("SESSION_HANDOFF_AGENT") or "unknown-seat",
                          granted_by_authenticated=False)
             _write(path, record, grant=grant)
+        else:
+            # The record already has this grant. A previous write may have saved it and then failed
+            # to refresh the boundary view; retrying the same grant must still project it.
+            from lu_machinery.dispatcher.ownership import refresh_running_boundary_view
+
+            refresh_running_boundary_view(record)
         return dict(task_id=task_id, run_nonce=run_nonce, grant_id=grant["grant_id"],
                     owned_paths=normalized, effective_scope=ownership.effective_scope(record), grant=grant)
 

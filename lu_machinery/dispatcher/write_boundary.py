@@ -30,7 +30,9 @@ Inside the boundary:
 * the data roots outside HOME (``_DATA_ROOTS``: other homes, service data, mounts, ``/opt``, ``/var/tmp``)
   are empty and read-only, but for the ``/opt`` packages the PATH resolves into. The public checkouts (the
   primary and the product) lose their private runtime state (``_CHECKOUT_PRIVATE``), and the task store,
-  the Fleet plane and the scratch root are empty but for this run's own records and scratch;
+  the Fleet plane and the scratch root are empty but for this run's own records and scratch. The commit
+  hook cannot read the task record there, so the launcher projects that task's ownership fields to
+  ``ownership.json`` beside the broker socket and refreshes the file when the record is written;
 * a write worker's worktree, a private TMPDIR and the declared outputs (``--output``) are the only other
   writable paths. A read-only provider's worktree and Git metadata are read-only mounts, with no branch import.
 
@@ -1438,6 +1440,11 @@ class _Boundary:
         env.update(git_push_settings(env, interpreter, str(machinery_path("dispatcher/write_boundary.py").parents[2])))
         if codex_home is not None:
             env["CODEX_HOME"] = str(codex_home)
+        # Project after the boundary directory exists and immediately before the sandbox starts, under the
+        # task lock, so a grant written during setup is in the view the hook reads.
+        from lu_machinery.dispatcher.ownership import project_launch_view
+
+        project_launch_view(self.args.task_id, boundary)
         try:
             # The argv is the fixed bubblewrap binary and launcher-validated paths; env is the dispatcher's
             # provider environment, passed on deliberately (the provider runs inside with it).

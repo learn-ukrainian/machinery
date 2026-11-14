@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import errno
 import json
 import subprocess
 from pathlib import Path
@@ -196,6 +197,157 @@ def test_installed_hooks_preserve_scope_and_only_valid_skips(hook_world, stage, 
     assert (result.returncode == 0) == (case != "outside"), result.stderr
     if case == "outside":
         assert "outside.txt" in result.stderr and "owned-path check refused" in result.stderr
+
+
+def test_ownership_view_keeps_only_the_fields_the_check_reads():
+    """Defect class: the projected view copies the brief, a grant reason or another task's record."""
+    from lu_machinery.dispatcher import ownership
+
+    view = ownership.ownership_view({
+        "task_id": "wb-test",
+        "mode": "workspace-write",
+        "owned_paths": ["owned"],
+        "run_nonce": "run",
+        "worktree_path": "/work",
+        "prompt_file": "SECRET-DO-NOT-LEAK",
+        "owned_path_grants": [{
+            "task_id": "wb-test",
+            "run_nonce": "run",
+            "grant_id": "grant",
+            "owned_paths": ["extra.txt"],
+            "reason": "operator words",
+            "approval_ref": "message-1",
+        }],
+    })
+    assert view == {
+        "task_id": "wb-test",
+        "mode": "workspace-write",
+        "owned_paths": ["owned"],
+        "run_nonce": "run",
+        "worktree_path": "/work",
+        "owned_path_grants": [{
+            "task_id": "wb-test",
+            "run_nonce": "run",
+            "grant_id": "grant",
+            "owned_paths": ["extra.txt"],
+        }],
+    }
+    assert ownership._BOUNDARY_BROKER == "/run/lu-write-boundary/broker.sock"
+    from lu_machinery.dispatcher import write_boundary
+
+    assert ownership._BOUNDARY_BROKER == write_boundary._BROKER_INSIDE
+    assert ownership._BOUNDARY_VIEW == Path(write_boundary._BROKER_INSIDE).with_name("ownership.json")
+
+
+def test_a_caller_chosen_broker_path_is_not_the_ownership_view(monkeypatch, tmp_path):
+    """Defect class: the hook follows LU_WRITE_BOUNDARY_BROKER to a view the worker can write, and
+    an empty owned_paths list then skips the check."""
+    from lu_machinery.dispatcher import ownership
+
+    forged = tmp_path / "ownership.json"
+    forged.write_text(json.dumps({
+        "task_id": "wb-test", "mode": "workspace-write", "owned_paths": [], "worktree_path": str(tmp_path),
+    }), encoding="utf-8")
+    monkeypatch.setenv(ownership.TASK_ID_ENV, "wb-test")
+    monkeypatch.setenv("LU_WRITE_BOUNDARY_BROKER", str(tmp_path / "broker.sock"))
+    with pytest.raises(ValueError, match="invalid task record identity"):
+        ownership._load_record("wb-test")
+
+
+def test_missing_boundary_view_fails_closed_without_reading_the_store(monkeypatch, tmp_path):
+    """Defect class: inside the boundary a missing projection falls through to store.read and treats
+    a hidden record as 'no rule', so the commit is allowed."""
+    from lu_machinery.dispatcher import ownership
+
+    tasks = tmp_path / "tasks"
+    tasks.mkdir()
+    (tasks / "wb-test.json").write_text(json.dumps({
+        "task_id": "wb-test", "mode": "workspace-write", "owned_paths": [], "worktree_path": str(tmp_path),
+    }), encoding="utf-8")
+    monkeypatch.setenv("LU_TASKS_DIR", str(tasks))
+    monkeypatch.setenv(ownership.TASK_ID_ENV, "wb-test")
+    monkeypatch.setenv("LU_WRITE_BOUNDARY_BROKER", ownership._BOUNDARY_BROKER)
+    monkeypatch.setattr(ownership, "_BOUNDARY_VIEW", tmp_path / "absent.json")
+    with pytest.raises(ValueError, match="task not found"):
+        ownership._load_record("wb-test")
+
+
+def test_unsetting_the_broker_variable_still_reads_the_mounted_view(monkeypatch, tmp_path):
+    """Defect class: the worker clears LU_WRITE_BOUNDARY_BROKER and points LU_TASKS_DIR at a record
+    whose empty owned_paths skips the check. The mounted boundary directory still selects the view."""
+    from lu_machinery.dispatcher import ownership
+
+    tasks = tmp_path / "tasks"
+    tasks.mkdir()
+    (tasks / "wb-test.json").write_text(json.dumps({
+        "task_id": "wb-test", "mode": "workspace-write", "owned_paths": [], "worktree_path": str(tmp_path),
+    }), encoding="utf-8")
+    mounted = tmp_path / "mounted"
+    mounted.mkdir()
+    monkeypatch.setenv("LU_TASKS_DIR", str(tasks))
+    monkeypatch.delenv("LU_WRITE_BOUNDARY_BROKER", raising=False)
+    monkeypatch.setattr(ownership, "_BOUNDARY_VIEW", mounted / "ownership.json")
+    with pytest.raises(ValueError, match="task not found"):
+        ownership._load_record("wb-test")
+
+
+def test_a_boundary_that_vanishes_during_refresh_does_not_fail_the_record_write(tmp_path, monkeypatch):
+    """Defect class: sandbox teardown removes the boundary directory after the record is replaced,
+    and the refresh then fails a write that already committed."""
+    from lu_machinery.dispatcher import ownership
+
+    monkeypatch.setenv("LU_SCRATCH_ROOT", str(tmp_path / "scratch"))
+    directory = tmp_path / "scratch" / "write-boundary-wb-test" / "boundary"
+    directory.mkdir(parents=True)
+
+    def vanished(path, record):
+        raise FileNotFoundError(errno.ENOENT, "No such file", str(path))
+
+    monkeypatch.setattr(ownership, "write_ownership_view", vanished)
+    ownership.refresh_running_boundary_view({"task_id": "wb-test", "owned_paths": ["a.txt"]})
+
+    def denied(path, record):
+        raise PermissionError(errno.EACCES, "denied", str(path))
+
+    monkeypatch.setattr(ownership, "write_ownership_view", denied)
+    with pytest.raises(PermissionError):
+        ownership.refresh_running_boundary_view({"task_id": "wb-test", "owned_paths": ["a.txt"]})
+
+
+def test_a_record_write_refreshes_a_running_boundary_view_and_creates_nothing_else(tmp_path, monkeypatch):
+    """Defect class: a grant saved in the task record never reaches the commit hook, or the refresh
+    writes a second record the ledger scan will ingest."""
+    from lu_machinery.dispatcher import ownership, store
+
+    tasks = tmp_path / "tasks"
+    tasks.mkdir()
+    monkeypatch.setenv("LU_TASKS_DIR", str(tasks))
+    monkeypatch.setenv("LU_SCRATCH_ROOT", str(tmp_path / "scratch"))
+    ownership.refresh_running_boundary_view({"task_id": "wb-test", "owned_paths": ["a.txt"]})
+    assert not (tmp_path / "scratch").exists()
+    assert list(tasks.iterdir()) == []
+
+    record = {
+        "task_id": "wb-test", "mode": "workspace-write", "owned_paths": ["a.txt"], "run_nonce": "run",
+        "prompt_file": "SECRET-DO-NOT-LEAK",
+    }
+    (tasks / "wb-test.json").write_text(json.dumps(record), encoding="utf-8")
+    directory = tmp_path / "scratch" / "write-boundary-wb-test" / "boundary"
+    directory.mkdir(parents=True)
+    ownership.write_ownership_view(directory / "ownership.json", record)
+    record["owned_path_grants"] = [{
+        "task_id": "wb-test", "run_nonce": "run", "grant_id": "grant", "owned_paths": ["outside.txt"],
+        "reason": "operator words",
+    }]
+    store.replace(record)
+    view = json.loads((directory / "ownership.json").read_text(encoding="utf-8"))
+    assert view["owned_path_grants"] == [{
+        "grant_id": "grant", "owned_paths": ["outside.txt"], "run_nonce": "run", "task_id": "wb-test",
+    }]
+    text = (directory / "ownership.json").read_text(encoding="utf-8")
+    assert "SECRET-DO-NOT-LEAK" not in text and "operator words" not in text
+    # The task lock is a stable sibling, not a second record the ledger scan ingests.
+    assert sorted(path.name for path in tasks.iterdir()) == ["wb-test.json", "wb-test.json.lock"]
 
 
 @pytest.mark.parametrize("failure", [PermissionError("DO-NOT-ECHO"), RuntimeError("DO-NOT-ECHO\nforged"), subprocess.TimeoutExpired(["git", "diff"], 30)])
