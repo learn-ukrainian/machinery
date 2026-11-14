@@ -101,7 +101,7 @@ const fetchJson = async url => {
   if (url === '/slow') return slow;
   if (url === '/broken') throw new Error('/broken: HTTP 503');
   if (url === '/login') return {data: {state: 'pending'}, age: null, snapshot: false};
-  return {data: {tasks: []}, age: 900, snapshot: true};
+  return {data: {tasks: []}, age: 900, bound: 150, snapshot: true};
 };
 const escapeHtml = value => String(value);
 const PANELS = [
@@ -117,7 +117,7 @@ const PANELS = [
   const first = Promise.all(PANELS.map(loadPanel));
   await tick();
   assert.equal(document.getElementById('fast-content').innerHTML, 'fast 0');
-  assert.match(document.getElementById('fast-age').textContent, /^Fetched at \d{2}:\d{2}:\d{2} UTC · source age 900s$/);
+  assert.match(document.getElementById('fast-age').textContent, /^Fetched at \d{2}:\d{2}:\d{2} UTC · STALE · source age 900s · bound 150s$/);
   assert.equal(document.getElementById('fast-age').className, 'age bad');
   assert.equal(loginPolls, 1, 'pending login retries independently of another failed panel');
   const broken = document.getElementById('broken-content').innerHTML;
@@ -279,7 +279,7 @@ const PANELS = [{id: 'usage', label: 'Subscriptions', urls: ['/api/runtime/subsc
   assert.match(html, /<details><summary>Technical detail<\/summary>/);
   assert.match(html, /\/api\/runtime\/subscriptions: HTTP 503/);
   const age = document.getElementById('usage-age');
-  assert.match(age.textContent, /^Fetched at \d{2}:\d{2}:\d{2} UTC$/);
+  assert.match(age.textContent, /^Last attempt at \d{2}:\d{2}:\d{2} UTC · unavailable · source age unknown$/);
   assert.equal(age.className, 'age bad');
   assert.equal(document.getElementById('usage-status').textContent, "Subscriptions couldn't load.");
 })().catch(error => {console.error(error); process.exitCode = 1;});
@@ -299,7 +299,7 @@ setTimeout = (fn, ms, ...args) => ms === 1500 || ms === 3000 ? 0 : realSetTimeou
 let failSubscriptions = true;
 globalThis.fetch = async (url) => {
   const refused = failSubscriptions && String(url).includes('/api/runtime/subscriptions');
-  return {ok: !refused, status: refused ? 503 : 200, text: async () => '{}', headers: {get: () => '2'}};
+  return {ok: !refused, status: refused ? 503 : 200, text: async () => '{}', headers: {get: name => ({'X-Snapshot-Age-S': '2', 'X-Snapshot-Stale-After-S': '60', 'X-Snapshot-State': 'fresh'}[name] ?? null)}};
 };
 """
         + script
@@ -355,7 +355,7 @@ setTimeout = (fn, ms, ...args) => ms === 1500 || ms === 3000 ? 0 : realSetTimeou
 let failSubscriptions = true;
 globalThis.fetch = async (url) => {
   const refused = failSubscriptions && String(url).includes('/api/runtime/subscriptions');
-  return {ok: !refused, status: refused ? 403 : 200, text: async () => '{}', headers: {get: () => '2'}};
+  return {ok: !refused, status: refused ? 403 : 200, text: async () => '{}', headers: {get: name => ({'X-Snapshot-Age-S': '2', 'X-Snapshot-Stale-After-S': '60', 'X-Snapshot-State': 'fresh'}[name] ?? null)}};
 };
 """
         + script
@@ -387,7 +387,7 @@ setTimeout = (fn, ms, ...args) => ms === 1500 || ms === 3000 ? 0 : realSetTimeou
 const REFUSED = ['/api/delegate/active', '/api/delegate/recent', '/api/git/pull-requests'];
 globalThis.fetch = async (url) => {
   const refused = REFUSED.some(item => String(url).includes(item));
-  return {ok: !refused, status: refused ? 403 : 200, headers: {get: () => '2'}, text: async () => JSON.stringify({
+  return {ok: !refused, status: refused ? 403 : 200, headers: {get: name => ({'X-Snapshot-Age-S': '2', 'X-Snapshot-Stale-After-S': '60', 'X-Snapshot-State': 'fresh'}[name] ?? null)}, text: async () => JSON.stringify({
     tasks: [], status: 'ok', alerts: [], heartbeat: true, providers: [], deliveries: {}, jobs: {},
     dead_letters: 0, store: {reachable: true}, repositories: []})};
 };
@@ -405,11 +405,11 @@ globalThis.fetch = async (url) => {
     assert.match(html, /isn't available in this view/);
     assert.doesNotMatch(html, /Retry|couldn't load|class="error"/);
     const age = document.getElementById(id + '-age');
-    assert.match(age.textContent, /^Fetched at \d{2}:\d{2}:\d{2} UTC$/);
+    assert.match(age.textContent, /^Last attempt at \d{2}:\d{2}:\d{2} UTC · unavailable · source age unknown$/);
     assert.equal(age.className, 'age');
   }
   assert.doesNotMatch(document.getElementById('alerts-content').innerHTML, /isn't available|couldn't load/);
-  assert.match(document.getElementById('alerts-age').textContent, /Fetched at \d{2}:\d{2}:\d{2} UTC \u00b7 source age 2s/);
+  assert.match(document.getElementById('alerts-age').textContent, /Fetched at \d{2}:\d{2}:\d{2} UTC \u00b7 fresh \u00b7 source age \d+s \u00b7 bound 60s/);
 })().catch(error => {console.error(error); process.exitCode = 1;});
 """
     )

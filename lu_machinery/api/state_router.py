@@ -26,6 +26,7 @@ from typing import Any, Literal, cast
 
 import yaml
 from fastapi import APIRouter, Depends, Query, Request
+from fastapi.responses import JSONResponse
 
 from lu_machinery.agent_identity import normalize_seat, seat_read_aliases
 from lu_machinery.agent_runtime.acp_health import probe_acp_health
@@ -2508,19 +2509,31 @@ async def routing_budget(
         schedule_cache_refresh(cache_key, ROUTING_BUDGET_TTL_S, _compute, should_refresh=_needs_refresh)
         value = await _with_live_lane_errors(value, tasks_dir, cache_key)
         claude_fields = await revalidated_routing_budget_fields()
-        return _public_routing_budget(_aged_routing_budget(
+        payload = _public_routing_budget(_aged_routing_budget(
             value,
             state_helpers._ttl_clock() - observed.started_at,
             stale=age_s >= ROUTING_BUDGET_TTL_S or observed.invalidated.is_set(),
             claude_fields=claude_fields,
         ))
+        return _routing_budget_response(payload)
     observed, value = await cache_get_or_compute_async(cache_key, ROUTING_BUDGET_TTL_S, _compute)
     claude_fields = await revalidated_routing_budget_fields()
-    return _public_routing_budget(_aged_routing_budget(
+    payload = _public_routing_budget(_aged_routing_budget(
         value,
         state_helpers._ttl_clock() - observed.started_at,
         stale=observed.invalidated.is_set(),
         claude_fields=claude_fields,
+    ))
+    return _routing_budget_response(payload)
+
+
+def _routing_budget_response(payload: dict[str, Any]) -> JSONResponse:
+    diagnostics = payload.get("diagnostics", {})
+    return JSONResponse(content=payload, headers=panel_values.snapshot_headers(
+        diagnostics.get("data_age_s"), diagnostics.get("stale_threshold_s", ROUTING_BUDGET_MAX_AGE_S),
+        # diagnostics.stale also describes a 15 s routing-cache refresh. The
+        # display header describes the source-age bound; admission still reads
+        # the unchanged diagnostics and per-account freshness fields.
     ))
 
 

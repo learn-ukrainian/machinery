@@ -926,6 +926,17 @@ def compute_pull_requests(project_root: Path, *, tasks_dir: Path | None = None) 
     return {"status": "ok", "reason": None, "observed_at": observed_at, "repositories": repositories}
 
 
+def _pull_requests_cache_key(ctx: MonitorContext) -> str:
+    return ctx_scoped_ttl_key(ctx, "git", "pull-requests", (ctx.roots.batch_state_dir / "tasks").resolve())
+
+
+def warm_pull_requests(ctx: MonitorContext) -> None:
+    """Warm the existing request-owned single flight once on startup."""
+    schedule_cache_refresh(_pull_requests_cache_key(ctx), PULL_REQUESTS_TTL_S,
+                           lambda: compute_pull_requests(ctx.roots.project_root,
+                                                         tasks_dir=ctx.roots.batch_state_dir / "tasks"))
+
+
 @router.get("/pull-requests")
 async def pull_requests(ctx: MonitorContext = Depends(get_ctx)) -> JSONResponse:
     """Open PRs, CI rollup, cross-family review status and merge-queue position per fleet repository.
@@ -937,8 +948,7 @@ async def pull_requests(ctx: MonitorContext = Depends(get_ctx)) -> JSONResponse:
     """
     # The record check reads this store. A key scoped only by project root
     # would reuse another context's authorization.
-    task_store = (ctx.roots.batch_state_dir / "tasks").resolve()
-    key = ctx_scoped_ttl_key(ctx, "git", "pull-requests", task_store)
+    key = _pull_requests_cache_key(ctx)
     project_root = ctx.roots.project_root
 
     def compute() -> dict[str, Any]:
@@ -953,7 +963,14 @@ async def pull_requests(ctx: MonitorContext = Depends(get_ctx)) -> JSONResponse:
         payload = value if isinstance(value, dict) else _unknown_pull_requests("cache_invalid", datetime.now(UTC).isoformat().replace("+00:00", "Z"))
         if age >= PULL_REQUESTS_TTL_S:
             schedule_cache_refresh(key, PULL_REQUESTS_TTL_S, compute)
-    return JSONResponse(content=payload, headers={"Cache-Control": "no-store", "X-Snapshot-Age-S": f"{age:.3f}"})
+    return JSONResponse(content=payload, headers=panel_values.snapshot_headers(
+        # A visit can first find expiry one page cycle late, then display that
+        # snapshot for one more cycle while the collector runs. Keep the 120 s
+        # GitHub cadence; allow two 30 s cycles and collection/HTTP margin.
+        panel_values.observation_age_s(payload.get("observed_at")), PULL_REQUESTS_TTL_S + 90.0,
+        unavailable=payload.get("status") != "ok"
+        or any(repo.get("status") != "ok" for repo in payload.get("repositories", [])),
+    ))
 
 
 @router.get("/hygiene")

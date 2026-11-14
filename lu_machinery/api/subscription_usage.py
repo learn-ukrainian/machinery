@@ -724,12 +724,12 @@ def _window_from_used_pct(used_pct: float, *, window_minutes: int, resets_at: st
     }
 
 
-def _probe_claude_native(*, timeout_s: float) -> dict[str, Any]:
-    """Project account a's measured sample; never make another provider request."""
+def _probe_claude_native(*, timeout_s: float, account: str = "a", include_stale: bool = False) -> dict[str, Any]:
+    """Project one account's measured sample; never make another provider request."""
     from lu_machinery.api.claude_account_usage import claude_accounts_snapshot  # noqa: PLC0415  # lazy-ok: import cycle
 
-    row = claude_accounts_snapshot(include_provider_usage=True)["claude:a"]
-    if row["status"] != "ok":
+    row = claude_accounts_snapshot(include_provider_usage=True)[f"claude:{account}"]
+    if row["status"] != "ok" and not (include_stale and row["status"] == "stale"):
         limited = row.get("reason") == "rate_limited"
         result = _normalize_provider_error(
             "claude",
@@ -3196,6 +3196,10 @@ def get_provider_usage_data(provider: str, *, kick_refresh: bool = True) -> dict
     """
     if provider == "claude":
         return _probe_claude_native(timeout_s=0.0)
+    if provider in {"claude:a", "claude:b"}:
+        # Display-only account rows retain labelled stale readings. The generic
+        # routing lane above still withholds expired capacity.
+        return _probe_claude_native(timeout_s=0.0, account=provider.rsplit(":", 1)[1], include_stale=True)
     cache_key = f"codexbar_usage:{provider}"
     cached = cache_get_with_age(cache_key, ttl=_codexbar_cache_ttl_s())
 

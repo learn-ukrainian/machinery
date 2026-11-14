@@ -9,13 +9,15 @@ provider can be compared side by side. The reader takes its data only from:
 * the background usage cache that the host's usage-cache timer writes every
   five minutes (``~/.cache/lu-usage/codexbar.json``; ``LU_USAGE_CACHE_FILE``
   overrides, empty means none). It holds one CodexBar reading per pool:
-  Claude a and b, Codex a and b, AGY and Grok+Cursor. The AGY pool carries two
+  Codex a and b, AGY and Grok+Cursor. The AGY pool carries two
   quota groups, Gemini and Claude/GPT, as titled weekly and 5-hour windows;
   each group is its own row;
-* the Monitor's in-memory Muse reading
+* the Monitor's validated per-account Claude readings and in-memory Muse reading
   (``get_provider_usage_data(..., kick_refresh=False)``, which never probes).
   A process without the Monitor's scheduler, such as the console command,
-  has none, and Muse shows as unknown;
+  has none, and those accounts show as unknown. The existing Monitor scheduler
+  owns Claude refresh; the page never reads the Claude rows of the
+  external usage-cache writer;
 * the operator's plan-facts file (``account_logins.plan_facts``).
 
 It never calls CodexBar, a provider or the HTTP API. The fields follow
@@ -77,7 +79,7 @@ _EMAIL_SHAPED = re.compile(r"[^\s@]+@[^\s@]+\.[^\s@]+")
 
 # provider id, provider label, accounts: (account, plan-facts key, source, source key)
 PROVIDERS: tuple[tuple[str, str, tuple[tuple[str, str, str, str], ...]], ...] = (
-    ("claude", "Claude", (("Claude a", "claude_a", "cache", "Claude a"), ("Claude b", "claude_b", "cache", "Claude b"))),
+    ("claude", "Claude", (("Claude a", "claude_a", "monitor", "claude:a"), ("Claude b", "claude_b", "monitor", "claude:b"))),
     ("codex", "Codex", (("Codex a", "codex_a", "cache", "Codex a"), ("Codex b", "codex_b", "cache", "Codex b"))),
     ("agy", "AGY", (("AGY Gemini", "agy", "cache", "AGY"), ("AGY Claude/GPT", "agy", "cache", "AGY"))),
     ("grok", "Grok", (("Grok+Cursor", "grok", "cache", "Grok+Cursor"),)),
@@ -423,7 +425,7 @@ def _monitor_window(label: str, raw: Any, read_at: datetime, now: datetime) -> d
                    raw.get("reset_description"))
 
 
-def _monitor_account(record: Mapping[str, Any] | None, now: datetime) -> dict[str, Any]:
+def _monitor_account(record: Mapping[str, Any] | None, now: datetime, *, provider: str = "muse") -> dict[str, Any]:
     record = record if isinstance(record, Mapping) else {}
     freshness = record.get("freshness")
     read_at, why = _read_time(record.get("fetched_at"), now)
@@ -442,7 +444,11 @@ def _monitor_account(record: Mapping[str, Any] | None, now: datetime) -> dict[st
     found = {raw.get("window_minutes"): raw for raw in windows.values() if isinstance(raw, dict)}
     weekly_raw, session_raw = found.get(_WEEKLY_MINUTES), found.get(_SESSION_MINUTES)
     result["weekly"] = _monitor_window("Weekly", weekly_raw, read_at, now)
-    result["session"] = _monitor_window("Session", session_raw, read_at, now) if session_raw else {"status": "none"}
+    result["session"] = (_unknown("not_reported") if provider in _NO_SESSION_PROVIDERS else
+                         _monitor_window("Session", session_raw, read_at, now) if session_raw else {"status": "none"})
+    fable = _dict(record.get("fable_weekly"))
+    if provider == "claude" and _number(fable.get("used_pct")) is not None:
+        result["extra_windows"] = [_monitor_window("Fable only", fable, read_at, now)]
     result["pace"] = _computed_pace(result["weekly"], read_at, now)
     result["credits"] = {"status": "none"}
     return {"reading": reading, **result}
@@ -499,7 +505,7 @@ def subscriptions_snapshot(*, now: datetime | None = None, monitor_reader: Monit
                     if cache_status["status"] != "ok" and usage["reading"]["status"] == "unknown":
                         usage["reading"]["reason"] = f"usage_cache_{cache_status['status']}"
                 else:
-                    usage = _monitor_account(monitor[source_key], now)
+                    usage = _monitor_account(monitor[source_key], now, provider=provider)
             except Exception:  # an unforeseen malformed reading is unknown for this account only
                 usage = {"reading": {**_reading(None, now), "reason": "unreadable_reading"},
                          **_blank_usage("unreadable_reading")}

@@ -72,6 +72,31 @@ def scalars(
     return result
 
 
+def observation_age_s(value: object) -> float | None:
+    """Age of the observation, rather than of its HTTP response or cache insert."""
+    stamp = timestamp(value)
+    if stamp is None:
+        return None
+    observed = datetime.fromisoformat(stamp.replace("Z", "+00:00"))
+    if observed.tzinfo is None:
+        return None
+    return max(0.0, (datetime.now(UTC) - observed).total_seconds())
+
+
+def snapshot_headers(
+    age_s: float | None, stale_after_s: float, *, unavailable: bool = False, stale: bool = False,
+) -> dict[str, str]:
+    """A common freshness contract for the machinery panels, including failed sources."""
+    age = number(age_s)
+    state = "unavailable" if unavailable or age is None else "stale" if stale or age > stale_after_s else "fresh"
+    return {
+        "Cache-Control": "no-store",
+        "X-Snapshot-Age-S": "unknown" if age is None else f"{max(0.0, age):.3f}",
+        "X-Snapshot-Stale-After-S": str(stale_after_s),
+        "X-Snapshot-State": state,
+    }
+
+
 # Public panel identifiers. Dots are refused: a filename-safe token can still be
 # untrusted text. Length 64 matches dispatcher ids in use; no other shape is admitted.
 _TASK_REFERENCE_ALPHABET = frozenset("abcdefghijklmnopqrstuvwxyz0123456789-")

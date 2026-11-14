@@ -15,7 +15,7 @@ from lu_machinery.orchestration.fleet_repos import FleetRepo, FleetRepoError, lo
 
 from .monitor_context import MonitorContext, get_ctx
 from .opsec_sanitize import sanitize_text
-from .panel_values import timestamp
+from .panel_values import snapshot_headers, timestamp
 from .state_helpers import cache_get_stored, ctx_scoped_ttl_key, schedule_cache_refresh
 
 router = APIRouter()
@@ -160,6 +160,9 @@ async def milestones(ctx: MonitorContext = Depends(get_ctx)) -> JSONResponse:
         schedule_cache_refresh(key, REFRESH_SECONDS, collect_milestones)
     if stored is None:
         return JSONResponse({"status": "pending", "repositories": [], "freshness": FRESHNESS},
-                            headers={"Cache-Control": "no-store", "Retry-After": "3"})
+                            headers={**snapshot_headers(None, FRESHNESS_BOUND_SECONDS, unavailable=True), "Retry-After": "3"})
     payload = _with_age(cast(dict[str, Any], stored[0]))
-    return JSONResponse(payload, headers={"Cache-Control": "no-store", "X-Snapshot-Age-S": str(payload["age_seconds"])})
+    return JSONResponse(payload, headers=snapshot_headers(
+        payload["age_seconds"], FRESHNESS_BOUND_SECONDS,
+        stale=payload["stale"], unavailable=payload["status"] != "ok",
+    ))

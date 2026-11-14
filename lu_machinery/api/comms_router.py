@@ -29,6 +29,7 @@ import time
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import cast
 
 from fastapi import APIRouter, Depends, Query, Request, Response
 from fastapi.responses import JSONResponse
@@ -58,7 +59,14 @@ from lu_machinery.lib.readonly_sqlite import SQLiteConnection
 
 from . import panel_values
 from .monitor_context import MonitorContext, get_ctx, resolve_context
-from .state_helpers import cache_get, cache_set
+from .state_helpers import (
+    cache_get,
+    cache_get_or_compute_async,
+    cache_get_stored,
+    cache_set,
+    ctx_scoped_ttl_key,
+    schedule_cache_refresh,
+)
 from .telemetry.legacy_comms import LegacyCommsTelemetryRoute
 
 logger = logging.getLogger(__name__)
@@ -1937,22 +1945,22 @@ def _public_comms_metrics(raw: object) -> dict:
     return out
 
 
-@router.get("/v1/metrics")
-async def comms_v1_metrics(ctx: MonitorContext = Depends(get_ctx), include_agent_success: bool = False) -> dict:
-    """Efficiency metrics from durable timestamps (no content). Sol PR-M / #7486 switch-aware."""
+COMMS_METRICS_TTL_S = 30.0
+
+
+def _collect_panel_metrics(ctx: MonitorContext, include_agent_success: bool) -> tuple[str, dict]:
+    observed_at = datetime.now(UTC).isoformat()
     extra = {}
     if include_agent_success:
-        extra["agent_success"] = await asyncio.to_thread(
-            collect_agent_success, tasks_dir=ctx.roots.batch_state_dir / "tasks"
-        )
+        extra["agent_success"] = collect_agent_success(tasks_dir=ctx.roots.batch_state_dir / "tasks")
     if resolve_metrics_source() == "authority":
         payload = _authority_metrics_payload(collect_efficiency_metrics_authority, ctx)
         payload.update(extra)
-        return _public_comms_metrics(payload)
+        return observed_at, _public_comms_metrics(payload)
     message_db = ctx.roots.message_db_path
     store = legacy_broker_store(reachable=message_db.is_file())
     if not message_db.exists():
-        return _public_comms_metrics({
+        return observed_at, _public_comms_metrics({
             "response_schema_version": COMMS_RESPONSE_SCHEMA_VERSION,
             "content_included": False,
             **extra,
@@ -1963,4 +1971,38 @@ async def comms_v1_metrics(ctx: MonitorContext = Depends(get_ctx), include_agent
     payload.update(extra)
     payload["response_schema_version"] = COMMS_RESPONSE_SCHEMA_VERSION
     payload["store"] = store
-    return _public_comms_metrics(payload)
+    return observed_at, _public_comms_metrics(payload)
+
+
+def _metrics_cache_key(ctx: MonitorContext, include_agent_success: bool = False) -> str:
+    return ctx_scoped_ttl_key(ctx, "comms-metrics", ctx.roots.state_root, ctx.roots.message_db_path,
+                              ctx.roots.batch_state_dir, resolve_metrics_source(), include_agent_success)
+
+
+def warm_panel_metrics(ctx: MonitorContext) -> None:
+    """Use the same single flight as requests; no second timer or collector."""
+    schedule_cache_refresh(_metrics_cache_key(ctx), COMMS_METRICS_TTL_S, lambda: _collect_panel_metrics(ctx, False))
+
+
+@router.get("/v1/metrics")
+async def comms_v1_metrics(ctx: MonitorContext = Depends(get_ctx), include_agent_success: bool = False) -> JSONResponse:
+    """Local durable metrics, cached for 30 s; warm reads never wait for a scan."""
+    key = _metrics_cache_key(ctx, include_agent_success)
+
+    def compute() -> tuple[str, dict]:
+        return _collect_panel_metrics(ctx, include_agent_success)
+
+    stored = cache_get_stored(key)
+    if stored is None:
+        observed_at, payload = await cache_get_or_compute_async(key, COMMS_METRICS_TTL_S, compute)
+    else:
+        value, age = stored
+        observed_at, payload = cast(tuple[str, dict], value)
+        if age >= COMMS_METRICS_TTL_S:
+            schedule_cache_refresh(key, COMMS_METRICS_TTL_S, compute)
+    return JSONResponse(content=payload, headers=panel_values.snapshot_headers(
+        # Same request-driven cadence as PRs: two page cycles plus collection
+        # margin belong in the display bound, without increasing scan frequency.
+        panel_values.observation_age_s(observed_at), COMMS_METRICS_TTL_S + 90.0,
+        unavailable=bool(payload.get("db_missing") or payload.get("db_error")),
+    ))
