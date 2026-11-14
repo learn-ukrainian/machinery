@@ -141,7 +141,7 @@ _SOURCES_INSIDE = "/run/lu-write-boundary/sources.sock"
 # The launcher's projected byte proxy to that socket, at a fixed path beside it, so the MCP stdio command a
 # provider names (``sources_command``) is a constant and no product or worktree MCP file is read.
 _SOURCES_STDIO_INSIDE = "/run/lu-write-boundary/sources-stdio.py"
-# The task-local CODEX_HOME the launcher projects into the run's private TMPDIR or read-only lease.
+# The task-local CODEX_HOME the launcher projects into the run's private scratch, beside its TMPDIR.
 _CODEX_HOME = "codex-home"
 _BROKER_TIMEOUTS = {"review-dispatch": 300, "record-verdict": 900, "fleet-publish": 120, "gh": 120,
                     "closeout-request": 900, "publish": 300, "pr-merge": 900}
@@ -1176,6 +1176,10 @@ class _Boundary:
             argv += ["--bind", str(tmp), str(runtime)]
         for path in projected_reads:
             argv += ["--ro-bind", str(path), str(path)]
+        codex_home = None
+        if self.args.codex_auth is not None:
+            codex_home = self._codex_home(credentials)
+            argv += ["--bind", str(codex_home), str(codex_home)]
         # No GitHub credential is readable inside (PUBLISH-CRED-1113): the host login's known stores are empty.
         for path in _github_credential_paths(home):
             argv += ["--tmpfs", str(path)] if path.is_dir() else ["--ro-bind", "/dev/null", str(path)]
@@ -1224,8 +1228,8 @@ class _Boundary:
         if read_only:
             env["PATH"] = str(boundary / "bin") + os.pathsep + env.get("PATH", os.defpath)
         env.update(git_push_settings(env, interpreter, str(machinery_path("dispatcher/write_boundary.py").parents[2])))
-        if self.args.codex_auth is not None:
-            env["CODEX_HOME"] = str(self._codex_home(tmp, runtime, credentials))
+        if codex_home is not None:
+            env["CODEX_HOME"] = str(codex_home)
         try:
             # The argv is the fixed bubblewrap binary and launcher-validated paths; env is the dispatcher's
             # provider environment, passed on deliberately (the provider runs inside with it).
@@ -1258,17 +1262,18 @@ class _Boundary:
             self.receipt["closeout_request"] = self.broker.closeout_request
         return returncode
 
-    def _codex_home(self, tmp: Path, runtime: Path, credentials: list[Path]) -> Path:
-        """Project the task-local CODEX_HOME into ``tmp`` and return its path inside (below ``runtime``).
+    def _codex_home(self, credentials: list[Path]) -> Path:
+        """Project the task-local CODEX_HOME into this run's private scratch and return it.
 
         It holds the trusted Sources definition and a link to the selected account's ``auth.json``, which a
         ``--credential`` bind keeps writable for a token refresh. Nothing else of the real home is a layer
-        of the run (A2: CLI overrides merge into the loaded layers rather than replace them).
+        of the run (A2: CLI overrides merge into the loaded layers rather than replace them). It sits beside
+        TMPDIR, not in it: Codex creates no helper PATH aliases under its temporary directory.
         """
         auth = Path(self.args.codex_auth)
         if not auth.is_absolute() or auth.name != "auth.json":
             raise Refused("--codex-auth is not an absolute auth.json path")
-        home = tmp / _CODEX_HOME
+        home = self.base / _CODEX_HOME
         home.mkdir(mode=0o700)
         config = codex_home_config().encode()
         _write_private(home / "config.toml", config, 0o600)
@@ -1278,7 +1283,7 @@ class _Boundary:
         self.receipt["codex_home"] = {"config_sha256": hashlib.sha256(config).hexdigest(),
                                       "auth": "linked" if linked else "absent",
                                       "auth_writable": auth in credentials}
-        return runtime / _CODEX_HOME
+        return home
 
     def _probes(self, repository: Path, common: Path, sockets: list[Path], outputs: list[Path], tmp: Path,
                 nonce: str) -> list[dict]:

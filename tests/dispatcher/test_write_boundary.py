@@ -296,7 +296,9 @@ def test_no_github_write_authority_is_reachable_inside_any_route(primary, monkey
     if route == "codex":
         (home / ".codex/config.toml").write_text('[mcp_servers.foreign]\nurl = "http://127.0.0.1:8766/mcp"\n')
         extra += ["--codex-auth", str(credential)]
-        home_check = (f' && test "$(readlink "$CODEX_HOME/auth.json")" = {credential}'
+        # Beside TMPDIR, never in it: Codex creates no helper PATH aliases under its temporary directory.
+        home_check = (' && case "$CODEX_HOME/" in "$TMPDIR"/*) false;; esac'
+                      f' && test "$(readlink "$CODEX_HOME/auth.json")" = {credential}'
                       ' && test "$(ls -A "$CODEX_HOME")" = "$(printf \'auth.json\\nconfig.toml\')"'
                       ' && ! grep -q foreign "$CODEX_HOME/config.toml"'
                       ' && grep -qF \'"/run/lu-write-boundary/sources-stdio.py", "/run/lu-write-boundary/sources.sock"]\''

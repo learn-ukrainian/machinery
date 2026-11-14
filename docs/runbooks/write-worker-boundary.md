@@ -263,8 +263,8 @@ binds its byte proxy and the relay socket at fixed paths, `/run/lu-write-boundar
 `/run/lu-write-boundary/sources.sock`, so the MCP stdio command (`write_boundary.sources_command()`) is a
 constant: the dispatcher's interpreter with `-I` and those two paths. Claude names it in its explicit
 `--mcp-config` with `--strict-mcp-config`; no product or worktree `.mcp.json` is read. Codex runs on a
-task-local `CODEX_HOME` the launcher projects into the run's private TMPDIR (a read-only run's scratch
-lease). It holds a `config.toml` with only that server and a link to the selected account's `auth.json`,
+task-local `CODEX_HOME` the launcher projects into the run's private scratch, beside its TMPDIR (Codex
+creates no helper `PATH` aliases below its temporary directory), and removes with it. It holds a `config.toml` with only that server and a link to the selected account's `auth.json`,
 so no layer of the real Codex configuration (its MCP servers, connectors or a loopback Sources URL)
 reaches the run. Codex's argv enables only the Sources readers and passes `--disable apps` in both
 modes. The tools that persist fetched entries stay refused by the relay. The receipt's `sources` holds

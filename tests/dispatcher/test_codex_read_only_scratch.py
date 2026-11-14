@@ -87,7 +87,7 @@ def test_checkout_stays_read_only_and_only_the_scratch_is_writable(worktree, mon
     argv = write_boundary.launcher(spec, invocation, worktree.parent / "task.json")
     assert argv[argv.index("--mode") + 1] == "read-only"
     assert argv[argv.index("--runtime") + 1] == str(lease)
-    # The launcher projects a task-local CODEX_HOME into that lease, linking only the selected account's login.
+    # The launcher projects a task-local CODEX_HOME beside that lease, linking only the selected account's login.
     selected = Path(invocation.env.get("CODEX_HOME") or Path(invocation.env["HOME"]) / ".codex")
     assert argv[argv.index("--codex-auth") + 1] == str(selected / "auth.json")
     assert "--dangerously-bypass-approvals-and-sandbox" in invocation.argv
