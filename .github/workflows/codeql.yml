@@ -5,9 +5,13 @@
 #   No compiled language, so every analysis uses build-mode: none.
 # - Query suite: the built-in security-extended suite, as in the source
 #   repository's codeql.yml. No custom queries and no config file.
-# - Runs on pull requests and merge groups to main, pushes to main and weekly.
-#   Results upload to the repository's code-scanning alerts. Not part of
-#   CI Gate; GitHub reports the "CodeQL" check separately.
+# - Runs on pull requests to main, pushes to main and weekly. It does not
+#   run on merge_group: those temporary refs/heads/gh-readonly-queue/main/pr-*
+#   refs were receiving uploaded analyses, and neither the merge-queue
+#   ruleset nor branch protection requires a CodeQL check (branch
+#   protection requires only "CI Gate"). Results upload to the
+#   repository's code-scanning alerts. Not part of CI Gate; GitHub
+#   reports the "CodeQL" check separately.
 # - Least privilege: no workflow permissions; the analyze job alone gets
 #   security-events: write (upload) and contents: read (checkout). The
 #   repository is public, so the upload needs no actions: read.
@@ -20,9 +24,6 @@ on:
   pull_request:
     branches: [main]
     types: [opened, synchronize, reopened]
-  merge_group:
-    branches: [main]
-    types: [checks_requested]
   schedule:
     - cron: "23 4 * * 1"
 

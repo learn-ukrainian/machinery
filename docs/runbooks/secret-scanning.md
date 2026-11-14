@@ -326,12 +326,10 @@ affects #6 and #14 (24 each) and #24 (12). Refreshing the main rows does not
 clear these instances or prove their older SARIF flows match. The dismissal
 verb must continue to refuse missing or different evidence on any open instance.
 
-`.github/workflows/codeql.yml` runs on `merge_group` as well as pull requests,
-main pushes and the weekly schedule; its Analyze step uploads results without
-an event condition. This creates analyses attached to temporary queue branches.
-The recommended follow-up is to stop CodeQL runs on `merge_group`, keeping PR,
-main and scheduled scanning, and separately remove the obsolete temporary-ref
-analysis sets through an owner-authorized cleanup. GitHub's
+`.github/workflows/codeql.yml` no longer runs on `merge_group`, so CodeQL does not
+upload analyses for temporary `refs/heads/gh-readonly-queue/main/pr-*` refs;
+pull-request, push-to-main and weekly scans are unchanged, and existing
+queue-ref analyses remain until an owner-authorized cleanup. GitHub's
 [analysis-deletion API](https://docs.github.com/en/rest/code-scanning/code-scanning#delete-a-code-scanning-analysis-from-a-repository)
 works newest-first within each ref/tool/category set and requires explicit
 confirmation to remove its last analysis. A cleanup brief must identify only
@@ -341,7 +339,7 @@ For a retained real branch, a successful current analysis can mark an absent
 finding fixed; these obsolete queue candidates should not be recreated merely
 to manufacture matching evidence. Any analysis cleanup needs separate authority
 and a fresh instance inventory before the interactive seat retries dismissal.
-This PR changes neither the workflow nor the dismissal checks.
+Dismissal checks are unchanged, and stopping the workflow does not delete existing analyses.
 
 The runtime changes also have product copies at
 `scripts/api/discussions_router.py`, `scripts/ai_agent_bridge/openai_proxy.py`,
