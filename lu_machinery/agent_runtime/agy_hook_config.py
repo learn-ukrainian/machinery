@@ -299,11 +299,12 @@ def install_worktree_guard(cwd: Path) -> None:
 
 
 def provision_workspace_guard(cwd: Path) -> None:
-    """Explicitly provision a caller-created workspace, never an ordinary HOME.
+    """Provision a caller-owned workspace, including existing bridge scratch.
 
-    The caller owns the directory and its lifecycle. Walk real directories and
-    atomically merge a missing guard, retaining unrelated bytes. Published files
-    have mode 0600. This is not an implicit repair of existing gate candidates.
+    The caller owns the directory and its lifecycle; never use an ordinary HOME.
+    Walk real directories and atomically merge missing guards, retaining existing
+    keys (including disabled guards) and unrelated bytes. Published files have
+    mode 0600.
     """
     if ".." in cwd.parts:
         raise AgyHookConfigError("unsafe_install_path")

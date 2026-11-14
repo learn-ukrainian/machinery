@@ -4145,11 +4145,13 @@
     "scripts.api.state_helpers [present: present on machinery main as lu_machinery/api/state_helpers.py]"
    ],
    "residual_owner": "claude-cto",
-   "residual_reason": "PyMuPDF/pymupdf is not in the hash-pinned pytest dependency closure in .github/workflows/tests.yml; the source test importorskip would never execute its only behavior in machinery CI.",
+   "residual_reason": "The one-test port is still absent. The frozen source test uses pytest.importorskip(\"pymupdf\"); .github/workflows/tests.yml and requirements-machinery.lock still omit PyMuPDF. lu_machinery/api/preload.py remains present. Remaining proof: port test_preload_all_completes_when_pymupdf_message_stream_is_closed with a hash-pinned PyMuPDF dependency and record an executed, non-skipped CI result. No replacement is claimed.",
    "residual_resolution": {
     "id": "PORT-1108-T2-R3",
     "decision": "still-deferred",
-    "evidence": "PyMuPDF/pymupdf is not in the hash-pinned pytest dependency closure in .github/workflows/tests.yml; the source test importorskip would never execute its only behavior in machinery CI."
+    "evidence": "The one-test port is still absent. The frozen source test uses pytest.importorskip(\"pymupdf\"); .github/workflows/tests.yml and requirements-machinery.lock still omit PyMuPDF. lu_machinery/api/preload.py remains present. Remaining proof: port test_preload_all_completes_when_pymupdf_message_stream_is_closed with a hash-pinned PyMuPDF dependency and record an executed, non-skipped CI result. No replacement is claimed.",
+    "machinery_main_sha": "fa36a6386f9a1fba8ef15b250da6837323e1796c",
+    "product_main_sha": "92fb4367fb06aa5635fe394b0a79cf2423b5e15a"
    }
   },
   "tests/api/test_project_state.py": {
@@ -6996,11 +6998,13 @@
     "unresolved: non-literal spec_from_file_location path SERVER_PATH"
    ],
    "residual_owner": "claude-cto",
-   "residual_reason": "tests/test_rules_core_loading.py (core_without_addendum, missing_core) is absent from machinery main and remains held for product_root-dependent setup. Attempt-boundary helpers exist at tests/agent_runtime/attempt_boundary_support.py, but do not supply those core fixtures.",
+   "residual_reason": "The 17-test file and tests/test_rules_core_loading.py fixtures core_without_addendum and missing_core are still absent. tests/agent_runtime/attempt_boundary_support.py is present. tests/dispatcher/test_core_delivery.py and tests/agent_runtime/test_runtime_rules_core_delivery.py cover current core delivery, and tests/agent_runtime/test_model_pause.py covers pause expiry and model matching; these are partial evidence, not a whole-file replacement. Remaining proof: adapt the fixture closure to configured product roots, map all 17 frozen tests to current admission behavior, and execute the retained cases in CI.",
    "residual_resolution": {
     "id": "PORT-1108-T5-R1",
     "decision": "still-deferred",
-    "evidence": "tests/test_rules_core_loading.py (core_without_addendum, missing_core) is absent from machinery main and remains held for product_root-dependent setup. Attempt-boundary helpers exist at tests/agent_runtime/attempt_boundary_support.py, but do not supply those core fixtures."
+    "evidence": "The 17-test file and tests/test_rules_core_loading.py fixtures core_without_addendum and missing_core are still absent. tests/agent_runtime/attempt_boundary_support.py is present. tests/dispatcher/test_core_delivery.py and tests/agent_runtime/test_runtime_rules_core_delivery.py cover current core delivery, and tests/agent_runtime/test_model_pause.py covers pause expiry and model matching; these are partial evidence, not a whole-file replacement. Remaining proof: adapt the fixture closure to configured product roots, map all 17 frozen tests to current admission behavior, and execute the retained cases in CI.",
+    "machinery_main_sha": "fa36a6386f9a1fba8ef15b250da6837323e1796c",
+    "product_main_sha": "92fb4367fb06aa5635fe394b0a79cf2423b5e15a"
    }
   },
   "tests/dispatcher/test_advisory.py": {
@@ -11533,11 +11537,13 @@
     "status [present: product-owned in LU]"
    ],
    "residual_owner": "claude-cto",
-   "residual_reason": "lu_machinery/hygiene/tmp_sweep.py lacks the source _custody_free_config, _disposable_git_directory and _disposable_git_file predicates. Its disposable_git exception is unconditional; frozen tests require custody-sensitive handling of external worktrees/config. Existing partial pytest-retention tests are retained; production port is outside this test-only brief.",
+   "residual_reason": "The old disposable_git dependency description is superseded by #223 (0c09b60): managed pytest retention now lives in lu_machinery/hygiene/pytest_retention.py, whose _classify calls tmp_sweep.tree_facts(run_contents=True). That mode permits fixture Git metadata after ownership/liveness checks; registered worktrees remain protected. The existing tests/hygiene/test_pytest_retention.py retains 11 of the 60 frozen test names, including test_reaped_lease_owner_is_reclaimed_without_all_process_visibility with fixture_git and test_worktree_registration_still_preserves. Remaining proof: reconcile all 60 frozen behaviors with the current managed-run policy, port the still-applicable gaps, and record executed coverage. Missing old custody predicates alone no longer establishes a production dependency or authorizes a policy reversal.",
    "residual_resolution": {
     "id": "T7-pytest-retention-git-custody",
     "decision": "still-deferred",
-    "evidence": "lu_machinery/hygiene/tmp_sweep.py lacks the source _custody_free_config, _disposable_git_directory and _disposable_git_file predicates. Its disposable_git exception is unconditional; frozen tests require custody-sensitive handling of external worktrees/config. Existing partial pytest-retention tests are retained; production port is outside this test-only brief."
+    "evidence": "The old disposable_git dependency description is superseded by #223 (0c09b60): managed pytest retention now lives in lu_machinery/hygiene/pytest_retention.py, whose _classify calls tmp_sweep.tree_facts(run_contents=True). That mode permits fixture Git metadata after ownership/liveness checks; registered worktrees remain protected. The existing tests/hygiene/test_pytest_retention.py retains 11 of the 60 frozen test names, including test_reaped_lease_owner_is_reclaimed_without_all_process_visibility with fixture_git and test_worktree_registration_still_preserves. Remaining proof: reconcile all 60 frozen behaviors with the current managed-run policy, port the still-applicable gaps, and record executed coverage. Missing old custody predicates alone no longer establishes a production dependency or authorizes a policy reversal.",
+    "machinery_main_sha": "fa36a6386f9a1fba8ef15b250da6837323e1796c",
+    "product_main_sha": "92fb4367fb06aa5635fe394b0a79cf2423b5e15a"
    }
   },
   "tests/hygiene/test_remote_branch_cleanup.py": {
@@ -13588,7 +13594,7 @@
    "ownership": "machinery",
    "residual_id": "PORT-T1-B01",
    "residual_owner": "claude-cto",
-   "residual_reason": "Machinery #100 R77 remains: lu_machinery/orchestration/install_worktree_cleanup_launchd.py wrapper_path and _validate_primary require public_repo/lu_machinery/orchestration artifacts, rather than the separately installed package. Both source installer test files await that production dependency.",
+   "residual_reason": "R77 was fixed by merged #227 (3b547adea6196e5a8b7930f9d27ed30155d8a4be): wrapper_path and _validate_primary resolve packaged files with machinery_path. Existing tests/orchestration/test_check_worktree_cleanup_integrity.py::test_wrapper_execs_primary_interpreter proves a primary checkout without lu_machinery/ can validate and render the packaged wrapper. The five-test installer file is still absent; same-named observer-installer tests exercise a different subject. Remaining proof: port all five installer behaviors with the packaged wrapper expectation, including idempotence, argument/interpreter refusal, four-hour two-repository rendering and receipt-preserving uninstall, then execute them with fake launchctl. There is no remaining R77 production dependency.",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.orchestration.install_worktree_cleanup_launchd [present: present on machinery main as lu_machinery/orchestration/install_worktree_cleanup_launchd.py]"
@@ -13596,7 +13602,9 @@
    "residual_resolution": {
     "id": "PORT-T1-B01",
     "decision": "still-deferred",
-    "evidence": "Machinery #100 R77 remains: lu_machinery/orchestration/install_worktree_cleanup_launchd.py wrapper_path and _validate_primary require public_repo/lu_machinery/orchestration artifacts, rather than the separately installed package. Both source installer test files await that production dependency."
+    "evidence": "R77 was fixed by merged #227 (3b547adea6196e5a8b7930f9d27ed30155d8a4be): wrapper_path and _validate_primary resolve packaged files with machinery_path. Existing tests/orchestration/test_check_worktree_cleanup_integrity.py::test_wrapper_execs_primary_interpreter proves a primary checkout without lu_machinery/ can validate and render the packaged wrapper. The five-test installer file is still absent; same-named observer-installer tests exercise a different subject. Remaining proof: port all five installer behaviors with the packaged wrapper expectation, including idempotence, argument/interpreter refusal, four-hour two-repository rendering and receipt-preserving uninstall, then execute them with fake launchctl. There is no remaining R77 production dependency.",
+    "machinery_main_sha": "fa36a6386f9a1fba8ef15b250da6837323e1796c",
+    "product_main_sha": "92fb4367fb06aa5635fe394b0a79cf2423b5e15a"
    }
   },
   "tests/orchestration/test_integration_sweep.py": {
@@ -13659,7 +13667,7 @@
    "ownership": "machinery",
    "residual_id": "PORT-T1-DEFER-02",
    "residual_owner": "claude-cto",
-   "residual_reason": "tests/test_check_issue_task_quality.py (COMPLETE, HYGIENE, REGISTRY, REPO, audit_report) is absent from machinery main.",
+   "residual_reason": "The 20-test report file and tests/test_check_issue_task_quality.py fixture closure (COMPLETE, HYGIENE, REGISTRY, REPO, audit_report) remain absent. lu_machinery/orchestration/issue_quality_report.py remains present. tests/packaging/test_issue_quality_report_timer_units.py checks timer wiring, not report denominators, cache publication or private-data boundaries. Remaining proof: adapt the missing fixture closure and port/map all 20 report behaviors with executed CI results.",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "docs/WORKSTREAMS.md [present: product-owned in LU]",
@@ -13677,7 +13685,9 @@
    "residual_resolution": {
     "id": "PORT-T1-DEFER-02",
     "decision": "still-deferred",
-    "evidence": "tests/test_check_issue_task_quality.py (COMPLETE, HYGIENE, REGISTRY, REPO, audit_report) is absent from machinery main."
+    "evidence": "The 20-test report file and tests/test_check_issue_task_quality.py fixture closure (COMPLETE, HYGIENE, REGISTRY, REPO, audit_report) remain absent. lu_machinery/orchestration/issue_quality_report.py remains present. tests/packaging/test_issue_quality_report_timer_units.py checks timer wiring, not report denominators, cache publication or private-data boundaries. Remaining proof: adapt the missing fixture closure and port/map all 20 report behaviors with executed CI results.",
+    "machinery_main_sha": "fa36a6386f9a1fba8ef15b250da6837323e1796c",
+    "product_main_sha": "92fb4367fb06aa5635fe394b0a79cf2423b5e15a"
    }
   },
   "tests/orchestration/test_job_host_exec.py": {
@@ -15084,7 +15094,7 @@
    "ownership": "machinery",
    "residual_id": "PORT-T1-B01",
    "residual_owner": "claude-cto",
-   "residual_reason": "Machinery #100 R77 remains: lu_machinery/orchestration/install_worktree_cleanup_launchd.py wrapper_path and _validate_primary require public_repo/lu_machinery/orchestration artifacts, rather than the separately installed package. Both source installer test files await that production dependency.",
+   "residual_reason": "Merged #227 (3b547adea6196e5a8b7930f9d27ed30155d8a4be) removed R77 from install_worktree_cleanup_launchd.wrapper_path and _validate_primary. The seven-test cross-installer matrix is still absent. tests/orchestration/test_check_worktree_cleanup_integrity.py covers linked plist/log detection but does not replace the matrix across installer entry points. Remaining proof: port/map the seven frozen behaviors and their installer/check/apply parameter combinations, update packaged-artifact fixtures, and execute with fake service commands. No host configuration change is required; the missing test port, not R77, remains outstanding.",
    "subject_status": "SUBJECT-PRESENT",
    "subjects": [
     "scripts.common.safe_unit_install [present: present on machinery main as lu_machinery/common/safe_unit_install.py]",
@@ -15102,7 +15112,9 @@
    "residual_resolution": {
     "id": "PORT-T1-B01",
     "decision": "still-deferred",
-    "evidence": "Machinery #100 R77 remains: lu_machinery/orchestration/install_worktree_cleanup_launchd.py wrapper_path and _validate_primary require public_repo/lu_machinery/orchestration artifacts, rather than the separately installed package. Both source installer test files await that production dependency."
+    "evidence": "Merged #227 (3b547adea6196e5a8b7930f9d27ed30155d8a4be) removed R77 from install_worktree_cleanup_launchd.wrapper_path and _validate_primary. The seven-test cross-installer matrix is still absent. tests/orchestration/test_check_worktree_cleanup_integrity.py covers linked plist/log detection but does not replace the matrix across installer entry points. Remaining proof: port/map the seven frozen behaviors and their installer/check/apply parameter combinations, update packaged-artifact fixtures, and execute with fake service commands. No host configuration change is required; the missing test port, not R77, remains outstanding.",
+    "machinery_main_sha": "fa36a6386f9a1fba8ef15b250da6837323e1796c",
+    "product_main_sha": "92fb4367fb06aa5635fe394b0a79cf2423b5e15a"
    }
   },
   "tests/orchestration/test_worker_leftovers.py": {
@@ -15588,11 +15600,13 @@
    ],
    "residual_id": "PORT-1108-T9-R3",
    "residual_owner": "claude-cto",
-   "residual_reason": "The pinned TruffleHog executable, hash-locked Semgrep engine and pinned semgrep-rules checkout required by tests/packaging/test_machinery_prepublication_gate.py are not provisioned in the pytest CI job. Source tests skip without that scanner closure; no passing replacement is claimed.",
+   "residual_reason": "The four-test prepublication gate file remains absent. .github/workflows/ci-gate.yml has separate pinned TruffleHog and Semgrep jobs, but .github/workflows/tests.yml does not provision those scanners and the pinned rules checkout for these pytest subprocesses. Separate scan-job success is not execution of the history-only finding, malformed-output and clearance-binding fixtures. Remaining proof: port the four behaviors, supply the pinned scanner/rules closure to that test execution, and record non-skipped results.",
    "residual_resolution": {
     "id": "PORT-1108-T9-R3",
     "decision": "still-deferred",
-    "evidence": "The pinned TruffleHog executable, hash-locked Semgrep engine and pinned semgrep-rules checkout required by tests/packaging/test_machinery_prepublication_gate.py are not provisioned in the pytest CI job. Source tests skip without that scanner closure; no passing replacement is claimed."
+    "evidence": "The four-test prepublication gate file remains absent. .github/workflows/ci-gate.yml has separate pinned TruffleHog and Semgrep jobs, but .github/workflows/tests.yml does not provision those scanners and the pinned rules checkout for these pytest subprocesses. Separate scan-job success is not execution of the history-only finding, malformed-output and clearance-binding fixtures. Remaining proof: port the four behaviors, supply the pinned scanner/rules closure to that test execution, and record non-skipped results.",
+    "machinery_main_sha": "fa36a6386f9a1fba8ef15b250da6837323e1796c",
+    "product_main_sha": "92fb4367fb06aa5635fe394b0a79cf2423b5e15a"
    }
   },
   "tests/packaging/test_systemd_templates.py": {
@@ -18455,11 +18469,13 @@
     "unresolved: non-literal import_module(name)"
    ],
    "residual_owner": "claude-cto",
-   "residual_reason": "tests/agent_runtime/adapters/kimi_admitted.py (admitted_tool_config) is absent from machinery main. The T3a AGY route dependency is present; the remaining helper still prevents this whole-file port.",
+   "residual_reason": "The 135-test file remains absent; the frozen source imports tests/agent_runtime/adapters/kimi_admitted.py, which is absent with the Kimi execution stack removed by #141 (251d1b9). Restoring that retired helper is not the remaining prerequisite. Existing split runtime/adapter tests do not establish a complete mapping for this file. Remaining proof: separate retired Kimi/Muse-only cases using #141 (251d1b9) and #384 retirement evidence, preserve all still-live runtime and route behaviors, adapt their fixtures to installed machinery, and execute an explicit mapping of the 135 frozen tests. No whole-file replacement or retirement is claimed.",
    "residual_resolution": {
     "id": "T3B-R01",
     "decision": "still-deferred",
-    "evidence": "tests/agent_runtime/adapters/kimi_admitted.py (admitted_tool_config) is absent from machinery main. The T3a AGY route dependency is present; the remaining helper still prevents this whole-file port."
+    "evidence": "The 135-test file remains absent; the frozen source imports tests/agent_runtime/adapters/kimi_admitted.py, which is absent with the Kimi execution stack removed by #141 (251d1b9). Restoring that retired helper is not the remaining prerequisite. Existing split runtime/adapter tests do not establish a complete mapping for this file. Remaining proof: separate retired Kimi/Muse-only cases using #141 (251d1b9) and #384 retirement evidence, preserve all still-live runtime and route behaviors, adapt their fixtures to installed machinery, and execute an explicit mapping of the 135 frozen tests. No whole-file replacement or retirement is claimed.",
+    "machinery_main_sha": "fa36a6386f9a1fba8ef15b250da6837323e1796c",
+    "product_main_sha": "92fb4367fb06aa5635fe394b0a79cf2423b5e15a"
    }
   },
   "tests/test_agent_runtime_acp_transport_cutover.py": {
@@ -18724,11 +18740,13 @@
     "unresolved: non-literal import_module(name)"
    ],
    "residual_owner": "claude-cto",
-   "residual_reason": "lu_machinery/agent_runtime/adapters/kimi.py (KimiAdapter) and tests/agent_runtime/adapters/kimi_admitted.py are absent from machinery main; the source tests import both. The ACpx test helper is present.",
+   "residual_reason": "The eight-test mixed-adapter file remains absent. KimiAdapter was removed by #141 (251d1b9); the absent kimi_admitted.py helper is not a dependency to restore. tests/agent_runtime/test_agent_runtime_log_redaction_codex.py::test_non_claude_max_budget_warning_is_constant exercises Codex only and does not replace the AGY, ACpx/Gemma, DeepSeek and Grok diagnostics in this source file. Remaining proof: separate retired-only cases with evidence, port/map the live adapter parameter cases and constant-message/secret-exclusion assertions, and record executed results. Keep the live routes and their coverage.",
    "residual_resolution": {
     "id": "T3B-R02",
     "decision": "still-deferred",
-    "evidence": "lu_machinery/agent_runtime/adapters/kimi.py (KimiAdapter) and tests/agent_runtime/adapters/kimi_admitted.py are absent from machinery main; the source tests import both. The ACpx test helper is present."
+    "evidence": "The eight-test mixed-adapter file remains absent. KimiAdapter was removed by #141 (251d1b9); the absent kimi_admitted.py helper is not a dependency to restore. tests/agent_runtime/test_agent_runtime_log_redaction_codex.py::test_non_claude_max_budget_warning_is_constant exercises Codex only and does not replace the AGY, ACpx/Gemma, DeepSeek and Grok diagnostics in this source file. Remaining proof: separate retired-only cases with evidence, port/map the live adapter parameter cases and constant-message/secret-exclusion assertions, and record executed results. Keep the live routes and their coverage.",
+    "machinery_main_sha": "fa36a6386f9a1fba8ef15b250da6837323e1796c",
+    "product_main_sha": "92fb4367fb06aa5635fe394b0a79cf2423b5e15a"
    }
   },
   "tests/test_agent_runtime_log_redaction_claude.py": {
@@ -21121,11 +21139,13 @@
     "scripts.agent_runtime.env_sanitize [present: present on machinery main as lu_machinery/agent_runtime/env_sanitize.py]"
    ],
    "residual_owner": "claude-cto",
-   "residual_reason": "A macOS runner with a logged-in Claude CLI/keychain is required by its sole source test. Machinery tests.yml runs on ubuntu-24.04; no Linux skip is claimed as coverage.",
+   "residual_reason": "The sole test_claude_oauth_keychain_works_with_sanitized_env port remains absent. Its source skips outside Darwin or without an authenticated Claude CLI; .github/workflows/tests.yml runs on ubuntu-24.04. Remaining proof: an approved macOS execution with an authenticated supported Claude CLI and sanitized environment, with a non-skipped result. A Linux skip or mocked keychain is not equivalent coverage.",
    "residual_resolution": {
     "id": "T3B-R09",
     "decision": "still-deferred",
-    "evidence": "A macOS runner with a logged-in Claude CLI/keychain is required by its sole source test. Machinery tests.yml runs on ubuntu-24.04; no Linux skip is claimed as coverage."
+    "evidence": "The sole test_claude_oauth_keychain_works_with_sanitized_env port remains absent. Its source skips outside Darwin or without an authenticated Claude CLI; .github/workflows/tests.yml runs on ubuntu-24.04. Remaining proof: an approved macOS execution with an authenticated supported Claude CLI and sanitized environment, with a non-skipped result. A Linux skip or mocked keychain is not equivalent coverage.",
+    "machinery_main_sha": "fa36a6386f9a1fba8ef15b250da6837323e1796c",
+    "product_main_sha": "92fb4367fb06aa5635fe394b0a79cf2423b5e15a"
    }
   },
   "tests/test_claude_project_key.py": {
@@ -22960,11 +22980,13 @@
    "port_note": "deferred: imports tests/test_delegate_ownership_relaxation.py, owned by T9",
    "residual_id": "PORT-1108-T10-R1",
    "residual_owner": "claude-cto",
-   "residual_reason": "tests/test_delegate_ownership_relaxation.py (FakeTime) is absent from machinery main; test_delegate_ownership_repository.py still imports it.",
+   "residual_reason": "The 15-test repository-admission file and tests/test_delegate_ownership_relaxation.py::FakeTime remain absent. tests/guardrails/test_delegate_ownership_identity.py covers filesystem identity and probe failures, but does not establish the full concurrent-process, foreign-holder/waiter, legacy-row and privacy matrix. Remaining proof: adapt FakeTime and the installed-package imports, port/map all 15 frozen behaviors, and execute the repository-isolation and atomic-admission cases. No complete replacement is claimed.",
    "residual_resolution": {
     "id": "PORT-1108-T10-R1",
     "decision": "still-deferred",
-    "evidence": "tests/test_delegate_ownership_relaxation.py (FakeTime) is absent from machinery main; test_delegate_ownership_repository.py still imports it."
+    "evidence": "The 15-test repository-admission file and tests/test_delegate_ownership_relaxation.py::FakeTime remain absent. tests/guardrails/test_delegate_ownership_identity.py covers filesystem identity and probe failures, but does not establish the full concurrent-process, foreign-holder/waiter, legacy-row and privacy matrix. Remaining proof: adapt FakeTime and the installed-package imports, port/map all 15 frozen behaviors, and execute the repository-isolation and atomic-admission cases. No complete replacement is claimed.",
+    "machinery_main_sha": "fa36a6386f9a1fba8ef15b250da6837323e1796c",
+    "product_main_sha": "92fb4367fb06aa5635fe394b0a79cf2423b5e15a"
    }
   },
   "tests/test_delegate_primary_integrity.py": {
@@ -35356,13 +35378,15 @@
     "dashboards/work.html [present: present on machinery main as dashboards/work.html]"
    ],
    "residual_id": "PORT-1108-T10-R2",
-   "port_note": "browser-environment residual: all 14 browser proofs remain port-first in LU; machinery CI has no Puppeteer/browser setup; no replacement coverage claimed",
+   "port_note": "Historical browser-environment hold at the original census snapshot; superseded by the SHA-bound page-retirement disposition below. The original ownership and test-name denominator remain historical records.",
    "residual_owner": "claude-cto",
-   "residual_reason": "Puppeteer and a compatible Chrome/Chromium executable are required for all 14 browser proofs; .github/workflows/tests.yml does not provision that browser environment.",
+   "residual_reason": "The tested dashboards/work.html dual-source browser page was deleted from machinery by #357 (6ce15cd7bed9c58b09aed676c01881e441f96344), which serves lu_machinery/api/dashboards/index.html instead. Product #12978 (1466bae4e8618960892033a817caa1e53659b769) deleted both dashboards/work.html and tests/test_work_dashboard_private_integration.py. Neither current tree contains the page, and machinery main contains none of the 14 frozen test names. Retire this page-specific port obligation; no browser replacement or executed 14-case proof is claimed. This disposition does not retire the separate Work API or its privacy contracts.",
    "residual_resolution": {
     "id": "PORT-1108-T10-R2",
-    "decision": "still-deferred",
-    "evidence": "Puppeteer and a compatible Chrome/Chromium executable are required for all 14 browser proofs; .github/workflows/tests.yml does not provision that browser environment."
+    "decision": "retired",
+    "evidence": "The tested dashboards/work.html dual-source browser page was deleted from machinery by #357 (6ce15cd7bed9c58b09aed676c01881e441f96344), which serves lu_machinery/api/dashboards/index.html instead. Product #12978 (1466bae4e8618960892033a817caa1e53659b769) deleted both dashboards/work.html and tests/test_work_dashboard_private_integration.py. Neither current tree contains the page, and machinery main contains none of the 14 frozen test names. Retire this page-specific port obligation; no browser replacement or executed 14-case proof is claimed. This disposition does not retire the separate Work API or its privacy contracts.",
+    "machinery_main_sha": "fa36a6386f9a1fba8ef15b250da6837323e1796c",
+    "product_main_sha": "92fb4367fb06aa5635fe394b0a79cf2423b5e15a"
    }
   },
   "tests/test_work_pr_snapshot.py": {
