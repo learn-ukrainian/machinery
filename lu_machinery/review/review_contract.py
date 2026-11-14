@@ -14,7 +14,9 @@ from collections.abc import Callable, Iterator, Mapping, Sequence
 from copy import deepcopy
 from dataclasses import asdict, dataclass, field
 from functools import lru_cache
-from importlib.resources import files as _package_files  # nosemgrep: python.lang.compatibility.python37-compatibility-importlib2
+from importlib.resources import (
+    files as _package_files,  # nosemgrep: python.lang.compatibility.python37-compatibility-importlib2
+)
 from pathlib import Path
 from typing import Any
 
@@ -54,7 +56,10 @@ def packaged_review_schema_bytes() -> bytes:
     A uv install hard-links this file, and the attempt reader refuses a link
     count other than one. Only this fixed resource is read here.
     """
-    return _packaged_review_schema().read_bytes()
+    payload = _packaged_review_schema().read_bytes()
+    if not isinstance(payload, bytes):
+        raise OSError("packaged review schema is not bytes")
+    return payload
 
 
 def is_packaged_review_schema(path: Path) -> bool:
