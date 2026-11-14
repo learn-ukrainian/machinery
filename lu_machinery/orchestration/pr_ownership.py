@@ -36,12 +36,11 @@ import os
 import re
 import sys
 from collections.abc import Callable, Iterator, Mapping
-from typing import TypeGuard
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any
+from typing import Any, TypeGuard
 
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
@@ -70,9 +69,8 @@ SENDER = "merge-queue-keeper"
 TASK_ENV = "LEARN_UKRAINIAN_DISPATCH_TASK_ID"
 HISTORY_LIMIT = 200
 _ACTIVE = {"spawning", "running"}
-_HEAD_TASK = re.compile(
-    r"(?m)^X-Agent:[ \t]+(?P<agent>[a-z][a-z0-9]*(?:-[a-z0-9]+)*)/(?P<task>[A-Za-z0-9._-]+)[ \t]*$"
-)
+# Compiled at the call. A module-level ``re.compile`` plus a later method call is one
+# Semgrep match spanning every byte in between, so an edit in that span is a new finding.
 
 
 class OwnershipError(RuntimeError):
@@ -494,7 +492,12 @@ def _head_task_ids(pr: Mapping[str, Any]) -> list[str]:
         if isinstance(value, str) and value:
             parts.append(value)
     message = "\n".join(parts).replace("\r\n", "\n").replace("\r", "\n")
-    return [match.group("task") for match in _HEAD_TASK.finditer(message)]
+    return [
+        match.group("task")
+        for match in re.compile(
+            r"(?m)^X-Agent:[ \t]+(?P<agent>[a-z][a-z0-9]*(?:-[a-z0-9]+)*)/(?P<task>[A-Za-z0-9._-]+)[ \t]*$"
+        ).finditer(message)
+    ]
 
 
 def _with_head_commits(
