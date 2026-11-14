@@ -99,6 +99,7 @@
     <h3>Recently finished <span class="age muted" id="recent-age">Loading…</span></h3>
     <p id="recent-status" class="visually-hidden" aria-live="polite" aria-atomic="true"></p>
     <div id="recent-content">Loading…</div></section>
+  <section class="wide" id="milestones"><h2>Milestones and progress <span class="age" id="milestones-age">Loading…</span></h2><p id="milestones-status" class="visually-hidden" aria-live="polite" aria-atomic="true"></p><div id="milestones-content">Loading…</div></section>
   <section id="prs"><h2>Pull requests and merge queue <span class="age" id="prs-age">Loading…</span></h2><p id="prs-status" class="visually-hidden" aria-live="polite" aria-atomic="true"></p><div id="prs-content">Loading…</div></section>
   <section id="alerts"><h2>Alerts firing <span class="age" id="alerts-age">Loading…</span></h2><p id="alerts-status" class="visually-hidden" aria-live="polite" aria-atomic="true"></p><div id="alerts-content">Loading…</div></section>
   <section id="comms"><h2>Fleet Comms <span class="age" id="comms-age">Loading…</span></h2><p id="comms-status" class="visually-hidden" aria-live="polite" aria-atomic="true"></p><div id="comms-content">Loading…</div></section>
@@ -639,10 +640,46 @@ function renderChips(latest) {
   return out.join("");
 }
 
+function renderMilestones(data) {
+  if (data.status === "pending") return '<p class="muted">Loading milestones from GitHub…</p>';
+  const repos = Array.isArray(data.repositories) ? data.repositories : [];
+  const age = value => Number.isFinite(value) ? `${Math.ceil(value)}s` : "unknown";
+  const expanded = new Set([...document.querySelectorAll("#milestones details[open]")].map(item => item.dataset.milestone));
+  const out = [`<p class="${data.stale ? "warn" : "muted"}">${data.stale ? "Stale. " : ""}GitHub data age ${age(data.age_seconds)}. ${escapeHtml(data.freshness)} Private repositories show counts only.</p>`];
+  for (const repo of repos) {
+    out.push(`<h3>${escapeHtml(repo.repository)} · data age ${age(repo.age_seconds)}</h3>`);
+    if (repo.status !== "ok") out.push(`<p class="warn">${escapeHtml(repo.reason || "Milestone data unknown")}</p>`);
+    const milestones = Array.isArray(repo.milestones) ? repo.milestones : [];
+    if (!milestones.length && repo.status === "ok") out.push('<p class="muted">No open milestones.</p>');
+    for (const [index, item] of milestones.entries()) {
+      const name = repo.private ? "Private milestone" : escapeHtml(item.title);
+      const percent = Number.isFinite(item.percent_complete) ? `${item.percent_complete}%` : "unknown";
+      const counts = `${item.open_issues ?? "?"} open · ${item.closed_issues ?? "?"} closed · ${percent} complete`;
+      const key = `${repo.repository}:${item.number ?? index}`;
+      out.push(`<details data-milestone="${escapeHtml(key)}"${expanded.has(key) ? " open" : ""}><summary>${name} · ${escapeHtml(counts)}</summary>`);
+      if (Number.isFinite(item.percent_complete)) out.push(`<progress max="100" value="${item.percent_complete}" aria-label="${name} completion">${percent}</progress>`);
+      if (!repo.private) {
+        out.push(`<p>${escapeHtml(item.description_first_line || "")}</p><p class="muted">Due ${escapeHtml(item.due_on ? item.due_on.slice(0, 10) : "not set")}</p>`);
+        if (item.issues_status !== "ok") out.push('<p class="warn">Open issue list is incomplete or unavailable.</p>');
+        else if (!item.issues.length) out.push('<p class="muted">No open issues.</p>');
+        if (item.issues.length) out.push('<table><thead><tr><th scope="col">Issue</th><th scope="col">Labels</th></tr></thead><tbody>');
+        for (const issue of item.issues) {
+          out.push(`<tr><td><a href="${escapeHtml(issue.url)}">#${issue.number} ${escapeHtml(issue.title)}</a></td><td>${issue.labels.map(escapeHtml).join(", ")}</td></tr>`);
+        }
+        if (item.issues.length) out.push('</tbody></table>');
+      }
+      out.push('</details>');
+    }
+  }
+  if (!repos.length) out.push('<p class="warn">Fleet milestone data is unavailable.</p>');
+  return out.join("");
+}
+
 // ---- Panels ----
 
 const OPTIONAL = new Set(["/api/git/pull-requests", "/api/state/routing-budget", "/api/runtime/logins"]);
 const PANELS = [
+  {id: "milestones", label: "Milestones", urls: ["/api/milestones"], render: renderMilestones, retry: data => data.status === "pending"},
   {id: "workers", label: "Agent fleet", urls: ["/api/delegate/active"], render: renderWorkers},
   {id: "recent", label: "Recently finished", urls: ["/api/delegate/recent"], render: renderRecent},
   {id: "usage", label: "Subscriptions", urls: ["/api/runtime/subscriptions", "/api/state/routing-budget", "/api/runtime/logins"], render: renderUsage,
