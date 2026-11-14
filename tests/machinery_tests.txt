@@ -630,6 +630,7 @@ tests/test_merged_delivery.py
 tests/test_record_cf_verdict.py
 tests/test_repo_root.py
 tests/test_session_supervisor.py
+tests/test_agent_github_identity.py
 tests/test_sibling_git_https.py
 tests/test_worktree_claims_lock_identity.py
 tests/tools/test_detach_session_task.py
@@ -898,7 +899,6 @@ tests/review/test_model_catalog.py
 tests/rules_core_view.py
 tests/sparse_trees.py
 tests/storage/__init__.py
-tests/test_agent_github_identity.py
 tests/test_sibling_git.py
 tests/trails/__init__.py
 tests/trails/fixtures/certification/executable.trail.yaml
