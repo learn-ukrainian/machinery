@@ -392,14 +392,15 @@ def worktree_lock(repo: Path, *, timeout: float | None = None):
 
 def create_worktree(repo: Path, path: Path, branch: str, sha: str, *, full_checkout=False, sparse_include=(),
                     exact=False, registration: dict | None = None, creator_actor: str | None = None,
-                    on_created=None) -> None:
+                    on_reserved=None) -> None:
     """Create a task worktree; ``registration`` (see register_worktree) also keeps its registry entry true.
 
     The entry is written before the tree exists and confirmed after, all under the worktree lock that
     settlement removes (and archives) under, so a later dispatch to the same path cannot interleave.
-    ``on_created()`` runs under the same locks as soon as ``git worktree add`` has made the tree, before its
-    checkout and dependency provisioning: git refuses an existing non-empty path or branch, so this call
-    made the tree, and the task record can name it before any later step can die.
+    With ``on_reserved``, the path is first reserved under the same locks with an exclusive ``mkdir`` (it
+    fails if anything is there, so the path is this call's), then ``on_reserved()`` runs while that empty
+    directory exists, and only then does ``git worktree add`` fill it: the task record names the tree
+    before any step that creates it can die. A failure removes the reservation while it is still empty.
     """
     excluded = sparse_excludes(sparse_include)
     # A published start is checked out as that exact object, not a shared replacement.
@@ -416,11 +417,14 @@ def create_worktree(repo: Path, path: Path, branch: str, sha: str, *, full_check
     ):
         if registration:
             register_worktree(path=path, branch=branch, sha=sha, **registration)
+        reserved = False
         try:
             run_git(repo, "config", "--local", "extensions.worktreeConfig", "true")
+            if on_reserved is not None:
+                path.mkdir()
+                reserved = True
+                on_reserved()
             run_git(repo, "worktree", "add", "--no-checkout", "--no-track", "-b", branch, str(path), sha)
-            if on_created is not None:
-                on_created()
             if full_checkout:
                 run_git(path, "sparse-checkout", "disable")
             else:
@@ -438,6 +442,9 @@ def create_worktree(repo: Path, path: Path, branch: str, sha: str, *, full_check
                 confirm_worktree(registration["registry"], path)
                 _install_refresh_hooks(path, registration["registry"])
         except BaseException as exc:
+            if reserved:
+                with suppress(OSError):
+                    path.rmdir()  # only an empty reservation: git's partial output, if any, stays for inspection
             if registration:
                 # Reconciling the registry is cleanup. Its own error must not replace the creation error.
                 try:
@@ -1412,6 +1419,10 @@ def settle_worktree(record: dict, borrowed=lambda: False, salvage: bool = False)
         return disposition("retained", "borrowed_worktree")
     try:
         repo, tree, branch = resolve_repo(record.get("repo"))[0], Path(record["worktree_path"]), record["worktree_branch"]
+        if not (tree / ".git").is_file():
+            # Not a linked worktree, e.g. a reservation whose dispatcher died in git worktree add: Git run there
+            # would read the enclosing checkout, so nothing is inspected or removed.
+            return disposition("retained", "unknown", "not a linked worktree")
         changed, untracked = _tree_changes(tree)
         head, remote, merged = _git(tree, "rev-parse", "HEAD", isolate=True), None, False
         seen_head.append(head)
