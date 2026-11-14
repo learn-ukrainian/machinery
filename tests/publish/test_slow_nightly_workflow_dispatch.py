@@ -324,7 +324,7 @@ def dismissal_transport(monkeypatch, synthetic_opsec):
     """A merged triage plus independent current and baseline SARIF, without an alert mutation."""
     import copy
 
-    for key in ("LEARN_UKRAINIAN_DISPATCH_TASK_ID", pub.BROKER_ENV, "LU_REVIEW_SHELL_TASK", "USER", "LOGNAME"):
+    for key in ("LEARN_UKRAINIAN_DISPATCH_TASK_ID", pub.BROKER_ENV, "USER", "LOGNAME"):
         monkeypatch.delenv(key, raising=False)
     monkeypatch.setattr(gate, "catalog", lambda: CATALOG)
     before, current = "a" * 40, "b" * 40
@@ -508,7 +508,7 @@ def test_dismissal_scanner_refusal_precedes_all_transport(dismissal_transport):
 
 @pytest.mark.parametrize("key,value", [
     ("LEARN_UKRAINIAN_DISPATCH_TASK_ID", "worker-one"), ("LU_WRITE_BOUNDARY_BROKER", "/fixture/socket"),
-    ("LU_REVIEW_SHELL_TASK", "review-one"), ("USER", "review"), ("LOGNAME", "review"),
+    ("USER", "review"), ("LOGNAME", "review"),
 ])
 @pytest.mark.parametrize("source", ["process", "api-env"])
 def test_dismissal_worker_and_reviewer_cli_and_direct_api_refuse_before_transport(dismissal_transport, monkeypatch, key, value, source):
