@@ -265,16 +265,24 @@ MCP stdio command (`write_boundary.sources_command()`) is a constant: the dispat
 and those two paths. That directory is a mount point, so a worker cannot rename it away and put its own
 proxy or socket in its place; when the interpreter's installation lies under HOME, it is bound read-only
 too. The canary checks both before the provider starts. Claude names it in its explicit
-`--mcp-config` with `--strict-mcp-config`; no product or worktree `.mcp.json` is read. The tools that
-persist fetched entries stay refused by the relay. The receipt's `sources` holds the relay's call
-counts, or why it was unavailable. Sources is optional: without the relay the server fails to start and
-the run goes on.
+`--mcp-config` with `--strict-mcp-config`; no product or worktree `.mcp.json` is read. Codex runs on a
+task-local `CODEX_HOME` the launcher projects into the run's private scratch, beside its TMPDIR (Codex
+creates no helper `PATH` aliases below its temporary directory), and removes with it. It holds a
+`config.toml` with only that server and its startup policy, plus a link to the selected account's `auth.json`, so no layer of the
+real Codex configuration reaches the run. The checkout's untrusted `.codex/` layer is disabled too.
+Dispatched Codex therefore omits their hooks, agents settings and context-window overrides, as well as
+MCP servers, connectors and loopback Sources URLs. Codex uses its model defaults. `mcp_optional_startup_grace_ms = 0` waits for the optional server to
+finish startup or reach its existing timeout before the first model turn. The default one-second grace
+can omit the still-starting relay's tools from that turn. Sources stays optional if startup fails. Its argv enables only the Sources readers and passes `--disable apps` in both modes. The tools that persist
+fetched entries stay refused by the relay. The receipt's `sources` holds the relay's call counts, or why
+it was unavailable, and `codex_home` the config digest and whether the login was linked. Sources is
+optional: without the relay the server fails to start and the run goes on.
 
 ## Known limits
 
 - The Monitor API is a host loopback service and stays unreachable. `closeout_cli resolve-reviewer`
   inside falls back to its no-snapshot route, and the host dispatcher's own admission checks the pick.
-- Only native Claude names the Sources stdio command so far. Another provider whose `sources` server
+- Only native Claude and Codex name the Sources stdio command. Another provider whose `sources` server
   points at the loopback address cannot reach it inside.
 - Markers posted with the shared GitHub login remain forgeable by a session outside a write boundary
   (an interactive session) that holds the login. Inside, the worker has neither the login nor a route

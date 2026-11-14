@@ -8,6 +8,7 @@ import sys
 from dataclasses import replace
 from pathlib import Path
 import pytest
+from lu_machinery.agent_runtime.adapters.codex import _sources_read_only_flags
 from lu_machinery.agent_runtime.sources_read_only import sources_tool_sets
 from lu_machinery.dispatcher import agy_sandbox, runtime_context, write_boundary
 from lu_machinery.dispatcher.providers import PROVIDERS, load
@@ -280,7 +281,8 @@ def test_cli_prompt_or_mode_regression(tmp_path, monkeypatch, provider, mode, ef
     if provider == "codex":
         if effort:
             expected += ["-c", "model_reasoning_effort=high"]
-        expected += ["--dangerously-bypass-approvals-and-sandbox"]
+        expected += ["--disable", "apps", *_sources_read_only_flags(sources_tool_sets()[0]),
+                     "--dangerously-bypass-approvals-and-sandbox"]
     elif provider == "claude":
         if effort:
             expected += ["--effort", "high"]

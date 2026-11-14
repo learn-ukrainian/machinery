@@ -9,8 +9,10 @@ import time
 import unicodedata
 from collections.abc import Mapping
 
+from lu_machinery.agent_runtime.adapters.codex import _sources_read_only_flags
 from lu_machinery.agent_runtime.adapters.codex_events import classify_provider_message
 from lu_machinery.agent_runtime.attempt_safe_read import safe_read_attempt_file
+from lu_machinery.agent_runtime.sources_read_only import sources_tool_sets
 from lu_machinery.common.jsonl import jsonl_lines
 from lu_machinery.dispatcher.providers.stream_json import SOURCES_SERVER
 from lu_machinery.dispatcher.types import Invocation, ParsedResult, TaskSpec
@@ -185,6 +187,9 @@ def build(spec: TaskSpec, env: dict[str, str]) -> Invocation:
         argv += ["--output-schema", schema_path]
     if spec.effort is not None:
         argv += ["-c", f"model_reasoning_effort={spec.effort}"]
+    # Hosted connectors run on the provider's side, out of the egress proxy's sight (#7181). Sources is the
+    # write boundary's relay, defined in the task-local CODEX_HOME it projects; its readers only are enabled.
+    argv += ["--disable", "apps", *_sources_read_only_flags(sources_tool_sets()[0])]
     if spec.mode in {"read-only", "workspace-write"}:
         # supervise always supplies the OS boundary. Read-only worktree/Git mounts hold the review
         # policy; Codex's nested bubblewrap sandbox cannot start under --disable-userns.
