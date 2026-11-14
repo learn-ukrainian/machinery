@@ -639,3 +639,195 @@ def test_dismissal_current_triage_requires_the_exact_branch_commit_reference(dis
     assert writes == []
     assert any("repos/unit/public/git/ref/heads/main" in argv for argv in calls)
     assert not any(any("commits/main" in item for item in argv) for argv in calls)
+
+
+QUEUE_REF = "refs/heads/gh-readonly-queue/main/pr-7-" + "d" * 40
+LAST_OF_SET = "Analysis is last of its type and deletion may cause alert deletion. To delete this analysis, set the confirm_delete parameter to true."
+
+
+@pytest.fixture
+def delete_transport(monkeypatch, synthetic_opsec):
+    """A fake GitHub answering the delete verbs' reads; every DELETE is logged before it is answered."""
+    monkeypatch.setattr(gate, "catalog", lambda: CATALOG)
+    root = "repos/unit/public/"
+    documents = {
+        "code-scanning/analyses/41": {
+            "id": 41, "ref": QUEUE_REF, "deletable": True, "category": "/language:python", "tool": {"name": "CodeQL"},
+        },
+        "": {"full_name": "unit/public", "default_branch": "main"},
+        "branches/salvage/old-attempt": {"name": "salvage/old-attempt", "protected": False, "commit": {"sha": "e" * 40}},
+        "branches/main": {"name": "main", "protected": True, "commit": {"sha": "f" * 40}},
+        "rules/branches/salvage/old-attempt?per_page=100": [[]],
+        "pulls?state=open&per_page=100": [[
+            {"number": 3, "head": {"ref": "claude/other", "repo": {"full_name": "unit/public"}}, "base": {"ref": "main"}},
+            {"number": 4, "head": {"ref": "salvage/old-attempt", "repo": {"full_name": "fork/public"}}, "base": {"ref": "main"}},
+        ]],
+    }
+    deletes = []
+    options = {"delete_answers": [], "deleted": set()}
+
+    def reply(argv, code, document=None, status=200):
+        answer = subprocess.CompletedProcess(argv, code, "" if document is None else json.dumps(document), "")
+        answer.github_result = github_client.Result(value=document, status=status)
+        return answer
+
+    def sender(argv, **kwargs):
+        method = argv[argv.index("--method") + 1]
+        endpoint = argv[argv.index("--method") + 2]
+        assert endpoint.startswith(root.rstrip("/"))
+        suffix = endpoint.removeprefix(root.rstrip("/")).removeprefix("/")
+        if method == "DELETE":
+            deletes.append(suffix)
+            answer = options["delete_answers"].pop(0) if options["delete_answers"] else (200, {})
+            if isinstance(answer, Exception):
+                raise answer
+            code_status, document = answer
+            if code_status >= 400:
+                return reply(argv, 1, document, code_status)
+            options["deleted"].add(suffix.split("?")[0].replace("git/refs/", "git/ref/"))
+            return reply(argv, 0, document, code_status)
+        assert method == "GET"
+        if suffix in options["deleted"] or suffix.startswith("git/ref/") or suffix not in documents:
+            if suffix in options.get("present", ()):
+                return reply(argv, 0, {"ref": "refs/heads/x"})
+            return reply(argv, 1, {"message": "Not Found"}, 404)
+        return reply(argv, 0, documents[suffix])
+
+    return documents, deletes, options, sender
+
+
+def test_queue_ref_analysis_is_deleted_newest_first_without_following_next_urls(delete_transport):
+    """Defect class: a queue-ref analysis that is not last in its set is sent with confirm_delete, or the next URL is followed."""
+    _, deletes, options, sender = delete_transport
+    options["delete_answers"] = [(200, {
+        "next_analysis_url": "https://api.github.com/repos/unit/public/code-scanning/analyses/40",
+        "confirm_delete_url": "https://api.github.com/repos/unit/public/code-scanning/analyses/40?confirm_delete",
+    })]
+    answer = pub.publish("code-scanning-analysis-delete", repo="unit/public", analysis_id=41, runner=sender, capture_output=True, text=True)
+    assert answer.returncode == 0, answer.stderr
+    assert deletes == ["code-scanning/analyses/41"]
+    assert json.loads(answer.stdout) == {
+        "repo": "unit/public", "analysis_id": 41, "ref": QUEUE_REF, "category": "/language:python",
+        "tool": "CodeQL", "confirm_delete": False, "deleted": True,
+    }
+
+
+def test_last_queue_ref_analysis_of_its_set_is_deleted_through_the_confirm_step(delete_transport, capsys):
+    """Defect class: GitHub's last-of-set 400 ends the cleanup, or confirms a different analysis."""
+    _, deletes, options, sender = delete_transport
+    options["delete_answers"] = [(400, {"message": LAST_OF_SET}), (200, {"next_analysis_url": None, "confirm_delete_url": None})]
+    assert pub.main(["code-scanning-analysis-delete", "--repo", "unit/public", "--analysis-id", "41"], runner=sender) == 0
+    assert deletes == ["code-scanning/analyses/41", "code-scanning/analyses/41?confirm_delete"]
+    assert json.loads(capsys.readouterr().out)["confirm_delete"] is True
+
+
+@pytest.mark.parametrize("ref", [
+    "refs/heads/main", "refs/pull/7/merge", "refs/pull/7/head", "refs/heads/gh-readonly-queue/main/pr-7",
+    "refs/heads/gh-readonly-queue/release/pr-7-" + "d" * 40, QUEUE_REF + "x", "refs/heads/feature",
+])
+def test_analysis_on_main_pull_or_other_ref_is_refused_before_any_delete(delete_transport, ref):
+    """Defect class: an analysis of main or a pull request ref reaches DELETE."""
+    documents, deletes, _, sender = delete_transport
+    documents["code-scanning/analyses/41"]["ref"] = ref
+    with pytest.raises(gate.PublishBlocked, match="ANALYSIS_DELETE_REFUSED"):
+        pub.publish("code-scanning-analysis-delete", repo="unit/public", analysis_id=41, runner=sender)
+    assert deletes == []
+
+
+@pytest.mark.parametrize("fault", ["older", "live-ref", "identity", "missing"])
+def test_older_live_or_unreadable_queue_analysis_is_refused_before_any_delete(delete_transport, fault):
+    """Defect class: an older analysis of its set, a live queue ref's analysis or unreadable evidence reaches DELETE."""
+    documents, deletes, options, sender = delete_transport
+    if fault == "older":
+        documents["code-scanning/analyses/41"]["deletable"] = False
+    elif fault == "live-ref":
+        options["present"] = {"git/ref/heads/" + QUEUE_REF.removeprefix("refs/heads/")}
+    elif fault == "identity":
+        documents["code-scanning/analyses/41"]["id"] = 40
+    else:
+        del documents["code-scanning/analyses/41"]
+    with pytest.raises(gate.PublishBlocked, match="ANALYSIS_DELETE_REFUSED"):
+        pub.publish("code-scanning-analysis-delete", repo="unit/public", analysis_id=41, runner=sender)
+    assert deletes == []
+
+
+@pytest.mark.parametrize("fault,code", [("not-deletable", 1), ("transport", 3), ("server", 3), ("readback", 3)])
+def test_analysis_delete_refusal_or_ambiguous_answer_is_never_retried(delete_transport, fault, code):
+    """Defect class: a non-confirm 400 is retried with confirm_delete, or an ambiguous delete reports success."""
+    _, deletes, options, sender = delete_transport
+    options["delete_answers"] = [{
+        "not-deletable": (400, {"message": "Analysis specified is not deletable."}),
+        "transport": TimeoutError("private transport detail"),
+        "server": (502, {"message": "Bad Gateway"}),
+        "readback": (200, {}),
+    }[fault]]
+    if fault == "readback":
+        options["present"] = {"code-scanning/analyses/41"}
+    answer = pub.publish("code-scanning-analysis-delete", repo="unit/public", analysis_id=41, runner=sender, capture_output=True, text=True)
+    assert answer.returncode == code
+    assert deletes == ["code-scanning/analyses/41"]
+    assert "private transport detail" not in answer.stderr
+
+
+def test_exact_unused_branch_is_deleted(delete_transport):
+    """Defect class: the delete targets another ref than the exact name, or a fork PR head blocks a local branch."""
+    _, deletes, _, sender = delete_transport
+    answer = pub.publish("branch-delete", repo="unit/public", branch="salvage/old-attempt", runner=sender, capture_output=True, text=True)
+    assert answer.returncode == 0, answer.stderr
+    assert deletes == ["git/refs/heads/salvage/old-attempt"]
+    assert json.loads(answer.stdout) == {"repo": "unit/public", "branch": "salvage/old-attempt", "sha": "e" * 40, "deleted": True}
+
+
+@pytest.mark.parametrize("fault", ["default", "protected", "ruleset", "open-head", "open-base", "headless-fork", "absent", "renamed"])
+def test_default_protected_or_used_branch_is_refused_before_any_delete(delete_transport, fault):
+    """Defect class: a default, protected, ruleset-covered or open-PR branch reaches DELETE."""
+    documents, deletes, _, sender = delete_transport
+    branch = "salvage/old-attempt"
+    pulls = documents["pulls?state=open&per_page=100"][0]
+    if fault == "default":
+        branch = "main"
+    elif fault == "protected":
+        documents["branches/salvage/old-attempt"]["protected"] = True
+    elif fault == "ruleset":
+        documents["rules/branches/salvage/old-attempt?per_page=100"] = [[{"type": "deletion"}]]
+    elif fault == "open-head":
+        pulls.append({"number": 5, "head": {"ref": branch, "repo": {"full_name": "Unit/Public"}}, "base": {"ref": "main"}})
+    elif fault == "open-base":
+        pulls.append({"number": 5, "head": {"ref": "claude/x", "repo": {"full_name": "unit/public"}}, "base": {"ref": branch}})
+    elif fault == "headless-fork":
+        pulls.append({"number": 5, "head": {"ref": branch, "repo": None}, "base": {"ref": "main"}})
+    elif fault == "absent":
+        del documents["branches/salvage/old-attempt"]
+    else:
+        documents["branches/salvage/old-attempt"]["name"] = "Salvage/old-attempt"
+    with pytest.raises(gate.PublishBlocked, match="BRANCH_DELETE_REFUSED"):
+        pub.publish("branch-delete", repo="unit/public", branch=branch, runner=sender)
+    assert deletes == []
+
+
+def test_delete_verbs_require_an_explicit_repository_and_appear_in_help(delete_transport, capsys):
+    """Defect class: a delete verb falls back to GH_REPO or origin, or is missing from the publisher help."""
+    _, deletes, _, sender = delete_transport
+    assert pub.main(["branch-delete", "--branch", "salvage/old-attempt"], runner=sender) == 2
+    assert pub.main(["code-scanning-analysis-delete", "--analysis-id", "41"], runner=sender) == 2
+    assert deletes == []
+    with pytest.raises(SystemExit):
+        pub.main(["--help"])
+    listing = capsys.readouterr().out
+    assert "code-scanning-analysis-delete" in listing and "branch-delete" in listing
+    assert "branch-delete" not in pub.BROKER_FORWARDED and "code-scanning-analysis-delete" not in pub.BROKER_FORWARDED
+
+
+@pytest.mark.parametrize("verb,fields,before", [
+    ("code-scanning-analysis-delete", {"analysis_id": 41}, []),
+    ("code-scanning-analysis-delete", {"analysis_id": 41}, [(400, {"message": LAST_OF_SET})]),
+    ("branch-delete", {"branch": "salvage/old-attempt"}, []),
+])
+def test_rate_limited_delete_exits_75_without_another_delete(delete_transport, verb, fields, before):
+    """Defect class: a DELETE GitHub rejects for its rate limit is retried, or reported as deleted or UNKNOWN."""
+    _, deletes, options, sender = delete_transport
+    options["delete_answers"] = [*before, github_client.GitHubRateLimited(None, "secondary_hold")]
+    answer = pub.publish(verb, repo="unit/public", runner=sender, capture_output=True, text=True, **fields)
+    assert answer.returncode == 75
+    assert json.loads(answer.stdout)["error"] == "github_rate_limited"
+    assert len(deletes) == len(before) + 1

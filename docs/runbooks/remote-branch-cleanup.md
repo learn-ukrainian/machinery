@@ -66,6 +66,28 @@ escalate to codex-infra. Git SHA recoverability is temporary: unreachable object
 may be garbage-collected, and a SHA alone is not a permanent backup. This unit
 adds no retention system or recovery guarantee.
 
+## Delete one exact branch
+
+For an owner-approved deletion that the daily helper does not cover, use the
+closed publisher verb; raw `gh api` writes stay refused:
+
+```sh
+.venv/bin/python -m lu_machinery.publish branch-delete \
+  --repo OWNER/REPO --branch salvage/old-attempt
+```
+
+The name is used exactly: no pattern, no prefix, and no issue number is read
+from it. Before the DELETE the verb refuses the default branch, a branch GitHub
+reports as protected, a branch any ruleset rule applies to, and a branch that is
+the head (in this repository, or with unknown head repository) or the base of
+an open PR. Success is a read-back 404 and a JSON receipt with the deleted SHA
+for the restore step above. GitHub's reference DELETE takes no expected SHA, so
+a push or PR that arrives between those reads and the DELETE is an accepted
+residual race, as for the helper. Exit 3 means the DELETE may have landed and
+is unverified: read the branch before doing anything else. Exit 75 means a
+rate limit refused a request, locally or by GitHub at the DELETE; nothing was
+deleted, and a rerun after the reset repeats every check.
+
 ## Validate and land
 
 Author tests use deterministic API fixtures and owned disposable local Git

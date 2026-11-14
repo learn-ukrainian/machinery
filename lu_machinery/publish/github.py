@@ -66,6 +66,9 @@ SCHEMAS = {
         {"number", "reason", "comment"},
         {**COMMON, "number": "number", "reason": "dismissal_reason", "comment": "text"},
     ),
+    # Owner-approved cleanup deletions: one obsolete merge-queue analysis, or one exact unused branch.
+    "code-scanning-analysis-delete": ({"repo", "analysis_id"}, {**COMMON, "analysis_id": "number"}),
+    "branch-delete": ({"repo", "branch"}, {**COMMON, "branch": "ref"}),
     "pr-create": (
         {"title", "body", "base", "head"},
         {**COMMON, **TEXT, "base": "text", "head": "text", "draft": "bool"},
@@ -1899,6 +1902,178 @@ def _publish_code_scanning_dismiss(fields, *, gh_repo, dest, runner, cwd, enviro
     return subprocess.CompletedProcess(argv, 3, "" if text else b"", unknown if text else unknown.encode())  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit
 
 
+# The only analysis ref the delete verb accepts: a main merge-queue ref, which GitHub names
+# gh-readonly-queue/main/pr-<PR number>-<queued head SHA>. main and refs/pull/* never match.
+_QUEUE_ANALYSIS_REF = re.compile(r"refs/heads/gh-readonly-queue/main/pr-[1-9][0-9]*-[0-9a-f]{40}")
+
+
+def _absent(runner, endpoint, cwd, environment):
+    """True only when GitHub answers 404 for the resource; any other answer is not absence."""
+    result = runner(
+        ["gh", "api", "--method", "GET", endpoint], cwd=cwd, env=dict(environment),
+        capture_output=True, text=True, check=False, timeout=30,
+    )
+    status = getattr(getattr(result, "github_result", None), "status", None)
+    if result.returncode and type(status) is int and status == 404:
+        return True
+    if result.returncode:
+        raise ValueError("absence unverified")
+    return False
+
+
+def _delete_outcome(argv, result, *, what, readback, capture_output, text, receipt):
+    """Report one sent DELETE: verified receipt, GitHub's 4xx refusal, or UNKNOWN (exit 3)."""
+    unknown = f"UNKNOWN: the {what} deletion may have been applied and is unverified. Do not retry."
+    if result is not None and result.returncode:
+        status = getattr(getattr(result, "github_result", None), "status", None)
+        if type(status) is int and 400 <= status < 500:
+            refusal = f"GitHub refused the {what} deletion."
+            if not capture_output:
+                print(refusal, file=sys.stderr)
+            return subprocess.CompletedProcess(argv, result.returncode, "" if text else b"", refusal if text else refusal.encode())  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit
+    if result is not None and not result.returncode:
+        try:
+            if readback():
+                line = json.dumps(receipt, ensure_ascii=False, sort_keys=True)
+                if not capture_output:
+                    print(line)
+                return subprocess.CompletedProcess(argv, 0, line if text else line.encode(), "" if text else b"")  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit
+        except Exception:
+            pass  # A read failure after a write is UNKNOWN, including a rate limit.
+    print(unknown, file=sys.stderr)
+    return subprocess.CompletedProcess(argv, 3, "" if text else b"", unknown if text else unknown.encode())  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit
+
+
+def _send_delete(runner, argv, cwd, environment):
+    """Send one DELETE; a rate limit or publisher refusal propagates, any other fault is None.
+
+    A rate limit is either this client's refusal before sending or GitHub's 403/429 limit
+    answer; the client types both alike, and GitHub does not process a rate-limited request.
+    Either way nothing was deleted, so it stays exit 75 (as for the dismissal PATCH).
+    """
+    try:
+        return runner(argv, cwd=cwd, env=dict(environment), capture_output=True, text=True, check=False, timeout=30)
+    except (github_client.GitHubRateLimited, gate.PublishBlocked):
+        raise
+    except Exception:
+        return None
+
+
+def _publish_analysis_delete(fields, *, gh_repo, runner, cwd, environment, capture_output, text):
+    """Delete one code-scanning analysis of an obsolete main merge-queue ref, newest of its set first.
+
+    GitHub refuses the last analysis of a ref/tool/category set without ``confirm_delete``
+    (400). Only then is the same analysis deleted again with that parameter. The URLs a
+    successful delete returns name the NEXT analysis of the set; they are never followed.
+    """
+    aid = fields["analysis_id"]
+    endpoint = f"repos/{gh_repo}/code-scanning/analyses/{aid}"
+
+    def refuse(reason):
+        raise gate.PublishBlocked(f"ANALYSIS_DELETE_REFUSED: {reason}; nothing was sent.")
+
+    try:
+        analysis = _dismiss_get(runner, endpoint, cwd, environment)
+        ref = analysis["ref"]
+        if type(analysis["id"]) is not int or analysis["id"] != aid or not isinstance(ref, str):
+            raise ValueError("analysis identity")
+    except github_client.GitHubRateLimited:
+        raise
+    except Exception:
+        refuse("the analysis is unreadable")
+    if not _QUEUE_ANALYSIS_REF.fullmatch(ref):
+        refuse("its ref is not a refs/heads/gh-readonly-queue/main/pr-<n>-<sha> merge-queue ref")
+    if analysis.get("deletable") is not True:
+        refuse("it is not the newest analysis of its ref, tool and category; delete the newer ones first")
+    try:
+        obsolete = _absent(
+            runner, f"repos/{gh_repo}/git/ref/heads/{quote(ref.removeprefix('refs/heads/'), safe='/')}", cwd, environment,
+        )
+    except github_client.GitHubRateLimited:
+        raise
+    except Exception:
+        refuse("the queue ref's state is unreadable")
+    if not obsolete:
+        refuse("its merge-queue ref still exists")
+    argv = ["gh", "api", "--method", "DELETE", endpoint]
+    result = _send_delete(runner, argv, cwd, environment)
+    confirmed = False
+    status = getattr(getattr(result, "github_result", None), "status", None)
+    message = getattr(getattr(result, "github_result", None), "value", None)
+    message = message.get("message") if isinstance(message, dict) else None
+    if (
+        result is not None and result.returncode and type(status) is int and status == 400
+        and isinstance(message, str) and "confirm_delete" in message
+    ):
+        # GitHub reported the last analysis of its set; the 400 deleted nothing.
+        confirmed = True
+        argv = ["gh", "api", "--method", "DELETE", endpoint + "?confirm_delete"]
+        result = _send_delete(runner, argv, cwd, environment)
+    tool = analysis.get("tool")
+    receipt = {
+        "repo": gh_repo, "analysis_id": aid, "ref": ref, "category": analysis.get("category"),
+        "tool": tool.get("name") if isinstance(tool, dict) else None, "confirm_delete": confirmed, "deleted": True,
+    }
+    return _delete_outcome(
+        argv, result, what="analysis", readback=lambda: _absent(runner, endpoint, cwd, environment),
+        capture_output=capture_output, text=text, receipt=receipt,
+    )
+
+
+def _publish_branch_delete(fields, *, gh_repo, runner, cwd, environment, capture_output, text):
+    """Delete one exact branch that is not default, protected, ruleset-covered or used by an open PR."""
+    branch = fields["branch"]
+    name = quote(branch, safe="/")
+    root = f"repos/{gh_repo}"
+
+    def refuse(reason):
+        raise gate.PublishBlocked(f"BRANCH_DELETE_REFUSED: {reason}; nothing was sent.")
+
+    try:
+        repo = _dismiss_get(runner, root, cwd, environment)
+        default = repo["default_branch"]
+        if not isinstance(default, str) or not default or str(repo["full_name"]).lower() != gh_repo.lower():
+            raise ValueError("repository identity")
+    except github_client.GitHubRateLimited:
+        raise
+    except Exception:
+        refuse("the repository is unreadable")
+    if branch == default:
+        refuse("it is the default branch")
+    try:
+        info = _dismiss_get(runner, f"{root}/branches/{name}", cwd, environment)
+        sha, protected = info["commit"]["sha"], info["protected"]
+        if info["name"] != branch or type(protected) is not bool or not re.fullmatch(PATTERNS["sha"], sha):
+            raise ValueError("branch identity")
+        rules = _dismiss_get(runner, f"{root}/rules/branches/{name}?per_page=100", cwd, environment, pages=True)
+        pulls = _dismiss_get(runner, f"{root}/pulls?state=open&per_page=100", cwd, environment, pages=True)
+        users = []
+        for pull in pulls:
+            head, base = pull["head"], pull["base"]
+            head_repo = head.get("repo")
+            if (head["ref"] == branch and (
+                not isinstance(head_repo, dict) or str(head_repo.get("full_name")).lower() == gh_repo.lower()
+            )) or base["ref"] == branch:
+                users.append(pull["number"])
+    except github_client.GitHubRateLimited:
+        raise
+    except Exception:
+        refuse("the branch, its rules or the open pull requests are unreadable")
+    if protected or rules:
+        refuse("it is protected")
+    if users:
+        refuse("an open pull request uses it as head or base")
+    endpoint = f"{root}/git/refs/heads/{name}"
+    argv = ["gh", "api", "--method", "DELETE", endpoint]
+    result = _send_delete(runner, argv, cwd, environment)
+    return _delete_outcome(
+        argv, result, what="branch",
+        readback=lambda: _absent(runner, f"{root}/git/ref/heads/{name}", cwd, environment),
+        capture_output=capture_output, text=text,
+        receipt={"repo": gh_repo, "branch": branch, "sha": sha, "deleted": True},
+    )
+
+
 # Inside a dispatched write worker's boundary (#434) there is no GitHub credential or route: these verbs reach the
 # launcher's host broker instead, with the same fields (#443). The broker acts only on the launch's repository,
 # branch and PRs, and refuses a named target that is not the launch's own. Other verbs run as everywhere else.
@@ -2196,6 +2371,11 @@ def publish(
                 fields, gh_repo=gh_repo, dest=dest, runner=readiness_runner, cwd=cwd,
                 environment=environment, temp=temp, capture_output=capture_output, text=text,
             )
+        if verb in {"code-scanning-analysis-delete", "branch-delete"}:
+            return (_publish_analysis_delete if verb == "code-scanning-analysis-delete" else _publish_branch_delete)(
+                fields, gh_repo=gh_repo, runner=readiness_runner, cwd=cwd, environment=environment,
+                capture_output=capture_output, text=text,
+            )
         if verb == "ruleset-merge-queue":
             return _publish_ruleset_merge_queue(
                 fields,
@@ -2453,6 +2633,46 @@ def main(argv=None, *, runner=None):
                 "75 rate-limit refusal before a dismissal is processed, including at PATCH.\n"
                 "Related: docs/runbooks/secret-scanning.md; GitHub REST code-scanning alert update."
             )
+        if verb == "code-scanning-analysis-delete":
+            sub.description = (
+                "Delete one code-scanning analysis of an obsolete main merge-queue ref.\n"
+                "Any other ref, including refs/heads/main and refs/pull/*, is refused before a DELETE is sent."
+            )
+            sub.formatter_class = argparse.RawDescriptionHelpFormatter
+            sub.epilog = (
+                "Checks before the DELETE: the analysis is read; its ref must be\n"
+                "  refs/heads/gh-readonly-queue/main/pr-<n>-<sha>, that ref must no longer exist, and GitHub must\n"
+                "  mark the analysis deletable (the newest of its ref/tool/category set; delete newest first).\n"
+                "If GitHub answers that it is the last analysis of its set (400), the same analysis is deleted\n"
+                "  again with ?confirm_delete. The next-analysis URLs GitHub returns are never followed.\n"
+                "Example:\n"
+                f"  .venv/bin/python -m {_PUBLISHER} code-scanning-analysis-delete --repo unit/public --analysis-id 41\n"
+                "Outputs: JSON {repo, analysis_id, ref, tool, category, confirm_delete, deleted} after a read-back 404.\n"
+                "Exit codes: 0 deleted and verified; 1 GitHub refused the deletion (nothing deleted); 2 invalid input\n"
+                "  or a refusal before any DELETE; 3 UNKNOWN after an ambiguous DELETE or read-back, do not retry;\n"
+                "  75 a rate limit refused a request, locally or by GitHub at the DELETE; nothing was deleted,\n"
+                "  and a rerun after the reset repeats every check.\n"
+                "Related: docs/runbooks/secret-scanning.md; GitHub REST delete a code scanning analysis."
+            )
+        if verb == "branch-delete":
+            sub.description = (
+                "Delete one exact remote branch that nothing uses.\n"
+                "The default branch, a protected or ruleset-covered branch, and a branch that is the head or base\n"
+                "of an open pull request are refused before a DELETE is sent."
+            )
+            sub.formatter_class = argparse.RawDescriptionHelpFormatter
+            sub.epilog = (
+                "The name is used exactly as given: no pattern, no prefix, no issue number derived from it.\n"
+                "Example:\n"
+                f"  .venv/bin/python -m {_PUBLISHER} branch-delete --repo unit/public --branch salvage/old-attempt\n"
+                "Outputs: JSON {repo, branch, sha, deleted} after a read-back 404; restore with\n"
+                "  git push origin <sha>:refs/heads/<branch>.\n"
+                "Exit codes: 0 deleted and verified; 1 GitHub refused the deletion (nothing deleted); 2 invalid input\n"
+                "  or a refusal before any DELETE; 3 UNKNOWN after an ambiguous DELETE or read-back, do not retry;\n"
+                "  75 a rate limit refused a request, locally or by GitHub at the DELETE; nothing was deleted,\n"
+                "  and a rerun after the reset repeats every check.\n"
+                "Related: docs/runbooks/remote-branch-cleanup.md; GitHub REST delete a reference."
+            )
         if verb == "comment-edit":
             sub.description = (
                 "Edit an existing issue or PR conversation comment through the common scanner.\n"
@@ -2622,6 +2842,13 @@ def main(argv=None, *, runner=None):
                     "number": "Required positive alert number, e.g. 1; no default",
                     "reason": "Required reviewed dismissal reason; separate from issue-close reasons",
                     "comment": "Required explanation identifying Alert #N and linking one same-repository merged PR; scanned verbatim",
+                }[key]
+            if verb in {"code-scanning-analysis-delete", "branch-delete"}:
+                kwargs["action"] = StoreOnce
+                kwargs["help"] = {
+                    "repo": "Required repository owner/name, e.g. unit/public; no GH_REPO or origin default",
+                    "analysis_id": "Required positive code-scanning analysis ID, e.g. 41; no default",
+                    "branch": "Required exact branch name without refs/heads/, e.g. salvage/old-attempt; no default",
                 }[key]
             if verb in {"run-rerun", "run-cancel"}:
                 kwargs["help"] = {

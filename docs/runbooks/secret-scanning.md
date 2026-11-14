@@ -341,6 +341,30 @@ to manufacture matching evidence. Any analysis cleanup needs separate authority
 and a fresh instance inventory before the interactive seat retries dismissal.
 Dismissal checks are unchanged, and stopping the workflow does not delete existing analyses.
 
+### Deleting one obsolete queue-ref analysis
+
+With that authority, delete each analysis through the closed publisher verb;
+raw `gh api` writes stay refused:
+
+```sh
+.venv/bin/python -m lu_machinery.publish code-scanning-analysis-delete \
+  --repo OWNER/REPO --analysis-id 41
+```
+
+The verb reads the analysis first. Its ref must be
+`refs/heads/gh-readonly-queue/main/pr-<n>-<sha>`, and that queue ref must no
+longer exist; `refs/heads/main`, `refs/pull/*` and every other ref are refused
+before any DELETE. GitHub must mark the analysis `deletable`, which it does only
+for the newest of its ref/tool/category set, so work newest first within a set.
+When GitHub answers that the analysis is the last of its set (400), the verb
+deletes the same analysis again with `?confirm_delete`. The
+`next_analysis_url` and `confirm_delete_url` in a successful answer name the
+next analysis of the set, which this verb has not checked, so it never follows
+them. Success is a read-back 404 and a JSON receipt. Exit 3 means the DELETE
+may have landed and is unverified: read the analysis before doing anything else.
+Exit 75 means a rate limit refused a request, locally or by GitHub at the
+DELETE; nothing was deleted, and a rerun after the reset repeats every check.
+
 The runtime changes also have product copies at
 `scripts/api/discussions_router.py`, `scripts/ai_agent_bridge/openai_proxy.py`,
 `scripts/orchestration/task_record_store.py`, and
