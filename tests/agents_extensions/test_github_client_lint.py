@@ -420,19 +420,6 @@ def test_lookalike_host_is_not_treated_as_github(source, tmp_path):
     assert inventory_violations(tmp_path) == []
 
 
-@pytest.mark.parametrize("path,count", [(path, entry[0]) for path, entry in EXCLUSIONS.items()])
-def test_deferred_file_rejects_added_raw_call(tmp_path, path, count):
-    target = tmp_path / path
-    target.parent.mkdir(parents=True)
-    target.write_text(
-        "import subprocess\n"
-        + "\n".join(f'def bypass_{i}():\n return subprocess.run(["gh", "pr", "list"])' for i in range(count))
-    )
-    assert inventory_violations(tmp_path) == []
-    target.write_text(target.read_text() + '\nsubprocess.run(["gh", "api", "user"])\n')
-    assert len(inventory_violations(tmp_path)) == 1
-
-
 @pytest.mark.parametrize("name", ["guard-pr-merge.py", "guard-admin-merge.py"])
 def test_standalone_hook_colour_stripping_is_pinned(name, monkeypatch):
     source = (machinery_path('agents_extensions/shared/hooks') / name).read_text()

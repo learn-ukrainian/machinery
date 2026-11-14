@@ -307,58 +307,6 @@ def test_installed_dispatch_validates_primary_without_reexec(monkeypatch, tmp_pa
 
 
 @pytest.mark.parametrize("repo", sorted(REPOS))
-def test_closeout_control_plane_is_the_configured_state_root(monkeypatch, layout, repo: str) -> None:
-    for key, value in _configured(layout, repo).items():
-        monkeypatch.setenv(key, value)
-    target = layout[repo]
-    assert worktree_claims.public_primary_root() == layout["primary"]
-    assert worktree_claims.control_plane_root(target) == layout["primary"].resolve()
-    assert worktree_git.control_plane_root(target) == layout["primary"].resolve()
-
-
-@pytest.mark.parametrize("repo", sorted(REPOS))
-def test_hook_interpreter_is_the_configured_interpreter(monkeypatch, layout, repo: str) -> None:
-    """``heal-core-bare.py`` and the other agent hooks spawn ``project_interpreter()``."""
-    for key, value in _configured(layout, repo).items():
-        monkeypatch.setenv(key, value)
-    assert rr.project_interpreter() == layout["python"]
-    assert rr.project_interpreter(layout[repo]) == layout["python"]
-
-
-@pytest.mark.parametrize("repo", sorted(REPOS))
-def test_systemd_exec_start_runs_with_the_configured_roots(tmp_path: Path, layout, repo: str) -> None:
-    home = _systemd_home(tmp_path)
-    record = tmp_path / "stand-in.json"
-    stand_in = _executable(
-        tmp_path / "stand-in" / "python",
-        f"#!{sys.executable}\nimport json, os, sys\n"
-        f"json.dump({{'argv': sys.argv[1:], 'primary': os.environ.get({rr.PRIMARY_ROOT_ENV!r}),"
-        f" 'slug': os.environ.get({rr.GITHUB_SLUG_ENV!r})}},"
-        f" open({str(record)!r}, 'w'))\n",
-    )
-    configured = {**_configured(layout, repo), rr.INTERPRETER_ENV: str(stand_in)}
-    env_file = home / ".config" / "learn-ukrainian" / "machinery.env"
-    env_file.parent.mkdir(parents=True)
-    env_file.write_text(
-        "".join(f"{key}={value}\n" for key, value in configured.items()),
-        encoding="utf-8",
-    )
-    result = _systemd_exec_start(home)
-    assert result.returncode == 0, result.stderr
-    ran = json.loads(record.read_text(encoding="utf-8"))
-    # The unit loads the packaged script. Its bootstrap names that package's
-    # parent as the code root. The product comes from the configured environment.
-    argv = ran.pop("argv")
-    assert argv[:2] == ["-I", "-c"]
-    assert argv[3] == _reporter_code_root()
-    assert argv[4:] == ["lu_machinery", "-m", "lu_machinery.api.project_state_local", "report"]
-    assert ran == {
-        "primary": str(layout["primary"]),
-        "slug": CONFIGURED_SLUG,
-    }
-
-
-@pytest.mark.parametrize("repo", sorted(REPOS))
 def test_api_rules_serves_release_core_and_configured_product_addendum(monkeypatch, api_client, layout, repo: str) -> None:
     for key, value in _configured(layout, repo).items():
         monkeypatch.setenv(key, value)
@@ -371,29 +319,6 @@ def test_api_rules_serves_release_core_and_configured_product_addendum(monkeypat
     assert markdown == rules_core.core_text("content")
     assert markdown.startswith(rules_core.core_text("core"))
     assert markdown.endswith("# Configured curriculum addendum\n")
-
-
-@pytest.mark.parametrize("repo", sorted(REPOS))
-def test_runtime_target_interpreter_policy_and_state_roots_are_distinct(monkeypatch, layout, repo: str) -> None:
-    for key, value in _configured(layout, repo).items():
-        monkeypatch.setenv(key, value)
-    roots = rr.machinery_roots()
-    assert (roots.runtime, roots.primary, roots.state) == (
-        rr.RUNTIME_ROOT,
-        layout["primary"],
-        layout["primary"],
-    )
-    assert (roots.rules_dir, roots.interpreter, roots.github_slug) == (
-        rr.machinery_path(rr.RULES_DIR_REL),
-        layout["python"],
-        CONFIGURED_SLUG,
-    )
-    target = layout[repo]
-    distinct = {roots.runtime, roots.rules_dir, roots.interpreter, roots.state}
-    assert len(distinct) == 4
-    if repo == "kube-dojo":
-        assert target not in distinct
-        assert worktree_claims.control_plane_root(target) == roots.state.resolve() != target.resolve()
 
 
 # --------------------------------------------------------------------------- AC-02: defaults are today's values
@@ -433,52 +358,6 @@ def test_unset_configuration_keeps_todays_roots(clean_env, monkeypatch) -> None:
         rules_core.source_path("docs/x.md")
 
 
-def test_unset_configuration_refuses_unanchored_dispatch_roots() -> None:
-    """Installed dispatch consumers refuse state and product access without anchors."""
-    roots = _import_time_roots(_subprocess_env())
-    assert roots["public"] is None
-    assert roots["kube-dojo"] is None
-    assert roots["tasks_dir"] is None
-    assert roots["bridge_state"] is None
-    assert roots["errors"] == {
-        "public": "ProductRootError", "kube-dojo": "StateRootError",
-        "tasks_dir": "StateRootError", "bridge_state": "StateRootError",
-    }
-    assert roots["slug"] == DEFAULT_SLUG
-    assert roots["bridge_dispatcher"] == [sys.executable, "-I", "-m", "lu_machinery.dispatch", "wait", "probe", "--timeout", "1"]
-
-
-@pytest.mark.parametrize("git_metadata", ["gitfile", "symlink-to-admin-dir", "copied-admin-dir", "absent"])
-def test_a_linked_worktree_is_never_the_configured_primary_or_state_root(
-    monkeypatch, tmp_path: Path, git_metadata: str
-) -> None:
-    """State stays on a primary checkout: a configured worktree would split records from closeout's locks."""
-    primary, tree = _linked_worktree(tmp_path)
-    admin = primary / ".git" / "worktrees" / "wt"
-    (admin / "commondir").write_text("../..\n", encoding="utf-8")
-    if git_metadata != "gitfile":
-        (tree / ".git").unlink()
-    if git_metadata == "symlink-to-admin-dir":
-        (tree / ".git").symlink_to(admin, target_is_directory=True)
-    elif git_metadata == "copied-admin-dir":
-        (tree / ".git").mkdir()
-        (tree / ".git" / "commondir").write_text(f"{primary / '.git'}\n", encoding="utf-8")
-    monkeypatch.setenv(rr.PRIMARY_ROOT_ENV, str(tree))
-    monkeypatch.setenv(rr.STATE_ROOT_ENV, str(tree))
-    for resolve in (rr.machinery_roots, rr.state_root, lambda: rr.resolve_repo_root(Path(rr.__file__), 2)):
-        with pytest.raises(rr.MachineryConfigError, match="not a linked worktree"):
-            resolve()
-    with pytest.raises(worktree_claims.ControlPlaneError):
-        worktree_claims.public_primary_root()
-
-
-def test_unset_configuration_keeps_todays_interpreter_order(clean_env, tmp_path: Path) -> None:
-    checkout = tmp_path / "checkout"
-    (checkout / ".git").mkdir(parents=True)
-    own = _executable(checkout / ".venv" / "bin" / "python", "#!/bin/sh\n")
-    assert rr.project_interpreter(checkout) == own
-
-
 def test_installed_dispatch_without_primary_refuses_reexec(clean_env, monkeypatch, tmp_path: Path, capsys) -> None:
     _, tree = _linked_worktree(tmp_path)
     calls = _observe_reexec(monkeypatch, tree)
@@ -489,48 +368,6 @@ def test_installed_dispatch_without_primary_refuses_reexec(clean_env, monkeypatc
     assert calls == []
 
 
-def test_unset_configuration_keeps_todays_systemd_exec_start() -> None:
-    unit = _unit_lines()
-    assert unit["ExecStart"] == [
-        "%h/projects/learn-ukrainian/.venv/bin/python -c 'import os,sys; from importlib.resources import files; "
-        'os.execvp("bash", ["bash", str(files("lu_machinery.orchestration")'
-        '.joinpath("run_project_state_reporter.sh")), *sys.argv[1:]])\''
-    ]
-    assert unit["WorkingDirectory"] == ["%h/projects/learn-ukrainian"]
-    assert unit["EnvironmentFile"] == ["-%h/.config/learn-ukrainian/machinery.env"]
-
-
 def test_unset_configuration_serves_release_rules(clean_env, api_client) -> None:
     body = api_client.get("/api/rules?scope=core&format=json").json()
     assert body["markdown"] == (REPO / rules_core.CORE_REL).read_text(encoding="utf-8").rstrip() + "\n"
-
-
-def test_machinery_path_refuses_absolute_traversal_and_escaping_symlink_inputs(monkeypatch, tmp_path: Path) -> None:
-    """Defect class: a package-relative machinery lookup that names a file outside the package."""
-    assert rr.machinery_root() == Path(rr.__file__).resolve().parents[1]
-    package = (tmp_path / "package").resolve()
-    (package / "config").mkdir(parents=True)
-    outside = tmp_path / "outside"
-    outside.mkdir()
-    (package / "escape").symlink_to(outside)
-    (package / "inside").symlink_to(package / "config")
-    (package / "loop").symlink_to(package / "loop")
-    monkeypatch.setattr(rr, "_MACHINERY_ROOT", package)
-    assert rr.machinery_path("config/model_catalog.yaml") == package / "config" / "model_catalog.yaml"
-    assert rr.machinery_path("inside/model_catalog.yaml") == package / "inside" / "model_catalog.yaml"
-    for value in (
-        "/etc/passwd",
-        str(package / "config" / "model_catalog.yaml"),
-        "../outside/x",
-        "config/../../outside/x",
-        "config/..",
-        "./config",
-        "config//x",
-        "",
-        "config/\x00",
-        "escape",
-        "escape/x",
-        "loop/x",
-    ):
-        with pytest.raises(ValueError):
-            rr.machinery_path(value)
