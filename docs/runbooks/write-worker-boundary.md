@@ -258,17 +258,25 @@ Texts arrive as JSON strings, and the host writes them to the run's private scra
   `commits`, `commit`, `comments`, `reviews`, `timeline`, `issue`, `checks`, `check-annotations`,
   `run`, `jobs`). It reads only the primary's own repository and never security alerts.
 
-Sources goes through the read-only AGY boundary's `SourcesRelay` (read-only tools only).
-`LU_WRITE_BOUNDARY_SOURCES` holds the MCP stdio command, as a JSON argv, that reaches it. The receipt's
-`sources` holds the relay's call counts, or why it was unavailable. Sources is optional; the boundary
-starts without it.
+Sources goes through the read-only AGY boundary's `SourcesRelay` (read-only tools only). The launcher
+binds its byte proxy and the relay socket at fixed paths, `/run/lu-write-boundary/sources-stdio.py` and
+`/run/lu-write-boundary/sources.sock`, so the MCP stdio command (`write_boundary.sources_command()`) is a
+constant: the dispatcher's interpreter with `-I` and those two paths. Claude names it in its explicit
+`--mcp-config` with `--strict-mcp-config`; no product or worktree `.mcp.json` is read. Codex runs on a
+task-local `CODEX_HOME` the launcher projects into the run's private TMPDIR (a read-only run's scratch
+lease). It holds a `config.toml` with only that server and a link to the selected account's `auth.json`,
+so no layer of the real Codex configuration (its MCP servers, connectors or a loopback Sources URL)
+reaches the run. Codex's argv enables only the Sources readers and passes `--disable apps` in both
+modes. The tools that persist fetched entries stay refused by the relay. The receipt's `sources` holds
+the relay's call counts, or why it was unavailable, and `codex_home` the config digest and whether the
+login was linked. Sources is optional: without the relay the server fails to start and the run goes on.
 
 ## Known limits
 
 - The Monitor API is a host loopback service and stays unreachable. `closeout_cli resolve-reviewer`
   inside falls back to its no-snapshot route, and the host dispatcher's own admission checks the pick.
-- Provider MCP configurations are not yet rewritten to the Sources stdio command. A provider whose
-  `sources` server points at the loopback address cannot reach it inside.
+- Only native Claude and Codex name the Sources stdio command. Another provider whose `sources` server
+  points at the loopback address cannot reach it inside.
 - Markers posted with the shared GitHub login remain forgeable by a session outside a write boundary
   (an interactive session) that holds the login. Inside, the worker has neither the login nor a route
   to GitHub, and `pr-merge` also checks the host-held review record.

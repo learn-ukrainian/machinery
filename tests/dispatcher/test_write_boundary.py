@@ -291,13 +291,24 @@ def test_no_github_write_authority_is_reachable_inside_any_route(primary, monkey
         credential.parent.mkdir(parents=True, exist_ok=True)
         credential.write_text("{}")
         extra = ["--credential", str(credential)]
+    # Codex runs on a task-local CODEX_HOME: the Sources server and the selected login, nothing of the real home.
+    home_check, refreshed = "", str(credential)
+    if route == "codex":
+        (home / ".codex/config.toml").write_text('[mcp_servers.foreign]\nurl = "http://127.0.0.1:8766/mcp"\n')
+        extra += ["--codex-auth", str(credential)]
+        home_check = (f' && test "$(readlink "$CODEX_HOME/auth.json")" = {credential}'
+                      ' && test "$(ls -A "$CODEX_HOME")" = "$(printf \'auth.json\\nconfig.toml\')"'
+                      ' && ! grep -q foreign "$CODEX_HOME/config.toml"'
+                      ' && grep -qF \'"/run/lu-write-boundary/sources-stdio.py", "/run/lu-write-boundary/sources.sock"]\''
+                      ' "$CODEX_HOME/config.toml" && test -r /run/lu-write-boundary/sources-stdio.py')
+        refreshed = '"$CODEX_HOME/auth.json"'  # a refresh through the link lands in the selected login
     probe, report = tmp_path / "probe.py", tmp_path / "cells.json"
     probe.write_text(_CREDENTIAL_PROBE)
     code = write_boundary.main([
         "--task-id", "wb-test", "--worktree", str(worktree), "--scratch", str(write_boundary.scratch("wb-test")),
         "--receipt", str(receipt), "--mode", mode, "--output", str(report), *extra, "--", "/bin/sh", "-c",
         f"python3 -I {probe} {_SENTINEL} '{json.dumps({k: str(v) for k, v in stores.items()})}' {report} "
-        f"'{json.dumps(_GITHUB_HOSTS)}'" + (f" && echo refreshed > {credential}" if credential else ""),
+        f"'{json.dumps(_GITHUB_HOSTS)}'" + home_check + (f" && echo refreshed > {refreshed}" if credential else ""),
     ])
     result = json.loads(receipt.read_text())
     assert code == 0 and result["status"] == "ran", result
@@ -310,6 +321,9 @@ def test_no_github_write_authority_is_reachable_inside_any_route(primary, monkey
     assert all(path.read_text() == f"oauth_token: {_SENTINEL}\n" for path in stores.values())
     if credential is not None:
         assert credential.read_text() == "refreshed\n"
+    if route == "codex":
+        assert result["codex_home"] == {"config_sha256": hashlib.sha256(write_boundary.codex_home_config().encode())
+                                        .hexdigest(), "auth": "linked", "auth_writable": True}
 
 
 class _Launch:

@@ -35,8 +35,9 @@ identities come from the launch. The worker holds no GitHub credential and the e
 hosts, so it publishes (push, PR, comment, merge) only through the broker's publication verbs, which the host's
 own login carries out behind the existing scanned publisher and push scan (decision PUBLISH-CRED-1113).
 Read-only providers may use only ``github-read``; the owning worker records the review verdict after settlement.
-Sources goes through the read-only AGY boundary's ``SourcesRelay``; the
-MCP stdio command that reaches it is in ``LU_WRITE_BOUNDARY_SOURCES``.
+Sources goes through the read-only AGY boundary's ``SourcesRelay``. Its proxy and socket sit at fixed paths
+inside, so ``sources_command`` is the MCP stdio command providers name; a Codex run gets a task-local
+``CODEX_HOME`` holding only that server and a link to the selected account's login.
 
 The canary runs first and checks each boundary property; the provider starts only after the launcher
 has checked every outcome. Any setup or canary failure refuses the run (exit ``REFUSED``) and nothing
@@ -51,6 +52,7 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import hashlib
 import json
 import os
 import re
@@ -136,10 +138,38 @@ _MAX_BODY = 64 << 10
 # Where the broker socket appears inside: a short path on the private /run, below the sockaddr_un length limit.
 _BROKER_INSIDE = "/run/lu-write-boundary/broker.sock"
 _SOURCES_INSIDE = "/run/lu-write-boundary/sources.sock"
-# The MCP stdio command (a JSON argv) that reaches the read-only Sources relay from inside.
-SOURCES_ENV = "LU_WRITE_BOUNDARY_SOURCES"
+# The launcher's projected byte proxy to that socket, at a fixed path beside it, so the MCP stdio command a
+# provider names (``sources_command``) is a constant and no product or worktree MCP file is read.
+_SOURCES_STDIO_INSIDE = "/run/lu-write-boundary/sources-stdio.py"
+# The task-local CODEX_HOME the launcher projects into the run's private TMPDIR or read-only lease.
+_CODEX_HOME = "codex-home"
 _BROKER_TIMEOUTS = {"review-dispatch": 300, "record-verdict": 900, "fleet-publish": 120, "gh": 120,
                     "closeout-request": 900, "publish": 300, "pr-merge": 900}
+
+
+def sources_command() -> list[str]:
+    """The MCP stdio argv that reaches the launcher's read-only Sources relay from inside the boundary.
+
+    The launcher runs the provider with this interpreter and binds its proxy and the relay socket at these
+    fixed paths. Without a relay the socket is absent: the server fails to start and the run goes on.
+    """
+    return [str(Path(sys.executable).resolve(strict=True)), "-I", _SOURCES_STDIO_INSIDE, _SOURCES_INSIDE]
+
+
+def codex_home_config() -> str:
+    """The task-local CODEX_HOME's ``config.toml``: one stdio Sources server and no other configuration.
+
+    The user's own configuration is not a layer of the run, so no MCP server, connector or transport key it
+    defines can merge into this one. The dispatcher's argv adds the Sources tool policy and disables apps.
+    """
+    command, *args = sources_command()
+    return "\n".join([
+        "# Task-local CODEX_HOME projected by the write boundary: the Sources relay only.",
+        "[mcp_servers.sources]",
+        f"command = {json.dumps(command)}",
+        "args = [" + ", ".join(json.dumps(arg) for arg in args) + "]",
+        "",
+    ])
 
 
 def broker_path() -> str | None:
@@ -237,6 +267,10 @@ def launcher(spec, invocation, task_file: Path) -> list[str]:
         argv += ["--output", str(path)]
     for path in credential_files(spec.agent, invocation.env):
         argv += ["--credential", str(path)]
+    if spec.agent == "codex":
+        # The selected account's login: the only thing the task-local CODEX_HOME takes from the real one.
+        home = Path(invocation.env.get("HOME") or Path.home())
+        argv += ["--codex-auth", str(Path(invocation.env.get("CODEX_HOME") or home / ".codex") / "auth.json")]
     if spec.agent == "codex" and spec.mode == "read-only":
         from lu_machinery.agent_runtime.read_only_tmp import dispatch_lease
 
@@ -1148,23 +1182,23 @@ class _Boundary:
         for path in sockets:
             argv += ["--ro-bind", "/dev/null", str(path)]
         self.broker = _Broker(self, boundary / "broker.sock")
-        argv += ["--ro-bind", str(boundary / "broker.sock"), _BROKER_INSIDE]
-        interpreter = str(Path(sys.executable).resolve(strict=True))
+        argv += ["--ro-bind", str(boundary / "broker.sock"), _BROKER_INSIDE,
+                 "--ro-bind", str(boundary / "stdio.py"), _SOURCES_STDIO_INSIDE]
+        interpreter = sources_command()[0]
         if read_only:
             (boundary / "bin").mkdir(mode=0o700)
             _write_private(boundary / "bin" / "gh", agy_sandbox._GH_SHIM.format(interpreter=interpreter).encode(), 0o500)
             self.gh = agy_sandbox._GhBroker(boundary / "gh.sock", self.worktree)
-        sources_command = None
         try:
             # Sources goes through the read-only AGY boundary's relay: read-only tools only, one server per
-            # connection, started by the launcher from the product checkout.
+            # connection, started by the launcher from the product checkout. Providers reach it through
+            # ``sources_command``.
             from lu_machinery.agent_runtime.sources_read_only import sources_tool_sets
 
             readers, _writers = sources_tool_sets()
             self.relay = agy_sandbox.SourcesRelay(boundary / "sources.sock", frozenset(readers), {
                 name: os.environ[name] for name in ("PATH", "HOME", "LANG", "TMPDIR") if name in os.environ})
             argv += ["--ro-bind", str(boundary / "sources.sock"), _SOURCES_INSIDE]
-            sources_command = json.dumps([interpreter, "-I", str(boundary / "stdio.py"), _SOURCES_INSIDE])
         except Exception as exc:  # Sources is optional for a write worker; containment does not depend on it
             self.receipt["sources"] = {"status": "unavailable", "reason": f"{type(exc).__name__}: {exc}"[:200]}
         argv += ["--cap-drop", "ALL", "--chdir", str(self.worktree)]
@@ -1190,8 +1224,8 @@ class _Boundary:
         if read_only:
             env["PATH"] = str(boundary / "bin") + os.pathsep + env.get("PATH", os.defpath)
         env.update(git_push_settings(env, interpreter, str(machinery_path("dispatcher/write_boundary.py").parents[2])))
-        if sources_command is not None:
-            env[SOURCES_ENV] = sources_command
+        if self.args.codex_auth is not None:
+            env["CODEX_HOME"] = str(self._codex_home(tmp, runtime, credentials))
         try:
             # The argv is the fixed bubblewrap binary and launcher-validated paths; env is the dispatcher's
             # provider environment, passed on deliberately (the provider runs inside with it).
@@ -1223,6 +1257,28 @@ class _Boundary:
             # worktrees in place and reports them), never by the launcher while the worktree still exists.
             self.receipt["closeout_request"] = self.broker.closeout_request
         return returncode
+
+    def _codex_home(self, tmp: Path, runtime: Path, credentials: list[Path]) -> Path:
+        """Project the task-local CODEX_HOME into ``tmp`` and return its path inside (below ``runtime``).
+
+        It holds the trusted Sources definition and a link to the selected account's ``auth.json``, which a
+        ``--credential`` bind keeps writable for a token refresh. Nothing else of the real home is a layer
+        of the run (A2: CLI overrides merge into the loaded layers rather than replace them).
+        """
+        auth = Path(self.args.codex_auth)
+        if not auth.is_absolute() or auth.name != "auth.json":
+            raise Refused("--codex-auth is not an absolute auth.json path")
+        home = tmp / _CODEX_HOME
+        home.mkdir(mode=0o700)
+        config = codex_home_config().encode()
+        _write_private(home / "config.toml", config, 0o600)
+        linked = auth.is_file()
+        if linked:
+            os.symlink(auth, home / "auth.json")
+        self.receipt["codex_home"] = {"config_sha256": hashlib.sha256(config).hexdigest(),
+                                      "auth": "linked" if linked else "absent",
+                                      "auth_writable": auth in credentials}
+        return runtime / _CODEX_HOME
 
     def _probes(self, repository: Path, common: Path, sockets: list[Path], outputs: list[Path], tmp: Path,
                 nonce: str) -> list[dict]:
@@ -1550,6 +1606,8 @@ def main(argv: list[str]) -> int:
                         "(default: none; the broker then dispatches no review)")
     parser.add_argument("--output", action="append", help="A declared output file the provider writes")
     parser.add_argument("--credential", action="append", help="A provider credential file a refresh rewrites")
+    parser.add_argument("--codex-auth", help="The selected Codex account's auth.json, linked into a task-local "
+                        "CODEX_HOME that holds only the Sources server")
     parser.add_argument("--host-env", action="append", default=[],
                         help="NAME=VALUE of the dispatcher's host configuration, for the launcher only (default: none)")
     parser.add_argument("command", nargs=argparse.REMAINDER)
