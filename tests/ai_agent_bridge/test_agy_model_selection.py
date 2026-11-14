@@ -236,3 +236,27 @@ def test_claude_bridge_never_promotes_unbound_routing_model(monkeypatch, tmp_pat
     assert provenance["actual_family"] is None
     assert provenance["model_identity"] is None
     assert provenance["model_requested"] == model
+
+
+def test_r38_existing_scratch_hooks_gain_the_primary_write_guard(monkeypatch, tmp_path):
+    """Defect class: an existing AGY bridge scratch hooks file kept no primary-write guard.
+
+    R38. ``provision_workspace_guard`` merges the missing guard and leaves a key
+    that is already present unchanged.
+    """
+    from lu_machinery.agent_runtime import agy_hook_config
+
+    monkeypatch.setenv("LU_SCRATCH_ROOT", str(tmp_path))
+    scratch = tmp_path / "learn-ukrainian-bridge-asks" / "agy"
+    agents = scratch / ".agents"
+    agents.mkdir(parents=True)
+    kept = {"custom-hook": {"PreToolUse": []}}
+    hooks = agents / "hooks.json"
+    hooks.write_text(json.dumps(kept), encoding="utf-8")
+
+    assert _agy._agy_ask_scratch_cwd() == scratch
+
+    data = json.loads(hooks.read_text(encoding="utf-8"))
+    assert data["custom-hook"] == kept["custom-hook"]
+    assert data[agy_hook_config.PRIMARY_GUARD_NAME] == agy_hook_config.primary_guard_registration()
+    assert agy_hook_config.GUARD_NAME in data

@@ -14,11 +14,16 @@ from lu_machinery.dispatcher.types import Invocation, ParsedResult, TaskSpec
 from lu_machinery.lib import rules_core
 
 # Static permission profile from adapters/claude.py; account env belongs to core.
-# Read-only has a shell only inside an OS boundary (decision REVIEW-BOUNDARY-1101, #12378): every Bash
-# command goes through CLAUDE_CODE_SHELL_PREFIX to agy_sandbox.shell_main, which runs it in the
-# bubblewrap boundary of read-only AGY (read-only checkout and Git metadata, the project interpreter,
-# private scratch, no network, no credentials) and relays only the gh reads the route had before.
-# Claude Code itself, with its login, stays outside. The command denies below remain as defense in depth.
+# Read-only has a shell only inside an OS boundary (decision REVIEW-BOUNDARY-1101, #12378).
+# When the launch environment already names LU_WRITE_BOUNDARY_BROKER, this process is already
+# inside that whole-process boundary, so Bash stays there: CLAUDE_CODE_SHELL_PREFIX and the
+# LU_REVIEW_SHELL_* variables are omitted. A second bubblewrap cannot nest a user namespace,
+# and every Bash command would fail. Without that marker, today's main has no whole-process
+# boundary, so every Bash command goes through CLAUDE_CODE_SHELL_PREFIX to agy_sandbox.shell_main,
+# which runs it in the bubblewrap boundary of read-only AGY (read-only checkout and Git metadata,
+# the project interpreter, private scratch, no network, no credentials) and relays only the gh
+# reads the route had before. Claude Code itself, with its login, stays outside. The command
+# denies below remain as defense in depth.
 # Claude Code's own OS sandbox would do the same, but it needs socat on Linux and refuses to start without it.
 # dontAsk still runs anything a loaded settings file pre-approves, and a worktree loads the main
 # checkout's local settings file, so read-only runs --restricted: Claude Code then reads no
@@ -233,7 +238,17 @@ def build(spec: TaskSpec, env: dict[str, str]) -> Invocation:
     if spec.mode == "read-only":
         core = rules_core.source_path(rules_core.CORE_REL)
         argv += ["--restricted", "--tools", _READ_TOOLSET, "--append-system-prompt-file", str(core)]
-        env = {**env, **review_shell_env(spec)}
+        from lu_machinery.dispatcher.write_boundary import BROKER_ENV
+
+        # The marker is set by the existing OS boundary, never by this provider. Unwrapped main
+        # has no marker, so the per-shell prefix below remains its only Bash filesystem boundary.
+        if env.get(BROKER_ENV):
+            env = {
+                key: value for key, value in env.items()
+                if key != "CLAUDE_CODE_SHELL_PREFIX" and not key.startswith("LU_REVIEW_SHELL_")
+            }
+        else:
+            env = {**env, **review_shell_env(spec)}
     argv += ["--mcp-config", _sources_mcp_config(), "--strict-mcp-config"]
     readers, writers = sources_tool_sets()
     allowed_tools = ",".join([allowed_tools, *(f"mcp__{_SOURCES_SERVER}__{name}" for name in readers)])

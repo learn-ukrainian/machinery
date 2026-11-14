@@ -73,10 +73,10 @@ def _agy_ask_scratch_cwd() -> Path:
     """
     scratch = ensure_scratch_root() / "learn-ukrainian-bridge-asks" / "agy"
     scratch.mkdir(parents=True, exist_ok=True)
-    # Only this caller-created workspace is provisioned. Existing candidates
-    # remain untouched so the adapter refuses invalid or disabled wiring.
-    if not os.path.lexists(scratch / ".agents/hooks.json"):
-        provision_workspace_guard(scratch)
+    # R38: an existing scratch hooks file still gets a missing primary-write guard.
+    # provision_workspace_guard returns when both guards are present and does not
+    # overwrite a key that is already there, including one the user disabled.
+    provision_workspace_guard(scratch)
     return scratch
 
 

@@ -12,6 +12,20 @@ import pytest
 from lu_machinery.goal_driver import stop_hook
 
 
+@pytest.fixture(autouse=True)
+def _unset_roots_do_not_write_the_checkout(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Tests that omit a project directory must not persist goal state in this checkout.
+
+    Production calls the real hook-root helper. A test that wants that path
+    replaces this patch.
+    """
+
+    def refuse(_invocation: Path) -> tuple[Path, Path]:
+        raise ValueError("no hook context")
+
+    monkeypatch.setattr(stop_hook, "native_hook_roots", refuse)
+
+
 def _write_transcript(path: Path, assistant_chunks: list[str]) -> None:
     """Write a minimal Claude Code JSONL transcript with N assistant turns."""
     lines = []
@@ -289,3 +303,38 @@ def test_state_file_cleanup_is_no_op_when_file_absent(
     )
     assert rc == 0
     assert not _state_file(project_dir, "fresh-session").exists()
+
+
+def test_r50_unset_roots_follow_the_hook_root_helper(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Defect class: unset payload cwd and CLAUDE_PROJECT_DIR skipped goal state.
+
+    R50. The shared hook-root helper names the project. When it cannot resolve
+    a root, Stop still exits 0 and writes nothing.
+    """
+    monkeypatch.delenv("CLAUDE_PROJECT_DIR", raising=False)
+    product = tmp_path / "product"
+    transcript = tmp_path / "session.jsonl"
+    _write_transcript(transcript, ['GOAL_WAIT signal=watcher-merge reason="awaiting" eta_s=60'])
+    monkeypatch.setattr(stop_hook, "native_hook_roots", lambda _invocation: (product, product))
+
+    rc, _out = _run(
+        monkeypatch,
+        {"transcript_path": str(transcript), "session_id": "sess-r50"},
+    )
+    assert rc == 0
+    body = json.loads(_state_file(product, "sess-r50").read_text(encoding="utf-8"))
+    assert body["signal"] == "watcher-merge"
+
+    # _run undoes every patch, including the deleted environment variable.
+    monkeypatch.delenv("CLAUDE_PROJECT_DIR", raising=False)
+
+    def refuse(_invocation: Path) -> tuple[Path, Path]:
+        raise ValueError("no hook context")
+
+    monkeypatch.setattr(stop_hook, "native_hook_roots", refuse)
+    rc, _out = _run(
+        monkeypatch,
+        {"transcript_path": str(transcript), "session_id": "sess-r50-none"},
+    )
+    assert rc == 0
+    assert not _state_file(product, "sess-r50-none").exists()

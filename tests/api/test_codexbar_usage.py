@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import sys
 import threading
 import time
@@ -2792,6 +2793,28 @@ def test_absent_private_binding_prepaid_needs_probe(private_binding, provider):
     assert result["probe_state"] == "NEED_PROBE"
     assert result["auth_error"] == "provider_error"
     assert result.get("total_balance") is None and result.get("account_remaining_usd") is None
+
+
+def test_private_api_account_logs_fixed_marker_not_probe_text(monkeypatch, caplog):
+    """Defect class: account-probe auth_error text is written to the log before replacement."""
+    secret = "token=sk-test-only-do-not-use\nFORGED probe line"
+    _fake_private(
+        monkeypatch,
+        api_account={
+            "kind": "prepaid_credits",
+            "probe_state": "OK",
+            "auth_error": secret,
+            "total_balance": 3.5,
+        },
+    )
+    with caplog.at_level(logging.WARNING, logger="lu_machinery.api.subscription_usage"):
+        result = subscription_usage_mod._private_api_account("openrouter", timeout_s=1)
+    assert result["auth_error"] == "provider_error"
+    assert result["total_balance"] == 3.5
+    assert secret not in caplog.text and "FORGED" not in caplog.text
+    message = caplog.records[-1].getMessage()
+    assert message == "Provider openrouter account probe failed: provider_error"
+    assert "\n" not in message
 
 
 def test_private_binding_load_failure_is_quiet_and_unavailable(private_binding, capsys):

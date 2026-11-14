@@ -841,6 +841,18 @@ def _extract_dirty_tree_filter(tmp_path: Path) -> Path:
     return filter_script
 
 
+def test_pr339_runner_realpath_ends_the_option_list() -> None:
+    """Defect class: realpath treats a leading-dash script path as an option.
+
+    PR339-offpath-runner-realpath. The runner is not executed; the source line is the contract.
+    """
+    line = next(
+        row for row in RUNNER_SCRIPT.read_text(encoding="utf-8").splitlines()
+        if row.startswith("RUNNER_SCRIPT_PATH=")
+    )
+    assert line == 'RUNNER_SCRIPT_PATH="$(realpath -- "${BASH_SOURCE[0]}")"'
+
+
 def test_runner_script_rejects_regex_metachar_nonce() -> None:
     """Runner rejects a regex-injection nonce ('x|.*') before any work is done."""
     proc = subprocess.run(

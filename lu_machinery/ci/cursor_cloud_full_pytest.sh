@@ -177,7 +177,7 @@ fi
 
 # 3. Setup artifacts root and record timestamps/hashes
 STARTED_AT="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
-RUNNER_SCRIPT_PATH="$(realpath "${BASH_SOURCE[0]}")"
+RUNNER_SCRIPT_PATH="$(realpath -- "${BASH_SOURCE[0]}")"
 RUNNER_SHA256="$(sha256sum "${RUNNER_SCRIPT_PATH}" | cut -d' ' -f1)"
 
 ARTIFACT_ROOT="artifacts/${NONCE}"
