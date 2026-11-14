@@ -105,8 +105,10 @@ def project_launch_view(task_id: str, directory: Path) -> None:
             write_ownership_view(directory / "ownership.json", record)
 
 
-def refresh_running_boundary_view(record: dict) -> None:
+def refresh_running_boundary_view(record: dict | None) -> None:
     """Update the view of a boundary that is already running. No directory means no running boundary."""
+    if not isinstance(record, dict):
+        return
     task_id = record.get("task_id")
     if not isinstance(task_id, str):
         return
