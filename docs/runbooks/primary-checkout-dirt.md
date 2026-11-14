@@ -6,6 +6,91 @@ guard `guard-primary-checkout-write.py` blocks the writes it can read in a
 shell command, but not what a launched script does: a script that `cd`s into
 the primary checkout and then redirects to a relative path writes there unseen.
 
+## The write guard's contract: an accident tripwire
+
+`guard-primary-checkout-write.py` is an **accident tripwire, not a containment
+boundary** (decision GUARD-TRIPWIRE-1113, 2026-11-13, issue #403). It stops
+honest mistakes that an agent makes with ordinary commands. It does not stop a
+process that tries to write the primary checkout.
+
+**What it promises to stop** (the denominator). While the primary checkout is
+on a protected branch, the guard refuses:
+
+1. a write tool (`Write`, `Edit`, `MultiEdit`, `apply_patch`, the AGY file
+   tools) whose target is a protected file in the primary checkout;
+2. a shell command that edits, writes, creates, removes, moves, copies, links
+   or changes the mode of a file in the primary checkout through the writers
+   and redirections the hook lists, by a literal path, a known variable, or a
+   relative path from a working directory in the primary checkout;
+3. a Git command that writes the primary working tree or its index (staging,
+   applying patches, restoring paths from a revision, moving or removing
+   tracked files, cleaning, destructive resets, popping a stash);
+4. the same writes reached through ordinary launchers: command wrappers,
+   `xargs` and `parallel`, `find` templates, shells given a command string,
+   decidable `eval` strings, and a shell, launcher or writer run under another
+   name or path. A word whose executable (followed through links, or a copy
+   with identical content) is one of those programs under a different name is
+   refused, whatever it runs, even when the name it uses is one the guard also
+   reads;
+5. the pattern classes approved under #403 (PR #412): a pattern that can
+   expand to a protected path, a command chosen by a pattern, a pattern that
+   can become an option, and any pattern or undecided word in a command that
+   launches commands, unless every candidate provably stays outside the
+   checkout;
+6. any write target it cannot resolve: an unknown variable, an exhausted
+   parser depth, or ANSI-C quoting.
+
+A command in this list that the guard admits is a defect, and a review treats
+it as a blocker. An input being unusual or deliberate does not by itself make
+a finding out of scope; reviewers classify each finding by what it can reach
+and what it can damage.
+
+**What must keep working** (benign controls). Apart from the accepted
+over-refusals below, the guard must not refuse:
+
+- read-only commands anywhere, the primary checkout included (`git status`,
+  `git log`, `git diff`, `rg`, `cat`, `ls`);
+- writes inside a dispatch worktree or any other registered worktree, under
+  temporary directories, or to ignored runtime state;
+- the rescue forms `git checkout -- <path>` and plain `git restore <path>`;
+- the commands in the pinned benign corpus
+  (`tests/agents_extensions/test_guard_benign_corpus.py`).
+
+**Accepted over-refusals.** These refuse even when the command only reads or
+stays in a worktree:
+
+- from the primary checkout, any command that holds a launcher and a pattern;
+- anywhere, a command that holds a launcher and a pattern or other undecided
+  word, when a launcher runs code (a shell, `eval`, `sudo` and the like, or a
+  replacement string that can stand for the program), when a word could change
+  program lookup or word splitting, or when a pattern could name an option, a
+  launcher or an executable. A launcher counts wherever its name appears in the
+  command, even as an operand;
+- anywhere, a word that runs a shell, launcher or writer under another name
+  (one shell under another shell's name, and a multi-call program's own
+  installed file, are not renamed), and any command that sets `PATH` with an
+  entry the guard cannot know, other than the inherited `$PATH`;
+- anywhere, a root-changing launcher (`chroot`, `unshare`, `nsenter`, `bwrap`,
+  `proot` and the like), and a relative path in a command run by
+  `find -execdir`/`-okdir` or `env --chdir`, because the program it names is
+  never the one the guard can see.
+
+**What it does not stop** (the residual). A process holding sufficient
+filesystem write authority can still write the primary checkout. Known ways
+the command text does not show the write include shell code read from a
+here-document, a file or standard input; program text given to interpreters
+and filters such as `awk`, `sed` scripts, `perl` or `python`; a link created
+earlier in the same command; scripts run by path and modified copies of
+programs, which the guard cannot identify; and changes to the filesystem
+after the guard has decided. Each review round of #403 found a
+narrower case of this kind. A parser of shell text cannot close them, so the
+guard does not claim to.
+
+Real containment is an operating-system control: the primary checkout made
+read-only for agent sessions. It is tracked as the containment follow-up,
+owned by claude-cto. Until it lands, this tripwire, the audit hook below and
+physical worktree isolation are the layers in place.
+
 ## The audit hook
 
 `agents_extensions/shared/hooks/audit-primary-checkout-dirt.py` wraps every

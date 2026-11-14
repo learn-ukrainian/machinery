@@ -123,6 +123,18 @@ reads as ``tee``), while one holding escapes stays undecoded text that names no
 known program (``$'\\564ee'`` reads as ``$\\564ee``). Because nothing is
 decoded, ``guard-reviewer-publish.py`` applies the same refusal check as well.
 
+Contract: an accident tripwire (decision GUARD-TRIPWIRE-1113, #403)
+-------------------------------------------------------------------
+This hook is an accident tripwire, not a containment boundary. It promises to
+refuse the honest mistakes listed in ``docs/runbooks/primary-checkout-dirt.md``
+(write tools, the listed shell writers and Git working-tree writes, the same
+writes through ordinary launchers, the approved #412 pattern classes, and
+unresolved targets), and it must keep admitting that runbook's benign controls
+apart from its listed over-refusals.
+An admitted command from the promised list is a defect. A process holding
+sufficient filesystem write authority can still write the primary checkout;
+real containment is the operating-system follow-up the runbook names.
+
 Coverage limitations (documented, by design)
 --------------------------------------------
 * Codex Desktop direct-edit interception is unverified (#4447). Where a provider
@@ -245,18 +257,30 @@ def _protected_repo_roots(wc) -> tuple[Path, ...]:
     # A product may be a worktree of a different repository than shared state.
     # Its gitfile is inspected only after the mandatory authority is pinned.
     product = _protected_repo_anchor().resolve(strict=True)
-    try:
-        product_primary = wc.resolve_main_root(product)
-    except wc.NotAGitRepositoryError:
-        # A non-Git product snapshot still has the explicit primary authority.
-        return (primary,)
-    if wc.resolve_main_root_without_git(product_primary) != product_primary:
-        raise ValueError("product primary metadata is inconsistent")
-    return tuple(dict.fromkeys((primary, product_primary)))
+    roots = [primary]
+    for candidate in (product, *product.parents):
+        if not os.path.lexists(candidate / ".git"):
+            continue
+        # Keep every ancestor's authority: a newly inserted nearer repository
+        # must not hide the checkout that already protects this product.
+        product_primary = wc.resolve_main_root_without_git(candidate)
+        discovered = wc.resolve_git_worktree(candidate, [])
+        if discovered.worktree != candidate or discovered.common_dir != product_primary / ".git":
+            raise ValueError("product primary metadata is inconsistent")
+        roots.append(product_primary)
+    # Only a product with no Git metadata is a non-Git snapshot.
+    return tuple(dict.fromkeys(roots))
 
 
 def _evaluate_write(target: Path, wc, main_root: Path) -> object:
     """A target-selected checkout may add a denial, never replace the pinned one."""
+    product = _protected_repo_anchor().resolve(strict=True)
+    resolved = target.resolve()
+    for candidate in (product, *product.parents):
+        metadata = candidate / ".git"
+        if os.path.lexists(metadata):
+            if resolved == metadata or resolved in metadata.parents or metadata in resolved.parents:
+                return _UndecidableWrite("protected_product_metadata", "Product Git metadata must remain intact.")
     decision = wc.evaluate_write(target, cwd=main_root)
     if not decision.allowed:
         return decision
@@ -2369,6 +2393,22 @@ def _trap_coproc_script(segment: list[str]) -> str | None:
     return shlex.join(args)
 
 
+def _pattern_selects_command(segment: list[str], idx: int) -> bool:
+    """Whether a pattern in or before the command word can choose the program.
+
+    Leading assignment words are never pathname-expanded; every later word up to
+    the command word is, so its expansion can select a writer the parser never
+    classified. Only decided with a protected root, as the parser-only corpus
+    has no directory to expand against.
+    """
+    assignments = True
+    for word in segment[: idx + 1]:
+        assignments = assignments and bool(_ASSIGN_RE.match(word))
+        if not assignments and _expandable_word(word):
+            return True
+    return False
+
+
 def _writer_targets(
     segment: list[str],
     *,
@@ -2418,6 +2458,10 @@ def _writer_targets(
     if refused is not None:
         raise _UndecidableWrapper(refused)
     cmd, idx = _command_word(segment)
+    if main_root is not None and _pattern_selects_command(segment, idx):
+        unknown = ShellWord("pattern command")
+        unknown.decision_reason = "undecidable_glob_write_target"
+        targets.append(unknown)
     if cmd == "tar" and idx == 0 and tar_environment_fixed and _tar_lists_only(segment[1:]):
         pass  # List mode reads the archive and writes nothing; -x/-c/-r/-u/-A stay below.
     elif cmd in _LONG_TAIL_WRITERS:
@@ -2481,7 +2525,7 @@ def _writer_targets(
             targets.extend(
                 bash_write_targets(" ".join(args), cwd=cwd, main_root=main_root, depth=depth + 1, uv_env=uv_env)
             )
-    elif cmd in {"sh", "bash", "zsh", "dash"}:
+    elif cmd in {"sh", "bash", "zsh", "dash", "fish"} or _SHELL_NAME_RE.fullmatch(cmd):  # Every shell runs -c code.
         script = _shell_command_script(segment[idx + 1 :])
         if script is not None:
             if getattr(script, "unresolved_at", None) is not None:
@@ -2725,6 +2769,458 @@ def _segments_with_cwd(command: str, cwd: str | None, uv_env: object = _UV_DIR_I
         yield segment, command_cwd, effective_cwd
 
 
+# ``--name=`` is a literal prefix every expansion keeps: only the value varies.
+_LONG_OPTION_VALUE_RE = re.compile(r"--[A-Za-z0-9][A-Za-z0-9-]*=")
+
+
+# Writers whose operands take roles by position: a pattern in a mode, owner,
+# reference or source position can expand into further write operands.
+_POSITIONAL_WRITERS = _DESTINATION_WRITERS | {
+    "chmod", "chown", "chgrp", "touch", "truncate", "shred", "rm", "unlink", "rmdir", "mkdir", "tee", "link", "dd",
+}
+# Writers whose every operand after fixed options is a write target, and that
+# write nothing without one: a pattern's expansion count cannot move a write.
+_SAME_ROLE_WRITERS = frozenset(
+    {"touch", "rm", "unlink", "rmdir", "mkdir", "tee", "shred", "truncate", "chmod", "chown", "chgrp"}
+)
+# An expanded script word or argument list is shell code the parser never read.
+_PATTERN_SHELLS = frozenset({"sh", "bash", "zsh", "dash", "eval", "source", "."})
+_FIND_WRITE_ACTIONS = frozenset({"-delete", "-fprint", "-fprint0", "-fprintf", "-fls"})
+_FIND_TEMPLATES = frozenset({"-exec", "-execdir", "-ok", "-okdir"})
+
+
+def _pattern_changes_roles(segment: list[str], segment_targets: list[str]) -> bool:
+    """Whether a pattern word could change which operands a writer writes.
+
+    Expansion can add operands, and with ``nullglob`` remove one, so a later
+    literal can become the destination or a writer can fall back to an implicit
+    one, an output prefix or the working directory. The guard does not model
+    that per writer. A pattern word refuses in a
+    shell or ``eval`` and in any writer, except where it is itself a decided
+    write target of a writer whose operands all share that role.
+    """
+    redirects = _redirect_targets(segment)
+    argv_targets = [t for t in segment_targets if not any(t is r for r in redirects)]
+    words = _without_redirects(segment)
+    cmd, idx = _command_word(words)
+    patterns = [word for word in words[idx + 1 :] if _expandable_word(word)]
+    if not patterns or _launches(segment)[0]:
+        return False  # A command that launches another is decided whole (`_launched_word_reaches`).
+    writer = (
+        bool(argv_targets)
+        or cmd in _POSITIONAL_WRITERS | _LONG_TAIL_WRITERS | _INPLACE_FIXERS
+        or (cmd == "find" and any(word in _FIND_WRITE_ACTIONS for word in words[idx + 1 :]))
+    )
+    if not writer:
+        return False
+    return not (cmd in _SAME_ROLE_WRITERS and all(any(word is target for target in segment_targets) for word in patterns))
+
+
+# Programs that run code taken from their arguments, or hand their arguments to a
+# shell: an expanded word can become any command, so no word they receive is ever
+# decided (#403).
+_CODE_LAUNCHERS = frozenset(
+    {"sh", "bash", "dash", "zsh", "ksh", "mksh", "posh", "yash", "fish", "csh", "tcsh", "busybox"}
+    | {"eval", "source", ".", "su", "watch", "script", "parallel", "sem", "rush", "sg", "tmux", "screen", "at"}
+    | {"batch", "firejail", "sudo", "doas", "runuser", "entr", "ssh", "newgrp", "flock"}
+)
+# Shell programs under other names and versions (``rbash``, ``ksh93``, ``bash5``).
+_SHELL_NAME_RE = re.compile(r"(?:r?bash|[dkz]?sh|mksh|[ot]?csh|[lo]?ksh|pdksh|ksh93|yash|posh|ash)(?:[-.]?\d[\d.]*|-static|\.real)?")
+# Programs that run another command named in their arguments.
+_LAUNCHERS = _CODE_LAUNCHERS | frozenset(
+    {
+        "xargs", "parallel", "env", "exec", "command", "builtin", "nohup", "timeout", "nice", "ionice", "chrt",
+        "taskset", "stdbuf", "setsid", "sudo", "doas", "runuser", "time", "flock", "chroot", "unshare", "nsenter",
+        "setpriv", "pkexec", "sg", "newgrp", "strace", "ltrace", "valgrind", "systemd-run", "tmux", "screen", "at",
+        "batch", "fakeroot", "firejail", "bwrap", "proot", "xvfb-run", "dbus-run-session", "ssh-agent", "sem", "rush",
+        "entr", "prlimit", "cpulimit", "numactl", "faketime", "chpst", "daemonize", "start-stop-daemon",
+    }
+)
+# ``env -S``/``--split-string`` splits one argument into a command line.
+_ENV_SPLIT_RE = re.compile(r"-[^-]*S|--split-string")
+# Words that can change how a launched program is found or how words split:
+# any spelling of these variables (assignment, append, export, read or nameref)
+# and the builtins that set command lookup.
+_LOOKUP_STATE_RE = re.compile(
+    r"PATH|IFS|BASH_ENV|(?:^|[^A-Za-z0-9_])ENV(?:$|[^A-Za-z0-9_])|LD_PRELOAD|LD_AUDIT|GLOBIGNORE|SHELLOPTS|BASHOPTS"
+    r"|EXECIGNORE|BASH_FUNC"
+)
+_LOOKUP_BUILTINS = frozenset({"hash", "alias", "enable"})
+# Bash extended-glob operators. The lexer splits ``@(a|b)`` at the parenthesis,
+# so the pattern shows as a word ending in an operator before a ``(`` segment.
+_EXTGLOB_RE = re.compile(r"[?*+@!]\(")
+
+
+def _undecided_word(word: str) -> bool:
+    """Whether a word is anything but plain literal text: a pattern (quoted, escaped
+    or not), a tilde or an expansion the guard cannot know. Quote removal has
+    already happened, so a quoted or escaped pattern still shows its pattern
+    characters here, and an extended pattern inside a script word shows its
+    operator."""
+    return (
+        getattr(word, "unresolved_at", None) is not None
+        or _expandable_word(word)
+        or "~" in word
+        or _EXTGLOB_RE.search(word) is not None
+    )
+
+
+def _extglob_segment(segment: list[str]) -> bool:
+    """Whether a segment ends in an extended-glob operator the lexer split off."""
+    return getattr(segment, "next_op", None) == "(" and bool(segment) and str(segment[-1])[-1:] in set("?*+@!")
+
+
+def _launches(words: list[str]) -> tuple[bool, bool]:
+    """Whether any word launches a command, and whether any launches code.
+
+    Any launcher word counts, wherever it stands: the guard does not follow which
+    later words reach which launched program, at any depth. A command word that
+    is not a plain name could be any program, a shell included.
+    """
+    names = {Path(word).name for word in words if word != "."}  # ``.`` sources only as a command
+    code = (
+        bool(names & _CODE_LAUNCHERS)
+        or any(_SHELL_NAME_RE.fullmatch(name) for name in names)
+        or ("env" in names and any(_ENV_SPLIT_RE.match(word) for word in words))
+    )
+    argv = _without_redirects(words)
+    _, idx = _command_word(argv)
+    if idx < len(argv) and (argv[idx] == "." or _undecided_word(argv[idx])):
+        code = True
+    if _extglob_segment(words) and idx >= len(argv) - 1:
+        code = True  # An extended pattern in the command word selects the program.
+    # A replacement string can stand for the program itself: find puts the found
+    # path there, xargs a line of its input.
+    if any(word in _FIND_TEMPLATES and "{}" in nxt for word, nxt in zip(words, words[1:])):
+        code = True
+    if "xargs" in names and any(word == "-i" or word.startswith(("-I", "-J", "--replace")) for word in words):
+        code = True
+    launcher = code or bool(names & _LAUNCHERS) or any(word in _FIND_TEMPLATES for word in words)
+    return launcher, code
+
+
+def _reaches_primary(path: Path, root: Path) -> bool:
+    """Whether ``path`` lies in the primary checkout or is an ancestor of it."""
+    try:
+        resolved = path.resolve()
+    except (OSError, RuntimeError, ValueError):
+        return True
+    if resolved == root or resolved in root.parents:
+        return True
+    try:
+        relative = resolved.relative_to(root)
+    except ValueError:
+        return False
+    return relative.parts[:2] != (".worktrees", "dispatch")
+
+
+def _program_paths(word: str, bases: tuple[str | None, ...], which: Callable[[str], str | None]) -> list[Path]:
+    """The executables ``word`` can run, symlinks followed: by path from each
+    known directory, or by ``PATH`` lookup for a bare name."""
+    if "/" in word:
+        paths = [_resolve(word, base, expand_user=False) for base in bases if base is not None]
+    else:
+        found = which(word) if word else None
+        paths = [Path(found)] if found else []
+    programs = []
+    for path in paths:
+        try:
+            if path.is_file() and os.access(path, os.X_OK):
+                programs.append(path.resolve())
+        except (OSError, RuntimeError, ValueError):
+            continue  # A path the guard cannot stat cannot be run as a program either.
+    return programs
+
+
+def _program_names(word: str, bases: tuple[str | None, ...], which: Callable[[str], str | None]) -> set[str]:
+    """The real names of the executables ``word`` can run as (`_program_paths`)."""
+    return {path.name for path in _program_paths(word, bases, which)}
+
+
+# Programs the parser reads by name. Run under another name, one hides what it
+# does, so such a word is refused (`_renamed_program`).
+_NAMED_WRITERS = (
+    _POSITIONAL_WRITERS
+    | _LONG_TAIL_WRITERS
+    | _INPLACE_FIXERS
+    | {"find", "sed", "perl", "git", "trap", "coproc"}
+)
+# Launchers that can run their command under another root, where no path the
+# guard resolves names the program that runs.
+_ROOT_CHANGERS = frozenset(
+    {"chroot", "unshare", "nsenter", "bwrap", "proot", "start-stop-daemon", "daemonize", "chpst"}
+)
+
+
+_SHELL_PROGRAMS = frozenset({"sh", "bash", "dash", "zsh", "fish"})
+
+
+def _named_program(name: str) -> bool:
+    return name in _LAUNCHERS or name in _NAMED_WRITERS or _SHELL_NAME_RE.fullmatch(name) is not None
+
+
+def _is_shell(name: str) -> bool:
+    return name in _SHELL_PROGRAMS or _SHELL_NAME_RE.fullmatch(name) is not None
+
+
+def _installed_programs(which: Callable[[str], str | None]) -> dict[tuple[int, int], tuple[Path, int, set[str]]]:
+    """The programs the parser reads by name as installed on ``PATH``, keyed by
+    file identity (device and inode), with each file's size and names."""
+    known: dict[tuple[int, int], tuple[Path, int, set[str]]] = {}
+    for name in sorted(_LAUNCHERS | _NAMED_WRITERS | _SHELL_PROGRAMS):
+        found = which(name)
+        if not found:
+            continue
+        try:
+            path = Path(found).resolve()
+            stat = path.stat()
+        except (OSError, RuntimeError, ValueError):
+            continue
+        known.setdefault((stat.st_dev, stat.st_ino), (path, stat.st_size, set()))[2].add(name)
+    return known
+
+
+def _same_bytes(first: Path, second: Path) -> bool:
+    with first.open("rb") as one, second.open("rb") as other:
+        while True:
+            chunk = one.read(1 << 20)
+            if chunk != other.read(1 << 20):
+                return False
+            if not chunk:
+                return True
+
+
+def _program_identity(
+    path: Path, known: dict[tuple[int, int], tuple[Path, int, set[str]]]
+) -> tuple[set[str], Path | None]:
+    """Which programs the parser reads by name the executable ``path`` is, by
+    file identity, by identical content (a copy), or else by its own name; and
+    the installed file it is, when it is one by identity."""
+    try:
+        stat = path.stat()
+        entry = known.get((stat.st_dev, stat.st_ino))
+        if entry is not None:
+            return entry[2], entry[0]
+        for other, size, names in known.values():
+            if size == stat.st_size and _same_bytes(path, other):
+                return names, None
+    except (OSError, RuntimeError, ValueError):
+        return {"unreadable program"}, None  # Unidentified: never the program its word names.
+    return ({path.name} if _named_program(path.name) else set()), None
+
+
+def _same_program(spelled: str, path: Path, names: set[str], installed: Path | None) -> bool:
+    """Whether a word spelled ``spelled`` that runs ``path`` runs as the program the parser reads it as."""
+    if not names or spelled in names:
+        return True
+    if _is_shell(spelled) and any(_is_shell(name) for name in names):
+        return True  # One shell under another shell's name is still read as a shell.
+    # A multi-call program (one file installed under several names) runs the
+    # program its invoked name selects, and under a name it does not provide may
+    # run its first argument. Only its own installed file of the spelled name,
+    # in its install directory, is that program.
+    return (
+        installed is not None
+        and path.parent == installed.parent
+        and path.name == spelled
+        and len({name for name in names if not _is_shell(name)}) > 1
+    )
+
+
+def _renamed_program(
+    segments: list[tuple[list[str], str | None, str | None]], which: Callable[[str], str | None]
+) -> bool:
+    """Whether a word runs a program the parser reads by name, under another name (#403).
+
+    The parser picks each command's rules by the name a word is spelled with.
+    A word whose executable (by path or on ``PATH``, symlinks followed) is, by
+    file identity or identical content, a shell, launcher or writer the parser
+    reads by another name is never read as what it runs, so it is refused
+    wherever it stands, literal or not. That holds when the spelled name is one
+    the parser reads too (a writer's name on a shell). One shell under another
+    shell's name, and a multi-call program's own installed file of the spelled
+    name, are not renamed.
+    """
+    import shutil
+
+    lookups = [which]
+    for segment, _, _ in segments:
+        for word in segment:
+            name, sep, value = str(word).partition("=")
+            if not sep or name.removesuffix("+") != "PATH":  # an assignment or an append
+                continue
+            # A PATH this command sets finds bare names too; its inherited part
+            # is the hook's own. Any other unknown entry could hold any program
+            # under any name, so no bare word in the command is identified.
+            if name.endswith("+"):
+                value = value.removeprefix(":")  # the separator after the inherited part
+            entries = [entry for entry in value.split(":") if entry not in {"$PATH", "${PATH}"}]
+            if any("$" in entry or "`" in entry or not entry.startswith("/") for entry in entries):
+                return True
+            lookups.append(lambda name, path=":".join(entries): shutil.which(name, path=path))
+    known: dict[tuple[int, int], tuple[Path, int, set[str]]] | None = None
+    for segment, run_cwd, shell_cwd in segments:
+        for word in segment:
+            if _undecided_word(word):
+                continue
+            for lookup in lookups if "/" not in word else lookups[:1]:
+                for path in _program_paths(word, (run_cwd, shell_cwd), lookup):
+                    if known is None:
+                        known = _installed_programs(which)
+                    if not _same_program(Path(word).name, path, *_program_identity(path, known)):
+                        return True
+    return False
+
+
+def _relocated_program_word(segment: list[str]) -> bool:
+    """Whether a word in ``segment`` may run as a program the guard cannot identify (#403).
+
+    A root-changing launcher runs its command under another root, where no
+    word names a program the guard can resolve. ``find -execdir`` and ``env
+    --chdir`` run their command from another directory, so a relative path
+    there names an executable the guard never looked at. (A launcher with no
+    known working directory is refused by `_launched_word_reaches` itself.)
+    """
+    names = {Path(word).name for word in segment}
+    if names & _ROOT_CHANGERS:
+        return True
+    moved = any(word in {"-execdir", "-okdir"} for word in segment)
+    for index, word in enumerate(segment):
+        if Path(word).name != "env":
+            continue
+        rest = iter(segment[index + 1 :])
+        for option in rest:  # env's own options and bindings precede its command
+            if option[:1] != "-" and "=" not in option:
+                break
+            if option.startswith("--chdir") or (option[:1] == "-" and option[1:2] != "-" and "C" in option[1:]):
+                moved = True
+            if option in {"--unset", "--argv0"} or (option[:1] == "-" and option[1:2] != "-" and option[-1] in "ua"):
+                next(rest, None)  # the option's value
+    return moved and any(
+        not _undecided_word(word) and "/" in word and word[:1] != "-" and not Path(word).is_absolute()
+        for word in segment
+    )
+
+
+def _launched_word_reaches(segments: list[tuple[list[str], str | None, str | None]], main_root: Path) -> bool:
+    """Whether a command that launches commands could carry an undecided word into the checkout.
+
+    A class rule, not an evaluator (#403): when any segment holds a launcher
+    (xargs, parallel, a find template, a shell, eval, env, sudo, ...) and any word
+    of the command is a pattern or otherwise not plain literal text, the command
+    is refused unless all of it is proven to stay out of the primary checkout. No
+    launched command or nesting level is analysed. A launched shell, or a command
+    word that is not a plain name, can run expanded words as code, so it is never
+    proven, nor is a command with an extended pattern or a word that can change
+    program lookup or word splitting (`_LOOKUP_STATE_RE`). Otherwise every
+    working directory and every literal word (also its ``=`` value and
+    short-option tail) must resolve outside the checkout and not above it, and
+    every pattern must have a bounded superset of such entries, none of which can
+    become an option or name a program: a launcher, an executable file or, for a
+    bare name, a program on ``PATH``.
+    """
+    import shutil
+
+    words = [word for segment, _, _ in segments for word in segment]
+    extglob = any(_extglob_segment(segment) for segment, _, _ in segments)
+    if not (extglob or any(_undecided_word(word) for word in words)):
+        return False
+    launcher = code = False
+    for segment, run_cwd, shell_cwd in segments:
+        seg_launcher, seg_code = _launches(segment)
+        launcher, code = launcher or seg_launcher, code or seg_code
+        if _relocated_program_word(segment):
+            launcher = code = True
+        # A program is what its word resolves to, by path or on PATH. A launcher
+        # under another name hides the options and replacement strings that make
+        # it run code, so it counts as a code launcher.
+        for word in segment:
+            if _undecided_word(word):
+                continue
+            for program in _program_names(word, (run_cwd, shell_cwd), shutil.which):
+                if program in _LAUNCHERS or _SHELL_NAME_RE.fullmatch(program):
+                    launcher = True
+                    if program != Path(word).name or program in _CODE_LAUNCHERS or _SHELL_NAME_RE.fullmatch(program):
+                        code = True
+    if not launcher:
+        return False
+    if (
+        code
+        or extglob
+        or any(_LOOKUP_STATE_RE.search(word) for word in words)
+        or any(Path(word).name in _LOOKUP_BUILTINS for word in words)
+    ):
+        return True
+    root = main_root.resolve()
+    for segment, run_cwd, shell_cwd in segments:
+        for base in (run_cwd, shell_cwd):
+            if base is None or _reaches_primary(Path(base), root):
+                return True
+            start = _resolve(".", base, expand_user=False)
+            for word in segment:
+                if not _undecided_word(word):
+                    texts = [str(word)]
+                    if "=" in word:
+                        texts.append(word.split("=", 1)[1])
+                    if word[:1] == "-" and word[1:2] != "-" and len(word) > 2:
+                        texts.append(word[2:])
+                    if any(text and _reaches_primary(_resolve(text, base, expand_user=False), root) for text in texts):
+                        return True
+                    continue
+                if getattr(word, "unresolved_at", None) is not None or set("\\~=") & set(word) or word[:1] == "-":
+                    return True
+                candidates = _shell_glob_candidates(word, base)
+                if candidates is None:
+                    return True
+                for candidate in candidates:
+                    if _reaches_primary(candidate, root):
+                        return True
+                    if word[:1] in {"*", "?", "["} and candidate.relative_to(start).parts[:1]:
+                        if candidate.relative_to(start).parts[0].startswith("-"):
+                            return True
+                    # An expansion that names a program, by PATH or by path, chooses what runs.
+                    if candidate.name in _LAUNCHERS or (os.access(candidate, os.X_OK) and candidate.is_file()):
+                        return True
+                    if "/" not in word and candidate.name not in {".", ".."} and shutil.which(candidate.name):
+                        return True
+    return False
+
+
+def _option_capable_glob(segment: list[str], base: str | None, main_root: Path | None) -> bool:
+    """Whether a pattern word could expand into an option or unmodeled syntax.
+
+    Bash expands a pattern before the program parses its options, so an entry
+    named like an option can redirect a write. Quote removal has already
+    happened here, so quoted and unquoted patterns are treated alike. A word
+    that starts with a dash stays an option after expansion; a word that starts
+    with a pattern character becomes one only if its superset holds an entry
+    starting with a dash. Extended-glob syntax splits into separate tokens here
+    and is never modeled. Without a protected root (parser-only use) there is
+    no directory to inspect.
+    """
+    if getattr(segment, "next_op", None) == "(":
+        return True
+    words = _without_redirects(segment)
+    _, idx = _command_word(words)
+    for word in words[idx + 1 :]:
+        if not _expandable_word(word) or _LONG_OPTION_VALUE_RE.match(word):
+            continue
+        if word[:1] == "-":
+            return True
+        if word[:1] not in {"*", "?", "[", "{", "\\"} or main_root is None:
+            continue
+        if base is None:
+            return True
+        candidates = _shell_glob_candidates(word, base)
+        if candidates is None:
+            return True
+        start = _resolve(".", base, expand_user=False)
+        if any(candidate.relative_to(start).parts[:1] and candidate.relative_to(start).parts[0].startswith("-")
+               for candidate in candidates):
+            return True
+    return False
+
+
 def bash_write_targets(
     command: str,
     *,
@@ -2749,7 +3245,9 @@ def bash_write_targets(
         return [unknown]
     targets: list[str] = []
     pipeline: list[str] = []
+    seen: list[tuple[list[str], str | None, str | None]] = []
     for segment, effective_cwd, shell_cwd in _segments_with_cwd(command, cwd, uv_env):
+        seen.append((segment, effective_cwd, shell_cwd))
         if segment.prev_op not in {"|", "|&"}:
             pipeline = []
         pipeline.extend(segment)
@@ -2789,6 +3287,13 @@ def bash_write_targets(
                     template=True,
                 )
             )
+        launches_writer = _xargs_writer(_without_redirects(segment))
+        if (
+            main_root is not None and _pattern_changes_roles(segment, segment_targets)
+        ) or ((segment_targets or launches_writer) and _option_capable_glob(segment, shell_cwd, main_root)):
+            unknown = ShellWord("pattern operand")
+            unknown.decision_reason = "undecidable_glob_write_target"
+            segment_targets.append(unknown)
         for target in segment_targets:
             word = target if isinstance(target, ShellWord) else ShellWord(str(target))
             if (
@@ -2801,6 +3306,19 @@ def bash_write_targets(
             if word.base is None and word.decision_reason is None:
                 word.base = effective_cwd
             targets.append(word)
+    if main_root is not None and _launched_word_reaches(seen, main_root):
+        unknown = ShellWord("launched pattern")
+        unknown.decision_reason = "undecidable_glob_write_target"
+        targets.append(unknown)
+    if main_root is not None:
+        import shutil
+
+        if _renamed_program(seen, shutil.which) or any(
+            _relocated_program_word(segment) for segment, _, _ in seen
+        ):
+            unknown = ShellWord("unidentified program")
+            unknown.decision_reason = "undecidable_program_identity"
+            targets.append(unknown)
     return targets
 
 
@@ -3367,6 +3885,97 @@ def _resolve(path_str: str, cwd: str, *, expand_user: bool = True) -> Path:
     return path
 
 
+_GLOB_CHARS_RE = re.compile(r"[*?\[]")
+# A bracket is a pattern only when a closing bracket follows it; alone it is literal.
+_GLOB_RE = re.compile(r"[*?]|\[.*\]", re.DOTALL)
+# Each candidate costs a full containment decision; beyond this many the
+# pattern is refused rather than slowing every tool call.
+_GLOB_CANDIDATE_BUDGET = 64
+_GLOB_SCAN_BUDGET = 4096
+
+
+def _brace_capable(word: str) -> bool:
+    """Whether Bash brace expansion could apply: a brace with a comma or ``..``."""
+    return "{" in word and ("," in word or ".." in word)
+
+
+def _expandable_word(word: str) -> bool:
+    return bool(_GLOB_RE.search(word)) or _brace_capable(word)
+
+
+def _literal_edge_matches(edge: str, name: str) -> bool:
+    """Whether ``name`` can carry the literal pattern ``edge`` at the same end.
+
+    Quoting can only make a character more literal, so a character that is
+    literal in the guard's text is literal to Bash too. Case is ignored
+    (``nocaseglob``); a non-ASCII or backslash character ends the comparison.
+    """
+    if len(name) < len(edge):
+        return False
+    for want, have in zip(edge, name, strict=False):
+        if want == "\\" or not want.isascii() or not have.isascii():
+            return True
+        if want.lower() != have.lower():
+            return False
+    return True
+
+
+def _component_may_match(part: str, name: str) -> bool:
+    """A necessary condition for a Bash pattern component to select ``name``."""
+    first = _GLOB_CHARS_RE.search(part)
+    if first is None or _GLOB_RE.search(part) is None:
+        return name == part
+    last = max(part.rfind(char) for char in "*?[]")
+    prefix, suffix = part[: first.start()], part[last + 1 :]
+    if not _literal_edge_matches(prefix, name) or not _literal_edge_matches(suffix[::-1], name[::-1]):
+        return False
+    # A leading dot is matched only by the pattern's first character:
+    # explicitly for . and .., or by a wildcard when dotglob is set.
+    if name in {".", ".."}:
+        return part[:1] in {".", "[", "\\"}
+    return not name.startswith(".") or part[:1] in {".", "*", "?", "[", "\\"}
+
+
+def _shell_glob_candidates(word: str, base: str) -> list[Path] | None:
+    """A superset of the paths Bash can produce for one pattern word, or ``None``.
+
+    The guard does not reproduce Bash's matcher: quoting, escapes and glob
+    options all change which names a component selects. A component holding a
+    glob character stands for every directory entry, hidden ones included, that
+    shares its literal leading and trailing characters, plus the unmatched literal
+    name. Each candidate is then decided exactly as a literal path would be.
+    ``None`` means no bounded superset exists.
+    """
+    # Brace expansion can change a word's path structure and ``**`` descends
+    # without bound. Neither is evaluated; both refuse.
+    if _brace_capable(word) or "**" in word:
+        return None
+    path = Path(word)
+    candidates = [Path("/")] if path.is_absolute() else [_resolve(".", base, expand_user=False)]
+    scanned = 0
+    for part in path.parts[1:] if path.is_absolute() else path.parts:
+        following: list[Path] = []
+        for parent in candidates:
+            following.append(parent / part)
+            if _GLOB_RE.search(part) is None:
+                continue
+            try:
+                with os.scandir(parent) as entries:
+                    names = [".", "..", *(entry.name for entry in entries)]
+            except (NotADirectoryError, FileNotFoundError):
+                continue
+            except OSError:
+                return None
+            scanned += len(names)
+            if scanned > _GLOB_SCAN_BUDGET:
+                return None
+            following.extend(parent / name for name in names if _component_may_match(part, name))
+        candidates = list(dict.fromkeys(following))
+        if len(candidates) > _GLOB_CANDIDATE_BUDGET:
+            return None
+    return candidates
+
+
 def _final_component_matches(pattern: str, name: str) -> bool:
     """Match a shell final-component pattern, including brace alternatives."""
     for start, char in enumerate(pattern):
@@ -3395,18 +4004,33 @@ def _final_component_matches(pattern: str, name: str) -> bool:
     return (not name.startswith(".") or pattern.startswith(".")) and fnmatch.fnmatchcase(name, pattern)
 
 
-def _bash_path_decision(word: str, base: str, wc, main_root: Path) -> object:
+def _bash_path_decision(word: str, base: str, wc, main_root: Path, *, shell_glob: bool = False) -> object:
     """Containment decision for one expanded Bash path word.
 
     A word holding any unknown expansion is blocked outright: the unknown value
     may be absolute, empty or contain ``..``, so no literal prefix proves the
-    path stays out of the primary checkout.
+    path stays out of the primary checkout. ``shell_glob`` marks a word Bash
+    itself may expand (a shell write target); Git pathspecs keep the prefix rule.
     """
     if getattr(word, "unresolved_at", None) is not None:
         return _UnresolvedWrite()
     reason = getattr(word, "decision_reason", None)
     if reason is not None:
         return _UndecidableWrite(reason, "Use a literal target and a known working directory.")
+    if shell_glob and _expandable_word(word):
+        candidates = _shell_glob_candidates(word, getattr(word, "base", None) or base)
+        refusal = _UndecidableWrite(
+            "undecidable_glob_write_target",
+            "A pattern target is refused unless every entry it could name is outside the primary checkout. "
+            "Use literal paths.",
+        )
+        if candidates is None:
+            return refusal
+        for candidate in candidates:
+            decision = _evaluate_write(candidate, wc, main_root)
+            if not decision.allowed:
+                return refusal
+        return decision
     if re.search(r"[*?\[\]{}]", word):
         parts = Path(word).parts
         first = next(i for i, part in enumerate(parts) if re.search(r"[*?\[\]{}]", part))
@@ -3774,7 +4398,7 @@ def _main(payload: dict | None) -> int:
             if is_shell_tool(tool_name):
                 # Words were expanded from same-command assignments (#5404 /
                 # #8500); any unknown value blocks (_bash_path_decision).
-                decision = _bash_path_decision(raw, cwd, wc, decision_root)
+                decision = _bash_path_decision(raw, cwd, wc, decision_root, shell_glob=True)
             else:
                 target = _resolve(raw, cwd)
                 decision = _evaluate_write(target, wc, decision_root)
