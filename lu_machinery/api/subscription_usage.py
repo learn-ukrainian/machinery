@@ -473,7 +473,11 @@ def _private_api_account(provider: str, *, timeout_s: float) -> dict[str, Any]:
         result = module.probe_api_account(provider, timeout_s=timeout_s)
         if isinstance(result, dict):
             if result.get("auth_error"):
-                logging.getLogger(__name__).warning("Provider %s account probe failed: %s", provider, result["auth_error"])
+                # Probe text can carry credentials or paths. Log the same fixed
+                # marker that replaces auth_error, never the raw string.
+                logging.getLogger(__name__).warning(
+                    "Provider %s account probe failed: %s", provider, PROVIDER_ERROR
+                )
                 result = {**result, "auth_error": PROVIDER_ERROR}
             return result
     result = _empty_openrouter_account() if provider == "openrouter" else _empty_deepseek_account()
