@@ -67,16 +67,13 @@ def read_budget(*, fresh: bool = False, transport: str = "dispatch", for_display
 
 
 def _attach_status_observations(budget: dict[str, Any]) -> dict[str, Any]:
-    """Copy Muse and AGY diagnostics into a display snapshot, never routing inputs."""
+    """Copy AGY diagnostics into a display snapshot, never routing inputs."""
     from lu_machinery.api.subscription_usage import (
         get_agy_quota_observation,
-        get_provider_usage_data,
         project_agy_for_status,
-        project_muse_for_status,
     )
 
     agents = dict(budget.get("agents") or {})
-    agents["muse"] = project_muse_for_status(get_provider_usage_data("muse", kick_refresh=False))
     agents["agy"] = project_agy_for_status(get_agy_quota_observation())
     return {**budget, "agents": agents}
 
@@ -343,14 +340,6 @@ def _named_allotments(lane: str, info: dict[str, Any]) -> list[str]:
                 lines.append(pace)
         return lines
 
-    if lane == "muse":
-        lines.append(
-            "  quota: "
-            f"remaining={_pct(info.get('remaining_pct'))} "
-            f"headroom={_pct(info.get('headroom_pct'))} "
-            f"resets={_resets_text(info.get('resets_at'))}"
-        )
-
     if lane == "agy":
         groups = info.get("quota_groups")
         if not isinstance(groups, list):
@@ -371,7 +360,7 @@ def _named_allotments(lane: str, info: dict[str, Any]) -> list[str]:
                 )
         return lines
 
-    # Generic primary/secondary/tertiary windows (Kimi 5h+weekly, Codex, Grok, Muse).
+    # Generic primary/secondary/tertiary windows (Kimi 5h+weekly, Codex, Grok).
     windows = native.get("windows") if isinstance(native.get("windows"), dict) else None
     if isinstance(windows, dict):
         for name, block in windows.items():

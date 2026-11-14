@@ -1673,28 +1673,6 @@ def test_compute_usage_pace_rejects_expired_and_out_of_window():
     assert ok is not None
 
 
-_MUSE_EMAIL = "secret-email-do-not-leak@example.com"
-_MUSE_KNOWN = {
-    "provider": "muse",
-    "source": "oauth",
-    "usage": {
-        "primary": {"usedPercent": 10, "windowMinutes": 300, "resetsAt": "2026-10-13T18:00:00Z"},
-        "secondary": {"usedPercent": 30, "windowMinutes": 10080, "resetsAt": "2026-10-20T00:00:00Z"},
-        "accountEmail": _MUSE_EMAIL,
-    },
-    "credits": {"remaining": 999},
-    "identity": {"accountEmail": _MUSE_EMAIL},
-}
-_MUSE_NULL = {
-    "provider": "muse",
-    "source": "oauth",
-    "usage": {
-        "primary": None,
-        "secondary": {"usedPercent": None, "windowMinutes": 10080, "resetsAt": None},
-    },
-}
-
-
 def _assert_no_sentinel_value(value: object, sentinel: int | float) -> None:
     if isinstance(value, dict):
         for item in value.values():
@@ -1704,280 +1682,6 @@ def _assert_no_sentinel_value(value: object, sentinel: int | float) -> None:
             _assert_no_sentinel_value(item, sentinel)
     else:
         assert value not in (sentinel, str(sentinel))
-
-
-def _assert_muse_has_no_account_material(record: dict) -> None:
-    blob = json.dumps(record)
-    assert _MUSE_EMAIL not in blob
-    _assert_no_sentinel_value(record, 999)
-
-
-def test_muse_known_windows_publish_remaining_headroom_and_reset():
-    record = subscription_usage_mod._muse_record_from_codexbar_payload(_MUSE_KNOWN)
-    _assert_muse_has_no_account_material(record)
-    assert record["status"] == "healthy"
-    assert record["primary_used_pct"] == 10.0
-    assert record["primary_remaining_pct"] == 90.0
-    assert record["weekly_used_pct"] == 30.0
-    assert record["weekly_remaining_pct"] == 70.0
-    assert record["headroom_pct"] == 70.0
-    assert record["weekly_resets_at"] == "2026-10-20T00:00:00Z"
-    assert record["windows"]["primary"]["resets_at"] == "2026-10-13T18:00:00Z"
-    assert record["windows"]["secondary"]["remaining_pct"] == 70.0
-
-
-def test_muse_null_percentages_are_unknown_not_unlimited():
-    record = subscription_usage_mod._muse_record_from_codexbar_payload(_MUSE_NULL)
-    assert record["status"] == "unknown"
-    assert record["error_kind"] == "unsupported"
-    assert record["error_code"] == "NO_QUOTA"
-    assert record["primary_used_pct"] is None
-    assert record["primary_remaining_pct"] is None
-    assert record["weekly_used_pct"] is None
-    assert record["weekly_remaining_pct"] is None
-    assert record["headroom_pct"] is None
-    assert record["primary_used_pct"] != 0
-    assert record["weekly_remaining_pct"] != 100
-
-
-def test_muse_omitted_idle_session_keeps_weekly_without_inventing_session():
-    """Meta can omit the 5-hour window while weekly usage is present."""
-    record = subscription_usage_mod._muse_record_from_codexbar_payload(
-        {
-            "provider": "muse",
-            "usage": {
-                "primary": None,
-                "secondary": {
-                    "usedPercent": 30,
-                    "windowMinutes": 10080,
-                    "resetsAt": "2026-10-20T00:00:00Z",
-                },
-            },
-        }
-    )
-    assert record["status"] == "healthy"
-    assert record["primary_remaining_pct"] is None
-    assert record["weekly_remaining_pct"] == 70.0
-    assert record["headroom_pct"] == 70.0
-    assert record["weekly_resets_at"] == "2026-10-20T00:00:00Z"
-
-
-def test_muse_zero_used_is_a_real_remaining_reading():
-    record = subscription_usage_mod._muse_record_from_codexbar_payload(
-        {
-            "provider": "muse",
-            "usage": {
-                "primary": {"usedPercent": 0, "windowMinutes": 300, "resetsAt": "2026-10-13T18:00:00Z"},
-                "secondary": None,
-            },
-        }
-    )
-    assert record["status"] == "healthy"
-    assert record["primary_used_pct"] == 0.0
-    assert record["primary_remaining_pct"] == 100.0
-    assert record["headroom_pct"] == 100.0
-    assert record["weekly_remaining_pct"] is None
-
-
-def test_muse_malformed_payload_is_fetch_error():
-    for payload in ("nope", ["nope"], {"usage": "nope"}):
-        record = subscription_usage_mod._muse_record_from_codexbar_payload(payload)
-        assert record["status"] == "unavailable"
-        assert record["error_kind"] == "fetch_error"
-        assert record["error_code"] == "BAD_JSON"
-        assert record["primary_remaining_pct"] is None
-        assert record["weekly_remaining_pct"] is None
-        assert record.get("headroom_pct") is None
-
-
-def test_muse_provider_error_drops_message_text():
-    record = subscription_usage_mod._muse_record_from_codexbar_payload(
-        {"provider": "muse", "error": {"kind": "provider", "code": 1, "message": _MUSE_EMAIL}}
-    )
-    _assert_muse_has_no_account_material(record)
-    assert record["status"] == "unavailable"
-    assert record["error_kind"] == "provider"
-    assert record["error_code"] == 1
-    assert record["auth_error"] == "provider_error"
-    assert record["weekly_remaining_pct"] is None
-
-
-def test_muse_rate_limit_payload_stays_non_numeric():
-    record = subscription_usage_mod._muse_record_from_codexbar_payload(
-        [{"provider": "muse", "error": {"kind": "provider", "code": 429, "message": "slow down"}}]
-    )
-    assert record["error_kind"] == "rate_limit"
-    assert record["error_code"] == 429
-    assert record["status"] == "unavailable"
-    assert record["primary_remaining_pct"] is None
-    assert record["weekly_remaining_pct"] is None
-    projected = subscription_usage_mod.project_muse_for_status(
-        {**_muse_known_with_freshness(), "error_kind": "rate_limit", "error_code": 429, "freshness": "fresh"}
-    )
-    assert projected["headroom_pct"] is None
-    assert projected["remaining_pct"] is None
-    assert projected["resets_at"] is None
-    assert projected["status"] == "unknown"
-
-
-def _muse_known_with_freshness() -> dict:
-    record = subscription_usage_mod._muse_record_from_codexbar_payload(_MUSE_KNOWN)
-    record["freshness"] = "fresh"
-    record["age_s"] = 0
-    return record
-
-
-def test_muse_stale_projection_hides_numeric_headroom():
-    record = _muse_known_with_freshness()
-    record["freshness"] = "stale_last_good"
-    record["age_s"] = 800
-    projected = subscription_usage_mod.project_muse_for_status(record)
-    assert projected["freshness"] == "stale_last_good"
-    assert projected["status"] == "unknown"
-    assert projected["remaining_pct"] is None
-    assert projected["headroom_pct"] is None
-    assert projected["resets_at"] is None
-    assert projected["codexbar"]["windows"]["secondary"]["remaining_pct"] is None
-
-
-def test_muse_fresh_projection_keeps_binding_headroom():
-    projected = subscription_usage_mod.project_muse_for_status(_muse_known_with_freshness())
-    assert projected == {
-        "lane": "muse",
-        "status": "healthy",
-        "remaining_pct": 70.0,
-        "headroom_pct": 70.0,
-        "resets_at": "2026-10-20T00:00:00Z",
-        "freshness": "fresh",
-        "age_s": 0,
-        "error_kind": None,
-        "error_code": None,
-        "failure_kind": None,
-        "last_failure_code": None,
-        "auth_error": None,
-        "codexbar": {
-            "freshness": "fresh",
-            "age_s": 0,
-            "headroom_pct": 70.0,
-            "weekly_resets_at": "2026-10-20T00:00:00Z",
-            "windows": projected["codexbar"]["windows"],
-            "error_kind": None,
-            "failure_kind": None,
-            "last_failure_code": None,
-            "primary_remaining_pct": 90.0,
-            "weekly_remaining_pct": 70.0,
-        },
-    }
-    assert projected["codexbar"]["windows"]["primary"]["remaining_pct"] == 90.0
-    assert projected["codexbar"]["windows"]["secondary"]["remaining_pct"] == 70.0
-
-
-def test_muse_probe_reads_muse_usage_json(monkeypatch, tmp_path):
-    import subprocess
-
-    captured: dict = {}
-    now_ms = int(time.time() * 1000)
-    payload = {
-        "allowance": {
-            "asOfMs": now_ms,
-            "tier": _MUSE_EMAIL,
-            "weekly": {"usedPercent": 30, "resetsAtMs": now_ms + 5 * 24 * 3600 * 1000},
-            "window": {"usedPercent": 10, "resetsAtMs": now_ms + 300 * 1000},
-        }
-    }
-
-    def fake_run(argv, **kwargs):
-        captured["argv"] = argv
-        captured["kwargs"] = kwargs
-        return subprocess.CompletedProcess(argv, 0, stdout=json.dumps(payload), stderr=_MUSE_EMAIL)
-
-    from tests.opsec_fixtures import TOKEN
-
-    monkeypatch.setenv("GH_TOKEN", TOKEN)
-    monkeypatch.setattr(
-        subscription_usage_mod.shutil, "which", lambda name: "/usr/bin/muse" if name == "muse" else None
-    )
-    monkeypatch.setattr(subscription_usage_mod.subprocess, "run", fake_run)
-    record = subscription_usage_mod.fetch_provider_usage("muse", timeout_s=5)
-    assert captured["argv"] == ["/usr/bin/muse", "usage", "--json"]
-    assert captured["kwargs"]["stdin"] is subprocess.DEVNULL
-    usage_env = captured["kwargs"]["env"]
-    assert usage_env["MUSE_NO_AUTO_UPDATE"] == "1"
-    assert "GH_TOKEN" not in usage_env
-    assert TOKEN not in usage_env.values()
-    assert record["status"] == "healthy"
-    assert record["source"] == "muse_usage"
-    assert record["weekly_used_pct"] == 30.0
-    assert record["headroom_pct"] == 70.0
-    _assert_muse_has_no_account_material(record)
-
-    # Neither on PATH nor in ~/.local/bin (the API service's PATH lacks it).
-    monkeypatch.setattr(subscription_usage_mod.shutil, "which", lambda name: None)
-    monkeypatch.setattr(subscription_usage_mod.Path, "home", lambda: tmp_path)
-    missing = subscription_usage_mod.fetch_provider_usage("muse", timeout_s=5)
-    assert missing["error_code"] == "NO_PROBE"
-    fallback = tmp_path / ".local" / "bin" / "muse"
-    fallback.parent.mkdir(parents=True)
-    fallback.write_text("")
-    assert subscription_usage_mod._muse_bin() == str(fallback)
-    assert missing["status"] == "unavailable"
-    assert missing["status"] != "healthy"
-    assert missing["weekly_used_pct"] is None
-    assert missing["weekly_remaining_pct"] is None
-
-
-def test_muse_allowance_session_drops_secret_shaped_parent_env(monkeypatch):
-    """A secret-shaped parent variable must not reach the Muse allowance session.
-
-    The value is the synthetic OPSEC sentinel, never a credential-shaped literal.
-    The session env is the runner allowlist for provider ``muse`` plus the two
-    CLI lookups that ``muse usage`` honors when they are set.
-    """
-    from tests.opsec_fixtures import TOKEN
-
-    monkeypatch.setenv("SYNTHETIC_TOKEN", TOKEN)
-    monkeypatch.setenv("LU_OPSEC_OVERRIDE", TOKEN)
-    monkeypatch.setenv("GH_TOKEN", TOKEN)
-    monkeypatch.setenv("XDG_CONFIG_HOME", "/fixture/xdg")
-    monkeypatch.setenv("SSL_CERT_FILE", "/fixture/ca.pem")
-    monkeypatch.setenv("MUSE_FLAGS", "1")
-
-    env = subscription_usage_mod._muse_session_env()
-
-    assert env["MUSE_NO_AUTO_UPDATE"] == "1"
-    assert env["XDG_CONFIG_HOME"] == "/fixture/xdg"
-    assert env["SSL_CERT_FILE"] == "/fixture/ca.pem"
-    assert "SYNTHETIC_TOKEN" not in env
-    assert "LU_OPSEC_OVERRIDE" not in env
-    assert "GH_TOKEN" not in env
-    assert "MUSE_FLAGS" not in env
-    assert TOKEN not in env.values()
-
-
-def test_muse_probe_timeout_and_malformed_stdout_stay_unknown(monkeypatch):
-    import subprocess
-
-    monkeypatch.setattr(
-        subscription_usage_mod.shutil, "which", lambda name: "/usr/bin/muse" if name == "muse" else None
-    )
-
-    def timeout_run(argv, **kwargs):
-        raise subprocess.TimeoutExpired(argv, kwargs.get("timeout"))
-
-    monkeypatch.setattr(subscription_usage_mod.subprocess, "run", timeout_run)
-    timed_out = subscription_usage_mod.fetch_provider_usage("muse", timeout_s=1)
-    assert timed_out["error_kind"] == "timeout"
-    assert timed_out["status"] == "unavailable"
-    assert timed_out["weekly_remaining_pct"] is None
-
-    def bad_json(argv, **kwargs):
-        return subprocess.CompletedProcess(argv, 0, stdout="not-json", stderr="")
-
-    monkeypatch.setattr(subscription_usage_mod.subprocess, "run", bad_json)
-    malformed = subscription_usage_mod.fetch_provider_usage("muse", timeout_s=1)
-    assert malformed["error_kind"] == "fetch_error"
-    assert malformed["error_code"] == "BAD_JSON"
-    assert malformed["primary_remaining_pct"] is None
 
 
 _AGY_EMAIL = "secret-email-do-not-leak@example.com"
@@ -2278,118 +1982,6 @@ def test_public_resets_are_canonical_timestamps(value, expected):
     assert subscription_usage_mod._agy_reset_or_none(value) == expected
 
 
-def test_muse_nested_metadata_is_projected_without_private_text():
-    payload = {
-        "provider": "muse",
-        "source": "PRIVATE_SOURCE",
-        "usage": {
-            "primary": {
-                "usedPercent": 20,
-                "windowMinutes": "PRIVATE_MINUTES",
-                "resetsAt": "PRIVATE_RESET",
-                "resetDescription": "PRIVATE_DESCRIPTION",
-                "label": "PRIVATE_LABEL",
-                "identity": "PRIVATE_IDENTITY",
-            },
-        },
-    }
-    record = subscription_usage_mod._muse_record_from_codexbar_payload(payload)
-    projected = subscription_usage_mod.project_muse_for_status({**record, "freshness": "fresh", "age_s": 0})
-    assert "PRIVATE_" not in json.dumps(record) + json.dumps(projected)
-    assert record["source"] == "codexbar_muse"
-    assert projected["codexbar"]["windows"]["primary"] == {
-        "used_pct": 20.0,
-        "remaining_pct": 80.0,
-        "resets_at": None,
-        "window_minutes": None,
-        "reset_description": None,
-    }
-    assert projected["remaining_pct"] == 80.0
-    assert projected["resets_at"] is None
-
-
-@pytest.mark.parametrize("provider", ["codex", "PRIVATE_PROVIDER", None, {"private": "PRIVATE_PROVIDER"}])
-def test_muse_rejects_explicit_provider_mismatch(provider):
-    record = subscription_usage_mod._muse_record_from_codexbar_payload({**_MUSE_KNOWN, "provider": provider})
-    assert record["error_kind"] == "fetch_error"
-    assert record["error_code"] == "PROVIDER_MISMATCH"
-    assert record["primary_remaining_pct"] is None
-    assert "PRIVATE_" not in json.dumps(record)
-
-
-def test_muse_list_prefers_actual_muse_over_unlabelled_and_other_providers():
-    record = subscription_usage_mod._muse_record_from_codexbar_payload(
-        [
-            {"provider": "codex", "usage": {"primary": {"usedPercent": 7}}},
-            {"usage": {"primary": {"usedPercent": 3}}},
-            _MUSE_NULL,
-        ]
-    )
-    assert record["error_code"] == "NO_QUOTA"
-    assert record["headroom_pct"] is None
-
-
-@pytest.mark.parametrize(
-    ("updated_at", "code"),
-    [
-        ("2000-01-01T00:00:00Z", "STALE_DATA"),
-        ("2999-01-01T00:00:00Z", "STALE_DATA"),
-        (None, "BAD_JSON"),
-        ("PRIVATE_OBSERVATION", "BAD_JSON"),
-    ],
-)
-def test_muse_invalid_observation_cannot_become_a_cached_measurement(updated_at, code):
-    record = subscription_usage_mod._muse_record_from_codexbar_payload(
-        {
-            **_MUSE_KNOWN,
-            "usage": {**_MUSE_KNOWN["usage"], "updatedAt": updated_at},
-        }
-    )
-    assert record["error_code"] == code
-    assert record["primary_remaining_pct"] is None
-    assert record["weekly_remaining_pct"] is None
-    assert subscription_usage_mod._record_probe_result("muse", record) is False
-    assert "PRIVATE_" not in json.dumps(record)
-
-
-def test_muse_provider_age_expires_before_a_recent_cache_entry(monkeypatch):
-    now = datetime(2026, 10, 13, 12, tzinfo=UTC)
-
-    class Clock(datetime):
-        @classmethod
-        def now(cls, tz=None):
-            return now
-
-    monkeypatch.setattr(subscription_usage_mod, "datetime", Clock)
-    monkeypatch.setattr(subscription_usage_mod, "_codexbar_cache_ttl_s", lambda: 720)
-    record = subscription_usage_mod._muse_record_from_codexbar_payload(
-        {
-            **_MUSE_KNOWN,
-            "usage": {**_MUSE_KNOWN["usage"], "updatedAt": "2026-10-13T11:50:00Z"},
-        }
-    )
-    record.update(freshness="fresh", age_s=0)
-    projected = subscription_usage_mod.project_muse_for_status(record)
-    assert (projected["freshness"], projected["age_s"], projected["remaining_pct"]) == ("fresh", 600.0, 70.0)
-    now += timedelta(seconds=120)
-    projected = subscription_usage_mod.project_muse_for_status(record)
-    assert (projected["freshness"], projected["age_s"], projected["remaining_pct"]) == ("stale_last_good", 720.0, None)
-    assert projected["error_code"] == "STALE_DATA"
-
-
-@pytest.mark.parametrize("used", [-1, 101, float("nan"), float("inf"), True])
-def test_muse_out_of_range_window_is_unknown(used):
-    record = subscription_usage_mod._muse_record_from_codexbar_payload(
-        {
-            "provider": "muse",
-            "usage": {"primary": {"usedPercent": used, "windowMinutes": 300}},
-        }
-    )
-    assert record["status"] == "unknown"
-    assert record["headroom_pct"] is None
-    assert record["windows"]["primary"]["remaining_pct"] is None
-
-
 def test_agy_public_labels_windows_and_resets_drop_private_metadata(monkeypatch):
     payload = _agy_usage_payload(
         {
@@ -2456,8 +2048,7 @@ def test_agy_failed_envelope_cannot_publish_healthy_quota(monkeypatch, nested, e
     assert "PRIVATE_" not in json.dumps(record) + json.dumps(projected)
 
 
-@pytest.mark.parametrize("lane", ["muse", "agy"])
-def test_public_projection_does_not_trust_cached_provider_metadata(lane):
+def test_public_projection_does_not_trust_cached_provider_metadata():
     record = {
         "freshness": "fresh",
         "age_s": "PRIVATE_AGE",
@@ -2489,12 +2080,7 @@ def test_public_projection_does_not_trust_cached_provider_metadata(lane):
             },
         ],
     }
-    project = (
-        subscription_usage_mod.project_muse_for_status
-        if lane == "muse"
-        else subscription_usage_mod.project_agy_for_status
-    )
-    public = project(record)
+    public = subscription_usage_mod.project_agy_for_status(record)
     assert "PRIVATE_" not in json.dumps(public)
     _assert_no_sentinel_value(public, 987654)
     assert (public["status"], public["remaining_pct"], public["age_s"], public["error_kind"], public["error_code"]) == (
@@ -2504,16 +2090,15 @@ def test_public_projection_does_not_trust_cached_provider_metadata(lane):
         "provider",
         "PROVIDER_ERROR",
     )
-    if lane == "agy":
-        assert public["quota_groups"] == [
-            {
-                "key": "gemini_models",
-                "label": "Gemini Models",
-                "windows": [
-                    {"window": "5h", "used_pct": None, "remaining_pct": None, "resets_at": None, "window_minutes": 300},
-                ],
-            }
-        ]
+    assert public["quota_groups"] == [
+        {
+            "key": "gemini_models",
+            "label": "Gemini Models",
+            "windows": [
+                {"window": "5h", "used_pct": None, "remaining_pct": None, "resets_at": None, "window_minutes": 300},
+            ],
+        }
+    ]
 
 
 # Presentation controls (#9869), run against the shipped machinery home renderer.
@@ -2633,9 +2218,9 @@ def test_home_usage_ended_subscription_disappears_and_cancelled_is_marked():
     open_end = {'status': 'ok', 'name': 'Plan', 'cancelled': True, 'ends_on': None, 'ended': False}
     rendered = _render_home_usage(_home_subs(
         {'provider': 'grok', 'label': 'Grok', 'accounts': [_home_account('Grok+Cursor', plan=ended)]},
-        {'provider': 'muse', 'label': 'Muse', 'accounts': [_home_account('Muse', plan=open_end)]}))
+        {'provider': 'codex', 'label': 'Codex', 'accounts': [_home_account('Codex b', plan=open_end)]}))
     assert '<td>Grok+Cursor</td>' not in rendered and 'Hidden, subscription ended: Grok+Cursor (ended 2029-12-31)' in rendered
-    assert 'cancelled, end date not configured' in _home_row(rendered, 'Muse')
+    assert 'cancelled, end date not configured' in _home_row(rendered, 'Codex b')
     # Both AGY rows belong to one subscription.
     agy = [_home_account('AGY Gemini', plan=ended), _home_account('AGY Claude/GPT', plan=ended)]
     gone = _render_home_usage(_home_subs({'provider': 'agy', 'label': 'AGY', 'accounts': agy}))

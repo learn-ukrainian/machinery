@@ -1766,7 +1766,7 @@ def _public_logins(raw: object, ends: object) -> dict[str, Any]:
             "subscriptions": {"ends": {key: panel_values.scalars(panel_values.mapping(value),
                                                                           flags=("ended",), times=("ends_on",))
                                         for key, value in panel_values.mapping(subscriptions_ends.get("ends")).items()
-                                        if key in {"claude_a", "claude_b", "codex_a", "codex_b", "agy", "grok", "muse"}},
+                                        if key in {"claude_a", "claude_b", "codex_a", "codex_b", "agy", "grok"}},
                               "reason_code": panel_values.reason(subscriptions_ends.get("reason"),
                                                                  {"not_configured", "unreadable", "invalid"})}}
 
@@ -1796,7 +1796,7 @@ def runtime_subscriptions():
     One row per account, grouped by provider (``providers[].accounts[]``), for
     the home page and for dispatch planning. Built by
     ``subscriptions.subscriptions_snapshot`` from the host's usage cache, the
-    Monitor's in-memory Muse reading and the operator's plan-facts file; it
+    Monitor's Claude readings and the operator's plan-facts file; it
     never calls a provider. A missing value is ``null`` in a section
     whose ``status`` is ``unknown`` with a ``reason_code``; a reading older than
     15 minutes is ``stale``. The heading is ``unavailable`` only when no

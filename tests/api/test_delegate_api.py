@@ -833,11 +833,11 @@ def test_provider_diagnostics_and_breakdown_cannot_leak_credentials_or_paths(tmp
 
     secret = "/private/account/token=sk-test-only-do-not-use"
     error = subscription_usage._normalize_provider_error(
-        "muse", {"message": secret, "kind": "fetch_error", "code": "PROBE_FAILED"},
+        "grok", {"message": secret, "kind": "fetch_error", "code": "PROBE_FAILED"},
     )
     assert error["auth_error"] == "provider_error"
     assert secret not in caplog.text
-    assert "Provider muse usage probe failed: PROVIDER_ERROR" in caplog.text
+    assert "Provider grok usage probe failed: PROVIDER_ERROR" in caplog.text
     monkeypatch.setattr(state_router, "get_api_account_data", lambda lane: {
         "auth_error": secret, "total_balance": 25.0, "usage_usd": 1.0, "probe_state": "NEED_PROBE",
     })
