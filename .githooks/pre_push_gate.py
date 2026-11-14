@@ -1867,14 +1867,11 @@ def message_gate(arguments: list[str]) -> int:
         return EXIT_REFUSED
     try:
         if arguments[0] == "--push-messages":
-            environment = git_push.scan_environment(dict(os.environ))
-            # Observe the push's inherited configuration. Repository.run pins
-            # hooksPath to /dev/null for object reads, hiding the selected hook.
-            # Fixed rev-parse arguments run neither hooks nor a shell.
-            hooks = subprocess.run(  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit, python.lang.security.audit.dangerous-subprocess-use-tainted-env-args
-                [git_push.real_git(environment), "rev-parse", "--git-path", "hooks"],
-                env=environment, stdin=subprocess.DEVNULL, capture_output=True, check=False, timeout=60,
-            )
+            environment = dict(os.environ)
+            # Object reads pin hooksPath to /dev/null. Only this fixed metadata
+            # query must observe the push's inherited hook selection.
+            repository = git_push.Repository(git_push.real_git(environment), environment, pin_hooks=False)
+            hooks = repository.run("rev-parse", "--git-path", "hooks")
             # The scanner's checkout-relative directory, from its unresolved file location. Never
             # __name__: a short import spelling would name the wrong directory.
             scanner_directory = Path(os.path.abspath(git_push.__file__)).parent

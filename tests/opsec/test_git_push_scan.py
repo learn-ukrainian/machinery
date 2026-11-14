@@ -2781,6 +2781,13 @@ def test_tracked_hook_scans_once_and_refuses_flagged_messages(push_sandbox, pin,
         **({"GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": "core.hooksPath",
             "GIT_CONFIG_VALUE_0": os.devnull} if pin else {}),
     )
+    # The metadata lookup opts out explicitly; ordinary scanner reads stay pinned.
+    assert git_push.Repository(REAL_GIT, environment).text(
+        "-C", str(sandbox.work), "rev-parse", "--git-path", "hooks"
+    ).strip() == os.devnull
+    assert git_push.Repository(REAL_GIT, environment, pin_hooks=False).text(
+        "-C", str(sandbox.work), "rev-parse", "--git-path", "hooks"
+    ).strip() == (os.devnull if pin else ".githooks")
     # Invoke the tracked hook directly for the plain-Git case: the read pin must
     # not disable the entry point being tested. The shim selects its own hook.
     if shim:
