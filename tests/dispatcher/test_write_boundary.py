@@ -298,7 +298,9 @@ def test_no_github_write_authority_is_reachable_inside_any_route(primary, monkey
         "--receipt", str(receipt), "--mode", mode, "--output", str(report), *extra, "--", "/bin/sh", "-c",
         f"python3 -I {probe} {_SENTINEL} '{json.dumps({k: str(v) for k, v in stores.items()})}' {report} "
         f"'{json.dumps(_GITHUB_HOSTS)}'"
-        # The Sources proxy every provider names sits at its fixed path inside (sources_command).
+        # The Sources proxy every provider names sits at its fixed path inside (sources_command), and its
+        # directory cannot be renamed away and replaced by one the worker controls.
+        " && test -r /run/lu-write-boundary/sources-stdio.py && ! mv /run/lu-write-boundary /run/moved 2>/dev/null"
         " && test -r /run/lu-write-boundary/sources-stdio.py" + (f" && echo refreshed > {credential}" if credential else ""),
     ])
     result = json.loads(receipt.read_text())

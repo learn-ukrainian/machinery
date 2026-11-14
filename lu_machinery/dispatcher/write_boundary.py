@@ -81,7 +81,7 @@ _BOOTSTRAP = (
 _PROJECTED = {
     "canary.py": machinery_path("dispatcher/agy_canary.py"),
     "forwarder.py": machinery_path("agent_runtime/attempt_forwarder.py"),
-    "stdio.py": machinery_path("agent_runtime/attempt_proxy.py"),
+    "sources-stdio.py": machinery_path("agent_runtime/attempt_proxy.py"),
 }
 _TASK_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}")
 _OBJECT_ID = re.compile(r"[0-9a-f]{40}|[0-9a-f]{64}")
@@ -133,11 +133,13 @@ _GITHUB_REMOTE = re.compile(
 _GITHUB_SLUG = re.compile(r"[A-Za-z0-9][A-Za-z0-9-]{0,38}/[A-Za-z0-9._-]{1,100}")
 _MAX_REQUEST = 1 << 20
 _MAX_BODY = 64 << 10
-# Where the broker socket appears inside: a short path on the private /run, below the sockaddr_un length limit.
+# The launcher's own directory appears inside at this short fixed path on the private /run (below the
+# sockaddr_un length limit), read-only and as a mount point, so no worker can rename, remove or replace it or
+# anything below it: the broker socket, the Sources relay socket and the projected Sources byte proxy. The MCP
+# stdio command a provider names (``sources_command``) is therefore a constant, and no MCP file is read.
+_INSIDE = "/run/lu-write-boundary"
 _BROKER_INSIDE = "/run/lu-write-boundary/broker.sock"
 _SOURCES_INSIDE = "/run/lu-write-boundary/sources.sock"
-# The launcher's projected byte proxy to that socket, at a fixed path beside it, so the MCP stdio command a
-# provider names (``sources_command``) is a constant and no product or worktree MCP file is read.
 _SOURCES_STDIO_INSIDE = "/run/lu-write-boundary/sources-stdio.py"
 _BROKER_TIMEOUTS = {"review-dispatch": 300, "record-verdict": 900, "fleet-publish": 120, "gh": 120,
                     "closeout-request": 900, "publish": 300, "pr-merge": 900}
@@ -150,6 +152,13 @@ def sources_command() -> list[str]:
     fixed paths. Without a relay the socket is absent: the server fails to start and the run goes on.
     """
     return [str(Path(sys.executable).resolve(strict=True)), "-I", _SOURCES_STDIO_INSIDE, _SOURCES_INSIDE]
+
+
+def _interpreter_root() -> Path:
+    """The installation ``sources_command``'s interpreter runs from (binary and standard library)."""
+    interpreter = Path(sources_command()[0])
+    prefix = Path(sys.base_prefix).resolve()
+    return prefix if interpreter.is_relative_to(prefix) else interpreter.parent
 
 
 def broker_path() -> str | None:
@@ -1158,9 +1167,11 @@ class _Boundary:
         for path in sockets:
             argv += ["--ro-bind", "/dev/null", str(path)]
         self.broker = _Broker(self, boundary / "broker.sock")
-        argv += ["--ro-bind", str(boundary / "broker.sock"), _BROKER_INSIDE,
-                 "--ro-bind", str(boundary / "stdio.py"), _SOURCES_STDIO_INSIDE]
+        argv += ["--ro-bind", str(boundary), _INSIDE]
         interpreter = sources_command()[0]
+        if _under(_interpreter_root(), [home]):
+            # The writable HOME layer would let a worker replace the interpreter the Sources command runs.
+            argv += ["--ro-bind", str(_interpreter_root()), str(_interpreter_root())]
         if read_only:
             (boundary / "bin").mkdir(mode=0o700)
             _write_private(boundary / "bin" / "gh", agy_sandbox._GH_SHIM.format(interpreter=interpreter).encode(), 0o500)
@@ -1174,7 +1185,6 @@ class _Boundary:
             readers, _writers = sources_tool_sets()
             self.relay = agy_sandbox.SourcesRelay(boundary / "sources.sock", frozenset(readers), {
                 name: os.environ[name] for name in ("PATH", "HOME", "LANG", "TMPDIR") if name in os.environ})
-            argv += ["--ro-bind", str(boundary / "sources.sock"), _SOURCES_INSIDE]
         except Exception as exc:  # Sources is optional for a write worker; containment does not depend on it
             self.receipt["sources"] = {"status": "unavailable", "reason": f"{type(exc).__name__}: {exc}"[:200]}
         argv += ["--cap-drop", "ALL", "--chdir", str(self.worktree)]
@@ -1268,6 +1278,10 @@ class _Boundary:
             expect("write_open", path, "OK")
         for port in _LOOPBACK_PORTS:
             expect("connect_tcp", "127.0.0.1", "ECONNREFUSED", "ENETUNREACH", port=port)
+        # The fixed Sources command cannot be redirected: its directory is a mount point and its interpreter's
+        # installation is read-only.
+        expect("rename", _INSIDE, "EBUSY")
+        expect("create", _interpreter_root() / f".write-boundary-canary-{nonce}", "EROFS")
         if (abstract := agy_sandbox._host_abstract_socket()) is not None:
             expect("connect_abstract", abstract, "ECONNREFUSED")
         for path in sockets:

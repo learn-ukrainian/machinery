@@ -259,9 +259,12 @@ Texts arrive as JSON strings, and the host writes them to the run's private scra
   `run`, `jobs`). It reads only the primary's own repository and never security alerts.
 
 Sources goes through the read-only AGY boundary's `SourcesRelay` (read-only tools only). The launcher
-binds its byte proxy and the relay socket at fixed paths, `/run/lu-write-boundary/sources-stdio.py` and
-`/run/lu-write-boundary/sources.sock`, so the MCP stdio command (`write_boundary.sources_command()`) is a
-constant: the dispatcher's interpreter with `-I` and those two paths. Claude names it in its explicit
+binds its own directory read-only at `/run/lu-write-boundary`, so its byte proxy and the relay socket sit at
+fixed paths, `/run/lu-write-boundary/sources-stdio.py` and `/run/lu-write-boundary/sources.sock`, and the
+MCP stdio command (`write_boundary.sources_command()`) is a constant: the dispatcher's interpreter with `-I`
+and those two paths. That directory is a mount point, so a worker cannot rename it away and put its own
+proxy or socket in its place; when the interpreter's installation lies under HOME, it is bound read-only
+too. The canary checks both before the provider starts. Claude names it in its explicit
 `--mcp-config` with `--strict-mcp-config`; no product or worktree `.mcp.json` is read. The tools that
 persist fetched entries stay refused by the relay. The receipt's `sources` holds the relay's call
 counts, or why it was unavailable. Sources is optional: without the relay the server fails to start and
