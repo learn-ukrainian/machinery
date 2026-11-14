@@ -3574,11 +3574,6 @@
     },
     {
       "path": "lu_machinery/dispatcher/agy_sandbox.py",
-      "code": "attr-defined",
-      "message": "\"object\" has no attribute \"get\""
-    },
-    {
-      "path": "lu_machinery/dispatcher/agy_sandbox.py",
       "code": "list-item",
       "message": "List item 0 has incompatible type \"None | str\"; expected \"PathLike[bytes] | PathLike[str] | bytes | str\""
     },
