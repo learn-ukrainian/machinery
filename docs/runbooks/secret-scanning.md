@@ -348,9 +348,11 @@ and `path:line`. The final cell contains the written rationale, starting with
 false-positive row whose location is under `tests/`.
 
 Before sending, the publisher retrieves that file at the PR's merge SHA and
-at the base branch's current resolved head. The alert's current triage row
+at the base branch's current resolved head, explicitly in `refs/heads/` so a
+same-named tag cannot select the triage. The alert's current triage row
 must be byte-identical to the reviewed row; removal or reclassification
-refuses the write. The publisher checks the alert and every open branch instance, and compares their SARIF
+refuses the write. Duplicate rows also count when padded with whitespace or
+written without optional outer table pipes. The publisher checks the alert and every open branch instance, and compares their SARIF
 rule, location, messages and flow evidence with the analysis at the triage
 merge. Analysis-local indexes are resolved before comparison. Missing analysis,
 unknown evidence or drift refuses the write. If a later change moves a location

@@ -1784,13 +1784,16 @@ def _dismiss_preflight(fields, gh_repo, dest, runner, cwd, environment):
     base_ref = pr["base"]["ref"]
     if not re.fullmatch(PATTERNS["ref"], base_ref):
         raise ValueError("invalid triage branch")
-    head_endpoint = f"commits/{quote(base_ref, safe='')}"
-    current_head = get(head_endpoint)["sha"]
+    head_endpoint = f"git/ref/heads/{quote(base_ref, safe='')}"
+    head_reference = get(head_endpoint)
+    if head_reference["ref"] != f"refs/heads/{base_ref}" or head_reference["object"]["type"] != "commit":
+        raise ValueError("unknown current triage branch")
+    current_head = head_reference["object"]["sha"]
     if not re.fullmatch(PATTERNS["sha"], current_head):
         raise ValueError("unknown current triage head")
     current_triage = get(f"contents/{_DISMISS_TRIAGE_PATH}?ref={current_head}", raw=True)
-    current_rows = [line for line in current_triage.splitlines() if line.startswith("|") and line.endswith("|")
-                    and line.split("|")[1].strip() == str(number)]
+    current_rows = [line for line in current_triage.splitlines() if "|" in line
+                    and line.strip().removeprefix("|").split("|", 1)[0].strip() == str(number)]
     if current_rows != [triage_line]:
         raise ValueError("triage has been superseded")
     disposition = row[3].strip().lower()
@@ -1847,7 +1850,7 @@ def _dismiss_preflight(fields, gh_repo, dest, runner, cwd, environment):
     # Close the evidence/read race before the one write, without retrying.
     if (get(f"code-scanning/alerts/{number}") != alert
             or get(f"code-scanning/alerts/{number}/instances?per_page=100", pages=True) != get_instances
-            or get(head_endpoint).get("sha") != current_head):
+            or get(head_endpoint) != head_reference):
         raise ValueError("alert or triage evidence changed during preflight")
     return alert
 

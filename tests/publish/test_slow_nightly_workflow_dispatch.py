@@ -349,7 +349,7 @@ def dismissal_transport(monkeypatch, synthetic_opsec):
     }}]}
     root = "repos/unit/public/"
     documents = {
-        "commits/main": {"sha": current},
+        "git/ref/heads/main": {"ref": "refs/heads/main", "object": {"type": "commit", "sha": current}},
         "pulls/2": {"merged": True, "merge_commit_sha": before, "html_url": "https://github.com/unit/public/pull/2", "base": {"ref": "main"}},
         "pulls/2/files?per_page=100": [[{"filename": pub._DISMISS_TRIAGE_PATH, "status": "modified", "patch": "+| 1 | `py/fixture` | `sample.py:7` | False positive. Public metadata only. |"}]],
         f"contents/{pub._DISMISS_TRIAGE_PATH}?ref={before}": "| 1 | `py/fixture` | `sample.py:7` | False positive. Public metadata only. |\n",
@@ -598,12 +598,44 @@ def test_dismissal_refuses_a_current_triage_head_that_moves_during_validation(di
     def moving(argv, **kwargs):
         nonlocal reads
         answer = sender(argv, **kwargs)
-        if argv[:5] == ["gh", "api", "--method", "GET", "repos/unit/public/commits/main"]:
+        if argv[:5] == ["gh", "api", "--method", "GET", "repos/unit/public/git/ref/heads/main"]:
             reads += 1
             if reads == 2:
-                answer.stdout = json.dumps({"sha": "c" * 40})
+                answer.stdout = json.dumps({"ref": "refs/heads/main", "object": {"type": "commit", "sha": "c" * 40}})
         return answer
 
     with pytest.raises(gate.PublishBlocked, match="DISMISSAL_TRIAGE_REFUSED"):
         pub.publish("code-scanning-dismiss", repo="unit/public", number=1, reason="false positive", comment=comment, runner=moving)
     assert reads == 2 and writes == []
+
+
+@pytest.mark.parametrize("row", [
+    " | 1 | `py/fixture` | `sample.py:7` | Real. |",
+    "| 1 | `py/fixture` | `sample.py:7` | Real. | ",
+    "\t| 1 | `py/fixture` | `sample.py:7` | Real. |\t",
+    "1 | `py/fixture` | `sample.py:7` | Real.",
+    "| 1 | `py/fixture` | `sample.py:7` | Real.",
+    "1 | `py/fixture` | `sample.py:7` | Real. |",
+])
+def test_dismissal_refuses_padded_or_outer_pipe_optional_contradicting_rows(dismissal_transport, row):
+    documents, writes, _, options, sender, comment = dismissal_transport
+    original = documents[next(key for key in documents if key.startswith("contents/"))]
+    options["current_triage"] = original + row + "\n"
+    with pytest.raises(gate.PublishBlocked, match="DISMISSAL_TRIAGE_REFUSED"):
+        pub.publish("code-scanning-dismiss", repo="unit/public", number=1, reason="false positive", comment=comment, runner=sender)
+    assert writes == []
+
+
+@pytest.mark.parametrize("change", [
+    {"ref": "refs/tags/main", "object": {"type": "commit", "sha": "b" * 40}},
+    {"ref": "refs/heads/main", "object": {"type": "tag", "sha": "b" * 40}},
+    {"ref": "refs/heads/main", "object": {"type": "commit", "sha": "b" * 39}},
+])
+def test_dismissal_current_triage_requires_the_exact_branch_commit_reference(dismissal_transport, change):
+    documents, writes, calls, _, sender, comment = dismissal_transport
+    documents["git/ref/heads/main"] = change
+    with pytest.raises(gate.PublishBlocked, match="DISMISSAL_TRIAGE_REFUSED"):
+        pub.publish("code-scanning-dismiss", repo="unit/public", number=1, reason="false positive", comment=comment, runner=sender)
+    assert writes == []
+    assert any("repos/unit/public/git/ref/heads/main" in argv for argv in calls)
+    assert not any(any("commits/main" in item for item in argv) for argv in calls)
