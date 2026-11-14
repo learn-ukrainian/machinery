@@ -1768,7 +1768,8 @@ def _dismiss_preflight(fields, gh_repo, dest, runner, cwd, environment):
     if pr["html_url"] != f"https://github.com/{gh_repo}/pull/{pr_number}":
         raise ValueError("PR identity changed")
     files = get(f"pulls/{pr_number}/files?per_page=100", pages=True)
-    if not any(row.get("filename") == _DISMISS_TRIAGE_PATH and row.get("status") in {"added", "modified"} for row in files):
+    triage_files = [item for item in files if item.get("filename") == _DISMISS_TRIAGE_PATH and item.get("status") in {"added", "modified"}]
+    if len(triage_files) != 1:
         raise ValueError("PR does not contain triage")
     triage = get(f"contents/{_DISMISS_TRIAGE_PATH}?ref={merge}", raw=True)
     rows = [line.split("|")[1:-1] for line in triage.splitlines() if line.startswith("|") and line.endswith("|")]
@@ -1776,6 +1777,9 @@ def _dismiss_preflight(fields, gh_repo, dest, runner, cwd, environment):
     if len(rows) != 1 or not rows[0][3].strip():
         raise ValueError("triage does not cover this alert")
     row = rows[0]
+    triage_line = "|" + "|".join(row) + "|"
+    if "+" + triage_line not in triage_files[0].get("patch", "").splitlines():
+        raise ValueError("PR did not review this triage row")
     disposition = row[3].strip().lower()
     if fields["reason"] == "won't fix":
         justified = disposition.startswith("won't fix.")

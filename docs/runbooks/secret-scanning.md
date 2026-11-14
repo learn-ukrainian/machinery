@@ -340,8 +340,8 @@ OPSEC scanner and verdict-marker guard, then the same text is frozen into the
 request. Supported reasons are `false positive`, `won't fix` and `used in tests`.
 Issue-close reasons are separate.
 
-The linked PR must change this runbook and contain a four-column triage row
-like the table above. The first three cells identify the alert number, rule ID
+The linked PR must add or revise this alert's four-column triage row in this
+runbook, like the table above. An inherited row does not establish review. The first three cells identify the alert number, rule ID
 and `path:line`. The final cell contains the written rationale, starting with
 `False positive.` or `Won't fix.` as appropriate. `used in tests` requires a
 false-positive row whose location is under `tests/`.

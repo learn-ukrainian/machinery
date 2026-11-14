@@ -350,7 +350,7 @@ def dismissal_transport(monkeypatch, synthetic_opsec):
     root = "repos/unit/public/"
     documents = {
         "pulls/2": {"merged": True, "merge_commit_sha": before, "html_url": "https://github.com/unit/public/pull/2", "base": {"ref": "main"}},
-        "pulls/2/files?per_page=100": [[{"filename": pub._DISMISS_TRIAGE_PATH, "status": "modified"}]],
+        "pulls/2/files?per_page=100": [[{"filename": pub._DISMISS_TRIAGE_PATH, "status": "modified", "patch": "+| 1 | `py/fixture` | `sample.py:7` | False positive. Public metadata only. |"}]],
         f"contents/{pub._DISMISS_TRIAGE_PATH}?ref={before}": "| 1 | `py/fixture` | `sample.py:7` | False positive. Public metadata only. |\n",
         "code-scanning/alerts/1": alert,
         "code-scanning/alerts/1/instances?per_page=100": [[instance]],
@@ -401,6 +401,8 @@ def test_dismissal_fixes_endpoint_state_and_replays_scanned_comment(dismissal_tr
         documents["code-scanning/alerts/1/instances?per_page=100"][0][0]["location"]["path"] = "tests/sample.py"
         for aid in (2, 3):
             documents[f"code-scanning/analyses/{aid}"]["runs"][0]["results"][0]["locations"][0]["physicalLocation"]["artifactLocation"]["uri"] = "tests/sample.py"
+    triage_key = next(key for key in documents if key.startswith("contents/"))
+    documents["pulls/2/files?per_page=100"][0][0]["patch"] = "+" + documents[triage_key].strip()
     scanned = []
     original = gate.check_texts
 
@@ -435,7 +437,7 @@ def test_dismissal_rejects_open_payload_and_unbound_comments(dismissal_transport
     assert writes == []
 
 
-@pytest.mark.parametrize("fault", ["unmerged", "unrelated", "missing-row", "rule", "location", "flow", "analysis", "tool", "branch", "unknown-flow"])
+@pytest.mark.parametrize("fault", ["unmerged", "unrelated", "missing-row", "rule", "location", "flow", "analysis", "tool", "branch", "unknown-flow", "inherited-row"])
 def test_dismissal_refuses_missing_or_changed_reviewed_evidence(dismissal_transport, fault):
     documents, writes, _, _, sender, comment = dismissal_transport
     if fault == "unmerged":
@@ -445,6 +447,8 @@ def test_dismissal_refuses_missing_or_changed_reviewed_evidence(dismissal_transp
     elif fault == "missing-row":
         key = next(key for key in documents if key.startswith("contents/"))
         documents[key] = documents[key].replace("| 1 |", "| 2 |")
+    elif fault == "inherited-row":
+        documents["pulls/2/files?per_page=100"][0][0]["patch"] = "+Unrelated documentation edit."
     elif fault == "rule":
         documents["code-scanning/alerts/1"]["rule"]["id"] = "py/other"
     elif fault == "location":
