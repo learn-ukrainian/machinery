@@ -69,9 +69,14 @@ def ownership_view(record: dict) -> dict:
 
 
 def write_ownership_view(path: Path, record: dict) -> None:
-    """Replace ``path`` with this record's ownership view. The parent directory must already exist."""
+    """Replace ``path`` with this record's ownership view. The parent directory must already exist.
+
+    A symlinked directory or view refuses with ``ValueError``. A directory that is missing or not a
+    directory fails with the ``OSError`` (``ENOENT`` or ``ENOTDIR``) of the first write into it, so a
+    caller can tell a boundary torn down mid-refresh from a refused path.
+    """
     directory = path.parent
-    if directory.is_symlink() or not directory.is_dir() or path.is_symlink():
+    if directory.is_symlink() or path.is_symlink():
         raise ValueError("ownership view path is not a regular file in a directory")
     payload = (json.dumps(ownership_view(record), sort_keys=True) + "\n").encode()
     temporary = directory / f".ownership.{uuid.uuid4().hex}.tmp"

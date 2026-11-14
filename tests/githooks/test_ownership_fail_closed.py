@@ -293,18 +293,37 @@ def test_unsetting_the_broker_variable_still_reads_the_mounted_view(monkeypatch,
 
 def test_a_boundary_that_vanishes_during_refresh_does_not_fail_the_record_write(tmp_path, monkeypatch):
     """Defect class: sandbox teardown removes the boundary directory after the record is replaced,
-    and the refresh then fails a write that already committed."""
+    and the refresh then fails a write that already committed, including when the directory goes
+    between the refresh's check and the writer's own (the writer then reported ``ValueError``)."""
     from lu_machinery.dispatcher import ownership
 
     monkeypatch.setenv("LU_SCRATCH_ROOT", str(tmp_path / "scratch"))
     directory = tmp_path / "scratch" / "write-boundary-wb-test" / "boundary"
     directory.mkdir(parents=True)
+    real_write = ownership.write_ownership_view
 
     def vanished(path, record):
         raise FileNotFoundError(errno.ENOENT, "No such file", str(path))
 
     monkeypatch.setattr(ownership, "write_ownership_view", vanished)
     ownership.refresh_running_boundary_view({"task_id": "wb-test", "owned_paths": ["a.txt"]})
+
+    # The real writer, with the directory removed after the refresh's own check (review F2 of #536).
+    def torn_down(path, record):
+        path.parent.rmdir()
+        real_write(path, record)
+
+    monkeypatch.setattr(ownership, "write_ownership_view", torn_down)
+    ownership.refresh_running_boundary_view({"task_id": "wb-test", "owned_paths": ["a.txt"]})
+    assert not directory.exists()
+    with pytest.raises(FileNotFoundError):
+        real_write(directory / "ownership.json", {"task_id": "wb-test"})
+    directory.parent.mkdir(exist_ok=True)
+    directory.symlink_to(tmp_path)
+    with pytest.raises(ValueError, match="not a regular file"):
+        real_write(directory / "ownership.json", {"task_id": "wb-test"})
+    directory.unlink()
+    directory.mkdir()
 
     def denied(path, record):
         raise PermissionError(errno.EACCES, "denied", str(path))
