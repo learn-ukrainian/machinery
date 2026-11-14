@@ -10,6 +10,29 @@ notices them.
 
 ## [Unreleased]
 
+<a id="v0.1.18"></a>
+## [0.1.18] - 2026-11-14
+
+### Added
+
+- Monitor UI: the machinery page names the installed lu-machinery release and links it to this changelog. ([#533](https://github.com/learn-ukrainian/machinery/pull/533))
+
+### Changed
+
+- CodeQL triage rows 8 and 9 name the open alert locations, and no longer say stale merge-queue instances block dismissal. ([#534](https://github.com/learn-ukrainian/machinery/pull/534), [#537](https://github.com/learn-ukrainian/machinery/pull/537))
+
+### Fixed
+
+- A dispatcher that dies while creating a worktree keeps attribution on a tree that survives and does not leave an unattributed tree behind. ([#532](https://github.com/learn-ukrainian/machinery/pull/532))
+- Monitor UI: the Subscriptions heading stays stale, and keeps its age, when one account has no reading. The panel is unavailable only when no account has a reading. ([#535](https://github.com/learn-ukrainian/machinery/pull/535))
+- A contained write worker can commit a path it owns. The boundary shows that task's ownership, read-only, and still hides the task store. ([#536](https://github.com/learn-ukrainian/machinery/pull/536))
+- Monitor UI: the Pull requests heading stays stale, and keeps its age, when one repository fails to load. The panel is unavailable only when nothing loaded. ([#537](https://github.com/learn-ukrainian/machinery/pull/537))
+- A contained commit runs the product pre-commit checks. Removing the ownership view tolerates the boundary directory already being gone. ([#538](https://github.com/learn-ukrainian/machinery/pull/538))
+
+### Removed
+
+- Monitor UI and the usage command: Muse is gone from the usage view, the Monitor API and the machinery home page, so a missing Muse reading no longer marks Subscriptions stale. ([#539](https://github.com/learn-ukrainian/machinery/pull/539))
+
 <a id="v0.1.17"></a>
 ## [0.1.17] - 2026-11-14
 
@@ -437,7 +460,8 @@ First release: the machinery extracted from learn-ukrainian as the installable `
 - Rollover confirms replacement bindings without a self-answered quiz. ([#65](https://github.com/learn-ukrainian/machinery/pull/65))
 - Deploy derives release identity from packaged bytes. ([#145](https://github.com/learn-ukrainian/machinery/pull/145))
 
-[Unreleased]: https://github.com/learn-ukrainian/machinery/compare/v0.1.17...HEAD
+[Unreleased]: https://github.com/learn-ukrainian/machinery/compare/v0.1.18...HEAD
+[0.1.18]: https://github.com/learn-ukrainian/machinery/compare/v0.1.17...v0.1.18
 [0.1.17]: https://github.com/learn-ukrainian/machinery/compare/v0.1.16...v0.1.17
 [0.1.16]: https://github.com/learn-ukrainian/machinery/compare/v0.1.15...v0.1.16
 [0.1.15]: https://github.com/learn-ukrainian/machinery/compare/v0.1.14...v0.1.15
