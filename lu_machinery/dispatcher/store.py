@@ -103,8 +103,8 @@ def check_review_attempt(binding: ReviewAttempt, *, claim=False, owner: str | No
 def worktree_attribution(spec, repository: dict, branch: str, sha: str) -> dict:
     """The fields that name the task's worktree and show that its dispatch created it.
 
-    The full record carries them, and so does the admission hold from the moment ``git.create_worktree``
-    has reserved the path (``attribute_hold``), so a dispatcher that dies while it adds, checks out or
+    The full record carries them, and so does the admission hold before ``git.create_worktree``
+    reserves the path (``attribute_hold``), so a dispatcher that dies while it adds, checks out or
     provisions the tree leaves a record that settlement and the guarded remover
     (``worktree_claims remove --owner-task-id``) accept.
     """
@@ -115,9 +115,8 @@ def worktree_attribution(spec, repository: dict, branch: str, sha: str) -> dict:
 def attribute_hold(hold: dict, attribution: dict) -> None:
     """Name the tree this dispatch is creating in its own live admission hold.
 
-    Called by ``git.create_worktree`` under the worktree locks once its exclusive ``mkdir`` has reserved the
-    path and before ``git worktree add``, so the path exists and is this run's. Anything but this run's
-    pid-less ``spawning`` hold refuses.
+    Called by ``git.create_worktree`` under the worktree locks after verifying absence and before its
+    exclusive ``mkdir``. Anything but this run's pid-less ``spawning`` hold refuses.
     """
     from lu_machinery.orchestration.dispatch_admission import is_admission_hold_record
 
@@ -188,7 +187,8 @@ def new_record(
     )
     if admission_hold is not None:
         for name in ("run_nonce", "started_at", "admission", "admission_hold"):
-            record[name] = admission_hold[name]
+            if name in admission_hold:
+                record[name] = admission_hold[name]
     return record
 
 

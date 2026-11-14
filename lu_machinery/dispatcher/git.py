@@ -397,10 +397,9 @@ def create_worktree(repo: Path, path: Path, branch: str, sha: str, *, full_check
 
     The entry is written before the tree exists and confirmed after, all under the worktree lock that
     settlement removes (and archives) under, so a later dispatch to the same path cannot interleave.
-    With ``on_reserved``, the path is first reserved under the same locks with an exclusive ``mkdir`` (it
-    fails if anything is there, so the path is this call's), then ``on_reserved()`` runs while that empty
-    directory exists, and only then does ``git worktree add`` fill it: the task record names the tree
-    before any step that creates it can die. A failure removes the reservation while it is still empty.
+    With ``on_reserved``, an absent path is attributed under the same locks before the exclusive ``mkdir``
+    reserves it. Thus even a death immediately after ``mkdir`` leaves attribution. A failure removes the
+    reservation only while it is still empty; attribution must survive until the tree is verifiably gone.
     """
     excluded = sparse_excludes(sparse_include)
     # A published start is checked out as that exact object, not a shared replacement.
@@ -421,9 +420,11 @@ def create_worktree(repo: Path, path: Path, branch: str, sha: str, *, full_check
         try:
             run_git(repo, "config", "--local", "extensions.worktreeConfig", "true")
             if on_reserved is not None:
+                if os.path.lexists(path):
+                    raise FileExistsError(f"worktree path already exists: {path}")
+                on_reserved()
                 path.mkdir()
                 reserved = True
-                on_reserved()
             run_git(repo, "worktree", "add", "--no-checkout", "--no-track", "-b", branch, str(path), sha)
             if full_checkout:
                 run_git(path, "sparse-checkout", "disable")

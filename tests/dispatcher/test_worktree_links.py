@@ -3,6 +3,7 @@
 import errno
 import json
 import os
+import signal
 import shutil
 import subprocess
 import sys
@@ -10,6 +11,7 @@ from pathlib import Path
 import pytest
 from lu_machinery.common.repo_root import product_root
 from lu_machinery.dispatcher import agy_sandbox, environment, git
+from lu_machinery.dispatcher import site_deps
 from lu_machinery.dispatcher.types import TaskSpec
 from lu_machinery.orchestration.worktree_artifacts import is_disposable_path
 from lu_machinery.storage.topology import STORE_FILES
@@ -21,6 +23,102 @@ from tests.helpers.product_tree import configured_roots  # noqa: F401
 
 LINKS = (*(f"data/{STORE_FILES[store][0]}" for store in ("sources", "vesum")), "node_modules", "site/node_modules")
 SOURCES_LINK = LINKS[0]
+
+
+@pytest.mark.parametrize("operation", ["mkdir", "link", "copy2", "symlink", "rename"])
+@pytest.mark.parametrize("after", [False, True])
+def test_killed_dependency_materialization_does_not_retain_worktree(layout, operation, after):
+    """A SIGKILL during dependency provisioning must not strand an unknown staging tree (#490)."""
+    from lu_machinery.orchestration.worktree_claims import remove_unclaimed_worktree
+
+    primary, worktree = layout
+    site = worktree / "site"
+    site.mkdir()
+    (site / "package-lock.json").write_text('{"lockfileVersion": 3}\n')
+    run_git(worktree, "add", "site/package-lock.json")
+    run_git(worktree, "commit", "-m", "fixture dependency lock")
+    store = site_deps.store_root(primary)
+    blob = store / "blobs" / "ab" / "abc"
+    blob.parent.mkdir(parents=True)
+    blob.write_text("dependency")
+    manifest = store / "trees" / "fixture.json"
+    manifest.parent.mkdir()
+    manifest.write_text(json.dumps({"entries": [
+        ["d", "pkg"], ["f", "pkg/file", "abc"],
+        ["c", ".package-lock.json", "abc"], ["l", "alias", "pkg/file"],
+    ]}))
+    probe = '''
+import os, shutil, signal, sys
+from pathlib import Path
+from lu_machinery.dispatcher import site_deps
+operation, after = sys.argv[3], sys.argv[4] == "True"
+module = shutil if operation == "copy2" else os
+original = getattr(module, operation)
+def fault(*args, **kwargs):
+    if not after:
+        os.kill(os.getpid(), signal.SIGKILL)
+    result = original(*args, **kwargs)
+    os.kill(os.getpid(), signal.SIGKILL)
+    return result
+setattr(module, operation, fault)
+site_deps.materialize(Path(sys.argv[1]), Path(sys.argv[2]), "fixture")
+'''
+    result = subprocess.run(
+        [sys.executable, "-c", probe, str(primary), str(site), operation, str(after)],
+        capture_output=True, text=True, timeout=30,
+    )
+    assert result.returncode == -signal.SIGKILL, result.stderr
+    assert set(site.iterdir()) <= {site / "node_modules", site / "package-lock.json"}
+    if (site / "node_modules").exists():
+        assert (site / "node_modules/pkg/file").read_text() == "dependency"
+        assert (site / "node_modules/.package-lock.json").read_text() == "dependency"
+        assert (site / "node_modules/alias").read_text() == "dependency"
+    assert run_git(worktree, "status", "--porcelain") == ""
+    tasks = primary / "batch_state/tasks"
+    tasks.mkdir(parents=True)
+    removal = remove_unclaimed_worktree(
+        worktree, repo_root=primary, control_root=primary, tasks_dir=tasks, owner_task_id=None,
+        reason="crashed provisioning",
+    )
+    assert removal.action == "removed", removal
+    assert not worktree.exists()
+
+
+@pytest.mark.parametrize("external_store", [False, True])
+def test_dependency_materialization_publishes_complete_private_tree(layout, monkeypatch, external_store):
+    """External staging must still publish hard links, private copies and relative links (#490)."""
+    primary, worktree = layout
+    site = worktree / "site"
+    site.mkdir()
+    if external_store:
+        monkeypatch.setenv(site_deps.STORE_ENV, str(primary.parent / "external-dep-store"))
+    store = site_deps.store_root(primary)
+    blob = store / "blobs" / "ab" / "abc"
+    blob.parent.mkdir(parents=True)
+    blob.write_text("dependency")
+    blob.chmod(0o444)
+    manifest = store / "trees" / "fixture.json"
+    manifest.parent.mkdir()
+    manifest.write_text(json.dumps({"entries": [
+        ["d", "pkg"], ["f", "pkg/file", "abc"],
+        ["c", ".package-lock.json", "abc"], ["l", "alias", "pkg/file"],
+    ]}))
+    if external_store:
+        # Model two devices without mounting anything or changing host configuration.
+        link, rename = os.link, os.rename
+        def cross_device(operation, source, destination, *args, **kwargs):
+            if Path(source).is_relative_to(store) != Path(destination).is_relative_to(store):
+                raise OSError(errno.EXDEV, "injected cross-device operation")
+            return operation(source, destination, *args, **kwargs)
+        monkeypatch.setattr(os, "link", lambda *a, **k: cross_device(link, *a, **k))
+        monkeypatch.setattr(os, "rename", lambda *a, **k: cross_device(rename, *a, **k))
+    assert site_deps.materialize(primary, site, "fixture") == {
+        "state": "installed", "linked": 0 if external_store else 1, "copied": 2 if external_store else 1,
+    }
+    assert ((site / "node_modules/pkg/file").stat().st_ino == blob.stat().st_ino) is (not external_store)
+    assert (site / "node_modules/.package-lock.json").stat().st_ino != blob.stat().st_ino
+    assert (site / "node_modules/alias").read_text() == "dependency"
+    assert not list((primary / ".git").rglob("materialize-*"))
 
 
 @pytest.mark.parametrize("relative", ["node_modules", "site/node_modules"])
