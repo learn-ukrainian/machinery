@@ -5,7 +5,7 @@ from __future__ import annotations
 import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, cast
 
 from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
@@ -161,5 +161,5 @@ async def milestones(ctx: MonitorContext = Depends(get_ctx)) -> JSONResponse:
     if stored is None:
         return JSONResponse({"status": "pending", "repositories": [], "freshness": FRESHNESS},
                             headers={"Cache-Control": "no-store", "Retry-After": "3"})
-    payload = _with_age(stored[0])
+    payload = _with_age(cast(dict[str, Any], stored[0]))
     return JSONResponse(payload, headers={"Cache-Control": "no-store", "X-Snapshot-Age-S": str(payload["age_seconds"])})
