@@ -964,7 +964,10 @@ async def pull_requests(ctx: MonitorContext = Depends(get_ctx)) -> JSONResponse:
         if age >= PULL_REQUESTS_TTL_S:
             schedule_cache_refresh(key, PULL_REQUESTS_TTL_S, compute)
     return JSONResponse(content=payload, headers=panel_values.snapshot_headers(
-        panel_values.observation_age_s(payload.get("observed_at")), PULL_REQUESTS_TTL_S,
+        # A visit can first find expiry one page cycle late, then display that
+        # snapshot for one more cycle while the collector runs. Keep the 120 s
+        # GitHub cadence; allow two 30 s cycles and collection/HTTP margin.
+        panel_values.observation_age_s(payload.get("observed_at")), PULL_REQUESTS_TTL_S + 90.0,
         unavailable=payload.get("status") != "ok"
         or any(repo.get("status") != "ok" for repo in payload.get("repositories", [])),
     ))

@@ -100,6 +100,37 @@ def check_review_attempt(binding: ReviewAttempt, *, claim=False, owner: str | No
             os.close(fd)
 
 
+def worktree_attribution(spec, repository: dict, branch: str, sha: str) -> dict:
+    """The fields that name the task's worktree and show that its dispatch created it.
+
+    The full record carries them, and so does the admission hold from the moment ``git.create_worktree``
+    has reserved the path (``attribute_hold``), so a dispatcher that dies while it adds, checks out or
+    provisions the tree leaves a record that settlement and the guarded remover
+    (``worktree_claims remove --owner-task-id``) accept.
+    """
+    return dict(repo=repository["key"], options=spec.options, worktree_branch=branch,
+                worktree_path=str(spec.worktree), cwd=str(spec.worktree), worktree_base_sha=sha, worktree_start_sha=sha)
+
+
+def attribute_hold(hold: dict, attribution: dict) -> None:
+    """Name the tree this dispatch is creating in its own live admission hold.
+
+    Called by ``git.create_worktree`` under the worktree locks once its exclusive ``mkdir`` has reserved the
+    path and before ``git worktree add``, so the path exists and is this run's. Anything but this run's
+    pid-less ``spawning`` hold refuses.
+    """
+    from lu_machinery.orchestration.dispatch_admission import is_admission_hold_record
+
+    path = record_path(hold["task_id"])
+    with task_state_lock(path):
+        current = read(hold["task_id"], hold["run_nonce"])
+        if not (isinstance(current, dict) and current.get("status") == "spawning" and is_admission_hold_record(current)
+                and current.get("admission_hold") == hold["admission_hold"]):
+            raise TaskRecordError("TASK_RECORD_REPLACED: admission hold changed before the worktree was named")
+        current.update(attribution)
+        _write(path, current)
+
+
 def new_record(
     spec, repository: dict, branch: str, sha: str, metadata: dict, *,
     binding: ReviewAttempt | None = None, admission_hold: dict | None = None,
@@ -143,10 +174,7 @@ def new_record(
             record[target] = metadata[source]
     record.update(schema_version=2, run_nonce=uuid.uuid4().hex, status="spawning", started_at=now())
     record.update(repo=repository["key"], repository_id=repository["github"], repository=repository["github"])
-    record.update(
-        worktree_branch=branch, worktree_path=str(spec.worktree), cwd=str(spec.worktree),
-        worktree_base_sha=sha, worktree_start_sha=sha
-    )
+    record.update(worktree_attribution(spec, repository, branch, sha))
     if spec.mode == "read-only" and metadata.get("branch") is not None:
         record["review_branch"] = validate_plain_branch_name(metadata["branch"], repo_root=spec.worktree)
         record["pinned_head"] = metadata.get("pinned_head") or sha

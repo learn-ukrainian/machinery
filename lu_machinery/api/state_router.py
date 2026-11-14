@@ -2531,7 +2531,9 @@ def _routing_budget_response(payload: dict[str, Any]) -> JSONResponse:
     diagnostics = payload.get("diagnostics", {})
     return JSONResponse(content=payload, headers=panel_values.snapshot_headers(
         diagnostics.get("data_age_s"), diagnostics.get("stale_threshold_s", ROUTING_BUDGET_MAX_AGE_S),
-        stale=bool(diagnostics.get("stale")),
+        # diagnostics.stale also describes a 15 s routing-cache refresh. The
+        # display header describes the source-age bound; admission still reads
+        # the unchanged diagnostics and per-account freshness fields.
     ))
 
 

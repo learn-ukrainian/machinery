@@ -329,6 +329,26 @@ and the old-tree report does not inspect a held checkout. Clearing the hold
 does not push or remove the tree; the next settlement decides. The run's private receipt lists every
 finished task's tree still on disk with its reason; the summary carries
 `retained_count`, `retained_safety_stops` and `retained_complete`.
+
+A dispatcher can die after its worktree exists but before its worker starts,
+for example while it provisions `site/node_modules`. Under the worktree locks,
+`git.create_worktree` first reserves the path with an exclusive `mkdir`, which
+fails if anything is already there. While that empty directory exists, the
+dispatcher adds the tree to its admission hold (`worktree_path`,
+`worktree_branch`, `worktree_start_sha`, `repo`, `options`;
+`store.worktree_attribution` and `store.attribute_hold`), and only then does
+`git worktree add` fill it. The hold therefore names only a path this dispatch
+reserved, only while that path exists, and before any step that creates the
+tree. A failure removes the reservation while it is still empty. The next
+write admission marks the hold `crashed`
+(`dispatch_died_after_admission`) and keeps those fields, so the hourly retry
+settles the tree like any other crashed task. One leftover can also be removed
+by hand with `worktree_claims remove <path> --owner-task-id <task>`. A borrowed
+`--cwd` tree is never named by a hold. Records written before this change name
+no tree, and the remover refuses them. A partial `site/node_modules.tmp-<pid>`
+is untracked output: settlement preserves it under the existing budget and
+retains a tree whose partial install exceeds that budget.
+
 A finished data-tier run discards its own checkout output first (`discard_run_output` in
 `lu_machinery/ci/data_tier.py`; the file and byte totals go in the run summary's `discarded_output`).
 The checkout is a fresh `origin/main` worktree holding code only: the run reads the host's stores

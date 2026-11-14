@@ -1782,7 +1782,9 @@ async def runtime_logins():
     """
     payload = _public_logins(account_logins.logins_snapshot(), account_logins.subscription_ends())
     return JSONResponse(content=payload, headers=panel_values.snapshot_headers(
-        panel_values.observation_age_s(payload.get("read_at")), account_logins.TTL_S,
+        # 600 s between probes, up to four 30 s probes, two page cycles and
+        # collection margin. This is display freshness, never login admission.
+        panel_values.observation_age_s(payload.get("read_at")), account_logins.TTL_S + 300.0,
         unavailable=payload.get("state") != "ok",
     ))
 

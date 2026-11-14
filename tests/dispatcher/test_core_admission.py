@@ -4,6 +4,7 @@ import dataclasses
 import json
 import logging
 import os
+import signal
 import subprocess
 import sys
 from types import SimpleNamespace
@@ -468,6 +469,47 @@ def test_admission_marks_a_record_whose_dispatcher_died_crashed(admission_dispat
     assert healed["returncode_reason"] == dispatch_admission.ORPHANED_HOLD_REASON
     assert "marked crashed by admission probe" in healed["stderr_excerpt"]
     assert "admission_hold" not in healed
+
+
+def test_dispatcher_killed_while_provisioning_its_worktree_leaves_it_removable(sandbox, monkeypatch):
+    """Defect class: an orphaned worktree. A dispatcher SIGKILLed after ``git worktree add``, while its record
+    still said ``spawning``, left a crashed record that named no worktree, so the guarded remover refused the
+    tree forever."""
+    from lu_machinery.dispatcher import host_admission as admission
+    from lu_machinery.orchestration import dispatch_admission
+
+    # The remover reads the records of the checkout that controls the tree, so keep them there.
+    tasks = sandbox.repo / "batch_state" / "tasks"
+    sandbox.env["LU_TASKS_DIR"] = str(tasks)
+    for name, value in (("LU_TASKS_DIR", tasks), ("LU_PRODUCT_ROOT", sandbox.repo),
+                        ("LEARN_UKRAINIAN_PRIMARY_REPO_ROOT", sandbox.repo)):
+        monkeypatch.setenv(name, str(value))
+    # The dispatcher subprocess runs this overlay: it dies the way the observed one did, after the tree exists
+    # and while it provisions the site dependencies.
+    with (sandbox.repo / "lu_machinery/dispatcher/site_deps.py").open("a") as overlay:
+        overlay.write("\n\ndef provision(repo, worktree):\n    import signal\n"
+                      "    os.kill(os.getpid(), signal.SIGKILL)\n")
+    sandbox.cli("dispatch", "--agent", "sol", "--model", "echo", "--mode", "workspace-write",
+                "--task-id", "killed", "--prompt", "literal final response", expected=-signal.SIGKILL)
+    tree = sandbox.repo / ".worktrees/dispatch/codex/killed"
+    assert (tree / ".git").is_file()
+    orphan = store.read("killed")
+    assert orphan["status"] == "spawning" and orphan["pid"] is None and orphan["admission_hold"]
+    assert (orphan["worktree_path"], orphan["worktree_branch"]) == (str(tree), "codex/killed")
+
+    assert admission.evaluate("workspace-write", sweep=True).dead_task_ids == ("killed",)
+    crashed = store.read("killed")
+    assert crashed["status"] == "crashed"
+    assert crashed["returncode_reason"] == dispatch_admission.ORPHANED_HOLD_REASON
+    assert (crashed["worktree_path"], crashed["worktree_branch"]) == (str(tree), "codex/killed")
+
+    removal = subprocess.run(
+        [sandbox.python, "-m", "lu_machinery.orchestration.worktree_claims", "remove", str(tree),
+         "--owner-task-id", "killed", "--reason", "crashed dispatch cleanup"],
+        cwd=sandbox.repo, env=sandbox.env, text=True, capture_output=True, timeout=60,
+    )
+    assert removal.returncode == 0, (removal.stdout, removal.stderr)
+    assert not tree.exists()
 
 
 @pytest.mark.parametrize("model", ["gpt-6-astra", "gpt-5-codex", "claude-opus-5-5"])

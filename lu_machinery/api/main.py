@@ -73,6 +73,7 @@ from .git_hygiene_router import router as git_hygiene_router
 from .git_hygiene_router import warm_pull_requests
 from .issues_router import router as issues_router
 from .knowledge_router import router as knowledge_router
+from .milestones_router import router as milestones_router
 from .monitor_context import MonitorContext, get_ctx, production_context, resolve_context
 from .observer_presence import router as observer_presence_router
 from .occupancy import router as occupancy_router
@@ -1925,6 +1926,7 @@ def create_app(
     factory_app.include_router(docs_router, prefix="/artifacts")
     factory_app.include_router(docs_router, prefix="/files")
     factory_app.include_router(discussions_router, prefix="/api/discussions", tags=["discussions"])
+    factory_app.include_router(milestones_router, prefix="/api/milestones", tags=["milestones"])
     factory_app.include_router(git_hygiene_router, prefix="/api/git", tags=["git"])
     factory_app.include_router(ops_router, prefix="/api/ops", tags=["ops"])
     factory_app.include_router(issues_router, prefix="/api/issues", tags=["issues"])

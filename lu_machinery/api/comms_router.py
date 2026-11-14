@@ -1994,6 +1994,8 @@ async def comms_v1_metrics(ctx: MonitorContext = Depends(get_ctx), include_agent
         if age >= COMMS_METRICS_TTL_S:
             schedule_cache_refresh(key, COMMS_METRICS_TTL_S, compute)
     return JSONResponse(content=payload, headers=panel_values.snapshot_headers(
-        panel_values.observation_age_s(observed_at), 60.0,
+        # Same request-driven cadence as PRs: two page cycles plus collection
+        # margin belong in the display bound, without increasing scan frequency.
+        panel_values.observation_age_s(observed_at), COMMS_METRICS_TTL_S + 90.0,
         unavailable=bool(payload.get("db_missing") or payload.get("db_error")),
     ))
