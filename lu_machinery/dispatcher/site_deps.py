@@ -31,6 +31,7 @@ import shutil
 import stat
 import subprocess
 import sys
+import tempfile
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -303,11 +304,13 @@ def materialize(repo: Path, site: Path, key: str) -> dict:
     manifest = json.loads((store / "trees" / f"{key}.json").read_text(encoding="utf-8"))
     if destination.exists() or destination.is_symlink():
         return {"state": "present"}
-    building = site / f"node_modules.tmp-{os.getpid()}"
-    shutil.rmtree(building, ignore_errors=True)
+    # A killed dispatcher must not leave unknown output inside its worktree.
+    # Keep staging on the store's filesystem so publication is one atomic rename.
+    staging = store / "staging"
+    staging.mkdir(parents=True, exist_ok=True)
+    building = Path(tempfile.mkdtemp(prefix="materialize-", dir=staging))
     stats = {"state": "installed", "linked": 0, "copied": 0}
     try:
-        building.mkdir()
         for kind, rel, *rest in manifest["entries"]:
             path = building / rel
             if kind == "d":

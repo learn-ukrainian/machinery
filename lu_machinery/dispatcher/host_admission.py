@@ -8,6 +8,7 @@ import contextlib
 import subprocess
 import sys
 import uuid
+from pathlib import Path
 
 from lu_machinery.common.task_store_paths import tasks_dir
 from lu_machinery.dispatcher import store
@@ -140,33 +141,33 @@ def check_credit(agent, model):
 
 @contextlib.contextmanager
 def reserve(task_id, mode, decision, *, agent, disk_guard, force_reason=None):
-    """Legacy locked recheck -> publish hold -> setup; release on every unwound path."""
+    """Publish a creation hold for either mode; release only when its tree is absent."""
     hold = None
     try:
-        if not decision.exempt:
-            refusal = None
-            try:
-                with legacy.admission_lock(tasks_dir()):
-                    current = evaluate(mode, sweep=True, thresholds=decision.thresholds, disk_guard=disk_guard())
-                    if allows(current, force_reason):
-                        nonce = uuid.uuid4().hex
-                        owner = legacy.new_admission_hold(nonce)
-                        hold = dict(schema_version=2, task_id=task_id, agent=agent, run_nonce=nonce, status="spawning", pid=None,
-                                    mode=mode, started_at=owner["admitted_at"], finished_at=None,
-                                    admission=current.to_record(force_reason=force_reason), admission_hold=owner)
-                        path = store.record_path(task_id)
-                        with task_state_lock(path):
-                            if store.read(task_id, missing_ok=True) is not None:
-                                raise RuntimeError(f"task record for {task_id!r} exists; refusing to overwrite it")
-                            store._write(path, hold, exclusive=True)
-                    else:
-                        refusal = Refused(f"❌ {current.refusal_line()}", 4 if current.disk_refused else 3)
-            except legacy.AdmissionLockTimeout as exc:
-                raise Refused(f"❌ dispatch admission lock unavailable: {exc}; retry the dispatch", 3) from exc
-            except (OSError, RuntimeError) as exc:
-                raise Refused(f"❌ could not publish the admission hold for {task_id!r}: {exc}", 1) from exc
-            if refusal is not None:
-                raise refusal
+        refusal = None
+        try:
+            with legacy.admission_lock(tasks_dir()):
+                current = evaluate(mode, sweep=True, thresholds=decision.thresholds, disk_guard=disk_guard())
+                if allows(current, force_reason):
+                    nonce = uuid.uuid4().hex
+                    owner = legacy.new_admission_hold(nonce)
+                    hold = dict(schema_version=2, task_id=task_id, agent=agent, run_nonce=nonce, status="spawning", pid=None,
+                                mode=mode, started_at=owner["admitted_at"], finished_at=None, admission_hold=owner)
+                    if not current.exempt:
+                        hold["admission"] = current.to_record(force_reason=force_reason)
+                    path = store.record_path(task_id)
+                    with task_state_lock(path):
+                        if store.read(task_id, missing_ok=True) is not None:
+                            raise RuntimeError(f"task record for {task_id!r} exists; refusing to overwrite it")
+                        store._write(path, hold, exclusive=True)
+                else:
+                    refusal = Refused(f"❌ {current.refusal_line()}", 4 if current.disk_refused else 3)
+        except legacy.AdmissionLockTimeout as exc:
+            raise Refused(f"❌ dispatch admission lock unavailable: {exc}; retry the dispatch", 3) from exc
+        except (OSError, RuntimeError) as exc:
+            raise Refused(f"❌ could not publish the admission hold for {task_id!r}: {exc}", 1) from exc
+        if refusal is not None:
+            raise refusal
         yield hold
     finally:
         if hold is not None:
@@ -175,4 +176,11 @@ def reserve(task_id, mode, decision, *, agent, disk_guard, force_reason=None):
                 current = store.read(task_id, missing_ok=True)
                 if (current is not None and current.get("run_nonce") == hold["run_nonce"]
                         and current.get("status") in store.ACTIVE and legacy.is_admission_hold_record(current)):
-                    path.unlink(missing_ok=True)
+                    tree_absent = not current.get("worktree_path")
+                    if not tree_absent:
+                        try:
+                            Path(current["worktree_path"]).lstat()
+                        except FileNotFoundError:
+                            tree_absent = True
+                    if tree_absent:
+                        path.unlink(missing_ok=True)

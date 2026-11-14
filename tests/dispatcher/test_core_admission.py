@@ -471,7 +471,9 @@ def test_admission_marks_a_record_whose_dispatcher_died_crashed(admission_dispat
     assert "admission_hold" not in healed
 
 
-def test_dispatcher_killed_while_provisioning_its_worktree_leaves_it_removable(sandbox, monkeypatch):
+@pytest.mark.parametrize("mode", ["workspace-write", "read-only"])
+@pytest.mark.parametrize("stage", ["attributed", "mkdir", "add", "sparse", "reset", "creator", "provision", "handback"])
+def test_dispatcher_killed_while_provisioning_its_worktree_leaves_it_removable(sandbox, monkeypatch, mode, stage):
     """Defect class: an orphaned worktree. A dispatcher SIGKILLed after ``git worktree add``, while its record
     still said ``spawning``, left a crashed record that named no worktree, so the guarded remover refused the
     tree forever."""
@@ -484,15 +486,55 @@ def test_dispatcher_killed_while_provisioning_its_worktree_leaves_it_removable(s
     for name, value in (("LU_TASKS_DIR", tasks), ("LU_PRODUCT_ROOT", sandbox.repo),
                         ("LEARN_UKRAINIAN_PRIMARY_REPO_ROOT", sandbox.repo)):
         monkeypatch.setenv(name, str(value))
-    # The dispatcher subprocess runs this overlay: it dies the way the observed one did, after the tree exists
-    # and while it provisions the site dependencies.
-    with (sandbox.repo / "lu_machinery/dispatcher/site_deps.py").open("a") as overlay:
-        overlay.write("\n\ndef provision(repo, worktree):\n    import signal\n"
-                      "    os.kill(os.getpid(), signal.SIGKILL)\n")
-    sandbox.cli("dispatch", "--agent", "sol", "--model", "echo", "--mode", "workspace-write",
+    # The child actually dies. No exception handler or finally can preserve its attribution for it.
+    with (sandbox.repo / "lu_machinery/dispatcher/git.py").open("a") as overlay:
+        overlay.write(f'''
+
+from lu_machinery.dispatcher import store as _fault_store
+from lu_machinery.orchestration import worktree_claims as _fault_claims
+_fault_stage = {stage!r}
+def _die():
+    import signal
+    os.kill(os.getpid(), signal.SIGKILL)
+_original_attribute = _fault_store.attribute_hold
+def _attribute(*args, **kwargs):
+    _original_attribute(*args, **kwargs)
+    if _fault_stage == "attributed":
+        _die()
+_fault_store.attribute_hold = _attribute
+_original_mkdir = Path.mkdir
+def _mkdir(self, *args, **kwargs):
+    result = _original_mkdir(self, *args, **kwargs)
+    if _fault_stage == "mkdir" and self.name == "killed":
+        _die()
+    return result
+Path.mkdir = _mkdir
+_original_git = _git
+def _git(where, *args, **kwargs):
+    result = _original_git(where, *args, **kwargs)
+    if (_fault_stage == "add" and args[:2] == ("worktree", "add")
+            or _fault_stage == "sparse" and args[:1] == ("sparse-checkout",)
+            or _fault_stage == "reset" and args[:1] == ("reset",)):
+        _die()
+    return result
+_original_creator = _fault_claims.publish_helper_creator
+def _creator(*args, **kwargs):
+    _original_creator(*args, **kwargs)
+    if _fault_stage == "creator":
+        _die()
+_fault_claims.publish_helper_creator = _creator
+_original_provision = site_deps.provision
+def _provision(*args, **kwargs):
+    if _fault_stage == "provision":
+        _die()
+    _original_provision(*args, **kwargs)
+    if _fault_stage == "handback":
+        _die()
+site_deps.provision = _provision
+''')
+    sandbox.cli("dispatch", "--agent", "sol", "--model", "echo", "--mode", mode,
                 "--task-id", "killed", "--prompt", "literal final response", expected=-signal.SIGKILL)
     tree = sandbox.repo / ".worktrees/dispatch/codex/killed"
-    assert (tree / ".git").is_file()
     orphan = store.read("killed")
     assert orphan["status"] == "spawning" and orphan["pid"] is None and orphan["admission_hold"]
     assert (orphan["worktree_path"], orphan["worktree_branch"]) == (str(tree), "codex/killed")
@@ -503,6 +545,17 @@ def test_dispatcher_killed_while_provisioning_its_worktree_leaves_it_removable(s
     assert crashed["returncode_reason"] == dispatch_admission.ORPHANED_HOLD_REASON
     assert (crashed["worktree_path"], crashed["worktree_branch"]) == (str(tree), "codex/killed")
 
+    if stage == "attributed":
+        assert not tree.exists()
+        return
+    if stage == "mkdir":
+        assert tree.is_dir() and list(tree.iterdir()) == []
+        return
+    assert (tree / ".git").is_file()
+    if stage in {"add", "sparse"}:
+        # An incomplete checkout remains attributed; the existing dirty-tree safety rule still applies.
+        return
+
     removal = subprocess.run(
         [sandbox.python, "-m", "lu_machinery.orchestration.worktree_claims", "remove", str(tree),
          "--owner-task-id", "killed", "--reason", "crashed dispatch cleanup"],
@@ -510,6 +563,86 @@ def test_dispatcher_killed_while_provisioning_its_worktree_leaves_it_removable(s
     )
     assert removal.returncode == 0, (removal.stdout, removal.stderr)
     assert not tree.exists()
+
+
+@pytest.mark.parametrize("mode", ["workspace-write", "read-only"])
+@pytest.mark.parametrize("stage", ["attributed", "mkdir", "add", "sparse", "reset", "creator", "provision", "record"])
+def test_creation_exception_releases_hold_only_after_verified_absence(admission_dispatch, monkeypatch, mode, stage):
+    """An unwound creation must keep its reservation when any tree survives (#490)."""
+    from pathlib import Path
+    from lu_machinery.orchestration import worktree_claims
+
+    tree = admission_dispatch.box.repo / ".worktrees/dispatch/codex/adm-worker"
+
+    def stop():
+        raise ValueError("injected creation fault")
+
+    original_attribute = store.attribute_hold
+    def attribute(*args, **kwargs):
+        original_attribute(*args, **kwargs)
+        if stage == "attributed":
+            stop()
+    monkeypatch.setattr(store, "attribute_hold", attribute)
+    original_mkdir = Path.mkdir
+    def mkdir(path, *args, **kwargs):
+        result = original_mkdir(path, *args, **kwargs)
+        if stage == "mkdir" and path == tree:
+            stop()
+        return result
+    monkeypatch.setattr(Path, "mkdir", mkdir)
+    original_git = git._git
+    def fault_git(where, *args, **kwargs):
+        result = original_git(where, *args, **kwargs)
+        if (stage == "add" and args[:2] == ("worktree", "add")
+                or stage == "sparse" and args[:1] == ("sparse-checkout",)
+                or stage == "reset" and args[:1] == ("reset",)):
+            stop()
+        return result
+    monkeypatch.setattr(git, "_git", fault_git)
+    if stage == "creator":
+        monkeypatch.setattr(worktree_claims, "publish_helper_creator", lambda *_a, **_k: stop())
+    if stage == "provision":
+        monkeypatch.setattr(git.site_deps, "provision", lambda *_a, **_k: stop())
+    if stage == "record":
+        monkeypatch.setattr(store, "new_record", lambda *_a, **_k: stop())
+    assert admission_dispatch.dispatch(mode=mode) == 2
+    assert not admission_dispatch.spawned
+    record = store.read("adm-worker", missing_ok=True)
+    if stage == "attributed":
+        assert not tree.exists()
+        assert record is None
+    else:
+        assert tree.exists()
+        assert record["worktree_path"] == str(tree)
+        assert record["worktree_branch"] == "codex/adm-worker"
+        assert record["admission_hold"]["run_nonce"] == record["run_nonce"]
+
+
+@pytest.mark.parametrize("state", ["absent", "dangling", "unreadable"])
+def test_creation_hold_requires_proven_absence_to_release(admission_dispatch, monkeypatch, state):
+    """A false exists() from a dangling link or failed stat must not discard attribution (#490)."""
+    from pathlib import Path
+    from lu_machinery.dispatcher import host_admission
+
+    tree = admission_dispatch.box.repo / "reserved"
+    decision = host_admission.evaluate("read-only", sweep=False)
+    with host_admission.reserve("probe", "read-only", decision, agent="codex", disk_guard=lambda: False) as hold:
+        store.attribute_hold(hold, {"worktree_path": str(tree)})
+        if state == "dangling":
+            tree.symlink_to("missing")
+        elif state == "unreadable":
+            original = Path.lstat
+            def lstat(path, *args, **kwargs):
+                if path == tree:
+                    raise PermissionError("injected lookup failure")
+                return original(path, *args, **kwargs)
+            monkeypatch.setattr(Path, "lstat", lstat)
+    record = store.read("probe", missing_ok=True)
+    if state == "absent":
+        assert record is None
+    else:
+        assert record["worktree_path"] == str(tree)
+        assert record["run_nonce"] == hold["run_nonce"]
 
 
 @pytest.mark.parametrize("model", ["gpt-6-astra", "gpt-5-codex", "claude-opus-5-5"])
