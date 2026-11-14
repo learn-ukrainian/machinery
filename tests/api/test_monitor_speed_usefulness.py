@@ -74,7 +74,7 @@ def test_projection_direct_json_retains_opsec_middleware(monkeypatch):
 _DOM = r"""
 const assert = require('node:assert/strict');
 const elements = new Map();
-const document = {getElementById(id) {
+const document = {querySelectorAll() { return []; }, getElementById(id) {
   if (!elements.has(id)) elements.set(id, {textContent: 'old data', innerHTML: 'old data', className: '',
     setAttribute() {}, classList: {toggle() {}, add() {}, remove() {}}});
   return elements.get(id);
@@ -330,7 +330,7 @@ def test_home_announces_panel_status_and_has_skip_purpose_and_sites_label():
     assert 'class="skip" href="#main"' in page
     assert '<main id="main" tabindex="-1">' in page
     assert 'aria-label="Sites"' in page
-    assert page.count('aria-live="polite"') == 6
+    assert page.count('aria-live="polite"') == 7
     assert "Which subscription is near its limit, when it resets, and whether anything is signed out." in page
     script = page.split("<script>", 1)[1].split("\nrefreshAll();", 1)[0]
     _node(
@@ -338,7 +338,7 @@ def test_home_announces_panel_status_and_has_skip_purpose_and_sites_label():
 const assert = require('node:assert/strict');
 const announced = [];
 const elements = new Map();
-const document = {getElementById(id) {
+const document = {querySelectorAll() { return []; }, getElementById(id) {
   if (!elements.has(id)) {
     let text = '';
     const el = {innerHTML: '', className: '', hidden: true, setAttribute() {}, classList: {toggle() {}, add() {}, remove() {}}};

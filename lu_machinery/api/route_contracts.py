@@ -610,6 +610,20 @@ ROUTE_CONTRACTS: tuple[RouteContract, ...] = (
         mutates=True,
     ),
     RouteContract(
+        "/api/milestones",
+        "exact",
+        "http",
+        "Open milestone summaries and issue progress for every registered fleet repository.",
+        "Fleet repository registry and conditional GitHub REST collection reads through the shared cache.",
+        "Single-flight refresh every 300s while requested; healthy page data at most 420s old. "
+        "True age includes collection time. Expired data is marked stale; failures are unknown.",
+        ("index.html", "operators"),
+        "Private repository milestones return counts and percent only, without text, dates or links.",
+        "medium if a stale or partial collection is mistaken for complete live progress",
+        "keep as the machinery home's milestone progress reading",
+        response_schema_version="milestones.v1",
+    ),
+    RouteContract(
         "/api/git/pull-requests",
         "exact",
         "http",
@@ -806,8 +820,8 @@ PAGE_CONTRACTS: tuple[PageContract, ...] = (
     PageContract(
         "index.html",
         "/machinery",
-        "Machinery home: live agent workers and recent outcomes, per-account subscription usage with pace, resets, sign-in and plan facts, open PRs and the merge queue, firing alerts, Fleet Comms backlog.",
-        "GET /api/delegate/active, /api/delegate/recent, /api/runtime/subscriptions, /api/runtime/logins, /api/git/pull-requests, /api/ops/v1/alerts and /api/comms/v1/metrics.",
+        "Machinery home: live agent workers and recent outcomes, per-account subscription usage with pace, resets, sign-in and plan facts, open milestones and their issue progress, open PRs and the merge queue, firing alerts, Fleet Comms backlog.",
+        "GET /api/milestones, /api/delegate/active, /api/delegate/recent, /api/runtime/subscriptions, /api/runtime/logins, /api/git/pull-requests, /api/ops/v1/alerts and /api/comms/v1/metrics.",
         "Client refreshes every 30s; each panel shows its own source age and draws stale, missing or unavailable readings as such.",
         ("humans", "operators"),
         "The only machinery page; product pages are the product's.",
