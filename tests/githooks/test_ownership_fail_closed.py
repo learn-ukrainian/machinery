@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import errno
 import json
 import subprocess
 from pathlib import Path
@@ -269,6 +270,48 @@ def test_missing_boundary_view_fails_closed_without_reading_the_store(monkeypatc
     monkeypatch.setattr(ownership, "_BOUNDARY_VIEW", tmp_path / "absent.json")
     with pytest.raises(ValueError, match="task not found"):
         ownership._load_record("wb-test")
+
+
+def test_unsetting_the_broker_variable_still_reads_the_mounted_view(monkeypatch, tmp_path):
+    """Defect class: the worker clears LU_WRITE_BOUNDARY_BROKER and points LU_TASKS_DIR at a record
+    whose empty owned_paths skips the check. The mounted boundary directory still selects the view."""
+    from lu_machinery.dispatcher import ownership
+
+    tasks = tmp_path / "tasks"
+    tasks.mkdir()
+    (tasks / "wb-test.json").write_text(json.dumps({
+        "task_id": "wb-test", "mode": "workspace-write", "owned_paths": [], "worktree_path": str(tmp_path),
+    }), encoding="utf-8")
+    mounted = tmp_path / "mounted"
+    mounted.mkdir()
+    monkeypatch.setenv("LU_TASKS_DIR", str(tasks))
+    monkeypatch.delenv("LU_WRITE_BOUNDARY_BROKER", raising=False)
+    monkeypatch.setattr(ownership, "_BOUNDARY_VIEW", mounted / "ownership.json")
+    with pytest.raises(ValueError, match="task not found"):
+        ownership._load_record("wb-test")
+
+
+def test_a_boundary_that_vanishes_during_refresh_does_not_fail_the_record_write(tmp_path, monkeypatch):
+    """Defect class: sandbox teardown removes the boundary directory after the record is replaced,
+    and the refresh then fails a write that already committed."""
+    from lu_machinery.dispatcher import ownership
+
+    monkeypatch.setenv("LU_SCRATCH_ROOT", str(tmp_path / "scratch"))
+    directory = tmp_path / "scratch" / "write-boundary-wb-test" / "boundary"
+    directory.mkdir(parents=True)
+
+    def vanished(path, record):
+        raise FileNotFoundError(errno.ENOENT, "No such file", str(path))
+
+    monkeypatch.setattr(ownership, "write_ownership_view", vanished)
+    ownership.refresh_running_boundary_view({"task_id": "wb-test", "owned_paths": ["a.txt"]})
+
+    def denied(path, record):
+        raise PermissionError(errno.EACCES, "denied", str(path))
+
+    monkeypatch.setattr(ownership, "write_ownership_view", denied)
+    with pytest.raises(PermissionError):
+        ownership.refresh_running_boundary_view({"task_id": "wb-test", "owned_paths": ["a.txt"]})
 
 
 def test_a_record_write_refreshes_a_running_boundary_view_and_creates_nothing_else(tmp_path, monkeypatch):

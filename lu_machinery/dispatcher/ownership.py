@@ -11,7 +11,9 @@ Inside the write boundary the task store is hidden, so the hook does not call ``
 The launcher projects this task's ownership fields to ``/run/lu-write-boundary/ownership.json``
 (read-only) and refreshes that file from the live record when the record is written, which is
 how a grant issued during the run becomes visible. Any other broker path, a missing view, or a
-view for another task fails closed. Outside the boundary the hook still reads the task store.
+view for another task fails closed. The view is also required when the boundary directory is
+mounted, so clearing the broker variable cannot select a task store the worker can write.
+Outside the boundary the hook still reads the task store.
 
 Usage from the tracked hooks, with the dispatched task's id in ``LEARN_UKRAINIAN_DISPATCH_TASK_ID``::
 
@@ -22,8 +24,10 @@ Usage from the tracked hooks, with the dispatched task's id in ``LEARN_UKRAINIAN
 from __future__ import annotations
 
 import argparse
+import errno
 import json
 import os
+import stat
 import subprocess
 import sys
 import tempfile
@@ -127,7 +131,15 @@ def refresh_running_boundary_view(record: dict | None) -> None:
         view = directory / "ownership.json"
         if directory.is_symlink() or not directory.is_dir() or view.is_symlink():
             continue
-        write_ownership_view(view, record)
+        try:
+            write_ownership_view(view, record)
+        except OSError as exc:
+            # The boundary directory can disappear between the check and the replace when the
+            # sandbox exits. That is no running boundary. Any other write error still fails the
+            # record write, so a grant retry reports a projection that did not land.
+            if exc.errno in (errno.ENOENT, errno.ENOTDIR):
+                continue
+            raise
 
 
 def _read_boundary_view(task_id: str) -> dict:
@@ -152,14 +164,27 @@ def _read_boundary_view(task_id: str) -> dict:
     return record
 
 
+def _boundary_mounted() -> bool:
+    """True when this process is inside the write boundary's read-only mount.
+
+    The worker can unset ``LU_WRITE_BOUNDARY_BROKER``. The mount is the fact that cannot be
+    cleared from inside: the launcher placed it, and the host has no such directory.
+    """
+    try:
+        info = os.lstat(_BOUNDARY_VIEW.parent)
+    except OSError:
+        return False
+    return stat.S_ISDIR(info.st_mode)
+
+
 def _load_record(task_id: str) -> dict:
     """The ownership record: the projected view inside the write boundary, the task store outside it."""
     broker = os.environ.get("LU_WRITE_BOUNDARY_BROKER")
-    if broker:
+    if broker and broker != _BOUNDARY_BROKER:
         # A different socket path is not this boundary. Do not follow it and do not fall through to
         # the store: unknown ownership fails closed.
-        if broker != _BOUNDARY_BROKER:
-            raise ValueError("invalid task record identity")
+        raise ValueError("invalid task record identity")
+    if broker or _boundary_mounted():
         return _read_boundary_view(task_id)
     from lu_machinery.dispatcher import store
 
