@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 from pathlib import Path
 
@@ -111,8 +112,15 @@ def test_blank_v2_named_record_is_damaged_not_foreign(tmp_path):
 
 def test_foreign_filename_cannot_inject_log_lines(tmp_path, caplog):
     """Defect class: a foreign sidecar filename forges a second log entry."""
-    path = tmp_path / "foreign\r\nFORGED entry.json"
-    assert store.parse_task_record(path, b"[]") is None
-    message = caplog.records[-1].getMessage()
-    assert message == f"NON_RECORD_FILE: {str(path)!r}"
-    assert "\n" not in message and "\r" not in message
+    # CR/LF, NEL, line/paragraph separators, ESC, and a literal format token.
+    fragments = ("\r\n", "\u0085", "\u2028", "\u2029", "\x1b", "%(levelname)s")
+    formatter = logging.Formatter("%(levelname)s %(message)s")
+    for fragment in fragments:
+        before = len(caplog.records)
+        path = tmp_path / f"foreign{fragment}FORGED entry.json"
+        assert store.parse_task_record(path, b"[]") is None
+        assert len(caplog.records) == before + 1
+        message = caplog.records[-1].getMessage()
+        assert message == f"NON_RECORD_FILE: {str(path)!r}"
+        assert not any(sep in message for sep in ("\n", "\r", "\u0085", "\u2028", "\u2029", "\x1b"))
+        assert "\n" not in formatter.format(caplog.records[-1])
