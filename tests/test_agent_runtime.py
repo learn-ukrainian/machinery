@@ -34,7 +34,7 @@ from tests.helpers.codex_exec_stream import (
     turn_started,
 )
 from tests.helpers.python import project_python
-from tests.opsec_fixtures import ROOT
+from lu_machinery.common.repo_root import machinery_path
 
 
 
@@ -3060,7 +3060,7 @@ def test_gh_shim_secondary_limit_with_closed_stdin_is_one_typed_attempt(tmp_path
 def test_gh_shim_works_without_temporary_directory(tmp_path, gh_shim_sandbox):
     """The gh shim runs Git through the agent git shim; neither needs a temporary directory."""
     root, shim, _tooling = gh_shim_sandbox
-    shutil.copy2(ROOT / "lu_machinery/agent_runtime/shims/git", shim.parent / "git")
+    shutil.copy2(machinery_path("agent_runtime/shims/git"), shim.parent / "git")
     binary = tmp_path / "real-gh"
     binary.write_text("#!/bin/sh\nprintf 'real-gh %s\\n' \"$*\"\n")
     binary.chmod(0o755)
@@ -3086,7 +3086,7 @@ def test_gh_shim_works_without_temporary_directory(tmp_path, gh_shim_sandbox):
 
 def test_git_shim_blocks_push_to_main_without_opt_in(tmp_path):
     """Defect class: violation of the git shim blocks push to main without opt in contract."""
-    shim = Path(__file__).resolve().parent.parent / "lu_machinery" / "agent_runtime" / "shims" / "git"
+    shim = machinery_path("agent_runtime/shims/git")
     fake_git = tmp_path / "real-git"
     fake_git.write_text("#!/usr/bin/env bash\nprintf 'real-git %s\\n' \"$*\"\n")
     fake_git.chmod(0o755)
@@ -3113,7 +3113,7 @@ def test_git_shim_blocks_push_to_main_without_opt_in(tmp_path):
 @pytest.mark.parametrize("verb", ["checkout", "switch"])
 def test_git_shim_refuses_when_guard_interpreter_is_absent(tmp_path, verb):
     """Defect class: violation of the git shim refuses when guard interpreter is absent contract."""
-    shim = Path(__file__).resolve().parent.parent / "lu_machinery" / "agent_runtime" / "shims" / "git"
+    shim = machinery_path("agent_runtime/shims/git")
     proc = subprocess.run(
         [str(shim), verb, "feature-1"],
         capture_output=True,

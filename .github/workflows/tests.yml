@@ -182,6 +182,22 @@ jobs:
               --hash=sha256:2363c69b61c4a97c838da3b130dcd6468f4848992b21a82f2a63ec34377137d9
           pyjwt==2.15.0 \
               --hash=sha256:7a3742debf6b879e912dbb9819ceec1594be812452b78c5f2e2dfc56564954f8
+          pymupdf_layout==2.1 \
+              --hash=sha256:e7e00bc50ec9113d36bdbb0dd5cdafa5f4d61e22e598960fc187ee4f721f5095
+          pymupdf4llm==2.1 \
+              --hash=sha256:2fe8bb344444c6a8ef41fd745d2d10f6da59df6e104ef20f35d51dd26914b5fb
+          networkx==3.7 \
+              --hash=sha256:e3fd2c13a7814cee3746340d8d7f8598a67f16a58bf47fb7f8793fab6efca1b0
+          numpy==2.5.4 \
+              --hash=sha256:fbde6962867ee75b48b0ee29b2b9372ec5d617799dbaf38e82dc0596f2f7738a
+          onnxruntime==1.32.0 \
+              --hash=sha256:99e1074c4b2197accd5073052a465361be17b89c093b8ffb6e6bd8f986c52df8
+          protobuf==7.36.2 \
+              --hash=sha256:89f23aa53c24553a2416fd4fd1ec06f74fa42b14b546d8883128813f775bbfd2
+          flatbuffers==25.12.19 \
+              --hash=sha256:7634f50c427838bb021c2d66a3d1168e9d199b0607e6329399f04846d42e20b4
+          tabulate==0.10.0 \
+              --hash=sha256:f0b0622e567335c8fabaaa659f1b33bcb6ddfe2e496071b743aa113f8774f2d3
           pymupdf==2.1 \
               --hash=sha256:a9efa2e9e5f469d3b5749199329739cfef1ff1d1846538ced4885c544eecbcd9
           pytest==9.1.1 \
@@ -224,7 +240,7 @@ jobs:
       - name: Build sdist and wheel with pinned tools
         run: |
           set -euo pipefail
-          work="$RUNNER_TEMP/installed-wheel" "$RUNNER_TEMP/trufflehog" "$RUNNER_TEMP/semgrep-venv" "$RUNNER_TEMP/semgrep-requirements.txt" "$RUNNER_TEMP/semgrep-rules"
+          work="$RUNNER_TEMP/installed-wheel"
           rm -rf "$work"
           mkdir -p "$work/src" "$work/dist"
           # Only tracked files, as in a release build.
@@ -256,7 +272,7 @@ jobs:
         run: |
           set -euo pipefail
           lock="$PWD/requirements-machinery.lock"
-          work="$RUNNER_TEMP/installed-wheel" "$RUNNER_TEMP/trufflehog" "$RUNNER_TEMP/semgrep-venv" "$RUNNER_TEMP/semgrep-requirements.txt" "$RUNNER_TEMP/semgrep-rules"
+          work="$RUNNER_TEMP/installed-wheel"
           cd "$work"
           wheel="$(find dist -maxdepth 1 -name 'lu_machinery-*-py3-none-any.whl')"
           version="$(python -I -c 'import sys, tomllib; print(tomllib.load(open(sys.argv[1], "rb"))["project"]["version"])' src/pyproject.toml)"
