@@ -84,7 +84,9 @@ interpreter does not select the primary checkout's Python modules.
    ```
 
    Add `--owned-path`, `--subject-seat` or `--subject-family` when the change governs a seat's
-   adapter or reviewer hooks (`local-code-review` checklist). Use the returned reviewer, model
+   adapter or reviewer hooks (`local-code-review` checklist). `$RISK` follows the
+   [policy](references/policy.md#2-risk-tier-is-set-by-the-change); the resolver raises it to
+   `critical` on security paths, a floor nobody lowers. Use the returned reviewer, model
    and `requires_silence_timeout`. Exit 1 is fail-closed: no eligible reviewer means escalate
    to the CTO, or use the red-team exception (`workflow.md` § Merge policy) exactly as written
    there. Never review your own work.
@@ -126,7 +128,7 @@ interpreter does not select the primary checkout's Python modules.
    Give each finding a stable id and a disposition in the ledger ([policy](references/policy.md)).
    Fixes go to the authoring lane (the worker itself when it runs the loop); a driver does not
    patch them in.
-6. **Next round or stop.** The budget is three completed rounds per lineage, and nobody adds
+6. **Next round or stop.** The budget is three charged rounds per lineage, and nobody adds
    one ([policy](references/policy.md#4-convergence)). Start a delta round only if an open blocker, a
    `not_applicable` claim the reviewer must confirm, a changed behaviour or a moved head needs
    it, and only after the recorder admits it. Ask the recorder itself before dispatching; it

@@ -29,7 +29,7 @@
 | Polished written deliverables in English | Claude Sonnet 5.5 | Reports, runbooks, write-ups, PR/issue prose, decks, spreadsheets, and design review of pages/artifacts | By task fit | provisional |
 | Hard implementer | GPT-6.1 Sol, Claude Opus 5.5 | Escalate hard design judgment to Opus 5.5 / Sol 6.1 | `high` | provisional |
 | UI / visual product design | Claude Opus 5.5 / GPT-6.1 Sol | Cursor or Sonnet implements the approved design. Kimi is retired (OO-58) and is not an implementer. | `high` | provisional |
-| Code/security CF review | **Author-family-conditional** (see §3); for security-sensitive diffs (hooks/guards, launchers, credential or secret handling, dispatch admission, sandbox/permission logic), resolve the reviewer with `--risk critical`, which excludes Sonnet 5.5; resolver enforcement at lower risk levels is tracked in #9125 | — | `high`+ | provisional |
+| Code/security CF review | **Author-family-conditional** (see §3); for security-sensitive diffs (hooks/guards, launchers, credential or secret handling, dispatch admission, sandbox/permission logic), the resolver raises the review to `--risk critical` whatever risk is passed (`lu_machinery/review/security_paths.py`, #9125), which excludes Sonnet 5.5 | — | `high`+ | provisional |
 | Critical CF review | GPT-6.1 Sol ↔ Opus 5.5 **cross-family** | — | `high` | provisional |
 | Ukrainian language | Gemini 3.8 Flash High (AGY) | LANGUAGE-LANES: GPT-6.1 Sol / Claude Opus 5.5 + sources | `high` | provisional (morphology remains VESUM-gated) |
 | Recon / triage | GPT-6 Luna, Claude Haiku, Gemini 3.8 Flash | — | Luna `high` with exact owned paths + objective scope ceiling, from a Sol advisory envelope (always required, #9275); others by task fit; never sole release | provisional |
@@ -64,8 +64,8 @@ Never use a fixed unordered list that can pick the author’s family.
 | Author family | Prefer CF reviewers (code/infra) | Avoid as sole CF |
 |---|---|---|
 | Anthropic (Opus/Sonnet; Fable parked) | Grok, GPT-6.1 Sol, GLM local, Gemini | Sonnet/Opus self-family |
-| OpenAI (GPT-6.1 Sol, GPT-6 Luna) | Grok, Opus/Sonnet, GLM local, Gemini; for security-sensitive diffs use `--risk critical`, which excludes Sonnet 5.5 (#9125 tracks resolver enforcement at lower risk levels) | GPT-6 self-family |
-| xAI (Grok) | Opus/Sonnet, GPT-6.1 Sol, GLM local, Gemini; for security-sensitive diffs use `--risk critical`, which excludes Sonnet 5.5 (#9125 tracks resolver enforcement at lower risk levels) | Grok self-family |
+| OpenAI (GPT-6.1 Sol, GPT-6 Luna) | Grok, Opus/Sonnet, GLM local, Gemini; security-sensitive diffs are raised to `--risk critical`, which excludes Sonnet 5.5 (resolver floor, #9125) | GPT-6 self-family |
+| xAI (Grok) | Opus/Sonnet, GPT-6.1 Sol, GLM local, Gemini; security-sensitive diffs are raised to `--risk critical`, which excludes Sonnet 5.5 (resolver floor, #9125) | Grok self-family |
 | Google (Gemini via AGY) | Grok, OpenAI, Anthropic, GLM local | Gemini self-family alone for CF of Gemini-authored infra |
 | Moonshot (K3 retired, Cursor Composer) | Grok, OpenAI, Anthropic, GLM local, Gemini | Composer self-family; K3 is not a reviewer |
 | Zhipu (GLM) | Grok, OpenAI, Anthropic, Gemini | GLM self-family |

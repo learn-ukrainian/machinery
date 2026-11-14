@@ -142,7 +142,8 @@ everything" cannot survive this repo's merge rate and is corporate dual-control 
 - **Unsure → treat as BLOCKING.** The tie-break is fail-closed, so an ambiguous finding never merges on
   an optimistic reading.
 - The tier is the **reviewer's** call, recorded explicitly in the verdict, not the author's. An author
-  who disagrees escalates to a second reviewer rather than re-tiering their own finding.
+  who disagrees escalates (rules core P6) rather than re-tiering their own finding; there is no
+  second review.
 - **Scope of the question (#10665).** It is asked of the change's stated contract, the paths the
   change introduces, modifies or newly exposes, and regressions against main. Pre-existing defects
   off those paths and P2/P3 findings are tracked follow-ups unless their impact, or the change's

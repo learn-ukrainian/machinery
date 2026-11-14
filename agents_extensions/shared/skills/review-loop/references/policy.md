@@ -22,6 +22,12 @@ one place, `lu_machinery/config/review_tiers.yaml`. A PR spanning tiers takes th
 touches. Deleting a High-tier path or learner-facing content keeps that path's tier; only
 deletions of other unused code are Low.
 
+The reviewer's risk is the `--risk` passed to the resolver: `high` or `critical` for a High-tier
+change, and the resolver seats only Opus or Sol at either. For `code` and `infra` reviews the
+security-path classifier (`lu_machinery/review/security_paths.py`) is a floor: a change touching
+one of its paths, either name of a rename or a deletion included, is reviewed at `critical`
+whatever risk was passed. Nothing lowers that floor.
+
 One exact-head cross-family review per change (owner decision C-5345, 2026-11-12).
 High and critical risk keep an Opus or Sol reviewer. There is no second review.
 
@@ -37,8 +43,11 @@ High and critical risk keep an Opus or Sol reviewer. There is no second review.
 
 ## 4. Convergence
 
-At most 3 rounds. Round 1 is the full review; rounds 2-3 review only the diff since the last
-reviewed head. After round 3 the author steps back and reshapes or closes the PR; no grants.
+At most 3 charged rounds. A round is charged when a review is dispatched at a new head, whether
+or not its verdict is recorded. The clean base merge, the repair round and the capability
+failure under [Recording the verdict](#recording-the-verdict) do not count against the 3.
+Round 1 is the full review; rounds 2-3 review only the diff since the last reviewed head. After
+round 3 the author steps back and reshapes or closes the PR; no grants.
 
 ## 5. Recovery over gates
 
