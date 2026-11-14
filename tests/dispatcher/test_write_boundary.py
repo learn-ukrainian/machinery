@@ -60,12 +60,13 @@ def _digest(*paths: Path) -> dict:
     return {str(path): hashlib.sha256(path.read_bytes()).hexdigest() if path.exists() else None for path in paths}
 
 
-@pytest.mark.parametrize("failure", ["setup", "canary", "interpreter", "key-helper"])
+@pytest.mark.parametrize("failure", ["setup", "canary", "interpreter", "key-helper", "profile-store", "plane"])
 def test_setup_or_canary_failure_refuses_and_never_starts_the_provider(primary, monkeypatch, failure, tmp_path):
     """Defect class: a boundary that cannot start, or whose canary finds a writable primary, still launches the
     provider (an unsandboxed fallback), so the run proceeds without containment; or it starts with the Sources
     interpreter below a writable private root, whose parent a worker can move aside to plant its own (PR 528 F2);
-    or with a Claude key helper whose input it cannot name, so the helper reads an emptied path (PR 528 F3)."""
+    or with a Claude key helper whose input it cannot name, so the helper reads an emptied path, or with a
+    Claude profile store the CLI would prefer to the selected login (PR 528 F3)."""
     repo, worktree, _ = primary
     extra = []
     if failure == "setup":
@@ -76,6 +77,14 @@ def test_setup_or_canary_failure_refuses_and_never_starts_the_provider(primary, 
         login = tmp_path / "home" / ".claude-api"
         login.mkdir(parents=True)
         (login / "settings.json").write_text(json.dumps({"apiKeyHelper": "sh -c 'cat \"$KEY_FILE\"'"}))
+        extra = ["--claude-login", str(login)]
+    elif failure == "plane":
+        monkeypatch.setenv("FLEET_COMMS_ROOT", "relative/plane")
+    elif failure == "profile-store":
+        login = tmp_path / "home" / ".claude-b"
+        login.mkdir(parents=True)
+        (tmp_path / "home" / ".config" / "anthropic").mkdir(parents=True)
+        (tmp_path / "home" / ".config" / "anthropic" / "active_config").write_text("other")
         extra = ["--claude-login", str(login)]
     else:
         planned = write_boundary._Boundary._probes
@@ -90,7 +99,8 @@ def test_setup_or_canary_failure_refuses_and_never_starts_the_provider(primary, 
     assert code == write_boundary.REFUSED
     assert receipt["status"] == "refused"
     assert {"canary": "canary failed", "setup": "not installed", "interpreter": "writable private root",
-            "key-helper": "key helper"}[failure] in receipt["reason"]
+            "key-helper": "key helper", "profile-store": "profile store",
+            "plane": "FLEET_COMMS_ROOT is relative"}[failure] in receipt["reason"]
     assert not marker.exists()
     assert not write_boundary.scratch("wb-test").exists()
 
@@ -426,7 +436,9 @@ open(sys.argv[1], "w").write(json.dumps(results))
         "write_boundary_unproven: the receipt names another mode")
 
 
-def test_declared_resources_in_masked_roots_stay_read_only_without_host_socket_access(primary, monkeypatch, tmp_path):
+@pytest.mark.parametrize("login_root", ["home", "emptied-root"])
+def test_declared_resources_in_masked_roots_stay_read_only_without_host_socket_access(primary, monkeypatch, tmp_path,
+                                                                                    login_root):
     """Defect class: private tmpfs hides declared resources, or restoring them exposes host sockets/writes; or the
     view restores more than decision A4 allows, so a worker reads another provider's login, the operator's private
     state, another task's records or a checkout's secrets, and sends them out over its public egress; or it hides
@@ -437,41 +449,46 @@ def test_declared_resources_in_masked_roots_stay_read_only_without_host_socket_a
 
     repo, worktree, receipt = primary
     home = Path(os.environ["HOME"])
-    for relative, text in ((".codex/auth.json", "other login"), ("ops-state/notes", "private"),
-                           (".claude/projects/other.jsonl", "transcript"), (".claude/.credentials.json", "selected"),
-                           (".local/bin/tool", "toolchain"), (".claude/settings.json", '{"env": {}}'),
-                           (".claude/.claude.json", json.dumps({"oauthAccount": {
-                               "accountUuid": "u", "organizationUuid": "o", "emailAddress": "probe@example.invalid"},
-                               "projects": {"/elsewhere": {}}}))):
-        (home / relative).parent.mkdir(parents=True, exist_ok=True)
-        (home / relative).write_text(text)
+    masked = tmp_path.parent / ("ro-" + hashlib.sha256(str(tmp_path).encode()).hexdigest()[:8])
+    # The selected login below HOME, or below an emptied root outside it, with its key helper's file beside it.
+    login = home / ".claude" if login_root == "home" else masked / "logins" / "b"
+    # The key file inside the login directory itself, or below an emptied root of its own.
+    keys = login / "keys" if login_root == "home" else masked / "keys"
+    for path, text in ((home / ".codex/auth.json", "other login"), (home / "ops-state/notes", "private"),
+                       (login / "projects/other.jsonl", "transcript"), (login / ".credentials.json", "selected"),
+                       (home / ".local/bin/tool", "toolchain"), (keys / "selected", "selected key"),
+                       (keys / "other", "other key"),
+                       (login / "settings.json", json.dumps({"env": {}, "apiKeyHelper": f"cat {keys}/selected"})),
+                       (login / ".claude.json", json.dumps({"oauthAccount": {
+                           "accountUuid": "u", "organizationUuid": "o", "emailAddress": "probe@example.invalid"},
+                           "projects": {"/elsewhere": {}}}))):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text)
     tasks = repo / "batch_state" / "tasks"
     (tasks / "wb-test.inputs").mkdir(parents=True)
     (tasks / "wb-test.inputs" / "brief.md").write_text("own input")
     (tasks / "other-task.result").write_text("another task")
     (repo / ".secrets").mkdir()
     (repo / ".secrets" / "key").write_text("secret")
-    # A Fleet plane named through a link inside the restored primary is emptied where it resolves (PR 528 F1).
+    # A Fleet plane named with ~, a parent step and a link inside the restored primary is emptied where Fleet
+    # resolves it (PR 528 F1).
     (repo / "dedicated-plane").mkdir()
     (repo / "dedicated-plane" / "private-record").write_text("private")
     (repo / "plane-link").symlink_to("dedicated-plane")
-    monkeypatch.setenv("FLEET_COMMS_ROOT", str(repo / "plane-link"))
-    # An API-key login's helper file is its selected credential; the file beside it stays hidden (PR 528 F3).
-    (home / ".keys").mkdir()
-    (home / ".keys" / "selected").write_text("selected key")
-    (home / ".keys" / "other").write_text("other key")
-    (home / ".claude" / "settings.json").write_text(json.dumps({"env": {}, "apiKeyHelper": f"cat {home}/.keys/selected"}))
+    assert repo.parent == home.parent
+    monkeypatch.setenv("FLEET_COMMS_ROOT", f"~/../{repo.name}/plane-link")
     monkeypatch.setenv("LU_TASKS_DIR", str(tasks))
     monkeypatch.setattr(write_boundary, "_HOME_TOOLCHAIN", (".local/bin",))
-    masked = tmp_path.parent / ("ro-" + hashlib.sha256(str(tmp_path).encode()).hexdigest()[:8])
     shared = masked / "shared"
     shared.mkdir(parents=True)
     (shared / "resource").write_text("declared")
     (masked / "hidden").write_text("sibling")
     monkeypatch.setattr(write_boundary, "_MASKED_ROOTS", (*write_boundary._MASKED_ROOTS, masked))
-    # HOME named through a link below an emptied root, its login named through that link too (PR 528 F3).
-    (masked / "home-link").symlink_to(home)
-    monkeypatch.setenv("HOME", str(masked / "home-link"))
+    # HOME named through a link inside the checkout's emptied state, its login named through that link too
+    # (PR 528 F3).
+    (repo / "batch_state" / "home-link").symlink_to(home)
+    monkeypatch.setenv("HOME", str(repo / "batch_state" / "home-link"))
+    named_login = repo / "batch_state" / "home-link" / login.relative_to(home) if login_root == "home" else login
     monkeypatch.setattr(runtime_context, "shared_root", lambda: shared)
     client = tmp_path / "resource-probe.py"
     client.write_text("""
@@ -493,21 +510,23 @@ with socket.socket(socket.AF_UNIX) as connection:
         pass
     else:
         raise AssertionError("host socket reachable")
-home, repo = Path(os.environ["HOME"]), Path(sys.argv[4])
-view = {relative: (home / relative).exists() for relative in (
-    ".codex/auth.json", "ops-state", ".claude/projects", ".claude/.credentials.json", ".local/bin/tool",
-    ".claude/settings.json")}
+home, repo, login, keys = Path(os.environ["HOME"]), Path(sys.argv[4]), Path(sys.argv[5]), Path(sys.argv[6])
+view = {relative: (home / relative).exists() for relative in (".codex/auth.json", "ops-state", ".local/bin/tool")}
+view.update({"login/" + relative: (login / relative).exists() for relative in (
+    "projects", ".credentials.json", "settings.json")})
+view.update({"keys/" + relative: (keys / relative).exists() for relative in ("selected", "other")})
 # The selected login's global config holds only what its launch guard binds.
-view["global_config"] = json.loads((home / ".claude/.claude.json").read_text())
+view["global_config"] = json.loads((login / ".claude.json").read_text())
 view.update({relative: (repo / relative).exists() for relative in (
     "batch_state/tasks/other-task.result", ".secrets/key", "batch_state/tasks/wb-test.inputs/brief.md", "a.txt",
     "plane-link/private-record", "dedicated-plane/private-record")})
-view.update({relative: (home / relative).exists() for relative in (".keys/selected", ".keys/other")})
-assert view == {".codex/auth.json": False, "ops-state": False, ".claude/projects": False,
-                ".claude/.credentials.json": True, ".local/bin/tool": True, ".claude/settings.json": True,
+
+assert view == {".codex/auth.json": False, "ops-state": False, "login/projects": False,
+                "login/.credentials.json": True, ".local/bin/tool": True, "login/settings.json": True,
+                "keys/selected": True, "keys/other": False,
                 "global_config": {"oauthAccount": {"accountUuid": "u", "organizationUuid": "o"}},
                 "batch_state/tasks/other-task.result": False, "plane-link/private-record": False,
-                "dedicated-plane/private-record": False, ".keys/selected": True, ".keys/other": False,
+                "dedicated-plane/private-record": False,
                 ".secrets/key": False, "batch_state/tasks/wb-test.inputs/brief.md": True, "a.txt": True}, view
 report.write_text("resources-readable-writes-and-sockets-denied")
 """)
@@ -518,9 +537,9 @@ report.write_text("resources-readable-writes-and-sockets-denied")
         code = write_boundary.main([
             "--task-id", "wb-test", "--worktree", str(worktree), "--scratch", str(write_boundary.scratch("wb-test")),
             "--receipt", str(receipt), "--mode", "read-only", "--output", str(report),
-            "--credential", str(masked / "home-link/.claude/.credentials.json"), "--claude-login", str(home / ".claude"),
+            "--credential", str(named_login / ".credentials.json"), "--claude-login", str(named_login),
             "--", sys.executable, "-I",
-            str(client), str(shared), str(masked), str(report), str(repo),
+            str(client), str(shared), str(masked), str(report), str(repo), str(login), str(keys),
         ])
     evidence = json.loads(receipt.read_text())
     assert code == 0, evidence
@@ -528,8 +547,8 @@ report.write_text("resources-readable-writes-and-sockets-denied")
     assert (shared / "resource").read_text() == "declared"
     # The canary itself checked the hidden paths for absence before the provider started.
     absent = {probe["path"] for probe in evidence["canary"]["probes"] if probe["expect_any"] == ["ENOENT"]}
-    assert {str(home / ".codex/auth.json"), str(home / "ops-state"), str(home / ".claude/projects"),
-            str(tasks / "other-task.result"), str(repo / ".secrets/key")} <= absent, sorted(absent)
+    assert {str(home / ".codex/auth.json"), str(home / "ops-state"), str(tasks / "other-task.result"),
+            str(repo / ".secrets/key")} <= absent, sorted(absent)
 
 
 @pytest.fixture

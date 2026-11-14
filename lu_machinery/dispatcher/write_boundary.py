@@ -492,16 +492,23 @@ def _private_state(checkouts: list[Path]) -> list[Path]:
     """Host state no worker reads (decision A4): the task store, the Fleet Comms plane, the scratch root that
     holds every task's private layers, and each checkout's private runtime state (``_CHECKOUT_PRIVATE``)."""
     from lu_machinery.common.task_store_paths import tasks_dir
+    from lu_machinery.guardrails.worktree_containment import canonicalize
 
-    # Configured roots are emptied where they resolve, as their own readers canonicalize them (a link or a
-    # relative FLEET_COMMS_ROOT names the same plane).
-    configured: list[Path] = []
+    # Configured roots are emptied where their own readers resolve them: the task store and the scratch root as
+    # the paths those helpers return, the Fleet plane through Fleet's own ``canonicalize`` (``~`` and links). A
+    # relative plane root names a different plane in each process's working directory, so it, like a root that
+    # cannot be resolved, refuses the run.
+    candidates: list[Path] = []
     with contextlib.suppress(OSError, ValueError):
-        configured.append(tasks_dir())
-    if os.environ.get("FLEET_COMMS_ROOT"):
-        configured.append(Path(os.environ["FLEET_COMMS_ROOT"]))
-    configured.append(ensure_scratch_root())
-    candidates = [Path(os.path.realpath(path)) for path in configured]
+        candidates.append(Path(os.path.realpath(tasks_dir())))
+    if plane := os.environ.get("FLEET_COMMS_ROOT"):
+        if not Path(plane).expanduser().is_absolute():
+            raise Refused("FLEET_COMMS_ROOT is relative; its plane depends on the reader's working directory")
+        try:
+            candidates.append(canonicalize(plane))
+        except (OSError, RuntimeError, ValueError):
+            raise Refused("FLEET_COMMS_ROOT cannot be resolved as Fleet resolves it") from None
+    candidates.append(Path(os.path.realpath(ensure_scratch_root())))
     for checkout in checkouts:
         for name in _CHECKOUT_PRIVATE:
             path = checkout / name
@@ -1263,21 +1270,24 @@ class _Boundary:
         outputs = []
         for raw in self.args.output or []:
             path = Path(raw)
-            if not path.is_absolute() or _overlaps(path, common) or _overlaps(path, self.worktree) or path.is_symlink():
+            resolved = Path(os.path.realpath(path)) if path.is_absolute() else path
+            if (not path.is_absolute() or path.is_symlink() or _overlaps(resolved, common)
+                    or _overlaps(resolved, self.worktree)):
                 raise Refused("a declared output is not a plain path outside Git metadata and the worktree")
             if not path.exists():
                 _write_private(path, b"", 0o600)
                 self.created_outputs.append(path)
             elif not path.is_file():
                 raise Refused("a declared output is not a regular file")
-            outputs.append(path)
+            outputs.append(Path(os.path.realpath(path)))
         credentials = []
         for raw in self.args.credential or []:
             path = Path(raw)
-            if path.is_symlink() or not path.is_file() or _overlaps(path, repository):
-                raise Refused("a credential file is not a regular file outside the primary")
             # Bound where it resolves: a HOME named through a link holds no mount point of its own.
-            credentials.append(Path(os.path.realpath(path)))
+            resolved = Path(os.path.realpath(path)) if path.is_absolute() else path
+            if path.is_symlink() or not resolved.is_file() or _overlaps(resolved, repository):
+                raise Refused("a credential file is not a regular file outside the primary")
+            credentials.append(resolved)
 
         if _under(_interpreter_root(), _MASKED_ROOTS):
             # Those roots stay writable inside, so a worker could move the installation's parent aside and plant
@@ -1309,9 +1319,15 @@ class _Boundary:
             restores.append(Path(self.args.runtime))
         if self.args.codex_auth is not None:
             restores.append(self.base / _CODEX_HOME)
-        login_copies, login_reads = self._claude_login(home)
-        restores += [*login_copies, *login_reads]
+        login, login_reads = self._claude_login(home, repository)
+        restores += [*([login[1]] if login else []), *login_reads]
         masks = [*base_masks, *private]
+        named_home = Path(os.environ.get("HOME") or Path.home()).absolute()
+        # HOME named through a link the view empties (below a data root, a private tmpfs or a checkout's emptied
+        # state) stays a link to the overlay. Every bind is at a resolved path, so nothing else is below the name.
+        alias = named_home if named_home != home and _hidden(named_home, masks, restores) else None
+        if alias is not None:
+            restores.append(alias)
         sockets = [path for path in _listening_socket_paths()
                    if not _hidden(path, masks, restores) and os.path.lexists(path)]
         nonce = uuid.uuid4().hex
@@ -1334,6 +1350,8 @@ class _Boundary:
         ]
         for path in private:
             argv += ["--tmpfs", str(path)] if path.is_dir() else ["--ro-bind", "/dev/null", str(path)]
+        if login is not None:  # the selected login's private projection; its key file and credential go on top
+            argv += ["--bind", str(login[0]), str(login[1])]
         for path in (*own, *login_reads):
             argv += ["--ro-bind", str(path), str(path)]
         argv += (["--ro-bind", str(common), str(common)] if read_only else
@@ -1373,18 +1391,11 @@ class _Boundary:
         argv += ["--ro-bind", str(boundary), _INSIDE]
         interpreter = sources_command()[0]
         # The emptied roots are read-only, so no worker moves a restored path's parent aside to plant files there.
-        named_home = Path(os.environ.get("HOME") or Path.home()).absolute()
-        if named_home != home and _under(named_home, [*_MASKED_ROOTS, *data]):
-            # HOME is named through a link below an emptied root: keep that name pointing at the overlay. Every
-            # bind is at a resolved path, so nothing else is mounted below the name.
-            argv += ["--symlink", str(home), str(named_home)]
+        if alias is not None:
+            argv += ["--symlink", str(home), str(alias)]
         emptied = [path for path in (*data, *private) if path.is_dir() and path != home and path not in restores]
         argv += [arg for path in emptied for arg in ("--remount-ro", str(path))]
         _home_lower(lower, home, argv)
-        for path, content in login_copies.items():
-            target = lower / path.relative_to(home)
-            target.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-            _write_private(target, content, 0o600)
         if read_only:
             (boundary / "bin").mkdir(mode=0o700)
             _write_private(boundary / "bin" / "gh", agy_sandbox._GH_SHIM.format(interpreter=interpreter).encode(), 0o500)
@@ -1459,25 +1470,35 @@ class _Boundary:
             self.receipt["closeout_request"] = self.broker.closeout_request
         return returncode
 
-    def _claude_login(self, home: Path) -> tuple[dict[Path, bytes], list[Path]]:
-        """The selected Claude login's guard-bound state below HOME: its private copies and its read-only reads.
+    def _claude_login(self, home: Path, repository: Path) -> tuple[tuple[Path, Path] | None, list[Path]]:
+        """The selected Claude login's projection, wherever it lives: a private directory bound at its resolved
+        path, and the read-only reads its key helper needs.
 
-        Its user settings, legacy global config and policy caches are copied whole; its global config only as
-        the ``env`` map and account and organisation ids the launch guard binds. An API-key login's key helper
-        (C-2643) must be ``cat <absolute file>``: that file is the selected credential and is restored
-        read-only; any other helper form is refused, since what it reads cannot be named. Nothing else of the
-        login directory, and nothing of any other login, is restored (decision A4).
+        The directory holds copies of the state its launch guard binds (#10619) and the CLI reads at start: the
+        user settings, legacy global config and policy caches whole, the global config only as its ``env`` map
+        and account and organisation ids. The CLI may rewrite them there; the directory goes with the run's
+        scratch. The selected credential is bound over it (``--credential``). An API-key login's key helper
+        (C-2643) must be ``cat <absolute file>``: that file is its selected credential, restored read-only; any
+        other form is refused, since what it reads cannot be named. A profile store the CLI would prefer to the
+        login is refused too. Nothing else of the login directory, and nothing of another login, is visible.
         """
-        from lu_machinery.agent_runtime.env_sanitize import CLAUDE_POLICY_CACHE_NAMES
+        from lu_machinery.agent_runtime.env_sanitize import (
+            CLAUDE_POLICY_CACHE_NAMES,
+            CLAUDE_PROFILE_STORE_ENTRIES,
+            claude_profile_store_dirs,
+        )
 
         if self.args.claude_login is None:
-            return {}, []
+            return None, []
         login = Path(self.args.claude_login)
-        if not login.is_absolute() or login.is_symlink() or not login.is_dir():
+        if not login.is_absolute() or not login.is_dir():
             raise Refused("--claude-login is not an absolute login directory")
         login = login.resolve(strict=True)
-        if not login.is_relative_to(home) or login == home:
-            return {}, []  # outside HOME the login directory is not emptied
+        if home.is_relative_to(login) or _overlaps(login, repository) or _overlaps(login, self.worktree):
+            raise Refused("the Claude login directory overlaps HOME itself or the checkout")
+        for store in claude_profile_store_dirs(os.environ):
+            if any(os.path.lexists(store / name) for name in CLAUDE_PROFILE_STORE_ENTRIES):
+                raise Refused("a Claude profile store would replace the selected login; it is not projected")
         copies: dict[Path, bytes] = {}
         for name in (*_CLAUDE_LOGIN_FILES, *CLAUDE_POLICY_CACHE_NAMES, _CLAUDE_GLOBAL_CONFIG):
             path = login / name
@@ -1511,8 +1532,12 @@ class _Boundary:
             if key is None or not key.is_absolute() or key.is_symlink() or not key.is_file():
                 raise Refused("the selected Claude key helper is not 'cat <absolute file>'")
             reads.append(Path(os.path.realpath(key)))
+        projection = self.base / "claude-login"
+        projection.mkdir(mode=0o700)
+        for path, content in copies.items():
+            _write_private(projection / path.name, content, 0o600)
         self.receipt["claude_login"] = {"copies": sorted(path.name for path in copies), "key_file": bool(reads)}
-        return copies, reads
+        return (projection, login), reads
 
     def _codex_home(self, credentials: list[Path]) -> Path:
         """Project the task-local CODEX_HOME into this run's private scratch and return it.
@@ -1523,6 +1548,8 @@ class _Boundary:
         TMPDIR, not in it: Codex creates no helper PATH aliases under its temporary directory.
         """
         auth = Path(self.args.codex_auth)
+        if auth.is_absolute():
+            auth = Path(os.path.realpath(auth))
         if not auth.is_absolute() or auth.name != "auth.json":
             raise Refused("--codex-auth is not an absolute auth.json path")
         home = self.base / _CODEX_HOME

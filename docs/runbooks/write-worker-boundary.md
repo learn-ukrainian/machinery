@@ -65,10 +65,11 @@ One bubblewrap invocation per launch, built in full by the launcher:
   directory under HOME), the launcher's own interpreter, virtual environment and package, and the
   public checkouts below. The selected provider's credential file (Claude `.credentials.json`, Codex
   `auth.json`, the AGY token, OpenCode `auth.json`) is a writable bind, so a token refresh is kept. The
-  selected Claude login's state that its launch guard binds (#10619) is projected as private copies
-  into the lower layer, so the CLI may rewrite them in the discarded upper layer: `settings.json`, the
-  legacy `.config.json`, the policy caches, and `.claude.json` reduced to its `env` map and account
-  and organisation ids. An API-key login's key helper must be `cat <absolute file>`: that file is its
+  selected Claude login, wherever it lives, is a private directory of the run's scratch bound at its
+  resolved path. It holds copies of the state its launch guard binds (#10619), which the CLI may
+  rewrite there: `settings.json`, the legacy `.config.json`, the policy caches, and `.claude.json`
+  reduced to its `env` map and account and organisation ids. The selected credential is bound on top.
+  An existing Claude profile store refuses the run, because the CLI would prefer it to the login. An API-key login's key helper must be `cat <absolute file>`: that file is its
   selected credential and is restored read-only, and any other helper form refuses the run. Cursor's own
   login file is a writable bind like the others. Every selected path is bound where it resolves, and a
   HOME named through a link below an emptied root stays a link to the overlay. No other provider
@@ -88,8 +89,9 @@ One bubblewrap invocation per launch, built in full by the launcher:
   `.agent`, `.secrets`, `.runtime`, `.deploy-state`, `.pids`, `.codex`, `.gemini`, `.mcp`, `.env`,
   `.worktrees` (other tasks' worktrees), `logs`, `docs/session-state`, `data/telemetry` and the Fleet
   databases. A checkout's `.claude` settings stay: Claude Code loads them and its launch guard binds them. So are the task store (`LU_TASKS_DIR`), the Fleet
-  Comms plane (`FLEET_COMMS_ROOT`) and the scratch root, wherever they resolve (a link or a relative
-  name empties its target). Restored on top: the run's own
+  Comms plane (`FLEET_COMMS_ROOT`, resolved as Fleet resolves it, `~` and links included) and the
+  scratch root, wherever they resolve. A relative `FLEET_COMMS_ROOT` refuses the run, because its plane
+  depends on each reader's working directory. Restored on top: the run's own
   worktree and scratch and the task's own records, `<task>.rules-core`, `<task>.launch-prompt`,
   `<task>.inputs` (inputs a driver stages for the worker) and Codex's `.codex-schemas/<task>.json`.
   Claude's and Cursor's file tools get the same grants (`--add-dir`): the shared skills and
