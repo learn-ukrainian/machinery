@@ -36,6 +36,7 @@ import os
 import re
 import sys
 from collections.abc import Callable, Iterator, Mapping
+from typing import TypeGuard
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime, timedelta
@@ -108,6 +109,11 @@ def _empty() -> dict[str, Any]:
         "schema": 1, "last_tick": None, "episodes": {}, "handoffs": {},
         "history": [], "outbox": [], "heal_attempts": {},
     }
+
+
+def _git_head(value: object) -> TypeGuard[str]:
+    """A Git commit id: 40 lowercase hex characters, with no regular expression."""
+    return isinstance(value, str) and len(value) == 40 and all(character in "0123456789abcdef" for character in value)
 
 
 def _single_line(value: object) -> bool:
@@ -920,10 +926,9 @@ def _seat_decision_owner(
 ) -> dict[str, Any] | None:
     """Return the cleared notice when custody is recorded and the postcondition holds."""
     head, state = finding.head, finding.pr_state
-    if (
-        not isinstance(head, str) or re.fullmatch(r"[0-9a-f]{40}", head) is None
-        or state != "OPEN" or not _single_line(finding.reason)
-    ):
+    if not _git_head(head):
+        return None
+    if state != "OPEN" or not _single_line(finding.reason):
         return None
     attempts = data.setdefault("heal_attempts", {})
     attempt_key = f"{key}:{head}"

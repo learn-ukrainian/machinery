@@ -349,10 +349,7 @@ def listed_task_services(record: Mapping[str, Any]) -> list[str] | None:
 
 
 def _systemctl(argv: Sequence[str]) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        list(argv), check=False, capture_output=True, text=True, timeout=30,
-        env=user_manager_env(os.environ),
-    )
+    return _run(argv, user_manager_env(os.environ), 30)
 
 
 def _service_gone(proc: subprocess.CompletedProcess[str]) -> bool:
