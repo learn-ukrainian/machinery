@@ -2587,7 +2587,15 @@ def _normalize_provider_error(provider: str, error: Any) -> dict[str, Any]:
         kind = error.get("kind")
 
     if message:
-        logging.getLogger(__name__).warning("Provider %s usage probe failed: %s", provider, message)
+        # Provider text can carry credentials or paths (CodeQL py/clear-text-logging-sensitive-data).
+        # Log only the allowlisted class or code, never error.message.
+        public_kind, public_code = _public_quota_error(kind, code)
+        marker = (
+            public_code if public_code is not None else public_kind or PROVIDER_ERROR
+        )
+        logging.getLogger(__name__).warning(
+            "Provider %s usage probe failed: %s", provider, marker
+        )
 
     empty_win = {
         "used_pct": None,

@@ -9,6 +9,8 @@ Hermetic — no network, no fixtures, no model downloads.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 from fastapi import HTTPException
 
@@ -42,6 +44,26 @@ def test_read_session_file_rejects_escape():
     with pytest.raises(HTTPException) as exc:
         _read_session_file("../../../../etc/passwd", PROJECT_ROOT)
     assert exc.value.status_code == 400
+
+
+def test_read_session_file_hides_oserror_detail(tmp_path, monkeypatch):
+    """Defect class: OSError text and the session path must not reach the HTTP client."""
+    secret = "private-oserror-marker"
+    session = tmp_path / "docs" / "session-state" / "current.md"
+    session.parent.mkdir(parents=True)
+    session.write_text("ok", encoding="utf-8")
+
+    def boom(self, *args, **kwargs):
+        raise OSError(f"permission denied {secret} at {session}")
+
+    monkeypatch.setattr(Path, "read_text", boom)
+    with pytest.raises(HTTPException) as exc:
+        _read_session_file("docs/session-state/current.md", tmp_path)
+    assert exc.value.status_code == 500
+    assert exc.value.detail == "session_read_failed"
+    assert secret not in str(exc.value.detail)
+    assert str(session) not in str(exc.value.detail)
+    assert exc.value.__cause__ is None
 
 
 def test_safe_path_rejects_sibling_prefix():
