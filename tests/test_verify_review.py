@@ -1820,21 +1820,19 @@ def test_load_schema_invalid_json_is_contract_error(tmp_path, monkeypatch):
     assert exc.value.exit_code == EXIT_INVALID
 
 
-def _hardlink_beside(canonical: Path) -> Path:
-    """A second directory entry for ``canonical``, on that file's own mount.
+def _writable_hardlink(tmp_path: Path, source: Path) -> tuple[Path, Path]:
+    """A hard-linked pair inside ``tmp_path``.
 
-    ``link(2)`` returns EXDEV across mount points, including two bind mounts of
-    one filesystem. pytest's tmp directory is not guaranteed to be the checkout's
-    mount, so the extra name stays in the schema directory.
+    Both names are on one mount, and the checkout is not written. A read-only
+    checkout and a tmp directory on another mount both still run this.
     """
     import os
-    import tempfile
 
-    descriptor, name = tempfile.mkstemp(prefix=".schema-hardlink-", dir=canonical.parent)
-    os.close(descriptor)
-    os.unlink(name)
-    os.link(canonical, name)
-    return Path(name)
+    packaged = tmp_path / "packaged-schema.json"
+    packaged.write_bytes(source.read_bytes())
+    caller = tmp_path / "caller-schema.json"
+    os.link(packaged, caller)
+    return packaged, caller
 
 
 def test_hard_linked_packaged_schema_binds_and_a_caller_hard_link_is_refused(tmp_path, monkeypatch):
@@ -1847,10 +1845,13 @@ def test_hard_linked_packaged_schema_binds_and_a_caller_hard_link_is_refused(tmp
     """
     from lu_machinery.agent_runtime.attempt_safe_read import AttemptReadError
     from lu_machinery.dispatcher import output_schema
+    from lu_machinery.review import review_contract
 
     canonical = schema_path()
     assert canonical is not None
-    linked = _hardlink_beside(canonical)
+    checkout_links = canonical.stat().st_nlink
+    packaged, caller = _writable_hardlink(tmp_path, canonical)
+    monkeypatch.setattr(review_contract, "_packaged_review_schema", lambda: packaged)
     calls: list[Path] = []
     real = output_schema.safe_read_attempt_file
 
@@ -1861,40 +1862,42 @@ def test_hard_linked_packaged_schema_binds_and_a_caller_hard_link_is_refused(tmp
         return real(path, **kwargs)
 
     monkeypatch.setattr(output_schema, "safe_read_attempt_file", guard)
-    try:
-        assert canonical.stat().st_nlink >= 2
-        assert linked.parent == canonical.parent
-        options = output_schema.bind(str(canonical), tmp_path)
-        loaded = output_schema.load(options)
-        assert loaded["$id"].endswith("code-review-findings.v1.schema.json")
-        assert calls == []
-        with pytest.raises(ValueError, match="output schema is not a readable regular file") as refused:
-            output_schema.bind(str(linked), tmp_path)
-        assert isinstance(refused.value.__cause__, AttemptReadError)
-        assert str(refused.value.__cause__) == "attempt_read_link_count"
-        assert calls
-        plain = tmp_path / "plain.json"
-        plain.write_text('{"type": "object"}', encoding="utf-8")
-        plain_options = output_schema.bind(str(plain), tmp_path)
-        assert output_schema.load(plain_options) == {"type": "object"}
-    finally:
-        linked.unlink(missing_ok=True)
+    assert packaged.stat().st_nlink >= 2
+    assert canonical.stat().st_nlink == checkout_links
+    options = output_schema.bind(str(packaged), tmp_path)
+    loaded = output_schema.load(options)
+    assert loaded["$id"].endswith("code-review-findings.v1.schema.json")
+    assert calls == []
+    with pytest.raises(ValueError, match="output schema is not a readable regular file") as refused:
+        output_schema.bind(str(caller), tmp_path)
+    assert isinstance(refused.value.__cause__, AttemptReadError)
+    assert str(refused.value.__cause__) == "attempt_read_link_count"
+    assert calls
+    plain = tmp_path / "plain.json"
+    plain.write_text('{"type": "object"}', encoding="utf-8")
+    plain_options = output_schema.bind(str(plain), tmp_path)
+    assert output_schema.load(plain_options) == {"type": "object"}
 
 
-def test_load_schema_reads_hard_linked_packaged_schema_from_the_package(monkeypatch):
+def test_load_schema_reads_hard_linked_packaged_schema_from_the_package(tmp_path, monkeypatch):
     """Defect class: a Path.read_text replacement can change the schema load_schema validates.
 
-    The packaged path is a package resource. Raising the link count and refusing
-    Path.read_text on that path still returns the packaged schema.
+    The stand-in resource lives in tmp and has a second name. Refusing
+    Path.read_text on it still returns the resource bytes.
     """
+    from lu_machinery.review import review_contract
+
     canonical = schema_path()
     assert canonical is not None
-    linked = _hardlink_beside(canonical)
+    checkout_links = canonical.stat().st_nlink
+    packaged, _caller = _writable_hardlink(tmp_path, canonical)
+    monkeypatch.setattr(review_contract, "_packaged_review_schema", lambda: packaged)
+    monkeypatch.setattr(review_contract, "schema_path", lambda **_kwargs: packaged)
     original = Path.read_text
 
     def refuse_packaged(self, *args, **kwargs):
         try:
-            same = self.resolve() == canonical.resolve()
+            same = self.resolve() == packaged.resolve()
         except OSError:
             same = False
         if same:
@@ -1902,12 +1905,10 @@ def test_load_schema_reads_hard_linked_packaged_schema_from_the_package(monkeypa
         return original(self, *args, **kwargs)
 
     monkeypatch.setattr(Path, "read_text", refuse_packaged)
-    try:
-        assert canonical.stat().st_nlink >= 2
-        loaded = load_schema()
-        assert loaded["$id"].endswith("code-review-findings.v1.schema.json")
-    finally:
-        linked.unlink(missing_ok=True)
+    assert packaged.stat().st_nlink >= 2
+    assert canonical.stat().st_nlink == checkout_links
+    loaded = load_schema()
+    assert loaded["$id"].endswith("code-review-findings.v1.schema.json")
 
 
 def test_load_schema_unreadable_is_contract_error(tmp_path, monkeypatch):
