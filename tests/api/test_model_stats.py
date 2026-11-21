@@ -467,12 +467,13 @@ def test_per_model_figures_survive_settlement_backfill_and_retention(tmp_path, m
         "first\n\t\x1b[31m\u202e<script>" + "B" * 240 + "TAIL-BEYOND-200", encoding="utf-8",
     )
     _record(u_tasks, "u-fields-review", mode="read-only", agent="claude", model="claude-opus-5-5",
-            review_branch="pinned-recon", started_at=_at(3))
+            review_branch="pinned-recon", research_task_family="recon", started_at=_at(3), duration_s=11,
+            usage={"input_tokens": 10, "cache_read_input_tokens": 4, "output_tokens": 3})
     (u_tasks / "u-fields-review.result").write_text(
         '{"overall": {"correctness": "maybe"}, "findings": []}', encoding="utf-8",
     )
     _record(u_tasks, "u-envelope-fields-review", mode="read-only", agent="claude", model="claude-opus-5-5",
-            review_profile="code", started_at=_at(2.5))
+            options={"review_profile": "code"}, started_at=_at(2.5))
     (u_tasks / "u-envelope-fields-review.result").write_text(
         'VERDICT: APPROVE\nSCORE: 9/10\n\n```json\n{"schema_version": "code-review-findings.v1", "overall": {}}\n```',
         encoding="utf-8",
@@ -494,8 +495,9 @@ def test_per_model_figures_survive_settlement_backfill_and_retention(tmp_path, m
         "result_file": str(u_tasks / "u-stamped-review.result"),
         "result_sha256": hashlib.sha256(stamped_bytes).hexdigest(),
     }), encoding="utf-8")
-    _record(u_tasks, "u-failed-review", mode="read-only", agent="claude", model="claude-opus-5-5",
-            status="failed", started_at=_at(1))
+    _record(u_tasks, "u-failed-review", mode="workspace-write", agent="claude", model="claude-opus-5-5",
+            status="failed", started_at=_at(1), duration_s=5,
+            usage={"input_tokens": 7, "cache_read_input_tokens": 1, "output_tokens": 2})
     # Seed a legacy pre-change unparsed row without unparsed_reason; reader marks it unknown, backfill upgrades it.
     legacy_path = u_tasks / "u-legacy-review.json"
     legacy_rec = _record(u_tasks, "u-legacy-review", mode="read-only", agent="claude", model="claude-opus-5-5",
@@ -525,8 +527,24 @@ def test_per_model_figures_survive_settlement_backfill_and_retention(tmp_path, m
 
     u_window = _window(u_state, stats.Landing())
     u_review = _row(u_window, "claude-opus-5-5", "review")
-    assert u_review["tasks"] == 8 and u_review["verdicts"]["unparsed"] == 6
-    assert u_review["review_evidence_absent"] == {"bad_fields": 1, "not_done": 1}
+    assert u_review["tasks"] == 6 and u_review["verdicts"]["unparsed"] == 6
+    assert u_review["review_evidence_absent"] == {}
+    assert u_review["tokens"] == {"fresh_input": 0, "cached_input": 0, "output": 0}
+    # The recon and the writer whose id merely contains "review" keep their tokens on the write row.
+    assert stored_u["u-fields-review"]["role"] == "write" and stored_u["u-fields-review"]["class"] == "recon"
+    assert stored_u["u-fields-review"]["review"] is None
+    assert "review_evidence_absent" not in stored_u["u-fields-review"]
+    assert stored_u["u-failed-review"]["role"] == "write" and stored_u["u-failed-review"]["review"] is None
+    assert "review_evidence_absent" not in stored_u["u-failed-review"]
+    u_write = _row(u_window, "claude-opus-5-5", "write")
+    assert u_write["tasks"] == 2
+    assert u_write["status"]["done"] == 1 and u_write["status"]["failed"] == 1
+    assert u_write["tokens"] == {"fresh_input": 17, "cached_input": 5, "output": 5}
+    totals = [0, 0, 0]
+    for model in u_window["models"]:
+        for index, key in enumerate(("fresh_input", "cached_input", "output")):
+            totals[index] += model["tokens"][key]
+    assert totals == [17, 5, 5]
     assert u_review["unparsed_reasons"] == {
         "missing_result": 1, "too_big": 0, "bad_format": 4, "bad_fields": 1, "not_done": 0, "unknown": 0,
     }
@@ -609,8 +627,10 @@ def test_each_sidecar_outcome_yields_one_review_and_never_carries_older_evidence
         "too-big-replaced": (lambda p: p.write_bytes(big), {"result_sha256": hashlib.sha256(body).hexdigest()},
                              sampled("too_big", None)),
     }
-    for outcome, (_, fields, _) in table.items():
-        _record(tasks, f"{outcome}-review", mode="read-only", **fields)
+    for outcome, (_, fields, expected) in table.items():
+        # An unparsed sidecar is a review only when the task is typed. A parsed reply is the evidence.
+        typed = {} if expected.get("verdict") in ("correct", "incorrect", "uncertain") else {"review_profile": "code"}
+        _record(tasks, f"{outcome}-review", mode="read-only", **typed, **fields)
         (tasks / f"{outcome}-review.result").write_bytes(body)
     rows.backfill(tasks, batch_state)
     earlier = {row["task_id"]: row["review"] for row in rows.read_rows(batch_state)[0]}
@@ -1544,14 +1564,9 @@ def test_supplemental_reviews_enter_reviewer_figures_without_changing_author_out
     assert review["unparsed_samples"] == {"bad_format": "Looks fine to me."}
     assert review["approve_rate"] == {"value": 1.0, "n": 1, "low_sample": True}
     assert review["blocking_per_review"]["value"] == 0.0
-    grok = _row(window, "grok-4.7", "review")
+    assert [model for model in window["models"] if model["model"] == "grok-4.7" and model["role"] == "review"] == []
+    grok = _row(window, "grok-4.7", "write")
     assert grok["status"]["failed"] == grok["tasks"] == 1
-    assert grok["verdicts"]["unparsed"] == 0
-    assert grok["review_evidence_absent"] == {"not_done": 1}
-    assert grok["unparsed_reasons"] == {
-        "missing_result": 0, "too_big": 0, "bad_format": 0, "bad_fields": 0, "not_done": 0, "unknown": 0,
-    }
-    assert grok["unparsed_samples"] == {}
     neon = _row(window, "gemini-4-neon", "review")
     assert (neon["approve_rate"]["n"], neon["findings"], neon["findings_n"]) == (2, 1, 1)
     levels = {level["effort"]: level for model in window["review_levels"] if model["model"] == "gemini-4-neon"
@@ -1560,9 +1575,9 @@ def test_supplemental_reviews_enter_reviewer_figures_without_changing_author_out
     assert levels["high"]["first_round_approved"]["n"] == 0
     assert levels["high"]["findings"] is None
     assert levels["medium"] == {
-        "effort": "medium", "tasks": 2, "results": 1, "findings": 1, "findings_n": 1, "first_round_missing": 0,
-        "first_round_approved": {"value": 1.0, "n": 1, "low_sample": True}, "median_seconds": 90.0,
-        "wall_minutes_per_landed": {"value": 3.0, "n": 1, "low_sample": True},
+        "effort": "medium", "tasks": 1, "results": 1, "findings": 1, "findings_n": 1, "first_round_missing": 0,
+        "first_round_approved": {"value": 1.0, "n": 1, "low_sample": True}, "median_seconds": 120.0,
+        "wall_minutes_per_landed": {"value": 2.0, "n": 1, "low_sample": True},
         "allowance_per_landed": [{"pool": "gemini", "value": 2.0, "n": 1, "low_sample": True}],
     }
     (author,) = window["authors"]
@@ -1578,7 +1593,7 @@ def test_supplemental_reviews_enter_reviewer_figures_without_changing_author_out
             arms["medium"]["findings_n"], arms["medium"]["review_median_seconds"],
             arms["medium"]["review_p90_seconds"], arms["medium"]["review_timed_n"],
             arms["medium"]["write_median_seconds"], arms["medium"]["write_timed_n"]) == (
-                2, 0.0, 0.0, 1, 90.0, 120.0, 2, None, 0)
+                1, 0.0, 0.0, 1, 120.0, 120.0, 1, 60.0, 1)
     assert (arms["high"]["review_tasks"], arms["high"]["blocking_per_review"], arms["high"]["p0_p2_per_review"],
             arms["high"]["findings_n"], arms["high"]["review_median_seconds"],
             arms["high"]["review_p90_seconds"], arms["high"]["review_timed_n"],
@@ -2070,7 +2085,8 @@ def test_publication_ledger_writes_only_well_formed_lines_and_trusts_no_damaged_
 
     _review(tasks, "c-review", "incorrect", ["P1"], pr=3, pinned_head="c" * 40, review_author_model="grok-4.7",
             repo="machinery")
-    _record(tasks, "u-review", mode="read-only", agent="claude", model="claude-opus-5-5", data_class="public-code")
+    _record(tasks, "u-review", mode="read-only", agent="claude", model="claude-opus-5-5", data_class="public-code",
+            review_profile="code")
     (tasks / "u-review.result").write_text("prose reply", encoding="utf-8")
     rows.backfill(tasks, batch_state)
     stored = {row["task_id"]: row for row in rows.read_rows(batch_state)[0]}

@@ -14,10 +14,10 @@ the same figures without the per-class tree and without reply text. ``view=sampl
 alone, and the page asks for it on its own. Every figure
 splits by the concrete model id and the effective effort. Unknown effort is shown separately from model totals.
 A bare Claude alias
-(``opus``) counts as the catalog model it ran only where the rows make that unambiguous. Definitions follow the
-CTO's 2026-11-15 reference scripts: a task is a review when its mode is ``read-only`` or its id names a review,
-otherwise a write. Reviewer totals include structured results from every lane. Author figures use reviews of
-record (reviews that name a PR and the author's model). Only counts and model, effort, class, pool and repository
+(``opus``) counts as the catalog model it ran only where the rows make that unambiguous. A task is a review
+when dispatch types it as one (``review_typed``) or its reply validates as a review. Read-only mode and a task
+id that contains ``review`` are a write. A validated reply is review evidence in either mode. Reviewer totals include structured results from every lane. Author
+figures use reviews of record (reviews that name a PR and the author's model). Only counts and model, effort, class, pool and repository
 labels leave ``view=page``. The per-reason counts stay on every HTTP view. Up to 200 escaped characters of the
 first failing reply per model and reason leave only on ``view=full`` and ``view=samples``: never prompts, parsed
 bodies, paths, accounts or task ids, and never any sample on ``view=page`` or ``/metrics``.
