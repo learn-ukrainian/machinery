@@ -1,71 +1,65 @@
-# Handoff and fleet-comms state (drive-epic §8, fleet-comms state)
+# Handoff and fleet-comms state (drive-epic §8)
 
-Read before ending a session or writing a handoff. The §8a inbox drain comes first and is
-stated once in the core `SKILL.md` loop; record any action or unresolved request from it
-in the lane tracker, and never claim the handoff is complete because a one-shot worker
-acknowledged a message.
+Read before ending a session or writing a handoff. The §8a inbox drain comes first and is stated
+once in the core `SKILL.md` loop; record any action or unresolved request from it in the lane
+tracker, and never call the handoff complete because a one-shot worker acknowledged a message.
 
-## §8. Handoff — dual-write, cutover-aware
+## §8. Handoff
 
-End the session on your seat's handoff signal (canary FAIL-HANDOFF for grok/gemini;
-the SessionStart / thread-handoff for Claude/Sonnet), not on a compact count. The
-driver-state database is the lane's handoff through every plane mode (OO-63 and OO-86).
+End on your seat's handoff signal (the canary FAIL-HANDOFF for gemini; the SessionStart and
+`thread-rollover` chain for Claude and Sonnet), not on a compact count. The driver-state database
+is the lane's handoff.
 
 ### Record work throughout the cycle
 
-Use `lu-driver-state add --lane <lane>` for every new order, commitment, goal,
-in-flight task, blocker, decision and next action. Use the matching kind, an owner
-and a done condition. Record goals under their program's `operator_order` with
-`--parent <id>`. Every `inflight` item includes the task ID and FULL run nonce;
-`dispatch.py wait --run-nonce` compares the nonce exactly.
+Record every new order, commitment, goal, in-flight task, blocker, decision and next action as an
+item with the matching kind, an owner and a done condition. Record goals under their program's
+`operator_order` with `--parent <id>`. Every `inflight` item carries the task ID and the FULL run
+nonce (`.venv/bin/python -m lu_machinery.dispatch wait <task-id> --run-nonce <nonce>` compares it
+exactly). The complete syntax:
 
-Update existing items with `link`, `note`, `evidence` and `status`. Attach references
-with `link`, progress with `note`, and proof with `evidence`. Never delete items or
-replace unfinished items with a new session summary. Use
-`lu-driver-state status <id> done --reason <reason>` only after evidence supports
-the done condition. A `dropped` status requires an operator reference in its reason.
-Cite item IDs in cycle reports so unfinished work stays visible.
+```bash
+lu-driver-state add --lane <lane> --kind <operator_order|commitment|goal|inflight|blocker|next_action|decision|standing_order|handoff_note> --statement "<work>" --owner <owner> --done-when "<condition>" [--parent <id>] [--task-id <task-id>]
+lu-driver-state link <id> <issue|pr|task|branch|deploy|fleet_message|doc> <ref>
+lu-driver-state note <id> "<progress>"
+lu-driver-state evidence <id> --claim "<claim>" --command "<command>" --excerpt "<excerpt>"
+lu-driver-state status <id> <open|in_progress|blocked|done|dropped> --reason "<reason>"
+```
 
-Tracker blocker items preserve lane continuity. Report blockers through Fleet Comms,
-which remains the durable message authority.
+Never delete an item or replace unfinished items with a session summary. Set `done` only after
+evidence supports the done condition; `dropped` needs an operator reference in its reason. Cite
+item IDs in cycle reports.
 
 ### Reconcile and hand off
 
 1. Timestamp with `date -u +%Y-%m-%dT%H:%MZ`.
-2. Reconcile `lu-driver-state render --lane <lane>` and
-   `lu-driver-state check --lane <lane>`. Every open order, goal, commitment,
-   in-flight task, blocker, decision, parked item and next action must have an item.
-3. Prepare the rollover with the `thread-rollover` skill. Add one `handoff_note`
-   item with `lu-driver-state add --lane <lane> --kind handoff_note`, an owner and a
-   done condition. Include the timestamp, session identity, exact lineage and
-   rollover IDs, open PR heads and gates, live task IDs and FULL run nonces,
-   armed waits, residual owners and resume conditions, and next actions. Cite the
+2. Reconcile `lu-driver-state render --lane <lane>` and `lu-driver-state check --lane <lane>`:
+   every open order, goal, commitment, in-flight task, blocker, decision, parked item and next
+   action has an item.
+3. Prepare the rollover with the `thread-rollover` skill. Add one `handoff_note` item
+   (`lu-driver-state add` with `--kind handoff_note`, syntax above) with an owner and a done condition:
+   timestamp, session identity, lineage and rollover IDs, open PR heads and gates, live task IDs
+   with FULL run nonces, armed waits, residual owners and resume conditions, next actions. Cite
    work item IDs; update those items rather than duplicating their history.
-4. Keep `.claude/<lane>-epic/DRIVER-STATE.md` under 4 KB (`wc -c`). Its only content
-   is pinned provider facts needed in every model call and instructions to run
-   `lu-driver-state render --lane <lane>` and `lu-driver-state check --lane <lane>`
-   first. Do not write a markdown handoff block or duplicate tracker state there.
-5. Write the durable brief required by core.md P7 as a supplemental record,
-   then complete the Fleet receipt below. Public briefs
-   follow core.md P8; private detail stays in the driver-state database or the
-   private infra repository.
+4. Keep `.claude/<lane>-epic/DRIVER-STATE.md` under 4 KB (`wc -c`): pinned provider facts plus the
+   render/check instructions only; no handoff block, no tracker state.
+5. Write the durable brief rules core P7 requires, then complete the Fleet receipt below. Public
+   briefs follow rules core P8; private detail stays in the driver-state database or the private
+   repository.
 
-On a Hramatka epic (#4542) drive, run `hramatka_hygiene_check` before declaring the
-handoff verified-clean (`epic-specific.md` §0c).
+On a Hramatka drive, run the Hramatka hygiene check before declaring the handoff verified-clean
+([epic-specific](epic-specific.md#0c-hramatka-epic--dual-repo-queue-epic-4542-only)). Attach the
+driver breadth report output ([routing-and-dispatch](routing-and-dispatch.md#3-routing-mandatory-routing_card_v1--breadth-operator-go-2026-08-06)).
 
-**Skill source of truth is git, not deploy trees.** Edit only
-`agents_extensions/shared/skills/drive-epic/` (`SKILL.md` and `references/`). Never
-implement or "fix" process in `.claude/skills/` or other deploy-rsync targets — those
-copies are overwritten on the next agents_extensions deploy and are not durable.
-
-Durable handoff sinks (not private deploy trees):
+**Skill source of truth is git.** Edit only `agents_extensions/shared/skills/drive-epic/`; deploy
+copies such as `.claude/skills/` are overwritten on the next deploy.
 
 | Sink | What to write | Survives |
 | --- | --- | --- |
-| **Driver-state database** (`lu-driver-state`) | Work items, evidence, history and one `handoff_note` | Durable lane handoff |
-| **Markdown pointer and durable brief** (`.claude/<lane>-epic/DRIVER-STATE.md`; core.md P7 brief) | Pinned provider facts and render/check instructions in the pointer; supplemental continuity in the brief | Local pointer / durable brief as applicable |
-| **Fleet-comms channel** | Issue/PR numbers only | Plane authority |
-| **GitHub issues** | Residual / next work | Public queue SSOT |
+| **Driver-state database** (`lu-driver-state`) | Work items, evidence, history, one `handoff_note` | Durable lane handoff |
+| **Pointer and durable brief** (`.claude/<lane>-epic/DRIVER-STATE.md`; rules core P7 brief) | Pinned provider facts and render/check instructions; supplemental continuity | Local pointer / brief |
+| **Fleet-comms channel** | Issue and PR numbers only | Plane authority |
+| **GitHub issues** | Residual and next work (the CTO files them) | Public queue |
 
 ```bash
 # Fleet receipt: issue/PR numbers only (no residual tables, no secrets)
@@ -75,40 +69,12 @@ Durable handoff sinks (not private deploy trees):
   --idempotency-key "handoff-<epic>-<date>"
 ```
 
-Also attach the `driver_breadth_report` output (§3-routing item 6).
+## Fleet-comms state
 
-## Scoped residuals from #10439
-
-The denominator remains nine behaviors. Behaviors 2-8 and the scratch half of 9
-are in scope; two residuals remain visible:
-
-- Behavior 1, the authority-plane delivery drain procedure. Owner: infra/harness.
-  Reopen when `fleet-comms-coordination.md` and the seat-onboarding live-delivery
-  paragraph name the authority drain in their own change. The existing core inbox
-  block and its legacy counts stay exactly as they are.
-- Behavior 9's executing-review-at-first-push half. Owner: harness lane. Reopen
-  when the review-route policy names it. Keep the launcher/hook test step and
-  use the [review brief's route table](../../review-loop/references/brief.md#commands-a-read-only-reviewer-can-run)
-  when choosing reviewer probes.
-
-## Fleet-comms state — dual-aware, cutover is closed
-
-The message plane's `authority` cutover is **done**: mode `authority` is the production
-default (operator GO 2026-08-01, closed with evidence on
-[#6159](https://github.com/learn-ukrainian/learn-ukrainian.github.io/issues/6159)).
-Fleet-comms is now durable authority for messages/jobs; legacy broker/channel file
-stores are read-only migration/projection inputs, not a live write target. Query the
-live mode at orient (`orient.md` §0); do not hard-code it.
-
-- **Lane continuity:** Fleet Comms is durable authority for messages/jobs; the
-  driver-state database holds lane work and the `handoff_note`. Keep the markdown
-  pointer and supplemental durable brief as described in §8. Live-driver diagnostics use `session_streams
-  handoff-status` (#5530). Live drivers never run `handoff-claim`: the launcher
-  has already claimed the lease. `handoff-claim` belongs to the successor
-  launcher / proof-gated dead-holder recovery in the local/offline contract
-  only; it cannot recover a remote lease. Remote recovery uses Monitor TTL/CAS
-  or an attributed operator release, never local PID observations or `--local`.
-- **CF and ACP:** sealed formal CF is retired and ACP is toolless intercomm only
-  (`review-merge-cleanup.md` §6).
-- **Never** flip the plane, enable retention apply, or invent a competing comms design
-  from this skill — those remain the infra lane's gated actions, even post-cutover.
+Fleet Comms is the durable authority for messages and jobs (plane mode `authority`; query the live
+mode at orient); legacy broker and channel stores are read-only inputs. Live-driver diagnostics:
+`.venv/bin/python -m lu_machinery.session_streams handoff-status --stream <stream-id>`
+(for example `epic:4542`). A live driver never runs `handoff-claim`: the launcher already
+claimed the lease, and remote recovery uses Monitor TTL/CAS or an attributed operator release,
+never local PID observations or `--local`. Never flip the plane, enable retention apply or invent
+a competing comms design from this skill; those stay the infra lane's gated actions.

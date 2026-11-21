@@ -1,68 +1,54 @@
 # Orient, inbox count, topology (drive-epic §0, §0b, §1)
 
-Read at cold start and whenever you lose track of fleet state. The §0a inbox drain
-itself is stated once in the core `SKILL.md` loop.
+Read at cold start and whenever you lose track of fleet state. The §0a inbox drain itself is
+stated once in the core `SKILL.md` loop.
 
 ## §0. Orient
 
 Read the pinned provider facts in `.claude/<lane>-epic/DRIVER-STATE.md`, then run
-`lu-driver-state render --lane <lane>` for open work and
-`lu-driver-state check --lane <lane>`. Use your assigned lane key for `<lane>`.
-Treat `UNOWNED`, `STALE` and `OVERDUE` findings as a worklist. Read the program and
-plan first: the `operator_order` item and its child `goal` items. Use
-`lu-driver-state show <id>` for their full history and links, then read standing
-orders, the latest `handoff_note`, in-flight work, blockers, decisions and next
-actions. The database is the lane's handoff; the markdown file is only a pointer
-([handoff](handoff.md)).
+`lu-driver-state render --lane <lane>` for open work and `lu-driver-state check --lane <lane>`
+(your assigned lane key). `lu-driver-state` is a wrapper the launcher environment puts on `PATH`,
+not a command of the installed release (full syntax in [handoff](handoff.md)); if
+`lu-driver-state render --help` fails, whether the wrapper is absent or its backing executable is
+missing, report that failure to the CTO and do not hand-edit tracker state. Treat `UNOWNED`, `STALE` and `OVERDUE` findings as a worklist. Read the
+program and plan first (the `operator_order` item and its child `goal` items; `lu-driver-state
+show <id>` gives full history), then standing orders, the latest `handoff_note`, in-flight work,
+blockers, decisions and next actions. The database is the lane's handoff; the markdown file is
+only a pointer ([handoff](handoff.md)).
 
 ```bash
 .venv/bin/python -m lu_machinery.fleet_comms cold-start-board   # cold-start first action
 curl -sS --max-time 2 "http://127.0.0.1:8765/api/orient?lean=true" || true
-curl -sS --max-time 2 "http://127.0.0.1:8765/api/work/v1/projection?stream=<your-stream>" || true  # best-effort: local server, degraded/absent sources are normal
-curl -sS --max-time 2 "http://127.0.0.1:8765/api/work/v1/next?stream=<your-stream>" || true  # stream-scoped pick list (#6880)
+curl -sS --max-time 2 "http://127.0.0.1:8765/api/work/v1/projection?stream=<your-stream>" || true  # best-effort: degraded or absent sources are normal
+curl -sS --max-time 2 "http://127.0.0.1:8765/api/work/v1/next?stream=<your-stream>" || true  # stream-scoped pick list
 .venv/bin/python -m lu_machinery.fleet_comms plane-status        # message-plane mode/parity
 ```
 
-`cold-start-board` probes fleet, plane, and stream state so you orient from live data,
-never memory. Implemented plane modes are `off | shadow | dual_write | authority` — do not
-hard-code a mode in prose; always query it fresh.
+`cold-start-board` probes fleet, plane and stream state so you orient from live data. Query the
+plane mode fresh; never hard-code it. The projection returns your lane's issues, PRs, dispatch
+tasks and reviews, each with a rule-derived `health`, an `attention_rank` and a
+`safe_next_action`; `next` is a compact pick list (a cold cache answers `503` `building`, an
+unknown stream `400` with `valid_streams`). Both are queue inputs alongside your stream, issue
+and handoff sources, never replacements for them.
 
-Know your `SESSION_EPIC`, your stream, and your handoff slot (the launcher already
-claimed the stream lease — do **not** open or resume it yourself). Establish your
-session-health signal **by seat**: **gemini** has a canary lane —
-`.venv/bin/python -m lu_machinery.session_canary.gemini_lane mint --epic <epic>`;
-**Claude / Sonnet** have **no** canary lane and use the native SessionStart / PostCompact
-hook chain + thread-handoff instead (do not call a non-existent `<model>_lane`).
-
-**Work-board orientation surface:** `GET http://127.0.0.1:8765/api/work/v1/projection?stream=<your-stream>`
-returns that lane's work board — issues, PRs, dispatch tasks, and reviews — with each item
-carrying a rule-derived `health` (`ON_TRACK` / `AT_RISK` / `OFF_TRACK` / `UNKNOWN` — authority
-missing/stale, pairs with the `INSPECT_UNKNOWN` safe action; see `HEALTH_RANK` in
-`lu_machinery/work/attention.py`), an `attention_rank`, and a `safe_next_action`. Query it at orient
-and again when picking the next unblocked action (§2); it is a queue INPUT alongside your
-stream/GH/issue sources, never a replacement for them.
-
-**Stream next-queue:** `GET http://127.0.0.1:8765/api/work/v1/next?stream=<your-stream>`
-returns a compact, stream-scoped actionable pick list (default `limit` 7). Consult it at orient
-and next-action time alongside the projection — also a queue INPUT, never a replacement. Cold
-(absent) cache → `503` `building` + `retry_after_s` (does not trigger a build); unknown
-`stream` → `400` with `valid_streams`.
+Know your `SESSION_EPIC`, stream and handoff slot; the launcher already claimed the lease, so
+never open or resume it. Session health by seat: **gemini** has a canary lane
+(`.venv/bin/python -m lu_machinery.session_canary.gemini_lane mint --epic <epic>`); **Claude** and
+**Sonnet** use the native SessionStart and PostCompact hooks plus `thread-rollover`.
 
 ## §0b. Fleet Comms inbox count — cold start
 
-The legacy inbox watcher's notification mode is removed with the legacy stores (#515).
-The prompt hook `check-agent-inbox.sh` reports queued Fleet Comms deliveries, and this
-body-free count is the one-shot equivalent:
+The prompt hook `check-agent-inbox.sh` (`agents_extensions/shared/hooks/`) reports queued
+deliveries, and this body-free count is the one-shot equivalent:
 
 ```bash
 .venv/bin/python -I -m lu_machinery.fleet_comms deliveries pending --recipient "$SESSION_HANDOFF_AGENT"
 ```
 
-It never reads a body and never claims a delivery. You still must run the required
-§0a / §4a / §5a / §8a inbox drains in the core loop to read, apply, and acknowledge
-everything it points at.
+It never reads a body and never claims a delivery; the §0a / §4a / §5a / §8a drains in the core
+loop still read, apply and acknowledge everything it points at.
 
-## §1. Read topology + metrics (don't hold state — query it)
+## §1. Read topology and metrics (query it, never hold it)
 
 ```bash
 .venv/bin/python -m lu_machinery.fleet_comms metrics        # efficiency metrics (no content)
@@ -70,6 +56,5 @@ everything it points at.
 .venv/bin/python -m lu_machinery.fleet_comms dead-letters   # stuck deliveries
 ```
 
-Fleet-comms externalizes topology + usage so you decide against fresh state, not a
-stale in-context snapshot. Per-lane budget health and the pace check before dispatch are
-in `routing-and-dispatch.md` § Live capacity.
+Per-lane budget health and the pace check before dispatch are in
+[routing-and-dispatch](routing-and-dispatch.md#3-route-by-model--harness-fit).
