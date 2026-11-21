@@ -1,75 +1,33 @@
 # Review, merge, rollout, cleanup (drive-epic §6, §7, §7-rollout, §7a)
 
-Read before asking for a review, before enqueueing, on any red CI or merge-queue kick,
-and after every merge. The ordered steps are the `full-send` and `full-stop` skills, with
-`review-loop` for review rounds; this file holds the mechanics behind them.
+Read before launching a review, on red CI or a merge-queue kick, and when a rollout needs
+authority. The ordered steps are the `full-send` and `full-stop` skills, `review-loop` owns review
+rounds, the budget and the ledger ([policy](../../review-loop/references/policy.md)), and the
+dispatcher, the merge-queue keeper and `merge_closeout` own settlement, enqueue cleanup and
+post-merge cleanup. This file keeps only what a driver still needs and no other skill states.
 
-## §6. Cross-family review gate (load-bearing — discussion ≠ review)
+## §6. Review of record
 
-A review of record is **independent and cross-family** (outside the author's model
-family; never self-review, never same-family), except at the
-[review policy](../../review-loop/references/policy.md#2-risk-tier-is-set-by-the-change)'s
-Low tier, where any qualified non-author reviewer suffices. The CF of record must be
-**exact-head**: attested `resolved_model`, `VERDICT: APPROVE` (or equivalent),
-and the attested SHA equals the current PR head. Discussion on the thread is not CF.
-If the head moves after APPROVE, the CF is stale — re-run exact-head CF before any
-enqueue or re-queue.
-
-**Size.** About 1000 changed lines excluding tests is a review-size signal, not a rule:
-above it the author splits the PR or states in one line why it is one outcome
+Every PR above the review policy's Trivial tier needs a review of record; a Trivial PR lands on required
+CI alone. A review of record is independent, outside the author's model family (at the review policy's
+[Low tier](../../review-loop/references/policy.md#2-risk-tier-is-set-by-the-change) any qualified
+non-author reviewer), toolful and **exact-head**: attested `resolved_model`, a verdict, and an
+attested SHA equal to the current PR head. A moved head makes it stale. Discussion on a thread,
+ACP asks and council panels are not review; never record an APPROVE over a pipeline
+`CHANGES_REQUESTED`. A review `ask-<lane> --review` or `--type review` runs a toolful native CLI
+with synchronous dispatch and wait; its legacy `--background` flag is rejected. About 1000 changed
+lines excluding tests is a review-size signal, not a finding
 ([workflow.md § Merge policy](../../../rules/workflow.md#merge-policy--ready-prs-must-not-sit-4703-landing-order-7450)).
-Size alone is not a finding.
 
-**Revert first (trial until 2026-11-05).** For a revert under that Merge policy,
-the exact-head cross-family review checks only that the PR is a pure `git revert`
-of exactly the offending merge, with no other edits. Normal CI and the merge
-queue remain required. Exceptions follow the same policy and retain all gates.
-
-Label a source-only review static and state its unverified execution behavior.
-Choose probes based on the change. See the [review brief's route table](../../review-loop/references/brief.md#commands-a-read-only-reviewer-can-run)
-for the commands each route can run.
-Never record an APPROVE over a pipeline `CHANGES_REQUESTED`; reconcile the finding
-through the author and obtain fresh exact-head review after any content change.
-
-- **Execution and comms layers:** CF, design, and plan use toolful seats (`dispatch.py` or
-  native harnesses); ACP is toolless intercomm only (state transfer / ordinary asks and
-  `discuss` with 2 to 4 enabled seats; every other participant count rejects), and
-  caveman lite is style (never persisted review text).
-
-**Reviewer family is live data.** Resolve through `closeout_cli resolve-reviewer`
-using the live model catalog and health (§6 below). Do **not** hardcode Claude
-Sonnet (or any one model). Above Low tier the writer's family is never eligible.
-
-**Cursor Cloud-authored PRs:** CF is another Cloud seat on a **different family**,
-chosen from the "Code review" row of `model-assignment.md`
-(GLM from the Cloud catalog, Grok, GPT, … — never Kimi; whatever the
-live catalog lists that is outside the author's family and meets
-that Code review routing). Dispatch v2 runs bound review attempts; the procedure is in
-[`formal-review-attempt-isolation.md` § Running a bound attempt](../../../../../docs/runbooks/formal-review-attempt-isolation.md#running-a-bound-attempt). Native AGY Gemini 4 Neon High is admitted for code and infra review at every risk tier, including critical and security paths, as a peer of Sol 6.2 and Opus 5.5 for non-Google authors (NEON-SOLTIER-1120). Ukrainian reviews
-require Sources MCP. The bridge refuses Gemini code reviews. **VPS drivers** may still
-use the existing `ask-<lane>` / `dispatch.py` review path below; the landing order
-in §7 is the same.
-
-**Shielded formal CF is RETIRED (operator 2026-08-07).** Do **not** run
-`review-pr` / sealed `lu-review-*` / `shielded-reviews` clones. A review
-`ask-<lane> --review` / `--type review` uses a toolful native CLI with synchronous
-dispatch/wait; the driver cannot continue meanwhile. Its legacy `--background` flag is rejected.
-ACP is only for ordinary non-review `ask-*`; use detached dispatch/wait below to settle separately.
-Ask stdout is reply text, not SHA evidence. Dispatch v2 resolves the locally available
-branch or explicit `--pinned-head` SHA. It does not fetch or freeze a live remote branch.
-After settlement compare task `pinned_head` and actual `worktree_base_sha` with the current
-pushed branch tip; the recorder uses `worktree_base_sha`.
-
-Resolve via `closeout_cli resolve-reviewer`; use its reviewer/model, author model, and risk,
-and pass the same `REVIEW_PROFILE` (`code` or `infra`, derived from the target as in
-`review-loop` step 2) to both the resolver and the dispatch.
-`requires_silence_timeout` is boolean; if true, use documented seat/runtime seconds,
-pass `--silence-timeout <seconds>` explicitly (default 3600), and confirm `silence_timeout`
-in the task record. Never infer duration or reuse stale routing. `REVIEW_BRIEF` names branch/SHA
-and requests toolful code/infra review using the review brief template below, including its
-linked Reply format section.
-Dispatch v2 resolves the locally available branch or explicit SHA. It does not fetch or freeze
-the live remote branch; verify the pushed tip before launch and again before publishing the verdict.
+Resolve the reviewer with the recipe in `review-loop` step 2, which first initializes the target
+and then resolves with the exact author model, review profile and risk; pass the same profile to
+the dispatch. `requires_silence_timeout` is boolean: when true, pass `--silence-timeout <seconds>` explicitly
+(default 3600) and confirm `silence_timeout` in the task record. Dispatch v2 resolves the locally
+available branch or the explicit `--pinned-head` SHA and does not fetch or freeze the remote
+branch: verify the pushed tip before launch and before publishing the verdict. After settlement,
+the recorder uses the task's `worktree_base_sha`. Record the verdict with
+`"$PY" -m lu_machinery.review.record_cf_verdict --task-id "$REVIEW_TASK" --pr "$PR_NUMBER"`
+(`review-loop` step 7). The launch and wait recipe, which the offline tests execute verbatim:
 
 ```bash
 set -euo pipefail
@@ -113,7 +71,7 @@ The outer subprocess timeout instead reports `dispatch.py wait timed out at proc
 while the original review may still be live. Either signal requires the same lookup and
 original-task wait recovery below; neither is a terminal task-record `timeout`.
 Ask itself does not expose the dispatch nonce (or rc 124 for client expiry). Set `REVIEW_TASK` to the original ask's task ID
-and `PRIMARY_REPO`/`PY` as above; query the live task record via `dispatch.py status`:
+and `PRIMARY_REPO`/`PY` as above; query the live task record via `.venv/bin/python -m lu_machinery.dispatch status`:
 
 ```bash
 set -euo pipefail
@@ -130,36 +88,11 @@ Only terminal task-record `timeout` is settled failure, with exit code 1. Settle
 identity, attested model/family, unchanged branch/SHA, and complete reply; failure, missing/malformed
 evidence, unknown identity, or moved head is not approval.
 
-The PR may already be open, since it may open before approval so CI runs
-(`workflow.md` § Merge policy). After exact-head cross-family `VERDICT: APPROVE`, publish
-the verdict as a **PR comment bound to the reviewed head SHA**, with reviewer
-model/family/harness provenance. GitHub rejects API approval reviews from the
-shared bot identity when it also authored the PR; `gh pr review --approve`
-cannot publish this review of record. Bind the completed independent review:
-
-```bash
-"$PY" -m lu_machinery.review.record_cf_verdict --task-id "$REVIEW_TASK" --pr "$PR_NUMBER"
-```
-
-Require same-SHA CI before merge; the publisher checks task, reviewer, branch,
-and PR head. Moved heads need re-review; do not enqueue/auto-merge here (§7).
-
-**Read-only review asks can be refused on brief wording (#8703).** The write-shape check
-in `dispatch.py` still refuses a read-only ask when a sentence or list item starts with a
-write verb (`Fix …`, `- Remove …`). Wrapped continuation lines, questions ending in `?`,
-and fenced or `>`-quoted text pass. Quote the brief under review; phrase your own asks as
-questions. After launching any `ask-*`, confirm `batch_state/tasks/<id>.json` exists.
-
-Read the review CONTENT (not just pass/fail), apply deltas,
-re-probe gate-driving data yourself.
-
-Review briefs must ask reviewers to cite files with repository-relative paths, including line suffixes.
 
 ### Review stopping rule
 
 Review tiers, findings, rounds and the ledger live only in the
-[`review-loop` policy](../../review-loop/references/policy.md); every reviewer and driver
-follows it.
+[`review-loop` policy](../../review-loop/references/policy.md); every reviewer and driver follows it.
 
 ### Review brief template (#10665)
 
@@ -171,7 +104,7 @@ resolution evidence. The reviewer brief states DELTA scope under the
 dispatch whose brief has no heading naming the dispositions is still dispatched, with the
 typed warning `review_brief_no_dispositions` on stderr and in the task record. Phrase
 reviewer asks as questions or statements: a line that starts with a write verb refuses a
-read-only dispatch (#8703, above).
+read-only dispatch (#8703; [accepted wording](../../review-loop/references/brief.md#wording-that-read-only-admission-accepts)).
 
 1. **Target** — branch, exact head SHA, issue if one exists, review profile and risk.
 2. **Outcome** — the frozen intended behaviour, acceptance criteria and non-goals.
@@ -202,8 +135,9 @@ read-only dispatch (#8703, above).
    [`review-loop`'s Reply format](../../review-loop/references/brief.md#reply-format),
    included verbatim in the brief. That section alone defines the literal reply lines and
    how a structured findings request refers to the canonical schema.
-8. **Reliability checklist** — the `brief_section` that `closeout_cli checklist` prints for
-   this round's exact head, verbatim: the checklist items the diff triggers, the owner of
+8. **Reliability checklist** — the `brief_section` printed by
+   `.venv/bin/python -P -m lu_machinery.review.closeout_cli --state-file <file> checklist --base origin/<base> --head <sha> --repo-root .`
+   for this round's exact head, verbatim: the checklist items the diff triggers, the owner of
    every area it touches, and the rule that judge inputs are read from the merge-base
    ([`review-loop` brief](../../review-loop/references/brief.md#judge-inputs-come-from-the-merge-base)).
 
@@ -229,132 +163,65 @@ Reviewers do not re-run test suites that the PR's CI runs: review the diff, run 
 most the specific existing tests that cover a finding you are checking, and cite CI run
 ids for suite results. Add no test and repeat no run.
 
-## §7. Landing order
+## §7. Landing
 
-The gates are `agents_extensions/shared/rules/workflow.md` § Merge policy; the
-step-by-step delivery is the `full-send` skill (the briefed worker or the accountable
-driver, to MERGED) or `full-stop` (anyone, to ready-to-merge). This section keeps the queue and CI mechanics
-those skills point to.
+The gates are `workflow.md` § Merge policy; the delivery steps are `full-send` and `full-stop`,
+and the briefed worker enqueues its own PR once the review its tier requires is recorded at the
+exact head (none for a Trivial PR) and the same-head CI Gate is green. You land only a PR no brief owns, and flag another
+lane's PR with `needs=merge` instead of merging it. Run the core inbox drain immediately before an
+enqueue and reconcile its messages with the approved head.
 
-Immediately before enqueue, run the [core inbox drain](../SKILL.md#the-loop--run-it-every-cycle)
-and reconcile its messages with the approved head and landing decision.
+- **A queue kick is same-hour work.** A CI Gate comment on the PR with a run URL means the merge
+  queue ejected it. Read the failed jobs, fix or rebase, re-run the exact-head review if the head
+  moved, and re-queue the same hour (`full-send`'s [pr-watch](../../full-send/references/pr-watch.md)
+  has the rules). A failing test node is fixed first, never re-queued unchanged (rules core P4).
+- **Diagnose pytest failures from the JUnit artifact first.** The live log truncates and stalls,
+  which has read as a silent shard death. Download the artifacts to a scratch directory (never the
+  primary checkout) and parse `<failure>`; a failed test there is a test failure, never
+  infrastructure. Jobs without that artifact use `gh run view <run> --log-failed`.
 
-**Merge-queue visibility after enqueue (#7814 item 13).** After `.venv/bin/python -m lu_machinery.publish pr-merge --number <N> --match-head <approved head> --expect-queue <reading>` (`full-send` step 8) in a merge-queue repository, GitHub
-prints `! The merge strategy for main is set by the merge queue` while the PR stays
-`OPEN` / `CLEAN`. Do not stall or query raw GraphQL by hand — run
-`.venv/bin/python -m lu_machinery.gh_merge_queue_status <pr> --repo <owner/name> --branch <base>` (or `--line` / `--json`) to
-inspect queue membership (`queued=yes/no`), position in line, ETA, and the active
-`merge_group` CI run URL if building (or clear `in queue, position unknown`).
+  ```bash
+  gh run download <run> --pattern 'pytest-junit-*' -D "$(mktemp -d)"
+  ```
+- **Main red: fix main first.** Find the breaking commit and fix main, or delete the test with the
+  reason, before re-enqueueing anything. Refresh blocked PRs with
+  `.venv/bin/python -m lu_machinery.publish pr-update-branch --number <pr>` (always pass the
+  number; bare, it targets the current branch's PR), never close and reopen. Verify parent 1 equals
+  the approved head and the patch-id is unchanged, then get one batched exact-head re-review per
+  reviewer family.
+- **Launchers and hooks.** Before opening a PR that touches them, run the launcher tests that
+  cover the change (`tests/lib/test_launcher_contract.py` and its siblings). Most call the shared
+  `run_launcher` helper rather than `subprocess`, so select on launcher names and that helper.
 
-A track/infra driver **self-enqueues its own lane's PR** after exact-head CF + Gate
-green (lane model — there is no promoting orchestrator). Flag another lane's PR with
-`needs=merge` rather than merging it.
-Skill- or docs-only landings classify as merge_group `docs_skills` (#7018):
-the four pytest shards and coverage combine are no-op **success**, not skipped.
+## §7-rollout. Local and production proof (when the epic requires it)
 
-**Merge-queue kick is same-hour work (#7042).** A **kick** is `merge_group` CI Gate
-going red and GitHub dequeuing the PR — it lands back on the branch looking CLEAN,
-with no visible failure unless you go look. CI Gate now comments the source PR with
-the run URL and per-job `RESULTS` on a kick; that comment is the trigger, not a
-courtesy. On seeing it: read the failed jobs from the run, fix or rebase, re-run
-exact-head CF review if the head moved, then re-queue — same hour, never left
-overnight. A failing test node is never re-queued unchanged: fix it, or delete the
-test with the reason in the commit and a note on its issue (rules core P4). Do not stand up a bot or recovery workflow for this; it is driver work
-like any other red CI.
-
-**Before enqueue: use `full-ci` only for a classifier blind spot (#9066).** Do not
-add the label by habit when a PR touches `tests/` or runs the selected tier.
-The merge queue runs the full required Python tier for code, frontend-only,
-and docs changes outside curriculum/wiki (#9073); the selected tier runs
-repo-wide tests (#8707). Add `full-ci` only when a change affects tests the
-path classifier cannot see, and explain why in the PR. #8692 exposed the old
-gap when a shard-3 lint test escaped.
-
-**Before opening a PR that touches launchers or hooks, run every real-launcher test
-(2026-09-25).** A worker's targeted tests are not the CI suite. Most launcher tests call
-the shared `run_launcher` helper (`tests/test_launcher_contract.py`) instead of
-`subprocess`, so select on launcher names and helpers, never on `subprocess`. Run it from
-the checkout root; dispatch worktrees have no `.venv`, so resolve the primary checkout's
-interpreter:
-
-```bash
-PRIMARY_REPO="$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")"
-"$PRIMARY_REPO/.venv/bin/python" -m pytest -q $(grep -rlE --include='*.py' 'start-[a-z0-9{}*-]+\.sh|launcher_core\.sh|launchers/|\brun_launcher\b' tests/)
-```
-
-**Diagnose pytest failures from the junit artifact first (#8701, #8705).**
-`gh run view --log-failed` and the live log truncate or stall — that read as a "silent
-shard death", cost a closed PR and 3 review rounds, and was wrong. When the run has
-`pytest-junit-*` artifacts, download them to a scratch dir (never the primary checkout)
-and parse `<failure>`; a FAILED test there is a test failure, never infrastructure, so
-it is fixed or deleted and never rerun; confirm any new failure mode in the artifact
-before naming it. Lint, setup, and other jobs without that artifact:
-read `gh run view <run> --log-failed`.
-
-```bash
-gh run download <run> --pattern 'pytest-junit-*' -D "$(mktemp -d)"
-```
-
-**Main red: fix main first.** Find the breaking commit (`git log` of the failing test's
-inputs) and fix main, or delete the test with the reason, before re-enqueueing anything. Refresh blocked PRs with
-`.venv/bin/python -m lu_machinery.publish pr-update-branch --number <pr>` (always pass the number; bare, it targets the current
-branch's PR) — never close/reopen, which reuses stale merge refs and fails again. Verify
-parent1 == the approved head and the PR patch-id is unchanged, then get
-one batched exact-head re-CF per reviewer family.
-
-## §7-rollout. Local / production proof (when the epic requires it)
-
-Do **not** make every epic driver a standing release owner. Gate rollout by charter:
+Epic drivers are not standing release owners. Gate rollout by charter:
 
 | Kind | Driver owns? |
 | --- | --- |
-| **Local / service proof** after a change (restart Monitor API, smoke `/api/…`, UI check) | **Yes** — part of verifying the artifact |
-| **Routine host maintenance** (pull merged `main`; restart an updated or broken service after checking no active dispatch depends on it; install or enable a reviewed systemd user unit or timer that lives in the repo; clean agent-generated caches, logs, and worktrees; install OS packages a reviewed repo change needs), including sudo where the host needs it | **Yes** — do it, then report. Never ask the operator |
-| **Production / Pages / public cutover** | **Only on present-tense operator GO** — listing it in the epic establishes scope, not a green light |
-| **HA / Patroni / new VPS / fenced cutover** | **Escalate** — operator/advisor GO; drive the checklist, do not solo mutate |
-| **Host access / security configuration** (sshd configuration, sudoers, user accounts, SSH keys and other credentials, firewall changes that could cut off operator access) | **Escalate** — operator-only; lock-out risk and accounts/credentials are an operator stop condition |
+| **Local or service proof** after a change (restart Monitor API, smoke `/api/…`, UI check) | **Yes**, part of verifying the artifact |
+| **Routine host maintenance** (pull merged `main`; restart an updated or broken service after checking no active dispatch depends on it; install or enable a reviewed repo systemd user unit or timer; clean agent-generated caches, logs and worktrees; install OS packages a reviewed repo change needs), including sudo where the host needs it | **Yes**: do it, then report. Never ask the operator |
+| **Production, Pages or public cutover** | **Only on a present-tense operator GO**; listing it in the epic is scope, not a green light |
+| **HA or a new server** (Patroni, new VPS, fenced cutover) | **Operator only**: needs the operator's present-tense GO; drive the checklist, never solo mutate |
+| **Host access and security configuration** (sshd, sudoers, user accounts, SSH keys and other credentials, firewall changes that could cut off operator access) | **Operator only** (lock-out risk) |
 
-Missing local proof on a user-visible API/UI change is incomplete closeout. Issue or PR wording
-never authorizes a production, Pages, or public cutover, or an HA, Patroni, new-VPS, or fenced
-cutover. Claiming prod HA without the operator or advisor GO is out of scope.
+Missing local proof on a user-visible API or UI change is incomplete closeout. Issue or PR wording
+never authorizes a cutover.
 
-## §7a. Enqueue cleanup and separate merged closeout
+## §7a. Closeout
 
-The shared publisher returns after authenticated enqueue or already-queued
-reconciliation and the existing publication gates. Neither path runs the global
-cleanup inventory or any worktree removal, creates a cleanup receipt, or emits an
-`enqueue-cleanup` line. Known enqueue success keeps its return code and raw
-transport output. Already-queued unchanged heads return without another enqueue.
-The keeper uses the same publisher path. Failed or unknown publication never
-authorizes cleanup.
+The publisher's enqueue, the dispatcher's settlement removal of each task's own worktree
+(`worktree_disposition`) and the post-merge `merge_closeout` own cleanup and its receipts:
+`workflow.md` § Post-merge cleanup is the single recipe, and `full-send` runs it. Queue success
+proves no cleanup. Before the next large dispatch you need the worker's exit, `MERGED` with the
+merge SHA, and `merge_closeout` exit 0 with a residue-free receipt; a non-zero exit or any
+residual blocks closeout, and nothing is forced. You remove a retained worktree only after its
+content is published (checklist in [SKILL.md](../SKILL.md#delivery-and-done)). Stream leases are
+launcher-owned: never open, resume, claim, renew, release or replace one.
 
-The dispatcher's removal of each task's own worktree at settlement and the
-post-merge `merge_closeout` own cleanup and its durable receipts. All ownership,
-liveness, preservation and branch guards still apply. Publisher queue success does not
-prove cleanup complete. Retained, pending or unavailable cleanup blocks full
-delivery; it does not authorize another enqueue. Post-merge common closeout
-remains mandatory.
-A repair starts in a fresh managed worktree from the pushed branch.
-Local branch removal uses supported safe cleanup only after its tree is gone
-and publication is proven. Remote branches remain until `MERGED`.
-
-
-Follow `agents_extensions/shared/rules/workflow.md` § Merge policy /
-Post-merge cleanup. Worker exit, MERGED and the actual merge SHA, `merge_closeout`
-exit 0 and residue-free receipts are required before the next large dispatch.
-A non-zero exit or a residual blocks closeout; never use `--force`. `merge_closeout`
-keeps the branch-gone proof and removes no worktree: the dispatcher removes each
-task's own worktree at settlement and records `worktree_disposition`. A worker's
-in-tree run reports its own tree as the only residual; once that disposition is
-`removed`, the driver re-runs `merge_closeout` for the exit 0 receipt that closes
-the PR. The driver removes a retained worktree only after confirming its content is
-published. A squash-merge alone is not done: the merging lane runs
-`merge_closeout` for the PR and needs a clean receipt before reporting it done. Stream leases are launcher-owned;
-a driver never opens, resumes, claims, renews, releases or replaces one.
-
-**After a suspected secret leak:** run `scripts/audit/secret_scan_local.py tree` and `history`
-(offline); triage only through its `show-keys` and `count` subcommands (never `jq`, `cat` or
-`grep` over the report); tell the operator privately that a report needs inspection and where it is
-on the host, with counts only; delete the report directory once triage is finished; and never
-rotate, revoke or rewrite history yourself. Runbook:
-[`secret-scanning.md`](../../../../../docs/runbooks/secret-scanning.md).
+**After a suspected secret leak:** from the product checkout, run
+`.venv/bin/python scripts/audit/secret_scan_local.py --repo <checkout> tree` and `history`
+(offline; the script is absent from this repository); triage only through its `show-keys` and `count` subcommands (never `jq`, `cat` or
+`grep` over the report); tell the operator privately that a report needs inspection and where it
+is on the host, with counts only; delete the report directory when triage ends; never rotate,
+revoke or rewrite history yourself. Runbook: `docs/runbooks/secret-scanning.md`.

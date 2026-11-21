@@ -3499,8 +3499,9 @@ def _run_rendered(tmp_path: Path, line: str, **substitutions: str) -> int:
     for placeholder, value in substitutions.items():
         line = line.replace(placeholder, value)
     words = line.split()
-    script = words.index("lu_machinery/orchestration/thread_handoff.py")
-    return th.main(["--repo-root", str(tmp_path), *words[script + 1 :]])
+    module = words.index("lu_machinery.orchestration.thread_handoff")
+    assert words[module - 1] == "-m", "rendered commands run the module, not a checkout-relative file"
+    return th.main(["--repo-root", str(tmp_path), *words[module + 1 :]])
 
 
 def test_session_start_delivers_provider_fallback_packet_from_file(tmp_path: Path, capsys, monkeypatch):

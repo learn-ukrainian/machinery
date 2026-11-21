@@ -1,26 +1,24 @@
 # Route, dispatch, settle (drive-epic §3, §3-routing, §3a, §4, §5)
 
-Read before every implement dispatch and while a worker runs. The §4a and §5a inbox
-drains are stated once in the core `SKILL.md` loop.
+Read before every implement dispatch and while a worker runs. The §4a and §5a inbox drains are
+stated once in the core `SKILL.md` loop.
 
 ## §3. Route by model × harness fit
 
-Decide the lane from `/api/rules` + `model_catalog.yaml`, **never** from the provider
-name. Respect the live caps (in-flight ceilings), the language-lane restriction
-(UK authoring / linguistic / content review route only to the sanctioned language lanes
-per the served rules), folk carve-outs (cross-family only), and the judge-seat rules.
-On limit: note the substitution and reroute per the fallback table — never block on one lane.
+Decide the lane from `/api/rules` and `model_catalog.yaml`, **never** from the provider name.
+Respect the live caps (in-flight ceilings), the language-lane restriction (Ukrainian authoring,
+linguistic and content review route only to the sanctioned language lanes), folk carve-outs
+(cross-family only) and the judge-seat rules. At a limit, note the substitution and reroute per
+the fallback table; never block on one lane.
 
-Every agent that commits to a branch adds its model family to the branch's author
-families; the cross-family reviewer must be outside all of them
-(`lu_machinery/dispatcher/checks.py`, `check_branch_author_families`). The Ukrainian
-review profile (`agents_extensions/shared/skills/review-loop/references/ukrainian.md`)
-seats only Gemini and Sol, so adding author families can leave no eligible reviewer.
-A takeover successor or helper on a Ukrainian content branch must therefore stay
-with the family already authoring it, or restart the branch from main with one
-author family.
+Every agent that commits to a branch adds its model family to the branch's author families, and
+above the review policy's Low tier the reviewer must be outside all of them (`check_branch_author_families` in
+`lu_machinery/dispatcher/checks.py`). The Ukrainian review profile
+(`agents_extensions/shared/skills/review-loop/references/ukrainian.md`) seats only Gemini and Sol,
+so a takeover successor or helper on a Ukrainian content branch stays with the family already
+authoring it, or the branch restarts from main with one author family.
 
-### Live capacity (binding every implement dispatch and CF settle — operator 2026-08-12 / #4707)
+### Live capacity (binding every implement dispatch and review settle)
 
 Before picking a seat, read fresh tool output from all of these:
 
@@ -30,115 +28,89 @@ curl -sS --max-time 3 "http://127.0.0.1:8765/api/state/routing-budget"
 .venv/bin/python -m lu_machinery.fleet.usage show     # pace (also the capacity_pick pace column)
 ```
 
-Prefer cooler / higher-headroom seats from that data. Do **not** habit-route to a hot,
-near_cap, or in-flight-saturated lane when a cooler eligible seat exists. A
-`credit_balance_present` lane (#9518; credit balance present, draw not verified by the router) is
-usable after the plan-backed seats, only with the models in its `credit` row, and only while no
-`rate_limited` outcome in the last 60 minutes contradicts it (that reads `credit_use_unconfirmed`,
-near_cap/AVOID). Dispatch admission is a separate gate: it refuses other models whenever the plan
-window is at or below the threshold and a fresh positive balance exists (`credit_balance_present`,
-`credit_use_unconfirmed`, or `credits_unverified` from unreadable usage records), even when the
-router no longer recommends the lane. A **deficit**
-lane is visible pace, projected to run out before reset, and more than 2 points ahead of
-pace (near_cap ≥ 90% unchanged); it is not a dispatch target while a cool lane has
-reserve. CodexBar is an **input to the API**, not a separate driver app workflow — if
-both surfaces are empty/stale, probe and record that in the ROUTING_CARD
-(`NOTE: routing_budget_empty`), then use `/api/rules` fallback tables. Never invent burn %
-from memory.
+Prefer cooler, higher-headroom seats; do not habit-route to a hot, `near_cap` or in-flight-saturated
+lane while a cooler eligible seat exists. A `credit_balance_present` lane is usable after the
+plan-backed seats, only with the models in its `credit` row, and only while no `rate_limited`
+outcome in the last 60 minutes contradicts it (`credit_use_unconfirmed`). Dispatch admission is a
+separate gate: it refuses other models whenever the plan window is at or below the threshold and a
+fresh positive balance exists, even when the router no longer recommends the lane. A **deficit**
+lane (projected to run out before reset, more than 2 points ahead of pace) is not a target while a
+cool lane has reserve. If the budget API and usage are both empty or stale, probe, record
+`NOTE: routing_budget_empty` in the ROUTING_CARD, and use the `/api/rules` fallback tables. Never
+invent burn percentages from memory.
 
 ## §3-routing. Mandatory ROUTING_CARD_V1 + breadth (operator GO 2026-08-06)
 
-**Binding full text:** `agents_extensions/shared/rules/fleet-driver-routing.md` (served at
-`/api/rules` after model-assignment).
+Binding text: `agents_extensions/shared/rules/fleet-driver-routing.md` (served at `/api/rules`).
 
-Before **every** implement `dispatch.py dispatch`:
+Before **every** implement `dispatch`:
 
-1. Emit a **ROUTING_CARD_V1** (handoff / issue / `batch_state/` receipt) with:
-   `tier` (authority|practical|heap) · `model_x_harness` · `why_this_tier` ·
-   `advisor_packet` (required if tier=heap) · `owned_paths` · `acceptance_cmd` ·
-   ≥2 `alternatives_considered` · `parallel_free_seats` · quoted
-   `routing_budget_primary` + `capacity_pick_order` (tool evidence).
-2. **No card = no dispatch.** Skipping the card is a process defect; do not launch the
-   worker and "write the card later." The driver checks the issue card before
-   launch; dispatch v2 does not run the retired DoR preflight or accept its override.
-3. **Default eligible code worker:** Sol @ high, per the 2026-10-09 resource-policy order.
-   Use Claude workers through the native Claude CLI as heavily as their subscription
-   allows, within task fit and hard gates. Cursor Grok or Gemini routes are language-free
-   overflow only, admitted by live catalog and capacity evidence. Explicit Luna and bounded
-   Flash workers still require a Sol advisory **envelope** (the advisor brief) bound through `--advisory-task`. There is no direct bounded dispatch
-   (operator decision 2026-09-30, #9275): `dispatch.py` refuses Luna, and Flash not classified
-   Ukrainian authoring/review, without a complete envelope bound to that dispatch. See
-   `fleet-driver-routing.md` §2.
-4. **Advisory path:** Opus 5.5 / Sol 6.2; Fable holds no advisory role (#9583). Do not spend
-   an advisory seat on lockfiles / pointer / smoke jobs.
-5. After ≥3 implement dispatches this session, require ≥2 agents **and** ≥2 tiers **or** a
-   written `NOTE: fleet_breadth` with tool-backed blockers.
-6. Before handoff, run and attach:
+1. Emit a **ROUTING_CARD_V1** (handoff, issue or `batch_state/` receipt) with `tier`
+   (authority|practical|heap) · `model_x_harness` · `why_this_tier` · `advisor_packet` (required if
+   tier=heap) · `owned_paths` · `acceptance_cmd` · at least two `alternatives_considered` ·
+   `parallel_free_seats` · quoted `routing_budget_primary` and `capacity_pick_order` (tool
+   evidence).
+2. **No card, no dispatch.** Do not launch the worker and write the card later; dispatch v2 does
+   not run the retired DoR preflight, so the driver checks the card before launch.
+3. Default eligible code worker, advisory path, Luna and Flash admission (including the bounded
+   read-only and bounded-implementation exceptions and the advisory envelope bound through
+   `--advisory-task`), and Cursor and Gemini overflow: rules core P2, `fleet-driver-routing.md`
+   §2 and `model-assignment.md`. Do not spend an advisory seat on lockfile, pointer or smoke jobs.
+4. After three or more implement dispatches this session, use at least two agents and two tiers,
+   or write `NOTE: fleet_breadth` with tool-backed blockers.
+5. Before handoff, run and attach:
    ```bash
    .venv/bin/python -m lu_machinery.fleet.driver_breadth_report --initiator "$SESSION_HANDOFF_AGENT" --since-hours 24
-   # optional hard check:
-   .venv/bin/python -m lu_machinery.fleet.driver_breadth_report --initiator grok --since-hours 24 --enforce
+   # optional hard check: add --enforce
    ```
 
-Fixation on one practical seat while free lanes sit idle = utilization failure
-(§2c — all driver seats, not Grok-only).
+Fixation on one seat while free lanes sit idle is a utilization failure (§2c).
 
-## §3a. Pre-dispatch outcome adequacy (required before substantive phase/epic kickoff)
+## §3a. Pre-dispatch outcome adequacy (before substantive phase or epic kickoff)
 
-Freeze the exact prompt before presenting or routing it. Record its SHA-256, user-visible
-outcome, real-world or source denominator, non-goals, role map, independent held-out evaluation,
-stop/residual policy, and completion vocabulary. A non-goal that shrinks the actual mission
-needs operator/advisor approval. Discovery,
-seeds, prototypes, schemas, transport checks, and self-authored canaries may prove research or
-engine readiness, never product completion. On handback, name the verified user-visible outcome,
-denominator, held-out proof, and residual gap. For normative language evidence, establish the
-source's pedagogical or evidential role before consuming an occurrence.
+Freeze the exact prompt before presenting or routing it. Record its SHA-256, the user-visible
+outcome, the real-world or source denominator, non-goals, role map, independent held-out
+evaluation, stop and residual policy, and the completion vocabulary. A non-goal that shrinks the
+actual mission needs designated approval or the operator (rules core P6). Discovery, seeds, prototypes, schemas,
+transport checks and self-authored canaries prove research or engine readiness, never product
+completion. On handback, name the verified user-visible outcome, denominator, held-out proof and
+residual gap. For normative language evidence, establish the source's pedagogical or evidential
+role before consuming an occurrence.
 
 ## §4. Dispatch
 
-Dispatch only when the task card and the dispatch preflight are both green (DoR).
-Chat "ready" is not DoR. Tables: `docs/best-practices/task-quality.md` and `/api/rules` →
-`operator-expectations.md` §3b.
-
-**One outcome per PR.** Every implementation brief names one outcome for one PR.
-Before review, apply the size signal and its split-or-justify line in [workflow.md § Merge policy](../../../rules/workflow.md#merge-policy--ready-prs-must-not-sit-4703-landing-order-7450).
+Dispatch only when the task card and the dispatch preflight are both green (DoR); chat "ready" is
+not DoR (`docs/best-practices/task-quality.md`, `operator-expectations.md` §3b). Every brief names
+**one outcome for one PR**; apply the review-size signal in
+[workflow.md § Merge policy](../../../rules/workflow.md#merge-policy--ready-prs-must-not-sit-4703-landing-order-7450).
 
 ```bash
-.venv/bin/python -m lu_machinery.dispatch dispatch --model <catalog-model>  --agent <lane> --worktree ...
+.venv/bin/python -m lu_machinery.dispatch dispatch --model <catalog-model> --agent <lane> --worktree ...
 ```
 
-A takeover or any worker pushing to an existing PR branch is dispatched with `--branch <PR head branch>`.
-A workspace-write dispatch uses `--base origin/main` with that branch, and the PR's files as owned paths. A `--base` that settlement cannot verify, including a commit SHA, is refused at dispatch by the origin-base rule settlement uses. A `--base` whose branch equals `--branch` is refused at dispatch too, because settlement requires those refs to differ. Read-only dispatches still accept a SHA base.
+A takeover, or any worker pushing to an existing PR branch, is dispatched with
+`--branch <PR head branch>`, `--base origin/main` and the PR's files as `--owned-path`. A `--base`
+that settlement cannot verify (including a commit SHA) or that equals `--branch` is refused at
+dispatch; read-only dispatches still accept a SHA base. If frozen inputs require a tree before
+dispatch, create it with `create_worktree` from `lu_machinery.dispatcher.git` (it writes the
+creator receipt; tasks launched with `--cwd` borrow it) and remove it afterwards as the
+[helper cleanup runbook](../../../../../docs/runbooks/worktree-cleanup.md#remove-helper-created-trees-12602)
+says: `.venv/bin/python -m lu_machinery.orchestration.worktree_claims remove PATH`, preceded for
+trees that predate receipts by
+`.venv/bin/python -m lu_machinery.orchestration.worktree_claims attribute-helper PATH --actor ACTOR --reason REASON`.
 
-If frozen inputs require creating a tree before dispatch, use
-`create_worktree` from `lu_machinery.dispatcher.git`, with `creator_actor` naming the driver.
-The helper writes a durable creator receipt. Tasks launched with `--cwd` borrow
-that tree. Once all borrowers are terminal, use `worktree_claims remove PATH`
-without `--owner-task-id`. The remover preserves output before plain Git removal.
-For trees created before helper receipts existed, use
-`worktree_claims attribute-helper PATH --actor ACTOR --reason REASON` once first.
-That command verifies terminal borrowers and preserves output before attribution;
-it does not remove the tree. Both paths refuse tracked changes and live or
-unknown custody. Commands and recovery locators are in the
-[helper cleanup runbook](../../../../../docs/runbooks/worktree-cleanup.md#remove-helper-created-trees-12602).
+Dispatch v2 has no budget substitution guard: choose the lane from live capacity evidence, record
+substitutions, and verify the task record's actual agent and model before attributing work. Before
+launch, verify the brief's worktree path and owned paths against the dispatch target, and
+reconcile queued instructions through the §4a inbox drain; unknown queue state stays unresolved,
+and a packet superseded by a queued instruction is never launched.
 
-Dispatch v2 has no budget substitution guard. Choose the lane explicitly from
-live capacity evidence and record substitutions. Verify the task record's actual
-agent/model before attributing work.
-
-Before launch, verify the brief's actual worktree path and owned paths against the
-dispatch target and the worktree contract. Reconcile current queue instructions
-with the brief through the §4a inbox drain. Outstanding instructions or unknown
-queue state remain unresolved; never infer clearance from a wakeup or empty
-projection, and never launch a packet superseded by a queued instruction.
-
-Dispatch with a numbered brief
-(worktree → work → tests → ruff → conventional commit → push → PR → **no auto-merge by
-the worker**) and the `#M-4` evidence preamble (each claim + its deterministic tool +
-quoted raw evidence). Classify the task and pass the research flags
-(`--research-role/-task-family/-track/-owned-path`). For write dispatches also pass
-repeatable `--owned-path <path>` to record scope. Workers commit and push their
-work; dispatch v2 does not provide legacy auto-finalize. Stagger same-lane spawns ~10s.
+Dispatch with a numbered brief (worktree → work → tests → ruff → conventional commit → push → PR;
+the worker runs `full-send` to MERGED and never arms auto-merge) and the evidence preamble (each
+claim, its deterministic tool and quoted raw evidence). Pass the research flags
+(`--research-role`, `--research-task-family`, `--research-track`) and repeatable `--owned-path`
+for write dispatches. Workers commit and push their own work; dispatch v2 has no auto-finalize.
+Stagger same-lane spawns by about 10 seconds.
 
 **Security-code briefs (#10665).** An author brief for security code (hooks, launchers,
 credentials, admission, sandbox, guards) states the trust boundary, the allowed inputs, the
@@ -154,51 +126,36 @@ review. After a rejected review round the author continues only within the
 [review policy](../../review-loop/references/policy.md#4-convergence). A contested decision
 or a fragile or high-risk fix escalates per the rules core P6.
 
-Write every brief so pytest basetemp, probe copies, and report copies go to the
-managed scratch directory outside the worktree (`$TMPDIR`, the dispatch-managed
-lease). A write-capable round ends with empty `git status --porcelain`. The
-pre-push gate's `untracked_inputs` refusal covers untracked or ignored Python and
-config overlays (`*.py`, `*.pth`, `pytest.ini`, `tox.ini`, `setup.cfg`,
-`pyproject.toml`). Tracked dirt is `dirty_tree`.
+Write every brief so pytest basetemp, probe copies and report copies go to the managed
+scratch directory outside the worktree (`$TMPDIR`). A write-capable round ends with an empty
+`git status --porcelain`; the pre-push `untracked_inputs` refusal covers untracked or ignored
+Python and config overlays, and tracked dirt is `dirty_tree`.
 
-The brief's test step names only the existing test files that cover the changed files,
-including tests of code that imports a changed shared helper; add no test file or case
-unless the CTO approves that specific test. Never
-collect the whole `tests/` tree (`pytest tests`, `pytest tests -k …`) or use `-n auto`
-or `-n` above 2, and run those tests in the foreground and wait. The full suite
-runs in the PR's CI (and again in the merge queue on the merged tree) — that is
-the proof; do not trigger extra full runs. Use `.venv/bin/python -m lu_machinery.publish workflow-run --workflow ci.yml --ref <branch>`
-only when the brief explicitly asks for it (a branch with no PR yet, a baseline
-capture, or diagnosis).
+The brief's test step names only the existing test files that cover the changed files (including
+tests of code that imports a changed shared helper), and adds no test file or case without the
+CTO's approval. Never collect the whole `tests/` tree or use `-n auto` or `-n` above 2; run those
+tests in the foreground. PR CI runs the affected tests and the merge-group CI Gate runs the full
+suite on the real candidate (rules core r2-root); those runs are the proof, so trigger no extra
+full runs. Use `.venv/bin/python -m lu_machinery.publish workflow-run --workflow ci.yml --ref <branch>`
+only when the brief explicitly asks for it.
 
-## §5. Settle-loop (never poll by hand)
+## §5. Settle loop (never poll by hand)
 
-Timers, keeper nudges, and reminders are wakeups, not stop conditions. Continue
-authorized work until its terminal goal, a real blocker, an explicit operator
-pause, or the seat's handoff signal. A reminder neither settles a live task nor
-waives a gate.
+Timers, keeper nudges and reminders are wakeups, not stop conditions: continue authorized work
+until its terminal goal, a real blocker, an explicit operator pause or the seat's handoff signal.
+A dispatch returning is not a settle. Arm
+`.venv/bin/python -m lu_machinery.dispatch wait <task-id> --run-nonce <nonce>` in the same turn (or watch
+the task's `batch_state/tasks/<id>.json` `status` with the Monitor tool); ending a turn with a
+live worker and no wait is a driver defect. When it returns, read the result and act. The wait
+is a §2c fill window, not an idle period.
 
-A dispatch returning is not a settle. Arm a wait in the same turn: `dispatch.py
-wait <task-id>` where the seat has no Monitor tool; otherwise watch the task's
-`batch_state/tasks/<id>.json` `status` with the **Monitor** tool. Ending the turn with a
-live worker and no wait is a driver defect. When the wait returns, read the result and
-take the next action. This wait is a §2c fill window, not an idle period: fill free lanes
-before holding.
+Dispatch v2 terminal statuses: **`done` = success**; `failed | timeout | rate_limited | cancelled |
+crashed | no_deliverable` are not. `--dry-run` creates no task record. Emit on any status not in
+`{spawning, running, ""}`. The task file is truth (`/api/delegate/active` can omit live tasks).
+**Before declaring a dispatch dead:** `gh pr list --state open`, then check the worktree for
+finished-but-unpushed work. After a terminal status, read `worktree_disposition` and its reason;
+resolve a `retained` or `error` tree as the [SKILL.md](../SKILL.md#delivery-and-done) checklist says.
 
-Dispatch v2 terminal statuses (`lu_machinery/dispatcher/worker.py`): **`done` = SUCCESS**;
-other terminal statuses: `failed | timeout | rate_limited | cancelled |
-crashed | no_deliverable`. `--dry-run` prints a plan without creating a task record. Emit on any
-status NOT in `{spawning, running, ""}`. The task file is truth; `/api/delegate/active`
-can omit live tasks. **Before declaring a dispatch dead:** `gh pr list --state open`
-first, then check the worktree for finished-but-unpushed work. **After terminal status,**
-read the task record's `worktree_disposition` and `worktree_disposition_reason`. The
-dispatcher removes the task's own worktree at settlement: read-only trees always, write
-trees when clean and published on the canonical remote. A `retained` tree (dirty,
-unpublished, borrowed, unknown) or an `error` is resolved by its reason: remove it only
-after confirming its content is published (`workflow.md` § Post-merge cleanup,
-`docs/runbooks/worktree-cleanup.md`); never a direct Git removal.
-
-**Wait-loop hygiene (2026-09-24).** Before arming a wait on a tool's output, grep the
-tool's source or one real output for the exact string — a loop on text the tool never
-prints (`would ADMIT` vs `would admit now`) waits forever. Never `pkill -f` a pattern
-that also appears in your own command line; it kills your shell.
+**Wait-loop hygiene.** Before arming a wait on a tool's output, grep the tool's source or one real
+output for the exact string; a loop on text the tool never prints waits forever. Never
+`pkill -f` a pattern that also appears in your own command line.
