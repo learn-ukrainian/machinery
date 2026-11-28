@@ -88,13 +88,17 @@ On the same PR, each hand-off preserves the ledger, the rounds used and the head
 allowance (infrastructure failures only, never a failing test node). A new reviewer, session or
 accepted successor (`pr_ownership accept`) inherits those limits.
 
-For a replacement after the cap, the decision reference points to the existing parent record.
-Carry every unresolved blocker in `review.ledger`, identified by its source PR and finding ID,
-with its owner and disposition. Keep findings assigned elsewhere open in the parent record.
-The new reviewer verifies the disposition of the inherited blockers against the replacement
-scope before approval. Use source PR and finding ID together in the review brief and reply
-(for example, `PR1055-F1`) to distinguish inherited findings from new ones. Record review and
-CI evidence for the replacement's own head.
+For an authorized replacement after the cap (at most one successor per card;
+[policy §4](../../review-loop/references/policy.md#4-convergence)), bind the replacement delta
+scope to the verified `handoff.review.cap_disposition` parent decision record and `review.ledger`
+frozen before dispatch — never PR-body `Supersedes #N` alone. Carry every unresolved finding in
+`review.ledger`, identified by its source PR and finding ID, with its owner and disposition.
+Keep findings assigned elsewhere open in the parent record. Missing, edited, or mismatched
+predecessor evidence fails closed. The replacement reviewer runs a delta review of inherited
+open findings on the exact new head plus fix-diff regressions, P0/P1, and security findings
+(settled round-1 mediums stay closed). Use source PR and finding ID together in the review brief
+and reply (for example, `PR1055-F1`) to distinguish inherited findings from new ones. Record
+review and CI evidence for the replacement's own head.
 
 If the predecessor has a lifecycle ledger bound to its PR, keep it intact. `bind-successor`
 keeps that PR binding. The CTO uses the existing
@@ -120,9 +124,10 @@ Every item must hold on the **current** head. A moved head voids the verdict and
 
 1. Proof covers every change in the diff.
 2. A recorded exact-head APPROVE from the reviewer of record (`review-loop`), with no open
-   blocker applicable to that head. For an inherited blocker assigned elsewhere, approval
-   requires exact-head evidence and the reviewer's confirmation under the
-   [review policy](../../review-loop/references/policy.md#4-convergence). A missing or unverified
+   blocker applicable to that head ([policy §3](../../review-loop/references/policy.md#3-findings),
+   [§4](../../review-loop/references/policy.md#4-convergence)). For an inherited blocker assigned
+   elsewhere, approval requires exact-head evidence and the reviewer's confirmation under
+   [policy §4](../../review-loop/references/policy.md#4-convergence). A missing or unverified
    disposition still blocks. The optional DeepSeek pre-check (DS-PRECHECK-1101) is never a review
    of record and never satisfies or waives this gate.
 3. Same-head PR CI green, the same with or without a merge queue: no blocking check on the live
@@ -133,8 +138,12 @@ Every item must hold on the **current** head. A moved head voids the verdict and
    landing. Where the base branch has a merge queue (`isMergeQueueEnabled`, `full-send` step 7),
    PR CI never replaces the merge-group CI Gate on the real queue candidate (`workflow.md` §
    Merge policy); without one, these same-head checks are the last CI gate.
-4. Follow-ups sent to the CTO through Fleet Comms, or recorded on the parent issue when they
-   share its outcome. A non-blocking follow-up never holds the merge.
+4. Carried findings and follow-ups: on an APPROVE carrying eligible P3s or final-round
+   non-security P2s ([policy §4](../../review-loop/references/policy.md#4-convergence),
+   [Recording the verdict](../../review-loop/references/policy.md#recording-the-verdict)), keep
+   the landing hold (`hold` label / `landing_state.hold`) in place until `claude-cto` files each
+   carried ID as an owned `known-issue` ticket and every ticket link is verified in the PR ledger
+   on the approved head. Once verified, a non-blocking carried follow-up does not block merge.
 5. The PR is open, not a draft, mergeable and not BEHIND or DIRTY against its base.
 
 After the gate, `full-send` lands through `pr-merge` (`full-send` step 8), which enqueues where

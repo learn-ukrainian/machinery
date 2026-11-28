@@ -8,12 +8,16 @@ Use it unchanged. This file lists only what review-loop adds to it.
 ## Required brief contents (round 1)
 
 The template's **Outcome** section carries what the CTO froze: the acceptance-criterion IDs
-and expected behaviour, the non-goals, the owner boundary, the risk and, for a replacement,
-its authorized scope.
+and expected behaviour, the non-goals, the owner boundary, the risk and, for an authorized
+replacement PR, the pre-dispatch frozen CTO cap-disposition decision record (repository,
+predecessor PR and head SHA, inherited open finding IDs, authorized fix scope, and single
+successor; see [policy §4](policy.md#4-convergence) and
+[delivery](../../full-send/references/delivery.md#hand-off-record)).
 
 The template's **Target** and **Input contract** sections carry what the author supplies:
 
-- the review round (`round 1 of 3`, or of the budget the repository declares);
+- the review round (`round 1 of 3`, or of the budget the repository declares) and the
+  admission-derived `final_round` boolean from `budget-check`;
 - the author model of every commit on the branch, the catalog risk and the review profile;
 - the exact head, the base ref and the merge-base SHA, so the reviewer reviews
   `merge-base..exact head`;
@@ -135,20 +139,23 @@ Freeze sections 2 to 4 of the template from round 1; do not edit them. Section 1
   author's decline with file:line or test evidence, or the author's `not_applicable` claim
   with its proof, and the outcome label recorded for each P0-P2 finding with its evidence;
 - targeted same-head output or the relevant CI excerpts, and the checks still pending;
-- the budget state (`round 2 of 3`, or of the budget the repository declares).
+- the budget state (`round 2 of 3`, or of the budget the repository declares) and the
+  admission-derived `final_round` flag from `budget-check`;
+- for an authorized replacement PR, the pre-dispatch frozen CTO cap-disposition decision record
+  (repository, predecessor PR and head SHA, inherited open finding IDs, authorized fix scope,
+  and single successor).
 
 The reviewer marks every earlier id `resolved` or `still open: <reason>`, confirms or contests
-each `not_applicable` claim on its evidence ([findings](policy.md#3-findings)), contests an
+each `not_applicable` claim on its evidence ([findings](policy.md#3-findings)), and contests an
 outcome label its evidence does not support with a line `CONTEST <finding-id>: <reason>` in
 `overall.explanation` (the verdict recorder stores it against the previous blocking round, and
-the label then counts as contested), reviews the fix
-diff and traces its effects on the frozen acceptance criteria and existing contracts, including
-changed fallbacks, fail-open paths, downstream callers and weakened tests; unchanged code is
-context for those checks. A new blocker names the causal change or unresolved finding id, the
-reachable trigger and the material impact; a demonstrated P0–P2 regression caused by the PR or
-a concrete unresolved security finding still blocks when discovered late. Once those checks are
-answered, the review is complete ([policy](policy.md#4-convergence)). The reply uses the round 1
-reply format.
+the label then counts as contested). Delta-round scope, fix-diff regression checks, final-round P2 carry, and authorized replacement
+delta rules follow [policy §3](policy.md#3-findings) and [§4](policy.md#4-convergence):
+final-round approval with carried P2s requires every acceptance criterion verified and no open
+P0, P1, security finding (current or inherited), or blocking §3 uncertainty (retaining the
+Reply format rule to withhold APPROVE when material evidence is pending), and on
+`security_paths.py` paths requires the exact-head `SECURITY_VERDICT: PASS` attestation line
+from the qualified critical reviewer. The reply uses the round 1 reply format.
 
 ## Commands a read-only reviewer can run
 

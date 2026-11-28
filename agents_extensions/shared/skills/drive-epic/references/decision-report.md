@@ -84,12 +84,15 @@ avoided; after about 20 councils this rule is tightened or loosened from that da
   ([policy](../../review-loop/references/policy.md)); never "until all members are satisfied".
 - **Act on each result as it arrives:** check its findings against the code at once and
   decide fixes while the other members still run. Edit no file while a member still reviews
-  the same checkout. A late non-blocking result (no P0–P2) from a member the decision did
-  not wait for is feedback only; a late P0–P2 finding is checked and dispositioned like any finding.
+  the same checkout. A late non-blocking result from a member the decision did not wait for is
+  feedback only; any late blocking finding under
+  [policy §3](../../review-loop/references/policy.md#3-findings) is checked and dispositioned
+  like any finding.
 - **Findings and score:** every panelist returns written findings plus `SCORE n/10` with a
   one-line rationale, against this rubric: 10 = no findings; 7-9 = only P3; 4-6 = an open
-  P1 or P2; 1-3 = a P0 or the wrong approach. Classes follow the
-  [review policy](../../review-loop/references/policy.md#3-findings): P0-P2 are blocking defects.
+  P1 or P2; 1-3 = a P0 or the wrong approach. Blocking thresholds, reachability, and carry rules
+  follow [review policy §3](../../review-loop/references/policy.md#3-findings) and
+  [§4](../../review-loop/references/policy.md#4-convergence).
   A score never gates a merge: the verdict and the findings do.
 - **Output:** evidence, dissent, scores, dispositions and owners go in this report and the
   durable task record. For a PR panel, record each round in a rounds table in the PR body

@@ -210,6 +210,10 @@ interpreter does not select the primary checkout's Python modules.
    Exit 0 means recorded with a JSON receipt; exit 1 means refused, so nothing is recorded.
    If an accepted P0 or P1 finding lands on a PR that already has a recorded APPROVE, add the
    `hold` label at once: `"$PY" -m lu_machinery.publish pr-edit --number "$PR" --add-labels hold`.
+   On an APPROVE carrying eligible P3s or final-round non-security P2s
+   ([policy](references/policy.md#recording-the-verdict)), keep the `hold` label in place until
+   every carried ID is filed as an owned `known-issue` ticket and every ticket link verifies in
+   the PR ledger on the approved head.
 
 ## Always true, whatever the round
 
@@ -234,14 +238,14 @@ and are listed in the review-of-record brief as author context only.
 
 ## Stop and report
 
-Stop when the current head has a recorded APPROVE and the only open findings are P3 and every
-acceptance criterion is met ([policy](references/policy.md#recording-the-verdict)), when
-`budget-check` refuses the next round, when a dispute is unresolved after two replies, or when a
-breaker trips. A head you only need to merge with the base, a CI fix after approval and a
-conflict resolution after approval are not stops: `budget-check` admits them while the
-exemption or the lineage's repair round applies. A refusal and a tripped breaker escalate to
-the CTO with the refusal text; a dispute goes to the operator ([policy](references/policy.md)).
-None of them is approval.
+Stop when the current head has a recorded APPROVE meeting the carry, stop, and convergence rules
+in [policy §4](references/policy.md#4-convergence) and
+[Recording the verdict](references/policy.md#recording-the-verdict), when `budget-check` refuses
+the next round, when a dispute is unresolved after two replies, or when a breaker trips. A head
+you only need to merge with the base, a CI fix after approval and a conflict resolution after
+approval are not stops: `budget-check` admits them while the exemption or the lineage's repair
+round applies. A refusal and a tripped breaker escalate to the CTO with the refusal text; a
+dispute goes to the operator ([policy](references/policy.md)). None of them is approval.
 
 Report: exact SHA reviewed, reviewer model, family and harness, verdict, rounds used against
 the budget, the ledger with each disposition, diff size before and after review, who owns

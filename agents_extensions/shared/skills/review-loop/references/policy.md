@@ -1,6 +1,6 @@
-# Review policy v2.1 (single source)
+# Review policy v2.2 (single source)
 
-Designated decision C-4836 (C-4829, C-4831). Rules and skills that mention
+Approved plan REVIEW-GO-1128 (superseding C-4836 / v2.1). Rules and skills that mention
 review tiers, findings or rounds point here; do not restate them.
 
 ## 1. Decide whether to build it
@@ -42,12 +42,10 @@ sit inside a string or a prompt, and only a full-file tokenizer could tell them 
 rejection still blocks a Trivial head. A security-sensitive path, or anything the product deploy
 policy calls learner content, is never Trivial.
 
-**Low is one quick red-team pass.** The reviewer tries to break the change and reports only
-break-it findings, each a P0-P2 reproducible failure (command, input, wrong output), never style
-or "consider". If the reviewer finds no break-it failure and no uncertainty material to a
-potential P0-P2 under the [threat model](#3-findings), the reviewer gives APPROVE. Landing
-requires a recorded APPROVE and the other merge gates. The author fixes a break-it finding,
-and the same reviewer confirms the fix in one delta round. That is the whole Low budget.
+**Low is one quick red-team pass.** The reviewer reports only break-it findings that meet
+[§3](#3-findings), never style or "consider". When no blocking finding or blocking
+P0/P1/security uncertainty remains, the reviewer gives APPROVE. Landing requires a recorded
+APPROVE and the other merge gates. The Low budget remains 2 rounds.
 
 The reviewer's risk is the `--risk` passed to the resolver: `high` or `critical` for a High-tier
 change. Seat order and eligibility follow the review rotation in
@@ -79,16 +77,13 @@ High risk takes Sol, Opus, Gemini 4 Neon High or Grok 4.7 High; critical risk ta
   root cause and violated invariant. Keep surviving siblings under the same ID and give distinct
   root causes their own IDs. Put the class and its members in the existing finding body. In
   delta rounds, verify the reported members and sweep analogous paths affected by the fix.
-  Material uncertainty about a plausible P0–P2 path still blocks pending evidence.
-- A sibling that proves the same reachable P0–P2 failure survived the fix stays on
-  the original ID and blocks. A real sibling outside the frozen obligation that the PR neither
-  introduces, exposes nor worsens, or an unrelated discovery with those same properties, is a P3
-  `follow_up` with an owner. Demonstrated material regressions and unresolved security findings
-  block in every round. A hypothetical case without a plausible path needs no finding. When the
-  acceptance criteria are met and only follow-ups remain, approve.
-- Every blocking finding is fixed, or dismissed with evidence the reviewer confirms.
+- A surviving sibling of an open blocker stays on its original ID. Real out-of-scope defects
+  route to owned follow-up tickets. Blocking, reachability, security exceptions, and
+  approval-with-carry follow the Threat model below and [§4](#4-convergence).
+- Every blocking finding is fixed, or dismissed with evidence the reviewer confirms, subject to
+  eligible final-round P2 carry in [§4](#4-convergence).
 
-**Threat model.** Every code or infra brief identifies supported entry points and environments, input sources, who can influence each source or relevant write path directly or indirectly, and the controls that enforce any exclusion. The reviewer verifies those controls at the exact head. Low and Medium cover supported use, foreseeable operator error, and malformed or partial state, concurrency and recovery where applicable. High and security-sensitive reviews also assume hostile values, ordering and volume wherever an actor can influence them. Public product reviews include reachable user and contributor inputs. Machinery and private infra reviews include the actual PR, CI, artifact, operator and automation boundaries, including lower-trust inputs consumed by privileged steps. A one-shot run may use the bytes at its pinned SHA as the input ceiling when that is what it executes and no lower-trust actor can substitute those bytes before use. Reusable tools cover future reachable inputs. A size or shape exclusion requires evidence. Material uncertainty about a plausible P0–P2 path blocks pending evidence naming the actor, entry point, control in question and impact. The critical review floor and independent review of material threat-model changes still apply. Unresolved security findings always block. Code and infra reviews: A reviewer may carry a confirmed defect as an owned P3 follow-up only after verifying on the exact head that it is outside the frozen obligation and that the PR neither introduces, exposes nor worsens it. For an input exclusion, cite the applicable contract and the control that rules out the actor-to-input path, with evidence from the reviewed head. A scope label, an owned-path limit or a brief assertion cannot establish exclusion. Demonstrated material regressions, reachable P0–P2 failures within the supported contract, unresolved security findings and material uncertainty about a plausible P0–P2 path still block. Material threat-model changes require independent review. APPROVE requires every acceptance criterion to be met, with only eligible follow-ups remaining.
+**Threat model.** Every code or infra brief identifies supported entry points and environments, input sources, who can influence each source or relevant write path directly or indirectly, and the controls that enforce any exclusion. The reviewer verifies those controls at the exact head. Low and Medium cover supported use, foreseeable operator error, and malformed or partial state, concurrency and recovery where applicable. High and security-sensitive reviews also assume hostile values, ordering and volume wherever an actor can influence them. A P2 blocks only when the finding names the actor or automation role, supported entry point, and an evidenced normal-use trigger; ordinary retries, interrupted writes, concurrency, and recovery are normal use and still block when evidenced, while hypothetical or unproven P2 triggers become owned P3 follow-ups. Untrusted input is data, ordering, or state a less-trusted actor can influence, directly or indirectly, before a consumer relies on it across a trust boundary; security findings on untrusted inputs block at any priority (P0–P3), citing source, consumer, control, and impact. Core r2-lease grants no blanket exemption for internal inputs or unknown authority. Public product reviews include reachable user and contributor inputs. Machinery and private infra reviews include the actual PR, CI, artifact, operator and automation boundaries, including lower-trust inputs consumed by privileged steps. A one-shot run may use the bytes at its pinned SHA as the input ceiling when that is what it executes and no lower-trust actor can substitute those bytes before use. Reusable tools cover future reachable inputs. A size or shape exclusion requires evidence. Material uncertainty about a plausible P0, P1, or security path blocks pending evidence naming the actor, entry point, control in question and impact; unproven P2 uncertainty does not block. The critical review floor and independent review of material threat-model changes still apply. Unresolved security findings always block. Code and infra reviews: A reviewer may carry a confirmed defect as an owned P3 follow-up only after verifying on the exact head that it is outside the frozen obligation and that the PR neither introduces, exposes nor worsens it. For an input exclusion, cite the applicable contract and the control that rules out the actor-to-input path, with evidence from the reviewed head. A scope label, an owned-path limit or a brief assertion cannot establish exclusion. Demonstrated material regressions; reachable P0–P1 failures within the supported contract and P2 failures that meet the evidenced normal-use test above, subject to §4; unresolved security findings; and material uncertainty about a plausible P0, P1, or security path still block. Material threat-model changes require independent review. APPROVE requires every acceptance criterion to be met, with no unresolved blocking P0, P1, or security uncertainty and only eligible follow-ups or final-round carried P2s (§4) remaining.
 
 ## 4. Convergence
 
@@ -99,14 +94,18 @@ when its verdict cannot be parsed. A settled attempt releases its reservation wh
 shows it yielded no verdict or completed review. Active attempts and unverifiable results keep
 their reservation. The clean base merge, the repair round and the capability failure under
 [Recording the verdict](#recording-the-verdict) do not count against the 3.
-Round 1 reviews the full candidate against the frozen contract. Delta rounds verify open
-finding IDs and `not_applicable` evidence, review the exact last-reviewed-head-to-candidate
-diff, and trace its effects on the frozen acceptance criteria and existing contracts. This
-includes changed fallbacks, fail-open paths, downstream callers and weakened tests. Unchanged
-code is context for those checks. A new blocker names the causal change or unresolved finding
-ID, the reachable trigger and the material impact. A demonstrated P0–P2 regression caused by
-the PR or a concrete unresolved security finding still blocks when discovered late. Once those
-checks are answered, the review is complete.
+Scope closes after round 1. Later rounds check only open finding IDs, `not_applicable` evidence,
+and fix-diff regressions against the frozen contract; newly noticed pre-existing P2s that the PR
+and fix neither introduce, expose, nor worsen become owned follow-ups, while fix-exposed or
+worsened evidenced P2 regressions (subject to the final-round carry rule below) and P0, P1, and
+security findings still block. Budgets follow admission (default 3 charged rounds, 2 at Low,
+repo overrides in `review_budget_policy.yaml`). On the final charged round, if every acceptance
+criterion is verified and no P0, P1, security finding (current or inherited), or blocking
+P0/P1/security uncertainty ([§3](#3-findings)) remains open, the sealed reviewer issues APPROVE
+and names each carried P2 ID; on `security_paths.py` paths, carrying any P2 also requires an
+explicit exact-head `SECURITY_VERDICT: PASS` line from the qualified critical reviewer. Escalate
+to `claude-cto` if any P0, P1, security finding, blocking uncertainty, or unmet acceptance
+criterion remains at the cap.
 When the cap prevents the next required round, stop and send the findings ledger and exact PR
 head to `claude-cto`. The CTO records one current disposition per work item on its parent
 issue or ordered brief. Record the capped PR and full head SHA, rounds used, every unresolved
@@ -119,9 +118,12 @@ replacement brief carries the ledger, predecessor rounds used and cap decision f
 authorized replacement starts at round 1 of its own configured PR budget. Record earlier
 rounds as history. The capped PR remains capped.
 
-A replacement gets a full pass on its own candidate and authorized scope. It carries
-predecessor IDs and dispositions and verifies inherited blockers on its exact head. Settled
-classes reopen only on new material evidence. Keep blockers assigned to other named work open
+An authorized replacement PR (at most one successor per card, bound by the authoritative CTO
+cap-disposition decision record on the parent issue or ordered brief verified before dispatch and
+frozen into the review brief—never PR-body `Supersedes #N` alone) gets a delta review of inherited
+open findings on the exact new head plus fix-diff regressions, P0/P1, and security findings;
+settled round-1 mediums stay closed. Missing, edited, or mismatched predecessor evidence fails
+closed. Keep blockers assigned to other named work open
 with their owners in the parent record. They still block the replacement until the reviewer
 confirms on its exact head that the defect is fixed or that the replacement neither carries
 the defective change nor exposes or worsens the defect. The rule for unresolved security
@@ -157,12 +159,15 @@ The recorder implements the rounds above. Resolve `PRIMARY_REPO` and `PY` as in 
   in `lu_machinery/config/review_budget_policy.yaml`.
 - **Findings** use the `code-review-findings.v1` object. Each keeps a stable id (`F1`, `F2`, …)
   across rounds; the PR body ledger lists id, New or Pre-existing, blocking or not, and state.
-  P0-P2 are blocking defects. The recorder preserves the reviewer's verdict.
-- **Carried findings.** If the only open findings are P3 and every acceptance criterion is met,
-  the reviewer gives APPROVE and lists each carried finding in the reply. The explicit APPROVE
-  confirms the carry. The author sends each finding to `claude-cto` for filing as its own
-  `known-issue` issue under rules core P4 and links the issues in the PR ledger before landing.
-  The release notes list the known issues fixed by the release and those still open.
+  Blocking thresholds follow [§3](#3-findings). The recorder preserves the sealed reviewer's
+  verdict verbatim and never promotes rejection or uncertainty to approval; any open P0, P1, or
+  security finding (any priority, current or inherited) blocks publication of an approval
+  (rejections are still recorded under the existing disclosure controls).
+- **Carried findings.** On a final-round APPROVE carrying eligible P3s or non-security P2s
+  ([§4](#4-convergence)) — or any round's APPROVE carrying eligible P3s — the existing landing
+  hold stays in place until `claude-cto` files each carried ID as an owned `known-issue` ticket
+  and every ticket link is verified in the PR ledger on the approved head. The release notes list
+  the known issues fixed by the release and those still open.
 - **A recorded rejection** (`CHANGES_REQUESTED` or `BLOCKED`) is cleared only by an APPROVE at
   a new head.
 - **Pending CI is not a verdict.** Review runs in parallel with PR CI. A `BLOCKED` reply with no

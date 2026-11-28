@@ -224,12 +224,12 @@ reaches.
 **Findings (#10665)**: the reviewer applies
 [policy section 3](../review-loop/references/policy.md#3-findings) in full: its
 finding IDs, its class sweep before returning a round that reports a new finding
-or leaves one open, and its threat-model rules for follow-ups and exclusions. A
-P0–P2 finding cites `sources` that show its
-trigger is reachable under the input contract and the
-[threat model](../review-loop/references/policy.md#3-findings), which decides
-when a one-shot run's pinned bytes bound its input. Reviewers keep their own independent
-adversarial cases; the author's matrix narrows nothing.
+or leaves one open, and its threat-model rules for blocking reachability,
+evidenced normal-use P2 triggers, security exceptions, follow-ups, and
+exclusions. Every blocking finding cites `sources` showing its trigger meets
+[policy section 3](../review-loop/references/policy.md#3-findings), which also
+decides when a one-shot run's pinned bytes bound its input. Reviewers keep their
+own independent adversarial cases; the author's matrix narrows nothing.
 
 For `verify_review.py`, a structured reply may use bare schema-valid JSON or
 the review-loop envelope: one leading `VERDICT:` line, one `SCORE:` line and
@@ -257,43 +257,37 @@ For every finding, raise it, then adjudicate it:
 
 Disposition guide, subject to this round's scope under the review budget:
 
-- **`in_scope_blocker`** — a P0–P2 finding whose trigger is reachable under
-  the input contract, shown by its `sources` (path:line in the tree, a
-  published-history entry, or a reproduction the author can run), or a
-  demonstrated P0–P2 regression against main. A reviewer who cannot establish
-  reachability says so, and the author answers with a reproduction or a
-  code-path proof.
-- **`follow_up`** — a real P3 that does not block: a defect outside the frozen
-  obligation that the PR neither introduces, exposes nor worsens (a
-  pre-existing defect, a real sibling or an unrelated discovery)
-  ([findings](../review-loop/references/policy.md#3-findings)); track it
-  with an owner. Style, naming, cleanup and "consider" items are not findings.
+- **`in_scope_blocker`** — a blocking finding under
+  [policy §3](../review-loop/references/policy.md#3-findings) (including
+  reachability, evidenced normal-use P2 triggers, regressions, and security
+  findings at any priority), shown by its `sources` (path:line in the tree, a
+  published-history entry, or a reproduction the author can run), subject to
+  [policy §4](../review-loop/references/policy.md#4-convergence).
+- **`follow_up`** — a non-blocking finding eligible for an owned follow-up
+  ticket under [policy §3](../review-loop/references/policy.md#3-findings) and
+  [§4](../review-loop/references/policy.md#4-convergence) (including
+  out-of-scope defects the PR neither introduces, exposes nor worsens,
+  hypothetical/unproven P2 triggers, and newly noticed pre-existing P2s in
+  later rounds that the PR and fix neither introduce, expose, nor worsen);
+  track it with an owner. Style, naming, cleanup and "consider"
+  items are not findings.
 - **`stop_and_escalate`** — fixing it would itself blow a breaker (Step 6):
   it changes the public/task contract, crosses an owner boundary, needs a
   canonical design decision, or the fix/review loop already failed to
   converge; material ambiguity in the contract also escalates. Escalate
   instead of patching around it.
 
-**Proportional verdicts (#10665).** When the acceptance criteria are met and
-only follow-ups remain, approve; only an `in_scope_blocker` (or an open
-`stop_and_escalate`) withholds approval.
-The author may answer a P0–P2 finding with `not_applicable` and its proof
+**Proportional verdicts (#10665).** Approval, blocking thresholds, uncertainty
+tie-breaks, final-round P2 carry, delta-round duties (round 2 onwards), and
+authorized replacement delta reviews follow
+[policy §3](../review-loop/references/policy.md#3-findings) and
+[§4](../review-loop/references/policy.md#4-convergence).
+The author may answer a blocking finding with `not_applicable` and its proof
 (command and output, or code path) in the ledger; the priority stays as the
 reviewer set it, and the reviewer confirms or contests the claim in the delta
-round ([findings](../review-loop/references/policy.md#3-findings)).
+round ([policy §3](../review-loop/references/policy.md#3-findings)).
 Every blocker states a reproducible failure, its impact and the required
-corrected behaviour; a code-level fix is a suggestion, not the requirement. A
-delta review (round 2 onwards) attests the new exact head and follows the
-[delta-round rule](../review-loop/references/policy.md#4-convergence): it
-verifies open finding IDs and `not_applicable` evidence, reviews the exact
-last-reviewed-head-to-candidate diff, and traces its effects on the frozen
-acceptance criteria and existing contracts, including changed fallbacks,
-fail-open paths, downstream callers and weakened or deleted tests. A new blocker
-names the causal change or unresolved finding ID, the reachable trigger and the
-material impact. Demonstrated material regressions and unresolved security findings
-block in every round. A demonstrated P0–P2 regression caused by the PR or a concrete
-unresolved security finding still blocks when discovered late. Once those checks are
-answered, the review is complete.
+corrected behaviour; a code-level fix is a suggestion, not the requirement.
 A reviewer that lacks a capability the brief requires (shell, diff access,
 hashing, the `sources` tools) returns INCONCLUSIVE: the verdict line uses the
 `BLOCKED` token and names the missing capability. INCONCLUSIVE still blocks

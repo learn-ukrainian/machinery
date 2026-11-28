@@ -119,28 +119,22 @@ read-only dispatch (#8703; [accepted wording](../../review-loop/references/brief
    class, the non-goals, the residuals deliberately not handled, and the checks already run
    with their CI run ids. Name classes; never a "try to break it" list of individual spellings.
 4. **Dispositions** (a `## Dispositions` heading; `local-code-review` checklist Step 5):
-   - `in_scope_blocker` — a P0–P2 finding whose trigger is reachable under the input
-     contract ([findings](../../review-loop/references/policy.md#3-findings)), or a demonstrated
-     P0–P2 regression against main;
-   - `follow_up` — a P3 with an owner: a defect outside the frozen obligation that the PR
-     neither introduces, exposes nor worsens (a pre-existing defect, a real sibling or an
-     unrelated discovery);
+   - `in_scope_blocker` — a blocking finding under
+     [policy §3](../../review-loop/references/policy.md#3-findings) (subject to
+     [§4](../../review-loop/references/policy.md#4-convergence));
+   - `follow_up` — a non-blocking finding eligible for an owned follow-up ticket under
+     [policy §3](../../review-loop/references/policy.md#3-findings) and
+     [§4](../../review-loop/references/policy.md#4-convergence);
    - `stop_and_escalate` — material contract ambiguity, or a fix that would trip a breaker.
-5. **Reviewer duties** — one finding per root cause and violated invariant, as the
-   [policy's section 3](../../review-loop/references/policy.md#3-findings) sets out. In a code
-   or infra review, its class sweep before returning a round that reports a new finding or
-   leaves one open, and its threat-model rules for follow-ups and exclusions, apply too; a
-   Ukrainian review follows the Ukrainian content variant below. Every P0–P2 finding cites
-   `sources` that show its trigger is reachable under the input contract; a reviewer who cannot
-   establish reachability says so. Each blocker states the demonstrated failure, its impact and
-   the required corrected behaviour; a code fix is a suggestion. Demonstrated material
-   regressions and unresolved security findings block in every round. When the acceptance
-   criteria are met and only follow-ups remain, the reviewer approves. A delta-review brief
-   follows the [delta-round rule](../../review-loop/references/policy.md#4-convergence): open
-   ids, `not_applicable` evidence and the fix diff's effects on the frozen acceptance criteria
-   and existing contracts (changed fallbacks, fail-open paths, downstream callers, weakened
-   tests). A missing required capability is INCONCLUSIVE: the verdict line uses `BLOCKED` and
-   names the capability; it still blocks.
+5. **Reviewer duties** — apply [policy §3](../../review-loop/references/policy.md#3-findings)
+   (root-cause finding IDs, class sweep, blocking reachability, evidenced normal-use P2 triggers,
+   uncertainty tie-breaks, security exceptions, follow-ups, and exclusion proof) and
+   [§4](../../review-loop/references/policy.md#4-convergence) (delta-round scope, final-round
+   carry, and authorized replacement delta reviews); a Ukrainian review follows the Ukrainian
+   content variant below. Every blocking finding cites `sources` and states the demonstrated
+   failure, its impact and the required corrected behaviour; a code fix is a suggestion. A
+   missing required capability is INCONCLUSIVE: the verdict line uses `BLOCKED` and names the
+   capability; it still blocks.
 6. **Breakers** — the review budget and `local-code-review` checklist
    Step 6 apply, even when the outstanding-finding count shrinks.
 7. **Reply format** — the complete section from

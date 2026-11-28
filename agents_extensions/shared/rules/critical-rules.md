@@ -132,26 +132,22 @@ everything" cannot survive this repo's merge rate and is corporate dual-control 
 > **Can this finding change what the merged artifact DOES, or what a reader/consumer would conclude
 > from it?**
 
-- **Yes → BLOCKING.** Fix, then **RE-REVIEW**, then merge. Includes: wrong behaviour or output; a
+- **Yes → BLOCKING.** Dispose of under [review policy §§3–4](../skills/review-loop/references/policy.md#3-findings)
+  (fix and **RE-REVIEW**, dismiss with reviewer-confirmed evidence, or — on the final charged round
+  only for eligible non-security P2s — carry under §4). Includes: wrong behaviour or output; a
   security or secret-handling defect; a change outside the PR's declared scope; coverage or a gate
   weakened or skipped; a factual claim in shipped prose that is wrong or unsupported (a wrong statement
   in an autopsy or a rule changes what readers conclude, so it blocks).
 - **No → NON-BLOCKING.** The finding may remain documented without delaying enqueue. Includes:
   naming, comment wording, formatting, and refactors that provably cannot change behaviour.
   If a fix changes the head, obtain approval and green CI for that new head before enqueue (§8.5).
-- **Unsure → treat as BLOCKING.** The tie-break is fail-closed, so an ambiguous finding never merges on
-  an optimistic reading.
 - The tier is the **reviewer's** call, recorded explicitly in the verdict, not the author's. An author
   who disagrees escalates (rules core P6) rather than re-tiering their own finding; there is no
   second review.
-- **Scope of the question (#10665).** It is asked of the change's stated contract, the paths the
-  change introduces, modifies or newly exposes, and regressions against main. A defect outside the
-  frozen obligation that the change neither introduces, exposes nor worsens is a P3 follow-up with an
-  owner; a P0–P2 finding whose trigger is reachable under the input contract blocks, and an
-  unresolved security finding always blocks
-  ([review policy](../skills/review-loop/references/policy.md#3-findings)). Dispositions, root-cause
-  findings and INCONCLUSIVE (a reviewer missing a required capability; it still blocks) follow the
-  `local-code-review` checklist, Steps 2-6.
+- **Scope of the question (#10665).** Blocking thresholds, reachability, uncertainty tie-breaks,
+  security exceptions, and final-round carry follow
+  [review policy §§3–4](../skills/review-loop/references/policy.md#3-findings).
+  Dispositions, root-cause findings and INCONCLUSIVE follow the `local-code-review` checklist, Steps 2-6.
 
 **8.5 — Merge queue protocol.** The sole ordered landing and cleanup recipe is
 [`workflow.md`](workflow.md) § Merge policy. Nobody arms auto-merge. The worker that
