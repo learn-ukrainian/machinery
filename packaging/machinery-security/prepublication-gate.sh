@@ -37,6 +37,7 @@ export LC_ALL=C
 readonly TRUFFLEHOG_VERSION=3.99.0
 readonly TRUFFLEHOG_BINARY_SHA256=bcbdd2627c3f96e641edec60e3ccf36fc12afa4ffead5f32c98f8dbe7373cedc
 readonly TRUFFLEHOG_FLAGS=(
+  --no-verification
   "--results=verified,unknown,unverified"
   --exclude-detectors=Lob
   --fail-on-scan-errors

@@ -63,7 +63,7 @@ Use a Linux x64 runner with glibc, Bash, curl, jq, and standard GNU utilities, i
 | `run-zizmor` | boolean | `false` | Run pinned `zizmor` offline over workflow and action YAML files. |
 | `zizmor-paths` | string | `''` | Optional newline-separated repo-relative paths. Empty defaults to `.github/workflows` (required) + `.github/actions` (if present). Explicit paths fail closed if missing or empty. |
 | `zizmor-config` | string | `''` | Optional repo-relative zizmor config file path (must exist if set). |
-| `run-secret-scan` | boolean | `false` | Run pinned `trufflehog` over the event commit range (`--results=verified,unknown,unverified`). |
+| `run-secret-scan` | boolean | `false` | Run pinned `trufflehog` over the event commit range (`--no-verification --results=verified,unknown,unverified`; no candidate is sent to a provider). |
 | `secret-scan-base` | string | `''` | Optional explicit 40-hex base commit SHA for `push` events. |
 | `secret-scan-require-base` | boolean | `false` | On `push`, require `secret-scan-base` instead of falling back to `github.event.before`. |
 | `trufflehog-exclude-paths` | string | `.trufflehogignore` | Repo-relative TruffleHog exclusion file. |

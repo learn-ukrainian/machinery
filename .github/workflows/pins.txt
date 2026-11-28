@@ -37,7 +37,7 @@ TRUFFLEHOG_ACTION_SHA=ea68ca03c865c5f324e86e849ced20ed3cf9dbbb
 #   script builds (git file://, --since-commit, --branch, --fail, --no-update)
 #   without its `docker run` wrapper: it runs the checksum-verified release
 #   binary under `env -i` instead of a container image.
-TRUFFLEHOG_FLAGS=--results=verified,unknown,unverified --exclude-detectors=Lob --fail-on-scan-errors --exclude-paths=.trufflehogignore
+TRUFFLEHOG_FLAGS=--no-verification --results=verified,unknown,unverified --exclude-detectors=Lob --fail-on-scan-errors --exclude-paths=.trufflehogignore
 #   `unverified` is added to the contract's --results=verified,unknown by
 #   claude-cto decision on 2026-11-03 (#12682). The decision applies to the
 #   public machinery repository (restated as UNVERIFIED-SCOPE-1105 on 2026-11-05).
@@ -48,6 +48,10 @@ TRUFFLEHOG_FLAGS=--results=verified,unknown,unverified --exclude-detectors=Lob -
 #   and most private-key secrets. That is fail-open. False positives go
 #   through the reviewed .trufflehogignore or an inline trufflehog:ignore with
 #   a reason.
+#   `--no-verification` (agentic-machinery/machinery-infra#1648, owner decision
+#   2026-11-28): no candidate is sent to a provider API; every finding is
+#   treated as live and rotated. With it every result is "unverified", so
+#   `unverified` must stay in --results or the scan reports nothing.
 
 # Semgrep CE (SAST)
 SEMGREP_VERSION=1.183.0

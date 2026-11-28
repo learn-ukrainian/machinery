@@ -65,7 +65,7 @@ pass-through options:
 | --- | --- |
 | `--no-verification` | Offline. Nothing is sent to any provider. |
 | `--no-update` | No update check over the network. |
-| `--results=unverified` | Offline, every candidate is "unverified". CI runs verified mode and keeps `--results=verified,unknown`; offline that filter would hide everything, so the local scan reports the full unverified superset. Expect more false positives than CI. |
+| `--results=unverified` | Offline, every candidate is "unverified". CI also runs with `--no-verification` and `--results=verified,unknown,unverified`, so both report the same unverified set; a `verified,unknown` filter would hide everything. |
 | `--exclude-detectors=Lob` | Same as CI (#6575). |
 | `--exclude-paths=.trufflehogignore` | Same as CI's Secret scan job, when the file exists. |
 | `--fail-on-scan-errors` | A scan error is a tool error (exit 2), not a clean result. |
@@ -190,7 +190,7 @@ closed-output subcommand to the wrapper, with tests, in a reviewed PR.
 | Gate | When | Scope |
 | --- | --- | --- |
 | gitleaks (`.pre-commit-config.yaml`, `.gitleaks.toml`) | Every commit, staged files | Stops a secret before it is committed. |
-| TruffleHog in CI (`.github/workflows/ci.yml`, `lu_machinery/ci/secret_scan_scope.py`) | Every PR, merge-queue and scheduled run | The event's range. The nightly schedule is an ancestry window, not a commit-date window (below). Verified mode, `--results=verified,unknown`. Required. |
+| TruffleHog in CI (`.github/workflows/ci.yml`, `lu_machinery/ci/secret_scan_scope.py`) | Every PR, merge-queue and scheduled run | The event's range. The nightly schedule is an ancestry window, not a commit-date window (below). `--no-verification --results=verified,unknown,unverified`: nothing is sent to a provider and every finding is treated as live. Required. |
 | OPSEC linter (`scripts/audit/lint_opsec_leaks.py`) | CI Secret scan job | Infrastructure identifiers (addresses, key headers) that are not credentials. |
 | This wrapper | On demand, as above | Offline; whole work tree or whole public history. |
 

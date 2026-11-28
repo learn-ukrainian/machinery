@@ -1270,7 +1270,7 @@ jobs:
             redact=true
             # Shell variables belong to the maintainer's local invocation.
             # shellcheck disable=SC2016
-            echo 'Reproduce locally: trufflehog git "file://$PWD" --branch "$HEAD_SHA" --fail --no-update --json --results=verified,unknown,unverified --exclude-detectors=Lob --fail-on-scan-errors'
+            echo 'Reproduce locally: trufflehog git "file://$PWD" --branch "$HEAD_SHA" --fail --no-update --json --no-verification --results=verified,unknown,unverified --exclude-detectors=Lob --fail-on-scan-errors'
             # shellcheck disable=SC2016
             echo 'Use a full Git checkout. Add --since-commit "$BASE_SHA" for a bounded range and --exclude-paths for the caller base policy.'
           fi
@@ -1450,6 +1450,9 @@ jobs:
             git "file://${GITHUB_WORKSPACE}"
             --branch "$head"
             --fail --no-update --json
+            # Never send a candidate to a provider (machinery-infra#1648);
+            # every result is then "unverified", which --results must keep.
+            --no-verification
             "--results=verified,unknown,unverified"
             --exclude-detectors=Lob
             --fail-on-scan-errors
