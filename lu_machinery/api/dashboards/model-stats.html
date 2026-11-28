@@ -894,13 +894,14 @@ function accuracy(data) {
 }
 function authorLabels(data) {
   const items = (data.reviewer_accuracy?.labels || []).filter((r) => keepModel(r.model));
-  const note = '<p class="note">The author labels each blocking finding: fixed (a real error), wrong (the code was already correct), invented (it cites code or behaviour that does not exist), out of scope or duplicate. A label the next review contested counts as contested. Real precision is fixed over fixed, wrong and invented.</p>';
+  const note = '<p class="note">The author labels each blocking finding: fixed (a real error), wrong (the code was already correct), invented (it cites code or behaviour that does not exist), no live trigger (the code exists, but a named guard, caller or configuration keeps the trigger from occurring on the real system), out of scope or duplicate. A label the next review contested counts as contested. Real precision is fixed over fixed, wrong, invented and no live trigger.</p>';
   return '<h3>Author labels</h3>' + note + (items.length
-    ? table(["Reviewer", "Fixed (real)", "Wrong", "Invented", "Out of scope", "Duplicate", "Contested", "Real precision", "Interval", "Precision sample"],
+    ? table(["Reviewer", "Fixed (real)", "Wrong", "Invented", "No live trigger", "Out of scope", "Duplicate", "Contested", "Real precision", "Interval", "Precision sample"],
         grouped(items, (r) => { const l = r.labels || {}; return [`<tr><td>${named(r)}</td>${cell(num(l.fixed || 0))}`
-          + `${cell(num(l.wrong || 0))}${cell(num(l.invented || 0), l.invented ? "warn" : "")}${cell(num(l.out_of_scope || 0))}`
+          + `${cell(num(l.wrong || 0))}${cell(num(l.invented || 0), l.invented ? "warn" : "")}`
+          + `${cell(num(l.no_live_trigger || 0))}${cell(num(l.out_of_scope || 0))}`
           + `${cell(num(l.duplicate || 0))}${cell(num(l.contested || 0))}`
-          + `${cell(pct(r.real_precision))}${cell(ciText(r.real_precision_ci))}${cell(nOf(r.real_precision))}</tr>`]; }, 10))
+          + `${cell(pct(r.real_precision))}${cell(ciText(r.real_precision_ci))}${cell(nOf(r.real_precision))}</tr>`]; }, 11))
     : '<p class="muted">No finding outcome labels in this selection.</p>');
 }
 // A findings rate counts only PRs with a known findings count, so it carries its own low-sample mark.

@@ -1242,6 +1242,8 @@ def test_finding_outcome_verb_refuses_unpublished_unknown_or_nonblocking_finding
             label(finding, "fixed")
     with pytest.raises(recorder.RecordError, match="label wrong needs --evidence"):
         label("F1", "wrong", "  ")
+    with pytest.raises(recorder.RecordError, match="label no_live_trigger needs --evidence"):
+        label("F1", "no_live_trigger")
     with pytest.raises(recorder.RecordError, match="one line"):
         label("F1", "wrong", "first line\nsecond line")
     with pytest.raises(recorder.RecordError, match="unknown outcome label"):
@@ -1263,7 +1265,7 @@ def test_finding_outcome_verb_refuses_unpublished_unknown_or_nonblocking_finding
     }
     # A Cursor Grok review stores its canonical catalog model id (grok-4.7), never the effort variant or display name.
     write_task(
-        tasks, task_id="review-grok", reply=_blocking_reply(["P1"]), agent="cursor", model="grok-4.7-high",
+        tasks, task_id="review-grok", reply=_blocking_reply(["P1", "P1"]), agent="cursor", model="grok-4.7-high",
         resolved_model="Grok 4.7 256K High", resolved_model_known=True, resolved_model_source="cursor-stream-json",
     )
     model_stats_rows.record_publications(tmp_path, [model_stats_rows.publication(
@@ -1293,6 +1295,10 @@ def test_finding_outcome_verb_refuses_unpublished_unknown_or_nonblocking_finding
     assert recorder.main(["finding-outcome", "--task-id", "review-one", "--pr", "42", "--finding", "F1",
                           "--label", "wrong", "--evidence", "scripts/example.py:1 already resets the state"]) == 0
     assert json.loads(capsys.readouterr().out)["status"] == "already recorded"
+    assert recorder.main(["finding-outcome", "--task-id", "review-grok", "--pr", "42", "--finding", "F2",
+                          "--label", "no_live_trigger", "--evidence", "only main() calls it, after the guard"]) == 0
+    assert json.loads(capsys.readouterr().out)["status"] == "recorded"
+    assert _outcomes(tmp_path)[-1]["label"] == "no_live_trigger"
     # A reply with no structured findings takes no label.
     write_task(tasks, task_id="review-text", reply="VERDICT: CHANGES_REQUESTED\nOrdinary reviewer text.\n")
     with pytest.raises(recorder.RecordError, match="no structured findings"):
@@ -1314,7 +1320,7 @@ def test_finding_outcome_verb_refuses_unpublished_unknown_or_nonblocking_finding
     write_task(tasks, reply=_blocking_reply(["P2", "P2"]), started_at="2026-09-23T14:00:00.000001+00:00")
     with pytest.raises(recorder.RecordError, match="review task id review-one names 2 runs in the task store"):
         label("F2", "fixed")
-    assert len(_outcomes(tmp_path)) == 2
+    assert len(_outcomes(tmp_path)) == 3
     assert set(censuses) == {
         "review-one", "review-grok", "review-early", "review-text", "review-overflow-0", "review-overflow-1",
     }

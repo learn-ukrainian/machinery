@@ -981,7 +981,8 @@ def _label_outcomes(outcomes: _Outcomes, *, since: datetime, until: datetime,
                     name: Callable[[str], str] = str) -> list[dict[str, Any]]:
     """Per reviewer model: author outcome labels recorded in ``[since, until)``, counted directly from the label
     lines' stored ``reviewer_model`` with no join to the rows or publication ledgers. A label contested before
-    ``until`` counts as ``contested``; ``real_precision`` is fixed over fixed plus wrong plus invented."""
+    ``until`` counts as ``contested``; ``real_precision`` is fixed over fixed plus wrong plus invented plus
+    no_live_trigger."""
     counts: dict[str, Counter[str]] = defaultdict(Counter)
     for finding_key, (reviewer_model, label, recorded_at) in outcomes.labels.items():
         if recorded_at < since or recorded_at >= until or retired_subscription_model(reviewer_model):
@@ -992,7 +993,7 @@ def _label_outcomes(outcomes: _Outcomes, *, since: datetime, until: datetime,
     out = []
     for model, tally in sorted(counts.items(), key=lambda item: (-sum(item[1].values()), item[0])):
         real = tally["fixed"]
-        judged = sum(tally[label] for label in ("fixed", "wrong", "invented"))
+        judged = sum(tally[label] for label in ("fixed", "wrong", "invented", "no_live_trigger"))
         out.append({
             "model": model, "identity": identity(model),
             "labels": {label: tally[label] for label in LABEL_OUTCOMES},
@@ -1857,8 +1858,9 @@ def _charts(models: list[dict[str, Any]], prs: list[dict[str, Any]], rows: list[
                          "a fix made in a different file counts as dismissed. Only verdicts the recorder published "
                          "count; a blocking reply with no recorded publication (an unpublished run, or one from "
                          "before the publication ledger and not imported) is of unknown publication and left out. "
-                         "Real precision uses the author's recorded label instead (fixed over fixed, wrong and "
-                         "invented); a label is the author's word unless a later review contested it.",
+                         "Real precision uses the author's recorded label instead (fixed over fixed, wrong, "
+                         "invented and no live trigger); a label is the author's word unless a later review "
+                         "contested it.",
             "recall": "No planted-defect result is recorded in the summary rows.",
             "links": "This snapshot does not include task ids.",
             "quota": "An allowance reading is the whole pool, not the one model. Overlapping tasks are charged "

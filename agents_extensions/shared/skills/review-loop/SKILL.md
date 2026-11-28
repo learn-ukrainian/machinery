@@ -166,8 +166,10 @@ interpreter does not select the primary checkout's Python modules.
    patch them in. Once a `CHANGES_REQUESTED` verdict is recorded (step 7), the author labels each
    of its P0-P2 findings before the next round: `fixed` (a real error, changed), `wrong` (the
    code was already correct), `invented` (it cites a file, line, symbol or behaviour that does
-   not exist), `out_of_scope` or `duplicate`. Every label except `fixed` needs one line of
-   evidence, which also goes in the delta brief. Model stats counts the labels per reviewer.
+   not exist), `no_live_trigger` (the code exists, but a named guard, caller or configuration
+   keeps its trigger from occurring on the real system), `out_of_scope` or `duplicate`. Every
+   label except `fixed` needs one line of evidence, which also goes in the delta brief. Model
+   stats counts the labels per reviewer.
 
    ```bash
    "$PY" -m lu_machinery.review.record_cf_verdict finding-outcome --task-id "$REVIEW_TASK" --pr "$PR" \

@@ -19,8 +19,9 @@ published on a PR (task id, repository, PR, head, verdict, GitHub's comment time
 names it.
 
 ``finding-outcomes.jsonl`` is the finding-outcome ledger, under the same lock with the same one writer: one line per
-author label of a blocking finding of a published review (``fixed``, ``wrong``, ``invented``, ``out_of_scope``,
-``duplicate``; the evidence line as its SHA-256 only) and one per later review that contested a label.
+author label of a blocking finding of a published review (``fixed``, ``wrong``, ``invented``, ``no_live_trigger``,
+``out_of_scope``, ``duplicate``; the evidence line as its SHA-256 only) and one per later review that contested a
+label.
 """
 
 from __future__ import annotations

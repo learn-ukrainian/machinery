@@ -24,6 +24,8 @@ FINDING_OUTCOME_LABELS: dict[str, str] = {
     "fixed": "a real error; the author changed the code",
     "wrong": "the code was already correct",
     "invented": "the finding cites a file, line, symbol or behaviour that does not exist",
+    "no_live_trigger": "the cited code exists, but the guard, caller or configuration the evidence names keeps its "
+                       "trigger from occurring on the real system",
     "out_of_scope": "outside the change's frozen obligation",
     "duplicate": "another finding of the same review names the same defect",
 }

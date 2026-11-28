@@ -977,8 +977,9 @@ _PAGE_SENTENCES = frozenset({
     "a fix made in a different file counts as dismissed. Only verdicts the recorder published "
     "count; a blocking reply with no recorded publication (an unpublished run, or one from "
     "before the publication ledger and not imported) is of unknown publication and left out. "
-    "Real precision uses the author's recorded label instead (fixed over fixed, wrong and "
-    "invented); a label is the author's word unless a later review contested it.",
+    "Real precision uses the author's recorded label instead (fixed over fixed, wrong, "
+    "invented and no live trigger); a label is the author's word unless a later review "
+    "contested it.",
     "No planted-defect result is recorded in the summary rows.",
     "This snapshot does not include task ids.",
     "An allowance reading is the whole pool, not the one model. Overlapping tasks are charged "
@@ -2145,7 +2146,7 @@ def test_finding_outcome_labels_count_per_reviewer_and_a_contest_holds_the_label
 
     snapshot = stats.collect(batch_state, tmp_path, NOW, landing=stats.Landing())
     assert snapshot["coverage"]["finding_outcomes"] == {"lines": 21, "unattributed_labels": 1, "unbound_contests": 1}
-    zero = dict.fromkeys(("fixed", "wrong", "invented", "out_of_scope", "duplicate", "contested"), 0)
+    zero = dict.fromkeys(("fixed", "wrong", "invented", "no_live_trigger", "out_of_scope", "duplicate", "contested"), 0)
     full_7d = {row["model"]: row for row in snapshot["windows"]["7d"]["reviewer_accuracy"]["labels"]}
     assert set(full_7d) == {"claude-opus-5-5", "gpt-6.2-sol", "grok-4.7", "custom-reviewer"}
     assert full_7d["claude-opus-5-5"]["labels"] == {
@@ -2172,6 +2173,20 @@ def test_finding_outcome_labels_count_per_reviewer_and_a_contest_holds_the_label
     assert "reviewer_miss_proxy" not in snapshot["page_windows"]["30d"]
 
 
+def test_no_live_trigger_counts_in_precision_denominator_not_numerator(tmp_path):
+    """Defect class: a finding whose trigger cannot occur on the real system either has no label (refused as wrong
+    shape), counts as a real error (in the numerator: 2/2), or leaves real precision untouched (outside the
+    denominator: 1/1). One fixed plus one no_live_trigger label must read 1/2 with the matching interval."""
+    batch_state, _ = _state(tmp_path)
+    assert _label(batch_state, "o1-review", 1, "F0", "fixed") == 1
+    assert _label(batch_state, "o1-review", 1, "F1", "no_live_trigger", "only main() calls it, after the guard") == 1
+    snapshot = stats.collect(batch_state, tmp_path, NOW, landing=stats.Landing())
+    [row] = snapshot["windows"]["7d"]["reviewer_accuracy"]["labels"]
+    assert row["labels"]["fixed"] == 1 and row["labels"]["no_live_trigger"] == 1
+    assert row["real_precision"] == stats._rate(1, 2)
+    assert row["real_precision_ci"] == stats._wilson(1, 2)
+
+
 def test_finding_outcome_ledger_keeps_one_label_per_finding_and_skips_damaged_lines(tmp_path):
     """Defect class: a relabel, a same-label retry refused for its new evidence, a repeated contest, a label or
     contest without required run binding (head and started_at) or reviewer_model, a half-bound line accepted, a
@@ -2192,7 +2207,7 @@ def test_finding_outcome_ledger_keeps_one_label_per_finding_and_skips_damaged_li
     assert _label(batch_state, "o1-review", 1, "F0", "fixed", repository="agentic-machinery/machinery") == 0
     assert _label(batch_state, "o1-review", 1, "F0", "wrong", "already correct", repository="other/repo") == 1
     # Every label but fixed needs its evidence; every new line needs head + started_at; labels need reviewer_model.
-    for label in ("wrong", "invented", "out_of_scope", "duplicate"):
+    for label in ("wrong", "invented", "no_live_trigger", "out_of_scope", "duplicate"):
         with pytest.raises(ValueError, match="wrong shape"):
             _label(batch_state, "o1-review", 1, "F1", label)
     for bad_model in (None, "", "unknown", "has space", "../escape"):
