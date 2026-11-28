@@ -61,7 +61,10 @@ in every model call, plus instructions to run `lu-driver-state render --lane cto
   adds a third voice, never replacing the non-author advisor. Operator-only items (core.md
   P6) wait for the operator while independent approved work continues; record each as a
   residual with a workaround. Before naming anything operator-only, verify it with a command
-  and cite the output.
+  and cite the output. Before asking the operator for a runbook's approval step, check the
+  standing orders: when an operator order in force already covers that step (never an old
+  issue GO, core.md P6), act on it and send the
+  operator a heads-up instead of a question.
 - Never wait for a quota reset: seat the next eligible reviewer the resolver returns.
 - Write to the operator in plain, simple English: lead with what changed and what they must
   know or do, say what each piece of work is for in everyday words, and keep it short. No

@@ -12,7 +12,8 @@ never fine.
    not a reason to keep measuring by hand.
 1. **Inbox.** Inspect the launcher slot and drain the three driver recipients
    ([startup](startup.md#4-identity-and-inbox)) at cycle start, after workers settle and
-   before handoff. `claude-cto` is the durable CTO
+   before handoff. Claim and read each delivery, then dispatch if the delivery permits it, then apply and ack the outcome even if no work launches.
+   `claude-cto` is the durable CTO
    recipient: claim it with your session identity as `--worker-id`, and a worker escalation
    waits there at most one cycle. Any backlog still queued at a `claude-cto-<id>` name is a
    leftover to drain once, then report it as a producer defect.
@@ -61,6 +62,9 @@ never fine.
    watcher with a deadline checks both as well as failing checks, replacing polling.
    Check main-branch CI in both public and private repositories. Give each open PR one
    blocker line with its age, next action and owner; flag ages over the one-hour target.
+   Whether a merge-group candidate contains a fix is read from Git, never inferred from
+   timestamps: `gh api repos/<owner>/<repo>/compare/<fix-sha>...<candidate-sha>` reports
+   `ahead` or `identical` only when it does.
    Read keeper reasons for approved green PRs not enqueued. List every `hold` with its
    owning tracker item and removal condition; clear it when that condition is met.
    Measure stage time across dispatch, review, PR admission CI, queue CI, merge and closeout
@@ -110,7 +114,8 @@ never fine.
    unpushed work; check the worktree disposition after terminal status ([recipes](recipes.md#worktree-disposition-before-re-dispatch)).
    List every task result or lane message awaiting a CTO grant or approval, with its age.
    A dispatch hold names its reason and expiry; re-check it every cycle and lift it the moment the reason no longer holds.
-   Never hold work back to save allowance. Each cycle, rank pools by required burn,
+   Never hold work back to save allowance. A window that needs an idle system starts its
+   drain only when its gate PR is ready to land; until then every worker slot stays full. Each cycle, rank pools by required burn,
    the percent left divided by hours until the reset or an earlier drain deadline.
    Fill free worker slots from the top operator order's critical path first; when that path is serialized behind one change, put a worker on removing the serialization before starting other work.
    Fill the most urgent pool first with eligible, ready work. Before going quiet, queue long-running

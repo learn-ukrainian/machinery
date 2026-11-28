@@ -26,6 +26,9 @@ Practices used:
    or CLI semantics shared by the product and the release) is new design,
    however small the diff: it goes to the designated panel before dispatch,
    never as a CTO "implementation fix".
+8. A plan the CTO seat will integrate is authored and reviewed by families other than the
+   seat's own wherever an eligible seat exists; the designated pair is the approval (P6),
+   not the default author.
 
 ## Tactical layer: per cycle
 
