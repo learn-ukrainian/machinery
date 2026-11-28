@@ -43,6 +43,9 @@ _STATED_VERDICT_TOKENS = {
 }
 # Finding priorities that block a merge; P2 and P3 are follow-ups.
 BLOCKING_PRIORITIES = frozenset({"P0", "P1"})
+# A finding of this category blocks at every priority: an unresolved security finding always
+# blocks (review-loop policy, Findings).
+SECURITY_CATEGORY = "security"
 
 
 class ReviewPublicationError(ValueError):
@@ -204,12 +207,14 @@ def parse_review_evidence(payload: Mapping[str, Any]) -> ReviewEvidence | None:
 def verdict_from_review_evidence(evidence: ReviewEvidence) -> str:
     """Derive the only gate verdict consistent with canonical review evidence.
 
-    P0 and P1 findings block. P2 and P3 findings are follow-ups (review-loop
-    policy, Severity), so code judged correct still approves with them; on code
-    judged uncertain they request changes.
+    P0 and P1 findings block, and so does a security finding at any priority.
+    Other P2 and P3 findings are follow-ups (review-loop policy, Severity), so
+    code judged correct still approves with them; on code judged uncertain they
+    request changes.
     """
     if evidence.correctness == "incorrect" or any(
-        finding.priority in BLOCKING_PRIORITIES for finding in evidence.findings
+        finding.priority in BLOCKING_PRIORITIES or finding.category == SECURITY_CATEGORY
+        for finding in evidence.findings
     ):
         return "CHANGES_REQUESTED"
     if evidence.correctness == "correct":
@@ -293,6 +298,7 @@ __all__ = [
     "DEFAULT_GATE_KIND",
     "DEFAULT_STATUS_CONTEXT",
     "REVIEW_SCHEMA_VERSION",
+    "SECURITY_CATEGORY",
     "VALID_VERDICTS",
     "ReviewEvidence",
     "ReviewFinding",

@@ -241,7 +241,8 @@ def record_verdict(
     task_id = review.pop("_task_id", "review")
     caller = review.pop("_caller", repo.root)
     cli = review.pop("_cli", False)
-    reply = review.pop("_reply", "Checked.\n\nVERDICT: APPROVE\n")
+    # Several calls record at critical risk, so the default is a sealed approval with the security sign-off.
+    reply = review.pop("_reply", signed_off_reply("Checked."))
     base, head = repo.sha("origin/main"), repo.sha("feature")
     review_root = caller / "batch_state" / "tasks" if cli else tmp_path / "review-tasks"
     review_root.mkdir(parents=True, exist_ok=True)
@@ -300,6 +301,14 @@ def record_verdict(
     if cli:
         return recorder.main(["--task-id", task_id, "--pr", "42"])
     return recorder.record(task_id, pr_number=42, task_root=review_root, lock_root=tmp_path / "locks", **record_kwargs)
+
+
+def signed_off_reply(explanation: str) -> str:
+    """A sealed approval whose ``overall.explanation`` opens with the security sign-off line (as the worker seals it)."""
+    return json.dumps({
+        "schema_version": "code-review-findings.v1", "findings": [],
+        "overall": {"correctness": "correct", "explanation": f"SECURITY_VERDICT: PASS\n{explanation}", "confidence": 0.9},
+    }, ensure_ascii=False)
 
 
 GROK_RECEIPT = {
@@ -390,14 +399,24 @@ def test_single_family_branch_agrees_across_selector_and_recorder(repo, tasks, m
         comments=posted,
         _caller=provenance,
         _cli=True,
-        _reply=f"Checked `{repo.root}/docs/a.md`.\n\nVERDICT: APPROVE\n",
+        _reply=signed_off_reply(f"Checked `{repo.root}/docs/a.md`."),
     ) == 0
     receipt = json.loads(capsys.readouterr().out)
     assert receipt["verdict"] == "APPROVED" and receipt["head"] == repo.sha("feature")
     assert len(list((provenance / "batch_state" / "locks").glob("*.lock"))) == 1
     assert not (repo.root / "batch_state").exists()
+    # A signed-off critical approval publishes the finding count only.
     assert str(repo.root) not in posted[0]["body"] and str(provenance) not in posted[0]["body"]
-    assert "docs/a.md" in posted[0]["body"]
+    assert "Withheld findings: 0\n" in posted[0]["body"]
+    # A published reply cites target paths repository-relative.
+    assert record_verdict(
+        monkeypatch, tmp_path, repo, agent="codex", model=CURRENT_SOL, review_risk="medium", comments=posted,
+        _caller=provenance, _cli=True, _task_id="review-public",
+        _reply=f"Checked `{repo.root}/docs/a.md`.\n\nVERDICT: APPROVE\n",
+    ) == 0
+    assert json.loads(capsys.readouterr().out)["verdict"] == "APPROVED"
+    assert str(repo.root) not in posted[-1]["body"] and str(provenance) not in posted[-1]["body"]
+    assert "docs/a.md" in posted[-1]["body"]
     # ... and refuses an author-family one.
     with pytest.raises(recorder.RecordError, match="equals an author family"):
         record_verdict(monkeypatch, tmp_path, repo, agent="claude", model="claude-opus-5-5")

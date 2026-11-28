@@ -94,7 +94,16 @@ and the recorder validate against the installed release's copy. The reviewer use
 allowed values and nested definitions, and adds none. `overall` includes `correctness`,
 `explanation` and `confidence`. Each finding includes `confidence` and `verbatim` with the
 schema's other required fields. `overall.correctness` is `correct` to approve, `incorrect`
-to request changes, and `uncertain` for `BLOCKED`.
+to request changes, and `uncertain` for `BLOCKED`. A finding with category `security`
+blocks at every priority, so a reply that approves never carries one.
+
+**Security sign-off.** A critical review (a security path, critical risk or the `security`
+profile) approves only with a sign-off, and so does any approval after another review of the
+PR raised a security finding. The sign-off is the first line of `overall.explanation`,
+exactly `SECURITY_VERDICT: PASS` on its own line; the rest of the explanation follows it.
+Never write the words security verdict anywhere else in the reply, the rest of the
+explanation and the findings included; call it the sign-off line. Only a `critical_review`
+seat signs off; the recorder refuses any other form of the approval.
 
 The brief carries this repository-relative schema path, or an exact shape generated from
 that file. It never carries a hand-written schema copy or asks for the format by name

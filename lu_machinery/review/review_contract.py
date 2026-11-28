@@ -339,9 +339,27 @@ def canonical_receipt_payload(raw: str) -> dict[str, Any]:
         validate_reviewer_payload(payload)
         if _effective_verdict(payload) is None:
             raise ContractError("review_invalid_verdict")
-    if declares_incomplete_review(text if envelope else "", findings_payloads=(payload,)):
+    if declares_incomplete_review(text if envelope else "", findings_payloads=(payload,)) or (
+        declares_incomplete_explanation(payload)
+    ):
         raise ContractError("review_declares_incomplete", exit_code=EXIT_INCOMPLETE)
     return payload
+
+
+def declares_incomplete_explanation(payload: Mapping[str, Any]) -> bool:
+    """Whether a line of ``overall.explanation``, read on its own, declares the review unfinished.
+
+    ``verdict_parser.declares_incomplete_review`` folds the explanation's lines into paragraphs, and its matcher
+    needs sentence punctuation before a declaration. A line without it (the security sign-off line, a heading)
+    would hide an admission on the next line, so each line is also read alone.
+    """
+    from lu_machinery.review.verdict_parser import declares_incomplete_review
+
+    overall = payload.get("overall")
+    explanation = overall.get("explanation") if isinstance(overall, Mapping) else None
+    return isinstance(explanation, str) and any(
+        declares_incomplete_review(line.strip(), findings_payloads=()) for line in explanation.split("\n") if line.strip()
+    )
 
 
 def _json_objects(text: str) -> list[dict[str, Any]]:

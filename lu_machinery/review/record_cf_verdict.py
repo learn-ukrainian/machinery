@@ -56,6 +56,7 @@ from lu_machinery.fleet.claude_account_lane import ClaudeAccount, account_from_r
 from lu_machinery.fleet_comms.review_publication import (
     DEFAULT_STATUS_CONTEXT,
     REVIEW_SCHEMA_VERSION,
+    SECURITY_CATEGORY,
     ReviewPublicationError,
 )
 from lu_machinery.fleet_comms.review_publisher import post_commit_status
@@ -124,6 +125,7 @@ from lu_machinery.review.review_contract import (
     ContractError,
     ItemChunk,
     captured_sources_events,
+    declares_incomplete_explanation,
     item_judgments_verdict,
     judge_item_reply,
     load_frozen_item_packet,
@@ -164,7 +166,9 @@ from lu_machinery.review.verdict_parser import (
     MISSING_CAPABILITIES_FIELD,
     _commonmark_lines,
     _findings_json_verdicts,
+    _top_level_json_values,
     _without_code_fences,
+    _without_inline_json,
     checked_findings_payload,
     declares_incomplete_review,
     declares_missing_capabilities,
@@ -274,10 +278,19 @@ def _review_verdict_and_count(reply: str) -> tuple[str, int | Literal["unknown"]
             raise RecordError(f"structured review verdict or findings invalid: {exc}") from None
         except ReviewPublicationError:
             raise RecordError("structured review verdict or findings invalid") from None
-        if declares_incomplete_review(reply):
+        # The decoded object is read, so leading whitespace that Markdown makes a code block hides nothing.
+        if declares_incomplete_review(reply, findings_payloads=(payload,)) or declares_incomplete_explanation(payload):
             raise RecordError("inconclusive: reviewer declares an incomplete review")
         return verdict, len(evidence.findings) if evidence is not None else "unknown"
-    return normalize_verdict(reply), "unknown"
+    verdict = normalize_verdict(reply)
+    # A whole json fence or the review-loop envelope: its explanation is read line by line too.
+    try:
+        whole = parse_reviewer_json(reply)
+    except ContractError:
+        whole = None
+    if whole is not None and declares_incomplete_explanation(whole):
+        raise RecordError("inconclusive: reviewer declares an incomplete review")
+    return verdict, "unknown"
 
 
 _SECURITY_VERDICT = re.compile(r"(?i)\*{0,2}security(?:[_\- ]+)verdict\*{0,2}\s*[:\u2014\u2013\-=]?\s*")
@@ -326,6 +339,190 @@ def _security_verdict_blocks(reply: str) -> bool:
     return any(_SECURITY_PASS.match(reply, match.end()) is None for match in _SECURITY_VERDICT.finditer(reply))
 
 
+# The security sign-off: the first line of the sealed reply's ``overall.explanation`` is exactly this text.
+# Schema-bound review dispatch seals only the findings object (``dispatcher/worker.py``), so the sign-off
+# lives inside it.
+SECURITY_ATTESTATION = "SECURITY_VERDICT: PASS"
+
+
+@dataclass(frozen=True)
+class _SecuritySignals:
+    """What a reply states about security, read the way every verdict reader reads it.
+
+    ``payload`` is the reply as ``parse_reviewer_json`` reads it, else None. ``texts`` is the reply's
+    visible prose (code fences and top-level JSON values removed) and every decoded string of each
+    distinct JSON reading (``payload`` and the Markdown top-level values), so neither a JSON escape nor
+    an indented code block hides a declaration or a finding. ``None`` for ``texts`` means the reply's
+    JSON cannot be decided.
+    """
+
+    payload: Mapping[str, Any] | None
+    texts: tuple[str, ...] | None
+    security_findings: tuple[str, ...]
+
+    @property
+    def open(self) -> bool:
+        """An undecidable reply, a security verdict that is not PASS, or a canonical security finding."""
+        return self.texts is None or bool(self.security_findings) or any(
+            _security_verdict_blocks(text) for text in self.texts
+        )
+
+    @property
+    def declarations(self) -> int:
+        return sum(len(_SECURITY_VERDICT.findall(text)) for text in self.texts or ())
+
+
+_UNDECIDABLE = _SecuritySignals(None, None, ())
+
+
+def _security_signals(reply: str) -> _SecuritySignals:
+    values: list[Any] = []
+    try:
+        payload: dict[str, Any] | None = parse_reviewer_json(reply)
+    except ContractError:
+        payload = None
+        # The verdict reader decodes a whole-JSON reply leniently (``_review_verdict_and_count``). One the
+        # strict reader refuses (a duplicate key, a non-JSON constant) cannot be decided.
+        try:
+            json_depth.loads(reply, max_depth=_JSON_MAX_DEPTH)
+        except ValueError:
+            pass
+        except RecursionError:
+            return _UNDECIDABLE
+        else:
+            return _UNDECIDABLE
+    else:
+        values.append(payload)
+    try:
+        values.extend(value for value in _top_level_json_values(reply) if value not in values)
+        prose = _without_code_fences(_without_inline_json(reply), keep_unclosed=False)
+    except (ValueError, RecursionError):
+        return _UNDECIDABLE
+    findings = tuple(dict.fromkeys(
+        str(finding.get("id"))
+        for value in values
+        if isinstance(value, Mapping) and isinstance(value.get("findings"), list)
+        for finding in value["findings"]
+        if isinstance(finding, Mapping) and finding.get("category") == SECURITY_CATEGORY
+    ))
+    return _SecuritySignals(payload, (prose, *(text for value in values for text in _strings(value))), findings)
+
+
+def _signed_off(reply: str, signals: _SecuritySignals) -> bool:
+    """Whether the reply is one JSON object whose ``overall.explanation`` opens with the one ``SECURITY_ATTESTATION``.
+
+    The object is the reply as ``parse_reviewer_json`` reads it, bare or as one whole json fence; the review-loop
+    envelope carries text beside the object, so it never signs off. The declaration is counted across the visible
+    prose and every decoded string, and must be that line alone.
+    """
+    payload = signals.payload
+    if payload is None or reply.lstrip(" \t\r\n").startswith("VERDICT:") or signals.declarations != 1:
+        return False
+    overall = payload.get("overall")
+    explanation = overall.get("explanation") if isinstance(overall, Mapping) else None
+    return isinstance(explanation, str) and explanation.split("\n", 1)[0] == SECURITY_ATTESTATION
+
+
+def _critical_review_seat(task: Mapping[str, Any], model: str) -> bool:
+    """Whether the reviewer's catalog seat holds the ``critical_review`` role (critical and security sign-off)."""
+    return any("critical_review" in candidate.model_roles for candidate in _review_candidates(task, model))
+
+
+def _inherited_security_reviews(
+    comments: Sequence[Mapping[str, Any]], login: str, *, task_root: Path, task_id: str, started: str,
+    repository: str, number: int, branch: str,
+) -> tuple[str, ...]:
+    """The other reviews of this PR whose sealed reply has an open security signal, or cannot be read.
+
+    A later reply that omits such a finding has not resolved it: only a security sign-off does. Two sources are
+    read, so a review counts whether or not its verdict was published:
+
+    - every finished review run of this PR (``review_lineage.lineage_runs``, hot and archived records), with
+      its sealed reply;
+    - every trusted verdict marker. Its reply is read from the task record of the run the marker names;
+      without one, from the unedited comment when it publishes the whole reply. A review with neither
+      counts, because nothing shows it was clean.
+
+    A task ledger that cannot be read refuses (``LineageRefused``).
+    """
+    from lu_machinery.review.review_lineage import lineage_runs
+
+    found: list[str] = []
+    for run in lineage_runs(task_root, repository=repository, number=number, branch=branch):
+        if run.record.get("status") != "done" or (run.task_id, _normalized_started(run.record)) == (task_id, started):
+            continue
+        if run.reply is None:
+            found.append(f"{run.task_id} (reply unavailable)")
+        elif _security_signals(run.reply).open:
+            found.append(run.task_id)
+    for index, marker in _trusted_markers(comments, login):
+        if (marker["task"], marker["started"]) == (task_id, started):
+            continue
+        prior: str | None = None
+        try:
+            record, sealed = _task(marker["task"], task_root)
+        except RecordError:
+            pass
+        else:
+            if record.get("worktree_base_sha") == marker["sha"] and _normalized_started(record) == marker["started"]:
+                prior = sealed
+        if prior is None:
+            prior = _published_reply(comments[index])
+        if prior is None:
+            found.append(f"{marker['task']} (reply unavailable)")
+        elif _security_signals(prior).open:
+            found.append(marker["task"])
+    return tuple(dict.fromkeys(found))
+
+
+_PUBLISHED_REPLY = re.compile(
+    r"\n<details><summary>Reviewer's reply</summary>\n\n(?P<reply>.*)\n\n</details>\n\n", re.DOTALL,
+)
+
+
+def _published_reply(comment: Mapping[str, Any]) -> str | None:
+    """The whole reply an unedited verdict comment publishes (``build_comment``), else None (withheld or truncated)."""
+    body = comment.get("body")
+    if not isinstance(body, str) or comment.get("created_at") != comment.get("updated_at"):
+        return None
+    match = _PUBLISHED_REPLY.search(body)
+    if match is None or TRUNCATION_FLAG in match["reply"]:
+        return None
+    return match["reply"]
+
+
+def _require_security_approval(
+    reply: str, *, critical: bool, critical_seat: bool, inherited: Sequence[str],
+) -> None:
+    """Refuse an approval an open security signal contradicts, or one that lacks a required security sign-off.
+
+    The sign-off is required on a critical review (security path, critical risk or the security profile) and after
+    any other review of the PR raised a security finding: the reply's ``overall.explanation`` opens with the one
+    ``SECURITY_ATTESTATION`` line (``_signed_off``), from a ``critical_review`` seat.
+    """
+    signals = _security_signals(reply)
+    if signals.texts is None:
+        raise RecordError("SECURITY_APPROVAL_REFUSED: the reply's JSON cannot be decided")
+    if signals.security_findings:
+        raise RecordError(
+            "SECURITY_APPROVAL_REFUSED: the reply carries a security finding: " + ", ".join(signals.security_findings)
+        )
+    if signals.open:
+        raise RecordError("SECURITY_APPROVAL_REFUSED: the reply carries a security verdict that is not PASS")
+    if not critical and not inherited:
+        return
+    why = "critical review" if critical else "another review of this PR raised a security finding (" + (
+        ", ".join(inherited) + ")"
+    )
+    if not critical_seat:
+        raise RecordError(f"SECURITY_APPROVAL_REFUSED: {why}: the sign-off needs a critical_review seat")
+    if not _signed_off(reply, signals):
+        raise RecordError(
+            f"SECURITY_APPROVAL_REFUSED: {why}: APPROVE needs a reply that is one JSON object whose "
+            f"overall.explanation opens with the line {SECURITY_ATTESTATION!r}, the only security verdict in the reply"
+        )
+
+
 def _label_names(labels: Any) -> set[str]:
     """Label names on a PR or issue payload the recorder already read."""
     if not isinstance(labels, list):
@@ -354,11 +551,20 @@ def _security_labeled(pr: Mapping[str, Any]) -> bool:
 def _security_sensitive(*, task: Mapping[str, Any], reply: str, pr: Mapping[str, Any]) -> bool:
     """A review whose public comment must carry the finding count and not the findings.
 
-    The three signals are the ones this recorder already holds: the task's review
-    profile, the reply text, and labels on the PR view (linked issues included).
+    The signals are the ones this recorder already holds: the task's review profile,
+    the reply (a security verdict, a canonical security finding, or JSON that cannot
+    be decided), and labels on the PR view (linked issues included).
     """
     profile = str(task.get("review_profile") or "").strip().casefold()
-    return profile == "security" or _SECURITY_VERDICT.search(reply) is not None or _security_labeled(pr)
+    signals = _security_signals(reply)
+    return (
+        profile == "security"
+        or signals.texts is None
+        or bool(signals.security_findings)
+        or _SECURITY_VERDICT.search(reply) is not None
+        or signals.declarations > 0
+        or _security_labeled(pr)
+    )
 
 
 def _p3_finding_ids(reply: str) -> tuple[str, ...]:
@@ -1645,6 +1851,25 @@ def _task_flag_values(task: dict[str, Any], key: str) -> tuple[str, ...]:
     return tuple(value)
 
 
+def _review_candidates(task: Mapping[str, Any], model: str) -> list[Any]:
+    """The catalog review candidates of the reviewer's route and model."""
+    # Seat aliases (``grok-build``) name the canonical route the catalog lists.
+    agent = normalize_seat(str(task.get("agent") or "")) or ""
+    canonical = resolve_catalog_model_id(model)
+    return [
+        candidate
+        for candidate in REVIEW_CANDIDATES.values()
+        if candidate.route == agent and resolve_catalog_model_id(candidate.concrete_model) == canonical
+    ]
+
+
+def _critical_review(task: Mapping[str, Any], facts: BranchReviewFacts) -> bool:
+    """A review whose approval is a security sign-off: the security profile, critical risk or a security path."""
+    profile = str(task.get("review_profile") or "code").strip().casefold()
+    risk = str(task.get("review_risk") or "").strip().casefold()
+    return profile == "security" or risk == "critical" or is_security_sensitive_change(facts.changed_paths)
+
+
 def _require_qualified_reviewer(
     facts: BranchReviewFacts, *, task: dict[str, Any], model: str, family: str, review_mode: str = "cross_family",
     low_tier: bool = False,
@@ -1666,18 +1891,12 @@ def _require_qualified_reviewer(
         seat_profile, risk = "infra", "critical"
     else:
         seat_profile = profile
-    # Seat aliases (``grok-build``) name the canonical route the catalog lists.
     agent = normalize_seat(str(task.get("agent") or "")) or ""
     # Lane flags and task-family aliases classify a review as Ukrainian even
     # when the profile field says code. The seat allowlist covers that too.
     if is_ukrainian_review(task) and (agent, family) not in UKRAINIAN_SEAT_ROUTES:
         raise RecordError("reviewer not qualified: Ukrainian review needs a Gemini or Sol seat")
-    canonical = resolve_catalog_model_id(model)
-    candidates = [
-        candidate
-        for candidate in REVIEW_CANDIDATES.values()
-        if candidate.route == agent and resolve_catalog_model_id(candidate.concrete_model) == canonical
-    ]
+    candidates = _review_candidates(task, model)
     if not candidates:
         raise RecordError(f"reviewer not qualified: {agent}/{model} is not a catalog review candidate")
     if profile == "ukrainian":
@@ -3892,6 +4111,17 @@ def record(
                         break
                     raise RecordError("existing verdict marker was edited or conflicts with task")
         require_no_same_head_rejection(comments, sha, login, verdict)
+        if verdict == "APPROVED":
+            # Read under the lock, so a security finding another review just posted still binds.
+            _require_security_approval(
+                reply,
+                critical=_critical_review(task, facts),
+                critical_seat=_critical_review_seat(task, model),
+                inherited=_inherited_security_reviews(
+                    comments, login, task_root=task_root, task_id=task_id, started=started,
+                    repository=repository, number=number, branch=branch,
+                ),
+            )
         if repaired is not None and verdict == "APPROVED":
             require_repair_verified(reply, repaired)
         if repair is not None:
@@ -4382,8 +4612,11 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="Publish a completed exact-head verdict; cross-family is the default.\n"
         "Use after the reviewer exits; same-family needs an explicit prompt-bound red-team review.\n"
-        "A security-sensitive review (profile security, a SECURITY_VERDICT in the reply, or a "
-        "security label on the PR or a linked issue) is published with its finding count only.",
+        "A security-sensitive review (profile security, a SECURITY_VERDICT or a security finding in the\n"
+        "reply, or a security label on the PR or a linked issue) is published with its finding count only.\n"
+        "A security finding at any priority never approves. APPROVE on a critical review, or after another\n"
+        "review of the PR raised a security finding, needs a critical_review seat and a reply that is one JSON\n"
+        f"object whose overall.explanation opens with the line '{SECURITY_ATTESTATION}'.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=f"{RECORDER_EXAMPLES}  {RECORDER_COMMAND} --task-id review-unit --pr 1\n"
         f"  {RECORDER_COMMAND} --task-id review-unit --pr 1 "
