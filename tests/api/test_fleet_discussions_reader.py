@@ -343,11 +343,11 @@ def test_secrets_paths_nested_json_and_labels_redacted_in_json(tmp_path: Path, m
     assert "secrets and filesystem paths only" in route_contract.purpose.lower()
     assert "other encodings" in route_contract.purpose.lower()
     assert "out of scope" in route_contract.purpose.lower()
-    page_contract = contract_for_page("fleet.html")
+    page_contract = contract_for_page("comms.html")
     assert page_contract is not None
     assert "secrets-and-paths" in page_contract.purpose.lower()
-    fleet_html = (machinery_path("api/dashboards") / "fleet.html").read_text(encoding="utf-8")
-    assert "secrets and paths only" in fleet_html.lower()
+    comms_html = (machinery_path("api/dashboards") / "comms.html").read_text(encoding="utf-8")
+    assert "secrets and paths only" in comms_html.lower()
 
 
 def test_off_allowlist_producers_and_kinds_withheld_with_typed_reason(tmp_path: Path, monkeypatch) -> None:
@@ -858,11 +858,11 @@ def test_each_e3_cap_trips_with_typed_state(tmp_path: Path, monkeypatch) -> None
 def test_discussions_panel_text_only_on_demand_and_stale_response_guard() -> None:
     """Defect class: Discussions panel polls bodies on load, injects HTML via innerHTML, or lets a late response overwrite a newer selection."""
     dashboards = machinery_path("api/dashboards")
-    fleet_html = (dashboards / "fleet.html").read_text(encoding="utf-8")
+    comms_html = (dashboards / "comms.html").read_text(encoding="utf-8")
 
     # Static check: Discussions code never touches innerHTML/outerHTML/insertAdjacentHTML.
-    discussions_start = fleet_html.index("const DISCUSSIONS_LIST_URL")
-    discussions_js = fleet_html[discussions_start : fleet_html.index("runner.start();")]
+    discussions_start = comms_html.index("const DISCUSSIONS_LIST_URL")
+    discussions_js = comms_html[discussions_start : comms_html.index("runner.start();")]
     for forbidden_sink in ("innerHTML", "outerHTML", "insertAdjacentHTML"):
         assert forbidden_sink not in discussions_js
 
@@ -873,7 +873,7 @@ const path = require('node:path');
 const M = require(process.argv[1]);
 const dashboardsDir = path.dirname(process.argv[1]);
 
-const html = fs.readFileSync(path.join(dashboardsDir, 'fleet.html'), 'utf8');
+const html = fs.readFileSync(path.join(dashboardsDir, 'comms.html'), 'utf8');
 const marker = '<script src="/machinery.js"></script>';
 const after = html.slice(html.indexOf(marker) + marker.length);
 const inline = after.slice(after.indexOf('<script>') + '<script>'.length, after.indexOf('</script>'));
@@ -958,7 +958,7 @@ globalThis.sessionStorage = {
   getItem() { return null; },
   setItem(k, v) { storageWrites.push([k, v]); },
 };
-globalThis.location = {origin: 'http://127.0.0.1:8765', pathname: '/fleet', search: '', hash: '', assign() { storageWrites.push(['location', 'assign']); }};
+globalThis.location = {origin: 'http://127.0.0.1:8765', pathname: '/comms', search: '', hash: '', assign() { storageWrites.push(['location', 'assign']); }};
 globalThis.document = {
   documentElement: {dataset: {}},
   querySelectorAll() { return []; },

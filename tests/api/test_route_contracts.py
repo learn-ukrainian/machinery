@@ -375,6 +375,14 @@ def test_machinery_split_pages_contracts_shared_assets_and_scoped_reads():
         assert [href for href, attrs, _ in links if 'aria-current="page"' in attrs] == [page.url], page.file
         assert not any("product" in attrs for _, attrs, _ in links)
 
+    # Superseded pages have no redirects and answer 404.
+    from fastapi import HTTPException
+
+    for removed in ("subscriptions", "subscriptions.html", "routing", "routing.html", "model-stats", "model-stats.html"):
+        with pytest.raises(HTTPException) as missing:
+            main.serve_static(removed, request, context)
+        assert missing.value.status_code == 404, removed
+
     # Every page loads the shared stylesheet, script, landmarks, and only its own API endpoints.
     expected_apis = {
         "index.html": {
@@ -383,26 +391,29 @@ def test_machinery_split_pages_contracts_shared_assets_and_scoped_reads():
             "/api/runtime/logins",
             "/api/git/pull-requests",
         },
-        "subscriptions.html": {
-            "/api/state/routing-budget",
-            "/api/runtime/logins",
-        },
         "fleet.html": {
             "/api/delegate/active",
             "/api/delegate/recent",
-            "/api/comms/v1/metrics",
-            "/api/git/pull-requests",
             "/api/fleet/seats",
+            "/api/git/pull-requests",
+        },
+        "comms.html": {
             "/api/fleet/deliveries",
+            "/api/fleet/seats",
+            "/api/comms/v1/metrics",
             "/api/fleet/messages",
-            "/api/fleet/model-stats",
             "/api/fleet/acp/conversations",
             "/api/runtime/acp/conversations",
         },
         "pull-requests.html": {"/api/git/pull-requests"},
         "milestones.html": {"/api/milestones", "/api/fleet/model-stats/planning"},
-        "routing.html": {"/api/runtime/routing"},
-        "model-stats.html": {"/api/fleet/model-stats", "/api/fleet/model-stats/planning", "/api/state/routing-budget"},
+        "models.html": {
+            "/api/state/routing-budget",
+            "/api/runtime/logins",
+            "/api/fleet/model-stats/planning",
+            "/api/runtime/routing",
+            "/api/fleet/model-stats",
+        },
         "journal.html": {"/api/journal"},
     }
     assert set(expected_apis) == set(html_files)
@@ -641,7 +652,7 @@ assert.match(M.prChips(unknownTotalPrs).join(''), /<b>1<\/b> open PRs observed Â
   assert.doesNotMatch(afterFailure, /queued 1/);
   assert.match(afterFailure, /#42/);
 
-  // Defect classes: request on page load or poll, stale selection, and body content interpreted as HTML.
+  // Defect classes: request on page load or poll, stale selection, and body content interpreted as HTML (comms.html).
   {
     const listeners = new Map();
     const pending = new Map();
@@ -649,20 +660,196 @@ assert.match(M.prChips(unknownTotalPrs).join(''), /<b>1<\/b> open PRs observed Â
     const timers = [];
     const firstId = 'message_00000000000000000000000000000001';
     const secondId = 'message_00000000000000000000000000000002';
+    let headingFocused = 0;
+    const focusedTargets = [];
+    const listButtons = [];
+    let nextRowIds = [firstId, secondId];
+    const filterSeatEl = document.getElementById('filter-seat');
+    filterSeatEl.focus = () => { document.activeElement = filterSeatEl; focusedTargets.push('filter-seat'); };
+    filterSeatEl.add = () => {};
+    filterSeatEl.replaceChildren = function () { this.options = []; };
+    filterSeatEl.append = function (opt) { this.options.push(opt); };
+    const chipsEl = document.getElementById('chips');
+    let chipsHtml = '';
+    let chipNodes = [];
+    const parseChips = html => {
+      const parsed = [];
+      const rx = /<a\b([^>]*)>([\s\S]*?)<\/a>/g;
+      let match;
+      while ((match = rx.exec(html)) !== null) {
+        const attrs = match[1];
+        const keyM = attrs.match(/data-chip-key="([^"]*)"/);
+        const hrefM = attrs.match(/href="([^"]*)"/);
+        const node = {
+          dataset: keyM ? {chipKey: keyM[1]} : {},
+          href: hrefM ? hrefM[1] : '',
+          getAttribute(name) { return name === 'href' ? this.href : null; },
+          focus() { document.activeElement = node; focusedTargets.push(`chip:${node.dataset.chipKey || node.href}`); },
+        };
+        parsed.push(node);
+      }
+      return parsed;
+    };
+    Object.defineProperty(chipsEl, 'innerHTML', {
+      get() { return chipsHtml; },
+      set(val) {
+        chipsHtml = val;
+        const hadChip = chipNodes.includes(document.activeElement);
+        chipNodes = parseChips(val);
+        if (hadChip) document.activeElement = null;
+      },
+    });
+    chipsEl.contains = node => chipNodes.includes(node);
+    chipsEl.querySelectorAll = selector => selector === 'a.chip' ? [...chipNodes] : [];
+    let seatsMode = 'unavailable';
+    let deliveriesStatus = 200;
+    let metricsDeadCount = 0;
+    let metricsStatus = 200;
+    let discussionsMode = 'unavailable';
+    let discussionsFetches = 0;
+    const discDisclosureEl = document.getElementById('discussions-disclosure');
+    discDisclosureEl.open = false;
+    discDisclosureEl.dataset = {};
+    const discListeners = {};
+    discDisclosureEl.addEventListener = (type, fn) => { discListeners[type] = fn; };
+    const discListEl = document.getElementById('discussions-list');
+    discListEl.children = [];
+    discListEl.replaceChildren = function (...nodes) { this.children = nodes; };
+    discListEl.appendChild = function (node) { this.children.push(node); };
+    let discListClick = null;
+    discListEl.addEventListener = (type, fn) => { if (type === 'click') discListClick = fn; };
+    const discTranscriptEl = document.getElementById('discussions-transcript');
+    discTranscriptEl.children = [];
+    discTranscriptEl.replaceChildren = function (...nodes) { this.children = nodes; };
+    discTranscriptEl.appendChild = function (node) { this.children.push(node); };
+    const messagesContentEl = document.getElementById('messages-content');
+    const setListRows = ids => {
+      listButtons.length = 0;
+      for (const id of ids) {
+        const btn = {
+          dataset: {openMessage: id},
+          focus() { document.activeElement = btn; focusedTargets.push(`row:${id}`); },
+          setAttribute() {}, removeAttribute() {},
+        };
+        listButtons.push(btn);
+      }
+    };
+    let messagesHtml = '';
+    Object.defineProperty(messagesContentEl, 'innerHTML', {
+      get() { return messagesHtml; },
+      set(val) {
+        messagesHtml = val;
+        const hadListFocus = listButtons.includes(document.activeElement);
+        setListRows(nextRowIds);
+        if (hadListFocus) {
+          document.activeElement = null;
+        }
+      },
+    });
+    messagesContentEl.contains = node => listButtons.includes(node);
+    messagesContentEl.querySelectorAll = selector => selector === 'button[data-open-message]' ? [...listButtons] : [];
+    setListRows([firstId, secondId]);
     document.createElement = tag => ({
-      tag, children: [], dataset: {}, style: {}, textContent: '',
+      tag, children: [], dataset: {}, style: {}, textContent: '', attrs: {},
       set innerHTML(_) { assert.fail('Message reader inserted HTML'); },
+      setAttribute(k, v) { this.attrs[k] = v; },
       appendChild(child) { this.children.push(child); },
       addEventListener(type, listener) { this[type] = listener; },
+      focus() { document.activeElement = this; focusedTargets.push(`el:${this.dataset.threadMessage || this.textContent || tag}`); },
     });
     for (const id of ['message-body', 'message-thread']) {
-      document.getElementById(id).replaceChildren = function (...nodes) { this.children = nodes; };
+      const box = document.getElementById(id);
+      box.children = [];
+      box.replaceChildren = function (...nodes) {
+        const hadFocus = id === 'message-thread' && this.contains(document.activeElement);
+        this.children = nodes;
+        if (hadFocus && !this.contains(document.activeElement)) {
+          document.activeElement = null;
+        }
+      };
+      box.appendChild = function (node) { this.children.push(node); };
+      box.contains = function (target) {
+        const walk = list => list.some(n => n === target || (Array.isArray(n.children) && walk(n.children)));
+        return Boolean(target && walk(this.children));
+      };
+      box.querySelector = function (selector) {
+        const walk = list => {
+          for (const n of list) {
+            if (selector === 'button' && n.tag === 'button') return n;
+            if (selector === '[data-thread-status]' && n.dataset?.threadStatus) return n;
+            if (Array.isArray(n.children)) {
+              const hit = walk(n.children);
+              if (hit) return hit;
+            }
+          }
+          return null;
+        };
+        return walk(this.children);
+      };
     }
+    const readerBackEl = document.getElementById('reader-back');
+    readerBackEl.focus = () => { document.activeElement = readerBackEl; focusedTargets.push('reader-back'); };
+    document.getElementById('comms-layout').classList = {add() {}, remove() {}};
+    document.getElementById('message-reader-heading').focus = () => { headingFocused += 1; focusedTargets.push('reader-heading'); };
     document.getElementById('message-reader').focus = () => {};
     document.addEventListener = (type, handler) => listeners.set(type, [...(listeners.get(type) || []), handler]);
     const fetchPanel = globalThis.fetch;
     globalThis.fetch = (url, options) => {
       requests.push(url);
+      if (url === '/api/fleet/seats') {
+        const payload = seatsMode === 'available'
+          ? {driver_roster: 'available', external_roster: 'available', seats: [{seat: 'cto'}, {seat: 'driver'}]}
+          : {driver_roster: 'unavailable', external_roster: 'unavailable', seats: []};
+        return Promise.resolve({ok: true, status: 200, text: async () => JSON.stringify(payload), headers: {get: () => null}});
+      }
+      if (url === '/api/comms/v1/metrics') {
+        if (metricsStatus !== 200) {
+          return Promise.resolve({ok: false, status: metricsStatus, text: async () => '{}', headers: {get: () => null}});
+        }
+        const payload = {
+          source: 'authority', store: {reachable: true},
+          deliveries: {queued: 1},
+          failure_windows: {'24h': {dead_letters: {total: metricsDeadCount}, failed_deliveries: {total: 2}, failed_jobs: {total: 0}}},
+        };
+        return Promise.resolve({ok: true, status: 200, text: async () => JSON.stringify(payload), headers: {get: () => null}});
+      }
+      if (url.startsWith('/api/runtime/acp/conversations/')) {
+        if (url.includes('/conv-empty/transcript')) {
+          return Promise.resolve({ok: true, status: 200, text: async () => JSON.stringify({conversation_id: 'conv-empty', state: 'ok', label: 'ok', reason: null, truncated: false, messages: []}), headers: {get: () => null}});
+        }
+        if (url.includes('/conv-loaded/transcript')) {
+          return Promise.resolve({ok: true, status: 200, text: async () => JSON.stringify({conversation_id: 'conv-loaded', state: 'ok', label: 'ok', reason: null, truncated: false, messages: [{ordinal: 1, state: 'ok', label: 'ok', reason: null, kind: 'request', sender: 'cto', recipient: 'driver', created_at: '2026-11-28T00:00:00Z', round: 1, body: 'hello'}]}), headers: {get: () => null}});
+        }
+        if (url.includes('/conv-corrupt/transcript')) {
+          return Promise.resolve({ok: true, status: 200, text: async () => JSON.stringify({conversation_id: 'conv-corrupt', state: 'missing_or_corrupt', label: 'Missing or corrupt', reason: 'malformed_participants', truncated: false, messages: []}), headers: {get: () => null}});
+        }
+        if (url.includes('/conv-503/transcript')) {
+          return Promise.resolve({ok: false, status: 503, text: async () => JSON.stringify({conversation_id: 'conv-503', state: 'backend_unavailable', label: 'Backend unavailable', reason: 'store_unavailable'}), headers: {get: () => null}});
+        }
+        if (url.includes('/conv-404/transcript')) {
+          return Promise.resolve({ok: false, status: 404, text: async () => JSON.stringify({detail: 'Conversation not found', reason: 'conversation_not_found'}), headers: {get: () => null}});
+        }
+        if (url.includes('/conv-403/transcript')) {
+          return Promise.resolve({ok: false, status: 403, text: async () => JSON.stringify({detail: 'Forbidden', reason: 'loopback_required'}), headers: {get: () => null}});
+        }
+        if (url.includes('/conv-500/transcript')) {
+          return Promise.resolve({ok: false, status: 500, text: async () => JSON.stringify({state: 'ok', messages: []}), headers: {get: () => null}});
+        }
+        return Promise.resolve({ok: true, status: 200, text: async () => '{bad json', headers: {get: () => null}});
+      }
+      if (url.startsWith('/api/fleet/acp/conversations')) {
+        discussionsFetches += 1;
+        if (discussionsMode === 'malformed') {
+          return Promise.resolve({ok: true, status: 200, text: async () => '{bad json', headers: {get: () => null}});
+        }
+        const payload = discussionsMode === 'available'
+          ? {availability: 'available', conversations: [{conversation_id: 'conv-1', participants: ['cto', 'driver'], current_state: 'open', rounds_completed: 1, rounds_requested: 1}]}
+          : {availability: 'unavailable', conversations: []};
+        return Promise.resolve({ok: true, status: 200, text: async () => JSON.stringify(payload), headers: {get: () => null}});
+      }
+      if (url.startsWith('/api/fleet/deliveries') && deliveriesStatus === 422) {
+        return Promise.resolve({ok: false, status: 422, text: async () => JSON.stringify({detail: 'unknown seat'}), headers: {get: () => null}});
+      }
       if (!url.startsWith('/api/fleet/messages/')) return fetchPanel(url);
       assert.equal(options.cache, 'no-store');
       return new Promise(resolve => pending.set(url, resolve));
@@ -670,13 +857,31 @@ assert.match(M.prChips(unknownTotalPrs).join(''), /<b>1<\/b> open PRs observed Â
     const originalInterval = globalThis.setInterval;
     globalThis.setInterval = callback => timers.push(callback);
     try {
-      document._fleetFiltersBound = false;
-      new Function('Machinery', fleetBody + '\nrunner.start();')(M);
+      const commsBody = extractScript('comms.html', '\nrunner.start();');
+      document._commsControlsBound = false;
+      new Function('Machinery', commsBody + '\nrunner.start();')(M);
       await new Promise(resolve => setImmediate(resolve));
       assert.equal(pending.size, 0);
       assert.ok(requests.some(url => url.startsWith('/api/fleet/deliveries')));
+      // F6: 30s poll preserves focus on the currently focused message button, or falls back stably if removed.
+      listButtons[1].focus();
+      focusedTargets.length = 0;
       await timers[0]();
       assert.equal(pending.size, 0);
+      assert.deepEqual(focusedTargets, [`row:${secondId}`], 'F6: poll preserves focused message row');
+      listButtons[1].focus();
+      nextRowIds = [firstId];
+      focusedTargets.length = 0;
+      await timers[0]();
+      assert.deepEqual(focusedTargets, [`row:${firstId}`], 'F6: poll falls back to first row when focused row disappears');
+      listButtons[0].focus();
+      nextRowIds = [];
+      focusedTargets.length = 0;
+      await timers[0]();
+      assert.deepEqual(focusedTargets, ['filter-seat'], 'F6: poll falls back to #filter-seat when list becomes empty');
+      nextRowIds = [firstId, secondId];
+      setListRows([firstId, secondId]);
+      focusedTargets.length = 0;
       const select = id => listeners.get('click').forEach(listener => listener({
         target: {closest: selector => selector === 'button[data-open-message]' ? {dataset: {openMessage: id}} : null},
       }));
@@ -692,10 +897,14 @@ assert.match(M.prChips(unknownTotalPrs).join(''), /<b>1<\/b> open PRs observed Â
         bodyUrl(firstId), threadUrl(firstId), bodyUrl(secondId), threadUrl(secondId),
       ]);
       assert.equal(document.getElementById('message-reader').hidden, false);
+      assert.equal(headingFocused, 2);
       const literalBody = '<img src=x onerror="window.executed=true">';
       resolve(bodyUrl(secondId), {state: 'ok', message_id: secondId, body: literalBody});
       resolve(threadUrl(secondId), {
-        messages: [{message_id: firstId, kind: 'message', created_at: '2026-11-26T11:00:01Z'}],
+        messages: [
+          {message_id: firstId, sender: 'cto', kind: 'request', created_at: '2026-11-26T11:00:01Z'},
+          {message_id: secondId, sender: 'driver', kind: 'message', created_at: '2026-11-26T11:05:01Z'},
+        ],
         limit: 50,
         next_offset: 50,
       });
@@ -703,22 +912,149 @@ assert.match(M.prChips(unknownTotalPrs).join(''), /<b>1<\/b> open PRs observed Â
       resolve(bodyUrl(firstId), {state: 'ok', message_id: firstId, body: 'late body'});
       resolve(threadUrl(firstId), {messages: [], limit: 50, next_offset: null});
       await new Promise(resolve => setImmediate(resolve));
-      const bodyNode = document.getElementById('message-body').children[1];
+      const bodyNode = document.getElementById('message-body').children[0];
       assert.equal(bodyNode.tag, 'pre');
       assert.equal(bodyNode.textContent, literalBody);
       assert.equal(document.getElementById('messages-status').textContent, 'Message loaded.');
       await timers[0]();
       assert.equal(pending.size, 0, 'A poll while the reader is open requests zero bodies and threads');
       const [members, next] = document.getElementById('message-thread').children;
+      assert.match(members.children[0].children[0].textContent, /11:00 request, cto/);
+      assert.match(members.children[1].children[0].textContent, /11:05 message, driver \(this\)/);
+      focusedTargets.length = 0;
       members.children[0].children[0].click();
       assert.deepEqual([...pending.keys()], [bodyUrl(firstId)], 'A thread member loads only its own body');
-      next.click();
+      assert.deepEqual(focusedTargets, [`el:${firstId}`], 'F6: clicking a thread member preserves focus on its rebuilt button');
+      // F6: Thread pagination keeps pager mounted while loading, preserves pager on failure,
+      // does not steal focus when the user moved to Back to list while pending, and restores
+      // focus to the first rebuilt button when focus remained inside #message-thread.
       const nextPage = `/api/fleet/messages/${secondId}/thread?offset=50`;
+      const threadBox = document.getElementById('message-thread');
+      const currentNext = threadBox.children[1];
+      currentNext.focus();
+      focusedTargets.length = 0;
+      currentNext.click();
+      assert.equal(document.activeElement, currentNext, 'F6: activating Next keeps Next mounted and focused while loading');
+      assert.equal(threadBox.contains(currentNext), true, 'F6: thread controls remain mounted while paging');
       assert.deepEqual([...pending.keys()], [bodyUrl(firstId), nextPage]);
-      resolve(bodyUrl(firstId), {state: 'ok', message_id: firstId, body: 'first body'});
-      resolve(nextPage, {messages: [], limit: 50, next_offset: null});
+      // Simulate failed thread page: Next stays mounted & focused, error note appears, and retry works.
+      pending.get(nextPage)({ok: false, status: 503, json: async () => ({state: 'error'})});
+      pending.delete(nextPage);
       await new Promise(resolve => setImmediate(resolve));
-      assert.equal(document.getElementById('message-body').children[1].textContent, 'first body');
+      assert.equal(document.activeElement, currentNext, 'F6: failed thread page keeps focus on mounted Next button');
+      assert.equal(threadBox.querySelector('[data-thread-status]').textContent, 'Thread could not load.');
+      // Retry Next, then move focus to Back to list while pending: late success must not steal focus.
+      currentNext.click();
+      readerBackEl.focus();
+      focusedTargets.length = 0;
+      resolve(bodyUrl(firstId), {state: 'ok', message_id: firstId, body: 'first body'});
+      resolve(nextPage, {messages: [{message_id: firstId, sender: 'cto', kind: 'request', created_at: '2026-11-26T11:00:01Z'}], limit: 50, next_offset: 100});
+      await new Promise(resolve => setImmediate(resolve));
+      assert.equal(document.getElementById('message-body').children[0].textContent, 'first body');
+      assert.equal(document.activeElement, readerBackEl, 'F6: late thread response must not steal focus from Back to list');
+      assert.deepEqual(focusedTargets, [], 'F6: no focus hijack when user left thread before completion');
+      // Now paginate while focus stays on Next inside #message-thread: focus moves cleanly to first rebuilt thread button.
+      const nextAfter = threadBox.children.find(n => n.tag === 'button' && n.textContent === 'Next');
+      nextAfter.focus();
+      focusedTargets.length = 0;
+      nextAfter.click();
+      const thirdPage = `/api/fleet/messages/${secondId}/thread?offset=100`;
+      resolve(thirdPage, {messages: [{message_id: firstId, sender: 'cto', kind: 'request', created_at: '2026-11-26T11:00:01Z'}], limit: 50, next_offset: null});
+      await new Promise(resolve => setImmediate(resolve));
+      assert.deepEqual(focusedTargets, [`el:${firstId}`], 'F6: paging while focused in thread moves focus to first rebuilt thread button');
+      // Escape closes the reader and falls back cleanly if the previously opened row is no longer in the list.
+      setListRows([firstId]);
+      focusedTargets.length = 0;
+      listeners.get('keydown').forEach(listener => listener({key: 'Escape'}));
+      assert.equal(document.getElementById('message-reader').hidden, true);
+      assert.deepEqual(focusedTargets, [`row:${firstId}`], 'F6: closing the reader falls back cleanly when original row disappeared');
+
+      // PR1569-F6: Comms header shortcut chips keep keyboard focus across 30s refreshes (both unchanged and changed counts),
+      // distinguishing both #health shortcuts via stable data-chip-key.
+      assert.equal(chipNodes.length, 3);
+      assert.deepEqual(chipNodes.map(n => n.dataset.chipKey), ['queued', 'dead-letters', 'failed']);
+      chipNodes[2].focus();
+      focusedTargets.length = 0;
+      await timers[0]();
+      assert.equal(document.activeElement, chipNodes[2], 'F6: unchanged chip refresh keeps mounted #health chip focused');
+      assert.deepEqual(focusedTargets, [], 'F6: unchanged chip HTML skips DOM replacement');
+      metricsDeadCount = 3;
+      await timers[0]();
+      assert.equal(document.activeElement.dataset.chipKey, 'failed', 'F6: changed chip refresh restores focus to exact #health shortcut');
+      assert.deepEqual(focusedTargets, ['chip:failed']);
+      // PR1569-F6: HTTP 503/504 metrics failure keeps all 3 keyed shortcuts mounted with '?' counts and keeps focus.
+      metricsStatus = 503;
+      focusedTargets.length = 0;
+      await timers[0]();
+      assert.equal(chipNodes.length, 3, 'F6: metrics 503 keeps all 3 keyed shortcuts rendered');
+      assert.equal(document.activeElement.dataset.chipKey, 'failed', 'F6: focus stays on failed chip during 503');
+      assert.match(chipsEl.innerHTML, /<b>\?<\/b> queued/);
+      metricsStatus = 200;
+      focusedTargets.length = 0;
+      await timers[0]();
+      assert.equal(document.activeElement.dataset.chipKey, 'failed', 'F6: focus stays on failed chip after metrics recovery');
+
+      // F1: Seat filter recovers on refresh after initial HTTP 200 unavailable roster AND loads even when deliveries returns 422.
+      assert.deepEqual(filterSeatEl.options.map(o => o.value), [''], 'F1: unavailable roster keeps only All seats');
+      seatsMode = 'available';
+      deliveriesStatus = 422;
+      await timers[0]();
+      await new Promise(resolve => setImmediate(resolve));
+      assert.deepEqual(filterSeatEl.options.map(o => o.value), ['', 'cto', 'driver'],
+        'F1: seat filter refreshes after roster recovery even when /api/fleet/deliveries returns 422');
+      deliveriesStatus = 200;
+
+      // F1: Discussions disclosure does not latch or announce "Loaded 0 discussions" on unavailable or malformed HTTP 200.
+      discDisclosureEl.open = true;
+      discListeners.toggle();
+      await new Promise(resolve => setImmediate(resolve));
+      await new Promise(resolve => setImmediate(resolve));
+      assert.equal(discussionsFetches, 1);
+      assert.equal(document.getElementById('discussions-status').textContent, 'Discussions list unavailable.');
+      discDisclosureEl.open = false;
+      discussionsMode = 'malformed';
+      discDisclosureEl.open = true;
+      discListeners.toggle();
+      await new Promise(resolve => setImmediate(resolve));
+      await new Promise(resolve => setImmediate(resolve));
+      assert.equal(discussionsFetches, 2, 'F1: unavailable HTTP 200 stayed retryable on reopen');
+      assert.equal(document.getElementById('discussions-status').textContent, 'Discussions list unavailable.');
+      discDisclosureEl.open = false;
+      discussionsMode = 'available';
+      discDisclosureEl.open = true;
+      discListeners.toggle();
+      await new Promise(resolve => setImmediate(resolve));
+      await new Promise(resolve => setImmediate(resolve));
+      assert.equal(discussionsFetches, 3, 'F1: malformed HTTP 200 stayed retryable on reopen');
+      assert.equal(document.getElementById('discussions-status').textContent, 'Loaded 1 discussion.');
+      discDisclosureEl.open = false;
+      discDisclosureEl.open = true;
+      discListeners.toggle();
+      await new Promise(resolve => setImmediate(resolve));
+      assert.equal(discussionsFetches, 3, 'F1: valid available response latches until explicit refresh');
+
+      // PR1592-F2: openDiscussion distinguishes empty (HTTP 200 ok with no messages), loaded, and unavailable transcripts.
+      const clickDiscussion = async (id) => {
+        discListClick({target: {closest: sel => sel === 'button[data-discussion-id]' ? {dataset: {discussionId: id}} : null}});
+        await new Promise(resolve => setImmediate(resolve));
+        await new Promise(resolve => setImmediate(resolve));
+      };
+      await clickDiscussion('conv-empty');
+      assert.equal(document.getElementById('discussions-status').textContent, 'Transcript conv-empty has no turns yet.');
+      await clickDiscussion('conv-loaded');
+      assert.equal(document.getElementById('discussions-status').textContent, 'Transcript conv-loaded loaded.');
+      await clickDiscussion('conv-corrupt');
+      assert.equal(document.getElementById('discussions-status').textContent, 'Transcript conv-corrupt unavailable.');
+      await clickDiscussion('conv-503');
+      assert.equal(document.getElementById('discussions-status').textContent, 'Transcript conv-503 unavailable.');
+      await clickDiscussion('conv-404');
+      assert.equal(document.getElementById('discussions-status').textContent, 'Transcript conv-404 unavailable.');
+      await clickDiscussion('conv-403');
+      assert.equal(document.getElementById('discussions-status').textContent, 'Transcript conv-403 unavailable.');
+      await clickDiscussion('conv-500');
+      assert.equal(document.getElementById('discussions-status').textContent, 'Transcript conv-500 unavailable.');
+      await clickDiscussion('conv-malformed');
+      assert.equal(document.getElementById('discussions-status').textContent, 'Transcript conv-malformed unavailable.');
     } finally {
       globalThis.setInterval = originalInterval;
       globalThis.fetch = fetchPanel;
@@ -962,7 +1298,7 @@ assert.match(M.prChips(unknownTotalPrs).join(''), /<b>1<\/b> open PRs observed Â
     const clocks = [];
     globalThis.setInterval = (fn) => { clocks.push(fn); return clocks.length; };
     try {
-      const statsScript = extractScript('model-stats.html', '\n$("window").addEventListener');
+      const statsScript = extractScript('models.html', '\nrunner.start();');
       const stats = new Function('Machinery', statsScript + '\nreturn {load};')(M);
       const wallBefore = fakeNow;
       const monoBefore = monoNow;
@@ -1016,6 +1352,149 @@ assert.match(M.prChips(unknownTotalPrs).join(''), /<b>1<\/b> open PRs observed Â
     Date.now = realDateNow;
     performance.now = realPerfNow;
   }
+})().catch(err => { console.error(err); process.exitCode = 1; });
+"""
+    ran = subprocess.run(
+        ["node", "-e", node_script, str(dashboards / "machinery.js")],
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=15,
+    )
+    assert ran.returncode == 0, ran.stderr
+
+
+def test_comms_page_loads_without_body_requests() -> None:
+    """Defect class: list load or polling on comms.html fetches message bodies or transcripts."""
+    import subprocess
+
+    from lu_machinery.common.repo_root import machinery_path
+
+    dashboards = machinery_path("api/dashboards")
+    node_script = r"""
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const M = require(process.argv[1]);
+const dashboardsDir = path.dirname(process.argv[1]);
+
+const html = fs.readFileSync(path.join(dashboardsDir, 'comms.html'), 'utf8');
+const marker = '<script src="/machinery.js"></script>';
+const after = html.slice(html.indexOf(marker) + marker.length);
+const inline = after.slice(after.indexOf('<script>') + '<script>'.length, after.indexOf('</script>'));
+const body = inline.slice(0, inline.indexOf('\nrunner.start();'));
+
+const elements = new Map();
+const getEl = (id) => {
+  if (!elements.has(id)) {
+    elements.set(id, {
+      id, textContent: '', innerHTML: '', className: '', hidden: true, value: '', options: [],
+      dataset: {}, classList: {add() {}, remove() {}},
+      setAttribute() {}, addEventListener() {}, querySelector() { return null; },
+      replaceChildren() {},
+    });
+  }
+  return elements.get(id);
+};
+globalThis.location = {origin: 'http://127.0.0.1:8765', pathname: '/comms', search: '', hash: ''};
+globalThis.document = {
+  documentElement: {dataset: {}},
+  querySelectorAll() { return []; },
+  querySelector() { return null; },
+  addEventListener() {},
+  createElement(tag) { return {tag, children: [], dataset: {}, style: {}, textContent: '', setAttribute() {}, appendChild() {}, addEventListener() {}}; },
+  getElementById: getEl,
+};
+
+const requested = [];
+const timers = [];
+globalThis.setInterval = (fn) => { timers.push(fn); return timers.length; };
+globalThis.fetch = async (url) => {
+  const s = String(url);
+  requested.push(s);
+  if (s.startsWith('/api/fleet/deliveries')) {
+    return {
+      ok: true,
+      status: 200,
+      headers: {get: () => null},
+      text: async () => JSON.stringify({
+        availability: 'available',
+        driver_roster: 'available',
+        external_roster: 'available',
+        total: 3,
+        limit: 50,
+        offset: 0,
+        next_offset: null,
+        filters: {seat: null, state: null, since: '7d'},
+        deliveries: [
+          {message_id: 'message_0000000000000000000000000000000a', sender: 'cto', recipient: 'driver', kind: 'request', state: 'queued', attempt_count: 1, waited_s: 30, created_at: '2026-11-28T00:00:00Z'},
+          {message_id: 'message_0000000000000000000000000000000a', sender: 'cto', recipient: 'eggbot', kind: 'request', state: 'queued', attempt_count: 1, waited_s: 30, created_at: '2026-11-28T00:00:00Z'},
+          {message_id: 'message_0000000000000000000000000000000b', sender: 'driver', recipient: 'cto', kind: 'message', state: 'acknowledged', attempt_count: 1, waited_s: 5, created_at: '2026-11-28T00:01:00Z'},
+        ],
+      }),
+    };
+  }
+  return {
+    ok: true,
+    status: 200,
+    headers: {get: () => null},
+    text: async () => JSON.stringify({
+      availability: 'available', driver_roster: 'available', external_roster: 'available', seats: [],
+      source: 'authority', store: {reachable: true}, deliveries: {queued: 2}, jobs: {queued: 0},
+      failure_windows: {'24h': {dead_letters: {total: 0}, failed_deliveries: {total: 0}, failed_jobs: {total: 0}}},
+    }),
+  };
+};
+
+(async () => {
+  new Function('Machinery', body + '\nrunner.start();')(M);
+  await new Promise(resolve => setImmediate(resolve));
+  await new Promise(resolve => setImmediate(resolve));
+  assert.ok(requested.some(u => u.startsWith('/api/fleet/deliveries')));
+  assert.equal(requested.some(u => u.includes('/api/fleet/messages/')), false, `body/thread fetched on load: ${requested}`);
+  assert.equal(requested.some(u => u.includes('/transcript')), false, `transcript fetched on load: ${requested}`);
+
+  // Adjacent deliveries sharing message_id are grouped into one button row; pager counts deliveries.
+  const listHtml = getEl('messages-content').innerHTML;
+  assert.match(listHtml, /cto â†’ driver, eggbot/);
+  assert.match(listHtml, /Deliveries 1â€“3 of 3/);
+  assert.equal((listHtml.match(/data-open-message=/g) || []).length, 2);
+
+  // Two simulated polling ticks still make zero message body/thread/transcript requests.
+  await timers[0]();
+  await timers[0]();
+  assert.equal(requested.some(u => u.includes('/api/fleet/messages/')), false, `body/thread fetched on poll: ${requested}`);
+  assert.equal(requested.some(u => u.includes('/transcript')), false, `transcript fetched on poll: ${requested}`);
+
+  // F1: Loading /comms?msg=<id> (including after an initial deliveries failure and poll recovery)
+  // never fetches /body or /thread on load or poll; it only highlights the matching row until clicked.
+  requested.length = 0;
+  timers.length = 0;
+  globalThis.location.search = '?msg=message_0000000000000000000000000000000a';
+  let failFirstDeliveries = true;
+  const baseFetch = globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    const s = String(url);
+    if (s.startsWith('/api/fleet/deliveries') && failFirstDeliveries) {
+      failFirstDeliveries = false;
+      requested.push(s);
+      return {ok: false, status: 503, headers: {get: () => null}, text: async () => '{}'};
+    }
+    return baseFetch(url);
+  };
+  document._commsControlsBound = false;
+  new Function('Machinery', body + '\nrunner.start();')(M);
+  await new Promise(resolve => setImmediate(resolve));
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(requested.some(u => u.includes('/api/fleet/messages/')), false, `deep link fetched body/thread on failed load: ${requested}`);
+  await timers[0]();
+  await timers[0]();
+  assert.equal(requested.some(u => u.includes('/api/fleet/messages/')), false, `deep link fetched body/thread on poll recovery: ${requested}`);
+  assert.equal(requested.some(u => u.includes('/transcript')), false, `deep link fetched transcript on poll recovery: ${requested}`);
+  const linkedHtml = getEl('messages-content').innerHTML;
+  assert.match(linkedHtml, /class="message-row is-linked"[^>]*data-open-message="message_0000000000000000000000000000000a"/);
+  assert.doesNotMatch(linkedHtml, /aria-current="true"/);
+  assert.equal(getEl('message-reader').hidden, true);
 })().catch(err => { console.error(err); process.exitCode = 1; });
 """
     ran = subprocess.run(

@@ -73,6 +73,9 @@ from .state_helpers import (
 )
 from .subscription_usage import (
     _api_account_cache_ttl_s,
+    _codexbar_cache_ttl_s,
+    _cursor_cache_ttl_s,
+    _cursor_need_login_cache_ttl_s,
     compute_usage_pace,
 )
 from .telemetry.response import add_json_telemetry, session_id_from_request
@@ -820,8 +823,37 @@ def _pool_pace(current_time: datetime) -> dict[str, Any]:
         snapshot = subscriptions.subscriptions_snapshot(now=current_time)
     except Exception as exc:  # the page reader must never break routing
         logging.getLogger("state_router").warning("pool pace unreadable: %s", type(exc).__name__)
-        return {"source": "unreadable", "pools": subscriptions.pool_statuses({})}
-    return {"source": snapshot["sources"]["usage_cache"]["status"], "pools": subscriptions.pool_statuses(snapshot),
+        return {"source": "unreadable", "pools": subscriptions.pool_statuses({}), "pool_ages": {}}
+    pool_ages: dict[str, float] = {}
+    pool_thresholds: dict[str, float] = {}
+    stale_after = snapshot.get("stale_after_s")
+    stale_after_s = (
+        float(stale_after)
+        if isinstance(stale_after, (int, float)) and not isinstance(stale_after, bool) and stale_after > 0
+        else float(subscriptions.STALE_AFTER_S)
+    )
+    claude_ttl = min(_codexbar_cache_ttl_s(), stale_after_s)
+    for provider in snapshot.get("providers") or []:
+        if not isinstance(provider, Mapping):
+            continue
+        for account_row in provider.get("accounts") or []:
+            if not isinstance(account_row, Mapping):
+                continue
+            account_name = str(account_row.get("account") or "")
+            pool_id = subscriptions.POOL_IDS.get(account_name)
+            reading = account_row.get("reading")
+            age = reading.get("age_s") if isinstance(reading, Mapping) else None
+            if pool_id:
+                is_claude_monitor = (
+                    account_row.get("source") == "monitor"
+                    or account_name in {"Claude a", "Claude b"}
+                )
+                pool_thresholds[pool_id] = claude_ttl if is_claude_monitor else stale_after_s
+                if isinstance(age, (int, float)) and not isinstance(age, bool) and age >= 0:
+                    pool_ages[pool_id] = float(age)
+    aged_snapshot = _age_subscription_snapshot(snapshot, 0.0)
+    return {"source": snapshot["sources"]["usage_cache"]["status"], "pools": subscriptions.pool_statuses(aged_snapshot),
+            "pool_ages": pool_ages, "pool_thresholds": pool_thresholds, "stale_after_s": stale_after_s,
             "subscriptions": snapshot}
 
 
@@ -834,13 +866,34 @@ def _apply_pool_pace(records: Mapping[str, Any], pool_pace: Mapping[str, Any], w
     """
     if pool_pace.get("source") != "ok":
         return
+    raw_pool_ages = pool_pace.get("pool_ages")
+    pool_ages: Mapping[str, Any] = raw_pool_ages if isinstance(raw_pool_ages, Mapping) else {}
+    raw_pool_thresholds = pool_pace.get("pool_thresholds")
+    pool_thresholds: Mapping[str, Any] = raw_pool_thresholds if isinstance(raw_pool_thresholds, Mapping) else {}
+    raw_stale_after = pool_pace.get("stale_after_s")
+    stale_after_s = (
+        float(raw_stale_after)
+        if isinstance(raw_stale_after, (int, float)) and not isinstance(raw_stale_after, bool) and raw_stale_after > 0
+        else float(subscriptions.STALE_AFTER_S)
+    )
     for lane, record in records.items():
         pool = _LANE_POOLS.get(lane)
         verdict = pool_pace["pools"].get(pool) if pool else None
         if not isinstance(record, dict) or not isinstance(verdict, Mapping):
             continue
-        record["pool_pace"] = {"pool": pool, **verdict}
+        raw_pool_limit = pool_thresholds.get(pool) if pool else None
+        pool_limit = (
+            float(raw_pool_limit)
+            if isinstance(raw_pool_limit, (int, float)) and not isinstance(raw_pool_limit, bool) and raw_pool_limit > 0
+            else stale_after_s
+        )
+        pace_entry: dict[str, Any] = {"pool": pool, **verdict, "stale_threshold_s": pool_limit}
+        pool_age = pool_ages.get(pool) if pool else None
+        if isinstance(pool_age, (int, float)) and not isinstance(pool_age, bool) and pool_age >= 0:
+            pace_entry["age_s"] = float(pool_age)
+        record["pool_pace"] = pace_entry
         current, wanted = record.get("status"), verdict["status"]
+        record.setdefault("lane_status", current)
         if wanted == "unknown":
             new = "unknown" if current in {"cool", "warm"} else current
         elif wanted in {"hot", "near_cap"} and current in _POOL_OVERRIDABLE:
@@ -895,6 +948,7 @@ def _overlay_notebook_lane_usage(
         agents[lane]["notebook_report"] = {
             "source": "notebook-report",
             "age_s": freshest.age_s,
+            "stale_threshold_s": float(REPORT_TTL_SECONDS),
             "weekly_used_pct": weekly_used,
             "weekly_remaining_pct": max(0.0, min(100.0, 100.0 - weekly_used)),
             "weekly_resets_at": resets_at,
@@ -1022,6 +1076,7 @@ def _build_api_accounts_payload(
         # (capacity_pick) never see spawn-phase failures (#8514).
         if accounts[lane].get("auth_error"):
             accounts[lane]["auth_error"] = "provider_error"
+        accounts[lane]["stale_threshold_s"] = _api_account_cache_ttl_s()
         accounts[lane]["health"] = _lane_health_record(health_records, lane)
     return accounts
 
@@ -1331,6 +1386,10 @@ def _compute_dispatch_routing_budget(
                 agents[lane][field] = cb_data.get(field)
             agents[lane]["freshness"] = cb_data.get("freshness", "unavailable")
             agents[lane]["age_s"] = cb_data.get("age_s")
+            agents[lane]["stale_threshold_s"] = cast(
+                Any,
+                _row_stale_threshold_s("agents", lane, cb_data, fallback=ROUTING_BUDGET_MAX_AGE_S),
+            )
             # Per-product percents are display-only and Grok-only (#10864); the
             # lane record keeps them even when the credit window is absent.
             if lane == "grok" and isinstance(cb_data.get("product_usage"), list):
@@ -1419,6 +1478,7 @@ def _compute_dispatch_routing_budget(
                 "stale": cb_data.get("stale", False),
                 "freshness": _probe_freshness_label(cb_data),
                 "age_s": cb_data.get("age_s"),
+                "stale_threshold_s": agents[lane].get("stale_threshold_s"),
                 "fetched_at": cb_data.get("fetched_at"),
                 "failure_kind": cb_data.get("failure_kind"),
                 "last_failure_at": cb_data.get("last_failure_at"),
@@ -2093,10 +2153,12 @@ def _codex_account_probe_row(
         row["status_source"] = "weekly_pace"
     if probe.get("weekly_resets_at"):
         row["resets_at"] = probe["weekly_resets_at"]
-    row["codexbar"] = {key: probe.get(key) for key in _CODEXBAR_PUBLIC_FIELDS}
+    cb_ttl = _codexbar_cache_ttl_s()
+    row["codexbar"] = {**{key: probe.get(key) for key in _CODEXBAR_PUBLIC_FIELDS}, "stale_threshold_s": cb_ttl}
     row["freshness"] = probe.get("freshness", "unavailable")
     row["age_s"] = probe.get("age_s")
     row["stale"] = bool(probe.get("stale"))
+    row["stale_threshold_s"] = cb_ttl
     for name in ("credit_balance", "reset_credits"):
         row[name] = probe.get(name)
     return row
@@ -2331,6 +2393,183 @@ def _with_live_codex_failures(payload: dict[str, Any]) -> dict[str, Any]:
     return payload
 
 
+_CLAUDE_MONITOR_ACCOUNTS = frozenset({"Claude a", "Claude b"})
+_CLAUDE_MONITOR_POOLS = frozenset({"claude:a", "claude:b"})
+
+
+def _subscription_default_stale_after_s(snapshot: Mapping[str, Any]) -> float:
+    raw = snapshot.get("stale_after_s")
+    if isinstance(raw, (int, float)) and not isinstance(raw, bool) and math.isfinite(raw) and raw > 0:
+        return float(raw)
+    return float(subscriptions.STALE_AFTER_S)
+
+
+def _age_subscription_snapshot(snapshot: Mapping[str, Any], elapsed_s: float) -> dict[str, Any]:
+    """Age a cached subscription snapshot without mutating it, enforcing Claude's probe TTL on monitor rows."""
+    aged = subscriptions.age_snapshot(dict(snapshot), max(0.0, float(elapsed_s)))
+    default_limit = _subscription_default_stale_after_s(aged)
+    claude_ttl = min(_codexbar_cache_ttl_s(), default_limit)
+    providers = []
+    for provider in aged.get("providers") or []:
+        if not isinstance(provider, Mapping):
+            continue
+        accounts = []
+        for account in provider.get("accounts") or []:
+            if not isinstance(account, Mapping):
+                continue
+            reading = account.get("reading")
+            account_name = str(account.get("account") or "")
+            is_claude_monitor = account.get("source") == "monitor" or account_name in _CLAUDE_MONITOR_ACCOUNTS
+            if isinstance(reading, Mapping) and is_claude_monitor:
+                age = reading.get("age_s")
+                status = reading.get("status")
+                if (
+                    isinstance(age, (int, float))
+                    and not isinstance(age, bool)
+                    and math.isfinite(age)
+                    and status == "fresh"
+                    and float(age) >= claude_ttl
+                ):
+                    reading = {**reading, "status": "stale"}
+                accounts.append({**account, "reading": reading})
+            else:
+                accounts.append(dict(account))
+        providers.append({**provider, "accounts": accounts})
+    return {**aged, "providers": providers}
+
+
+def _public_routing_subscriptions(snapshot: Mapping[str, Any], elapsed_s: float) -> dict[str, Any]:
+    """Project subscriptions for routing-budget with canonical pool verdicts and source freshness limits."""
+    aged = _age_subscription_snapshot(snapshot, elapsed_s)
+    canonical = subscriptions.pool_statuses(aged)
+    pub = _public_subscriptions(aged)
+    default_limit = _subscription_default_stale_after_s(pub)
+    claude_ttl = min(_codexbar_cache_ttl_s(), default_limit)
+    for provider in pub.get("providers") or []:
+        if not isinstance(provider, dict):
+            continue
+        for row in provider.get("accounts") or []:
+            if not isinstance(row, dict):
+                continue
+            account_name = str(row.get("account") or "")
+            pool_id = subscriptions.POOL_IDS.get(account_name)
+            verdict = canonical.get(pool_id) if pool_id else None
+            row["pool_status"] = panel_values.choice(
+                verdict.get("status") if isinstance(verdict, Mapping) else None,
+                set(subscriptions.POOL_STATUSES),
+                "unknown",
+            )
+            reading = row.get("reading")
+            if isinstance(reading, dict):
+                is_claude_monitor = row.get("source") == "monitor" or account_name in _CLAUDE_MONITOR_ACCOUNTS
+                reading["stale_threshold_s"] = claude_ttl if is_claude_monitor else default_limit
+    return pub
+
+
+def _row_stale_threshold_s(section: str, name: str, row: Mapping[str, Any], *, fallback: float) -> float:
+    """Resolve one observation row's source freshness limit (falling back to the aggregate threshold)."""
+    raw = row.get("stale_threshold_s")
+    if isinstance(raw, (int, float)) and not isinstance(raw, bool) and math.isfinite(raw) and raw > 0:
+        return float(raw)
+    if section == "api_accounts":
+        return _api_account_cache_ttl_s()
+    if section == "agents" and name == "cursor":
+        if row.get("probe_state") == "NEED_LOGIN" or row.get("login_state") == "NEED_LOGIN":
+            return _cursor_need_login_cache_ttl_s()
+        return _cursor_cache_ttl_s()
+    if section in {"agents", "codex_accounts", "codexbar"}:
+        return _codexbar_cache_ttl_s()
+    if section == "pool_pace":
+        if row.get("pool") in _CLAUDE_MONITOR_POOLS:
+            return min(_codexbar_cache_ttl_s(), float(subscriptions.STALE_AFTER_S))
+        return float(subscriptions.STALE_AFTER_S)
+    if section == "notebook_report":
+        return float(REPORT_TTL_SECONDS)
+    return fallback
+
+
+def _withdraw_expired_notebook_report(updated: dict[str, Any]) -> None:
+    """Withdraw notebook-report-derived quota fields on a served lane copy once the report expires."""
+    pool_pace = updated.get("pool_pace")
+    next_status = "unknown"
+    if (
+        isinstance(pool_pace, Mapping)
+        and pool_pace.get("stale") is not True
+        and pool_pace.get("status") in {"hot", "near_cap"}
+    ):
+        next_status = str(pool_pace["status"])
+    updated["status"] = next_status
+    if "lane_status" in updated:
+        updated["lane_status"] = "unknown"
+    updated["burn_pct_7d"] = None
+    updated["remaining_pct"] = None
+    updated["spent_7d_usd"] = None
+    if updated.get("status_source") == "weekly_pace":
+        updated["status_source"] = "ledger_burn"
+    interactive = updated.get("interactive")
+    if isinstance(interactive, dict):
+        updated["interactive"] = {
+            **interactive,
+            "status": next_status,
+            "burn_pct_7d": None,
+            "spent_7d_usd": None,
+        }
+
+
+def _age_cached_row(
+    row: Any,
+    delta_s: float,
+    *,
+    threshold: float,
+    section: str = "",
+    name: str = "",
+) -> Any:
+    """Return a copy of one cached routing-budget row with its age advanced by ``delta_s``."""
+    if not isinstance(row, dict):
+        return row
+    updated = dict(row)
+    raw_age = updated.get("age_s")
+    if isinstance(raw_age, (int, float)) and not isinstance(raw_age, bool) and raw_age >= 0:
+        row_threshold = _row_stale_threshold_s(section, name, updated, fallback=threshold)
+        if section in {"api_accounts", "agents", "codex_accounts", "codexbar", "pool_pace", "notebook_report"}:
+            updated["stale_threshold_s"] = row_threshold
+        aged = float(raw_age) + delta_s
+        updated["age_s"] = aged
+        is_claude_pool = section == "pool_pace" and updated.get("pool") in _CLAUDE_MONITOR_POOLS
+        strict_ttl = section in {"api_accounts", "agents", "codex_accounts", "codexbar"} or is_claude_pool
+        expired = aged >= row_threshold if strict_ttl else aged > row_threshold
+        if expired:
+            if updated.get("freshness") == "fresh":
+                updated["freshness"] = "stale"
+            if updated.get("stale") is False:
+                updated["stale"] = True
+    for nested_key in ("codexbar", "pool_pace", "notebook_report"):
+        nested = updated.get(nested_key)
+        if isinstance(nested, dict):
+            nested_section = section if (nested_key == "codexbar" and section == "agents" and name == "cursor") else nested_key
+            updated[nested_key] = _age_cached_row(
+                nested,
+                delta_s,
+                threshold=threshold,
+                section=nested_section,
+                name=name if nested_section == "agents" else nested_key,
+            )
+    nb = updated.get("notebook_report")
+    if isinstance(nb, dict) and nb.get("freshness") == "stale":
+        _withdraw_expired_notebook_report(updated)
+    return updated
+
+
+def _age_cached_rows(rows: Any, delta_s: float, *, threshold: float, section: str = "") -> Any:
+    """Advance ``age_s`` on every mapping entry without mutating the cached snapshot."""
+    if not isinstance(rows, dict):
+        return rows
+    return {
+        name: _age_cached_row(row, delta_s, threshold=threshold, section=section, name=str(name))
+        for name, row in rows.items()
+    }
+
+
 def _aged_routing_budget(
     payload: object,
     age_s: float,
@@ -2349,6 +2588,7 @@ def _aged_routing_budget(
     served = _with_live_codex_failures(
         {**payload, **(claude_account_routing_fields() if claude_fields is None else claude_fields)}
     )
+    delta = max(0.0, float(age_s))
     diagnostics = payload.get("diagnostics")
     threshold = ROUTING_BUDGET_MAX_AGE_S
     reported_age = age_s
@@ -2360,8 +2600,53 @@ def _aged_routing_budget(
         extra = float(prior) if isinstance(prior, (int, float)) else 0.0
         reported_age = extra + age_s
         diagnostics["data_age_s"] = round(reported_age, 1)
+        for key in ("codexbar_max_age_s", "notebook_report_max_age_s"):
+            val = diagnostics.get(key)
+            if isinstance(val, (int, float)) and not isinstance(val, bool) and val >= 0:
+                diagnostics[key] = round(float(val) + delta, 1)
         diagnostics["stale"] = bool(diagnostics.get("stale")) or reported_age > threshold
         served["diagnostics"] = diagnostics
+    for section in ("api_accounts", "agents", "codex_accounts"):
+        if section in served:
+            served[section] = _age_cached_rows(served[section], delta, threshold=threshold, section=section)
+    agents_map = served.get("agents")
+    expired_nb_lanes: set[str] = set()
+    any_fresh_nb = False
+    if isinstance(agents_map, dict):
+        for lane_name, lane_info in agents_map.items():
+            if not isinstance(lane_info, dict):
+                continue
+            nb = lane_info.get("notebook_report")
+            if isinstance(nb, dict):
+                if nb.get("freshness") == "stale":
+                    expired_nb_lanes.add(str(lane_name))
+                elif nb.get("freshness") == "fresh":
+                    any_fresh_nb = True
+    if expired_nb_lanes and isinstance(served.get("ranked_by_headroom"), list):
+        reconciled_ranked = []
+        for entry in served["ranked_by_headroom"]:
+            if isinstance(entry, dict) and str(entry.get("lane") or "") in expired_nb_lanes and isinstance(agents_map, dict):
+                lane_info = agents_map.get(str(entry["lane"]))
+                next_status = lane_info.get("status", "unknown") if isinstance(lane_info, dict) else "unknown"
+                reconciled_ranked.append({**entry, "status": next_status, "burn_pct_7d": None, "remaining_pct": None})
+            else:
+                reconciled_ranked.append(entry)
+        served["ranked_by_headroom"] = reconciled_ranked
+    if isinstance(diagnostics, dict) and diagnostics.get("notebook_report_available") is True:
+        nb_max_age = diagnostics.get("notebook_report_max_age_s")
+        nb_expired = (
+            isinstance(nb_max_age, (int, float))
+            and not isinstance(nb_max_age, bool)
+            and float(nb_max_age) > float(REPORT_TTL_SECONDS)
+        ) or (bool(expired_nb_lanes) and not any_fresh_nb)
+        if nb_expired:
+            diagnostics["notebook_report_available"] = False
+            usage_sources = diagnostics.get("usage_sources")
+            if isinstance(usage_sources, dict) and usage_sources.get("allotment") in {
+                "notebook-report",
+                "codexbar+notebook-report",
+            }:
+                diagnostics["usage_sources"] = {**usage_sources, "allotment": "codexbar"}
     if reported_age <= threshold:
         return served
     return _withdraw_routing_authorization(served)
@@ -2553,9 +2838,13 @@ _CREDIT_STATES = {
     credit_lane.CREDIT_BALANCE_PRESENT, credit_lane.CREDITS_EXHAUSTED, credit_lane.CREDITS_UNVERIFIED,
     credit_lane.CREDIT_USE_UNCONFIRMED,
 }
+_STATUS_ENUM = {
+    "cool", "warm", "hot", "near_cap", "unknown", "unavailable", "pre_launch", "need_login",
+    "ok", "fresh", "stale", "blocked", "eligible", "expired", "pending", "avoid", "credit",
+}
 _ROUTING_ENUMS = {
-    "status": {"cool", "warm", "hot", "near_cap", "unknown", "unavailable", "pre_launch", "need_login",
-               "ok", "fresh", "stale", "blocked", "eligible", "expired", "pending", "avoid", "credit"},
+    "status": _STATUS_ENUM,
+    "lane_status": _STATUS_ENUM,
     "freshness": {"fresh", "stale", "stale_last_good", "unavailable", "unknown"},
     "failure_kind": _ROUTING_FAILURE_KINDS,
     "probe_state": {"healthy", "NEED_LOGIN", "NEED_KEY", "NEED_PROBE", "unknown", "unavailable", "error", "ok"},
@@ -2612,13 +2901,9 @@ def _public_routing_budget(raw: object, *, subscription_age_s: float | None = No
     if subscription_age_s is not None:
         snapshot = row.get("subscriptions")
         out["subscriptions"] = (
-            _public_subscriptions(subscriptions.age_snapshot(snapshot, subscription_age_s))
+            _public_routing_subscriptions(snapshot, subscription_age_s)
             if isinstance(snapshot, dict) else None
         )
-        cursor = panel_values.mapping(panel_values.mapping(out.get("agents")).get("cursor"))
-        cursor_age = panel_values.number(cursor.get("age_s"))
-        if cursor_age is not None and cursor_age >= 0:
-            cursor["age_s"] = cursor_age + subscription_age_s
     if "covered_by" in row:
         values = row["covered_by"] if isinstance(row["covered_by"], list) else []
         out["covered_by"] = [value for value in values[:8]

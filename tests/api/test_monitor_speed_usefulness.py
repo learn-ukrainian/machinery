@@ -17,7 +17,7 @@ from lu_machinery.orchestration import fleet_repos
 
 
 def _node(script: str) -> None:
-    result = subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=15)
+    result = subprocess.run(["node", "-"], input=script, capture_output=True, text=True, timeout=15)
     assert result.returncode == 0, result.stderr
 
 
@@ -155,7 +155,7 @@ assert.doesNotMatch(renderWorkers({tasks: []}), /unfinished|zombie/);
 
 def test_home_hides_stale_subscription_quota_and_api_balances():
     """Stale or unverified readings must not render actionable quota, pace, reset or balance numbers."""
-    subs_script = _page_script("subscriptions.html", until="\nconst PANELS = [")
+    subs_script = _page_script("models.html", until="\nconst PANELS = [")
     overview_script = _page_script("index.html", until="\nconst PANELS = [")
     _node(
         _DOM
@@ -206,10 +206,9 @@ assert.match(api({}), /9\.00 this week/);
 for (const reading of [{age_s: 1800}, {freshness: 'stale'}, {freshness: 'unknown'}, {age_s: null}])
   assert.doesNotMatch(api(reading), /42\.00|9\.00/);
 const lastGood = api({freshness: 'stale_last_good', balance_probe_state: 'NEED_KEY'});
-assert.match(lastGood, /42\.00 USD balance/);
-assert.match(lastGood, /\$9\.00 this week \(last good\)/);
+assert.doesNotMatch(lastGood, /42\.00|9\.00/);
+assert.match(lastGood, /unknown; needs an API key/);
 assert.match(lastGood, /Last good reading, 1m old/);
-assert.match(lastGood, /needs an API key/);
 assert.doesNotMatch(lastGood, /STALE_LAST_GOOD|NEED_KEY/);
 assert.match(lastGood, /class="warn">Last good reading/);
 const known = {title: 'Approved change not merged', meaning: 'Held over 30 minutes.', next_step: 'The owner lands it.'};
@@ -258,12 +257,481 @@ assert.match(chipFor([{alertname: 'A', severity: 'info'}, {alertname: 'B', sever
 assert.match(renderAlerts({status: 'ok', heartbeat: true, alerts: [
   {alertname: 'UsagePoolRestored', severity: 'info', title: 'Pool allowance is back'}]}), /No problems firing\./);
 """)
+    models_full_script = _page_script("models.html")
+    _node(
+        _DOM
+        + _machinery_js_prelude()
+        + r"""
+globalThis.document = document;
+const realPerfNow = performance.now.bind(performance);
+const realDateNow = Date.now;
+let monoNow = 10000;
+let fakeNow = Date.parse('2026-11-28T01:00:00Z');
+performance.now = () => monoNow;
+Date.now = () => fakeNow;
+let budgetFetches = 0;
+let poolMode = 'all_fresh';
+let apiFetchedAt = '2026-11-28T00:45:01Z';
+let generatedAt = '2026-11-28T01:00:00Z';
+let cachedDataAgeS = 0;
+let cachedApiAgeS = 899;
+let subResetAt = '2099-01-02T03:04:00Z';
+globalThis.fetch = async (url) => {
+  const s = String(url);
+  if (s.startsWith('/api/state/routing-budget')) {
+    budgetFetches += 1;
+    const agents = poolMode === 'all_fresh'
+      ? {
+          claude: {freshness: 'fresh', age_s: 899, status: 'cool', stale: false},
+          cursor: {freshness: 'fresh', age_s: 899, status: 'cool', stale: false, provider_windows: {auto: {remaining_pct: 82}, api: {remaining_pct: 64}}},
+        }
+      : poolMode === 'mixed'
+      ? {
+          claude: {freshness: 'fresh', age_s: 60, status: 'cool', stale: false},
+          codex: {freshness: 'stale', age_s: 1200, status: 'cool', stale: true},
+        }
+      : poolMode === 'need_login_only'
+      ? {
+          cursor: {freshness: 'fresh', age_s: 30, status: 'need_login', login_state: 'NEED_LOGIN', probe_state: 'NEED_LOGIN', stale: false},
+        }
+      : poolMode === 'need_login_mixed'
+      ? {
+          claude: {freshness: 'fresh', age_s: 30, status: 'cool', stale: false},
+          cursor: {freshness: 'fresh', age_s: 30, status: 'need_login', login_state: 'NEED_LOGIN', probe_state: 'NEED_LOGIN', stale: false},
+        }
+      : poolMode === 'need_probe_hot_only'
+      ? {
+          cursor: {
+            freshness: 'fresh', age_s: 30, status: 'hot', stale: false,
+            login_state: 'authenticated', probe_state: 'NEED_PROBE',
+            provider_windows: {auto: {used_pct: null, remaining_pct: null}, api: {used_pct: null, remaining_pct: null}},
+            runtime: {headroom_blocked: true},
+          },
+        }
+      : poolMode === 'need_probe_hot_mixed'
+      ? {
+          claude: {freshness: 'fresh', age_s: 30, status: 'cool', stale: false, remaining_pct: 70},
+          cursor: {
+            freshness: 'fresh', age_s: 30, status: 'hot', stale: false,
+            login_state: 'authenticated', probe_state: 'NEED_PROBE',
+            provider_windows: {auto: {used_pct: null, remaining_pct: null}, api: {used_pct: null, remaining_pct: null}},
+            runtime: {headroom_blocked: true},
+          },
+        }
+      : poolMode === 'shared_grok_cursor_near_cap'
+      ? {
+          grok: {freshness: 'fresh', age_s: 30, status: 'near_cap', stale: false, remaining_pct: 0, pool_pace: {pool: 'grok', status: 'near_cap', stale: false, age_s: 30}},
+          cursor: {freshness: 'fresh', age_s: 30, status: 'near_cap', stale: false, probe_state: 'NEED_PROBE', provider_windows: {auto: {used_pct: null, remaining_pct: null}, api: {used_pct: null, remaining_pct: null}}, pool_pace: {pool: 'grok', status: 'near_cap', stale: false, age_s: 30}},
+        }
+      : poolMode === 'stale_pool_pace_fresh_cursor'
+      ? {
+          cursor: {
+            freshness: 'fresh', age_s: 30, status: 'near_cap', lane_status: 'cool', stale: false,
+            login_state: 'authenticated', probe_state: 'healthy', remaining_pct: 70,
+            provider_windows: {auto: {used_pct: 30, remaining_pct: 70}, api: {used_pct: 20, remaining_pct: 80}},
+            pool_pace: {pool: 'grok', status: 'near_cap', stale: true, age_s: 901},
+          },
+        }
+      : poolMode === 'expiring_pool_pace_only'
+      ? {
+          cursor: {
+            freshness: 'fresh', age_s: 30, status: 'near_cap', lane_status: 'unknown', stale: false,
+            login_state: 'authenticated', probe_state: 'NEED_PROBE',
+            provider_windows: {auto: {used_pct: null, remaining_pct: null}, api: {used_pct: null, remaining_pct: null}},
+            pool_pace: {pool: 'grok', status: 'near_cap', stale: false, age_s: 899},
+          },
+        }
+      : poolMode === 'seven_canonical_pools'
+      ? {
+          claude: {freshness: 'fresh', age_s: 30, stale_threshold_s: 810, status: 'cool', stale: false, remaining_pct: 73},
+          codex: {freshness: 'fresh', age_s: 30, stale_threshold_s: 810, status: 'cool', stale: false, remaining_pct: 80},
+          gemini: {freshness: 'fresh', age_s: 30, stale_threshold_s: 810, status: 'cool', stale: false, remaining_pct: 85},
+          grok: {freshness: 'fresh', age_s: 30, stale_threshold_s: 810, status: 'cool', stale: false, remaining_pct: 90},
+          cursor: {freshness: 'fresh', age_s: 30, stale_threshold_s: 600, status: 'cool', stale: false, provider_windows: {auto: {remaining_pct: 90}, api: {remaining_pct: 88}}},
+        }
+      : poolMode === 'source_ttl_expiry'
+      ? {
+          claude: {
+            freshness: 'fresh', age_s: 809, stale_threshold_s: 810, status: 'near_cap', lane_status: 'cool', stale: false, remaining_pct: 73,
+            pool_pace: {pool: 'claude:a', status: 'near_cap', stale: false, age_s: 809, stale_threshold_s: 810},
+          },
+          codex: {freshness: 'fresh', age_s: 809, stale_threshold_s: 810, status: 'cool', stale: false, remaining_pct: 75},
+          cursor: {freshness: 'fresh', age_s: 599, stale_threshold_s: 600, status: 'cool', stale: false, provider_windows: {auto: {remaining_pct: 82}, api: {remaining_pct: 64}}},
+        }
+      : {
+          claude: {freshness: 'fresh', age_s: 599, status: 'cool', stale: false},
+        };
+    const codexAccounts = poolMode === 'seven_canonical_pools'
+      ? {
+          'codex:a': {freshness: 'fresh', age_s: 30, stale_threshold_s: 810, status: 'cool', stale: false, remaining_pct: 80},
+          'codex:b': {freshness: 'fresh', age_s: 30, stale_threshold_s: 810, status: 'cool', stale: false, remaining_pct: 70},
+        }
+      : undefined;
+    const isolatedCursorModes = new Set([
+      'need_login_only', 'need_probe_hot_only', 'shared_grok_cursor_near_cap',
+      'stale_pool_pace_fresh_cursor', 'expiring_pool_pace_only',
+    ]);
+    const subProviders = isolatedCursorModes.has(poolMode)
+      ? []
+      : poolMode === 'source_ttl_expiry'
+      ? [
+          {
+            provider: 'claude',
+            label: 'Claude',
+            accounts: [
+              {
+                account: 'Claude a',
+                source: 'monitor',
+                pool_status: 'near_cap',
+                reading: {status: 'fresh', age_s: 809, stale_threshold_s: 810, read_at: '2026-11-28T00:55:31Z'},
+                weekly: {status: 'ok', used_pct: 100, left_pct: 0, resets_at: subResetAt},
+                pace: {status: 'ok', state: 'deficit', headroom_pct: -20, lasts_to_reset: false, runs_out_in_s: 0},
+                plan: {status: 'ok'},
+              },
+            ],
+          },
+        ]
+      : poolMode === 'seven_canonical_pools'
+      ? [
+          {
+            provider: 'claude',
+            label: 'Claude',
+            accounts: [
+              {
+                account: 'Claude a',
+                source: 'monitor',
+                pool_status: 'cool',
+                reading: {status: 'fresh', age_s: 30, stale_threshold_s: 810, read_at: '2026-11-28T01:00:00Z'},
+                weekly: {status: 'ok', used_pct: 27, left_pct: 73, resets_at: subResetAt},
+                pace: {status: 'ok', state: 'reserve', headroom_pct: 14, lasts_to_reset: true},
+                plan: {status: 'ok'},
+              },
+              {
+                account: 'Claude b',
+                source: 'monitor',
+                pool_status: 'near_cap',
+                reading: {status: 'fresh', age_s: 809, stale_threshold_s: 810, read_at: '2026-11-28T00:46:31Z'},
+                weekly: {status: 'ok', used_pct: 100, left_pct: 0, resets_at: subResetAt},
+                pace: {status: 'ok', state: 'deficit', headroom_pct: -30, lasts_to_reset: false, runs_out_in_s: 0},
+                plan: {status: 'ok'},
+              },
+            ],
+          },
+          {
+            provider: 'codex',
+            label: 'Codex',
+            accounts: [
+              {
+                account: 'Codex a',
+                source: 'usage_cache',
+                pool_status: 'cool',
+                reading: {status: 'fresh', age_s: 30, stale_threshold_s: 900, read_at: '2026-11-28T01:00:00Z'},
+                weekly: {status: 'ok', used_pct: 99.0, left_pct: 1.0, resets_at: subResetAt},
+                pace: {status: 'ok', state: 'on_pace', headroom_pct: 0, lasts_to_reset: false},
+                plan: {status: 'ok'},
+              },
+              {
+                account: 'Codex b',
+                source: 'usage_cache',
+                pool_status: 'cool',
+                reading: {status: 'fresh', age_s: 30, stale_threshold_s: 900, read_at: '2026-11-28T01:00:00Z'},
+                weekly: {status: 'ok', used_pct: 30, left_pct: 70, resets_at: subResetAt},
+                pace: {status: 'ok', state: 'on_pace', headroom_pct: 0, lasts_to_reset: true},
+                plan: {status: 'ok'},
+              },
+            ],
+          },
+          {
+            provider: 'agy',
+            label: 'AGY',
+            accounts: [
+              {
+                account: 'AGY Gemini',
+                source: 'usage_cache',
+                pool_status: 'cool',
+                reading: {status: 'fresh', age_s: 30, stale_threshold_s: 900, read_at: '2026-11-28T01:00:00Z'},
+                weekly: {status: 'ok', used_pct: 15, left_pct: 85, resets_at: subResetAt},
+                pace: {status: 'ok', state: 'reserve', headroom_pct: 10, lasts_to_reset: true},
+                plan: {status: 'ok'},
+              },
+              {
+                account: 'AGY Claude/GPT',
+                source: 'usage_cache',
+                pool_status: 'near_cap',
+                reading: {status: 'fresh', age_s: 30, stale_threshold_s: 900, read_at: '2026-11-28T01:00:00Z'},
+                weekly: {status: 'ok', used_pct: 99.5, left_pct: 0.5, resets_at: subResetAt},
+                pace: {status: 'ok', state: 'deficit', headroom_pct: -20, lasts_to_reset: false, runs_out_in_s: 0},
+                plan: {status: 'ok'},
+              },
+            ],
+          },
+          {
+            provider: 'grok',
+            label: 'Grok',
+            accounts: [
+              {
+                account: 'Grok+Cursor',
+                source: 'usage_cache',
+                pool_status: 'cool',
+                reading: {status: 'fresh', age_s: 30, stale_threshold_s: 900, read_at: '2026-11-28T01:00:00Z'},
+                weekly: {status: 'ok', used_pct: 10, left_pct: 90, resets_at: subResetAt},
+                pace: {status: 'ok', state: 'reserve', headroom_pct: 20, lasts_to_reset: true},
+                plan: {status: 'ok'},
+              },
+            ],
+          },
+        ]
+      : [{
+          provider: 'claude',
+          label: 'Claude',
+          accounts: [{
+            account: 'Claude a',
+            pool_status: 'cool',
+            reading: {status: 'fresh', age_s: 899, read_at: '2026-11-28T00:45:01Z'},
+            weekly: {status: 'ok', left_pct: 73, resets_at: subResetAt},
+            pace: {status: 'ok', state: 'reserve', headroom_pct: 14, lasts_to_reset: true},
+            plan: {status: 'ok'},
+          }],
+        }];
+    const apiAccounts = poolMode === 'source_ttl_expiry'
+      ? {FixtureAPI: {freshness: 'fresh', age_s: 599, stale_threshold_s: 600, fetched_at: apiFetchedAt, total_balance: 55, currency: 'USD', usage_weekly_usd: 12}}
+      : {FixtureAPI: {freshness: 'fresh', age_s: cachedApiAgeS, fetched_at: apiFetchedAt, total_balance: 55, currency: 'USD', usage_weekly_usd: 12}};
+    return {
+      ok: true,
+      status: 200,
+      headers: {get: () => null},
+      text: async () => JSON.stringify({
+        generated_at: generatedAt,
+        diagnostics: {stale_threshold_s: 900, data_age_s: cachedDataAgeS, codexbar_data_available: true, codexbar_max_age_s: 0},
+        agents,
+        ...(codexAccounts ? {codex_accounts: codexAccounts} : {}),
+        api_accounts: apiAccounts,
+        subscriptions: {
+          stale_after_s: 900,
+          providers: subProviders,
+        },
+      }),
+    };
+  }
+  if (s === '/api/runtime/logins') {
+    if (poolMode === 'mixed') return {ok: false, status: 503, headers: {get: () => null}, text: async () => '{}'};
+    return {ok: true, status: 200, headers: {get: () => null}, text: async () => JSON.stringify({state: 'ok', accounts: [{account: 'Claude a', logged_in: true}]})};
+  }
+  return {ok: true, status: 200, headers: {get: () => null}, text: async () => '{}'};
+};
+const models = (() => {
+"""
+        + models_full_script
+        + r"""
+  return {runner, PANELS, renderChips};
+})();
+(async () => {
+  try {
+    await models.runner.loadPanel(models.PANELS[0]);
+    const updateChips = () => { document.getElementById('chips').innerHTML = models.renderChips(models.runner.latest); };
+    updateChips();
+    assert.equal(budgetFetches, 1);
+    const freshHtml = document.getElementById('usage-content').innerHTML;
+    assert.match(freshHtml, /73%/);
+    assert.match(freshHtml, /82% left/);
+    assert.match(freshHtml, /55\.00 USD balance/);
+    const freshChips = document.getElementById('chips').innerHTML;
+    assert.match(freshChips, /<b>73%<\/b> Claude/);
+    assert.match(freshChips, /<b>0<\/b> pools near cap/);
+    assert.doesNotMatch(freshChips, /unknown/);
+
+    // Wall-clock step alone does not expire the monotonic budget clock.
+    fakeNow += 5000;
+    models.PANELS[0].onTick(models.PANELS[0], models.runner.latest, updateChips, fakeNow);
+    assert.equal(budgetFetches, 1);
+    assert.match(document.getElementById('usage-content').innerHTML, /73%/);
+
+    // Monotonic clock advancing 2s crosses the 900s threshold and withdraws all expired figures + chips with zero fetches.
+    monoNow += 2000;
+    models.PANELS[0].onTick(models.PANELS[0], models.runner.latest, updateChips, fakeNow);
+    assert.equal(budgetFetches, 1, 'F3: budget expiry makes zero extra fetches');
+    const expiredHtml = document.getElementById('usage-content').innerHTML;
+    assert.doesNotMatch(expiredHtml, /73%|82% left|64% left|55\.00|12\.00/);
+    const expiredChips = document.getElementById('chips').innerHTML;
+    assert.match(expiredChips, /<b>\?<\/b> Claude/);
+    assert.match(expiredChips, /<b>\?<\/b> pools near cap unknown/);
+    assert.doesNotMatch(expiredChips, /<b>0<\/b> pools near cap/);
+
+    // Rolling monotonic clock back never revives expired figures.
+    monoNow -= 5000;
+    models.PANELS[0].onTick(models.PANELS[0], models.runner.latest, updateChips, fakeNow);
+    assert.doesNotMatch(document.getElementById('usage-content').innerHTML, /73%|55\.00/);
+
+    // F3 cached-poll revival guard: a 599s API reading expires after 306s and stays hidden when
+    // the next poll returns the same cached generation (same generated_at/fetched_at, same age_s=599).
+    monoNow = 20000;
+    poolMode = 'cached_api';
+    generatedAt = '2026-11-28T01:05:00Z';
+    apiFetchedAt = '2026-11-28T00:55:01Z';
+    cachedApiAgeS = 599;
+    cachedDataAgeS = 0;
+    await models.runner.loadPanel(models.PANELS[0]);
+    updateChips();
+    assert.match(document.getElementById('usage-content').innerHTML, /55\.00 USD balance/);
+    monoNow += 306000;
+    models.PANELS[0].onTick(models.PANELS[0], models.runner.latest, updateChips, fakeNow);
+    assert.doesNotMatch(document.getElementById('usage-content').innerHTML, /55\.00|12\.00/);
+    cachedDataAgeS = 306;
+    cachedApiAgeS = 905;
+    await models.runner.loadPanel(models.PANELS[0]);
+    updateChips();
+    assert.doesNotMatch(document.getElementById('usage-content').innerHTML, /55\.00|12\.00/, 'F3: cached poll must not revive expired API balance');
+    // Server-aged cached snapshot hides expired balance immediately on first paint.
+    generatedAt = '2026-11-28T01:10:00Z';
+    apiFetchedAt = '2026-11-28T01:00:01Z';
+    cachedApiAgeS = 905;
+    cachedDataAgeS = 306;
+    await models.runner.loadPanel(models.PANELS[0]);
+    assert.doesNotMatch(document.getElementById('usage-content').innerHTML, /55\.00|12\.00/, 'F3: pre-aged cached server snapshot hides expired balance immediately');
+    // F3 cross-generation guard: switching generated_at while diagnostics jumps from 1s ledger to 401s CodexBar
+    // must NOT over-age a 550s -> 582s API reading past 900s.
+    monoNow = 400000;
+    generatedAt = '2026-11-28T01:11:00Z';
+    apiFetchedAt = '2026-11-28T01:01:50Z';
+    cachedApiAgeS = 550;
+    cachedDataAgeS = 1;
+    await models.runner.loadPanel(models.PANELS[0]);
+    assert.match(document.getElementById('usage-content').innerHTML, /55\.00 USD balance/);
+    monoNow += 32000;
+    generatedAt = '2026-11-28T01:11:32Z';
+    cachedApiAgeS = 582;
+    cachedDataAgeS = 401;
+    await models.runner.loadPanel(models.PANELS[0]);
+    assert.match(document.getElementById('usage-content').innerHTML, /55\.00 USD balance/, 'F3: cross-generation diag jump must not suppress fresh API balance');
+    // #1574 Unix-epoch reset guard carried onto models.html.
+    subResetAt = '1970-01-01T00:00:00Z';
+    await models.runner.loadPanel(models.PANELS[0]);
+    assert.match(document.getElementById('usage-content').innerHTML, /reset not reported/);
+    assert.doesNotMatch(document.getElementById('usage-content').innerHTML, /1970-01-01/);
+    subResetAt = '2099-01-02T03:04:00Z';
+
+    // F7: Mixed 1 fresh cool pool + 1 stale pool qualifies chip as "0 pools near cap (1 unknown)" with warn tone,
+    // missing sign-in renders "? sign-in unknown", fresh NEED_LOGIN and authenticated NEED_PROBE with empty
+    // windows + runtime hot count as unknown coverage, and shared Grok+Cursor pool counts once.
+    cachedDataAgeS = 0;
+    cachedApiAgeS = 60;
+    apiFetchedAt = '2026-11-28T01:14:00Z';
+    generatedAt = '2026-11-28T01:15:00Z';
+    poolMode = 'mixed';
+    await models.runner.loadPanel(models.PANELS[0]);
+    updateChips();
+    const mixedChips = document.getElementById('chips').innerHTML;
+    assert.match(mixedChips, /chip warn[^>]*><b>0<\/b> pools near cap \(1 unknown\)/);
+    assert.match(mixedChips, /chip warn[^>]*><b>\?<\/b> sign-in unknown/);
+
+    poolMode = 'need_login_only';
+    await models.runner.loadPanel(models.PANELS[0]);
+    updateChips();
+    assert.match(document.getElementById('chips').innerHTML, /chip warn[^>]*><b>\?<\/b> pools near cap unknown/);
+    assert.doesNotMatch(document.getElementById('chips').innerHTML, /<b>0<\/b> pools near cap/);
+
+    poolMode = 'need_login_mixed';
+    await models.runner.loadPanel(models.PANELS[0]);
+    updateChips();
+    assert.match(document.getElementById('chips').innerHTML, /chip warn[^>]*><b>0<\/b> pools near cap \(1 unknown\)/);
+
+    poolMode = 'need_probe_hot_only';
+    await models.runner.loadPanel(models.PANELS[0]);
+    updateChips();
+    assert.match(document.getElementById('chips').innerHTML, /chip warn[^>]*><b>\?<\/b> pools near cap unknown/);
+    assert.doesNotMatch(document.getElementById('chips').innerHTML, /<b>0<\/b> pools near cap/);
+
+    poolMode = 'need_probe_hot_mixed';
+    await models.runner.loadPanel(models.PANELS[0]);
+    updateChips();
+    assert.match(document.getElementById('chips').innerHTML, /chip warn[^>]*><b>0<\/b> pools near cap \(1 unknown\)/);
+
+    poolMode = 'shared_grok_cursor_near_cap';
+    await models.runner.loadPanel(models.PANELS[0]);
+    updateChips();
+    assert.match(document.getElementById('chips').innerHTML, /chip warn[^>]*><b>1<\/b> pool near cap<\/a>/);
+    assert.doesNotMatch(document.getElementById('chips').innerHTML, /<b>2<\/b> pools near cap/);
+
+    // PR1569-F7: Stale Grok+Cursor pool_pace copied onto a fresh 70%-remaining Cursor lane must NOT show 1 pool near cap.
+    poolMode = 'stale_pool_pace_fresh_cursor';
+    generatedAt = '2026-11-28T01:16:00Z';
+    await models.runner.loadPanel(models.PANELS[0]);
+    updateChips();
+    assert.match(document.getElementById('chips').innerHTML, /<b>0<\/b> pools near cap<\/a>/);
+    assert.doesNotMatch(document.getElementById('chips').innerHTML, /<b>1<\/b> pool near cap/);
+
+    // PR1569-F7: Fresh pool_pace at 899s on NEED_PROBE Cursor expires to unknown after +2s monotonic tick.
+    poolMode = 'expiring_pool_pace_only';
+    monoNow = 500000;
+    generatedAt = '2026-11-28T01:17:00Z';
+    await models.runner.loadPanel(models.PANELS[0]);
+    updateChips();
+    assert.match(document.getElementById('chips').innerHTML, /<b>1<\/b> pool near cap<\/a>/);
+    monoNow += 2000;
+    models.PANELS[0].onTick(models.PANELS[0], models.runner.latest, updateChips, fakeNow);
+    assert.match(document.getElementById('chips').innerHTML, /<b>\?<\/b> pools near cap unknown/);
+    assert.doesNotMatch(document.getElementById('chips').innerHTML, /<b>1<\/b> pool near cap/);
+
+    // PR1569-F7: Canonical subscription pools without routing lanes (Claude b, AGY Claude/GPT) enter the near-cap chip,
+    // using canonical backend pool_status (so rounded 99.0% Codex a with pool_status='cool' is not miscounted as near_cap).
+    poolMode = 'seven_canonical_pools';
+    monoNow = 550000;
+    generatedAt = '2026-11-28T01:18:00Z';
+    await models.runner.loadPanel(models.PANELS[0]);
+    updateChips();
+    assert.match(document.getElementById('chips').innerHTML, /chip warn[^>]*><b>2<\/b> pools near cap<\/a>/);
+    assert.doesNotMatch(document.getElementById('chips').innerHTML, /<b>0<\/b> pools near cap|<b>3<\/b> pools near cap/);
+    // F1: When Claude b crosses its 810s Claude probe TTL on a browser tick, chip drops it to unknown while keeping AGY Claude/GPT near cap.
+    monoNow += 2000;
+    models.PANELS[0].onTick(models.PANELS[0], models.runner.latest, updateChips, fakeNow);
+    assert.match(document.getElementById('chips').innerHTML, /chip warn[^>]*><b>1<\/b> pool near cap \(1 unknown\)<\/a>/);
+
+    // F1: Browser 1s ticks enforce each observation's source freshness limit (600s API/Cursor, 810s CodexBar & Claude sub/pool_pace)
+    // even while the aggregate snapshot remains under 900s.
+    poolMode = 'source_ttl_expiry';
+    monoNow = 600000;
+    generatedAt = '2026-11-28T01:19:00Z';
+    apiFetchedAt = '2026-11-28T01:09:01Z';
+    await models.runner.loadPanel(models.PANELS[0]);
+    updateChips();
+    assert.match(document.getElementById('usage-content').innerHTML, /55\.00 USD balance/);
+    assert.match(document.getElementById('usage-content').innerHTML, /82% left/);
+    assert.match(document.getElementById('usage-content').innerHTML, /64% left/);
+    assert.match(document.getElementById('chips').innerHTML, /<b>1<\/b> pool near cap<\/a>/);
+    monoNow += 2000;
+    models.PANELS[0].onTick(models.PANELS[0], models.runner.latest, updateChips, fakeNow);
+    const sourceExpiredHtml = document.getElementById('usage-content').innerHTML;
+    assert.doesNotMatch(sourceExpiredHtml, /55\.00|12\.00|82% left|64% left/, 'F1: API & Cursor figures withdraw at 600s source limit');
+    assert.match(sourceExpiredHtml, /STALE/, 'F1: Claude subscription Reading cell shows STALE at 810s probe TTL');
+    assert.match(document.getElementById('chips').innerHTML, /<b>\?<\/b> Claude/, 'F1: Claude provider chip withdraws at 810s probe TTL');
+    assert.match(document.getElementById('chips').innerHTML, /<b>\?<\/b> pools near cap unknown/, 'F1: Cursor (600s), Codex (810s), and Claude sub+pool_pace (810s) all withdraw at their source limits');
+
+    // Non-finite monotonic clock withdraws figures as unknown rather than keeping stale fresh values.
+    poolMode = 'all_fresh';
+    cachedApiAgeS = 899;
+    apiFetchedAt = '2026-11-28T01:20:00Z';
+    generatedAt = '2026-11-28T01:20:00Z';
+    await models.runner.loadPanel(models.PANELS[0]);
+    updateChips();
+    assert.match(document.getElementById('usage-content').innerHTML, /73%/);
+    assert.match(document.getElementById('usage-content').innerHTML, /55\.00 USD balance/);
+    performance.now = () => Number.NaN;
+    models.PANELS[0].onTick(models.PANELS[0], models.runner.latest, updateChips, fakeNow);
+    assert.doesNotMatch(document.getElementById('usage-content').innerHTML, /73%|82% left|55\.00/);
+    assert.match(document.getElementById('chips').innerHTML, /<b>\?<\/b> pools near cap unknown/);
+  } finally {
+    performance.now = realPerfNow;
+    Date.now = realDateNow;
+  }
+})().catch(err => { console.error(err); process.exitCode = 1; });
+"""
+    )
 
 
 def test_home_comms_collection_errors_are_unavailable_even_when_store_exists():
     """A collector failure must not appear as successful plane access just because the database exists."""
-    fleet_script = _page_script("fleet.html", until="\nconst PANELS = [")
-    _node(_DOM + _machinery_js_prelude() + fleet_script + r"""
+    comms_script = _page_script("comms.html", until="\nconst PANELS = [")
+    _node(_DOM + _machinery_js_prelude() + comms_script + r"""
 const metrics = {source: 'authority', store: {reachable: true}, deliveries: {queued: 99}};
 assert.match(renderComms(metrics), /authority reachable/);
 for (const failure of [{db_error: 'DatabaseError'}, {db_missing: true}]) {
@@ -375,21 +843,22 @@ globalThis.fetch = async (url) => {
 def test_home_announces_panel_status_and_has_skip_purpose_and_sites_label():
     """Defect class: a panel status change is silent, or the skip link, sites label, or purpose line is missing."""
     dashboards = machinery_path("api/dashboards")
-    for name in ("index.html", "subscriptions.html", "fleet.html", "pull-requests.html", "milestones.html", "model-stats.html", "journal.html"):
+    for name in ("index.html", "fleet.html", "comms.html", "pull-requests.html", "milestones.html", "models.html", "journal.html"):
         page = (dashboards / name).read_text()
         assert 'class="skip" href="#main"' in page, name
         assert '<main id="main" tabindex="-1">' in page, name
         assert 'aria-label="Sites"' in page, name
     assert (dashboards / "index.html").read_text().count('aria-live="polite"') == 4
-    subs_page = (dashboards / "subscriptions.html").read_text()
-    assert subs_page.count('aria-live="polite"') == 1
-    assert "Which subscription is near its limit, when it resets, and whether anything is signed out." in subs_page
-    assert (dashboards / "fleet.html").read_text().count('aria-live="polite"') == 5
+    assert (dashboards / "fleet.html").read_text().count('aria-live="polite"') == 3
+    assert (dashboards / "comms.html").read_text().count('aria-live="polite"') == 2
+    models_page = (dashboards / "models.html").read_text()
+    assert models_page.count('aria-live="polite"') == 4
+    assert "What can be spent now, where recent work was routed, and which model gives the best value." in models_page
     assert (dashboards / "pull-requests.html").read_text().count('aria-live="polite"') == 1
     assert (dashboards / "milestones.html").read_text().count('aria-live="polite"') == 1
     assert (dashboards / "journal.html").read_text().count('aria-live="polite"') == 1
 
-    subs_script = _page_script("subscriptions.html")
+    models_script = _page_script("models.html")
     fleet_script = _page_script("fleet.html")
     _node(
         r"""
@@ -418,21 +887,21 @@ globalThis.fetch = async (url) => {
 };
 """
         + _machinery_js_prelude()
-        + "const subsRunner = (() => {\n" + subs_script + "\nreturn runner;\n})();\n"
+        + "const modelsRunner = (() => {\n" + models_script + "\nreturn runner;\n})();\n"
         + "const fleetRunner = (() => {\n" + fleet_script + "\nreturn runner;\n})();\n"
         + r"""
 (async () => {
-  await subsRunner.refreshAll();
+  await modelsRunner.refreshAll();
   await fleetRunner.refreshAll();
-  assert.ok(announced.indexOf('Loading Subscriptions.') < announced.indexOf("Subscriptions isn't available in this view."));
+  assert.ok(announced.indexOf('Loading Budget now.') < announced.indexOf("Budget now isn't available in this view."));
   assert.equal(announced.filter(item => item === 'Agent fleet loaded.').length, 1);
   failSubscriptions = false;
-  await subsRunner.refreshAll();
+  await modelsRunner.refreshAll();
   await fleetRunner.refreshAll();
-  assert.equal(announced.filter(item => item === 'Subscriptions loaded.').length, 1);
-  await subsRunner.refreshAll();
+  assert.equal(announced.filter(item => item === 'Budget now loaded.').length, 1);
+  await modelsRunner.refreshAll();
   await fleetRunner.refreshAll();
-  assert.equal(announced.filter(item => item === 'Subscriptions loaded.').length, 1);
+  assert.equal(announced.filter(item => item === 'Budget now loaded.').length, 1);
   assert.equal(announced.filter(item => item === 'Agent fleet loaded.').length, 1);
 })().catch(error => {console.error(error); process.exitCode = 1;});
 """
@@ -518,7 +987,7 @@ assert.doesNotMatch(clear, /unknown|chip bad|chip warn/);
 
 def test_panel_age_is_the_snapshot_header_plus_elapsed():
     """Defect class: client-side age from observed_at, or Number('') becoming 0, disagrees with the server snapshot age."""
-    subs_script = _page_script("subscriptions.html", until="\nconst PANELS = [")
+    subs_script = _page_script("models.html", until="\nconst PANELS = [")
     _node(_DOM + _machinery_js_prelude() + subs_script + r"""
 const {headingAge, panelAgeSeconds} = Machinery;
 const now = Date.now();

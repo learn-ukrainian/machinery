@@ -1,0 +1,1350 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Comms — Machinery</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="/machinery.css">
+<style>
+  .comms-split {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 16px;
+    align-items: start;
+  }
+  .comms-split.has-selection {
+    grid-template-columns: minmax(280px, 1fr) minmax(320px, 1.35fr);
+  }
+  .message-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    border-top: 1px solid var(--line);
+  }
+  .message-list li {
+    border-bottom: 1px solid var(--line);
+  }
+  .message-row {
+    width: 100%;
+    display: grid;
+    grid-template-columns: 4.5rem minmax(0, 1fr) auto auto;
+    gap: 6px 10px;
+    align-items: baseline;
+    text-align: left;
+    font: inherit;
+    color: var(--fg);
+    background: transparent;
+    border: 0;
+    border-left: 3px solid transparent;
+    padding: 7px 8px;
+    cursor: pointer;
+  }
+  .message-row:hover {
+    background: var(--bg);
+  }
+  .message-row.is-linked {
+    border-left-color: var(--muted);
+    background: var(--bg);
+  }
+  .message-row[aria-current="true"] {
+    background: var(--soft);
+    border-left-color: var(--link);
+    font-weight: 600;
+  }
+  .message-row.is-unopenable {
+    cursor: default;
+    color: var(--muted);
+  }
+  .message-row.is-unopenable:hover {
+    background: transparent;
+  }
+  .msg-age {
+    font-size: 12px;
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+  .msg-route {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+  .msg-kind {
+    font-size: 12px;
+    color: var(--muted);
+    white-space: nowrap;
+  }
+  .msg-state {
+    font-size: 12px;
+    white-space: nowrap;
+  }
+  .comms-reader {
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 10px 12px;
+    background: var(--bg);
+    min-width: 0;
+  }
+  .reader-head {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 12px;
+    align-items: center;
+    justify-content: space-between;
+    border-bottom: 1px solid var(--line);
+    padding-bottom: 8px;
+    margin-bottom: 8px;
+  }
+  .reader-head h3 {
+    margin: 0;
+    font-size: 14px;
+    color: var(--fg);
+    overflow-wrap: anywhere;
+  }
+  .reader-head h3:focus {
+    outline: 2px solid var(--link);
+    outline-offset: 2px;
+  }
+  .reader-meta {
+    margin: 0 0 8px;
+    font-size: 12px;
+    color: var(--muted);
+    overflow-wrap: anywhere;
+  }
+  .reader-body pre {
+    margin: 0 0 12px;
+    padding: 8px 10px;
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    font: 13px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+  .thread-list {
+    list-style: none;
+    margin: 6px 0 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .thread-list button {
+    text-align: left;
+    max-width: 100%;
+    overflow-wrap: anywhere;
+  }
+  .thread-list button[aria-current="true"] {
+    background: var(--soft);
+    border-color: var(--link);
+    color: var(--link);
+    font-weight: 600;
+  }
+  section[id] {
+    scroll-margin-top: 96px;
+  }
+  @media (max-width: 640px) {
+    .comms-split.has-selection {
+      grid-template-columns: minmax(0, 1fr);
+    }
+    .comms-split.has-selection #comms-list-pane {
+      display: none;
+    }
+    .message-row {
+      grid-template-columns: 1fr auto;
+      gap: 2px 8px;
+    }
+    .msg-route {
+      grid-column: 1 / -1;
+    }
+  }
+</style>
+</head>
+<body>
+<a class="skip" href="#main">Skip to main content</a>
+<header>
+  <div class="header-top">
+    <div class="title">
+      <h1>Comms</h1>
+      <p class="purpose">Fleet Comms messages, ACP discussions, and delivery health.</p>
+    </div>
+    <div class="header-utils">
+      <nav class="sites" id="machinery-sites" aria-label="Sites"></nav>
+      <button type="button" class="theme-toggle" id="theme-toggle">Theme: Auto</button>
+      <div class="refresh">
+        <span class="muted" id="last-refresh">Loading…</span>
+        <button type="button" class="retry" id="refresh-retry" hidden aria-label="Retry refresh">Retry</button>
+      </div>
+    </div>
+  </div>
+  <div class="header-nav">
+    <nav class="pages" id="machinery-nav" aria-label="Pages">__MACHINERY_NAV__</nav>
+    <div class="chips" id="chips"></div>
+  </div>
+</header>
+<main id="main" tabindex="-1">
+  <section class="wide" id="messages">
+    <h2>Messages <span class="muted" id="messages-range"></span> <span class="age" id="messages-age">Loading…</span></h2>
+    <form id="message-filters" class="filters" method="get" action="/comms">
+      <label>Seat
+        <select id="filter-seat" name="seat" autocomplete="off">
+          <option value="">All seats</option>
+        </select>
+      </label>
+      <label>State
+        <select id="filter-state" name="state" autocomplete="off">
+          <option value="">Any state</option>
+          <option value="queued">queued</option>
+          <option value="running">running</option>
+          <option value="acknowledged">acknowledged</option>
+          <option value="failed">failed</option>
+          <option value="expired">expired</option>
+          <option value="dead_lettered">dead_lettered</option>
+        </select>
+      </label>
+      <label>Since
+        <select id="filter-since" name="since" autocomplete="off">
+          <option value="7d" selected>Last 7 d</option>
+          <option value="24h">Last 24 h</option>
+          <option value="all">All</option>
+        </select>
+      </label>
+      <button type="button" class="retry" data-clear-filters>Clear</button>
+    </form>
+    <p id="messages-status" class="visually-hidden" aria-live="polite" aria-atomic="true"></p>
+    <div id="comms-layout" class="comms-split">
+      <div id="comms-list-pane">
+        <div id="messages-content">Loading…</div>
+      </div>
+      <section id="message-reader" class="comms-reader" aria-label="Message reader" hidden>
+        <div class="reader-head">
+          <h3 id="message-reader-heading" tabindex="-1">Reader</h3>
+          <button type="button" class="retry" id="reader-back">Back to list</button>
+        </div>
+        <p class="reader-meta" id="message-meta"></p>
+        <div class="reader-body" id="message-body"></div>
+        <h3 id="message-thread-heading">Thread</h3>
+        <div id="message-thread"></div>
+      </section>
+    </div>
+  </section>
+  <section class="wide" id="discussions">
+    <details id="discussions-disclosure">
+      <summary>Discussions (ACP transcripts)</summary>
+      <p class="muted" id="discussions-redaction-notice">Loopback-only transcript reader. Redaction is best-effort for secrets and paths only (hostnames and IP addresses are not redacted).</p>
+      <div class="journal-actions">
+        <button type="button" class="retry" id="discussions-refresh">Refresh discussions</button>
+      </div>
+      <p id="discussions-status" class="muted" role="status"></p>
+      <div id="discussions-list"></div>
+      <div id="discussions-transcript"></div>
+    </details>
+  </section>
+  <section class="wide" id="health">
+    <details id="health-disclosure">
+      <summary>Delivery health <span class="age" id="comms-age">Loading…</span></summary>
+      <p id="comms-status" class="visually-hidden" aria-live="polite" aria-atomic="true"></p>
+      <div id="comms-content">Loading…</div>
+    </details>
+  </section>
+</main>
+<script src="/machinery.js"></script>
+<script>
+"use strict";
+const {
+  escapeHtml, fetchJson, span, utc, relative, table, text, unknown, chip, createPanelRunner,
+} = Machinery;
+
+const SEATS_URL = "/api/fleet/seats";
+const DELIVERIES_URL = "/api/fleet/deliveries";
+const MESSAGE_URL = "/api/fleet/messages";
+const LOG_DOWN = new Set(["db_unavailable", "db_missing", "plane_root_unavailable", "authority_unsupported_component"]);
+
+const STATE_TONE = {
+  acknowledged: "ok",
+  queued: "warn",
+  running: "",
+  failed: "bad",
+  expired: "warn",
+  dead_lettered: "bad",
+};
+
+function pageQuery() {
+  try {
+    const search = typeof location === "object" && location && typeof location.search === "string" ? location.search : "";
+    return new URLSearchParams(search);
+  } catch {
+    return new URLSearchParams();
+  }
+}
+
+// Only filter and paging keys go to the deliveries route. msg stays client-side only.
+function deliveryQuery() {
+  const query = new URLSearchParams();
+  const page = pageQuery();
+  for (const key of ["seat", "state", "since", "limit", "offset"]) {
+    const value = page.get(key);
+    if (value) query.set(key, value);
+  }
+  return query;
+}
+
+function deliveryUrl() {
+  const query = deliveryQuery().toString();
+  return query ? `${DELIVERIES_URL}?${query}` : DELIVERIES_URL;
+}
+
+function rosterReady(payload) {
+  return Boolean(payload)
+    && payload.driver_roster === "available"
+    && payload.external_roster === "available"
+    && Array.isArray(payload.seats);
+}
+
+const failedNotice = new Set();
+
+function rememberStatus(panelId, sentence) {
+  if (typeof queueMicrotask !== "function") return;
+  queueMicrotask(() => {
+    const region = typeof document === "object" && document && typeof document.getElementById === "function"
+      ? document.getElementById(`${panelId}-status`) : null;
+    if (region) region.textContent = sentence;
+  });
+}
+
+function notice(sentence, panelId, label) {
+  failedNotice.add(panelId);
+  rememberStatus(panelId, sentence);
+  return `<p class="error">${escapeHtml(sentence)}</p>`
+    + `<p><button type="button" class="retry" data-retry-panel="${escapeHtml(panelId)}" aria-label="Retry ${escapeHtml(label)}">Retry</button></p>`;
+}
+
+function recoverNotice(panelId, label) {
+  if (!failedNotice.delete(panelId)) return;
+  rememberStatus(panelId, `${label} loaded.`);
+}
+
+function selectable(id) {
+  const select = typeof document === "object" && document && document.getElementById ? document.getElementById(id) : null;
+  return select && typeof select.add === "function" ? select : null;
+}
+
+let applyingFilters = false;
+let latestSeatsPayload = null;
+
+function setChoice(id, value) {
+  const select = selectable(id);
+  if (!select) return;
+  const next = typeof value === "string" ? value : "";
+  if (next && ![...select.options].some(option => option.value === next)) {
+    const option = document.createElement("option");
+    option.value = next;
+    option.textContent = next;
+    select.append(option);
+  }
+  applyingFilters = true;
+  try { select.value = next; }
+  finally { applyingFilters = false; }
+}
+
+function fillSeatOptions(payload = latestSeatsPayload) {
+  if (rosterReady(payload)) latestSeatsPayload = payload;
+  const select = selectable("filter-seat");
+  if (!select) return;
+  const current = pageQuery().get("seat") || "";
+  const ids = [];
+  if (rosterReady(latestSeatsPayload)) {
+    for (const row of latestSeatsPayload.seats) {
+      if (row && typeof row.seat === "string" && row.seat && !ids.includes(row.seat)) ids.push(row.seat);
+    }
+  }
+  if (current && !ids.includes(current)) ids.push(current);
+  select.replaceChildren();
+  const all = document.createElement("option");
+  all.value = "";
+  all.textContent = "All seats";
+  select.append(all);
+  for (const id of ids) {
+    const option = document.createElement("option");
+    option.value = id;
+    option.textContent = id;
+    select.append(option);
+  }
+  applyingFilters = true;
+  try { select.value = current; }
+  finally { applyingFilters = false; }
+}
+
+let seatsInFlight = false;
+function loadSeatOptions() {
+  if (seatsInFlight) return Promise.resolve();
+  seatsInFlight = true;
+  return fetchJson(SEATS_URL).then(reading => {
+    if (rosterReady(reading.data)) fillSeatOptions(reading.data);
+  }).catch(() => {}).finally(() => { seatsInFlight = false; });
+}
+
+function syncAppliedFilters(payload) {
+  const filters = payload && payload.filters;
+  if (!filters || typeof filters !== "object") return;
+  setChoice("filter-state", typeof filters.state === "string" ? filters.state : "");
+  setChoice("filter-since", typeof filters.since === "string" && filters.since ? filters.since : "7d");
+  setChoice("filter-seat", typeof filters.seat === "string" ? filters.seat : "");
+}
+
+function renderComms(metrics) {
+  if (!metrics || metrics.db_error || metrics.db_missing) return unknown("Fleet Comms is unavailable");
+  const deliveries = metrics.deliveries || {}, jobs = metrics.jobs || {};
+  const reachable = metrics.store?.reachable;
+  const windows = metrics.failure_windows || {}, lifetime = metrics.failure_lifetime || {};
+  const rows = [
+    [text("Store"), text(reachable ? `${metrics.source || "plane"} reachable` : "UNREACHABLE", reachable ? "ok" : "bad"), text(""), text(""), text("")],
+    [text("Deliveries queued"), text(deliveries.queued, "num"), text(""), text(""), text("")],
+    [text("Jobs queued"), text(jobs.queued, "num"), text(""), text(""), text("")],
+  ];
+  for (const [key, label] of [["dead_letters", "Dead letters"], ["failed_deliveries", "Deliveries failed"], ["failed_jobs", "Jobs failed"]]) {
+    const day = windows["24h"]?.[key], week = windows["7d"]?.[key];
+    rows.push([text(label), text(""), text(day?.total ?? "?", day?.total ? "num warn" : "num"), text(week?.total ?? "?", week?.total ? "num warn" : "num"), text(lifetime[key] ?? "?", "num")]);
+    const recipients = new Set([...Object.keys(day?.by_recipient || {}), ...Object.keys(week?.by_recipient || {})]);
+    for (const recipient of [...recipients].sort()) rows.push([text(`  ${recipient}`), text(""), text(day?.by_recipient?.[recipient] ?? 0, "num"), text(week?.by_recipient?.[recipient] ?? 0, "num"), text("")]);
+  }
+  return table(["Measure", "Current", "24 h", "7 d", "Lifetime"], rows);
+}
+
+function emptyDeliveries(since) {
+  const sentence = since === "24h"
+    ? "No deliveries for this filter in the last 24 h"
+    : since === "all"
+      ? "No deliveries for this filter in the available history"
+      : "No deliveries for this filter in the last 7 d";
+  return `<p>${escapeHtml(sentence)} <button type="button" class="retry" data-clear-filters>Clear</button></p>`;
+}
+
+function asText(value) {
+  if (value === null || value === undefined) return null;
+  return typeof value === "string" ? value : undefined;
+}
+
+function asNumber(value) {
+  if (value === null || value === undefined) return null;
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function pageHref(offset) {
+  const params = deliveryQuery();
+  if (offset) params.set("offset", String(offset));
+  else params.delete("offset");
+  const query = params.toString();
+  return query ? `?${query}` : "/comms";
+}
+
+function groupAdjacentDeliveries(rows) {
+  const groups = [];
+  for (const row of rows) {
+    if (!row || typeof row !== "object" || Array.isArray(row)) return null;
+    const from = asText(row.sender);
+    const to = asText(row.recipient);
+    const kind = asText(row.kind);
+    const state = asText(row.state);
+    const attempts = asNumber(row.attempt_count);
+    const waited = asNumber(row.waited_s);
+    const created = asText(row.created_at);
+    let messageId = null;
+    if (row.message_id !== null && row.message_id !== undefined) {
+      if (typeof row.message_id !== "string") return null;
+      messageId = row.message_id;
+    }
+    if (typeof from !== "string" || typeof to !== "string" || typeof kind !== "string" || typeof state !== "string"
+      || [attempts, waited, created].includes(undefined)) {
+      return null;
+    }
+    const prev = groups.length ? groups[groups.length - 1] : null;
+    if (messageId !== null && prev && prev.messageId === messageId) {
+      if (!prev.recipients.includes(to)) prev.recipients.push(to);
+      if (!prev.states.includes(state)) prev.states.push(state);
+      if (attempts !== null) prev.attempts.push(attempts);
+      if (waited !== null) prev.waited.push(waited);
+      prev.deliveryCount += 1;
+    } else {
+      groups.push({
+        messageId,
+        sender: from,
+        recipients: [to],
+        kind,
+        states: [state],
+        attempts: attempts === null ? [] : [attempts],
+        waited: waited === null ? [] : [waited],
+        created,
+        deliveryCount: 1,
+      });
+    }
+  }
+  return groups;
+}
+
+function triesLabel(attempts) {
+  if (!Array.isArray(attempts) || !attempts.length) return "";
+  const valid = attempts.filter(n => typeof n === "number" && Number.isFinite(n) && n >= 0);
+  if (!valid.length) return "";
+  const min = Math.min(...valid);
+  const max = Math.max(...valid);
+  if (min === max) return `${min} ${min === 1 ? "try" : "tries"}`;
+  return `${min}–${max} tries`;
+}
+
+function rowTone(states) {
+  if (states.some(s => s === "failed" || s === "dead_lettered")) return "bad";
+  if (states.some(s => s === "queued" || s === "expired")) return "warn";
+  if (states.length === 1 && Object.hasOwn(STATE_TONE, states[0])) return STATE_TONE[states[0]];
+  return "";
+}
+
+let selectedMessageId = null;
+let lastOpenedMessageId = null;
+let currentMessageMeta = new Map();
+let currentThreadAnchorId = null;
+let currentThreadRows = [];
+let pendingListFocus = null;
+let listHadFocus = false;
+
+function captureListFocus() {
+  if (typeof document !== "object" || !document) return null;
+  const active = document.activeElement;
+  const container = typeof document.getElementById === "function" ? document.getElementById("messages-content") : null;
+  if (!active || !container || typeof container.contains !== "function" || !container.contains(active)) return null;
+  if (active.dataset?.openMessage) return {type: "message", id: active.dataset.openMessage};
+  if (active.dataset?.retryPanel) return {type: "retry", id: active.dataset.retryPanel};
+  if (typeof active.hasAttribute === "function" && active.hasAttribute("data-clear-filters")) return {type: "clear"};
+  if (active.tagName === "A" && active.textContent) return {type: "pager", label: active.textContent};
+  return {type: "list"};
+}
+
+function focusStableListControl(preferredMessageId = null) {
+  if (typeof document !== "object" || !document || typeof document.getElementById !== "function") return;
+  const container = document.getElementById("messages-content");
+  if (container && typeof container.querySelectorAll === "function") {
+    const buttons = [...container.querySelectorAll("button[data-open-message]")];
+    if (preferredMessageId) {
+      const exact = buttons.find(btn => btn.dataset?.openMessage === preferredMessageId);
+      if (exact && typeof exact.focus === "function") { exact.focus(); return; }
+    }
+    if (buttons.length && typeof buttons[0].focus === "function") { buttons[0].focus(); return; }
+    const retry = container.querySelector?.("button[data-retry-panel]");
+    if (retry && typeof retry.focus === "function") { retry.focus(); return; }
+  }
+  const fallback = document.getElementById("filter-seat") || document.getElementById("main");
+  if (fallback && typeof fallback.focus === "function") fallback.focus();
+}
+
+function restoreListFocus(onError = false) {
+  const saved = pendingListFocus || (onError && listHadFocus ? {type: "retry", id: "messages"} : null);
+  pendingListFocus = null;
+  if (!saved || typeof document !== "object" || !document) return;
+  const container = typeof document.getElementById === "function" ? document.getElementById("messages-content") : null;
+  if (container && typeof container.querySelector === "function") {
+    if (saved.type === "message") {
+      focusStableListControl(saved.id);
+      return;
+    }
+    if (saved.type === "retry") {
+      const btn = [...(container.querySelectorAll?.("button[data-retry-panel]") || [])]
+        .find(node => node.dataset?.retryPanel === saved.id);
+      if (btn && typeof btn.focus === "function") { btn.focus(); return; }
+    }
+    if (saved.type === "clear") {
+      const btn = container.querySelector("[data-clear-filters]");
+      if (btn && typeof btn.focus === "function") { btn.focus(); return; }
+    }
+    if (saved.type === "pager") {
+      const link = [...(container.querySelectorAll?.(".pager a") || [])]
+        .find(node => node.textContent === saved.label);
+      if (link && typeof link.focus === "function") { link.focus(); return; }
+    }
+  }
+  focusStableListControl(null);
+}
+
+function setRangeLabel(textValue) {
+  const el = typeof document === "object" && document && typeof document.getElementById === "function"
+    ? document.getElementById("messages-range") : null;
+  if (el) el.textContent = textValue;
+}
+
+function renderMessages(payload) {
+  pendingListFocus = captureListFocus();
+  syncAppliedFilters(payload);
+  if (!payload || typeof payload !== "object" || LOG_DOWN.has(payload.availability)) {
+    setRangeLabel("");
+    return notice("Message log unavailable", "messages", "Messages");
+  }
+  if (payload.driver_roster !== "available" || payload.external_roster !== "available") {
+    setRangeLabel("");
+    return notice("Seat list unavailable", "messages", "Messages");
+  }
+  if (payload.availability !== "available") {
+    setRangeLabel("");
+    return notice("Message log unavailable", "messages", "Messages");
+  }
+  const rows = payload.deliveries;
+  if (!Array.isArray(rows) || typeof payload.total !== "number" || !Number.isInteger(payload.total) || payload.total < 0) {
+    setRangeLabel("");
+    return notice("Message log unavailable", "messages", "Messages");
+  }
+  if (payload.total === 0) {
+    if (rows.length !== 0) {
+      setRangeLabel("");
+      return notice("Message log unavailable", "messages", "Messages");
+    }
+    currentMessageMeta = new Map();
+    setRangeLabel("0 deliveries");
+    const since = payload.filters && typeof payload.filters.since === "string" ? payload.filters.since : "7d";
+    recoverNotice("messages", "Messages");
+    return emptyDeliveries(since);
+  }
+  const groups = groupAdjacentDeliveries(rows);
+  if (!groups) {
+    setRangeLabel("");
+    return notice("Message log unavailable", "messages", "Messages");
+  }
+  const linkedMsg = pageQuery().get("msg") || "";
+  const nextMeta = new Map();
+  const listItems = [];
+  for (const group of groups) {
+    if (group.messageId !== null && !nextMeta.has(group.messageId)) {
+      nextMeta.set(group.messageId, group);
+    }
+    const age = group.created ? relative(group.created) : "—";
+    const route = `${group.sender} → ${group.recipients.join(", ")}`;
+    const stateText = group.states.join(", ");
+    const stateCls = rowTone(group.states);
+    const cells = `<span class="msg-age">${escapeHtml(age)}</span>`
+      + `<span class="msg-route">${escapeHtml(route)}</span>`
+      + `<span class="msg-kind">${escapeHtml(group.kind)}</span>`
+      + `<span class="msg-state${stateCls ? ` ${stateCls}` : ""}">${escapeHtml(stateText)}</span>`;
+    if (group.messageId !== null) {
+      const currentAttr = selectedMessageId === group.messageId ? ' aria-current="true"' : "";
+      const linkedCls = !selectedMessageId && linkedMsg === group.messageId ? " is-linked" : "";
+      listItems.push(
+        `<li><button type="button" class="message-row${linkedCls}" aria-controls="message-reader"`
+        + ` data-open-message="${escapeHtml(group.messageId)}"${currentAttr}>${cells}</button></li>`
+      );
+    } else {
+      listItems.push(`<li><div class="message-row is-unopenable">${cells}</div></li>`);
+    }
+  }
+  currentMessageMeta = nextMeta;
+
+  const offset = Number.isInteger(payload.offset) && payload.offset >= 0 ? payload.offset : 0;
+  const end = offset + rows.length;
+  const prev = offset > 0 && Number.isInteger(payload.limit) && payload.limit > 0
+    ? pageHref(Math.max(0, offset - payload.limit)) : "";
+  const next = Number.isInteger(payload.next_offset) && payload.next_offset > offset ? pageHref(payload.next_offset) : "";
+  const rangeText = rows.length && end <= payload.total
+    ? `Deliveries ${offset + 1}–${end} of ${payload.total}`
+    : `${payload.total} deliveries`;
+  setRangeLabel(rows.length && end <= payload.total ? `${offset + 1}–${end} of ${payload.total} deliveries` : "");
+  const items = [
+    `<span>${escapeHtml(rangeText)}</span>`,
+    prev ? `<a href="${escapeHtml(prev)}">Previous</a>` : "",
+    next ? `<a href="${escapeHtml(next)}">Next</a>` : "",
+  ].filter(Boolean);
+  const pager = items.length ? `<p class="pager">${items.join(" ")}</p>` : "";
+  recoverNotice("messages", "Messages");
+  if (!listItems.length) return `<p class="muted">No deliveries on this page.</p>${pager}`;
+  return `<ul class="message-list">${listItems.join("")}</ul>${pager}`;
+}
+
+function renderChips(latest) {
+  const metrics = latest.comms;
+  if (metrics === undefined) return "";
+  const ok = Boolean(metrics) && !metrics.db_error && !metrics.db_missing;
+  const queued = ok && typeof metrics.deliveries?.queued === "number" ? metrics.deliveries.queued : null;
+  const day = ok ? (metrics.failure_windows?.["24h"] || {}) : {};
+  const dead = typeof day.dead_letters?.total === "number" ? day.dead_letters.total : null;
+  const failedDeliv = typeof day.failed_deliveries?.total === "number" ? day.failed_deliveries.total : null;
+  const failedJobs = typeof day.failed_jobs?.total === "number" ? day.failed_jobs.total : null;
+  const failed = failedDeliv !== null && failedJobs !== null ? failedDeliv + failedJobs : failedDeliv;
+  return [
+    chip("/comms?state=queued", queued ?? "?", "queued", queued === null || queued > 0 ? "warn" : "", "queued"),
+    chip("#health", dead ?? "?", "dead letters / 24 h", dead === null || dead > 0 ? "warn" : "", "dead-letters"),
+    chip("#health", failed ?? "?", "failed / 24 h", failed === null || failed > 0 ? "warn" : "", "failed"),
+  ].join("");
+}
+
+function currentPath() {
+  return typeof location === "object" && location && typeof location.pathname === "string" && location.pathname
+    ? location.pathname : "/comms";
+}
+
+function assignPage(search) {
+  if (typeof location !== "object" || !location || typeof location.assign !== "function") return;
+  location.assign(`${currentPath()}${search}`);
+}
+
+function syncMsgInUrl(messageId) {
+  if (typeof history !== "object" || !history || typeof history.replaceState !== "function") return;
+  const params = pageQuery();
+  if (messageId) params.set("msg", messageId);
+  else params.delete("msg");
+  const query = params.toString();
+  const hash = typeof location === "object" && location && typeof location.hash === "string" ? location.hash : "";
+  history.replaceState(null, "", `${currentPath()}${query ? `?${query}` : ""}${hash}`);
+}
+
+function filtersFromForm() {
+  const form = document.getElementById("message-filters");
+  const params = new URLSearchParams();
+  if (!form || typeof FormData !== "function") return params;
+  const data = new FormData(form);
+  for (const key of ["seat", "state", "since"]) {
+    const value = String(data.get(key) || "");
+    if (value) params.set(key, value);
+  }
+  const limit = pageQuery().get("limit");
+  if (limit) params.set("limit", limit);
+  return params;
+}
+
+// ---- Text-only DOM helpers shared by Message reader and Discussions ----
+
+function safeEl(tag, className = "", textValue = null) {
+  const node = document.createElement(tag);
+  if (className) node.className = className;
+  if (textValue !== null && textValue !== undefined) node.textContent = String(textValue);
+  return node;
+}
+
+function setNodeChildren(container, nodes) {
+  if (!container) return;
+  if (typeof container.replaceChildren === "function") {
+    container.replaceChildren(...nodes);
+    return;
+  }
+  while (container.firstChild) container.removeChild(container.firstChild);
+  for (const node of nodes) container.appendChild(node);
+}
+
+// ---- On-demand Message body and thread reader (zero innerHTML) ----
+
+let messageBodyRequest = 0;
+let messageThreadRequest = 0;
+
+function updateRowSelection(activeId) {
+  if (typeof document !== "object" || !document || typeof document.querySelectorAll !== "function") return;
+  for (const btn of document.querySelectorAll("button[data-open-message]")) {
+    if (activeId && btn.dataset?.openMessage === activeId) {
+      btn.setAttribute("aria-current", "true");
+    } else if (typeof btn.removeAttribute === "function") {
+      btn.removeAttribute("aria-current");
+    }
+  }
+}
+
+function renderReaderMeta(id, meta) {
+  const heading = document.getElementById("message-reader-heading");
+  const metaLine = document.getElementById("message-meta");
+  if (meta && meta.recipients) {
+    if (heading) heading.textContent = `${meta.kind}: ${meta.sender} → ${meta.recipients.join(", ")}`;
+    const parts = [
+      meta.created ? utc(meta.created) : null,
+      meta.states && meta.states.length ? meta.states.join(", ") : null,
+      triesLabel(meta.attempts) || null,
+    ].filter(Boolean);
+    if (metaLine) metaLine.textContent = parts.join(", ");
+  } else if (meta && meta.sender) {
+    if (heading) heading.textContent = `${meta.kind || "message"}: ${meta.sender}`;
+    if (metaLine) metaLine.textContent = meta.created_at ? utc(meta.created_at) : id;
+  } else {
+    if (heading) heading.textContent = `Message ${id}`;
+    if (metaLine) metaLine.textContent = id;
+  }
+}
+
+function shortTime(value) {
+  const formatted = utc(value);
+  return formatted && formatted.length >= 16 ? formatted.slice(11, 16) : "—";
+}
+
+function renderThreadItems(anchorId, rows, limit, offset, nextOffset, {focusMessageId = null, focusFirst = false} = {}) {
+  const box = document.getElementById("message-thread");
+  const heading = document.getElementById("message-thread-heading");
+  if (heading) {
+    const suffix = Number.isSafeInteger(nextOffset) ? "+" : "";
+    heading.textContent = `Thread (${rows.length}${suffix})`;
+  }
+  const list = safeEl("ul", "thread-list");
+  let focusTarget = null;
+  for (const row of rows) {
+    const item = safeEl("li");
+    const isCurrent = row.message_id === selectedMessageId;
+    const sender = typeof row.sender === "string" && row.sender ? row.sender : "other";
+    const kind = typeof row.kind === "string" && row.kind ? row.kind : "message";
+    const label = `${shortTime(row.created_at)} ${kind}, ${sender}${isCurrent ? " (this)" : ""}`;
+    const open = safeEl("button", "retry", label);
+    open.type = "button";
+    open.dataset.threadMessage = row.message_id;
+    if (isCurrent) open.setAttribute("aria-current", "true");
+    open.addEventListener("click", () => {
+      selectedMessageId = row.message_id;
+      syncMsgInUrl(row.message_id);
+      updateRowSelection(row.message_id);
+      const rowMeta = currentMessageMeta.get(row.message_id) || {
+        sender,
+        kind,
+        created_at: row.created_at,
+      };
+      renderReaderMeta(row.message_id, rowMeta);
+      renderThreadItems(anchorId, rows, limit, offset, nextOffset, {focusMessageId: row.message_id});
+      loadMessageBody(row.message_id);
+    });
+    if (focusMessageId && row.message_id === focusMessageId) focusTarget = open;
+    else if (focusFirst && !focusTarget) focusTarget = open;
+    item.appendChild(open);
+    list.appendChild(item);
+  }
+  const nodes = [list];
+  for (const [label, position] of [
+    ["Previous", offset > 0 ? Math.max(0, offset - limit) : null],
+    ["Next", nextOffset],
+  ]) {
+    if (!Number.isSafeInteger(position)) continue;
+    const button = safeEl("button", "retry", label);
+    button.type = "button";
+    button.addEventListener("click", () => loadMessageThread(anchorId, position, {preserveFocus: true}));
+    if (focusFirst && !focusTarget) focusTarget = button;
+    nodes.push(button);
+  }
+  setNodeChildren(box, nodes);
+  if (focusTarget && typeof focusTarget.focus === "function") {
+    focusTarget.focus();
+  } else if (focusFirst) {
+    const readerHeading = document.getElementById("message-reader-heading");
+    if (readerHeading && typeof readerHeading.focus === "function") readerHeading.focus();
+  }
+}
+
+async function loadMessageBody(id) {
+  const seq = ++messageBodyRequest;
+  const box = document.getElementById("message-body");
+  setNodeChildren(box, [safeEl("p", "muted", "Loading message…")]);
+  rememberStatus("messages", "Loading message…");
+  let content;
+  let status = "Message could not load.";
+  try {
+    const response = await fetch(`${MESSAGE_URL}/${encodeURIComponent(id)}/body`, {cache: "no-store"});
+    const payload = await response.json();
+    if (response.ok && payload.state === "ok" && payload.message_id === id && typeof payload.body === "string") {
+      content = safeEl("pre", "", payload.body || "Empty message");
+      content.style.whiteSpace = "pre-wrap";
+      content.style.overflowWrap = "anywhere";
+      status = "Message loaded.";
+    } else {
+      const message = {
+        expired: "Body expired.",
+        oversized: "Message exceeds the size limit.",
+        not_found: "Message unavailable.",
+        withheld: "Message withheld.",
+        missing_or_corrupt: "Message body missing or corrupt.",
+      };
+      if (Object.hasOwn(message, payload?.state)) status = message[payload.state];
+      content = safeEl("p", "error", status);
+    }
+  } catch {
+    content = safeEl("p", "error", status);
+  }
+  if (seq !== messageBodyRequest) return;
+  setNodeChildren(box, [content]);
+  rememberStatus("messages", status);
+}
+
+function isFocusInside(container) {
+  if (!container || typeof document !== "object" || !document) return false;
+  const active = document.activeElement;
+  return Boolean(active && typeof container.contains === "function" && container.contains(active));
+}
+
+function setThreadStatus(box, className, textValue) {
+  if (!box) return;
+  const existing = typeof box.querySelector === "function" ? box.querySelector("[data-thread-status]") : null;
+  if (existing) {
+    existing.className = className;
+    existing.textContent = textValue;
+    return;
+  }
+  const note = safeEl("p", className, textValue);
+  note.dataset.threadStatus = "1";
+  note.setAttribute("data-thread-status", "1");
+  if (typeof box.appendChild === "function") box.appendChild(note);
+}
+
+async function loadMessageThread(id, offset = 0, {preserveFocus = false} = {}) {
+  const seq = ++messageThreadRequest;
+  currentThreadAnchorId = id;
+  const box = document.getElementById("message-thread");
+  const heading = document.getElementById("message-thread-heading");
+  const keepMounted = preserveFocus && Boolean(
+    box && ((typeof box.querySelector === "function" && box.querySelector("button"))
+      || (Array.isArray(box.children) && box.children.length > 0))
+  );
+  if (keepMounted) {
+    setThreadStatus(box, "muted", "Loading thread…");
+    rememberStatus("messages", "Loading thread…");
+  } else {
+    if (heading) heading.textContent = "Thread";
+    setNodeChildren(box, [safeEl("p", "muted", "Loading thread…")]);
+  }
+  try {
+    const response = await fetch(
+      `${MESSAGE_URL}/${encodeURIComponent(id)}/thread?offset=${offset}`, {cache: "no-store"}
+    );
+    const payload = await response.json();
+    if (seq !== messageThreadRequest) return;
+    if (!response.ok || !Array.isArray(payload.messages)) throw new Error("Thread unavailable");
+    currentThreadRows = payload.messages;
+    const focusFirst = preserveFocus && isFocusInside(box);
+    renderThreadItems(id, payload.messages, payload.limit, offset, payload.next_offset, {focusFirst});
+  } catch {
+    if (seq !== messageThreadRequest) return;
+    if (keepMounted) {
+      setThreadStatus(box, "error", "Thread could not load.");
+      rememberStatus("messages", "Thread could not load.");
+      return;
+    }
+    const retry = safeEl("button", "retry", "Retry");
+    retry.type = "button";
+    retry.addEventListener("click", () => loadMessageThread(id, offset, {preserveFocus: true}));
+    setNodeChildren(box, [safeEl("p", "error", "Thread could not load."), retry]);
+    rememberStatus("messages", "Thread could not load.");
+  }
+}
+
+function openMessage(id, {focusHeading = true, updateUrl = true} = {}) {
+  selectedMessageId = id;
+  lastOpenedMessageId = id;
+  if (updateUrl) syncMsgInUrl(id);
+  updateRowSelection(id);
+  const layout = document.getElementById("comms-layout");
+  if (layout && layout.classList && typeof layout.classList.add === "function") layout.classList.add("has-selection");
+  const reader = document.getElementById("message-reader");
+  if (reader) reader.hidden = false;
+  renderReaderMeta(id, currentMessageMeta.get(id) || null);
+  loadMessageBody(id);
+  loadMessageThread(id);
+  if (focusHeading) {
+    const heading = document.getElementById("message-reader-heading");
+    if (heading && typeof heading.focus === "function") heading.focus();
+    else if (reader && typeof reader.focus === "function") reader.focus();
+  }
+}
+
+function closeMessageReader() {
+  const returnId = lastOpenedMessageId || selectedMessageId;
+  selectedMessageId = null;
+  syncMsgInUrl(null);
+  updateRowSelection(null);
+  const layout = document.getElementById("comms-layout");
+  if (layout && layout.classList && typeof layout.classList.remove === "function") layout.classList.remove("has-selection");
+  const reader = document.getElementById("message-reader");
+  if (reader) reader.hidden = true;
+  focusStableListControl(returnId);
+}
+
+function bindMessageControls() {
+  if (typeof document !== "object" || !document || typeof document.addEventListener !== "function") return;
+  if (document._commsControlsBound) return;
+  document._commsControlsBound = true;
+  document.addEventListener("click", event => {
+    const target = event.target;
+    if (typeof target?.closest !== "function") return;
+    const message = target.closest("button[data-open-message]");
+    if (message?.dataset.openMessage) {
+      openMessage(message.dataset.openMessage, {focusHeading: true, updateUrl: true});
+      return;
+    }
+    if (target.closest("#reader-back")) {
+      closeMessageReader();
+      return;
+    }
+    if (target.closest("[data-clear-filters]")) {
+      event.preventDefault();
+      assignPage("");
+      return;
+    }
+    const healthLink = target.closest('a[href="#health"]');
+    if (healthLink) {
+      const disclosure = document.getElementById("health-disclosure");
+      if (disclosure) disclosure.open = true;
+    }
+  });
+  document.addEventListener("focusin", event => {
+    const container = typeof document.getElementById === "function" ? document.getElementById("messages-content") : null;
+    listHadFocus = Boolean(container && typeof container.contains === "function" && event.target && container.contains(event.target));
+  });
+  document.addEventListener("keydown", event => {
+    if (event.key === "Escape" && selectedMessageId) {
+      closeMessageReader();
+    }
+  });
+  const form = document.getElementById("message-filters");
+  if (!form || !form.dataset || typeof form.addEventListener !== "function" || form.dataset.bound) return;
+  form.dataset.bound = "1";
+  fillSeatOptions();
+  const params = pageQuery();
+  setChoice("filter-state", params.get("state") || "");
+  setChoice("filter-since", params.get("since") || "7d");
+  const apply = () => {
+    if (applyingFilters) return;
+    const query = filtersFromForm().toString();
+    assignPage(query ? `?${query}` : "");
+  };
+  form.addEventListener("change", apply);
+  form.addEventListener("submit", event => {
+    event.preventDefault();
+    apply();
+  });
+}
+
+// ---- Discussions (ACP transcripts, text-only DOM, zero HTML sinks) ----
+
+const DISCUSSIONS_LIST_URL = "/api/fleet/acp/conversations";
+const ACP_TRANSCRIPT_PREFIX = "/api/runtime/acp/conversations";
+const DISCUSSION_STATE_TONE = {
+  ok: "ok",
+  body_expired: "warn",
+  withheld: "warn",
+  oversized_or_partial: "warn",
+  missing_or_corrupt: "bad",
+  backend_unavailable: "bad",
+};
+const DISCUSSION_STATE_LABEL = {
+  ok: "ok",
+  body_expired: "Body expired",
+  withheld: "Withheld",
+  oversized_or_partial: "Oversized or partial",
+  missing_or_corrupt: "Missing or corrupt",
+  backend_unavailable: "Backend unavailable",
+};
+
+let discussionsListSeq = 0;
+let transcriptRequestSeq = 0;
+let selectedConversationId = null;
+let activeTranscriptController = null;
+
+function discussionEl(tag, className = "", textValue = null) {
+  return safeEl(tag, className, textValue);
+}
+
+function discussionStatus(message) {
+  const status = typeof document === "object" && document && typeof document.getElementById === "function"
+    ? document.getElementById("discussions-status") : null;
+  if (status) status.textContent = message;
+}
+
+function discussionTranscriptUrl(conversationId) {
+  return `${ACP_TRANSCRIPT_PREFIX}/${encodeURIComponent(conversationId)}/transcript`;
+}
+
+function validDiscussionsList(payload) {
+  return Boolean(payload)
+    && typeof payload === "object"
+    && !Array.isArray(payload)
+    && (payload.availability === "available" || payload.availability === "empty")
+    && Array.isArray(payload.conversations);
+}
+
+function renderDiscussionsListDom(payload) {
+  const container = document.getElementById("discussions-list");
+  if (!container) return validDiscussionsList(payload);
+  if (!validDiscussionsList(payload)) {
+    setNodeChildren(container, [discussionEl("p", "error", "Discussions list unavailable.")]);
+    return false;
+  }
+  const rows = payload.conversations;
+  if (!rows.length) {
+    setNodeChildren(container, [discussionEl("p", "muted", "No ACP discussions recorded.")]);
+    return true;
+  }
+  const tbl = discussionEl("table");
+  const thead = discussionEl("thead");
+  const headRow = discussionEl("tr");
+  for (const label of ["Discussion", "Participants", "State", "Rounds", "Updated"]) {
+    const th = discussionEl("th", "", label);
+    th.setAttribute("scope", "col");
+    headRow.appendChild(th);
+  }
+  thead.appendChild(headRow);
+  tbl.appendChild(thead);
+
+  const tbody = discussionEl("tbody");
+  for (const row of rows) {
+    if (!row || typeof row !== "object" || typeof row.conversation_id !== "string" || !row.conversation_id) continue;
+    const tr = discussionEl("tr");
+
+    const idTd = discussionEl("td");
+    const openBtn = discussionEl("button", "retry", row.conversation_id);
+    openBtn.type = "button";
+    openBtn.dataset.discussionId = row.conversation_id;
+    openBtn.setAttribute("aria-label", `Open transcript ${row.conversation_id}`);
+    idTd.appendChild(openBtn);
+    tr.appendChild(idTd);
+
+    const participants = Array.isArray(row.participants)
+      ? row.participants.filter(item => typeof item === "string" && item).join(", ") : "";
+    tr.appendChild(discussionEl("td", "", participants || "—"));
+
+    const stateText = typeof row.current_state === "string" && row.current_state
+      ? row.current_state : (typeof row.classification === "string" ? row.classification : "unknown");
+    tr.appendChild(discussionEl("td", "", stateText));
+
+    const completed = typeof row.rounds_completed === "number" ? row.rounds_completed : "?";
+    const requested = typeof row.rounds_requested === "number" ? row.rounds_requested : "?";
+    tr.appendChild(discussionEl("td", "num", `${completed}/${requested}`));
+
+    const updated = typeof row.updated_at === "string" && row.updated_at ? utc(row.updated_at) : "—";
+    tr.appendChild(discussionEl("td", "num", updated));
+
+    tbody.appendChild(tr);
+  }
+  tbl.appendChild(tbody);
+  setNodeChildren(container, [tbl]);
+  return true;
+}
+
+function formatStateSummary(state, label, reason) {
+  const base = DISCUSSION_STATE_LABEL[state] || (typeof label === "string" && label ? label : String(state || "unknown"));
+  if (typeof reason === "string" && reason && reason !== state) {
+    return `${base} (${reason.replaceAll("_", " ")})`;
+  }
+  return base;
+}
+
+function renderTranscriptDom(conversationId, payload, httpStatus = 200) {
+  const container = document.getElementById("discussions-transcript");
+  if (!container) return "unavailable";
+  const nodes = [];
+
+  const heading = discussionEl("h3", "", `Transcript: ${conversationId}`);
+  nodes.push(heading);
+
+  if (httpStatus === 403) {
+    const reason = typeof payload?.reason === "string" ? payload.reason : "forbidden";
+    nodes.push(discussionEl("p", "error", `Transcript access refused (${reason.replaceAll("_", " ")}).`));
+    setNodeChildren(container, nodes);
+    return "unavailable";
+  }
+  if (httpStatus === 404) {
+    nodes.push(discussionEl("p", "muted", "Discussion not found."));
+    setNodeChildren(container, nodes);
+    return "unavailable";
+  }
+  if (httpStatus === 503 || payload?.state === "backend_unavailable") {
+    const reason = typeof payload?.reason === "string" ? payload.reason : "store_unavailable";
+    nodes.push(discussionEl("p", "error", formatStateSummary("backend_unavailable", payload?.label, reason)));
+    setNodeChildren(container, nodes);
+    return "unavailable";
+  }
+  if (!(httpStatus >= 200 && httpStatus < 300) || !payload || typeof payload !== "object" || !Array.isArray(payload.messages)) {
+    nodes.push(discussionEl("p", "error", "Transcript response could not be read."));
+    setNodeChildren(container, nodes);
+    return "unavailable";
+  }
+
+  const topState = typeof payload.state === "string" ? payload.state : "unknown";
+  const summaryTone = DISCUSSION_STATE_TONE[topState] || "muted";
+  const summaryBar = discussionEl("div", "journal-meta");
+  summaryBar.appendChild(
+    discussionEl("span", `journal-tag ${summaryTone}`, formatStateSummary(topState, payload.label, payload.reason))
+  );
+  if (payload.truncated === true) {
+    summaryBar.appendChild(discussionEl("span", "journal-tag warn", "Truncated at row limit"));
+  }
+  nodes.push(summaryBar);
+
+  if (!payload.messages.length) {
+    nodes.push(discussionEl("p", "muted", "No transcript turns available."));
+    setNodeChildren(container, nodes);
+    return topState === "ok" ? "empty" : "unavailable";
+  }
+
+  const list = discussionEl("div", "journal-list");
+  for (const turn of payload.messages) {
+    if (!turn || typeof turn !== "object") continue;
+    const article = discussionEl("article", "journal-entry");
+    const meta = discussionEl("div", "journal-meta");
+
+    const ordinal = typeof turn.ordinal === "number" ? `#${turn.ordinal}` : "#?";
+    meta.appendChild(discussionEl("span", "journal-tag muted", ordinal));
+
+    const sender = typeof turn.sender === "string" && turn.sender ? turn.sender : "unknown";
+    const recipient = typeof turn.recipient === "string" && turn.recipient ? turn.recipient : "unknown";
+    meta.appendChild(discussionEl("span", "journal-author", `${sender} → ${recipient}`));
+
+    if (typeof turn.kind === "string" && turn.kind) {
+      meta.appendChild(discussionEl("span", "journal-tag", turn.kind));
+    }
+    if (typeof turn.round === "number" && Number.isInteger(turn.round)) {
+      meta.appendChild(discussionEl("span", "journal-tag muted", `round ${turn.round}`));
+    }
+    if (typeof turn.created_at === "string" && turn.created_at) {
+      meta.appendChild(discussionEl("time", "journal-time", utc(turn.created_at)));
+    }
+
+    const turnState = typeof turn.state === "string" ? turn.state : "unknown";
+    const turnTone = DISCUSSION_STATE_TONE[turnState] || "muted";
+    meta.appendChild(
+      discussionEl("span", `journal-tag ${turnTone}`, formatStateSummary(turnState, turn.label, turn.reason))
+    );
+    article.appendChild(meta);
+
+    if (turnState === "ok" && typeof turn.body === "string") {
+      article.appendChild(discussionEl("p", "journal-body", turn.body));
+    } else {
+      article.appendChild(
+        discussionEl("p", "muted", `${formatStateSummary(turnState, turn.label, turn.reason)} — body omitted.`)
+      );
+    }
+    list.appendChild(article);
+  }
+  nodes.push(list);
+  setNodeChildren(container, nodes);
+  return "loaded";
+}
+
+async function loadDiscussionsList() {
+  const seq = ++discussionsListSeq;
+  discussionStatus("Loading discussions…");
+  const container = document.getElementById("discussions-list");
+  try {
+    const response = await fetch(DISCUSSIONS_LIST_URL, {
+      cache: "no-store",
+      headers: {Accept: "application/json"},
+    });
+    if (seq !== discussionsListSeq) return false;
+    if (!response.ok) {
+      discussionStatus(`Discussions unavailable (HTTP ${response.status}).`);
+      setNodeChildren(container, [discussionEl("p", "error", `Discussions unavailable (HTTP ${response.status}).`)]);
+      return false;
+    }
+    let payload;
+    try { payload = JSON.parse(await response.text()); } catch { payload = null; }
+    if (seq !== discussionsListSeq) return false;
+    const loaded = renderDiscussionsListDom(payload);
+    if (!loaded) {
+      discussionStatus("Discussions list unavailable.");
+      return false;
+    }
+    const count = payload.conversations.length;
+    discussionStatus(`Loaded ${count} discussion${count === 1 ? "" : "s"}.`);
+    return true;
+  } catch {
+    if (seq !== discussionsListSeq) return false;
+    discussionStatus("Discussions could not load.");
+    setNodeChildren(container, [discussionEl("p", "error", "Discussions could not load.")]);
+    return false;
+  }
+}
+
+async function openDiscussion(conversationId) {
+  if (typeof conversationId !== "string" || !conversationId) return;
+  selectedConversationId = conversationId;
+  const seq = ++transcriptRequestSeq;
+  if (activeTranscriptController && typeof activeTranscriptController.abort === "function") {
+    activeTranscriptController.abort();
+  }
+  const controller = typeof AbortController === "function" ? new AbortController() : null;
+  activeTranscriptController = controller;
+
+  const container = document.getElementById("discussions-transcript");
+  setNodeChildren(container, [
+    discussionEl("h3", "", `Transcript: ${conversationId}`),
+    discussionEl("p", "muted", "Loading transcript…"),
+  ]);
+  discussionStatus(`Loading transcript ${conversationId}…`);
+
+  try {
+    const options = {cache: "no-store", headers: {Accept: "application/json"}};
+    if (controller) options.signal = controller.signal;
+    const response = await fetch(discussionTranscriptUrl(conversationId), options);
+    if (seq !== transcriptRequestSeq || conversationId !== selectedConversationId) return;
+    let payload = null;
+    try { payload = JSON.parse(await response.text()); } catch { payload = null; }
+    if (seq !== transcriptRequestSeq || conversationId !== selectedConversationId) return;
+    const outcome = renderTranscriptDom(conversationId, payload, response.status);
+    const statusText = outcome === "loaded"
+      ? `Transcript ${conversationId} loaded.`
+      : outcome === "empty"
+        ? `Transcript ${conversationId} has no turns yet.`
+        : `Transcript ${conversationId} unavailable.`;
+    discussionStatus(statusText);
+  } catch (error) {
+    if (error && error.name === "AbortError") return;
+    if (seq !== transcriptRequestSeq || conversationId !== selectedConversationId) return;
+    setNodeChildren(container, [
+      discussionEl("h3", "", `Transcript: ${conversationId}`),
+      discussionEl("p", "error", "Transcript could not load."),
+    ]);
+    discussionStatus(`Transcript ${conversationId} could not load.`);
+  } finally {
+    if (activeTranscriptController === controller) activeTranscriptController = null;
+  }
+}
+
+function bindDiscussionsPanel() {
+  if (typeof document !== "object" || !document || typeof document.getElementById !== "function"
+    || typeof document.createElement !== "function") return;
+  const disclosure = document.getElementById("discussions-disclosure");
+  if (!disclosure || !disclosure.dataset || typeof disclosure.addEventListener !== "function"
+    || disclosure.dataset.bound) return;
+  disclosure.dataset.bound = "1";
+  let loadedOnce = false;
+  disclosure.addEventListener("toggle", () => {
+    if (disclosure.open && !loadedOnce) {
+      loadDiscussionsList().then(ok => { if (ok) loadedOnce = true; });
+    }
+  });
+  const refreshBtn = document.getElementById("discussions-refresh");
+  if (refreshBtn && typeof refreshBtn.addEventListener === "function") {
+    refreshBtn.addEventListener("click", () => {
+      loadDiscussionsList().then(ok => { loadedOnce = Boolean(ok); });
+    });
+  }
+  const listBox = document.getElementById("discussions-list");
+  if (listBox && typeof listBox.addEventListener === "function") {
+    listBox.addEventListener("click", event => {
+      const target = event.target;
+      const button = typeof target?.closest === "function" ? target.closest("button[data-discussion-id]") : null;
+      if (button && button.dataset && button.dataset.discussionId) {
+        openDiscussion(button.dataset.discussionId);
+      }
+    });
+  }
+}
+
+const PANELS = [
+  {
+    id: "messages",
+    label: "Messages",
+    urls: [deliveryUrl()],
+    render: renderMessages,
+    onData: () => {
+      restoreListFocus();
+    },
+    onError: () => {
+      restoreListFocus(true);
+    },
+  },
+  {id: "comms", label: "Delivery health", urls: ["/api/comms/v1/metrics"], render: renderComms},
+];
+
+const runner = createPanelRunner({panels: PANELS, renderChips, onRefresh: loadSeatOptions});
+bindMessageControls();
+bindDiscussionsPanel();
+if (typeof location === "object" && location?.hash === "#health") {
+  const healthDisclosure = typeof document === "object" && document && document.getElementById
+    ? document.getElementById("health-disclosure") : null;
+  if (healthDisclosure) healthDisclosure.open = true;
+}
+runner.start();
+</script>
+</body>
+</html>

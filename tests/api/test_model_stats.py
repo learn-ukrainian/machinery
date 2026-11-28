@@ -89,7 +89,7 @@ def test_planning_and_model_stats_reject_non_ascii_repository_spellings(monkeypa
 
 def test_model_value_sections_explain_how_to_read_the_figures():
     """A dashboard section can keep showing numbers after losing the nearby reading guidance."""
-    html = machinery_path("api/dashboards/model-stats.html").read_text()
+    html = machinery_path("api/dashboards/models.html").read_text()
     sections = re.findall(r"<section\b[^>]*>.*?</section>", html, re.DOTALL)
     explanations = {
         "Window summary": ("Landed share divides those merges by all write tasks", "Low sample means"),
@@ -102,7 +102,7 @@ def test_model_value_sections_explain_how_to_read_the_figures():
         "Reviewer strictness": ("points farther right report more P0–P2 findings", "Compare similar assignments"),
         "Time to finish": ("box spans the middle half of timed writes", "Shorter times are better"),
         "Ukrainian tasks": ("report merged writes and how often reviewers approved", "Prefer a higher landed share"),
-        "Pool allowance": ("remaining allowance and reset time", "Cool means more headroom", "Lower points per landed task"),
+        "Allowance spent": ("These tasks had pool readings", "Lower points per landed task"),
         "Author or reviewer?": ("approved first time", "Read down one reviewer column"),
         "Write tasks": ("includes settled writes", "higher landed share"),
         "Never started": ("refused before execution by cause and role", "Fewer refusals"),
@@ -1466,17 +1466,17 @@ def test_model_version_and_effort_are_never_collapsed_or_defaulted(tmp_path, mon
                "unparsed_samples")
     assert all(key not in model and key not in effort
                for model in page["models"] for effort in model["by_effort"] for key in dropped)
-    html = machinery_path("api/dashboards/model-stats.html").read_text()
+    html = machinery_path("api/dashboards/models.html").read_text()
     assert "view=page" in html and "view=samples" in html and "Best value needs more data" in html and "Low sample" in html
     assert "samples.window.until === pageWindow.until" in html
     assert "unparsed_reasons" in html and "unparsed_samples" in html
     assert "output_tokens_per_landed" not in html and "p0_p2 || 0" not in html
     assert all(token in html for token in ("pareto-class", "pareto-x", "trends-metric",
-                                           "Not enough data", "pool_pace", "/subscriptions",
-                                           "landed_ci"))
+                                           "Not enough data", "landed_ci", "Capacity forecast"))
+    assert "/subscriptions" not in html and "Related live pages" not in html
     assert "quota-alerts" not in html and "Cached snapshot fallback:" not in html
     assert all(token not in html for token in ("planning-blockers", "planning-ready", "planning-blocked"))
-    assert "planning-pools" in html and 'href="/milestones"' in html
+    assert "capacity-content" in html and 'href="/milestones"' in html
     # Ten short tasks must stay eligible, and the score is approvals over recorded hours.
     rank_root = tmp_path / "value"
     rank_tasks = rank_root / "tasks"

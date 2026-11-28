@@ -2145,7 +2145,7 @@ def _render_home_usage(subs, budget=None):
             '-e',
             script,
             str(machinery_path('api/dashboards/machinery.js')),
-            str(machinery_path('api/dashboards/subscriptions.html')),
+            str(machinery_path('api/dashboards/models.html')),
         ],
         input=json.dumps({'subs': subs, 'budget': budget}), capture_output=True,
         text=True, check=True, timeout=30,

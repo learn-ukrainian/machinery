@@ -258,7 +258,7 @@ ROUTE_CONTRACTS: tuple[RouteContract, ...] = (
         "Configured Fleet Comms seats with queued delivery counts and last activity.",
         "Driver and external recipient registries, SQLite Fleet Comms deliveries, and live session-stream leases.",
         "Per-request read-only snapshot. Snapshot headers report unavailable sources.",
-        ("operators", "agents"),
+        ("fleet.html", "comms.html", "operators", "agents"),
         "Seat ids also filter the Fleet delivery projection.",
         "medium if unavailable sources are mistaken for no queued mail or no live lease",
         "keep as the read-only seat projection",
@@ -272,7 +272,7 @@ ROUTE_CONTRACTS: tuple[RouteContract, ...] = (
         "Paged Fleet Comms delivery records for exact roster seats.",
         "SQLite authority deliveries joined to allowlisted sender and kind labels.",
         "Per-request read-only snapshot. Limit and offset page one consistent SQLite read.",
-        ("operators", "agents"),
+        ("comms.html", "operators", "agents"),
         "The queued filter shares its recipient set with the seat backlog count.",
         "high if message content or labels outside the approved vocabulary escape the projection",
         "keep as the body-free delivery projection",
@@ -286,7 +286,7 @@ ROUTE_CONTRACTS: tuple[RouteContract, ...] = (
         "Read one visible Fleet message body. Returns typed expired, oversized, withheld, corrupt and unavailable states.",
         "Canonical Fleet Comms SQLite authority, configured delivery roster and the message's verified CAS body reference.",
         "Loopback-only, on demand, read-only and no-store. Bounds raw bytes, serialized response, SQLite work and concurrency.",
-        ("fleet.html", "operators"),
+        ("comms.html", "operators"),
         "Uses the same local access guard and secrets-and-paths redaction as the ACP transcript route.",
         "high if body content crosses the operator boundary",
         "keep as the on-demand Fleet message reader",
@@ -296,12 +296,12 @@ ROUTE_CONTRACTS: tuple[RouteContract, ...] = (
         "/api/fleet/messages/{message_id}/thread",
         "exact",
         "http",
-        "Page the visible metadata in the selected message's thread, channel and conversation.",
+        "Page the visible metadata (message_id, allowlisted sender label, kind, created_at) in the selected message's thread, channel and conversation.",
         "Canonical Fleet Comms SQLite authority and configured delivery roster.",
         "Loopback-only, on demand, read-only and no-store. An offset page contains no bodies.",
-        ("fleet.html", "operators"),
-        "The message body route uses the same visibility rule. This route supplies IDs for further selection.",
-        "high if unrelated or hidden message records appear in a thread",
+        ("comms.html", "operators"),
+        "Uses the message body visibility rule and the deliveries allowlisted sender projection. Supplies IDs and sender labels for thread navigation.",
+        "high if unrelated or hidden message records or non-allowlisted sender labels appear in a thread",
         "keep as the metadata-only Fleet thread reader",
         locality="cluster_authoritative",
     ),
@@ -339,7 +339,7 @@ ROUTE_CONTRACTS: tuple[RouteContract, ...] = (
         "Fleet Comms metrics, plane status, body-free inbox counts and batch progress; the legacy channel, module-trail and mutation routes answer 410 with their replacement (#515).",
         "Fleet Comms authority plane (read-only) and build state.",
         "Metrics has a startup-warmed 30-second cache with background refresh and a 120-second display bound allowing two page cycles and collection margin. Other routes read live. No route mutates state.",
-        ("progress.html", "fleet.html", "agents"),
+        ("progress.html", "comms.html", "agents"),
         "Fleet Comms is the only message store; the legacy broker and channel stores are removed (#515).",
         "low/medium",
         "keep",
@@ -398,7 +398,7 @@ ROUTE_CONTRACTS: tuple[RouteContract, ...] = (
         "/api/runtime/routing",
         "exact",
         "http",
-        "How work was routed, for the Routing page: one row per dispatch and review seat in the last 24 hours (what "
+        "How work was routed, for the Models & budget page: one row per dispatch and review seat in the last 24 hours (what "
         "was asked, the model and pool chosen, who chose each where the record proves it, the admission outcome, any "
         "recorded substitution) with per-lane counts, and the subscription pools in page order.",
         "Hot task records (batch_state/tasks) with the admission snapshot each dispatch records; the start-refusal "
@@ -408,7 +408,7 @@ ROUTE_CONTRACTS: tuple[RouteContract, ...] = (
         "answers pending and the page reads again after 3 s. Its age_s and X-Snapshot-Age-S count from the scan's "
         "as_of. The task store is listed on every request: a listing fault is typed unknown with its reason, never "
         "zero, and unreadable records make the scan partial.",
-        ("routing.html", "operators", "agents"),
+        ("models.html", "operators", "agents"),
         "Replaces /api/runtime/routing-assignments, whose routing-reservation ledger lost its only writer when the "
         "sealed formal review path was retired; reads the task records dispatch already writes instead of keeping a "
         "second record.",
@@ -425,7 +425,7 @@ ROUTE_CONTRACTS: tuple[RouteContract, ...] = (
         "The Monitor's validated per-account Claude snapshots, the host usage cache (Codex, AGY, Grok+Cursor), the operator's plan-facts file and the fleet model catalog.",
         "Generated per request from those caches and files only, never a provider call; each account carries its read time and is stale after 15 minutes; missing usage is typed unknown and an unreadable catalog is null.",
         ("index.html", "agents", "operators"),
-        "The routing-budget route shares this subscription projection for the Subscriptions page. The console command python -m lu_machinery.api.subscriptions prints the underlying usage snapshot.",
+        "The routing-budget route shares this subscription projection for the Models & budget page. The console command python -m lu_machinery.api.subscriptions prints the underlying usage snapshot.",
         "medium if a stale or unknown reading is read as current headroom",
         "keep as the subscriptions view",
     ),
@@ -457,7 +457,7 @@ ROUTE_CONTRACTS: tuple[RouteContract, ...] = (
         "row count checked before materialization, SQLite busy timeout, and a concurrency semaphore.",
         "Fleet Comms SQLite store (read-only) and content-addressed body artifacts under blobs/sha256.",
         "Read live per request; no route cache (Cache-Control: no-store); GET never mutates storage.",
-        ("fleet.html", "operators"),
+        ("comms.html", "operators"),
         "Uses the shared local body-read access guard (loopback listener, direct loopback peer, exact Host "
         "and Origin, Sec-Fetch-Site in {same-origin, none}, no Forwarded or X-Forwarded-* headers). "
         "Body-free timelines stay on /api/runtime/acp/conversations/{conversation_id}.",
@@ -473,7 +473,7 @@ ROUTE_CONTRACTS: tuple[RouteContract, ...] = (
         "Agent runtime inventory, usage, ACPX shadow evidence, ACP conversation observability, default-model quota headroom, recent calls, auth mode, and cached transport health.",
         "Runtime config, usage JSONL, the fleet-comms ACP SQLite store, sanitized probe receipt, environment presence booleans, and OAuth credential presence.",
         "Logins uses one request-triggered background snapshot, a 600-second refresh interval and a 900-second display bound allowing probe and page timing. The ACP conversation list is served stale-while-revalidate (state_helpers.swr_route): the last value at once with its true age in X-Snapshot-Age-S, per limit, refreshed after 15 s. Other routes read live files/env/SQLite. ACPX is aggregate evidence only and never launches a probe; ACP transcripts use the exact transcript contract (loopback-only, no-store, secrets-and-paths redaction only); transport health carries receipt expiry; auth reports booleans/source names only.",
-        ("index.html", "subscriptions.html", "fleet.html", "agents"),
+        ("index.html", "comms.html", "models.html", "agents"),
         "Usage complements /api/state/routing-budget and cost endpoints.",
         "medium; transcript bodies are restricted to the local conversation reader with secrets-and-paths redaction only",
         "keep",
@@ -484,10 +484,10 @@ ROUTE_CONTRACTS: tuple[RouteContract, ...] = (
         "exact",
         "http",
         "Per-agent soft-cap burn, routing recommendation, and Cursor Auto and API windows. "
-        "The Subscriptions page requests the per-account snapshot with ?include_subscriptions=true.",
+        "The Models & budget page requests the per-account snapshot with ?include_subscriptions=true.",
         f"{_rel('config', 'agent_budgets.yaml')}, cost records, delegate in-flight state, process-local CodexBar, and the usage and plan-facts inputs shared with /api/runtime/subscriptions.",
         "15-second routing cache with background refresh of expired snapshots; age, state and the 900-second source bound are exposed in snapshot headers. Subscription usage has its own background scheduler. HTTP ?fresh_codexbar=true starts a refresh and returns cache/LKG without waiting for a probe.",
-        ("subscriptions.html", "model-stats.html", "agents"),
+        ("models.html", "agents"),
         "Overlaps runtime usage and cost summaries but adds routing recommendation.",
         "low",
         "keep canonical for routing guidance",
@@ -642,7 +642,7 @@ ROUTE_CONTRACTS: tuple[RouteContract, ...] = (
         "One single-flight snapshot of all five windows, refreshed every 300s while the route or /metrics is read; "
         "healthy data at most 420s old; a request with no snapshot waits up to 15s for that collect, then answers "
         "pending with Retry-After 1, or 503 unavailable if the collect fails.",
-        ("model-stats.html", "fleet.html", "operators"),
+        ("models.html", "operators"),
         "Joins the agent-runtime usage log (ACP runs only) and /api/fleet/workers/v1 (live workers); "
         "agent success counts runs without landing or rounds.",
         "medium if a low-sample rate or a confounded comparison is read as a routing verdict",
@@ -659,7 +659,7 @@ ROUTE_CONTRACTS: tuple[RouteContract, ...] = (
         "Issue snapshots refresh on demand every 300 seconds and are stale after 420 seconds. "
         "The live-worker snapshot must be at most 10 seconds old to show ready-now entries. "
         "Meter reads refresh every 30 seconds. Unmeasured forecasts are unknown.",
-        ("milestones.html", "model-stats.html", "operators"),
+        ("milestones.html", "models.html", "operators"),
         "Private issue identities, issue text and worker paths stay internal. Private blockers have anonymous ranks. "
         "Ready-now requires an explicit path list in the card's scope. Files may use an extension and directories "
         "may use a trailing slash. The ./ prefix explicitly marks a repository-relative path.",
@@ -861,36 +861,35 @@ PAGE_CONTRACTS: tuple[PageContract, ...] = (
         label="Overview",
     ),
     PageContract(
-        "subscriptions.html",
-        "/subscriptions",
-        "Subscriptions: per-account weekly usage, pace, resets, 5-hour and scoped windows, credits, banked resets, plan renewal or end, sign-in state, Cursor Auto and API windows, and API account balances.",
-        "GET /api/state/routing-budget?include_subscriptions=true and /api/runtime/logins.",
-        "HTTP reads every 30 seconds; stale or unverified readings hide actionable quota, pace, reset and balance figures.",
-        ("humans", "operators"),
-        "Full detail backing the Overview capacity summary.",
-        "medium if a stale reading is read as current",
-        "keep",
-        label="Subscriptions",
-    ),
-    PageContract(
         "fleet.html",
         "/fleet",
         "Fleet: live agent workers with optional open-PR status, recently finished dispatches and unfinished-record "
-        "attention list, Fleet Comms store/queue/failure metrics, seats and deliveries, a seven-day token summary, "
-        "and on-demand loopback-only readers for Fleet messages and ACP discussions with best-effort "
-        "secrets-and-paths redaction.",
-        "GET /api/delegate/active, /api/delegate/recent, /api/comms/v1/metrics, /api/fleet/seats, "
-        "/api/fleet/deliveries, /api/fleet/model-stats?window=7d&view=tokens, optional /api/git/pull-requests, "
-        "and on-demand /api/fleet/messages/{message_id}/body, /api/fleet/messages/{message_id}/thread, "
+        "attention list, and driver seats with lease liveness and links to queued mail on Comms.",
+        "GET /api/delegate/active, /api/delegate/recent, /api/fleet/seats, and optional /api/git/pull-requests.",
+        "HTTP reads every 30 seconds for live panels.",
+        ("humans", "operators"),
+        "Live agent fleet and seat liveness; messages, discussions and delivery health live on Comms.",
+        "medium if a stale reading is read as current",
+        "keep",
+        label="Fleet",
+    ),
+    PageContract(
+        "comms.html",
+        "/comms",
+        "Comms: Fleet Comms deliveries in a mail-style list with on-demand loopback-only message body and thread "
+        "reader, on-demand loopback-only ACP discussions transcript reader with best-effort secrets-and-paths "
+        "redaction, and delivery health store/queue/failure metrics.",
+        "GET /api/fleet/deliveries, /api/fleet/seats, /api/comms/v1/metrics, and on-demand "
+        "/api/fleet/messages/{message_id}/body, /api/fleet/messages/{message_id}/thread, "
         "/api/fleet/acp/conversations and /api/runtime/acp/conversations/{conversation_id}/transcript.",
         "HTTP reads every 30 seconds for live panels. Load and polling make zero body or transcript requests. "
         "Selecting a message opens its body and paged thread metadata. Opening Discussions loads the ACP list, "
         "and selecting a conversation opens its transcript. Bodies and transcripts use no-store and textContent rendering.",
         ("humans", "operators"),
-        "Combines live agent dispatch activity, Fleet Comms metrics, and on-demand ACP transcript reading on one area page.",
+        "Dedicated area page for Fleet Comms messages, ACP discussions, and delivery health.",
         "medium if a stale reading is read as current; transcript redaction covers secrets and filesystem paths only",
         "keep",
-        label="Fleet & comms",
+        label="Comms",
     ),
     PageContract(
         "pull-requests.html",
@@ -917,37 +916,22 @@ PAGE_CONTRACTS: tuple[PageContract, ...] = (
         label="Milestones",
     ),
     PageContract(
-        "routing.html",
-        "/routing",
-        "Routing: a flow picture of the four routing stages (who picks the model, which account pays, admission, what "
-        "ran) with the last 24 hours' counts, and one row per recent dispatch and review seat with what was asked, "
-        "what was chosen, by whom where the record proves it, and why.",
-        "GET /api/runtime/routing.",
-        "HTTP reads every 30 seconds; recent decisions are at most 90 seconds old and their age is shown; a stale or "
-        "missing source reads unknown since the time of its last reading.",
+        "models.html",
+        "/models",
+        "Models & budget: per-account subscription usage, pace, resets, sign-in, Cursor windows, API account "
+        "balances and capacity forecast; last-24-hour routing four-stage flow and recent decisions; and model "
+        "value, token use and waste, job picks, value frontier, weekly trends, reviewer strictness, reviewer "
+        "accuracy, and detailed model statistics.",
+        "GET /api/state/routing-budget?include_subscriptions=true, /api/runtime/logins, "
+        "/api/fleet/model-stats/planning, /api/runtime/routing, and "
+        "/api/fleet/model-stats?window=24h|7d|30d|90d|all&view=page|samples.",
+        "HTTP reads every 30 seconds for budget, capacity forecast, and routing panels; model value reads on load "
+        "and on window change. Stale or unverified readings hide actionable quota, pace, reset and balance figures.",
         ("humans", "operators"),
-        "Shows routing decisions; the Subscriptions page keeps the full per-account usage and Fleet the live worker list.",
-        "medium if a review row's model is read as the resolver's pick",
+        "Consolidates subscription budget, routing decisions, and model value statistics on one area page.",
+        "medium if a stale reading is read as current or a low-sample rate is read as a verdict",
         "keep",
-        label="Routing",
-    ),
-    PageContract(
-        "model-stats.html",
-        "/model-stats",
-        "Model value, waste and speed: best-value frontier, per-class job ranking, status mix, weekly trends, "
-        "reviewer strictness, wall-time distributions, pool allowance, observed wall hours per landed task "
-        "(wall_hours_observed), write/review/author tables labelled with window and sample size, and token use and "
-        "waste with coverage and provider mapping.",
-        "GET /api/fleet/model-stats?window=24h|7d|30d|90d|all&view=page, GET /api/state/routing-budget, "
-        "and GET /api/fleet/model-stats/planning.",
-        "HTTP read on load and on window change; the model-stats snapshot is at most 420 seconds old and its age is "
-        "shown.",
-        ("humans", "operators"),
-        "Reads /api/fleet/model-stats (view=page) and /api/state/routing-budget (live pool meter); the machinery home "
-        "shows live usage, not outcomes.",
-        "medium if a low-sample rate is read as a verdict",
-        "keep",
-        label="Model statistics",
+        label="Models & budget",
     ),
     PageContract(
         "journal.html",

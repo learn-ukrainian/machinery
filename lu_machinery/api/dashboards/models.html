@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Model statistics — Machinery</title>
+<title>Models &amp; budget — Machinery</title>
 <link rel="icon" href="data:,">
 <link rel="stylesheet" href="/machinery.css">
 <style>
@@ -21,42 +21,57 @@
     --series-0: #72b4f2; --series-1: #ffa761; --series-2: #54d4a7; --series-3: #ed9fcd;
     --series-4: #e7cd65; --series-5: #aab2be; --series-6: #bcabff; --series-7: #ff8a89;
   }
-  select { max-width: 100%; font: inherit; font-size: 13px; color: var(--fg); background: var(--card); border: 1px solid var(--line); border-radius: 6px; padding: 2px 6px; }
-  .filters { margin-left: auto; display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; font-size: 13px; }
-  .controls { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; margin: 4px 0 8px; font-size: 13px; }
   main { grid-template-columns: minmax(0, 1fr); }
   @media (min-width: 1024px) {
     main { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-    section.wide { grid-column: 1 / -1; }
+    section.wide, details.wide { grid-column: 1 / -1; }
   }
-  section { overflow-x: visible; }
-  @media (min-width: 641px) {
-    section[id] { scroll-margin-top: var(--sticky-offset, 96px); }
-  }
+  section[id] { scroll-margin-top: var(--sticky-offset, 96px); }
   @media (max-width: 640px) {
     header { position: static; }
   }
-  @media (max-width: 599px) {
-    header, main { padding-inline: 12px; }
-    section { padding-inline: 10px; }
-    .filters { margin-left: 0; }
+  /* Routing four-stage flow */
+  .flow { display: grid; grid-template-columns: 9rem repeat(4, minmax(0, 1fr)); gap: 8px 22px; align-items: stretch; margin: 6px 0 4px; }
+  .flow .lane { font-weight: 600; font-size: 13px; align-self: center; }
+  .flow .lane small { display: block; font-weight: normal; color: var(--muted); }
+  .stage { position: relative; border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; background: var(--bg); min-width: 0; }
+  .stage + .stage::before { content: "→"; position: absolute; left: -18px; top: 50%; transform: translateY(-50%); color: var(--muted); font-size: 16px; }
+  .stage.unchecked { border-style: dashed; background: transparent; }
+  .stage .who { font-size: 12px; color: var(--muted); }
+  .stage .count { font-size: 20px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .stage .split { font-size: 12px; overflow-wrap: anywhere; }
+  .flow-head { font-size: 12px; color: var(--muted); font-weight: 600; }
+  .callout { border-left: 3px solid var(--line); padding: 2px 0 2px 10px; margin: 8px 0; }
+  .callout.warn { border-color: var(--warn); }
+  td .why { display: block; font-size: 12px; color: var(--muted); white-space: normal; }
+  @media (max-width: 900px) {
+    .flow { grid-template-columns: 1fr; gap: 6px; }
+    .flow .flow-head { display: none; }
+    .flow .lane { margin-top: 8px; }
+    .stage + .stage::before { content: "↓"; left: 50%; top: -14px; transform: translateX(-50%); font-size: 13px; }
+    .stage + .stage { margin-top: 10px; }
   }
-  h2 { display: block; }
-  h2 .meta { font-weight: normal; font-size: 12px; color: var(--muted); margin-left: 8px; }
+  /* Model value section bar and tables */
+  .mv-head { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: flex-end; justify-content: space-between; margin-bottom: 6px; }
+  .mv-head h2 { margin: 0; }
+  .mv-head .filters { margin: 0; }
+  select { max-width: 100%; font: inherit; font-size: 13px; color: var(--fg); background: var(--card); border: 1px solid var(--line); border-radius: 6px; padding: 2px 6px; }
+  .controls { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; margin: 4px 0 8px; font-size: 13px; }
+  h2 .meta { font-weight: normal; font-size: 12px; color: var(--muted); }
   .table-scroll { overflow-x: auto; }
   .table-scroll:focus-visible { outline: 2px solid var(--link); outline-offset: -2px; }
   .scroll-hint { margin: 4px 0; }
-  table { border-collapse: separate; border-spacing: 0; width: 100%; }
-  th, td { text-align: left; padding: 5px 8px; border-bottom: 1px solid var(--line); }
-  thead th { min-width: 6ch; white-space: normal; }
-  td.num { white-space: nowrap; }
-  th.num, td.num { text-align: right; font-variant-numeric: tabular-nums; }
-  tr > :first-child:not([colspan]) { position: sticky; left: 0; background: var(--card); }
-  tr > :first-child { overflow-wrap: anywhere; min-width: 11ch; }
+  .table-scroll table { border-collapse: separate; border-spacing: 0; width: 100%; }
+  .table-scroll th, .table-scroll td { text-align: left; padding: 5px 8px; border-bottom: 1px solid var(--line); }
+  .table-scroll thead th { min-width: 6ch; white-space: normal; }
+  .table-scroll td.num { white-space: nowrap; }
+  .table-scroll th.num, .table-scroll td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .table-scroll tr > :first-child:not([colspan]) { position: sticky; left: 0; background: var(--card); }
+  .table-scroll tr > :first-child { overflow-wrap: anywhere; min-width: 11ch; }
   tr.cls td { color: var(--muted); font-size: 13px; }
   tr.eff td:first-child { padding-left: 16px; font-style: italic; }
   tr.group td { color: var(--muted); font-weight: 600; padding-top: 10px; }
-  tr.group th { background: var(--soft); color: var(--fg); }
+  .table-scroll tr.group th { background: var(--soft); color: var(--fg); }
   tr.total td, tr.best td { font-weight: 600; }
   tr.best td, tr.best > :first-child { background: var(--soft); }
   .note { font-size: 13px; color: var(--muted); }
@@ -81,6 +96,27 @@
   .jump-links { display: flex; flex-wrap: wrap; gap: 4px 12px; margin: 8px 0 0; font-size: 13px; }
   details { margin-block: 8px; }
   details summary { cursor: pointer; color: var(--link); font-size: 13px; }
+  details.more-stats {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 10px 14px;
+    margin: 0;
+  }
+  details.more-stats > summary {
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--fg);
+  }
+  .more-stats-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 14px;
+    margin-top: 12px;
+  }
+  @media (min-width: 1024px) {
+    .more-stats-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  }
   svg.chart { display: block; max-width: 100%; }
   svg text { fill: var(--fg); font-size: 12px; }
   svg .grid { stroke: var(--line); stroke-width: 1; }
@@ -105,63 +141,108 @@
 <header>
   <div class="header-top">
     <div class="title">
-      <h1>Model value</h1>
-      <p class="purpose">Which model gives the best value for which job, from our own dispatch records. Routing stays a CTO decision.</p>
+      <h1>Models &amp; budget</h1>
+      <p class="purpose">What can be spent now, where recent work was routed, and which model gives the best value.</p>
     </div>
     <div class="header-utils">
       <nav class="sites" id="machinery-sites" aria-label="Sites"></nav>
       <button type="button" class="theme-toggle" id="theme-toggle">Theme: Auto</button>
+      <div class="refresh">
+        <span class="muted" id="last-refresh">Loading…</span>
+        <button type="button" class="retry" id="refresh-retry" hidden aria-label="Retry refresh">Retry</button>
+      </div>
     </div>
   </div>
   <div class="header-nav">
     <nav class="pages" id="machinery-nav" aria-label="Pages">__MACHINERY_NAV__</nav>
-    <div class="filters">
-      <label>Window <select id="window">
-        <option value="24h">24 hours</option><option value="7d" selected>7 days</option>
-        <option value="30d">30 days</option><option value="90d">90 days</option><option value="all">All history</option>
-      </select></label>
-      <label>Model <select id="model"><option value="">All models</option></select></label>
-    </div>
+    <div class="chips" id="chips"></div>
   </div>
 </header>
 <main id="main" tabindex="-1">
-  <section class="wide" aria-label="Window summary">
+  <section class="wide stacked" id="budget">
+    <h2>Budget now: usage, pace, resets and sign-in <span class="age" id="usage-age">Loading…</span></h2>
+    <p id="usage-status" class="visually-hidden" aria-live="polite" aria-atomic="true"></p>
+    <div id="usage-content">Loading…</div>
+    <p class="muted" id="subq-credit-balance"><strong>SubQ credit balance.</strong> Not available from the provider.</p>
+    <h3 id="capacity">Capacity forecast <span class="age" id="capacity-age">Loading…</span></h3>
+    <p id="capacity-status" class="visually-hidden" aria-live="polite" aria-atomic="true"></p>
+    <p class="note">Projected unused allowance assumes the measured burn continues until reset. Additional workers are estimated from write-task allowance readings over seven days. Top blockers, ready-now cards, and blocked issues moved to <a href="/milestones">Milestones</a>.</p>
+    <div id="capacity-content">Loading…</div>
+  </section>
+
+  <section class="wide stacked" id="routing">
+    <h2>Routing, last 24 hours <span class="age" id="flow-age">Loading…</span></h2>
+    <p id="flow-status" class="visually-hidden" aria-live="polite" aria-atomic="true"></p>
+    <div id="flow-content">Loading…</div>
+    <h3 id="decisions">Recent decisions <span class="age" id="decisions-age">Loading…</span></h3>
+    <form class="filters" id="decision-filters" onsubmit="return false">
+      <label>Work
+        <select id="filter-kind" autocomplete="off">
+          <option value="">All work</option>
+          <option value="write">Writes</option>
+          <option value="review">Reviews</option>
+          <option value="read_only">Other read-only</option>
+        </select>
+      </label>
+      <label>Pool
+        <select id="filter-pool" autocomplete="off"><option value="">All pools</option></select>
+      </label>
+      <label>Show
+        <select id="filter-outcome" autocomplete="off">
+          <option value="">Every decision</option>
+          <option value="held">Deferred, refused or without admission proof</option>
+          <option value="substituted">Substitutions</option>
+          <option value="live">Running now</option>
+        </select>
+      </label>
+    </form>
+    <div id="decisions-content">Loading…</div>
+  </section>
+
+  <section class="wide" id="model-value" aria-label="Window summary">
+    <div class="mv-head">
+      <h2>Model value</h2>
+      <div class="filters">
+        <label>Window <select id="window">
+          <option value="24h">24 hours</option><option value="7d" selected>7 days</option>
+          <option value="30d">30 days</option><option value="90d">90 days</option><option value="all">All history</option>
+        </select></label>
+        <label>Model <select id="model"><option value="">All models</option></select></label>
+      </div>
+    </div>
+    <p id="model-value-status" class="visually-hidden" aria-live="polite" aria-atomic="true"></p>
     <p class="note" id="age">Loading…</p>
     <div id="coverage"></div>
     <div class="banner" id="recommend">Loading…</div>
     <p class="note" id="waste-note" hidden>Delivery alerts show models that landed under 15% of at least 10 write tasks. Use the interval and job class to judge how much weight to give the alert.</p>
     <div class="alerts" id="waste"></div>
     <nav class="jump-links" aria-label="Jump to section">
+      <a href="#budget">Budget now</a>
+      <a href="#routing">Routing</a>
       <a href="#jobs">Best picks</a>
       <a href="#frontier-section">Value frontier</a>
+      <a href="#token-use">Token use</a>
       <a href="#trends-section">Week by week</a>
-      <a href="#neon-section">Neon effort</a>
+      <a href="#strictness-section">Reviewer strictness</a>
       <a href="#accuracy-section">Reviewer accuracy</a>
-      <a href="#token-use">Token use and waste</a>
-      <a href="#pools-section">Pool pace</a>
-      <span class="muted">· Related live pages:</span>
-      <a href="/fleet">Dispatches</a>
-      <a href="/pull-requests">Pull requests</a>
-      <a href="/subscriptions">Subscriptions</a>
+      <a href="#more-model-stats">More statistics</a>
     </nav>
     <details><summary>Terms used on this page</summary>
       <p class="note">Landed means merged to main. Landed share divides those merges by all write tasks, including failed attempts. Low sample means fewer than 10 observations in the relevant denominator.</p>
       <p class="note">An interval is the 95% Wilson interval for a share. Wide intervals signal uncertainty, and overlapping intervals alone cannot settle a comparison.</p>
       <p class="note">A first-round approval means the first reviewer approved the PR. P0–P2 are findings from the highest priority through P2. A dash means the records lack a value for that metric.</p>
       <p class="note">Per-task and per-PR links are omitted because the page feed carries no task ids or private repository identifiers.</p>
-    </details></section>
-  <section class="wide" id="token-use" aria-label="Token use and waste">
-    <h2>Token use and waste <span class="meta" id="tokens-window"></span></h2>
-    <div id="tokens-body">Loading…</div>
-    <details><summary>How providers report tokens</summary>
-      <p class="note">Codex fresh input is input minus cache reads. Claude, Cursor and OpenCode add cache writes to fresh input. AGY reports fresh input directly. Cached input counts cache reads. Add the separate thinking or reasoning counter to output for AGY, Cursor and OpenCode. Codex and Claude output already include it.</p>
-      <p class="note">Rates divide recorded tokens for work that settled in the window by PRs observed merging in the same window. Rates need readable local origin/main history for every registered repository. Cache hit is cached input divided by fresh plus cached input. Token volume does not measure price.</p>
     </details>
   </section>
-  <section class="wide" id="jobs"><h2>Best model per job <span class="meta" id="jobs-meta"></span></h2>
+
+  <section class="wide" id="jobs">
+    <h2>Best model per job <span class="meta" id="jobs-meta"></span></h2>
     <p class="note">Compare landed share within each job class and check the interval and hours per merge. A star marks the highest positive share among models with at least 10 tasks in that class, including ties.</p>
-    <div id="jobs-body">Loading…</div></section>
-  <section id="frontier-section"><h2>Value frontier <span class="meta" id="chart-meta"></span></h2>
+    <div id="jobs-body">Loading…</div>
+  </section>
+
+  <section id="frontier-section">
+    <h2>Value frontier <span class="meta" id="chart-meta"></span></h2>
     <p class="note">Each marker compares first-round approval with recorded hours per landed task (or landed share when filtered to one job class). Look toward the upper left for higher approval or landed share at lower cost or time, and use the vertical intervals to judge uncertainty.</p>
     <div class="controls">
       <label>Job class <select id="pareto-class"><option value="all">All classes (PR approval)</option></select></label>
@@ -170,8 +251,20 @@
         <option value="speed">Median write min (speed)</option>
       </select></label>
     </div>
-    <div id="chart">Loading…</div></section>
-  <section id="trends-section"><h2>Week by week</h2>
+    <div id="chart">Loading…</div>
+  </section>
+
+  <section class="wide" id="token-use" aria-label="Token use and waste">
+    <h2>Token use and waste <span class="meta" id="tokens-window"></span></h2>
+    <div id="tokens-body">Loading…</div>
+    <details><summary>How providers report tokens</summary>
+      <p class="note">Codex fresh input is input minus cache reads. Claude, Cursor and OpenCode add cache writes to fresh input. AGY reports fresh input directly. Cached input counts cache reads. Add the separate thinking or reasoning counter to output for AGY, Cursor and OpenCode. Codex and Claude output already include it.</p>
+      <p class="note">Rates divide recorded tokens for work that settled in the window by PRs observed merging in the same window. Rates need readable local origin/main history for every registered repository. Cache hit is cached input divided by fresh plus cached input. Token volume does not measure price.</p>
+    </details>
+  </section>
+
+  <section id="trends-section">
+    <h2>Week by week</h2>
     <p class="note">Higher points mean a larger share of that UTC week's write tasks landed (or reviewed PRs approved first round), among the busiest models with at least 10 tasks in the window. Use full weeks with enough tasks to compare changes over time.</p>
     <div class="controls">
       <label>Metric <select id="trends-metric">
@@ -179,80 +272,991 @@
         <option value="approval">First-round approval (PRs)</option>
       </select></label>
     </div>
-    <div id="trends">Loading…</div></section>
-  <section><h2>Where the work went</h2>
-    <p class="note">Bar length shows how many write tasks settled for each model, and the segments show how they ended. A larger Done share means fewer runs ended in other states, and Write tasks shows the share that merged.</p>
-    <div id="failures">Loading…</div></section>
-  <section><h2>Time to finish</h2>
-    <p class="note">The box spans the middle half of timed writes, the line inside marks the median, and the whisker ends at the time that 90% finished within. Shorter times are better for comparable work that lands.</p>
-    <div id="boxes">Loading…</div></section>
-  <section><h2>Reviewer strictness <span class="meta" id="review-meta"></span></h2>
-    <p class="note">Higher points approve more often, and points farther right report more P0–P2 findings per review with a findings count. Compare similar assignments and read the intervals before calling a reviewer strict or lenient.</p>
-    <div id="strictness">Loading…</div></section>
-  <section class="wide" id="planning-section"><h2>Capacity forecast</h2>
-    <p class="note">Projected unused allowance assumes the measured burn continues until reset. Additional workers are estimated from write-task allowance readings over seven days. Top blockers, ready-now cards, and blocked issues moved to <a href="/milestones">Milestones</a>.</p>
-    <p class="note" id="planning-coverage" role="status">Loading capacity forecast…</p>
-    <div id="planning-pools"></div>
+    <div id="trends">Loading…</div>
   </section>
-  <section id="pools-section"><h2>Pool allowance</h2>
-    <p class="note">The live meter shows remaining allowance and reset time, plus pace to reset. Cool means more headroom, while hot and near cap flag pressure on the pool. <a href="/subscriptions">Full per-account pacing on Subscriptions</a>.</p>
-    <div id="pools">Loading…</div>
-    <h3>Allowance spent</h3>
-    <p class="note">These tasks had pool readings, and resets or overlaps can leave their usage unknown. Lower points per landed task are better for comparable work.</p>
-    <div id="allowance">Loading…</div></section>
-  <section class="wide" id="neon-section"><h2>Neon medium against high</h2>
-    <p class="note">Compare Neon medium and high on write landings, reviewer approvals and typical runtime. Use the counts and approval intervals before favoring a setting, and compare approvals only for similar review work.</p>
-    <div id="neon">Loading…</div></section>
-  <section class="wide" id="accuracy-section"><h2>Reviewer accuracy <span class="meta" id="accuracy-meta"></span></h2>
+
+  <section id="strictness-section">
+    <h2>Reviewer strictness <span class="meta" id="review-meta"></span></h2>
+    <p class="note">Higher points approve more often, and points farther right report more P0–P2 findings per review with a findings count. Compare similar assignments and read the intervals before calling a reviewer strict or lenient.</p>
+    <div id="strictness">Loading…</div>
+  </section>
+
+  <section class="wide" id="accuracy-section">
+    <h2>Reviewer accuracy <span class="meta" id="accuracy-meta"></span></h2>
     <p class="note">Each blocking (P0–P1) finding counts as fixed when the author changed its file before the same reviewer approved, and as dismissed when that reviewer approved with the file unchanged. Higher precision means more of a reviewer's blocking findings led to a change; check the settled count and interval before comparing reviewers. Only verdicts the recorder published count: a blocking reply with no recorded publication is of unknown publication and is left out. The author labels follow the table.</p>
-    <div id="accuracy">Loading…</div></section>
-  <section class="wide"><h2>Compare reviewer levels</h2>
-    <p class="note">Compare recorded reviewer effort levels by readable results, first-round approval, runtime and usage linked to landings. Look for more readable results and lower time or allowance cost on similar work with enough observations.</p>
-    <label>Reviewer model <select id="level-model"></select></label>
-    <div id="levels">Loading…</div></section>
-  <section><h2>Ukrainian tasks</h2>
-    <p class="note">These Ukrainian task classes report merged writes and how often reviewers approved. Prefer a higher landed share on comparable writes with enough tasks, and use review approval to understand reviewer behavior.</p>
-    <div id="ukrainian">Loading…</div></section>
-  <section><h2>Never started</h2>
-    <p class="note">These counts group dispatches refused before execution by cause and role. Fewer refusals generally mean fewer dispatches lost before work starts.</p>
-    <div id="never-started">Loading…</div></section>
-  <section class="wide"><h2>Author or reviewer? <span class="meta" id="matrix-meta"></span></h2>
-    <p class="note">Each cell shows the share of an author's PRs that the named reviewer approved first time. Read down one reviewer column in a single class for higher first-round approval, and check the count before comparing.</p>
-    <label>Review class <select id="matrix-class"><option value="all">all classes</option></select></label>
-    <div id="matrix">Loading…</div></section>
-  <section class="wide"><h2>Write tasks <span class="meta" id="write-meta"></span></h2>
-    <p class="note">The count above includes settled writes with known effort. The unknown effort rows show the excluded tasks. Compare similar work for a higher landed share and fewer hours per merge.</p>
-    <div id="write">Loading…</div></section>
-  <section class="wide"><h2>No deliverable by cause</h2>
-    <p class="note">Counts use the cause recorded at dispatch settlement. Missing causes count under No commits or unknown.</p>
-    <div id="delivery-causes">Loading…</div></section>
-  <section class="wide"><h2>Reviews <span class="meta" id="reviews-meta"></span></h2>
-    <p class="note">The count above includes settled reviews and other read-only tasks with known effort. PR comparisons list reviewer effort and include PRs with known effort across the counted reviews. Evidence absent counts tasks with neither review metadata nor a readable verdict. Look for fewer unreadable or unfinished results.</p>
-    <div id="review">Loading…</div>
-    <div id="unparsed-samples"></div></section>
-  <section class="wide"><h2>Reviewed PRs <span class="meta" id="author-meta"></span></h2>
-    <p class="note">The count above covers reviewed PRs for the shown authors, and higher first-round approval and fewer rounds are better for similar PRs. After a blocked first round, the percentages show approval on a new head, approval on the same head, or no approval in the window.</p>
-    <div id="author">Loading…</div></section>
-  <section class="wide"><h2>Authors by risk tier <span class="meta" id="risk-meta"></span></h2>
-    <p class="note">Author figures use the risk tier of each PR's first published review. Compare authors within one tier and diff size band. Size is additions plus deletions at merge. PRs without a measurable landed diff have unknown size.</p>
-    <label>Diff size <select id="risk-size">
-      <option value="all">All sizes</option>
-      <option value="small">0–100 lines</option>
-      <option value="medium">101–1,000 lines</option>
-      <option value="large">Over 1,000 lines</option>
-      <option value="unknown">Unknown</option>
-    </select></label>
-    <div id="risk">Loading…</div></section>
-  <section class="wide"><h2>Post-merge rework proxy</h2>
-    <p class="note">Share of attributed merges named by a later fix or revert within seven days in the same repository. The selected window applies to the end of those seven days. Merges need a full week of local history to count.</p>
-    <div id="rework">Loading…</div></section>
-  <section class="wide"><details><summary>What the records can tell you</summary><div id="limits" class="note"></div></details>
-    <p class="note" id="idle"></p></section>
+    <div id="accuracy">Loading…</div>
+  </section>
+
+  <details class="wide more-stats" id="more-model-stats">
+    <summary>More model statistics</summary>
+    <div class="more-stats-grid">
+      <section><h2>Where the work went</h2>
+        <p class="note">Bar length shows how many write tasks settled for each model, and the segments show how they ended. A larger Done share means fewer runs ended in other states, and Write tasks shows the share that merged.</p>
+        <div id="failures">Loading…</div></section>
+      <section><h2>Time to finish</h2>
+        <p class="note">The box spans the middle half of timed writes, the line inside marks the median, and the whisker ends at the time that 90% finished within. Shorter times are better for comparable work that lands.</p>
+        <div id="boxes">Loading…</div></section>
+      <section class="wide" id="allowance-section"><h2>Allowance spent</h2>
+        <p class="note">These tasks had pool readings, and resets or overlaps can leave their usage unknown. Lower points per landed task are better for comparable work.</p>
+        <div id="allowance">Loading…</div></section>
+      <section class="wide" id="neon-section"><h2>Neon medium against high</h2>
+        <p class="note">Compare Neon medium and high on write landings, reviewer approvals and typical runtime. Use the counts and approval intervals before favoring a setting, and compare approvals only for similar review work.</p>
+        <div id="neon">Loading…</div></section>
+      <section class="wide"><h2>Compare reviewer levels</h2>
+        <p class="note">Compare recorded reviewer effort levels by readable results, first-round approval, runtime and usage linked to landings. Look for more readable results and lower time or allowance cost on similar work with enough observations.</p>
+        <label>Reviewer model <select id="level-model"></select></label>
+        <div id="levels">Loading…</div></section>
+      <section><h2>Ukrainian tasks</h2>
+        <p class="note">These Ukrainian task classes report merged writes and how often reviewers approved. Prefer a higher landed share on comparable writes with enough tasks, and use review approval to understand reviewer behavior.</p>
+        <div id="ukrainian">Loading…</div></section>
+      <section><h2>Never started</h2>
+        <p class="note">These counts group dispatches refused before execution by cause and role. Fewer refusals generally mean fewer dispatches lost before work starts.</p>
+        <div id="never-started">Loading…</div></section>
+      <section class="wide"><h2>Author or reviewer? <span class="meta" id="matrix-meta"></span></h2>
+        <p class="note">Each cell shows the share of an author's PRs that the named reviewer approved first time. Read down one reviewer column in a single class for higher first-round approval, and check the count before comparing.</p>
+        <label>Review class <select id="matrix-class"><option value="all">all classes</option></select></label>
+        <div id="matrix">Loading…</div></section>
+      <section class="wide"><h2>Write tasks <span class="meta" id="write-meta"></span></h2>
+        <p class="note">The count above includes settled writes with known effort. The unknown effort rows show the excluded tasks. Compare similar work for a higher landed share and fewer hours per merge.</p>
+        <div id="write">Loading…</div></section>
+      <section class="wide"><h2>No deliverable by cause</h2>
+        <p class="note">Counts use the cause recorded at dispatch settlement. Missing causes count under No commits or unknown.</p>
+        <div id="delivery-causes">Loading…</div></section>
+      <section class="wide"><h2>Reviews <span class="meta" id="reviews-meta"></span></h2>
+        <p class="note">The count above includes settled reviews and other read-only tasks with known effort. PR comparisons list reviewer effort and include PRs with known effort across the counted reviews. Evidence absent counts tasks with neither review metadata nor a readable verdict. Look for fewer unreadable or unfinished results.</p>
+        <div id="review">Loading…</div>
+        <div id="unparsed-samples"></div></section>
+      <section class="wide"><h2>Reviewed PRs <span class="meta" id="author-meta"></span></h2>
+        <p class="note">The count above covers reviewed PRs for the shown authors, and higher first-round approval and fewer rounds are better for similar PRs. After a blocked first round, the percentages show approval on a new head, approval on the same head, or no approval in the window.</p>
+        <div id="author">Loading…</div></section>
+      <section class="wide"><h2>Authors by risk tier <span class="meta" id="risk-meta"></span></h2>
+        <p class="note">Author figures use the risk tier of each PR's first published review. Compare authors within one tier and diff size band. Size is additions plus deletions at merge. PRs without a measurable landed diff have unknown size.</p>
+        <label>Diff size <select id="risk-size">
+          <option value="all">All sizes</option>
+          <option value="small">0–100 lines</option>
+          <option value="medium">101–1,000 lines</option>
+          <option value="large">Over 1,000 lines</option>
+          <option value="unknown">Unknown</option>
+        </select></label>
+        <div id="risk">Loading…</div></section>
+      <section class="wide"><h2>Post-merge rework proxy</h2>
+        <p class="note">Share of attributed merges named by a later fix or revert within seven days in the same repository. The selected window applies to the end of those seven days. Merges need a full week of local history to count.</p>
+        <div id="rework">Loading…</div></section>
+      <section class="wide"><details><summary>What the records can tell you</summary><div id="limits" class="note"></div></details>
+        <p class="note" id="idle"></p></section>
+    </div>
+  </details>
 </main>
 <script src="/machinery.js"></script>
 <script>
 "use strict";
-Machinery.initChrome();
+const {
+  escapeHtml, toDate, utc, span, relative, validPct, pct: fmtPct, labelled, table: mTable, td, text, unknown, chip,
+  readingState, freshnessCell, windowLeft, paceCell, readingCell, signInCell,
+  createPanelRunner,
+} = Machinery;
+
+// ---- Budget now (subscriptions, API balances, Cursor windows, capacity forecast) ----
+
+// A provider's unset reset time arrives as the Unix epoch: at or before it, no reset was reported.
+function reportedReset(value) {
+  const moment = toDate(value);
+  return moment && moment.getTime() > 0 ? moment : null;
+}
+
+function resetText(window) {
+  if (!window || window.status !== "ok") return null;
+  if (!reportedReset(window.resets_at)) return "reset not reported";
+  if (window.reset_passed || toDate(window.resets_at) <= Date.now()) return `${utc(window.resets_at)} (passed; awaiting a new reading)`;
+  return `${utc(window.resets_at)} (${relative(window.resets_at)})`;
+}
+
+function weeklyResetCell(window) {
+  if (!window || window.status !== "ok") return text("unknown", "muted");
+  if (!reportedReset(window.resets_at)) return text("reset not reported", "muted");
+  if (window.reset_passed || toDate(window.resets_at) <= Date.now()) return text(`passed; awaiting a new reading (${utc(window.resets_at)})`, "warn");
+  return td(`<strong>${escapeHtml(relative(window.resets_at))}</strong> <br><span class="muted">${escapeHtml(utc(window.resets_at))}</span>`);
+}
+
+function sessionCell(window) {
+  if (!window || window.status === "none") return text("none", "muted");
+  if (window.status !== "ok" && window.reason_code === "not_reported") return text("not reported", "muted");
+  if (window.status !== "ok" || !validPct(window.left_pct)) return text("unknown", "muted");
+  return text(`${fmtPct(window.left_pct)} left · ${resetText(window)}`);
+}
+
+function extraCell(row) {
+  if (!row.reading?.read_at) return text("unknown", "muted");
+  const windows = (Array.isArray(row.extra_windows) ? row.extra_windows : []).map(window =>
+    `${window.label || "window"} ${window.status === "ok" && validPct(window.left_pct) ? `${fmtPct(window.left_pct)} left` : "unknown"}`);
+  const breakdown = (Array.isArray(row.breakdown) ? row.breakdown : []).map(item => `${item.label} ${item.value}`);
+  return text([...windows, ...breakdown].join("; ") || "none", windows.length || breakdown.length ? "" : "muted");
+}
+
+function creditsCell(credits) {
+  if (credits?.status === "ok" && typeof credits.balance === "number") {
+    const balance = credits.balance.toLocaleString("en-US", {maximumFractionDigits: 1});
+    return text(credits.renews_on ? `${balance} (renew ${credits.renews_on} with the plan)` : balance);
+  }
+  return credits?.status === "none" ? text("none", "muted") : text("unknown", "muted");
+}
+
+function planCell(plan) {
+  const name = "plan";
+  if (!plan || plan.status !== "ok") return text(`${name} · renewal unknown`, "muted");
+  if (plan.cancelled) {
+    return text(`${name} · ${plan.ends_on ? `${plan.ended ? "ENDED" : "cancelled, ends"} ${plan.ends_on} (${plan.days_to_end} d)`
+      : "cancelled, end date not configured"}`, "warn");
+  }
+  if (!plan.next_renewal_on) return text(`${name} · renewal not configured`, "muted");
+  return text(`${name} · renews ${plan.next_renewal_on} (in ${plan.days_to_renewal} d)`, plan.days_to_renewal <= 3 ? "warn" : "muted");
+}
+
+function bankedCell(banked) {
+  if (!banked || banked.status !== "ok" || typeof banked.count !== "number") return text("not reported", "muted");
+  const items = (Array.isArray(banked.items) ? banked.items : []).filter(item => !item.expired)
+    .map(item => `${item.count}× ${item.kind || "reset"}${item.expires_on ? `, expires ${String(item.expires_on).slice(0, 10)}` : ""}`);
+  return text(`${banked.count}${items.length ? ` (${items.join("; ")})` : ""}`, banked.count ? "ok" : "");
+}
+
+const SUBSCRIPTION_HEADERS = ["Account", "Weekly resets", "Weekly left", "Pace", "5-hour", "Other windows",
+  "Credits", "Banked resets", "Plan · renews or ends", "Sign-in", "Reading"];
+
+const MEASURED_CAP_STATUSES = new Set(["cool", "warm", "hot", "near_cap"]);
+const LANE_POOL_IDS = {
+  claude: "claude:a",
+  codex: "codex:a",
+  "codex:a": "codex:a",
+  "codex:b": "codex:b",
+  grok: "grok",
+  cursor: "grok",
+  gemini: "agy:gemini",
+};
+const ACCOUNT_POOL_IDS = {
+  "Claude a": "claude:a",
+  "Claude b": "claude:b",
+  "Codex a": "codex:a",
+  "Codex b": "codex:b",
+  "AGY Gemini": "agy:gemini",
+  "AGY Claude/GPT": "agy:claude_gpt",
+  "Grok+Cursor": "grok",
+};
+const budgetClock = {
+  receivedAt: null, receivedMono: null, heldElapsed: 0, paintedKey: "",
+  apiObs: new Map(), agentObs: new Map(), poolPaceObs: new Map(),
+};
+
+function lanePoolId(name, info) {
+  if (typeof info?.pool_pace?.pool === "string" && info.pool_pace.pool) return info.pool_pace.pool;
+  return LANE_POOL_IDS[name] || name;
+}
+
+function budgetPoolEntries(budget) {
+  const entries = [];
+  if (budget?.agents && typeof budget.agents === "object") {
+    for (const [name, info] of Object.entries(budget.agents)) {
+      if (info && typeof info === "object") entries.push([name, info]);
+    }
+  }
+  if (budget?.codex_accounts && typeof budget.codex_accounts === "object") {
+    for (const [name, info] of Object.entries(budget.codex_accounts)) {
+      if (info && typeof info === "object") entries.push([name, info]);
+    }
+  }
+  return entries;
+}
+
+function subscriptionRowForPool(budget, poolId) {
+  const subs = budget?.subscriptions;
+  if (!subs || typeof subs !== "object") return null;
+  for (const provider of Array.isArray(subs.providers) ? subs.providers : []) {
+    for (const row of Array.isArray(provider.accounts) ? provider.accounts : []) {
+      if (row && ACCOUNT_POOL_IDS[row.account] === poolId) return row;
+    }
+  }
+  return null;
+}
+
+function rowReadingState(freshness, ageS, row, budget) {
+  const ownLimit = typeof row?.stale_threshold_s === "number" && Number.isFinite(row.stale_threshold_s) && row.stale_threshold_s > 0
+    ? row.stale_threshold_s : null;
+  if (ownLimit !== null) {
+    if (freshness === "fresh" && typeof ageS === "number" && Number.isFinite(ageS) && ageS >= ownLimit) {
+      return "stale";
+    }
+    return readingState(freshness, ageS, ownLimit);
+  }
+  return readingState(freshness, ageS, budget?.diagnostics?.stale_threshold_s);
+}
+
+function subReadingLimit(reading, subs) {
+  const ownLimit = typeof reading?.stale_threshold_s === "number" && Number.isFinite(reading.stale_threshold_s) && reading.stale_threshold_s > 0
+    ? reading.stale_threshold_s : null;
+  if (ownLimit !== null) return ownLimit;
+  return typeof subs?.stale_after_s === "number" && Number.isFinite(subs.stale_after_s) && subs.stale_after_s > 0
+    ? subs.stale_after_s : 900;
+}
+
+function subReadingState(reading, subs, elapsedS = 0) {
+  const aged = agedSeconds(reading?.age_s, elapsedS);
+  const snapLimit = typeof subs?.stale_after_s === "number" && Number.isFinite(subs.stale_after_s) && subs.stale_after_s > 0
+    ? subs.stale_after_s : 900;
+  const limit = subReadingLimit(reading, subs);
+  if (limit < snapLimit && reading?.status === "fresh" && typeof aged === "number" && Number.isFinite(aged) && aged >= limit) {
+    return "stale";
+  }
+  return readingState(reading?.status, aged, limit);
+}
+
+function poolPaceFreshStatus(poolId, info, budget, elapsedS, laneFresh, now = Date.now()) {
+  const poolPace = info?.pool_pace && typeof info.pool_pace === "object" ? info.pool_pace : null;
+  if (!poolPace) return {present: false, fresh: false, status: null};
+  if (poolPace.stale === true || typeof elapsedS !== "number" || !Number.isFinite(elapsedS)) {
+    return {present: true, fresh: false, status: null};
+  }
+  const snapLimit = typeof budget?.subscriptions?.stale_after_s === "number" && Number.isFinite(budget.subscriptions.stale_after_s) && budget.subscriptions.stale_after_s > 0
+    ? budget.subscriptions.stale_after_s
+    : (budget?.diagnostics?.stale_threshold_s ?? 900);
+  const ownLimit = typeof poolPace.stale_threshold_s === "number" && Number.isFinite(poolPace.stale_threshold_s) && poolPace.stale_threshold_s > 0
+    ? poolPace.stale_threshold_s : null;
+  const threshold = ownLimit ?? snapLimit;
+  const hasOwnAge = typeof poolPace.age_s === "number" && Number.isFinite(poolPace.age_s) && poolPace.age_s >= 0;
+  if (hasOwnAge) {
+    const aged = effectiveObservedAgeS(budgetClock.poolPaceObs, poolId, poolPace, budget, elapsedS, now);
+    if (ownLimit !== null && ownLimit < snapLimit && typeof aged === "number" && Number.isFinite(aged) && aged >= ownLimit) {
+      return {present: true, fresh: false, status: null};
+    }
+    if (readingState("fresh", aged, threshold) !== "fresh") return {present: true, fresh: false, status: null};
+  }
+  const subRow = subscriptionRowForPool(budget, poolId);
+  if (subRow) {
+    if (subReadingState(subRow.reading, budget?.subscriptions, elapsedS) !== "fresh") {
+      return {present: true, fresh: false, status: null};
+    }
+  }
+  if (!hasOwnAge && !subRow && !laneFresh) return {present: true, fresh: false, status: null};
+  const status = typeof poolPace.status === "string" && MEASURED_CAP_STATUSES.has(poolPace.status) ? poolPace.status : null;
+  return {present: true, fresh: true, status};
+}
+
+function hasMeasuredProviderWindows(info) {
+  const pw = info?.provider_windows;
+  if (!pw || typeof pw !== "object") return false;
+  return Object.values(pw).some(w => w && typeof w === "object" && (validPct(w.remaining_pct) || validPct(w.used_pct)));
+}
+
+function independentLaneCapStatus(info) {
+  const remainings = [];
+  if (info?.provider_windows && typeof info.provider_windows === "object") {
+    for (const w of Object.values(info.provider_windows)) {
+      if (!w || typeof w !== "object") continue;
+      if (validPct(w.remaining_pct)) remainings.push(w.remaining_pct);
+      else if (validPct(w.used_pct)) remainings.push(100 - w.used_pct);
+    }
+  }
+  if (validPct(info?.remaining_pct)) remainings.push(info.remaining_pct);
+  else if (validPct(info?.burn_pct_7d)) remainings.push(100 - info.burn_pct_7d);
+  if (!remainings.length) return null;
+  return Math.min(...remainings) <= 1 ? "near_cap" : "cool";
+}
+
+function laneMeasuredCapStatus(info, poolPaceInfo = null) {
+  if (!info || typeof info !== "object") return null;
+  if (info.probe_state === "NEED_PROBE" || info.codexbar?.probe_state === "NEED_PROBE") return null;
+  const hasProviderWindowsObj = Boolean(info.provider_windows && typeof info.provider_windows === "object");
+  const measuredProviderWindows = hasProviderWindowsObj && hasMeasuredProviderWindows(info);
+  if (hasProviderWindowsObj && !measuredProviderWindows) return null;
+  if (info.codexbar && typeof info.codexbar === "object" && ["unavailable", "unknown", "need_login"].includes(info.codexbar.status)) {
+    return null;
+  }
+  const hasQuotaPct = validPct(info.remaining_pct) || validPct(info.burn_pct_7d) || measuredProviderWindows;
+  if (info.runtime?.headroom_blocked === true && !hasQuotaPct) return null;
+  if (info.status_source === "ledger_burn" && !hasQuotaPct) return null;
+  if (typeof info.lane_status === "string") {
+    return MEASURED_CAP_STATUSES.has(info.lane_status) ? info.lane_status : null;
+  }
+  if (poolPaceInfo?.present && !poolPaceInfo.fresh) {
+    return independentLaneCapStatus(info);
+  }
+  return typeof info.status === "string" && MEASURED_CAP_STATUSES.has(info.status) ? info.status : null;
+}
+
+function resetBudgetClock(reading = null) {
+  budgetClock.receivedAt = typeof reading?.receivedAt === "number" ? reading.receivedAt : null;
+  budgetClock.receivedMono = reading && Object.hasOwn(reading, "receivedMono") ? reading.receivedMono : null;
+  budgetClock.heldElapsed = 0;
+}
+
+function budgetElapsedS(now = Date.now()) {
+  if (budgetClock.receivedAt === null) return 0;
+  let elapsed = 0;
+  if (typeof budgetClock.receivedMono === "number") {
+    if (!Number.isFinite(budgetClock.receivedMono)) return Number.NaN;
+    const monoNow = Machinery.snapshotClockStamp();
+    if (typeof monoNow !== "number" || !Number.isFinite(monoNow)) return Number.NaN;
+    elapsed = Math.max(0, (monoNow - budgetClock.receivedMono) / 1000);
+  } else {
+    if (typeof now !== "number" || !Number.isFinite(now)) return Number.NaN;
+    elapsed = Math.max(0, (now - budgetClock.receivedAt) / 1000);
+  }
+  budgetClock.heldElapsed = Math.max(budgetClock.heldElapsed, elapsed);
+  return budgetClock.heldElapsed;
+}
+
+function agedSeconds(ageS, elapsedS = 0) {
+  if (typeof ageS !== "number" || !Number.isFinite(ageS) || ageS < 0) return ageS;
+  if (typeof elapsedS !== "number" || !Number.isFinite(elapsedS)) return Number.NaN;
+  return ageS + Math.max(0, elapsedS);
+}
+
+function agedReading(reading, elapsedS = 0) {
+  if (!reading || typeof reading !== "object" || elapsedS === 0) return reading;
+  return {...reading, age_s: agedSeconds(reading.age_s, elapsedS)};
+}
+
+function observationKey(budget, row, kind) {
+  if (typeof row?.fetched_at === "string" && row.fetched_at) return `f:${row.fetched_at}`;
+  if (typeof budget?.generated_at === "string" && budget.generated_at) return `g:${budget.generated_at}`;
+  if (kind === "api") {
+    return `a:${row?.freshness ?? ""}:${row?.age_s ?? ""}:${row?.total_balance ?? ""}:${row?.limit_remaining_usd ?? ""}:${row?.usage_weekly_usd ?? ""}:${row?.balance_probe_state ?? ""}`;
+  }
+  return `p:${row?.freshness ?? ""}:${row?.age_s ?? ""}:${row?.status ?? ""}`;
+}
+
+function recordObservationMap(map, entries, budget, reading, renderNow, kind) {
+  const gen = typeof budget?.generated_at === "string" && budget.generated_at ? budget.generated_at : null;
+  const dataAge = typeof budget?.diagnostics?.data_age_s === "number" && Number.isFinite(budget.diagnostics.data_age_s)
+    ? budget.diagnostics.data_age_s : null;
+  const activeNames = new Set();
+  for (const [name, row] of entries) {
+    if (!row || typeof row !== "object") continue;
+    activeNames.add(name);
+    const key = observationKey(budget, row, kind);
+    const incomingAge = row.age_s;
+    const prev = map.get(name);
+    if (prev && prev.key === key && typeof incomingAge === "number" && Number.isFinite(incomingAge) && incomingAge >= 0) {
+      const sameGen = gen !== null && prev.gen === gen;
+      if (sameGen) {
+        const diagDelta = dataAge !== null && prev.baseDataAge !== null ? Math.max(0, dataAge - prev.baseDataAge) : 0;
+        prev.minAge = Math.max(prev.minAge, incomingAge, prev.genBaseAge + diagDelta);
+      } else {
+        prev.gen = gen;
+        prev.genBaseAge = incomingAge;
+        prev.baseDataAge = dataAge;
+        prev.minAge = Math.max(prev.minAge, incomingAge);
+      }
+    } else {
+      map.set(name, {
+        key,
+        gen,
+        baseAge: incomingAge,
+        genBaseAge: incomingAge,
+        minAge: incomingAge,
+        startMono: reading && Object.hasOwn(reading, "receivedMono") ? reading.receivedMono : null,
+        startWall: typeof reading?.receivedAt === "number" ? reading.receivedAt : renderNow,
+        heldElapsed: 0,
+        baseDataAge: dataAge,
+      });
+    }
+  }
+  for (const existing of [...map.keys()]) {
+    if (!activeNames.has(existing)) map.delete(existing);
+  }
+}
+
+function recordBudgetObservations(budget, reading, renderNow = Date.now()) {
+  if (!budget || typeof budget !== "object") return;
+  recordObservationMap(budgetClock.apiObs, Object.entries(budget.api_accounts || {}), budget, reading, renderNow, "api");
+  const poolEntries = budgetPoolEntries(budget);
+  recordObservationMap(budgetClock.agentObs, poolEntries, budget, reading, renderNow, "agent");
+  const poolPaceEntries = [];
+  const seenPools = new Set();
+  for (const [name, info] of poolEntries) {
+    if (info?.pool_pace && typeof info.pool_pace === "object") {
+      const poolId = lanePoolId(name, info);
+      if (!seenPools.has(poolId)) {
+        seenPools.add(poolId);
+        poolPaceEntries.push([poolId, info.pool_pace]);
+      }
+    }
+  }
+  recordObservationMap(budgetClock.poolPaceObs, poolPaceEntries, budget, reading, renderNow, "pool");
+}
+
+function effectiveObservedAgeS(obsMap, name, row, budget, elapsedS = 0, now = Date.now()) {
+  if (typeof row?.age_s !== "number" || !Number.isFinite(row.age_s) || row.age_s < 0) return row?.age_s;
+  if (typeof elapsedS !== "number" || !Number.isFinite(elapsedS)) return Number.NaN;
+  let effective = agedSeconds(row.age_s, elapsedS);
+  const entry = obsMap.get(name);
+  if (entry && typeof entry.baseAge === "number" && Number.isFinite(entry.baseAge)) {
+    let obsElapsed = 0;
+    if (typeof entry.startMono === "number") {
+      if (!Number.isFinite(entry.startMono)) return Number.NaN;
+      const monoNow = Machinery.snapshotClockStamp();
+      if (typeof monoNow !== "number" || !Number.isFinite(monoNow)) return Number.NaN;
+      obsElapsed = Math.max(0, (monoNow - entry.startMono) / 1000);
+    } else if (typeof entry.startWall === "number" && Number.isFinite(entry.startWall)) {
+      if (typeof now !== "number" || !Number.isFinite(now)) return Number.NaN;
+      obsElapsed = Math.max(0, (now - entry.startWall) / 1000);
+    }
+    entry.heldElapsed = Math.max(entry.heldElapsed, obsElapsed);
+    effective = Math.max(effective, entry.minAge, entry.baseAge + entry.heldElapsed);
+  }
+  return effective;
+}
+
+function subscriptionRows(subs, logins, elapsedS = 0) {
+  const staleAfter = subs.stale_after_s;
+  const hidden = [];
+  const groups = (Array.isArray(subs.providers) ? subs.providers : []).map(provider => {
+    const accounts = (Array.isArray(provider.accounts) ? provider.accounts : []).filter(row => {
+      if (row.plan?.ended) { hidden.push(`${row.account} (ended ${row.plan.ends_on})`); return false; }
+      return true;
+    });
+    if (!accounts.length) return "";
+    return `<tr class="group"><th scope="colgroup" colspan="${SUBSCRIPTION_HEADERS.length}">${escapeHtml(provider.label || provider.provider)}</th></tr>`
+      + accounts.map(row => {
+        const reading = agedReading(row.reading, elapsedS);
+        const rowLimit = subReadingLimit(row.reading, subs);
+        const state = subReadingState(row.reading, subs, elapsedS);
+        const displayReading = reading && state === "stale" && reading.status === "fresh"
+          ? {...reading, status: "stale"} : reading;
+        const usage = state === "fresh" ? row : {};
+        const weekly = usage.weekly || {};
+        return `<tr>${labelled([
+          text(row.account),
+          weeklyResetCell(weekly),
+          windowLeft(weekly),
+          paceCell(usage.pace),
+          sessionCell(usage.session),
+          extraCell(usage),
+          creditsCell(usage.credits),
+          bankedCell(row.banked_resets?.source === "provider" ? usage.banked_resets : row.banked_resets),
+          planCell(row.plan),
+          signInCell(row.account, logins),
+          readingCell(displayReading, rowLimit),
+        ], SUBSCRIPTION_HEADERS)}</tr>`;
+      }).join("");
+  }).join("");
+  return {groups, hidden};
+}
+
+const PROBE_REASONS = {
+  ok: null, fresh: null, NEED_KEY: "needs an API key", NEED_PROBE: "not probed yet",
+  unknown: "probe result unknown", unavailable: "probe unavailable",
+  unsupported: "balance probe is not supported", error: "probe failed", stale: "probe is stale",
+};
+
+function probeReason(state) {
+  if (!state) return null;
+  if (Object.hasOwn(PROBE_REASONS, state)) return PROBE_REASONS[state];
+  return String(state).replaceAll("_", " ").toLowerCase();
+}
+
+function apiRows(budget, elapsedS = 0) {
+  const accounts = budget.api_accounts || {};
+  return Object.entries(accounts).map(([name, row]) => {
+    const effectiveAge = effectiveObservedAgeS(budgetClock.apiObs, name, row, budget, elapsedS);
+    const state = rowReadingState(row.freshness, effectiveAge, row, budget);
+    const balance = typeof row.total_balance === "number" ? `${row.total_balance.toFixed(2)} ${row.currency || ""}`.trim() + " balance"
+      : typeof row.limit_remaining_usd === "number" ? `$${row.limit_remaining_usd.toFixed(2)} left` : null;
+    const spent = typeof row.usage_weekly_usd === "number" ? `$${row.usage_weekly_usd.toFixed(2)} this week` : null;
+    const figures = [balance, spent].filter(Boolean);
+    const probe = probeReason(row.balance_probe_state);
+    let values = "unknown";
+    let valueClass = "muted";
+    if (state === "fresh") {
+      values = [...figures, probe].filter(Boolean).join("; ") || null;
+      valueClass = "";
+    } else if (state === "last_good") {
+      values = probe ? `unknown; ${probe}` : "unknown";
+      valueClass = "warn";
+    }
+    return [text(name), text(values, valueClass),
+      freshnessCell(state, effectiveAge),
+      text(row.health?.healthy === false ? "unhealthy" : null, "bad")];
+  });
+}
+
+function cursorUsage(budget, elapsedS = 0) {
+  const cursor = budget?.agents?.cursor;
+  const effectiveAge = effectiveObservedAgeS(budgetClock.agentObs, "cursor", cursor, budget, elapsedS);
+  const freshness = rowReadingState(cursor?.freshness, effectiveAge, cursor, budget);
+  const needsLogin = cursor?.probe_state === "NEED_LOGIN" || cursor?.login_state === "NEED_LOGIN";
+  const reason = !budget ? "routing budget did not answer"
+    : needsLogin ? "sign-in required"
+    : cursor?.codexbar?.reason_code === "provider_error" ? "usage probe failed"
+    : freshness === "stale" || freshness === "last_good" ? "last reading is stale"
+    : "no current usage reading";
+  const rows = [["auto", "Cursor Auto"], ["api", "Cursor API"]].map(([key, label]) => {
+    const window = cursor?.provider_windows?.[key];
+    const remaining = validPct(window?.remaining_pct) ? window.remaining_pct
+      : validPct(window?.used_pct) ? 100 - window.used_pct : null;
+    const reading = freshness === "fresh" && !needsLogin && remaining !== null
+      ? text(`${fmtPct(remaining)} left`) : text(`Unavailable (${reason})`, "muted");
+    return [text(label), reading];
+  });
+  return mTable(["Cursor window", "Remaining"], rows, true);
+}
+
+function renderUsage(subs, budget, logins, elapsedS = 0) {
+  const api = budget ? mTable(["API account", "Balance / spend", "Reading", ""], apiRows(budget, elapsedS), true)
+    : unknown("API account balances: the routing budget did not answer");
+  if (!subs) return unknown("subscription account snapshot unavailable") + cursorUsage(budget, elapsedS) + api;
+  const {groups, hidden} = subscriptionRows(subs, logins, elapsedS);
+  const facts = subs.sources?.plan_facts;
+  const notes = [];
+  if (facts?.reason_code) {
+    notes.push(`Plan facts: ${facts.reason_code === "not_configured" ? "not configured" : facts.reason_code}; renewal, plan and banked resets show unknown.`);
+  }
+  const cache = subs.sources?.usage_cache;
+  if (cache && cache.status !== "ok") notes.push(`Usage cache: ${cache.status}.`);
+  if (hidden.length) notes.push(`Hidden, subscription ended: ${hidden.join(", ")}.`);
+  if (logins === null || logins === undefined) notes.push("Sign-in state unknown: the sign-in reader did not answer.");
+  notes.push("Headroom and deficit are percentage points against an even pace to the weekly reset. "
+    + "The Codex API credits belong to Codex a and renew with its monthly turnover.");
+  notes.push("Sign-in is read for Claude a, Claude b, Codex a and Codex b only. Any other account has no side-effect-free sign-in reader.");
+  const head = `<thead><tr>${SUBSCRIPTION_HEADERS.map(h => `<th scope="col">${escapeHtml(h)}</th>`).join("")}</tr></thead>`;
+  const subsTable = groups ? `<table class="subs">${head}<tbody>${groups}</tbody></table>`
+    : '<p class="muted">None.</p>';
+  const models = subs.catalog_models;
+  const catalog = Array.isArray(models) ? escapeHtml(models.join(", ") || "No current models.") : "Catalog unavailable.";
+  return subsTable + cursorUsage(budget, elapsedS) + notes.map(note => `<p class="muted">${escapeHtml(note)}</p>`).join("") + api
+    + `<p class="muted"><strong>Current catalog models.</strong> ${catalog}</p>`;
+}
+
+function budgetFreshnessKey(budget, elapsedS = 0) {
+  if (!budget || typeof budget !== "object") return "none";
+  const parts = [];
+  const subs = budget.subscriptions;
+  for (const provider of Array.isArray(subs?.providers) ? subs.providers : []) {
+    for (const row of Array.isArray(provider.accounts) ? provider.accounts : []) {
+      if (row.plan?.ended) continue;
+      parts.push(`s:${row.account}:${subReadingState(row.reading, subs, elapsedS)}`);
+    }
+  }
+  for (const [name, row] of Object.entries(budget.api_accounts || {})) {
+    const effectiveAge = effectiveObservedAgeS(budgetClock.apiObs, name, row, budget, elapsedS);
+    parts.push(`a:${name}:${rowReadingState(row?.freshness, effectiveAge, row, budget)}`);
+  }
+  for (const [name, info] of budgetPoolEntries(budget)) {
+    const effectiveAge = effectiveObservedAgeS(budgetClock.agentObs, name, info, budget, elapsedS);
+    const st = rowReadingState(info?.freshness, effectiveAge, info, budget);
+    const laneFresh = st === "fresh" && !info?.stale;
+    const poolId = lanePoolId(name, info);
+    const pp = poolPaceFreshStatus(poolId, info, budget, elapsedS, laneFresh);
+    parts.push(`p:${name}:${st}:${pp.present ? (pp.fresh ? (pp.status || "none") : "stale") : "none"}`);
+  }
+  return parts.join("|");
+}
+
+function renderCapacityForecast(data) {
+  const pools = Array.isArray(data?.capacity) ? data.capacity : [];
+  if (!pools.length) return '<p class="muted">No pool capacity forecast available.</p>';
+  const formatPct = value => typeof value === "number" && Number.isFinite(value)
+    ? `${value.toLocaleString(undefined, {maximumFractionDigits: 1})}%` : "Unknown";
+  const formatPace = value => typeof value === "number" && Number.isFinite(value)
+    ? `${value.toLocaleString(undefined, {maximumFractionDigits: 2})}%/h` : "Unknown";
+  return mTable(
+    ["Pool", "Remaining", "Reset (UTC)", "Burn", "Burn needed", "Unused at reset", "Additional workers", "Measured writes"],
+    pools.map(row => [
+      text(row.pool),
+      text(formatPct(row.remaining_pct), "num"),
+      text(row.reset_at || "Unknown"),
+      text(formatPace(row.burn_pct_per_hour), "num"),
+      text(formatPace(row.sustainable_pct_per_hour), "num"),
+      text(formatPct(row.unused_pct), "num"),
+      text(row.workers_needed ?? "Unknown", "num"),
+      text(row.worker_samples ?? "Unknown", "num"),
+    ]),
+    true,
+  );
+}
+
+// ---- Routing, last 24 hours ----
+
+const ROUTING_PAGE_ROWS = 25;
+const ROUTING_STALE_AFTER_S = 90;
+const routingState = {data: null, failedAt: null, shown: ROUTING_PAGE_ROWS, painted: ""};
+
+const ACCOUNT_BY = {helper: "account helper", saved_default: "saved default account", builtin_default: "built-in default", single_account: "only account", not_recorded: "not recorded"};
+const MODEL_BY = {brief: "brief", not_recorded: "not recorded"};
+const ADMISSION_CLASS = {admitted: "ok", forced: "warn", deferred: "bad", refused: "bad", not_checked: "muted", unknown: "warn"};
+const ADMISSION_WORD = {admitted: "Admitted", forced: "Started by override", deferred: "Deferred", refused: "Refused", not_checked: "Not checked", unknown: "Unknown"};
+
+const blockCell = (html, cls = "") => td(`<div>${html}</div>`, cls);
+
+function unknownSince(time, why) {
+  const when = time ? `unknown since ${utc(time)}` : "unknown (no reading yet)";
+  return why ? `${when} · ${String(why).replaceAll("_", " ")}` : when;
+}
+
+function ageOf(time) {
+  const at = typeof time === "string" ? Date.parse(time) : NaN;
+  return Number.isFinite(at) ? Math.max(0, (Date.now() - at) / 1000) : null;
+}
+
+function timeOf(time) {
+  return ageOf(time) === null ? null : time;
+}
+
+function recentState(data) {
+  const recent = data?.recent;
+  if (!recent || !["ok", "partial"].includes(recent.status)) return "missing";
+  if (routingState.failedAt) return "failed";
+  const age = ageOf(recent.as_of);
+  if (age === null || age > ROUTING_STALE_AFTER_S) return "stale";
+  return recent.status === "partial" ? "partial" : "fresh";
+}
+
+function topCounts(counts, limit = 3) {
+  const entries = Object.entries(counts || {}).sort((a, b) => b[1] - a[1]);
+  const shown = entries.slice(0, limit).map(([name, n]) => `${escapeHtml(name)} ${n}`);
+  if (entries.length > limit) shown.push(`+${entries.length - limit} more`);
+  return shown.join(" · ") || "none";
+}
+
+function stage(who, count, split, cls = "") {
+  return `<div class="stage ${cls}"><div class="who">${who}</div>`
+    + `<div class="count">${count}</div><div class="split">${split}</div></div>`;
+}
+
+function admissionSplit(adm) {
+  const parts = [`<span class="${adm.deferred ? "bad" : "muted"}">${adm.deferred ?? 0} deferred</span>`,
+    `<span class="${adm.refused ? "bad" : "muted"}">${adm.refused ?? 0} refused</span>`];
+  if (adm.forced) parts.push(`<span class="warn">${adm.forced} started by override</span>`);
+  if (adm.unknown) parts.push(`<span class="warn">${adm.unknown} without an admission record</span>`);
+  if (adm.not_checked) parts.push(`<span class="muted">${adm.not_checked} read-only, not checked</span>`);
+  return parts.join(" · ");
+}
+
+function laneRow(name, chooser, counts) {
+  const adm = counts.admission || {};
+  const chooserSplit = Object.entries(counts.by_account_chooser || {})
+    .map(([key, n]) => `${escapeHtml(ACCOUNT_BY[key] || key.replaceAll("_", " "))} ${n}`).join(" · ") || "no subscription account";
+  const checked = (adm.admitted || 0) + (adm.deferred || 0) + (adm.refused || 0) + (adm.forced || 0) + (adm.unknown || 0);
+  return [
+    `<div class="lane">${name}<small>${counts.total ?? 0} dispatches</small></div>`,
+    stage(chooser, counts.total ?? 0, topCounts(counts.by_model)),
+    stage(`Account: ${chooserSplit}`, Object.values(counts.by_pool || {}).reduce((n, v) => n + v, 0), topCounts(counts.by_pool, 4)),
+    stage("Admission: host and pool limits", `${adm.admitted ?? 0} <small class="ok">admitted</small>`, admissionSplit(adm),
+      checked ? "" : "unchecked"),
+    stage("Ran", `${counts.live ?? 0} <small>running or starting</small>`,
+      counts.substitutions ? `<a class="warn" href="#decisions" data-outcome="substituted">${counts.substitutions} ran another model</a>` : "no substitutions recorded"),
+  ].join("");
+}
+
+function recentNote(data) {
+  const recent = data.recent || {};
+  const st = recentState(data);
+  if (st === "stale" || st === "failed") {
+    const why = st === "failed" ? "the last refresh failed" : "the reading is out of date";
+    return `<p class="callout warn">Recent decisions are ${escapeHtml(unknownSince(timeOf(recent.as_of), why))}; what follows is that last reading.</p>`;
+  }
+  if (st === "partial") {
+    return `<p class="callout warn">${recent.unreadable} task records in the window could not be read, so these counts and rows may be incomplete.</p>`;
+  }
+  return "";
+}
+
+function renderFlow(data) {
+  const recent = data.recent || {};
+  if (recentState(data) === "missing") {
+    return `<p class="warn">Recent decisions are ${escapeHtml(unknownSince(recent.as_of, recent.reason))}; no counts are shown.</p>`;
+  }
+  const counts = recent.counts || {};
+  const flow = '<div class="flow" role="group" aria-label="Routing flow for writes and for reviews: who picks the model, which account pays, admission, what ran">'
+    + '<div class="flow-head"></div><div class="flow-head">1 · Who picks the model</div><div class="flow-head">2 · Which account pays</div>'
+    + '<div class="flow-head">3 · Admission (writes only)</div><div class="flow-head">4 · What ran</div>'
+    + laneRow("Writes and other work", "The brief (CTO or lead) names the model", counts.brief || {})
+    + laneRow("Reviews", "The dispatch names the reviewer (the resolver's pick is not recorded on the task)", counts.resolver || {})
+    + "</div>";
+  const windowNote = `<p class="muted">${recent.total ?? 0} decisions started since ${escapeHtml(utc(Date.parse(recent.as_of) - (recent.window_s || 86400) * 1000))}.</p>`;
+  return recentNote(data) + flow + windowNote;
+}
+
+function asked(row) {
+  if (row.kind === "review") {
+    const parts = [row.profile ? `${row.profile} review` : "review, profile not recorded", row.risk ? `${row.risk} risk` : null, row.author_model ? `author ${row.author_model}` : null];
+    return parts.filter(Boolean).join(" · ");
+  }
+  return `${row.kind === "write" ? "write" : "read-only"} · ${row.role ? row.role.replaceAll("_", " ") : "role not recorded"}`;
+}
+
+function decisionRow(row) {
+  const status = row.live ? "running" : row.status;
+  const admission = row.admission || {};
+  const statusClass = row.live ? "ok" : ["failed", "crashed", "timeout", "no_deliverable", "rate_limited"].includes(row.status) ? "bad" : "";
+  const chosen = `${escapeHtml(row.model || "unknown model")}${row.effort ? ` <span class="muted">(${escapeHtml(row.effort)})</span>` : ""}`
+    + `<span class="why">${row.pool_label ? `on ${escapeHtml(row.pool_label)}` : "pool not recorded"}</span>`;
+  const by = `model: ${escapeHtml(MODEL_BY[row.model_by] || row.model_by)}`
+    + `<span class="why">account: ${escapeHtml(ACCOUNT_BY[row.account_by] || (row.pool ? "not recorded" : "—"))}</span>`;
+  const why = [admission.reason, row.substitution ? `substitution: ${row.substitution}` : null].filter(Boolean);
+  return [
+    blockCell(`${row.task_id ? escapeHtml(row.task_id) : '<span class="muted">id withheld</span>'}<span class="why">${escapeHtml(utc(row.started_at))}</span>`),
+    text(asked(row)),
+    blockCell(chosen),
+    blockCell(by),
+    blockCell(`<span class="${ADMISSION_CLASS[admission.state] || ""}">${escapeHtml(ADMISSION_WORD[admission.state] || admission.state || "—")}</span>`
+      + (why.length ? `<span class="why${row.substitution ? " warn" : ""}">${why.map(escapeHtml).join(" · ")}</span>` : "")),
+    text(String(status || "—").replaceAll("_", " "), statusClass),
+  ];
+}
+
+function filteredDecisions(rows) {
+  const kind = document.getElementById("filter-kind")?.value || "";
+  const pool = document.getElementById("filter-pool")?.value || "";
+  const outcome = document.getElementById("filter-outcome")?.value || "";
+  return rows.filter(row => (!kind || row.kind === kind) && (!pool || row.pool === pool)
+    && (!outcome || (outcome === "held" ? ["deferred", "refused", "forced", "unknown"].includes(row.admission?.state)
+      : outcome === "substituted" ? Boolean(row.substitution) : row.live)));
+}
+
+function renderDecisions(data) {
+  const recent = data.recent || {};
+  if (recentState(data) === "missing") {
+    return `<p class="warn">Recent decisions are ${escapeHtml(unknownSince(recent.as_of, recent.reason))}.</p>`;
+  }
+  const rows = filteredDecisions(Array.isArray(recent.decisions) ? recent.decisions : []);
+  const shown = rows.slice(0, routingState.shown);
+  const more = rows.length > shown.length
+    ? `<p class="pager"><button type="button" class="retry" id="show-more">Show ${Math.min(ROUTING_PAGE_ROWS, rows.length - shown.length)} more</button> <span class="muted">${shown.length} of ${rows.length} shown</span></p>`
+    : `<p class="muted">${rows.length} shown.</p>`;
+  return recentNote(data)
+    + mTable(["Task", "Asked for", "Chosen", "Chosen by", "Admission and substitution", "Status"], shown.map(decisionRow), true)
+    + more;
+}
+
+function fillPoolFilter(data) {
+  const select = document.getElementById("filter-pool");
+  if (!select || !select.options || select.options.length > 1 || typeof document.createElement !== "function") return;
+  for (const pool of data?.pools || []) {
+    const option = document.createElement("option");
+    option.value = pool.pool;
+    option.textContent = pool.label;
+    select.append(option);
+  }
+}
+
+function setRoutingAge(id, line, cls) {
+  const element = document.getElementById(id);
+  if (!element) return;
+  element.textContent = line;
+  element.className = `age${cls ? ` ${cls}` : ""}`;
+}
+
+function paintRoutingAges() {
+  const data = routingState.data;
+  if (!data) return;
+  const rs = recentState(data);
+  setRoutingAge("decisions-age", rs === "fresh" || rs === "partial" ? `Last 24 hours · read ${span(ageOf(data.recent.as_of))} ago`
+    : `Recent decisions ${unknownSince(rs === "missing" ? data.recent?.as_of : timeOf(data.recent?.as_of), rs === "failed" ? "the last refresh failed" : null)}`,
+  rs === "fresh" ? "" : rs === "partial" ? "warn" : "bad");
+}
+
+function paintRoutingDecisions() {
+  const data = routingState.data;
+  if (!data) return;
+  routingState.painted = recentState(data);
+  const box = document.getElementById("decisions-content");
+  if (box) box.innerHTML = renderDecisions(data);
+  paintRoutingAges();
+}
+
+function tickRouting(_panel, _latest, updateChips) {
+  const data = routingState.data;
+  if (!data) return;
+  if (recentState(data) !== routingState.painted) {
+    paintRoutingDecisions();
+    const flowBox = document.getElementById("flow-content");
+    if (!routingState.failedAt && flowBox) flowBox.innerHTML = renderFlow(data);
+    if (typeof updateChips === "function") updateChips();
+  }
+  paintRoutingAges();
+}
+
+function renderChips(latest, now = Date.now()) {
+  const out = [];
+  const budget = latest.usage;
+  const subs = budget?.subscriptions;
+  const logins = latest.logins;
+  const elapsed = budgetElapsedS(now);
+  if (subs) {
+    for (const provider of Array.isArray(subs.providers) ? subs.providers : []) {
+      const accounts = (Array.isArray(provider.accounts) ? provider.accounts : []).filter(row => !row.plan?.ended);
+      if (!accounts.length) continue;
+      let minLeft = null, runsOut = 0, deficit = 0, unknownCount = 0;
+      for (const row of accounts) {
+        const st = subReadingState(row.reading, subs, elapsed);
+        const fresh = st === "fresh";
+        const pace = fresh ? row.pace : null;
+        const left = fresh && row.weekly?.status === "ok" && validPct(row.weekly.left_pct) ? row.weekly.left_pct : null;
+        if (left !== null) minLeft = minLeft === null ? left : Math.min(minLeft, left);
+        if (!fresh || !pace || pace.status !== "ok" || typeof pace.lasts_to_reset !== "boolean") {
+          unknownCount += 1;
+        } else if (pace.lasts_to_reset === false) {
+          runsOut += 1;
+        } else if (pace.state === "deficit") {
+          deficit += 1;
+        }
+      }
+      const label = provider.label || provider.provider || "Provider";
+      const suffix = runsOut ? " · runs out" : unknownCount && minLeft !== null ? ` · ${unknownCount} unknown` : "";
+      const tone = runsOut ? "bad" : (deficit || unknownCount) ? "warn" : "";
+      out.push(chip("#budget", minLeft === null ? "?" : fmtPct(minLeft), `${label}${suffix}`, tone));
+    }
+  }
+  if (budget) {
+    const pools = new Map();
+    if (subs && typeof subs === "object") {
+      for (const provider of Array.isArray(subs.providers) ? subs.providers : []) {
+        for (const row of Array.isArray(provider.accounts) ? provider.accounts : []) {
+          if (!row || row.plan?.ended) continue;
+          const poolId = ACCOUNT_POOL_IDS[row.account];
+          if (!poolId) continue;
+          const record = pools.get(poolId) || {verified: false, nearCap: false};
+          const fresh = subReadingState(row.reading, subs, elapsed) === "fresh";
+          const subStatus = fresh && typeof row.pool_status === "string" && MEASURED_CAP_STATUSES.has(row.pool_status)
+            ? row.pool_status : null;
+          if (subStatus) {
+            record.verified = true;
+            if (subStatus === "near_cap") record.nearCap = true;
+          }
+          pools.set(poolId, record);
+        }
+      }
+    }
+    for (const [name, info] of budgetPoolEntries(budget)) {
+      const poolId = lanePoolId(name, info);
+      const record = pools.get(poolId) || {verified: false, nearCap: false};
+      const effectiveAge = effectiveObservedAgeS(budgetClock.agentObs, name, info, budget, elapsed, now);
+      const st = rowReadingState(info.freshness, effectiveAge, info, budget);
+      const needsLogin = info.probe_state === "NEED_LOGIN" || info.login_state === "NEED_LOGIN";
+      const laneFresh = st === "fresh" && !info.stale && !needsLogin;
+      const poolPaceInfo = poolPaceFreshStatus(poolId, info, budget, elapsed, laneFresh, now);
+      const poolPaceStatus = poolPaceInfo.fresh ? poolPaceInfo.status : null;
+      const laneStatus = laneFresh ? laneMeasuredCapStatus(info, poolPaceInfo) : null;
+      if (poolPaceStatus || laneStatus) {
+        record.verified = true;
+        if (poolPaceStatus === "near_cap" || laneStatus === "near_cap") record.nearCap = true;
+      }
+      pools.set(poolId, record);
+    }
+    let verified = 0, nearCap = 0, unknownPools = 0;
+    for (const record of pools.values()) {
+      if (record.verified) {
+        verified += 1;
+        if (record.nearCap) nearCap += 1;
+      } else {
+        unknownPools += 1;
+      }
+    }
+    if (verified === 0) {
+      out.push(chip("#budget", "?", "pools near cap unknown", "warn"));
+    } else if (unknownPools > 0) {
+      out.push(chip("#budget", nearCap, `${nearCap === 1 ? "pool" : "pools"} near cap (${unknownPools} unknown)`, "warn"));
+    } else {
+      out.push(chip("#budget", nearCap, nearCap === 1 ? "pool near cap" : "pools near cap", nearCap ? "warn" : ""));
+    }
+  }
+  if (logins === null) {
+    out.push(chip("#budget", "?", "sign-in unknown", "warn"));
+  } else if (logins && logins.state !== "pending") {
+    const accounts = Array.isArray(logins.accounts) ? logins.accounts : [];
+    const signedOut = accounts.filter(row => row.logged_in === false).length;
+    const otherIssues = accounts.filter(row => {
+      if (row.logged_in === false) return false;
+      if (row.logged_in !== true) return true;
+      const exp = toDate(row.expires_at);
+      return Boolean(exp && (exp.getTime() - Date.now()) / 86400000 < 7);
+    }).length;
+    if (signedOut) out.push(chip("#budget", signedOut, "signed out", "bad"));
+    else if (otherIssues) out.push(chip("#budget", otherIssues, otherIssues === 1 ? "sign-in issue" : "sign-in issues", "warn"));
+    else out.push(chip("#budget", 0, "sign-in issues", ""));
+  }
+  const rData = routingState.data;
+  if (rData && ["fresh", "partial"].includes(recentState(rData)) && rData.recent?.counts) {
+    const lanes = [rData.recent.counts.brief || {}, rData.recent.counts.resolver || {}];
+    const held = lanes.reduce((n, lane) => n + (lane.admission?.deferred || 0) + (lane.admission?.refused || 0), 0);
+    if (held) {
+      const low = recentState(rData) === "partial" ? " (may be low)" : "";
+      out.push(chip("#decisions", held, `deferred or refused in 24 h${low}`, "warn"));
+    }
+  }
+  return out.join("");
+}
+
+function tickBudget(panel, latest, updateChips, now = Date.now()) {
+  if (!panel.ok || !latest.usage) return;
+  const elapsed = budgetElapsedS(now);
+  const nextKey = budgetFreshnessKey(latest.usage, elapsed);
+  if (nextKey === budgetClock.paintedKey) return;
+  budgetClock.paintedKey = nextKey;
+  const box = document.getElementById("usage-content");
+  if (box) box.innerHTML = renderUsage(latest.usage?.subscriptions, latest.usage, latest.logins, elapsed);
+  if (typeof updateChips === "function") updateChips();
+}
+
+const PANELS = [
+  {
+    id: "usage",
+    label: "Budget now",
+    urls: ["/api/state/routing-budget?include_subscriptions=true", "/api/runtime/logins"],
+    sourceLabels: ["Routing budget", "Sign-in"],
+    withReadings: true,
+    render: (budget, logins, readings, renderNow) => {
+      resetBudgetClock(readings?.[0] || null);
+      recordBudgetObservations(budget, readings?.[0] || null, renderNow);
+      const elapsed = budgetElapsedS(renderNow);
+      budgetClock.paintedKey = budgetFreshnessKey(budget, elapsed);
+      return renderUsage(budget?.subscriptions, budget, logins, elapsed);
+    },
+    onData: (data, latest) => { latest.logins = data[1]; },
+    onError: latest => {
+      latest.logins = null;
+      resetBudgetClock(null);
+      budgetClock.paintedKey = "";
+    },
+    onTick: tickBudget,
+    retry: (budget, logins) => !budget.subscriptions || !logins || logins.state === "pending",
+  },
+  {
+    id: "capacity",
+    label: "Capacity forecast",
+    urls: ["/api/fleet/model-stats/planning"],
+    render: renderCapacityForecast,
+    retry: data => data?.issues?.status === "pending",
+  },
+  {
+    id: "flow",
+    label: "Routing",
+    urls: ["/api/runtime/routing"],
+    render: data => {
+      routingState.data = data;
+      routingState.failedAt = null;
+      fillPoolFilter(data);
+      paintRoutingDecisions();
+      return renderFlow(data);
+    },
+    retry: data => data?.recent?.status === "pending",
+    onError: () => {
+      routingState.failedAt = Date.now();
+      if (routingState.data) {
+        paintRoutingDecisions();
+      } else {
+        const box = document.getElementById("decisions-content");
+        if (box) box.innerHTML = '<p class="error">Routing data could not load; see the panel above.</p>';
+        setRoutingAge("decisions-age", "unavailable", "bad");
+      }
+    },
+    onTick: tickRouting,
+  },
+];
+
+const runner = createPanelRunner({panels: PANELS, renderChips});
+
+// ---- Model value (loaded on initial load and on window change) ----
+
 const $ = (id) => document.getElementById(id);
 const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c]));
 const LOW = '<span class="low">Low sample</span>';
@@ -264,7 +1268,7 @@ const nOf = (r) => r ? `${r.n}${r.low_sample ? LOW : ""}` : "—";
 const mins = (v) => v === null || v === undefined ? "—" : v > 0 && v < 60 ? "&lt;1" : num(v / 60);
 const cell = (v, tone = "") => `<td class="num ${tone}">${v}</td>`;
 const share = (value, sample) => value === null || value === undefined ? "—" : `${num(value * 100)}%${sample < lowBelow() ? LOW : ""}`;
-const withSample = (text, sample) => sample ? `${text} (${sample})${sample < lowBelow() ? LOW : ""}` : "—";
+const withSample = (textValue, sample) => sample ? `${textValue} (${sample})${sample < lowBelow() ? LOW : ""}` : "—";
 const ciText = (ci) => ci ? `${num(ci[0] * 100)}–${num(ci[1] * 100)}%` : "—";
 const STATUS = {
   done: ["Done", "--series-0"], no_deliverable: ["No deliverable", "--warn"],
@@ -274,7 +1278,7 @@ const STATUS = {
 };
 const picked = () => $("model").value;
 
-function table(head, rows, textColumns = [0]) {
+function mvTable(head, rows, textColumns = [0]) {
   const headers = head.map((h, i) => `<th scope="col"${textColumns.includes(i) ? "" : ' class="num"'}>${esc(h)}</th>`).join("");
   return `<p class="note scroll-hint" hidden>Scroll across for more columns →</p><div class="table-scroll">`
     + `<table><thead><tr>${headers}</tr></thead><tbody>${rows.join("")}</tbody></table></div>`;
@@ -282,20 +1286,23 @@ function table(head, rows, textColumns = [0]) {
 function updateTableScroll() {
   for (const box of document.querySelectorAll(".table-scroll")) {
     const scrolls = box.scrollWidth > box.clientWidth;
-    box.previousElementSibling.hidden = !scrolls;
+    if (box.previousElementSibling) box.previousElementSibling.hidden = !scrolls;
     if (scrolls) {
       box.tabIndex = 0;
       box.setAttribute("role", "region");
-      box.setAttribute("aria-label", box.closest("section").querySelector("h2").textContent);
+      const heading = box.closest && box.closest("section")?.querySelector("h2");
+      if (heading) box.setAttribute("aria-label", heading.textContent);
     } else {
-      box.removeAttribute("tabindex");
-      box.removeAttribute("role");
-      box.removeAttribute("aria-label");
+      if (typeof box.removeAttribute === "function") {
+        box.removeAttribute("tabindex");
+        box.removeAttribute("role");
+        box.removeAttribute("aria-label");
+      }
     }
   }
 }
 function values(summary, head, rows, textColumns) {
-  return `<details><summary>${summary}</summary>${table(head, rows, textColumns)}</details>`;
+  return `<details><summary>${summary}</summary>${mvTable(head, rows, textColumns)}</details>`;
 }
 const TOKEN_WORK = {
   implementation: "Implementation", review_of_record: "Review of record", supplemental_review: "Supplemental reviews",
@@ -330,11 +1337,11 @@ function renderTokenUse(data, label) {
     + `${cell(tokenPercent(model.ratio))}${cell(`${tokenNumber(model.reported_tasks)} / ${tokenNumber(model.tasks)}`)}</tr>`);
   body.innerHTML = `<dl class="token-summary">${summary}</dl>`
     + `<p class="note">Recorded usage for ${tokenNumber(data.reported_tasks)} of ${tokenNumber(data.tasks)} settled runs. Observed merged PRs: ${tokenNumber(data.merged_prs)}.</p>`
-    + '<div class="token-grid"><div><h3>By work type</h3>' + table(["Work type", "Tokens", "Per merged PR"], work)
-    + '</div><div><h3>Waste</h3>' + table(["Runs", "Tokens", "Share"], waste)
+    + '<div class="token-grid"><div><h3>By work type</h3>' + mvTable(["Work type", "Tokens", "Per merged PR"], work)
+    + '</div><div><h3>Waste</h3>' + mvTable(["Runs", "Tokens", "Share"], waste)
     + '<p class="note">Share is of recorded tokens. Failed runs include pre-start refusals. Supplemental reviews match an exact PR head with a published verdict. Avoidable spend and cap replacements are unknown.</p></div></div>'
     + '<div class="token-grid"><div><h3>Top five runs by token volume</h3>'
-    + (tasks.length ? table(["Model", "Outcome", "Tokens"], tasks, [0, 1]) : '<p class="muted">Unknown</p>')
+    + (tasks.length ? mvTable(["Model", "Outcome", "Tokens"], tasks, [0, 1]) : '<p class="muted">Unknown</p>')
     + '</div><div>' + (cache.length ? values("Cache hit ratio by model", ["Model", "Cache hit", "Runs with usage"], cache)
       : '<p class="muted">Cache hit ratio by model is unknown.</p>') + '</div></div>';
 }
@@ -351,10 +1358,10 @@ function rowName(r, kind) {
   if (kind === "cls") return esc(r.class) + effortNote(r);
   return named(r) + (r.efforts?.length ? "" : ' <span class="muted">(no known effort)</span>');
 }
-function grouped(items, render, width) {
+function grouped(items, renderFn, width) {
   const concrete = items.filter((r) => r.identity === "catalog"), rest = items.filter((r) => r.identity !== "catalog");
-  return [...concrete.flatMap(render), ...(rest.length
-    ? [`<tr class="group"><td colspan="${width}">Not a concrete model id</td></tr>`, ...rest.flatMap(render)] : [])];
+  return [...concrete.flatMap(renderFn), ...(rest.length
+    ? [`<tr class="group"><td colspan="${width}">Not a concrete model id</td></tr>`, ...rest.flatMap(renderFn)] : [])];
 }
 function hoursOf(r) {
   const observed = r.wall_hours_observed;
@@ -406,7 +1413,7 @@ function neverStarted(models) {
   }
   const rows = [...causes].sort(([a], [b]) => a.localeCompare(b)).map(([cause, counts]) =>
     `<tr><td>${esc(cause.replaceAll("_", " "))}</td>${cell(counts.write, counts.write ? "warn" : "")}${cell(counts.review, counts.review ? "warn" : "")}</tr>`);
-  return rows.length ? table(["Cause", "Write tasks", "Reviews"], rows) : "<p>No recorded pre-start refusals.</p>";
+  return rows.length ? mvTable(["Cause", "Write tasks", "Reviews"], rows) : "<p>No recorded pre-start refusals.</p>";
 }
 function unparsedSamples(reviews) {
   const items = [];
@@ -422,17 +1429,15 @@ function unparsedSamples(reviews) {
   if (!items.length) return "";
   return `<details><summary>First failing replies (${items.length} model and reason pairs)</summary>`
     + '<p class="note">The count shows how often each format problem occurred. The table shows the first 200 characters of one reply so you can recognize the problem.</p>'
-    + table(["Model", "Sample effort", "Reason", "Count", "First failing reply"], items, [0, 1, 2, 4]) + "</details>";
+    + mvTable(["Model", "Sample effort", "Reason", "Count", "First failing reply"], items, [0, 1, 2, 4]) + "</details>";
 }
-function withClasses(models, role, render, width) {
+function withClasses(models, role, renderFn, width) {
   return grouped(models.filter((m) => m.role === role && (!picked() || m.model === picked() || role === "keep")), (m) =>
-    [render(m, ""), ...(m.by_effort || []).flatMap((e) => [render(e, "eff"),
-      ...((e.by_class || []).map((c) => render(c, "cls")))])], width);
+    [renderFn(m, ""), ...(m.by_effort || []).flatMap((e) => [renderFn(e, "eff"),
+      ...((e.by_class || []).map((c) => renderFn(c, "cls")))])], width);
 }
 function keepModel(name) { return !picked() || name === picked(); }
-// An author label can join several models (`a+b`): it matches the picked model when that model is one of them, exactly.
 function keepAuthor(name) { return !picked() || String(name).split("+").includes(picked()); }
-// Include idle catalog models as well as every model a filtered table can show.
 function pickerModels(data) {
   const members = (name) => String(name).split("+");
   return [...new Set([
@@ -500,7 +1505,7 @@ function modelKey(row, hollow) {
 function svgChart(width, height, label, body) {
   return `<svg class="chart" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" role="img" aria-label="${label}">${body}</svg>`;
 }
-function chartWidth(id) { return Math.max(260, Math.min(1000, $(id).clientWidth || 320)); }
+function chartWidth(id) { return Math.max(260, Math.min(1000, $(id)?.clientWidth || 320)); }
 function niceScale(maximum, width) {
   const ideal = (maximum || 1) / (width < 400 ? 4 : 6);
   const exponent = Math.floor(Math.log10(ideal)), base = 10 ** exponent;
@@ -515,15 +1520,15 @@ function verticalTicks({ticks, decimals}, sx, top, bottom) {
     + `<text x="${sx(tick)}" y="${bottom + 17}" text-anchor="middle">${num(tick, decimals)}</text>`).join("");
 }
 function percentTicks(sy, left, right) {
-  return [0, 0.25, 0.5, 0.75, 1].map((share) =>
-    `<line class="grid" x1="${left}" x2="${right}" y1="${sy(share)}" y2="${sy(share)}"/>`
-    + `<text x="${left - 6}" y="${sy(share) + 4}" text-anchor="end">${share * 100}%</text>`).join("");
+  return [0, 0.25, 0.5, 0.75, 1].map((s) =>
+    `<line class="grid" x1="${left}" x2="${right}" y1="${sy(s)}" y2="${sy(s)}"/>`
+    + `<text x="${left - 6}" y="${sy(s) + 4}" text-anchor="end">${s * 100}%</text>`).join("");
 }
 function scatter(points, id, yLabel, xLabel, connect = false, yMetric = "approval") {
   const W = chartWidth(id), H = 270, left = 43, right = W - 26, top = 29, bottom = H - 43;
   const scale = niceScale(Math.max(...points.map((p) => p.x)), W);
   const sx = (value) => left + value / scale.max * (right - left);
-  const sy = (share) => bottom - share * (bottom - top);
+  const sy = (s) => bottom - s * (bottom - top);
   const line = connect ? `<polyline fill="none" stroke="var(--ok)" stroke-width="2" stroke-dasharray="5 3" points="${
     points.filter((p) => p.frontier).sort((a, b) => a.x - b.x).map((p) => `${sx(p.x)},${sy(p.y)}`).join(" ")}"/>` : "";
   const positions = new Map();
@@ -723,7 +1728,7 @@ function jobs(data) {
         + `${cell(`${share(m.rate, m.tasks)} <span class="muted">(${ciText(m.ci)})</span>`, winner ? "good" : "")}`
         + `${cell(displayHours(m))}<td>${classBest}</td></tr>`);
     }
-    detailRows.push(`<tr class="group"><th colspan="6">${esc(job.class)} (${num(job.tasks)} tasks)</th></tr>`);
+    detailRows.push(`<tr class="group"><th scope="colgroup" colspan="6">${esc(job.class)} (${num(job.tasks)} tasks)</th></tr>`);
     for (const m of models) {
       const winner = best && m.tasks >= lowBelow() && landedShare(m) === landedShare(best);
       detailCount += 1;
@@ -735,8 +1740,8 @@ function jobs(data) {
   $("jobs-meta").textContent = `${charts.jobs_low_n || 0} classes across all models are below the ${lowBelow()}-task cutoff`;
   if (!matrixRows.length) return '<p class="muted">Not enough data yet for a job class in this selection.</p>';
   const summaryTable = !filter
-    ? table(["Job class", "Tasks", "Best eligible pick", "Landed % (95% CI)", "Hours / merge", "Runner-up"], matrixRows, [0, 2, 5])
-    : table(["Job class", "Model", "Tasks", "Landed % (95% CI)", "Hours / merge", "Window best"], matrixRows, [0, 1, 5]);
+    ? mvTable(["Job class", "Tasks", "Best eligible pick", "Landed % (95% CI)", "Hours / merge", "Runner-up"], matrixRows, [0, 2, 5])
+    : mvTable(["Job class", "Model", "Tasks", "Landed % (95% CI)", "Hours / merge", "Window best"], matrixRows, [0, 1, 5]);
   return summaryTable
     + values(`All models by job class (${num(detailCount)} rows)`,
       ["Model", "Tasks", "Landed", "Landed %", "Interval", "Hours per merge"], detailRows);
@@ -858,7 +1863,7 @@ function neon(data) {
   const hydrogen = data.charts.hydrogen;
   const context = hydrogen ? `<p class="note">Hydrogen landed ${num(hydrogen.landed)} of ${num(hydrogen.tasks)} write tasks with known effort. Tasks by effort ${hydrogen.efforts.map((e) => `${esc(e.effort)} ${num(e.tasks)}`).join(", ")}.${hydrogen.tasks < lowBelow() ? LOW : ""}</p>` : "";
   return `<p class="note${block.enough ? "" : " warn"}">${sample}</p>`
-    + table(["Effort", "Writes (landed/total)", "Reviews (parsed/total)", "Approval (95% CI)", "Blocking / rev", "P0–P2 / rev", "Review med / p90 min", "Write med min"], rows) + context;
+    + mvTable(["Effort", "Writes (landed/total)", "Reviews (parsed/total)", "Approval (95% CI)", "Blocking / rev", "P0–P2 / rev", "Review med / p90 min", "Write med min"], rows) + context;
 }
 function strictness(items) {
   const shown = (items || []).filter((p) => p.approve !== null && p.p0_p2 !== null && keepModel(p.model));
@@ -874,7 +1879,6 @@ function strictness(items) {
 function accuracy(data) {
   const block = data.reviewer_accuracy || {}, recall = block.planted_defect_recall || {};
   const items = (block.findings || []).filter((r) => keepModel(r.model));
-  // Counted over the reviewers the table shows, in this window.
   const later = items.reduce((s, r) => s + (r.reviews_approved_later || 0), 0);
   const read = items.reduce((s, r) => s + (r.reviews_approved_later_read || 0), 0);
   const recallText = recall.value === null || recall.value === undefined
@@ -883,7 +1887,7 @@ function accuracy(data) {
   const headText = later
     ? `<p class="note">Changed files were read for ${num(read)} of ${num(later)} blocking reviews the same reviewer later approved; the findings of the rest count as unknown.</p>` : "";
   const findingsTable = items.length
-    ? table(["Reviewer", "Blocking reviews", "Blocking replies of unknown publication", "Reviews without finding counts or paths", "Counted P0–P1 findings", "Fixed", "Dismissed", "Open", "Unknown", "Precision", "Interval", "Settled"],
+    ? mvTable(["Reviewer", "Blocking reviews", "Blocking replies of unknown publication", "Reviews without finding counts or paths", "Counted P0–P1 findings", "Fixed", "Dismissed", "Open", "Unknown", "Precision", "Interval", "Settled"],
         grouped(items, (r) => [`<tr><td>${named(r)}</td>${cell(r.blocking_reviews)}`
           + `${cell(r.reviews_unknown_publication, r.reviews_unknown_publication ? "warn" : "")}`
           + `${cell(r.reviews_without_paths, r.reviews_without_paths ? "warn" : "")}${cell(r.blocking_findings)}${cell(r.fixed)}`
@@ -896,14 +1900,13 @@ function authorLabels(data) {
   const items = (data.reviewer_accuracy?.labels || []).filter((r) => keepModel(r.model));
   const note = '<p class="note">The author labels each blocking finding: fixed (a real error), wrong (the code was already correct), invented (it cites code or behaviour that does not exist), out of scope or duplicate. A label the next review contested counts as contested. Real precision is fixed over fixed, wrong and invented.</p>';
   return '<h3>Author labels</h3>' + note + (items.length
-    ? table(["Reviewer", "Fixed (real)", "Wrong", "Invented", "Out of scope", "Duplicate", "Contested", "Real precision", "Interval", "Precision sample"],
+    ? mvTable(["Reviewer", "Fixed (real)", "Wrong", "Invented", "Out of scope", "Duplicate", "Contested", "Real precision", "Interval", "Precision sample"],
         grouped(items, (r) => { const l = r.labels || {}; return [`<tr><td>${named(r)}</td>${cell(num(l.fixed || 0))}`
           + `${cell(num(l.wrong || 0))}${cell(num(l.invented || 0), l.invented ? "warn" : "")}${cell(num(l.out_of_scope || 0))}`
           + `${cell(num(l.duplicate || 0))}${cell(num(l.contested || 0))}`
           + `${cell(pct(r.real_precision))}${cell(ciText(r.real_precision_ci))}${cell(nOf(r.real_precision))}</tr>`]; }, 10))
     : '<p class="muted">No finding outcome labels in this selection.</p>');
 }
-// A findings rate counts only PRs with a known findings count, so it carries its own low-sample mark.
 const rateOf = (r) => r && r.value !== null && r.value !== undefined ? `${num(r.value, 2)}${r.low_sample ? LOW : ""}` : "—";
 function risks(authors, size) {
   let count = 0;
@@ -922,7 +1925,7 @@ function risks(authors, size) {
     .map((a) => `${named(a)}: ${num(a.prs_without_review_of_record)}`);
   const note = without.length
     ? `<p class="note"><strong class="warn">Reviewed PRs with no published first review in this selection, left out:</strong> ${without.join(", ")}</p>` : "";
-  return (rows.length ? table(["Author model", "Risk tier", "PRs", "Rounds / PR", "Approved first round", "Approved eventually",
+  return (rows.length ? mvTable(["Author model", "Risk tier", "PRs", "Rounds / PR", "Approved first round", "Approved eventually",
     "Blocking / PR", "P0–P2 / PR"], rows, [0, 1])
     : '<p class="muted">No PR with a published review in this selection.</p>') + note;
 }
@@ -931,13 +1934,13 @@ function deliveryCauses(writes) {
   const rows = writes.filter((m) => keepModel(m.model) && m.status.no_deliverable && m.no_deliverable_causes)
     .map((m) => `<tr><td>${named(m)}</td>${cell(num(m.status.no_deliverable))}`
       + causes.map((cause) => cell(num(m.no_deliverable_causes[cause]))).join("") + "</tr>");
-  return rows.length ? table(["Model", "No deliverable", "Outside owned paths", "Scope-breaker stop",
+  return rows.length ? mvTable(["Model", "No deliverable", "Outside owned paths", "Scope-breaker stop",
     "No commits or unknown", "Deadline", "Other recorded cause"], rows) : '<p class="muted">No delivery causes in this selection.</p>';
 }
 function reworkRate(data) {
   const rows = (data.post_merge_rework_proxy || []).filter((a) => keepAuthor(a.model)).map((a) =>
     `<tr><td>${named(a)}</td>${cell(nOf(a.rate))}${cell(num(a.reworked))}${cell(pct(a.rate))}</tr>`);
-  return rows.length ? table(["Author model", "Merges observed for 7 days", "Named by a fix or revert", "Rework share"], rows)
+  return rows.length ? mvTable(["Author model", "Merges observed for 7 days", "Named by a fix or revert", "Rework share"], rows)
     : '<p class="muted">No attributed merge with seven days of follow-up in this selection.</p>';
 }
 function boxes(items) {
@@ -954,7 +1957,7 @@ function boxes(items) {
       ? `<circle cx="${mid}" cy="10" r="4" fill="var(--card)" stroke="${color}" stroke-width="2"/>`
       : `<rect x="${p25}" y="4" width="${p75 - p25}" height="12" fill="${color}" fill-opacity="0.25" stroke="${color}" stroke-width="2"/>`
         + `<line x1="${mid}" x2="${mid}" y1="3" y2="17" stroke="${color}" stroke-width="2"/>`;
-    const bar = scale.ticks.map((tick) => `<line class="grid" x1="${sx(tick)}" x2="${sx(tick)}" y1="0" y2="20"/>`).join("")
+    const barSvg = scale.ticks.map((tick) => `<line class="grid" x1="${sx(tick)}" x2="${sx(tick)}" y1="0" y2="20"/>`).join("")
       + `<line x1="${p75}" x2="${p90}" y1="10" y2="10" stroke="${color}" stroke-width="2"/>`
       + `<line x1="${p90}" x2="${p90}" y1="7" y2="13" stroke="${color}" stroke-width="2"/>` + box;
     const landedCi = item.landed_ci ? `, ${ciText(item.landed_ci)}` : "";
@@ -963,7 +1966,7 @@ function boxes(items) {
       : "";
     return `<div class="duration-row" style="width:${W}px">${named(item)}`
       + `<span>${mins(item.median)} min median${landedNote}${item.low_sample ? LOW : ""}</span></div>`
-      + `<svg class="chart" width="${W}" height="20" viewBox="0 0 ${W} 20" aria-hidden="true">${bar}</svg>`;
+      + `<svg class="chart" width="${W}" height="20" viewBox="0 0 ${W} 20" aria-hidden="true">${barSvg}</svg>`;
   }).join("");
   const axis = svgChart(W, 43, "Write task duration in minutes", verticalTicks(scale, sx, 0, 5)
     + `<text x="${(left + right) / 2}" y="37" text-anchor="middle">Minutes →</text>`);
@@ -980,7 +1983,7 @@ function boxes(items) {
 function ukrainian(items) {
   const shown = (items || []).filter((item) => keepModel(item.model));
   if (!shown.length) return '<p class="muted">No Ukrainian class in this window.</p>';
-  return table(["Model", "Role", "Class", "Tasks", "Landed %", "Approval"], shown.map((item) =>
+  return mvTable(["Model", "Role", "Class", "Tasks", "Landed %", "Approval"], shown.map((item) =>
     `<tr><td>${named(item)}</td><td>${esc(item.role)}</td><td>${esc(item.class)}</td>${cell(nOf({n: item.tasks, low_sample: item.low_sample}))}`
     + `${cell(share(item.rate, item.tasks), item.landed ? "good" : "")}${cell(share(item.approve, item.approve_n || 0))}</tr>`), [0, 1, 2]);
 }
@@ -1003,15 +2006,15 @@ function matrix(data, cls) {
   };
   const authors = tally("author"), reviewers = tally("reviewer");
   const at = new Map(cells.map((c) => [`${c.author}\u0000${c.reviewer}`, c]));
-  const text = ({ok, n, efforts}) => n ? `${num(ok / n * 100)}% <span class="muted">${ok}/${n}</span>${n < lowBelow() ? LOW : ""}`
+  const cellText = ({ok, n, efforts}) => n ? `${num(ok / n * 100)}% <span class="muted">${ok}/${n}</span>${n < lowBelow() ? LOW : ""}`
     + effortNote({review_efforts: [...efforts].sort()}) : "—";
   const all = cells.reduce(add, empty());
   const rows = authors.map(([author, t]) => `<tr><td><b>${esc(author)}</b></td>${reviewers.map(([reviewer]) => {
     const c = at.get(`${author}\u0000${reviewer}`);
-    return cell(c ? text(add(empty(), c)) : "—");
-  }).join("")}${cell(text(t))}</tr>`);
-  rows.push(`<tr class="total"><td>All authors</td>${reviewers.map(([, t]) => cell(text(t))).join("")}${cell(text(all))}</tr>`);
-  return table(["Author / first reviewer", ...reviewers.map(([r]) => r), "All reviewers"], rows);
+    return cell(c ? cellText(add(empty(), c)) : "—");
+  }).join("")}${cell(cellText(t))}</tr>`);
+  rows.push(`<tr class="total"><td>All authors</td>${reviewers.map(([, t]) => cell(cellText(t))).join("")}${cell(cellText(all))}</tr>`);
+  return mvTable(["Author / first reviewer", ...reviewers.map(([r]) => r), "All reviewers"], rows);
 }
 function matrixClasses(data) {
   const select = $("matrix-class"), chosen = select.value;
@@ -1032,7 +2035,7 @@ function renderLevels() {
       + `${cell(`${num(r.results)} / ${num(r.tasks)}`, r.results < r.tasks ? "warn" : "")}${cell(withSample(pct(approval), approval.n))}`
       + `${cell(mins(r.median_seconds))}${cell(withSample(rate(r.wall_minutes_per_landed, 1), r.wall_minutes_per_landed.n))}${cell(quota)}</tr>`;
   });
-  $("levels").innerHTML = table(["Effort", "Results / tasks", "First-round approval", "Median min", "Min per landed", "Quota points per landed"], rows);
+  $("levels").innerHTML = mvTable(["Effort", "Results / tasks", "First-round approval", "Median min", "Min per landed", "Quota points per landed"], rows);
   updateTableScroll();
 }
 function renderCoverage(data) {
@@ -1084,6 +2087,10 @@ function paintModelAge(records, label, reading) {
     : `The snapshot was collected ${Math.floor(snapshotAge)} seconds ago.`;
   $("age").textContent = `${num(records)} settled tasks across all models in ${label}. ${collected}`;
 }
+function announceModelValue(message) {
+  const status = $("model-value-status");
+  if (status) status.textContent = message;
+}
 function render() {
   if (!current) return;
   const data = current.data, charts = data.charts || {}, label = current.label;
@@ -1105,19 +2112,19 @@ function render() {
   const writes = data.models.filter((m) => m.role === "write"), reviews = data.models.filter((m) => m.role === "review");
   const total = (rows) => rows.filter((r) => keepModel(r.model)).reduce((s, r) => s + r.tasks, 0);
   $("write-meta").textContent = `${label}; n = ${total(writes)} tasks`;
-  $("write").innerHTML = table(["Model / effort", "Tasks", "Done", "No deliverable", "Not done", "Landed", "Landed %",
+  $("write").innerHTML = mvTable(["Model / effort", "Tasks", "Done", "No deliverable", "Not done", "Landed", "Landed %",
     "Wall h per landed", "Median min", "p90 min"], withClasses(data.models, "write", writeRow, 10));
   $("delivery-causes").innerHTML = deliveryCauses(writes);
   $("reviews-meta").textContent = `${label}; n = ${total(reviews)} tasks`;
   $("never-started").innerHTML = neverStarted(data.models);
-  $("review").innerHTML = table(["Model / effort", "Tasks", "Not done", "Approve / changes / block", "Unreadable",
+  $("review").innerHTML = mvTable(["Model / effort", "Tasks", "Not done", "Approve / changes / block", "Unreadable",
     "Evidence absent", "Missing result", "Too big", "Bad format", "Bad fields",
     "Approve %", "Blocking per review", "P0–P2 per review", "Median min", "p90 min"], withClasses(data.models, "review", reviewRow, 15));
   $("unparsed-samples").innerHTML = unparsedSamples(reviews);
   const after = (a, key) => a.after_blocked_first_round.blocked ? pct(a.after_blocked_first_round[key]) : "—";
   const authors = (data.authors || []).filter((a) => keepAuthor(a.model));
   $("author-meta").textContent = `${label} · ${num(authors.reduce((s, a) => s + a.prs, 0))} PRs`;
-  $("author").innerHTML = table(["Author model", "PRs", "Rounds / PR", "Approved eventually", "Approved first round",
+  $("author").innerHTML = mvTable(["Author model", "PRs", "Rounds / PR", "Approved eventually", "Approved first round",
     "Blocked first round", "New head", "Same head", "No approval", "Blocking / PR", "P0–P2 / PR"],
     grouped(authors, (a) => [`<tr><td>${named(a)}</td>${cell(nOf({n: a.prs, low_sample: a.low_sample}))}${cell(rate(a.rounds_per_pr))}`
       + `${cell(pct(a.approved_eventually))}${cell(pct(a.first_round_approved), a.first_round_approved.value > 0 ? "good" : "")}`
@@ -1142,105 +2149,6 @@ function render() {
     ? `Catalog models with no task in this window: ${data.idle_catalog_models.join(", ")}.`
     : "";
   updateTableScroll();
-}
-function formatPace(pace, responseStale = false) {
-  if (!pace || typeof pace !== "object") return {text: "—", tone: ""};
-  if (responseStale || pace.stale) return {text: "stale", tone: "warn"};
-  const at = typeof pace.runs_out_at === "string" && pace.runs_out_at.length >= 16
-    ? pace.runs_out_at.slice(0, 16).replace("T", " ") : null;
-  if (pace.pace_reason === "ran_out_before_reset") {
-    return {text: at ? `ran out ${at}` : "ran out before reset", tone: "warn"};
-  }
-  if (pace.pace_reason === "runs_out_before_reset") {
-    return {text: at ? `runs out ${at}` : "runs out before reset", tone: "warn"};
-  }
-  if (pace.pace_reason === "weekly_used_up") {
-    return {text: "weekly used up", tone: "warn"};
-  }
-  if (pace.pace_reason === "lasts_to_reset") return {text: "lasts to reset", tone: "good"};
-  if (pace.pace_reason === "on_pace") return {text: "on pace", tone: "good"};
-  return {text: "—", tone: ""};
-}
-function routingResponseStale(response, body) {
-  const diag = body && typeof body.diagnostics === "object" && body.diagnostics ? body.diagnostics : {};
-  if (diag.stale === true) return true;
-  if (typeof diag.data_age_s === "number" && typeof diag.stale_threshold_s === "number"
-      && diag.data_age_s > diag.stale_threshold_s) return true;
-  const ageHeader = response.headers.get("X-Snapshot-Age-S");
-  const boundHeader = response.headers.get("X-Snapshot-Stale-After-S");
-  const age = ageHeader !== null && ageHeader !== "" ? Number(ageHeader) : null;
-  const bound = boundHeader !== null && boundHeader !== "" ? Number(boundHeader) : null;
-  return age !== null && bound !== null && Number.isFinite(age) && Number.isFinite(bound) && age > bound;
-}
-async function loadPools(allowance, generation) {
-  const node = $("pools");
-  try {
-    const response = await fetch("/api/state/routing-budget", {cache: "no-store"});
-    const body = await response.json();
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    if (generation !== loadGeneration) return;
-    const responseStale = routingResponseStale(response, body);
-    const landed = new Map();
-    for (const row of allowance || []) landed.set(row.pool, (landed.get(row.pool) || 0) + (row.landed || 0));
-    const agents = body.agents || {};
-    const rows = Object.entries(agents).map(([name, info]) => {
-      if (!info || typeof info !== "object") return "";
-      const remaining = typeof info.remaining_pct === "number" ? info.remaining_pct : null;
-      const resets = typeof info.resets_at === "string" ? info.resets_at : (info.pool_pace && info.pool_pace.resets_at) || null;
-      const status = typeof info.status === "string" ? info.status : "unknown";
-      const freshness = typeof info.freshness === "string" ? info.freshness : "unknown";
-      const laneFresh = !responseStale && freshness === "fresh" && !info.stale;
-      const paceObj = info.pool_pace && typeof info.pool_pace === "object" ? info.pool_pace : null;
-      const pace = formatPace(paceObj, responseStale);
-      const tone = laneFresh && status === "cool" ? "good" : laneFresh && ["hot", "near_cap"].includes(status) ? "warn" : "";
-      const remCell = remaining === null ? '<span class="muted">unknown</span>' : `${num(remaining, 1)}%`;
-      const staleTag = responseStale || info.stale ? "stale" : !laneFresh ? freshness : null;
-      const statusText = `${esc(status.replaceAll("_", " "))}${staleTag ? ` <span class="low">${esc(staleTag)}</span>` : ""}`;
-      return `<tr><td>${esc(name)}</td>${cell(remCell)}<td class="${pace.tone}">${esc(pace.text)}</td>`
-        + `<td>${esc(resets ? String(resets).slice(0, 16).replace("T", " ") : "—")}</td>`
-        + `<td class="${tone}">${statusText}</td>${cell(landed.get(name) || 0)}</tr>`;
-    }).filter(Boolean);
-    const staleNote = responseStale ? '<p class="note warn">Quota snapshot is past its freshness bound; readings below are stale.</p>' : "";
-    node.innerHTML = rows.length ? staleNote + table(["Pool", "Remaining", "Pace", "Resets (UTC)", "Status", "Landed tasks with a reading"], rows, [0, 2, 3, 4])
-      + '<p class="note">The landed count is for this window and uses the exact pool name recorded for each task. A task reading can use a different name from the live meter.</p>'
-      : '<p class="muted">The quota snapshot named no pool.</p>';
-  } catch (err) {
-    if (generation !== loadGeneration) return;
-    node.innerHTML = `<p class="muted">Quota snapshot unavailable (${esc(err.message)}).</p>`;
-  }
-  updateTableScroll();
-}
-function renderPlanning(data) {
-  const pools = Array.isArray(data?.capacity) ? data.capacity : [];
-  const pct = value => typeof value === "number" && Number.isFinite(value) ? `${num(value, 1)}%` : "Unknown";
-  const pace = value => typeof value === "number" && Number.isFinite(value) ? `${num(value, 2)}%/h` : "Unknown";
-  $("planning-coverage").textContent = pools.length ? "" : "Capacity forecast is loading.";
-  if (pools.length) {
-    $("planning-pools").innerHTML = table(
-      ["Pool", "Remaining", "Reset (UTC)", "Burn", "Burn needed", "Unused at reset",
-        "Additional workers", "Measured writes"],
-      pools.map(row =>
-        `<tr><td>${esc(row.pool)}</td>${cell(pct(row.remaining_pct))}<td>${esc(row.reset_at || "Unknown")}</td>` +
-        `${cell(pace(row.burn_pct_per_hour))}${cell(pace(row.sustainable_pct_per_hour))}` +
-        `${cell(pct(row.unused_pct))}${cell(row.workers_needed ?? "Unknown")}${cell(row.worker_samples ?? "Unknown")}</tr>`),
-      [0, 2],
-    );
-  } else {
-    $("planning-pools").replaceChildren();
-  }
-  updateTableScroll();
-}
-async function loadPlanning() {
-  try {
-    const response = await fetch("/api/fleet/model-stats/planning", {cache: "no-store"});
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    const data = await response.json();
-    renderPlanning(data);
-  } catch {
-    $("planning-coverage").textContent = "Capacity forecast is unavailable.";
-    $("planning-pools").replaceChildren();
-  }
-  setTimeout(loadPlanning, 30000);
 }
 function sampleStamp(window) {
   if (!window || typeof window.name !== "string" || typeof window.until !== "string" || window.until === "") return null;
@@ -1269,6 +2177,7 @@ async function loadSamples(name) {
 async function load() {
   const generation = ++loadGeneration;
   const name = $("window").value;
+  announceModelValue("Loading Model value.");
   const samplesPromise = loadSamples(name);
   let data, retry = 1, snapshotReading = null;
   try {
@@ -1288,6 +2197,7 @@ async function load() {
     if (generation !== loadGeneration) return;
     retireDisplayedAge();
     $("age").innerHTML = `<span class="error">unavailable: ${esc(err.message)}</span>`;
+    announceModelValue("Model value couldn't load.");
     return;
   }
   if (generation !== loadGeneration) return;
@@ -1323,7 +2233,7 @@ async function load() {
   if ([...levelModel.options].some((option) => option.value === previousModel)) levelModel.value = previousModel;
   render();
   renderLevels();
-  loadPools(data.allowance, generation);
+  announceModelValue("Model value loaded.");
   const samples = await samplesPromise;
   if (generation !== loadGeneration || current === null) return;
   const pageWindow = sampleStamp(data.window);
@@ -1333,34 +2243,68 @@ async function load() {
     render();
   }
 }
-$("window").addEventListener("change", load);
-$("model").addEventListener("change", () => { render(); renderLevels(); });
-$("pareto-class").addEventListener("change", () => { if (current) { renderCharts(); updateTableScroll(); } });
-$("pareto-x").addEventListener("change", () => { if (current) { renderCharts(); updateTableScroll(); } });
-$("trends-metric").addEventListener("change", () => { if (current) { renderCharts(); updateTableScroll(); } });
-$("matrix-class").addEventListener("change", render);
-$("risk-size").addEventListener("change", render);
-$("level-model").addEventListener("change", renderLevels);
+
 function updateStickyOffset() {
+  if (typeof document !== "object" || !document || typeof document.querySelector !== "function") return;
   const header = document.querySelector("header");
-  if (!header) return;
+  if (!header || typeof getComputedStyle !== "function") return;
   const sticky = getComputedStyle(header).position === "sticky";
   const offset = sticky ? Math.ceil(header.getBoundingClientRect().height) + 12 : 0;
   document.documentElement.style.setProperty("--sticky-offset", `${offset}px`);
 }
-updateStickyOffset();
-if (typeof ResizeObserver !== "undefined") {
-  const header = document.querySelector("header");
-  if (header) new ResizeObserver(updateStickyOffset).observe(header);
-}
-window.addEventListener("resize", () => {
+
+function bindPageEvents() {
+  if (typeof document !== "object" || !document) return;
+  $("decision-filters")?.addEventListener("change", () => {
+    routingState.shown = ROUTING_PAGE_ROWS;
+    if (routingState.data) $("decisions-content").innerHTML = renderDecisions(routingState.data);
+  });
+  document.addEventListener("click", event => {
+    const more = event.target?.closest && event.target.closest("#show-more");
+    if (more && routingState.data) {
+      routingState.shown += ROUTING_PAGE_ROWS;
+      $("decisions-content").innerHTML = renderDecisions(routingState.data);
+      return;
+    }
+    const link = event.target?.closest && event.target.closest("[data-outcome]");
+    if (link) {
+      const outcome = $("filter-outcome");
+      if (outcome) outcome.value = link.dataset.outcome;
+      routingState.shown = ROUTING_PAGE_ROWS;
+      if (routingState.data) $("decisions-content").innerHTML = renderDecisions(routingState.data);
+    }
+  });
+  $("window")?.addEventListener("change", load);
+  $("model")?.addEventListener("change", () => { render(); renderLevels(); });
+  $("pareto-class")?.addEventListener("change", () => { if (current) { renderCharts(); updateTableScroll(); } });
+  $("pareto-x")?.addEventListener("change", () => { if (current) { renderCharts(); updateTableScroll(); } });
+  $("trends-metric")?.addEventListener("change", () => { if (current) { renderCharts(); updateTableScroll(); } });
+  $("matrix-class")?.addEventListener("change", render);
+  $("risk-size")?.addEventListener("change", render);
+  $("level-model")?.addEventListener("change", renderLevels);
   updateStickyOffset();
-  if (current) renderCharts();
-  updateTableScroll();
-});
-document.addEventListener("toggle", updateTableScroll, true);
+  if (typeof ResizeObserver !== "undefined") {
+    const header = document.querySelector("header");
+    if (header) new ResizeObserver(updateStickyOffset).observe(header);
+  }
+  if (typeof window !== "undefined" && typeof window.addEventListener === "function") {
+    window.addEventListener("resize", () => {
+      updateStickyOffset();
+      if (current) renderCharts();
+      updateTableScroll();
+    });
+  }
+  document.addEventListener("toggle", event => {
+    if (event.target?.id === "more-model-stats" && event.target.open && current) {
+      renderCharts();
+    }
+    updateTableScroll();
+  }, true);
+}
+
+runner.start();
+bindPageEvents();
 load();
-loadPlanning();
 </script>
 </body>
 </html>

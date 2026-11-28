@@ -37,7 +37,7 @@
     <div id="alerts-content">Loading…</div>
   </section>
   <section id="capacity">
-    <h2>Capacity summary <span class="age" id="usage-age">Loading…</span> <a class="more" href="/subscriptions">Full subscriptions →</a></h2>
+    <h2>Capacity summary <span class="age" id="usage-age">Loading…</span> <a class="more" href="/models#budget">Models &amp; budget →</a></h2>
     <p id="usage-status" class="visually-hidden" aria-live="polite" aria-atomic="true"></p>
     <div id="usage-content">Loading…</div>
   </section>
@@ -164,7 +164,7 @@ function renderCapacitySummary(subs, logins) {
     : allClear
       ? `<p class="ok">All ${summary.total} active subscriptions are on pace with fresh readings.</p>`
       : summary.total
-        ? '<p class="warn">Subscription attention status is incomplete; open Full subscriptions for details.</p>'
+        ? '<p class="warn">Subscription attention status is incomplete; open Models &amp; budget for details.</p>'
         : '<p class="muted">No active subscriptions reported.</p>';
   return `<div class="summary-stats">${stats.join("")}</div>`
     + body + notes.map(note => `<p class="muted">${escapeHtml(note)}</p>`).join("");
@@ -332,7 +332,7 @@ function renderChips(latest) {
     const critical = problems.some(alert => alert.severity === "critical");
     out.push(chip("#alerts", firing, "alerts firing", critical ? "bad" : firing ? "warn" : ""));
   } else if (latest.alerts) out.push(chip("#alerts", "?", "alerts unknown", "bad"));
-  out.push(...subscriptionChips(latest.usage, latest.logins, "/subscriptions"));
+  out.push(...subscriptionChips(latest.usage, latest.logins, "/models#budget"));
   out.push(...prChips(latest.prs, "/pull-requests", latest.prsStatus));
   return out.join("");
 }

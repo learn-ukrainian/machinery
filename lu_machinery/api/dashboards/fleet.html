@@ -13,7 +13,7 @@
   <div class="header-top">
     <div class="title">
       <h1>Fleet</h1>
-      <p class="purpose">Which seats have queued mail, how long it has waited, and the live workers and Fleet Comms backlog.</p>
+      <p class="purpose">Live agent workers, recently finished dispatches, and driver seat leases and mail backlogs.</p>
     </div>
     <div class="header-utils">
       <nav class="sites" id="machinery-sites" aria-label="Sites"></nav>
@@ -30,88 +30,34 @@
   </div>
 </header>
 <main id="main" tabindex="-1">
-  <div class="wide">
-    <div id="token-use-content"><a href="/model-stats#token-use">Tokens, last 7 days</a> · Loading…</div>
-    <small class="age" id="token-use-age"></small>
-  </div>
-  <section class="wide stacked" id="seats">
-    <h2>Seats <span class="age" id="seats-age">Loading…</span></h2>
-    <p id="seats-status" class="visually-hidden" aria-live="polite" aria-atomic="true"></p>
-    <div id="seats-content">Loading…</div>
-  </section>
-  <section class="wide stacked" id="messages">
-    <h2>Messages <span class="age" id="messages-age">Loading…</span></h2>
-    <form id="message-filters" class="filters" method="get" action="/fleet">
-      <label>Seat
-        <select id="filter-seat" name="seat" autocomplete="off">
-          <option value="">All seats</option>
-        </select>
-      </label>
-      <label>State
-        <select id="filter-state" name="state" autocomplete="off">
-          <option value="">Any state</option>
-          <option value="queued">queued</option>
-          <option value="running">running</option>
-          <option value="acknowledged">acknowledged</option>
-          <option value="failed">failed</option>
-          <option value="expired">expired</option>
-          <option value="dead_lettered">dead_lettered</option>
-        </select>
-      </label>
-      <label>Since
-        <select id="filter-since" name="since" autocomplete="off">
-          <option value="7d" selected>Last 7 d</option>
-          <option value="24h">Last 24 h</option>
-          <option value="all">All</option>
-        </select>
-      </label>
-      <button type="button" class="retry" data-clear-filters>Clear filters</button>
-    </form>
-    <p id="messages-status" class="visually-hidden" aria-live="polite" aria-atomic="true"></p>
-    <section id="message-reader" aria-label="Message reader" tabindex="-1" hidden>
-      <div id="message-body"></div>
-      <h3>Thread</h3>
-      <div id="message-thread"></div>
-    </section>
-    <div id="messages-content">Loading…</div>
-  </section>
   <section class="wide" id="fleet">
     <h2>Agent fleet <span class="age" id="workers-age">Loading…</span></h2>
     <p id="workers-status" class="visually-hidden" aria-live="polite" aria-atomic="true"></p>
     <div id="workers-content">Loading…</div>
-    <h3>Recently finished <span class="age muted" id="recent-age">Loading…</span></h3>
+  </section>
+  <section class="wide" id="recent">
+    <h2>Recently finished <span class="age muted" id="recent-age">Loading…</span></h2>
     <p id="recent-status" class="visually-hidden" aria-live="polite" aria-atomic="true"></p>
     <div id="recent-content">Loading…</div>
   </section>
-  <section class="wide" id="comms">
-    <h2>Fleet Comms <span class="age" id="comms-age">Loading…</span></h2>
-    <p id="comms-status" class="visually-hidden" aria-live="polite" aria-atomic="true"></p>
-    <div id="comms-content">Loading…</div>
-  </section>
-  <section class="wide" id="discussions">
-    <details id="discussions-disclosure">
-      <summary>Discussions (ACP transcripts)</summary>
-      <p class="muted" id="discussions-redaction-notice">Loopback-only transcript reader. Redaction is best-effort for secrets and paths only (hostnames and IP addresses are not redacted).</p>
-      <div class="journal-actions">
-        <button type="button" class="retry" id="discussions-refresh">Refresh discussions</button>
-      </div>
-      <p id="discussions-status" class="muted" role="status"></p>
-      <div id="discussions-list"></div>
-      <div id="discussions-transcript"></div>
-    </details>
+  <section class="wide stacked" id="seats">
+    <h2>Driver seats <span class="age" id="seats-age">Loading…</span></h2>
+    <p id="seats-status" class="visually-hidden" aria-live="polite" aria-atomic="true"></p>
+    <div id="seats-content">Loading…</div>
   </section>
 </main>
 <script src="/machinery.js"></script>
 <script>
 "use strict";
 const {
-  escapeHtml, fetchJson, span, utc, relative, table, td, text, unknown, chip,
+  escapeHtml, fetchJson, span, relative, table, td, text, chip,
   ciLabel, prLink, prSnapshotFresh, createPanelRunner,
 } = Machinery;
 
 const ACTIVE = new Set(["spawning", "running", "settling", "needs_finalize"]);
 const CLAUDE_ACCOUNTS = {a: "Claude a", b: "Claude b"};
 const CODEX_ACCOUNTS = {sub: "Codex a", "b-sub": "Codex b", api: "Codex API", "b-api": "Codex b API"};
+const SEATS_URL = "/api/fleet/seats";
 
 let latestPrsReading = null;
 
@@ -127,6 +73,12 @@ function account(task) {
 
 function modelOf(task) {
   return task.observed_model || task.model || null;
+}
+
+function agentModel(task) {
+  const model = modelOf(task);
+  if (task.agent && model && task.agent !== model) return `${task.agent} / ${model}`;
+  return model || task.agent || null;
 }
 
 function prIndex(prs) {
@@ -170,12 +122,12 @@ function doing(task) {
 function renderWorkers(active, prs = currentPrs()) {
   const tasks = Array.isArray(active.tasks) ? active.tasks : [];
   const index = prIndex(prs);
-  return table(["Task", "Model", "Account", "Running", "Doing", "PR"], tasks.map(task => [
+  return table(["Task", "Agent / model", "Account", "State", "Elapsed", "PR / CI / queue"], tasks.map(task => [
     text(task.task_id),
-    text(modelOf(task) || task.agent),
+    text(agentModel(task)),
     text(account(task)),
-    text(span(task.age_s), task.age_s > 3 * 3600 ? "num bad" : task.age_s > 2 * 3600 ? "num warn" : "num"),
     text(doing(task)),
+    text(span(task.age_s), task.age_s > 3 * 3600 ? "num bad" : task.age_s > 2 * 3600 ? "num warn" : "num"),
     taskPrCell(task, index),
   ]));
 }
@@ -200,54 +152,6 @@ function renderRecent(list) {
     text(span(task.duration_s), "num"),
     text(task.delivery_pr || null, task.delivery_pr ? "" : "muted"),
   ])) + attentionHtml;
-}
-
-function renderComms(metrics) {
-  if (metrics.db_error || metrics.db_missing) return unknown("Fleet Comms is unavailable");
-  const deliveries = metrics.deliveries || {}, jobs = metrics.jobs || {};
-  const reachable = metrics.store?.reachable;
-  const windows = metrics.failure_windows || {}, lifetime = metrics.failure_lifetime || {};
-  const rows = [
-    [text("Store"), text(reachable ? `${metrics.source || "plane"} reachable` : "UNREACHABLE", reachable ? "ok" : "bad"), text(""), text(""), text("")],
-    [text("Deliveries queued"), text(deliveries.queued, "num"), text(""), text(""), text("")],
-    [text("Jobs queued"), text(jobs.queued, "num"), text(""), text(""), text("")],
-  ];
-  for (const [key, label] of [["dead_letters", "Dead letters"], ["failed_deliveries", "Deliveries failed"], ["failed_jobs", "Jobs failed"]]) {
-    const day = windows["24h"]?.[key], week = windows["7d"]?.[key];
-    rows.push([text(label), text(""), text(day?.total ?? "?", day?.total ? "num warn" : "num"), text(week?.total ?? "?", week?.total ? "num warn" : "num"), text(lifetime[key] ?? "?", "num")]);
-    const recipients = new Set([...Object.keys(day?.by_recipient || {}), ...Object.keys(week?.by_recipient || {})]);
-    for (const recipient of [...recipients].sort()) rows.push([text(`  ${recipient}`), text(""), text(day?.by_recipient?.[recipient] ?? 0, "num"), text(week?.by_recipient?.[recipient] ?? 0, "num"), text("")]);
-  }
-  return table(["Measure", "Current", "24 h", "7 d", "Lifetime"], rows);
-}
-
-// Filters and paging live in the page URL. Only these keys are sent to the deliveries route.
-function pageQuery() {
-  try {
-    const search = typeof location === "object" && location && typeof location.search === "string" ? location.search : "";
-    return new URLSearchParams(search);
-  } catch {
-    return new URLSearchParams();
-  }
-}
-
-const SEATS_URL = "/api/fleet/seats";
-const DELIVERIES_URL = "/api/fleet/deliveries";
-const LOG_DOWN = new Set(["db_unavailable", "db_missing", "plane_root_unavailable", "authority_unsupported_component"]);
-
-function deliveryQuery() {
-  const query = new URLSearchParams();
-  const page = pageQuery();
-  for (const key of ["seat", "state", "since", "limit", "offset"]) {
-    const value = page.get(key);
-    if (value) query.set(key, value);
-  }
-  return query;
-}
-
-function deliveryUrl() {
-  const text = deliveryQuery().toString();
-  return text ? `${DELIVERIES_URL}?${text}` : DELIVERIES_URL;
 }
 
 function rosterReady(payload) {
@@ -279,7 +183,6 @@ function rememberStatus(panelId, sentence) {
 }
 
 function notice(sentence, panelId, label) {
-  // The runner announces a successful response as loaded, and it will not say loaded again.
   failedNotice.add(panelId);
   rememberStatus(panelId, sentence);
   return `<p class="error">${escapeHtml(sentence)}</p>`
@@ -291,69 +194,11 @@ function recoverNotice(panelId, label) {
   rememberStatus(panelId, `${label} loaded.`);
 }
 
-function selectable(id) {
-  const select = typeof document === "object" && document && document.getElementById ? document.getElementById(id) : null;
-  return select && typeof select.add === "function" ? select : null;
-}
-
-let applyingFilters = false;
-
-function setChoice(id, value) {
-  const select = selectable(id);
-  if (!select) return;
-  const next = typeof value === "string" ? value : "";
-  if (next && ![...select.options].some(option => option.value === next)) {
-    const option = document.createElement("option");
-    option.value = next;
-    option.textContent = next;
-    select.append(option);
-  }
-  applyingFilters = true;
-  try { select.value = next; }
-  finally { applyingFilters = false; }
-}
-
-function fillSeatOptions() {
-  const select = selectable("filter-seat");
-  if (!select) return;
-  const current = pageQuery().get("seat") || "";
-  const ids = [];
-  const payload = runner.latest.seats;
-  if (rosterReady(payload)) {
-    for (const row of payload.seats) {
-      if (row && typeof row.seat === "string" && row.seat && !ids.includes(row.seat)) ids.push(row.seat);
-    }
-  }
-  if (current && !ids.includes(current)) ids.push(current);
-  select.replaceChildren();
-  const all = document.createElement("option");
-  all.value = "";
-  all.textContent = "All seats";
-  select.append(all);
-  for (const id of ids) {
-    const option = document.createElement("option");
-    option.value = id;
-    option.textContent = id;
-    select.append(option);
-  }
-  applyingFilters = true;
-  try { select.value = current; }
-  finally { applyingFilters = false; }
-}
-
-function syncAppliedFilters(payload) {
-  const filters = payload && payload.filters;
-  if (!filters || typeof filters !== "object") return;
-  setChoice("filter-state", typeof filters.state === "string" ? filters.state : "");
-  setChoice("filter-since", typeof filters.since === "string" && filters.since ? filters.since : "7d");
-  setChoice("filter-seat", typeof filters.seat === "string" ? filters.seat : "");
-}
-
 // Zero queued has no status tone. A missing count stays "?" and is never shown as 0.
 function queuedCell(row) {
   const queued = row.queued;
   if (typeof queued !== "number" || !Number.isInteger(queued) || queued < 0) return text("?", "num warn");
-  const href = `?seat=${encodeURIComponent(row.seat)}&state=queued#messages`;
+  const href = `/comms?seat=${encodeURIComponent(row.seat)}&state=queued`;
   const tone = queued > 0 ? ' class="warn"' : "";
   return td(`<a${tone} href="${escapeHtml(href)}">${queued}</a>`, "num");
 }
@@ -376,7 +221,7 @@ function oldestCell(row) {
   return text(when || null);
 }
 
-function stateCell(row) {
+function leaseCell(row) {
   if (typeof row.lease_state !== "string" || !row.lease_state) return text("?", "warn");
   if (row.lease_reason != null && typeof row.lease_reason !== "string") return text("?", "warn");
   const reason = typeof row.lease_reason === "string" && row.lease_reason ? row.lease_reason : "";
@@ -384,149 +229,36 @@ function stateCell(row) {
   return text(reason ? `${row.lease_state} · ${reason}` : row.lease_state, tone);
 }
 
-const SEAT_HEADERS = ["Seat", "Kind", "State", "Queued", "Oldest queued", "Last activity"];
+const SEAT_HEADERS = ["Seat", "Kind", "Lease", "Queued", "Oldest queued", "Last activity"];
 
 function renderSeats(payload) {
   if (!rosterReady(payload) || !payload.seats.every(row => row && typeof row.seat === "string" && row.seat)) {
-    return notice("Seat list unavailable", "seats", "Seats");
+    return notice("Seat list unavailable", "seats", "Driver seats");
   }
-  recoverNotice("seats", "Seats");
+  recoverNotice("seats", "Driver seats");
   return table(SEAT_HEADERS, payload.seats.map(row => [
     text(row.seat),
     tokenCell(row.kind),
-    stateCell(row),
+    leaseCell(row),
     queuedCell(row),
     oldestCell(row),
     activityCell(row),
   ]), true);
 }
 
-function emptyDeliveries(since) {
-  const sentence = since === "24h"
-    ? "No deliveries for this filter in the last 24 h"
-    : since === "all"
-      ? "No deliveries for this filter in the available history"
-      : "No deliveries for this filter in the last 7 d";
-  return `<p>${escapeHtml(sentence)} <button type="button" class="retry" data-clear-filters>Clear filters</button></p>`;
-}
-
-function asText(value) {
-  if (value === null || value === undefined) return null;
-  return typeof value === "string" ? value : undefined;
-}
-
-function asNumber(value) {
-  if (value === null || value === undefined) return null;
-  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
-}
-
-function pageHref(offset) {
-  const params = deliveryQuery();
-  if (offset) params.set("offset", String(offset));
-  else params.delete("offset");
-  const text = params.toString();
-  return `${text ? `?${text}` : "?"}#messages`;
-}
-
-let revealPending = typeof location === "object" && location?.hash === "#messages" ? "load" : null;
-
-function prepareMessagesAnchor() {
-  const target = document.getElementById("messages");
-  const header = document.querySelector("header");
-  target.style.scrollMarginTop = `${header.getBoundingClientRect().height}px`;
-  return target;
-}
-
-function revealMessages() {
-  if (!revealPending) return;
-  if (revealPending === "load" && document.querySelector("#seats-content p.error")) return;
-  revealPending = null;
-  if (location.hash !== "#messages") return;
-  prepareMessagesAnchor().scrollIntoView();
-}
-
-function renderMessages(payload) {
-  syncAppliedFilters(payload);
-  if (!payload || typeof payload !== "object" || LOG_DOWN.has(payload.availability)) {
-    return notice("Message log unavailable", "messages", "Messages");
-  }
-  if (payload.driver_roster !== "available" || payload.external_roster !== "available") {
-    return notice("Seat list unavailable", "messages", "Messages");
-  }
-  if (payload.availability !== "available") return notice("Message log unavailable", "messages", "Messages");
-  const rows = payload.deliveries;
-  if (!Array.isArray(rows) || typeof payload.total !== "number" || !Number.isInteger(payload.total) || payload.total < 0) {
-    return notice("Message log unavailable", "messages", "Messages");
-  }
-  if (payload.total === 0) {
-    if (rows.length !== 0) return notice("Message log unavailable", "messages", "Messages");
-    const since = payload.filters && typeof payload.filters.since === "string" ? payload.filters.since : "7d";
-    recoverNotice("messages", "Messages");
-    return emptyDeliveries(since);
-  }
-  const built = [];
-  for (const row of rows) {
-    if (!row || typeof row !== "object" || Array.isArray(row)) return notice("Message log unavailable", "messages", "Messages");
-    const from = asText(row.sender);
-    const to = asText(row.recipient);
-    const kind = asText(row.kind);
-    const state = asText(row.state);
-    const attempts = asNumber(row.attempt_count);
-    const waited = asNumber(row.waited_s);
-    const created = asText(row.created_at);
-    let messageId = null;
-    if (row.message_id !== null && row.message_id !== undefined) {
-      if (typeof row.message_id !== "string") return notice("Message log unavailable", "messages", "Messages");
-      messageId = row.message_id;
-    }
-    if (typeof from !== "string" || typeof to !== "string" || typeof kind !== "string" || typeof state !== "string"
-      || [attempts, waited, created].includes(undefined)) {
-      return notice("Message log unavailable", "messages", "Messages");
-    }
-    const when = created ? relative(created) : "";
-    built.push([
-      text(when || null),
-      text(from === null && to === null ? null : `${from ?? "—"} → ${to ?? "—"}`),
-      text(kind),
-      messageId === null ? text(null) : td(
-        `<button type="button" class="retry" aria-controls="message-reader" data-open-message="${escapeHtml(messageId)}">${escapeHtml(messageId)}</button>`
-      ),
-      text(state),
-      text(attempts === null ? null : String(attempts), attempts !== null && attempts < 0 ? "num warn" : "num"),
-      waited === null ? text(null, "num") : waited < 0 ? text("?", "num warn") : text(span(waited), "num"),
-    ]);
-  }
-  const offset = Number.isInteger(payload.offset) && payload.offset >= 0 ? payload.offset : 0;
-  const end = offset + built.length;
-  const prev = offset > 0 && Number.isInteger(payload.limit) && payload.limit > 0
-    ? pageHref(Math.max(0, offset - payload.limit)) : "";
-  const next = Number.isInteger(payload.next_offset) && payload.next_offset > offset ? pageHref(payload.next_offset) : "";
-  const items = [
-    built.length && end <= payload.total ? `<span>${offset + 1}–${end} of ${payload.total}</span>` : "",
-    prev ? `<a href="${escapeHtml(prev)}">Previous</a>` : "",
-    next ? `<a href="${escapeHtml(next)}">Next</a>` : "",
-  ].filter(Boolean);
-  const pager = items.length ? `<p class="pager">${items.join(" ")}</p>` : "";
-  recoverNotice("messages", "Messages");
-  if (!built.length) return `<p class="muted">No rows on this page.</p>${pager}`;
-  return table(["When", "From to To", "Kind", "Message id", "State", "Attempts", "Waited"], built, true) + pager;
-}
-
 function renderChips(latest) {
   const out = [];
   if (latest.workers) out.push(chip("#fleet", (latest.workers.tasks || []).length, "live workers"));
+  if (latest.recent) {
+    const attention = latest.recent.needs_attention?.total;
+    if (typeof attention === "number" && Number.isInteger(attention) && attention >= 0) {
+      out.push(chip("#recent", attention, "needs attention", attention > 0 ? "warn" : ""));
+    }
+  }
   if (latest.seats) {
     const waiting = waitingSeats(latest.seats);
-    out.push(chip("#seats", waiting === null ? "?" : waiting, "seats waiting", waiting === null || waiting > 0 ? "warn" : ""));
-  }
-  if (latest.comms) {
-    const dead = latest.comms.failure_windows?.["24h"]?.dead_letters?.total;
-    out.push(chip("#comms", dead ?? "?", "dead letters / 24 h", dead ? "warn" : ""));
-  }
-  // A panel retry can update chips before the first full refresh finishes.
-  // Measure the header after the runner inserts the chips.
-  if (revealPending && (latest.seats || revealPending === "navigation") && panelsSettled()) {
-    queueMicrotask(revealMessages);
+    const label = waiting === 1 ? "seat with queued mail" : "seats with queued mail";
+    out.push(chip("/comms?state=queued", waiting === null ? "?" : waiting, label, waiting === null || waiting > 0 ? "warn" : ""));
   }
   return out.join("");
 }
@@ -562,501 +294,13 @@ function expireWorkerPrsIfStale(_panel, _latest, _updateChips, now = Date.now())
   }
 }
 
-function renderTokenUse(payload) {
-  const link = '<a href="/model-stats#token-use">Tokens, last 7 days</a>';
-  if (payload?.status === "pending") return `${link} · Collecting…`;
-  const totals = payload?.token_use?.totals;
-  const compact = new Intl.NumberFormat(undefined, {notation: "compact", maximumFractionDigits: 2});
-  const number = (value) => Number.isFinite(value) ? compact.format(value) : "unknown";
-  const share = payload?.token_use?.avoidable_share;
-  const waste = Number.isFinite(share)
-    ? share.toLocaleString(undefined, {style: "percent", maximumFractionDigits: 2}) : "unknown";
-  return `${link} · ${number(totals?.fresh_input)} fresh / ${number(totals?.cached_input)} cached / ${number(totals?.output)} out · Avoidable waste ${waste}`;
-}
-
 const PANELS = [
   {id: "workers", label: "Agent fleet", urls: ["/api/delegate/active"], render: renderWorkers, onData: () => enrichWorkerPrs(), onTick: expireWorkerPrsIfStale, onError: () => { latestPrsReading = null; }},
   {id: "recent", label: "Recently finished", urls: ["/api/delegate/recent"], render: renderRecent},
-  {id: "comms", label: "Fleet Comms", urls: ["/api/comms/v1/metrics"], render: renderComms},
-  {id: "seats", label: "Seats", urls: [SEATS_URL], render: renderSeats, onData: fillSeatOptions},
-  {id: "messages", label: "Messages", urls: [deliveryUrl()], render: renderMessages},
-  {id: "token-use", label: "Token use", urls: ["/api/fleet/model-stats?window=7d&view=tokens"],
-    render: renderTokenUse, retry: (payload) => payload?.status === "pending"},
+  {id: "seats", label: "Driver seats", urls: [SEATS_URL], render: renderSeats},
 ];
 
 const runner = createPanelRunner({panels: PANELS, renderChips});
-
-function panelsSettled() {
-  return PANELS.every(panel => panel.ok !== undefined);
-}
-
-function prepareSamePageNavigation() {
-  // An early click still needs the offset after the initial chips render.
-  revealPending = panelsSettled() ? null : "navigation";
-  prepareMessagesAnchor();
-}
-
-function currentPath() {
-  return typeof location === "object" && location && typeof location.pathname === "string" && location.pathname
-    ? location.pathname : "/fleet";
-}
-
-function assignPage(search) {
-  if (typeof location !== "object" || !location || typeof location.assign !== "function") return;
-  if (search === location.search) prepareSamePageNavigation();
-  location.assign(`${currentPath()}${search}#messages`);
-}
-
-function filtersFromForm() {
-  const form = document.getElementById("message-filters");
-  const params = new URLSearchParams();
-  if (!form || typeof FormData !== "function") return params;
-  const data = new FormData(form);
-  for (const key of ["seat", "state", "since"]) {
-    const value = String(data.get(key) || "");
-    if (value) params.set(key, value);
-  }
-  const limit = pageQuery().get("limit");
-  if (limit) params.set("limit", limit);
-  return params;
-}
-
-function bindMessageFilters() {
-  if (typeof document !== "object" || !document || typeof document.addEventListener !== "function") return;
-  if (document._fleetFiltersBound) return;
-  document._fleetFiltersBound = true;
-  document.addEventListener("click", event => {
-    const target = event.target;
-    if (typeof target?.closest !== "function") return;
-    const message = target.closest("button[data-open-message]");
-    if (message?.dataset.openMessage) {
-      const id = message.dataset.openMessage;
-      const reader = document.getElementById("message-reader");
-      reader.hidden = false;
-      loadMessageBody(id);
-      loadMessageThread(id);
-      reader.focus();
-      return;
-    }
-    if (target.closest("[data-clear-filters]")) {
-      event.preventDefault();
-      assignPage("");
-      return;
-    }
-    if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
-    const link = target.closest('a[href$="#messages"]');
-    if (link && link.origin === location.origin && link.pathname === location.pathname && link.search === location.search) {
-      prepareSamePageNavigation();
-    }
-  });
-  const form = document.getElementById("message-filters");
-  if (!form || !form.dataset || typeof form.addEventListener !== "function" || form.dataset.bound) return;
-  form.dataset.bound = "1";
-  fillSeatOptions();
-  const params = pageQuery();
-  setChoice("filter-state", params.get("state") || "");
-  setChoice("filter-since", params.get("since") || "7d");
-  const apply = () => {
-    if (applyingFilters) return;
-    const text = filtersFromForm().toString();
-    assignPage(text ? `?${text}` : "");
-  };
-  form.addEventListener("change", apply);
-  form.addEventListener("submit", event => {
-    event.preventDefault();
-    apply();
-  });
-}
-
-const DISCUSSIONS_LIST_URL = "/api/fleet/acp/conversations";
-const ACP_TRANSCRIPT_PREFIX = "/api/runtime/acp/conversations";
-const DISCUSSION_STATE_TONE = {
-  ok: "ok",
-  body_expired: "warn",
-  withheld: "warn",
-  oversized_or_partial: "warn",
-  missing_or_corrupt: "bad",
-  backend_unavailable: "bad",
-};
-const DISCUSSION_STATE_LABEL = {
-  ok: "ok",
-  body_expired: "Body expired",
-  withheld: "Withheld",
-  oversized_or_partial: "Oversized or partial",
-  missing_or_corrupt: "Missing or corrupt",
-  backend_unavailable: "Backend unavailable",
-};
-
-let discussionsListSeq = 0;
-let transcriptRequestSeq = 0;
-let selectedConversationId = null;
-let activeTranscriptController = null;
-
-function discussionEl(tag, className = "", textValue = null) {
-  const node = document.createElement(tag);
-  if (className) node.className = className;
-  if (textValue !== null && textValue !== undefined) node.textContent = String(textValue);
-  return node;
-}
-
-function discussionStatus(message) {
-  const status = typeof document === "object" && document && typeof document.getElementById === "function"
-    ? document.getElementById("discussions-status") : null;
-  if (status) status.textContent = message;
-}
-
-function setNodeChildren(container, nodes) {
-  if (!container) return;
-  if (typeof container.replaceChildren === "function") {
-    container.replaceChildren(...nodes);
-    return;
-  }
-  while (container.firstChild) container.removeChild(container.firstChild);
-  for (const node of nodes) container.appendChild(node);
-}
-
-const MESSAGE_URL = "/api/fleet/messages";
-let messageBodyRequest = 0;
-let messageThreadRequest = 0;
-
-async function loadMessageBody(id) {
-  const seq = ++messageBodyRequest;
-  const box = document.getElementById("message-body");
-  const heading = discussionEl("h3", "", `Message ${id}`);
-  setNodeChildren(box, [heading, discussionEl("p", "muted", "Loading message…")]);
-  rememberStatus("messages", "Loading message…");
-  let content;
-  let status = "Message could not load.";
-  try {
-    const response = await fetch(`${MESSAGE_URL}/${encodeURIComponent(id)}/body`, {cache: "no-store"});
-    const payload = await response.json();
-    if (response.ok && payload.state === "ok" && payload.message_id === id && typeof payload.body === "string") {
-      content = discussionEl("pre", "", payload.body || "Empty message");
-      content.style.whiteSpace = "pre-wrap";
-      content.style.overflowWrap = "anywhere";
-      status = "Message loaded.";
-    } else {
-      const message = {
-        expired: "Body expired.",
-        oversized: "Message exceeds the size limit.",
-        not_found: "Message unavailable.",
-        withheld: "Message withheld.",
-        missing_or_corrupt: "Message body missing or corrupt.",
-      };
-      if (Object.hasOwn(message, payload?.state)) status = message[payload.state];
-      content = discussionEl("p", "error", status);
-    }
-  } catch {
-    content = discussionEl("p", "error", status);
-  }
-  if (seq !== messageBodyRequest) return;
-  setNodeChildren(box, [heading, content]);
-  rememberStatus("messages", status);
-}
-
-async function loadMessageThread(id, offset = 0) {
-  const seq = ++messageThreadRequest;
-  const box = document.getElementById("message-thread");
-  setNodeChildren(box, [discussionEl("p", "muted", "Loading thread…")]);
-  try {
-    const response = await fetch(
-      `${MESSAGE_URL}/${encodeURIComponent(id)}/thread?offset=${offset}`, {cache: "no-store"}
-    );
-    const payload = await response.json();
-    if (seq !== messageThreadRequest) return;
-    if (!response.ok || !Array.isArray(payload.messages)) throw new Error("Thread unavailable");
-    const list = discussionEl("ul");
-    for (const row of payload.messages) {
-      const item = discussionEl("li");
-      const open = discussionEl("button", "retry", row.message_id);
-      open.type = "button";
-      open.addEventListener("click", () => loadMessageBody(row.message_id));
-      item.appendChild(open);
-      item.appendChild(discussionEl("span", "muted", ` ${row.kind} · ${utc(row.created_at) || "Unknown time"}`));
-      list.appendChild(item);
-    }
-    const nodes = [list];
-    for (const [label, position] of [
-      ["Previous", offset > 0 ? Math.max(0, offset - payload.limit) : null],
-      ["Next", payload.next_offset],
-    ]) {
-      if (!Number.isSafeInteger(position)) continue;
-      const button = discussionEl("button", "retry", label);
-      button.type = "button";
-      button.addEventListener("click", () => loadMessageThread(id, position));
-      nodes.push(button);
-    }
-    setNodeChildren(box, nodes);
-  } catch {
-    if (seq === messageThreadRequest) setNodeChildren(box, [discussionEl("p", "error", "Thread could not load.")]);
-  }
-}
-
-function discussionTranscriptUrl(conversationId) {
-  return `${ACP_TRANSCRIPT_PREFIX}/${encodeURIComponent(conversationId)}/transcript`;
-}
-
-function renderDiscussionsListDom(payload) {
-  const container = document.getElementById("discussions-list");
-  if (!container) return;
-  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
-    setNodeChildren(container, [discussionEl("p", "error", "Discussions list unavailable.")]);
-    return;
-  }
-  if (payload.availability !== "available" && payload.availability !== "empty") {
-    setNodeChildren(container, [discussionEl("p", "error", "Discussions list unavailable.")]);
-    return;
-  }
-  const rows = Array.isArray(payload.conversations) ? payload.conversations : [];
-  if (!rows.length) {
-    setNodeChildren(container, [discussionEl("p", "muted", "No ACP discussions recorded.")]);
-    return;
-  }
-  const tbl = discussionEl("table");
-  const thead = discussionEl("thead");
-  const headRow = discussionEl("tr");
-  for (const label of ["Discussion", "Participants", "State", "Rounds", "Updated"]) {
-    headRow.appendChild(discussionEl("th", "", label));
-  }
-  thead.appendChild(headRow);
-  tbl.appendChild(thead);
-
-  const tbody = discussionEl("tbody");
-  for (const row of rows) {
-    if (!row || typeof row !== "object" || typeof row.conversation_id !== "string" || !row.conversation_id) continue;
-    const tr = discussionEl("tr");
-
-    const idTd = discussionEl("td");
-    const openBtn = discussionEl("button", "retry", row.conversation_id);
-    openBtn.type = "button";
-    openBtn.dataset.discussionId = row.conversation_id;
-    openBtn.setAttribute("aria-label", `Open transcript ${row.conversation_id}`);
-    idTd.appendChild(openBtn);
-    tr.appendChild(idTd);
-
-    const participants = Array.isArray(row.participants)
-      ? row.participants.filter(item => typeof item === "string" && item).join(", ") : "";
-    tr.appendChild(discussionEl("td", "", participants || "—"));
-
-    const stateText = typeof row.current_state === "string" && row.current_state
-      ? row.current_state : (typeof row.classification === "string" ? row.classification : "unknown");
-    tr.appendChild(discussionEl("td", "", stateText));
-
-    const completed = typeof row.rounds_completed === "number" ? row.rounds_completed : "?";
-    const requested = typeof row.rounds_requested === "number" ? row.rounds_requested : "?";
-    tr.appendChild(discussionEl("td", "num", `${completed}/${requested}`));
-
-    const updated = typeof row.updated_at === "string" && row.updated_at ? utc(row.updated_at) : "—";
-    tr.appendChild(discussionEl("td", "num", updated));
-
-    tbody.appendChild(tr);
-  }
-  tbl.appendChild(tbody);
-  setNodeChildren(container, [tbl]);
-}
-
-function formatStateSummary(state, label, reason) {
-  const base = DISCUSSION_STATE_LABEL[state] || (typeof label === "string" && label ? label : String(state || "unknown"));
-  if (typeof reason === "string" && reason && reason !== state) {
-    return `${base} (${reason.replaceAll("_", " ")})`;
-  }
-  return base;
-}
-
-function renderTranscriptDom(conversationId, payload, httpStatus = 200) {
-  const container = document.getElementById("discussions-transcript");
-  if (!container) return;
-  const nodes = [];
-
-  const heading = discussionEl("h3", "", `Transcript: ${conversationId}`);
-  nodes.push(heading);
-
-  if (httpStatus === 403) {
-    const reason = typeof payload?.reason === "string" ? payload.reason : "forbidden";
-    nodes.push(discussionEl("p", "error", `Transcript access refused (${reason.replaceAll("_", " ")}).`));
-    setNodeChildren(container, nodes);
-    return;
-  }
-  if (httpStatus === 404) {
-    nodes.push(discussionEl("p", "muted", "Discussion not found."));
-    setNodeChildren(container, nodes);
-    return;
-  }
-  if (httpStatus === 503 || payload?.state === "backend_unavailable") {
-    const reason = typeof payload?.reason === "string" ? payload.reason : "store_unavailable";
-    nodes.push(discussionEl("p", "error", formatStateSummary("backend_unavailable", payload?.label, reason)));
-    setNodeChildren(container, nodes);
-    return;
-  }
-  if (!payload || typeof payload !== "object" || !Array.isArray(payload.messages)) {
-    nodes.push(discussionEl("p", "error", "Transcript response could not be read."));
-    setNodeChildren(container, nodes);
-    return;
-  }
-
-  const topState = typeof payload.state === "string" ? payload.state : "unknown";
-  const summaryTone = DISCUSSION_STATE_TONE[topState] || "muted";
-  const summaryBar = discussionEl("div", "journal-meta");
-  summaryBar.appendChild(
-    discussionEl("span", `journal-tag ${summaryTone}`, formatStateSummary(topState, payload.label, payload.reason))
-  );
-  if (payload.truncated === true) {
-    summaryBar.appendChild(discussionEl("span", "journal-tag warn", "Truncated at row limit"));
-  }
-  nodes.push(summaryBar);
-
-  if (!payload.messages.length) {
-    nodes.push(discussionEl("p", "muted", "No transcript turns available."));
-    setNodeChildren(container, nodes);
-    return;
-  }
-
-  const list = discussionEl("div", "journal-list");
-  for (const turn of payload.messages) {
-    if (!turn || typeof turn !== "object") continue;
-    const article = discussionEl("article", "journal-entry");
-    const meta = discussionEl("div", "journal-meta");
-
-    const ordinal = typeof turn.ordinal === "number" ? `#${turn.ordinal}` : "#?";
-    meta.appendChild(discussionEl("span", "journal-tag muted", ordinal));
-
-    const sender = typeof turn.sender === "string" && turn.sender ? turn.sender : "unknown";
-    const recipient = typeof turn.recipient === "string" && turn.recipient ? turn.recipient : "unknown";
-    meta.appendChild(discussionEl("span", "journal-author", `${sender} → ${recipient}`));
-
-    if (typeof turn.kind === "string" && turn.kind) {
-      meta.appendChild(discussionEl("span", "journal-tag", turn.kind));
-    }
-    if (typeof turn.round === "number" && Number.isInteger(turn.round)) {
-      meta.appendChild(discussionEl("span", "journal-tag muted", `round ${turn.round}`));
-    }
-    if (typeof turn.created_at === "string" && turn.created_at) {
-      meta.appendChild(discussionEl("time", "journal-time", utc(turn.created_at)));
-    }
-
-    const turnState = typeof turn.state === "string" ? turn.state : "unknown";
-    const turnTone = DISCUSSION_STATE_TONE[turnState] || "muted";
-    meta.appendChild(
-      discussionEl("span", `journal-tag ${turnTone}`, formatStateSummary(turnState, turn.label, turn.reason))
-    );
-    article.appendChild(meta);
-
-    if (turnState === "ok" && typeof turn.body === "string") {
-      article.appendChild(discussionEl("p", "journal-body", turn.body));
-    } else {
-      article.appendChild(
-        discussionEl("p", "muted", `${formatStateSummary(turnState, turn.label, turn.reason)} — body omitted.`)
-      );
-    }
-    list.appendChild(article);
-  }
-  nodes.push(list);
-  setNodeChildren(container, nodes);
-}
-
-async function loadDiscussionsList() {
-  const seq = ++discussionsListSeq;
-  discussionStatus("Loading discussions…");
-  const container = document.getElementById("discussions-list");
-  try {
-    const response = await fetch(DISCUSSIONS_LIST_URL, {
-      cache: "no-store",
-      headers: {Accept: "application/json"},
-    });
-    if (seq !== discussionsListSeq) return;
-    if (!response.ok) {
-      discussionStatus(`Discussions unavailable (HTTP ${response.status}).`);
-      setNodeChildren(container, [discussionEl("p", "error", `Discussions unavailable (HTTP ${response.status}).`)]);
-      return;
-    }
-    let payload;
-    try { payload = JSON.parse(await response.text()); } catch { payload = null; }
-    if (seq !== discussionsListSeq) return;
-    renderDiscussionsListDom(payload);
-    const count = Array.isArray(payload?.conversations) ? payload.conversations.length : 0;
-    discussionStatus(`Loaded ${count} discussion${count === 1 ? "" : "s"}.`);
-  } catch {
-    if (seq !== discussionsListSeq) return;
-    discussionStatus("Discussions could not load.");
-    setNodeChildren(container, [discussionEl("p", "error", "Discussions could not load.")]);
-  }
-}
-
-async function openDiscussion(conversationId) {
-  if (typeof conversationId !== "string" || !conversationId) return;
-  selectedConversationId = conversationId;
-  const seq = ++transcriptRequestSeq;
-  if (activeTranscriptController && typeof activeTranscriptController.abort === "function") {
-    activeTranscriptController.abort();
-  }
-  const controller = typeof AbortController === "function" ? new AbortController() : null;
-  activeTranscriptController = controller;
-
-  const container = document.getElementById("discussions-transcript");
-  setNodeChildren(container, [
-    discussionEl("h3", "", `Transcript: ${conversationId}`),
-    discussionEl("p", "muted", "Loading transcript…"),
-  ]);
-  discussionStatus(`Loading transcript ${conversationId}…`);
-
-  try {
-    const options = {cache: "no-store", headers: {Accept: "application/json"}};
-    if (controller) options.signal = controller.signal;
-    const response = await fetch(discussionTranscriptUrl(conversationId), options);
-    if (seq !== transcriptRequestSeq || conversationId !== selectedConversationId) return;
-    let payload = null;
-    try { payload = JSON.parse(await response.text()); } catch { payload = null; }
-    if (seq !== transcriptRequestSeq || conversationId !== selectedConversationId) return;
-    renderTranscriptDom(conversationId, payload, response.status);
-    discussionStatus(`Transcript ${conversationId} loaded.`);
-  } catch (error) {
-    if (error && error.name === "AbortError") return;
-    if (seq !== transcriptRequestSeq || conversationId !== selectedConversationId) return;
-    setNodeChildren(container, [
-      discussionEl("h3", "", `Transcript: ${conversationId}`),
-      discussionEl("p", "error", "Transcript could not load."),
-    ]);
-    discussionStatus(`Transcript ${conversationId} could not load.`);
-  } finally {
-    if (activeTranscriptController === controller) activeTranscriptController = null;
-  }
-}
-
-function bindDiscussionsPanel() {
-  if (typeof document !== "object" || !document || typeof document.getElementById !== "function"
-    || typeof document.createElement !== "function") return;
-  const disclosure = document.getElementById("discussions-disclosure");
-  if (!disclosure || !disclosure.dataset || typeof disclosure.addEventListener !== "function"
-    || disclosure.dataset.bound) return;
-  disclosure.dataset.bound = "1";
-  let loadedOnce = false;
-  disclosure.addEventListener("toggle", () => {
-    if (disclosure.open && !loadedOnce) {
-      loadedOnce = true;
-      loadDiscussionsList();
-    }
-  });
-  const refreshBtn = document.getElementById("discussions-refresh");
-  if (refreshBtn && typeof refreshBtn.addEventListener === "function") {
-    refreshBtn.addEventListener("click", () => {
-      loadedOnce = true;
-      loadDiscussionsList();
-    });
-  }
-  const listBox = document.getElementById("discussions-list");
-  if (listBox && typeof listBox.addEventListener === "function") {
-    listBox.addEventListener("click", event => {
-      const target = event.target;
-      const button = typeof target?.closest === "function" ? target.closest("button[data-discussion-id]") : null;
-      if (button && button.dataset && button.dataset.discussionId) {
-        openDiscussion(button.dataset.discussionId);
-      }
-    });
-  }
-}
-
-bindMessageFilters();
-bindDiscussionsPanel();
 runner.start();
 </script>
 </body>
